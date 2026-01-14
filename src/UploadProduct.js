@@ -9,15 +9,19 @@ export default function UploadProduct() {
   const [file, setFile] = useState(null);
   const [loading, setLoading] = useState(false);
 
+  const userId = "owner_joshua"; // placeholder for now
+
   const upload = async () => {
+    if (!file || !title || !price) return alert("Fill all fields!");
+
     setLoading(true);
 
     const form = new FormData();
     form.append("file", file);
-    form.append("upload_preset", "cxgzdaoh");
+    form.append("upload_preset", process.env.REACT_APP_CLOUDINARY_UPLOAD_PRESET);
 
     const res = await axios.post(
-      "https://api.cloudinary.com/v1_1/dq1znbmrk/auto/upload",
+      `https://api.cloudinary.com/v1_1/${process.env.REACT_APP_CLOUDINARY_CLOUD_NAME}/auto/upload`,
       form
     );
 
@@ -25,20 +29,25 @@ export default function UploadProduct() {
 
     await addDoc(collection(db, "products"), {
       title,
-      price,
+      price: Number(price),
       media: url,
+      ownerId: userId,
+      status: "active",
       created: Date.now()
     });
 
     setLoading(false);
+    setTitle("");
+    setPrice("");
+    setFile(null);
     alert("Product uploaded!");
   };
 
   return (
-    <div>
+    <div style={{ marginBottom: "30px" }}>
       <h2>Upload Product</h2>
-      <input placeholder="Title" onChange={e => setTitle(e.target.value)} />
-      <input placeholder="Price" onChange={e => setPrice(e.target.value)} />
+      <input placeholder="Title" value={title} onChange={e => setTitle(e.target.value)} />
+      <input placeholder="Price" type="number" value={price} onChange={e => setPrice(e.target.value)} />
       <input type="file" onChange={e => setFile(e.target.files[0])} />
       <button onClick={upload} disabled={loading}>
         {loading ? "Uploading..." : "Upload"}
