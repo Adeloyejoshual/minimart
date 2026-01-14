@@ -1,16 +1,18 @@
 import { useState } from "react";
 import { signInWithEmailAndPassword } from "firebase/auth";
 import { auth } from "../firebase";
+import { useNavigate } from "react-router-dom";
 
 export default function Login() {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
+  const navigate = useNavigate();
 
   const login = async () => {
     try {
       await signInWithEmailAndPassword(auth, email, password);
-      alert("Logged in");
-    } catch (err) {
+      navigate("/"); // go to product feed
+    } catch {
       alert("Invalid login");
     }
   };
