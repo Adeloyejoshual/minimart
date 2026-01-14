@@ -9,11 +9,9 @@ export default function Chat({ chatId, userId, receiverId }) {
   useEffect(() => {
     const messagesRef = collection(db, "chats", chatId, "messages");
     const q = query(messagesRef, orderBy("timestamp", "asc"));
-
     const unsubscribe = onSnapshot(q, snapshot => {
       setMessages(snapshot.docs.map(doc => doc.data()));
     });
-
     return () => unsubscribe();
   }, [chatId]);
 
@@ -23,7 +21,7 @@ export default function Chat({ chatId, userId, receiverId }) {
     await addDoc(messagesRef, {
       senderId: userId,
       receiverId: receiverId,
-      text: text,
+      text,
       timestamp: Date.now()
     });
     setText("");
@@ -31,7 +29,7 @@ export default function Chat({ chatId, userId, receiverId }) {
 
   return (
     <div style={{ border: "1px solid #ccc", padding: "10px", width: "400px" }}>
-      <div style={{ maxHeight: "300px", overflowY: "scroll" }}>
+      <div style={{ maxHeight: "300px", overflowY: "scroll", marginBottom: "10px" }}>
         {messages.map((msg, i) => (
           <div key={i} style={{ textAlign: msg.senderId === userId ? "right" : "left" }}>
             <p>{msg.text}</p>
