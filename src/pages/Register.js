@@ -1,59 +1,50 @@
-// src/pages/Register.js
-import React, { useState } from "react";
-import { useNavigate } from "react-router-dom";
+import { useState } from "react";
+import { auth } from "../firebase";
 import { createUserWithEmailAndPassword } from "firebase/auth";
-import { auth, db } from "../firebase";
-import { doc, setDoc } from "firebase/firestore";
+import { useNavigate, Link } from "react-router-dom";
 
-const Register = () => {
+export default function Register() {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const navigate = useNavigate();
 
-  const isValidEmail = (email) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email);
-
   const handleRegister = async (e) => {
     e.preventDefault();
-    const trimmedEmail = email.trim();
-    if (!isValidEmail(trimmedEmail)) return alert("Enter a valid email");
-    if (password.length < 6) return alert("Password must be at least 6 characters");
-
     try {
-      const userCred = await createUserWithEmailAndPassword(auth, trimmedEmail, password);
-
-      // Add user document to Firestore
-      await setDoc(doc(db, "users", userCred.user.uid), {
-        email: trimmedEmail,
-        blocked: false,
-        createdAt: new Date(),
-      });
-
-      navigate("/"); // redirect to Home after registration
+      await createUserWithEmailAndPassword(auth, email, password);
+      navigate("/minimart"); // go to MiniMart after registration
     } catch (err) {
-      alert(err.message);
+      alert("Registration failed: " + err.message);
     }
   };
 
   return (
-    <form onSubmit={handleRegister} style={{ display: "flex", flexDirection: "column", gap: "10px" }}>
+    <div style={{ maxWidth: 400, margin: "50px auto", textAlign: "center" }}>
       <h2>Register</h2>
-      <input
-        type="email"
-        placeholder="Email"
-        value={email}
-        onChange={(e) => setEmail(e.target.value)}
-        required
-      />
-      <input
-        type="password"
-        placeholder="Password (min 6 chars)"
-        value={password}
-        onChange={(e) => setPassword(e.target.value)}
-        required
-      />
-      <button type="submit">Register</button>
-    </form>
-  );
-};
+      <form onSubmit={handleRegister} style={{ display: "flex", flexDirection: "column", gap: 15 }}>
+        <input
+          type="email"
+          placeholder="Email"
+          value={email}
+          onChange={(e) => setEmail(e.target.value)}
+          required
+        />
+        <input
+          type="password"
+          placeholder="••••••"
+          value={password}
+          onChange={(e) => setPassword(e.target.value)}
+          required
+        />
+        <button type="submit">Create Account</button>
+      </form>
 
-export default Register;
+      <p style={{ marginTop: 15 }}>
+        Already have an account?{" "}
+        <Link to="/login" style={{ color: "blue", textDecoration: "underline" }}>
+          Login
+        </Link>
+      </p>
+    </div>
+  );
+}
