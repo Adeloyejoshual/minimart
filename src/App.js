@@ -1,7 +1,9 @@
+// src/App.jsx
 import { BrowserRouter as Router, Routes, Route, Navigate } from "react-router-dom";
 import { useAuthState } from "react-firebase-hooks/auth";
 import { auth } from "./firebase";
 
+// Pages
 import Login from "./pages/Login";
 import Register from "./pages/Register";
 import MiniMart from "./pages/MiniMart";
@@ -10,6 +12,7 @@ import Profile from "./pages/Profile";
 import ApplySeller from "./pages/ApplySeller";
 import AdminPanel from "./pages/AdminPanel";
 import ProductDetail from "./pages/ProductDetail";
+import AddProduct from "./pages/AddProduct";
 
 function App() {
   const [user, loading] = useAuthState(auth);
@@ -42,8 +45,11 @@ function App() {
             {/* Admin panel */}
             <Route path="/admin" element={<AdminPanel />} />
 
-            {/* Product Detail page */}
+            {/* Product detail */}
             <Route path="/product/:productId" element={<ProductDetail />} />
+
+            {/* Add Product */}
+            <Route path="/add-product" element={<AddProduct />} />
 
             {/* Catch-all */}
             <Route path="*" element={<Navigate to="/minimart" replace />} />
