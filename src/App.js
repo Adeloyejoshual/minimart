@@ -8,6 +8,7 @@ import { auth, db } from "./firebase";
 import Login from "./pages/Login";
 import Register from "./pages/Register";
 import Home from "./pages/Home";
+import AddProduct from "./pages/AddProduct";
 
 const ProtectedRoute = ({ children }) => {
   const [loading, setLoading] = useState(true);
@@ -24,9 +25,8 @@ const ProtectedRoute = ({ children }) => {
         } else {
           setUser(u);
         }
-      } else {
-        setUser(null);
-      }
+      } else setUser(null);
+
       setLoading(false);
     });
 
@@ -34,8 +34,7 @@ const ProtectedRoute = ({ children }) => {
   }, []);
 
   if (loading) return <p>Loading...</p>;
-  if (!user) return <Navigate to="/auth" replace />; // redirect to landing page
-
+  if (!user) return <Navigate to="/auth" replace />;
   return children;
 };
 
@@ -43,7 +42,6 @@ function App() {
   return (
     <Router>
       <Routes>
-        {/* Landing page with Login + Register */}
         <Route path="/auth" element={
           <div style={{ display: "flex", gap: "50px", justifyContent: "center", marginTop: "50px" }}>
             <Login />
@@ -51,14 +49,8 @@ function App() {
           </div>
         } />
 
-        {/* Protected Home / Product Feed */}
-        <Route path="/" element={
-          <ProtectedRoute>
-            <Home />
-          </ProtectedRoute>
-        } />
-
-        {/* Catch-all redirects */}
+        <Route path="/" element={<ProtectedRoute><Home /></ProtectedRoute>} />
+        <Route path="/add-product" element={<ProtectedRoute><AddProduct /></ProtectedRoute>} />
         <Route path="*" element={<Navigate to="/auth" replace />} />
       </Routes>
     </Router>
