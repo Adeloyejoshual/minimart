@@ -1,52 +1,35 @@
 // components/CategoryFilter.jsx
 import React from "react";
 
-const categories = [
-  "Vehicles",
-  "Property",
-  "Mobile Phones & Tablets",
-  "Electronics",
-  "Home, Furniture & Appliances",
-  "Fashion",
-  "Beauty & Personal Care",
-  "Services",
-  "Repair & Construction",
-  "Leisure & Activities",
-  "Babies & Kids",
-  "Food, Agriculture & Farming",
-  "Animals & Pets",
-  "Jobs",
-  "Seeking Work - CVs"
-];
-
-export default function CategoryFilter({ selected, onSelect }) {
+export default function CategoryFilter({ categories, selected, onChange }) {
   return (
-    <div style={{ display: "flex", flexWrap: "wrap", gap: "10px", marginBottom: 20 }}>
-      {categories.map(cat => (
+    <div style={{ display: "flex", gap: "10px", marginBottom: 15, flexWrap: "wrap" }}>
+      {categories.map((cat) => (
         <button
           key={cat}
+          onClick={() => onChange(cat)}
           style={{
-            padding: "8px 15px",
-            borderRadius: 5,
-            border: selected === cat ? "2px solid #0D6EFD" : "1px solid #ccc",
-            background: selected === cat ? "#0D6EFD" : "#fff",
-            color: selected === cat ? "#fff" : "#000",
-            cursor: "pointer"
+            padding: "5px 15px",
+            border: "none",
+            borderRadius: 20,
+            background: selected === cat ? "#0D6EFD" : "#f0f0f0",
+            color: selected === cat ? "#fff" : "#333",
+            cursor: "pointer",
           }}
-          onClick={() => onSelect(cat)}
         >
           {cat}
         </button>
       ))}
       <button
+        onClick={() => onChange("")}
         style={{
-          padding: "8px 15px",
-          borderRadius: 5,
-          border: "1px solid #ccc",
-          background: "#fff",
-          cursor: "pointer"
+          padding: "5px 15px",
+          border: "none",
+          borderRadius: 20,
+          background: selected === "" ? "#0D6EFD" : "#f0f0f0",
+          color: selected === "" ? "#fff" : "#333",
+          cursor: "pointer",
         }}
-        onClick={() => onSelect("")}
       >
         All
       </button>
