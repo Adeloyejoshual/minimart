@@ -1,42 +1,42 @@
-import { useState } from "react";
-import { auth, db } from "../firebase";
-import { addDoc, collection } from "firebase/firestore";
-import { uploadToCloudinary } from "../cloudinary";
+// src/pages/AddProduct.js
+import React, { useState } from "react";
+import { collection, addDoc, serverTimestamp } from "firebase/firestore";
+import { db } from "../firebase";
+import { useNavigate } from "react-router-dom";
 
-export default function AddProduct() {
-  const [title, setTitle] = useState("");
+const AddProduct = () => {
+  const [name, setName] = useState("");
   const [price, setPrice] = useState("");
-  const [image, setImage] = useState(null);
+  const [imageUrl, setImageUrl] = useState("");
+  const navigate = useNavigate();
 
-  const upload = async () => {
+  const handleAdd = async (e) => {
+    e.preventDefault();
+    if (!name || !price || !imageUrl) return alert("All fields are required");
+
     try {
-      const user = auth.currentUser;
-      if (!user) return alert("Login first");
-
-      const imageUrl = await uploadToCloudinary(image);
-
       await addDoc(collection(db, "products"), {
-        title,
-        price,
-        image: imageUrl,
-        ownerId: user.uid,
-        createdAt: new Date(),
-        status: "active"
+        name,
+        price: parseFloat(price),
+        imageUrl,
+        createdAt: serverTimestamp(),
       });
-
-      alert("Product uploaded");
+      alert("Product added successfully!");
+      navigate("/"); // back to Home
     } catch (err) {
-      alert(err.message);
+      alert("Error adding product: " + err.message);
     }
   };
 
   return (
-    <div>
-      <h2>Post Product</h2>
-      <input placeholder="Product title" onChange={e => setTitle(e.target.value)} />
-      <input placeholder="Price" onChange={e => setPrice(e.target.value)} />
-      <input type="file" onChange={e => setImage(e.target.files[0])} />
-      <button onClick={upload}>Upload</button>
-    </div>
+    <form onSubmit={handleAdd} style={{ display: "flex", flexDirection: "column", gap: "10px", padding: "20px" }}>
+      <h2>Add New Product</h2>
+      <input type="text" placeholder="Product Name" value={name} onChange={e => setName(e.target.value)} required />
+      <input type="number" placeholder="Price" value={price} onChange={e => setPrice(e.target.value)} required />
+      <input type="text" placeholder="Image URL" value={imageUrl} onChange={e => setImageUrl(e.target.value)} required />
+      <button type="submit">Add Product</button>
+    </form>
   );
-}
+};
+
+export default AddProduct;
