@@ -1,17 +1,23 @@
 import React, { useState } from "react";
 import { collection, addDoc, serverTimestamp } from "firebase/firestore";
-import { db } from "../firebase";
+import { db, auth } from "../firebase";
 import { uploadToCloudinary } from "../cloudinary";
-import { useNavigate } from "react-router-dom";
+import { useNavigate, useLocation } from "react-router-dom";
 
 const AddProduct = () => {
   const [name, setName] = useState("");
   const [price, setPrice] = useState("");
+  const [description, setDescription] = useState("");
   const [file, setFile] = useState(null);
   const [preview, setPreview] = useState(null);
   const [loading, setLoading] = useState(false);
 
   const navigate = useNavigate();
+  const location = useLocation();
+
+  // Determine marketType from URL query
+  const params = new URLSearchParams(location.search);
+  const marketType = params.get("market") || "marketplace"; // default to marketplace
 
   // Handle file selection
   const handleFileChange = (e) => {
@@ -41,12 +47,15 @@ const AddProduct = () => {
       await addDoc(collection(db, "products"), {
         name,
         price: parseFloat(price),
+        description,
         imageUrl,
+        ownerId: auth.currentUser.uid,
+        marketType, // "minimart" or "marketplace"
         createdAt: serverTimestamp(),
       });
 
-      alert("Product added successfully!");
-      navigate("/"); // back to Home
+      alert(`Product added successfully to ${marketType}!`);
+      navigate(`/${marketType}`); // Redirect back to respective market
     } catch (err) {
       console.error(err);
       alert("Error adding product: " + err.message);
@@ -67,7 +76,7 @@ const AddProduct = () => {
         margin: "0 auto",
       }}
     >
-      <h2>Add New Product</h2>
+      <h2>Add New Product ({marketType})</h2>
 
       <input
         type="text"
@@ -83,6 +92,12 @@ const AddProduct = () => {
         value={price}
         onChange={(e) => setPrice(e.target.value)}
         required
+      />
+
+      <textarea
+        placeholder="Description"
+        value={description}
+        onChange={(e) => setDescription(e.target.value)}
       />
 
       <input
@@ -107,7 +122,7 @@ const AddProduct = () => {
       )}
 
       <button type="submit" disabled={loading}>
-        {loading ? "Uploading..." : "Add Product"}
+        {loading ? "Uploading..." : `Add to ${marketType}`}
       </button>
     </form>
   );
