@@ -7,6 +7,7 @@ export default function ProductDetail() {
   const { productId } = useParams();
   const navigate = useNavigate();
   const [product, setProduct] = useState(null);
+  const currentUser = auth.currentUser;
 
   useEffect(() => {
     const loadProduct = async () => {
@@ -25,15 +26,12 @@ export default function ProductDetail() {
   if (!product) return <p>Loading product...</p>;
 
   const handleChat = () => {
-    const buyerId = auth.currentUser.uid;
-    const sellerId = product.ownerId;
-
-    // Navigate to chat page and show product + seller
+    // Only buyers start chat
+    if (currentUser.uid === product.ownerId) return;
     navigate(
-      `/chat/${sellerId}?product=${productId}&sellerName=${encodeURIComponent(
+      `/chat/${product.ownerId}?product=${productId}&sellerName=${encodeURIComponent(
         product.ownerName
-      )}`,
-      { replace: false } // keep the navigation in history
+      )}&productName=${encodeURIComponent(product.name)}`
     );
   };
 
@@ -50,21 +48,24 @@ export default function ProductDetail() {
       <p>
         Category: <b>{product.category}</b> | Market: <b>{product.marketType}</b>
       </p>
-      <button
-        onClick={handleChat}
-        style={{
-          padding: "10px 20px",
-          marginTop: 10,
-          background: "#0D6EFD",
-          color: "#fff",
-          border: "none",
-          borderRadius: 5,
-          cursor: "pointer",
-          fontWeight: 600,
-        }}
-      >
-        Start Chat
-      </button>
+
+      {/* Show chat button only for buyers */}
+      {currentUser.uid !== product.ownerId && (
+        <button
+          onClick={handleChat}
+          style={{
+            padding: "10px 20px",
+            marginTop: 10,
+            background: "#0D6EFD",
+            color: "#fff",
+            border: "none",
+            borderRadius: 5,
+            cursor: "pointer",
+          }}
+        >
+          Start Chat with {product.ownerName}
+        </button>
+      )}
     </div>
   );
 }
