@@ -1,4 +1,3 @@
-// src/pages/Chat.jsx
 import { useState, useEffect } from "react";
 import { db, auth } from "../firebase";
 import { collection, addDoc, query, orderBy, onSnapshot } from "firebase/firestore";
@@ -10,13 +9,14 @@ export default function Chat() {
 
   const [messages, setMessages] = useState([]);
   const [text, setText] = useState("");
+  const [sellerName, setSellerName] = useState("");
   const userId = auth.currentUser.uid;
 
-  // Optional: get productId from query param
   const params = new URLSearchParams(location.search);
   const productId = params.get("product");
+  const nameFromQuery = params.get("sellerName");
+  if (nameFromQuery) setSellerName(decodeURIComponent(nameFromQuery));
 
-  // Unique chatId for buyer + seller + product
   const chatId = `${userId}_${productId || "general"}_${sellerId}`;
 
   useEffect(() => {
@@ -42,7 +42,8 @@ export default function Chat() {
 
   return (
     <div style={{ maxWidth: 600, margin: "20px auto", padding: 10 }}>
-      <h2>Chat with Seller</h2>
+      <h2>Chat with {sellerName || "Seller"}</h2>
+
       <div
         style={{
           border: "1px solid #ccc",
@@ -72,6 +73,7 @@ export default function Chat() {
           </div>
         ))}
       </div>
+
       <div style={{ display: "flex", gap: 10 }}>
         <input
           value={text}
