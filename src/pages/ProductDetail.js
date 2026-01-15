@@ -27,17 +27,29 @@ export default function ProductDetail() {
   const handleChat = () => {
     const buyerId = auth.currentUser.uid;
     const sellerId = product.ownerId;
-    // Navigate to chat with product + seller info
-    navigate(`/chat/${sellerId}?product=${productId}&sellerName=${encodeURIComponent(product.ownerName)}`);
+
+    // Navigate to chat page and show product + seller
+    navigate(
+      `/chat/${sellerId}?product=${productId}&sellerName=${encodeURIComponent(
+        product.ownerName
+      )}`,
+      { replace: false } // keep the navigation in history
+    );
   };
 
   return (
     <div style={{ maxWidth: "600px", margin: "20px auto" }}>
-      <img src={product.imageUrl} alt={product.name} style={{ width: "100%", borderRadius: 8 }} />
+      <img
+        src={product.imageUrl}
+        alt={product.name}
+        style={{ width: "100%", borderRadius: 8 }}
+      />
       <h2>{product.name}</h2>
       <p style={{ fontWeight: "bold", fontSize: 18 }}>₦{product.price}</p>
       <p>{product.description}</p>
-      <p>Category: <b>{product.category}</b> | Market: <b>{product.marketType}</b></p>
+      <p>
+        Category: <b>{product.category}</b> | Market: <b>{product.marketType}</b>
+      </p>
       <button
         onClick={handleChat}
         style={{
@@ -47,9 +59,11 @@ export default function ProductDetail() {
           color: "#fff",
           border: "none",
           borderRadius: 5,
+          cursor: "pointer",
+          fontWeight: 600,
         }}
       >
-        Chat with {product.ownerName}
+        Start Chat
       </button>
     </div>
   );
