@@ -13,6 +13,7 @@ import ApplySeller from "./pages/ApplySeller";
 import AdminPanel from "./pages/AdminPanel";
 import ProductDetail from "./pages/ProductDetail";
 import AddProduct from "./pages/AddProduct";
+import Chat from "./pages/Chat"; // <-- import Chat page
 
 function App() {
   const [user, loading] = useAuthState(auth);
@@ -50,6 +51,9 @@ function App() {
 
             {/* Add Product */}
             <Route path="/add-product" element={<AddProduct />} />
+
+            {/* Chat route — MUST be before catch-all */}
+            <Route path="/chat/:sellerId" element={<Chat />} />
 
             {/* Catch-all */}
             <Route path="*" element={<Navigate to="/minimart" replace />} />
