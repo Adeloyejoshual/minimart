@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { db, auth } from "../firebase";
 import { collection, addDoc, query, orderBy, onSnapshot } from "firebase/firestore";
 import { useParams, useLocation } from "react-router-dom";
@@ -6,16 +6,15 @@ import { useParams, useLocation } from "react-router-dom";
 export default function Chat() {
   const { sellerId } = useParams();
   const location = useLocation();
+  const messagesEndRef = useRef(null);
 
   const [messages, setMessages] = useState([]);
   const [text, setText] = useState("");
-  const [sellerName, setSellerName] = useState("");
   const userId = auth.currentUser.uid;
 
   const params = new URLSearchParams(location.search);
   const productId = params.get("product");
-  const nameFromQuery = params.get("sellerName");
-  if (nameFromQuery) setSellerName(decodeURIComponent(nameFromQuery));
+  const sellerName = params.get("sellerName") ? decodeURIComponent(params.get("sellerName")) : "Seller";
 
   const chatId = `${userId}_${productId || "general"}_${sellerId}`;
 
@@ -24,12 +23,13 @@ export default function Chat() {
     const q = query(messagesRef, orderBy("timestamp", "asc"));
     const unsub = onSnapshot(q, (snap) => {
       setMessages(snap.docs.map((doc) => doc.data()));
+      messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
     });
     return () => unsub();
   }, [chatId]);
 
   const sendMessage = async () => {
-    if (!text) return;
+    if (!text.trim()) return;
     const messagesRef = collection(db, "chats", chatId, "messages");
     await addDoc(messagesRef, {
       senderId: userId,
@@ -42,13 +42,12 @@ export default function Chat() {
 
   return (
     <div style={{ maxWidth: 600, margin: "20px auto", padding: 10 }}>
-      <h2>Chat with {sellerName || "Seller"}</h2>
-
+      <h2>Chat with {sellerName}</h2>
       <div
         style={{
           border: "1px solid #ccc",
           padding: 10,
-          height: 300,
+          height: 350,
           overflowY: "auto",
           marginBottom: 10,
           borderRadius: 5,
@@ -72,8 +71,8 @@ export default function Chat() {
             </p>
           </div>
         ))}
+        <div ref={messagesEndRef} />
       </div>
-
       <div style={{ display: "flex", gap: 10 }}>
         <input
           value={text}
