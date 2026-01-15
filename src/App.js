@@ -7,25 +7,46 @@ import Register from "./pages/Register";
 import MiniMart from "./pages/MiniMart";
 import Marketplace from "./pages/Marketplace";
 import Profile from "./pages/Profile";
+import ApplySeller from "./pages/ApplySeller";
+import AdminPanel from "./pages/AdminPanel";
+import ProductDetail from "./pages/ProductDetail";
 
 function App() {
-  const [user] = useAuthState(auth);
+  const [user, loading] = useAuthState(auth);
+
+  if (loading) return <p>Loading...</p>; // Wait until Firebase loads auth state
 
   return (
     <Router>
       <Routes>
+        {/* Guest routes */}
         {!user ? (
           <>
             <Route path="/login" element={<Login />} />
             <Route path="/register" element={<Register />} />
-            <Route path="*" element={<Navigate to="/login" />} />
+            <Route path="*" element={<Navigate to="/login" replace />} />
           </>
         ) : (
           <>
-            <Route path="/" element={<Navigate to="/minimart" />} />
+            {/* Redirect root to MiniMart */}
+            <Route path="/" element={<Navigate to="/minimart" replace />} />
+
+            {/* Main pages */}
             <Route path="/minimart" element={<MiniMart />} />
             <Route path="/marketplace" element={<Marketplace />} />
             <Route path="/profile" element={<Profile />} />
+
+            {/* Verified Seller Application */}
+            <Route path="/apply-seller" element={<ApplySeller />} />
+
+            {/* Admin panel */}
+            <Route path="/admin" element={<AdminPanel />} />
+
+            {/* Product Detail page */}
+            <Route path="/product/:productId" element={<ProductDetail />} />
+
+            {/* Catch-all */}
+            <Route path="*" element={<Navigate to="/minimart" replace />} />
           </>
         )}
       </Routes>
