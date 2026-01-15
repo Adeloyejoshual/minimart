@@ -1,50 +1,50 @@
-// src/pages/Login.js
-import React, { useState } from "react";
-import { useNavigate } from "react-router-dom";
-import { signInWithEmailAndPassword } from "firebase/auth";
+import { useState } from "react";
 import { auth } from "../firebase";
+import { signInWithEmailAndPassword } from "firebase/auth";
+import { useNavigate, Link } from "react-router-dom";
 
-const Login = () => {
+export default function Login() {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const navigate = useNavigate();
 
-  const isValidEmail = (email) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email);
-
   const handleLogin = async (e) => {
     e.preventDefault();
-    const trimmedEmail = email.trim();
-    if (!isValidEmail(trimmedEmail)) return alert("Enter a valid email");
-    if (password.length < 6) return alert("Password must be at least 6 characters");
-
     try {
-      await signInWithEmailAndPassword(auth, trimmedEmail, password);
-      navigate("/"); // redirect to Home after login
+      await signInWithEmailAndPassword(auth, email, password);
+      navigate("/minimart"); // go to MiniMart after login
     } catch (err) {
-      alert(err.message);
+      alert("Login failed: " + err.message);
     }
   };
 
   return (
-    <form onSubmit={handleLogin} style={{ display: "flex", flexDirection: "column", gap: "10px" }}>
+    <div style={{ maxWidth: 400, margin: "50px auto", textAlign: "center" }}>
       <h2>Login</h2>
-      <input
-        type="email"
-        placeholder="Email"
-        value={email}
-        onChange={(e) => setEmail(e.target.value)}
-        required
-      />
-      <input
-        type="password"
-        placeholder="Password"
-        value={password}
-        onChange={(e) => setPassword(e.target.value)}
-        required
-      />
-      <button type="submit">Login</button>
-    </form>
-  );
-};
+      <form onSubmit={handleLogin} style={{ display: "flex", flexDirection: "column", gap: 15 }}>
+        <input
+          type="email"
+          placeholder="Email"
+          value={email}
+          onChange={(e) => setEmail(e.target.value)}
+          required
+        />
+        <input
+          type="password"
+          placeholder="••••••"
+          value={password}
+          onChange={(e) => setPassword(e.target.value)}
+          required
+        />
+        <button type="submit">Login</button>
+      </form>
 
-export default Login;
+      <p style={{ marginTop: 15 }}>
+        Don't have an account?{" "}
+        <Link to="/register" style={{ color: "blue", textDecoration: "underline" }}>
+          Create Account
+        </Link>
+      </p>
+    </div>
+  );
+}
