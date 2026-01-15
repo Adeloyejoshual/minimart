@@ -1,10 +1,11 @@
 // pages/HomePage.jsx
 import { useEffect, useState } from "react";
-import { collection, getDocs, query, orderBy, where, limit } from "firebase/firestore";
+import { collection, getDocs, query, orderBy, limit, where } from "firebase/firestore";
 import { db } from "../firebase";
 import { useNavigate } from "react-router-dom";
 import TopNav from "../components/TopNav";
 import CategoryFilter from "../components/CategoryFilter";
+import PostAdModal from "../components/PostAdModal";
 
 export default function HomePage() {
   const navigate = useNavigate();
@@ -14,13 +15,22 @@ export default function HomePage() {
   const [selectedCategory, setSelectedCategory] = useState("");
 
   const categories = [
-    { name: "Vehicles", sub: ["Cars", "Motorcycles", "Trucks"] },
-    { name: "Property", sub: ["Houses", "Apartments", "Land"] },
-    { name: "Mobile Phones & Tablets", sub: ["Phones", "Tablets", "Accessories"] },
-    { name: "Electronics", sub: ["TVs", "Laptops", "Audio"] },
-    { name: "Home, Furniture & Appliances", sub: ["Furniture", "Appliances", "Decor"] },
-    { name: "Fashion", sub: ["Men", "Women", "Kids"] },
-    { name: "Beauty & Personal Care", sub: ["Skincare", "Hair", "Makeup"] },
+    "Vehicles",
+    "Property",
+    "Mobile Phones & Tablets",
+    "Electronics",
+    "Home, Furniture & Appliances",
+    "Fashion",
+    "Beauty & Personal Care",
+    "Services",
+    "Repair & Construction",
+    "Commercial Equipment & Tools",
+    "Leisure & Activities",
+    "Babies & Kids",
+    "Food, Agriculture & Farming",
+    "Animals & Pets",
+    "Jobs",
+    "Seeking Work - CVs",
   ];
 
   useEffect(() => {
@@ -40,16 +50,18 @@ export default function HomePage() {
       // Marketplace Products
       let marketQ = query(
         collection(db, "products"),
-        where("marketType", "==", "marketplace"),
         orderBy("createdAt", "desc")
       );
       const marketSnap = await getDocs(marketQ);
-      let marketProds = marketSnap.docs.map(d => ({ id: d.id, ...d.data() }));
+      let marketProds = marketSnap.docs
+        .map(d => ({ id: d.id, ...d.data() }))
+        // Include MiniMart and Marketplace products
+        .filter(p => p.marketType === "marketplace" || p.marketType === "minimart");
       if (selectedCategory)
         marketProds = marketProds.filter(p => p.category === selectedCategory);
       setMarketplaceProducts(marketProds);
 
-      // Trending Products (top 5 recent across both markets)
+      // Trending Products (top 5 recent across all markets)
       const trendingSnap = await getDocs(
         query(collection(db, "products"), orderBy("createdAt", "desc"), limit(5))
       );
@@ -79,6 +91,20 @@ export default function HomePage() {
         </p>
       </div>
 
+      {/* Post Ad Button */}
+      <div style={{ textAlign: "center", marginTop: 20 }}>
+        <PostAdModal />
+      </div>
+
+      {/* Category Filter */}
+      <div style={{ maxWidth: 1000, margin: "20px auto" }}>
+        <CategoryFilter
+          categories={categories}
+          selected={selectedCategory}
+          onChange={setSelectedCategory}
+        />
+      </div>
+
       {/* Trending Products */}
       <section style={{ maxWidth: 1000, margin: "20px auto" }}>
         <h2 style={{ color: "#DC3545" }}>🔥 Trending Products</h2>
@@ -104,33 +130,9 @@ export default function HomePage() {
         </div>
       </section>
 
-      {/* Category Filter */}
-      <div style={{ maxWidth: 1000, margin: "20px auto" }}>
-        <CategoryFilter
-          categories={categories.map(c => c.name)}
-          selected={selectedCategory}
-          onChange={setSelectedCategory}
-        />
-      </div>
-
       {/* MiniMart Section */}
       <section style={{ maxWidth: 1000, margin: "20px auto" }}>
         <h2 style={{ color: "#0D6EFD" }}>MiniMart (Verified Sellers)</h2>
-        <button
-          onClick={() => navigate("/add-product?market=minimart")}
-          style={{
-            padding: "8px 16px",
-            background: "#198754",
-            color: "#fff",
-            border: "none",
-            borderRadius: 5,
-            cursor: "pointer",
-            fontWeight: 600,
-            marginBottom: 10,
-          }}
-        >
-          Add Product
-        </button>
         <div style={{ display: "flex", flexWrap: "wrap", gap: 20 }}>
           {miniMartProducts.map(p => (
             <div
