@@ -1,38 +1,59 @@
-import { useState } from "react";
+// src/pages/Register.js
+import React, { useState } from "react";
+import { useNavigate } from "react-router-dom";
 import { createUserWithEmailAndPassword } from "firebase/auth";
-import { doc, setDoc } from "firebase/firestore";
 import { auth, db } from "../firebase";
+import { doc, setDoc } from "firebase/firestore";
 
-export default function Register() {
+const Register = () => {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
-  const [name, setName] = useState("");
+  const navigate = useNavigate();
 
-  const register = async () => {
+  const isValidEmail = (email) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email);
+
+  const handleRegister = async (e) => {
+    e.preventDefault();
+    const trimmedEmail = email.trim();
+    if (!isValidEmail(trimmedEmail)) return alert("Enter a valid email");
+    if (password.length < 6) return alert("Password must be at least 6 characters");
+
     try {
-      const userCred = await createUserWithEmailAndPassword(auth, email, password);
-      const user = userCred.user;
+      const userCred = await createUserWithEmailAndPassword(auth, trimmedEmail, password);
 
-      await setDoc(doc(db, "users", user.uid), {
-        name,
-        email,
+      // Add user document to Firestore
+      await setDoc(doc(db, "users", userCred.user.uid), {
+        email: trimmedEmail,
         blocked: false,
-        createdAt: new Date()
+        createdAt: new Date(),
       });
 
-      alert("Account created successfully");
+      navigate("/"); // redirect to Home after registration
     } catch (err) {
       alert(err.message);
     }
   };
 
   return (
-    <div>
-      <h2>Open MiniMart Account</h2>
-      <input placeholder="Full Name" onChange={e => setName(e.target.value)} />
-      <input placeholder="Email" onChange={e => setEmail(e.target.value)} />
-      <input type="password" placeholder="Password" onChange={e => setPassword(e.target.value)} />
-      <button onClick={register}>Create Account</button>
-    </div>
+    <form onSubmit={handleRegister} style={{ display: "flex", flexDirection: "column", gap: "10px" }}>
+      <h2>Register</h2>
+      <input
+        type="email"
+        placeholder="Email"
+        value={email}
+        onChange={(e) => setEmail(e.target.value)}
+        required
+      />
+      <input
+        type="password"
+        placeholder="Password (min 6 chars)"
+        value={password}
+        onChange={(e) => setPassword(e.target.value)}
+        required
+      />
+      <button type="submit">Register</button>
+    </form>
   );
-}
+};
+
+export default Register;
