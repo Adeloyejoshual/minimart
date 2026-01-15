@@ -9,7 +9,6 @@ import Login from "./pages/Login";
 import Register from "./pages/Register";
 import Home from "./pages/Home";
 
-// Protected route wrapper
 const ProtectedRoute = ({ children }) => {
   const [loading, setLoading] = useState(true);
   const [user, setUser] = useState(null);
@@ -17,7 +16,6 @@ const ProtectedRoute = ({ children }) => {
   useEffect(() => {
     const unsubscribe = onAuthStateChanged(auth, async (u) => {
       if (u) {
-        // Check if user is blocked
         const snap = await getDoc(doc(db, "users", u.uid));
         if (snap.exists() && snap.data().blocked) {
           auth.signOut();
@@ -36,7 +34,7 @@ const ProtectedRoute = ({ children }) => {
   }, []);
 
   if (loading) return <p>Loading...</p>;
-  if (!user) return <Navigate to="/login" replace />;
+  if (!user) return <Navigate to="/auth" replace />; // redirect to landing page
 
   return children;
 };
@@ -45,14 +43,23 @@ function App() {
   return (
     <Router>
       <Routes>
+        {/* Landing page with Login + Register */}
+        <Route path="/auth" element={
+          <div style={{ display: "flex", gap: "50px", justifyContent: "center", marginTop: "50px" }}>
+            <Login />
+            <Register />
+          </div>
+        } />
+
+        {/* Protected Home / Product Feed */}
         <Route path="/" element={
           <ProtectedRoute>
             <Home />
           </ProtectedRoute>
         } />
-        <Route path="/login" element={<Login />} />
-        <Route path="/register" element={<Register />} />
-        <Route path="*" element={<Navigate to="/" replace />} />
+
+        {/* Catch-all redirects */}
+        <Route path="*" element={<Navigate to="/auth" replace />} />
       </Routes>
     </Router>
   );
