@@ -9,13 +9,12 @@ import {
   updateDoc,
   getDoc,
   serverTimestamp,
+  setDoc,
 } from "firebase/firestore";
 import { db, auth } from "../firebase";
-import { FaCheck, FaCheckDouble, FaPaperPlane, FaCamera } from "react-icons/fa";
-
+import { FaCheck, FaCheckDouble, FaPaperPlane, FaCamera, FaPhone } from "react-icons/fa";
 import ImagePreviewModal from "../components/Chat/ImagePreviewModal";
 import MediaViewer from "../components/Chat/MediaViewer";
-import ChatProductPreview from "../components/ChatProductPreview";
 
 export default function ChatPage() {
   const { sellerId } = useParams();
@@ -27,6 +26,7 @@ export default function ChatPage() {
   const chatId = `${currentUserId}_${productId || "general"}_${sellerId}`;
 
   const [friend, setFriend] = useState(null);
+  const [product, setProduct] = useState(null);
   const [messages, setMessages] = useState([]);
   const [text, setText] = useState("");
   const [selectedFiles, setSelectedFiles] = useState([]);
@@ -34,9 +34,10 @@ export default function ChatPage() {
   const [showMediaViewer, setShowMediaViewer] = useState(false);
   const [mediaIndex, setMediaIndex] = useState(0);
   const [friendTyping, setFriendTyping] = useState(false);
+  const [dropdownOpen, setDropdownOpen] = useState(false);
 
   const messagesEndRef = useRef(null);
-  const messagesWrapRef = useRef(null);
+  const dropdownRef = useRef(null);
 
   /* ---------------- Load friend info ---------------- */
   useEffect(() => {
@@ -46,6 +47,16 @@ export default function ChatPage() {
     });
     return () => unsub();
   }, [sellerId]);
+
+  /* ---------------- Load product info ---------------- */
+  useEffect(() => {
+    if (!productId) return;
+    const loadProduct = async () => {
+      const docSnap = await getDoc(doc(db, "products", productId));
+      if (docSnap.exists()) setProduct({ id: docSnap.id, ...docSnap.data() });
+    };
+    loadProduct();
+  }, [productId]);
 
   /* ---------------- Load messages ---------------- */
   useEffect(() => {
@@ -73,18 +84,16 @@ export default function ChatPage() {
 
   const setTypingStatus = async (typing) => {
     const ref = doc(db, "chats", chatId, "typing", currentUserId);
-    await updateDoc(ref, { isTyping: typing }).catch(() => {
-      // in case doc doesn't exist
-      ref.set({ isTyping: typing });
-    });
+    await updateDoc(ref, { isTyping: typing }).catch(() => setDoc(ref, { isTyping: typing }));
   };
 
   /* ---------------- Send text message ---------------- */
-  const sendTextMessage = async () => {
-    if (!text.trim()) return;
+  const sendTextMessage = async (msgText) => {
+    const message = msgText || text;
+    if (!message.trim()) return;
     await addDoc(collection(db, "chats", chatId, "messages"), {
       senderId: currentUserId,
-      text,
+      text: message,
       createdAt: serverTimestamp(),
       readBy: [currentUserId],
     });
@@ -111,145 +120,142 @@ export default function ChatPage() {
     setShowPreview(true);
   };
 
+  /* ---------------- Mark product as sold ---------------- */
+  const markProductSold = async () => {
+    if (!productId) return;
+    await updateDoc(doc(db, "products", productId), { sold: true });
+    alert("Product marked as sold ✅");
+  };
+
+  /* ---------------- Copy phone ---------------- */
+  const copyPhone = () => {
+    if (friend?.phone) {
+      navigator.clipboard.writeText(friend.phone);
+      window.location.href = `tel:${friend.phone}`;
+    }
+  };
+
+  /* ---------------- Dropdown outside click ---------------- */
+  useEffect(() => {
+    const handleClickOutside = (event) => {
+      if (dropdownRef.current && !dropdownRef.current.contains(event.target)) {
+        setDropdownOpen(false);
+      }
+    };
+    document.addEventListener("mousedown", handleClickOutside);
+    return () => document.removeEventListener("mousedown", handleClickOutside);
+  }, []);
+
+  /* ---------------- Quick action messages ---------------- */
+  const quickActions = [
+    "Drop your number",
+    "Is this available?",
+    "Ask for location",
+    "Make an offer",
+    "Please call me",
+    "Let's plan a meeting",
+  ];
+
+  const sendQuickMessage = (msg) => sendTextMessage(msg);
+
   /* ---------------- Render ---------------- */
   return (
     <div style={{ display: "flex", flexDirection: "column", height: "100vh" }}>
-      {/* Sticky Header */}
-      <div
-        style={{
-          position: "sticky",
-          top: 0,
-          background: "#0D6EFD",
-          color: "#fff",
-          padding: 12,
-          zIndex: 10,
-          display: "flex",
-          justifyContent: "space-between",
-          alignItems: "center",
-        }}
-      >
-        <div>
-          <strong>{friend?.name}</strong>
-          {friend?.verified && <span style={{ marginLeft: 5, color: "#0f0" }}>✅</span>}
+      {/* Header */}
+      <div style={{ position: "sticky", top: 0, background: "#0D6EFD", color: "#fff", padding: 12, zIndex: 20 }}>
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+          <div>
+            <strong>{friend?.name}</strong> {friend?.verified && <span style={{ color: "#0f0" }}>✅</span>}
+          </div>
+          <div style={{ display: "flex", gap: 8 }}>
+            {friend?.phone && (
+              <button onClick={copyPhone} style={{ display: "flex", alignItems: "center", gap: 4, background: "transparent", border: "none", color: "#fff", cursor: "pointer" }}>
+                <FaPhone /> {friend.phone}
+              </button>
+            )}
+            {product && !product.sold && (
+              <button onClick={markProductSold} style={{ padding: "4px 8px", background: "#198754", color: "#fff", border: "none", borderRadius: 4, cursor: "pointer", fontSize: 12 }}>
+                Mark Sold
+              </button>
+            )}
+            {product && (
+              <div ref={dropdownRef} style={{ position: "relative" }}>
+                <button onClick={() => setDropdownOpen(!dropdownOpen)} style={{ padding: "4px 8px", background: "#ffc107", border: "none", borderRadius: 4, cursor: "pointer", fontSize: 12 }}>
+                  Product Info ▼
+                </button>
+                {dropdownOpen && (
+                  <div style={{ position: "absolute", top: "110%", right: 0, background: "#fff", color: "#000", padding: 10, borderRadius: 6, boxShadow: "0 2px 8px rgba(0,0,0,0.2)", minWidth: 220, zIndex: 30 }}>
+                    <p style={{ margin: 2, fontWeight: "bold" }}>{product.name}</p>
+                    <p style={{ margin: 2 }}>₦{product.price}</p>
+                    <p style={{ margin: 2, fontSize: 12 }}>Posted on: {product.postedDate || "N/A"}</p>
+                    {product.sold && <span style={{ fontSize: 12, color: "#dc3545" }}>SOLD</span>}
+                    <p style={{ fontSize: 12, marginTop: 4 }}>❗️ Never pay in advance! Always inspect the product.</p>
+                    <p style={{ fontSize: 12 }}>✅ Inform the seller you got their number on Jiji so they know where you came from</p>
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
         </div>
       </div>
 
-      {/* Product Preview integrated */}
-      {productId && <ChatProductPreview productId={productId} />}
+      {/* Product preview */}
+      {product && (
+        <div style={{ display: "flex", alignItems: "center", padding: 10, borderBottom: "1px solid #ccc", background: "#f8f9fa" }}>
+          <img src={product.imageUrl} alt={product.name} style={{ width: 60, height: 60, objectFit: "cover", borderRadius: 8, marginRight: 10 }} />
+          <div style={{ flex: 1 }}>
+            <p style={{ margin: 0, fontWeight: "bold" }}>{product.name}</p>
+            <p style={{ margin: 0, fontSize: 12, color: "#555" }}>₦{product.price}</p>
+            {product.sold && <span style={{ fontSize: 12, color: "#dc3545" }}>SOLD</span>}
+          </div>
+        </div>
+      )}
 
       {/* Messages */}
-      <div
-        ref={messagesWrapRef}
-        style={{ flex: 1, overflowY: "auto", padding: 10, background: "#f5f5f5" }}
-      >
+      <div style={{ flex: 1, overflowY: "auto", padding: 10, background: "#f5f5f5" }}>
         {messages.map((msg, i) => {
           const isMe = msg.senderId === currentUserId;
-          const timestamp = msg.createdAt?.seconds
-            ? new Date(msg.createdAt.seconds * 1000).toLocaleTimeString([], {
-                hour: "2-digit",
-                minute: "2-digit",
-              })
-            : "";
+          const timestamp = msg.createdAt?.seconds ? new Date(msg.createdAt.seconds * 1000).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }) : "";
           return (
-            <div
-              key={i}
-              style={{
-                display: "flex",
-                flexDirection: "column",
-                alignItems: isMe ? "flex-end" : "flex-start",
-                marginBottom: 10,
-              }}
-            >
-              {msg.text && (
-                <div
-                  style={{
-                    background: isMe ? "#0D6EFD" : "#e5e5ea",
-                    color: isMe ? "#fff" : "#000",
-                    padding: "8px 12px",
-                    borderRadius: 16,
-                    maxWidth: "80%",
-                  }}
-                >
-                  {msg.text}
-                </div>
-              )}
-              {msg.mediaUrl && (
-                <img
-                  src={msg.mediaUrl}
-                  alt="media"
-                  onClick={() => {
-                    setMediaIndex(i);
-                    setShowMediaViewer(true);
-                  }}
-                  style={{ maxWidth: 200, borderRadius: 8, cursor: "pointer", marginTop: 2 }}
-                />
-              )}
-              <span style={{ fontSize: 10, color: "#555", marginTop: 2 }}>{timestamp}</span>
-              {isMe && (
-                <div style={{ fontSize: 10, color: "#555" }}>
-                  {msg.readBy?.length > 1 ? <FaCheckDouble /> : <FaCheck />}
-                </div>
-              )}
+            <div key={i} style={{ display: "flex", flexDirection: "column", alignItems: isMe ? "flex-end" : "flex-start", marginBottom: 10 }}>
+              {msg.text && <div style={{ background: isMe ? "#0D6EFD" : "#e5e5ea", color: isMe ? "#fff" : "#000", padding: "8px 12px", borderRadius: 16, maxWidth: "80%", position: "relative" }}>
+                {msg.text}
+                <span style={{ fontSize: 10, color: "#ccc", marginLeft: 6, position: "absolute", bottom: 2, right: 6 }}>{timestamp}</span>
+              </div>}
+              {msg.mediaUrl && <img src={msg.mediaUrl} alt="media" onClick={() => { setMediaIndex(i); setShowMediaViewer(true); }} style={{ maxWidth: 200, borderRadius: 8, cursor: "pointer", marginTop: 2 }} />}
+              {isMe && <div style={{ fontSize: 10, color: "#555" }}>{msg.readBy?.length > 1 ? <FaCheckDouble /> : <FaCheck />}</div>}
             </div>
           );
         })}
-        {friendTyping && (
-          <p style={{ fontStyle: "italic", color: "#555", fontSize: 12 }}>
-            {friend?.name || "Friend"} is typing...
-          </p>
-        )}
+        {friendTyping && <p style={{ fontStyle: "italic", color: "#555", fontSize: 12 }}>{friend?.name || "Friend"} is typing...</p>}
         <div ref={messagesEndRef} />
       </div>
 
-      {/* Sticky Input */}
-      <div
-        style={{
-          position: "sticky",
-          bottom: 0,
-          display: "flex",
-          padding: 10,
-          borderTop: "1px solid #ccc",
-          background: "#fff",
-          gap: 6,
-        }}
-      >
+      {/* Quick action buttons */}
+      <div style={{ display: "flex", gap: 6, flexWrap: "wrap", padding: "6px 10px", background: "#e9ecef" }}>
+        {quickActions.map((qa, idx) => (
+          <button key={idx} onClick={() => sendQuickMessage(qa)} style={{ background: "#0D6EFD", color: "#fff", border: "none", borderRadius: 20, padding: "4px 12px", fontSize: 12, cursor: "pointer" }}>
+            {qa}
+          </button>
+        ))}
+      </div>
+
+      {/* Input */}
+      <div style={{ position: "sticky", bottom: 0, display: "flex", padding: 10, borderTop: "1px solid #ccc", background: "#fff", gap: 6 }}>
         <input type="file" accept="image/*" onChange={handleFiles} style={{ display: "none" }} id="imageInput" />
-        <label
-          htmlFor="imageInput"
-          style={{ cursor: "pointer", padding: 8, background: "#0D6EFD", color: "#fff", borderRadius: 5 }}
-        >
+        <label htmlFor="imageInput" style={{ cursor: "pointer", padding: 8, background: "#0D6EFD", color: "#fff", borderRadius: 5 }}>
           <FaCamera />
         </label>
-        <input
-          value={text}
-          onChange={(e) => {
-            setText(e.target.value);
-            setTypingStatus(!!e.target.value);
-          }}
-          placeholder="Type a message..."
-          style={{ flex: 1, padding: 8, borderRadius: 5, border: "1px solid #ccc" }}
-        />
-        <button
-          onClick={sendTextMessage}
-          style={{ padding: "8px 12px", background: "#0D6EFD", color: "#fff", border: "none", borderRadius: 5 }}
-        >
+        <input value={text} onChange={(e) => { setText(e.target.value); setTypingStatus(!!e.target.value); }} placeholder="Type a message..." style={{ flex: 1, padding: 8, borderRadius: 5, border: "1px solid #ccc" }} />
+        <button onClick={() => sendTextMessage()} style={{ padding: "8px 12px", background: "#0D6EFD", color: "#fff", border: "none", borderRadius: 5 }}>
           <FaPaperPlane />
         </button>
       </div>
 
-      {/* Image Preview */}
-      {showPreview && selectedFiles.length > 0 && (
-        <ImagePreviewModal
-          previews={selectedFiles.map((f) => ({ file: f, previewUrl: URL.createObjectURL(f), type: "image", name: f.name }))}
-          onClose={() => setShowPreview(false)}
-          onSend={(files) => files.forEach(sendImageMessage)}
-        />
-      )}
-
-      {/* Media Viewer */}
-      {showMediaViewer && (
-        <MediaViewer items={messages.filter((m) => m.mediaUrl)} startIndex={mediaIndex} onClose={() => setShowMediaViewer(false)} />
-      )}
+      {/* Image preview */}
+      {showPreview && selectedFiles.length > 0 && <ImagePreviewModal previews={selectedFiles.map(f => ({ file: f, previewUrl: URL.createObjectURL(f), type: "image", name: f.name }))} onClose={() => setShowPreview(false)} onSend={(files) => files.forEach(sendImageMessage)} />}
+      {/* Media viewer */}
+      {showMediaViewer && <MediaViewer items={messages.filter(m => m.mediaUrl)} startIndex={mediaIndex} onClose={() => setShowMediaViewer(false)} />}
     </div>
   );
 }
