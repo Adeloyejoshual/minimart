@@ -1,0 +1,12 @@
+// Inside PostAdForm.jsx
+const [isPromoted, setIsPromoted] = useState(false);
+
+// Checkbox for promotion
+<label>
+  <input
+    type="checkbox"
+    checked={isPromoted}
+    onChange={() => setIsPromoted(!isPromoted)}
+  />
+  Promote this ad for better visibility
+</label>
