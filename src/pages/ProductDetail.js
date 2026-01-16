@@ -1,21 +1,16 @@
-import { useEffect, useState } from "react";
+// src/pages/ProductDetail.jsx
+import React, { useEffect, useState } from "react";
+import { useParams, useNavigate } from "react-router-dom";
 import { doc, getDoc } from "firebase/firestore";
 import { db, auth } from "../firebase";
-import { useParams, useNavigate } from "react-router-dom";
+import { Box, Typography, Button, Paper, Avatar } from "@mui/material";
 
 export default function ProductDetail() {
   const { productId } = useParams();
   const navigate = useNavigate();
   const [product, setProduct] = useState(null);
-  const [currentUser, setCurrentUser] = useState(null);
+  const currentUser = auth.currentUser;
 
-  // Load current user
-  useEffect(() => {
-    const unsubscribe = auth.onAuthStateChanged((user) => setCurrentUser(user));
-    return unsubscribe;
-  }, []);
-
-  // Load product from Firestore
   useEffect(() => {
     const loadProduct = async () => {
       const docRef = doc(db, "products", productId);
@@ -30,15 +25,14 @@ export default function ProductDetail() {
     loadProduct();
   }, [productId, navigate]);
 
-  if (!product || !currentUser) return <p>Loading...</p>;
+  if (!product) return <Typography>Loading product...</Typography>;
 
-  // Navigate to ChatPage
-  const startChat = () => {
-    if (currentUser.uid === product.ownerId) return; // Owners cannot chat themselves
+  const handleStartChat = () => {
+    if (currentUser.uid === product.ownerId) return;
     navigate(
-      `/chat/${product.ownerId}?product=${productId}&sellerName=${encodeURIComponent(
-        product.ownerName
-      )}&productName=${encodeURIComponent(product.name)}`
+      `/chat/${product.ownerId}?product=${productId}&productName=${encodeURIComponent(
+        product.name
+      )}`
     );
   };
 
@@ -55,68 +49,58 @@ export default function ProductDetail() {
   };
 
   return (
-    <div style={{ maxWidth: 700, margin: "20px auto", padding: 20, fontFamily: "Arial, sans-serif" }}>
-      
+    <Box maxWidth="600px" mx="auto" mt={3} p={2}>
       {/* Product Image */}
-      <div style={{ textAlign: "center" }}>
-        <img
+      <Paper elevation={3} sx={{ p: 2, mb: 2, borderRadius: 2 }}>
+        <Avatar
           src={product.imageUrl}
-          alt={product.name}
-          style={{ width: "100%", maxHeight: 400, objectFit: "cover", borderRadius: 10, marginBottom: 20 }}
+          variant="rounded"
+          sx={{ width: "100%", height: 300, mb: 2 }}
         />
-      </div>
-
-      {/* Product Info */}
-      <h1 style={{ margin: "0 0 10px 0" }}>{product.name}</h1>
-      <p style={{ fontWeight: "bold", fontSize: 22, margin: "0 0 10px 0" }}>₦{product.price}</p>
-      <p style={{ fontSize: 16, marginBottom: 15 }}>{product.description}</p>
-
-      <div style={{ display: "flex", gap: 15, flexWrap: "wrap", marginBottom: 15 }}>
-        <span style={{ fontSize: 14, color: "#555" }}><b>Category:</b> {product.category}</span>
-        <span style={{ fontSize: 14, color: "#555" }}><b>Market:</b> {product.marketType}</span>
-        <span style={{ fontSize: 14, color: "#555" }}><b>Posted:</b> {formatDate(product.postedAt)}</span>
-      </div>
+        <Typography variant="h5" fontWeight="bold">
+          {product.name} {product.sold && "(SOLD)"}
+        </Typography>
+        <Typography variant="h6" color="primary" sx={{ mt: 1 }}>
+          ₦{product.price}
+        </Typography>
+        <Typography variant="body1" sx={{ mt: 1 }}>
+          {product.description}
+        </Typography>
+        <Typography variant="body2" color="text.secondary" sx={{ mt: 1 }}>
+          Category: <b>{product.category}</b> | Market: <b>{product.marketType}</b>
+        </Typography>
+        <Typography variant="caption" color="text.secondary" sx={{ mt: 1, display: "block" }}>
+          Posted: {formatDate(product.postedAt)}
+        </Typography>
+      </Paper>
 
       {/* Start Chat Button */}
       {currentUser.uid !== product.ownerId && (
-        <button
-          onClick={startChat}
-          style={{
-            flex: 1,
-            minWidth: 180,
-            padding: "12px 18px",
-            background: "#0D6EFD",
-            color: "#fff",
-            border: "none",
-            borderRadius: 8,
-            cursor: "pointer",
-            fontSize: 16,
-            fontWeight: "bold",
-            transition: "background 0.2s",
-          }}
-          onMouseEnter={(e) => (e.currentTarget.style.background = "#0b5ed7")}
-          onMouseLeave={(e) => (e.currentTarget.style.background = "#0D6EFD")}
+        <Button
+          variant="contained"
+          color="primary"
+          fullWidth
+          onClick={handleStartChat}
+          sx={{ py: 1.5, mb: 2 }}
         >
-          💬 Start Chat with {product.ownerName}
-        </button>
+          💬 Start Chat
+        </Button>
       )}
 
-      {/* Optional Sold Badge */}
-      {product.sold && (
-        <div
-          style={{
-            marginTop: 20,
-            padding: 10,
-            background: "#dc3545",
-            color: "#fff",
-            borderRadius: 8,
-            textAlign: "center",
-            fontWeight: "bold",
-          }}
-        >
-          SOLD
-        </div>
-      )}
-    </div>
+      {/* Seller Info */}
+      <Paper elevation={1} sx={{ p: 2, borderRadius: 2 }}>
+        <Typography variant="subtitle1" fontWeight="bold">
+          Seller Info
+        </Typography>
+        <Typography variant="body2">
+          Name: {product.ownerName}
+        </Typography>
+        {product.sold && (
+          <Typography variant="body2" color="error">
+            This product has been sold.
+          </Typography>
+        )}
+      </Paper>
+    </Box>
   );
 }
