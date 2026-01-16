@@ -3,22 +3,30 @@ import { collection, addDoc, serverTimestamp } from "firebase/firestore";
 import { db, auth } from "../firebase";
 import { uploadToCloudinary } from "../cloudinary";
 import { useNavigate, useLocation } from "react-router-dom";
-import categoryRules from "../config/categoryRules";
+import categories from "../config/categories";
 import locations from "../config/locations";
 import { useAdLimitCheck } from "../hooks/useAdLimits";
 
 const AddProduct = () => {
+  // Product info
+  const [mainCategory, setMainCategory] = useState("");
+  const [subCategory, setSubCategory] = useState("");
   const [title, setTitle] = useState("");
-  const [category, setCategory] = useState("");
-  const [price, setPrice] = useState("");
   const [description, setDescription] = useState("");
+  const [price, setPrice] = useState("");
   const [images, setImages] = useState([]);
   const [previewImages, setPreviewImages] = useState([]);
+
+  // Conditional fields
   const [brand, setBrand] = useState("");
   const [model, setModel] = useState("");
   const [condition, setCondition] = useState("");
+
+  // Location
   const [stateLocation, setStateLocation] = useState("");
   const [cityLocation, setCityLocation] = useState("");
+
+  // Promotion
   const [isPromoted, setIsPromoted] = useState(false);
   const [loading, setLoading] = useState(false);
 
@@ -27,10 +35,9 @@ const AddProduct = () => {
   const params = new URLSearchParams(locationQuery.search);
   const marketType = params.get("market") || "marketplace";
 
-  const rules = categoryRules[category] || categoryRules.Default;
-  const cities = stateLocation ? locations[stateLocation] : [];
+  const subCategories = mainCategory ? categories[mainCategory] || [] : [];
 
-  // ✅ Hook called at top level
+  // ✅ Hook-compliant
   const { checkLimit } = useAdLimitCheck();
 
   const handleFileChange = (e) => {
@@ -40,10 +47,11 @@ const AddProduct = () => {
   };
 
   const resetForm = () => {
+    setMainCategory("");
+    setSubCategory("");
     setTitle("");
-    setCategory("");
-    setPrice("");
     setDescription("");
+    setPrice("");
     setImages([]);
     setPreviewImages([]);
     setBrand("");
@@ -56,21 +64,22 @@ const AddProduct = () => {
 
   const handleAdd = async (e) => {
     e.preventDefault();
-    if (!title || !category || !price || images.length === 0) {
-      return alert("All required fields must be filled!");
+
+    if (!title || !mainCategory || !subCategory || !price || images.length === 0) {
+      return alert("Please fill all required fields!");
     }
-    if (!auth.currentUser) return alert("Please log in to add a product.");
+    if (!auth.currentUser) return alert("Login required.");
 
     // ✅ Check free ad limit
-    const limitReached = await checkLimit(auth.currentUser.uid, category);
+    const limitReached = await checkLimit(auth.currentUser.uid, mainCategory);
     if (limitReached && !isPromoted) {
-      return alert("Free ad limit reached. You can promote this ad to bypass the limit.");
+      return alert("Free ad limit reached. Promote to post more.");
     }
 
     try {
       setLoading(true);
 
-      // Upload images to Cloudinary
+      // Upload images
       const imageUrls = [];
       for (let file of images) {
         const url = await uploadToCloudinary(file);
@@ -78,12 +87,13 @@ const AddProduct = () => {
         imageUrls.push(url);
       }
 
-      // Add product to Firestore
+      // Add to Firestore
       await addDoc(collection(db, "products"), {
+        mainCategory,
+        subCategory,
         title,
-        category,
-        price: parseFloat(price),
         description,
+        price: parseFloat(price),
         images: imageUrls,
         coverImage: imageUrls[0],
         ownerId: auth.currentUser.uid,
@@ -129,19 +139,40 @@ const AddProduct = () => {
     >
       <h2>Add Product ({marketType})</h2>
 
-      <select value={category} onChange={(e) => setCategory(e.target.value)} required>
+      {/* Main Category */}
+      <select
+        value={mainCategory}
+        onChange={(e) => {
+          setMainCategory(e.target.value);
+          setSubCategory("");
+        }}
+        required
+      >
         <option value="">Select Category</option>
-        {Object.keys(categoryRules).map((cat) => (
+        {Object.keys(categories).map((cat) => (
           <option key={cat} value={cat}>{cat}</option>
         ))}
       </select>
+
+      {/* Subcategory */}
+      {subCategories.length > 0 && (
+        <select
+          value={subCategory}
+          onChange={(e) => setSubCategory(e.target.value)}
+          required
+        >
+          <option value="">Select Subcategory</option>
+          {subCategories.map((sub) => (
+            <option key={sub} value={sub}>{sub}</option>
+          ))}
+        </select>
+      )}
 
       <input
         type="text"
         placeholder="Title*"
         value={title}
         onChange={(e) => setTitle(e.target.value)}
-        maxLength={rules.maxTitle}
         required
       />
 
@@ -149,7 +180,6 @@ const AddProduct = () => {
         placeholder="Description"
         value={description}
         onChange={(e) => setDescription(e.target.value)}
-        maxLength={rules.maxDescription}
       />
 
       <input type="number" placeholder="Price" value={price} onChange={(e) => setPrice(e.target.value)} required />
@@ -164,28 +194,24 @@ const AddProduct = () => {
       )}
 
       {/* Conditional fields */}
-      {rules.requireBrand && <input placeholder="Brand" value={brand} onChange={(e) => setBrand(e.target.value)} />}
-      {rules.requireModel && <input placeholder="Model" value={model} onChange={(e) => setModel(e.target.value)} />}
-      {rules.requireCondition && (
-        <select value={condition} onChange={(e) => setCondition(e.target.value)}>
-          <option value="">Select Condition</option>
-          <option value="New">New</option>
-          <option value="Used">Used</option>
-        </select>
-      )}
+      <input placeholder="Brand" value={brand} onChange={(e) => setBrand(e.target.value)} />
+      <input placeholder="Model" value={model} onChange={(e) => setModel(e.target.value)} />
+      <select value={condition} onChange={(e) => setCondition(e.target.value)}>
+        <option value="">Select Condition</option>
+        <option value="New">New</option>
+        <option value="Used">Used</option>
+      </select>
 
       {/* Location */}
-      {rules.requireLocation && (
-        <>
-          <select value={stateLocation} onChange={(e) => { setStateLocation(e.target.value); setCityLocation(""); }}>
-            <option value="">Select State</option>
-            {Object.keys(locations).map((st) => <option key={st} value={st}>{st}</option>)}
-          </select>
-          <select value={cityLocation} onChange={(e) => setCityLocation(e.target.value)}>
-            <option value="">Select City</option>
-            {cities.map((c) => <option key={c} value={c}>{c}</option>)}
-          </select>
-        </>
+      <select value={stateLocation} onChange={(e) => { setStateLocation(e.target.value); setCityLocation(""); }}>
+        <option value="">Select State</option>
+        {Object.keys(locations).map((st) => <option key={st} value={st}>{st}</option>)}
+      </select>
+      {stateLocation && (
+        <select value={cityLocation} onChange={(e) => setCityLocation(e.target.value)}>
+          <option value="">Select City</option>
+          {locations[stateLocation].map((c) => <option key={c} value={c}>{c}</option>)}
+        </select>
       )}
 
       <label>
