@@ -11,9 +11,11 @@ import {
   serverTimestamp,
 } from "firebase/firestore";
 import { db, auth } from "../firebase";
-import { FaCheck, FaCheckDouble, FaPaperPlane, FaCamera, FaPhone } from "react-icons/fa";
+import { FaCheck, FaCheckDouble, FaPaperPlane, FaCamera } from "react-icons/fa";
+
 import ImagePreviewModal from "../components/Chat/ImagePreviewModal";
 import MediaViewer from "../components/Chat/MediaViewer";
+import ChatProductPreview from "../components/ChatProductPreview";
 
 export default function ChatPage() {
   const { sellerId } = useParams();
@@ -25,7 +27,6 @@ export default function ChatPage() {
   const chatId = `${currentUserId}_${productId || "general"}_${sellerId}`;
 
   const [friend, setFriend] = useState(null);
-  const [product, setProduct] = useState(null);
   const [messages, setMessages] = useState([]);
   const [text, setText] = useState("");
   const [selectedFiles, setSelectedFiles] = useState([]);
@@ -33,11 +34,9 @@ export default function ChatPage() {
   const [showMediaViewer, setShowMediaViewer] = useState(false);
   const [mediaIndex, setMediaIndex] = useState(0);
   const [friendTyping, setFriendTyping] = useState(false);
-  const [dropdownOpen, setDropdownOpen] = useState(false);
 
   const messagesEndRef = useRef(null);
   const messagesWrapRef = useRef(null);
-  const dropdownRef = useRef(null);
 
   /* ---------------- Load friend info ---------------- */
   useEffect(() => {
@@ -48,28 +47,14 @@ export default function ChatPage() {
     return () => unsub();
   }, [sellerId]);
 
-  /* ---------------- Load product info ---------------- */
-  useEffect(() => {
-    if (!productId) return;
-    const loadProduct = async () => {
-      const docSnap = await getDoc(doc(db, "products", productId));
-      if (docSnap.exists()) setProduct({ id: docSnap.id, ...docSnap.data() });
-    };
-    loadProduct();
-  }, [productId]);
-
   /* ---------------- Load messages ---------------- */
   useEffect(() => {
     const q = collection(db, "chats", chatId, "messages");
-    const unsub = onSnapshot(
-      q,
-      (snap) => {
-        const msgs = snap.docs.map((d) => ({ id: d.id, ...d.data() }));
-        setMessages(msgs);
-        scrollToBottom();
-      },
-      (err) => console.error(err)
-    );
+    const unsub = onSnapshot(q, (snap) => {
+      const msgs = snap.docs.map((d) => ({ id: d.id, ...d.data() }));
+      setMessages(msgs);
+      scrollToBottom();
+    });
     return () => unsub();
   }, [chatId]);
 
@@ -89,8 +74,8 @@ export default function ChatPage() {
   const setTypingStatus = async (typing) => {
     const ref = doc(db, "chats", chatId, "typing", currentUserId);
     await updateDoc(ref, { isTyping: typing }).catch(() => {
-      // fallback in case doc doesn't exist
-      setDoc(ref, { isTyping: typing });
+      // in case doc doesn't exist
+      ref.set({ isTyping: typing });
     });
   };
 
@@ -126,48 +111,6 @@ export default function ChatPage() {
     setShowPreview(true);
   };
 
-  /* ---------------- Mark product as sold ---------------- */
-  const markProductSold = async () => {
-    if (!productId) return;
-    await updateDoc(doc(db, "products", productId), { sold: true });
-    alert("Product marked as sold ✅");
-  };
-
-  /* ---------------- Copy phone ---------------- */
-  const copyPhone = () => {
-    if (friend?.phone) {
-      navigator.clipboard.writeText(friend.phone);
-      alert(`Number ${friend.phone} copied 📋`);
-      window.location.href = `tel:${friend.phone}`;
-    }
-  };
-
-  /* ---------------- Dropdown outside click ---------------- */
-  useEffect(() => {
-    const handleClickOutside = (event) => {
-      if (dropdownRef.current && !dropdownRef.current.contains(event.target)) {
-        setDropdownOpen(false);
-      }
-    };
-    document.addEventListener("mousedown", handleClickOutside);
-    return () => document.removeEventListener("mousedown", handleClickOutside);
-  }, []);
-
-  /* ---------------- Quick action messages ---------------- */
-  const quickActions = [
-    "Drop your number",
-    "Is this available?",
-    "Ask for location",
-    "Make an offer",
-    "Please call me",
-    "Let's plan a meeting",
-  ];
-
-  const sendQuickMessage = (msg) => {
-    setText(msg);
-    sendTextMessage();
-  };
-
   /* ---------------- Render ---------------- */
   return (
     <div style={{ display: "flex", flexDirection: "column", height: "100vh" }}>
@@ -179,121 +122,20 @@ export default function ChatPage() {
           background: "#0D6EFD",
           color: "#fff",
           padding: 12,
-          zIndex: 20,
+          zIndex: 10,
           display: "flex",
-          flexDirection: "column",
+          justifyContent: "space-between",
+          alignItems: "center",
         }}
       >
-        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-          <div>
-            <strong>{friend?.name}</strong>{" "}
-            {friend?.verified && <span style={{ marginLeft: 5, color: "#0f0" }}>✅</span>}
-          </div>
-          <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
-            {friend?.phone && (
-              <button
-                onClick={copyPhone}
-                style={{
-                  display: "flex",
-                  alignItems: "center",
-                  gap: 4,
-                  background: "transparent",
-                  border: "none",
-                  color: "#fff",
-                  cursor: "pointer",
-                  fontSize: 14,
-                }}
-              >
-                <FaPhone /> {friend.phone}
-              </button>
-            )}
-            {product && !product.sold && (
-              <button
-                onClick={markProductSold}
-                style={{
-                  padding: "4px 8px",
-                  background: "#198754",
-                  color: "#fff",
-                  border: "none",
-                  borderRadius: 4,
-                  cursor: "pointer",
-                  fontSize: 12,
-                }}
-              >
-                Mark Sold
-              </button>
-            )}
-            {product && (
-              <div ref={dropdownRef} style={{ position: "relative" }}>
-                <button
-                  onClick={() => setDropdownOpen(!dropdownOpen)}
-                  style={{
-                    padding: "4px 8px",
-                    background: "#ffc107",
-                    border: "none",
-                    borderRadius: 4,
-                    cursor: "pointer",
-                    fontSize: 12,
-                  }}
-                >
-                  Product Info ▼
-                </button>
-                {dropdownOpen && (
-                  <div
-                    style={{
-                      position: "absolute",
-                      top: "110%",
-                      right: 0,
-                      background: "#fff",
-                      color: "#000",
-                      padding: 10,
-                      borderRadius: 6,
-                      boxShadow: "0 2px 8px rgba(0,0,0,0.2)",
-                      minWidth: 220,
-                      zIndex: 30,
-                    }}
-                  >
-                    <p style={{ margin: 2, fontWeight: "bold" }}>{product.name}</p>
-                    <p style={{ margin: 2 }}>₦{product.price}</p>
-                    <p style={{ margin: 2, fontSize: 12 }}>Posted on: {product.postedDate || "N/A"}</p>
-                    {product.sold && <span style={{ fontSize: 12, color: "#dc3545" }}>SOLD</span>}
-                    <p style={{ fontSize: 12, marginTop: 4 }}>
-                      ❗️ Never pay in advance! Always inspect the product.
-                    </p>
-                    <p style={{ fontSize: 12 }}>
-                      ✅ Inform the seller you got their number on Jiji so they know where you came from
-                    </p>
-                  </div>
-                )}
-              </div>
-            )}
-          </div>
+        <div>
+          <strong>{friend?.name}</strong>
+          {friend?.verified && <span style={{ marginLeft: 5, color: "#0f0" }}>✅</span>}
         </div>
       </div>
 
-      {/* Product Preview */}
-      {product && (
-        <div
-          style={{
-            display: "flex",
-            alignItems: "center",
-            padding: 10,
-            borderBottom: "1px solid #ccc",
-            background: "#f8f9fa",
-          }}
-        >
-          <img
-            src={product.imageUrl}
-            alt={product.name}
-            style={{ width: 60, height: 60, objectFit: "cover", borderRadius: 8, marginRight: 10 }}
-          />
-          <div style={{ flex: 1 }}>
-            <p style={{ margin: 0, fontWeight: "bold" }}>{product.name}</p>
-            <p style={{ margin: 0, fontSize: 12, color: "#555" }}>₦{product.price}</p>
-            {product.sold && <span style={{ fontSize: 12, color: "#dc3545" }}>SOLD</span>}
-          </div>
-        </div>
-      )}
+      {/* Product Preview integrated */}
+      {productId && <ChatProductPreview productId={productId} />}
 
       {/* Messages */}
       <div
@@ -303,7 +145,10 @@ export default function ChatPage() {
         {messages.map((msg, i) => {
           const isMe = msg.senderId === currentUserId;
           const timestamp = msg.createdAt?.seconds
-            ? new Date(msg.createdAt.seconds * 1000).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })
+            ? new Date(msg.createdAt.seconds * 1000).toLocaleTimeString([], {
+                hour: "2-digit",
+                minute: "2-digit",
+              })
             : "";
           return (
             <div
@@ -354,27 +199,6 @@ export default function ChatPage() {
           </p>
         )}
         <div ref={messagesEndRef} />
-      </div>
-
-      {/* Quick Action Buttons */}
-      <div style={{ display: "flex", gap: 6, flexWrap: "wrap", padding: "6px 10px", background: "#e9ecef" }}>
-        {quickActions.map((qa, idx) => (
-          <button
-            key={idx}
-            onClick={() => sendQuickMessage(qa)}
-            style={{
-              background: "#0D6EFD",
-              color: "#fff",
-              border: "none",
-              borderRadius: 20,
-              padding: "4px 12px",
-              fontSize: 12,
-              cursor: "pointer",
-            }}
-          >
-            {qa}
-          </button>
-        ))}
       </div>
 
       {/* Sticky Input */}
