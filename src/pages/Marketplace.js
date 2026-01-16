@@ -35,13 +35,15 @@ export default function Marketplace() {
         .filter((p) => p.marketType === "marketplace" || p.marketType === "minimart");
 
       // Promoted first
-      allProducts.sort((a, b) => (b.isPromoted === a.isPromoted ? 0 : b.isPromoted ? 1 : -1));
+      allProducts.sort((a, b) =>
+        b.isPromoted === a.isPromoted ? 0 : b.isPromoted ? -1 : 1
+      );
 
       setProducts(allProducts);
       setFilteredProducts(allProducts);
     });
 
-    return () => unsubscribe(); // cleanup
+    return () => unsubscribe();
   }, []);
 
   // Filter by category / subcategory / search
@@ -92,6 +94,23 @@ export default function Marketplace() {
 
       <h2 style={{ textAlign: "center", color: "#0D6EFD", marginTop: 20 }}>Marketplace</h2>
 
+      {/* Add Product Button */}
+      <div style={{ textAlign: "center", marginBottom: 20 }}>
+        <button
+          onClick={() => navigate("/add-product?market=marketplace")}
+          style={{
+            background: "#0d6efd",
+            color: "#fff",
+            padding: "10px 20px",
+            border: "none",
+            borderRadius: 5,
+            cursor: "pointer",
+          }}
+        >
+          + Add Product / Post Ad
+        </button>
+      </div>
+
       <div style={{ maxWidth: 900, margin: "0 auto 20px" }}>
         <SearchBar onSearch={setSearchQuery} />
 
@@ -116,6 +135,7 @@ export default function Marketplace() {
         )}
       </div>
 
+      {/* Products Grid */}
       <div
         style={{
           display: "flex",
@@ -154,12 +174,7 @@ export default function Marketplace() {
                 <span style={{ color: "red", fontWeight: "bold" }}>Promoted</span>
               )}
               <img
-                src={
-                  p.coverImage ||
-                  p.imageUrl ||
-                  (p.images && p.images[0]) ||
-                  "/placeholder.png"
-                }
+                src={p.coverImage || (p.images && p.images[0]) || "/placeholder.png"}
                 width="150"
                 style={{ borderRadius: 5, marginBottom: 10 }}
                 alt={p.title || "Product Image"}
