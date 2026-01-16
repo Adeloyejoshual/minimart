@@ -1,166 +1,203 @@
-// src/pages/AddProduct.jsx
 import React, { useState } from "react";
-import { useNavigate } from "react-router-dom";
 import { collection, addDoc, serverTimestamp } from "firebase/firestore";
-import { db, auth, storage } from "../firebase";
-import { ref, uploadBytesResumable, getDownloadURL } from "firebase/storage";
-import {
-  Box,
-  Paper,
-  Typography,
-  TextField,
-  Button,
-  LinearProgress,
-} from "@mui/material";
+import { db, auth } from "../firebase";
+import { uploadToCloudinary } from "../cloudinary";
+import { useNavigate, useLocation } from "react-router-dom";
+import categoryRules from "../config/categoryRules";
+import locations from "../config/locations";
+import { useAdLimitCheck } from "../hooks/useAdLimits";
 
-export default function AddProduct() {
-  const navigate = useNavigate();
-  const currentUser = auth.currentUser;
-
-  const [name, setName] = useState("");
-  const [description, setDescription] = useState("");
-  const [price, setPrice] = useState("");
+const AddProduct = () => {
+  const [title, setTitle] = useState("");
   const [category, setCategory] = useState("");
-  const [marketType, setMarketType] = useState("");
-  const [imageFile, setImageFile] = useState(null);
-  const [uploadProgress, setUploadProgress] = useState(0);
+  const [price, setPrice] = useState("");
+  const [description, setDescription] = useState("");
+  const [images, setImages] = useState([]);
+  const [previewImages, setPreviewImages] = useState([]);
+  const [brand, setBrand] = useState("");
+  const [model, setModel] = useState("");
+  const [condition, setCondition] = useState("");
+  const [stateLocation, setStateLocation] = useState("");
+  const [cityLocation, setCityLocation] = useState("");
+  const [isPromoted, setIsPromoted] = useState(false);
   const [loading, setLoading] = useState(false);
 
-  const handleSubmit = async (e) => {
+  const navigate = useNavigate();
+  const locationQuery = useLocation();
+  const params = new URLSearchParams(locationQuery.search);
+  const marketType = params.get("market") || "marketplace";
+
+  const rules = categoryRules[category] || categoryRules.Default;
+  const cities = stateLocation ? locations[stateLocation] : [];
+
+  // ✅ Hook called at top level
+  const { checkLimit } = useAdLimitCheck();
+
+  const handleFileChange = (e) => {
+    const selectedFiles = Array.from(e.target.files);
+    setImages(selectedFiles);
+    setPreviewImages(selectedFiles.map((f) => URL.createObjectURL(f)));
+  };
+
+  const resetForm = () => {
+    setTitle("");
+    setCategory("");
+    setPrice("");
+    setDescription("");
+    setImages([]);
+    setPreviewImages([]);
+    setBrand("");
+    setModel("");
+    setCondition("");
+    setStateLocation("");
+    setCityLocation("");
+    setIsPromoted(false);
+  };
+
+  const handleAdd = async (e) => {
     e.preventDefault();
-    if (!name || !description || !price || !category || !marketType || !imageFile) {
-      alert("Please fill all fields and select an image.");
-      return;
+    if (!title || !category || !price || images.length === 0) {
+      return alert("All required fields must be filled!");
+    }
+    if (!auth.currentUser) return alert("Please log in to add a product.");
+
+    // ✅ Check free ad limit
+    const limitReached = await checkLimit(auth.currentUser.uid, category);
+    if (limitReached && !isPromoted) {
+      return alert("Free ad limit reached. You can promote this ad to bypass the limit.");
     }
 
-    setLoading(true);
+    try {
+      setLoading(true);
 
-    // Upload image to Firebase Storage
-    const storageRef = ref(storage, `products/${Date.now()}_${imageFile.name}`);
-    const uploadTask = uploadBytesResumable(storageRef, imageFile);
-
-    uploadTask.on(
-      "state_changed",
-      (snapshot) => {
-        const progress =
-          (snapshot.bytesTransferred / snapshot.totalBytes) * 100;
-        setUploadProgress(progress);
-      },
-      (error) => {
-        console.error(error);
-        setLoading(false);
-        alert("Image upload failed.");
-      },
-      async () => {
-        const imageUrl = await getDownloadURL(uploadTask.snapshot.ref);
-
-        // Save product to Firestore
-        await addDoc(collection(db, "products"), {
-          name,
-          description,
-          price: parseFloat(price),
-          category,
-          marketType,
-          imageUrl,
-          ownerId: currentUser.uid,
-          ownerName: currentUser.displayName || "Anonymous",
-          postedAt: serverTimestamp(),
-          sold: false,
-        });
-
-        setLoading(false);
-        alert("Product added successfully ✅");
-        navigate("/");
+      // Upload images to Cloudinary
+      const imageUrls = [];
+      for (let file of images) {
+        const url = await uploadToCloudinary(file);
+        if (!url) throw new Error("Image upload failed");
+        imageUrls.push(url);
       }
-    );
+
+      // Add product to Firestore
+      await addDoc(collection(db, "products"), {
+        title,
+        category,
+        price: parseFloat(price),
+        description,
+        images: imageUrls,
+        coverImage: imageUrls[0],
+        ownerId: auth.currentUser.uid,
+        marketType,
+        brand,
+        model,
+        condition,
+        state: stateLocation,
+        city: cityLocation,
+        isPromoted,
+        promotedAt: isPromoted ? new Date() : null,
+        promotionExpiresAt: isPromoted
+          ? new Date(Date.now() + 30 * 24 * 60 * 60 * 1000)
+          : null,
+        createdAt: serverTimestamp(),
+      });
+
+      alert(`Product added successfully${isPromoted ? " and promoted for 30 days!" : "!"}`);
+      resetForm();
+      navigate(`/${marketType}`);
+    } catch (err) {
+      console.error(err);
+      alert("Error adding product: " + err.message);
+    } finally {
+      setLoading(false);
+    }
   };
 
   return (
-    <Box maxWidth="600px" mx="auto" mt={3} p={2}>
-      <Paper elevation={3} sx={{ p: 3, borderRadius: 2 }}>
-        <Typography variant="h5" fontWeight="bold" mb={2}>
-          Add New Product
-        </Typography>
+    <form
+      onSubmit={handleAdd}
+      style={{
+        maxWidth: "600px",
+        margin: "20px auto",
+        display: "flex",
+        flexDirection: "column",
+        gap: "15px",
+        padding: "20px",
+        border: "1px solid #ddd",
+        borderRadius: "8px",
+        background: "#fff",
+      }}
+    >
+      <h2>Add Product ({marketType})</h2>
 
-        <form onSubmit={handleSubmit}>
-          <TextField
-            fullWidth
-            label="Product Name"
-            value={name}
-            onChange={(e) => setName(e.target.value)}
-            margin="normal"
-            required
-          />
-          <TextField
-            fullWidth
-            label="Description"
-            value={description}
-            onChange={(e) => setDescription(e.target.value)}
-            multiline
-            rows={3}
-            margin="normal"
-            required
-          />
-          <TextField
-            fullWidth
-            label="Price (₦)"
-            type="number"
-            value={price}
-            onChange={(e) => setPrice(e.target.value)}
-            margin="normal"
-            required
-          />
-          <TextField
-            fullWidth
-            label="Category"
-            value={category}
-            onChange={(e) => setCategory(e.target.value)}
-            margin="normal"
-            required
-          />
-          <TextField
-            fullWidth
-            label="Market Type"
-            value={marketType}
-            onChange={(e) => setMarketType(e.target.value)}
-            margin="normal"
-            required
-          />
-          <Button
-            variant="contained"
-            component="label"
-            sx={{ mt: 2, mb: 1 }}
-          >
-            Upload Image
-            <input
-              type="file"
-              accept="image/*"
-              hidden
-              onChange={(e) => setImageFile(e.target.files[0])}
-            />
-          </Button>
-          {imageFile && (
-            <Typography variant="body2">{imageFile.name}</Typography>
-          )}
-          {uploadProgress > 0 && (
-            <LinearProgress
-              variant="determinate"
-              value={uploadProgress}
-              sx={{ mt: 1, mb: 1 }}
-            />
-          )}
-          <Button
-            type="submit"
-            variant="contained"
-            color="primary"
-            fullWidth
-            sx={{ mt: 2 }}
-            disabled={loading}
-          >
-            {loading ? "Adding..." : "Add Product"}
-          </Button>
-        </form>
-      </Paper>
-    </Box>
+      <select value={category} onChange={(e) => setCategory(e.target.value)} required>
+        <option value="">Select Category</option>
+        {Object.keys(categoryRules).map((cat) => (
+          <option key={cat} value={cat}>{cat}</option>
+        ))}
+      </select>
+
+      <input
+        type="text"
+        placeholder="Title*"
+        value={title}
+        onChange={(e) => setTitle(e.target.value)}
+        maxLength={rules.maxTitle}
+        required
+      />
+
+      <textarea
+        placeholder="Description"
+        value={description}
+        onChange={(e) => setDescription(e.target.value)}
+        maxLength={rules.maxDescription}
+      />
+
+      <input type="number" placeholder="Price" value={price} onChange={(e) => setPrice(e.target.value)} required />
+
+      <input type="file" multiple accept="image/*" onChange={handleFileChange} required />
+      {previewImages.length > 0 && (
+        <div style={{ display: "flex", gap: "10px", flexWrap: "wrap" }}>
+          {previewImages.map((src, idx) => (
+            <img key={idx} src={src} alt={`preview-${idx}`} style={{ width: "80px", height: "80px", objectFit: "cover", border: "1px solid #ccc" }} />
+          ))}
+        </div>
+      )}
+
+      {/* Conditional fields */}
+      {rules.requireBrand && <input placeholder="Brand" value={brand} onChange={(e) => setBrand(e.target.value)} />}
+      {rules.requireModel && <input placeholder="Model" value={model} onChange={(e) => setModel(e.target.value)} />}
+      {rules.requireCondition && (
+        <select value={condition} onChange={(e) => setCondition(e.target.value)}>
+          <option value="">Select Condition</option>
+          <option value="New">New</option>
+          <option value="Used">Used</option>
+        </select>
+      )}
+
+      {/* Location */}
+      {rules.requireLocation && (
+        <>
+          <select value={stateLocation} onChange={(e) => { setStateLocation(e.target.value); setCityLocation(""); }}>
+            <option value="">Select State</option>
+            {Object.keys(locations).map((st) => <option key={st} value={st}>{st}</option>)}
+          </select>
+          <select value={cityLocation} onChange={(e) => setCityLocation(e.target.value)}>
+            <option value="">Select City</option>
+            {cities.map((c) => <option key={c} value={c}>{c}</option>)}
+          </select>
+        </>
+      )}
+
+      <label>
+        <input type="checkbox" checked={isPromoted} onChange={() => setIsPromoted(!isPromoted)} />
+        Promote this product (free, 30 days)
+      </label>
+
+      <button type="submit" disabled={loading}>
+        {loading ? "Uploading..." : `Add to ${marketType}`}
+      </button>
+    </form>
   );
-}
+};
+
+export default AddProduct;
