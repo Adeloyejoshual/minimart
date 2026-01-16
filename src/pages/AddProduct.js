@@ -4,7 +4,8 @@ import { collection, addDoc, serverTimestamp } from "firebase/firestore";
 import { db, auth } from "../firebase";
 import { uploadToCloudinary } from "../cloudinary";
 import { useNavigate, useLocation } from "react-router-dom";
-import categoriesData from "../config/categoriesData"; // <-- full brands/models
+import categoriesData from "../config/categoriesData"; // main/sub/brand/model
+import productOptions from "../config/productOptions"; // storage, colors, SIM, features, etc.
 import locations from "../config/locations";
 import { useAdLimitCheck } from "../hooks/useAdLimits";
 
@@ -22,6 +23,12 @@ const AddProduct = () => {
   const [stateLocation, setStateLocation] = useState("");
   const [cityLocation, setCityLocation] = useState("");
   const [isPromoted, setIsPromoted] = useState(false);
+  const [selectedStorage, setSelectedStorage] = useState("");
+  const [selectedColor, setSelectedColor] = useState("");
+  const [selectedSIM, setSelectedSIM] = useState("");
+  const [selectedFeatures, setSelectedFeatures] = useState([]);
+  const [phoneNumber, setPhoneNumber] = useState("");
+
   const [loading, setLoading] = useState(false);
 
   const navigate = useNavigate();
@@ -31,40 +38,36 @@ const AddProduct = () => {
 
   const { checkLimit } = useAdLimitCheck();
 
-  // Dynamically get subcategories, brands, and models
+  // Dynamic lists
   const subCategories = mainCategory ? categoriesData[mainCategory]?.subcategories || [] : [];
   const brands = subCategory ? categoriesData[mainCategory]?.brands[subCategory] || [] : [];
   const models = brand ? categoriesData[mainCategory]?.models[brand] || [] : [];
+  const options = mainCategory ? productOptions[mainCategory] || {} : {};
 
   const handleFileChange = (e) => {
-    const selectedFiles = Array.from(e.target.files);
-    setImages(selectedFiles);
-    setPreviewImages(selectedFiles.map(f => URL.createObjectURL(f)));
+    const files = Array.from(e.target.files);
+    setImages(files);
+    setPreviewImages(files.map(f => URL.createObjectURL(f)));
   };
 
   const resetForm = () => {
-    setMainCategory("");
-    setSubCategory("");
-    setBrand("");
-    setModel("");
-    setCondition("");
-    setTitle("");
-    setDescription("");
-    setPrice("");
-    setImages([]);
-    setPreviewImages([]);
-    setStateLocation("");
-    setCityLocation("");
-    setIsPromoted(false);
+    setMainCategory(""); setSubCategory(""); setBrand(""); setModel("");
+    setCondition(""); setTitle(""); setDescription(""); setPrice("");
+    setImages([]); setPreviewImages([]); setStateLocation(""); setCityLocation("");
+    setIsPromoted(false); setSelectedStorage(""); setSelectedColor(""); setSelectedSIM("");
+    setSelectedFeatures([]); setPhoneNumber("");
   };
 
   const handleAdd = async (e) => {
     e.preventDefault();
 
-    if (!auth.currentUser) return alert("Login required");
-    if (!mainCategory || !subCategory || !brand || !model || !title || !price || images.length === 0 || !condition || !stateLocation || !cityLocation) {
+    // Validation
+    if (!auth.currentUser) return alert("Login required.");
+    if (!mainCategory || !subCategory || !brand || !model || !condition || !title || !price || images.length === 0 || !stateLocation || !cityLocation) {
       return alert("Please fill all required fields.");
     }
+    if (!selectedStorage || !selectedColor || !selectedSIM) return alert("Please select storage, color, and SIM type.");
+    if (!phoneNumber.match(/^\d{10,15}$/)) return alert("Enter a valid phone number.");
 
     try {
       setLoading(true);
@@ -79,26 +82,15 @@ const AddProduct = () => {
       // Upload images
       const imageUrls = await Promise.all(images.map(file => uploadToCloudinary(file)));
 
-      // Save to Firestore
+      // Save product
       await addDoc(collection(db, "products"), {
-        mainCategory,
-        subCategory,
-        brand,
-        model,
-        condition,
-        title,
-        description,
-        price: parseFloat(price),
-        images: imageUrls,
-        coverImage: imageUrls[0],
-        ownerId: auth.currentUser.uid,
-        marketType,
-        state: stateLocation,
-        city: cityLocation,
-        isPromoted,
-        promotedAt: isPromoted ? new Date() : null,
+        mainCategory, subCategory, brand, model, condition, title, description,
+        price: parseFloat(price), images: imageUrls, coverImage: imageUrls[0],
+        ownerId: auth.currentUser.uid, marketType, state: stateLocation, city: cityLocation,
+        isPromoted, promotedAt: isPromoted ? new Date() : null,
         promotionExpiresAt: isPromoted ? new Date(Date.now() + 30*24*60*60*1000) : null,
-        createdAt: serverTimestamp()
+        createdAt: serverTimestamp(), storage: selectedStorage, color: selectedColor,
+        sim: selectedSIM, features: selectedFeatures, phoneNumber
       });
 
       alert(`Product added successfully${isPromoted ? " and promoted for 30 days!" : ""}`);
@@ -113,7 +105,10 @@ const AddProduct = () => {
   };
 
   return (
-    <form onSubmit={handleAdd} style={{ maxWidth: 700, margin: "20px auto", padding: 20, borderRadius: 10, background: "#f9f9f9", display: "flex", flexDirection: "column", gap: 15, boxShadow: "0 4px 12px rgba(0,0,0,0.1)" }}>
+    <form onSubmit={handleAdd} style={{
+      maxWidth: 700, margin: "20px auto", padding: 20, borderRadius: 10, background: "#fff",
+      display: "flex", flexDirection: "column", gap: 15, boxShadow: "0 4px 12px rgba(0,0,0,0.1)"
+    }}>
       <h2 style={{ textAlign: "center", color: "#0d6efd" }}>Post Ad ({marketType})</h2>
 
       {/* Category → Subcategory → Brand → Model */}
@@ -122,26 +117,20 @@ const AddProduct = () => {
         {Object.keys(categoriesData).map(cat => <option key={cat} value={cat}>{cat}</option>)}
       </select>
 
-      {subCategories.length > 0 && (
-        <select value={subCategory} onChange={e => { setSubCategory(e.target.value); setBrand(""); setModel(""); }} required>
-          <option value="">Select Subcategory</option>
-          {subCategories.map(sub => <option key={sub} value={sub}>{sub}</option>)}
-        </select>
-      )}
+      {subCategories.length > 0 && <select value={subCategory} onChange={e => { setSubCategory(e.target.value); setBrand(""); setModel(""); }} required>
+        <option value="">Select Subcategory</option>
+        {subCategories.map(sub => <option key={sub} value={sub}>{sub}</option>)}
+      </select>}
 
-      {brands.length > 0 && (
-        <select value={brand} onChange={e => { setBrand(e.target.value); setModel(""); }} required>
-          <option value="">Select Brand</option>
-          {brands.map(b => <option key={b} value={b}>{b}</option>)}
-        </select>
-      )}
+      {brands.length > 0 && <select value={brand} onChange={e => { setBrand(e.target.value); setModel(""); }} required>
+        <option value="">Select Brand</option>
+        {brands.map(b => <option key={b} value={b}>{b}</option>)}
+      </select>}
 
-      {models.length > 0 && (
-        <select value={model} onChange={e => setModel(e.target.value)} required>
-          <option value="">Select Model</option>
-          {models.map(m => <option key={m} value={m}>{m}</option>)}
-        </select>
-      )}
+      {models.length > 0 && <select value={model} onChange={e => setModel(e.target.value)} required>
+        <option value="">Select Model</option>
+        {models.map(m => <option key={m} value={m}>{m}</option>)}
+      </select>}
 
       {/* Condition */}
       <select value={condition} onChange={e => setCondition(e.target.value)} required>
@@ -150,20 +139,53 @@ const AddProduct = () => {
         <option value="Used">Used</option>
       </select>
 
+      {/* Storage, Color, SIM */}
+      {options.storageOptions && <select value={selectedStorage} onChange={e => setSelectedStorage(e.target.value)} required>
+        <option value="">Select Storage</option>
+        {options.storageOptions.map(s => <option key={s} value={s}>{s}</option>)}
+      </select>}
+
+      {options.colors && <select value={selectedColor} onChange={e => setSelectedColor(e.target.value)} required>
+        <option value="">Select Color</option>
+        {options.colors.map(c => <option key={c} value={c}>{c}</option>)}
+      </select>}
+
+      {options.simTypes && <select value={selectedSIM} onChange={e => setSelectedSIM(e.target.value)} required>
+        <option value="">Select SIM Type</option>
+        {options.simTypes.map(s => <option key={s} value={s}>{s}</option>)}
+      </select>}
+
+      {/* Features checkboxes */}
+      {options.features && options.features.length > 0 && <div>
+        <p>Features:</p>
+        {options.features.map(f => (
+          <label key={f} style={{ display: "block", marginBottom: 5 }}>
+            <input
+              type="checkbox"
+              value={f}
+              checked={selectedFeatures.includes(f)}
+              onChange={e => {
+                if (e.target.checked) setSelectedFeatures([...selectedFeatures, f]);
+                else setSelectedFeatures(selectedFeatures.filter(feat => feat !== f));
+              }}
+            /> {f}
+          </label>
+        ))}
+      </div>}
+
       {/* Title & Description */}
       <input type="text" placeholder="Title*" value={title} onChange={e => setTitle(e.target.value)} maxLength={70} required />
       <textarea placeholder="Description" value={description} onChange={e => setDescription(e.target.value)} maxLength={850} />
 
-      {/* Price */}
+      {/* Price & Phone */}
       <input type="number" placeholder="Price*" value={price} onChange={e => setPrice(e.target.value)} required />
+      <input type="tel" placeholder="Your phone number*" value={phoneNumber} onChange={e => setPhoneNumber(e.target.value)} required />
 
       {/* Images */}
       <input type="file" multiple accept="image/*" onChange={handleFileChange} required />
-      {previewImages.length > 0 && (
-        <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
-          {previewImages.map((src, i) => <img key={i} src={src} alt={`preview-${i}`} style={{ width: 80, height: 80, objectFit: "cover", borderRadius: 5, border: "1px solid #ccc" }} />)}
-        </div>
-      )}
+      {previewImages.length > 0 && <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
+        {previewImages.map((src, i) => <img key={i} src={src} alt={`preview-${i}`} style={{ width: 80, height: 80, objectFit: "cover", borderRadius: 5, border: "1px solid #ccc" }} />)}
+      </div>}
 
       {/* Location */}
       <select value={stateLocation} onChange={e => { setStateLocation(e.target.value); setCityLocation(""); }} required>
@@ -171,14 +193,12 @@ const AddProduct = () => {
         {Object.keys(locations).map(st => <option key={st} value={st}>{st}</option>)}
       </select>
 
-      {stateLocation && (
-        <select value={cityLocation} onChange={e => setCityLocation(e.target.value)} required>
-          <option value="">Select City</option>
-          {locations[stateLocation].map(c => <option key={c} value={c}>{c}</option>)}
-        </select>
-      )}
+      {stateLocation && <select value={cityLocation} onChange={e => setCityLocation(e.target.value)} required>
+        <option value="">Select City</option>
+        {locations[stateLocation].map(c => <option key={c} value={c}>{c}</option>)}
+      </select>}
 
-      {/* Promotion */}
+      {/* Promote */}
       <label style={{ display: "flex", alignItems: "center", gap: 10 }}>
         <input type="checkbox" checked={isPromoted} onChange={() => setIsPromoted(!isPromoted)} />
         Promote this product (free, 30 days)
