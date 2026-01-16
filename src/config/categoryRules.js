@@ -1,5 +1,6 @@
-// src/config/categoryRules.js
-export const categoryRules = {
+// /config/categoryRules.js
+
+const categoryRules = {
   "TV & DVD Equipment": {
     minTitle: 10,
     maxTitle: 70,
@@ -7,8 +8,11 @@ export const categoryRules = {
     maxImages: 20,
     requireBrand: true,
     requireModel: true,
+    requireCondition: true,
+    requireType: true,
+    requireLocation: true,
     maxDescription: 850,
-    freeAdsLimit: 1,
+    freeAdsLimit: 1
   },
 
   Phones: {
@@ -18,7 +22,20 @@ export const categoryRules = {
     maxImages: 10,
     requireBrand: true,
     requireModel: true,
-    maxDescription: 850,
-    freeAdsLimit: 2,
+    requireLocation: true,
+    maxDescription: 600,
+    freeAdsLimit: 2
   },
+
+  Default: {
+    minTitle: 5,
+    maxTitle: 70,
+    minImages: 1,
+    maxImages: 10,
+    requireLocation: true,
+    maxDescription: 500,
+    freeAdsLimit: 3
+  }
 };
+
+export default categoryRules;
