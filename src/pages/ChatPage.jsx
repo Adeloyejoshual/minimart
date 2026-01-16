@@ -12,12 +12,23 @@ import {
   setDoc,
 } from "firebase/firestore";
 import { db, auth } from "../firebase";
+import {
+  Box,
+  Typography,
+  Button,
+  Paper,
+  Chip,
+  TextField,
+  Avatar,
+  Divider,
+} from "@mui/material";
 
 export default function ChatPage() {
   const { sellerId } = useParams();
   const location = useLocation();
   const params = new URLSearchParams(location.search);
   const productId = params.get("product");
+  const productName = params.get("productName");
 
   const currentUserId = auth.currentUser.uid;
   const chatId = `${currentUserId}_${productId || "general"}_${sellerId}`;
@@ -27,10 +38,17 @@ export default function ChatPage() {
   const [messages, setMessages] = useState([]);
   const [text, setText] = useState("");
   const [friendTyping, setFriendTyping] = useState(false);
-  const [dropdownOpen, setDropdownOpen] = useState(false);
 
   const messagesEndRef = useRef(null);
-  const dropdownRef = useRef(null);
+
+  const quickActions = [
+    "Drop your number",
+    "Is this available?",
+    "Ask for location",
+    "Make an offer",
+    "Please call me",
+    "Let's plan a meeting",
+  ];
 
   /* ---------------- Load friend info ---------------- */
   useEffect(() => {
@@ -54,30 +72,17 @@ export default function ChatPage() {
   /* ---------------- Load messages ---------------- */
   useEffect(() => {
     const q = collection(db, "chats", chatId, "messages");
-    const unsub = onSnapshot(
-      q,
-      (snap) => {
-        const msgs = snap.docs.map((d) => ({ id: d.id, ...d.data() }));
-        setMessages(msgs);
-        scrollToBottom();
-      },
-      (err) => console.error(err)
-    );
+    const unsub = onSnapshot(q, (snap) => {
+      const msgs = snap.docs.map((d) => ({ id: d.id, ...d.data() }));
+      setMessages(msgs);
+      scrollToBottom();
+    });
     return () => unsub();
   }, [chatId]);
 
   const scrollToBottom = () => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
   };
-
-  /* ---------------- Typing indicator ---------------- */
-  useEffect(() => {
-    if (!chatId || !friend) return;
-    const unsub = onSnapshot(doc(db, "chats", chatId, "typing", friend.id), (snap) => {
-      setFriendTyping(snap.exists() ? snap.data()?.isTyping || false : false);
-    });
-    return () => unsub();
-  }, [chatId, friend]);
 
   const setTypingStatus = async (typing) => {
     const ref = doc(db, "chats", chatId, "typing", currentUserId);
@@ -86,7 +91,6 @@ export default function ChatPage() {
     });
   };
 
-  /* ---------------- Send text message ---------------- */
   const sendTextMessage = async () => {
     if (!text.trim()) return;
     await addDoc(collection(db, "chats", chatId, "messages"), {
@@ -99,155 +103,81 @@ export default function ChatPage() {
     scrollToBottom();
   };
 
-  /* ---------------- Mark product as sold ---------------- */
+  const sendQuickMessage = (msg) => {
+    setText(msg);
+    sendTextMessage();
+  };
+
   const markProductSold = async () => {
     if (!productId) return;
     await updateDoc(doc(db, "products", productId), { sold: true });
     alert("Product marked as sold ✅");
   };
 
-  /* ---------------- Copy phone ---------------- */
-  const copyPhone = () => {
-    if (friend?.phone) {
-      navigator.clipboard.writeText(friend.phone);
-      alert(`Number ${friend.phone} copied 📋`);
-      window.location.href = `tel:${friend.phone}`;
-    }
-  };
-
-  /* ---------------- Dropdown outside click ---------------- */
-  useEffect(() => {
-    const handleClickOutside = (event) => {
-      if (dropdownRef.current && !dropdownRef.current.contains(event.target)) {
-        setDropdownOpen(false);
-      }
-    };
-    document.addEventListener("mousedown", handleClickOutside);
-    return () => document.removeEventListener("mousedown", handleClickOutside);
-  }, []);
-
-  /* ---------------- Quick action messages ---------------- */
-  const quickActions = [
-    "Drop your number",
-    "Is this available?",
-    "Ask for location",
-    "Make an offer",
-    "Please call me",
-    "Let's plan a meeting",
-  ];
-
-  const sendQuickMessage = (msg) => {
-    setText(msg);
-    sendTextMessage();
-  };
-
-  /* ---------------- Render ---------------- */
   return (
-    <div style={{ display: "flex", flexDirection: "column", height: "100vh" }}>
+    <Box display="flex" flexDirection="column" height="100vh">
       {/* Sticky Header */}
-      <div
-        style={{
-          position: "sticky",
-          top: 0,
-          background: "#0D6EFD",
-          color: "#fff",
-          padding: 12,
-          zIndex: 20,
-          display: "flex",
-          flexDirection: "column",
-        }}
+      <Box
+        position="sticky"
+        top={0}
+        bgcolor="primary.main"
+        color="#fff"
+        p={2}
+        zIndex={10}
       >
-        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-          <div>
-            <strong>{friend?.name}</strong>{" "}
-            {friend?.verified && <span style={{ marginLeft: 5 }}>✅</span>}
-          </div>
-          <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
-            {friend?.phone && (
-              <button
-                onClick={copyPhone}
-                style={{
-                  display: "flex",
-                  alignItems: "center",
-                  gap: 4,
-                  background: "transparent",
-                  border: "none",
-                  color: "#fff",
-                  cursor: "pointer",
-                  fontSize: 14,
-                }}
-              >
-                📞 {friend.phone}
-              </button>
-            )}
-            {product && !product.sold && (
-              <button
-                onClick={markProductSold}
-                style={{
-                  padding: "4px 8px",
-                  background: "#198754",
-                  color: "#fff",
-                  border: "none",
-                  borderRadius: 4,
-                  cursor: "pointer",
-                  fontSize: 12,
-                }}
-              >
-                Mark Sold
-              </button>
-            )}
-            {product && (
-              <div ref={dropdownRef} style={{ position: "relative" }}>
-                <button
-                  onClick={() => setDropdownOpen(!dropdownOpen)}
-                  style={{
-                    padding: "4px 8px",
-                    background: "#ffc107",
-                    border: "none",
-                    borderRadius: 4,
-                    cursor: "pointer",
-                    fontSize: 12,
-                  }}
-                >
-                  Product Info ▼
-                </button>
-                {dropdownOpen && (
-                  <div
-                    style={{
-                      position: "absolute",
-                      top: "110%",
-                      right: 0,
-                      background: "#fff",
-                      color: "#000",
-                      padding: 10,
-                      borderRadius: 6,
-                      boxShadow: "0 2px 8px rgba(0,0,0,0.2)",
-                      minWidth: 220,
-                      zIndex: 30,
-                    }}
-                  >
-                    <p style={{ margin: 2, fontWeight: "bold" }}>{product.name}</p>
-                    <p style={{ margin: 2 }}>₦{product.price}</p>
-                    <p style={{ margin: 2, fontSize: 12 }}>
-                      Posted on: {product.postedDate || "N/A"}
-                    </p>
-                    {product.sold && <span style={{ fontSize: 12, color: "#dc3545" }}>SOLD</span>}
-                    <p style={{ fontSize: 12, marginTop: 4 }}>
-                      ❗️ Never pay in advance! Always inspect the product.
-                    </p>
-                    <p style={{ fontSize: 12 }}>
-                      ✅ Inform the seller you got their number on Jiji so they know where you came from
-                    </p>
-                  </div>
-                )}
-              </div>
-            )}
-          </div>
-        </div>
-      </div>
+        <Box display="flex" justifyContent="space-between" alignItems="center">
+          <Typography variant="h6">
+            {friend?.name} {friend?.verified && "✅"}
+          </Typography>
+          {product && !product.sold && (
+            <Button
+              variant="contained"
+              color="success"
+              size="small"
+              onClick={markProductSold}
+            >
+              Mark Sold
+            </Button>
+          )}
+        </Box>
+
+        {/* Product Preview */}
+        {product && (
+          <Paper
+            elevation={2}
+            sx={{
+              mt: 1,
+              display: "flex",
+              alignItems: "center",
+              p: 1,
+              gap: 1,
+              borderRadius: 2,
+            }}
+          >
+            <Avatar
+              src={product.imageUrl}
+              variant="rounded"
+              sx={{ width: 50, height: 50 }}
+            />
+            <Box>
+              <Typography fontWeight="bold">{productName}</Typography>
+              <Typography fontSize={12} color="text.secondary">
+                ₦{product?.price} {product?.sold && "- SOLD"}
+              </Typography>
+            </Box>
+          </Paper>
+        )}
+      </Box>
 
       {/* Messages */}
-      <div style={{ flex: 1, overflowY: "auto", padding: 10, background: "#f5f5f5" }}>
+      <Box
+        flex={1}
+        overflow="auto"
+        p={2}
+        bgcolor="#f5f5f5"
+        display="flex"
+        flexDirection="column"
+      >
         {messages.map((msg, i) => {
           const isMe = msg.senderId === currentUserId;
           const timestamp = msg.createdAt?.seconds
@@ -257,96 +187,84 @@ export default function ChatPage() {
               })
             : "";
           return (
-            <div
+            <Box
               key={i}
-              style={{
-                display: "flex",
-                flexDirection: "column",
-                alignItems: isMe ? "flex-end" : "flex-start",
-                marginBottom: 10,
-              }}
+              display="flex"
+              flexDirection="column"
+              alignItems={isMe ? "flex-end" : "flex-start"}
+              mb={1}
             >
-              {msg.text && (
-                <div
-                  style={{
-                    background: isMe ? "#0D6EFD" : "#e5e5ea",
-                    color: isMe ? "#fff" : "#000",
-                    padding: "8px 12px",
-                    borderRadius: 16,
-                    maxWidth: "80%",
-                  }}
-                >
-                  {msg.text}
-                </div>
-              )}
-              <span style={{ fontSize: 10, color: "#555", marginTop: 2 }}>
+              <Paper
+                sx={{
+                  p: 1,
+                  bgcolor: isMe ? "primary.main" : "#e5e5ea",
+                  color: isMe ? "#fff" : "#000",
+                  borderRadius: 2,
+                  maxWidth: "70%",
+                  wordBreak: "break-word",
+                }}
+              >
+                {msg.text}
+              </Paper>
+              <Typography fontSize={10} color="text.secondary">
                 {timestamp}
-              </span>
-              {isMe && (
-                <div style={{ fontSize: 10, color: "#555" }}>
-                  {msg.readBy?.length > 1 ? "✅✅" : "✅"}
-                </div>
-              )}
-            </div>
+              </Typography>
+            </Box>
           );
         })}
         {friendTyping && (
-          <p style={{ fontStyle: "italic", color: "#555", fontSize: 12 }}>
+          <Typography fontSize={12} fontStyle="italic" color="text.secondary">
             {friend?.name || "Friend"} is typing...
-          </p>
+          </Typography>
         )}
         <div ref={messagesEndRef} />
-      </div>
+      </Box>
 
       {/* Quick Action Buttons */}
-      <div style={{ display: "flex", gap: 6, flexWrap: "wrap", padding: "6px 10px", background: "#e9ecef" }}>
+      <Box
+        display="flex"
+        flexWrap="wrap"
+        gap={1}
+        p={1}
+        bgcolor="#e9ecef"
+      >
         {quickActions.map((qa, idx) => (
-          <button
+          <Chip
             key={idx}
+            label={qa}
             onClick={() => sendQuickMessage(qa)}
-            style={{
-              background: "#0D6EFD",
-              color: "#fff",
-              border: "none",
-              borderRadius: 20,
-              padding: "4px 12px",
-              fontSize: 12,
-              cursor: "pointer",
-            }}
-          >
-            {qa}
-          </button>
+            color="primary"
+            clickable
+            size="small"
+          />
         ))}
-      </div>
+      </Box>
 
       {/* Sticky Input */}
-      <div
-        style={{
-          position: "sticky",
-          bottom: 0,
-          display: "flex",
-          padding: 10,
-          borderTop: "1px solid #ccc",
-          background: "#fff",
-          gap: 6,
-        }}
+      <Box
+        display="flex"
+        gap={1}
+        p={1}
+        position="sticky"
+        bottom={0}
+        bgcolor="#fff"
+        borderTop="1px solid #ccc"
       >
-        <input
+        <TextField
+          fullWidth
+          variant="outlined"
+          size="small"
+          placeholder="Type a message..."
           value={text}
           onChange={(e) => {
             setText(e.target.value);
             setTypingStatus(!!e.target.value);
           }}
-          placeholder="Type a message..."
-          style={{ flex: 1, padding: 8, borderRadius: 5, border: "1px solid #ccc" }}
         />
-        <button
-          onClick={sendTextMessage}
-          style={{ padding: "8px 12px", background: "#0D6EFD", color: "#fff", border: "none", borderRadius: 5 }}
-        >
+        <Button variant="contained" onClick={sendTextMessage}>
           📨
-        </button>
-      </div>
-    </div>
+        </Button>
+      </Box>
+    </Box>
   );
 }
