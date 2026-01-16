@@ -5,7 +5,7 @@ import { uploadToCloudinary } from "../cloudinary";
 import { useNavigate, useLocation } from "react-router-dom";
 import categories from "../config/categories";
 import locations from "../config/locations";
-import categoryRules from "../config/categoryRules"; // Rules for required fields & image limits
+import categoryRules from "../config/categoryRules";
 import { useAdLimitCheck } from "../hooks/useAdLimits";
 
 const AddProduct = () => {
@@ -27,7 +27,7 @@ const AddProduct = () => {
   const [stateLocation, setStateLocation] = useState("");
   const [cityLocation, setCityLocation] = useState("");
 
-  // Promotion
+  // Promotion & Loading
   const [isPromoted, setIsPromoted] = useState(false);
   const [loading, setLoading] = useState(false);
 
@@ -38,7 +38,6 @@ const AddProduct = () => {
 
   const subCategories = mainCategory ? categories[mainCategory] || [] : [];
   const rules = mainCategory ? categoryRules[mainCategory] || categoryRules.Default : categoryRules.Default;
-
   const { checkLimit } = useAdLimitCheck();
 
   // File handling
@@ -66,39 +65,49 @@ const AddProduct = () => {
 
   const handleAdd = async (e) => {
     e.preventDefault();
+    console.log("Submit clicked", { mainCategory, subCategory, title, price, images, marketType });
 
-    // Validation
+    // Basic validation
+    if (!auth.currentUser) return alert("You must be logged in to post an ad.");
     if (!mainCategory || !subCategory || !title || !price || images.length === 0) {
-      return alert("Please fill all required fields!");
+      return alert("Please fill all required fields and upload images.");
     }
-
     if (images.length < rules.minImages || images.length > rules.maxImages) {
       return alert(`You must upload between ${rules.minImages} and ${rules.maxImages} images.`);
     }
-
     if (rules.requireBrand && !brand) return alert("Brand is required for this category.");
     if (rules.requireModel && !model) return alert("Model is required for this category.");
     if (rules.requireCondition && !condition) return alert("Condition is required for this category.");
     if (rules.requireLocation && (!stateLocation || !cityLocation)) return alert("Location is required for this category.");
 
-    if (!auth.currentUser) return alert("Login required.");
-
-    // Check free ad limit
-    const limitReached = await checkLimit(auth.currentUser.uid, mainCategory);
-    if (limitReached && !isPromoted) {
-      return alert("Free ad limit reached. Promote this ad to post more.");
-    }
-
     try {
       setLoading(true);
 
-      // Upload images to Cloudinary
-      const imageUrls = await Promise.all(
-        images.map((file) => uploadToCloudinary(file))
-      );
+      // Check free ad limit
+      const limitReached = await checkLimit(auth.currentUser.uid, mainCategory);
+      if (limitReached && !isPromoted) {
+        setLoading(false);
+        return alert("Free ad limit reached. Promote this ad to post more.");
+      }
 
-      // Add product to Firestore
-      await addDoc(collection(db, "products"), {
+      // Upload images safely
+      const imageUrls = [];
+      for (let file of images) {
+        try {
+          const url = await uploadToCloudinary(file);
+          if (!url) throw new Error("Upload failed");
+          console.log("Uploaded image URL:", url);
+          imageUrls.push(url);
+        } catch (err) {
+          console.error("Error uploading", file.name, err);
+          alert(`Error uploading ${file.name}: ${err.message}`);
+          setLoading(false);
+          return;
+        }
+      }
+
+      // Add to Firestore
+      const docRef = await addDoc(collection(db, "products"), {
         mainCategory,
         subCategory,
         title,
@@ -119,11 +128,12 @@ const AddProduct = () => {
         createdAt: serverTimestamp(),
       });
 
+      console.log("Product added successfully, ID:", docRef.id);
       alert(`Product added successfully${isPromoted ? " and promoted for 30 days!" : "!"}`);
       resetForm();
       navigate(`/${marketType}`);
     } catch (err) {
-      console.error(err);
+      console.error("Error in handleAdd:", err);
       alert("Error adding product: " + err.message);
     } finally {
       setLoading(false);
@@ -131,85 +141,32 @@ const AddProduct = () => {
   };
 
   return (
-    <form
-      onSubmit={handleAdd}
-      style={{
-        maxWidth: "600px",
-        margin: "20px auto",
-        display: "flex",
-        flexDirection: "column",
-        gap: "15px",
-        padding: "20px",
-        border: "1px solid #ddd",
-        borderRadius: "8px",
-        background: "#fff",
-      }}
-    >
+    <form onSubmit={handleAdd} style={{ maxWidth: "600px", margin: "20px auto", display: "flex", flexDirection: "column", gap: "15px", padding: "20px", border: "1px solid #ddd", borderRadius: "8px", background: "#fff" }}>
       <h2>Add Product ({marketType})</h2>
 
-      {/* Main Category */}
-      <select
-        value={mainCategory}
-        onChange={(e) => {
-          setMainCategory(e.target.value);
-          setSubCategory("");
-        }}
-        required
-      >
+      {/* Category Selection */}
+      <select value={mainCategory} onChange={(e) => { setMainCategory(e.target.value); setSubCategory(""); }} required>
         <option value="">Select Category</option>
-        {Object.keys(categories).map((cat) => (
-          <option key={cat} value={cat}>{cat}</option>
-        ))}
+        {Object.keys(categories).map((cat) => <option key={cat} value={cat}>{cat}</option>)}
       </select>
 
-      {/* Subcategory */}
       {subCategories.length > 0 && (
-        <select
-          value={subCategory}
-          onChange={(e) => setSubCategory(e.target.value)}
-          required
-        >
+        <select value={subCategory} onChange={(e) => setSubCategory(e.target.value)} required>
           <option value="">Select Subcategory</option>
-          {subCategories.map((sub) => (
-            <option key={sub} value={sub}>{sub}</option>
-          ))}
+          {subCategories.map((sub) => <option key={sub} value={sub}>{sub}</option>)}
         </select>
       )}
 
-      <input
-        type="text"
-        placeholder="Title*"
-        value={title}
-        onChange={(e) => setTitle(e.target.value)}
-        maxLength={rules.maxTitle || 70}
-        required
-      />
+      <input type="text" placeholder="Title*" value={title} onChange={(e) => setTitle(e.target.value)} maxLength={rules.maxTitle || 70} required />
+      <textarea placeholder="Description" value={description} onChange={(e) => setDescription(e.target.value)} maxLength={rules.maxDescription || 850} />
+      <input type="number" placeholder="Price" value={price} onChange={(e) => setPrice(e.target.value)} required />
 
-      <textarea
-        placeholder="Description"
-        value={description}
-        onChange={(e) => setDescription(e.target.value)}
-        maxLength={rules.maxDescription || 850}
-      />
-
-      <input
-        type="number"
-        placeholder="Price"
-        value={price}
-        onChange={(e) => setPrice(e.target.value)}
-        required
-      />
-
+      {/* Images */}
       <input type="file" multiple accept="image/*" onChange={handleFileChange} required />
       {previewImages.length > 0 && (
         <div style={{ display: "flex", gap: "10px", flexWrap: "wrap" }}>
           {previewImages.map((src, idx) => (
-            <img
-              key={idx}
-              src={src}
-              alt={`preview-${idx}`}
-              style={{ width: "80px", height: "80px", objectFit: "cover", border: "1px solid #ccc" }}
-            />
+            <img key={idx} src={src} alt={`preview-${idx}`} style={{ width: "80px", height: "80px", objectFit: "cover", border: "1px solid #ccc" }} />
           ))}
         </div>
       )}
@@ -246,9 +203,7 @@ const AddProduct = () => {
         Promote this product (free, 30 days)
       </label>
 
-      <button type="submit" disabled={loading}>
-        {loading ? "Uploading..." : `Add to ${marketType}`}
-      </button>
+      <button type="submit" disabled={loading}>{loading ? "Uploading..." : `Add to ${marketType}`}</button>
     </form>
   );
 };
