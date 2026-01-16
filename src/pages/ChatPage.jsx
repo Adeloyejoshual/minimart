@@ -12,7 +12,6 @@ import {
   setDoc,
 } from "firebase/firestore";
 import { db, auth } from "../firebase";
-import { FaCheck, FaCheckDouble, FaPaperPlane, FaPhone } from "react-icons/fa";
 
 export default function ChatPage() {
   const { sellerId } = useParams();
@@ -161,7 +160,7 @@ export default function ChatPage() {
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
           <div>
             <strong>{friend?.name}</strong>{" "}
-            {friend?.verified && <span style={{ marginLeft: 5, color: "#0f0" }}>✅</span>}
+            {friend?.verified && <span style={{ marginLeft: 5 }}>✅</span>}
           </div>
           <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
             {friend?.phone && (
@@ -178,7 +177,7 @@ export default function ChatPage() {
                   fontSize: 14,
                 }}
               >
-                <FaPhone /> {friend.phone}
+                📞 {friend.phone}
               </button>
             )}
             {product && !product.sold && (
@@ -247,34 +246,8 @@ export default function ChatPage() {
         </div>
       </div>
 
-      {/* Product Preview */}
-      {product && (
-        <div
-          style={{
-            display: "flex",
-            alignItems: "center",
-            padding: 10,
-            borderBottom: "1px solid #ccc",
-            background: "#f8f9fa",
-          }}
-        >
-          <img
-            src={product.imageUrl}
-            alt={product.name}
-            style={{ width: 60, height: 60, objectFit: "cover", borderRadius: 8, marginRight: 10 }}
-          />
-          <div style={{ flex: 1 }}>
-            <p style={{ margin: 0, fontWeight: "bold" }}>{product.name}</p>
-            <p style={{ margin: 0, fontSize: 12, color: "#555" }}>₦{product.price}</p>
-            {product.sold && <span style={{ fontSize: 12, color: "#dc3545" }}>SOLD</span>}
-          </div>
-        </div>
-      )}
-
       {/* Messages */}
-      <div
-        style={{ flex: 1, overflowY: "auto", padding: 10, background: "#f5f5f5" }}
-      >
+      <div style={{ flex: 1, overflowY: "auto", padding: 10, background: "#f5f5f5" }}>
         {messages.map((msg, i) => {
           const isMe = msg.senderId === currentUserId;
           const timestamp = msg.createdAt?.seconds
@@ -306,10 +279,12 @@ export default function ChatPage() {
                   {msg.text}
                 </div>
               )}
-              <span style={{ fontSize: 10, color: "#555", marginTop: 2 }}>{timestamp}</span>
+              <span style={{ fontSize: 10, color: "#555", marginTop: 2 }}>
+                {timestamp}
+              </span>
               {isMe && (
                 <div style={{ fontSize: 10, color: "#555" }}>
-                  {msg.readBy?.length > 1 ? <FaCheckDouble /> : <FaCheck />}
+                  {msg.readBy?.length > 1 ? "✅✅" : "✅"}
                 </div>
               )}
             </div>
@@ -369,7 +344,7 @@ export default function ChatPage() {
           onClick={sendTextMessage}
           style={{ padding: "8px 12px", background: "#0D6EFD", color: "#fff", border: "none", borderRadius: 5 }}
         >
-          <FaPaperPlane />
+          📨
         </button>
       </div>
     </div>
