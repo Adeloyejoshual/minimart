@@ -1,70 +1,73 @@
-// src/pages/Marketplace.jsx
 import { useEffect, useState } from "react";
-import { collection, getDocs, query } from "firebase/firestore";
+import { collection, onSnapshot, query, orderBy } from "firebase/firestore";
 import { db } from "../firebase";
 import TopNav from "../components/TopNav";
 import CategoryFilter from "../components/CategoryFilter";
 import SearchBar from "../components/SearchBar";
 import { useNavigate } from "react-router-dom";
+import categories from "../config/categories";
 
 export default function Marketplace() {
   const [products, setProducts] = useState([]);
   const [filteredProducts, setFilteredProducts] = useState([]);
   const [selectedCategory, setSelectedCategory] = useState("");
+  const [selectedSubCategory, setSelectedSubCategory] = useState("");
   const [searchQuery, setSearchQuery] = useState("");
   const navigate = useNavigate();
 
-  const categories = [
-    "Vehicles",
-    "Property",
-    "Mobile Phones & Tablets",
-    "Electronics",
-    "Home, Furniture & Appliances",
-    "Fashion",
-    "Beauty & Personal Care",
-    "Services",
-    "Repair & Construction",
-    "Commercial Equipment & Tools",
-    "Leisure & Activities",
-    "Babies & Kids",
-    "Food, Agriculture & Farming",
-    "Animals & Pets",
-    "Jobs",
-    "Seeking Work - CVs",
-  ];
-
-  // Load all Marketplace + MiniMart products
+  // Real-time Firestore listener
   useEffect(() => {
-    const loadProducts = async () => {
-      const q = query(collection(db, "products"));
-      const snap = await getDocs(q);
-      const allProducts = snap.docs
-        .map((d) => ({ id: d.id, ...d.data() }))
+    const now = new Date();
+    const q = query(collection(db, "products"), orderBy("createdAt", "desc"));
+
+    const unsubscribe = onSnapshot(q, (snapshot) => {
+      const allProducts = snapshot.docs
+        .map((d) => {
+          const data = d.data();
+
+          // Auto-revert expired promotions
+          if (data.isPromoted && data.promotionExpiresAt?.toDate() < now) {
+            data.isPromoted = false;
+          }
+
+          return { id: d.id, ...data };
+        })
         .filter((p) => p.marketType === "marketplace" || p.marketType === "minimart");
+
+      // Promoted first
+      allProducts.sort((a, b) => (b.isPromoted === a.isPromoted ? 0 : b.isPromoted ? 1 : -1));
+
       setProducts(allProducts);
       setFilteredProducts(allProducts);
-    };
-    loadProducts();
+    });
+
+    return () => unsubscribe(); // cleanup
   }, []);
 
-  // Filter by category & search
+  // Filter by category / subcategory / search
   useEffect(() => {
     let result = [...products];
 
     if (selectedCategory) {
-      result = result.filter((p) => p.category === selectedCategory);
+      result = result.filter((p) => p.mainCategory === selectedCategory);
+    }
+
+    if (selectedSubCategory) {
+      result = result.filter((p) => p.subCategory === selectedSubCategory);
     }
 
     if (searchQuery) {
+      const q = searchQuery.toLowerCase();
       result = result.filter(
         (p) =>
-          p.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
-          (p.category && p.category.toLowerCase().includes(searchQuery.toLowerCase()))
+          p.title?.toLowerCase().includes(q) ||
+          p.mainCategory?.toLowerCase().includes(q) ||
+          p.subCategory?.toLowerCase().includes(q)
       );
     }
 
     setFilteredProducts(result);
-  }, [products, selectedCategory, searchQuery]);
+  }, [products, selectedCategory, selectedSubCategory, searchQuery]);
 
   return (
     <div style={{ background: "#f4f6f8", minHeight: "100vh", paddingBottom: 50 }}>
@@ -90,12 +93,27 @@ export default function Marketplace() {
       <h2 style={{ textAlign: "center", color: "#0D6EFD", marginTop: 20 }}>Marketplace</h2>
 
       <div style={{ maxWidth: 900, margin: "0 auto 20px" }}>
-        <SearchBar onSearch={(q) => setSearchQuery(q)} />
+        <SearchBar onSearch={setSearchQuery} />
+
+        {/* Main Category Filter */}
         <CategoryFilter
-          categories={categories}
+          categories={Object.keys(categories)}
           selected={selectedCategory}
-          onChange={setSelectedCategory}
+          onChange={(cat) => {
+            setSelectedCategory(cat);
+            setSelectedSubCategory(""); // reset subcategory
+          }}
         />
+
+        {/* Subcategory Filter */}
+        {selectedCategory && categories[selectedCategory]?.length > 0 && (
+          <CategoryFilter
+            categories={categories[selectedCategory]}
+            selected={selectedSubCategory}
+            onChange={setSelectedSubCategory}
+            label="Subcategory"
+          />
+        )}
       </div>
 
       <div
@@ -132,13 +150,16 @@ export default function Marketplace() {
                 e.currentTarget.style.boxShadow = "0 2px 6px rgba(0,0,0,0.05)";
               }}
             >
+              {p.isPromoted && (
+                <span style={{ color: "red", fontWeight: "bold" }}>Promoted</span>
+              )}
               <img
-                src={p.imageUrl}
+                src={p.coverImage}
                 width="150"
                 style={{ borderRadius: 5, marginBottom: 10 }}
               />
               <p style={{ fontWeight: "600", color: "#212529", margin: 0 }}>
-                {p.name}
+                {p.title}
               </p>
               <p style={{ color: "#198754", fontWeight: "bold", marginTop: 4 }}>
                 ₦{p.price}
