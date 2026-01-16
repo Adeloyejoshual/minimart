@@ -1,64 +1,113 @@
 import React, { useState } from "react";
-import { collection, addDoc, serverTimestamp } from "firebase/firestore";
-import { db, auth } from "../firebase";
-import { uploadToCloudinary } from "../cloudinary";
-import { useNavigate, useLocation } from "react-router-dom";
+import { auth } from "../firebase";
+import categoryRules from "../config/categoryRules";
+import locations from "../config/locations";
+import { validateAd } from "../utils/validators";
+import { uploadImages } from "../services/uploadService";
+import { createAd } from "../services/adsService";
+import { useAdLimitCheck } from "../hooks/useAdLimits";
 
-const AddProduct = () => {
-  const [name, setName] = useState("");
-  const [price, setPrice] = useState("");
+const PostAdForm = () => {
+  // Basic info
+  const [title, setTitle] = useState("");
+  const [category, setCategory] = useState("");
+  const [images, setImages] = useState([]);
   const [description, setDescription] = useState("");
-  const [file, setFile] = useState(null);
-  const [preview, setPreview] = useState(null);
+  const [price, setPrice] = useState("");
+
+  // Conditional fields
+  const [brand, setBrand] = useState("");
+  const [model, setModel] = useState("");
+  const [type, setType] = useState("");
+  const [condition, setCondition] = useState("");
+
+  // Location
+  const [stateLocation, setStateLocation] = useState("");
+  const [cityLocation, setCityLocation] = useState("");
+
+  // Promotion
+  const [isPromoted, setIsPromoted] = useState(false);
+
   const [loading, setLoading] = useState(false);
 
-  const navigate = useNavigate();
-  const location = useLocation();
+  const rules = categoryRules[category] || categoryRules.Default;
+  const cities = stateLocation ? locations[stateLocation] : [];
 
-  // Determine marketType from URL query
-  const params = new URLSearchParams(location.search);
-  const marketType = params.get("market") || "marketplace"; // default to marketplace
+  const handleFileChange = (e) => setImages([...e.target.files]);
 
-  // Handle file selection
-  const handleFileChange = (e) => {
-    const selectedFile = e.target.files[0];
-    if (selectedFile) {
-      setFile(selectedFile);
-      setPreview(URL.createObjectURL(selectedFile));
-    } else {
-      setFile(null);
-      setPreview(null);
-    }
+  const resetForm = () => {
+    setTitle("");
+    setCategory("");
+    setImages([]);
+    setDescription("");
+    setPrice("");
+    setBrand("");
+    setModel("");
+    setType("");
+    setCondition("");
+    setStateLocation("");
+    setCityLocation("");
+    setIsPromoted(false);
   };
 
-  // Add product
-  const handleAdd = async (e) => {
+  const handleSubmit = async (e) => {
     e.preventDefault();
-    if (!name || !price || !file) return alert("All fields are required");
+
+    if (!auth.currentUser) return alert("Login required");
+
+    // Validate
+    const error = validateAd({
+      title,
+      images,
+      description,
+      rules,
+      brand,
+      model,
+      type,
+      condition,
+      location: cityLocation,
+    });
+    if (error) return alert(error);
+
+    // Free ad limit check (promotion counts as free)
+    const limitReached = await useAdLimitCheck(auth.currentUser.uid, category);
+    if (limitReached && !isPromoted) {
+      return alert("Free ad limit reached. You can promote this ad to bypass the limit.");
+    }
 
     try {
       setLoading(true);
 
-      // Upload image to Cloudinary
-      const imageUrl = await uploadToCloudinary(file);
-      if (!imageUrl) throw new Error("Image upload failed");
+      // Upload images
+      const imageUrls = await uploadImages(images);
 
-      // Add product to Firestore
-      await addDoc(collection(db, "products"), {
-        name,
-        price: parseFloat(price),
+      // Create ad in Firestore
+      await createAd({
+        title,
+        category,
         description,
-        imageUrl,
+        price: Number(price),
+        images: imageUrls,
+        coverImage: imageUrls[0],
         ownerId: auth.currentUser.uid,
-        marketType, // "minimart" or "marketplace"
-        createdAt: serverTimestamp(),
+        isPromoted,
+        promotedAt: isPromoted ? new Date() : null,
+        promotionExpiresAt: isPromoted
+          ? new Date(Date.now() + 30 * 24 * 60 * 60 * 1000) // 30 days
+          : null,
+        brand,
+        model,
+        type,
+        condition,
+        state: stateLocation,
+        city: cityLocation,
       });
 
-      alert(`Product added successfully to ${marketType}!`);
-      navigate(`/${marketType}`); // Redirect back to respective market
+      alert(`Ad posted successfully${isPromoted ? " and promoted for 30 days!" : "!"}`);
+      resetForm();
     } catch (err) {
       console.error(err);
-      alert("Error adding product: " + err.message);
+      alert("Error posting ad: " + err.message);
     } finally {
       setLoading(false);
     }
@@ -66,66 +115,106 @@ const AddProduct = () => {
 
   return (
     <form
-      onSubmit={handleAdd}
+      onSubmit={handleSubmit}
       style={{
+        maxWidth: "600px",
+        margin: "0 auto",
         display: "flex",
         flexDirection: "column",
         gap: "15px",
         padding: "20px",
-        maxWidth: "400px",
-        margin: "0 auto",
+        border: "1px solid #ddd",
+        borderRadius: "8px",
       }}
     >
-      <h2>Add New Product ({marketType})</h2>
+      <h2>Post Ad</h2>
 
+      {/* Category */}
+      <label>Category*</label>
+      <select value={category} onChange={(e) => setCategory(e.target.value)} required>
+        <option value="">Select Category</option>
+        {Object.keys(categoryRules).map((cat) => (
+          <option key={cat} value={cat}>{cat}</option>
+        ))}
+      </select>
+
+      {/* Title */}
+      <label>Title* ({title.length}/{rules.maxTitle})</label>
       <input
         type="text"
-        placeholder="Product Name"
-        value={name}
-        onChange={(e) => setName(e.target.value)}
+        value={title}
+        onChange={(e) => setTitle(e.target.value)}
+        maxLength={rules.maxTitle}
+        placeholder="Enter title"
         required
       />
 
-      <input
-        type="number"
-        placeholder="Price"
-        value={price}
-        onChange={(e) => setPrice(e.target.value)}
-        required
-      />
-
-      <textarea
-        placeholder="Description"
-        value={description}
-        onChange={(e) => setDescription(e.target.value)}
-      />
-
-      <input
-        type="file"
-        accept="image/*"
-        onChange={handleFileChange}
-        required
-      />
-
-      {/* Image Preview */}
-      {preview && (
-        <img
-          src={preview}
-          alt="Preview"
-          style={{
-            width: "100%",
-            height: "200px",
-            objectFit: "cover",
-            border: "1px solid #ccc",
-          }}
-        />
+      {/* Images */}
+      <label>Images* (min {rules.minImages}, max {rules.maxImages})</label>
+      <input type="file" multiple accept="image/*" onChange={handleFileChange} />
+      {images.length > 0 && (
+        <div style={{ display: "flex", gap: "10px", flexWrap: "wrap" }}>
+          {Array.from(images).map((file, idx) => (
+            <img
+              key={idx}
+              src={URL.createObjectURL(file)}
+              alt={`preview-${idx}`}
+              style={{ width: "80px", height: "80px", objectFit: "cover", border: "1px solid #ccc" }}
+            />
+          ))}
+        </div>
       )}
 
-      <button type="submit" disabled={loading}>
-        {loading ? "Uploading..." : `Add to ${marketType}`}
-      </button>
+      {/* Conditional fields */}
+      {rules.requireBrand && <input placeholder="Brand*" value={brand} onChange={(e) => setBrand(e.target.value)} required />}
+      {rules.requireModel && <input placeholder="Model*" value={model} onChange={(e) => setModel(e.target.value)} required />}
+      {rules.requireType && <input placeholder="Type*" value={type} onChange={(e) => setType(e.target.value)} required />}
+      {rules.requireCondition && (
+        <select value={condition} onChange={(e) => setCondition(e.target.value)} required>
+          <option value="">Select Condition*</option>
+          <option value="New">New</option>
+          <option value="Used">Used</option>
+        </select>
+      )}
+
+      {/* Location */}
+      {rules.requireLocation && (
+        <>
+          <label>State*</label>
+          <select value={stateLocation} onChange={(e) => { setStateLocation(e.target.value); setCityLocation(""); }} required>
+            <option value="">Select State</option>
+            {Object.keys(locations).map((st) => <option key={st} value={st}>{st}</option>)}
+          </select>
+
+          <label>City*</label>
+          <select value={cityLocation} onChange={(e) => setCityLocation(e.target.value)} required>
+            <option value="">Select City</option>
+            {cities.map((c) => <option key={c} value={c}>{c}</option>)}
+          </select>
+        </>
+      )}
+
+      {/* Description */}
+      <textarea
+        value={description}
+        onChange={(e) => setDescription(e.target.value)}
+        maxLength={rules.maxDescription}
+        placeholder="Description*"
+        required
+      />
+
+      {/* Price */}
+      <input type="number" placeholder="Price (₦)" value={price} onChange={(e) => setPrice(e.target.value)} min="0" />
+
+      {/* Promote */}
+      <label>
+        <input type="checkbox" checked={isPromoted} onChange={() => setIsPromoted(!isPromoted)} />
+        Promote this ad (free, visible for 30 days)
+      </label>
+
+      <button type="submit" disabled={loading}>{loading ? "Posting..." : "Post Ad"}</button>
     </form>
   );
 };
 
-export default AddProduct;
+export default PostAdForm;
