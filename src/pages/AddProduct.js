@@ -3,7 +3,16 @@ import PostAdForm from "../components/PostAdForm";
 
 const AddProduct = () => {
   return (
-    <div style={{ padding: "20px", minHeight: "100vh", background: "#f9f9f9" }}>
+    <div
+      style={{
+        minHeight: "100vh",
+        padding: "20px",
+        backgroundColor: "#f4f4f4",
+        display: "flex",
+        justifyContent: "center",
+        alignItems: "flex-start",
+      }}
+    >
       <PostAdForm />
     </div>
   );
