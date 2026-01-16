@@ -15,7 +15,7 @@ export default function Marketplace() {
   const [searchQuery, setSearchQuery] = useState("");
   const navigate = useNavigate();
 
-  // Real-time Firestore listener
+  // Firestore listener
   useEffect(() => {
     const now = new Date();
     const q = query(collection(db, "products"), orderBy("createdAt", "desc"));
@@ -24,20 +24,15 @@ export default function Marketplace() {
       const allProducts = snapshot.docs
         .map((d) => {
           const data = d.data();
-
-          // Auto-revert expired promotions
           if (data.isPromoted && data.promotionExpiresAt?.toDate() < now) {
             data.isPromoted = false;
           }
-
           return { id: d.id, ...data };
         })
         .filter((p) => p.marketType === "marketplace" || p.marketType === "minimart");
 
       // Promoted first
-      allProducts.sort((a, b) =>
-        b.isPromoted === a.isPromoted ? 0 : b.isPromoted ? -1 : 1
-      );
+      allProducts.sort((a, b) => (b.isPromoted === a.isPromoted ? 0 : b.isPromoted ? -1 : 1));
 
       setProducts(allProducts);
       setFilteredProducts(allProducts);
@@ -46,18 +41,11 @@ export default function Marketplace() {
     return () => unsubscribe();
   }, []);
 
-  // Filter by category / subcategory / search
+  // Filtering
   useEffect(() => {
     let result = [...products];
-
-    if (selectedCategory) {
-      result = result.filter((p) => p.mainCategory === selectedCategory);
-    }
-
-    if (selectedSubCategory) {
-      result = result.filter((p) => p.subCategory === selectedSubCategory);
-    }
-
+    if (selectedCategory) result = result.filter((p) => p.mainCategory === selectedCategory);
+    if (selectedSubCategory) result = result.filter((p) => p.subCategory === selectedSubCategory);
     if (searchQuery) {
       const q = searchQuery.toLowerCase();
       result = result.filter(
@@ -67,7 +55,6 @@ export default function Marketplace() {
           p.subCategory?.toLowerCase().includes(q)
       );
     }
-
     setFilteredProducts(result);
   }, [products, selectedCategory, selectedSubCategory, searchQuery]);
 
@@ -75,6 +62,7 @@ export default function Marketplace() {
     <div style={{ background: "#f4f6f8", minHeight: "100vh", paddingBottom: 50 }}>
       <TopNav />
 
+      {/* Warning */}
       <div
         style={{
           background: "#fffbe6",
@@ -94,37 +82,40 @@ export default function Marketplace() {
 
       <h2 style={{ textAlign: "center", color: "#0D6EFD", marginTop: 20 }}>Marketplace</h2>
 
-      {/* Add Product Button */}
+      {/* Add Product */}
       <div style={{ textAlign: "center", marginBottom: 20 }}>
         <button
           onClick={() => navigate("/add-product?market=marketplace")}
           style={{
             background: "#0d6efd",
             color: "#fff",
-            padding: "10px 20px",
+            padding: "10px 25px",
             border: "none",
-            borderRadius: 5,
+            borderRadius: 6,
             cursor: "pointer",
+            fontWeight: 500,
+            fontSize: 14,
+            boxShadow: "0 2px 8px rgba(0,0,0,0.15)",
+            transition: "all 0.2s ease",
           }}
+          onMouseEnter={(e) => { e.currentTarget.style.background = "#0b5ed7"; }}
+          onMouseLeave={(e) => { e.currentTarget.style.background = "#0d6efd"; }}
         >
           + Add Product / Post Ad
         </button>
       </div>
 
+      {/* Filters */}
       <div style={{ maxWidth: 900, margin: "0 auto 20px" }}>
         <SearchBar onSearch={setSearchQuery} />
-
-        {/* Main Category Filter */}
         <CategoryFilter
           categories={Object.keys(categories)}
           selected={selectedCategory}
           onChange={(cat) => {
             setSelectedCategory(cat);
-            setSelectedSubCategory(""); // reset subcategory
+            setSelectedSubCategory("");
           }}
         />
-
-        {/* Subcategory Filter */}
         {selectedCategory && categories[selectedCategory]?.length > 0 && (
           <CategoryFilter
             categories={categories[selectedCategory]}
@@ -138,57 +129,122 @@ export default function Marketplace() {
       {/* Products Grid */}
       <div
         style={{
-          display: "flex",
-          flexWrap: "wrap",
+          display: "grid",
+          gridTemplateColumns: "repeat(auto-fill, minmax(220px, 1fr))",
           gap: 20,
-          maxWidth: 900,
+          maxWidth: 1000,
           margin: "0 auto",
-          justifyContent: "center",
+          padding: "0 10px",
         }}
       >
         {filteredProducts.length > 0 ? (
-          filteredProducts.map((p) => (
-            <div
-              key={p.id}
-              style={{
-                border: "1px solid #dee2e6",
-                padding: 10,
-                width: 180,
-                cursor: "pointer",
-                borderRadius: 8,
-                background: "#ffffff",
-                boxShadow: "0 2px 6px rgba(0,0,0,0.05)",
-                transition: "transform 0.2s, box-shadow 0.2s",
-              }}
-              onClick={() => navigate(`/product/${p.id}`)}
-              onMouseEnter={(e) => {
-                e.currentTarget.style.transform = "scale(1.03)";
-                e.currentTarget.style.boxShadow = "0 4px 12px rgba(0,0,0,0.15)";
-              }}
-              onMouseLeave={(e) => {
-                e.currentTarget.style.transform = "scale(1)";
-                e.currentTarget.style.boxShadow = "0 2px 6px rgba(0,0,0,0.05)";
-              }}
-            >
-              {p.isPromoted && (
-                <span style={{ color: "red", fontWeight: "bold" }}>Promoted</span>
-              )}
-              <img
-                src={p.coverImage || (p.images && p.images[0]) || "/placeholder.png"}
-                width="150"
-                style={{ borderRadius: 5, marginBottom: 10 }}
-                alt={p.title || "Product Image"}
-              />
-              <p style={{ fontWeight: "600", color: "#212529", margin: 0 }}>
-                {p.title || p.name}
-              </p>
-              <p style={{ color: "#198754", fontWeight: "bold", marginTop: 4 }}>
-                ₦{p.price}
-              </p>
-            </div>
-          ))
+          filteredProducts.map((p) => {
+            const imageSrc = p.coverImage || (p.images && p.images[0]) || "/placeholder.png";
+            return (
+              <div
+                key={p.id}
+                style={{
+                  position: "relative",
+                  borderRadius: 12,
+                  overflow: "hidden",
+                  background: "#fff",
+                  boxShadow: "0 4px 15px rgba(0,0,0,0.08)",
+                  cursor: "pointer",
+                  transition: "transform 0.2s, box-shadow 0.2s",
+                  display: "flex",
+                  flexDirection: "column",
+                }}
+                onClick={() => navigate(`/product/${p.id}`)}
+                onMouseEnter={(e) => {
+                  e.currentTarget.style.transform = "translateY(-5px)";
+                  e.currentTarget.style.boxShadow = "0 8px 25px rgba(0,0,0,0.18)";
+                }}
+                onMouseLeave={(e) => {
+                  e.currentTarget.style.transform = "translateY(0)";
+                  e.currentTarget.style.boxShadow = "0 4px 15px rgba(0,0,0,0.08)";
+                }}
+              >
+                {/* Image */}
+                <img
+                  src={imageSrc}
+                  alt={p.title || "Product Image"}
+                  style={{ width: "100%", height: 180, objectFit: "cover" }}
+                  onError={(e) => (e.target.src = "/placeholder.png")}
+                />
+
+                {/* Price Ribbon */}
+                <div
+                  style={{
+                    position: "absolute",
+                    top: 10,
+                    left: 10,
+                    background: "#198754",
+                    color: "#fff",
+                    padding: "3px 8px",
+                    fontSize: 12,
+                    fontWeight: "bold",
+                    borderRadius: 4,
+                  }}
+                >
+                  ₦{p.price}
+                </div>
+
+                {/* Promoted Badge */}
+                {p.isPromoted && (
+                  <div
+                    style={{
+                      position: "absolute",
+                      top: 10,
+                      right: 10,
+                      background: "#ff4d4f",
+                      color: "#fff",
+                      padding: "3px 8px",
+                      fontSize: 10,
+                      fontWeight: "bold",
+                      borderRadius: 4,
+                    }}
+                  >
+                    PROMOTED
+                  </div>
+                )}
+
+                {/* Details */}
+                <div style={{ padding: 12, textAlign: "left", flex: 1 }}>
+                  <p
+                    style={{
+                      fontWeight: 600,
+                      fontSize: 14,
+                      margin: "5px 0",
+                      minHeight: "38px",
+                      overflow: "hidden",
+                      textOverflow: "ellipsis",
+                    }}
+                  >
+                    {p.title || p.name}
+                  </p>
+                  {p.city && p.state && (
+                    <p style={{ fontSize: 12, color: "#6c757d", margin: "2px 0" }}>
+                      {p.city}, {p.state}
+                    </p>
+                  )}
+                  {p.condition && (
+                    <p
+                      style={{
+                        fontSize: 12,
+                        color: "#6c757d",
+                        margin: "2px 0",
+                        fontStyle: "italic",
+                      }}
+                    >
+                      {p.condition}
+                    </p>
+                  )}
+                </div>
+              </div>
+            );
+          })
         ) : (
-          <p style={{ marginTop: 50, color: "#6c757d", fontSize: 16 }}>
+          <p style={{ marginTop: 50, color: "#6c757d", fontSize: 16, textAlign: "center" }}>
             No products found.
           </p>
         )}
