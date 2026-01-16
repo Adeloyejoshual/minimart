@@ -3,7 +3,6 @@ import React, { useEffect, useState } from "react";
 import { useParams, useNavigate } from "react-router-dom";
 import { doc, getDoc } from "firebase/firestore";
 import { db, auth } from "../firebase";
-import { Box, Typography, Button, Paper, Avatar } from "@mui/material";
 
 export default function ProductDetail() {
   const { productId } = useParams();
@@ -19,13 +18,13 @@ export default function ProductDetail() {
         setProduct({ id: docSnap.id, ...docSnap.data() });
       } else {
         alert("Product not found");
-        navigate("/");
+        navigate("/minimart");
       }
     };
     loadProduct();
   }, [productId, navigate]);
 
-  if (!product) return <Typography>Loading product...</Typography>;
+  if (!product) return <p style={{ textAlign: "center" }}>Loading product...</p>;
 
   const handleStartChat = () => {
     if (currentUser.uid === product.ownerId) return;
@@ -37,9 +36,8 @@ export default function ProductDetail() {
   };
 
   const formatDate = (timestamp) => {
-    if (!timestamp) return "N/A";
-    const date = new Date(timestamp.seconds * 1000);
-    return date.toLocaleString([], {
+    if (!timestamp?.seconds) return "N/A";
+    return new Date(timestamp.seconds * 1000).toLocaleString([], {
       year: "numeric",
       month: "short",
       day: "numeric",
@@ -49,58 +47,91 @@ export default function ProductDetail() {
   };
 
   return (
-    <Box maxWidth="600px" mx="auto" mt={3} p={2}>
-      {/* Product Image */}
-      <Paper elevation={3} sx={{ p: 2, mb: 2, borderRadius: 2 }}>
-        <Avatar
+    <div style={{ maxWidth: 600, margin: "20px auto", padding: 16 }}>
+      {/* Product Card */}
+      <div
+        style={{
+          background: "#fff",
+          borderRadius: 12,
+          boxShadow: "0 4px 12px rgba(0,0,0,0.08)",
+          padding: 16,
+          marginBottom: 16,
+        }}
+      >
+        <img
           src={product.imageUrl}
-          variant="rounded"
-          sx={{ width: "100%", height: 300, mb: 2 }}
+          alt={product.name}
+          style={{
+            width: "100%",
+            height: 300,
+            objectFit: "cover",
+            borderRadius: 10,
+            marginBottom: 12,
+          }}
         />
-        <Typography variant="h5" fontWeight="bold">
-          {product.name} {product.sold && "(SOLD)"}
-        </Typography>
-        <Typography variant="h6" color="primary" sx={{ mt: 1 }}>
-          ₦{product.price}
-        </Typography>
-        <Typography variant="body1" sx={{ mt: 1 }}>
-          {product.description}
-        </Typography>
-        <Typography variant="body2" color="text.secondary" sx={{ mt: 1 }}>
-          Category: <b>{product.category}</b> | Market: <b>{product.marketType}</b>
-        </Typography>
-        <Typography variant="caption" color="text.secondary" sx={{ mt: 1, display: "block" }}>
-          Posted: {formatDate(product.postedAt)}
-        </Typography>
-      </Paper>
 
-      {/* Start Chat Button */}
+        <h2 style={{ margin: "4px 0" }}>
+          {product.name}{" "}
+          {product.sold && (
+            <span style={{ color: "#dc3545", fontSize: 14 }}>(SOLD)</span>
+          )}
+        </h2>
+
+        <p style={{ fontSize: 20, fontWeight: "bold", color: "#0D6EFD" }}>
+          ₦{product.price}
+        </p>
+
+        <p style={{ marginTop: 8 }}>{product.description}</p>
+
+        <p style={{ fontSize: 14, color: "#555", marginTop: 8 }}>
+          Category: <b>{product.category}</b> | Market:{" "}
+          <b>{product.marketType}</b>
+        </p>
+
+        <p style={{ fontSize: 12, color: "#777", marginTop: 6 }}>
+          Posted: {formatDate(product.postedAt)}
+        </p>
+      </div>
+
+      {/* Start Chat */}
       {currentUser.uid !== product.ownerId && (
-        <Button
-          variant="contained"
-          color="primary"
-          fullWidth
+        <button
           onClick={handleStartChat}
-          sx={{ py: 1.5, mb: 2 }}
+          style={{
+            width: "100%",
+            padding: "14px",
+            background: "#0D6EFD",
+            color: "#fff",
+            border: "none",
+            borderRadius: 10,
+            fontSize: 16,
+            fontWeight: "bold",
+            cursor: "pointer",
+            marginBottom: 16,
+          }}
         >
           💬 Start Chat
-        </Button>
+        </button>
       )}
 
       {/* Seller Info */}
-      <Paper elevation={1} sx={{ p: 2, borderRadius: 2 }}>
-        <Typography variant="subtitle1" fontWeight="bold">
-          Seller Info
-        </Typography>
-        <Typography variant="body2">
-          Name: {product.ownerName}
-        </Typography>
+      <div
+        style={{
+          background: "#f8f9fa",
+          borderRadius: 10,
+          padding: 14,
+          fontSize: 14,
+        }}
+      >
+        <strong>Seller</strong>
+        <p style={{ margin: "6px 0" }}>{product.ownerName}</p>
+
         {product.sold && (
-          <Typography variant="body2" color="error">
+          <p style={{ color: "#dc3545", fontSize: 13 }}>
             This product has been sold.
-          </Typography>
+          </p>
         )}
-      </Paper>
-    </Box>
+      </div>
+    </div>
   );
 }
