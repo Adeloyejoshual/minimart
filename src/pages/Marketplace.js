@@ -154,12 +154,18 @@ export default function Marketplace() {
                 <span style={{ color: "red", fontWeight: "bold" }}>Promoted</span>
               )}
               <img
-                src={p.coverImage}
+                src={
+                  p.coverImage ||
+                  p.imageUrl ||
+                  (p.images && p.images[0]) ||
+                  "/placeholder.png"
+                }
                 width="150"
                 style={{ borderRadius: 5, marginBottom: 10 }}
+                alt={p.title || "Product Image"}
               />
               <p style={{ fontWeight: "600", color: "#212529", margin: 0 }}>
-                {p.title}
+                {p.title || p.name}
               </p>
               <p style={{ color: "#198754", fontWeight: "bold", marginTop: 4 }}>
                 ₦{p.price}
