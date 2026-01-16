@@ -13,7 +13,7 @@ import ApplySeller from "./pages/ApplySeller";
 import AdminPanel from "./pages/AdminPanel";
 import ProductDetail from "./pages/ProductDetail";
 import AddProduct from "./pages/AddProduct";
-import Chat from "./pages/Chat"; // <-- import Chat page
+import ChatPage from "./pages/ChatPage"; // <-- replace old Chat with ChatPage
 
 function App() {
   const [user, loading] = useAuthState(auth);
@@ -52,8 +52,8 @@ function App() {
             {/* Add Product */}
             <Route path="/add-product" element={<AddProduct />} />
 
-            {/* Chat route — MUST be before catch-all */}
-            <Route path="/chat/:sellerId" element={<Chat />} />
+            {/* Chat route — now using ChatPage */}
+            <Route path="/chat/:sellerId" element={<ChatPage />} />
 
             {/* Catch-all */}
             <Route path="*" element={<Navigate to="/minimart" replace />} />
