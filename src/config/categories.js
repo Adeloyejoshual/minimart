@@ -1,0 +1,108 @@
+const categories = {
+  "Vehicles": [
+    "Cars",
+    "Motorcycles",
+    "Trucks",
+    "Buses",
+    "Spare Parts",
+  ],
+  "Property": [
+    "Houses",
+    "Apartments & Flats",
+    "Land",
+    "Commercial Property",
+    "Vacation Rentals",
+  ],
+  "Mobile Phones & Tablets": [
+    "Mobile Phones",
+    "Tablets",
+    "Phone Accessories",
+  ],
+  "Electronics": [
+    "Accessories & Supplies for Electronics",
+    "Audio & Music Equipment",
+    "Computer Accessories",
+    "Computer Hardware",
+    "Computer Monitors",
+    "Headphones",
+    "Laptops & Computers",
+    "Networking Products",
+    "Photo & Video Cameras",
+    "Printers & Scanners",
+    "Security & Surveillance",
+    "Software",
+    "TV & DVD Equipment",
+    "Video Game Consoles",
+    "Video Games",
+  ],
+  "Home, Furniture & Appliances": [
+    "Furniture",
+    "Kitchen Appliances",
+    "Lighting",
+    "Decor",
+    "Cleaning Supplies",
+  ],
+  "Fashion": [
+    "Clothing",
+    "Shoes",
+    "Accessories",
+    "Bags",
+    "Jewelry",
+  ],
+  "Beauty & Personal Care": [
+    "Cosmetics",
+    "Hair Care",
+    "Skincare",
+    "Fragrances",
+  ],
+  "Services": [
+    "Tutoring",
+    "Transportation",
+    "Events",
+    "Health & Wellness",
+  ],
+  "Repair & Construction": [
+    "Plumbing",
+    "Electrical",
+    "Painting",
+    "Renovation",
+  ],
+  "Commercial Equipment & Tools": [
+    "Machinery",
+    "Industrial Tools",
+    "Office Equipment",
+  ],
+  "Leisure & Activities": [
+    "Sports Equipment",
+    "Gym & Fitness",
+    "Outdoor Activities",
+    "Hobbies",
+  ],
+  "Babies & Kids": [
+    "Toys",
+    "Clothing",
+    "Strollers",
+    "Baby Care",
+  ],
+  "Food, Agriculture & Farming": [
+    "Produce",
+    "Livestock",
+    "Farm Equipment",
+  ],
+  "Animals & Pets": [
+    "Pets",
+    "Pet Food",
+    "Pet Accessories",
+  ],
+  "Jobs": [
+    "Full-time",
+    "Part-time",
+    "Freelance",
+  ],
+  "Seeking Work - CVs": [
+    "CVs",
+    "Portfolios",
+  ],
+};
+
+export default categories;
