@@ -5,6 +5,7 @@ import { uploadToCloudinary } from "../cloudinary";
 import { useNavigate, useLocation } from "react-router-dom";
 import categories from "../config/categories";
 import locations from "../config/locations";
+import categoryRules from "../config/categoryRules"; // Rules for required fields & image limits
 import { useAdLimitCheck } from "../hooks/useAdLimits";
 
 const AddProduct = () => {
@@ -33,13 +34,14 @@ const AddProduct = () => {
   const navigate = useNavigate();
   const locationQuery = useLocation();
   const params = new URLSearchParams(locationQuery.search);
-  const marketType = params.get("market") || "marketplace";
+  const marketType = params.get("market") || "marketplace"; // mini or marketplace
 
   const subCategories = mainCategory ? categories[mainCategory] || [] : [];
+  const rules = mainCategory ? categoryRules[mainCategory] || categoryRules.Default : categoryRules.Default;
 
-  // ✅ Hook-compliant
   const { checkLimit } = useAdLimitCheck();
 
+  // File handling
   const handleFileChange = (e) => {
     const selectedFiles = Array.from(e.target.files);
     setImages(selectedFiles);
@@ -65,29 +67,37 @@ const AddProduct = () => {
   const handleAdd = async (e) => {
     e.preventDefault();
 
-    if (!title || !mainCategory || !subCategory || !price || images.length === 0) {
+    // Validation
+    if (!mainCategory || !subCategory || !title || !price || images.length === 0) {
       return alert("Please fill all required fields!");
     }
+
+    if (images.length < rules.minImages || images.length > rules.maxImages) {
+      return alert(`You must upload between ${rules.minImages} and ${rules.maxImages} images.`);
+    }
+
+    if (rules.requireBrand && !brand) return alert("Brand is required for this category.");
+    if (rules.requireModel && !model) return alert("Model is required for this category.");
+    if (rules.requireCondition && !condition) return alert("Condition is required for this category.");
+    if (rules.requireLocation && (!stateLocation || !cityLocation)) return alert("Location is required for this category.");
+
     if (!auth.currentUser) return alert("Login required.");
 
-    // ✅ Check free ad limit
+    // Check free ad limit
     const limitReached = await checkLimit(auth.currentUser.uid, mainCategory);
     if (limitReached && !isPromoted) {
-      return alert("Free ad limit reached. Promote to post more.");
+      return alert("Free ad limit reached. Promote this ad to post more.");
     }
 
     try {
       setLoading(true);
 
-      // Upload images
-      const imageUrls = [];
-      for (let file of images) {
-        const url = await uploadToCloudinary(file);
-        if (!url) throw new Error("Image upload failed");
-        imageUrls.push(url);
-      }
+      // Upload images to Cloudinary
+      const imageUrls = await Promise.all(
+        images.map((file) => uploadToCloudinary(file))
+      );
 
-      // Add to Firestore
+      // Add product to Firestore
       await addDoc(collection(db, "products"), {
         mainCategory,
         subCategory,
@@ -98,16 +108,14 @@ const AddProduct = () => {
         coverImage: imageUrls[0],
         ownerId: auth.currentUser.uid,
         marketType,
-        brand,
-        model,
-        condition,
-        state: stateLocation,
-        city: cityLocation,
+        brand: brand || null,
+        model: model || null,
+        condition: condition || null,
+        state: stateLocation || null,
+        city: cityLocation || null,
         isPromoted,
         promotedAt: isPromoted ? new Date() : null,
-        promotionExpiresAt: isPromoted
-          ? new Date(Date.now() + 30 * 24 * 60 * 60 * 1000)
-          : null,
+        promotionExpiresAt: isPromoted ? new Date(Date.now() + 30 * 24 * 60 * 60 * 1000) : null,
         createdAt: serverTimestamp(),
       });
 
@@ -173,6 +181,7 @@ const AddProduct = () => {
         placeholder="Title*"
         value={title}
         onChange={(e) => setTitle(e.target.value)}
+        maxLength={rules.maxTitle || 70}
         required
       />
 
@@ -180,38 +189,56 @@ const AddProduct = () => {
         placeholder="Description"
         value={description}
         onChange={(e) => setDescription(e.target.value)}
+        maxLength={rules.maxDescription || 850}
       />
 
-      <input type="number" placeholder="Price" value={price} onChange={(e) => setPrice(e.target.value)} required />
+      <input
+        type="number"
+        placeholder="Price"
+        value={price}
+        onChange={(e) => setPrice(e.target.value)}
+        required
+      />
 
       <input type="file" multiple accept="image/*" onChange={handleFileChange} required />
       {previewImages.length > 0 && (
         <div style={{ display: "flex", gap: "10px", flexWrap: "wrap" }}>
           {previewImages.map((src, idx) => (
-            <img key={idx} src={src} alt={`preview-${idx}`} style={{ width: "80px", height: "80px", objectFit: "cover", border: "1px solid #ccc" }} />
+            <img
+              key={idx}
+              src={src}
+              alt={`preview-${idx}`}
+              style={{ width: "80px", height: "80px", objectFit: "cover", border: "1px solid #ccc" }}
+            />
           ))}
         </div>
       )}
 
       {/* Conditional fields */}
-      <input placeholder="Brand" value={brand} onChange={(e) => setBrand(e.target.value)} />
-      <input placeholder="Model" value={model} onChange={(e) => setModel(e.target.value)} />
-      <select value={condition} onChange={(e) => setCondition(e.target.value)}>
-        <option value="">Select Condition</option>
-        <option value="New">New</option>
-        <option value="Used">Used</option>
-      </select>
+      {rules.requireBrand && <input placeholder="Brand*" value={brand} onChange={(e) => setBrand(e.target.value)} required />}
+      {rules.requireModel && <input placeholder="Model*" value={model} onChange={(e) => setModel(e.target.value)} required />}
+      {rules.requireCondition && (
+        <select value={condition} onChange={(e) => setCondition(e.target.value)} required>
+          <option value="">Select Condition</option>
+          <option value="New">New</option>
+          <option value="Used">Used</option>
+        </select>
+      )}
 
       {/* Location */}
-      <select value={stateLocation} onChange={(e) => { setStateLocation(e.target.value); setCityLocation(""); }}>
-        <option value="">Select State</option>
-        {Object.keys(locations).map((st) => <option key={st} value={st}>{st}</option>)}
-      </select>
-      {stateLocation && (
-        <select value={cityLocation} onChange={(e) => setCityLocation(e.target.value)}>
-          <option value="">Select City</option>
-          {locations[stateLocation].map((c) => <option key={c} value={c}>{c}</option>)}
-        </select>
+      {rules.requireLocation && (
+        <>
+          <select value={stateLocation} onChange={(e) => { setStateLocation(e.target.value); setCityLocation(""); }} required>
+            <option value="">Select State</option>
+            {Object.keys(locations).map((st) => <option key={st} value={st}>{st}</option>)}
+          </select>
+          {stateLocation && (
+            <select value={cityLocation} onChange={(e) => setCityLocation(e.target.value)} required>
+              <option value="">Select City</option>
+              {locations[stateLocation].map((c) => <option key={c} value={c}>{c}</option>)}
+            </select>
+          )}
+        </>
       )}
 
       <label>
