@@ -6,6 +6,7 @@ import { uploadToCloudinary } from "../cloudinary";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import categories from "../config/categories";
 import categoryRules from "../config/categoryRules";
+import { locationsByState } from "../config/locationsByState";
 
 export default function AddProduct() {
   const navigate = useNavigate();
@@ -118,6 +119,7 @@ export default function AddProduct() {
     <div style={styles.container}>
       <h2 style={styles.title}>Post Product</h2>
 
+      {/* Category */}
       <Field label="Category">
         <select value={form.mainCategory} onChange={e => update("mainCategory", e.target.value)}>
           <option value="">Select Category</option>
@@ -134,14 +136,25 @@ export default function AddProduct() {
         </Field>
       )}
 
+      {/* Title */}
       <Field label="Title">
-        <input value={form.title} onChange={e => update("title", e.target.value)} maxLength={rules.maxTitle} />
+        <input
+          value={form.title}
+          onChange={e => update("title", e.target.value)}
+          maxLength={rules.maxTitle}
+        />
       </Field>
 
+      {/* Price */}
       <Field label="Price (₦)">
-        <input type="number" value={form.price} onChange={e => update("price", e.target.value)} />
+        <input
+          type="number"
+          value={form.price}
+          onChange={e => update("price", e.target.value)}
+        />
       </Field>
 
+      {/* Condition */}
       {rules.requireCondition && (
         <Field label="Condition">
           <select value={form.condition} onChange={e => update("condition", e.target.value)}>
@@ -152,18 +165,38 @@ export default function AddProduct() {
         </Field>
       )}
 
+      {/* State & City */}
       <Field label="State">
-        <input value={form.state} onChange={e => update("state", e.target.value)} />
+        <select value={form.state} onChange={e => update("state", e.target.value)}>
+          <option value="">Select State</option>
+          {Object.keys(locationsByState).map(state => (
+            <option key={state} value={state}>{state}</option>
+          ))}
+        </select>
       </Field>
 
-      <Field label="City">
-        <input value={form.city} onChange={e => update("city", e.target.value)} />
-      </Field>
+      {form.state && (
+        <Field label="City / LGA">
+          <select value={form.city} onChange={e => update("city", e.target.value)}>
+            <option value="">Select City / LGA</option>
+            {locationsByState[form.state].map(lga => (
+              <option key={lga} value={lga}>{lga}</option>
+            ))}
+          </select>
+        </Field>
+      )}
 
+      {/* Description */}
       <Field label="Description">
-        <textarea value={form.description} onChange={e => update("description", e.target.value)} maxLength={rules.maxDescription} rows={4} />
+        <textarea
+          value={form.description}
+          onChange={e => update("description", e.target.value)}
+          maxLength={rules.maxDescription}
+          rows={4}
+        />
       </Field>
 
+      {/* Images */}
       <Field label="Images">
         <input type="file" multiple accept="image/*" onChange={e => handleImages(e.target.files)} />
         <div style={styles.images}>
@@ -176,6 +209,7 @@ export default function AddProduct() {
         </div>
       </Field>
 
+      {/* Promote */}
       <Field label="Promote">
         <label style={{ display: "flex", alignItems: "center", gap: 10 }}>
           <input type="checkbox" checked={form.isPromoted} onChange={e => update("isPromoted", e.target.checked)} />
