@@ -1,5 +1,5 @@
 // src/pages/AddProduct.js
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
 import { collection, addDoc, serverTimestamp } from "firebase/firestore";
 import { db, auth } from "../firebase";
 import { uploadToCloudinary } from "../cloudinary";
@@ -10,24 +10,30 @@ import { locationsByRegion } from "../config/locationsByRegion";
 import { useAdLimitCheck } from "../hooks/useAdLimits";
 import ProductOptionsSelector from "../components/ProductOptionsSelector";
 
-const AddProduct = () => {
-  const [mainCategory, setMainCategory] = useState("");
-  const [subCategory, setSubCategory] = useState("");
-  const [brand, setBrand] = useState("");
-  const [model, setModel] = useState("");
-  const [condition, setCondition] = useState("");
-  const [title, setTitle] = useState("");
-  const [description, setDescription] = useState("");
-  const [price, setPrice] = useState("");
-  const [images, setImages] = useState([]);
-  const [previewImages, setPreviewImages] = useState([]);
-  const [region, setRegion] = useState("");
-  const [stateLocation, setStateLocation] = useState("");
-  const [cityLocation, setCityLocation] = useState("");
-  const [isPromoted, setIsPromoted] = useState(false);
-  const [selectedOptions, setSelectedOptions] = useState({});
-  const [phoneNumber, setPhoneNumber] = useState("");
+const MAX_IMAGES = 10;
 
+const AddProduct = () => {
+  // --- Form state ---
+  const [form, setForm] = useState({
+    mainCategory: "",
+    subCategory: "",
+    brand: "",
+    model: "",
+    condition: "",
+    title: "",
+    description: "",
+    price: "",
+    phoneNumber: "",
+    images: [],
+    previewImages: [],
+    region: "",
+    stateLocation: "",
+    cityLocation: "",
+    isPromoted: false,
+    selectedOptions: {},
+  });
+
+  const [errors, setErrors] = useState({});
   const [loading, setLoading] = useState(false);
 
   const navigate = useNavigate();
@@ -37,156 +43,229 @@ const AddProduct = () => {
 
   const { checkLimit } = useAdLimitCheck();
 
-  // Flattened lists
+  // --- Derived lists ---
   const allRegions = Object.keys(locationsByRegion);
-  const allStates = region ? Object.keys(locationsByRegion[region]) : [];
-  const allCities = stateLocation ? locationsByRegion[region][stateLocation] || [] : [];
+  const allStates = form.region ? Object.keys(locationsByRegion[form.region]) : [];
+  const allCities = form.stateLocation ? locationsByRegion[form.region][form.stateLocation] || [] : [];
+  const subCategories = form.mainCategory ? categoriesData[form.mainCategory]?.subcategories || [] : [];
+  const options = form.mainCategory ? productOptions[form.mainCategory] || {} : {};
 
-  const subCategories = mainCategory ? categoriesData[mainCategory]?.subcategories || [] : [];
-  const options = mainCategory ? productOptions[mainCategory] || {} : {};
+  // --- Handlers ---
+  const handleChange = (field, value) => {
+    setForm(prev => ({ ...prev, [field]: value }));
+    setErrors(prev => ({ ...prev, [field]: "" }));
 
-  const handleFileChange = (e) => {
+    // Clear dependent fields
+    if (field === "mainCategory") setForm(prev => ({ ...prev, subCategory: "", brand: "", model: "", selectedOptions: {} }));
+    if (field === "subCategory") setForm(prev => ({ ...prev, brand: "", model: "", selectedOptions: {} }));
+    if (field === "region") setForm(prev => ({ ...prev, stateLocation: "", cityLocation: "" }));
+    if (field === "stateLocation") setForm(prev => ({ ...prev, cityLocation: "" }));
+  };
+
+  const handlePriceChange = e => {
+    let val = e.target.value.replace(/,/g, "");
+    if (/^\d*\.?\d{0,2}$/.test(val)) {
+      const formatted = val === "." ? "0." : Number(val).toLocaleString("en-US", { maximumFractionDigits: 2 });
+      handleChange("price", formatted);
+    }
+  };
+
+  const handleFileChange = e => {
     const files = Array.from(e.target.files);
-    if (files.length + images.length > 10) return alert("Max 10 images allowed");
-    setImages(prev => [...prev, ...files]);
-    setPreviewImages(prev => [...prev, ...files.map(f => URL.createObjectURL(f))]);
+    if (files.length + form.images.length > MAX_IMAGES) return alert(`Max ${MAX_IMAGES} images allowed`);
+    setForm(prev => ({
+      ...prev,
+      images: [...prev.images, ...files],
+      previewImages: [...prev.previewImages, ...files.map(f => URL.createObjectURL(f))]
+    }));
+  };
+
+  const removeImage = idx => {
+    setForm(prev => ({
+      ...prev,
+      images: prev.images.filter((_, i) => i !== idx),
+      previewImages: prev.previewImages.filter((_, i) => i !== idx)
+    }));
   };
 
   const resetForm = () => {
-    // Revoke object URLs to prevent memory leaks
-    previewImages.forEach(url => URL.revokeObjectURL(url));
-
-    setMainCategory(""); setSubCategory(""); setBrand(""); setModel("");
-    setCondition(""); setTitle(""); setDescription(""); setPrice("");
-    setImages([]); setPreviewImages([]); setRegion(""); setStateLocation(""); setCityLocation("");
-    setIsPromoted(false); setSelectedOptions({}); setPhoneNumber("");
+    form.previewImages.forEach(url => URL.revokeObjectURL(url));
+    setForm({
+      mainCategory: "",
+      subCategory: "",
+      brand: "",
+      model: "",
+      condition: "",
+      title: "",
+      description: "",
+      price: "",
+      phoneNumber: "",
+      images: [],
+      previewImages: [],
+      region: "",
+      stateLocation: "",
+      cityLocation: "",
+      isPromoted: false,
+      selectedOptions: {},
+    });
+    setErrors({});
   };
 
-  const handleAdd = async (e) => {
-    e.preventDefault();
+  const validateForm = () => {
+    const newErrors = {};
+    const requiredFields = ["mainCategory", "subCategory", "title", "price", "phoneNumber", "region", "stateLocation", "cityLocation"];
 
-    if (!auth.currentUser) return alert("Login required.");
-    if (!mainCategory || !subCategory || !brand || !model || !condition || !title || !price || images.length === 0 || !region || !stateLocation || !cityLocation) {
-      return alert("Please fill all required fields.");
+    requiredFields.forEach(f => {
+      if (!form[f]) newErrors[f] = "This field is required";
+    });
+
+    // Mobile Phones extra validation
+    if (form.subCategory === "Mobile Phones") {
+      ["brand", "model", "condition"].forEach(f => { if (!form[f]) newErrors[f] = "This field is required"; });
+      ["storageOptions", "colors", "simTypes"].forEach(opt => {
+        if (options[opt] && !form.selectedOptions[opt]) newErrors[opt] = "This field is required";
+      });
     }
-    if (!phoneNumber.match(/^\d{10,15}$/)) return alert("Enter a valid phone number.");
+
+    // Price numeric validation
+    const numericPrice = parseFloat(form.price.replace(/,/g, ""));
+    if (isNaN(numericPrice) || numericPrice <= 0) newErrors.price = "Enter a valid price";
+
+    // Phone validation
+    if (!/^\d{10,15}$/.test(form.phoneNumber)) newErrors.phoneNumber = "Enter a valid phone number";
+
+    // Images validation
+    if (form.images.length === 0) newErrors.images = "Upload at least one image";
+
+    setErrors(newErrors);
+    return Object.keys(newErrors).length === 0;
+  };
+
+  const handleAdd = async e => {
+    e.preventDefault();
+    if (!auth.currentUser) return setErrors({ general: "Login required." });
+    if (!validateForm()) return;
 
     try {
       setLoading(true);
-
-      const limitReached = await checkLimit(auth.currentUser.uid, mainCategory);
-      if (limitReached && !isPromoted) {
+      const limitReached = await checkLimit(auth.currentUser.uid, form.mainCategory);
+      if (limitReached && !form.isPromoted) {
+        setErrors({ general: "Free ad limit reached. Promote ad to post more." });
         setLoading(false);
-        return alert("Free ad limit reached. Promote ad to post more.");
+        return;
       }
 
-      const imageUrls = await Promise.all(images.map(file => uploadToCloudinary(file)));
+      const imageUrls = await Promise.all(form.images.map(f => uploadToCloudinary(f)));
 
       await addDoc(collection(db, "products"), {
-        mainCategory, subCategory, brand, model, condition, title, description,
-        price: parseFloat(price.replace(/,/g, "")), // handle formatted price
-        images: imageUrls, coverImage: imageUrls[0],
-        ownerId: auth.currentUser.uid, marketType,
-        region, state: stateLocation, city: cityLocation,
-        isPromoted, promotedAt: isPromoted ? new Date() : null,
-        promotionExpiresAt: isPromoted ? new Date(Date.now() + 30*24*60*60*1000) : null,
+        ...form,
+        price: parseFloat(form.price.replace(/,/g, "")),
+        images: imageUrls,
+        coverImage: imageUrls[0],
+        ownerId: auth.currentUser.uid,
+        marketType,
         createdAt: serverTimestamp(),
-        ...selectedOptions,
-        phoneNumber
+        promotionExpiresAt: form.isPromoted ? new Date(Date.now() + 30*24*60*60*1000) : null,
       });
 
-      alert(`Product added successfully${isPromoted ? " and promoted for 30 days!" : ""}`);
+      alert(`Product added successfully${form.isPromoted ? " and promoted for 30 days!" : ""}`);
       resetForm();
       navigate(`/${marketType}`);
     } catch (err) {
       console.error(err);
-      alert("Error adding product: " + err.message);
+      setErrors({ general: "Error adding product: " + err.message });
     } finally {
       setLoading(false);
     }
   };
 
+  // Cleanup object URLs
+  useEffect(() => () => form.previewImages.forEach(url => URL.revokeObjectURL(url)), [form.previewImages]);
+
+  // --- Render ---
   return (
     <form onSubmit={handleAdd} style={{
-      maxWidth: 700, margin: "20px auto", padding: 20, borderRadius: 10, background: "#fff",
+      maxWidth: 750, margin: "20px auto", padding: 20, borderRadius: 10, background: "#fff",
       display: "flex", flexDirection: "column", gap: 15, boxShadow: "0 4px 12px rgba(0,0,0,0.1)"
     }}>
       <h2 style={{ textAlign: "center", color: "#0d6efd" }}>Post Ad ({marketType})</h2>
 
+      {errors.general && <div style={{ color: "red", padding: 8, borderRadius: 5, background: "#ffe6e6" }}>{errors.general}</div>}
+
       {/* Main Category */}
-      <select value={mainCategory} onChange={e => { setMainCategory(e.target.value); setSubCategory(""); setBrand(""); setModel(""); }} required>
+      <select value={form.mainCategory} onChange={e => handleChange("mainCategory", e.target.value)} required aria-label="Select Main Category">
         <option value="">Select Category</option>
         {Object.keys(categoriesData).map(cat => <option key={cat} value={cat}>{cat}</option>)}
       </select>
+      {errors.mainCategory && <span style={{ color: "red", fontSize: 12 }}>{errors.mainCategory}</span>}
 
       {/* Subcategory */}
-      {subCategories.length > 0 && <select value={subCategory} onChange={e => { setSubCategory(e.target.value); setBrand(""); setModel(""); }} required>
-        <option value="">Select Subcategory</option>
-        {subCategories.map(sub => <option key={sub} value={sub}>{sub}</option>)}
-      </select>}
+      {subCategories.length > 0 && (
+        <>
+          <select value={form.subCategory} onChange={e => handleChange("subCategory", e.target.value)} required aria-label="Select Subcategory">
+            <option value="">Select Subcategory</option>
+            {subCategories.map(sub => <option key={sub} value={sub}>{sub}</option>)}
+          </select>
+          {errors.subCategory && <span style={{ color: "red", fontSize: 12 }}>{errors.subCategory}</span>}
+        </>
+      )}
 
       {/* Product Options Selector */}
       {subCategory && (
         <ProductOptionsSelector
-          mainCategory={mainCategory}
-          subCategory={subCategory}
+          mainCategory={form.mainCategory}
+          subCategory={form.subCategory}
           onChange={opts => {
-            setBrand(opts.brand);
-            setModel(opts.model);
-            setSelectedOptions({ ...opts });
-            setRegion(opts.state?.region || region); // optional
+            handleChange("brand", opts.brand || "");
+            handleChange("model", opts.model || "");
+            setForm(prev => ({ ...prev, selectedOptions: opts }));
           }}
         />
       )}
 
-      {/* Title & Description */}
-      <input type="text" placeholder="Title*" value={title} onChange={e => setTitle(e.target.value)} maxLength={70} required />
-      <textarea placeholder="Description" value={description} onChange={e => setDescription(e.target.value)} maxLength={850} />
+      {/* Title */}
+      <input type="text" placeholder="Title*" value={form.title} onChange={e => handleChange("title", e.target.value)} maxLength={70} required />
+      {errors.title && <span style={{ color: "red", fontSize: 12 }}>{errors.title}</span>}
 
-      {/* Price & Phone */}
-      <input
-        type="text"
-        placeholder="Price*"
-        value={price}
-        onChange={e => {
-          const val = e.target.value.replace(/,/g, "");
-          if (!isNaN(val) || val === "") {
-            setPrice(val.replace(/\B(?=(\d{3})+(?!\d))/g, ","));
-          }
-        }}
-        required
-      />
-      <input type="tel" placeholder="Your phone number*" value={phoneNumber} onChange={e => setPhoneNumber(e.target.value)} required maxLength={15} />
+      {/* Description */}
+      <textarea placeholder="Description" value={form.description} onChange={e => handleChange("description", e.target.value)} maxLength={850} />
+
+      {/* Price */}
+      <input type="text" placeholder="Price*" value={form.price} onChange={handlePriceChange} required />
+      {errors.price && <span style={{ color: "red", fontSize: 12 }}>{errors.price}</span>}
+
+      {/* Phone */}
+      <input type="tel" placeholder="Phone Number*" value={form.phoneNumber} onChange={e => handleChange("phoneNumber", e.target.value)} maxLength={15} required />
+      {errors.phoneNumber && <span style={{ color: "red", fontSize: 12 }}>{errors.phoneNumber}</span>}
 
       {/* Images */}
-      <input type="file" multiple accept="image/*" onChange={handleFileChange} required />
-      {previewImages.length > 0 && <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
-        {previewImages.map((src, i) => (
-          <div key={i} style={{ position: "relative" }}>
-            <img src={src} alt={`preview-${i}`} style={{ width: 80, height: 80, objectFit: "cover", borderRadius: 5, border: "1px solid #ccc" }} />
-            <button type="button" onClick={() => {
-              setImages(prev => prev.filter((_, idx) => idx !== i));
-              setPreviewImages(prev => prev.filter((_, idx) => idx !== i));
-            }} style={{ position: "absolute", top: -5, right: -5, background: "red", color: "#fff", border: "none", borderRadius: "50%", width: 20, height: 20, cursor: "pointer" }}>×</button>
-          </div>
-        ))}
-      </div>}
+      <input type="file" multiple accept="image/*" onChange={handleFileChange} />
+      {errors.images && <span style={{ color: "red", fontSize: 12 }}>{errors.images}</span>}
+      {form.previewImages.length > 0 && (
+        <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
+          {form.previewImages.map((src, i) => (
+            <div key={i} style={{ position: "relative" }}>
+              <img src={src} alt={`preview-${i}`} style={{ width: 80, height: 80, objectFit: "cover", borderRadius: 5, border: "1px solid #ccc" }} />
+              <button type="button" aria-label={`Remove image ${i+1}`} onClick={() => removeImage(i)}
+                style={{ position: "absolute", top: -5, right: -5, background: "red", color: "#fff", border: "none", borderRadius: "50%", width: 20, height: 20, cursor: "pointer" }}>×</button>
+            </div>
+          ))}
+        </div>
+      )}
 
       {/* Region / State / City */}
-      <select value={region} onChange={e => { setRegion(e.target.value); setStateLocation(""); setCityLocation(""); }} required>
+      <select value={form.region} onChange={e => handleChange("region", e.target.value)} required aria-label="Select Region">
         <option value="">Select Region</option>
         {allRegions.map(r => <option key={r} value={r}>{r}</option>)}
       </select>
-
-      {region && (
-        <select value={stateLocation} onChange={e => { setStateLocation(e.target.value); setCityLocation(""); }} required>
+      {form.region && (
+        <select value={form.stateLocation} onChange={e => handleChange("stateLocation", e.target.value)} required aria-label="Select State">
           <option value="">Select State</option>
           {allStates.map(s => <option key={s} value={s}>{s}</option>)}
         </select>
       )}
-
-      {stateLocation && (
-        <select value={cityLocation} onChange={e => setCityLocation(e.target.value)} required>
+      {form.stateLocation && (
+        <select value={form.cityLocation} onChange={e => handleChange("cityLocation", e.target.value)} required aria-label="Select City">
           <option value="">Select City</option>
           {allCities.map(c => <option key={c} value={c}>{c}</option>)}
         </select>
@@ -194,11 +273,11 @@ const AddProduct = () => {
 
       {/* Promote */}
       <label style={{ display: "flex", alignItems: "center", gap: 10 }}>
-        <input type="checkbox" checked={isPromoted} onChange={() => setIsPromoted(!isPromoted)} />
+        <input type="checkbox" checked={form.isPromoted} onChange={() => handleChange("isPromoted", !form.isPromoted)} />
         Promote this product (free, 30 days)
       </label>
 
-      <button type="submit" disabled={loading} style={{ padding: "10px 15px", background: "#0d6efd", color: "#fff", border: "none", borderRadius: 5, cursor: "pointer" }}>
+      <button type="submit" disabled={loading} style={{ padding: "10px 15px", background: "#0d6efd", color: "#fff", border: "none", borderRadius: 5, cursor: loading ? "not-allowed" : "pointer" }}>
         {loading ? "Uploading..." : `Add to ${marketType}`}
       </button>
     </form>
