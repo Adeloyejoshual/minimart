@@ -15,6 +15,7 @@ const AddProduct = () => {
   const locationQuery = useLocation();
   const params = new URLSearchParams(locationQuery.search);
   const marketType = params.get("market") || "marketplace";
+
   const { checkLimit } = useAdLimitCheck();
 
   const [form, setForm] = useState({
@@ -39,15 +40,14 @@ const AddProduct = () => {
   const [errors, setErrors] = useState({});
   const [loading, setLoading] = useState(false);
 
+  // Category & location lists
   const rules = categoryRules[form.mainCategory] || categoryRules.Default;
-  const subCategories = form.mainCategory
-    ? categoriesData[form.mainCategory]?.subcategories || []
-    : [];
+  const subCategories = form.mainCategory ? categoriesData[form.mainCategory]?.subcategories || [] : [];
   const allRegions = Object.keys(locationsByRegion);
   const allStates = form.region ? Object.keys(locationsByRegion[form.region]) : [];
   const allCities = form.stateLocation ? locationsByRegion[form.region][form.stateLocation] || [] : [];
 
-  // ---------------- Handlers ----------------
+  // ===== Handlers =====
   const handleChange = (field, value) => {
     setForm(prev => ({ ...prev, [field]: value }));
     setErrors(prev => ({ ...prev, [field]: "" }));
@@ -69,10 +69,7 @@ const AddProduct = () => {
 
   const handleFileChange = e => {
     const files = Array.from(e.target.files);
-    if (files.length + form.images.length > rules.maxImages) {
-      alert(`Max ${rules.maxImages} images allowed`);
-      return;
-    }
+    if (files.length + form.images.length > rules.maxImages) return alert(`Max ${rules.maxImages} images allowed`);
     setForm(prev => ({
       ...prev,
       images: [...prev.images, ...files],
@@ -111,104 +108,106 @@ const AddProduct = () => {
     setErrors({});
   };
 
-  // ---------------- Validation ----------------
+  // ===== Validation =====
   const validateForm = () => {
     const newErrors = {};
-    if (!form.title || form.title.length < rules.minTitle || form.title.length > rules.maxTitle)
+
+    if (!form.title || form.title.length < rules.minTitle || form.title.length > rules.maxTitle) {
       newErrors.title = `Title must be between ${rules.minTitle} and ${rules.maxTitle} characters`;
-    if (form.description && form.description.length > rules.maxDescription)
+    }
+
+    if (form.description && form.description.length > rules.maxDescription) {
       newErrors.description = `Description cannot exceed ${rules.maxDescription} characters`;
+    }
+
     if (form.images.length < rules.minImages) newErrors.images = `Upload at least ${rules.minImages} image(s)`;
     if (form.images.length > rules.maxImages) newErrors.images = `Maximum ${rules.maxImages} images allowed`;
+
     if (rules.requireBrand && !form.brand) newErrors.brand = "Brand is required";
     if (rules.requireModel && !form.model) newErrors.model = "Model is required";
     if (rules.requireCondition && !form.condition) newErrors.condition = "Condition is required";
+
     if (rules.requireLocation) {
       if (!form.region) newErrors.region = "Region is required";
       if (!form.stateLocation) newErrors.stateLocation = "State is required";
       if (!form.cityLocation) newErrors.cityLocation = "City is required";
     }
+
     const numericPrice = parseFloat(form.price.replace(/,/g, ""));
     if (isNaN(numericPrice) || numericPrice <= 0) newErrors.price = "Enter a valid price";
+
     if (!/^\d{10,15}$/.test(form.phoneNumber)) newErrors.phoneNumber = "Enter a valid phone number";
+
     setErrors(newErrors);
     return Object.keys(newErrors).length === 0;
   };
 
-  // ---------------- Submit ----------------
+  // ===== Submit =====
   const handleAdd = async e => {
     e.preventDefault();
-    if (!auth.currentUser) return setErrors({ general: "Login required." });
+
+    const user = auth.currentUser;
+    if (!user) {
+      setErrors({ general: "You must be logged in to post a product." });
+      return;
+    }
+
     if (!validateForm()) return;
 
     try {
       setLoading(true);
 
-      const limitReached = await checkLimit(auth.currentUser.uid, form.mainCategory);
+      const limitReached = await checkLimit(user.uid, form.mainCategory);
       if (limitReached && !form.isPromoted) {
         setErrors({ general: "Free ad limit reached. Promote ad to post more." });
         setLoading(false);
         return;
       }
 
-      // ---------------- Upload Images ----------------
-      const imageUrls = [];
-      for (let file of form.images) {
-        const url = await uploadToCloudinary(file);
-        if (!url) throw new Error("Image upload failed");
-        imageUrls.push(url);
-      }
+      const imageUrls = await Promise.all(form.images.map(f => uploadToCloudinary(f)));
 
-      // ---------------- Firestore Add ----------------
       await addDoc(collection(db, "products"), {
-        title: form.title,
-        description: form.description,
+        ...form,
+        ownerId: user.uid, // REQUIRED by Firestore rule
         price: parseFloat(form.price.replace(/,/g, "")),
-        phoneNumber: form.phoneNumber,
         images: imageUrls,
         coverImage: imageUrls[0],
-        mainCategory: form.mainCategory,
-        subCategory: form.subCategory,
-        brand: form.brand || null,
-        model: form.model || null,
-        condition: form.condition || null,
-        region: form.region,
-        stateLocation: form.stateLocation,
-        cityLocation: form.cityLocation,
-        isPromoted: form.isPromoted,
         marketType,
-        ownerId: auth.currentUser.uid,
         createdAt: serverTimestamp(),
-        promotionExpiresAt: form.isPromoted ? new Date(Date.now() + 30 * 24 * 60 * 60 * 1000) : null,
-        selectedOptions: form.selectedOptions || {}
+        promotionExpiresAt: form.isPromoted ? new Date(Date.now() + 30*24*60*60*1000) : null,
+        selectedOptions: {
+          ...form.selectedOptions,
+          features: form.selectedOptions?.features || {},
+        },
       });
 
       alert(`Product added successfully${form.isPromoted ? " and promoted for 30 days!" : ""}`);
       resetForm();
       navigate(`/${marketType}`);
-
     } catch (err) {
-      console.error("Add product error:", err);
+      console.error(err);
       setErrors({ general: "Error adding product: " + err.message });
     } finally {
       setLoading(false);
     }
   };
 
+  // Cleanup object URLs
   useEffect(() => () => form.previewImages.forEach(url => URL.revokeObjectURL(url)), [form.previewImages]);
 
-  // ---------------- Render ----------------
+  // ===== Render =====
   return (
     <form onSubmit={handleAdd} style={{ maxWidth: 750, margin: 20, padding: 20, borderRadius: 10, background: "#fff", display: "flex", flexDirection: "column", gap: 15, boxShadow: "0 4px 12px rgba(0,0,0,0.1)" }}>
       <h2 style={{ textAlign: "center", color: "#0d6efd" }}>Post Ad ({marketType})</h2>
       {errors.general && <div style={{ color: "red", padding: 8, borderRadius: 5, background: "#ffe6e6" }}>{errors.general}</div>}
 
-      {/* Categories */}
+      {/* Main Category */}
       <select value={form.mainCategory} onChange={e => handleChange("mainCategory", e.target.value)} required>
         <option value="">Select Category</option>
         {Object.keys(categoriesData).map(cat => <option key={cat} value={cat}>{cat}</option>)}
       </select>
 
+      {/* Subcategory */}
       {subCategories.length > 0 && (
         <select value={form.subCategory} onChange={e => handleChange("subCategory", e.target.value)} required>
           <option value="">Select Subcategory</option>
@@ -216,7 +215,7 @@ const AddProduct = () => {
         </select>
       )}
 
-      {/* Options */}
+      {/* Product Options */}
       {form.subCategory && (
         <ProductOptionsSelector
           mainCategory={form.mainCategory}
@@ -231,24 +230,36 @@ const AddProduct = () => {
         />
       )}
 
-      {/* Title / Description / Price / Phone */}
+      {/* Title */}
       <input type="text" placeholder="Title*" value={form.title} onChange={e => handleChange("title", e.target.value)} maxLength={70} required />
+      {errors.title && <span style={{ color: "red", fontSize: 12 }}>{errors.title}</span>}
+
+      {/* Description */}
       <textarea placeholder="Description" value={form.description} onChange={e => handleChange("description", e.target.value)} maxLength={850} />
+
+      {/* Price */}
       <input type="text" placeholder="Price*" value={form.price} onChange={handlePriceChange} required />
+      {errors.price && <span style={{ color: "red", fontSize: 12 }}>{errors.price}</span>}
+
+      {/* Phone */}
       <input type="tel" placeholder="Phone Number*" value={form.phoneNumber} onChange={e => handleChange("phoneNumber", e.target.value)} maxLength={15} required />
+      {errors.phoneNumber && <span style={{ color: "red", fontSize: 12 }}>{errors.phoneNumber}</span>}
 
       {/* Images */}
       <input type="file" multiple accept="image/*" onChange={handleFileChange} />
-      <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
-        {form.previewImages.map((src, i) => (
-          <div key={i} style={{ position: "relative" }}>
-            <img src={src} alt={`preview-${i}`} style={{ width: 80, height: 80, objectFit: "cover", borderRadius: 5, border: "1px solid #ccc" }} />
-            <button type="button" onClick={() => removeImage(i)} style={{ position: "absolute", top: -5, right: -5, background: "red", color: "#fff", border: "none", borderRadius: "50%", width: 20, height: 20, cursor: "pointer" }}>×</button>
-          </div>
-        ))}
-      </div>
+      {errors.images && <span style={{ color: "red", fontSize: 12 }}>{errors.images}</span>}
+      {form.previewImages.length > 0 && (
+        <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
+          {form.previewImages.map((src, i) => (
+            <div key={i} style={{ position: "relative" }}>
+              <img src={src} alt={`preview-${i}`} style={{ width: 80, height: 80, objectFit: "cover", borderRadius: 5, border: "1px solid #ccc" }} />
+              <button type="button" aria-label={`Remove image ${i+1}`} onClick={() => removeImage(i)} style={{ position: "absolute", top: -5, right: -5, background: "red", color: "#fff", border: "none", borderRadius: "50%", width: 20, height: 20, cursor: "pointer" }}>×</button>
+            </div>
+          ))}
+        </div>
+      )}
 
-      {/* Location */}
+      {/* Region / State / City */}
       <select value={form.region} onChange={e => handleChange("region", e.target.value)} required>
         <option value="">Select Region</option>
         {allRegions.map(r => <option key={r}>{r}</option>)}
@@ -272,7 +283,7 @@ const AddProduct = () => {
         Promote this product (free, 30 days)
       </label>
 
-      <button type="submit" disabled={loading} style={{ padding: "10px 15px", background: "#0d6efd", color: "#fff", border: "none", borderRadius: 5 }}>
+      <button type="submit" disabled={loading} style={{ padding: "10px 15px", background: "#0d6efd", color: "#fff", border: "none", borderRadius: 5, cursor: loading ? "not-allowed" : "pointer" }}>
         {loading ? "Uploading..." : `Add to ${marketType}`}
       </button>
     </form>
