@@ -38,12 +38,12 @@ export default function AddProduct() {
     isPromoted: false,
   });
 
-  // track full-page selection step
-  const [selectionStep, setSelectionStep] = useState(null); // e.g., "subCategory", "brand", "model", "state", "city", etc.
-  const [backStep, setBackStep] = useState(null);
+  const [selectionStep, setSelectionStep] = useState(null); // Full page selection step
+  const [backStep, setBackStep] = useState(null); // Step to go back to
 
   const rules = categoryRules[form.mainCategory] || categoryRules.Default;
 
+  // Load draft if exists
   useEffect(() => {
     const saved = localStorage.getItem(DRAFT_KEY);
     if (saved) setForm(JSON.parse(saved));
@@ -51,6 +51,7 @@ export default function AddProduct() {
     if (savedCat) setForm(prev => ({ ...prev, mainCategory: savedCat }));
   }, []);
 
+  // Save draft on form change
   useEffect(() => {
     localStorage.setItem(DRAFT_KEY, JSON.stringify(form));
     if (form.mainCategory) localStorage.setItem(CATEGORY_KEY, form.mainCategory);
@@ -122,8 +123,8 @@ export default function AddProduct() {
     }
   };
 
-  // -------------------- Full Page List with Other / Manual Input --------------------
-  const FullPageList = ({ title, options, valueKey }) => {
+  // -------------------- Full Page List --------------------
+  const FullPageList = ({ title, options, valueKey, allowOther }) => {
     const [customValue, setCustomValue] = useState("");
 
     const handleCustomSubmit = () => {
@@ -138,7 +139,7 @@ export default function AddProduct() {
       <div className="fullpage-list">
         {backStep && (
           <div className="options-back" onClick={() => setSelectionStep(backStep)}>
-            ← Back
+            <span className="arrow">←</span> Back
           </div>
         )}
         <h3>{title}</h3>
@@ -149,34 +150,22 @@ export default function AddProduct() {
               className={`option-item ${form[valueKey] === opt ? "active" : ""}`}
               onClick={() => { update(valueKey, opt); setSelectionStep(null); }}
             >
-              {opt}
+              {opt} <span className="arrow">➔</span>
             </div>
           ))}
 
-          {/* Other / Manual Input */}
-          <div className="option-item" style={{ justifyContent: "center" }}>
-            <input
-              type="text"
-              placeholder={`Enter ${valueKey}...`}
-              value={customValue}
-              onChange={e => setCustomValue(e.target.value)}
-              onKeyDown={e => e.key === "Enter" && handleCustomSubmit()}
-              style={{
-                width: "80%",
-                border: "none",
-                outline: "none",
-                background: "transparent",
-                fontSize: "14px",
-                color: "#333",
-              }}
-            />
-            <span
-              onClick={handleCustomSubmit}
-              style={{ cursor: "pointer", color: "#0D6EFD", marginLeft: "6px" }}
-            >
-              ➔
-            </span>
-          </div>
+          {allowOther && (
+            <div className="option-item" style={{ justifyContent: "center" }}>
+              <input
+                type="text"
+                placeholder={`Enter ${valueKey}...`}
+                value={customValue}
+                onChange={e => setCustomValue(e.target.value)}
+                onKeyDown={e => e.key === "Enter" && handleCustomSubmit()}
+              />
+              <span onClick={handleCustomSubmit} style={{ cursor: "pointer" }}>➔</span>
+            </div>
+          )}
         </div>
       </div>
     );
@@ -187,16 +176,16 @@ export default function AddProduct() {
   const getBrandOptions = () => form.mainCategory ? Object.keys(phoneModels[form.mainCategory] || {}) : [];
   const getModelOptions = () => form.brand ? phoneModels[form.mainCategory][form.brand] || [] : [];
   const getStateOptions = () => Object.keys(locationsByState);
-  const getCityOptions = () => (form.state ? locationsByState[form.state] : []);
+  const getCityOptions = () => form.state ? locationsByState[form.state] : [];
   const getConditionOptions = () => conditions.main;
   const getUsedDetailOptions = () => conditions.usedDetails;
 
-  // -------------------- Render Full Page Step --------------------
+  // -------------------- Full Page Step --------------------
   if (selectionStep) {
     switch (selectionStep) {
       case "subCategory": return <FullPageList title="Select Subcategory" options={getSubcategories()} valueKey="subCategory" />;
-      case "brand": return <FullPageList title="Select Brand" options={getBrandOptions()} valueKey="brand" />;
-      case "model": return <FullPageList title="Select Model / Type" options={getModelOptions()} valueKey="model" />;
+      case "brand": return <FullPageList title="Select Brand" options={getBrandOptions()} valueKey="brand" allowOther={true} />;
+      case "model": return <FullPageList title="Select Model" options={getModelOptions()} valueKey="model" allowOther={true} />;
       case "state": return <FullPageList title="Select State" options={getStateOptions()} valueKey="state" />;
       case "city": return <FullPageList title="Select City / LGA" options={getCityOptions()} valueKey="city" />;
       case "condition": return <FullPageList title="Select Condition" options={getConditionOptions()} valueKey="condition" />;
