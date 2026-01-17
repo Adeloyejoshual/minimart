@@ -1,3 +1,4 @@
+/* -------------------- Container -------------------- */
 .add-product-container {
   max-width: 520px;
   margin: 30px auto;
@@ -5,111 +6,145 @@
   padding: 24px;
   border-radius: 12px;
   box-shadow: 0 8px 30px rgba(0,0,0,.08);
-  font-family: 'Segoe UI', sans-serif;
+  font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
 }
 
-.title {
+.add-product-container h2 {
   text-align: center;
   margin-bottom: 20px;
   color: #0D6EFD;
 }
 
+/* -------------------- Fields -------------------- */
 .field {
   margin-bottom: 16px;
 }
 
 .field label {
+  display: block;
   font-size: 13px;
   font-weight: 600;
-  display: block;
   margin-bottom: 6px;
+  color: #333;
 }
 
-/* Select wrapper */
-.select-wrapper {
+/* -------------------- Custom Dropdown -------------------- */
+.custom-dropdown {
   position: relative;
   width: 100%;
-}
-
-.select-wrapper select {
-  width: 100%;
-  padding: 10px 14px;
-  border-radius: 8px;
   border: 1.5px solid #cce0ff;
+  border-radius: 8px;
   background: #f9fbff;
-  font-size: 14px;
-  appearance: none;
-  -webkit-appearance: none;
-  -moz-appearance: none;
   cursor: pointer;
-  color: #000;
-  transition: all 0.2s ease;
+  font-size: 14px;
+  user-select: none;
 }
 
-.select-wrapper select:focus {
-  border-color: #0d6efd;
-  box-shadow: 0 0 4px 2px rgba(13, 110, 253, 0.2);
-  outline: none;
-  background: #fff;
+.dropdown-selected {
+  padding: 10px 14px;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
 }
 
-.select-wrapper::after {
-  content: "▼";
-  position: absolute;
-  right: 12px;
-  top: 50%;
-  transform: translateY(-50%);
-  pointer-events: none;
+.dropdown-selected .arrow {
   color: #0D6EFD;
   font-size: 12px;
+  margin-left: 6px;
 }
 
-.select-wrapper select:hover {
-  border-color: #0b5ed7;
+.dropdown-list {
+  position: absolute;
+  top: 100%;
+  left: 0;
+  width: 100%;
+  max-height: 200px; /* Scrollable if long */
+  overflow-y: auto;
+  border: 1.5px solid #cce0ff;
+  border-radius: 8px;
+  background: #fff;
+  z-index: 10;
+  box-shadow: 0 4px 12px rgba(0,0,0,0.08);
+  margin-top: 4px;
 }
 
-/* Images */
-.images {
+.dropdown-item {
+  padding: 10px 14px;
+  transition: background 0.2s;
+}
+
+.dropdown-item:hover {
+  background: #e6f0ff;
+}
+
+/* -------------------- Input Fields -------------------- */
+.field input[type="text"],
+.field input[type="number"],
+.field textarea {
+  width: 100%;
+  padding: 10px 14px;
+  border: 1.5px solid #cce0ff;
+  border-radius: 8px;
+  font-size: 14px;
+  outline: none;
+  transition: border 0.2s, box-shadow 0.2s;
+  background: #f9fbff;
+}
+
+.field input:focus,
+.field textarea:focus {
+  border-color: #0D6EFD;
+  box-shadow: 0 0 5px rgba(13,110,253,0.2);
+}
+
+/* -------------------- Images -------------------- */
+.images-container {
   display: flex;
   gap: 10px;
-  flex-wrap: wrap;
   margin-top: 10px;
+  flex-wrap: wrap;
 }
 
-.img-wrap {
-  position: relative;
-}
-
-.img-wrap img {
+.images-container img {
   width: 80px;
   height: 80px;
   object-fit: cover;
-  border-radius: 6px;
+  border-radius: 8px;
+  border: 1px solid #cce0ff;
 }
 
 .img-wrap button {
   position: absolute;
-  top: -6px;
-  right: -6px;
-  border: none;
+  top: -8px;
+  right: -8px;
   background: #ff4d4f;
-  color: #fff;
+  border: none;
   border-radius: 50%;
+  color: #fff;
   width: 20px;
   height: 20px;
   cursor: pointer;
-  font-weight: bold;
+  font-size: 12px;
+  line-height: 1;
 }
 
-.promote-label {
+/* -------------------- Checkbox (Promote) -------------------- */
+.promote-checkbox {
   display: flex;
   align-items: center;
   gap: 10px;
-  font-weight: 500;
+  font-size: 14px;
 }
 
-/* Publish button */
-.btn {
+.promote-checkbox input {
+  width: 16px;
+  height: 16px;
+  accent-color: #0D6EFD;
+  cursor: pointer;
+}
+
+/* -------------------- Submit Button -------------------- */
+.submit-btn {
   width: 100%;
   background: #0D6EFD;
   color: #fff;
@@ -118,30 +153,30 @@
   border: none;
   font-weight: 600;
   cursor: pointer;
-  margin-top: 12px;
-  transition: background 0.2s ease;
+  font-size: 15px;
+  transition: background 0.2s, box-shadow 0.2s;
 }
 
-.btn:hover {
+.submit-btn:hover {
   background: #0b5ed7;
+  box-shadow: 0 4px 10px rgba(0,0,0,0.1);
 }
 
-textarea {
-  width: 100%;
-  padding: 10px 12px;
-  border-radius: 8px;
-  border: 1.5px solid #cce0ff;
-  background: #f9fbff;
-  font-size: 14px;
-  resize: vertical;
+/* -------------------- Scrollbars for dropdown -------------------- */
+.dropdown-list::-webkit-scrollbar {
+  width: 6px;
 }
 
-input[type="number"],
-input[type="text"] {
-  width: 100%;
-  padding: 10px 12px;
+.dropdown-list::-webkit-scrollbar-track {
+  background: #f1f1f1;
   border-radius: 8px;
-  border: 1.5px solid #cce0ff;
-  background: #f9fbff;
-  font-size: 14px;
+}
+
+.dropdown-list::-webkit-scrollbar-thumb {
+  background: #0D6EFD;
+  border-radius: 8px;
+}
+
+.dropdown-list::-webkit-scrollbar-thumb:hover {
+  background: #0a58ca;
 }
