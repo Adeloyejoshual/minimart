@@ -2,8 +2,8 @@
 import React, { useState, useEffect } from "react";
 import categoriesData from "../config/categoriesData";
 import productOptions from "../config/productOptions";
-import locations from "../config/locations";
 import phoneModels from "../config/phoneModels";
+import { locationsByRegion } from "../config/locationsByRegion";
 
 const popularBrands = [
   "Apple", "Samsung", "Xiaomi", "Tecno", "Itel", "Infinix", "Huawei", "Oppo", "Vivo", "Realme"
@@ -17,7 +17,7 @@ const ProductOptionsSelector = ({ mainCategory, subCategory, onChange }) => {
   const [stateLocation, setStateLocation] = useState("");
   const [cityLocation, setCityLocation] = useState("");
 
-  // Determine brands for the selected category/subcategory
+  // Compute all brands for the selected category
   const categoryBrands = subCategory
     ? categoriesData[mainCategory]?.brands?.[subCategory] || []
     : [];
@@ -35,7 +35,7 @@ const ProductOptionsSelector = ({ mainCategory, subCategory, onChange }) => {
     b.toLowerCase().includes(searchTerm.toLowerCase())
   );
 
-  // Determine models for selected brand
+  // Compute models for selected brand
   const models =
     mainCategory === "Mobile Phones & Tablets" && selectedBrand
       ? phoneModels[selectedBrand] || []
@@ -43,7 +43,13 @@ const ProductOptionsSelector = ({ mainCategory, subCategory, onChange }) => {
 
   const options = mainCategory ? productOptions[mainCategory] || {} : {};
 
-  // Notify parent on every change
+  // Flatten states/cities from locationsByRegion
+  const allStates = Object.values(locationsByRegion).flatMap(region => Object.keys(region));
+  const citiesForState = stateLocation
+    ? Object.values(locationsByRegion).flatMap(region => region[stateLocation] || [])
+    : [];
+
+  // Notify parent of changes
   useEffect(() => {
     onChange({
       brand: selectedBrand,
@@ -72,7 +78,7 @@ const ProductOptionsSelector = ({ mainCategory, subCategory, onChange }) => {
   return (
     <div className="p-6 bg-gray-50 rounded-xl shadow-lg max-w-5xl mx-auto">
 
-      {/* Brand Search */}
+      {/* Brand search */}
       {allBrands.length > 0 && (
         <input
           type="text"
@@ -136,7 +142,6 @@ const ProductOptionsSelector = ({ mainCategory, subCategory, onChange }) => {
         const items = options[opt];
         if (!items || items.length === 0) return null;
 
-        // Checkbox for features, select for others
         if (opt === "features") {
           return (
             <div key={opt} className="mb-4">
@@ -174,7 +179,7 @@ const ProductOptionsSelector = ({ mainCategory, subCategory, onChange }) => {
         aria-label="Select State"
       >
         <option value="">Select State</option>
-        {Object.keys(locations).map(st => <option key={st} value={st}>{st}</option>)}
+        {allStates.map(st => <option key={st} value={st}>{st}</option>)}
       </select>
 
       {stateLocation && (
@@ -185,7 +190,7 @@ const ProductOptionsSelector = ({ mainCategory, subCategory, onChange }) => {
           aria-label="Select City"
         >
           <option value="">Select City</option>
-          {locations[stateLocation].map(c => <option key={c} value={c}>{c}</option>)}
+          {citiesForState.map(c => <option key={c} value={c}>{c}</option>)}
         </select>
       )}
     </div>
