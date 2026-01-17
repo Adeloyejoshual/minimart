@@ -11,7 +11,7 @@ const TestAddProduct = () => {
   const [loading, setLoading] = useState(false);
   const [message, setMessage] = useState("");
 
-  // Default values to make it appear in marketplace
+  // Default values
   const defaultCategory = "Mobile Phones & Tablets";
   const defaultSubCategory = "Mobile Phone";
   const defaultRegion = "Lagos";
@@ -19,14 +19,12 @@ const TestAddProduct = () => {
   const defaultCity = "Ikeja";
   const defaultTitle = "Test Product";
 
-  // Handle image selection
   const handleFiles = e => {
     const files = Array.from(e.target.files);
     setImages(files);
     setPreviewImages(files.map(f => URL.createObjectURL(f)));
   };
 
-  // Submit
   const handleAdd = async e => {
     e.preventDefault();
     if (!auth.currentUser) {
@@ -42,10 +40,10 @@ const TestAddProduct = () => {
       setLoading(true);
       setMessage("");
 
-      // Upload images to Cloudinary
+      // Upload images
       const uploadedUrls = await Promise.all(images.map(f => uploadToCloudinary(f)));
 
-      // Add minimal product to Firestore with defaults
+      // Add product
       const docRef = await addDoc(collection(db, "products"), {
         mainCategory: defaultCategory,
         subCategory: defaultSubCategory,
@@ -57,6 +55,9 @@ const TestAddProduct = () => {
         region: defaultRegion,
         stateLocation: defaultState,
         cityLocation: defaultCity,
+        state: defaultState,  // For Marketplace display
+        city: defaultCity,    // For Marketplace display
+        marketType: "marketplace",
         createdAt: serverTimestamp(),
       });
 
@@ -73,10 +74,10 @@ const TestAddProduct = () => {
   };
 
   return (
-    <div style={{ maxWidth: 500, margin: 20, padding: 20, borderRadius: 10, background: "#fff", boxShadow: "0 4px 12px rgba(0,0,0,0.1)" }}>
+    <div style={{ maxWidth: 500, margin: 20, padding: 20, background: "#fff", borderRadius: 10 }}>
       <h2>Test Add Product (Marketplace)</h2>
       {message && <div style={{ marginBottom: 10, color: message.includes("Error") ? "red" : "green" }}>{message}</div>}
-      
+
       <form onSubmit={handleAdd} style={{ display: "flex", flexDirection: "column", gap: 15 }}>
         <input
           type="text"
