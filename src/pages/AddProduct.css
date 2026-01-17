@@ -31,6 +31,49 @@
   color: #333;
 }
 
+/* -------------------- Scrollable Category Cards -------------------- */
+.category-scroll {
+  display: flex;
+  overflow-x: auto;
+  gap: 12px;
+  padding-bottom: 6px;
+}
+
+.category-item {
+  flex: 0 0 auto;
+  background: #f9fbff;
+  border: 1.5px solid #cce0ff;
+  border-radius: 12px;
+  padding: 10px 14px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  cursor: pointer;
+  min-width: 120px;
+  transition: all 0.2s;
+}
+
+.category-item:hover {
+  border-color: #0D6EFD;
+  box-shadow: 0 4px 10px rgba(13,110,253,0.2);
+}
+
+.category-item.active {
+  border-color: #0D6EFD;
+  background: #d6e4ff;
+}
+
+.category-icon {
+  font-size: 24px;
+  margin-bottom: 6px;
+}
+
+.category-name {
+  font-size: 13px;
+  text-align: center;
+  line-height: 1.2;
+}
+
 /* -------------------- Select Wrapper -------------------- */
 .select-wrapper {
   position: relative;
@@ -46,7 +89,7 @@
   font-size: 14px;
   cursor: pointer;
   outline: none;
-  appearance: none; /* remove default arrow */
+  appearance: none;
   -webkit-appearance: none;
   -moz-appearance: none;
   transition: border 0.2s, box-shadow 0.2s;
@@ -63,13 +106,11 @@
   font-size: 12px;
 }
 
-/* Focus */
 .select-wrapper select:focus {
   border-color: #0D6EFD;
   box-shadow: 0 0 6px rgba(13, 110, 253, 0.2);
 }
 
-/* Options padding */
 .select-wrapper select option {
   padding: 10px;
 }
@@ -77,6 +118,7 @@
 /* -------------------- Input Fields -------------------- */
 .field input[type="text"],
 .field input[type="number"],
+.field input[type="tel"],
 .field textarea {
   width: 100%;
   padding: 10px 14px;
@@ -94,7 +136,25 @@
   box-shadow: 0 0 6px rgba(13, 110, 253, 0.2);
 }
 
-/* -------------------- Images -------------------- */
+/* -------------------- Images (+ icon) -------------------- */
+.image-upload {
+  display: inline-block;
+  cursor: pointer;
+  color: #0D6EFD;
+  font-weight: 600;
+  border: 1.5px dashed #cce0ff;
+  padding: 12px 18px;
+  border-radius: 10px;
+  transition: all 0.2s;
+  text-align: center;
+  width: fit-content;
+}
+
+.image-upload:hover {
+  background: #d6e4ff;
+  border-color: #0D6EFD;
+}
+
 .images {
   display: flex;
   gap: 10px;
@@ -129,7 +189,7 @@
   line-height: 1;
 }
 
-/* -------------------- Checkbox (Promote) -------------------- */
+/* -------------------- Checkbox -------------------- */
 .promote-label {
   display: flex;
   align-items: center;
@@ -163,7 +223,7 @@
   box-shadow: 0 4px 12px rgba(0, 0, 0, 0.12);
 }
 
-/* -------------------- Scrollbar for select (Firefox/Chrome) -------------------- */
+/* -------------------- Scrollbar -------------------- */
 select::-webkit-scrollbar {
   width: 6px;
 }
@@ -182,72 +242,7 @@ select::-webkit-scrollbar-thumb:hover {
   background: #0a58ca;
 }
 
-/* Firefox */
 select {
   scrollbar-width: thin;
   scrollbar-color: #0D6EFD #f1f1f1;
-}
-
-/* -------------------- Scrollable Category Container -------------------- */
-.category-scroll {
-  max-height: 280px;
-  overflow-y: auto;
-  border: 1px solid #cce0ff;
-  border-radius: 10px;
-  padding: 8px;
-  background: #f9fbff;
-}
-
-.category-item {
-  padding: 10px 12px;
-  border-radius: 8px;
-  margin-bottom: 6px;
-  cursor: pointer;
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  transition: background 0.2s;
-}
-
-.category-item:hover {
-  background: #e0efff;
-}
-
-.category-item.active {
-  background: #cce0ff;
-  font-weight: 600;
-}
-
-/* Back Button */
-.back-btn {
-  background: transparent;
-  border: none;
-  font-size: 20px;
-  cursor: pointer;
-  color: #0D6EFD;
-  margin-right: 8px;
-}
-
-/* Category Header */
-.category-header {
-  display: flex;
-  align-items: center;
-  margin-bottom: 12px;
-}
-
-/* Search Input in Categories */
-.category-search {
-  width: 100%;
-  padding: 8px 12px;
-  border: 1.5px solid #cce0ff;
-  border-radius: 10px;
-  font-size: 14px;
-  margin-bottom: 10px;
-  outline: none;
-  background: #f9fbff;
-}
-
-.category-search:focus {
-  border-color: #0D6EFD;
-  box-shadow: 0 0 5px rgba(13, 110, 253, 0.2);
 }
