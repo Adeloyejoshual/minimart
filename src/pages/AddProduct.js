@@ -8,7 +8,7 @@ import categories from "../config/categories";
 import categoryRules from "../config/categoryRules";
 import { locationsByState } from "../config/locationsByState";
 import phoneModels from "../config/phoneModels";
-import conditions from "../config/condition";
+import conditions from "../config/condition"; // ✅ Import condition config
 
 export default function AddProduct() {
   const navigate = useNavigate();
@@ -24,7 +24,7 @@ export default function AddProduct() {
     title: "",
     price: "",
     condition: "",
-    usedDetail: "",
+    usedDetail: "", // ✅ Added for Used condition details
     description: "",
     state: "",
     city: "",
@@ -60,13 +60,19 @@ export default function AddProduct() {
   /* -------------------- VALIDATION -------------------- */
   const validate = () => {
     if (!form.mainCategory) return "Select main category";
-    if (!form.title || form.title.length < rules.minTitle) return `Title must be at least ${rules.minTitle} characters`;
-    if (form.title.length > rules.maxTitle) return `Title cannot exceed ${rules.maxTitle} characters`;
+    if (!form.title || form.title.length < rules.minTitle)
+      return `Title must be at least ${rules.minTitle} characters`;
+    if (form.title.length > rules.maxTitle)
+      return `Title cannot exceed ${rules.maxTitle} characters`;
     if (!form.price || Number(form.price) <= 0) return "Enter a valid price";
-    if (form.images.length < rules.minImages) return `Upload at least ${rules.minImages} image(s)`;
-    if (!form.condition) return "Select condition";
-    if (form.condition === "Used" && !form.usedDetail) return "Select used issue";
-    if (rules.requireLocation && (!form.state || !form.city)) return "Provide state and city";
+    if (form.images.length < rules.minImages)
+      return `Upload at least ${rules.minImages} image(s)`;
+    if (rules.requireCondition && !form.condition)
+      return "Select condition";
+    if (form.condition === "Used" && !form.usedDetail)
+      return "Select used product issue";
+    if (rules.requireLocation && (!form.state || !form.city))
+      return "Provide state and city";
     return null;
   };
 
@@ -90,8 +96,8 @@ export default function AddProduct() {
         model: form.model || null,
         title: form.title.trim(),
         price: Number(form.price),
-        condition: form.condition,
-        usedDetail: form.condition === "Used" ? form.usedDetail : null,
+        condition: form.condition || null,
+        usedDetail: form.usedDetail || null,
         description: form.description || "",
         state: form.state,
         city: form.city,
@@ -123,27 +129,37 @@ export default function AddProduct() {
 
       {/* Category */}
       <Field label="Category">
-        <select value={form.mainCategory} onChange={e => {
-          update("mainCategory", e.target.value);
-          update("subCategory", "");
-          update("brand", "");
-          update("model", "");
-        }}>
+        <select
+          value={form.mainCategory}
+          onChange={e => {
+            update("mainCategory", e.target.value);
+            update("subCategory", "");
+            update("brand", "");
+            update("model", "");
+          }}
+        >
           <option value="">Select Category</option>
-          {Object.keys(categories).map(cat => <option key={cat} value={cat}>{cat}</option>)}
+          {Object.keys(categories).map(cat => (
+            <option key={cat} value={cat}>{cat}</option>
+          ))}
         </select>
       </Field>
 
       {/* Subcategory */}
       {form.mainCategory && (
         <Field label="Subcategory">
-          <select value={form.subCategory} onChange={e => {
-            update("subCategory", e.target.value);
-            update("brand", "");
-            update("model", "");
-          }}>
+          <select
+            value={form.subCategory}
+            onChange={e => {
+              update("subCategory", e.target.value);
+              update("brand", "");
+              update("model", "");
+            }}
+          >
             <option value="">Optional</option>
-            {categories[form.mainCategory]?.map(sub => <option key={sub} value={sub}>{sub}</option>)}
+            {categories[form.mainCategory]?.map(sub => (
+              <option key={sub} value={sub}>{sub}</option>
+            ))}
           </select>
         </Field>
       )}
@@ -151,10 +167,13 @@ export default function AddProduct() {
       {/* Brand */}
       {form.subCategory && phoneModels[form.subCategory] && (
         <Field label="Brand">
-          <select value={form.brand} onChange={e => {
-            update("brand", e.target.value);
-            update("model", "");
-          }}>
+          <select
+            value={form.brand}
+            onChange={e => {
+              update("brand", e.target.value);
+              update("model", "");
+            }}
+          >
             <option value="">Select Brand</option>
             {Object.keys(phoneModels[form.subCategory]).map(brand => (
               <option key={brand} value={brand}>{brand}</option>
@@ -166,7 +185,10 @@ export default function AddProduct() {
       {/* Model */}
       {form.brand && phoneModels[form.subCategory]?.[form.brand] && (
         <Field label="Model">
-          <select value={form.model} onChange={e => update("model", e.target.value)}>
+          <select
+            value={form.model}
+            onChange={e => update("model", e.target.value)}
+          >
             <option value="">Select Model</option>
             {phoneModels[form.subCategory][form.brand].map(model => (
               <option key={model} value={model}>{model}</option>
@@ -174,16 +196,6 @@ export default function AddProduct() {
           </select>
         </Field>
       )}
-
-      {/* Title */}
-      <Field label="Title">
-        <input value={form.title} onChange={e => update("title", e.target.value)} maxLength={rules.maxTitle} />
-      </Field>
-
-      {/* Price */}
-      <Field label="Price (₦)">
-        <input type="number" value={form.price} onChange={e => update("price", e.target.value)} />
-      </Field>
 
       {/* Condition */}
       <Field label="Condition">
@@ -216,35 +228,73 @@ export default function AddProduct() {
         </Field>
       )}
 
+      {/* Title */}
+      <Field label="Title">
+        <input
+          value={form.title}
+          onChange={e => update("title", e.target.value)}
+          maxLength={rules.maxTitle}
+        />
+      </Field>
+
+      {/* Price */}
+      <Field label="Price (₦)">
+        <input
+          type="number"
+          value={form.price}
+          onChange={e => update("price", e.target.value)}
+        />
+      </Field>
+
       {/* State */}
       <Field label="State">
-        <select value={form.state} onChange={e => {
-          update("state", e.target.value);
-          update("city", "");
-        }}>
+        <select
+          value={form.state}
+          onChange={e => {
+            update("state", e.target.value);
+            update("city", "");
+          }}
+        >
           <option value="">Select State</option>
-          {Object.keys(locationsByState).map(state => <option key={state} value={state}>{state}</option>)}
+          {Object.keys(locationsByState).map(state => (
+            <option key={state} value={state}>{state}</option>
+          ))}
         </select>
       </Field>
 
       {/* City / LGA */}
       {form.state && (
         <Field label="City / LGA">
-          <select value={form.city} onChange={e => update("city", e.target.value)}>
+          <select
+            value={form.city}
+            onChange={e => update("city", e.target.value)}
+          >
             <option value="">Select City / LGA</option>
-            {locationsByState[form.state].map(lga => <option key={lga} value={lga}>{lga}</option>)}
+            {locationsByState[form.state].map(lga => (
+              <option key={lga} value={lga}>{lga}</option>
+            ))}
           </select>
         </Field>
       )}
 
       {/* Description */}
       <Field label="Description">
-        <textarea value={form.description} onChange={e => update("description", e.target.value)} maxLength={rules.maxDescription} rows={4} />
+        <textarea
+          value={form.description}
+          onChange={e => update("description", e.target.value)}
+          maxLength={rules.maxDescription}
+          rows={4}
+        />
       </Field>
 
       {/* Images */}
       <Field label="Images">
-        <input type="file" multiple accept="image/*" onChange={e => handleImages(e.target.files)} />
+        <input
+          type="file"
+          multiple
+          accept="image/*"
+          onChange={e => handleImages(e.target.files)}
+        />
         <div style={styles.images}>
           {form.previews.map((p, i) => (
             <div key={i} style={styles.imgWrap}>
@@ -258,7 +308,11 @@ export default function AddProduct() {
       {/* Promote */}
       <Field label="Promote">
         <label style={{ display: "flex", alignItems: "center", gap: 10 }}>
-          <input type="checkbox" checked={form.isPromoted} onChange={e => update("isPromoted", e.target.checked)} />
+          <input
+            type="checkbox"
+            checked={form.isPromoted}
+            onChange={e => update("isPromoted", e.target.checked)}
+          />
           Promote this product
         </label>
       </Field>
