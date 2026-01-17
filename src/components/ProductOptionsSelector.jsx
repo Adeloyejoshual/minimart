@@ -3,6 +3,7 @@ import React, { useState, useEffect } from "react";
 import categoriesData from "../config/categoriesData";
 import productOptions from "../config/productOptions";
 import phoneModels from "../config/phoneModels";
+import { locationsByRegion } from "../config/locationsByRegion";
 
 const popularBrands = [
   "Apple", "Samsung", "Xiaomi", "Tecno", "Itel", "Infinix", "Huawei", "Oppo", "Vivo", "Realme"
@@ -13,36 +14,47 @@ const ProductOptionsSelector = ({ mainCategory, subCategory, onChange }) => {
   const [selectedBrand, setSelectedBrand] = useState("");
   const [selectedModel, setSelectedModel] = useState("");
   const [selectedOptions, setSelectedOptions] = useState({});
+  const [stateLocation, setStateLocation] = useState("");
+  const [cityLocation, setCityLocation] = useState("");
+
+  // --- Determine if this is a Mobile Phones category ---
+  const isMobile = subCategory?.toLowerCase().includes("mobile");
 
   // --- Brands ---
   const categoryBrands = categoriesData[mainCategory]?.brands?.[subCategory] || [];
-  const allBrands = subCategory === "Mobile Phones" ? Object.keys(phoneModels) : categoryBrands;
-
+  const allBrands = isMobile ? Object.keys(phoneModels) : categoryBrands;
   const sortedBrands = [
     ...popularBrands.filter(b => allBrands.includes(b)),
     ...allBrands.filter(b => !popularBrands.includes(b)).sort()
   ];
-
   const filteredBrands = sortedBrands.filter(b =>
     b.toLowerCase().includes(searchTerm.toLowerCase())
   );
 
   // --- Models ---
-  const models = selectedBrand
-    ? (subCategory === "Mobile Phones" ? phoneModels[selectedBrand] || [] : categoriesData[mainCategory]?.models?.[selectedBrand] || [])
-    : [];
+  const models = isMobile && selectedBrand
+    ? phoneModels[selectedBrand] || []
+    : categoriesData[mainCategory]?.models?.[selectedBrand] || [];
 
   // --- Generic options ---
-  const options = mainCategory ? productOptions[mainCategory] || {} : {};
+  const options = productOptions[mainCategory] || {};
 
-  // --- Notify parent ---
+  // --- Locations ---
+  const allStates = Object.keys(locationsByRegion).flatMap(region => Object.keys(locationsByRegion[region]));
+  const citiesForState = stateLocation
+    ? Object.values(locationsByRegion).flatMap(region => region[stateLocation] || [])
+    : [];
+
+  // --- Notify parent of changes ---
   useEffect(() => {
     onChange({
       brand: selectedBrand,
       model: selectedModel,
-      ...selectedOptions
+      ...selectedOptions,
+      state: stateLocation,
+      city: cityLocation
     });
-  }, [selectedBrand, selectedModel, selectedOptions]);
+  }, [selectedBrand, selectedModel, selectedOptions, stateLocation, cityLocation]);
 
   // --- Generic select renderer ---
   const renderSelect = (field, label, items) => (
@@ -59,6 +71,7 @@ const ProductOptionsSelector = ({ mainCategory, subCategory, onChange }) => {
 
   return (
     <div className="p-6 bg-gray-50 rounded-xl shadow-lg max-w-5xl mx-auto">
+
       {/* Brand search */}
       {allBrands.length > 0 && (
         <input
@@ -79,6 +92,7 @@ const ProductOptionsSelector = ({ mainCategory, subCategory, onChange }) => {
             {filteredBrands.map(brand => (
               <button
                 key={brand}
+                type="button"
                 onClick={() => { setSelectedBrand(brand); setSelectedModel(""); }}
                 className={`relative p-3 rounded-lg border transition duration-200 hover:shadow-lg hover:border-blue-400 focus:outline-none ${
                   selectedBrand === brand ? "border-blue-600 bg-blue-50" : "border-gray-300 bg-white"
@@ -151,6 +165,30 @@ const ProductOptionsSelector = ({ mainCategory, subCategory, onChange }) => {
           return renderSelect(opt, label, items);
         }
       })}
+
+      {/* State / City */}
+      <select
+        value={stateLocation}
+        onChange={e => { setStateLocation(e.target.value); setCityLocation(""); }}
+        className="mb-4 p-3 rounded border border-gray-300 w-full focus:outline-none focus:ring-2 focus:ring-blue-400"
+        aria-label="Select State"
+      >
+        <option value="">Select State</option>
+        {allStates.map(st => <option key={st} value={st}>{st}</option>)}
+      </select>
+
+      {stateLocation && (
+        <select
+          value={cityLocation}
+          onChange={e => setCityLocation(e.target.value)}
+          className="mb-4 p-3 rounded border border-gray-300 w-full focus:outline-none focus:ring-2 focus:ring-blue-400"
+          aria-label="Select City"
+        >
+          <option value="">Select City</option>
+          {citiesForState.map(c => <option key={c} value={c}>{c}</option>)}
+        </select>
+      )}
+
     </div>
   );
 };
