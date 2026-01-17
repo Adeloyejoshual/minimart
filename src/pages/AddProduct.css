@@ -1,108 +1,74 @@
-/* -------------------- CONTAINER -------------------- */
-.container {
+.add-product-container {
   max-width: 520px;
   margin: 30px auto;
   background: #fff;
   padding: 24px;
   border-radius: 12px;
   box-shadow: 0 8px 30px rgba(0,0,0,.08);
-  font-family: 'Inter', sans-serif;
+  font-family: 'Segoe UI', sans-serif;
 }
 
-/* Title */
-.container h2 {
+.title {
   text-align: center;
   margin-bottom: 20px;
   color: #0D6EFD;
-  font-weight: 700;
-  font-size: 24px;
 }
 
-/* -------------------- FIELDS -------------------- */
 .field {
   margin-bottom: 16px;
-  position: relative;
 }
 
 .field label {
-  display: block;
   font-size: 13px;
   font-weight: 600;
+  display: block;
   margin-bottom: 6px;
-  color: #333;
 }
 
-/* -------------------- SELECTS -------------------- */
-.field select {
+/* Select wrapper */
+.select-wrapper {
+  position: relative;
+  width: 100%;
+}
+
+.select-wrapper select {
+  width: 100%;
+  padding: 10px 14px;
+  border-radius: 8px;
+  border: 1.5px solid #cce0ff;
+  background: #f9fbff;
+  font-size: 14px;
+  appearance: none;
   -webkit-appearance: none;
   -moz-appearance: none;
-  appearance: none;
-  width: 100%;
-  background-color: #f8f9fa;
-  border: 1.5px solid #ddd;
-  border-radius: 10px;
-  padding: 10px 40px 10px 14px; /* space for arrow */
-  font-size: 14px;
-  color: #333;
-  outline: none;
   cursor: pointer;
+  color: #000;
   transition: all 0.2s ease;
 }
 
-/* Hover & focus effect */
-.field select:hover,
-.field select:focus {
-  border-color: #0D6EFD;
-  box-shadow: 0 0 8px rgba(13, 110, 253, 0.2);
-  background-color: #fff;
+.select-wrapper select:focus {
+  border-color: #0d6efd;
+  box-shadow: 0 0 4px 2px rgba(13, 110, 253, 0.2);
+  outline: none;
+  background: #fff;
 }
 
-/* Remove default IE/Edge arrow */
-.field select::-ms-expand {
-  display: none;
-}
-
-/* Custom arrow using pseudo-element */
-.field::after {
+.select-wrapper::after {
   content: "▼";
   position: absolute;
-  right: 14px;
+  right: 12px;
   top: 50%;
   transform: translateY(-50%);
   pointer-events: none;
-  color: #888;
+  color: #0D6EFD;
   font-size: 12px;
 }
 
-/* -------------------- INPUTS -------------------- */
-.field input,
-.field textarea {
-  width: 100%;
-  padding: 10px 14px;
-  font-size: 14px;
-  border: 1.5px solid #ddd;
-  border-radius: 10px;
-  outline: none;
-  transition: all 0.2s ease;
-  background-color: #f8f9fa;
-  color: #333;
-  font-family: 'Inter', sans-serif;
+.select-wrapper select:hover {
+  border-color: #0b5ed7;
 }
 
-.field input:focus,
-.field textarea:focus {
-  border-color: #0D6EFD;
-  box-shadow: 0 0 8px rgba(13, 110, 253, 0.2);
-  background-color: #fff;
-}
-
-/* Textarea customization */
-.field textarea {
-  resize: vertical;
-  min-height: 80px;
-}
-
-/* -------------------- IMAGES -------------------- */
+/* Images */
 .images {
   display: flex;
   gap: 10px;
@@ -110,36 +76,39 @@
   margin-top: 10px;
 }
 
-.imgWrap {
+.img-wrap {
   position: relative;
 }
 
-.imgWrap img {
+.img-wrap img {
   width: 80px;
   height: 80px;
   object-fit: cover;
-  border-radius: 8px;
-  border: 1px solid #ddd;
+  border-radius: 6px;
 }
 
-.imgWrap button {
+.img-wrap button {
   position: absolute;
   top: -6px;
   right: -6px;
+  border: none;
   background: #ff4d4f;
   color: #fff;
-  border: none;
   border-radius: 50%;
   width: 20px;
   height: 20px;
-  font-size: 14px;
   cursor: pointer;
-  display: flex;
-  align-items: center;
-  justify-content: center;
+  font-weight: bold;
 }
 
-/* -------------------- BUTTON -------------------- */
+.promote-label {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-weight: 500;
+}
+
+/* Publish button */
 .btn {
   width: 100%;
   background: #0D6EFD;
@@ -149,43 +118,30 @@
   border: none;
   font-weight: 600;
   cursor: pointer;
-  font-size: 16px;
-  transition: all 0.2s ease;
+  margin-top: 12px;
+  transition: background 0.2s ease;
 }
 
 .btn:hover {
   background: #0b5ed7;
-  box-shadow: 0 4px 12px rgba(13, 110, 253, 0.3);
 }
 
-/* -------------------- CHECKBOX -------------------- */
-.checkbox label {
-  display: flex;
-  align-items: center;
-  gap: 10px;
+textarea {
+  width: 100%;
+  padding: 10px 12px;
+  border-radius: 8px;
+  border: 1.5px solid #cce0ff;
+  background: #f9fbff;
   font-size: 14px;
-  cursor: pointer;
+  resize: vertical;
 }
 
-.checkbox input[type="checkbox"] {
-  width: 16px;
-  height: 16px;
-  cursor: pointer;
-}
-
-/* -------------------- RESPONSIVE -------------------- */
-@media (max-width: 600px) {
-  .container {
-    padding: 16px;
-    margin: 20px;
-  }
-  .btn {
-    font-size: 14px;
-    padding: 10px;
-  }
-  .field select,
-  .field input,
-  .field textarea {
-    font-size: 13px;
-  }
+input[type="number"],
+input[type="text"] {
+  width: 100%;
+  padding: 10px 12px;
+  border-radius: 8px;
+  border: 1.5px solid #cce0ff;
+  background: #f9fbff;
+  font-size: 14px;
 }
