@@ -47,7 +47,9 @@ const AddProduct = () => {
   const allRegions = Object.keys(locationsByRegion);
   const allStates = form.region ? Object.keys(locationsByRegion[form.region]) : [];
   const allCities = form.stateLocation ? locationsByRegion[form.region][form.stateLocation] || [] : [];
-  const subCategories = form.mainCategory ? categoriesData[form.mainCategory]?.subcategories || [] : [];
+  const subCategories = form.mainCategory
+    ? Object.keys(categoriesData[form.mainCategory]?.subcategories || {})
+    : [];
   const options = form.mainCategory ? productOptions[form.mainCategory] || {} : {};
 
   // --- Handlers ---
@@ -145,7 +147,9 @@ const AddProduct = () => {
         if (!form[f]) newErrors[f] = "This field is required";
       });
       ["storageOptions", "colors", "simTypes"].forEach(opt => {
-        if (options[opt] && !form.selectedOptions[opt]) newErrors[opt] = "This field is required";
+        if (options.subcategories?.[form.subCategory]?.[opt] && !form.selectedOptions[opt]) {
+          newErrors[opt] = "This field is required";
+        }
       });
     }
 
