@@ -8,14 +8,12 @@ const categoriesData = {
         "Apple","Samsung","Tecno","Itel","Xiaomi","Huawei","Infinix",
         "Oppo","Vivo","Nokia","Sony","Realme","Motorola","Asus","LG","BlackBerry","HTC"
       ],
-      Tablets: ["Apple","Samsung","Huawei","Lenovo","Microsoft","Asus","Amazon"]
+      Tablets: ["Apple","Samsung","Huawei","Lenovo","Microsoft","Asus","Amazon"],
+      "Phone Accessories": ["Chargers","Headphones","Cables","Power Banks","Phone Cases"]
     },
     models: {
-      Apple: [
-        "iPhone 17 Pro Max","iPhone 17 Pro","iPhone 17","iPhone 16 Pro Max","iPhone 16 Pro","iPhone 16 Plus",
-        "iPhone 15 Pro Max","iPhone 15 Pro","iPhone 15 Plus","iPhone 15"
-      ],
-      Samsung: ["Galaxy S23 Ultra","Galaxy S23+","Galaxy S23","Galaxy S22 Ultra","Galaxy S22+","Galaxy S22"],
+      Apple: ["iPhone 17 Pro Max","iPhone 17 Pro","iPhone 17","iPhone 16 Pro Max","iPhone 16 Pro"],
+      Samsung: ["Galaxy S23 Ultra","Galaxy S23+","Galaxy S23","Galaxy S22 Ultra","Galaxy S22+"],
       Tecno: ["Camon 20","Camon 19","Camon 18","Spark 10","Spark 9"],
       Itel: ["S23","S21","A56","A48","A25"],
       Xiaomi: ["Redmi Note 12","Redmi Note 11","Redmi 10","Poco X5","Mi 12"],
@@ -41,10 +39,36 @@ const categoriesData = {
     }
   },
 
-  // Other categories simplified for brevity
-  Vehicles: { subcategories: ["Cars","Motorcycles"], brands: {}, models: {}, options: {} },
-  Electronics: { subcategories: ["Laptops","TVs"], brands: {}, models: {}, options: {} },
-  Property: { subcategories: ["Houses","Land"], brands: {}, models: {}, options: {} }
+  Vehicles: {
+    subcategories: ["Cars","Motorcycles","Trucks","Buses","Spare Parts"],
+    brands: {
+      Cars: ["Toyota","Honda","Ford","BMW","Mercedes"],
+      Motorcycles: ["Honda","Yamaha","Suzuki","KTM"],
+      Trucks: ["Volvo","Mercedes","MAN"],
+      Buses: ["Mercedes","Volvo"],
+      "Spare Parts": ["Bosch","Denso","ACDelco"]
+    },
+    models: {},
+    options: {
+      fuelTypes: ["Petrol","Diesel","Electric","Hybrid"],
+      transmissions: ["Manual","Automatic","CVT"],
+      features: ["Air Conditioning","GPS","Sunroof","Leather Seats"]
+    }
+  },
+
+  Electronics: {
+    subcategories: ["Laptops","TVs","Gaming","Cameras"],
+    brands: {},
+    models: {},
+    options: {}
+  },
+
+  Property: {
+    subcategories: ["Houses","Apartments","Land"],
+    brands: {},
+    models: {},
+    options: {}
+  }
 };
 
 export default categoriesData;
