@@ -41,7 +41,6 @@ export default function AddProduct() {
 
   const rules = categoryRules[form.mainCategory] || categoryRules.Default;
 
-  // Load draft & saved category
   useEffect(() => {
     const saved = localStorage.getItem(DRAFT_KEY);
     if (saved) setForm(JSON.parse(saved));
@@ -54,18 +53,13 @@ export default function AddProduct() {
     if (form.mainCategory) localStorage.setItem(CATEGORY_KEY, form.mainCategory);
   }, [form]);
 
-  const update = (key, value) =>
-    setForm(prev => ({ ...prev, [key]: value }));
+  const update = (key, value) => setForm(prev => ({ ...prev, [key]: value }));
 
-  // Price formatting with commas
   const handlePriceChange = (e) => {
     const raw = e.target.value.replace(/,/g, "");
-    if (!isNaN(raw)) {
-      update("price", Number(raw).toLocaleString());
-    }
+    if (!isNaN(raw)) update("price", Number(raw).toLocaleString());
   };
 
-  // Images with + icon
   const handleImages = (files) => {
     const list = Array.from(files);
     if (list.length + form.images.length > rules.maxImages) {
@@ -81,29 +75,19 @@ export default function AddProduct() {
     update("previews", form.previews.filter((_, i) => i !== index));
   };
 
-  // Validation
   const validate = () => {
-    if (!form.title || form.title.length < rules.minTitle)
-      return `Title must be at least ${rules.minTitle} characters`;
+    if (!form.title || form.title.length < rules.minTitle) return `Title must be at least ${rules.minTitle} characters`;
     if (!form.mainCategory) return "Select category";
     if (!form.price) return "Enter price";
     if (!form.phone || form.phone.length < 10) return "Enter valid phone number";
-    if (form.images.length < rules.minImages)
-      return `Upload at least ${rules.minImages} image(s)`;
-    if (
-      form.mainCategory === "Mobile Phones & Tablets" &&
-      form.model &&
-      !form.condition
-    )
-      return "Select condition";
-    if (form.condition === "Used" && !form.usedDetail)
-      return "Select used detail";
+    if (form.images.length < rules.minImages) return `Upload at least ${rules.minImages} image(s)`;
+    if (form.mainCategory === "Mobile Phones & Tablets" && form.model && !form.condition) return "Select condition";
+    if (form.condition === "Used" && !form.usedDetail) return "Select used detail";
     if (!form.state) return "Select state";
     if (!form.city) return "Select city / LGA";
     return null;
   };
 
-  // Submit
   const handleSubmit = async () => {
     const error = validate();
     if (error) return alert(error);
@@ -111,10 +95,7 @@ export default function AddProduct() {
 
     try {
       setLoading(true);
-      const uploaded = await Promise.all(
-        form.images.map(img => uploadToCloudinary(img))
-      );
-
+      const uploaded = await Promise.all(form.images.map(img => uploadToCloudinary(img)));
       await addDoc(collection(db, "products"), {
         ...form,
         price: Number(form.price.replace(/,/g, "")),
@@ -124,7 +105,6 @@ export default function AddProduct() {
         ownerId: auth.currentUser.uid,
         createdAt: serverTimestamp(),
       });
-
       localStorage.removeItem(DRAFT_KEY);
       alert("Product posted successfully");
       navigate(`/${marketType}`);
@@ -135,111 +115,96 @@ export default function AddProduct() {
     }
   };
 
+  // Helper to render scrollable card lists
+  const ScrollableCards = ({ items, value, onSelect, iconMap }) => (
+    <div className="scrollable-cards">
+      {items.map(item => (
+        <div
+          key={item}
+          className={`scrollable-card ${value === item ? "active" : ""}`}
+          onClick={() => onSelect(item)}
+        >
+          {iconMap?.[item] && <div className="card-icon">{iconMap[item]}</div>}
+          <div>{item}</div>
+        </div>
+      ))}
+    </div>
+  );
+
   return (
     <div className="add-product-container">
-      <h2 className="title">Post Product</h2>
+      {/* Top header with back arrow */}
+      <div className="add-product-header">
+        <button className="back-btn" onClick={() => navigate(`/${marketType}`)}>←</button>
+        <span className="page-title">Add Product</span>
+      </div>
 
       {/* Title */}
       <Field label="Title">
-        <input
-          value={form.title}
-          onChange={e => update("title", e.target.value)}
-          placeholder="e.g iPhone 11 Pro Max"
-        />
+        <input value={form.title} onChange={e => update("title", e.target.value)} placeholder="e.g iPhone 11 Pro Max" />
       </Field>
 
-      {/* Category Picker */}
+      {/* Category */}
       <Field label="Category">
-        {!showCategoryPicker ? (
-          <div className="select-wrapper">
-            <input
-              readOnly
-              value={form.mainCategory || "Select Category"}
-              onClick={() => setShowCategoryPicker(true)}
-            />
-          </div>
-        ) : (
-          <div className="category-picker">
-            <div className="category-header">
-              <button className="back-btn" onClick={() => navigate(`/${marketType}`)}>← Back</button>
-              <span>Select Category</span>
-            </div>
-            <div className="category-scroll">
-              {categories.map(cat => (
-                <div
-                  key={cat.name}
-                  className={`category-card ${form.mainCategory === cat.name ? "active" : ""}`}
-                  onClick={() => {
-                    update("mainCategory", cat.name);
-                    update("subCategory", "");
-                    update("brand", "");
-                    update("model", "");
-                    update("condition", "");
-                    update("usedDetail", "");
-                    setShowCategoryPicker(false);
-                  }}
-                >
-                  <span className="icon">{cat.icon}</span>
-                  <span className="name">{cat.name}</span>
-                </div>
-              ))}
-            </div>
-          </div>
-        )}
+        <ScrollableCards
+          items={categories.map(c => c.name)}
+          value={form.mainCategory}
+          onSelect={val => {
+            update("mainCategory", val);
+            update("subCategory", "");
+            update("brand", "");
+            update("model", "");
+            update("condition", "");
+            update("usedDetail", "");
+          }}
+          iconMap={categories.reduce((acc, c) => ({ ...acc, [c.name]: c.icon }), {})}
+        />
       </Field>
 
       {/* Subcategory */}
       {form.mainCategory && (
         <Field label="Subcategory">
-          <Select value={form.subCategory} onChange={e => update("subCategory", e.target.value)}>
-            <option value="">Optional</option>
-            {categories.find(c => c.name === form.mainCategory)?.subcategories.map(sub => (
-              <option key={sub} value={sub}>{sub}</option>
-            ))}
-          </Select>
+          <ScrollableCards
+            items={categories.find(c => c.name === form.mainCategory)?.subcategories || []}
+            value={form.subCategory}
+            onSelect={val => update("subCategory", val)}
+          />
         </Field>
       )}
 
-      {/* Phone / Brand / Model / Condition */}
+      {/* Brand */}
       {phoneModels[form.subCategory] && (
-        <>
-          <Field label="Brand">
-            <Select value={form.brand} onChange={e => update("brand", e.target.value)}>
-              <option value="">Select Brand</option>
-              {Object.keys(phoneModels[form.subCategory]).map(b => (
-                <option key={b}>{b}</option>
-              ))}
-            </Select>
-          </Field>
-
-          {form.brand && (
-            <Field label="Model">
-              <Select value={form.model} onChange={e => update("model", e.target.value)}>
-                <option value="">Select Model</option>
-                {phoneModels[form.subCategory][form.brand].map(m => (
-                  <option key={m}>{m}</option>
-                ))}
-              </Select>
-            </Field>
-          )}
-        </>
+        <Field label="Brand">
+          <ScrollableCards
+            items={Object.keys(phoneModels[form.subCategory])}
+            value={form.brand}
+            onSelect={val => { update("brand", val); update("model", ""); }}
+          />
+        </Field>
       )}
 
+      {/* Model */}
+      {form.brand && phoneModels[form.subCategory] && (
+        <Field label="Model">
+          <ScrollableCards
+            items={phoneModels[form.subCategory][form.brand]}
+            value={form.model}
+            onSelect={val => update("model", val)}
+          />
+        </Field>
+      )}
+
+      {/* Condition */}
       {form.model && (
         <Field label="Condition">
-          <Select value={form.condition} onChange={e => update("condition", e.target.value)}>
-            <option value="">Select</option>
-            {conditions.main.map(c => <option key={c}>{c}</option>)}
-          </Select>
+          <ScrollableCards items={conditions.main} value={form.condition} onSelect={update.bind(null, "condition")} />
         </Field>
       )}
 
+      {/* Used Details */}
       {form.condition === "Used" && (
         <Field label="Used Details">
-          <Select value={form.usedDetail} onChange={e => update("usedDetail", e.target.value)}>
-            <option value="">Select Detail</option>
-            {conditions.usedDetails.map(d => <option key={d}>{d}</option>)}
-          </Select>
+          <ScrollableCards items={conditions.usedDetails} value={form.usedDetail} onSelect={update.bind(null, "usedDetail")} />
         </Field>
       )}
 
@@ -250,12 +215,7 @@ export default function AddProduct() {
 
       {/* Phone */}
       <Field label="Phone Number">
-        <input
-          type="tel"
-          value={form.phone}
-          onChange={e => update("phone", e.target.value)}
-          placeholder="08012345678"
-        />
+        <input type="tel" value={form.phone} onChange={e => update("phone", e.target.value)} placeholder="08012345678" />
       </Field>
 
       {/* Images */}
@@ -276,29 +236,27 @@ export default function AddProduct() {
 
       {/* State */}
       <Field label="State">
-        <Select value={form.state} onChange={e => { update("state", e.target.value); update("city", ""); }}>
-          <option value="">Select State</option>
-          {Object.keys(locationsByState).map(s => <option key={s} value={s}>{s}</option>)}
-        </Select>
+        <ScrollableCards
+          items={Object.keys(locationsByState)}
+          value={form.state}
+          onSelect={val => { update("state", val); update("city", ""); }}
+        />
       </Field>
 
       {/* City / LGA */}
       {form.state && (
         <Field label="City / LGA">
-          <Select value={form.city} onChange={e => update("city", e.target.value)}>
-            <option value="">Select City / LGA</option>
-            {locationsByState[form.state].map(c => <option key={c} value={c}>{c}</option>)}
-          </Select>
+          <ScrollableCards
+            items={locationsByState[form.state]}
+            value={form.city}
+            onSelect={val => update("city", val)}
+          />
         </Field>
       )}
 
       {/* Description */}
       <Field label="Description">
-        <textarea
-          rows={4}
-          value={form.description}
-          onChange={e => update("description", e.target.value)}
-        />
+        <textarea rows={4} value={form.description} onChange={e => update("description", e.target.value)} />
       </Field>
 
       <button className="btn" onClick={handleSubmit} disabled={loading}>
@@ -313,12 +271,5 @@ const Field = ({ label, children }) => (
   <div className="field">
     <label>{label}</label>
     {children}
-  </div>
-);
-
-// Select Component
-const Select = ({ children, ...props }) => (
-  <div className="select-wrapper">
-    <select {...props}>{children}</select>
   </div>
 );
