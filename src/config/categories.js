@@ -1,6 +1,7 @@
-// src/config/categories.js
+// /src/config/categories.js
 
 const categories = [
+  // PRIORITY CATEGORIES FIRST
   {
     id: "mobile_devices",
     name: "Mobile Phones & Tablets",
@@ -30,6 +31,29 @@ const categories = [
     ],
   },
   {
+    id: "electronics",
+    name: "Electronics",
+    icon: "icons/electronics.png",
+    subcategories: [
+      { id: "audio_music", name: "Audio & Music Equipment", brands: ["Sony","Bose","JBL","Yamaha"] },
+      { id: "computer_accessories", name: "Computer Accessories", brands: ["Logitech","HP","Dell","Lenovo"] },
+      { id: "computer_hardware", name: "Computer Hardware", brands: ["Intel","AMD","NVIDIA","Corsair"] },
+      { id: "monitors", name: "Computer Monitors", brands: ["Samsung","LG","Dell","Acer"] },
+      { id: "headphones", name: "Headphones", brands: ["Sony","Bose","JBL","Sennheiser"] },
+      { id: "laptops", name: "Laptops & Computers", brands: ["Apple","Dell","HP","Lenovo","Asus","Acer"] },
+      { id: "networking", name: "Networking Products", brands: ["TP-Link","D-Link","Netgear","Cisco"] },
+      { id: "cameras", name: "Photo & Video Cameras", brands: ["Canon","Nikon","Sony","Fujifilm"] },
+      { id: "printers", name: "Printers & Scanners", brands: ["HP","Canon","Epson"] },
+      { id: "security", name: "Security & Surveillance", brands: ["Hikvision","Dahua","Arlo","Ring"] },
+      { id: "software", name: "Software", brands: ["Microsoft","Adobe","Corel","Autodesk"] },
+      { id: "tv_dvd", name: "TV & DVD Equipment", brands: ["Samsung","LG","Sony","TCL","Hisense"] },
+      { id: "video_game_consoles", name: "Video Game Consoles", brands: ["Sony","Microsoft","Nintendo"] },
+      { id: "video_games", name: "Video Games", brands: ["EA","Ubisoft","Activision","Nintendo"] },
+    ],
+  },
+
+  // OTHER CATEGORIES
+  {
     id: "vehicles",
     name: "Vehicles",
     icon: "icons/vehicle.png",
@@ -51,27 +75,6 @@ const categories = [
       { id: "land", name: "Land" },
       { id: "commercial", name: "Commercial Property" },
       { id: "vacation_rentals", name: "Vacation Rentals" },
-    ],
-  },
-  {
-    id: "electronics",
-    name: "Electronics",
-    icon: "icons/electronics.png",
-    subcategories: [
-      { id: "audio_music", name: "Audio & Music Equipment", brands: ["Sony","Bose","JBL","Yamaha"] },
-      { id: "computer_accessories", name: "Computer Accessories", brands: ["Logitech","HP","Dell","Lenovo"] },
-      { id: "computer_hardware", name: "Computer Hardware", brands: ["Intel","AMD","NVIDIA","Corsair"] },
-      { id: "monitors", name: "Computer Monitors", brands: ["Samsung","LG","Dell","Acer"] },
-      { id: "headphones", name: "Headphones", brands: ["Sony","Bose","JBL","Sennheiser"] },
-      { id: "laptops", name: "Laptops & Computers", brands: ["Apple","Dell","HP","Lenovo","Asus","Acer"] },
-      { id: "networking", name: "Networking Products", brands: ["TP-Link","D-Link","Netgear","Cisco"] },
-      { id: "cameras", name: "Photo & Video Cameras", brands: ["Canon","Nikon","Sony","Fujifilm"] },
-      { id: "printers", name: "Printers & Scanners", brands: ["HP","Canon","Epson"] },
-      { id: "security", name: "Security & Surveillance", brands: ["Hikvision","Dahua","Arlo","Ring"] },
-      { id: "software", name: "Software", brands: ["Microsoft","Adobe","Corel","Autodesk"] },
-      { id: "tv_dvd", name: "TV & DVD Equipment", brands: ["Samsung","LG","Sony","TCL","Hisense"] },
-      { id: "video_game_consoles", name: "Video Game Consoles", brands: ["Sony","Microsoft","Nintendo"] },
-      { id: "video_games", name: "Video Games", brands: ["EA","Ubisoft","Activision","Nintendo"] },
     ],
   },
   {
