@@ -1,12 +1,12 @@
 // src/pages/AddProduct.js
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
 import { collection, addDoc, serverTimestamp } from "firebase/firestore";
 import { db, auth } from "../firebase";
 import { uploadToCloudinary } from "../cloudinary";
 import { useNavigate, useLocation } from "react-router-dom";
 import categoriesData from "../config/categoriesData";
 import productOptions from "../config/productOptions";
-import locations from "../config/locations";
+import { locationsByRegion } from "../config/locationsByRegion";
 import { useAdLimitCheck } from "../hooks/useAdLimits";
 import ProductOptionsSelector from "../components/ProductOptionsSelector";
 
@@ -39,19 +39,26 @@ const AddProduct = () => {
 
   const { checkLimit } = useAdLimitCheck();
 
-  // Dynamic lists
   const subCategories = mainCategory
     ? categoriesData[mainCategory]?.subcategories || []
     : [];
+
   const options = mainCategory ? productOptions[mainCategory] || {} : {};
+
+  // Cleanup preview URLs on unmount
+  useEffect(() => {
+    return () => previewImages.forEach(url => URL.revokeObjectURL(url));
+  }, [previewImages]);
 
   const handleFileChange = (e) => {
     const files = Array.from(e.target.files);
-    setImages(files);
-    setPreviewImages(files.map(f => URL.createObjectURL(f)));
+    if (files.length + images.length > 10) return alert("Max 10 images allowed");
+    setImages(prev => [...prev, ...files]);
+    setPreviewImages(prev => [...prev, ...files.map(f => URL.createObjectURL(f))]);
   };
 
   const resetForm = () => {
+    previewImages.forEach(url => URL.revokeObjectURL(url));
     setMainCategory(""); setSubCategory(""); setBrand(""); setModel("");
     setCondition(""); setTitle(""); setDescription(""); setPrice("");
     setImages([]); setPreviewImages([]); setStateLocation(""); setCityLocation("");
@@ -61,13 +68,21 @@ const AddProduct = () => {
 
   const handleAdd = async (e) => {
     e.preventDefault();
-
     if (!auth.currentUser) return alert("Login required.");
-    if (!mainCategory || !subCategory || !brand || !model || !condition || !title || !price || images.length === 0 || !stateLocation || !cityLocation) {
-      return alert("Please fill all required fields.");
-    }
-    if (!selectedStorage || !selectedColor || !selectedSIM) return alert("Please select storage, color, and SIM type.");
-    if (!phoneNumber.match(/^\d{10,15}$/)) return alert("Enter a valid phone number.");
+
+    if (
+      !mainCategory || !subCategory || !brand || !model || !condition || !title || !price ||
+      images.length === 0 || !stateLocation || !cityLocation
+    ) return alert("Please fill all required fields.");
+
+    if (!selectedStorage || !selectedColor || !selectedSIM)
+      return alert("Please select storage, color, and SIM type.");
+
+    if (!/^\d{10,15}$/.test(phoneNumber)) return alert("Enter a valid phone number.");
+
+    // Price validation regex
+    const numericPrice = price.replace(/,/g, "");
+    if(!/^\d+(\.\d{1,2})?$/.test(numericPrice)) return alert("Enter a valid price");
 
     try {
       setLoading(true);
@@ -82,7 +97,7 @@ const AddProduct = () => {
 
       await addDoc(collection(db, "products"), {
         mainCategory, subCategory, brand, model, condition, title, description,
-        price: parseFloat(price), images: imageUrls, coverImage: imageUrls[0],
+        price: parseFloat(numericPrice), images: imageUrls, coverImage: imageUrls[0],
         ownerId: auth.currentUser.uid, marketType, state: stateLocation, city: cityLocation,
         isPromoted, promotedAt: isPromoted ? new Date() : null,
         promotionExpiresAt: isPromoted ? new Date(Date.now() + 30*24*60*60*1000) : null,
@@ -101,102 +116,108 @@ const AddProduct = () => {
     }
   };
 
+  // Price input with comma formatting
+  const handlePriceChange = (val) => {
+    let num = val.replace(/,/g, "");
+    if (num === "" || isNaN(num)) return setPrice("");
+    const parts = num.split(".");
+    const intPart = Number(parts[0]).toLocaleString();
+    const decimalPart = parts[1] ? "." + parts[1].slice(0,2) : "";
+    setPrice(intPart + decimalPart);
+  };
+
+  // Get all states
+  const allStates = Object.values(locationsByRegion).flatMap(region => Object.keys(region));
+
+  // Get cities for selected state
+  const allCities = stateLocation
+    ? Object.values(locationsByRegion).flatMap(region => region[stateLocation] || [])
+    : [];
+
   return (
-    <form onSubmit={handleAdd} style={{
-      maxWidth: 700, margin: "20px auto", padding: 20, borderRadius: 10, background: "#fff",
-      display: "flex", flexDirection: "column", gap: 15, boxShadow: "0 4px 12px rgba(0,0,0,0.1)"
-    }}>
-      <h2 style={{ textAlign: "center", color: "#0d6efd" }}>Post Ad ({marketType})</h2>
+    <form onSubmit={handleAdd} className="max-w-2xl mx-auto p-6 bg-white rounded-xl shadow-lg flex flex-col gap-4">
+      <h2 className="text-3xl text-center text-blue-600 font-bold">Post Ad ({marketType})</h2>
 
       {/* Main Category */}
-      <select value={mainCategory} onChange={e => { setMainCategory(e.target.value); setSubCategory(""); setBrand(""); setModel(""); }} required>
+      <select value={mainCategory} onChange={e => { setMainCategory(e.target.value); setSubCategory(""); setBrand(""); setModel(""); }} required className="p-3 border rounded">
         <option value="">Select Category</option>
         {Object.keys(categoriesData).map(cat => <option key={cat} value={cat}>{cat}</option>)}
       </select>
 
       {/* Subcategory */}
-      {subCategories.length > 0 && <select value={subCategory} onChange={e => { setSubCategory(e.target.value); setBrand(""); setModel(""); }} required>
-        <option value="">Select Subcategory</option>
-        {subCategories.map(sub => <option key={sub} value={sub}>{sub}</option>)}
-      </select>}
-
-      {/* MobilePhonesSelector for brand & model */}
-      {subCategory === "Mobile Phones" && (
-        <MobilePhonesSelector onSelect={({ brand, model }) => { setBrand(brand); setModel(model); }} />
+      {subCategories.length > 0 && (
+        <select value={subCategory} onChange={e => { setSubCategory(e.target.value); setBrand(""); setModel(""); }} required className="p-3 border rounded">
+          <option value="">Select Subcategory</option>
+          {subCategories.map(sub => <option key={sub} value={sub}>{sub}</option>)}
+        </select>
       )}
 
-      {/* Condition */}
-      <select value={condition} onChange={e => setCondition(e.target.value)} required>
-        <option value="">Select Condition</option>
-        <option value="New">Brand New</option>
-        <option value="Used">Used</option>
-      </select>
-
-      {/* Storage, Color, SIM */}
-      {options.storageOptions && <select value={selectedStorage} onChange={e => setSelectedStorage(e.target.value)} required>
-        <option value="">Select Storage</option>
-        {options.storageOptions.map(s => <option key={s} value={s}>{s}</option>)}
-      </select>}
-
-      {options.colors && <select value={selectedColor} onChange={e => setSelectedColor(e.target.value)} required>
-        <option value="">Select Color</option>
-        {options.colors.map(c => <option key={c} value={c}>{c}</option>)}
-      </select>}
-
-      {options.simTypes && <select value={selectedSIM} onChange={e => setSelectedSIM(e.target.value)} required>
-        <option value="">Select SIM Type</option>
-        {options.simTypes.map(s => <option key={s} value={s}>{s}</option>)}
-      </select>}
-
-      {/* Features */}
-      {options.features && options.features.length > 0 && <div>
-        <p>Features:</p>
-        {options.features.map(f => (
-          <label key={f} style={{ display: "block", marginBottom: 5 }}>
-            <input
-              type="checkbox"
-              value={f}
-              checked={selectedFeatures.includes(f)}
-              onChange={e => {
-                if (e.target.checked) setSelectedFeatures([...selectedFeatures, f]);
-                else setSelectedFeatures(selectedFeatures.filter(feat => feat !== f));
-              }}
-            /> {f}
-          </label>
-        ))}
-      </div>}
+      {/* Product Options */}
+      {subCategory && (
+        <ProductOptionsSelector
+          mainCategory={mainCategory}
+          subCategory={subCategory}
+          onChange={({ brand, model, storage, color, sim, features, state, city }) => {
+            setBrand(brand); setModel(model);
+            setSelectedStorage(storage || "");
+            setSelectedColor(color || "");
+            setSelectedSIM(sim || "");
+            setSelectedFeatures(features || []);
+            if(state) setStateLocation(state);
+            if(city) setCityLocation(city);
+          }}
+        />
+      )}
 
       {/* Title & Description */}
-      <input type="text" placeholder="Title*" value={title} onChange={e => setTitle(e.target.value)} maxLength={70} required />
-      <textarea placeholder="Description" value={description} onChange={e => setDescription(e.target.value)} maxLength={850} />
+      <input type="text" placeholder="Title*" value={title} onChange={e => setTitle(e.target.value)} maxLength={70} required className="p-3 border rounded"/>
+      <textarea placeholder="Description" value={description} onChange={e => setDescription(e.target.value)} maxLength={850} className="p-3 border rounded"/>
 
       {/* Price & Phone */}
-      <input type="number" placeholder="Price*" value={price} onChange={e => setPrice(e.target.value)} required />
-      <input type="tel" placeholder="Your phone number*" value={phoneNumber} onChange={e => setPhoneNumber(e.target.value)} required />
+      <input type="text" placeholder="Price*" value={price} onChange={e => handlePriceChange(e.target.value)} required className="p-3 border rounded"/>
+      <input type="tel" placeholder="Your phone number*" value={phoneNumber} onChange={e => setPhoneNumber(e.target.value)} maxLength={15} required className="p-3 border rounded"/>
 
       {/* Images */}
-      <input type="file" multiple accept="image/*" onChange={handleFileChange} required />
-      {previewImages.length > 0 && <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
-        {previewImages.map((src, i) => <img key={i} src={src} alt={`preview-${i}`} style={{ width: 80, height: 80, objectFit: "cover", borderRadius: 5, border: "1px solid #ccc" }} />)}
-      </div>}
+      <input type="file" multiple accept="image/*" onChange={handleFileChange} className="p-2 border rounded"/>
+      {previewImages.length > 0 && (
+        <div className="flex gap-2 flex-wrap">
+          {previewImages.map((src, i) => (
+            <div key={i} className="relative">
+              <img src={src} alt={`preview-${i}`} className="w-20 h-20 object-cover rounded border"/>
+              <button
+                type="button"
+                onClick={() => {
+                  const newImages = images.filter((_, idx) => idx !== i);
+                  const newPreviews = previewImages.filter((_, idx) => idx !== i);
+                  setImages(newImages); setPreviewImages(newPreviews);
+                }}
+                className="absolute -top-2 -right-2 bg-red-500 text-white rounded-full w-5 h-5 text-xs flex items-center justify-center"
+                aria-label="Remove image"
+              >×</button>
+            </div>
+          ))}
+        </div>
+      )}
 
       {/* Location */}
-      <select value={stateLocation} onChange={e => { setStateLocation(e.target.value); setCityLocation(""); }} required>
+      <select value={stateLocation} onChange={e => { setStateLocation(e.target.value); setCityLocation(""); }} required className="p-3 border rounded">
         <option value="">Select State</option>
-        {Object.keys(locations).map(st => <option key={st} value={st}>{st}</option>)}
+        {allStates.map(state => <option key={state} value={state}>{state}</option>)}
       </select>
-      {stateLocation && <select value={cityLocation} onChange={e => setCityLocation(e.target.value)} required>
-        <option value="">Select City</option>
-        {locations[stateLocation].map(c => <option key={c} value={c}>{c}</option>)}
-      </select>}
+      {stateLocation && (
+        <select value={cityLocation} onChange={e => setCityLocation(e.target.value)} required className="p-3 border rounded">
+          <option value="">Select City</option>
+          {allCities.map(city => <option key={city} value={city}>{city}</option>)}
+        </select>
+      )}
 
       {/* Promote */}
-      <label style={{ display: "flex", alignItems: "center", gap: 10 }}>
-        <input type="checkbox" checked={isPromoted} onChange={() => setIsPromoted(!isPromoted)} />
+      <label className="flex items-center gap-2">
+        <input type="checkbox" checked={isPromoted} onChange={() => setIsPromoted(!isPromoted)} className="w-4 h-4 border rounded focus:ring-blue-400"/>
         Promote this product (free, 30 days)
       </label>
 
-      <button type="submit" disabled={loading} style={{ padding: "10px 15px", background: "#0d6efd", color: "#fff", border: "none", borderRadius: 5, cursor: "pointer" }}>
+      <button type="submit" disabled={loading} className="p-3 bg-blue-600 text-white rounded hover:bg-blue-700">
         {loading ? "Uploading..." : `Add to ${marketType}`}
       </button>
     </form>
