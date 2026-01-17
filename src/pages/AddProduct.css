@@ -93,9 +93,34 @@
   display: flex;
   flex-direction: column;
   gap: 8px;
-  max-height: 250px; /* scroll if too many options */
+  max-height: 250px;
   overflow-y: auto;
   padding-right: 4px;
+}
+
+.options-back {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 6px;
+  font-size: 14px;
+  color: #0D6EFD;
+  cursor: pointer;
+  font-weight: 600;
+  transition: color 0.2s;
+}
+
+.options-back:hover {
+  color: #0a58ca;
+}
+
+.options-back span.arrow {
+  font-size: 16px;
+  transition: transform 0.2s ease;
+}
+
+.options-back:hover span.arrow {
+  transform: translateX(-4px);
 }
 
 .option-item {
@@ -123,7 +148,7 @@
 
 /* Professional right arrow for option card */
 .option-item::after {
-  content: "➔"; /* right arrow, clean & modern */
+  content: "➔";
   font-size: 14px;
   color: #0D6EFD;
   transition: transform 0.2s;
