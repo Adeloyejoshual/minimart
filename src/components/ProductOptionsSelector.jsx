@@ -12,12 +12,14 @@ const ProductOptionsSelector = ({ mainCategory, subCategory, onChange }) => {
   const [brand, setBrand] = useState("");
   const [model, setModel] = useState("");
   const [selectedOptions, setSelectedOptions] = useState({});
+  const [featuresOpen, setFeaturesOpen] = useState(false); // For dropdown toggle
 
   // Reset when subcategory changes
   useEffect(() => {
     setBrand("");
     setModel("");
     setSelectedOptions({});
+    setFeaturesOpen(false);
   }, [subCategory]);
 
   // Notify parent of changes
@@ -63,23 +65,31 @@ const ProductOptionsSelector = ({ mainCategory, subCategory, onChange }) => {
 
       {/* Other Options */}
       {Object.entries(options).map(([key, values]) => {
-        // Handle features separately as checkboxes
+        // Handle features separately as dropdown checkboxes
         if (key === "features") {
           return (
             <div key={key}>
-              <label className="font-semibold block mb-2">Select Features</label>
-              <div className="flex flex-wrap gap-3">
-                {values.map(feature => (
-                  <label key={feature} className="flex items-center gap-2 bg-white p-2 rounded border cursor-pointer hover:shadow">
-                    <input
-                      type="checkbox"
-                      checked={!!selectedOptions.features?.[feature]}
-                      onChange={() => handleFeatureToggle(feature)}
-                    />
-                    <span>{feature}</span>
-                  </label>
-                ))}
-              </div>
+              <button
+                type="button"
+                onClick={() => setFeaturesOpen(!featuresOpen)}
+                className="w-full text-left p-2 border rounded bg-gray-100 hover:bg-gray-200 flex justify-between items-center"
+              >
+                Select Features {featuresOpen ? "▲" : "▼"}
+              </button>
+              {featuresOpen && (
+                <div className="flex flex-wrap gap-3 mt-2 p-2 border rounded bg-white">
+                  {values.map(feature => (
+                    <label key={feature} className="flex items-center gap-2 cursor-pointer">
+                      <input
+                        type="checkbox"
+                        checked={!!selectedOptions.features?.[feature]}
+                        onChange={() => handleFeatureToggle(feature)}
+                      />
+                      <span>{feature}</span>
+                    </label>
+                  ))}
+                </div>
+              )}
             </div>
           );
         } else {
