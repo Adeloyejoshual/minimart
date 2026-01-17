@@ -17,7 +17,7 @@ const ProductOptionsSelector = ({ mainCategory, subCategory, onChange }) => {
   const [stateLocation, setStateLocation] = useState("");
   const [cityLocation, setCityLocation] = useState("");
 
-  // Compute all brands for the selected category
+  // --- Brands ---
   const categoryBrands = subCategory
     ? categoriesData[mainCategory]?.brands?.[subCategory] || []
     : [];
@@ -35,21 +35,24 @@ const ProductOptionsSelector = ({ mainCategory, subCategory, onChange }) => {
     b.toLowerCase().includes(searchTerm.toLowerCase())
   );
 
-  // Compute models for selected brand
+  // --- Models ---
   const models =
     mainCategory === "Mobile Phones & Tablets" && selectedBrand
       ? phoneModels[selectedBrand] || []
       : categoriesData[mainCategory]?.models?.[selectedBrand] || [];
 
+  // --- Generic options ---
   const options = mainCategory ? productOptions[mainCategory] || {} : {};
 
-  // Flatten states/cities from locationsByRegion
-  const allStates = Object.values(locationsByRegion).flatMap(region => Object.keys(region));
+  // --- Locations ---
+  const allStates = stateLocation
+    ? Object.keys(locationsByRegion).flatMap(region => Object.keys(locationsByRegion[region]))
+    : Object.keys(locationsByRegion).flatMap(region => Object.keys(locationsByRegion[region]));
   const citiesForState = stateLocation
     ? Object.values(locationsByRegion).flatMap(region => region[stateLocation] || [])
     : [];
 
-  // Notify parent of changes
+  // --- Notify parent ---
   useEffect(() => {
     onChange({
       brand: selectedBrand,
@@ -60,13 +63,11 @@ const ProductOptionsSelector = ({ mainCategory, subCategory, onChange }) => {
     });
   }, [selectedBrand, selectedModel, selectedOptions, stateLocation, cityLocation]);
 
-  // Generic select renderer
+  // --- Generic select renderer ---
   const renderSelect = (field, label, items) => (
     <select
       value={selectedOptions[field] || ""}
-      onChange={e =>
-        setSelectedOptions(prev => ({ ...prev, [field]: e.target.value }))
-      }
+      onChange={e => setSelectedOptions(prev => ({ ...prev, [field]: e.target.value }))}
       className="mb-4 p-3 rounded border border-gray-300 w-full focus:outline-none focus:ring-2 focus:ring-blue-400"
       aria-label={label}
     >
