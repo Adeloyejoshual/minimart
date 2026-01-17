@@ -2,6 +2,8 @@
 import React, { useEffect, useState } from "react";
 import categoriesData from "../config/categoriesData";
 
+const CONDITIONS = ["Brand New", "Used", "Refurbished"];
+
 const ProductOptionsSelector = ({ mainCategory, subCategory, onChange }) => {
   const category = categoriesData[mainCategory];
 
@@ -11,69 +13,69 @@ const ProductOptionsSelector = ({ mainCategory, subCategory, onChange }) => {
 
   const [brand, setBrand] = useState("");
   const [model, setModel] = useState("");
+  const [condition, setCondition] = useState("");
   const [selectedOptions, setSelectedOptions] = useState({});
 
-  /* Reset when category or subcategory changes */
+  // reset when subcategory changes
   useEffect(() => {
     setBrand("");
     setModel("");
+    setCondition("");
     setSelectedOptions({});
-    onChange({});
-  }, [mainCategory, subCategory]);
+  }, [subCategory]);
 
-  /* Notify parent when something changes */
   useEffect(() => {
     onChange({
       brand,
       model,
-      ...selectedOptions,
+      condition,
+      options: selectedOptions
     });
-  }, [brand, model, selectedOptions]);
-
-  const handleOptionChange = (name, value) => {
-    setSelectedOptions(prev => ({
-      ...prev,
-      [name]: value,
-    }));
-  };
+  }, [brand, model, condition, selectedOptions]);
 
   const models = brand ? modelsByBrand[brand] || [] : [];
 
   return (
-    <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
-      {/* BRAND */}
+    <div className="space-y-4">
+
+      {/* Brand */}
       {brands.length > 0 && (
         <select value={brand} onChange={e => setBrand(e.target.value)}>
           <option value="">Select Brand</option>
-          {brands.map(b => (
-            <option key={b} value={b}>{b}</option>
-          ))}
+          {brands.map(b => <option key={b}>{b}</option>)}
         </select>
       )}
 
-      {/* MODEL */}
+      {/* Model */}
       {models.length > 0 && (
         <select value={model} onChange={e => setModel(e.target.value)}>
           <option value="">Select Model</option>
-          {models.map(m => (
-            <option key={m} value={m}>{m}</option>
-          ))}
+          {models.map(m => <option key={m}>{m}</option>)}
         </select>
       )}
 
-      {/* OTHER OPTIONS */}
-      {Object.entries(options).map(([name, values]) => (
+      {/* Condition */}
+      {brand && (
+        <select value={condition} onChange={e => setCondition(e.target.value)}>
+          <option value="">Condition</option>
+          {CONDITIONS.map(c => <option key={c}>{c}</option>)}
+        </select>
+      )}
+
+      {/* Extra options */}
+      {Object.entries(options).map(([key, values]) => (
         <select
-          key={name}
-          value={selectedOptions[name] || ""}
-          onChange={e => handleOptionChange(name, e.target.value)}
+          key={key}
+          value={selectedOptions[key] || ""}
+          onChange={e =>
+            setSelectedOptions(prev => ({ ...prev, [key]: e.target.value }))
+          }
         >
-          <option value="">Select {name}</option>
-          {values.map(v => (
-            <option key={v} value={v}>{v}</option>
-          ))}
+          <option value="">Select {key}</option>
+          {values.map(v => <option key={v}>{v}</option>)}
         </select>
       ))}
+
     </div>
   );
 };
