@@ -58,7 +58,7 @@ export default function AddProduct() {
   const handlePriceChange = (e) => {
     const raw = e.target.value.replace(/,/g, "");
     if (!isNaN(raw)) {
-      update("price", Number(raw).toLocaleString());
+      update("price", raw ? Number(raw).toLocaleString() : "");
     }
   };
 
@@ -138,9 +138,9 @@ export default function AddProduct() {
   /* -------------------- UI -------------------- */
   return (
     <div className="add-product-container">
-      <h2 className="title">Post Product</h2>
 
-      {/* TITLE FIRST */}
+      {/* TITLE */}
+      <h2 className="title">Post Product</h2>
       <Field label="Title">
         <input
           value={form.title}
@@ -149,14 +149,19 @@ export default function AddProduct() {
         />
       </Field>
 
-      {/* CATEGORY */}
+      {/* CATEGORY SCROLLABLE */}
       <Field label="Category">
-        <Select value={form.mainCategory} onChange={e => update("mainCategory", e.target.value)}>
-          <option value="">Select Category</option>
+        <div className="category-scroll">
           {Object.keys(categories).map(cat => (
-            <option key={cat}>{cat}</option>
+            <div
+              key={cat}
+              className={`category-item ${form.mainCategory === cat ? "active" : ""}`}
+              onClick={() => update("mainCategory", cat)}
+            >
+              {cat}
+            </div>
           ))}
-        </Select>
+        </div>
       </Field>
 
       {/* SUBCATEGORY */}
@@ -230,13 +235,12 @@ export default function AddProduct() {
         />
       </Field>
 
-      {/* IMAGES (+ ICON) */}
+      {/* IMAGES */}
       <Field label="Images">
         <label className="image-upload">
           <input type="file" multiple hidden onChange={e => handleImages(e.target.files)} />
           <span>＋ Add Images</span>
         </label>
-
         <div className="images">
           {form.previews.map((p, i) => (
             <div key={i} className="img-wrap">
@@ -256,6 +260,7 @@ export default function AddProduct() {
         />
       </Field>
 
+      {/* SUBMIT */}
       <button className="btn" onClick={handleSubmit} disabled={loading}>
         {loading ? "Uploading..." : "Publish"}
       </button>
