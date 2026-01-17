@@ -9,7 +9,7 @@
   font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
 }
 
-.add-product-container h2 {
+.add-product-container h2.title {
   text-align: center;
   margin-bottom: 20px;
   color: #0D6EFD;
@@ -28,53 +28,45 @@
   color: #333;
 }
 
-/* -------------------- Custom Dropdown -------------------- */
-.custom-dropdown {
+/* -------------------- Select Wrapper -------------------- */
+.select-wrapper {
   position: relative;
+  display: inline-block;
   width: 100%;
+}
+
+.select-wrapper select {
+  width: 100%;
+  padding: 10px 14px;
   border: 1.5px solid #cce0ff;
   border-radius: 8px;
   background: #f9fbff;
-  cursor: pointer;
+  appearance: none; /* remove default arrow */
+  -webkit-appearance: none;
+  -moz-appearance: none;
   font-size: 14px;
-  user-select: none;
+  cursor: pointer;
+  outline: none;
 }
 
-.dropdown-selected {
-  padding: 10px 14px;
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-}
-
-.dropdown-selected .arrow {
+.select-wrapper::after {
+  content: "▼";
+  position: absolute;
+  right: 14px;
+  top: 50%;
+  transform: translateY(-50%);
+  pointer-events: none;
   color: #0D6EFD;
   font-size: 12px;
-  margin-left: 6px;
 }
 
-.dropdown-list {
-  position: absolute;
-  top: 100%;
-  left: 0;
-  width: 100%;
-  max-height: 200px; /* Scrollable if long */
-  overflow-y: auto;
-  border: 1.5px solid #cce0ff;
-  border-radius: 8px;
-  background: #fff;
-  z-index: 10;
-  box-shadow: 0 4px 12px rgba(0,0,0,0.08);
-  margin-top: 4px;
+/* -------------------- Scrollable Dropdowns -------------------- */
+.select-wrapper select::-ms-expand {
+  display: none; /* remove IE arrow */
 }
 
-.dropdown-item {
-  padding: 10px 14px;
-  transition: background 0.2s;
-}
-
-.dropdown-item:hover {
-  background: #e6f0ff;
+.select-wrapper select option {
+  padding: 10px;
 }
 
 /* -------------------- Input Fields -------------------- */
@@ -87,25 +79,30 @@
   border-radius: 8px;
   font-size: 14px;
   outline: none;
-  transition: border 0.2s, box-shadow 0.2s;
   background: #f9fbff;
+  transition: border 0.2s, box-shadow 0.2s;
 }
 
 .field input:focus,
-.field textarea:focus {
+.field textarea:focus,
+.select-wrapper select:focus {
   border-color: #0D6EFD;
   box-shadow: 0 0 5px rgba(13,110,253,0.2);
 }
 
 /* -------------------- Images -------------------- */
-.images-container {
+.images {
   display: flex;
   gap: 10px;
   margin-top: 10px;
   flex-wrap: wrap;
 }
 
-.images-container img {
+.img-wrap {
+  position: relative;
+}
+
+.img-wrap img {
   width: 80px;
   height: 80px;
   object-fit: cover;
@@ -129,14 +126,14 @@
 }
 
 /* -------------------- Checkbox (Promote) -------------------- */
-.promote-checkbox {
+.promote-label {
   display: flex;
   align-items: center;
   gap: 10px;
   font-size: 14px;
 }
 
-.promote-checkbox input {
+.promote-label input {
   width: 16px;
   height: 16px;
   accent-color: #0D6EFD;
@@ -144,7 +141,7 @@
 }
 
 /* -------------------- Submit Button -------------------- */
-.submit-btn {
+.btn {
   width: 100%;
   background: #0D6EFD;
   color: #fff;
@@ -157,26 +154,26 @@
   transition: background 0.2s, box-shadow 0.2s;
 }
 
-.submit-btn:hover {
+.btn:hover {
   background: #0b5ed7;
   box-shadow: 0 4px 10px rgba(0,0,0,0.1);
 }
 
-/* -------------------- Scrollbars for dropdown -------------------- */
-.dropdown-list::-webkit-scrollbar {
+/* -------------------- Scrollbar for select (Firefox/Chrome) -------------------- */
+select::-webkit-scrollbar {
   width: 6px;
 }
 
-.dropdown-list::-webkit-scrollbar-track {
+select::-webkit-scrollbar-track {
   background: #f1f1f1;
   border-radius: 8px;
 }
 
-.dropdown-list::-webkit-scrollbar-thumb {
+select::-webkit-scrollbar-thumb {
   background: #0D6EFD;
   border-radius: 8px;
 }
 
-.dropdown-list::-webkit-scrollbar-thumb:hover {
+select::-webkit-scrollbar-thumb:hover {
   background: #0a58ca;
 }
