@@ -13,7 +13,6 @@ import ProductOptionsSelector from "../components/ProductOptionsSelector";
 const MAX_IMAGES = 10;
 
 const AddProduct = () => {
-  // --- Form state ---
   const [form, setForm] = useState({
     mainCategory: "",
     subCategory: "",
@@ -211,7 +210,7 @@ const AddProduct = () => {
       )}
 
       {/* Product Options Selector */}
-      {subCategory && (
+      {form.subCategory && (
         <ProductOptionsSelector
           mainCategory={form.mainCategory}
           subCategory={form.subCategory}
