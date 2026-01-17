@@ -7,6 +7,7 @@ import { useNavigate, useSearchParams } from "react-router-dom";
 import categories from "../config/categories";
 import categoryRules from "../config/categoryRules";
 import { locationsByState } from "../config/locationsByState";
+import phoneModels from "../config/phoneModels"; // <- new import
 
 export default function AddProduct() {
   const navigate = useNavigate();
@@ -17,6 +18,8 @@ export default function AddProduct() {
   const [form, setForm] = useState({
     mainCategory: "",
     subCategory: "",
+    brand: "",
+    model: "",
     title: "",
     price: "",
     condition: "",
@@ -61,7 +64,6 @@ export default function AddProduct() {
     if (form.images.length < rules.minImages) return `Upload at least ${rules.minImages} image(s)`;
     if (rules.requireCondition && !form.condition) return "Select condition";
     if (rules.requireLocation && (!form.state || !form.city)) return "Provide state and city";
-    if (form.description.length > rules.maxDescription) return `Description cannot exceed ${rules.maxDescription} characters`;
     return null;
   };
 
@@ -69,23 +71,20 @@ export default function AddProduct() {
   const handleSubmit = async () => {
     const error = validate();
     if (error) return alert(error);
-
-    if (!auth.currentUser) {
-      return alert("You must be logged in to post a product");
-    }
+    if (!auth.currentUser) return alert("You must be logged in to post a product");
 
     try {
       setLoading(true);
 
-      // Upload images to Cloudinary
       const uploaded = await Promise.all(
         form.images.map(img => uploadToCloudinary(img))
       );
 
-      // Ensure no undefined fields
       const product = {
         mainCategory: form.mainCategory,
         subCategory: form.subCategory || null,
+        brand: form.brand || null,
+        model: form.model || null,
         title: form.title.trim(),
         price: Number(form.price),
         condition: form.condition || null,
@@ -100,7 +99,6 @@ export default function AddProduct() {
         createdAt: serverTimestamp(),
       };
 
-      // Add product to Firestore
       await addDoc(collection(db, "products"), product);
 
       alert("Product posted successfully!");
@@ -127,11 +125,43 @@ export default function AddProduct() {
         </select>
       </Field>
 
+      {/* Subcategory */}
       {form.mainCategory && (
         <Field label="Subcategory">
-          <select value={form.subCategory} onChange={e => update("subCategory", e.target.value)}>
+          <select value={form.subCategory} onChange={e => {
+            update("subCategory", e.target.value);
+            update("brand", "");
+            update("model", "");
+          }}>
             <option value="">Optional</option>
             {categories[form.mainCategory]?.map(sub => <option key={sub}>{sub}</option>)}
+          </select>
+        </Field>
+      )}
+
+      {/* Brand */}
+      {form.subCategory && phoneModels[form.subCategory] && (
+        <Field label="Brand">
+          <select value={form.brand} onChange={e => {
+            update("brand", e.target.value);
+            update("model", "");
+          }}>
+            <option value="">Select Brand</option>
+            {Object.keys(phoneModels[form.subCategory]).map(brand => (
+              <option key={brand}>{brand}</option>
+            ))}
+          </select>
+        </Field>
+      )}
+
+      {/* Model */}
+      {form.brand && phoneModels[form.subCategory]?.[form.brand] && (
+        <Field label="Model">
+          <select value={form.model} onChange={e => update("model", e.target.value)}>
+            <option value="">Select Model</option>
+            {phoneModels[form.subCategory][form.brand].map(model => (
+              <option key={model}>{model}</option>
+            ))}
           </select>
         </Field>
       )}
@@ -165,9 +195,12 @@ export default function AddProduct() {
         </Field>
       )}
 
-      {/* State & City */}
+      {/* State */}
       <Field label="State">
-        <select value={form.state} onChange={e => update("state", e.target.value)}>
+        <select value={form.state} onChange={e => {
+          update("state", e.target.value);
+          update("city", "");
+        }}>
           <option value="">Select State</option>
           {Object.keys(locationsByState).map(state => (
             <option key={state} value={state}>{state}</option>
@@ -175,6 +208,7 @@ export default function AddProduct() {
         </select>
       </Field>
 
+      {/* City / LGA */}
       {form.state && (
         <Field label="City / LGA">
           <select value={form.city} onChange={e => update("city", e.target.value)}>
