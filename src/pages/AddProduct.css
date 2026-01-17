@@ -98,11 +98,12 @@
   padding-right: 4px;
 }
 
+/* Back arrow inside options */
 .options-back {
   display: flex;
   align-items: center;
-  gap: 8px;
-  margin-bottom: 6px;
+  gap: 6px;
+  margin-bottom: 8px;
   font-size: 14px;
   color: #0D6EFD;
   cursor: pointer;
@@ -123,6 +124,7 @@
   transform: translateX(-4px);
 }
 
+/* Option cards */
 .option-item {
   background: #f9fbff;
   border: 1.5px solid #cce0ff;
@@ -146,7 +148,7 @@
   background: #d6e4ff;
 }
 
-/* Professional right arrow for option card */
+/* Right arrow for option cards */
 .option-item::after {
   content: "➔";
   font-size: 14px;
@@ -156,6 +158,37 @@
 
 .option-item:hover::after {
   transform: translateX(4px);
+}
+
+/* "Other" input inside option card */
+.option-item input[type="text"] {
+  width: 100%;
+  border: none;
+  outline: none;
+  background: transparent;
+  font-size: 14px;
+  color: #333;
+}
+
+.option-item input[type="text"]::placeholder {
+  color: #999;
+}
+
+.option-item input[type="text"]:focus {
+  color: #0D6EFD;
+}
+
+.option-item span.custom-submit {
+  color: #0D6EFD;
+  cursor: pointer;
+  font-weight: 600;
+  margin-left: 6px;
+  font-size: 14px;
+  transition: transform 0.2s;
+}
+
+.option-item span.custom-submit:hover {
+  transform: translateX(2px);
 }
 
 /* -------------------- Input Fields -------------------- */
