@@ -3,7 +3,6 @@ import React, { useState, useEffect } from "react";
 import categoriesData from "../config/categoriesData";
 import productOptions from "../config/productOptions";
 import phoneModels from "../config/phoneModels";
-import { locationsByRegion } from "../config/locationsByRegion";
 
 const popularBrands = [
   "Apple", "Samsung", "Xiaomi", "Tecno", "Itel", "Infinix", "Huawei", "Oppo", "Vivo", "Realme"
@@ -14,17 +13,10 @@ const ProductOptionsSelector = ({ mainCategory, subCategory, onChange }) => {
   const [selectedBrand, setSelectedBrand] = useState("");
   const [selectedModel, setSelectedModel] = useState("");
   const [selectedOptions, setSelectedOptions] = useState({});
-  const [stateLocation, setStateLocation] = useState("");
-  const [cityLocation, setCityLocation] = useState("");
 
   // --- Brands ---
-  const categoryBrands = subCategory
-    ? categoriesData[mainCategory]?.brands?.[subCategory] || []
-    : [];
-
-  const allBrands = mainCategory === "Mobile Phones & Tablets"
-    ? Object.keys(phoneModels)
-    : categoryBrands;
+  const categoryBrands = categoriesData[mainCategory]?.brands?.[subCategory] || [];
+  const allBrands = subCategory === "Mobile Phones" ? Object.keys(phoneModels) : categoryBrands;
 
   const sortedBrands = [
     ...popularBrands.filter(b => allBrands.includes(b)),
@@ -36,32 +28,21 @@ const ProductOptionsSelector = ({ mainCategory, subCategory, onChange }) => {
   );
 
   // --- Models ---
-  const models =
-    mainCategory === "Mobile Phones & Tablets" && selectedBrand
-      ? phoneModels[selectedBrand] || []
-      : categoriesData[mainCategory]?.models?.[selectedBrand] || [];
+  const models = selectedBrand
+    ? (subCategory === "Mobile Phones" ? phoneModels[selectedBrand] || [] : categoriesData[mainCategory]?.models?.[selectedBrand] || [])
+    : [];
 
   // --- Generic options ---
   const options = mainCategory ? productOptions[mainCategory] || {} : {};
-
-  // --- Locations ---
-  const allStates = stateLocation
-    ? Object.keys(locationsByRegion).flatMap(region => Object.keys(locationsByRegion[region]))
-    : Object.keys(locationsByRegion).flatMap(region => Object.keys(locationsByRegion[region]));
-  const citiesForState = stateLocation
-    ? Object.values(locationsByRegion).flatMap(region => region[stateLocation] || [])
-    : [];
 
   // --- Notify parent ---
   useEffect(() => {
     onChange({
       brand: selectedBrand,
       model: selectedModel,
-      ...selectedOptions,
-      state: stateLocation,
-      city: cityLocation
+      ...selectedOptions
     });
-  }, [selectedBrand, selectedModel, selectedOptions, stateLocation, cityLocation]);
+  }, [selectedBrand, selectedModel, selectedOptions]);
 
   // --- Generic select renderer ---
   const renderSelect = (field, label, items) => (
@@ -78,7 +59,6 @@ const ProductOptionsSelector = ({ mainCategory, subCategory, onChange }) => {
 
   return (
     <div className="p-6 bg-gray-50 rounded-xl shadow-lg max-w-5xl mx-auto">
-
       {/* Brand search */}
       {allBrands.length > 0 && (
         <input
@@ -171,29 +151,6 @@ const ProductOptionsSelector = ({ mainCategory, subCategory, onChange }) => {
           return renderSelect(opt, label, items);
         }
       })}
-
-      {/* Location */}
-      <select
-        value={stateLocation}
-        onChange={e => { setStateLocation(e.target.value); setCityLocation(""); }}
-        className="mb-4 p-3 rounded border border-gray-300 w-full focus:outline-none focus:ring-2 focus:ring-blue-400"
-        aria-label="Select State"
-      >
-        <option value="">Select State</option>
-        {allStates.map(st => <option key={st} value={st}>{st}</option>)}
-      </select>
-
-      {stateLocation && (
-        <select
-          value={cityLocation}
-          onChange={e => setCityLocation(e.target.value)}
-          className="mb-4 p-3 rounded border border-gray-300 w-full focus:outline-none focus:ring-2 focus:ring-blue-400"
-          aria-label="Select City"
-        >
-          <option value="">Select City</option>
-          {citiesForState.map(c => <option key={c} value={c}>{c}</option>)}
-        </select>
-      )}
     </div>
   );
 };
