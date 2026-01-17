@@ -11,6 +11,12 @@ import { useAdLimitCheck } from "../hooks/useAdLimits";
 import ProductOptionsSelector from "../components/ProductOptionsSelector";
 
 const AddProduct = () => {
+  const navigate = useNavigate();
+  const locationQuery = useLocation();
+  const params = new URLSearchParams(locationQuery.search);
+  const marketType = params.get("market") || "marketplace";
+  const { checkLimit } = useAdLimitCheck();
+
   const [form, setForm] = useState({
     mainCategory: "",
     subCategory: "",
@@ -32,14 +38,8 @@ const AddProduct = () => {
 
   const [errors, setErrors] = useState({});
   const [loading, setLoading] = useState(false);
-  const navigate = useNavigate();
-  const locationQuery = useLocation();
-  const params = new URLSearchParams(locationQuery.search);
-  const marketType = params.get("market") || "marketplace";
-  const { checkLimit } = useAdLimitCheck();
 
   const rules = categoryRules[form.mainCategory] || categoryRules.Default;
-
   const subCategories = form.mainCategory
     ? categoriesData[form.mainCategory]?.subcategories || []
     : [];
@@ -47,10 +47,11 @@ const AddProduct = () => {
   const allStates = form.region ? Object.keys(locationsByRegion[form.region]) : [];
   const allCities = form.stateLocation ? locationsByRegion[form.region][form.stateLocation] || [] : [];
 
-  // Handlers
+  // ---------------- Handlers ----------------
   const handleChange = (field, value) => {
     setForm(prev => ({ ...prev, [field]: value }));
     setErrors(prev => ({ ...prev, [field]: "" }));
+
     if (field === "mainCategory") setForm(prev => ({ ...prev, subCategory: "", brand: "", model: "", condition: "", selectedOptions: {} }));
     if (field === "subCategory") setForm(prev => ({ ...prev, brand: "", model: "", condition: "", selectedOptions: {} }));
     if (field === "region") setForm(prev => ({ ...prev, stateLocation: "", cityLocation: "" }));
@@ -68,7 +69,10 @@ const AddProduct = () => {
 
   const handleFileChange = e => {
     const files = Array.from(e.target.files);
-    if (files.length + form.images.length > rules.maxImages) return alert(`Max ${rules.maxImages} images allowed`);
+    if (files.length + form.images.length > rules.maxImages) {
+      alert(`Max ${rules.maxImages} images allowed`);
+      return;
+    }
     setForm(prev => ({
       ...prev,
       images: [...prev.images, ...files],
@@ -107,15 +111,13 @@ const AddProduct = () => {
     setErrors({});
   };
 
-  // Validation
+  // ---------------- Validation ----------------
   const validateForm = () => {
     const newErrors = {};
-    if (!form.title || form.title.length < rules.minTitle || form.title.length > rules.maxTitle) {
+    if (!form.title || form.title.length < rules.minTitle || form.title.length > rules.maxTitle)
       newErrors.title = `Title must be between ${rules.minTitle} and ${rules.maxTitle} characters`;
-    }
-    if (form.description && form.description.length > rules.maxDescription) {
+    if (form.description && form.description.length > rules.maxDescription)
       newErrors.description = `Description cannot exceed ${rules.maxDescription} characters`;
-    }
     if (form.images.length < rules.minImages) newErrors.images = `Upload at least ${rules.minImages} image(s)`;
     if (form.images.length > rules.maxImages) newErrors.images = `Maximum ${rules.maxImages} images allowed`;
     if (rules.requireBrand && !form.brand) newErrors.brand = "Brand is required";
@@ -133,7 +135,7 @@ const AddProduct = () => {
     return Object.keys(newErrors).length === 0;
   };
 
-  // Submit
+  // ---------------- Submit ----------------
   const handleAdd = async e => {
     e.preventDefault();
     if (!auth.currentUser) return setErrors({ general: "Login required." });
@@ -141,6 +143,7 @@ const AddProduct = () => {
 
     try {
       setLoading(true);
+
       const limitReached = await checkLimit(auth.currentUser.uid, form.mainCategory);
       if (limitReached && !form.isPromoted) {
         setErrors({ general: "Free ad limit reached. Promote ad to post more." });
@@ -148,33 +151,44 @@ const AddProduct = () => {
         return;
       }
 
-      // Upload images
-      const imageUrls = await Promise.all(form.images.map(f => uploadToCloudinary(f)));
-      
-      // Ensure features exist
-      const features = form.selectedOptions?.features || {};
+      // ---------------- Upload Images ----------------
+      const imageUrls = [];
+      for (let file of form.images) {
+        const url = await uploadToCloudinary(file);
+        if (!url) throw new Error("Image upload failed");
+        imageUrls.push(url);
+      }
 
-      // Save to Firestore
+      // ---------------- Firestore Add ----------------
       await addDoc(collection(db, "products"), {
-        ...form,
+        title: form.title,
+        description: form.description,
         price: parseFloat(form.price.replace(/,/g, "")),
+        phoneNumber: form.phoneNumber,
         images: imageUrls,
         coverImage: imageUrls[0],
-        ownerId: auth.currentUser.uid,
+        mainCategory: form.mainCategory,
+        subCategory: form.subCategory,
+        brand: form.brand || null,
+        model: form.model || null,
+        condition: form.condition || null,
+        region: form.region,
+        stateLocation: form.stateLocation,
+        cityLocation: form.cityLocation,
+        isPromoted: form.isPromoted,
         marketType,
+        ownerId: auth.currentUser.uid,
         createdAt: serverTimestamp(),
-        promotionExpiresAt: form.isPromoted ? new Date(Date.now() + 30*24*60*60*1000) : null,
-        selectedOptions: {
-          ...form.selectedOptions,
-          features
-        }
+        promotionExpiresAt: form.isPromoted ? new Date(Date.now() + 30 * 24 * 60 * 60 * 1000) : null,
+        selectedOptions: form.selectedOptions || {}
       });
 
       alert(`Product added successfully${form.isPromoted ? " and promoted for 30 days!" : ""}`);
       resetForm();
       navigate(`/${marketType}`);
+
     } catch (err) {
-      console.error(err);
+      console.error("Add product error:", err);
       setErrors({ general: "Error adding product: " + err.message });
     } finally {
       setLoading(false);
@@ -183,30 +197,26 @@ const AddProduct = () => {
 
   useEffect(() => () => form.previewImages.forEach(url => URL.revokeObjectURL(url)), [form.previewImages]);
 
+  // ---------------- Render ----------------
   return (
     <form onSubmit={handleAdd} style={{ maxWidth: 750, margin: 20, padding: 20, borderRadius: 10, background: "#fff", display: "flex", flexDirection: "column", gap: 15, boxShadow: "0 4px 12px rgba(0,0,0,0.1)" }}>
       <h2 style={{ textAlign: "center", color: "#0d6efd" }}>Post Ad ({marketType})</h2>
       {errors.general && <div style={{ color: "red", padding: 8, borderRadius: 5, background: "#ffe6e6" }}>{errors.general}</div>}
 
-      {/* Main Category */}
+      {/* Categories */}
       <select value={form.mainCategory} onChange={e => handleChange("mainCategory", e.target.value)} required>
         <option value="">Select Category</option>
         {Object.keys(categoriesData).map(cat => <option key={cat} value={cat}>{cat}</option>)}
       </select>
-      {errors.mainCategory && <span style={{ color: "red", fontSize: 12 }}>{errors.mainCategory}</span>}
 
-      {/* Subcategory */}
       {subCategories.length > 0 && (
-        <>
-          <select value={form.subCategory} onChange={e => handleChange("subCategory", e.target.value)} required>
-            <option value="">Select Subcategory</option>
-            {subCategories.map(sub => <option key={sub} value={sub}>{sub}</option>)}
-          </select>
-          {errors.subCategory && <span style={{ color: "red", fontSize: 12 }}>{errors.subCategory}</span>}
-        </>
+        <select value={form.subCategory} onChange={e => handleChange("subCategory", e.target.value)} required>
+          <option value="">Select Subcategory</option>
+          {subCategories.map(sub => <option key={sub} value={sub}>{sub}</option>)}
+        </select>
       )}
 
-      {/* Product Options */}
+      {/* Options */}
       {form.subCategory && (
         <ProductOptionsSelector
           mainCategory={form.mainCategory}
@@ -221,36 +231,24 @@ const AddProduct = () => {
         />
       )}
 
-      {/* Title */}
+      {/* Title / Description / Price / Phone */}
       <input type="text" placeholder="Title*" value={form.title} onChange={e => handleChange("title", e.target.value)} maxLength={70} required />
-      {errors.title && <span style={{ color: "red", fontSize: 12 }}>{errors.title}</span>}
-
-      {/* Description */}
       <textarea placeholder="Description" value={form.description} onChange={e => handleChange("description", e.target.value)} maxLength={850} />
-
-      {/* Price */}
       <input type="text" placeholder="Price*" value={form.price} onChange={handlePriceChange} required />
-      {errors.price && <span style={{ color: "red", fontSize: 12 }}>{errors.price}</span>}
-
-      {/* Phone */}
       <input type="tel" placeholder="Phone Number*" value={form.phoneNumber} onChange={e => handleChange("phoneNumber", e.target.value)} maxLength={15} required />
-      {errors.phoneNumber && <span style={{ color: "red", fontSize: 12 }}>{errors.phoneNumber}</span>}
 
       {/* Images */}
       <input type="file" multiple accept="image/*" onChange={handleFileChange} />
-      {errors.images && <span style={{ color: "red", fontSize: 12 }}>{errors.images}</span>}
-      {form.previewImages.length > 0 && (
-        <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
-          {form.previewImages.map((src, i) => (
-            <div key={i} style={{ position: "relative" }}>
-              <img src={src} alt={`preview-${i}`} style={{ width: 80, height: 80, objectFit: "cover", borderRadius: 5, border: "1px solid #ccc" }} />
-              <button type="button" aria-label={`Remove image ${i+1}`} onClick={() => removeImage(i)} style={{ position: "absolute", top: -5, right: -5, background: "red", color: "#fff", border: "none", borderRadius: "50%", width: 20, height: 20, cursor: "pointer" }}>×</button>
-            </div>
-          ))}
-        </div>
-      )}
+      <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
+        {form.previewImages.map((src, i) => (
+          <div key={i} style={{ position: "relative" }}>
+            <img src={src} alt={`preview-${i}`} style={{ width: 80, height: 80, objectFit: "cover", borderRadius: 5, border: "1px solid #ccc" }} />
+            <button type="button" onClick={() => removeImage(i)} style={{ position: "absolute", top: -5, right: -5, background: "red", color: "#fff", border: "none", borderRadius: "50%", width: 20, height: 20, cursor: "pointer" }}>×</button>
+          </div>
+        ))}
+      </div>
 
-      {/* Region / State / City */}
+      {/* Location */}
       <select value={form.region} onChange={e => handleChange("region", e.target.value)} required>
         <option value="">Select Region</option>
         {allRegions.map(r => <option key={r}>{r}</option>)}
@@ -274,7 +272,7 @@ const AddProduct = () => {
         Promote this product (free, 30 days)
       </label>
 
-      <button type="submit" disabled={loading} style={{ padding: "10px 15px", background: "#0d6efd", color: "#fff", border: "none", borderRadius: 5, cursor: loading ? "not-allowed" : "pointer" }}>
+      <button type="submit" disabled={loading} style={{ padding: "10px 15px", background: "#0d6efd", color: "#fff", border: "none", borderRadius: 5 }}>
         {loading ? "Uploading..." : `Add to ${marketType}`}
       </button>
     </form>
