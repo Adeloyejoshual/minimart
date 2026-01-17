@@ -3,7 +3,11 @@
 const categoriesData = {
   /* ================= MOBILE PHONES & TABLETS ================= */
   "Mobile Phones & Tablets": {
-    subcategories: ["Mobile Phones", "Tablets", "Phone Accessories"],
+    subcategories: {
+      "Mobile Phones": {},
+      "Tablets": {},
+      "Phone Accessories": {}
+    },
     brands: {
       "Mobile Phones": [
         "Apple","Samsung","Tecno","Itel","Xiaomi","Huawei","Infinix",
@@ -57,7 +61,13 @@ const categoriesData = {
 
   /* ================= VEHICLES ================= */
   "Vehicles": {
-    subcategories: ["Cars","Motorcycles","Trucks","Buses","Spare Parts"],
+    subcategories: {
+      Cars: {},
+      Motorcycles: {},
+      Trucks: {},
+      Buses: {},
+      "Spare Parts": {}
+    },
     brands: {
       Cars: ["Toyota","Honda","Ford","BMW","Mercedes","Nissan","Hyundai","Kia","Chevrolet","Audi","Volkswagen","Lexus","Peugeot"],
       Motorcycles: ["Honda","Yamaha","Suzuki","KTM","Bajaj","TVS","Harley Davidson"],
@@ -79,13 +89,22 @@ const categoriesData = {
     options: {
       fuelTypes: ["Petrol","Diesel","Electric","Hybrid","CNG"],
       transmissions: ["Manual","Automatic","CVT","Dual-Clutch"],
-      features: ["Air Conditioning","GPS","Sunroof","Leather Seats","Parking Sensors","Bluetooth","Backup Camera"]
+      features: ["Air Conditioning","GPS","Sunroof","Leather Seats","Parking Sensors","Bluetooth"]
     }
   },
 
   /* ================= ELECTRONICS ================= */
   "Electronics": {
-    subcategories: ["Laptops & Computers","TV & Audio","Gaming","Cameras","Networking","Headphones","Monitors","Printers"],
+    subcategories: {
+      "Laptops & Computers": {},
+      "TV & Audio": {},
+      Gaming: {},
+      Cameras: {},
+      Networking: {},
+      Headphones: {},
+      Monitors: {},
+      Printers: {}
+    },
     brands: {
       "Laptops & Computers": ["HP","Dell","Lenovo","Apple","Asus","Acer","MSI","Toshiba","Microsoft"],
       "TV & Audio": ["Samsung","LG","Sony","Hisense","TCL","Panasonic"],
@@ -115,7 +134,13 @@ const categoriesData = {
 
   /* ================= PROPERTY ================= */
   "Property": {
-    subcategories: ["Houses","Apartments & Flats","Land","Commercial Property","Vacation Rentals"],
+    subcategories: {
+      Houses: {},
+      "Apartments & Flats": {},
+      Land: {},
+      "Commercial Property": {},
+      "Vacation Rentals": {}
+    },
     brands: {},
     models: {},
     options: {
@@ -128,7 +153,14 @@ const categoriesData = {
 
   /* ================= HOME, FURNITURE & APPLIANCES ================= */
   "Home, Furniture & Appliances": {
-    subcategories: ["Furniture","Kitchen Appliances","Home Appliances","Lighting","Decor","Cleaning Supplies"],
+    subcategories: {
+      Furniture: {},
+      "Kitchen Appliances": {},
+      "Home Appliances": {},
+      Lighting: {},
+      Decor: {},
+      "Cleaning Supplies": {}
+    },
     brands: {
       Furniture: ["Ikea","Ashley","Home Centre","Lifemate"],
       "Kitchen Appliances": ["LG","Samsung","Hisense","Scanfrost","Haier Thermocool"],
@@ -143,7 +175,13 @@ const categoriesData = {
 
   /* ================= FASHION & BEAUTY ================= */
   "Fashion": {
-    subcategories: ["Clothing","Shoes","Bags","Accessories","Jewelry"],
+    subcategories: {
+      Clothing: {},
+      Shoes: {},
+      Bags: {},
+      Accessories: {},
+      Jewelry: {}
+    },
     brands: {
       Clothing: ["Nike","Adidas","Gucci","Zara","H&M","Louis Vuitton"],
       Shoes: ["Nike","Adidas","Puma","Reebok","Balenciaga"],
@@ -154,7 +192,12 @@ const categoriesData = {
   },
 
   "Beauty & Personal Care": {
-    subcategories: ["Cosmetics","Hair Care","Skincare","Fragrances"],
+    subcategories: {
+      Cosmetics: {},
+      "Hair Care": {},
+      Skincare: {},
+      Fragrances: {}
+    },
     brands: {
       Cosmetics: ["MAC","Maybelline","Zaron","Fenty Beauty"],
       Fragrances: ["Dior","Chanel","Versace","Lattafa","Armaf"]
@@ -165,7 +208,12 @@ const categoriesData = {
 
   /* ================= BABIES & KIDS ================= */
   "Babies & Kids": {
-    subcategories: ["Toys","Clothing","Strollers","Baby Care"],
+    subcategories: {
+      Toys: {},
+      Clothing: {},
+      Strollers: {},
+      "Baby Care": {}
+    },
     brands: {
       "Baby Care": ["Pampers","Huggies","Cussons","Johnson & Johnson"],
       Strollers: ["Graco","Chicco"],
@@ -180,7 +228,11 @@ const categoriesData = {
 
   /* ================= AGRICULTURE ================= */
   "Food, Agriculture & Farming": {
-    subcategories: ["Produce","Livestock","Farm Equipment"],
+    subcategories: {
+      Produce: {},
+      Livestock: {},
+      "Farm Equipment": {}
+    },
     brands: {
       "Farm Equipment": ["John Deere","Massey Ferguson","Kubota","New Holland"]
     },
@@ -193,7 +245,11 @@ const categoriesData = {
 
   /* ================= PETS ================= */
   "Animals & Pets": {
-    subcategories: ["Pets","Pet Food","Pet Accessories"],
+    subcategories: {
+      Pets: {},
+      "Pet Food": {},
+      "Pet Accessories": {}
+    },
     brands: {
       "Pet Food": ["Pedigree","Royal Canin","Purina"],
       "Pet Accessories": ["Collars","Leashes","Toys"]
@@ -207,38 +263,69 @@ const categoriesData = {
 
   /* ================= SERVICES & JOBS ================= */
   "Services": {
-    subcategories: ["Tutoring","Transportation","Events","Health & Wellness","Professional Services"],
+    subcategories: {
+      Tutoring: {},
+      Transportation: {},
+      Events: {},
+      "Health & Wellness": {},
+      "Professional Services": {}
+    },
     brands: {},
     models: {},
     options: {}
   },
   "Repair & Construction": {
-    subcategories: ["Plumbing","Electrical","Painting","Renovation","Carpentry","Masonry"],
+    subcategories: {
+      Plumbing: {},
+      Electrical: {},
+      Painting: {},
+      Renovation: {},
+      Carpentry: {},
+      Masonry: {}
+    },
     brands: {},
     models: {},
     options: {}
   },
   "Commercial Equipment & Tools": {
-    subcategories: ["Machinery","Industrial Tools","Office Equipment","Construction Tools"],
+    subcategories: {
+      Machinery: {},
+      "Industrial Tools": {},
+      "Office Equipment": {},
+      "Construction Tools": {}
+    },
     brands: {},
     models: {},
     options: {}
   },
   "Leisure & Activities": {
-    subcategories: ["Sports Equipment","Gym & Fitness","Outdoor Activities","Hobbies","Books & Stationery"],
+    subcategories: {
+      "Sports Equipment": {},
+      "Gym & Fitness": {},
+      "Outdoor Activities": {},
+      Hobbies: {},
+      "Books & Stationery": {}
+    },
     brands: {},
     models: {},
     options: {}
   },
 
   "Jobs": {
-    subcategories: ["Full-time","Part-time","Freelance"],
+    subcategories: {
+      "Full-time": {},
+      "Part-time": {},
+      Freelance: {}
+    },
     brands: {},
     models: {},
     options: {}
   },
   "Seeking Work - CVs": {
-    subcategories: ["CVs","Portfolios"],
+    subcategories: {
+      CVs: {},
+      Portfolios: {}
+    },
     brands: {},
     models: {},
     options: {}
