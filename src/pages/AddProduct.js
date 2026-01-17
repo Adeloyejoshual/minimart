@@ -55,17 +55,26 @@ const AddProduct = () => {
     setErrors(prev => ({ ...prev, [field]: "" }));
 
     // Clear dependent fields
-    if (field === "mainCategory") setForm(prev => ({ ...prev, subCategory: "", brand: "", model: "", selectedOptions: {} }));
-    if (field === "subCategory") setForm(prev => ({ ...prev, brand: "", model: "", selectedOptions: {} }));
-    if (field === "region") setForm(prev => ({ ...prev, stateLocation: "", cityLocation: "" }));
-    if (field === "stateLocation") setForm(prev => ({ ...prev, cityLocation: "" }));
+    if (field === "mainCategory") {
+      setForm(prev => ({ ...prev, subCategory: "", brand: "", model: "", selectedOptions: {} }));
+    }
+    if (field === "subCategory") {
+      setForm(prev => ({ ...prev, brand: "", model: "", selectedOptions: {} }));
+    }
+    if (field === "region") {
+      setForm(prev => ({ ...prev, stateLocation: "", cityLocation: "" }));
+    }
+    if (field === "stateLocation") {
+      setForm(prev => ({ ...prev, cityLocation: "" }));
+    }
   };
 
   const handlePriceChange = e => {
     let val = e.target.value.replace(/,/g, "");
     if (/^\d*\.?\d{0,2}$/.test(val)) {
       const formatted = val === "." ? "0." : Number(val).toLocaleString("en-US", { maximumFractionDigits: 2 });
-      handleChange("price", formatted);
+      setForm(prev => ({ ...prev, price: formatted }));
+      setErrors(prev => ({ ...prev, price: "" }));
     }
   };
 
@@ -181,7 +190,6 @@ const AddProduct = () => {
   // Cleanup object URLs
   useEffect(() => () => form.previewImages.forEach(url => URL.revokeObjectURL(url)), [form.previewImages]);
 
-  // --- Render ---
   return (
     <form onSubmit={handleAdd} style={{
       maxWidth: 750, margin: "20px auto", padding: 20, borderRadius: 10, background: "#fff",
@@ -214,11 +222,7 @@ const AddProduct = () => {
         <ProductOptionsSelector
           mainCategory={form.mainCategory}
           subCategory={form.subCategory}
-          onChange={opts => {
-            handleChange("brand", opts.brand || "");
-            handleChange("model", opts.model || "");
-            setForm(prev => ({ ...prev, selectedOptions: opts }));
-          }}
+          onChange={opts => setForm(prev => ({ ...prev, brand: opts.brand || "", model: opts.model || "", selectedOptions: opts }))}
         />
       )}
 
