@@ -2,7 +2,7 @@
 .add-product-container {
   max-width: 520px;
   margin: 30px auto;
-  background: #e6f0ff; /* light blue background */
+  background: #e6f0ff;
   padding: 28px 24px;
   border-radius: 14px;
   box-shadow: 0 8px 30px rgba(0, 0, 0, 0.08);
@@ -45,43 +45,88 @@
   color: #333;
 }
 
-/* -------------------- Scrollable Cards -------------------- */
-.scrollable-cards {
+/* -------------------- Category Horizontal Cards -------------------- */
+.category-scroll {
   display: flex;
   overflow-x: auto;
   gap: 12px;
   padding-bottom: 6px;
 }
 
-.scrollable-card {
+.category-item {
   flex: 0 0 auto;
   background: #f9fbff;
   border: 1.5px solid #cce0ff;
   border-radius: 12px;
-  padding: 12px 16px;
+  padding: 12px 14px;
   display: flex;
   flex-direction: column;
   align-items: center;
-  justify-content: center;
   cursor: pointer;
   min-width: 120px;
   transition: all 0.2s;
-  text-align: center;
 }
 
-.scrollable-card:hover {
+.category-item:hover {
   border-color: #0D6EFD;
   box-shadow: 0 4px 10px rgba(13,110,253,0.2);
 }
 
-.scrollable-card.active {
+.category-item.active {
   border-color: #0D6EFD;
   background: #d6e4ff;
 }
 
-.card-icon {
+.category-icon {
   font-size: 24px;
   margin-bottom: 6px;
+}
+
+.category-name {
+  font-size: 13px;
+  text-align: center;
+  line-height: 1.2;
+}
+
+/* -------------------- Vertical Select Dropdowns -------------------- */
+.select-wrapper {
+  position: relative;
+  width: 100%;
+}
+
+.select-wrapper select {
+  width: 100%;
+  padding: 10px 14px;
+  border: 1.5px solid #cce0ff;
+  border-radius: 10px;
+  background: #f9fbff;
+  font-size: 14px;
+  cursor: pointer;
+  outline: none;
+  appearance: none;
+  -webkit-appearance: none;
+  -moz-appearance: none;
+  transition: border 0.2s, box-shadow 0.2s;
+}
+
+.select-wrapper::after {
+  content: "▼";
+  position: absolute;
+  right: 14px;
+  top: 50%;
+  transform: translateY(-50%);
+  pointer-events: none;
+  color: #0D6EFD;
+  font-size: 12px;
+}
+
+.select-wrapper select:focus {
+  border-color: #0D6EFD;
+  box-shadow: 0 0 6px rgba(13, 110, 253, 0.2);
+}
+
+.select-wrapper select option {
+  padding: 10px;
 }
 
 /* -------------------- Input Fields -------------------- */
@@ -178,26 +223,26 @@
 }
 
 /* -------------------- Scrollbar Styling -------------------- */
-.scrollable-cards::-webkit-scrollbar {
+.category-scroll::-webkit-scrollbar {
   height: 6px;
 }
 
-.scrollable-cards::-webkit-scrollbar-track {
+.category-scroll::-webkit-scrollbar-track {
   background: #f1f1f1;
   border-radius: 8px;
 }
 
-.scrollable-cards::-webkit-scrollbar-thumb {
+.category-scroll::-webkit-scrollbar-thumb {
   background: #0D6EFD;
   border-radius: 8px;
 }
 
-.scrollable-cards::-webkit-scrollbar-thumb:hover {
+.category-scroll::-webkit-scrollbar-thumb:hover {
   background: #0a58ca;
 }
 
 /* Firefox */
-.scrollable-cards {
+.category-scroll {
   scrollbar-width: thin;
   scrollbar-color: #0D6EFD #f1f1f1;
 }
