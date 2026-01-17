@@ -83,7 +83,7 @@ export default function AddProduct() {
     if (!form.phone || form.phone.length < 10) return "Enter valid phone number";
     if (form.images.length < rules.minImages)
       return `Upload at least ${rules.minImages} image(s)`;
-    if (form.mainCategory === "Mobile Phones & Tablets" && form.model && !form.condition)
+    if (form.mainCategory === "Smartphones" && form.model && !form.condition)
       return "Select condition";
     if (form.condition === "Used" && !form.usedDetail)
       return "Select used detail";
@@ -119,25 +119,63 @@ export default function AddProduct() {
     }
   };
 
-  // OptionCards with optional back button
-  const OptionCards = ({ options, valueKey, onBack }) => (
-    <div className="options-scroll">
-      {onBack && (
-        <div className="options-back" onClick={onBack}>
-          <span className="arrow">←</span> Back
-        </div>
-      )}
-      {options.map(opt => (
-        <div
-          key={opt}
-          className={`option-item ${form[valueKey] === opt ? "active" : ""}`}
-          onClick={() => update(valueKey, opt)}
-        >
-          {opt}
-        </div>
-      ))}
-    </div>
-  );
+  // -------------------- Option Cards with "Other / Manual Input" --------------------
+  const OptionCards = ({ options, valueKey, onBack }) => {
+    const [customValue, setCustomValue] = useState("");
+
+    const handleCustomSubmit = () => {
+      if (customValue.trim() !== "") {
+        update(valueKey, customValue.trim());
+        setCustomValue("");
+      }
+    };
+
+    return (
+      <div className="options-scroll">
+        {onBack && (
+          <div className="options-back" onClick={onBack}>
+            ← Back
+          </div>
+        )}
+
+        {options.map(opt => (
+          <div
+            key={opt}
+            className={`option-item ${form[valueKey] === opt ? "active" : ""}`}
+            onClick={() => update(valueKey, opt)}
+          >
+            {opt}
+          </div>
+        ))}
+
+        {form[valueKey] === "Other" && (
+          <div className="option-item" style={{ justifyContent: "center" }}>
+            <input
+              type="text"
+              placeholder={`Enter ${valueKey}...`}
+              value={customValue}
+              onChange={e => setCustomValue(e.target.value)}
+              onKeyDown={e => e.key === "Enter" && handleCustomSubmit()}
+              style={{
+                width: "80%",
+                border: "none",
+                outline: "none",
+                background: "transparent",
+                fontSize: "14px",
+                color: "#333",
+              }}
+            />
+            <span
+              onClick={handleCustomSubmit}
+              style={{ cursor: "pointer", color: "#0D6EFD", marginLeft: "6px" }}
+            >
+              ➔
+            </span>
+          </div>
+        )}
+      </div>
+    );
+  };
 
   return (
     <div className="add-product-container">
@@ -176,10 +214,10 @@ export default function AddProduct() {
       </Field>
 
       {/* Subcategory */}
-      {form.mainCategory && (
+      {form.mainCategory && categories.find(c => c.name === form.mainCategory)?.subcategories && (
         <Field label="Subcategory">
           <OptionCards
-            options={categories.find(c => c.name === form.mainCategory).subcategories}
+            options={[...categories.find(c => c.name === form.mainCategory).subcategories, "Other"]}
             valueKey="subCategory"
             onBack={() => update("mainCategory", "")}
           />
@@ -187,10 +225,10 @@ export default function AddProduct() {
       )}
 
       {/* Brand */}
-      {form.subCategory && phoneModels[form.subCategory] && (
+      {form.subCategory && phoneModels[form.mainCategory] && phoneModels[form.mainCategory][form.subCategory] && (
         <Field label="Brand">
           <OptionCards
-            options={Object.keys(phoneModels[form.subCategory])}
+            options={[...Object.keys(phoneModels[form.mainCategory][form.subCategory]), "Other"]}
             valueKey="brand"
             onBack={() => update("subCategory", "")}
           />
@@ -198,10 +236,10 @@ export default function AddProduct() {
       )}
 
       {/* Model */}
-      {form.brand && phoneModels[form.subCategory] && (
+      {form.brand && phoneModels[form.mainCategory] && phoneModels[form.mainCategory][form.subCategory] && (
         <Field label="Model">
           <OptionCards
-            options={phoneModels[form.subCategory][form.brand]}
+            options={[...phoneModels[form.mainCategory][form.subCategory][form.brand] || [], "Other"]}
             valueKey="model"
             onBack={() => update("brand", "")}
           />
@@ -209,24 +247,16 @@ export default function AddProduct() {
       )}
 
       {/* Condition */}
-      {form.model && (
+      {form.model && form.mainCategory === "Smartphones" && (
         <Field label="Condition">
-          <OptionCards
-            options={conditions.main}
-            valueKey="condition"
-            onBack={() => update("model", "")}
-          />
+          <OptionCards options={conditions.main} valueKey="condition" />
         </Field>
       )}
 
       {/* Used Detail */}
       {form.condition === "Used" && (
         <Field label="Used Details">
-          <OptionCards
-            options={conditions.usedDetails}
-            valueKey="usedDetail"
-            onBack={() => update("condition", "")}
-          />
+          <OptionCards options={conditions.usedDetails} valueKey="usedDetail" />
         </Field>
       )}
 
@@ -258,21 +288,13 @@ export default function AddProduct() {
 
       {/* State */}
       <Field label="State">
-        <OptionCards
-          options={Object.keys(locationsByState)}
-          valueKey="state"
-          onBack={() => update("city", "")}
-        />
+        <OptionCards options={Object.keys(locationsByState)} valueKey="state" />
       </Field>
 
       {/* City / LGA */}
       {form.state && (
         <Field label="City / LGA">
-          <OptionCards
-            options={locationsByState[form.state]}
-            valueKey="city"
-            onBack={() => update("state", "")}
-          />
+          <OptionCards options={locationsByState[form.state]} valueKey="city" />
         </Field>
       )}
 
