@@ -8,7 +8,7 @@ import categoriesData from "../config/categoriesData";
 import productOptions from "../config/productOptions";
 import locations from "../config/locations";
 import { useAdLimitCheck } from "../hooks/useAdLimits";
-import MobilePhonesSelector from "../components/MobilePhonesSelector";
+import ProductOptionsSelector from "../components/ProductOptionsSelector";
 
 const AddProduct = () => {
   const [mainCategory, setMainCategory] = useState("");
