@@ -37,6 +37,7 @@ export default function AddProduct() {
     isPromoted: false,
   });
 
+  const [step, setStep] = useState("category"); // current step in the selection flow
   const rules = categoryRules[form.mainCategory] || categoryRules.Default;
 
   // Load draft & saved category
@@ -52,8 +53,7 @@ export default function AddProduct() {
     if (form.mainCategory) localStorage.setItem(CATEGORY_KEY, form.mainCategory);
   }, [form]);
 
-  const update = (key, value) =>
-    setForm(prev => ({ ...prev, [key]: value }));
+  const update = (key, value) => setForm(prev => ({ ...prev, [key]: value }));
 
   const handlePriceChange = e => {
     const raw = e.target.value.replace(/,/g, "");
@@ -119,7 +119,7 @@ export default function AddProduct() {
     }
   };
 
-  // -------------------- Option Cards with "Other / Manual Input" --------------------
+  // -------------------- Option Cards Component --------------------
   const OptionCards = ({ options, valueKey, onBack }) => {
     const [customValue, setCustomValue] = useState("");
 
@@ -177,100 +177,150 @@ export default function AddProduct() {
     );
   };
 
-  return (
-    <div className="add-product-container">
-      {/* Header */}
-      <div className="add-product-header">
-        <button className="back-btn" onClick={() => navigate(`/${marketType}`)}>←</button>
-        <span className="page-title">Add Product</span>
-      </div>
-
-      {/* Title */}
-      <Field label="Title">
-        <input value={form.title} onChange={e => update("title", e.target.value)} placeholder="e.g iPhone 11 Pro Max" />
-      </Field>
-
-      {/* Category Horizontal */}
-      <Field label="Category">
-        <div className="category-scroll">
-          {categories.map(cat => (
-            <div
-              key={cat.name}
-              className={`category-item ${form.mainCategory === cat.name ? "active" : ""}`}
-              onClick={() => {
-                update("mainCategory", cat.name);
-                update("subCategory", "");
-                update("brand", "");
-                update("model", "");
-                update("condition", "");
-                update("usedDetail", "");
-              }}
-            >
-              <span className="category-icon">{cat.icon}</span>
-              <span className="category-name">{cat.name}</span>
+  // -------------------- Determine Next Step --------------------
+  const getStepComponent = () => {
+    switch (step) {
+      case "category":
+        return (
+          <Field label="Category">
+            <div className="category-scroll">
+              {categories.map(cat => (
+                <div
+                  key={cat.name}
+                  className={`category-item ${form.mainCategory === cat.name ? "active" : ""}`}
+                  onClick={() => {
+                    update("mainCategory", cat.name);
+                    update("subCategory", "");
+                    update("brand", "");
+                    update("model", "");
+                    update("condition", "");
+                    update("usedDetail", "");
+                    setStep("subcategory");
+                  }}
+                >
+                  <span className="category-icon">{cat.icon}</span>
+                  <span className="category-name">{cat.name}</span>
+                </div>
+              ))}
             </div>
-          ))}
-        </div>
+          </Field>
+        );
+
+      case "subcategory":
+        return (
+          <Field label="Subcategory">
+            <OptionCards
+              options={[
+                ...categories.find(c => c.name === form.mainCategory)?.subcategories || [],
+                "Other",
+              ]}
+              valueKey="subCategory"
+              onBack={() => setStep("category")}
+            />
+          </Field>
+        );
+
+      case "brand":
+        const brands =
+          phoneModels[form.mainCategory]?.[form.subCategory]
+            ? Object.keys(phoneModels[form.mainCategory][form.subCategory])
+            : [];
+        return (
+          <Field label="Brand">
+            <OptionCards
+              options={[...brands, "Other"]}
+              valueKey="brand"
+              onBack={() => setStep("subcategory")}
+            />
+          </Field>
+        );
+
+      case "model":
+        const models =
+          phoneModels[form.mainCategory]?.[form.subCategory]?.[form.brand] || [];
+        return (
+          <Field label="Model">
+            <OptionCards
+              options={[...models, "Other"]}
+              valueKey="model"
+              onBack={() => setStep("brand")}
+            />
+          </Field>
+        );
+
+      case "condition":
+        return (
+          <Field label="Condition">
+            <OptionCards
+              options={conditions.main}
+              valueKey="condition"
+              onBack={() => setStep("model")}
+            />
+          </Field>
+        );
+
+      case "usedDetail":
+        return (
+          <Field label="Used Details">
+            <OptionCards
+              options={conditions.usedDetails}
+              valueKey="usedDetail"
+              onBack={() => setStep("condition")}
+            />
+          </Field>
+        );
+
+      case "state":
+        return (
+          <Field label="State">
+            <OptionCards
+              options={Object.keys(locationsByState)}
+              valueKey="state"
+              onBack={() => setStep("usedDetail")}
+            />
+          </Field>
+        );
+
+      case "city":
+        return (
+          <Field label="City / LGA">
+            <OptionCards
+              options={locationsByState[form.state] || []}
+              valueKey="city"
+              onBack={() => setStep("state")}
+            />
+          </Field>
+        );
+
+      default:
+        return null;
+    }
+  };
+
+  // -------------------- Main Form (Title, Price, Phone, Images, Description) --------------------
+  const renderMainForm = () => (
+    <>
+      <Field label="Title">
+        <input
+          value={form.title}
+          onChange={e => update("title", e.target.value)}
+          placeholder="e.g iPhone 11 Pro Max"
+        />
       </Field>
 
-      {/* Subcategory */}
-      {form.mainCategory && categories.find(c => c.name === form.mainCategory)?.subcategories && (
-        <Field label="Subcategory">
-          <OptionCards
-            options={[...categories.find(c => c.name === form.mainCategory).subcategories, "Other"]}
-            valueKey="subCategory"
-            onBack={() => update("mainCategory", "")}
-          />
-        </Field>
-      )}
-
-      {/* Brand */}
-      {form.subCategory && phoneModels[form.mainCategory] && phoneModels[form.mainCategory][form.subCategory] && (
-        <Field label="Brand">
-          <OptionCards
-            options={[...Object.keys(phoneModels[form.mainCategory][form.subCategory]), "Other"]}
-            valueKey="brand"
-            onBack={() => update("subCategory", "")}
-          />
-        </Field>
-      )}
-
-      {/* Model */}
-      {form.brand && phoneModels[form.mainCategory] && phoneModels[form.mainCategory][form.subCategory] && (
-        <Field label="Model">
-          <OptionCards
-            options={[...phoneModels[form.mainCategory][form.subCategory][form.brand] || [], "Other"]}
-            valueKey="model"
-            onBack={() => update("brand", "")}
-          />
-        </Field>
-      )}
-
-      {/* Condition */}
-      {form.model && form.mainCategory === "Smartphones" && (
-        <Field label="Condition">
-          <OptionCards options={conditions.main} valueKey="condition" />
-        </Field>
-      )}
-
-      {/* Used Detail */}
-      {form.condition === "Used" && (
-        <Field label="Used Details">
-          <OptionCards options={conditions.usedDetails} valueKey="usedDetail" />
-        </Field>
-      )}
-
-      {/* Price */}
       <Field label="Price (₦)">
         <input value={form.price} onChange={handlePriceChange} placeholder="₦ 0" />
       </Field>
 
-      {/* Phone */}
       <Field label="Phone Number">
-        <input type="tel" value={form.phone} onChange={e => update("phone", e.target.value)} placeholder="08012345678" />
+        <input
+          type="tel"
+          value={form.phone}
+          onChange={e => update("phone", e.target.value)}
+          placeholder="08012345678"
+        />
       </Field>
 
-      {/* Images */}
       <Field label="Images">
         <label className="image-upload">
           <input type="file" multiple hidden onChange={e => handleImages(e.target.files)} />
@@ -286,27 +336,66 @@ export default function AddProduct() {
         </div>
       </Field>
 
-      {/* State */}
-      <Field label="State">
-        <OptionCards options={Object.keys(locationsByState)} valueKey="state" />
-      </Field>
-
-      {/* City / LGA */}
-      {form.state && (
-        <Field label="City / LGA">
-          <OptionCards options={locationsByState[form.state]} valueKey="city" />
-        </Field>
-      )}
-
-      {/* Description */}
       <Field label="Description">
-        <textarea rows={4} value={form.description} onChange={e => update("description", e.target.value)} />
+        <textarea
+          rows={4}
+          value={form.description}
+          onChange={e => update("description", e.target.value)}
+        />
       </Field>
 
-      {/* Submit */}
       <button className="btn" onClick={handleSubmit} disabled={loading}>
         {loading ? "Uploading..." : "Publish"}
       </button>
+    </>
+  );
+
+  // -------------------- Determine Next Step Flow --------------------
+  const nextStepMap = {
+    category: "subcategory",
+    subCategory: "brand",
+    brand: "model",
+    model: form.mainCategory === "Smartphones" ? "condition" : "state",
+    condition: form.condition === "Used" ? "usedDetail" : "state",
+    usedDetail: "state",
+    state: "city",
+    city: "mainForm",
+  };
+
+  // Move to next step automatically when user selects
+  useEffect(() => {
+    const current = step;
+    if (
+      current !== "mainForm" &&
+      form[current] &&
+      nextStepMap[current] &&
+      !["city"].includes(current)
+    ) {
+      setStep(nextStepMap[current]);
+    }
+  }, [form]);
+
+  return (
+    <div className="add-product-container">
+      {/* Header */}
+      <div className="add-product-header">
+        <button
+          className="back-btn"
+          onClick={() =>
+            step === "category" ? navigate(`/${marketType}`) : setStep(prev => {
+              // find previous step
+              const prevStep = Object.keys(nextStepMap).find(key => nextStepMap[key] === step);
+              return prevStep || "category";
+            })
+          }
+        >
+          ←
+        </button>
+        <span className="page-title">Add Product</span>
+      </div>
+
+      {/* Render Step Component */}
+      {step === "mainForm" ? renderMainForm() : getStepComponent()}
     </div>
   );
 }
