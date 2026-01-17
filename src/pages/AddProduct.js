@@ -1,58 +1,108 @@
-// src/pages/TestAddProduct.js
+// src/pages/TestAddProductSimple.js
 import React, { useState } from "react";
 import { collection, addDoc, serverTimestamp } from "firebase/firestore";
 import { db, auth } from "../firebase";
 import { uploadToCloudinary } from "../cloudinary";
 
-const TestAddProduct = () => {
+const TestAddProductSimple = () => {
+  const [price, setPrice] = useState("");
+  const [images, setImages] = useState([]);
+  const [preview, setPreview] = useState([]);
   const [loading, setLoading] = useState(false);
   const [message, setMessage] = useState("");
 
+  // Handle file selection
+  const handleFileChange = (e) => {
+    const files = Array.from(e.target.files);
+    setImages(files);
+    setPreview(files.map(f => URL.createObjectURL(f)));
+  };
+
+  // Remove preview image
+  const removeImage = (idx) => {
+    setImages(prev => prev.filter((_, i) => i !== idx));
+    setPreview(prev => prev.filter((_, i) => i !== idx));
+  };
+
+  // Submit
   const handleAdd = async () => {
     if (!auth.currentUser) {
-      setMessage("Login required!");
+      setMessage("Login required");
+      return;
+    }
+
+    if (!price || images.length === 0) {
+      setMessage("Price and at least one image required");
       return;
     }
 
     try {
       setLoading(true);
 
-      // Minimal test image upload
-      const testFile = new File(["test"], "test.png", { type: "image/png" });
-      const imageUrl = await uploadToCloudinary(testFile);
-
-      if (!imageUrl) {
-        setMessage("Cloudinary upload failed");
+      // Upload images
+      const imageUrls = await Promise.all(images.map(f => uploadToCloudinary(f)));
+      if (imageUrls.some(url => !url)) {
+        setMessage("Some images failed to upload");
         setLoading(false);
         return;
       }
 
+      // Save to Firestore
       const docRef = await addDoc(collection(db, "products"), {
-        title: "Test Product",
         ownerId: auth.currentUser.uid,
-        images: [imageUrl],
-        coverImage: imageUrl,
+        price: parseFloat(price.replace(/,/g, "")),
+        images: imageUrls,
+        coverImage: imageUrls[0],
         createdAt: serverTimestamp(),
       });
 
-      setMessage("Product added successfully! ID: " + docRef.id);
+      setMessage("Product added! ID: " + docRef.id);
+      setPrice("");
+      setImages([]);
+      setPreview([]);
     } catch (err) {
       console.error(err);
-      setMessage("Error adding product: " + err.message);
+      setMessage("Error: " + err.message);
     } finally {
       setLoading(false);
     }
   };
 
   return (
-    <div style={{ padding: 20 }}>
-      <h2>Test Add Product</h2>
-      <button onClick={handleAdd} disabled={loading}>
-        {loading ? "Adding..." : "Add Test Product"}
+    <div style={{ padding: 20, maxWidth: 500 }}>
+      <h2>Test Add Product (Price + Images)</h2>
+
+      <input
+        type="text"
+        placeholder="Price"
+        value={price}
+        onChange={(e) => setPrice(e.target.value)}
+        style={{ width: "100%", marginBottom: 10, padding: 8 }}
+      />
+
+      <input type="file" multiple accept="image/*" onChange={handleFileChange} />
+      {preview.length > 0 && (
+        <div style={{ display: "flex", gap: 10, marginTop: 10, flexWrap: "wrap" }}>
+          {preview.map((src, i) => (
+            <div key={i} style={{ position: "relative" }}>
+              <img src={src} alt={`preview-${i}`} style={{ width: 80, height: 80, objectFit: "cover" }} />
+              <button onClick={() => removeImage(i)} style={{ position: "absolute", top: -5, right: -5, background: "red", color: "#fff", border: "none", borderRadius: "50%", width: 20, height: 20 }}>×</button>
+            </div>
+          ))}
+        </div>
+      )}
+
+      <button
+        onClick={handleAdd}
+        disabled={loading}
+        style={{ marginTop: 15, padding: "10px 15px", background: "#0d6efd", color: "#fff", border: "none", borderRadius: 5 }}
+      >
+        {loading ? "Uploading..." : "Add Product"}
       </button>
-      {message && <p>{message}</p>}
+
+      {message && <p style={{ marginTop: 10 }}>{message}</p>}
     </div>
   );
 };
 
-export default TestAddProduct;
+export default TestAddProductSimple;
