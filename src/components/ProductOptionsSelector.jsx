@@ -1,8 +1,10 @@
 import React, { useState, useEffect } from "react";
+import categoriesData from "../config/categoriesData"; // main/sub/brand/model
+import productOptions from "../config/productOptions"; // storage, colors, SIM, features, etc.
+import locations from "../config/locations";
 import phoneModels from "../config/phoneModels";
-import productOptions from "../config/productOptions";
 
-// Popular brands for phones
+// Popular phone brands to show on top
 const popularBrands = [
   "Apple", "Samsung", "Xiaomi", "Tecno", "Itel", "Infinix", "Huawei", "Oppo", "Vivo", "Realme"
 ];
@@ -15,25 +17,38 @@ const ProductOptionsSelector = ({ mainCategory, subCategory, onChange }) => {
   const [selectedColor, setSelectedColor] = useState("");
   const [selectedSIM, setSelectedSIM] = useState("");
   const [selectedFeatures, setSelectedFeatures] = useState([]);
+  const [stateLocation, setStateLocation] = useState("");
+  const [cityLocation, setCityLocation] = useState("");
 
-  const options = mainCategory ? productOptions[mainCategory] || {} : {};
-  
-  // Determine available brands for this category
-  const allBrands = mainCategory === "Mobile Phones & Tablets" ? Object.keys(phoneModels) : options.brands || [];
+  // Determine available brands & models
+  const subCategories = mainCategory ? categoriesData[mainCategory]?.subcategories || [] : [];
+  const brandsList = subCategory
+    ? categoriesData[mainCategory]?.brands?.[subCategory] || []
+    : [];
+
+  // For phones, use phoneModels instead of generic brands
+  const allBrands =
+    mainCategory === "Mobile Phones & Tablets"
+      ? Object.keys(phoneModels)
+      : brandsList;
+
   const sortedBrands = [
     ...popularBrands.filter(b => allBrands.includes(b)),
     ...allBrands.filter(b => !popularBrands.includes(b)).sort()
   ];
 
-  const filteredBrands = sortedBrands.filter(brand =>
-    brand.toLowerCase().includes(searchTerm.toLowerCase())
+  const filteredBrands = sortedBrands.filter(b =>
+    b.toLowerCase().includes(searchTerm.toLowerCase())
   );
 
-  const models = selectedBrand && mainCategory === "Mobile Phones & Tablets"
-    ? phoneModels[selectedBrand] || []
-    : options.models?.[selectedBrand] || [];
+  const models =
+    mainCategory === "Mobile Phones & Tablets" && selectedBrand
+      ? phoneModels[selectedBrand] || []
+      : categoriesData[mainCategory]?.models?.[selectedBrand] || [];
 
-  // Update parent with all selected options
+  const options = mainCategory ? productOptions[mainCategory] || {} : {};
+
+  // Send all selected options to parent
   useEffect(() => {
     onChange({
       brand: selectedBrand,
@@ -41,9 +56,20 @@ const ProductOptionsSelector = ({ mainCategory, subCategory, onChange }) => {
       storage: selectedStorage,
       color: selectedColor,
       sim: selectedSIM,
-      features: selectedFeatures
+      features: selectedFeatures,
+      state: stateLocation,
+      city: cityLocation
     });
-  }, [selectedBrand, selectedModel, selectedStorage, selectedColor, selectedSIM, selectedFeatures]);
+  }, [
+    selectedBrand,
+    selectedModel,
+    selectedStorage,
+    selectedColor,
+    selectedSIM,
+    selectedFeatures,
+    stateLocation,
+    cityLocation
+  ]);
 
   return (
     <div className="p-6 bg-gray-50 rounded-xl shadow-lg max-w-5xl mx-auto">
@@ -51,7 +77,7 @@ const ProductOptionsSelector = ({ mainCategory, subCategory, onChange }) => {
       {allBrands.length > 0 && (
         <input
           type="text"
-          placeholder="Search brands or models..."
+          placeholder="Search brands..."
           value={searchTerm}
           onChange={e => setSearchTerm(e.target.value)}
           className="w-full p-3 mb-4 rounded-lg border border-gray-300 focus:outline-none focus:ring-2 focus:ring-blue-400 focus:border-blue-500 placeholder-gray-400 text-gray-800"
@@ -73,7 +99,9 @@ const ProductOptionsSelector = ({ mainCategory, subCategory, onChange }) => {
               >
                 {brand}
                 {popularBrands.includes(brand) && (
-                  <span className="absolute top-1 right-1 bg-orange-400 text-white text-xs px-2 py-0.5 rounded-full font-semibold">Popular</span>
+                  <span className="absolute top-1 right-1 bg-orange-400 text-white text-xs px-2 py-0.5 rounded-full font-semibold">
+                    Popular
+                  </span>
                 )}
               </button>
             ))}
@@ -103,21 +131,33 @@ const ProductOptionsSelector = ({ mainCategory, subCategory, onChange }) => {
 
       {/* Storage, Color, SIM */}
       {options.storageOptions && (
-        <select value={selectedStorage} onChange={e => setSelectedStorage(e.target.value)} className="mb-4 p-3 rounded border border-gray-300">
+        <select
+          value={selectedStorage}
+          onChange={e => setSelectedStorage(e.target.value)}
+          className="mb-4 p-3 rounded border border-gray-300 w-full"
+        >
           <option value="">Select Storage</option>
           {options.storageOptions.map(s => <option key={s} value={s}>{s}</option>)}
         </select>
       )}
 
       {options.colors && (
-        <select value={selectedColor} onChange={e => setSelectedColor(e.target.value)} className="mb-4 p-3 rounded border border-gray-300">
+        <select
+          value={selectedColor}
+          onChange={e => setSelectedColor(e.target.value)}
+          className="mb-4 p-3 rounded border border-gray-300 w-full"
+        >
           <option value="">Select Color</option>
           {options.colors.map(c => <option key={c} value={c}>{c}</option>)}
         </select>
       )}
 
       {options.simTypes && (
-        <select value={selectedSIM} onChange={e => setSelectedSIM(e.target.value)} className="mb-4 p-3 rounded border border-gray-300">
+        <select
+          value={selectedSIM}
+          onChange={e => setSelectedSIM(e.target.value)}
+          className="mb-4 p-3 rounded border border-gray-300 w-full"
+        >
           <option value="">Select SIM Type</option>
           {options.simTypes.map(s => <option key={s} value={s}>{s}</option>)}
         </select>
@@ -143,6 +183,27 @@ const ProductOptionsSelector = ({ mainCategory, subCategory, onChange }) => {
             ))}
           </div>
         </div>
+      )}
+
+      {/* Location */}
+      <select
+        value={stateLocation}
+        onChange={e => { setStateLocation(e.target.value); setCityLocation(""); }}
+        className="mb-4 p-3 rounded border border-gray-300 w-full"
+      >
+        <option value="">Select State</option>
+        {Object.keys(locations).map(st => <option key={st} value={st}>{st}</option>)}
+      </select>
+
+      {stateLocation && (
+        <select
+          value={cityLocation}
+          onChange={e => setCityLocation(e.target.value)}
+          className="mb-4 p-3 rounded border border-gray-300 w-full"
+        >
+          <option value="">Select City</option>
+          {locations[stateLocation].map(c => <option key={c} value={c}>{c}</option>)}
+        </select>
       )}
     </div>
   );
