@@ -8,7 +8,7 @@ import categories from "../config/categories";
 import categoryRules from "../config/categoryRules";
 import { locationsByState } from "../config/locationsByState";
 import phoneModels from "../config/phoneModels";
-import conditions from "../config/condition";
+import conditions from "../config/condition"; // ensure lowercase: condition.js
 
 export default function AddProduct() {
   const navigate = useNavigate();
@@ -24,7 +24,7 @@ export default function AddProduct() {
     title: "",
     price: "",
     condition: "",
-    usedDetail: "",
+    usedDetail: "", // detail for used items
     description: "",
     state: "",
     city: "",
@@ -33,6 +33,7 @@ export default function AddProduct() {
     isPromoted: false,
   });
 
+  // Always compute rules from current category
   const rules = categoryRules[form.mainCategory] || categoryRules.Default;
 
   /* -------------------- HELPERS -------------------- */
@@ -46,10 +47,7 @@ export default function AddProduct() {
       return;
     }
     update("images", [...form.images, ...list]);
-    update(
-      "previews",
-      [...form.previews, ...list.map(f => URL.createObjectURL(f))]
-    );
+    update("previews", [...form.previews, ...list.map(f => URL.createObjectURL(f))]);
   };
 
   const removeImage = (index) => {
@@ -68,10 +66,8 @@ export default function AddProduct() {
     if (form.images.length < rules.minImages)
       return `Upload at least ${rules.minImages} image(s)`;
     if (rules.requireCondition && !form.condition) return "Select condition";
-    if (form.condition === "Used" && !form.usedDetail)
-      return "Select used product detail";
-    if (rules.requireLocation && (!form.state || !form.city))
-      return "Provide state and city";
+    if (form.condition === "Used" && !form.usedDetail) return "Select used item detail";
+    if (rules.requireLocation && (!form.state || !form.city)) return "Provide state and city";
     return null;
   };
 
@@ -96,7 +92,7 @@ export default function AddProduct() {
         title: form.title.trim(),
         price: Number(form.price),
         condition: form.condition || null,
-        usedDetail: form.condition === "Used" ? form.usedDetail : null,
+        usedDetail: form.usedDetail || null,
         description: form.description || "",
         state: form.state,
         city: form.city,
@@ -133,11 +129,36 @@ export default function AddProduct() {
           update("subCategory", "");
           update("brand", "");
           update("model", "");
+          update("condition", "");
+          update("usedDetail", "");
         }}>
           <option value="">Select Category</option>
           {Object.keys(categories).map(cat => <option key={cat} value={cat}>{cat}</option>)}
         </select>
       </Field>
+
+      {/* Condition */}
+      {rules.requireCondition && (
+        <Field label="Condition">
+          <select value={form.condition} onChange={e => {
+            update("condition", e.target.value);
+            if (e.target.value !== "Used") update("usedDetail", "");
+          }}>
+            <option value="">Select</option>
+            {conditions.main.map(c => <option key={c} value={c}>{c}</option>)}
+          </select>
+        </Field>
+      )}
+
+      {/* Used item details */}
+      {form.condition === "Used" && (
+        <Field label="Used Item Details">
+          <select value={form.usedDetail} onChange={e => update("usedDetail", e.target.value)}>
+            <option value="">Select</option>
+            {conditions.usedDetails.map(d => <option key={d} value={d}>{d}</option>)}
+          </select>
+        </Field>
+      )}
 
       {/* Subcategory */}
       {form.mainCategory && (
@@ -189,33 +210,6 @@ export default function AddProduct() {
       <Field label="Price (₦)">
         <input type="number" value={form.price} onChange={e => update("price", e.target.value)} />
       </Field>
-
-      {/* Condition */}
-      {rules.requireCondition && (
-        <Field label="Condition">
-          <select value={form.condition} onChange={e => {
-            update("condition", e.target.value);
-            if (e.target.value !== "Used") update("usedDetail", "");
-          }}>
-            <option value="">Select</option>
-            {conditions.main.map(c => (
-              <option key={c} value={c}>{c}</option>
-            ))}
-          </select>
-        </Field>
-      )}
-
-      {/* Used Details */}
-      {form.condition === "Used" && (
-        <Field label="Used Details">
-          <select value={form.usedDetail || ""} onChange={e => update("usedDetail", e.target.value)}>
-            <option value="">Select Detail</option>
-            {conditions.usedDetails.map(d => (
-              <option key={d} value={d}>{d}</option>
-            ))}
-          </select>
-        </Field>
-      )}
 
       {/* State */}
       <Field label="State">
