@@ -1,6 +1,4 @@
-// src/config/condition.js
-
-const conditions = {
+export default {
   main: ["New", "Refurbished", "Used"],
   usedDetails: [
     "Cracked body",
@@ -11,5 +9,3 @@ const conditions = {
     "Not working battery"
   ]
 };
-
-export default conditions;
