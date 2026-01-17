@@ -4,10 +4,11 @@ import { collection, addDoc, serverTimestamp } from "firebase/firestore";
 import { db, auth } from "../firebase";
 import { uploadToCloudinary } from "../cloudinary";
 import { useNavigate, useLocation } from "react-router-dom";
-import categoriesData from "../config/categoriesData"; // main/sub/brand/model
-import productOptions from "../config/productOptions"; // storage, colors, SIM, features, etc.
+import categoriesData from "../config/categoriesData";
+import productOptions from "../config/productOptions";
 import locations from "../config/locations";
 import { useAdLimitCheck } from "../hooks/useAdLimits";
+import MobilePhonesSelector from "../components/MobilePhonesSelector";
 
 const AddProduct = () => {
   const [mainCategory, setMainCategory] = useState("");
@@ -39,9 +40,9 @@ const AddProduct = () => {
   const { checkLimit } = useAdLimitCheck();
 
   // Dynamic lists
-  const subCategories = mainCategory ? categoriesData[mainCategory]?.subcategories || [] : [];
-  const brands = subCategory ? categoriesData[mainCategory]?.brands[subCategory] || [] : [];
-  const models = brand ? categoriesData[mainCategory]?.models[brand] || [] : [];
+  const subCategories = mainCategory
+    ? categoriesData[mainCategory]?.subcategories || []
+    : [];
   const options = mainCategory ? productOptions[mainCategory] || {} : {};
 
   const handleFileChange = (e) => {
@@ -61,7 +62,6 @@ const AddProduct = () => {
   const handleAdd = async (e) => {
     e.preventDefault();
 
-    // Validation
     if (!auth.currentUser) return alert("Login required.");
     if (!mainCategory || !subCategory || !brand || !model || !condition || !title || !price || images.length === 0 || !stateLocation || !cityLocation) {
       return alert("Please fill all required fields.");
@@ -72,17 +72,14 @@ const AddProduct = () => {
     try {
       setLoading(true);
 
-      // Check free ad limit
       const limitReached = await checkLimit(auth.currentUser.uid, mainCategory);
       if (limitReached && !isPromoted) {
         setLoading(false);
         return alert("Free ad limit reached. Promote ad to post more.");
       }
 
-      // Upload images
       const imageUrls = await Promise.all(images.map(file => uploadToCloudinary(file)));
 
-      // Save product
       await addDoc(collection(db, "products"), {
         mainCategory, subCategory, brand, model, condition, title, description,
         price: parseFloat(price), images: imageUrls, coverImage: imageUrls[0],
@@ -111,26 +108,22 @@ const AddProduct = () => {
     }}>
       <h2 style={{ textAlign: "center", color: "#0d6efd" }}>Post Ad ({marketType})</h2>
 
-      {/* Category → Subcategory → Brand → Model */}
+      {/* Main Category */}
       <select value={mainCategory} onChange={e => { setMainCategory(e.target.value); setSubCategory(""); setBrand(""); setModel(""); }} required>
         <option value="">Select Category</option>
         {Object.keys(categoriesData).map(cat => <option key={cat} value={cat}>{cat}</option>)}
       </select>
 
+      {/* Subcategory */}
       {subCategories.length > 0 && <select value={subCategory} onChange={e => { setSubCategory(e.target.value); setBrand(""); setModel(""); }} required>
         <option value="">Select Subcategory</option>
         {subCategories.map(sub => <option key={sub} value={sub}>{sub}</option>)}
       </select>}
 
-      {brands.length > 0 && <select value={brand} onChange={e => { setBrand(e.target.value); setModel(""); }} required>
-        <option value="">Select Brand</option>
-        {brands.map(b => <option key={b} value={b}>{b}</option>)}
-      </select>}
-
-      {models.length > 0 && <select value={model} onChange={e => setModel(e.target.value)} required>
-        <option value="">Select Model</option>
-        {models.map(m => <option key={m} value={m}>{m}</option>)}
-      </select>}
+      {/* MobilePhonesSelector for brand & model */}
+      {subCategory === "Mobile Phones" && (
+        <MobilePhonesSelector onSelect={({ brand, model }) => { setBrand(brand); setModel(model); }} />
+      )}
 
       {/* Condition */}
       <select value={condition} onChange={e => setCondition(e.target.value)} required>
@@ -155,7 +148,7 @@ const AddProduct = () => {
         {options.simTypes.map(s => <option key={s} value={s}>{s}</option>)}
       </select>}
 
-      {/* Features checkboxes */}
+      {/* Features */}
       {options.features && options.features.length > 0 && <div>
         <p>Features:</p>
         {options.features.map(f => (
@@ -192,7 +185,6 @@ const AddProduct = () => {
         <option value="">Select State</option>
         {Object.keys(locations).map(st => <option key={st} value={st}>{st}</option>)}
       </select>
-
       {stateLocation && <select value={cityLocation} onChange={e => setCityLocation(e.target.value)} required>
         <option value="">Select City</option>
         {locations[stateLocation].map(c => <option key={c} value={c}>{c}</option>)}
