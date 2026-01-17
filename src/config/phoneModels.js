@@ -51,16 +51,52 @@ const phoneModels = {
     Nokia: ["X30","X20","G21","G20","C31","C21","3310","105","6300"],
     Oppo: ["Find X6 Pro","Find X5 Pro","Reno 10 Pro Plus","Reno 10 Pro","Reno 10","Reno 9 Pro","Reno 9","A98","A77","A57","A54"],
     Realme: ["GT 5 Pro","GT 3","GT 2 Pro","Narzo 60 Pro","Narzo 60","C55","C35"],
-    Samsung: ["Galaxy S23","Galaxy S22","Galaxy S21","Galaxy A54","Galaxy A14"], // Example
+    Samsung: [
+      "Galaxy S23","Galaxy S23+","Galaxy S23 Ultra",
+      "Galaxy S22","Galaxy S22+","Galaxy S22 Ultra",
+      "Galaxy S21","Galaxy S21+","Galaxy S21 Ultra",
+      "Galaxy S20","Galaxy S20+","Galaxy S20 Ultra",
+      "Galaxy A14","Galaxy A14 5G",
+      "Galaxy A24","Galaxy A34","Galaxy A54","Galaxy A54 5G","Galaxy A74",
+      "Galaxy Note 20","Galaxy Note 20 Ultra","Galaxy Note 10","Galaxy Note 10+",
+      "Galaxy Z Fold 5","Galaxy Z Fold 4","Galaxy Z Flip 5","Galaxy Z Flip 4",
+      "Galaxy M14","Galaxy M13","Galaxy M33","Galaxy M34"
+    ],
     Tecno: ["Camon 20 Premier","Camon 20 Pro 5G","Camon 20 Pro","Camon 20","Camon 19 Pro","Camon 19","Camon 18 Premier","Camon 18 Pro","Camon 18","Spark 10 Pro","Spark 10","Spark 9 Pro","Spark 9","Pouvoir 4 Pro","Pouvoir 4"],
     Vivo: ["X100 Pro","X100","X90 Pro","X90","V29 Pro","V27 Pro","V27","Y36","Y22","Y21","Y20"],
     Xiaomi: ["Redmi Note 13 Pro Plus","Redmi Note 13 Pro","Redmi Note 13","Redmi Note 12 Pro Plus","Redmi Note 12 Pro","Redmi Note 12","Redmi Note 11 Pro Plus","Redmi Note 11 Pro","Redmi Note 11","Mi 13 Pro","Mi 13","Mi 12 Pro","Mi 12","Mi 11 Pro","Mi 11"],
+
+    Other: [
+      "AGM","Alba","Alcatel","Aligator","AllCall","Allview","Amazon","Amgoo",
+      "Amoi","Anica","Archos","Asus","AT Mobile","AT&T","Basio","Benco","Benefon",
+      "Bengal","BenQ","BenQ-Siemens","Black Fox","BlackBerry","Blackview","BLU",
+      "Bluboo","BlueChip","BM666","Bontel","Bosch","BQ","BY2","CALME","Calus",
+      "Casio","Casper","Cat","CCIT","Changhong","Condor","Coolpad","Cricket","CTI",
+      "Cubot","Dell","Digifon","Doogee","Doopro","Doro","Drip Beauty Care","Eastvita",
+      "Easyphone","Ekinox","EL","Elephone","Emporia","Energizer","Enix","Equator",
+      "Ericsson","Essential","Fero","Fly","Flytouch","Fossibot","Freetel","FreeYond",
+      "Fujitsu","G-Tide","GDL","Geo","Gigabyte","Gigaset","Gionee","GMango","Goophone",
+      "Gowin","Green Orange","Gretel","H-mobile","Haier","Hammer","Hasee","Helio",
+      "HiCyber","Himax","Hisense","HMD","HomTom","Hotwav","HP","HTC","i-mate",
+      "i-mobile","i-Pro","Icemobile","iCherry","iiiF150","IMAGE","Imam","Imarafy",
+      "Imose","Infinix","InFocus","InnJoo","Inoi","iNQ","Intex","Invens","iPRO",
+      "iQOO","Irbis","Iridium","Ivvi","Jiake","Jiayu","JioBharat","Jolla","JX",
+      "K-Mous","K-Touch","Karbonn","Kazam","Keneksi","Kenxinda","Kgtel","Kiano",
+      "Kimfly","Kingstar","Kingzone","Sharp","Siemens","Sonim","Sony","Sony Ericsson",
+      "Spice","T-Mobile","TCL","Tel.Me.","Telit","Thuraya","Toshiba","Ulefone",
+      "Umidigi","Unnecto","Vertu","verykool","VK Mobile","Vodafone","Wiko","WND",
+      "XCute","XOLO","Yezz","Yota","YU","ZTE",
+      "Innos","Micromax","Panasonic","Maxwest","Mobiistar","Nuu Mobile","Prestigio",
+      "QMobile","Walton","Wileyfox","Yealink","Yunicorn","Ziox","Zopo","Zuum",
+      "GSmart","Evolveo","MyPhone","Symphony","Lava","Nextbit"
+    ]
   },
+
   Tablets: {
     Apple: ["iPad Air","iPad Mini","iPad Pro 12.9","iPad Pro 11"],
-    Samsung: ["Galaxy Tab S8","Galaxy Tab A8"],
+    Samsung: ["Galaxy Tab S8","Galaxy Tab S8+","Galaxy Tab S7","Galaxy Tab A8"],
     Lenovo: ["Lenovo Tab M10","Lenovo Tab P11"],
-    Huawei: ["Huawei MatePad 11","Huawei MatePad T10"],
+    Huawei: ["Huawei MatePad 11","Huawei MatePad T10"]
   }
 };
 
