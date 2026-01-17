@@ -9,6 +9,7 @@ import categoryRules from "../config/categoryRules";
 import { locationsByState } from "../config/locationsByState";
 import phoneModels from "../config/phoneModels";
 import conditions from "../config/condition";
+import "./AddProduct.css"; // import the CSS
 
 export default function AddProduct() {
   const navigate = useNavigate();
@@ -35,9 +36,7 @@ export default function AddProduct() {
 
   const rules = categoryRules[form.mainCategory] || categoryRules.Default;
 
-  /* -------------------- HELPERS -------------------- */
-  const update = (key, value) =>
-    setForm(prev => ({ ...prev, [key]: value }));
+  const update = (key, value) => setForm(prev => ({ ...prev, [key]: value }));
 
   const handleImages = (files) => {
     const list = Array.from(files);
@@ -57,7 +56,6 @@ export default function AddProduct() {
     update("previews", form.previews.filter((_, i) => i !== index));
   };
 
-  /* -------------------- VALIDATION -------------------- */
   const validate = () => {
     if (!form.mainCategory) return "Select main category";
     if (!form.title || form.title.length < rules.minTitle)
@@ -76,7 +74,6 @@ export default function AddProduct() {
     return null;
   };
 
-  /* -------------------- SUBMIT -------------------- */
   const handleSubmit = async () => {
     const error = validate();
     if (error) return alert(error);
@@ -122,12 +119,10 @@ export default function AddProduct() {
     }
   };
 
-  /* -------------------- UI -------------------- */
   return (
-    <div style={styles.container}>
-      <h2 style={styles.title}>Post Product</h2>
+    <div className="container">
+      <h2>Post Product</h2>
 
-      {/* Category */}
       <Field label="Category">
         <select value={form.mainCategory} onChange={e => {
           update("mainCategory", e.target.value);
@@ -142,7 +137,6 @@ export default function AddProduct() {
         </select>
       </Field>
 
-      {/* Subcategory */}
       {form.mainCategory && (
         <Field label="Subcategory">
           <select value={form.subCategory} onChange={e => {
@@ -158,7 +152,6 @@ export default function AddProduct() {
         </Field>
       )}
 
-      {/* Brand */}
       {form.subCategory && phoneModels[form.subCategory] && (
         <Field label="Brand">
           <select value={form.brand} onChange={e => {
@@ -175,7 +168,6 @@ export default function AddProduct() {
         </Field>
       )}
 
-      {/* Model */}
       {form.brand && phoneModels[form.subCategory]?.[form.brand] && (
         <Field label="Model">
           <select value={form.model} onChange={e => {
@@ -191,7 +183,7 @@ export default function AddProduct() {
         </Field>
       )}
 
-      {/* Condition (Phones Only, After Model Selected) */}
+      {/* Condition (Phones Only) */}
       {form.mainCategory === "Mobile Phones & Tablets" && form.model && (
         <Field label="Condition">
           <select value={form.condition} onChange={e => {
@@ -199,47 +191,35 @@ export default function AddProduct() {
             if (e.target.value !== "Used") update("usedDetail", "");
           }}>
             <option value="">Select</option>
-            {conditions.main.map(c => (
-              <option key={c} value={c}>{c}</option>
-            ))}
+            {conditions.main.map(c => <option key={c} value={c}>{c}</option>)}
           </select>
         </Field>
       )}
 
-      {/* Used Details (Only if Used) */}
       {form.condition === "Used" && (
         <Field label="Used Details">
           <select value={form.usedDetail || ""} onChange={e => update("usedDetail", e.target.value)}>
             <option value="">Select Detail</option>
-            {conditions.usedDetails.map(d => (
-              <option key={d} value={d}>{d}</option>
-            ))}
+            {conditions.usedDetails.map(d => <option key={d} value={d}>{d}</option>)}
           </select>
         </Field>
       )}
 
-      {/* Title */}
       <Field label="Title">
         <input value={form.title} onChange={e => update("title", e.target.value)} maxLength={rules.maxTitle} />
       </Field>
 
-      {/* Price */}
       <Field label="Price (₦)">
         <input type="number" value={form.price} onChange={e => update("price", e.target.value)} />
       </Field>
 
-      {/* State */}
       <Field label="State">
-        <select value={form.state} onChange={e => {
-          update("state", e.target.value);
-          update("city", "");
-        }}>
+        <select value={form.state} onChange={e => { update("state", e.target.value); update("city", ""); }}>
           <option value="">Select State</option>
           {Object.keys(locationsByState).map(state => <option key={state} value={state}>{state}</option>)}
         </select>
       </Field>
 
-      {/* City / LGA */}
       {form.state && (
         <Field label="City / LGA">
           <select value={form.city} onChange={e => update("city", e.target.value)}>
@@ -249,17 +229,15 @@ export default function AddProduct() {
         </Field>
       )}
 
-      {/* Description */}
       <Field label="Description">
         <textarea value={form.description} onChange={e => update("description", e.target.value)} maxLength={rules.maxDescription} rows={4} />
       </Field>
 
-      {/* Images */}
       <Field label="Images">
         <input type="file" multiple accept="image/*" onChange={e => handleImages(e.target.files)} />
-        <div style={styles.images}>
+        <div className="images">
           {form.previews.map((p, i) => (
-            <div key={i} style={styles.imgWrap}>
+            <div key={i} className="imgWrap">
               <img src={p} alt="" />
               <button type="button" onClick={() => removeImage(i)}>×</button>
             </div>
@@ -267,61 +245,23 @@ export default function AddProduct() {
         </div>
       </Field>
 
-      {/* Promote */}
       <Field label="Promote">
-        <label style={{ display: "flex", alignItems: "center", gap: 10 }}>
+        <label className="checkbox">
           <input type="checkbox" checked={form.isPromoted} onChange={e => update("isPromoted", e.target.checked)} />
           Promote this product
         </label>
       </Field>
 
-      <button style={styles.btn} onClick={handleSubmit} disabled={loading}>
+      <button className="btn" onClick={handleSubmit} disabled={loading}>
         {loading ? "Uploading..." : "Publish"}
       </button>
     </div>
   );
 }
 
-/* -------------------- SMALL COMPONENT -------------------- */
 const Field = ({ label, children }) => (
-  <div style={{ marginBottom: 14 }}>
-    <label style={{ fontSize: 13, fontWeight: 600 }}>{label}</label>
+  <div className="field">
+    <label>{label}</label>
     {children}
   </div>
 );
-
-/* -------------------- STYLES -------------------- */
-const styles = {
-  container: {
-    maxWidth: 520,
-    margin: "30px auto",
-    background: "#fff",
-    padding: 24,
-    borderRadius: 12,
-    boxShadow: "0 8px 30px rgba(0,0,0,.08)"
-  },
-  title: {
-    textAlign: "center",
-    marginBottom: 20,
-    color: "#0D6EFD"
-  },
-  images: {
-    display: "flex",
-    gap: 10,
-    marginTop: 10,
-    flexWrap: "wrap"
-  },
-  imgWrap: {
-    position: "relative"
-  },
-  btn: {
-    width: "100%",
-    background: "#0D6EFD",
-    color: "#fff",
-    padding: 12,
-    borderRadius: 8,
-    border: "none",
-    fontWeight: 600,
-    cursor: "pointer"
-  }
-};
