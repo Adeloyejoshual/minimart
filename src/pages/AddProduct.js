@@ -5,11 +5,10 @@ import { db, auth } from "../firebase";
 import { uploadToCloudinary } from "../cloudinary";
 import { useNavigate, useLocation } from "react-router-dom";
 import categoriesData from "../config/categoriesData";
+import categoryRules from "../config/categoryRules";
 import { locationsByRegion } from "../config/locationsByRegion";
 import { useAdLimitCheck } from "../hooks/useAdLimits";
 import ProductOptionsSelector from "../components/ProductOptionsSelector";
-
-const MAX_IMAGES = 10;
 
 const AddProduct = () => {
   const [form, setForm] = useState({
@@ -17,6 +16,7 @@ const AddProduct = () => {
     subCategory: "",
     brand: "",
     model: "",
+    condition: "",
     title: "",
     description: "",
     price: "",
@@ -38,22 +38,21 @@ const AddProduct = () => {
   const marketType = params.get("market") || "marketplace";
   const { checkLimit } = useAdLimitCheck();
 
+  const rules = categoryRules[form.mainCategory] || categoryRules.Default;
+
   // Derived lists
-  const subCategories = form.mainCategory
-    ? categoriesData[form.mainCategory]?.subcategories || []
-    : [];
+  const subCategories = form.mainCategory ? categoriesData[form.mainCategory]?.subcategories || [] : [];
   const allRegions = Object.keys(locationsByRegion);
   const allStates = form.region ? Object.keys(locationsByRegion[form.region]) : [];
-  const allCities =
-    form.stateLocation ? locationsByRegion[form.region][form.stateLocation] || [] : [];
+  const allCities = form.stateLocation ? locationsByRegion[form.region][form.stateLocation] || [] : [];
 
   // Handlers
   const handleChange = (field, value) => {
     setForm(prev => ({ ...prev, [field]: value }));
     setErrors(prev => ({ ...prev, [field]: "" }));
 
-    if (field === "mainCategory") setForm(prev => ({ ...prev, subCategory: "", brand: "", model: "", selectedOptions: {} }));
-    if (field === "subCategory") setForm(prev => ({ ...prev, brand: "", model: "", selectedOptions: {} }));
+    if (field === "mainCategory") setForm(prev => ({ ...prev, subCategory: "", brand: "", model: "", condition: "", selectedOptions: {} }));
+    if (field === "subCategory") setForm(prev => ({ ...prev, brand: "", model: "", condition: "", selectedOptions: {} }));
     if (field === "region") setForm(prev => ({ ...prev, stateLocation: "", cityLocation: "" }));
     if (field === "stateLocation") setForm(prev => ({ ...prev, cityLocation: "" }));
   };
@@ -69,7 +68,7 @@ const AddProduct = () => {
 
   const handleFileChange = e => {
     const files = Array.from(e.target.files);
-    if (files.length + form.images.length > MAX_IMAGES) return alert(`Max ${MAX_IMAGES} images allowed`);
+    if (files.length + form.images.length > rules.maxImages) return alert(`Max ${rules.maxImages} images allowed`);
     setForm(prev => ({
       ...prev,
       images: [...prev.images, ...files],
@@ -92,6 +91,7 @@ const AddProduct = () => {
       subCategory: "",
       brand: "",
       model: "",
+      condition: "",
       title: "",
       description: "",
       price: "",
@@ -107,24 +107,48 @@ const AddProduct = () => {
     setErrors({});
   };
 
+  // Validation
   const validateForm = () => {
     const newErrors = {};
-    const requiredFields = ["mainCategory", "subCategory", "title", "price", "phoneNumber", "region", "stateLocation", "cityLocation"];
-    requiredFields.forEach(f => {
-      if (!form[f]) newErrors[f] = "This field is required";
-    });
 
+    // Title
+    if (!form.title || form.title.length < rules.minTitle || form.title.length > rules.maxTitle) {
+      newErrors.title = `Title must be between ${rules.minTitle} and ${rules.maxTitle} characters`;
+    }
+
+    // Description
+    if (form.description && form.description.length > rules.maxDescription) {
+      newErrors.description = `Description cannot exceed ${rules.maxDescription} characters`;
+    }
+
+    // Images
+    if (form.images.length < rules.minImages) newErrors.images = `Upload at least ${rules.minImages} image(s)`;
+    if (form.images.length > rules.maxImages) newErrors.images = `Maximum ${rules.maxImages} images allowed`;
+
+    // Brand / Model / Condition
+    if (rules.requireBrand && !form.brand) newErrors.brand = "Brand is required";
+    if (rules.requireModel && !form.model) newErrors.model = "Model is required";
+    if (rules.requireCondition && !form.condition) newErrors.condition = "Condition is required";
+
+    // Location
+    if (rules.requireLocation) {
+      if (!form.region) newErrors.region = "Region is required";
+      if (!form.stateLocation) newErrors.stateLocation = "State is required";
+      if (!form.cityLocation) newErrors.cityLocation = "City is required";
+    }
+
+    // Price
     const numericPrice = parseFloat(form.price.replace(/,/g, ""));
     if (isNaN(numericPrice) || numericPrice <= 0) newErrors.price = "Enter a valid price";
 
+    // Phone
     if (!/^\d{10,15}$/.test(form.phoneNumber)) newErrors.phoneNumber = "Enter a valid phone number";
-
-    if (form.images.length === 0) newErrors.images = "Upload at least one image";
 
     setErrors(newErrors);
     return Object.keys(newErrors).length === 0;
   };
 
+  // Submit
   const handleAdd = async e => {
     e.preventDefault();
     if (!auth.currentUser) return setErrors({ general: "Login required." });
@@ -188,19 +212,18 @@ const AddProduct = () => {
         </>
       )}
 
-      {/* Product Options Selector */}
+      {/* Product Options */}
       {form.subCategory && (
         <ProductOptionsSelector
           mainCategory={form.mainCategory}
           subCategory={form.subCategory}
-          onChange={data =>
-            setForm(prev => ({
-              ...prev,
-              brand: data.brand,
-              model: data.model,
-              selectedOptions: data
-            }))
-          }
+          onChange={data => setForm(prev => ({
+            ...prev,
+            brand: data.brand,
+            model: data.model,
+            condition: data.condition,
+            selectedOptions: data.options
+          }))}
         />
       )}
 
@@ -215,7 +238,7 @@ const AddProduct = () => {
       <input type="text" placeholder="Price*" value={form.price} onChange={handlePriceChange} required />
       {errors.price && <span style={{ color: "red", fontSize: 12 }}>{errors.price}</span>}
 
-      {/* Phone Number */}
+      {/* Phone */}
       <input type="tel" placeholder="Phone Number*" value={form.phoneNumber} onChange={e => handleChange("phoneNumber", e.target.value)} maxLength={15} required />
       {errors.phoneNumber && <span style={{ color: "red", fontSize: 12 }}>{errors.phoneNumber}</span>}
 
