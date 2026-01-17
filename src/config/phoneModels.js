@@ -2,11 +2,11 @@
 
 const phoneModels = {
   Smartphones: {
-    AGM: ["AGM X4","AGM X3","AGM X2"],
-    Advan: ["Advan G3","Advan G2","Advan A8"],
-    Alcatel: ["Alcatel 1","Alcatel 3L","Alcatel 1B"],
-    Allview: ["Allview Soul X6","Allview Soul X5"],
-    Amoi: ["Amoi N828","Amoi A10"],
+    AGM: ["AGM X4", "AGM X3", "AGM X2"],
+    Advan: ["Advan G3", "Advan G2", "Advan A8"],
+    Alcatel: ["Alcatel 1", "Alcatel 3L", "Alcatel 1B"],
+    Allview: ["Allview Soul X6", "Allview Soul X5"],
+    Amoi: ["Amoi N828", "Amoi A10"],
     Apple: [
       "iPhone 17 Pro Max","iPhone 17 Pro","iPhone 17 Plus","iPhone 17",
       "iPhone 16 Pro Max","iPhone 16 Pro","iPhone 16 Plus","iPhone 16",
@@ -56,8 +56,7 @@ const phoneModels = {
       "Galaxy S22","Galaxy S22+","Galaxy S22 Ultra",
       "Galaxy S21","Galaxy S21+","Galaxy S21 Ultra",
       "Galaxy S20","Galaxy S20+","Galaxy S20 Ultra",
-      "Galaxy A14","Galaxy A14 5G",
-      "Galaxy A24","Galaxy A34","Galaxy A54","Galaxy A54 5G","Galaxy A74",
+      "Galaxy A14","Galaxy A14 5G","Galaxy A24","Galaxy A34","Galaxy A54","Galaxy A54 5G","Galaxy A74",
       "Galaxy Note 20","Galaxy Note 20 Ultra","Galaxy Note 10","Galaxy Note 10+",
       "Galaxy Z Fold 5","Galaxy Z Fold 4","Galaxy Z Flip 5","Galaxy Z Flip 4",
       "Galaxy M14","Galaxy M13","Galaxy M33","Galaxy M34"
@@ -67,28 +66,9 @@ const phoneModels = {
     Xiaomi: ["Redmi Note 13 Pro Plus","Redmi Note 13 Pro","Redmi Note 13","Redmi Note 12 Pro Plus","Redmi Note 12 Pro","Redmi Note 12","Redmi Note 11 Pro Plus","Redmi Note 11 Pro","Redmi Note 11","Mi 13 Pro","Mi 13","Mi 12 Pro","Mi 12","Mi 11 Pro","Mi 11"],
 
     Other: [
-      "AGM","Alba","Alcatel","Aligator","AllCall","Allview","Amazon","Amgoo",
-      "Amoi","Anica","Archos","Asus","AT Mobile","AT&T","Basio","Benco","Benefon",
-      "Bengal","BenQ","BenQ-Siemens","Black Fox","BlackBerry","Blackview","BLU",
-      "Bluboo","BlueChip","BM666","Bontel","Bosch","BQ","BY2","CALME","Calus",
-      "Casio","Casper","Cat","CCIT","Changhong","Condor","Coolpad","Cricket","CTI",
-      "Cubot","Dell","Digifon","Doogee","Doopro","Doro","Drip Beauty Care","Eastvita",
-      "Easyphone","Ekinox","EL","Elephone","Emporia","Energizer","Enix","Equator",
-      "Ericsson","Essential","Fero","Fly","Flytouch","Fossibot","Freetel","FreeYond",
-      "Fujitsu","G-Tide","GDL","Geo","Gigabyte","Gigaset","Gionee","GMango","Goophone",
-      "Gowin","Green Orange","Gretel","H-mobile","Haier","Hammer","Hasee","Helio",
-      "HiCyber","Himax","Hisense","HMD","HomTom","Hotwav","HP","HTC","i-mate",
-      "i-mobile","i-Pro","Icemobile","iCherry","iiiF150","IMAGE","Imam","Imarafy",
-      "Imose","Infinix","InFocus","InnJoo","Inoi","iNQ","Intex","Invens","iPRO",
-      "iQOO","Irbis","Iridium","Ivvi","Jiake","Jiayu","JioBharat","Jolla","JX",
-      "K-Mous","K-Touch","Karbonn","Kazam","Keneksi","Kenxinda","Kgtel","Kiano",
-      "Kimfly","Kingstar","Kingzone","Sharp","Siemens","Sonim","Sony","Sony Ericsson",
-      "Spice","T-Mobile","TCL","Tel.Me.","Telit","Thuraya","Toshiba","Ulefone",
-      "Umidigi","Unnecto","Vertu","verykool","VK Mobile","Vodafone","Wiko","WND",
-      "XCute","XOLO","Yezz","Yota","YU","ZTE",
-      "Innos","Micromax","Panasonic","Maxwest","Mobiistar","Nuu Mobile","Prestigio",
-      "QMobile","Walton","Wileyfox","Yealink","Yunicorn","Ziox","Zopo","Zuum",
-      "GSmart","Evolveo","MyPhone","Symphony","Lava","Nextbit"
+      "AGM","Alba","Alcatel","AllCall","Allview","Amoi","Asus","BlackBerry","Blackview","BLU",
+      "Samsung","Apple","Xiaomi","Tecno","Infinix","Huawei","Oppo","Realme","Vivo","Nokia",
+      "Lenovo","Motorola","Honor","Itel","Casio","Cubot","Doogee","Fairphone","Fly","Gionee","Google"
     ]
   },
 
@@ -97,6 +77,21 @@ const phoneModels = {
     Samsung: ["Galaxy Tab S8","Galaxy Tab S8+","Galaxy Tab S7","Galaxy Tab A8"],
     Lenovo: ["Lenovo Tab M10","Lenovo Tab P11"],
     Huawei: ["Huawei MatePad 11","Huawei MatePad T10"]
+  },
+
+  FeaturePhones: {
+    Nokia: ["105","106","110","150","3310","6300"],
+    Itel: ["A16","A25","A48","A56","A58 Pro","S21","S23","S23 Plus"],
+    Samsung: ["Guru Music 2","E1200","E1270","E1230"],
+    Tecno: ["T401","T401i","T702"],
+    Other: ["Alcatel","Karbonn","Infinix","Gionee","LG"]
+  },
+
+  Accessories: {
+    Chargers: ["Samsung Charger","Apple Charger","Tecno Charger","Itel Charger"],
+    Headphones: ["Sony Headphones","Samsung Headphones","Apple AirPods","Beats"],
+    Cases: ["Samsung Case","Apple Case","Xiaomi Case","Tecno Case"],
+    Other: ["Other Accessories"]
   }
 };
 
