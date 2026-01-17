@@ -38,12 +38,12 @@ export default function AddProduct() {
     isPromoted: false,
   });
 
-  const [selectionStep, setSelectionStep] = useState(null); // Full page selection step
-  const [backStep, setBackStep] = useState(null); // Step to go back to
+  // Track which full-page selection is open
+  const [selectionStep, setSelectionStep] = useState(null); // e.g., "subCategory", "brand", etc.
+  const [backStep, setBackStep] = useState(null);
 
   const rules = categoryRules[form.mainCategory] || categoryRules.Default;
 
-  // Load draft if exists
   useEffect(() => {
     const saved = localStorage.getItem(DRAFT_KEY);
     if (saved) setForm(JSON.parse(saved));
@@ -51,7 +51,6 @@ export default function AddProduct() {
     if (savedCat) setForm(prev => ({ ...prev, mainCategory: savedCat }));
   }, []);
 
-  // Save draft on form change
   useEffect(() => {
     localStorage.setItem(DRAFT_KEY, JSON.stringify(form));
     if (form.mainCategory) localStorage.setItem(CATEGORY_KEY, form.mainCategory);
@@ -124,7 +123,7 @@ export default function AddProduct() {
   };
 
   // -------------------- Full Page List --------------------
-  const FullPageList = ({ title, options, valueKey, allowOther }) => {
+  const FullPageList = ({ title, options, valueKey, allowCustom = true }) => {
     const [customValue, setCustomValue] = useState("");
 
     const handleCustomSubmit = () => {
@@ -139,7 +138,7 @@ export default function AddProduct() {
       <div className="fullpage-list">
         {backStep && (
           <div className="options-back" onClick={() => setSelectionStep(backStep)}>
-            <span className="arrow">←</span> Back
+            ← Back
           </div>
         )}
         <h3>{title}</h3>
@@ -148,13 +147,16 @@ export default function AddProduct() {
             <div
               key={opt}
               className={`option-item ${form[valueKey] === opt ? "active" : ""}`}
-              onClick={() => { update(valueKey, opt); setSelectionStep(null); }}
+              onClick={() => {
+                update(valueKey, opt);
+                setSelectionStep(null);
+              }}
             >
-              {opt} <span className="arrow">➔</span>
+              {opt}
             </div>
           ))}
 
-          {allowOther && (
+          {allowCustom && (
             <div className="option-item" style={{ justifyContent: "center" }}>
               <input
                 type="text"
@@ -162,8 +164,14 @@ export default function AddProduct() {
                 value={customValue}
                 onChange={e => setCustomValue(e.target.value)}
                 onKeyDown={e => e.key === "Enter" && handleCustomSubmit()}
+                style={{ width: "80%", border: "none", outline: "none", background: "transparent", fontSize: "14px", color: "#333" }}
               />
-              <span onClick={handleCustomSubmit} style={{ cursor: "pointer" }}>➔</span>
+              <span
+                onClick={handleCustomSubmit}
+                style={{ cursor: "pointer", color: "#0D6EFD", marginLeft: "6px", fontWeight: "600" }}
+              >
+                Submit
+              </span>
             </div>
           )}
         </div>
@@ -173,19 +181,32 @@ export default function AddProduct() {
 
   // -------------------- Derived Options --------------------
   const getSubcategories = () => [...(categories.find(c => c.name === form.mainCategory)?.subcategories || [])];
-  const getBrandOptions = () => form.mainCategory ? Object.keys(phoneModels[form.mainCategory] || {}) : [];
-  const getModelOptions = () => form.brand ? phoneModels[form.mainCategory][form.brand] || [] : [];
+
+  const getBrandOptions = () => {
+    if (!form.mainCategory) return [];
+    const data = phoneModels[form.mainCategory];
+    if (!data) return [];
+    return Object.keys(data).filter(b => b !== "Other");
+  };
+
+  const getModelOptions = () => {
+    if (!form.brand || !form.mainCategory) return [];
+    const data = phoneModels[form.mainCategory][form.brand];
+    if (!data) return [];
+    return data;
+  };
+
   const getStateOptions = () => Object.keys(locationsByState);
-  const getCityOptions = () => form.state ? locationsByState[form.state] : [];
+  const getCityOptions = () => (form.state ? locationsByState[form.state] : []);
   const getConditionOptions = () => conditions.main;
   const getUsedDetailOptions = () => conditions.usedDetails;
 
-  // -------------------- Full Page Step --------------------
+  // -------------------- Render Full Page Step --------------------
   if (selectionStep) {
     switch (selectionStep) {
       case "subCategory": return <FullPageList title="Select Subcategory" options={getSubcategories()} valueKey="subCategory" />;
-      case "brand": return <FullPageList title="Select Brand" options={getBrandOptions()} valueKey="brand" allowOther={true} />;
-      case "model": return <FullPageList title="Select Model" options={getModelOptions()} valueKey="model" allowOther={true} />;
+      case "brand": return <FullPageList title="Select Brand" options={getBrandOptions()} valueKey="brand" />;
+      case "model": return <FullPageList title="Select Model / Type" options={getModelOptions()} valueKey="model" />;
       case "state": return <FullPageList title="Select State" options={getStateOptions()} valueKey="state" />;
       case "city": return <FullPageList title="Select City / LGA" options={getCityOptions()} valueKey="city" />;
       case "condition": return <FullPageList title="Select Condition" options={getConditionOptions()} valueKey="condition" />;
@@ -228,7 +249,7 @@ export default function AddProduct() {
       {form.mainCategory && (
         <Field label="Subcategory">
           <div className="option-item clickable" onClick={() => { setBackStep(null); setSelectionStep("subCategory"); }}>
-            {form.subCategory || "Select Subcategory"} ➔
+            {form.subCategory || "Select Subcategory"}
           </div>
         </Field>
       )}
@@ -237,7 +258,7 @@ export default function AddProduct() {
       {form.subCategory && (
         <Field label="Brand">
           <div className="option-item clickable" onClick={() => { setBackStep("subCategory"); setSelectionStep("brand"); }}>
-            {form.brand || "Select Brand"} ➔
+            {form.brand || "Select Brand"}
           </div>
         </Field>
       )}
@@ -246,7 +267,7 @@ export default function AddProduct() {
       {form.brand && (
         <Field label="Model / Type">
           <div className="option-item clickable" onClick={() => { setBackStep("brand"); setSelectionStep("model"); }}>
-            {form.model || "Select Model"} ➔
+            {form.model || "Select Model"}
           </div>
         </Field>
       )}
@@ -255,12 +276,12 @@ export default function AddProduct() {
       {(form.mainCategory === "Smartphones" || form.mainCategory === "FeaturePhones") && form.model && (
         <Field label="Condition">
           <div className="option-item clickable" onClick={() => { setBackStep("model"); setSelectionStep("condition"); }}>
-            {form.condition || "Select Condition"} ➔
+            {form.condition || "Select Condition"}
           </div>
           {form.condition === "Used" && (
             <Field label="Used Details">
               <div className="option-item clickable" onClick={() => { setBackStep("condition"); setSelectionStep("usedDetail"); }}>
-                {form.usedDetail || "Select Used Detail"} ➔
+                {form.usedDetail || "Select Used Detail"}
               </div>
             </Field>
           )}
@@ -296,7 +317,7 @@ export default function AddProduct() {
       {/* State */}
       <Field label="State">
         <div className="option-item clickable" onClick={() => { setBackStep(null); setSelectionStep("state"); }}>
-          {form.state || "Select State"} ➔
+          {form.state || "Select State"}
         </div>
       </Field>
 
@@ -304,7 +325,7 @@ export default function AddProduct() {
       {form.state && (
         <Field label="City / LGA">
           <div className="option-item clickable" onClick={() => { setBackStep("state"); setSelectionStep("city"); }}>
-            {form.city || "Select City / LGA"} ➔
+            {form.city || "Select City / LGA"}
           </div>
         </Field>
       )}
