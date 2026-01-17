@@ -1,108 +1,97 @@
-// src/pages/TestAddProductSimple.js
+// src/pages/TestAddProduct.js
 import React, { useState } from "react";
 import { collection, addDoc, serverTimestamp } from "firebase/firestore";
 import { db, auth } from "../firebase";
 import { uploadToCloudinary } from "../cloudinary";
 
-const TestAddProductSimple = () => {
+const TestAddProduct = () => {
   const [price, setPrice] = useState("");
   const [images, setImages] = useState([]);
-  const [preview, setPreview] = useState([]);
+  const [previewImages, setPreviewImages] = useState([]);
   const [loading, setLoading] = useState(false);
   const [message, setMessage] = useState("");
 
-  // Handle file selection
-  const handleFileChange = (e) => {
+  // Handle image selection
+  const handleFiles = e => {
     const files = Array.from(e.target.files);
     setImages(files);
-    setPreview(files.map(f => URL.createObjectURL(f)));
-  };
-
-  // Remove preview image
-  const removeImage = (idx) => {
-    setImages(prev => prev.filter((_, i) => i !== idx));
-    setPreview(prev => prev.filter((_, i) => i !== idx));
+    setPreviewImages(files.map(f => URL.createObjectURL(f)));
   };
 
   // Submit
-  const handleAdd = async () => {
+  const handleAdd = async e => {
+    e.preventDefault();
     if (!auth.currentUser) {
-      setMessage("Login required");
+      setMessage("Login required.");
       return;
     }
-
     if (!price || images.length === 0) {
-      setMessage("Price and at least one image required");
+      setMessage("Enter price and select at least one image.");
       return;
     }
 
     try {
       setLoading(true);
+      setMessage("");
 
-      // Upload images
-      const imageUrls = await Promise.all(images.map(f => uploadToCloudinary(f)));
-      if (imageUrls.some(url => !url)) {
-        setMessage("Some images failed to upload");
-        setLoading(false);
-        return;
-      }
+      // Upload images to Cloudinary
+      const uploadedUrls = await Promise.all(images.map(f => uploadToCloudinary(f)));
 
-      // Save to Firestore
+      // Add minimal product to Firestore
       const docRef = await addDoc(collection(db, "products"), {
-        ownerId: auth.currentUser.uid,
         price: parseFloat(price.replace(/,/g, "")),
-        images: imageUrls,
-        coverImage: imageUrls[0],
+        images: uploadedUrls,
+        coverImage: uploadedUrls[0],
+        ownerId: auth.currentUser.uid,
         createdAt: serverTimestamp(),
       });
 
-      setMessage("Product added! ID: " + docRef.id);
+      setMessage(`Product added! ID: ${docRef.id}`);
       setPrice("");
       setImages([]);
-      setPreview([]);
+      setPreviewImages([]);
     } catch (err) {
       console.error(err);
-      setMessage("Error: " + err.message);
+      setMessage("Error adding product: " + err.message);
     } finally {
       setLoading(false);
     }
   };
 
   return (
-    <div style={{ padding: 20, maxWidth: 500 }}>
+    <div style={{ maxWidth: 500, margin: 20, padding: 20, borderRadius: 10, background: "#fff", boxShadow: "0 4px 12px rgba(0,0,0,0.1)" }}>
       <h2>Test Add Product (Price + Images)</h2>
+      {message && <div style={{ marginBottom: 10, color: message.includes("Error") ? "red" : "green" }}>{message}</div>}
+      
+      <form onSubmit={handleAdd} style={{ display: "flex", flexDirection: "column", gap: 15 }}>
+        <input
+          type="text"
+          placeholder="Price"
+          value={price}
+          onChange={e => setPrice(e.target.value)}
+        />
 
-      <input
-        type="text"
-        placeholder="Price"
-        value={price}
-        onChange={(e) => setPrice(e.target.value)}
-        style={{ width: "100%", marginBottom: 10, padding: 8 }}
-      />
+        <input
+          type="file"
+          multiple
+          accept="image/*"
+          onChange={handleFiles}
+        />
 
-      <input type="file" multiple accept="image/*" onChange={handleFileChange} />
-      {preview.length > 0 && (
-        <div style={{ display: "flex", gap: 10, marginTop: 10, flexWrap: "wrap" }}>
-          {preview.map((src, i) => (
-            <div key={i} style={{ position: "relative" }}>
-              <img src={src} alt={`preview-${i}`} style={{ width: 80, height: 80, objectFit: "cover" }} />
-              <button onClick={() => removeImage(i)} style={{ position: "absolute", top: -5, right: -5, background: "red", color: "#fff", border: "none", borderRadius: "50%", width: 20, height: 20 }}>×</button>
-            </div>
-          ))}
-        </div>
-      )}
+        {previewImages.length > 0 && (
+          <div style={{ display: "flex", gap: 10 }}>
+            {previewImages.map((src, i) => (
+              <img key={i} src={src} alt={`preview-${i}`} style={{ width: 80, height: 80, objectFit: "cover", borderRadius: 5 }} />
+            ))}
+          </div>
+        )}
 
-      <button
-        onClick={handleAdd}
-        disabled={loading}
-        style={{ marginTop: 15, padding: "10px 15px", background: "#0d6efd", color: "#fff", border: "none", borderRadius: 5 }}
-      >
-        {loading ? "Uploading..." : "Add Product"}
-      </button>
-
-      {message && <p style={{ marginTop: 10 }}>{message}</p>}
+        <button type="submit" disabled={loading} style={{ padding: 10, background: "#0d6efd", color: "#fff", border: "none", borderRadius: 5 }}>
+          {loading ? "Uploading..." : "Add Product"}
+        </button>
+      </form>
     </div>
   );
 };
 
-export default TestAddProductSimple;
+export default TestAddProduct;
