@@ -1,92 +1,225 @@
-// src/pages/AddProductTest.js
 import { useState } from "react";
-import { collection, addDoc, serverTimestamp } from "firebase/firestore";
+import { addDoc, collection, serverTimestamp } from "firebase/firestore";
 import { db, auth } from "../firebase";
 import { uploadToCloudinary } from "../cloudinary";
-import { useNavigate } from "react-router-dom";
+import { useNavigate, useSearchParams } from "react-router-dom";
+import categories from "../config/categories";
+import categoryRules from "../config/categoryRules";
 
-export default function AddProductTest() {
-  const [price, setPrice] = useState("");
-  const [images, setImages] = useState([]);
-  const [loading, setLoading] = useState(false);
+export default function AddProduct() {
   const navigate = useNavigate();
+  const [params] = useSearchParams();
+  const marketType = params.get("market") || "marketplace";
 
-  const handleFileChange = (e) => {
-    setImages(Array.from(e.target.files));
+  const [loading, setLoading] = useState(false);
+
+  const [form, setForm] = useState({
+    title: "",
+    price: "",
+    images: [],
+    previews: [],
+    mainCategory: "",
+    subCategory: "",
+    condition: "",
+    description: "",
+    state: "",
+    city: "",
+    isPromoted: false
+  });
+
+  const rules = categoryRules[form.mainCategory] || categoryRules.Default;
+
+  /* -------------------- HELPERS -------------------- */
+
+  const update = (key, value) =>
+    setForm(prev => ({ ...prev, [key]: value }));
+
+  const handleImages = (files) => {
+    const list = Array.from(files);
+    if (list.length + form.images.length > rules.maxImages) {
+      alert(`Max ${rules.maxImages} images allowed`);
+      return;
+    }
+
+    update("images", [...form.images, ...list]);
+    update(
+      "previews",
+      [...form.previews, ...list.map(f => URL.createObjectURL(f))]
+    );
   };
 
-  const handleSubmit = async (e) => {
-    e.preventDefault();
+  const removeImage = (index) => {
+    update("images", form.images.filter((_, i) => i !== index));
+    update("previews", form.previews.filter((_, i) => i !== index));
+  };
 
-    if (!auth.currentUser) {
-      alert("Login required");
-      return;
-    }
+  /* -------------------- VALIDATION -------------------- */
 
-    if (!price || images.length === 0) {
-      alert("Price and images are required");
-      return;
-    }
+  const validate = () => {
+    if (!form.title || form.title.length < rules.minTitle) return "Title too short";
+    if (!form.price || Number(form.price) <= 0) return "Invalid price";
+    if (form.images.length < rules.minImages) return "Upload more images";
+    if (rules.requireCondition && !form.condition) return "Select condition";
+    if (rules.requireLocation && (!form.state || !form.city)) return "Location required";
+    return null;
+  };
+
+  /* -------------------- SUBMIT -------------------- */
+
+  const handleSubmit = async () => {
+    const error = validate();
+    if (error) return alert(error);
 
     try {
       setLoading(true);
 
-      // Upload images to Cloudinary
-      const imageUrls = await Promise.all(
-        images.map((file) => uploadToCloudinary(file))
+      const uploaded = await Promise.all(
+        form.images.map(img => uploadToCloudinary(img))
       );
 
-      // Save to Firestore
-      const docRef = await addDoc(collection(db, "products"), {
-        title: "Test Product",
-        price: Number(price),
-        images: imageUrls,
-        coverImage: imageUrls[0],
+      const product = {
+        title: form.title.trim(),
+        price: Number(form.price),
+        images: uploaded,
+        coverImage: uploaded[0],
+        mainCategory: form.mainCategory,
+        subCategory: form.subCategory || null,
+        condition: form.condition || null,
+        description: form.description || "",
+        state: form.state,
+        city: form.city,
+        marketType,
         ownerId: auth.currentUser.uid,
-        marketType: "marketplace", // IMPORTANT
-        isPromoted: false,
-        createdAt: serverTimestamp(),
-      });
+        isPromoted: form.isPromoted,
+        createdAt: serverTimestamp()
+      };
 
-      alert("Product added! ID: " + docRef.id);
+      await addDoc(collection(db, "products"), product);
+
+      alert("Product posted successfully");
       navigate("/marketplace");
-    } catch (err) {
-      console.error(err);
-      alert("Error: " + err.message);
+
+    } catch (e) {
+      console.error(e);
+      alert("Failed to post product");
     } finally {
       setLoading(false);
     }
   };
 
+  /* -------------------- UI -------------------- */
+
   return (
-    <form
-      onSubmit={handleSubmit}
-      style={{
-        maxWidth: 400,
-        margin: "40px auto",
-        padding: 20,
-        background: "#fff",
-        borderRadius: 10,
-        boxShadow: "0 4px 10px rgba(0,0,0,0.1)",
-        display: "flex",
-        flexDirection: "column",
-        gap: 15,
-      }}
-    >
-      <h3 style={{ textAlign: "center" }}>Test Add Product</h3>
+    <div style={styles.container}>
+      <h2 style={styles.title}>Post Product</h2>
 
-      <input
-        type="number"
-        placeholder="Price"
-        value={price}
-        onChange={(e) => setPrice(e.target.value)}
-      />
+      <Field label="Category">
+        <select value={form.mainCategory} onChange={e => update("mainCategory", e.target.value)}>
+          <option value="">Select Category</option>
+          {Object.keys(categories).map(c => <option key={c}>{c}</option>)}
+        </select>
+      </Field>
 
-      <input type="file" multiple accept="image/*" onChange={handleFileChange} />
+      {form.mainCategory && (
+        <Field label="Subcategory">
+          <select value={form.subCategory} onChange={e => update("subCategory", e.target.value)}>
+            <option value="">Optional</option>
+            {categories[form.mainCategory]?.map(s => <option key={s}>{s}</option>)}
+          </select>
+        </Field>
+      )}
 
-      <button disabled={loading}>
-        {loading ? "Uploading..." : "Add Product"}
+      <Field label="Title">
+        <input value={form.title} onChange={e => update("title", e.target.value)} />
+      </Field>
+
+      <Field label="Price (₦)">
+        <input type="number" value={form.price} onChange={e => update("price", e.target.value)} />
+      </Field>
+
+      {rules.requireCondition && (
+        <Field label="Condition">
+          <select value={form.condition} onChange={e => update("condition", e.target.value)}>
+            <option value="">Select</option>
+            <option>New</option>
+            <option>Used</option>
+          </select>
+        </Field>
+      )}
+
+      <Field label="State">
+        <input value={form.state} onChange={e => update("state", e.target.value)} />
+      </Field>
+
+      <Field label="City">
+        <input value={form.city} onChange={e => update("city", e.target.value)} />
+      </Field>
+
+      <Field label="Description">
+        <textarea rows="4" value={form.description} onChange={e => update("description", e.target.value)} />
+      </Field>
+
+      <Field label="Images">
+        <input type="file" multiple accept="image/*" onChange={e => handleImages(e.target.files)} />
+        <div style={styles.images}>
+          {form.previews.map((p, i) => (
+            <div key={i} style={styles.imgWrap}>
+              <img src={p} alt="" />
+              <button onClick={() => removeImage(i)}>×</button>
+            </div>
+          ))}
+        </div>
+      </Field>
+
+      <button style={styles.btn} disabled={loading} onClick={handleSubmit}>
+        {loading ? "Uploading..." : "Publish"}
       </button>
-    </form>
+    </div>
   );
 }
+
+/* -------------------- SMALL COMPONENTS -------------------- */
+
+const Field = ({ label, children }) => (
+  <div style={{ marginBottom: 14 }}>
+    <label style={{ fontSize: 13, fontWeight: 600 }}>{label}</label>
+    {children}
+  </div>
+);
+
+/* -------------------- STYLES -------------------- */
+
+const styles = {
+  container: {
+    maxWidth: 520,
+    margin: "30px auto",
+    background: "#fff",
+    padding: 24,
+    borderRadius: 12,
+    boxShadow: "0 8px 30px rgba(0,0,0,.08)"
+  },
+  title: {
+    textAlign: "center",
+    marginBottom: 20,
+    color: "#0D6EFD"
+  },
+  images: {
+    display: "flex",
+    gap: 10,
+    marginTop: 10,
+    flexWrap: "wrap"
+  },
+  imgWrap: {
+    position: "relative"
+  },
+  btn: {
+    width: "100%",
+    background: "#0D6EFD",
+    color: "#fff",
+    padding: 12,
+    borderRadius: 8,
+    border: "none",
+    fontWeight: 600,
+    cursor: "pointer"
+  }
+};
