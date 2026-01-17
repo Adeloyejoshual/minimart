@@ -1,110 +1,107 @@
-// src/pages/AddProduct.js
+
+// src/components/ProductOptionsSelector.jsx
 import React, { useState, useEffect } from "react";
 import categoriesData from "../config/categoriesData";
-import phoneModels from "../config/phoneModels"; // optional if you want separate phone model data
-import { locationsByRegion } from "../config/locationsByRegion";
-import ProductOptionsSelector from "../components/ProductOptionsSelector";
 
-const AddProduct = () => {
-  const [mainCategory, setMainCategory] = useState("");
-  const [subCategory, setSubCategory] = useState("");
-  const [productData, setProductData] = useState({});
+const ProductOptionsSelector = ({ mainCategory, subCategory, onChange }) => {
+  const category = categoriesData[mainCategory];
+  const subCatBrands = category?.brands?.[subCategory] || [];
+  const subCatModels = category?.models || {};
+  const subCatOptions = category?.options || {};
 
-  // Get all main categories
-  const mainCategories = Object.keys(categoriesData);
+  const [brand, setBrand] = useState("");
+  const [model, setModel] = useState("");
+  const [selectedOptions, setSelectedOptions] = useState({});
 
-  // Get subcategories for selected main category
-  const subCategories = mainCategory
-    ? Object.keys(categoriesData[mainCategory].subcategories)
-    : [];
+  // When brand changes, reset model
+  useEffect(() => {
+    setModel("");
+    notifyChange();
+  }, [brand]);
 
-  // Handle main category selection
-  const handleMainCategoryChange = (category) => {
-    setMainCategory(category);
-    setSubCategory(""); // reset subcategory when main category changes
-    setProductData({});
-  };
+  // When model or selectedOptions change, notify parent
+  useEffect(() => {
+    notifyChange();
+  }, [model, selectedOptions]);
 
-  // Handle subcategory selection
-  const handleSubCategoryChange = (subcategory) => {
-    setSubCategory(subcategory);
-    setProductData({});
-  };
-
-  // Handle product options update from child component
-  const handleProductOptionsChange = (options) => {
-    setProductData(options);
-  };
-
-  // Optional: Submit handler
-  const handleSubmit = (e) => {
-    e.preventDefault();
-    console.log("Product Submitted:", {
-      mainCategory,
-      subCategory,
-      ...productData
+  const notifyChange = () => {
+    onChange({
+      brand,
+      model,
+      ...selectedOptions
     });
-    // Add your submit logic here (e.g., Firebase, API)
   };
+
+  const handleOptionChange = (optionName, value) => {
+    setSelectedOptions((prev) => ({
+      ...prev,
+      [optionName]: value
+    }));
+  };
+
+  // Get models for selected brand
+  const modelsForBrand = brand ? subCatModels[brand] || [] : [];
 
   return (
-    <div className="max-w-4xl mx-auto p-6">
-      <h1 className="text-2xl font-bold mb-6">Add New Product</h1>
-
-      {/* Main Category */}
-      <div className="mb-4">
-        <label className="block font-semibold mb-2">Main Category</label>
-        <select
-          value={mainCategory}
-          onChange={(e) => handleMainCategoryChange(e.target.value)}
-          className="w-full p-3 rounded border border-gray-300 focus:outline-none focus:ring-2 focus:ring-blue-400"
-        >
-          <option value="">Select Category</option>
-          {mainCategories.map((cat) => (
-            <option key={cat} value={cat}>
-              {cat}
-            </option>
-          ))}
-        </select>
-      </div>
-
-      {/* Subcategory */}
-      {subCategories.length > 0 && (
-        <div className="mb-4">
-          <label className="block font-semibold mb-2">Subcategory</label>
+    <div className="mb-4">
+      {/* Brand */}
+      {subCatBrands.length > 0 && (
+        <div className="mb-3">
+          <label className="block font-semibold mb-1">Brand</label>
           <select
-            value={subCategory}
-            onChange={(e) => handleSubCategoryChange(e.target.value)}
-            className="w-full p-3 rounded border border-gray-300 focus:outline-none focus:ring-2 focus:ring-blue-400"
+            value={brand}
+            onChange={(e) => setBrand(e.target.value)}
+            className="w-full p-2 border rounded"
           >
-            <option value="">Select Subcategory</option>
-            {subCategories.map((sub) => (
-              <option key={sub} value={sub}>
-                {sub}
+            <option value="">Select Brand</option>
+            {subCatBrands.map((b) => (
+              <option key={b} value={b}>
+                {b}
               </option>
             ))}
           </select>
         </div>
       )}
 
-      {/* Product Options */}
-      {subCategory && (
-        <ProductOptionsSelector
-          mainCategory={mainCategory}
-          subCategory={subCategory}
-          onChange={handleProductOptionsChange}
-        />
+      {/* Model */}
+      {modelsForBrand.length > 0 && (
+        <div className="mb-3">
+          <label className="block font-semibold mb-1">Model</label>
+          <select
+            value={model}
+            onChange={(e) => setModel(e.target.value)}
+            className="w-full p-2 border rounded"
+          >
+            <option value="">Select Model</option>
+            {modelsForBrand.map((m) => (
+              <option key={m} value={m}>
+                {m}
+              </option>
+            ))}
+          </select>
+        </div>
       )}
 
-      {/* Submit */}
-      <button
-        onClick={handleSubmit}
-        className="mt-6 w-full p-3 bg-blue-600 text-white font-semibold rounded hover:bg-blue-700 transition"
-      >
-        Submit Product
-      </button>
+      {/* Other Options */}
+      {Object.keys(subCatOptions).map((optName) => (
+        <div className="mb-3" key={optName}>
+          <label className="block font-semibold mb-1">{optName}</label>
+          <select
+            value={selectedOptions[optName] || ""}
+            onChange={(e) => handleOptionChange(optName, e.target.value)}
+            className="w-full p-2 border rounded"
+          >
+            <option value="">Select {optName}</option>
+            {subCatOptions[optName].map((val) => (
+              <option key={val} value={val}>
+                {val}
+              </option>
+            ))}
+          </select>
+        </div>
+      ))}
     </div>
   );
 };
 
-export default AddProduct;
+export default ProductOptionsSelector;
