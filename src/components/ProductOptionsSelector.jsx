@@ -17,6 +17,7 @@ const ProductOptionsSelector = ({ mainCategory, subCategory, onChange }) => {
   const [stateLocation, setStateLocation] = useState("");
   const [cityLocation, setCityLocation] = useState("");
 
+  // Determine brands for the selected category/subcategory
   const categoryBrands = subCategory
     ? categoriesData[mainCategory]?.brands?.[subCategory] || []
     : [];
@@ -34,13 +35,15 @@ const ProductOptionsSelector = ({ mainCategory, subCategory, onChange }) => {
     b.toLowerCase().includes(searchTerm.toLowerCase())
   );
 
-  const models = mainCategory === "Mobile Phones & Tablets" && selectedBrand
-    ? phoneModels[selectedBrand] || []
-    : categoriesData[mainCategory]?.models?.[selectedBrand] || [];
+  // Determine models for selected brand
+  const models =
+    mainCategory === "Mobile Phones & Tablets" && selectedBrand
+      ? phoneModels[selectedBrand] || []
+      : categoriesData[mainCategory]?.models?.[selectedBrand] || [];
 
   const options = mainCategory ? productOptions[mainCategory] || {} : {};
 
-  // Notify parent
+  // Notify parent on every change
   useEffect(() => {
     onChange({
       brand: selectedBrand,
@@ -51,16 +54,17 @@ const ProductOptionsSelector = ({ mainCategory, subCategory, onChange }) => {
     });
   }, [selectedBrand, selectedModel, selectedOptions, stateLocation, cityLocation]);
 
-  // Render dynamic select for generic options
+  // Generic select renderer
   const renderSelect = (field, label, items) => (
     <select
       value={selectedOptions[field] || ""}
       onChange={e =>
         setSelectedOptions(prev => ({ ...prev, [field]: e.target.value }))
       }
-      className="mb-4 p-3 rounded border border-gray-300 w-full"
+      className="mb-4 p-3 rounded border border-gray-300 w-full focus:outline-none focus:ring-2 focus:ring-blue-400"
+      aria-label={label}
     >
-      <option value="">{label}</option>
+      <option value="" disabled>{label}</option>
       {items.map(i => <option key={i} value={i}>{i}</option>)}
     </select>
   );
@@ -76,10 +80,11 @@ const ProductOptionsSelector = ({ mainCategory, subCategory, onChange }) => {
           value={searchTerm}
           onChange={e => setSearchTerm(e.target.value)}
           className="w-full p-3 mb-4 rounded-lg border border-gray-300 focus:outline-none focus:ring-2 focus:ring-blue-400 placeholder-gray-400 text-gray-800"
+          aria-label="Search brands"
         />
       )}
 
-      {/* Brand */}
+      {/* Brand Buttons */}
       {allBrands.length > 0 && (
         <>
           <h3 className="text-xl font-semibold mb-2 text-gray-700">Brand</h3>
@@ -91,6 +96,7 @@ const ProductOptionsSelector = ({ mainCategory, subCategory, onChange }) => {
                 className={`relative p-3 rounded-lg border transition duration-200 hover:shadow-lg hover:border-blue-400 focus:outline-none ${
                   selectedBrand === brand ? "border-blue-600 bg-blue-50" : "border-gray-300 bg-white"
                 }`}
+                aria-label={`Select brand ${brand}`}
               >
                 {brand}
                 {popularBrands.includes(brand) && (
@@ -104,7 +110,7 @@ const ProductOptionsSelector = ({ mainCategory, subCategory, onChange }) => {
         </>
       )}
 
-      {/* Model */}
+      {/* Model Buttons */}
       {models.length > 0 && (
         <>
           <h3 className="text-xl font-semibold mb-2 text-gray-700">Model</h3>
@@ -116,6 +122,7 @@ const ProductOptionsSelector = ({ mainCategory, subCategory, onChange }) => {
                 className={`p-3 border rounded-lg bg-white text-gray-800 hover:bg-blue-50 cursor-pointer text-sm text-center transition duration-200 ${
                   selectedModel === model ? "border-blue-600 bg-blue-50" : ""
                 }`}
+                aria-label={`Select model ${model}`}
               >
                 {model}
               </div>
@@ -124,53 +131,58 @@ const ProductOptionsSelector = ({ mainCategory, subCategory, onChange }) => {
         </>
       )}
 
-      {/* Generic Options */}
-      {options.storageOptions && renderSelect("storage", "Select Storage", options.storageOptions)}
-      {options.colors && renderSelect("color", "Select Color", options.colors)}
-      {options.simTypes && renderSelect("sim", "Select SIM Type", options.simTypes)}
-      {options.sizes && renderSelect("size", "Select Size", options.sizes)}
-      {options.fuelTypes && renderSelect("fuelType", "Select Fuel Type", options.fuelTypes)}
-      {options.transmission && renderSelect("transmission", "Select Transmission", options.transmission)}
-      {options.bodyType && renderSelect("bodyType", "Select Body Type", options.bodyType)}
-      {options.conditionOptions && renderSelect("condition", "Select Condition", options.conditionOptions)}
+      {/* Generic options */}
+      {Object.keys(options).map(opt => {
+        const items = options[opt];
+        if (!items || items.length === 0) return null;
 
-      {/* Features */}
-      {options.features && options.features.length > 0 && (
-        <div className="mb-4">
-          <p className="font-semibold text-gray-700 mb-2">Features</p>
-          <div className="flex flex-wrap gap-3">
-            {options.features.map(f => (
-              <label key={f} className="flex items-center gap-2 bg-white p-2 rounded border border-gray-300 cursor-pointer hover:shadow">
-                <input
-                  type="checkbox"
-                  checked={(selectedOptions.features || []).includes(f)}
-                  onChange={e => {
-                    const current = selectedOptions.features || [];
-                    if (e.target.checked) setSelectedOptions(prev => ({ ...prev, features: [...current, f] }));
-                    else setSelectedOptions(prev => ({ ...prev, features: current.filter(feat => feat !== f) }));
-                  }}
-                />
-                <span className="text-gray-800 text-sm">{f}</span>
-              </label>
-            ))}
-          </div>
-        </div>
-      )}
+        // Checkbox for features, select for others
+        if (opt === "features") {
+          return (
+            <div key={opt} className="mb-4">
+              <p className="font-semibold text-gray-700 mb-2">Features</p>
+              <div className="flex flex-wrap gap-3">
+                {items.map(f => (
+                  <label key={f} className="flex items-center gap-2 bg-white p-2 rounded border border-gray-300 cursor-pointer hover:shadow">
+                    <input
+                      type="checkbox"
+                      checked={(selectedOptions.features || []).includes(f)}
+                      onChange={e => {
+                        const current = selectedOptions.features || [];
+                        if (e.target.checked) setSelectedOptions(prev => ({ ...prev, features: [...current, f] }));
+                        else setSelectedOptions(prev => ({ ...prev, features: current.filter(feat => feat !== f) }));
+                      }}
+                      aria-label={f}
+                    />
+                    <span className="text-gray-800 text-sm">{f}</span>
+                  </label>
+                ))}
+              </div>
+            </div>
+          );
+        } else {
+          const label = `Select ${opt.charAt(0).toUpperCase() + opt.slice(1)}`;
+          return renderSelect(opt, label, items);
+        }
+      })}
 
       {/* Location */}
       <select
         value={stateLocation}
         onChange={e => { setStateLocation(e.target.value); setCityLocation(""); }}
-        className="mb-4 p-3 rounded border border-gray-300 w-full"
+        className="mb-4 p-3 rounded border border-gray-300 w-full focus:outline-none focus:ring-2 focus:ring-blue-400"
+        aria-label="Select State"
       >
         <option value="">Select State</option>
         {Object.keys(locations).map(st => <option key={st} value={st}>{st}</option>)}
       </select>
+
       {stateLocation && (
         <select
           value={cityLocation}
           onChange={e => setCityLocation(e.target.value)}
-          className="mb-4 p-3 rounded border border-gray-300 w-full"
+          className="mb-4 p-3 rounded border border-gray-300 w-full focus:outline-none focus:ring-2 focus:ring-blue-400"
+          aria-label="Select City"
         >
           <option value="">Select City</option>
           {locations[stateLocation].map(c => <option key={c} value={c}>{c}</option>)}
