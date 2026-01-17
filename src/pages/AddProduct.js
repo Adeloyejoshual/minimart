@@ -9,7 +9,7 @@ import categoryRules from "../config/categoryRules";
 import { locationsByState } from "../config/locationsByState";
 import phoneModels from "../config/phoneModels";
 import conditions from "../config/condition";
-import "./AddProduct.css"; // import the CSS file
+import "./AddProduct.css"; // professional CSS
 
 export default function AddProduct() {
   const navigate = useNavigate();
@@ -47,10 +47,7 @@ export default function AddProduct() {
       return;
     }
     update("images", [...form.images, ...list]);
-    update(
-      "previews",
-      [...form.previews, ...list.map(f => URL.createObjectURL(f))]
-    );
+    update("previews", [...form.previews, ...list.map(f => URL.createObjectURL(f))]);
   };
 
   const removeImage = (index) => {
@@ -68,7 +65,9 @@ export default function AddProduct() {
     if (!form.price || Number(form.price) <= 0) return "Enter a valid price";
     if (form.images.length < rules.minImages)
       return `Upload at least ${rules.minImages} image(s)`;
-    if (rules.requireCondition && form.mainCategory === "Mobile Phones & Tablets" && !form.condition)
+    if (rules.requireCondition &&
+        form.mainCategory === "Mobile Phones & Tablets" &&
+        !form.condition)
       return "Select condition";
     if (form.condition === "Used" && !form.usedDetail)
       return "Select used product detail";
@@ -85,7 +84,6 @@ export default function AddProduct() {
 
     try {
       setLoading(true);
-
       const uploaded = await Promise.all(
         form.images.map(img => uploadToCloudinary(img))
       );
@@ -200,7 +198,7 @@ export default function AddProduct() {
         </Field>
       )}
 
-      {/* Condition (Phones Only, After Model Selected) */}
+      {/* Condition */}
       {form.mainCategory === "Mobile Phones & Tablets" && form.model && (
         <Field label="Condition">
           <div className="select-wrapper">
@@ -217,7 +215,7 @@ export default function AddProduct() {
         </Field>
       )}
 
-      {/* Used Details (Only if Used) */}
+      {/* Used Details */}
       {form.condition === "Used" && (
         <Field label="Used Details">
           <div className="select-wrapper">
@@ -254,7 +252,7 @@ export default function AddProduct() {
         </div>
       </Field>
 
-      {/* City / LGA */}
+      {/* City */}
       {form.state && (
         <Field label="City / LGA">
           <div className="select-wrapper">
@@ -299,7 +297,7 @@ export default function AddProduct() {
   );
 }
 
-/* -------------------- SMALL COMPONENT -------------------- */
+/* -------------------- Field Component -------------------- */
 const Field = ({ label, children }) => (
   <div className="field">
     <label>{label}</label>
