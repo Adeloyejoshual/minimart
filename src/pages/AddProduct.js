@@ -40,8 +40,9 @@ const AddProduct = () => {
 
   const rules = categoryRules[form.mainCategory] || categoryRules.Default;
 
-  // Derived lists
-  const subCategories = form.mainCategory ? categoriesData[form.mainCategory]?.subcategories || [] : [];
+  const subCategories = form.mainCategory
+    ? categoriesData[form.mainCategory]?.subcategories || []
+    : [];
   const allRegions = Object.keys(locationsByRegion);
   const allStates = form.region ? Object.keys(locationsByRegion[form.region]) : [];
   const allCities = form.stateLocation ? locationsByRegion[form.region][form.stateLocation] || [] : [];
@@ -50,7 +51,6 @@ const AddProduct = () => {
   const handleChange = (field, value) => {
     setForm(prev => ({ ...prev, [field]: value }));
     setErrors(prev => ({ ...prev, [field]: "" }));
-
     if (field === "mainCategory") setForm(prev => ({ ...prev, subCategory: "", brand: "", model: "", condition: "", selectedOptions: {} }));
     if (field === "subCategory") setForm(prev => ({ ...prev, brand: "", model: "", condition: "", selectedOptions: {} }));
     if (field === "region") setForm(prev => ({ ...prev, stateLocation: "", cityLocation: "" }));
@@ -110,40 +110,25 @@ const AddProduct = () => {
   // Validation
   const validateForm = () => {
     const newErrors = {};
-
-    // Title
     if (!form.title || form.title.length < rules.minTitle || form.title.length > rules.maxTitle) {
       newErrors.title = `Title must be between ${rules.minTitle} and ${rules.maxTitle} characters`;
     }
-
-    // Description
     if (form.description && form.description.length > rules.maxDescription) {
       newErrors.description = `Description cannot exceed ${rules.maxDescription} characters`;
     }
-
-    // Images
     if (form.images.length < rules.minImages) newErrors.images = `Upload at least ${rules.minImages} image(s)`;
     if (form.images.length > rules.maxImages) newErrors.images = `Maximum ${rules.maxImages} images allowed`;
-
-    // Brand / Model / Condition
     if (rules.requireBrand && !form.brand) newErrors.brand = "Brand is required";
     if (rules.requireModel && !form.model) newErrors.model = "Model is required";
     if (rules.requireCondition && !form.condition) newErrors.condition = "Condition is required";
-
-    // Location
     if (rules.requireLocation) {
       if (!form.region) newErrors.region = "Region is required";
       if (!form.stateLocation) newErrors.stateLocation = "State is required";
       if (!form.cityLocation) newErrors.cityLocation = "City is required";
     }
-
-    // Price
     const numericPrice = parseFloat(form.price.replace(/,/g, ""));
     if (isNaN(numericPrice) || numericPrice <= 0) newErrors.price = "Enter a valid price";
-
-    // Phone
     if (!/^\d{10,15}$/.test(form.phoneNumber)) newErrors.phoneNumber = "Enter a valid phone number";
-
     setErrors(newErrors);
     return Object.keys(newErrors).length === 0;
   };
@@ -163,8 +148,13 @@ const AddProduct = () => {
         return;
       }
 
+      // Upload images
       const imageUrls = await Promise.all(form.images.map(f => uploadToCloudinary(f)));
+      
+      // Ensure features exist
+      const features = form.selectedOptions?.features || {};
 
+      // Save to Firestore
       await addDoc(collection(db, "products"), {
         ...form,
         price: parseFloat(form.price.replace(/,/g, "")),
@@ -174,6 +164,10 @@ const AddProduct = () => {
         marketType,
         createdAt: serverTimestamp(),
         promotionExpiresAt: form.isPromoted ? new Date(Date.now() + 30*24*60*60*1000) : null,
+        selectedOptions: {
+          ...form.selectedOptions,
+          features
+        }
       });
 
       alert(`Product added successfully${form.isPromoted ? " and promoted for 30 days!" : ""}`);
