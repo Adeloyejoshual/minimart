@@ -1,4 +1,3 @@
-// src/pages/AddProduct.js
 import { useEffect, useState } from "react";
 import { addDoc, collection, serverTimestamp } from "firebase/firestore";
 import { db, auth } from "../firebase";
@@ -42,7 +41,7 @@ export default function AddProduct() {
 
   const rules = categoryRules[form.mainCategory] || categoryRules.Default;
 
-  /* -------------------- DRAFT (AUTO SAVE) -------------------- */
+  // Load draft & saved category
   useEffect(() => {
     const saved = localStorage.getItem(DRAFT_KEY);
     if (saved) setForm(JSON.parse(saved));
@@ -58,6 +57,7 @@ export default function AddProduct() {
   const update = (key, value) =>
     setForm(prev => ({ ...prev, [key]: value }));
 
+  // Price formatting with commas
   const handlePriceChange = (e) => {
     const raw = e.target.value.replace(/,/g, "");
     if (!isNaN(raw)) {
@@ -65,6 +65,7 @@ export default function AddProduct() {
     }
   };
 
+  // Images with + icon
   const handleImages = (files) => {
     const list = Array.from(files);
     if (list.length + form.images.length > rules.maxImages) {
@@ -72,10 +73,7 @@ export default function AddProduct() {
       return;
     }
     update("images", [...form.images, ...list]);
-    update(
-      "previews",
-      [...form.previews, ...list.map(f => URL.createObjectURL(f))]
-    );
+    update("previews", [...form.previews, ...list.map(f => URL.createObjectURL(f))]);
   };
 
   const removeImage = (index) => {
@@ -83,6 +81,7 @@ export default function AddProduct() {
     update("previews", form.previews.filter((_, i) => i !== index));
   };
 
+  // Validation
   const validate = () => {
     if (!form.title || form.title.length < rules.minTitle)
       return `Title must be at least ${rules.minTitle} characters`;
@@ -104,6 +103,7 @@ export default function AddProduct() {
     return null;
   };
 
+  // Submit
   const handleSubmit = async () => {
     const error = validate();
     if (error) return alert(error);
@@ -111,7 +111,6 @@ export default function AddProduct() {
 
     try {
       setLoading(true);
-
       const uploaded = await Promise.all(
         form.images.map(img => uploadToCloudinary(img))
       );
@@ -129,7 +128,6 @@ export default function AddProduct() {
       localStorage.removeItem(DRAFT_KEY);
       alert("Product posted successfully");
       navigate(`/${marketType}`);
-
     } catch (err) {
       alert(err.message);
     } finally {
@@ -137,12 +135,11 @@ export default function AddProduct() {
     }
   };
 
-  /* -------------------- UI -------------------- */
   return (
     <div className="add-product-container">
       <h2 className="title">Post Product</h2>
 
-      {/* TITLE */}
+      {/* Title */}
       <Field label="Title">
         <input
           value={form.title}
@@ -151,7 +148,7 @@ export default function AddProduct() {
         />
       </Field>
 
-      {/* CATEGORY PICKER */}
+      {/* Category Picker */}
       <Field label="Category">
         {!showCategoryPicker ? (
           <div className="select-wrapper">
@@ -191,7 +188,7 @@ export default function AddProduct() {
         )}
       </Field>
 
-      {/* SUBCATEGORY */}
+      {/* Subcategory */}
       {form.mainCategory && (
         <Field label="Subcategory">
           <Select value={form.subCategory} onChange={e => update("subCategory", e.target.value)}>
@@ -203,10 +200,81 @@ export default function AddProduct() {
         </Field>
       )}
 
-      {/* PHONE, BRAND, MODEL, CONDITION, etc. ... */}
-      {/* Keep the same as previous code */}
+      {/* Phone / Brand / Model / Condition */}
+      {phoneModels[form.subCategory] && (
+        <>
+          <Field label="Brand">
+            <Select value={form.brand} onChange={e => update("brand", e.target.value)}>
+              <option value="">Select Brand</option>
+              {Object.keys(phoneModels[form.subCategory]).map(b => (
+                <option key={b}>{b}</option>
+              ))}
+            </Select>
+          </Field>
 
-      {/* STATE */}
+          {form.brand && (
+            <Field label="Model">
+              <Select value={form.model} onChange={e => update("model", e.target.value)}>
+                <option value="">Select Model</option>
+                {phoneModels[form.subCategory][form.brand].map(m => (
+                  <option key={m}>{m}</option>
+                ))}
+              </Select>
+            </Field>
+          )}
+        </>
+      )}
+
+      {form.model && (
+        <Field label="Condition">
+          <Select value={form.condition} onChange={e => update("condition", e.target.value)}>
+            <option value="">Select</option>
+            {conditions.main.map(c => <option key={c}>{c}</option>)}
+          </Select>
+        </Field>
+      )}
+
+      {form.condition === "Used" && (
+        <Field label="Used Details">
+          <Select value={form.usedDetail} onChange={e => update("usedDetail", e.target.value)}>
+            <option value="">Select Detail</option>
+            {conditions.usedDetails.map(d => <option key={d}>{d}</option>)}
+          </Select>
+        </Field>
+      )}
+
+      {/* Price */}
+      <Field label="Price (₦)">
+        <input value={form.price} onChange={handlePriceChange} placeholder="₦ 0" />
+      </Field>
+
+      {/* Phone */}
+      <Field label="Phone Number">
+        <input
+          type="tel"
+          value={form.phone}
+          onChange={e => update("phone", e.target.value)}
+          placeholder="08012345678"
+        />
+      </Field>
+
+      {/* Images */}
+      <Field label="Images">
+        <label className="image-upload">
+          <input type="file" multiple hidden onChange={e => handleImages(e.target.files)} />
+          <span>＋ Add Images</span>
+        </label>
+        <div className="images">
+          {form.previews.map((p, i) => (
+            <div key={i} className="img-wrap">
+              <img src={p} alt="" />
+              <button onClick={() => removeImage(i)}>×</button>
+            </div>
+          ))}
+        </div>
+      </Field>
+
+      {/* State */}
       <Field label="State">
         <Select value={form.state} onChange={e => { update("state", e.target.value); update("city", ""); }}>
           <option value="">Select State</option>
@@ -214,7 +282,7 @@ export default function AddProduct() {
         </Select>
       </Field>
 
-      {/* CITY / LGA */}
+      {/* City / LGA */}
       {form.state && (
         <Field label="City / LGA">
           <Select value={form.city} onChange={e => update("city", e.target.value)}>
@@ -224,13 +292,23 @@ export default function AddProduct() {
         </Field>
       )}
 
-      {/* PRICE, PHONE, IMAGES, DESCRIPTION, PROMOTE, SUBMIT */}
-      {/* Keep the same as previous code */}
+      {/* Description */}
+      <Field label="Description">
+        <textarea
+          rows={4}
+          value={form.description}
+          onChange={e => update("description", e.target.value)}
+        />
+      </Field>
+
+      <button className="btn" onClick={handleSubmit} disabled={loading}>
+        {loading ? "Uploading..." : "Publish"}
+      </button>
     </div>
   );
 }
 
-/* -------------------- Components -------------------- */
+// Field Component
 const Field = ({ label, children }) => (
   <div className="field">
     <label>{label}</label>
@@ -238,6 +316,7 @@ const Field = ({ label, children }) => (
   </div>
 );
 
+// Select Component
 const Select = ({ children, ...props }) => (
   <div className="select-wrapper">
     <select {...props}>{children}</select>
