@@ -1,104 +1,78 @@
-
 // src/components/ProductOptionsSelector.jsx
-import React, { useState, useEffect } from "react";
+import React, { useEffect, useState } from "react";
 import categoriesData from "../config/categoriesData";
 
 const ProductOptionsSelector = ({ mainCategory, subCategory, onChange }) => {
   const category = categoriesData[mainCategory];
-  const subCatBrands = category?.brands?.[subCategory] || [];
-  const subCatModels = category?.models || {};
-  const subCatOptions = category?.options || {};
+
+  const brands = category?.brands?.[subCategory] || [];
+  const modelsByBrand = category?.models || {};
+  const options = category?.options || {};
 
   const [brand, setBrand] = useState("");
   const [model, setModel] = useState("");
   const [selectedOptions, setSelectedOptions] = useState({});
 
-  // When brand changes, reset model
+  /* Reset when category or subcategory changes */
   useEffect(() => {
+    setBrand("");
     setModel("");
-    notifyChange();
-  }, [brand]);
+    setSelectedOptions({});
+    onChange({});
+  }, [mainCategory, subCategory]);
 
-  // When model or selectedOptions change, notify parent
+  /* Notify parent when something changes */
   useEffect(() => {
-    notifyChange();
-  }, [model, selectedOptions]);
-
-  const notifyChange = () => {
     onChange({
       brand,
       model,
-      ...selectedOptions
+      ...selectedOptions,
     });
-  };
+  }, [brand, model, selectedOptions]);
 
-  const handleOptionChange = (optionName, value) => {
-    setSelectedOptions((prev) => ({
+  const handleOptionChange = (name, value) => {
+    setSelectedOptions(prev => ({
       ...prev,
-      [optionName]: value
+      [name]: value,
     }));
   };
 
-  // Get models for selected brand
-  const modelsForBrand = brand ? subCatModels[brand] || [] : [];
+  const models = brand ? modelsByBrand[brand] || [] : [];
 
   return (
-    <div className="mb-4">
-      {/* Brand */}
-      {subCatBrands.length > 0 && (
-        <div className="mb-3">
-          <label className="block font-semibold mb-1">Brand</label>
-          <select
-            value={brand}
-            onChange={(e) => setBrand(e.target.value)}
-            className="w-full p-2 border rounded"
-          >
-            <option value="">Select Brand</option>
-            {subCatBrands.map((b) => (
-              <option key={b} value={b}>
-                {b}
-              </option>
-            ))}
-          </select>
-        </div>
+    <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+      {/* BRAND */}
+      {brands.length > 0 && (
+        <select value={brand} onChange={e => setBrand(e.target.value)}>
+          <option value="">Select Brand</option>
+          {brands.map(b => (
+            <option key={b} value={b}>{b}</option>
+          ))}
+        </select>
       )}
 
-      {/* Model */}
-      {modelsForBrand.length > 0 && (
-        <div className="mb-3">
-          <label className="block font-semibold mb-1">Model</label>
-          <select
-            value={model}
-            onChange={(e) => setModel(e.target.value)}
-            className="w-full p-2 border rounded"
-          >
-            <option value="">Select Model</option>
-            {modelsForBrand.map((m) => (
-              <option key={m} value={m}>
-                {m}
-              </option>
-            ))}
-          </select>
-        </div>
+      {/* MODEL */}
+      {models.length > 0 && (
+        <select value={model} onChange={e => setModel(e.target.value)}>
+          <option value="">Select Model</option>
+          {models.map(m => (
+            <option key={m} value={m}>{m}</option>
+          ))}
+        </select>
       )}
 
-      {/* Other Options */}
-      {Object.keys(subCatOptions).map((optName) => (
-        <div className="mb-3" key={optName}>
-          <label className="block font-semibold mb-1">{optName}</label>
-          <select
-            value={selectedOptions[optName] || ""}
-            onChange={(e) => handleOptionChange(optName, e.target.value)}
-            className="w-full p-2 border rounded"
-          >
-            <option value="">Select {optName}</option>
-            {subCatOptions[optName].map((val) => (
-              <option key={val} value={val}>
-                {val}
-              </option>
-            ))}
-          </select>
-        </div>
+      {/* OTHER OPTIONS */}
+      {Object.entries(options).map(([name, values]) => (
+        <select
+          key={name}
+          value={selectedOptions[name] || ""}
+          onChange={e => handleOptionChange(name, e.target.value)}
+        >
+          <option value="">Select {name}</option>
+          {values.map(v => (
+            <option key={v} value={v}>{v}</option>
+          ))}
+        </select>
       ))}
     </div>
   );
