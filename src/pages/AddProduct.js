@@ -10,7 +10,6 @@ import { useAdLimitCheck } from "../hooks/useAdLimits";
 import ProductOptionsSelector from "../components/ProductOptionsSelector";
 
 const MAX_IMAGES = 10;
-const CONDITIONS = ["Brand New", "Used", "Refurbished"];
 
 const AddProduct = () => {
   const [form, setForm] = useState({
@@ -18,7 +17,6 @@ const AddProduct = () => {
     subCategory: "",
     brand: "",
     model: "",
-    condition: "",
     title: "",
     description: "",
     price: "",
@@ -46,15 +44,16 @@ const AddProduct = () => {
     : [];
   const allRegions = Object.keys(locationsByRegion);
   const allStates = form.region ? Object.keys(locationsByRegion[form.region]) : [];
-  const allCities = form.stateLocation ? locationsByRegion[form.region][form.stateLocation] || [] : [];
+  const allCities =
+    form.stateLocation ? locationsByRegion[form.region][form.stateLocation] || [] : [];
 
   // Handlers
   const handleChange = (field, value) => {
     setForm(prev => ({ ...prev, [field]: value }));
     setErrors(prev => ({ ...prev, [field]: "" }));
 
-    if (field === "mainCategory") setForm(prev => ({ ...prev, subCategory: "", brand: "", model: "", condition: "", selectedOptions: {} }));
-    if (field === "subCategory") setForm(prev => ({ ...prev, brand: "", model: "", condition: "", selectedOptions: {} }));
+    if (field === "mainCategory") setForm(prev => ({ ...prev, subCategory: "", brand: "", model: "", selectedOptions: {} }));
+    if (field === "subCategory") setForm(prev => ({ ...prev, brand: "", model: "", selectedOptions: {} }));
     if (field === "region") setForm(prev => ({ ...prev, stateLocation: "", cityLocation: "" }));
     if (field === "stateLocation") setForm(prev => ({ ...prev, cityLocation: "" }));
   };
@@ -93,7 +92,6 @@ const AddProduct = () => {
       subCategory: "",
       brand: "",
       model: "",
-      condition: "",
       title: "",
       description: "",
       price: "",
@@ -109,33 +107,24 @@ const AddProduct = () => {
     setErrors({});
   };
 
-  // Form validation
   const validateForm = () => {
     const newErrors = {};
-    const requiredFields = ["mainCategory","subCategory","title","price","phoneNumber","region","stateLocation","cityLocation"];
-
+    const requiredFields = ["mainCategory", "subCategory", "title", "price", "phoneNumber", "region", "stateLocation", "cityLocation"];
     requiredFields.forEach(f => {
       if (!form[f]) newErrors[f] = "This field is required";
     });
-
-    if (form.mainCategory === "Mobile Phones & Tablets" && form.subCategory === "Mobile Phones") {
-      ["brand","model","condition"].forEach(f => {
-        if (!form[f]) newErrors[f] = "This field is required";
-      });
-    }
-
-    if (form.images.length === 0) newErrors.images = "Upload at least one image";
 
     const numericPrice = parseFloat(form.price.replace(/,/g, ""));
     if (isNaN(numericPrice) || numericPrice <= 0) newErrors.price = "Enter a valid price";
 
     if (!/^\d{10,15}$/.test(form.phoneNumber)) newErrors.phoneNumber = "Enter a valid phone number";
 
+    if (form.images.length === 0) newErrors.images = "Upload at least one image";
+
     setErrors(newErrors);
     return Object.keys(newErrors).length === 0;
   };
 
-  // Submit
   const handleAdd = async e => {
     e.preventDefault();
     if (!auth.currentUser) return setErrors({ general: "Login required." });
@@ -199,12 +188,19 @@ const AddProduct = () => {
         </>
       )}
 
-      {/* Product Options */}
+      {/* Product Options Selector */}
       {form.subCategory && (
         <ProductOptionsSelector
           mainCategory={form.mainCategory}
           subCategory={form.subCategory}
-          onChange={data => setForm(prev => ({ ...prev, brand: data.brand, model: data.model, condition: data.condition, selectedOptions: data.options }))}
+          onChange={data =>
+            setForm(prev => ({
+              ...prev,
+              brand: data.brand,
+              model: data.model,
+              selectedOptions: data
+            }))
+          }
         />
       )}
 
@@ -219,7 +215,7 @@ const AddProduct = () => {
       <input type="text" placeholder="Price*" value={form.price} onChange={handlePriceChange} required />
       {errors.price && <span style={{ color: "red", fontSize: 12 }}>{errors.price}</span>}
 
-      {/* Phone */}
+      {/* Phone Number */}
       <input type="tel" placeholder="Phone Number*" value={form.phoneNumber} onChange={e => handleChange("phoneNumber", e.target.value)} maxLength={15} required />
       {errors.phoneNumber && <span style={{ color: "red", fontSize: 12 }}>{errors.phoneNumber}</span>}
 
