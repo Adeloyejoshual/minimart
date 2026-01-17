@@ -9,7 +9,7 @@
   font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
 }
 
-/* -------------------- Header with Back Arrow -------------------- */
+/* -------------------- Header -------------------- */
 .add-product-header {
   display: flex;
   align-items: center;
@@ -45,7 +45,7 @@
   color: #333;
 }
 
-/* -------------------- Category Horizontal Cards -------------------- */
+/* -------------------- Category Horizontal -------------------- */
 .category-scroll {
   display: flex;
   overflow-x: auto;
@@ -88,45 +88,33 @@
   line-height: 1.2;
 }
 
-/* -------------------- Vertical Select Dropdowns -------------------- */
-.select-wrapper {
-  position: relative;
-  width: 100%;
+/* -------------------- Vertical Option Cards -------------------- */
+.options-scroll {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  max-height: 200px; /* max height, scroll if too long */
+  overflow-y: auto;
+  padding-right: 4px;
 }
 
-.select-wrapper select {
-  width: 100%;
-  padding: 10px 14px;
+.option-item {
+  background: #f9fbff;
   border: 1.5px solid #cce0ff;
   border-radius: 10px;
-  background: #f9fbff;
-  font-size: 14px;
+  padding: 8px 12px;
   cursor: pointer;
-  outline: none;
-  appearance: none;
-  -webkit-appearance: none;
-  -moz-appearance: none;
-  transition: border 0.2s, box-shadow 0.2s;
+  transition: all 0.2s;
 }
 
-.select-wrapper::after {
-  content: "▼";
-  position: absolute;
-  right: 14px;
-  top: 50%;
-  transform: translateY(-50%);
-  pointer-events: none;
-  color: #0D6EFD;
-  font-size: 12px;
-}
-
-.select-wrapper select:focus {
+.option-item:hover {
   border-color: #0D6EFD;
-  box-shadow: 0 0 6px rgba(13, 110, 253, 0.2);
+  box-shadow: 0 2px 6px rgba(13,110,253,0.2);
 }
 
-.select-wrapper select option {
-  padding: 10px;
+.option-item.active {
+  border-color: #0D6EFD;
+  background: #d6e4ff;
 }
 
 /* -------------------- Input Fields -------------------- */
@@ -223,26 +211,32 @@
 }
 
 /* -------------------- Scrollbar Styling -------------------- */
-.category-scroll::-webkit-scrollbar {
+.category-scroll::-webkit-scrollbar,
+.options-scroll::-webkit-scrollbar {
+  width: 6px;
   height: 6px;
 }
 
-.category-scroll::-webkit-scrollbar-track {
+.category-scroll::-webkit-scrollbar-track,
+.options-scroll::-webkit-scrollbar-track {
   background: #f1f1f1;
   border-radius: 8px;
 }
 
-.category-scroll::-webkit-scrollbar-thumb {
+.category-scroll::-webkit-scrollbar-thumb,
+.options-scroll::-webkit-scrollbar-thumb {
   background: #0D6EFD;
   border-radius: 8px;
 }
 
-.category-scroll::-webkit-scrollbar-thumb:hover {
+.category-scroll::-webkit-scrollbar-thumb:hover,
+.options-scroll::-webkit-scrollbar-thumb:hover {
   background: #0a58ca;
 }
 
 /* Firefox */
-.category-scroll {
+.category-scroll,
+.options-scroll {
   scrollbar-width: thin;
   scrollbar-color: #0D6EFD #f1f1f1;
 }
