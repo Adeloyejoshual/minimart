@@ -59,6 +59,7 @@ export default function AddProduct() {
   const validate = () => {
     if (!form.mainCategory) return "Select main category";
     if (!form.title || form.title.length < rules.minTitle) return `Title must be at least ${rules.minTitle} characters`;
+    if (form.title.length > rules.maxTitle) return `Title cannot exceed ${rules.maxTitle} characters`;
     if (!form.price || Number(form.price) <= 0) return "Enter a valid price";
     if (form.images.length < rules.minImages) return `Upload at least ${rules.minImages} image(s)`;
     if (rules.requireCondition && !form.condition) return "Select condition";
@@ -151,7 +152,9 @@ export default function AddProduct() {
             update("model", "");
           }}>
             <option value="">Select Brand</option>
-            {Object.keys(phoneModels[form.subCategory]).map(brand => <option key={brand} value={brand}>{brand}</option>)}
+            {Object.keys(phoneModels[form.subCategory]).map(brand => (
+              <option key={brand} value={brand}>{brand}</option>
+            ))}
           </select>
         </Field>
       )}
@@ -161,7 +164,9 @@ export default function AddProduct() {
         <Field label="Model">
           <select value={form.model} onChange={e => update("model", e.target.value)}>
             <option value="">Select Model</option>
-            {phoneModels[form.subCategory][form.brand].map(model => <option key={model} value={model}>{model}</option>)}
+            {phoneModels[form.subCategory][form.brand].map(model => (
+              <option key={model} value={model}>{model}</option>
+            ))}
           </select>
         </Field>
       )}
