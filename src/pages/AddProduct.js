@@ -40,7 +40,7 @@ export default function AddProduct() {
 
   const rules = categoryRules[form.mainCategory] || categoryRules.Default;
 
-  /* -------------------- DRAFT (AUTO SAVE) -------------------- */
+  /* -------------------- DRAFT AUTO-SAVE -------------------- */
   useEffect(() => {
     const saved = localStorage.getItem(DRAFT_KEY);
     if (saved) setForm(JSON.parse(saved));
@@ -51,10 +51,8 @@ export default function AddProduct() {
   }, [form]);
 
   /* -------------------- HELPERS -------------------- */
-  const update = (key, value) =>
-    setForm(prev => ({ ...prev, [key]: value }));
+  const update = (key, value) => setForm(prev => ({ ...prev, [key]: value }));
 
-  /* Price formatting with commas */
   const handlePriceChange = (e) => {
     const raw = e.target.value.replace(/,/g, "");
     if (!isNaN(raw)) {
@@ -62,7 +60,6 @@ export default function AddProduct() {
     }
   };
 
-  /* Images (+ icon upload) */
   const handleImages = (files) => {
     const list = Array.from(files);
     if (list.length + form.images.length > rules.maxImages) {
@@ -70,10 +67,7 @@ export default function AddProduct() {
       return;
     }
     update("images", [...form.images, ...list]);
-    update(
-      "previews",
-      [...form.previews, ...list.map(f => URL.createObjectURL(f))]
-    );
+    update("previews", [...form.previews, ...list.map(f => URL.createObjectURL(f))]);
   };
 
   const removeImage = (index) => {
@@ -138,9 +132,9 @@ export default function AddProduct() {
   /* -------------------- UI -------------------- */
   return (
     <div className="add-product-container">
+      <h2 className="title">Post Product</h2>
 
       {/* TITLE */}
-      <h2 className="title">Post Product</h2>
       <Field label="Title">
         <input
           value={form.title}
@@ -152,13 +146,21 @@ export default function AddProduct() {
       {/* CATEGORY SCROLLABLE */}
       <Field label="Category">
         <div className="category-scroll">
-          {Object.keys(categories).map(cat => (
+          {categories.map(cat => (
             <div
-              key={cat}
-              className={`category-item ${form.mainCategory === cat ? "active" : ""}`}
-              onClick={() => update("mainCategory", cat)}
+              key={cat.name}
+              className={`category-item ${form.mainCategory === cat.name ? "active" : ""}`}
+              onClick={() => {
+                update("mainCategory", cat.name);
+                update("subCategory", "");
+                update("brand", "");
+                update("model", "");
+                update("condition", "");
+                update("usedDetail", "");
+              }}
             >
-              {cat}
+              <span className="category-icon">{cat.icon}</span>
+              <span className="category-name">{cat.name}</span>
             </div>
           ))}
         </div>
@@ -167,11 +169,16 @@ export default function AddProduct() {
       {/* SUBCATEGORY */}
       {form.mainCategory && (
         <Field label="Subcategory">
-          <Select value={form.subCategory} onChange={e => update("subCategory", e.target.value)}>
+          <Select
+            value={form.subCategory}
+            onChange={e => update("subCategory", e.target.value)}
+          >
             <option value="">Optional</option>
-            {categories[form.mainCategory].map(sub => (
-              <option key={sub}>{sub}</option>
-            ))}
+            {categories
+              .find(c => c.name === form.mainCategory)
+              ?.subcategories.map(sub => (
+                <option key={sub} value={sub}>{sub}</option>
+              ))}
           </Select>
         </Field>
       )}
@@ -180,7 +187,10 @@ export default function AddProduct() {
       {phoneModels[form.subCategory] && (
         <>
           <Field label="Brand">
-            <Select value={form.brand} onChange={e => update("brand", e.target.value)}>
+            <Select
+              value={form.brand}
+              onChange={e => update("brand", e.target.value)}
+            >
               <option value="">Select Brand</option>
               {Object.keys(phoneModels[form.subCategory]).map(b => (
                 <option key={b}>{b}</option>
@@ -190,7 +200,10 @@ export default function AddProduct() {
 
           {form.brand && (
             <Field label="Model">
-              <Select value={form.model} onChange={e => update("model", e.target.value)}>
+              <Select
+                value={form.model}
+                onChange={e => update("model", e.target.value)}
+              >
                 <option value="">Select Model</option>
                 {phoneModels[form.subCategory][form.brand].map(m => (
                   <option key={m}>{m}</option>
@@ -204,7 +217,10 @@ export default function AddProduct() {
       {/* CONDITION */}
       {form.model && (
         <Field label="Condition">
-          <Select value={form.condition} onChange={e => update("condition", e.target.value)}>
+          <Select
+            value={form.condition}
+            onChange={e => update("condition", e.target.value)}
+          >
             <option value="">Select</option>
             {conditions.main.map(c => <option key={c}>{c}</option>)}
           </Select>
@@ -213,7 +229,10 @@ export default function AddProduct() {
 
       {form.condition === "Used" && (
         <Field label="Used Details">
-          <Select value={form.usedDetail} onChange={e => update("usedDetail", e.target.value)}>
+          <Select
+            value={form.usedDetail}
+            onChange={e => update("usedDetail", e.target.value)}
+          >
             <option value="">Select Detail</option>
             {conditions.usedDetails.map(d => <option key={d}>{d}</option>)}
           </Select>
@@ -222,7 +241,11 @@ export default function AddProduct() {
 
       {/* PRICE */}
       <Field label="Price (₦)">
-        <input value={form.price} onChange={handlePriceChange} placeholder="₦ 0" />
+        <input
+          value={form.price}
+          onChange={handlePriceChange}
+          placeholder="₦ 0"
+        />
       </Field>
 
       {/* PHONE */}
@@ -238,9 +261,15 @@ export default function AddProduct() {
       {/* IMAGES */}
       <Field label="Images">
         <label className="image-upload">
-          <input type="file" multiple hidden onChange={e => handleImages(e.target.files)} />
+          <input
+            type="file"
+            multiple
+            hidden
+            onChange={e => handleImages(e.target.files)}
+          />
           <span>＋ Add Images</span>
         </label>
+
         <div className="images">
           {form.previews.map((p, i) => (
             <div key={i} className="img-wrap">
@@ -260,7 +289,6 @@ export default function AddProduct() {
         />
       </Field>
 
-      {/* SUBMIT */}
       <button className="btn" onClick={handleSubmit} disabled={loading}>
         {loading ? "Uploading..." : "Publish"}
       </button>
