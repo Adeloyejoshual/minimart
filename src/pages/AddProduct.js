@@ -119,9 +119,14 @@ export default function AddProduct() {
     }
   };
 
-  // Helper to render options as vertical cards
-  const OptionCards = ({ options, valueKey }) => (
-    <div className="options-scroll" style={{ flexDirection: "column", gap: "6px", maxHeight: "180px", overflowY: "auto" }}>
+  // OptionCards with optional back button
+  const OptionCards = ({ options, valueKey, onBack }) => (
+    <div className="options-scroll">
+      {onBack && (
+        <div className="options-back" onClick={onBack}>
+          <span className="arrow">←</span> Back
+        </div>
+      )}
       {options.map(opt => (
         <div
           key={opt}
@@ -173,35 +178,55 @@ export default function AddProduct() {
       {/* Subcategory */}
       {form.mainCategory && (
         <Field label="Subcategory">
-          <OptionCards options={categories.find(c => c.name === form.mainCategory).subcategories} valueKey="subCategory" />
+          <OptionCards
+            options={categories.find(c => c.name === form.mainCategory).subcategories}
+            valueKey="subCategory"
+            onBack={() => update("mainCategory", "")}
+          />
         </Field>
       )}
 
       {/* Brand */}
       {form.subCategory && phoneModels[form.subCategory] && (
         <Field label="Brand">
-          <OptionCards options={Object.keys(phoneModels[form.subCategory])} valueKey="brand" />
+          <OptionCards
+            options={Object.keys(phoneModels[form.subCategory])}
+            valueKey="brand"
+            onBack={() => update("subCategory", "")}
+          />
         </Field>
       )}
 
       {/* Model */}
       {form.brand && phoneModels[form.subCategory] && (
         <Field label="Model">
-          <OptionCards options={phoneModels[form.subCategory][form.brand]} valueKey="model" />
+          <OptionCards
+            options={phoneModels[form.subCategory][form.brand]}
+            valueKey="model"
+            onBack={() => update("brand", "")}
+          />
         </Field>
       )}
 
       {/* Condition */}
       {form.model && (
         <Field label="Condition">
-          <OptionCards options={conditions.main} valueKey="condition" />
+          <OptionCards
+            options={conditions.main}
+            valueKey="condition"
+            onBack={() => update("model", "")}
+          />
         </Field>
       )}
 
       {/* Used Detail */}
       {form.condition === "Used" && (
         <Field label="Used Details">
-          <OptionCards options={conditions.usedDetails} valueKey="usedDetail" />
+          <OptionCards
+            options={conditions.usedDetails}
+            valueKey="usedDetail"
+            onBack={() => update("condition", "")}
+          />
         </Field>
       )}
 
@@ -233,13 +258,21 @@ export default function AddProduct() {
 
       {/* State */}
       <Field label="State">
-        <OptionCards options={Object.keys(locationsByState)} valueKey="state" />
+        <OptionCards
+          options={Object.keys(locationsByState)}
+          valueKey="state"
+          onBack={() => update("city", "")}
+        />
       </Field>
 
       {/* City / LGA */}
       {form.state && (
         <Field label="City / LGA">
-          <OptionCards options={locationsByState[form.state]} valueKey="city" />
+          <OptionCards
+            options={locationsByState[form.state]}
+            valueKey="city"
+            onBack={() => update("state", "")}
+          />
         </Field>
       )}
 
