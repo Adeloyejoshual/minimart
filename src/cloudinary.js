@@ -1,10 +1,12 @@
+// src/cloudinary.js
 export async function uploadToCloudinary(file) {
   try {
     const cloudName = process.env.REACT_APP_CLOUDINARY_CLOUD_NAME;
     const preset = process.env.REACT_APP_CLOUDINARY_UPLOAD_PRESET;
 
-    console.log("Cloudinary cloud:", cloudName);
-    console.log("Cloudinary preset:", preset);
+    if (!cloudName || !preset) {
+      throw new Error("Cloudinary environment variables missing");
+    }
 
     const formData = new FormData();
     formData.append("file", file);
@@ -18,14 +20,18 @@ export async function uploadToCloudinary(file) {
       }
     );
 
-    const data = await res.json();
-    console.log("Cloudinary response:", data);
+    if (!res.ok) {
+      const text = await res.text();
+      throw new Error(`Cloudinary error: ${res.status} ${text}`);
+    }
 
-    if (!data.secure_url) throw new Error("Upload rejected");
+    const data = await res.json();
+
+    if (!data.secure_url) throw new Error("No secure_url returned by Cloudinary");
 
     return data.secure_url;
   } catch (err) {
     console.error("Cloudinary upload failed:", err);
-    return null;
+    throw err; // throw so AddProduct knows upload failed
   }
 }
