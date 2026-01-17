@@ -1,78 +1,110 @@
-// src/components/ProductOptionsSelector.js
-import React, { useEffect, useState } from "react";
-import productOptions from "../config/productOptions";
-import phoneModels from "../config/phoneModels";
+// src/pages/AddProduct.js
+import React, { useState, useEffect } from "react";
+import categoriesData from "../config/categoriesData";
+import phoneModels from "../config/phoneModels"; // optional if you want separate phone model data
+import { locationsByRegion } from "../config/locationsByRegion";
+import ProductOptionsSelector from "../components/ProductOptionsSelector";
 
-const ProductOptionsSelector = ({ mainCategory, subCategory, onChange }) => {
-  const [brand, setBrand] = useState("");
-  const [model, setModel] = useState("");
-  const [selectedOptions, setSelectedOptions] = useState({});
+const AddProduct = () => {
+  const [mainCategory, setMainCategory] = useState("");
+  const [subCategory, setSubCategory] = useState("");
+  const [productData, setProductData] = useState({});
 
-  const options = productOptions[mainCategory]?.subcategories?.[subCategory] || {};
+  // Get all main categories
+  const mainCategories = Object.keys(categoriesData);
 
-  // Handle changes and propagate to parent
-  useEffect(() => {
-    onChange({
-      brand,
-      model,
-      ...selectedOptions
-    });
-  }, [brand, model, selectedOptions, onChange]);
-
-  // Reset when mainCategory/subCategory changes
-  useEffect(() => {
-    setBrand("");
-    setModel("");
-    setSelectedOptions({});
-  }, [mainCategory, subCategory]);
-
-  // Determine brand list (mobile phones use phoneModels)
-  const brandList = (mainCategory === "Mobile Phones & Tablets" && subCategory === "Mobile Phones")
-    ? Object.keys(phoneModels)
-    : options.brands || [];
-
-  // Determine model list for selected brand
-  const modelList = (mainCategory === "Mobile Phones & Tablets" && subCategory === "Mobile Phones" && brand)
-    ? phoneModels[brand] || []
+  // Get subcategories for selected main category
+  const subCategories = mainCategory
+    ? Object.keys(categoriesData[mainCategory].subcategories)
     : [];
 
+  // Handle main category selection
+  const handleMainCategoryChange = (category) => {
+    setMainCategory(category);
+    setSubCategory(""); // reset subcategory when main category changes
+    setProductData({});
+  };
+
+  // Handle subcategory selection
+  const handleSubCategoryChange = (subcategory) => {
+    setSubCategory(subcategory);
+    setProductData({});
+  };
+
+  // Handle product options update from child component
+  const handleProductOptionsChange = (options) => {
+    setProductData(options);
+  };
+
+  // Optional: Submit handler
+  const handleSubmit = (e) => {
+    e.preventDefault();
+    console.log("Product Submitted:", {
+      mainCategory,
+      subCategory,
+      ...productData
+    });
+    // Add your submit logic here (e.g., Firebase, API)
+  };
+
   return (
-    <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
-      {/* Brand */}
-      {brandList.length > 0 && (
-        <select value={brand} onChange={e => setBrand(e.target.value)} required>
-          <option value="">Select Brand</option>
-          {brandList.map(b => <option key={b} value={b}>{b}</option>)}
+    <div className="max-w-4xl mx-auto p-6">
+      <h1 className="text-2xl font-bold mb-6">Add New Product</h1>
+
+      {/* Main Category */}
+      <div className="mb-4">
+        <label className="block font-semibold mb-2">Main Category</label>
+        <select
+          value={mainCategory}
+          onChange={(e) => handleMainCategoryChange(e.target.value)}
+          className="w-full p-3 rounded border border-gray-300 focus:outline-none focus:ring-2 focus:ring-blue-400"
+        >
+          <option value="">Select Category</option>
+          {mainCategories.map((cat) => (
+            <option key={cat} value={cat}>
+              {cat}
+            </option>
+          ))}
         </select>
-      )}
+      </div>
 
-      {/* Model */}
-      {modelList.length > 0 && (
-        <select value={model} onChange={e => setModel(e.target.value)} required>
-          <option value="">Select Model</option>
-          {modelList.map(m => <option key={m} value={m}>{m}</option>)}
-        </select>
-      )}
-
-      {/* Other options dynamically */}
-      {["storageOptions", "colors", "simTypes", "types", "features", "sizes", "processors", "ramOptions", "screenSizes"].map(optKey => {
-        const optValues = options[optKey] || [];
-        if (!optValues.length) return null;
-
-        return (
+      {/* Subcategory */}
+      {subCategories.length > 0 && (
+        <div className="mb-4">
+          <label className="block font-semibold mb-2">Subcategory</label>
           <select
-            key={optKey}
-            value={selectedOptions[optKey] || ""}
-            onChange={e => setSelectedOptions(prev => ({ ...prev, [optKey]: e.target.value }))}
-            required
+            value={subCategory}
+            onChange={(e) => handleSubCategoryChange(e.target.value)}
+            className="w-full p-3 rounded border border-gray-300 focus:outline-none focus:ring-2 focus:ring-blue-400"
           >
-            <option value="">{`Select ${optKey.replace(/([A-Z])/g, " $1")}`}</option>
-            {optValues.map(v => <option key={v} value={v}>{v}</option>)}
+            <option value="">Select Subcategory</option>
+            {subCategories.map((sub) => (
+              <option key={sub} value={sub}>
+                {sub}
+              </option>
+            ))}
           </select>
-        );
-      })}
+        </div>
+      )}
+
+      {/* Product Options */}
+      {subCategory && (
+        <ProductOptionsSelector
+          mainCategory={mainCategory}
+          subCategory={subCategory}
+          onChange={handleProductOptionsChange}
+        />
+      )}
+
+      {/* Submit */}
+      <button
+        onClick={handleSubmit}
+        className="mt-6 w-full p-3 bg-blue-600 text-white font-semibold rounded hover:bg-blue-700 transition"
+      >
+        Submit Product
+      </button>
     </div>
   );
 };
 
-export default ProductOptionsSelector;
+export default AddProduct;
