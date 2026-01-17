@@ -8,7 +8,7 @@ import categories from "../config/categories";
 import categoryRules from "../config/categoryRules";
 import { locationsByState } from "../config/locationsByState";
 import phoneModels from "../config/phoneModels";
-import conditions from "../config/condition"; // ✅ Import condition config
+import conditions from "../config/condition";
 
 export default function AddProduct() {
   const navigate = useNavigate();
@@ -24,7 +24,7 @@ export default function AddProduct() {
     title: "",
     price: "",
     condition: "",
-    usedDetail: "", // ✅ Added for Used condition details
+    usedDetail: "",
     description: "",
     state: "",
     city: "",
@@ -67,10 +67,9 @@ export default function AddProduct() {
     if (!form.price || Number(form.price) <= 0) return "Enter a valid price";
     if (form.images.length < rules.minImages)
       return `Upload at least ${rules.minImages} image(s)`;
-    if (rules.requireCondition && !form.condition)
-      return "Select condition";
+    if (rules.requireCondition && !form.condition) return "Select condition";
     if (form.condition === "Used" && !form.usedDetail)
-      return "Select used product issue";
+      return "Select used product detail";
     if (rules.requireLocation && (!form.state || !form.city))
       return "Provide state and city";
     return null;
@@ -97,7 +96,7 @@ export default function AddProduct() {
         title: form.title.trim(),
         price: Number(form.price),
         condition: form.condition || null,
-        usedDetail: form.usedDetail || null,
+        usedDetail: form.condition === "Used" ? form.usedDetail : null,
         description: form.description || "",
         state: form.state,
         city: form.city,
@@ -129,37 +128,27 @@ export default function AddProduct() {
 
       {/* Category */}
       <Field label="Category">
-        <select
-          value={form.mainCategory}
-          onChange={e => {
-            update("mainCategory", e.target.value);
-            update("subCategory", "");
-            update("brand", "");
-            update("model", "");
-          }}
-        >
+        <select value={form.mainCategory} onChange={e => {
+          update("mainCategory", e.target.value);
+          update("subCategory", "");
+          update("brand", "");
+          update("model", "");
+        }}>
           <option value="">Select Category</option>
-          {Object.keys(categories).map(cat => (
-            <option key={cat} value={cat}>{cat}</option>
-          ))}
+          {Object.keys(categories).map(cat => <option key={cat} value={cat}>{cat}</option>)}
         </select>
       </Field>
 
       {/* Subcategory */}
       {form.mainCategory && (
         <Field label="Subcategory">
-          <select
-            value={form.subCategory}
-            onChange={e => {
-              update("subCategory", e.target.value);
-              update("brand", "");
-              update("model", "");
-            }}
-          >
+          <select value={form.subCategory} onChange={e => {
+            update("subCategory", e.target.value);
+            update("brand", "");
+            update("model", "");
+          }}>
             <option value="">Optional</option>
-            {categories[form.mainCategory]?.map(sub => (
-              <option key={sub} value={sub}>{sub}</option>
-            ))}
+            {categories[form.mainCategory]?.map(sub => <option key={sub} value={sub}>{sub}</option>)}
           </select>
         </Field>
       )}
@@ -167,13 +156,10 @@ export default function AddProduct() {
       {/* Brand */}
       {form.subCategory && phoneModels[form.subCategory] && (
         <Field label="Brand">
-          <select
-            value={form.brand}
-            onChange={e => {
-              update("brand", e.target.value);
-              update("model", "");
-            }}
-          >
+          <select value={form.brand} onChange={e => {
+            update("brand", e.target.value);
+            update("model", "");
+          }}>
             <option value="">Select Brand</option>
             {Object.keys(phoneModels[form.subCategory]).map(brand => (
               <option key={brand} value={brand}>{brand}</option>
@@ -185,10 +171,7 @@ export default function AddProduct() {
       {/* Model */}
       {form.brand && phoneModels[form.subCategory]?.[form.brand] && (
         <Field label="Model">
-          <select
-            value={form.model}
-            onChange={e => update("model", e.target.value)}
-          >
+          <select value={form.model} onChange={e => update("model", e.target.value)}>
             <option value="">Select Model</option>
             {phoneModels[form.subCategory][form.brand].map(model => (
               <option key={model} value={model}>{model}</option>
@@ -197,30 +180,36 @@ export default function AddProduct() {
         </Field>
       )}
 
+      {/* Title */}
+      <Field label="Title">
+        <input value={form.title} onChange={e => update("title", e.target.value)} maxLength={rules.maxTitle} />
+      </Field>
+
+      {/* Price */}
+      <Field label="Price (₦)">
+        <input type="number" value={form.price} onChange={e => update("price", e.target.value)} />
+      </Field>
+
       {/* Condition */}
-      <Field label="Condition">
-        <select
-          value={form.condition}
-          onChange={e => {
+      {rules.requireCondition && (
+        <Field label="Condition">
+          <select value={form.condition} onChange={e => {
             update("condition", e.target.value);
             if (e.target.value !== "Used") update("usedDetail", "");
-          }}
-        >
-          <option value="">Select</option>
-          {conditions.types.map(c => (
-            <option key={c} value={c}>{c}</option>
-          ))}
-        </select>
-      </Field>
+          }}>
+            <option value="">Select</option>
+            {conditions.main.map(c => (
+              <option key={c} value={c}>{c}</option>
+            ))}
+          </select>
+        </Field>
+      )}
 
       {/* Used Details */}
       {form.condition === "Used" && (
         <Field label="Used Details">
-          <select
-            value={form.usedDetail}
-            onChange={e => update("usedDetail", e.target.value)}
-          >
-            <option value="">Select Issue</option>
+          <select value={form.usedDetail || ""} onChange={e => update("usedDetail", e.target.value)}>
+            <option value="">Select Detail</option>
             {conditions.usedDetails.map(d => (
               <option key={d} value={d}>{d}</option>
             ))}
@@ -228,73 +217,35 @@ export default function AddProduct() {
         </Field>
       )}
 
-      {/* Title */}
-      <Field label="Title">
-        <input
-          value={form.title}
-          onChange={e => update("title", e.target.value)}
-          maxLength={rules.maxTitle}
-        />
-      </Field>
-
-      {/* Price */}
-      <Field label="Price (₦)">
-        <input
-          type="number"
-          value={form.price}
-          onChange={e => update("price", e.target.value)}
-        />
-      </Field>
-
       {/* State */}
       <Field label="State">
-        <select
-          value={form.state}
-          onChange={e => {
-            update("state", e.target.value);
-            update("city", "");
-          }}
-        >
+        <select value={form.state} onChange={e => {
+          update("state", e.target.value);
+          update("city", "");
+        }}>
           <option value="">Select State</option>
-          {Object.keys(locationsByState).map(state => (
-            <option key={state} value={state}>{state}</option>
-          ))}
+          {Object.keys(locationsByState).map(state => <option key={state} value={state}>{state}</option>)}
         </select>
       </Field>
 
       {/* City / LGA */}
       {form.state && (
         <Field label="City / LGA">
-          <select
-            value={form.city}
-            onChange={e => update("city", e.target.value)}
-          >
+          <select value={form.city} onChange={e => update("city", e.target.value)}>
             <option value="">Select City / LGA</option>
-            {locationsByState[form.state].map(lga => (
-              <option key={lga} value={lga}>{lga}</option>
-            ))}
+            {locationsByState[form.state].map(lga => <option key={lga} value={lga}>{lga}</option>)}
           </select>
         </Field>
       )}
 
       {/* Description */}
       <Field label="Description">
-        <textarea
-          value={form.description}
-          onChange={e => update("description", e.target.value)}
-          maxLength={rules.maxDescription}
-          rows={4}
-        />
+        <textarea value={form.description} onChange={e => update("description", e.target.value)} maxLength={rules.maxDescription} rows={4} />
       </Field>
 
       {/* Images */}
       <Field label="Images">
-        <input
-          type="file"
-          multiple
-          accept="image/*"
-          onChange={e => handleImages(e.target.files)}
-        />
+        <input type="file" multiple accept="image/*" onChange={e => handleImages(e.target.files)} />
         <div style={styles.images}>
           {form.previews.map((p, i) => (
             <div key={i} style={styles.imgWrap}>
@@ -308,11 +259,7 @@ export default function AddProduct() {
       {/* Promote */}
       <Field label="Promote">
         <label style={{ display: "flex", alignItems: "center", gap: 10 }}>
-          <input
-            type="checkbox"
-            checked={form.isPromoted}
-            onChange={e => update("isPromoted", e.target.checked)}
-          />
+          <input type="checkbox" checked={form.isPromoted} onChange={e => update("isPromoted", e.target.checked)} />
           Promote this product
         </label>
       </Field>
