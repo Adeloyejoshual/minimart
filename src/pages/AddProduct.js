@@ -8,7 +8,7 @@ import categories from "../config/categories";
 import categoryRules from "../config/categoryRules";
 import { locationsByState } from "../config/locationsByState";
 import phoneModels from "../config/phoneModels";
-import conditions from "../config/Condition";
+import conditions from "../config/condition";
 
 export default function AddProduct() {
   const navigate = useNavigate();
@@ -60,13 +60,18 @@ export default function AddProduct() {
   /* -------------------- VALIDATION -------------------- */
   const validate = () => {
     if (!form.mainCategory) return "Select main category";
-    if (!form.title || form.title.length < rules.minTitle) return `Title must be at least ${rules.minTitle} characters`;
-    if (form.title.length > rules.maxTitle) return `Title cannot exceed ${rules.maxTitle} characters`;
+    if (!form.title || form.title.length < rules.minTitle)
+      return `Title must be at least ${rules.minTitle} characters`;
+    if (form.title.length > rules.maxTitle)
+      return `Title cannot exceed ${rules.maxTitle} characters`;
     if (!form.price || Number(form.price) <= 0) return "Enter a valid price";
-    if (form.images.length < rules.minImages) return `Upload at least ${rules.minImages} image(s)`;
+    if (form.images.length < rules.minImages)
+      return `Upload at least ${rules.minImages} image(s)`;
     if (rules.requireCondition && !form.condition) return "Select condition";
-    if (form.condition === "Used" && !form.usedDetail) return "Select used condition detail";
-    if (rules.requireLocation && (!form.state || !form.city)) return "Provide state and city";
+    if (form.condition === "Used" && !form.usedDetail)
+      return "Select used product detail";
+    if (rules.requireLocation && (!form.state || !form.city))
+      return "Provide state and city";
     return null;
   };
 
@@ -188,13 +193,10 @@ export default function AddProduct() {
       {/* Condition */}
       {rules.requireCondition && (
         <Field label="Condition">
-          <select
-            value={form.condition}
-            onChange={e => {
-              update("condition", e.target.value);
-              if (e.target.value !== "Used") update("usedDetail", "");
-            }}
-          >
+          <select value={form.condition} onChange={e => {
+            update("condition", e.target.value);
+            if (e.target.value !== "Used") update("usedDetail", "");
+          }}>
             <option value="">Select</option>
             {conditions.main.map(c => (
               <option key={c} value={c}>{c}</option>
@@ -206,10 +208,7 @@ export default function AddProduct() {
       {/* Used Details */}
       {form.condition === "Used" && (
         <Field label="Used Details">
-          <select
-            value={form.usedDetail || ""}
-            onChange={e => update("usedDetail", e.target.value)}
-          >
+          <select value={form.usedDetail || ""} onChange={e => update("usedDetail", e.target.value)}>
             <option value="">Select Detail</option>
             {conditions.usedDetails.map(d => (
               <option key={d} value={d}>{d}</option>
