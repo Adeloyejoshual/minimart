@@ -18,15 +18,18 @@ const ProductOptionsSelector = ({ mainCategory, subCategory, onChange }) => {
   const [cityLocation, setCityLocation] = useState("");
 
   // --- Determine if this is a Mobile Phones category ---
-  const isMobile = subCategory?.toLowerCase().includes("mobile");
+  const isMobile = mainCategory === "Mobile Phones & Tablets" && subCategory === "Mobile Phones";
 
   // --- Brands ---
-  const categoryBrands = categoriesData[mainCategory]?.brands?.[subCategory] || [];
-  const allBrands = isMobile ? Object.keys(phoneModels) : categoryBrands;
+  const allBrands = isMobile
+    ? Object.keys(phoneModels)
+    : categoriesData[mainCategory]?.brands?.[subCategory] || [];
+
   const sortedBrands = [
     ...popularBrands.filter(b => allBrands.includes(b)),
     ...allBrands.filter(b => !popularBrands.includes(b)).sort()
   ];
+
   const filteredBrands = sortedBrands.filter(b =>
     b.toLowerCase().includes(searchTerm.toLowerCase())
   );
@@ -36,8 +39,8 @@ const ProductOptionsSelector = ({ mainCategory, subCategory, onChange }) => {
     ? phoneModels[selectedBrand] || []
     : categoriesData[mainCategory]?.models?.[selectedBrand] || [];
 
-  // --- Generic options ---
-  const options = productOptions[mainCategory] || {};
+  // --- Generic options (like storage, colors, sim types, features) ---
+  const options = productOptions[mainCategory]?.subcategories?.[subCategory] || {};
 
   // --- Locations ---
   const allStates = Object.keys(locationsByRegion).flatMap(region => Object.keys(locationsByRegion[region]));
@@ -132,8 +135,8 @@ const ProductOptionsSelector = ({ mainCategory, subCategory, onChange }) => {
         </>
       )}
 
-      {/* Generic options */}
-      {Object.keys(options).map(opt => {
+      {/* Generic options: storage, colors, simTypes, features */}
+      {options && Object.keys(options).map(opt => {
         const items = options[opt];
         if (!items || items.length === 0) return null;
 
