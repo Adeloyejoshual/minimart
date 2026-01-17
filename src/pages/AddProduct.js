@@ -11,6 +11,14 @@ const TestAddProduct = () => {
   const [loading, setLoading] = useState(false);
   const [message, setMessage] = useState("");
 
+  // Default values to make it appear in marketplace
+  const defaultCategory = "Mobile Phones & Tablets";
+  const defaultSubCategory = "Mobile Phone";
+  const defaultRegion = "Lagos";
+  const defaultState = "Lagos";
+  const defaultCity = "Ikeja";
+  const defaultTitle = "Test Product";
+
   // Handle image selection
   const handleFiles = e => {
     const files = Array.from(e.target.files);
@@ -37,12 +45,18 @@ const TestAddProduct = () => {
       // Upload images to Cloudinary
       const uploadedUrls = await Promise.all(images.map(f => uploadToCloudinary(f)));
 
-      // Add minimal product to Firestore
+      // Add minimal product to Firestore with defaults
       const docRef = await addDoc(collection(db, "products"), {
+        mainCategory: defaultCategory,
+        subCategory: defaultSubCategory,
+        title: defaultTitle,
         price: parseFloat(price.replace(/,/g, "")),
         images: uploadedUrls,
         coverImage: uploadedUrls[0],
         ownerId: auth.currentUser.uid,
+        region: defaultRegion,
+        stateLocation: defaultState,
+        cityLocation: defaultCity,
         createdAt: serverTimestamp(),
       });
 
@@ -60,7 +74,7 @@ const TestAddProduct = () => {
 
   return (
     <div style={{ maxWidth: 500, margin: 20, padding: 20, borderRadius: 10, background: "#fff", boxShadow: "0 4px 12px rgba(0,0,0,0.1)" }}>
-      <h2>Test Add Product (Price + Images)</h2>
+      <h2>Test Add Product (Marketplace)</h2>
       {message && <div style={{ marginBottom: 10, color: message.includes("Error") ? "red" : "green" }}>{message}</div>}
       
       <form onSubmit={handleAdd} style={{ display: "flex", flexDirection: "column", gap: 15 }}>
