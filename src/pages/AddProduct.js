@@ -52,7 +52,6 @@ const AddProduct = () => {
     : [];
   const options = form.mainCategory ? productOptions[form.mainCategory] || {} : {};
 
-  // --- Handlers ---
   const handleChange = (field, value) => {
     setForm(prev => ({ ...prev, [field]: value }));
     setErrors(prev => ({ ...prev, [field]: "" }));
@@ -142,7 +141,8 @@ const AddProduct = () => {
     });
 
     // Mobile Phones extra validation
-    if (form.subCategory === "Mobile Phones") {
+    const isMobile = form.mainCategory === "Mobile Phones & Tablets" && form.subCategory === "Mobile Phones";
+    if (isMobile) {
       ["brand", "model", "condition"].forEach(f => {
         if (!form[f]) newErrors[f] = "This field is required";
       });
@@ -205,7 +205,6 @@ const AddProduct = () => {
     }
   };
 
-  // Cleanup object URLs
   useEffect(() => () => form.previewImages.forEach(url => URL.revokeObjectURL(url)), [form.previewImages]);
 
   return (
@@ -214,7 +213,6 @@ const AddProduct = () => {
       display: "flex", flexDirection: "column", gap: 15, boxShadow: "0 4px 12px rgba(0,0,0,0.1)"
     }}>
       <h2 style={{ textAlign: "center", color: "#0d6efd" }}>Post Ad ({marketType})</h2>
-
       {errors.general && <div style={{ color: "red", padding: 8, borderRadius: 5, background: "#ffe6e6" }}>{errors.general}</div>}
 
       {/* Main Category */}
@@ -235,19 +233,17 @@ const AddProduct = () => {
         </>
       )}
 
-      {/* Product Options Selector */}
+      {/* Product Options */}
       {form.subCategory && (
         <ProductOptionsSelector
           mainCategory={form.mainCategory}
           subCategory={form.subCategory}
-          onChange={opts =>
-            setForm(prev => ({
-              ...prev,
-              brand: opts.brand || "",
-              model: opts.model || "",
-              selectedOptions: opts
-            }))
-          }
+          onChange={opts => setForm(prev => ({
+            ...prev,
+            brand: opts.brand || "",
+            model: opts.model || "",
+            selectedOptions: { ...prev.selectedOptions, ...opts }
+          }))}
         />
       )}
 
