@@ -7,6 +7,7 @@ import { useNavigate, useLocation } from "react-router-dom";
 import categoriesData from "../config/categoriesData";
 import productOptions from "../config/productOptions";
 import { locationsByRegion } from "../config/locationsByRegion";
+import phoneModels from "../config/phoneModels";
 import { useAdLimitCheck } from "../hooks/useAdLimits";
 import ProductOptionsSelector from "../components/ProductOptionsSelector";
 
@@ -56,10 +57,21 @@ const AddProduct = () => {
 
     // Clear dependent fields
     if (field === "mainCategory") {
-      setForm(prev => ({ ...prev, subCategory: "", brand: "", model: "", selectedOptions: {} }));
+      setForm(prev => ({
+        ...prev,
+        subCategory: "",
+        brand: "",
+        model: "",
+        selectedOptions: {},
+      }));
     }
     if (field === "subCategory") {
-      setForm(prev => ({ ...prev, brand: "", model: "", selectedOptions: {} }));
+      setForm(prev => ({
+        ...prev,
+        brand: "",
+        model: "",
+        selectedOptions: {},
+      }));
     }
     if (field === "region") {
       setForm(prev => ({ ...prev, stateLocation: "", cityLocation: "" }));
@@ -129,7 +141,9 @@ const AddProduct = () => {
 
     // Mobile Phones extra validation
     if (form.subCategory === "Mobile Phones") {
-      ["brand", "model", "condition"].forEach(f => { if (!form[f]) newErrors[f] = "This field is required"; });
+      ["brand", "model", "condition"].forEach(f => {
+        if (!form[f]) newErrors[f] = "This field is required";
+      });
       ["storageOptions", "colors", "simTypes"].forEach(opt => {
         if (options[opt] && !form.selectedOptions[opt]) newErrors[opt] = "This field is required";
       });
@@ -222,7 +236,14 @@ const AddProduct = () => {
         <ProductOptionsSelector
           mainCategory={form.mainCategory}
           subCategory={form.subCategory}
-          onChange={opts => setForm(prev => ({ ...prev, brand: opts.brand || "", model: opts.model || "", selectedOptions: opts }))}
+          onChange={opts =>
+            setForm(prev => ({
+              ...prev,
+              brand: opts.brand || "",
+              model: opts.model || "",
+              selectedOptions: opts
+            }))
+          }
         />
       )}
 
