@@ -4,19 +4,25 @@ import { collection, addDoc, serverTimestamp } from "firebase/firestore";
 import { db, auth } from "../firebase";
 import { uploadToCloudinary } from "../cloudinary";
 import { useNavigate, useLocation } from "react-router-dom";
+import categoriesData from "../config/categoriesData";
 
 const AddProduct = () => {
+  const [mainCategory, setMainCategory] = useState("");
+  const [subCategory, setSubCategory] = useState("");
   const [price, setPrice] = useState("");
   const [images, setImages] = useState([]);
   const [previewImages, setPreviewImages] = useState([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
+
   const navigate = useNavigate();
   const locationQuery = useLocation();
   const params = new URLSearchParams(locationQuery.search);
   const marketType = params.get("market") || "marketplace";
 
-  // Handle price input
+  const subCategories = mainCategory ? categoriesData[mainCategory]?.subcategories || [] : [];
+
+  // Price change
   const handlePriceChange = e => {
     let val = e.target.value.replace(/,/g, "");
     if (/^\d*\.?\d{0,2}$/.test(val)) {
@@ -26,7 +32,7 @@ const AddProduct = () => {
     }
   };
 
-  // Handle image files
+  // File input
   const handleFileChange = e => {
     const files = Array.from(e.target.files);
     setImages(prev => [...prev, ...files]);
@@ -38,28 +44,31 @@ const AddProduct = () => {
     setPreviewImages(prev => prev.filter((_, i) => i !== idx));
   };
 
-  // Submit product
+  // Submit
   const handleAddProduct = async e => {
     e.preventDefault();
     setError("");
 
     if (!auth.currentUser) {
-      setError("You must be logged in to post.");
+      setError("Login required.");
       return;
     }
-
+    if (!mainCategory || !subCategory) {
+      setError("Select category and subcategory.");
+      return;
+    }
     if (!price || images.length === 0) {
-      setError("Please add price and at least one image.");
+      setError("Add price and at least one image.");
       return;
     }
 
     try {
       setLoading(true);
-      // Upload images to Cloudinary
       const imageUrls = await Promise.all(images.map(f => uploadToCloudinary(f)));
 
-      // Save to Firestore
       const docRef = await addDoc(collection(db, "products"), {
+        mainCategory,
+        subCategory,
         price: parseFloat(price.replace(/,/g, "")),
         images: imageUrls,
         coverImage: imageUrls[0],
@@ -69,6 +78,8 @@ const AddProduct = () => {
       });
 
       alert(`Product added! ID: ${docRef.id}`);
+      setMainCategory("");
+      setSubCategory("");
       setPrice("");
       setImages([]);
       setPreviewImages([]);
@@ -91,6 +102,41 @@ const AddProduct = () => {
       {error && <div style={{ background: "#ffe6e6", color: "red", padding: 10, borderRadius: 6, marginBottom: 15 }}>{error}</div>}
 
       <form onSubmit={handleAddProduct} style={{ display: "flex", flexDirection: "column", gap: 15 }}>
+
+        {/* Main Category */}
+        <div style={{ display: "flex", flexDirection: "column" }}>
+          <label style={{ fontWeight: 500, marginBottom: 5 }}>Category*</label>
+          <select
+            value={mainCategory}
+            onChange={e => {
+              setMainCategory(e.target.value);
+              setSubCategory("");
+            }}
+            style={{ padding: 10, borderRadius: 6, border: "1px solid #ccc", fontSize: 14 }}
+          >
+            <option value="">Select Main Category</option>
+            {Object.keys(categoriesData).map(cat => (
+              <option key={cat} value={cat}>{cat}</option>
+            ))}
+          </select>
+        </div>
+
+        {/* Subcategory */}
+        {subCategories.length > 0 && (
+          <div style={{ display: "flex", flexDirection: "column" }}>
+            <label style={{ fontWeight: 500, marginBottom: 5 }}>Subcategory*</label>
+            <select
+              value={subCategory}
+              onChange={e => setSubCategory(e.target.value)}
+              style={{ padding: 10, borderRadius: 6, border: "1px solid #ccc", fontSize: 14 }}
+            >
+              <option value="">Select Subcategory</option>
+              {subCategories.map(sub => (
+                <option key={sub} value={sub}>{sub}</option>
+              ))}
+            </select>
+          </div>
+        )}
 
         {/* Price */}
         <div style={{ display: "flex", flexDirection: "column" }}>
