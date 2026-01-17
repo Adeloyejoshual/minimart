@@ -88,23 +88,35 @@
   line-height: 1.2;
 }
 
-/* -------------------- Vertical Option Cards -------------------- */
-.options-scroll {
+/* -------------------- Fullscreen Option List -------------------- */
+.fullpage-list {
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  background: #e6f0ff;
+  padding: 24px;
+  overflow-y: auto;
+  z-index: 1000;
   display: flex;
   flex-direction: column;
-  gap: 8px;
-  max-height: 250px;
-  overflow-y: auto;
-  padding-right: 4px;
 }
 
-/* Back arrow inside options */
+.fullpage-list h3 {
+  font-size: 20px;
+  font-weight: 700;
+  color: #0D6EFD;
+  margin-bottom: 16px;
+}
+
+/* Back button inside fullpage list */
 .options-back {
   display: flex;
   align-items: center;
-  gap: 6px;
-  margin-bottom: 8px;
-  font-size: 14px;
+  gap: 8px;
+  margin-bottom: 12px;
+  font-size: 16px;
   color: #0D6EFD;
   cursor: pointer;
   font-weight: 600;
@@ -116,7 +128,7 @@
 }
 
 .options-back span.arrow {
-  font-size: 16px;
+  font-size: 18px;
   transition: transform 0.2s ease;
 }
 
@@ -125,22 +137,28 @@
 }
 
 /* Option cards */
+.options-scroll {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
 .option-item {
   background: #f9fbff;
   border: 1.5px solid #cce0ff;
   border-radius: 10px;
-  padding: 10px 14px;
+  padding: 14px 16px;
   cursor: pointer;
   transition: all 0.2s;
   display: flex;
   justify-content: space-between;
   align-items: center;
-  font-size: 14px;
+  font-size: 16px;
 }
 
 .option-item:hover {
   border-color: #0D6EFD;
-  box-shadow: 0 2px 6px rgba(13,110,253,0.2);
+  box-shadow: 0 4px 12px rgba(13,110,253,0.2);
 }
 
 .option-item.active {
@@ -148,25 +166,18 @@
   background: #d6e4ff;
 }
 
-/* Right arrow for option cards */
-.option-item::after {
-  content: "➔";
-  font-size: 14px;
+.option-item span.arrow {
+  font-size: 18px;
   color: #0D6EFD;
-  transition: transform 0.2s;
 }
 
-.option-item:hover::after {
-  transform: translateX(4px);
-}
-
-/* "Other" input inside option card */
+/* "Other" input only for Brand/Model */
 .option-item input[type="text"] {
   width: 100%;
   border: none;
   outline: none;
   background: transparent;
-  font-size: 14px;
+  font-size: 16px;
   color: #333;
 }
 
@@ -182,8 +193,8 @@
   color: #0D6EFD;
   cursor: pointer;
   font-weight: 600;
-  margin-left: 6px;
-  font-size: 14px;
+  margin-left: 8px;
+  font-size: 16px;
   transition: transform 0.2s;
 }
 
@@ -286,31 +297,36 @@
 
 /* -------------------- Scrollbar Styling -------------------- */
 .category-scroll::-webkit-scrollbar,
-.options-scroll::-webkit-scrollbar {
+.options-scroll::-webkit-scrollbar,
+.fullpage-list::-webkit-scrollbar {
   width: 6px;
   height: 6px;
 }
 
 .category-scroll::-webkit-scrollbar-track,
-.options-scroll::-webkit-scrollbar-track {
+.options-scroll::-webkit-scrollbar-track,
+.fullpage-list::-webkit-scrollbar-track {
   background: #f1f1f1;
   border-radius: 8px;
 }
 
 .category-scroll::-webkit-scrollbar-thumb,
-.options-scroll::-webkit-scrollbar-thumb {
+.options-scroll::-webkit-scrollbar-thumb,
+.fullpage-list::-webkit-scrollbar-thumb {
   background: #0D6EFD;
   border-radius: 8px;
 }
 
 .category-scroll::-webkit-scrollbar-thumb:hover,
-.options-scroll::-webkit-scrollbar-thumb:hover {
+.options-scroll::-webkit-scrollbar-thumb:hover,
+.fullpage-list::-webkit-scrollbar-thumb:hover {
   background: #0a58ca;
 }
 
 /* Firefox */
 .category-scroll,
-.options-scroll {
+.options-scroll,
+.fullpage-list {
   scrollbar-width: thin;
   scrollbar-color: #0D6EFD #f1f1f1;
 }
