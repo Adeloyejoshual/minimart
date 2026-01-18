@@ -60,9 +60,7 @@ export default function AddProduct() {
   }, [form]);
 
   // -------------------- Cleanup object URLs --------------------
-  useEffect(() => {
-    return () => form.previews.forEach(url => URL.revokeObjectURL(url));
-  }, [form.previews]);
+  useEffect(() => () => form.previews.forEach(url => URL.revokeObjectURL(url)), [form.previews]);
 
   const update = (key, value) => setForm(prev => ({ ...prev, [key]: value }));
 
@@ -134,12 +132,12 @@ export default function AddProduct() {
     }
   };
 
-  // -------------------- Full Page List --------------------
+  // -------------------- Full Page Selection --------------------
   const FullPageList = ({ title, options, valueKey }) => {
     const [customValue, setCustomValue] = useState("");
 
     const handleCustomSubmit = () => {
-      if (customValue.trim() !== "") {
+      if (customValue.trim()) {
         update(valueKey, customValue.trim());
         setCustomValue("");
         setSelectionStep(null);
@@ -162,29 +160,14 @@ export default function AddProduct() {
               className={`option-item ${form[valueKey] === opt ? "active" : ""}`}
               onClick={() => {
                 update(valueKey, opt);
+
                 // Reset dependent fields
                 if (valueKey === "state") update("city", "");
-                if (valueKey === "mainCategory") {
-                  update("subCategory", "");
-                  update("brand", "");
-                  update("model", "");
-                  update("condition", "");
-                  update("usedDetail", "");
-                }
-                if (valueKey === "subCategory") {
-                  update("brand", "");
-                  update("model", "");
-                  update("condition", "");
-                  update("usedDetail", "");
-                }
-                if (valueKey === "brand") {
-                  update("model", "");
-                  update("condition", "");
-                  update("usedDetail", "");
-                }
-                if (valueKey === "condition") {
-                  update("usedDetail", "");
-                }
+                if (valueKey === "mainCategory") updateDependent(["subCategory", "brand", "model", "condition", "usedDetail"]);
+                if (valueKey === "subCategory") updateDependent(["brand", "model", "condition", "usedDetail"]);
+                if (valueKey === "brand") updateDependent(["model", "condition", "usedDetail"]);
+                if (valueKey === "condition") updateDependent(["usedDetail"]);
+
                 setSelectionStep(null);
               }}
             >
@@ -192,7 +175,7 @@ export default function AddProduct() {
             </button>
           ))}
 
-          {/* Other / Manual Input */}
+          {/* Manual input */}
           <form onSubmit={e => { e.preventDefault(); handleCustomSubmit(); }}>
             <div className="option-item" style={{ justifyContent: "center" }}>
               <input
@@ -209,27 +192,31 @@ export default function AddProduct() {
     );
   };
 
+  const updateDependent = keys => {
+    keys.forEach(k => update(k, ""));
+  };
+
   // -------------------- Derived Options --------------------
-  const getSubcategories = () => [...(categories.find(c => c.name === form.mainCategory)?.subcategories || [])];
+  const getSubcategories = () => categories.find(c => c.name === form.mainCategory)?.subcategories || [];
   const getBrandOptions = () => form.mainCategory ? Object.keys(phoneModels[form.mainCategory] || {}) : [];
   const getModelOptions = () => form.brand ? phoneModels[form.mainCategory][form.brand] || [] : [];
   const getStateOptions = () => Object.keys(locationsByState);
-  const getCityOptions = () => (form.state ? locationsByState[form.state] : []);
+  const getCityOptions = () => form.state ? locationsByState[form.state] : [];
   const getConditionOptions = () => conditions.main;
   const getUsedDetailOptions = () => conditions.usedDetails;
 
   // -------------------- Render Full Page Step --------------------
   if (selectionStep) {
-    switch (selectionStep) {
-      case "subCategory": return <FullPageList title="Select Subcategory" options={getSubcategories()} valueKey="subCategory" />;
-      case "brand": return <FullPageList title="Select Brand" options={getBrandOptions()} valueKey="brand" />;
-      case "model": return <FullPageList title="Select Model / Type" options={getModelOptions()} valueKey="model" />;
-      case "state": return <FullPageList title="Select State" options={getStateOptions()} valueKey="state" />;
-      case "city": return <FullPageList title="Select City / LGA" options={getCityOptions()} valueKey="city" />;
-      case "condition": return <FullPageList title="Select Condition" options={getConditionOptions()} valueKey="condition" />;
-      case "usedDetail": return <FullPageList title="Select Used Detail" options={getUsedDetailOptions()} valueKey="usedDetail" />;
-      default: break;
-    }
+    const steps = {
+      subCategory: getSubcategories(),
+      brand: getBrandOptions(),
+      model: getModelOptions(),
+      state: getStateOptions(),
+      city: getCityOptions(),
+      condition: getConditionOptions(),
+      usedDetail: getUsedDetailOptions(),
+    };
+    return <FullPageList title={`Select ${selectionStep}`} options={steps[selectionStep]} valueKey={selectionStep} />;
   }
 
   // -------------------- Main Form --------------------
@@ -254,14 +241,7 @@ export default function AddProduct() {
               type="button"
               key={cat.name}
               className={`category-item ${form.mainCategory === cat.name ? "active" : ""}`}
-              onClick={() => {
-                update("mainCategory", cat.name);
-                update("subCategory", "");
-                update("brand", "");
-                update("model", "");
-                update("condition", "");
-                update("usedDetail", "");
-              }}
+              onClick={() => update("mainCategory", cat.name)}
             >
               <span className="category-icon">{cat.icon}</span>
               <span className="category-name">{cat.name}</span>
@@ -370,8 +350,9 @@ export default function AddProduct() {
               className={`promotion-item ${form.promotionPlan === plan.id ? "active" : ""}`}
               onClick={() => update("promotionPlan", plan.id)}
             >
+              {plan.isFree && <span className="promotion-free-badge">FREE</span>}
               <span className="promotion-icon">{plan.icon}</span>
-              <span>{plan.label}</span>
+              <span className="promotion-label">{plan.label}</span>
             </button>
           ))}
         </div>
