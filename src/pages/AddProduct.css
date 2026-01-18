@@ -127,15 +127,6 @@
   color: #0a58ca;
 }
 
-.options-back span.arrow {
-  font-size: 18px;
-  transition: transform 0.2s ease;
-}
-
-.options-back:hover span.arrow {
-  transform: translateX(-4px);
-}
-
 /* Option cards */
 .options-scroll {
   display: flex;
@@ -166,12 +157,7 @@
   background: #d6e4ff;
 }
 
-.option-item span.arrow {
-  font-size: 18px;
-  color: #0D6EFD;
-}
-
-/* "Other" input only for Brand/Model */
+/* "Other" input */
 .option-item input[type="text"] {
   width: 100%;
   border: none;
@@ -295,38 +281,76 @@
   box-shadow: 0 4px 12px rgba(0, 0, 0, 0.12);
 }
 
+/* -------------------- Promotion Scroll -------------------- */
+.promotion-scroll {
+  display: flex;
+  overflow-x: auto;
+  gap: 12px;
+  padding-bottom: 6px;
+}
+
+.promotion-item {
+  flex: 0 0 auto;
+  background: #f9fbff;
+  border: 1.5px solid #cce0ff;
+  border-radius: 12px;
+  padding: 12px 14px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  cursor: pointer;
+  min-width: 100px;
+  transition: all 0.2s;
+  text-align: center;
+}
+
+.promotion-item:hover {
+  border-color: #0D6EFD;
+  box-shadow: 0 4px 10px rgba(13,110,253,0.2);
+}
+
+.promotion-item.active {
+  border-color: #0D6EFD;
+  background: #d6e4ff;
+}
+
 /* -------------------- Scrollbar Styling -------------------- */
 .category-scroll::-webkit-scrollbar,
 .options-scroll::-webkit-scrollbar,
-.fullpage-list::-webkit-scrollbar {
+.fullpage-list::-webkit-scrollbar,
+.promotion-scroll::-webkit-scrollbar {
   width: 6px;
   height: 6px;
 }
 
 .category-scroll::-webkit-scrollbar-track,
 .options-scroll::-webkit-scrollbar-track,
-.fullpage-list::-webkit-scrollbar-track {
+.fullpage-list::-webkit-scrollbar-track,
+.promotion-scroll::-webkit-scrollbar-track {
   background: #f1f1f1;
   border-radius: 8px;
 }
 
 .category-scroll::-webkit-scrollbar-thumb,
 .options-scroll::-webkit-scrollbar-thumb,
-.fullpage-list::-webkit-scrollbar-thumb {
+.fullpage-list::-webkit-scrollbar-thumb,
+.promotion-scroll::-webkit-scrollbar-thumb {
   background: #0D6EFD;
   border-radius: 8px;
 }
 
 .category-scroll::-webkit-scrollbar-thumb:hover,
 .options-scroll::-webkit-scrollbar-thumb:hover,
-.fullpage-list::-webkit-scrollbar-thumb:hover {
+.fullpage-list::-webkit-scrollbar-thumb:hover,
+.promotion-scroll::-webkit-scrollbar-thumb:hover {
   background: #0a58ca;
 }
 
 /* Firefox */
 .category-scroll,
 .options-scroll,
-.fullpage-list {
+.fullpage-list,
+.promotion-scroll {
   scrollbar-width: thin;
   scrollbar-color: #0D6EFD #f1f1f1;
 }
