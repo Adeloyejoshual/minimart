@@ -47,6 +47,26 @@
   color: #333;
 }
 
+.field input[type="text"],
+.field input[type="number"],
+.field input[type="tel"],
+.field textarea {
+  width: 100%;
+  padding: 14px 16px;
+  border: 2px solid #cce0ff;
+  border-radius: 0px; /* squared */
+  font-size: 15px;
+  outline: none;
+  background: #ffffff;
+  transition: border 0.25s, box-shadow 0.25s;
+}
+
+.field input:focus,
+.field textarea:focus {
+  border-color: #0D6EFD;
+  box-shadow: 0 0 8px rgba(13, 110, 253, 0.15);
+}
+
 /* -------------------- Category Horizontal Scroll -------------------- */
 .category-scroll {
   display: flex;
@@ -58,8 +78,8 @@
 .category-item {
   flex: 0 0 auto;
   background: #ffffff;
-  border: 2px solid #cce0ff; /* light-blue professional border */
-  border-radius: 0px; /* squared */
+  border: 2px solid #cce0ff;
+  border-radius: 0px;
   padding: 14px 16px;
   display: flex;
   flex-direction: column;
@@ -112,7 +132,6 @@
   margin-bottom: 20px;
 }
 
-/* Back button inside fullpage list */
 .options-back {
   display: flex;
   align-items: center;
@@ -131,7 +150,6 @@
   color: #0a58ca;
 }
 
-/* Option cards */
 .options-scroll {
   display: flex;
   flex-direction: column;
@@ -161,7 +179,6 @@
   background: #e0ecff;
 }
 
-/* Manual "Other" input */
 .option-item input[type="text"] {
   width: 100%;
   border: none;
@@ -190,27 +207,6 @@
 
 .option-item span.custom-submit:hover {
   transform: translateX(2px);
-}
-
-/* -------------------- Input Fields -------------------- */
-.field input[type="text"],
-.field input[type="number"],
-.field input[type="tel"],
-.field textarea {
-  width: 100%;
-  padding: 14px 16px;
-  border: 2px solid #cce0ff;
-  border-radius: 0px;
-  font-size: 15px;
-  outline: none;
-  background: #ffffff;
-  transition: border 0.25s, box-shadow 0.25s;
-}
-
-.field input:focus,
-.field textarea:focus {
-  border-color: #0D6EFD;
-  box-shadow: 0 0 8px rgba(13, 110, 253, 0.15);
 }
 
 /* -------------------- Image Upload -------------------- */
@@ -298,12 +294,12 @@
   background: #ffffff;
   border: 2px solid #cce0ff;
   border-radius: 0px;
-  padding: 16px 18px;
+  padding: 16px 12px;
   display: flex;
   flex-direction: column;
   align-items: center;
   cursor: pointer;
-  min-width: 130px;
+  min-width: 100px;
   position: relative;
   text-align: center;
   transition: all 0.25s ease;
@@ -334,20 +330,29 @@
   z-index: 2;
 }
 
-.promotion-item .promotion-icon {
-  font-size: 22px;
-  margin-bottom: 6px;
+/* Promotion content layout: Days on top, Price below */
+.promotion-item .promotion-days {
+  font-size: 12px;
+  color: #555;
+  margin-bottom: 4px;
 }
 
 .promotion-item .promotion-label {
   font-size: 14px;
   font-weight: 600;
-  margin-bottom: 4px;
+  margin-bottom: 2px;
 }
 
-.promotion-item .promotion-days {
-  font-size: 12px;
-  color: #555;
+.promotion-item .promotion-price {
+  font-size: 14px;
+  font-weight: 700;
+  color: #0D6EFD;
+}
+
+/* Icon */
+.promotion-item .promotion-icon {
+  font-size: 20px;
+  margin-bottom: 6px;
 }
 
 /* -------------------- Scrollbars -------------------- */
