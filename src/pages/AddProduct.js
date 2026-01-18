@@ -20,8 +20,8 @@ export default function AddProduct() {
   const [params] = useSearchParams();
   const marketType = params.get("market") || "marketplace";
 
+  // -------------------- States --------------------
   const [loading, setLoading] = useState(false);
-  const [showSuccess, setShowSuccess] = useState(false); // dynamic success message
   const [form, setForm] = useState({
     title: "",
     mainCategory: "",
@@ -40,9 +40,9 @@ export default function AddProduct() {
     previews: [],
     promotionPlan: promotionPlans[0].id,
   });
-
   const [selectionStep, setSelectionStep] = useState(null);
   const [backStep, setBackStep] = useState(null);
+  const [toasts, setToasts] = useState([]);
 
   const rules = categoryRules[form.mainCategory] || categoryRules.Default;
 
@@ -59,12 +59,23 @@ export default function AddProduct() {
     if (form.mainCategory) localStorage.setItem(CATEGORY_KEY, form.mainCategory);
   }, [form]);
 
-  // -------------------- Cleanup object URLs --------------------
+  // -------------------- Cleanup Object URLs --------------------
   useEffect(() => {
     return () => form.previews.forEach(url => URL.revokeObjectURL(url));
   }, [form.previews]);
 
-  // -------------------- Helpers --------------------
+  // -------------------- Toast Helpers --------------------
+  const addToast = (message, type = "success") => {
+    const id = Date.now();
+    setToasts(prev => [...prev, { id, message, type }]);
+    setTimeout(() => removeToast(id), 3000);
+  };
+
+  const removeToast = id => {
+    setToasts(prev => prev.filter(t => t.id !== id));
+  };
+
+  // -------------------- Form Helpers --------------------
   const update = (key, value, resetDeps = []) => {
     setForm(prev => {
       let updated = { ...prev, [key]: value };
@@ -84,7 +95,7 @@ export default function AddProduct() {
   const handleImages = files => {
     const list = Array.from(files);
     if (list.length + form.images.length > rules.maxImages) {
-      alert(`Maximum ${rules.maxImages} images allowed`);
+      addToast(`Maximum ${rules.maxImages} images allowed`, "error");
       return;
     }
     update("images", [...form.images, ...list]);
@@ -97,14 +108,12 @@ export default function AddProduct() {
   };
 
   const validate = () => {
-    if (!form.title || form.title.length < rules.minTitle)
-      return `Title must be at least ${rules.minTitle} characters`;
+    if (!form.title || form.title.length < rules.minTitle) return `Title must be at least ${rules.minTitle} characters`;
     if (!form.mainCategory) return "Select category";
     if (!form.priceRaw) return "Enter price";
     if (!form.phone || form.phone.length < 10) return "Enter valid phone number";
     if (form.images.length < rules.minImages) return `Upload at least ${rules.minImages} image(s)`;
-    if ((form.mainCategory === "Smartphones" || form.mainCategory === "FeaturePhones") && form.model && !form.condition)
-      return "Select condition";
+    if ((form.mainCategory === "Smartphones" || form.mainCategory === "FeaturePhones") && form.model && !form.condition) return "Select condition";
     if (form.condition === "Used" && !form.usedDetail) return "Select used detail";
     if (!form.state) return "Select state";
     if (!form.city) return "Select city / LGA";
@@ -113,8 +122,8 @@ export default function AddProduct() {
 
   const handleSubmit = async () => {
     const error = validate();
-    if (error) return alert(error);
-    if (!auth.currentUser) return alert("Login required");
+    if (error) return addToast(error, "error");
+    if (!auth.currentUser) return addToast("Login required", "error");
 
     try {
       setLoading(true);
@@ -129,20 +138,16 @@ export default function AddProduct() {
         createdAt: serverTimestamp(),
       });
       localStorage.removeItem(DRAFT_KEY);
-
-      // Dynamic success
-      setShowSuccess(true);
-      setTimeout(() => setShowSuccess(false), 3000);
-
+      addToast("Product posted successfully!", "success");
       navigate(`/${marketType}`);
     } catch (err) {
-      alert(err.message);
+      addToast(err.message, "error");
     } finally {
       setLoading(false);
     }
   };
 
-  // -------------------- Full Page List --------------------
+  // -------------------- Full Page Selection --------------------
   const FullPageList = ({ title, options, valueKey }) => {
     const [customValue, setCustomValue] = useState("");
 
@@ -157,9 +162,7 @@ export default function AddProduct() {
     return (
       <div className="fullpage-list">
         {backStep && (
-          <button type="button" className="options-back" onClick={() => setSelectionStep(backStep)}>
-            ← Back
-          </button>
+          <button type="button" className="options-back" onClick={() => setSelectionStep(backStep)}>← Back</button>
         )}
         <h3>{title}</h3>
         <div className="options-scroll">
@@ -185,15 +188,9 @@ export default function AddProduct() {
             </button>
           ))}
 
-          {/* Manual input */}
           <form onSubmit={e => { e.preventDefault(); handleCustomSubmit(); }}>
             <div className="option-item" style={{ justifyContent: "center" }}>
-              <input
-                type="text"
-                placeholder={`Enter ${valueKey}...`}
-                value={customValue}
-                onChange={e => setCustomValue(e.target.value)}
-              />
+              <input type="text" placeholder={`Enter ${valueKey}...`} value={customValue} onChange={e => setCustomValue(e.target.value)} />
               <button type="submit" style={{ marginLeft: 6, cursor: "pointer", color: "#0D6EFD" }}>➔</button>
             </div>
           </form>
@@ -211,7 +208,6 @@ export default function AddProduct() {
   const getConditionOptions = () => conditions.main;
   const getUsedDetailOptions = () => conditions.usedDetails;
 
-  // -------------------- Render Full Page Selection --------------------
   if (selectionStep) {
     const steps = {
       subCategory: getSubcategories(),
@@ -228,12 +224,15 @@ export default function AddProduct() {
   // -------------------- Main Form --------------------
   return (
     <div className="add-product-container">
-      {showSuccess && (
-        <div className="success-toast">
-          <img src="/marketplace.png" alt="Marketplace" />
-          <span>Product posted successfully!</span>
-        </div>
-      )}
+      {/* Toasts */}
+      <div className="toast-container">
+        {toasts.map(t => (
+          <div key={t.id} className={`toast ${t.type}`}>
+            <span>{t.message}</span>
+            <button className="toast-close" onClick={() => removeToast(t.id)}>×</button>
+          </div>
+        ))}
+      </div>
 
       {/* Header */}
       <div className="add-product-header">
@@ -241,20 +240,13 @@ export default function AddProduct() {
         <span className="page-title">Add Product</span>
       </div>
 
-      {/* All Fields */}
-      <Field label="Title">
-        <input value={form.title} onChange={e => update("title", e.target.value)} placeholder="e.g iPhone 11 Pro Max" />
-      </Field>
-
+      {/* Fields */}
+      <Field label="Title"><input value={form.title} onChange={e => update("title", e.target.value)} placeholder="e.g iPhone 11 Pro Max" /></Field>
       <Field label="Category">
         <div className="category-scroll">
           {categories.map(cat => (
-            <button
-              type="button"
-              key={cat.name}
-              className={`category-item ${form.mainCategory === cat.name ? "active" : ""}`}
-              onClick={() => update("mainCategory", cat.name, ["subCategory","brand","model","condition","usedDetail"])}
-            >
+            <button type="button" key={cat.name} className={`category-item ${form.mainCategory === cat.name ? "active" : ""}`}
+              onClick={() => update("mainCategory", cat.name, ["subCategory","brand","model","condition","usedDetail"])}>
               <span className="category-icon">{cat.icon}</span>
               <span className="category-name">{cat.name}</span>
             </button>
@@ -262,52 +254,37 @@ export default function AddProduct() {
         </div>
       </Field>
 
-      {form.mainCategory && (
-        <Field label="Subcategory">
-          <button type="button" className="option-item clickable" onClick={() => { setBackStep(null); setSelectionStep("subCategory"); }}>
-            {form.subCategory || "Select Subcategory"}
+      {form.mainCategory && <Field label="Subcategory">
+        <button type="button" className="option-item clickable" onClick={() => { setBackStep(null); setSelectionStep("subCategory"); }}>
+          {form.subCategory || "Select Subcategory"}
+        </button>
+      </Field>}
+
+      {form.subCategory && <Field label="Brand">
+        <button type="button" className="option-item clickable" onClick={() => { setBackStep("subCategory"); setSelectionStep("brand"); }}>
+          {form.brand || "Select Brand"}
+        </button>
+      </Field>}
+
+      {form.brand && <Field label="Model / Type">
+        <button type="button" className="option-item clickable" onClick={() => { setBackStep("brand"); setSelectionStep("model"); }}>
+          {form.model || "Select Model"}
+        </button>
+      </Field>}
+
+      {(form.mainCategory === "Smartphones" || form.mainCategory === "FeaturePhones") && form.model && <Field label="Condition">
+        <button type="button" className="option-item clickable" onClick={() => { setBackStep("model"); setSelectionStep("condition"); }}>
+          {form.condition || "Select Condition"}
+        </button>
+        {form.condition === "Used" && <Field label="Used Details">
+          <button type="button" className="option-item clickable" onClick={() => { setBackStep("condition"); setSelectionStep("usedDetail"); }}>
+            {form.usedDetail || "Select Used Detail"}
           </button>
-        </Field>
-      )}
+        </Field>}
+      </Field>}
 
-      {form.subCategory && (
-        <Field label="Brand">
-          <button type="button" className="option-item clickable" onClick={() => { setBackStep("subCategory"); setSelectionStep("brand"); }}>
-            {form.brand || "Select Brand"}
-          </button>
-        </Field>
-      )}
-
-      {form.brand && (
-        <Field label="Model / Type">
-          <button type="button" className="option-item clickable" onClick={() => { setBackStep("brand"); setSelectionStep("model"); }}>
-            {form.model || "Select Model"}
-          </button>
-        </Field>
-      )}
-
-      {(form.mainCategory === "Smartphones" || form.mainCategory === "FeaturePhones") && form.model && (
-        <Field label="Condition">
-          <button type="button" className="option-item clickable" onClick={() => { setBackStep("model"); setSelectionStep("condition"); }}>
-            {form.condition || "Select Condition"}
-          </button>
-          {form.condition === "Used" && (
-            <Field label="Used Details">
-              <button type="button" className="option-item clickable" onClick={() => { setBackStep("condition"); setSelectionStep("usedDetail"); }}>
-                {form.usedDetail || "Select Used Detail"}
-              </button>
-            </Field>
-          )}
-        </Field>
-      )}
-
-      <Field label="Price (₦)">
-        <input value={form.price} onChange={handlePriceChange} placeholder="₦ 0" />
-      </Field>
-
-      <Field label="Phone Number">
-        <input type="tel" value={form.phone} onChange={e => update("phone", e.target.value)} placeholder="08012345678" />
-      </Field>
+      <Field label="Price (₦)"><input value={form.price} onChange={handlePriceChange} placeholder="₦ 0" /></Field>
+      <Field label="Phone Number"><input type="tel" value={form.phone} onChange={e => update("phone", e.target.value)} placeholder="08012345678" /></Field>
 
       <Field label="Images">
         <label className="image-upload">
@@ -315,7 +292,7 @@ export default function AddProduct() {
           <span>＋ Add Images</span>
         </label>
         <div className="images">
-          {form.previews.map((p, i) => (
+          {form.previews.map((p,i) => (
             <div key={i} className="img-wrap">
               <img src={p} alt="" />
               <button type="button" onClick={() => removeImage(i)}>×</button>
@@ -330,27 +307,18 @@ export default function AddProduct() {
         </button>
       </Field>
 
-      {form.state && (
-        <Field label="City / LGA">
-          <button type="button" className="option-item clickable" onClick={() => { setBackStep("state"); setSelectionStep("city"); }}>
-            {form.city || "Select City / LGA"}
-          </button>
-        </Field>
-      )}
+      {form.state && <Field label="City / LGA">
+        <button type="button" className="option-item clickable" onClick={() => { setBackStep("state"); setSelectionStep("city"); }}>
+          {form.city || "Select City / LGA"}
+        </button>
+      </Field>}
 
-      <Field label="Description">
-        <textarea rows={4} value={form.description} onChange={e => update("description", e.target.value)} />
-      </Field>
+      <Field label="Description"><textarea rows={4} value={form.description} onChange={e => update("description", e.target.value)} /></Field>
 
       <Field label="Promotion Plan">
         <div className="promotion-scroll">
           {promotionPlans.map(plan => (
-            <button
-              type="button"
-              key={plan.id}
-              className={`promotion-item ${form.promotionPlan === plan.id ? "active" : ""}`}
-              onClick={() => update("promotionPlan", plan.id)}
-            >
+            <button type="button" key={plan.id} className={`promotion-item ${form.promotionPlan === plan.id ? "active" : ""}`} onClick={() => update("promotionPlan", plan.id)}>
               {plan.isFree && <div className="promotion-free-badge">FREE</div>}
               <span className="promotion-icon">{plan.icon}</span>
               <span className="promotion-days">{plan.days} Days</span>
