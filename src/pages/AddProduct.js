@@ -46,6 +46,7 @@ export default function AddProduct() {
 
   const rules = categoryRules[form.mainCategory] || categoryRules.Default;
 
+  // -------------------- Load / Save Draft --------------------
   useEffect(() => {
     const saved = localStorage.getItem(DRAFT_KEY);
     if (saved) setForm(JSON.parse(saved));
@@ -58,8 +59,14 @@ export default function AddProduct() {
     if (form.mainCategory) localStorage.setItem(CATEGORY_KEY, form.mainCategory);
   }, [form]);
 
+  // -------------------- Cleanup object URLs --------------------
+  useEffect(() => {
+    return () => form.previews.forEach(url => URL.revokeObjectURL(url));
+  }, [form.previews]);
+
   const update = (key, value) => setForm(prev => ({ ...prev, [key]: value }));
 
+  // -------------------- Handlers --------------------
   const handlePriceChange = e => {
     const raw = e.target.value.replace(/,/g, "");
     if (!isNaN(raw)) {
@@ -149,7 +156,8 @@ export default function AddProduct() {
         <h3>{title}</h3>
         <div className="options-scroll">
           {options.map(opt => (
-            <div
+            <button
+              type="button"
               key={opt}
               className={`option-item ${form[valueKey] === opt ? "active" : ""}`}
               onClick={() => {
@@ -181,7 +189,7 @@ export default function AddProduct() {
               }}
             >
               {opt}
-            </div>
+            </button>
           ))}
 
           {/* Other / Manual Input */}
@@ -192,18 +200,8 @@ export default function AddProduct() {
                 placeholder={`Enter ${valueKey}...`}
                 value={customValue}
                 onChange={e => setCustomValue(e.target.value)}
-                style={{
-                  width: "80%",
-                  border: "none",
-                  outline: "none",
-                  background: "transparent",
-                  fontSize: "14px",
-                  color: "#333",
-                }}
               />
-              <button type="submit" style={{ marginLeft: "6px", cursor: "pointer", color: "#0D6EFD" }}>
-                ➔
-              </button>
+              <button type="submit" style={{ marginLeft: "6px", cursor: "pointer", color: "#0D6EFD" }}>➔</button>
             </div>
           </form>
         </div>
@@ -252,7 +250,8 @@ export default function AddProduct() {
       <Field label="Category">
         <div className="category-scroll">
           {categories.map(cat => (
-            <div
+            <button
+              type="button"
               key={cat.name}
               className={`category-item ${form.mainCategory === cat.name ? "active" : ""}`}
               onClick={() => {
@@ -266,7 +265,7 @@ export default function AddProduct() {
             >
               <span className="category-icon">{cat.icon}</span>
               <span className="category-name">{cat.name}</span>
-            </div>
+            </button>
           ))}
         </div>
       </Field>
@@ -274,41 +273,41 @@ export default function AddProduct() {
       {/* Subcategory */}
       {form.mainCategory && (
         <Field label="Subcategory">
-          <div className="option-item clickable" onClick={() => { setBackStep(null); setSelectionStep("subCategory"); }}>
+          <button type="button" className="option-item clickable" onClick={() => { setBackStep(null); setSelectionStep("subCategory"); }}>
             {form.subCategory || "Select Subcategory"} ➔
-          </div>
+          </button>
         </Field>
       )}
 
       {/* Brand */}
       {form.subCategory && (
         <Field label="Brand">
-          <div className="option-item clickable" onClick={() => { setBackStep("subCategory"); setSelectionStep("brand"); }}>
+          <button type="button" className="option-item clickable" onClick={() => { setBackStep("subCategory"); setSelectionStep("brand"); }}>
             {form.brand || "Select Brand"} ➔
-          </div>
+          </button>
         </Field>
       )}
 
       {/* Model */}
       {form.brand && (
         <Field label="Model / Type">
-          <div className="option-item clickable" onClick={() => { setBackStep("brand"); setSelectionStep("model"); }}>
+          <button type="button" className="option-item clickable" onClick={() => { setBackStep("brand"); setSelectionStep("model"); }}>
             {form.model || "Select Model"} ➔
-          </div>
+          </button>
         </Field>
       )}
 
       {/* Condition */}
       {(form.mainCategory === "Smartphones" || form.mainCategory === "FeaturePhones") && form.model && (
         <Field label="Condition">
-          <div className="option-item clickable" onClick={() => { setBackStep("model"); setSelectionStep("condition"); }}>
+          <button type="button" className="option-item clickable" onClick={() => { setBackStep("model"); setSelectionStep("condition"); }}>
             {form.condition || "Select Condition"} ➔
-          </div>
+          </button>
           {form.condition === "Used" && (
             <Field label="Used Details">
-              <div className="option-item clickable" onClick={() => { setBackStep("condition"); setSelectionStep("usedDetail"); }}>
+              <button type="button" className="option-item clickable" onClick={() => { setBackStep("condition"); setSelectionStep("usedDetail"); }}>
                 {form.usedDetail || "Select Used Detail"} ➔
-              </div>
+              </button>
             </Field>
           )}
         </Field>
@@ -342,17 +341,17 @@ export default function AddProduct() {
 
       {/* State */}
       <Field label="State">
-        <div className="option-item clickable" onClick={() => { setBackStep(null); setSelectionStep("state"); }}>
+        <button type="button" className="option-item clickable" onClick={() => { setBackStep(null); setSelectionStep("state"); }}>
           {form.state || "Select State"} ➔
-        </div>
+        </button>
       </Field>
 
       {/* City */}
       {form.state && (
         <Field label="City / LGA">
-          <div className="option-item clickable" onClick={() => { setBackStep("state"); setSelectionStep("city"); }}>
+          <button type="button" className="option-item clickable" onClick={() => { setBackStep("state"); setSelectionStep("city"); }}>
             {form.city || "Select City / LGA"} ➔
-          </div>
+          </button>
         </Field>
       )}
 
@@ -365,14 +364,15 @@ export default function AddProduct() {
       <Field label="Promotion Plan">
         <div className="promotion-scroll">
           {promotionPlans.map(plan => (
-            <div
+            <button
+              type="button"
               key={plan.id}
               className={`promotion-item ${form.promotionPlan === plan.id ? "active" : ""}`}
               onClick={() => update("promotionPlan", plan.id)}
             >
-              <span>{plan.icon}</span>
+              <span className="promotion-icon">{plan.icon}</span>
               <span>{plan.label}</span>
-            </div>
+            </button>
           ))}
         </div>
       </Field>
@@ -385,7 +385,7 @@ export default function AddProduct() {
   );
 }
 
-// Field Component
+// -------------------- Field Component --------------------
 const Field = ({ label, children }) => (
   <div className="field">
     <label>{label}</label>
