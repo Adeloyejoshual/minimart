@@ -9,6 +9,7 @@ import categoryRules from "../config/categoryRules";
 import { locationsByState } from "../config/locationsByState";
 import phoneModels from "../config/phoneModels";
 import conditions from "../config/condition";
+import { promotionPlans } from "../config/promotionPlans";
 import "./AddProduct.css";
 
 const DRAFT_KEY = "add_product_draft";
@@ -28,6 +29,7 @@ export default function AddProduct() {
     model: "",
     condition: "",
     usedDetail: "",
+    priceRaw: "",
     price: "",
     phone: "",
     description: "",
@@ -36,10 +38,10 @@ export default function AddProduct() {
     images: [],
     previews: [],
     isPromoted: false,
+    promotionPlan: promotionPlans[0].id,
   });
 
-  // track full-page selection step
-  const [selectionStep, setSelectionStep] = useState(null); // e.g., "subCategory", "brand", "model", "state", "city", etc.
+  const [selectionStep, setSelectionStep] = useState(null);
   const [backStep, setBackStep] = useState(null);
 
   const rules = categoryRules[form.mainCategory] || categoryRules.Default;
@@ -60,7 +62,10 @@ export default function AddProduct() {
 
   const handlePriceChange = e => {
     const raw = e.target.value.replace(/,/g, "");
-    if (!isNaN(raw)) update("price", Number(raw).toLocaleString());
+    if (!isNaN(raw)) {
+      update("priceRaw", raw);
+      update("price", raw ? Number(raw).toLocaleString() : "");
+    }
   };
 
   const handleImages = files => {
@@ -82,7 +87,7 @@ export default function AddProduct() {
     if (!form.title || form.title.length < rules.minTitle)
       return `Title must be at least ${rules.minTitle} characters`;
     if (!form.mainCategory) return "Select category";
-    if (!form.price) return "Enter price";
+    if (!form.priceRaw) return "Enter price";
     if (!form.phone || form.phone.length < 10) return "Enter valid phone number";
     if (form.images.length < rules.minImages)
       return `Upload at least ${rules.minImages} image(s)`;
@@ -105,7 +110,7 @@ export default function AddProduct() {
       const uploaded = await Promise.all(form.images.map(img => uploadToCloudinary(img)));
       await addDoc(collection(db, "products"), {
         ...form,
-        price: Number(form.price.replace(/,/g, "")),
+        price: Number(form.priceRaw),
         images: uploaded,
         coverImage: uploaded[0],
         marketType,
@@ -122,7 +127,7 @@ export default function AddProduct() {
     }
   };
 
-  // -------------------- Full Page List with Other / Manual Input --------------------
+  // -------------------- Full Page List --------------------
   const FullPageList = ({ title, options, valueKey }) => {
     const [customValue, setCustomValue] = useState("");
 
@@ -137,9 +142,9 @@ export default function AddProduct() {
     return (
       <div className="fullpage-list">
         {backStep && (
-          <div className="options-back" onClick={() => setSelectionStep(backStep)}>
+          <button type="button" className="options-back" onClick={() => setSelectionStep(backStep)}>
             ← Back
-          </div>
+          </button>
         )}
         <h3>{title}</h3>
         <div className="options-scroll">
@@ -147,36 +152,60 @@ export default function AddProduct() {
             <div
               key={opt}
               className={`option-item ${form[valueKey] === opt ? "active" : ""}`}
-              onClick={() => { update(valueKey, opt); setSelectionStep(null); }}
+              onClick={() => {
+                update(valueKey, opt);
+                // Reset dependent fields
+                if (valueKey === "state") update("city", "");
+                if (valueKey === "mainCategory") {
+                  update("subCategory", "");
+                  update("brand", "");
+                  update("model", "");
+                  update("condition", "");
+                  update("usedDetail", "");
+                }
+                if (valueKey === "subCategory") {
+                  update("brand", "");
+                  update("model", "");
+                  update("condition", "");
+                  update("usedDetail", "");
+                }
+                if (valueKey === "brand") {
+                  update("model", "");
+                  update("condition", "");
+                  update("usedDetail", "");
+                }
+                if (valueKey === "condition") {
+                  update("usedDetail", "");
+                }
+                setSelectionStep(null);
+              }}
             >
               {opt}
             </div>
           ))}
 
           {/* Other / Manual Input */}
-          <div className="option-item" style={{ justifyContent: "center" }}>
-            <input
-              type="text"
-              placeholder={`Enter ${valueKey}...`}
-              value={customValue}
-              onChange={e => setCustomValue(e.target.value)}
-              onKeyDown={e => e.key === "Enter" && handleCustomSubmit()}
-              style={{
-                width: "80%",
-                border: "none",
-                outline: "none",
-                background: "transparent",
-                fontSize: "14px",
-                color: "#333",
-              }}
-            />
-            <span
-              onClick={handleCustomSubmit}
-              style={{ cursor: "pointer", color: "#0D6EFD", marginLeft: "6px" }}
-            >
-              ➔
-            </span>
-          </div>
+          <form onSubmit={e => { e.preventDefault(); handleCustomSubmit(); }}>
+            <div className="option-item" style={{ justifyContent: "center" }}>
+              <input
+                type="text"
+                placeholder={`Enter ${valueKey}...`}
+                value={customValue}
+                onChange={e => setCustomValue(e.target.value)}
+                style={{
+                  width: "80%",
+                  border: "none",
+                  outline: "none",
+                  background: "transparent",
+                  fontSize: "14px",
+                  color: "#333",
+                }}
+              />
+              <button type="submit" style={{ marginLeft: "6px", cursor: "pointer", color: "#0D6EFD" }}>
+                ➔
+              </button>
+            </div>
+          </form>
         </div>
       </div>
     );
@@ -210,7 +239,7 @@ export default function AddProduct() {
     <div className="add-product-container">
       {/* Header */}
       <div className="add-product-header">
-        <button className="back-btn" onClick={() => navigate(`/${marketType}`)}>←</button>
+        <button type="button" className="back-btn" onClick={() => navigate(`/${marketType}`)}>←</button>
         <span className="page-title">Add Product</span>
       </div>
 
@@ -226,7 +255,14 @@ export default function AddProduct() {
             <div
               key={cat.name}
               className={`category-item ${form.mainCategory === cat.name ? "active" : ""}`}
-              onClick={() => update("mainCategory", cat.name)}
+              onClick={() => {
+                update("mainCategory", cat.name);
+                update("subCategory", "");
+                update("brand", "");
+                update("model", "");
+                update("condition", "");
+                update("usedDetail", "");
+              }}
             >
               <span className="category-icon">{cat.icon}</span>
               <span className="category-name">{cat.name}</span>
@@ -298,7 +334,7 @@ export default function AddProduct() {
           {form.previews.map((p, i) => (
             <div key={i} className="img-wrap">
               <img src={p} alt="" />
-              <button onClick={() => removeImage(i)}>×</button>
+              <button type="button" onClick={() => removeImage(i)}>×</button>
             </div>
           ))}
         </div>
@@ -323,6 +359,22 @@ export default function AddProduct() {
       {/* Description */}
       <Field label="Description">
         <textarea rows={4} value={form.description} onChange={e => update("description", e.target.value)} />
+      </Field>
+
+      {/* Promotion Plan */}
+      <Field label="Promotion Plan">
+        <div className="promotion-scroll">
+          {promotionPlans.map(plan => (
+            <div
+              key={plan.id}
+              className={`promotion-item ${form.promotionPlan === plan.id ? "active" : ""}`}
+              onClick={() => update("promotionPlan", plan.id)}
+            >
+              <span>{plan.icon}</span>
+              <span>{plan.label}</span>
+            </div>
+          ))}
+        </div>
       </Field>
 
       {/* Submit */}
