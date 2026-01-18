@@ -1,157 +1,151 @@
-// src/pages/HomePage.jsx
+// pages/HomePage.jsx
 import { useEffect, useState } from "react";
-import { collection, getDocs, query, orderBy, limit, where } from "firebase/firestore";
+import { collection, getDocs, query, orderBy } from "firebase/firestore";
 import { db } from "../firebase";
 import { useNavigate } from "react-router-dom";
 import TopNav from "../components/TopNav";
-import PostAdModal from "../components/PostAdModal";
 import categories from "../config/categories";
-import { promotionPlans } from "../config/promotionPlans";
 
 export default function HomePage() {
   const navigate = useNavigate();
-  const [allProducts, setAllProducts] = useState([]);
-  const [displayProducts, setDisplayProducts] = useState([]);
+  const [miniMartProducts, setMiniMartProducts] = useState([]);
+  const [marketplaceProducts, setMarketplaceProducts] = useState([]);
+  const [trendingProducts, setTrendingProducts] = useState([]);
   const [selectedCategory, setSelectedCategory] = useState("");
-  const [searchQuery, setSearchQuery] = useState("");
-
-  const loadProducts = async () => {
-    const snap = await getDocs(query(collection(db, "products"), orderBy("createdAt", "desc")));
-    const products = snap.docs.map(d => ({ id: d.id, ...d.data() }));
-    setAllProducts(products);
-  };
 
   useEffect(() => {
+    const loadProducts = async () => {
+      const productsSnap = await getDocs(query(collection(db, "products"), orderBy("createdAt", "desc")));
+      const allProducts = productsSnap.docs.map(d => ({ id: d.id, ...d.data() }));
+
+      setTrendingProducts(allProducts.slice(0, 5));
+
+      let miniProds = allProducts.filter(p => p.marketType === "minimart");
+      if (selectedCategory) miniProds = miniProds.filter(p => p.mainCategory === selectedCategory);
+      setMiniMartProducts(miniProds);
+
+      let marketProds = allProducts.filter(p => p.marketType === "marketplace" || p.marketType === "minimart");
+      if (selectedCategory) marketProds = marketProds.filter(p => p.mainCategory === selectedCategory);
+      setMarketplaceProducts(marketProds);
+    };
     loadProducts();
-  }, []);
+  }, [selectedCategory]);
 
-  // Filter & search logic
-  useEffect(() => {
-    let filtered = [...allProducts];
+  const formatPrice = price => `₦${Number(price).toLocaleString()}`;
 
-    // Filter by category
-    if (selectedCategory) {
-      filtered = filtered.filter(p => p.category === selectedCategory);
-    }
-
-    // Search by title
-    if (searchQuery.trim()) {
-      const q = searchQuery.toLowerCase();
-      filtered = filtered.filter(p => p.title.toLowerCase().includes(q));
-    }
-
-    // Separate promoted products
-    const promoted = filtered.filter(p => promotionPlans.some(plan => plan.id === p.promotionPlan));
-    const regular = filtered.filter(p => !promoted.includes(p));
-
-    // Limit promoted to 5 and mix the rest
-    const promotedTop = promoted.slice(0, 5);
-    const mixed = [...promotedTop, ...shuffleArray(regular)];
-
-    setDisplayProducts(mixed);
-  }, [allProducts, selectedCategory, searchQuery]);
-
-  // Utility: shuffle array
-  const shuffleArray = arr => arr.sort(() => Math.random() - 0.5);
+  const productCardStyle = {
+    padding: 12,
+    width: 180,
+    cursor: "pointer",
+    borderRadius: 8,
+    background: "#fff",
+    boxShadow: "0 2px 6px rgba(0,0,0,0.05)",
+    display: "flex",
+    flexDirection: "column",
+    alignItems: "center",
+  };
 
   return (
     <div style={{ background: "#f4f6f8", minHeight: "100vh", paddingBottom: 50 }}>
       <TopNav />
 
       {/* Banner */}
-      <div
-        style={{
-          background: "#0D6EFD",
-          color: "#fff",
-          padding: "30px 20px",
-          textAlign: "center",
-        }}
-      >
+      <div style={{ background: "#0D6EFD", color: "#fff", padding: "30px 20px", textAlign: "center" }}>
         <h1 style={{ margin: 0, fontSize: "2rem" }}>Welcome to MiniMart + Marketplace</h1>
         <p style={{ marginTop: 10, fontSize: "1.1rem" }}>
           Buy and sell safely. Verified sellers in MiniMart. ⚠️ Marketplace payments: inspect before paying.
         </p>
       </div>
 
-      {/* Post Ad & Search */}
-      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", maxWidth: 1000, margin: "20px auto", gap: 15 }}>
-        <PostAdModal />
-        <input
-          type="text"
-          placeholder="Search products..."
-          value={searchQuery}
-          onChange={e => setSearchQuery(e.target.value)}
-          style={{
-            flex: 1,
-            padding: "10px 12px",
-            borderRadius: 8,
-            border: "1px solid #cce0ff",
-            outline: "none",
-          }}
-        />
-      </div>
-
       {/* Category Filter */}
-      <div style={{ maxWidth: 1000, margin: "10px auto", display: "flex", flexWrap: "wrap", gap: 10 }}>
-        {categories.map(c => (
+      <div style={{ maxWidth: 1000, margin: "20px auto", display: "flex", flexWrap: "wrap", gap: 10 }}>
+        {categories.map(cat => (
           <button
-            key={c.name}
-            onClick={() => setSelectedCategory(selectedCategory === c.name ? "" : c.name)}
+            key={cat.name}
+            onClick={() => setSelectedCategory(cat.name)}
             style={{
-              padding: "6px 12px",
-              borderRadius: 8,
-              border: selectedCategory === c.name ? "2px solid #0D6EFD" : "1px solid #dee2e6",
-              background: selectedCategory === c.name ? "#e0ecff" : "#fff",
+              padding: "8px 12px",
+              background: selectedCategory === cat.name ? "#0D6EFD" : "#fff",
+              color: selectedCategory === cat.name ? "#fff" : "#212529",
+              border: "1px solid #0D6EFD",
+              borderRadius: 5,
               cursor: "pointer",
             }}
           >
-            <span style={{ marginRight: 6 }}>{c.icon}</span>
-            {c.name}
+            {cat.icon} {cat.name}
           </button>
         ))}
+        {selectedCategory && (
+          <button
+            onClick={() => setSelectedCategory("")}
+            style={{
+              padding: "8px 12px",
+              background: "#fff",
+              color: "#212529",
+              border: "1px solid #dc3545",
+              borderRadius: 5,
+              cursor: "pointer",
+            }}
+          >
+            Clear Filter
+          </button>
+        )}
       </div>
 
-      {/* Products Feed */}
+      {/* Trending Products */}
       <section style={{ maxWidth: 1000, margin: "20px auto" }}>
-        <h2 style={{ color: "#0D6EFD" }}>Products Feed</h2>
-        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(180px, 1fr))", gap: 20 }}>
-          {displayProducts.length ? displayProducts.map(p => {
-            const isPromoted = promotionPlans.some(plan => plan.id === p.promotionPlan);
-            return (
-              <div
-                key={p.id}
-                onClick={() => navigate(`/product/${p.id}`)}
-                style={{
-                  position: "relative",
-                  border: `1px solid ${p.marketType === "minimart" ? "#0D6EFD" : "#dee2e6"}`,
-                  padding: 10,
-                  cursor: "pointer",
-                  borderRadius: 8,
-                  background: "#fff",
-                  boxShadow: "0 2px 6px rgba(0,0,0,0.05)",
-                }}
-              >
-                {isPromoted && (
-                  <div style={{
-                    position: "absolute",
-                    top: 6,
-                    left: 6,
-                    background: "#ffc107",
-                    padding: "2px 6px",
-                    borderRadius: 4,
-                    fontSize: 12,
-                    fontWeight: 600,
-                    zIndex: 1,
-                  }}>PROMO</div>
-                )}
-                <img src={p.imageUrl} alt={p.title} style={{ width: "100%", borderRadius: 5, marginBottom: 10 }} />
-                <p style={{ fontWeight: 600, color: "#212529", margin: 0 }}>{p.title}</p>
-                <p style={{ color: p.marketType === "minimart" ? "#198754" : "#dc3545", fontWeight: "bold", marginTop: 4 }}>
-                  ₦{p.price}
-                </p>
-              </div>
-            );
-          }) : <p>No products found.</p>}
+        <h2 style={{ color: "#DC3545", marginBottom: 10 }}>🔥 Trending Products</h2>
+        <div style={{ display: "flex", gap: 15, overflowX: "auto", padding: "10px 0" }}>
+          {trendingProducts.map(p => (
+            <div
+              key={p.id}
+              onClick={() => navigate(`/product/${p.id}`)}
+              style={{ ...productCardStyle, flexShrink: 0 }}
+            >
+              <img src={p.images?.[0]} alt={p.title || p.name} style={{ width: "100%", borderRadius: 5, marginBottom: 8 }} />
+              <p style={{ fontWeight: 600, margin: "5px 0 0 0", textAlign: "center" }}>{p.title || p.name}</p>
+              <p style={{ color: "#198754", fontWeight: "bold", marginTop: 4 }}>{formatPrice(p.price)}</p>
+            </div>
+          ))}
+        </div>
+      </section>
+
+      {/* MiniMart Section */}
+      <section style={{ maxWidth: 1000, margin: "20px auto" }}>
+        <h2 style={{ color: "#0D6EFD", marginBottom: 10 }}>MiniMart (Verified Sellers)</h2>
+        <div style={{ display: "flex", flexWrap: "wrap", gap: 20 }}>
+          {miniMartProducts.map(p => (
+            <div
+              key={p.id}
+              onClick={() => navigate(`/product/${p.id}`)}
+              style={{ ...productCardStyle, border: "2px solid #0D6EFD", marginBottom: 20 }}
+            >
+              <img src={p.images?.[0]} width="150" style={{ borderRadius: 5, marginBottom: 10 }} />
+              <p style={{ fontWeight: 600, color: "#212529", margin: 0, textAlign: "center" }}>{p.title || p.name}</p>
+              <p style={{ color: "#0D6EFD", fontWeight: "bold", marginTop: 4 }}>{formatPrice(p.price)}</p>
+            </div>
+          ))}
+        </div>
+      </section>
+
+      {/* Marketplace Section */}
+      <section style={{ maxWidth: 1000, margin: "40px auto" }}>
+        <div style={{ background: "#fff3cd", padding: 10, borderRadius: 5, marginBottom: 10, color: "#856404" }}>
+          ⚠️ Do NOT pay before delivery. Always inspect the product before paying.
+        </div>
+        <h2 style={{ color: "#0D6EFD", marginBottom: 10 }}>Marketplace</h2>
+        <div style={{ display: "flex", flexWrap: "wrap", gap: 20 }}>
+          {marketplaceProducts.map(p => (
+            <div
+              key={p.id}
+              onClick={() => navigate(`/product/${p.id}`)}
+              style={{ ...productCardStyle, marginBottom: 20 }}
+            >
+              <img src={p.images?.[0]} width="150" style={{ borderRadius: 5, marginBottom: 10 }} />
+              <p style={{ fontWeight: 600, color: "#212529", margin: 0, textAlign: "center" }}>{p.title || p.name}</p>
+              <p style={{ color: "#dc3545", fontWeight: "bold", marginTop: 4 }}>{formatPrice(p.price)}</p>
+            </div>
+          ))}
         </div>
       </section>
     </div>
