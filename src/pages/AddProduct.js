@@ -21,6 +21,7 @@ export default function AddProduct() {
   const marketType = params.get("market") || "marketplace";
 
   const [loading, setLoading] = useState(false);
+  const [showSuccess, setShowSuccess] = useState(false); // dynamic success message
   const [form, setForm] = useState({
     title: "",
     mainCategory: "",
@@ -64,8 +65,13 @@ export default function AddProduct() {
   }, [form.previews]);
 
   // -------------------- Helpers --------------------
-  const update = (key, value) => setForm(prev => ({ ...prev, [key]: value }));
-  const resetFields = keys => keys.forEach(k => update(k, ""));
+  const update = (key, value, resetDeps = []) => {
+    setForm(prev => {
+      let updated = { ...prev, [key]: value };
+      resetDeps.forEach(dep => { updated[dep] = ""; });
+      return updated;
+    });
+  };
 
   const handlePriceChange = e => {
     const raw = e.target.value.replace(/,/g, "");
@@ -123,7 +129,11 @@ export default function AddProduct() {
         createdAt: serverTimestamp(),
       });
       localStorage.removeItem(DRAFT_KEY);
-      alert("Product posted successfully");
+
+      // Dynamic success
+      setShowSuccess(true);
+      setTimeout(() => setShowSuccess(false), 3000);
+
       navigate(`/${marketType}`);
     } catch (err) {
       alert(err.message);
@@ -159,13 +169,15 @@ export default function AddProduct() {
               key={opt}
               className={`option-item ${form[valueKey] === opt ? "active" : ""}`}
               onClick={() => {
-                update(valueKey, opt);
-                // Reset dependent fields
-                if (valueKey === "state") update("city", "");
-                if (valueKey === "mainCategory") resetFields(["subCategory", "brand", "model", "condition", "usedDetail"]);
-                if (valueKey === "subCategory") resetFields(["brand", "model", "condition", "usedDetail"]);
-                if (valueKey === "brand") resetFields(["model", "condition", "usedDetail"]);
-                if (valueKey === "condition") resetFields(["usedDetail"]);
+                const depsMap = {
+                  mainCategory: ["subCategory","brand","model","condition","usedDetail"],
+                  subCategory: ["brand","model","condition","usedDetail"],
+                  brand: ["model","condition","usedDetail"],
+                  model: ["condition","usedDetail"],
+                  condition: ["usedDetail"],
+                  state: ["city"]
+                };
+                update(valueKey, opt, depsMap[valueKey] || []);
                 setSelectionStep(null);
               }}
             >
@@ -216,18 +228,24 @@ export default function AddProduct() {
   // -------------------- Main Form --------------------
   return (
     <div className="add-product-container">
+      {showSuccess && (
+        <div className="success-toast">
+          <img src="/marketplace.png" alt="Marketplace" />
+          <span>Product posted successfully!</span>
+        </div>
+      )}
+
       {/* Header */}
       <div className="add-product-header">
         <button type="button" className="back-btn" onClick={() => navigate(`/${marketType}`)}>←</button>
         <span className="page-title">Add Product</span>
       </div>
 
-      {/* Title */}
+      {/* All Fields */}
       <Field label="Title">
         <input value={form.title} onChange={e => update("title", e.target.value)} placeholder="e.g iPhone 11 Pro Max" />
       </Field>
 
-      {/* Category */}
       <Field label="Category">
         <div className="category-scroll">
           {categories.map(cat => (
@@ -235,7 +253,7 @@ export default function AddProduct() {
               type="button"
               key={cat.name}
               className={`category-item ${form.mainCategory === cat.name ? "active" : ""}`}
-              onClick={() => update("mainCategory", cat.name)}
+              onClick={() => update("mainCategory", cat.name, ["subCategory","brand","model","condition","usedDetail"])}
             >
               <span className="category-icon">{cat.icon}</span>
               <span className="category-name">{cat.name}</span>
@@ -244,7 +262,6 @@ export default function AddProduct() {
         </div>
       </Field>
 
-      {/* Subcategory */}
       {form.mainCategory && (
         <Field label="Subcategory">
           <button type="button" className="option-item clickable" onClick={() => { setBackStep(null); setSelectionStep("subCategory"); }}>
@@ -253,7 +270,6 @@ export default function AddProduct() {
         </Field>
       )}
 
-      {/* Brand */}
       {form.subCategory && (
         <Field label="Brand">
           <button type="button" className="option-item clickable" onClick={() => { setBackStep("subCategory"); setSelectionStep("brand"); }}>
@@ -262,7 +278,6 @@ export default function AddProduct() {
         </Field>
       )}
 
-      {/* Model */}
       {form.brand && (
         <Field label="Model / Type">
           <button type="button" className="option-item clickable" onClick={() => { setBackStep("brand"); setSelectionStep("model"); }}>
@@ -271,7 +286,6 @@ export default function AddProduct() {
         </Field>
       )}
 
-      {/* Condition */}
       {(form.mainCategory === "Smartphones" || form.mainCategory === "FeaturePhones") && form.model && (
         <Field label="Condition">
           <button type="button" className="option-item clickable" onClick={() => { setBackStep("model"); setSelectionStep("condition"); }}>
@@ -287,17 +301,14 @@ export default function AddProduct() {
         </Field>
       )}
 
-      {/* Price */}
       <Field label="Price (₦)">
         <input value={form.price} onChange={handlePriceChange} placeholder="₦ 0" />
       </Field>
 
-      {/* Phone */}
       <Field label="Phone Number">
         <input type="tel" value={form.phone} onChange={e => update("phone", e.target.value)} placeholder="08012345678" />
       </Field>
 
-      {/* Images */}
       <Field label="Images">
         <label className="image-upload">
           <input type="file" multiple hidden onChange={e => handleImages(e.target.files)} />
@@ -313,14 +324,12 @@ export default function AddProduct() {
         </div>
       </Field>
 
-      {/* State */}
       <Field label="State">
         <button type="button" className="option-item clickable" onClick={() => { setBackStep(null); setSelectionStep("state"); }}>
           {form.state || "Select State"}
         </button>
       </Field>
 
-      {/* City */}
       {form.state && (
         <Field label="City / LGA">
           <button type="button" className="option-item clickable" onClick={() => { setBackStep("state"); setSelectionStep("city"); }}>
@@ -329,12 +338,10 @@ export default function AddProduct() {
         </Field>
       )}
 
-      {/* Description */}
       <Field label="Description">
         <textarea rows={4} value={form.description} onChange={e => update("description", e.target.value)} />
       </Field>
 
-      {/* Promotion Plan */}
       <Field label="Promotion Plan">
         <div className="promotion-scroll">
           {promotionPlans.map(plan => (
@@ -354,7 +361,6 @@ export default function AddProduct() {
         </div>
       </Field>
 
-      {/* Submit */}
       <button className="btn" onClick={handleSubmit} disabled={loading}>
         {loading ? "Uploading..." : "Publish"}
       </button>
