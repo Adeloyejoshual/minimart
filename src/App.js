@@ -6,6 +6,7 @@ import { auth } from "./firebase";
 // Pages
 import Login from "./pages/Login";
 import Register from "./pages/Register";
+import HomePage from "./pages/HomePage"; // <-- import HomePage
 import MiniMart from "./pages/MiniMart";
 import Marketplace from "./pages/Marketplace";
 import Profile from "./pages/Profile";
@@ -13,7 +14,7 @@ import ApplySeller from "./pages/ApplySeller";
 import AdminPanel from "./pages/AdminPanel";
 import ProductDetail from "./pages/ProductDetail";
 import AddProduct from "./pages/AddProduct";
-import ChatPage from "./pages/ChatPage"; // <-- replace old Chat with ChatPage
+import ChatPage from "./pages/ChatPage";
 
 function App() {
   const [user, loading] = useAuthState(auth);
@@ -32,8 +33,8 @@ function App() {
           </>
         ) : (
           <>
-            {/* Redirect root to MiniMart */}
-            <Route path="/" element={<Navigate to="/minimart" replace />} />
+            {/* Root shows homepage */}
+            <Route path="/" element={<HomePage />} />
 
             {/* Main pages */}
             <Route path="/minimart" element={<MiniMart />} />
@@ -52,11 +53,11 @@ function App() {
             {/* Add Product */}
             <Route path="/add-product" element={<AddProduct />} />
 
-            {/* Chat route — now using ChatPage */}
+            {/* Chat route */}
             <Route path="/chat/:sellerId" element={<ChatPage />} />
 
             {/* Catch-all */}
-            <Route path="*" element={<Navigate to="/minimart" replace />} />
+            <Route path="*" element={<Navigate to="/" replace />} />
           </>
         )}
       </Routes>
