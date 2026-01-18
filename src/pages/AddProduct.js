@@ -60,7 +60,9 @@ export default function AddProduct() {
   }, [form]);
 
   // -------------------- Cleanup object URLs --------------------
-  useEffect(() => () => form.previews.forEach(url => URL.revokeObjectURL(url)), [form.previews]);
+  useEffect(() => {
+    return () => form.previews.forEach(url => URL.revokeObjectURL(url));
+  }, [form.previews]);
 
   const update = (key, value) => setForm(prev => ({ ...prev, [key]: value }));
 
@@ -163,10 +165,10 @@ export default function AddProduct() {
 
                 // Reset dependent fields
                 if (valueKey === "state") update("city", "");
-                if (valueKey === "mainCategory") updateDependent(["subCategory", "brand", "model", "condition", "usedDetail"]);
-                if (valueKey === "subCategory") updateDependent(["brand", "model", "condition", "usedDetail"]);
-                if (valueKey === "brand") updateDependent(["model", "condition", "usedDetail"]);
-                if (valueKey === "condition") updateDependent(["usedDetail"]);
+                if (valueKey === "mainCategory") resetFields(["subCategory", "brand", "model", "condition", "usedDetail"]);
+                if (valueKey === "subCategory") resetFields(["brand", "model", "condition", "usedDetail"]);
+                if (valueKey === "brand") resetFields(["model", "condition", "usedDetail"]);
+                if (valueKey === "condition") resetFields(["usedDetail"]);
 
                 setSelectionStep(null);
               }}
@@ -192,9 +194,7 @@ export default function AddProduct() {
     );
   };
 
-  const updateDependent = keys => {
-    keys.forEach(k => update(k, ""));
-  };
+  const resetFields = keys => keys.forEach(k => update(k, ""));
 
   // -------------------- Derived Options --------------------
   const getSubcategories = () => categories.find(c => c.name === form.mainCategory)?.subcategories || [];
@@ -254,7 +254,7 @@ export default function AddProduct() {
       {form.mainCategory && (
         <Field label="Subcategory">
           <button type="button" className="option-item clickable" onClick={() => { setBackStep(null); setSelectionStep("subCategory"); }}>
-            {form.subCategory || "Select Subcategory"} ➔
+            {form.subCategory || "Select Subcategory"}
           </button>
         </Field>
       )}
@@ -263,7 +263,7 @@ export default function AddProduct() {
       {form.subCategory && (
         <Field label="Brand">
           <button type="button" className="option-item clickable" onClick={() => { setBackStep("subCategory"); setSelectionStep("brand"); }}>
-            {form.brand || "Select Brand"} ➔
+            {form.brand || "Select Brand"}
           </button>
         </Field>
       )}
@@ -272,7 +272,7 @@ export default function AddProduct() {
       {form.brand && (
         <Field label="Model / Type">
           <button type="button" className="option-item clickable" onClick={() => { setBackStep("brand"); setSelectionStep("model"); }}>
-            {form.model || "Select Model"} ➔
+            {form.model || "Select Model"}
           </button>
         </Field>
       )}
@@ -281,12 +281,12 @@ export default function AddProduct() {
       {(form.mainCategory === "Smartphones" || form.mainCategory === "FeaturePhones") && form.model && (
         <Field label="Condition">
           <button type="button" className="option-item clickable" onClick={() => { setBackStep("model"); setSelectionStep("condition"); }}>
-            {form.condition || "Select Condition"} ➔
+            {form.condition || "Select Condition"}
           </button>
           {form.condition === "Used" && (
             <Field label="Used Details">
               <button type="button" className="option-item clickable" onClick={() => { setBackStep("condition"); setSelectionStep("usedDetail"); }}>
-                {form.usedDetail || "Select Used Detail"} ➔
+                {form.usedDetail || "Select Used Detail"}
               </button>
             </Field>
           )}
@@ -322,7 +322,7 @@ export default function AddProduct() {
       {/* State */}
       <Field label="State">
         <button type="button" className="option-item clickable" onClick={() => { setBackStep(null); setSelectionStep("state"); }}>
-          {form.state || "Select State"} ➔
+          {form.state || "Select State"}
         </button>
       </Field>
 
@@ -330,7 +330,7 @@ export default function AddProduct() {
       {form.state && (
         <Field label="City / LGA">
           <button type="button" className="option-item clickable" onClick={() => { setBackStep("state"); setSelectionStep("city"); }}>
-            {form.city || "Select City / LGA"} ➔
+            {form.city || "Select City / LGA"}
           </button>
         </Field>
       )}
@@ -350,7 +350,7 @@ export default function AddProduct() {
               className={`promotion-item ${form.promotionPlan === plan.id ? "active" : ""}`}
               onClick={() => update("promotionPlan", plan.id)}
             >
-              {plan.isFree && <span className="promotion-free-badge">FREE</span>}
+              {plan.isFree && <div className="promotion-free-badge">FREE</div>}
               <span className="promotion-icon">{plan.icon}</span>
               <span className="promotion-label">{plan.label}</span>
             </button>
