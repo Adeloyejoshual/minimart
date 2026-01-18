@@ -1,29 +1,27 @@
 // src/pages/HomePage.jsx
 import { useEffect, useState } from "react";
-import { collection, getDocs, query, orderBy, limit, startAfter } from "firebase/firestore";
+import { collection, getDocs, query, orderBy, startAfter, limit, where } from "firebase/firestore";
 import { db } from "../firebase";
 import { useNavigate } from "react-router-dom";
 import TopNav from "../components/TopNav";
 import PostAdModal from "../components/PostAdModal";
 import { promotionPlans } from "../config/promotionPlans";
+import categoriesConfig from "../config/categories";
 
 export default function HomePage() {
   const navigate = useNavigate();
   const [products, setProducts] = useState([]);
+  const [promotedProducts, setPromotedProducts] = useState([]);
   const [trendingProducts, setTrendingProducts] = useState([]);
-  const [selectedCategory, setSelectedCategory] = useState("");
   const [lastVisible, setLastVisible] = useState(null);
   const [loadingMore, setLoadingMore] = useState(false);
-  const PRODUCTS_LIMIT = 12; // Number of products per batch
+  const [selectedCategory, setSelectedCategory] = useState("");
+  const [searchQuery, setSearchQuery] = useState("");
 
-  const categories = [
-    "Vehicles","Property","Mobile Phones & Tablets","Electronics",
-    "Home, Furniture & Appliances","Fashion","Beauty & Personal Care",
-    "Services","Repair & Construction","Commercial Equipment & Tools",
-    "Leisure & Activities","Babies & Kids","Food, Agriculture & Farming",
-    "Animals & Pets","Jobs","Seeking Work - CVs"
-  ];
+  const PRODUCTS_LIMIT = 12;
+  const categories = categoriesConfig.map(c => c.name);
 
+  // -------------------- Fetch Products --------------------
   const fetchProducts = async (loadMore = false) => {
     let q;
     if (loadMore && lastVisible) {
@@ -34,42 +32,54 @@ export default function HomePage() {
         limit(PRODUCTS_LIMIT)
       );
     } else {
-      q = query(
-        collection(db, "products"),
-        orderBy("createdAt", "desc"),
-        limit(PRODUCTS_LIMIT)
-      );
+      q = query(collection(db, "products"), orderBy("createdAt", "desc"), limit(PRODUCTS_LIMIT));
     }
 
     const snap = await getDocs(q);
-    const docs = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+    let docs = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+
+    // Filter by category
     if (selectedCategory) docs = docs.filter(p => p.category === selectedCategory);
 
-    // Promote products first
-    const promotedIds = promotionPlans.map(p => p.id);
-    const sorted = docs.sort((a, b) => {
-      const aBoost = promotedIds.includes(a.promotionPlan) ? 1 : 0;
-      const bBoost = promotedIds.includes(b.promotionPlan) ? 1 : 0;
-      return bBoost - aBoost;
-    });
+    // Filter by search
+    if (searchQuery) {
+      const qLower = searchQuery.toLowerCase();
+      docs = docs.filter(
+        p =>
+          (p.name && p.name.toLowerCase().includes(qLower)) ||
+          (p.brand && p.brand.toLowerCase().includes(qLower)) ||
+          (p.category && p.category.toLowerCase().includes(qLower))
+      );
+    }
 
-    if (loadMore) {
-      setProducts(prev => [...prev, ...sorted]);
+    // Split promoted and normal
+    const promotedIds = promotionPlans.map(p => p.id);
+    const promoted = docs.filter(p => promotedIds.includes(p.promotionPlan));
+    const normal = docs.filter(p => !promotedIds.includes(p.promotionPlan));
+
+    if (!loadMore) {
+      setPromotedProducts(promoted.slice(0, 5)); // first 5 promoted
+      const mixed = shuffleArray([...promoted.slice(5), ...normal]);
+      setProducts(mixed);
     } else {
-      setProducts(sorted);
-      // Trending
-      let trending = sorted.slice(0, 5);
-      if (trending.length < 5) trending = trending.concat(sorted.slice(trending.length, 5));
-      setTrendingProducts(trending);
+      const mixed = shuffleArray([...promoted, ...normal]);
+      setProducts(prev => [...prev, ...mixed]);
     }
 
     if (snap.docs.length) setLastVisible(snap.docs[snap.docs.length - 1]);
   };
 
+  // -------------------- Fetch Trending --------------------
+  const fetchTrending = async () => {
+    const snap = await getDocs(query(collection(db, "products"), orderBy("clicks", "desc"), limit(5)));
+    setTrendingProducts(snap.docs.map(d => ({ id: d.id, ...d.data() })));
+  };
+
   useEffect(() => {
     setLastVisible(null);
     fetchProducts(false);
-  }, [selectedCategory]);
+    fetchTrending();
+  }, [selectedCategory, searchQuery]);
 
   const loadMore = async () => {
     setLoadingMore(true);
@@ -77,6 +87,16 @@ export default function HomePage() {
     setLoadingMore(false);
   };
 
+  const shuffleArray = arr => {
+    const a = [...arr];
+    for (let i = a.length - 1; i > 0; i--) {
+      const j = Math.floor(Math.random() * (i + 1));
+      [a[i], a[j]] = [a[j], a[i]];
+    }
+    return a;
+  };
+
+  // -------------------- Product Card --------------------
   const ProductCard = ({ p }) => {
     const isMiniMart = p.marketType === "minimart";
     const promo = promotionPlans.find(plan => plan.id === p.promotionPlan);
@@ -99,16 +119,17 @@ export default function HomePage() {
       >
         <div style={{ position: "relative" }}>
           <img src={p.imageUrl} alt={p.name} style={{ width: "100%", borderRadius: 6, objectFit: "cover", height: 120 }} />
-          {promo && !promo.isFree && (
+          {promo && (
             <div style={{
               position: "absolute",
               top: 5,
               left: 5,
-              background: "#FFC107",
+              background: promo.isFree ? "#0D6EFD" : "#FFC107",
               padding: "2px 6px",
               borderRadius: 4,
               fontSize: 12,
               fontWeight: "bold",
+              color: "#fff",
             }}>
               {promo.label}
             </div>
@@ -123,6 +144,7 @@ export default function HomePage() {
   return (
     <div style={{ background: "#f4f6f8", minHeight: "100vh", paddingBottom: 50 }}>
       <TopNav />
+
       {/* Banner */}
       <div style={{ background: "#0D6EFD", color: "#fff", padding: "30px 20px", textAlign: "center" }}>
         <h1 style={{ margin: 0, fontSize: "2rem" }}>Welcome to MiniMart + Marketplace</h1>
@@ -131,7 +153,25 @@ export default function HomePage() {
         </p>
       </div>
 
+      {/* Post Ad */}
       <div style={{ textAlign: "center", marginTop: 20 }}><PostAdModal /></div>
+
+      {/* Search Bar */}
+      <div style={{ maxWidth: 600, margin: "20px auto", textAlign: "center" }}>
+        <input
+          type="text"
+          placeholder="Search products by name, category, or brand..."
+          value={searchQuery}
+          onChange={e => setSearchQuery(e.target.value)}
+          style={{
+            width: "100%",
+            padding: 10,
+            borderRadius: 8,
+            border: "1px solid #dee2e6",
+            fontSize: 14,
+          }}
+        />
+      </div>
 
       {/* Category Filter */}
       <div style={{ maxWidth: 1000, margin: "20px auto" }}>
@@ -156,14 +196,26 @@ export default function HomePage() {
       </div>
 
       {/* Trending */}
-      <section style={{ maxWidth: 1000, margin: "20px auto" }}>
-        <h2 style={{ color: "#DC3545" }}>🔥 Trending Products</h2>
-        <div style={{ display: "flex", gap: 20, overflowX: "auto", padding: "10px 0" }}>
-          {trendingProducts.map(p => <ProductCard key={p.id} p={p} />)}
-        </div>
-      </section>
+      {trendingProducts.length > 0 && (
+        <section style={{ maxWidth: 1000, margin: "20px auto" }}>
+          <h2 style={{ color: "#DC3545" }}>🔥 Trending Products</h2>
+          <div style={{ display: "flex", gap: 20, overflowX: "auto", padding: "10px 0" }}>
+            {trendingProducts.map(p => <ProductCard key={p.id} p={p} />)}
+          </div>
+        </section>
+      )}
 
-      {/* All Products */}
+      {/* Promoted Products */}
+      {promotedProducts.length > 0 && (
+        <section style={{ maxWidth: 1000, margin: "20px auto" }}>
+          <h2 style={{ color: "#FFC107" }}>⭐ Promoted Products</h2>
+          <div style={{ display: "flex", gap: 20, overflowX: "auto", padding: "10px 0" }}>
+            {promotedProducts.map(p => <ProductCard key={p.id} p={p} />)}
+          </div>
+        </section>
+      )}
+
+      {/* Mixed Feed */}
       <section style={{ maxWidth: 1000, margin: "20px auto" }}>
         <h2 style={{ color: "#0D6EFD" }}>All Products</h2>
         <div style={{ display: "flex", flexWrap: "wrap", gap: 20, justifyContent: "flex-start" }}>
