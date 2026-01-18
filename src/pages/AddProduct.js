@@ -37,7 +37,6 @@ export default function AddProduct() {
     city: "",
     images: [],
     previews: [],
-    isPromoted: false,
     promotionPlan: promotionPlans[0].id,
   });
 
@@ -64,9 +63,10 @@ export default function AddProduct() {
     return () => form.previews.forEach(url => URL.revokeObjectURL(url));
   }, [form.previews]);
 
+  // -------------------- Helpers --------------------
   const update = (key, value) => setForm(prev => ({ ...prev, [key]: value }));
+  const resetFields = keys => keys.forEach(k => update(k, ""));
 
-  // -------------------- Handlers --------------------
   const handlePriceChange = e => {
     const raw = e.target.value.replace(/,/g, "");
     if (!isNaN(raw)) {
@@ -96,12 +96,10 @@ export default function AddProduct() {
     if (!form.mainCategory) return "Select category";
     if (!form.priceRaw) return "Enter price";
     if (!form.phone || form.phone.length < 10) return "Enter valid phone number";
-    if (form.images.length < rules.minImages)
-      return `Upload at least ${rules.minImages} image(s)`;
+    if (form.images.length < rules.minImages) return `Upload at least ${rules.minImages} image(s)`;
     if ((form.mainCategory === "Smartphones" || form.mainCategory === "FeaturePhones") && form.model && !form.condition)
       return "Select condition";
-    if (form.condition === "Used" && !form.usedDetail)
-      return "Select used detail";
+    if (form.condition === "Used" && !form.usedDetail) return "Select used detail";
     if (!form.state) return "Select state";
     if (!form.city) return "Select city / LGA";
     return null;
@@ -134,7 +132,7 @@ export default function AddProduct() {
     }
   };
 
-  // -------------------- Full Page Selection --------------------
+  // -------------------- Full Page List --------------------
   const FullPageList = ({ title, options, valueKey }) => {
     const [customValue, setCustomValue] = useState("");
 
@@ -162,14 +160,12 @@ export default function AddProduct() {
               className={`option-item ${form[valueKey] === opt ? "active" : ""}`}
               onClick={() => {
                 update(valueKey, opt);
-
                 // Reset dependent fields
                 if (valueKey === "state") update("city", "");
                 if (valueKey === "mainCategory") resetFields(["subCategory", "brand", "model", "condition", "usedDetail"]);
                 if (valueKey === "subCategory") resetFields(["brand", "model", "condition", "usedDetail"]);
                 if (valueKey === "brand") resetFields(["model", "condition", "usedDetail"]);
                 if (valueKey === "condition") resetFields(["usedDetail"]);
-
                 setSelectionStep(null);
               }}
             >
@@ -186,15 +182,13 @@ export default function AddProduct() {
                 value={customValue}
                 onChange={e => setCustomValue(e.target.value)}
               />
-              <button type="submit" style={{ marginLeft: "6px", cursor: "pointer", color: "#0D6EFD" }}>➔</button>
+              <button type="submit" style={{ marginLeft: 6, cursor: "pointer", color: "#0D6EFD" }}>➔</button>
             </div>
           </form>
         </div>
       </div>
     );
   };
-
-  const resetFields = keys => keys.forEach(k => update(k, ""));
 
   // -------------------- Derived Options --------------------
   const getSubcategories = () => categories.find(c => c.name === form.mainCategory)?.subcategories || [];
@@ -205,7 +199,7 @@ export default function AddProduct() {
   const getConditionOptions = () => conditions.main;
   const getUsedDetailOptions = () => conditions.usedDetails;
 
-  // -------------------- Render Full Page Step --------------------
+  // -------------------- Render Full Page Selection --------------------
   if (selectionStep) {
     const steps = {
       subCategory: getSubcategories(),
@@ -352,6 +346,8 @@ export default function AddProduct() {
             >
               {plan.isFree && <div className="promotion-free-badge">FREE</div>}
               <span className="promotion-icon">{plan.icon}</span>
+              <span className="promotion-days">{plan.days} Days</span>
+              <span className="promotion-price">{plan.isFree ? "₦0" : `₦${plan.price}`}</span>
               <span className="promotion-label">{plan.label}</span>
             </button>
           ))}
