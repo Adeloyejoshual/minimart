@@ -3,8 +3,8 @@
   max-width: 900px;
   margin: 0 auto;
   padding: 32px 28px;
-  background: #f5f9ff; /* professional light background */
-  min-height: 100vh; /* full screen */
+  background: #f5f9ff; /* light professional background */
+  min-height: 100vh;
   box-sizing: border-box;
   font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
 }
@@ -52,17 +52,17 @@
   width: 100%;
   padding: 14px 16px;
   border: 2px solid #cce0ff;
-  border-radius: 0px; /* squared */
+  border-radius: 4px;
   font-size: 15px;
   outline: none;
-  background: #ffffff;
+  background: #fff;
   transition: border 0.25s, box-shadow 0.25s;
 }
 
 .field input:focus,
 .field textarea:focus {
   border-color: #0D6EFD;
-  box-shadow: 0 0 8px rgba(13, 110, 253, 0.15);
+  box-shadow: 0 0 8px rgba(13,110,253,0.15);
 }
 
 /* -------------------- Category Horizontal Scroll -------------------- */
@@ -75,9 +75,9 @@
 
 .category-item {
   flex: 0 0 auto;
-  background: #ffffff;
+  background: #fff;
   border: 2px solid #cce0ff;
-  border-radius: 0px;
+  border-radius: 6px;
   padding: 14px 16px;
   display: flex;
   flex-direction: column;
@@ -155,10 +155,10 @@
 }
 
 .option-item {
-  background: #ffffff;
+  background: #fff;
   border: 2px solid #cce0ff;
-  border-radius: 0px;
-  padding: 16px 18px;
+  border-radius: 6px;
+  padding: 14px 18px;
   cursor: pointer;
   transition: all 0.25s ease;
   display: flex;
@@ -215,7 +215,7 @@
   font-weight: 600;
   border: 2px dashed #cce0ff;
   padding: 16px 20px;
-  border-radius: 0px;
+  border-radius: 6px;
   transition: all 0.25s;
   text-align: center;
   width: fit-content;
@@ -241,7 +241,7 @@
   width: 90px;
   height: 90px;
   object-fit: cover;
-  border-radius: 0px;
+  border-radius: 6px;
   border: 2px solid #cce0ff;
 }
 
@@ -266,7 +266,7 @@
   background: #0D6EFD;
   color: #fff;
   padding: 16px;
-  border-radius: 0px;
+  border-radius: 6px;
   border: none;
   font-weight: 700;
   cursor: pointer;
@@ -276,7 +276,7 @@
 
 .btn:hover {
   background: #0b5ed7;
-  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.15);
+  box-shadow: 0 4px 14px rgba(0,0,0,0.15);
 }
 
 /* -------------------- Promotion Scroll -------------------- */
@@ -289,10 +289,10 @@
 
 .promotion-item {
   flex: 0 0 auto;
-  background: #ffffff;
+  background: #fff;
   border: 2px solid #cce0ff;
-  border-radius: 0px;
-  padding: 16px 12px;
+  border-radius: 6px;
+  padding: 12px 14px;
   display: flex;
   flex-direction: column;
   align-items: center;
@@ -313,7 +313,6 @@
   background: #e0ecff;
 }
 
-/* Free Badge */
 .promotion-item .promotion-free-badge {
   position: absolute;
   top: 6px;
@@ -323,12 +322,11 @@
   font-size: 10px;
   font-weight: 600;
   padding: 2px 6px;
-  border-radius: 0px;
+  border-radius: 4px;
   pointer-events: none;
   z-index: 2;
 }
 
-/* Promotion content layout: Day → Label → Price → Icon */
 .promotion-item .promotion-days {
   font-size: 12px;
   color: #555;
@@ -367,7 +365,6 @@
 .fullpage-list::-webkit-scrollbar-track,
 .promotion-scroll::-webkit-scrollbar-track {
   background: #f1f1f1;
-  border-radius: 0px;
 }
 
 .category-scroll::-webkit-scrollbar-thumb,
@@ -375,7 +372,6 @@
 .fullpage-list::-webkit-scrollbar-thumb,
 .promotion-scroll::-webkit-scrollbar-thumb {
   background: #0D6EFD;
-  border-radius: 0px;
 }
 
 .category-scroll::-webkit-scrollbar-thumb:hover,
