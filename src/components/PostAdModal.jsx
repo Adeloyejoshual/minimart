@@ -5,8 +5,8 @@ export default function PostAdModal() {
   const navigate = useNavigate();
 
   const handlePostAd = () => {
-    // Redirect to AddProduct.js marketplace mode
-    navigate("/add-product?market=marketplace");
+    // Redirect directly to AddProduct.js
+    navigate("/add-product");
   };
 
   return (
@@ -20,7 +20,7 @@ export default function PostAdModal() {
         fontWeight: 600,
         cursor: "pointer",
         border: "none",
-        width: "100%", // fits mobile width nicely
+        width: "100%",
         textAlign: "center",
       }}
     >
