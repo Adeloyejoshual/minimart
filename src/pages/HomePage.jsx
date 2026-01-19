@@ -4,6 +4,7 @@ import { collection, getDocs, query, orderBy } from "firebase/firestore";
 import { db } from "../firebase";
 import { useNavigate } from "react-router-dom";
 import TopNav from "../components/TopNav";
+import PostAdModal from "../components/PostAdModal";
 import categories from "../config/categories";
 import { promotionPlans } from "../config/promotionPlans";
 
@@ -14,38 +15,49 @@ export default function HomePage() {
   const [trendingProducts, setTrendingProducts] = useState([]);
   const [selectedCategory, setSelectedCategory] = useState("");
   const [searchQuery, setSearchQuery] = useState("");
+  const [visibleCount, setVisibleCount] = useState(12); // initial batch
 
-  // Load all products
+  // -------------------- Load all products --------------------
   const loadProducts = async () => {
     const snap = await getDocs(query(collection(db, "products"), orderBy("createdAt", "desc")));
     const products = snap.docs.map(d => ({ id: d.id, ...d.data() }));
     setAllProducts(products);
-    setTrendingProducts(products.slice(0, 5)); // top 5 latest
+    setTrendingProducts(shuffleArray(products).slice(0, 5));
   };
 
   useEffect(() => { loadProducts(); }, []);
 
-  // Filter, search, and mix feed
+  // -------------------- Filter, search, and mix feed --------------------
   useEffect(() => {
     let filtered = [...allProducts];
 
-    if (selectedCategory) filtered = filtered.filter(p => p.mainCategory === selectedCategory);
+    if (selectedCategory)
+      filtered = filtered.filter(p => p.mainCategory === selectedCategory);
+
     if (searchQuery.trim()) {
       const q = searchQuery.toLowerCase();
-      filtered = filtered.filter(p => p.title?.toLowerCase().includes(q) || p.name?.toLowerCase().includes(q));
+      filtered = filtered.filter(
+        p =>
+          (p.title?.toLowerCase().includes(q) ||
+           p.name?.toLowerCase().includes(q) ||
+           p.brand?.toLowerCase().includes(q) ||
+           p.mainCategory?.toLowerCase().includes(q))
+      );
     }
 
+    // Promoted products
     const promoted = filtered.filter(p => promotionPlans.some(plan => plan.id === p.promotionPlan));
     const regular = filtered.filter(p => !promoted.includes(p));
-    const promotedTop = promoted.slice(0, 5);
+    const promotedTop = promoted.slice(0, 5); // top 5 promoted
+    const mixed = shuffleArray(regular);
 
-    setDisplayProducts([...promotedTop, ...shuffleArray(regular)]);
+    setDisplayProducts([...promotedTop, ...mixed]);
+    setVisibleCount(12); // reset visible count on filter/search change
   }, [allProducts, selectedCategory, searchQuery]);
 
+  // -------------------- Helpers --------------------
   const shuffleArray = arr => arr.sort(() => Math.random() - 0.5);
-
   const formatPrice = price => `₦${Number(price).toLocaleString()}`;
-
   const productCardStyle = {
     padding: 12,
     borderRadius: 8,
@@ -55,6 +67,8 @@ export default function HomePage() {
     flexDirection: "column",
     alignItems: "center",
     cursor: "pointer",
+    minHeight: 260,
+    position: "relative",
   };
 
   return (
@@ -69,11 +83,16 @@ export default function HomePage() {
         </p>
       </div>
 
-      {/* Search & Category */}
+      {/* Post Ad (Marketplace only) */}
+      <div style={{ textAlign: "center", margin: "20px 0" }}>
+        <PostAdModal />
+      </div>
+
+      {/* Search & Category Filter */}
       <div style={{ maxWidth: 1000, margin: "20px auto", display: "flex", flexWrap: "wrap", gap: 10, alignItems: "center" }}>
         <input
           type="text"
-          placeholder="Search products..."
+          placeholder="Search products by name, title, brand, category..."
           value={searchQuery}
           onChange={e => setSearchQuery(e.target.value)}
           style={{ flex: 1, padding: "10px 12px", borderRadius: 8, border: "1px solid #cce0ff", outline: "none" }}
@@ -114,11 +133,11 @@ export default function HomePage() {
         </div>
       </section>
 
-      {/* Mixed Products Feed */}
+      {/* Mixed Products Feed with Load More */}
       <section style={{ maxWidth: 1000, margin: "20px auto" }}>
         <h2 style={{ color: "#0D6EFD", marginBottom: 10 }}>Products Feed</h2>
         <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(180px, 1fr))", gap: 20 }}>
-          {displayProducts.length ? displayProducts.map(p => {
+          {displayProducts.slice(0, visibleCount).map(p => {
             const isPromoted = promotionPlans.some(plan => plan.id === p.promotionPlan);
             return (
               <div
@@ -127,7 +146,6 @@ export default function HomePage() {
                 style={{
                   ...productCardStyle,
                   border: `2px solid ${p.marketType === "minimart" ? "#0D6EFD" : "#dee2e6"}`,
-                  position: "relative",
                 }}
               >
                 {isPromoted && (
@@ -150,8 +168,26 @@ export default function HomePage() {
                 </p>
               </div>
             );
-          }) : <p>No products found.</p>}
+          })}
         </div>
+
+        {visibleCount < displayProducts.length && (
+          <div style={{ textAlign: "center", marginTop: 20 }}>
+            <button
+              onClick={() => setVisibleCount(prev => prev + 12)}
+              style={{
+                padding: "10px 20px",
+                borderRadius: 8,
+                background: "#0D6EFD",
+                color: "#fff",
+                border: "none",
+                cursor: "pointer",
+              }}
+            >
+              Load More
+            </button>
+          </div>
+        )}
       </section>
     </div>
   );
