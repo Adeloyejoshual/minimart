@@ -1,6 +1,6 @@
 // src/pages/HomePage.jsx
 import { useEffect, useState } from "react";
-import { collection, getDocs, query, orderBy } from "firebase/firestore";
+import { collection, getDocs, query, orderBy, limit, where } from "firebase/firestore";
 import { db } from "../firebase";
 import { useNavigate } from "react-router-dom";
 import TopNav from "../components/TopNav";
@@ -12,85 +12,87 @@ export default function HomePage() {
   const navigate = useNavigate();
   const [allProducts, setAllProducts] = useState([]);
   const [displayProducts, setDisplayProducts] = useState([]);
-  const [trendingProducts, setTrendingProducts] = useState([]);
   const [selectedCategory, setSelectedCategory] = useState("");
   const [searchQuery, setSearchQuery] = useState("");
-  const [visibleCount, setVisibleCount] = useState(12);
 
-  // Load all products
   const loadProducts = async () => {
     const snap = await getDocs(query(collection(db, "products"), orderBy("createdAt", "desc")));
     const products = snap.docs.map(d => ({ id: d.id, ...d.data() }));
     setAllProducts(products);
-
-    // Trending products: top 5 (simulate by shuffle)
-    setTrendingProducts(shuffleArray(products).slice(0, 5));
   };
 
-  useEffect(() => { loadProducts(); }, []);
+  useEffect(() => {
+    loadProducts();
+  }, []);
 
-  // Filter, search, and mix feed
+  // Filter & search logic
   useEffect(() => {
     let filtered = [...allProducts];
 
-    if (selectedCategory)
-      filtered = filtered.filter(p => p.mainCategory === selectedCategory);
-
-    if (searchQuery.trim()) {
-      const q = searchQuery.toLowerCase();
-      filtered = filtered.filter(
-        p =>
-          (p.title?.toLowerCase().includes(q) ||
-           p.name?.toLowerCase().includes(q) ||
-           p.brand?.toLowerCase().includes(q) ||
-           p.mainCategory?.toLowerCase().includes(q))
-      );
+    // Filter by category
+    if (selectedCategory) {
+      filtered = filtered.filter(p => p.category === selectedCategory);
     }
 
-    // Promoted products first
+    // Search by title
+    if (searchQuery.trim()) {
+      const q = searchQuery.toLowerCase();
+      filtered = filtered.filter(p => p.title.toLowerCase().includes(q));
+    }
+
+    // Separate promoted products
     const promoted = filtered.filter(p => promotionPlans.some(plan => plan.id === p.promotionPlan));
     const regular = filtered.filter(p => !promoted.includes(p));
-    const promotedTop = promoted.slice(0, 5);
-    const mixed = shuffleArray(regular);
 
-    setDisplayProducts([...promotedTop, ...mixed]);
-    setVisibleCount(12);
+    // Limit promoted to 5 and mix the rest
+    const promotedTop = promoted.slice(0, 5);
+    const mixed = [...promotedTop, ...shuffleArray(regular)];
+
+    setDisplayProducts(mixed);
   }, [allProducts, selectedCategory, searchQuery]);
 
-  // -------------------- Helpers --------------------
+  // Utility: shuffle array
   const shuffleArray = arr => arr.sort(() => Math.random() - 0.5);
-  const formatPrice = price => `₦${Number(price).toLocaleString()}`;
-  const productCardStyle = {
-    padding: 12,
-    borderRadius: 8,
-    background: "#fff",
-    boxShadow: "0 2px 6px rgba(0,0,0,0.05)",
-    display: "flex",
-    flexDirection: "column",
-    alignItems: "center",
-    cursor: "pointer",
-    minHeight: 260,
-    position: "relative",
-  };
 
   return (
     <div style={{ background: "#f4f6f8", minHeight: "100vh", paddingBottom: 50 }}>
       <TopNav />
 
-      {/* Search & Post Ad */}
-      <div style={{ maxWidth: 1000, margin: "20px auto", display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap" }}>
+      {/* Banner */}
+      <div
+        style={{
+          background: "#0D6EFD",
+          color: "#fff",
+          padding: "30px 20px",
+          textAlign: "center",
+        }}
+      >
+        <h1 style={{ margin: 0, fontSize: "2rem" }}>Welcome to MiniMart + Marketplace</h1>
+        <p style={{ marginTop: 10, fontSize: "1.1rem" }}>
+          Buy and sell safely. Verified sellers in MiniMart. ⚠️ Marketplace payments: inspect before paying.
+        </p>
+      </div>
+
+      {/* Post Ad & Search */}
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", maxWidth: 1000, margin: "20px auto", gap: 15 }}>
+        <PostAdModal />
         <input
           type="text"
-          placeholder="Search products by name, title, brand, category..."
+          placeholder="Search products..."
           value={searchQuery}
           onChange={e => setSearchQuery(e.target.value)}
-          style={{ flex: 1, padding: "10px 12px", borderRadius: 8, border: "1px solid #cce0ff", outline: "none" }}
+          style={{
+            flex: 1,
+            padding: "10px 12px",
+            borderRadius: 8,
+            border: "1px solid #cce0ff",
+            outline: "none",
+          }}
         />
-        <PostAdModal /> {/* Leads to AddProduct.js - Marketplace only */}
       </div>
 
       {/* Category Filter */}
-      <div style={{ maxWidth: 1000, margin: "10px auto 20px auto", display: "flex", flexWrap: "wrap", gap: 10 }}>
+      <div style={{ maxWidth: 1000, margin: "10px auto", display: "flex", flexWrap: "wrap", gap: 10 }}>
         {categories.map(c => (
           <button
             key={c.name}
@@ -103,68 +105,30 @@ export default function HomePage() {
               cursor: "pointer",
             }}
           >
-            {c.icon} {c.name}
+            <span style={{ marginRight: 6 }}>{c.icon}</span>
+            {c.name}
           </button>
         ))}
       </div>
 
-      {/* Trending Products */}
+      {/* Products Feed */}
       <section style={{ maxWidth: 1000, margin: "20px auto" }}>
-        <h2 style={{ color: "#DC3545", marginBottom: 10 }}>🔥 Trending Products</h2>
-        <div style={{ display: "flex", gap: 12, overflowX: "auto", padding: "8px 0" }}>
-          {trendingProducts.map(p => {
-            const promotion = promotionPlans.find(plan => plan.id === p.promotionPlan);
-            return (
-              <div
-                key={p.id}
-                onClick={() => navigate(`/product/${p.id}`)}
-                style={{ ...productCardStyle, flexShrink: 0, minWidth: 140, minHeight: 200, padding: 8 }}
-              >
-                {promotion && (
-                  <div style={{
-                    position: "absolute",
-                    top: 6,
-                    left: 6,
-                    background: "#ffc107",
-                    padding: "2px 6px",
-                    borderRadius: 4,
-                    fontSize: 12,
-                    fontWeight: 600,
-                    zIndex: 1,
-                  }}>
-                    {promotion.icon}
-                  </div>
-                )}
-                <img src={p.images?.[0]} alt={p.title || p.name} style={{ width: "100%", height: 80, objectFit: "cover", borderRadius: 5, marginBottom: 6 }} />
-                <p style={{ fontWeight: 600, margin: "3px 0 0 0", textAlign: "center", fontSize: 13 }}>{p.title || p.name}</p>
-                <p style={{ color: p.marketType === "minimart" ? "#198754" : "#dc3545", fontWeight: "bold", marginTop: 2, fontSize: 13 }}>
-                  {formatPrice(p.price)}
-                </p>
-                <div style={{ display: "flex", justifyContent: "space-between", fontSize: 11, marginTop: 2 }}>
-                  <span>{p.state || "N/A"}</span>
-                  <span>{p.condition || "N/A"}</span>
-                  {promotion && <span>{promotion.icon}</span>}
-                </div>
-              </div>
-            );
-          })}
-        </div>
-      </section>
-
-      {/* Mixed Products Feed */}
-      <section style={{ maxWidth: 1000, margin: "20px auto" }}>
-        <h2 style={{ color: "#0D6EFD", marginBottom: 10 }}>Products Feed</h2>
+        <h2 style={{ color: "#0D6EFD" }}>Products Feed</h2>
         <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(180px, 1fr))", gap: 20 }}>
-          {displayProducts.slice(0, visibleCount).map(p => {
-            const promotion = promotionPlans.find(plan => plan.id === p.promotionPlan);
-            const isPromoted = !!promotion;
+          {displayProducts.length ? displayProducts.map(p => {
+            const isPromoted = promotionPlans.some(plan => plan.id === p.promotionPlan);
             return (
               <div
                 key={p.id}
                 onClick={() => navigate(`/product/${p.id}`)}
                 style={{
-                  ...productCardStyle,
-                  border: `2px solid ${p.marketType === "minimart" ? "#0D6EFD" : "#dee2e6"}`,
+                  position: "relative",
+                  border: `1px solid ${p.marketType === "minimart" ? "#0D6EFD" : "#dee2e6"}`,
+                  padding: 10,
+                  cursor: "pointer",
+                  borderRadius: 8,
+                  background: "#fff",
+                  boxShadow: "0 2px 6px rgba(0,0,0,0.05)",
                 }}
               >
                 {isPromoted && (
@@ -178,42 +142,17 @@ export default function HomePage() {
                     fontSize: 12,
                     fontWeight: 600,
                     zIndex: 1,
-                  }}>
-                    {promotion.icon}
-                  </div>
+                  }}>PROMO</div>
                 )}
-                <img src={p.images?.[0]} alt={p.title || p.name} style={{ width: "100%", height: 100, objectFit: "cover", borderRadius: 5, marginBottom: 6 }} />
-                <p style={{ fontWeight: 600, color: "#212529", margin: 0, textAlign: "center", fontSize: 13 }}>{p.title || p.name}</p>
-                <p style={{ color: p.marketType === "minimart" ? "#198754" : "#dc3545", fontWeight: "bold", marginTop: 4, fontSize: 13 }}>
-                  {formatPrice(p.price)}
+                <img src={p.imageUrl} alt={p.title} style={{ width: "100%", borderRadius: 5, marginBottom: 10 }} />
+                <p style={{ fontWeight: 600, color: "#212529", margin: 0 }}>{p.title}</p>
+                <p style={{ color: p.marketType === "minimart" ? "#198754" : "#dc3545", fontWeight: "bold", marginTop: 4 }}>
+                  ₦{p.price}
                 </p>
-                <div style={{ display: "flex", justifyContent: "space-between", fontSize: 11, marginTop: 2 }}>
-                  <span>{p.state || "N/A"}</span>
-                  <span>{p.condition || "N/A"}</span>
-                  {isPromoted && <span>{promotion.icon}</span>}
-                </div>
               </div>
             );
-          })}
+          }) : <p>No products found.</p>}
         </div>
-
-        {visibleCount < displayProducts.length && (
-          <div style={{ textAlign: "center", marginTop: 20 }}>
-            <button
-              onClick={() => setVisibleCount(prev => prev + 12)}
-              style={{
-                padding: "10px 20px",
-                borderRadius: 8,
-                background: "#0D6EFD",
-                color: "#fff",
-                border: "none",
-                cursor: "pointer",
-              }}
-            >
-              Load More
-            </button>
-          </div>
-        )}
       </section>
     </div>
   );
