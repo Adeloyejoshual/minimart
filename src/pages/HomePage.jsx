@@ -1,6 +1,6 @@
 // src/pages/HomePage.jsx
 import { useEffect, useState } from "react";
-import { collection, getDocs, query, orderBy } from "firebase/firestore";
+import { collection, getDocs, query, orderBy, doc, updateDoc } from "firebase/firestore";
 import { db } from "../firebase";
 import { useNavigate } from "react-router-dom";
 import TopNav from "../components/TopNav";
@@ -15,17 +15,33 @@ export default function HomePage() {
   const [trendingProducts, setTrendingProducts] = useState([]);
   const [selectedCategory, setSelectedCategory] = useState("");
   const [searchQuery, setSearchQuery] = useState("");
-  const [visibleCount, setVisibleCount] = useState(12);
+  const [visibleCount, setVisibleCount] = useState(34); // show 34 initially
 
-  // Load all products
+  // -------------------- Helpers --------------------
+  const shuffleArray = arr => arr.sort(() => Math.random() - 0.5);
+  const formatPrice = price => `₦${Number(price).toLocaleString()}`;
+
+  // Load all products from Firestore
   const loadProducts = async () => {
     const snap = await getDocs(query(collection(db, "products"), orderBy("createdAt", "desc")));
     const products = snap.docs.map(d => ({ id: d.id, ...d.data() }));
     setAllProducts(products);
-    setTrendingProducts(shuffleArray(products).slice(0, 5));
+
+    // Trending: simulate most promoted + most clicked + most searched
+    const promoted = products.filter(p => promotionPlans.some(plan => plan.id === p.promotionPlan));
+    const shuffled = shuffleArray(products);
+    const trendingSimulated = [...promoted.slice(0, 3), ...shuffled.slice(0, 2)]; // top 5
+    setTrendingProducts(trendingSimulated);
   };
 
   useEffect(() => { loadProducts(); }, []);
+
+  // Increment click count when product is clicked
+  const handleProductClick = async (p) => {
+    navigate(`/product/${p.id}`);
+    const productRef = doc(db, "products", p.id);
+    await updateDoc(productRef, { clicks: (p.clicks || 0) + 1 });
+  };
 
   // Filter, search, and mix feed
   useEffect(() => {
@@ -43,21 +59,23 @@ export default function HomePage() {
            p.brand?.toLowerCase().includes(q) ||
            p.mainCategory?.toLowerCase().includes(q))
       );
+      // Increment searchCount dynamically
+      filtered.forEach(async p => {
+        const productRef = doc(db, "products", p.id);
+        await updateDoc(productRef, { searchCount: (p.searchCount || 0) + 1 });
+      });
     }
 
-    // Promoted products
+    // Promoted products first
     const promoted = filtered.filter(p => promotionPlans.some(plan => plan.id === p.promotionPlan));
     const regular = filtered.filter(p => !promoted.includes(p));
     const promotedTop = promoted.slice(0, 5);
     const mixed = shuffleArray(regular);
 
     setDisplayProducts([...promotedTop, ...mixed]);
-    setVisibleCount(12); // reset visible count on filter/search change
+    setVisibleCount(34); // reset visible count on filter/search
   }, [allProducts, selectedCategory, searchQuery]);
 
-  // -------------------- Helpers --------------------
-  const shuffleArray = arr => arr.sort(() => Math.random() - 0.5);
-  const formatPrice = price => `₦${Number(price).toLocaleString()}`;
   const productCardStyle = {
     padding: 12,
     borderRadius: 8,
@@ -67,7 +85,7 @@ export default function HomePage() {
     flexDirection: "column",
     alignItems: "center",
     cursor: "pointer",
-    minHeight: 240,
+    minHeight: 260,
     position: "relative",
   };
 
@@ -84,7 +102,7 @@ export default function HomePage() {
           onChange={e => setSearchQuery(e.target.value)}
           style={{ flex: 1, padding: "10px 12px", borderRadius: 8, border: "1px solid #cce0ff", outline: "none" }}
         />
-        <PostAdModal />
+        <PostAdModal /> {/* Leads to AddProduct.js - Marketplace only */}
       </div>
 
       {/* Category Filter */}
@@ -110,17 +128,42 @@ export default function HomePage() {
       <section style={{ maxWidth: 1000, margin: "20px auto" }}>
         <h2 style={{ color: "#DC3545", marginBottom: 10 }}>🔥 Trending Products</h2>
         <div style={{ display: "flex", gap: 12, overflowX: "auto", padding: "8px 0" }}>
-          {trendingProducts.map(p => (
-            <div
-              key={p.id}
-              onClick={() => navigate(`/product/${p.id}`)}
-              style={{ ...productCardStyle, flexShrink: 0, minWidth: 140 }}
-            >
-              <img src={p.images?.[0]} alt={p.title || p.name} style={{ width: "100%", borderRadius: 5, marginBottom: 6 }} />
-              <p style={{ fontWeight: 600, margin: "3px 0 0 0", textAlign: "center", fontSize: 13 }}>{p.title || p.name}</p>
-              <p style={{ color: "#198754", fontWeight: "bold", marginTop: 2, fontSize: 13 }}>{formatPrice(p.price)}</p>
-            </div>
-          ))}
+          {trendingProducts.map(p => {
+            const promotion = promotionPlans.find(plan => plan.id === p.promotionPlan);
+            return (
+              <div
+                key={p.id}
+                onClick={() => handleProductClick(p)}
+                style={{ ...productCardStyle, flexShrink: 0, minWidth: 140, minHeight: 200, padding: 8 }}
+              >
+                {promotion && (
+                  <div style={{
+                    position: "absolute",
+                    top: 6,
+                    left: 6,
+                    background: "#ffc107",
+                    padding: "2px 6px",
+                    borderRadius: 4,
+                    fontSize: 12,
+                    fontWeight: 600,
+                    zIndex: 1,
+                  }}>
+                    {promotion.icon}
+                  </div>
+                )}
+                <img src={p.images?.[0]} alt={p.title || p.name} style={{ width: "100%", height: 80, objectFit: "cover", borderRadius: 5, marginBottom: 6 }} />
+                <p style={{ fontWeight: 600, margin: "3px 0 0 0", textAlign: "center", fontSize: 13 }}>{p.title || p.name}</p>
+                <p style={{ color: p.marketType === "minimart" ? "#198754" : "#dc3545", fontWeight: "bold", marginTop: 2, fontSize: 13 }}>
+                  {formatPrice(p.price)}
+                </p>
+                <div style={{ display: "flex", justifyContent: "space-between", fontSize: 11, marginTop: 2 }}>
+                  <span>{p.state || "N/A"}</span>
+                  <span>{p.condition || "N/A"}</span>
+                  {promotion && <span>{promotion.icon}</span>}
+                </div>
+              </div>
+            );
+          })}
         </div>
       </section>
 
@@ -129,11 +172,12 @@ export default function HomePage() {
         <h2 style={{ color: "#0D6EFD", marginBottom: 10 }}>Products Feed</h2>
         <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(180px, 1fr))", gap: 20 }}>
           {displayProducts.slice(0, visibleCount).map(p => {
-            const isPromoted = promotionPlans.some(plan => plan.id === p.promotionPlan);
+            const promotion = promotionPlans.find(plan => plan.id === p.promotionPlan);
+            const isPromoted = !!promotion;
             return (
               <div
                 key={p.id}
-                onClick={() => navigate(`/product/${p.id}`)}
+                onClick={() => handleProductClick(p)}
                 style={{
                   ...productCardStyle,
                   border: `2px solid ${p.marketType === "minimart" ? "#0D6EFD" : "#dee2e6"}`,
@@ -150,13 +194,20 @@ export default function HomePage() {
                     fontSize: 12,
                     fontWeight: 600,
                     zIndex: 1,
-                  }}>PROMO</div>
+                  }}>
+                    {promotion.icon}
+                  </div>
                 )}
-                <img src={p.images?.[0]} alt={p.title || p.name} style={{ width: "100%", borderRadius: 5, marginBottom: 8 }} />
-                <p style={{ fontWeight: 600, color: "#212529", margin: 0, textAlign: "center" }}>{p.title || p.name}</p>
-                <p style={{ color: p.marketType === "minimart" ? "#198754" : "#dc3545", fontWeight: "bold", marginTop: 4 }}>
+                <img src={p.images?.[0]} alt={p.title || p.name} style={{ width: "100%", height: 100, objectFit: "cover", borderRadius: 5, marginBottom: 6 }} />
+                <p style={{ fontWeight: 600, color: "#212529", margin: 0, textAlign: "center", fontSize: 13 }}>{p.title || p.name}</p>
+                <p style={{ color: p.marketType === "minimart" ? "#198754" : "#dc3545", fontWeight: "bold", marginTop: 4, fontSize: 13 }}>
                   {formatPrice(p.price)}
                 </p>
+                <div style={{ display: "flex", justifyContent: "space-between", fontSize: 11, marginTop: 2 }}>
+                  <span>{p.state || "N/A"}</span>
+                  <span>{p.condition || "N/A"}</span>
+                  {isPromoted && <span>{promotion.icon}</span>}
+                </div>
               </div>
             );
           })}
