@@ -148,7 +148,7 @@ export default function HomePage() {
 
       {/* POST AD & SEARCH */}
       <div style={{ display: "flex", maxWidth: 1000, margin: "20px auto", gap: 15 }}>
-        <PostAdModal />
+        <PostAdModal redirectTo="/add-product" /> {/* Redirects to Marketplace */}
         <input
           type="text"
           placeholder="Search products..."
