@@ -17,10 +17,8 @@ export default function HomePage() {
 
   const [allProducts, setAllProducts] = useState([]);
   const [displayProducts, setDisplayProducts] = useState([]);
-
   const [selectedCategory, setSelectedCategory] = useState("");
   const [searchQuery, setSearchQuery] = useState("");
-
   const [trendingProducts, setTrendingProducts] = useState([]);
   const [trendingByCategory, setTrendingByCategory] = useState({});
   const [currentSlide, setCurrentSlide] = useState(0);
@@ -148,7 +146,8 @@ export default function HomePage() {
 
       {/* POST AD & SEARCH */}
       <div style={{ display: "flex", maxWidth: 1000, margin: "20px auto", gap: 15 }}>
-        <PostAdModal redirectTo="/add-product" /> {/* Redirects to Marketplace */}
+        {/* Redirects to AddProduct.js Marketplace mode */}
+        <PostAdModal redirectTo="/add-product?mode=marketplace" /> 
         <input
           type="text"
           placeholder="Search products..."
