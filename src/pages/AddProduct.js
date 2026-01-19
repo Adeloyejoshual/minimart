@@ -115,7 +115,6 @@ export default function AddProduct() {
   const validate = () => {
     if (!form.title || form.title.length < rules.minTitle)
       return `Title must be ${rules.minTitle}+ chars`;
-
     if (!form.mainCategory) return "Select category";
     if (!form.subCategory) return "Select subcategory";
     if (!form.priceRaw) return "Enter price";
@@ -124,19 +123,13 @@ export default function AddProduct() {
     if (!form.city) return "Select city";
     if (form.images.length < rules.minImages)
       return `Upload at least ${rules.minImages} image(s)`;
-
     if (
       (form.subCategory === "Smartphones" ||
         form.subCategory === "Feature Phones") &&
       !form.condition
-    ) {
+    )
       return "Select condition";
-    }
-
-    if (form.condition === "Used" && !form.usedDetail) {
-      return "Select used details";
-    }
-
+    if (form.condition === "Used" && !form.usedDetail) return "Select used details";
     return null;
   };
 
@@ -165,7 +158,7 @@ export default function AddProduct() {
 
       localStorage.removeItem(DRAFT_KEY);
       addToast("Product posted successfully");
-      navigate(`/${marketType}`);
+      navigate(-1); // <-- Navigate back to previous page
     } catch (e) {
       addToast(e.message, "error");
     } finally {
@@ -177,14 +170,10 @@ export default function AddProduct() {
   const subcategories =
     categories.find(c => c.name === form.mainCategory)?.subcategories || [];
 
-  // 🔥 FIX: phoneModels depend on SUBCATEGORY
   const brandOptions =
-    phoneModels[form.subCategory]
-      ? Object.keys(phoneModels[form.subCategory])
-      : [];
+    phoneModels[form.subCategory] ? Object.keys(phoneModels[form.subCategory]) : [];
 
-  const modelOptions =
-    phoneModels[form.subCategory]?.[form.brand] || [];
+  const modelOptions = phoneModels[form.subCategory]?.[form.brand] || [];
 
   const stateOptions = Object.keys(locationsByState);
   const cityOptions = form.state ? locationsByState[form.state] : [];
@@ -193,10 +182,7 @@ export default function AddProduct() {
   const FullPageList = ({ title, options, value }) => (
     <div className="fullpage-list">
       {backStep && (
-        <button
-          className="options-back"
-          onClick={() => setSelectionStep(backStep)}
-        >
+        <button className="options-back" onClick={() => setSelectionStep(backStep)}>
           ← Back
         </button>
       )}
@@ -207,9 +193,7 @@ export default function AddProduct() {
         {options.map(opt => (
           <button
             key={opt}
-            className={`option-item ${
-              form[value] === opt ? "active" : ""
-            }`}
+            className={`option-item ${form[value] === opt ? "active" : ""}`}
             onClick={() => {
               const reset = {
                 mainCategory: ["subCategory", "brand", "model"],
@@ -262,15 +246,12 @@ export default function AddProduct() {
 
       {/* Header */}
       <div className="add-product-header">
-        <button onClick={() => navigate(`/${marketType}`)}>←</button>
+        <button onClick={() => navigate(-1)}>←</button> {/* <-- GO BACK */}
         <span>Add Product</span>
       </div>
 
       <Field label="Title">
-        <input
-          value={form.title}
-          onChange={e => update("title", e.target.value)}
-        />
+        <input value={form.title} onChange={e => update("title", e.target.value)} />
       </Field>
 
       <Field label="Category">
@@ -278,15 +259,9 @@ export default function AddProduct() {
           {categories.map(c => (
             <button
               key={c.name}
-              className={`category-item ${
-                form.mainCategory === c.name ? "active" : ""
-              }`}
+              className={`category-item ${form.mainCategory === c.name ? "active" : ""}`}
               onClick={() =>
-                update("mainCategory", c.name, [
-                  "subCategory",
-                  "brand",
-                  "model",
-                ])
+                update("mainCategory", c.name, ["subCategory", "brand", "model"])
               }
             >
               <span>{c.icon}</span>
@@ -340,10 +315,7 @@ export default function AddProduct() {
       </Field>
 
       <Field label="Phone">
-        <input
-          value={form.phone}
-          onChange={e => update("phone", e.target.value)}
-        />
+        <input value={form.phone} onChange={e => update("phone", e.target.value)} />
       </Field>
 
       <Field label="Images">
@@ -359,10 +331,7 @@ export default function AddProduct() {
       </Field>
 
       <Field label="State">
-        <button
-          className="option-item clickable"
-          onClick={() => setSelectionStep("state")}
-        >
+        <button className="option-item clickable" onClick={() => setSelectionStep("state")}>
           {form.state || "Select"}
         </button>
       </Field>
@@ -382,10 +351,7 @@ export default function AddProduct() {
       )}
 
       <Field label="Description">
-        <textarea
-          value={form.description}
-          onChange={e => update("description", e.target.value)}
-        />
+        <textarea value={form.description} onChange={e => update("description", e.target.value)} />
       </Field>
 
       <button className="btn" onClick={handleSubmit} disabled={loading}>
