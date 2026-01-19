@@ -19,46 +19,37 @@ import categories from "../config/categories";
 import { promotionPlans } from "../config/promotionPlans";
 import { FiMapPin } from "react-icons/fi";
 
-const INITIAL_PRODUCTS = 34;
-const LOAD_MORE_COUNT = 12;
+const PRODUCTS_PER_PAGE = 12; // for infinite scroll
 
 export default function HomePage() {
   const navigate = useNavigate();
-  const feedRef = useRef(null);
+  const feedContainerRef = useRef(null);
 
-  // -------------------- State --------------------
   const [trendingProducts, setTrendingProducts] = useState([]);
-  const [marketplaceProducts, setMarketplaceProducts] = useState([]);
+  const [feedProducts, setFeedProducts] = useState([]);
   const [lastDoc, setLastDoc] = useState(null);
   const [loadingMore, setLoadingMore] = useState(false);
   const [hasMore, setHasMore] = useState(true);
   const [selectedCategory, setSelectedCategory] = useState("");
   const [searchQuery, setSearchQuery] = useState("");
-  const [debouncedSearch, setDebouncedSearch] = useState("");
 
-  // -------------------- Helpers --------------------
   const shuffleArray = arr => arr.sort(() => Math.random() - 0.5);
   const formatPrice = price => `₦${Number(price).toLocaleString()}`;
 
-  // -------------------- Debounce Search --------------------
-  useEffect(() => {
-    const handler = setTimeout(() => setDebouncedSearch(searchQuery), 400);
-    return () => clearTimeout(handler);
-  }, [searchQuery]);
-
   // -------------------- Trending --------------------
-  const loadTrendingProducts = async () => {
+  const loadTrending = async () => {
     const snap = await getDocs(
       query(collection(db, "products"), orderBy("createdAt", "desc"), limit(20))
     );
     const products = snap.docs.map(d => ({ id: d.id, ...d.data() }));
     const promoted = products.filter(p => promotionPlans.some(plan => plan.id === p.promotionPlan));
     const shuffled = shuffleArray(products);
-    setTrendingProducts([...promoted.slice(0, 3), ...shuffled.slice(0, 2)]);
+    const trending = [...promoted.slice(0, 3), ...shuffled.slice(0, 2)];
+    setTrendingProducts(trending);
   };
 
-  // -------------------- Marketplace Query --------------------
-  const buildMarketplaceQuery = (startAfterDoc = null) => {
+  // -------------------- Marketplace / MiniMart Feed --------------------
+  const buildFeedQuery = (startDoc = null) => {
     const conditions = [where("marketType", "in", ["marketplace", "minimart"])];
     if (selectedCategory) conditions.push(where("mainCategory", "==", selectedCategory));
 
@@ -66,65 +57,51 @@ export default function HomePage() {
       collection(db, "products"),
       ...conditions,
       orderBy("createdAt", "desc"),
-      limit(LOAD_MORE_COUNT)
+      limit(PRODUCTS_PER_PAGE)
     );
 
-    if (startAfterDoc) q = query(q, startAfter(startAfterDoc));
+    if (startDoc) q = query(q, startAfter(startDoc));
     return q;
   };
 
-  const loadMarketplaceProducts = async (loadMore = false) => {
+  const loadFeed = async (loadMore = false) => {
     if (!hasMore && loadMore) return;
     if (loadMore) setLoadingMore(true);
 
-    const q = buildMarketplaceQuery(loadMore ? lastDoc : null);
-    const snap = await getDocs(q);
-    let products = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+    const snap = await getDocs(buildFeedQuery(loadMore ? lastDoc : null));
+    const products = snap.docs.map(d => ({ id: d.id, ...d.data() }));
 
-    // Local search filter
-    if (debouncedSearch.trim()) {
-      const qLower = debouncedSearch.toLowerCase();
-      products = products.filter(p =>
-        (p.title || p.name || p.brand || p.mainCategory || "")
-          .toLowerCase()
-          .includes(qLower)
-      );
-    }
-
-    if (loadMore) {
-      setMarketplaceProducts(prev => [...prev, ...products]);
-    } else {
-      setMarketplaceProducts(products);
-    }
-
+    setFeedProducts(prev => (loadMore ? [...prev, ...products] : products));
     setLastDoc(snap.docs[snap.docs.length - 1] || null);
-    setHasMore(snap.docs.length === LOAD_MORE_COUNT);
+    setHasMore(snap.docs.length === PRODUCTS_PER_PAGE);
     if (loadMore) setLoadingMore(false);
   };
 
-  const resetMarketplace = () => {
+  const resetFeed = () => {
     setLastDoc(null);
     setHasMore(true);
-    loadMarketplaceProducts(false);
+    loadFeed(false);
   };
 
   useEffect(() => {
-    loadTrendingProducts();
-    resetMarketplace();
-  }, [selectedCategory, debouncedSearch]);
+    loadTrending();
+    resetFeed();
+  }, []);
+
+  useEffect(() => {
+    resetFeed();
+  }, [selectedCategory, searchQuery]);
 
   // -------------------- Infinite Scroll --------------------
   useEffect(() => {
     const handleScroll = () => {
-      if (loadingMore || !hasMore) return;
+      if (!feedContainerRef.current || loadingMore || !hasMore) return;
       const { scrollTop, clientHeight, scrollHeight } = document.documentElement;
-      if (scrollTop + clientHeight >= scrollHeight - 300) {
-        loadMarketplaceProducts(true);
-      }
+      if (scrollTop + clientHeight >= scrollHeight - 300) loadFeed(true);
     };
     window.addEventListener("scroll", handleScroll);
     return () => window.removeEventListener("scroll", handleScroll);
-  }, [loadingMore, hasMore, lastDoc]);
+  }, [lastDoc, loadingMore, hasMore]);
 
   // -------------------- Product Click --------------------
   const handleProductClick = async p => {
@@ -133,7 +110,19 @@ export default function HomePage() {
     await updateDoc(productRef, { clicks: (p.clicks || 0) + 1 });
   };
 
-  // -------------------- Render Card --------------------
+  // -------------------- Product Card --------------------
+  const productCardStyle = {
+    padding: 12,
+    borderRadius: 8,
+    background: "#fff",
+    boxShadow: "0 2px 6px rgba(0,0,0,0.05)",
+    display: "flex",
+    flexDirection: "column",
+    alignItems: "center",
+    cursor: "pointer",
+    position: "relative",
+  };
+
   const renderProductCard = (p, trending = false) => {
     const promotion = promotionPlans.find(plan => plan.id === p.promotionPlan);
     const isPromoted = !!promotion;
@@ -143,21 +132,14 @@ export default function HomePage() {
         key={p.id}
         onClick={() => handleProductClick(p)}
         style={{
-          padding: trending ? 8 : 12,
-          borderRadius: 8,
-          background: "#fff",
-          boxShadow: "0 2px 6px rgba(0,0,0,0.05)",
-          display: "flex",
-          flexDirection: "column",
-          alignItems: "center",
-          cursor: "pointer",
-          position: "relative",
+          ...productCardStyle,
           minWidth: trending ? 140 : 180,
           minHeight: trending ? 200 : 260,
-          border: `2px solid ${p.marketType === "minimart" ? "#0D6EFD" : "#dee2e6"}`,
+          padding: trending ? 8 : 12,
+          border: `2px solid ${p.marketType === "minimart" ? "#0D6EFD" : "#dee2e6"}`
         }}
       >
-        {/* Top-left promo */}
+        {/* Top-left Promo */}
         {isPromoted && (
           <div style={{
             position: "absolute",
@@ -180,9 +162,7 @@ export default function HomePage() {
         />
 
         {/* Title */}
-        <p style={{ fontWeight: 600, color: "#212529", margin: 0, textAlign: "center", fontSize: 13 }}>
-          {p.title || p.name}
-        </p>
+        <p style={{ fontWeight: 600, textAlign: "center", fontSize: 13, margin: 0 }}>{p.title || p.name}</p>
 
         {/* Price */}
         <p style={{
@@ -190,47 +170,37 @@ export default function HomePage() {
           fontWeight: "bold",
           marginTop: 4,
           fontSize: 13
-        }}>
-          {formatPrice(p.price)}
-        </p>
+        }}>{formatPrice(p.price)}</p>
 
-        {/* Bottom Info Row */}
-        {p.marketType !== "minimart" && (p.state || p.city || p.condition || isPromoted) && (
-          <div style={{
-            display: "flex",
-            justifyContent: "space-between",
-            alignItems: "center",
-            fontSize: 11,
-            marginTop: 4,
-            width: "100%"
-          }}>
-            <div style={{ display: "flex", gap: 6 }}>
-              {(p.state || p.city) && <span style={{ display: "flex", alignItems: "center", gap: 2 }}>
-                <FiMapPin size={12} /> {[p.state, p.city].filter(Boolean).join(" ")}
-              </span>}
-              {p.condition && <span>{p.condition}</span>}
-            </div>
-            {isPromoted && <span>{promotion.icon}</span>}
+        {/* Location (Marketplace only) */}
+        {p.marketType !== "minimart" && (p.state || p.city) && (
+          <div style={{ display: "flex", alignItems: "center", gap: 4, fontSize: 11, marginTop: 2 }}>
+            <FiMapPin size={12} />
+            <span>{[p.state, p.city].filter(Boolean).join(" ")}</span>
           </div>
         )}
+
+        {/* Bottom info row: condition (left), promo (right) */}
+        <div style={{
+          display: "flex",
+          justifyContent: "space-between",
+          width: "100%",
+          fontSize: 11,
+          marginTop: 2
+        }}>
+          <span>{p.condition || ""}</span>
+          {isPromoted && <span>{promotion.icon}</span>}
+        </div>
       </div>
     );
   };
 
-  // -------------------- JSX --------------------
   return (
-    <div style={{ background: "#f4f6f8", minHeight: "100vh", paddingBottom: 50 }} ref={feedRef}>
+    <div style={{ background: "#f4f6f8", minHeight: "100vh", paddingBottom: 50 }} ref={feedContainerRef}>
       <TopNav />
 
       {/* Search & Post Ad */}
-      <div style={{
-        maxWidth: 1000,
-        margin: "20px auto",
-        display: "flex",
-        gap: 10,
-        alignItems: "center",
-        flexWrap: "wrap"
-      }}>
+      <div style={{ maxWidth: 1000, margin: "20px auto", display: "flex", gap: 10, flexWrap: "wrap", alignItems: "center" }}>
         <input
           type="text"
           placeholder="Search products by name, title, brand, category..."
@@ -241,7 +211,7 @@ export default function HomePage() {
         <PostAdModal />
       </div>
 
-      {/* Categories */}
+      {/* Category Filter */}
       <div style={{ maxWidth: 1000, margin: "10px auto 20px auto", display: "flex", flexWrap: "wrap", gap: 10 }}>
         {categories.map(c => (
           <button
@@ -266,11 +236,11 @@ export default function HomePage() {
         </div>
       </section>
 
-      {/* Marketplace Feed */}
+      {/* Feed */}
       <section style={{ maxWidth: 1000, margin: "20px auto" }}>
-        <h2 style={{ color: "#0D6EFD", marginBottom: 10 }}>Marketplace Feed</h2>
+        <h2 style={{ color: "#0D6EFD", marginBottom: 10 }}>Products Feed</h2>
         <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(180px, 1fr))", gap: 20 }}>
-          {marketplaceProducts.map(p => renderProductCard(p))}
+          {feedProducts.map(p => renderProductCard(p))}
         </div>
 
         {loadingMore && <p style={{ textAlign: "center", marginTop: 20 }}>Loading more products...</p>}
