@@ -1,10 +1,6 @@
+// src/pages/HomePage.jsx
 import { useEffect, useState } from "react";
-import {
-  collection,
-  getDocs,
-  query,
-  orderBy,
-} from "firebase/firestore";
+import { collection, getDocs, query, orderBy } from "firebase/firestore";
 import { db } from "../firebase";
 import { useNavigate } from "react-router-dom";
 import TopNav from "../components/TopNav";
@@ -33,17 +29,12 @@ export default function HomePage() {
     const views = product.views || 0;
     const clicks = product.clicks || 0;
     const searches = product.searchHits || 0;
-
     const plan = getPromotionPlan(product.promotionPlan);
     const promotionBoost = plan ? plan.priority * 40 : 0;
-
     const createdAt = product.createdAt?.toMillis
       ? product.createdAt.toMillis()
       : Date.now();
-
-    const daysOld =
-      (Date.now() - createdAt) / (1000 * 60 * 60 * 24);
-
+    const daysOld = (Date.now() - createdAt) / (1000 * 60 * 60 * 24);
     const freshnessBoost = Math.max(20 - daysOld, 0);
 
     return views * 3 + clicks * 2 + searches + promotionBoost + freshnessBoost;
@@ -55,35 +46,27 @@ export default function HomePage() {
       query(collection(db, "products"), orderBy("createdAt", "desc"))
     );
 
-    const products = snap.docs.map(d => ({
-      id: d.id,
-      ...d.data(),
-    }));
-
+    const products = snap.docs.map(d => ({ id: d.id, ...d.data() }));
     setAllProducts(products);
 
-    const scored = products.map(p => ({
-      ...p,
-      trendingScore: calculateAIScore(p),
-    }));
+    // Calculate trending score
+    const scored = products.map(p => ({ ...p, trendingScore: calculateAIScore(p) }));
 
-    setTrendingProducts(
-      [...scored].sort((a, b) => b.trendingScore - a.trendingScore).slice(0, 8)
-    );
+    // Trending slider
+    setTrendingProducts(scored.sort((a, b) => b.trendingScore - a.trendingScore).slice(0, 8));
 
+    // Trending by category
     const byCategory = {};
     scored.forEach(p => {
       if (!p.category) return;
       if (!byCategory[p.category]) byCategory[p.category] = [];
       byCategory[p.category].push(p);
     });
-
     Object.keys(byCategory).forEach(cat => {
       byCategory[cat] = byCategory[cat]
         .sort((a, b) => b.trendingScore - a.trendingScore)
         .slice(0, 5);
     });
-
     setTrendingByCategory(byCategory);
   };
 
@@ -94,13 +77,9 @@ export default function HomePage() {
   /* ---------- AUTO SLIDER ---------- */
   useEffect(() => {
     if (!trendingProducts.length) return;
-
     const interval = setInterval(() => {
-      setCurrentSlide(prev =>
-        prev === trendingProducts.length - 1 ? 0 : prev + 1
-      );
+      setCurrentSlide(prev => (prev === trendingProducts.length - 1 ? 0 : prev + 1));
     }, 4000);
-
     return () => clearInterval(interval);
   }, [trendingProducts]);
 
@@ -108,17 +87,13 @@ export default function HomePage() {
   useEffect(() => {
     let filtered = [...allProducts];
 
-    if (selectedCategory) {
-      filtered = filtered.filter(p => p.category === selectedCategory);
-    }
-
+    if (selectedCategory) filtered = filtered.filter(p => p.category === selectedCategory);
     if (searchQuery.trim()) {
       const q = searchQuery.toLowerCase();
       filtered = filtered.filter(
-        p =>
-          p.title?.toLowerCase().includes(q) ||
-          p.city?.toLowerCase().includes(q) ||
-          p.state?.toLowerCase().includes(q)
+        p => p.title?.toLowerCase().includes(q) ||
+             p.city?.toLowerCase().includes(q) ||
+             p.state?.toLowerCase().includes(q)
       );
     }
 
@@ -126,8 +101,7 @@ export default function HomePage() {
     const promotedIds = new Set(promoted.map(p => p.id));
     const regular = filtered.filter(p => !promotedIds.has(p.id));
 
-    const mixed = [...promoted.slice(0, 5), ...shuffleArray(regular)];
-    setDisplayProducts(mixed);
+    setDisplayProducts([...promoted.slice(0, 5), ...shuffleArray(regular)]);
   }, [allProducts, selectedCategory, searchQuery]);
 
   const shuffleArray = arr => [...arr].sort(() => Math.random() - 0.5);
@@ -137,18 +111,16 @@ export default function HomePage() {
       <TopNav />
 
       {/* POST AD & SEARCH */}
-      <div
-        style={{
-          display: "flex",
-          flexDirection: "column",
-          alignItems: "stretch",
-          maxWidth: 1000,
-          margin: "20px auto",
-          gap: 10,
-          padding: "0 10px",
-        }}
-      >
-        <PostAdModal redirectTo="/add-product" />
+      <div style={{
+        display: "flex",
+        flexDirection: "column",
+        alignItems: "stretch",
+        maxWidth: 400,
+        margin: "20px auto",
+        gap: 10,
+        padding: "0 10px",
+      }}>
+        <PostAdModal /> {/* Redirects to AddProduct.js */}
         <input
           type="text"
           placeholder="Search products..."
@@ -164,16 +136,14 @@ export default function HomePage() {
       </div>
 
       {/* CATEGORY FILTER */}
-      <div
-        style={{
-          maxWidth: 1000,
-          margin: "10px auto",
-          display: "flex",
-          flexWrap: "wrap",
-          gap: 8,
-          padding: "0 10px",
-        }}
-      >
+      <div style={{
+        maxWidth: 400,
+        margin: "10px auto",
+        display: "flex",
+        flexWrap: "wrap",
+        gap: 6,
+        padding: "0 10px",
+      }}>
         {categories.map(c => (
           <button
             key={c.name}
@@ -181,18 +151,15 @@ export default function HomePage() {
               setSelectedCategory(selectedCategory === c.name ? "" : c.name)
             }
             style={{
-              flex: "1 0 30%",
-              padding: "6px 10px",
+              flex: "1 0 45%",
+              padding: "6px 8px",
               borderRadius: 8,
-              border:
-                selectedCategory === c.name
-                  ? "2px solid #0D6EFD"
-                  : "1px solid #dee2e6",
-              background:
-                selectedCategory === c.name ? "#e0ecff" : "#fff",
+              border: selectedCategory === c.name ? "2px solid #0D6EFD" : "1px solid #dee2e6",
+              background: selectedCategory === c.name ? "#e0ecff" : "#fff",
               cursor: "pointer",
               textAlign: "center",
               minWidth: 80,
+              fontSize: 12,
             }}
           >
             <span style={{ marginRight: 4 }}>{c.icon}</span>
@@ -203,38 +170,33 @@ export default function HomePage() {
 
       {/* 🔥 TRENDING SLIDER */}
       {trendingProducts[currentSlide] && (
-        <section style={{ maxWidth: 1000, margin: "20px auto", padding: "0 10px" }}>
-          <h2 style={{ color: "#0D6EFD", fontSize: 18 }}>🔥 Trending Now</h2>
+        <section style={{ maxWidth: 400, margin: "20px auto", padding: "0 10px" }}>
+          <h2 style={{ color: "#0D6EFD", fontSize: 16 }}>🔥 Trending Now</h2>
           <div
-            onClick={() =>
-              navigate(`/product/${trendingProducts[currentSlide].id}`)
-            }
+            onClick={() => navigate(`/product/${trendingProducts[currentSlide].id}`)}
             style={{
-              height: 200,
+              height: 180,
               borderRadius: 12,
-              backgroundImage: `url(${
-                trendingProducts[currentSlide].imageUrl ||
-                trendingProducts[currentSlide].images?.[0]
-              })`,
+              backgroundImage: `url(${trendingProducts[currentSlide].imageUrl || trendingProducts[currentSlide].images?.[0]})`,
               backgroundSize: "cover",
               backgroundPosition: "center",
               cursor: "pointer",
               position: "relative",
+              overflow: "hidden",
             }}
           >
-            <div
-              style={{
-                position: "absolute",
-                bottom: 0,
-                width: "100%",
-                padding: 10,
-                background: "rgba(0,0,0,0.6)",
-                color: "#fff",
-                borderRadius: "0 0 12px 12px",
-              }}
-            >
-              <h3 style={{ fontSize: 14 }}>{trendingProducts[currentSlide].title}</h3>
-              <p style={{ fontSize: 12 }}>
+            <div style={{
+              position: "absolute",
+              bottom: 0,
+              width: "100%",
+              padding: 8,
+              background: "rgba(0,0,0,0.6)",
+              color: "#fff",
+              borderRadius: "0 0 12px 12px",
+              fontSize: 12,
+            }}>
+              <h3 style={{ fontSize: 12, margin: 0 }}>{trendingProducts[currentSlide].title}</h3>
+              <p style={{ fontSize: 10, margin: 0 }}>
                 ₦{Number(trendingProducts[currentSlide].price).toLocaleString("en-NG")}
               </p>
             </div>
@@ -243,16 +205,13 @@ export default function HomePage() {
       )}
 
       {/* PRODUCTS FEED */}
-      <section style={{ maxWidth: 1000, margin: "20px auto", padding: "0 10px" }}>
-        <h2 style={{ color: "#0D6EFD", fontSize: 18 }}>Products Feed</h2>
-
-        <div
-          style={{
-            display: "grid",
-            gridTemplateColumns: "repeat(auto-fill, minmax(140px, 1fr))",
-            gap: 12,
-          }}
-        >
+      <section style={{ maxWidth: 400, margin: "20px auto", padding: "0 10px" }}>
+        <h2 style={{ color: "#0D6EFD", fontSize: 16 }}>Products Feed</h2>
+        <div style={{
+          display: "grid",
+          gridTemplateColumns: "repeat(auto-fill, minmax(120px, 1fr))",
+          gap: 10,
+        }}>
           {displayProducts.length ? displayProducts.map(p => {
             const plan = getPromotionPlan(p.promotionPlan);
             const imageSrc = p.imageUrl || p.images?.[0] || "/placeholder.png";
@@ -264,7 +223,7 @@ export default function HomePage() {
                 style={{
                   position: "relative",
                   border: "1px solid #dee2e6",
-                  padding: 8,
+                  padding: 6,
                   borderRadius: 8,
                   background: "#fff",
                   cursor: "pointer",
@@ -274,33 +233,31 @@ export default function HomePage() {
                 {plan && (
                   <div style={{
                     position: "absolute",
-                    top: 6,
-                    left: 6,
+                    top: 4,
+                    left: 4,
                     background: "#ffc107",
-                    padding: "2px 5px",
+                    padding: "1px 4px",
                     borderRadius: 4,
                     fontSize: 10,
                     fontWeight: 600
-                  }}>
-                    PROMO
-                  </div>
+                  }}>PROMO</div>
                 )}
 
                 {/* RIGHT BOOST BADGE */}
                 {plan && (
                   <div style={{
                     position: "absolute",
-                    top: 6,
-                    right: 6,
+                    top: 4,
+                    right: 4,
                     background: plan.type === "paid" ? "#dc3545" : "#0D6EFD",
                     color: "#fff",
-                    padding: "2px 6px",
+                    padding: "1px 4px",
                     borderRadius: 12,
                     fontSize: 10,
                     fontWeight: 600,
                     display: "flex",
                     alignItems: "center",
-                    gap: 3
+                    gap: 2
                   }}>
                     <span>{plan.icon}</span>
                     {plan.type === "paid" && "PRO"}
@@ -310,18 +267,16 @@ export default function HomePage() {
                 <img
                   src={imageSrc}
                   alt={p.title}
-                  style={{ width: "100%", height: 120, objectFit: "cover", borderRadius: 4, marginBottom: 6 }}
+                  style={{ width: "100%", height: 100, objectFit: "cover", borderRadius: 4, marginBottom: 4 }}
                   onError={e => (e.target.src = "/placeholder.png")}
                 />
 
                 <p style={{ fontWeight: 600, fontSize: 12, margin: 0 }}>{p.title}</p>
-
                 {p.city && p.state && (
                   <p style={{ fontSize: 10, color: "#6c757d", margin: "2px 0" }}>
                     {p.city}, {p.state}
                   </p>
                 )}
-
                 <p style={{ fontWeight: "bold", color: "#198754", fontSize: 12 }}>
                   ₦{Number(p.price).toLocaleString("en-NG")}
                 </p>
