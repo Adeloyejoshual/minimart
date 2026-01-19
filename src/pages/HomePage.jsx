@@ -3,6 +3,7 @@ import { useEffect, useState } from "react";
 import { collection, getDocs, query, orderBy, doc, updateDoc } from "firebase/firestore";
 import { db } from "../firebase";
 import { useNavigate } from "react-router-dom";
+import { FiMapPin } from "react-icons/fi";
 import TopNav from "../components/TopNav";
 import PostAdModal from "../components/PostAdModal";
 import categories from "../config/categories";
@@ -15,7 +16,7 @@ export default function HomePage() {
   const [trendingProducts, setTrendingProducts] = useState([]);
   const [selectedCategory, setSelectedCategory] = useState("");
   const [searchQuery, setSearchQuery] = useState("");
-  const [visibleCount, setVisibleCount] = useState(34); // show 34 initially
+  const [visibleCount, setVisibleCount] = useState(34); // Initial products before "Load More"
 
   // -------------------- Helpers --------------------
   const shuffleArray = arr => arr.sort(() => Math.random() - 0.5);
@@ -27,10 +28,10 @@ export default function HomePage() {
     const products = snap.docs.map(d => ({ id: d.id, ...d.data() }));
     setAllProducts(products);
 
-    // Trending: simulate most promoted + most clicked + most searched
+    // Trending: simulate top 5 mix of promoted + random
     const promoted = products.filter(p => promotionPlans.some(plan => plan.id === p.promotionPlan));
     const shuffled = shuffleArray(products);
-    const trendingSimulated = [...promoted.slice(0, 3), ...shuffled.slice(0, 2)]; // top 5
+    const trendingSimulated = [...promoted.slice(0, 3), ...shuffled.slice(0, 2)];
     setTrendingProducts(trendingSimulated);
   };
 
@@ -47,8 +48,7 @@ export default function HomePage() {
   useEffect(() => {
     let filtered = [...allProducts];
 
-    if (selectedCategory)
-      filtered = filtered.filter(p => p.mainCategory === selectedCategory);
+    if (selectedCategory) filtered = filtered.filter(p => p.mainCategory === selectedCategory);
 
     if (searchQuery.trim()) {
       const q = searchQuery.toLowerCase();
@@ -59,11 +59,6 @@ export default function HomePage() {
            p.brand?.toLowerCase().includes(q) ||
            p.mainCategory?.toLowerCase().includes(q))
       );
-      // Increment searchCount dynamically
-      filtered.forEach(async p => {
-        const productRef = doc(db, "products", p.id);
-        await updateDoc(productRef, { searchCount: (p.searchCount || 0) + 1 });
-      });
     }
 
     // Promoted products first
@@ -73,7 +68,7 @@ export default function HomePage() {
     const mixed = shuffleArray(regular);
 
     setDisplayProducts([...promotedTop, ...mixed]);
-    setVisibleCount(34); // reset visible count on filter/search
+    setVisibleCount(34); // reset visible count
   }, [allProducts, selectedCategory, searchQuery]);
 
   const productCardStyle = {
@@ -157,8 +152,10 @@ export default function HomePage() {
                   {formatPrice(p.price)}
                 </p>
                 <div style={{ display: "flex", justifyContent: "space-between", fontSize: 11, marginTop: 2 }}>
-                  <span>{p.state || "N/A"}</span>
-                  <span>{p.condition || "N/A"}</span>
+                  <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
+                    {p.state && <span style={{ display: "flex", alignItems: "center", gap: 3 }}><FiMapPin size={12} /> {p.state}</span>}
+                    {p.condition && <span>{p.condition}</span>}
+                  </div>
                   {promotion && <span>{promotion.icon}</span>}
                 </div>
               </div>
@@ -204,8 +201,10 @@ export default function HomePage() {
                   {formatPrice(p.price)}
                 </p>
                 <div style={{ display: "flex", justifyContent: "space-between", fontSize: 11, marginTop: 2 }}>
-                  <span>{p.state || "N/A"}</span>
-                  <span>{p.condition || "N/A"}</span>
+                  <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
+                    {p.state && <span style={{ display: "flex", alignItems: "center", gap: 3 }}><FiMapPin size={12} /> {p.state}</span>}
+                    {p.condition && <span>{p.condition}</span>}
+                  </div>
                   {isPromoted && <span>{promotion.icon}</span>}
                 </div>
               </div>
