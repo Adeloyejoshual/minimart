@@ -1,6 +1,6 @@
 // src/pages/HomePage.jsx
 import { useEffect, useState } from "react";
-import { collection, getDocs, query, orderBy, limit, where } from "firebase/firestore";
+import { collection, getDocs, query, orderBy } from "firebase/firestore";
 import { db } from "../firebase";
 import { useNavigate } from "react-router-dom";
 import TopNav from "../components/TopNav";
@@ -29,29 +29,24 @@ export default function HomePage() {
   useEffect(() => {
     let filtered = [...allProducts];
 
-    // Filter by category
     if (selectedCategory) {
       filtered = filtered.filter(p => p.category === selectedCategory);
     }
 
-    // Search by title
     if (searchQuery.trim()) {
       const q = searchQuery.toLowerCase();
-      filtered = filtered.filter(p => p.title.toLowerCase().includes(q));
+      filtered = filtered.filter(p => p.title?.toLowerCase().includes(q));
     }
 
-    // Separate promoted products
     const promoted = filtered.filter(p => promotionPlans.some(plan => plan.id === p.promotionPlan));
     const regular = filtered.filter(p => !promoted.includes(p));
 
-    // Limit promoted to 5 and mix the rest
     const promotedTop = promoted.slice(0, 5);
     const mixed = [...promotedTop, ...shuffleArray(regular)];
 
     setDisplayProducts(mixed);
   }, [allProducts, selectedCategory, searchQuery]);
 
-  // Utility: shuffle array
   const shuffleArray = arr => arr.sort(() => Math.random() - 0.5);
 
   return (
@@ -117,6 +112,7 @@ export default function HomePage() {
         <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(180px, 1fr))", gap: 20 }}>
           {displayProducts.length ? displayProducts.map(p => {
             const isPromoted = promotionPlans.some(plan => plan.id === p.promotionPlan);
+            const imageSrc = p.imageUrl || (p.images && p.images[0]) || "/placeholder.png";
             return (
               <div
                 key={p.id}
@@ -129,6 +125,8 @@ export default function HomePage() {
                   borderRadius: 8,
                   background: "#fff",
                   boxShadow: "0 2px 6px rgba(0,0,0,0.05)",
+                  display: "flex",
+                  flexDirection: "column",
                 }}
               >
                 {isPromoted && (
@@ -144,8 +142,24 @@ export default function HomePage() {
                     zIndex: 1,
                   }}>PROMO</div>
                 )}
-                <img src={p.imageUrl} alt={p.title} style={{ width: "100%", borderRadius: 5, marginBottom: 10 }} />
-                <p style={{ fontWeight: 600, color: "#212529", margin: 0 }}>{p.title}</p>
+
+                {/* Product Image */}
+                <img src={imageSrc} alt={p.title} style={{ width: "100%", height: 150, objectFit: "cover", borderRadius: 5, marginBottom: 10 }}
+                     onError={e => e.target.src = "/placeholder.png"} />
+
+                {/* Title */}
+                <p style={{ fontWeight: 600, color: "#212529", margin: 0, minHeight: 38, overflow: "hidden", textOverflow: "ellipsis" }}>
+                  {p.title}
+                </p>
+
+                {/* Location */}
+                {p.city && p.state && (
+                  <p style={{ fontSize: 12, color: "#6c757d", margin: "4px 0" }}>
+                    {p.city}, {p.state}
+                  </p>
+                )}
+
+                {/* Price */}
                 <p style={{ color: p.marketType === "minimart" ? "#198754" : "#dc3545", fontWeight: "bold", marginTop: 4 }}>
                   ₦{p.price}
                 </p>
