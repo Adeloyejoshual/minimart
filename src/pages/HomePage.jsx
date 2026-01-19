@@ -15,9 +15,9 @@ export default function HomePage() {
   const [trendingProducts, setTrendingProducts] = useState([]);
   const [selectedCategory, setSelectedCategory] = useState("");
   const [searchQuery, setSearchQuery] = useState("");
-  const [visibleCount, setVisibleCount] = useState(12); // initial batch
+  const [visibleCount, setVisibleCount] = useState(12);
 
-  // -------------------- Load all products --------------------
+  // Load all products
   const loadProducts = async () => {
     const snap = await getDocs(query(collection(db, "products"), orderBy("createdAt", "desc")));
     const products = snap.docs.map(d => ({ id: d.id, ...d.data() }));
@@ -27,7 +27,7 @@ export default function HomePage() {
 
   useEffect(() => { loadProducts(); }, []);
 
-  // -------------------- Filter, search, and mix feed --------------------
+  // Filter, search, and mix feed
   useEffect(() => {
     let filtered = [...allProducts];
 
@@ -48,7 +48,7 @@ export default function HomePage() {
     // Promoted products
     const promoted = filtered.filter(p => promotionPlans.some(plan => plan.id === p.promotionPlan));
     const regular = filtered.filter(p => !promoted.includes(p));
-    const promotedTop = promoted.slice(0, 5); // top 5 promoted
+    const promotedTop = promoted.slice(0, 5);
     const mixed = shuffleArray(regular);
 
     setDisplayProducts([...promotedTop, ...mixed]);
@@ -67,7 +67,7 @@ export default function HomePage() {
     flexDirection: "column",
     alignItems: "center",
     cursor: "pointer",
-    minHeight: 260,
+    minHeight: 240,
     position: "relative",
   };
 
@@ -75,21 +75,8 @@ export default function HomePage() {
     <div style={{ background: "#f4f6f8", minHeight: "100vh", paddingBottom: 50 }}>
       <TopNav />
 
-      {/* Banner */}
-      <div style={{ background: "#0D6EFD", color: "#fff", padding: "30px 20px", textAlign: "center" }}>
-        <h1 style={{ margin: 0, fontSize: "2rem" }}>Welcome to MiniMart + Marketplace</h1>
-        <p style={{ marginTop: 10, fontSize: "1.1rem" }}>
-          Buy and sell safely. Verified sellers in MiniMart. ⚠️ Marketplace payments: inspect before paying.
-        </p>
-      </div>
-
-      {/* Post Ad (Marketplace only) */}
-      <div style={{ textAlign: "center", margin: "20px 0" }}>
-        <PostAdModal />
-      </div>
-
-      {/* Search & Category Filter */}
-      <div style={{ maxWidth: 1000, margin: "20px auto", display: "flex", flexWrap: "wrap", gap: 10, alignItems: "center" }}>
+      {/* Search & Post Ad */}
+      <div style={{ maxWidth: 1000, margin: "20px auto", display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap" }}>
         <input
           type="text"
           placeholder="Search products by name, title, brand, category..."
@@ -97,7 +84,11 @@ export default function HomePage() {
           onChange={e => setSearchQuery(e.target.value)}
           style={{ flex: 1, padding: "10px 12px", borderRadius: 8, border: "1px solid #cce0ff", outline: "none" }}
         />
+        <PostAdModal />
+      </div>
 
+      {/* Category Filter */}
+      <div style={{ maxWidth: 1000, margin: "10px auto 20px auto", display: "flex", flexWrap: "wrap", gap: 10 }}>
         {categories.map(c => (
           <button
             key={c.name}
@@ -118,22 +109,22 @@ export default function HomePage() {
       {/* Trending Products */}
       <section style={{ maxWidth: 1000, margin: "20px auto" }}>
         <h2 style={{ color: "#DC3545", marginBottom: 10 }}>🔥 Trending Products</h2>
-        <div style={{ display: "flex", gap: 15, overflowX: "auto", padding: "10px 0" }}>
+        <div style={{ display: "flex", gap: 12, overflowX: "auto", padding: "8px 0" }}>
           {trendingProducts.map(p => (
             <div
               key={p.id}
               onClick={() => navigate(`/product/${p.id}`)}
-              style={{ ...productCardStyle, flexShrink: 0, minWidth: 180 }}
+              style={{ ...productCardStyle, flexShrink: 0, minWidth: 140 }}
             >
-              <img src={p.images?.[0]} alt={p.title || p.name} style={{ width: "100%", borderRadius: 5, marginBottom: 8 }} />
-              <p style={{ fontWeight: 600, margin: "5px 0 0 0", textAlign: "center" }}>{p.title || p.name}</p>
-              <p style={{ color: "#198754", fontWeight: "bold", marginTop: 4 }}>{formatPrice(p.price)}</p>
+              <img src={p.images?.[0]} alt={p.title || p.name} style={{ width: "100%", borderRadius: 5, marginBottom: 6 }} />
+              <p style={{ fontWeight: 600, margin: "3px 0 0 0", textAlign: "center", fontSize: 13 }}>{p.title || p.name}</p>
+              <p style={{ color: "#198754", fontWeight: "bold", marginTop: 2, fontSize: 13 }}>{formatPrice(p.price)}</p>
             </div>
           ))}
         </div>
       </section>
 
-      {/* Mixed Products Feed with Load More */}
+      {/* Mixed Products Feed */}
       <section style={{ maxWidth: 1000, margin: "20px auto" }}>
         <h2 style={{ color: "#0D6EFD", marginBottom: 10 }}>Products Feed</h2>
         <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(180px, 1fr))", gap: 20 }}>
@@ -161,7 +152,7 @@ export default function HomePage() {
                     zIndex: 1,
                   }}>PROMO</div>
                 )}
-                <img src={p.images?.[0]} alt={p.title || p.name} style={{ width: "100%", borderRadius: 5, marginBottom: 10 }} />
+                <img src={p.images?.[0]} alt={p.title || p.name} style={{ width: "100%", borderRadius: 5, marginBottom: 8 }} />
                 <p style={{ fontWeight: 600, color: "#212529", margin: 0, textAlign: "center" }}>{p.title || p.name}</p>
                 <p style={{ color: p.marketType === "minimart" ? "#198754" : "#dc3545", fontWeight: "bold", marginTop: 4 }}>
                   {formatPrice(p.price)}
