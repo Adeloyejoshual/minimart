@@ -3,7 +3,7 @@
 const categoryRules = {
   /* ================= Mobile Phones & Tablets ================= */
   "Mobile Phones & Tablets": {
-    minTitle: 10,
+    minTitle: 15,
     maxTitle: 70,
     minImages: 1,
     maxImages: 10,
@@ -16,7 +16,7 @@ const categoryRules = {
 
   /* ================= Electronics ================= */
   Electronics: {
-    minTitle: 10,
+    minTitle: 15,
     maxTitle: 70,
     minImages: 1,
     maxImages: 15,
@@ -29,7 +29,7 @@ const categoryRules = {
 
   /* ================= Vehicles ================= */
   Vehicles: {
-    minTitle: 10,
+    minTitle: 15,
     maxTitle: 70,
     minImages: 2,
     maxImages: 20,
@@ -43,7 +43,7 @@ const categoryRules = {
 
   /* ================= Property ================= */
   Property: {
-    minTitle: 10,
+    minTitle: 15,
     maxTitle: 70,
     minImages: 2,
     maxImages: 20,
@@ -55,7 +55,7 @@ const categoryRules = {
 
   /* ================= Home, Furniture & Appliances ================= */
   "Home, Furniture & Appliances": {
-    minTitle: 8,
+    minTitle: 15,
     maxTitle: 70,
     minImages: 1,
     maxImages: 15,
@@ -68,7 +68,7 @@ const categoryRules = {
 
   /* ================= Fashion ================= */
   Fashion: {
-    minTitle: 8,
+    minTitle: 15,
     maxTitle: 70,
     minImages: 1,
     maxImages: 10,
@@ -81,7 +81,7 @@ const categoryRules = {
 
   /* ================= Beauty & Personal Care ================= */
   "Beauty & Personal Care": {
-    minTitle: 5,
+    minTitle: 15,
     maxTitle: 70,
     minImages: 1,
     maxImages: 10,
@@ -94,7 +94,7 @@ const categoryRules = {
 
   /* ================= Services ================= */
   Services: {
-    minTitle: 10,
+    minTitle: 15,
     maxTitle: 70,
     minImages: 0,
     maxImages: 5,
@@ -106,7 +106,7 @@ const categoryRules = {
 
   /* ================= Repair & Construction ================= */
   "Repair & Construction": {
-    minTitle: 10,
+    minTitle: 15,
     maxTitle: 70,
     minImages: 0,
     maxImages: 10,
@@ -118,7 +118,7 @@ const categoryRules = {
 
   /* ================= Commercial Equipment & Tools ================= */
   "Commercial Equipment & Tools": {
-    minTitle: 10,
+    minTitle: 15,
     maxTitle: 70,
     minImages: 1,
     maxImages: 15,
@@ -131,7 +131,7 @@ const categoryRules = {
 
   /* ================= Leisure & Activities ================= */
   "Leisure & Activities": {
-    minTitle: 5,
+    minTitle: 15,
     maxTitle: 70,
     minImages: 1,
     maxImages: 10,
@@ -155,7 +155,7 @@ const categoryRules = {
 
   /* ================= Food, Agriculture & Farming ================= */
   "Food, Agriculture & Farming": {
-    minTitle: 5,
+    minTitle: 15,
     maxTitle: 70,
     minImages: 1,
     maxImages: 10,
@@ -167,7 +167,7 @@ const categoryRules = {
 
   /* ================= Animals & Pets ================= */
   "Animals & Pets": {
-    minTitle: 5,
+    minTitle: 15,
     maxTitle: 70,
     minImages: 1,
     maxImages: 10,
@@ -179,7 +179,7 @@ const categoryRules = {
 
   /* ================= Jobs ================= */
   Jobs: {
-    minTitle: 10,
+    minTitle: 15,
     maxTitle: 70,
     minImages: 0,
     maxImages: 5,
@@ -191,7 +191,7 @@ const categoryRules = {
 
   /* ================= Seeking Work - CVs ================= */
   "Seeking Work - CVs": {
-    minTitle: 10,
+    minTitle: 15,
     maxTitle: 70,
     minImages: 0,
     maxImages: 5,
@@ -203,7 +203,7 @@ const categoryRules = {
 
   /* ================= Default rules ================= */
   Default: {
-    minTitle: 5,
+    minTitle: 15,
     maxTitle: 70,
     minImages: 1,
     maxImages: 10,
