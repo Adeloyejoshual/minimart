@@ -1,5 +1,5 @@
 // src/pages/AddProduct.js
-import { useEffect, useState } from "react";
+import { useEffect, useState, useRef } from "react";
 import { addDoc, collection, serverTimestamp } from "firebase/firestore";
 import { db, auth } from "../firebase";
 import { uploadToCloudinary } from "../cloudinary";
@@ -20,10 +20,6 @@ export default function AddProduct() {
   const marketType = params.get("market") || "marketplace";
 
   const [loading, setLoading] = useState(false);
-  const [scrollPos, setScrollPos] = useState(0); // For restoring scroll after closing selection
-  const [selectionStep, setSelectionStep] = useState(null);
-  const [backStep, setBackStep] = useState(null);
-
   const [form, setForm] = useState({
     title: "",
     mainCategory: "",
@@ -46,8 +42,11 @@ export default function AddProduct() {
     isPromoted: false,
   });
 
+  const [selectionStep, setSelectionStep] = useState(null);
+  const [backStep, setBackStep] = useState(null);
   const [toast, setToast] = useState({ visible: false, message: "", icon: "⚡" });
 
+  const scrollPos = useRef(0);
   const rules = categoryRules[form.mainCategory] || categoryRules.Default;
 
   // ---------------- Draft Load/Save ----------------
@@ -67,16 +66,15 @@ export default function AddProduct() {
     return () => form.previews.forEach(url => URL.revokeObjectURL(url));
   }, [form.previews]);
 
-  // ---------------- Toast Helper ----------------
+  // ---------------- Toast ----------------
   const showToast = (message, icon = "⚡", duration = 3000) => {
     setToast({ visible: true, message, icon });
     setTimeout(() => setToast(prev => ({ ...prev, visible: false })), duration);
   };
 
-  // ---------------- Form Update ----------------
+  // ---------------- Helpers ----------------
   const update = (key, value) => setForm(prev => ({ ...prev, [key]: value }));
 
-  // ---------------- Price ----------------
   const handlePriceChange = e => {
     const raw = e.target.value.replace(/,/g, "");
     if (!isNaN(raw) || raw === "") {
@@ -84,7 +82,6 @@ export default function AddProduct() {
     }
   };
 
-  // ---------------- Image Upload ----------------
   const handleImages = files => {
     const list = Array.from(files);
     if (list.length + form.images.length > rules.maxImages) {
@@ -99,7 +96,6 @@ export default function AddProduct() {
     update("previews", form.previews.filter((_, i) => i !== index));
   };
 
-  // ---------------- Validation ----------------
   const validate = () => {
     if (!form.title || form.title.length < rules.minTitle)
       return `Title must be at least ${rules.minTitle} characters`;
@@ -115,7 +111,6 @@ export default function AddProduct() {
     return null;
   };
 
-  // ---------------- Submit ----------------
   const handleSubmit = async () => {
     const error = validate();
     if (error) return showToast(error, "⚠️");
@@ -154,14 +149,8 @@ export default function AddProduct() {
         update(valueKey, customValue.trim());
         setCustomValue("");
         setSelectionStep(null);
-        window.scrollTo(0, scrollPos); // restore scroll
+        window.scrollTo(0, scrollPos.current);
       }
-    };
-
-    const handleSelect = (val) => {
-      update(valueKey, val);
-      setSelectionStep(null);
-      window.scrollTo(0, scrollPos); // restore scroll
     };
 
     return (
@@ -180,7 +169,7 @@ export default function AddProduct() {
             <div
               key={opt}
               className={`option-item ${form[valueKey] === opt ? "active" : ""}`}
-              onClick={() => handleSelect(opt)}
+              onClick={() => { update(valueKey, opt); setSelectionStep(null); window.scrollTo(0, scrollPos.current); }}
             >
               {opt}
             </div>
@@ -205,18 +194,28 @@ export default function AddProduct() {
   const getModelOptions = () => form.brand ? productOptions[form.mainCategory]?.subcategories[form.subCategory]?.brands?.[form.brand] || [] : [];
   const getStateOptions = () => Object.keys(locationsByState);
   const getCityOptions = () => form.state ? locationsByState[form.state] : [];
+
   const getExtraOptions = (field) => {
     if (!form.mainCategory || !form.subCategory) return [];
     const subcatOptions = productOptions[form.mainCategory]?.subcategories[form.subCategory] || {};
     return Array.isArray(subcatOptions[field]) && subcatOptions[field].length > 0 ? subcatOptions[field] : [];
   };
 
-  // ---------------- Render Full Page ----------------
+  // ---------------- Dynamic Fields ----------------
+  const showConditionField = () => form.model && ["Smartphones", "FeaturePhones"].includes(form.mainCategory);
+  const showUsedDetailField = () => form.condition === "Used";
+
+  useEffect(() => { if (!form.model) { update("condition", ""); update("usedDetail", ""); } }, [form.model]);
+  useEffect(() => { if (form.condition !== "Used") update("usedDetail", ""); }, [form.condition]);
+
+  // ---------------- Render FullPage Selector ----------------
   if (selectionStep) {
     switch (selectionStep) {
       case "subCategory": return <FullPageList title="Select Subcategory" options={getSubcategories()} valueKey="subCategory" />;
       case "brand": return <FullPageList title="Select Brand" options={getBrandOptions()} valueKey="brand" />;
       case "model": return <FullPageList title="Select Model" options={getModelOptions()} valueKey="model" />;
+      case "condition": return <FullPageList title="Select Condition" options={["New","Used"]} valueKey="condition" />;
+      case "usedDetail": return <FullPageList title="Select Used Detail" options={["Like New","Good","Fair"]} valueKey="usedDetail" />;
       case "colors": return <FullPageList title="Select Color" options={getExtraOptions("colors")} valueKey="color" />;
       case "simTypes": return <FullPageList title="Select SIM Type" options={getExtraOptions("simTypes")} valueKey="simType" />;
       case "types": return <FullPageList title="Select Type" options={getExtraOptions("types")} valueKey="type" />;
@@ -246,19 +245,7 @@ export default function AddProduct() {
             <div
               key={cat.name}
               className={`category-item ${form.mainCategory === cat.name ? "active" : ""}`}
-              onClick={() => {
-                update("mainCategory", cat.name);
-                // Reset dependent fields
-                update("subCategory", "");
-                update("brand", "");
-                update("model", "");
-                update("condition", "");
-                update("usedDetail", "");
-                update("color", "");
-                update("simType", "");
-                update("features", []);
-                update("type", "");
-              }}
+              onClick={() => update("mainCategory", cat.name)}
             >
               <span className="category-icon">{cat.icon}</span>
               <span className="category-name">{cat.name}</span>
@@ -270,7 +257,7 @@ export default function AddProduct() {
       {/* Subcategory */}
       {form.mainCategory && (
         <Field label="Subcategory">
-          <div className="option-item clickable" onClick={() => { setScrollPos(window.scrollY); setBackStep(null); setSelectionStep("subCategory"); }}>
+          <div className="option-item clickable" onClick={() => { scrollPos.current = window.scrollY; setBackStep(null); setSelectionStep("subCategory"); }}>
             {form.subCategory || "Select Subcategory"}
           </div>
         </Field>
@@ -279,7 +266,7 @@ export default function AddProduct() {
       {/* Brand */}
       {form.subCategory && getBrandOptions().length > 0 && (
         <Field label="Brand">
-          <div className="option-item clickable" onClick={() => { setScrollPos(window.scrollY); setBackStep("subCategory"); setSelectionStep("brand"); }}>
+          <div className="option-item clickable" onClick={() => { scrollPos.current = window.scrollY; setBackStep("subCategory"); setSelectionStep("brand"); }}>
             {form.brand || "Select Brand"}
           </div>
         </Field>
@@ -288,8 +275,26 @@ export default function AddProduct() {
       {/* Model */}
       {form.brand && getModelOptions().length > 0 && (
         <Field label="Model / Type">
-          <div className="option-item clickable" onClick={() => { setScrollPos(window.scrollY); setBackStep("brand"); setSelectionStep("model"); }}>
+          <div className="option-item clickable" onClick={() => { scrollPos.current = window.scrollY; setBackStep("brand"); setSelectionStep("model"); }}>
             {form.model || "Select Model"}
+          </div>
+        </Field>
+      )}
+
+      {/* Condition */}
+      {showConditionField() && (
+        <Field label="Condition">
+          <div className="option-item clickable" onClick={() => { scrollPos.current = window.scrollY; setBackStep("model"); setSelectionStep("condition"); }}>
+            {form.condition || "Select Condition"}
+          </div>
+        </Field>
+      )}
+
+      {/* Used Detail */}
+      {showUsedDetailField() && (
+        <Field label="Used Detail">
+          <div className="option-item clickable" onClick={() => { scrollPos.current = window.scrollY; setBackStep("condition"); setSelectionStep("usedDetail"); }}>
+            {form.usedDetail || "Select Used Detail"}
           </div>
         </Field>
       )}
@@ -323,7 +328,7 @@ export default function AddProduct() {
       {/* Extra Options */}
       {getExtraOptions("colors").length > 0 && (
         <Field label="Color">
-          <div className="option-item clickable" onClick={() => { setScrollPos(window.scrollY); setSelectionStep("colors"); }}>
+          <div className="option-item clickable" onClick={() => { scrollPos.current = window.scrollY; setSelectionStep("colors"); }}>
             {form.color || "Select Color"}
           </div>
         </Field>
@@ -331,7 +336,7 @@ export default function AddProduct() {
 
       {getExtraOptions("simTypes").length > 0 && (
         <Field label="SIM Type">
-          <div className="option-item clickable" onClick={() => { setScrollPos(window.scrollY); setSelectionStep("simTypes"); }}>
+          <div className="option-item clickable" onClick={() => { scrollPos.current = window.scrollY; setSelectionStep("simTypes"); }}>
             {form.simType || "Select SIM Type"}
           </div>
         </Field>
@@ -361,7 +366,7 @@ export default function AddProduct() {
 
       {getExtraOptions("types").length > 0 && (
         <Field label="Type">
-          <div className="option-item clickable" onClick={() => { setScrollPos(window.scrollY); setSelectionStep("types"); }}>
+          <div className="option-item clickable" onClick={() => { scrollPos.current = window.scrollY; setSelectionStep("types"); }}>
             {form.type || "Select Type"}
           </div>
         </Field>
@@ -369,7 +374,7 @@ export default function AddProduct() {
 
       {/* State */}
       <Field label="State">
-        <div className="option-item clickable" onClick={() => { setScrollPos(window.scrollY); setBackStep(null); setSelectionStep("state"); }}>
+        <div className="option-item clickable" onClick={() => { scrollPos.current = window.scrollY; setBackStep(null); setSelectionStep("state"); }}>
           {form.state || "Select State"}
         </div>
       </Field>
@@ -377,7 +382,7 @@ export default function AddProduct() {
       {/* City */}
       {form.state && (
         <Field label="City / LGA">
-          <div className="option-item clickable" onClick={() => { setScrollPos(window.scrollY); setBackStep("state"); setSelectionStep("city"); }}>
+          <div className="option-item clickable" onClick={() => { scrollPos.current = window.scrollY; setBackStep("state"); setSelectionStep("city"); }}>
             {form.city || "Select City / LGA"}
           </div>
         </Field>
