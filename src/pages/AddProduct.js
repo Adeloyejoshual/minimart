@@ -35,11 +35,11 @@ export default function AddProduct() {
     city: "",
     images: [],
     previews: [],
-    isPromoted: false,
     color: "",
     simType: "",
     features: [],
     type: "",
+    isPromoted: false,
   });
 
   const [selectionStep, setSelectionStep] = useState(null);
@@ -47,7 +47,7 @@ export default function AddProduct() {
 
   const rules = categoryRules[form.mainCategory] || categoryRules.Default;
 
-  // ---------------- Draft Load & Save ----------------
+  // ---------------- Draft Load/Save ----------------
   useEffect(() => {
     const saved = localStorage.getItem(DRAFT_KEY);
     if (saved) setForm(JSON.parse(saved));
@@ -60,14 +60,13 @@ export default function AddProduct() {
     if (form.mainCategory) localStorage.setItem(CATEGORY_KEY, form.mainCategory);
   }, [form]);
 
-  // ---------------- Cleanup previews ----------------
   useEffect(() => {
     return () => form.previews.forEach(url => URL.revokeObjectURL(url));
   }, [form.previews]);
 
+  // ---------------- Form Helpers ----------------
   const update = (key, value) => setForm(prev => ({ ...prev, [key]: value }));
 
-  // ---------------- Price formatting ----------------
   const handlePriceChange = e => {
     const raw = e.target.value.replace(/,/g, "");
     if (!isNaN(raw) || raw === "") {
@@ -75,7 +74,6 @@ export default function AddProduct() {
     }
   };
 
-  // ---------------- Image Upload ----------------
   const handleImages = files => {
     const list = Array.from(files);
     if (list.length + form.images.length > rules.maxImages) {
@@ -91,7 +89,6 @@ export default function AddProduct() {
     update("previews", form.previews.filter((_, i) => i !== index));
   };
 
-  // ---------------- Validation ----------------
   const validate = () => {
     if (!form.title || form.title.length < rules.minTitle)
       return `Title must be at least ${rules.minTitle} characters`;
@@ -107,7 +104,6 @@ export default function AddProduct() {
     return null;
   };
 
-  // ---------------- Submit ----------------
   const handleSubmit = async () => {
     const error = validate();
     if (error) return alert(error);
@@ -136,31 +132,15 @@ export default function AddProduct() {
   };
 
   // ---------------- Full Page List ----------------
-  const FullPageList = ({ title, options, valueKey, multiSelect = false }) => {
+  const FullPageList = ({ title, options, valueKey }) => {
     const [search, setSearch] = useState("");
     const [customValue, setCustomValue] = useState("");
-
     const filtered = options.filter(opt => opt.toLowerCase().includes(search.toLowerCase()));
 
     const handleCustomSubmit = () => {
       if (customValue.trim() !== "") {
-        if (multiSelect) {
-          update(valueKey, [...form[valueKey], customValue.trim()]);
-        } else update(valueKey, customValue.trim());
+        update(valueKey, customValue.trim());
         setCustomValue("");
-        setSelectionStep(null);
-      }
-    };
-
-    const handleSelect = opt => {
-      if (multiSelect) {
-        const exists = form[valueKey].includes(opt);
-        const updated = exists
-          ? form[valueKey].filter(f => f !== opt)
-          : [...form[valueKey], opt];
-        update(valueKey, updated);
-      } else {
-        update(valueKey, opt);
         setSelectionStep(null);
       }
     };
@@ -168,9 +148,7 @@ export default function AddProduct() {
     return (
       <div className="fullpage-list">
         {backStep && (
-          <div className="options-back" onClick={() => setSelectionStep(backStep)}>
-            ← Back
-          </div>
+          <div className="options-back" onClick={() => setSelectionStep(backStep)}>← Back</div>
         )}
         <h3>{title}</h3>
         <input
@@ -184,8 +162,8 @@ export default function AddProduct() {
           {filtered.map(opt => (
             <div
               key={opt}
-              className={`option-item ${multiSelect && form[valueKey]?.includes(opt) ? "active" : ""}`}
-              onClick={() => handleSelect(opt)}
+              className={`option-item ${form[valueKey] === opt ? "active" : ""}`}
+              onClick={() => { update(valueKey, opt); setSelectionStep(null); }}
             >
               {opt}
             </div>
@@ -210,24 +188,26 @@ export default function AddProduct() {
   const getModelOptions = () => form.brand ? productOptions[form.mainCategory]?.subcategories[form.subCategory]?.brands?.[form.brand] || [] : [];
   const getStateOptions = () => Object.keys(locationsByState);
   const getCityOptions = () => form.state ? locationsByState[form.state] : [];
-  const getConditionOptions = () => conditions.main;
-  const getUsedDetailOptions = () => conditions.usedDetails;
-  const getExtraOptions = field => productOptions[form.mainCategory]?.subcategories[form.subCategory]?.[field] || [];
 
-  // ---------------- Render Full Page Step ----------------
+  const getExtraOptions = (field) => {
+    if (!form.mainCategory || !form.subCategory) return [];
+    const subcatOptions = productOptions[form.mainCategory]?.subcategories[form.subCategory] || {};
+    return Array.isArray(subcatOptions[field]) && subcatOptions[field].length > 0
+      ? subcatOptions[field]
+      : [];
+  };
+
+  // ---------------- Render Full Page ----------------
   if (selectionStep) {
     switch (selectionStep) {
       case "subCategory": return <FullPageList title="Select Subcategory" options={getSubcategories()} valueKey="subCategory" />;
       case "brand": return <FullPageList title="Select Brand" options={getBrandOptions()} valueKey="brand" />;
       case "model": return <FullPageList title="Select Model" options={getModelOptions()} valueKey="model" />;
-      case "condition": return <FullPageList title="Select Condition" options={getConditionOptions()} valueKey="condition" />;
-      case "usedDetail": return <FullPageList title="Select Used Detail" options={getUsedDetailOptions()} valueKey="usedDetail" />;
-      case "state": return <FullPageList title="Select State" options={getStateOptions()} valueKey="state" />;
-      case "city": return <FullPageList title="Select City / LGA" options={getCityOptions()} valueKey="city" />;
       case "colors": return <FullPageList title="Select Color" options={getExtraOptions("colors")} valueKey="color" />;
       case "simTypes": return <FullPageList title="Select SIM Type" options={getExtraOptions("simTypes")} valueKey="simType" />;
-      case "features": return <FullPageList title="Select Features" options={getExtraOptions("features")} valueKey="features" multiSelect />;
       case "types": return <FullPageList title="Select Type" options={getExtraOptions("types")} valueKey="type" />;
+      case "state": return <FullPageList title="Select State" options={getStateOptions()} valueKey="state" />;
+      case "city": return <FullPageList title="Select City / LGA" options={getCityOptions()} valueKey="city" />;
       default: break;
     }
   }
@@ -288,22 +268,6 @@ export default function AddProduct() {
         </Field>
       )}
 
-      {/* Condition */}
-      {["Smartphones","FeaturePhones"].includes(form.mainCategory) && form.model && (
-        <Field label="Condition">
-          <div className="option-item clickable" onClick={() => { setBackStep("model"); setSelectionStep("condition"); }}>
-            {form.condition || "Select Condition"}
-          </div>
-          {form.condition === "Used" && (
-            <Field label="Used Details">
-              <div className="option-item clickable" onClick={() => { setBackStep("condition"); setSelectionStep("usedDetail"); }}>
-                {form.usedDetail || "Select Used Detail"}
-              </div>
-            </Field>
-          )}
-        </Field>
-      )}
-
       {/* Price */}
       <Field label="Price (₦)">
         <input value={form.price} onChange={handlePriceChange} placeholder="₦ 0" />
@@ -330,34 +294,48 @@ export default function AddProduct() {
         </div>
       </Field>
 
-      {/* ---------------- Extra Options ---------------- */}
-      {form.subCategory && getExtraOptions("colors").length > 0 && (
+      {/* Extra Options Below Images */}
+      {getExtraOptions("colors").length > 0 && (
         <Field label="Color">
-          <div className="option-item clickable" onClick={() => { setBackStep(null); setSelectionStep("colors"); }}>
+          <div className="option-item clickable" onClick={() => setSelectionStep("colors")}>
             {form.color || "Select Color"}
           </div>
         </Field>
       )}
 
-      {form.subCategory && getExtraOptions("simTypes").length > 0 && (
+      {getExtraOptions("simTypes").length > 0 && (
         <Field label="SIM Type">
-          <div className="option-item clickable" onClick={() => { setBackStep(null); setSelectionStep("simTypes"); }}>
+          <div className="option-item clickable" onClick={() => setSelectionStep("simTypes")}>
             {form.simType || "Select SIM Type"}
           </div>
         </Field>
       )}
 
-      {form.subCategory && getExtraOptions("features").length > 0 && (
+      {getExtraOptions("features").length > 0 && (
         <Field label="Features">
-          <div className="option-item clickable" onClick={() => { setBackStep(null); setSelectionStep("features"); }}>
-            {form.features.length > 0 ? form.features.join(", ") : "Select Features"}
+          <div className="features-checkboxes">
+            {getExtraOptions("features").map(f => (
+              <label key={f} className="feature-label">
+                <input
+                  type="checkbox"
+                  checked={form.features.includes(f)}
+                  onChange={() => {
+                    const updated = form.features.includes(f)
+                      ? form.features.filter(x => x !== f)
+                      : [...form.features, f];
+                    update("features", updated);
+                  }}
+                />
+                {f}
+              </label>
+            ))}
           </div>
         </Field>
       )}
 
-      {form.subCategory && getExtraOptions("types").length > 0 && (
+      {getExtraOptions("types").length > 0 && (
         <Field label="Type">
-          <div className="option-item clickable" onClick={() => { setBackStep(null); setSelectionStep("types"); }}>
+          <div className="option-item clickable" onClick={() => setSelectionStep("types")}>
             {form.type || "Select Type"}
           </div>
         </Field>
