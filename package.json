@@ -17,7 +17,8 @@
     "web-vitals": "^3.3.1",
     "express": "^4.18.2",
     "cors": "^2.8.5",
-    "react-icons": "^4.11.0"
+    "react-icons": "^4.11.0",
+    "browser-image-compression": "^2.0.1"
   },
   "scripts": {
     "start": "react-scripts start",
