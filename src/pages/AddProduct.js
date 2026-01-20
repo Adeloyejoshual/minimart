@@ -1,17 +1,24 @@
+// src/pages/AddProduct.js
 import React, { useState, useEffect } from "react";
-import { View, Text, TextInput, TouchableOpacity, ScrollView, Image, Alert } from "react-native";
-import * as ImagePicker from "expo-image-picker";
-import * as FileSystem from "expo-file-system";
-import { db, auth, storage } from "../firebase";
 import { collection, addDoc, serverTimestamp } from "firebase/firestore";
+import { db, auth } from "../firebase";
+import { uploadToCloudinary } from "../cloudinary";
+import { useNavigate, useLocation } from "react-router-dom";
 import categories from "../config/categories";
+import categoryRules from "../config/categoryRules";
+import { locationsByState } from "../config/locationsByState";
 import phoneModels from "../config/phoneModels";
 import conditions from "../config/condition";
-import { promotionPlans } from "../config/promotionPlans";
+import "./AddProduct.css";
 
-const DRAFT_KEY = "add_product_draft";
+const MAX_IMAGES = 10;
 
-export default function AddProduct({ navigation }) {
+const AddProduct = () => {
+  const navigate = useNavigate();
+  const locationQuery = useLocation();
+  const params = new URLSearchParams(locationQuery.search);
+  const marketType = params.get("market") || "marketplace";
+
   const [form, setForm] = useState({
     mainCategory: "",
     subCategory: "",
@@ -22,172 +29,305 @@ export default function AddProduct({ navigation }) {
     title: "",
     description: "",
     price: "",
-    phone: "",
+    phoneNumber: "",
     images: [],
-    previewUris: [],
+    previewImages: [],
     state: "",
     city: "",
     isPromoted: false,
-    promotionPlan: promotionPlans[0].id,
   });
 
+  const [errors, setErrors] = useState({});
   const [loading, setLoading] = useState(false);
-  const [selectionStep, setSelectionStep] = useState(null);
+  const [selectionStep, setSelectionStep] = useState(null); // Full-page selection step
+  const [backStep, setBackStep] = useState(null);
 
-  // ---------- Draft Auto-Save ----------
-  useEffect(() => {
-    const loadDraft = async () => {
-      const draft = await FileSystem.readAsStringAsync(FileSystem.documentDirectory + DRAFT_KEY).catch(() => null);
-      if (draft) setForm(JSON.parse(draft));
-    };
-    loadDraft();
-  }, []);
+  // ---------------- Derived lists ----------------
+  const getSubcategories = () =>
+    categories.find(c => c.name === form.mainCategory)?.subcategories || [];
 
-  useEffect(() => {
-    const saveDraft = async () => {
-      await FileSystem.writeAsStringAsync(FileSystem.documentDirectory + DRAFT_KEY, JSON.stringify(form)).catch(() => {});
-    };
-    saveDraft();
-  }, [form]);
+  const getBrandOptions = () => {
+    if (!form.mainCategory) return [];
+    const data = phoneModels[form.mainCategory];
+    if (!data) return [];
+    return Object.keys(data).filter(b => b !== "Other");
+  };
 
-  // ---------- Pick Images ----------
-  const pickImages = async () => {
-    const result = await ImagePicker.launchImageLibraryAsync({
-      mediaTypes: ImagePicker.MediaTypeOptions.Images,
-      allowsMultipleSelection: true,
-      quality: 0.5, // compress
-    });
+  const getModelOptions = () => {
+    if (!form.brand || !form.mainCategory) return [];
+    return phoneModels[form.mainCategory][form.brand] || [];
+  };
 
-    if (!result.canceled) {
-      const uris = result.assets.map(a => a.uri);
-      setForm(prev => ({
-        ...prev,
-        images: [...prev.images, ...uris],
-        previewUris: [...prev.previewUris, ...uris],
-      }));
-    }
+  const getStateOptions = () => Object.keys(locationsByState);
+  const getCityOptions = () => (form.state ? locationsByState[form.state] : []);
+  const getConditionOptions = () => conditions.main;
+  const getUsedDetailOptions = () => conditions.usedDetails;
+
+  // ---------------- Handlers ----------------
+  const handleChange = (field, value) => {
+    setForm(prev => ({ ...prev, [field]: value }));
+    setErrors(prev => ({ ...prev, [field]: "" }));
+
+    // Reset dependent fields  
+    if (field === "mainCategory") setForm(prev => ({ ...prev, subCategory: "", brand: "", model: "", condition: "", usedDetail: "" }));
+    if (field === "subCategory") setForm(prev => ({ ...prev, brand: "", model: "", condition: "", usedDetail: "" }));
+    if (field === "brand") setForm(prev => ({ ...prev, model: "" }));
+    if (field === "condition") setForm(prev => ({ ...prev, usedDetail: "" }));
+    if (field === "state") setForm(prev => ({ ...prev, city: "" }));
+  };
+
+  const handlePriceChange = e => {
+    let val = e.target.value.replace(/,/g, "");
+    if (!isNaN(val)) setForm(prev => ({ ...prev, price: val }));
+  };
+
+  const handleFileChange = e => {
+    const files = Array.from(e.target.files);
+    if (files.length + form.images.length > MAX_IMAGES)
+      return alert(`Max ${MAX_IMAGES} images allowed`);
+    setForm(prev => ({
+      ...prev,
+      images: [...prev.images, ...files],
+      previewImages: [...prev.previewImages, ...files.map(f => URL.createObjectURL(f))]
+    }));
   };
 
   const removeImage = idx => {
     setForm(prev => ({
       ...prev,
       images: prev.images.filter((_, i) => i !== idx),
-      previewUris: prev.previewUris.filter((_, i) => i !== idx),
+      previewImages: prev.previewImages.filter((_, i) => i !== idx)
     }));
   };
 
-  // ---------- Validation ----------
-  const validate = () => {
-    if (!form.title) return "Enter title";
-    if (!form.mainCategory) return "Select category";
-    if (!form.price) return "Enter price";
-    if (!form.phone || form.phone.length < 10) return "Enter valid phone";
-    if (form.images.length === 0) return "Add at least 1 image";
-    return null;
+  const validateForm = () => {
+    const newErrors = {};
+    const requiredFields = ["mainCategory", "subCategory", "title", "price", "phoneNumber", "state", "city"];
+    requiredFields.forEach(f => { if (!form[f]) newErrors[f] = "This field is required"; });
+
+    // Mobile Phones extra validation  
+    if (form.subCategory === "Mobile Phones") {
+      ["brand", "model", "condition"].forEach(f => { if (!form[f]) newErrors[f] = "This field is required"; });
+      if (form.condition === "Used" && !form.usedDetail) newErrors.usedDetail = "This field is required";
+    }
+
+    // Phone number format
+    if (form.phoneNumber && !/^\d{10,15}$/.test(form.phoneNumber))
+      newErrors.phoneNumber = "Enter a valid phone number";
+
+    setErrors(newErrors);
+    return Object.keys(newErrors).length === 0;
   };
 
-  // ---------- Upload Offline / Queue ----------
-  const handleAdd = async () => {
-    const error = validate();
-    if (error) return Alert.alert("Error", error);
-
-    if (!auth.currentUser) return Alert.alert("Error", "Login required");
+  const handleAdd = async e => {
+    e.preventDefault();
+    if (!auth.currentUser) return setErrors({ general: "Login required" });
+    if (!validateForm()) return;
 
     try {
       setLoading(true);
-      const uploadedUrls = [];
+      const uploaded = await Promise.all(form.images.map(f => uploadToCloudinary(f)));
 
-      // Upload images to Firebase Storage
-      for (let i = 0; i < form.images.length; i++) {
-        const imgUri = form.images[i];
-        const blob = await (await fetch(imgUri)).blob();
-        const ref = storage.ref().child(`products/${Date.now()}_${i}`);
-        await ref.put(blob);
-        uploadedUrls.push(await ref.getDownloadURL());
-      }
-
-      // Save to Firestore
       await addDoc(collection(db, "products"), {
         ...form,
-        images: uploadedUrls,
-        coverImage: uploadedUrls[0],
+        images: uploaded,
+        coverImage: uploaded[0],
         ownerId: auth.currentUser.uid,
+        marketType,
         createdAt: serverTimestamp(),
       });
 
-      Alert.alert("Success", "Product added!");
-      setForm({ images: [], previewUris: [], title: "", description: "", price: "", phone: "", mainCategory: "", subCategory: "", brand: "", model: "", condition: "", usedDetail: "", state: "", city: "", isPromoted: false, promotionPlan: promotionPlans[0].id });
-      navigation.goBack();
+      alert("Product added successfully");
+      setForm({
+        mainCategory: "",
+        subCategory: "",
+        brand: "",
+        model: "",
+        condition: "",
+        usedDetail: "",
+        title: "",
+        description: "",
+        price: "",
+        phoneNumber: "",
+        images: [],
+        previewImages: [],
+        state: "",
+        city: "",
+        isPromoted: false,
+      });
+      navigate(`/${marketType}`);
     } catch (err) {
-      Alert.alert("Upload Error", err.message);
-      // Optional: save to offline queue
+      setErrors({ general: "Error: " + err.message });
     } finally {
       setLoading(false);
     }
   };
 
-  // ---------- Preview Screen ----------
-  if (selectionStep === "preview") {
+  // Cleanup preview URLs on unmount
+  useEffect(() => () => form.previewImages.forEach(url => URL.revokeObjectURL(url)), [form.previewImages]);
+
+  // ---------------- Full Page List Component ----------------
+  const FullPageList = ({ title, options, valueKey, allowCustom = true }) => {
+    const [customValue, setCustomValue] = useState("");
+
+    const handleCustomSubmit = () => {
+      if (customValue.trim() !== "") {
+        handleChange(valueKey, customValue.trim());
+        setCustomValue("");
+        setSelectionStep(null);
+      }
+    };
+
     return (
-      <ScrollView style={{ padding: 16 }}>
-        <Text style={{ fontSize: 20, fontWeight: "700", marginBottom: 10 }}>Preview</Text>
-        <Text>Title: {form.title}</Text>
-        <Text>Category: {form.mainCategory} / {form.subCategory}</Text>
-        <Text>Brand / Model: {form.brand} / {form.model}</Text>
-        <Text>Condition: {form.condition} {form.usedDetail ? `(${form.usedDetail})` : ""}</Text>
-        <Text>Price: {form.price}</Text>
-        <Text>Phone: {form.phone}</Text>
-        <ScrollView horizontal>
-          {form.previewUris.map((uri, idx) => (
-            <Image key={idx} source={{ uri }} style={{ width: 90, height: 90, marginRight: 6 }} />
+      <div className="fullpage-list">
+        {backStep && <div className="options-back" onClick={() => setSelectionStep(backStep)}>← Back</div>}
+        <h3>{title}</h3>
+        <div className="options-scroll">
+          {options.map(opt => (
+            <div key={opt} className={`option-item ${form[valueKey] === opt ? "active" : ""}`}
+              onClick={() => { handleChange(valueKey, opt); setSelectionStep(null); }}>
+              {opt}
+            </div>
           ))}
-        </ScrollView>
-        <TouchableOpacity style={{ marginTop: 20, padding: 12, backgroundColor: "#0D6EFD", borderRadius: 6 }} onPress={handleAdd}>
-          <Text style={{ color: "#fff", fontWeight: "700" }}>{loading ? "Uploading..." : "Publish"}</Text>
-        </TouchableOpacity>
-      </ScrollView>
+          {allowCustom && (
+            <div className="option-item custom-input">
+              <input type="text" placeholder={`Enter ${valueKey}...`} value={customValue}
+                onChange={e => setCustomValue(e.target.value)}
+                onKeyDown={e => e.key === "Enter" && handleCustomSubmit()} />
+              <button type="button" onClick={handleCustomSubmit}>Submit</button>
+            </div>
+          )}
+        </div>
+      </div>
     );
+  };
+
+  // ---------------- Full Page Step ----------------
+  if (selectionStep) {
+    switch (selectionStep) {
+      case "subCategory": return <FullPageList title="Select Subcategory" options={getSubcategories()} valueKey="subCategory" />;
+      case "brand": return <FullPageList title="Select Brand" options={getBrandOptions()} valueKey="brand" />;
+      case "model": return <FullPageList title="Select Model" options={getModelOptions()} valueKey="model" />;
+      case "condition": return <FullPageList title="Select Condition" options={getConditionOptions()} valueKey="condition" />;
+      case "usedDetail": return <FullPageList title="Select Used Detail" options={getUsedDetailOptions()} valueKey="usedDetail" />;
+      case "state": return <FullPageList title="Select State" options={getStateOptions()} valueKey="state" />;
+      case "city": return <FullPageList title="Select City" options={getCityOptions()} valueKey="city" />;
+      default: break;
+    }
   }
 
-  // ---------- Main Form ----------
+  // ---------------- Main Form ----------------
   return (
-    <ScrollView style={{ padding: 16 }}>
-      <Text style={{ fontSize: 24, fontWeight: "700", marginBottom: 12 }}>Post Ad</Text>
+    <form onSubmit={handleAdd} className="add-product-form">
+      <h2>Post Ad ({marketType})</h2>
+      {errors.general && <div className="error">{errors.general}</div>}
+
+      {/* Main Category */}
+      <div className="field">
+        <label>Main Category</label>
+        <div className="option-item clickable" onClick={() => { setBackStep(null); setSelectionStep("mainCategory"); }}>
+          {form.mainCategory || "Select Main Category"}
+        </div>
+      </div>
+
+      {/* Subcategory */}
+      {form.mainCategory && (
+        <div className="field">
+          <label>Subcategory</label>
+          <div className="option-item clickable" onClick={() => { setBackStep(null); setSelectionStep("subCategory"); }}>
+            {form.subCategory || "Select Subcategory"}
+          </div>
+        </div>
+      )}
+
+      {/* Brand */}
+      {form.subCategory && (
+        <div className="field">
+          <label>Brand</label>
+          <div className="option-item clickable" onClick={() => { setBackStep("subCategory"); setSelectionStep("brand"); }}>
+            {form.brand || "Select Brand"}
+          </div>
+        </div>
+      )}
+
+      {/* Model */}
+      {form.brand && (
+        <div className="field">
+          <label>Model</label>
+          <div className="option-item clickable" onClick={() => { setBackStep("brand"); setSelectionStep("model"); }}>
+            {form.model || "Select Model"}
+          </div>
+        </div>
+      )}
+
+      {/* Condition */}
+      {(form.subCategory === "Mobile Phones") && form.model && (
+        <div className="field">
+          <label>Condition</label>
+          <div className="option-item clickable" onClick={() => { setBackStep("model"); setSelectionStep("condition"); }}>
+            {form.condition || "Select Condition"}
+          </div>
+          {form.condition === "Used" && (
+            <div className="field">
+              <label>Used Detail</label>
+              <div className="option-item clickable" onClick={() => { setBackStep("condition"); setSelectionStep("usedDetail"); }}>
+                {form.usedDetail || "Select Used Detail"}
+              </div>
+            </div>
+          )}
+        </div>
+      )}
 
       {/* Title */}
-      <TextInput placeholder="Title" value={form.title} onChangeText={t => setForm(prev => ({ ...prev, title: t }))} style={{ borderWidth: 1, borderColor: "#ccc", borderRadius: 6, padding: 10, marginBottom: 12 }} />
+      <input type="text" placeholder="Title" value={form.title} onChange={e => handleChange("title", e.target.value)} />
 
-      {/* Category */}
-      <TouchableOpacity onPress={() => setSelectionStep("category")} style={{ padding: 12, borderWidth: 1, borderColor: "#cce0ff", borderRadius: 6, marginBottom: 12 }}>
-        <Text>{form.mainCategory || "Select Category"}</Text>
-      </TouchableOpacity>
-
-      {/* Pick Images */}
-      <TouchableOpacity onPress={pickImages} style={{ padding: 12, borderWidth: 1, borderColor: "#0D6EFD", borderRadius: 6, marginBottom: 12 }}>
-        <Text>Add Images</Text>
-      </TouchableOpacity>
-
-      <ScrollView horizontal>
-        {form.previewUris.map((uri, idx) => (
-          <View key={idx} style={{ position: "relative", marginRight: 6 }}>
-            <Image source={{ uri }} style={{ width: 90, height: 90, borderRadius: 6 }} />
-            <TouchableOpacity onPress={() => removeImage(idx)} style={{ position: "absolute", top: -6, right: -6, backgroundColor: "red", width: 22, height: 22, borderRadius: 11, alignItems: "center", justifyContent: "center" }}>
-              <Text style={{ color: "#fff" }}>×</Text>
-            </TouchableOpacity>
-          </View>
-        ))}
-      </ScrollView>
+      {/* Description */}
+      <textarea placeholder="Description" value={form.description} onChange={e => handleChange("description", e.target.value)} />
 
       {/* Price */}
-      <TextInput placeholder="Price" keyboardType="numeric" value={form.price} onChangeText={t => setForm(prev => ({ ...prev, price: t }))} style={{ borderWidth: 1, borderColor: "#ccc", borderRadius: 6, padding: 10, marginBottom: 12 }} />
+      <input type="text" placeholder="Price" value={form.price} onChange={handlePriceChange} />
 
       {/* Phone */}
-      <TextInput placeholder="Phone" keyboardType="phone-pad" value={form.phone} onChangeText={t => setForm(prev => ({ ...prev, phone: t }))} style={{ borderWidth: 1, borderColor: "#ccc", borderRadius: 6, padding: 10, marginBottom: 12 }} />
+      <input type="tel" placeholder="Phone Number" value={form.phoneNumber} onChange={e => handleChange("phoneNumber", e.target.value)} />
 
-      {/* Preview Button */}
-      <TouchableOpacity onPress={() => setSelectionStep("preview")} style={{ padding: 12, backgroundColor: "#0D6EFD", borderRadius: 6, marginTop: 16 }}>
-        <Text style={{ color: "#fff", fontWeight: "700" }}>Preview</Text>
-      </TouchableOpacity>
-    </ScrollView>
+      {/* Images */}
+      <input type="file" multiple accept="image/*" onChange={handleFileChange} />
+      {form.previewImages.length > 0 && (
+        <div className="preview-images">
+          {form.previewImages.map((src, i) => (
+            <div key={i} className="img-wrap">
+              <img src={src} alt={`preview-${i}`} />
+              <button type="button" onClick={() => removeImage(i)}>×</button>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {/* State / City */}
+      <div className="field">
+        <label>State</label>
+        <div className="option-item clickable" onClick={() => { setBackStep(null); setSelectionStep("state"); }}>
+          {form.state || "Select State"}
+        </div>
+      </div>
+      {form.state && (
+        <div className="field">
+          <label>City</label>
+          <div className="option-item clickable" onClick={() => { setBackStep("state"); setSelectionStep("city"); }}>
+            {form.city || "Select City"}
+          </div>
+        </div>
+      )}
+
+      {/* Promote */}
+      <label>
+        <input type="checkbox" checked={form.isPromoted} onChange={() => handleChange("isPromoted", !form.isPromoted)} />
+        Promote this product (free)
+      </label>
+
+      <button type="submit" disabled={loading}>{loading ? "Uploading..." : `Add to ${marketType}`}</button>
+    </form>
   );
-}
+};
+
+export default AddProduct;
