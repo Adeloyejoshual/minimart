@@ -9,6 +9,7 @@ import categoryRules from "../config/categoryRules";
 import { locationsByState } from "../config/locationsByState";
 import productOptions from "../config/productOptions";
 import conditions from "../config/condition";
+import Toast from "../components/Toast";
 import "./AddProduct.css";
 
 const DRAFT_KEY = "add_product_draft";
@@ -45,6 +46,8 @@ export default function AddProduct() {
   const [selectionStep, setSelectionStep] = useState(null);
   const [backStep, setBackStep] = useState(null);
 
+  const [toast, setToast] = useState({ visible: false, message: "", icon: "⚡" });
+
   const rules = categoryRules[form.mainCategory] || categoryRules.Default;
 
   // ---------------- Draft Load/Save ----------------
@@ -64,6 +67,12 @@ export default function AddProduct() {
     return () => form.previews.forEach(url => URL.revokeObjectURL(url));
   }, [form.previews]);
 
+  // ---------------- Toast Helper ----------------
+  const showToast = (message, icon = "⚡", duration = 3000) => {
+    setToast({ visible: true, message, icon });
+    setTimeout(() => setToast(prev => ({ ...prev, visible: false })), duration);
+  };
+
   // ---------------- Form Helpers ----------------
   const update = (key, value) => setForm(prev => ({ ...prev, [key]: value }));
 
@@ -77,8 +86,7 @@ export default function AddProduct() {
   const handleImages = files => {
     const list = Array.from(files);
     if (list.length + form.images.length > rules.maxImages) {
-      alert(`Maximum ${rules.maxImages} images allowed`);
-      return;
+      return showToast(`Maximum ${rules.maxImages} images allowed`, "⚠️");
     }
     update("images", [...form.images, ...list]);
     update("previews", [...form.previews, ...list.map(f => URL.createObjectURL(f))]);
@@ -106,8 +114,8 @@ export default function AddProduct() {
 
   const handleSubmit = async () => {
     const error = validate();
-    if (error) return alert(error);
-    if (!auth.currentUser) return alert("Login required");
+    if (error) return showToast(error, "⚠️");
+    if (!auth.currentUser) return showToast("Login required", "🔒");
 
     try {
       setLoading(true);
@@ -122,10 +130,10 @@ export default function AddProduct() {
         createdAt: serverTimestamp(),
       });
       localStorage.removeItem(DRAFT_KEY);
-      alert("Product posted successfully");
+      showToast("Product posted successfully!", "✅");
       navigate(`/${marketType}`);
     } catch (err) {
-      alert(err.message);
+      showToast(err.message, "❌");
     } finally {
       setLoading(false);
     }
@@ -147,9 +155,7 @@ export default function AddProduct() {
 
     return (
       <div className="fullpage-list">
-        {backStep && (
-          <div className="options-back" onClick={() => setSelectionStep(backStep)}>← Back</div>
-        )}
+        {backStep && <div className="options-back" onClick={() => setSelectionStep(backStep)}>← Back</div>}
         <h3>{title}</h3>
         <input
           type="text"
@@ -192,9 +198,7 @@ export default function AddProduct() {
   const getExtraOptions = (field) => {
     if (!form.mainCategory || !form.subCategory) return [];
     const subcatOptions = productOptions[form.mainCategory]?.subcategories[form.subCategory] || {};
-    return Array.isArray(subcatOptions[field]) && subcatOptions[field].length > 0
-      ? subcatOptions[field]
-      : [];
+    return Array.isArray(subcatOptions[field]) && subcatOptions[field].length > 0 ? subcatOptions[field] : [];
   };
 
   // ---------------- Render Full Page ----------------
@@ -294,7 +298,7 @@ export default function AddProduct() {
         </div>
       </Field>
 
-      {/* Extra Options Below Images */}
+      {/* Extra Options */}
       {getExtraOptions("colors").length > 0 && (
         <Field label="Color">
           <div className="option-item clickable" onClick={() => setSelectionStep("colors")}>
@@ -374,6 +378,9 @@ export default function AddProduct() {
       <button className="btn" type="button" onClick={handleSubmit} disabled={loading}>
         {loading ? "Uploading..." : "Publish"}
       </button>
+
+      {/* Toast */}
+      <Toast message={toast.message} icon={toast.icon} visible={toast.visible} />
     </div>
   );
 }
