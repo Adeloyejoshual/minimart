@@ -160,6 +160,12 @@
   font-size: 15px;
 }
 
+.option-item.custom-input {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
 .clickable {
   cursor: pointer;
 }
