@@ -1,15 +1,15 @@
 // src/components/Toast.jsx
 import React, { useEffect } from "react";
-import "./Toast.css"; // We'll style it next
+import "./Toast.css";
 
-export default function Toast({ message, duration = 3000, onClose }) {
+export default function Toast({ message, type = "success", duration = 3000, onClose }) {
   useEffect(() => {
     const timer = setTimeout(() => onClose(), duration);
     return () => clearTimeout(timer);
   }, [duration, onClose]);
 
   return (
-    <div className="toast">
+    <div className={`toast ${type}`}>
       {message}
     </div>
   );
