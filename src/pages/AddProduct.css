@@ -23,6 +23,11 @@
   font-size: 20px;
   color: #0d6efd;
   cursor: pointer;
+  transition: color 0.25s;
+}
+
+.back-btn:hover {
+  color: #0a58ca;
 }
 
 .page-title {
@@ -64,6 +69,7 @@
 
 .field textarea {
   resize: vertical;
+  min-height: 80px;
 }
 
 /* -------------------- Category Scroll -------------------- */
@@ -71,6 +77,7 @@
   display: flex;
   gap: 14px;
   overflow-x: auto;
+  padding-bottom: 4px;
 }
 
 .category-item {
@@ -126,6 +133,10 @@
   font-weight: 600;
   margin-bottom: 16px;
   cursor: pointer;
+}
+
+.options-back:hover {
+  color: #0a58ca;
 }
 
 /* -------------------- Options -------------------- */
@@ -223,6 +234,33 @@
   justify-content: center;
 }
 
+/* -------------------- Features Checkboxes -------------------- */
+.features-checkboxes {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+}
+
+.feature-label {
+  background: #fff;
+  border: 2px solid #cce0ff;
+  padding: 8px 12px;
+  border-radius: 6px;
+  font-size: 14px;
+  cursor: pointer;
+  transition: all 0.25s;
+}
+
+.feature-label input {
+  margin-right: 6px;
+}
+
+.feature-label:hover,
+.feature-label input:checked + & {
+  border-color: #0d6efd;
+  background: #e0ecff;
+}
+
 /* -------------------- Promotion Plan -------------------- */
 .promotion-scroll {
   display: flex;
@@ -272,8 +310,59 @@
   cursor: not-allowed;
 }
 
+/* -------------------- Toast Notification -------------------- */
+.toast-container {
+  position: fixed;
+  bottom: 24px;
+  left: 50%;
+  transform: translateX(-50%);
+  background: #0d6efd;
+  color: #fff;
+  padding: 16px 22px;
+  border-radius: 8px;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  font-weight: 600;
+  font-size: 15px;
+  z-index: 3000;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.15);
+  animation: slideIn 0.35s ease;
+}
+
+.toast-icon {
+  font-size: 18px;
+}
+
+@keyframes slideIn {
+  from {
+    transform: translate(-50%, 60px);
+    opacity: 0;
+  }
+  to {
+    transform: translate(-50%, 0);
+    opacity: 1;
+  }
+}
+
 /* -------------------- Scrollbars -------------------- */
 * {
   scrollbar-width: thin;
   scrollbar-color: #0d6efd #f1f1f1;
+}
+
+*::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+*::-webkit-scrollbar-track {
+  background: #f1f1f1;
+  border-radius: 6px;
+}
+
+*::-webkit-scrollbar-thumb {
+  background-color: #0d6efd;
+  border-radius: 6px;
+  border: 2px solid #f1f1f1;
 }
