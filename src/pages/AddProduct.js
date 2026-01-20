@@ -85,7 +85,6 @@ export default function AddProduct() {
       alert(`Maximum ${rules.maxImages} images allowed`);
       return;
     }
-
     update("images", [...form.images, ...list]);
     update(
       "previews",
@@ -167,6 +166,7 @@ export default function AddProduct() {
       <div className="fullpage-list">
         {backStep && (
           <button
+            type="button"
             className="options-back"
             onClick={() => setSelectionStep(backStep)}
           >
@@ -218,11 +218,17 @@ export default function AddProduct() {
               submitCustom();
             }}
           >
-            <div className="option-item">
+            <div className="option-item" style={{ justifyContent: "center" }}>
               <input
                 value={customValue}
                 onChange={e => setCustomValue(e.target.value)}
                 placeholder={`Enter ${valueKey}`}
+                style={{
+                  width: "80%",
+                  border: "none",
+                  outline: "none",
+                  background: "transparent",
+                }}
               />
               <button type="submit">Add</button>
             </div>
@@ -301,7 +307,7 @@ export default function AddProduct() {
             className="option-item clickable"
             onClick={() => setSelectionStep("subCategory")}
           >
-            {form.subCategory || "Select subcategory"}
+            {form.subCategory || "Select Subcategory"}
           </div>
         </Field>
       )}
