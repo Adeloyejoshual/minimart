@@ -183,7 +183,7 @@ export default function AddProduct() {
               onChange={e => setCustomValue(e.target.value)}
               onKeyDown={e => e.key === "Enter" && handleCustomSubmit()}
             />
-            <button onClick={handleCustomSubmit}>➔</button>
+            {/* Removed ➔ button */}
           </div>
         </div>
       </div>
@@ -246,7 +246,7 @@ export default function AddProduct() {
       {form.mainCategory && (
         <Field label="Subcategory">
           <div className="option-item clickable" onClick={() => { setBackStep(null); setSelectionStep("subCategory"); }}>
-            {form.subCategory || "Select Subcategory"} ➔
+            {form.subCategory || "Select Subcategory"}
           </div>
         </Field>
       )}
@@ -255,7 +255,7 @@ export default function AddProduct() {
       {form.subCategory && (
         <Field label="Brand">
           <div className="option-item clickable" onClick={() => { setBackStep("subCategory"); setSelectionStep("brand"); }}>
-            {form.brand || "Select Brand"} ➔
+            {form.brand || "Select Brand"}
           </div>
         </Field>
       )}
@@ -264,7 +264,7 @@ export default function AddProduct() {
       {form.brand && (
         <Field label="Model / Type">
           <div className="option-item clickable" onClick={() => { setBackStep("brand"); setSelectionStep("model"); }}>
-            {form.model || "Select Model"} ➔
+            {form.model || "Select Model"}
           </div>
         </Field>
       )}
@@ -273,12 +273,12 @@ export default function AddProduct() {
       {["Smartphones","FeaturePhones"].includes(form.mainCategory) && form.model && (
         <Field label="Condition">
           <div className="option-item clickable" onClick={() => { setBackStep("model"); setSelectionStep("condition"); }}>
-            {form.condition || "Select Condition"} ➔
+            {form.condition || "Select Condition"}
           </div>
           {form.condition === "Used" && (
             <Field label="Used Details">
               <div className="option-item clickable" onClick={() => { setBackStep("condition"); setSelectionStep("usedDetail"); }}>
-                {form.usedDetail || "Select Used Detail"} ➔
+                {form.usedDetail || "Select Used Detail"}
               </div>
             </Field>
           )}
@@ -314,7 +314,7 @@ export default function AddProduct() {
       {/* State */}
       <Field label="State">
         <div className="option-item clickable" onClick={() => { setBackStep(null); setSelectionStep("state"); }}>
-          {form.state || "Select State"} ➔
+          {form.state || "Select State"}
         </div>
       </Field>
 
@@ -322,7 +322,7 @@ export default function AddProduct() {
       {form.state && (
         <Field label="City / LGA">
           <div className="option-item clickable" onClick={() => { setBackStep("state"); setSelectionStep("city"); }}>
-            {form.city || "Select City / LGA"} ➔
+            {form.city || "Select City / LGA"}
           </div>
         </Field>
       )}
