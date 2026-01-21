@@ -8,7 +8,8 @@ import categories from "../config/categories";
 import categoryRules from "../config/categoryRules";
 import { locationsByState } from "../config/locationsByState";
 import productOptions from "../config/productOptions";
-import phoneModels from "../config/phoneModels"; // 📌 Use phoneModels here
+import phoneModels from "../config/phoneModels";
+import { promotionPlans } from "../config/promotionPlans"; // 📌 Promotion plans
 import Toast from "../components/Toast";
 import "./AddProduct.css";
 
@@ -41,6 +42,7 @@ export default function AddProduct() {
     features: [],
     type: "",
     isPromoted: false,
+    promotionPlan: null, // 📌 selected promotion
   });
 
   const [selectionStep, setSelectionStep] = useState(null);
@@ -112,14 +114,42 @@ export default function AddProduct() {
     return null;
   };
 
+  // ---------------- Paystack Payment ----------------
+  const payWithPaystack = plan => {
+    const handler = window.PaystackPop.setup({
+      key: process.env.REACT_APP_PAYSTACK_KEY, // 📌 env key
+      email: auth.currentUser.email,
+      amount: plan.price * 100,
+      currency: "NGN",
+      callback: () => {
+        update("promotionPlan", plan);
+        showToast("Promotion activated 🎉", "⚡");
+      },
+      onClose: () => showToast("Payment cancelled", "❌"),
+    });
+    handler.openIframe();
+  };
+
+  // ---------------- Submit ----------------
   const handleSubmit = async () => {
     const error = validate();
     if (error) return showToast(error, "⚠️");
     if (!auth.currentUser) return showToast("Login required", "🔒");
 
+    // Paid promotion handling
+    if (form.isPromoted && form.promotionPlan?.type === "paid" && !form.promotionPlan?.paid) {
+      return payWithPaystack(form.promotionPlan);
+    }
+
     try {
       setLoading(true);
       const uploaded = await Promise.all(form.images.map(img => uploadToCloudinary(img)));
+
+      // promotion end date
+      const promotionEndAt = form.promotionPlan
+        ? new Date(Date.now() + form.promotionPlan.days * 24 * 60 * 60 * 1000)
+        : null;
+
       await addDoc(collection(db, "products"), {
         ...form,
         price: Number(String(form.price).replace(/,/g, "")),
@@ -128,7 +158,19 @@ export default function AddProduct() {
         marketType,
         ownerId: auth.currentUser.uid,
         createdAt: serverTimestamp(),
+        promotion: form.isPromoted
+          ? {
+              id: form.promotionPlan?.id || "starter",
+              label: form.promotionPlan?.label || "Starter Boost",
+              icon: form.promotionPlan?.icon || "🌟",
+              price: form.promotionPlan?.price || 0,
+              days: form.promotionPlan?.days || 7,
+              startAt: serverTimestamp(),
+              endAt: promotionEndAt,
+            }
+          : null,
       });
+
       localStorage.removeItem(DRAFT_KEY);
       showToast("Product posted successfully!", "✅");
       navigate(`/${marketType}`);
@@ -191,19 +233,10 @@ export default function AddProduct() {
 
   // ---------------- Derived Options ----------------
   const getSubcategories = () => [...(categories.find(c => c.name === form.mainCategory)?.subcategories || [])];
-  
-  const getBrandOptions = () => {
-    if (!form.subCategory) return [];
-    return phoneModels[form.subCategory] ? Object.keys(phoneModels[form.subCategory]) : [];
-  };
-
-  const getModelOptions = () => {
-    if (!form.subCategory || !form.brand) return [];
-    return phoneModels[form.subCategory]?.[form.brand] || [];
-  };
-
+  const getBrandOptions = () => (form.subCategory ? Object.keys(phoneModels[form.subCategory] || {}) : []);
+  const getModelOptions = () => (form.subCategory && form.brand ? phoneModels[form.subCategory][form.brand] || [] : []);
   const getStateOptions = () => Object.keys(locationsByState);
-  const getCityOptions = () => form.state ? locationsByState[form.state] : [];
+  const getCityOptions = () => (form.state ? locationsByState[form.state] : []);
   const getExtraOptions = (field) => {
     if (!form.mainCategory || !form.subCategory) return [];
     const subcatOptions = productOptions[form.mainCategory]?.subcategories[form.subCategory] || {};
@@ -213,7 +246,6 @@ export default function AddProduct() {
   // ---------------- Dynamic Fields ----------------
   const showConditionField = () => form.model && ["Smartphones", "Feature Phones"].includes(form.subCategory);
   const showUsedDetailField = () => form.condition === "Used";
-
   useEffect(() => { if (!form.model) { update("condition", ""); update("usedDetail", ""); } }, [form.model]);
   useEffect(() => { if (form.condition !== "Used") update("usedDetail", ""); }, [form.condition]);
 
@@ -333,80 +365,22 @@ export default function AddProduct() {
         </div>
       </Field>
 
-      {/* Extra Options */}
-      {getExtraOptions("colors").length > 0 && (
-        <Field label="Color">
-          <div className="option-item clickable" onClick={() => { scrollPos.current = window.scrollY; setSelectionStep("colors"); }}>
-            {form.color || "Select Color"}
-          </div>
-        </Field>
-      )}
-
-      {getExtraOptions("simTypes").length > 0 && (
-        <Field label="SIM Type">
-          <div className="option-item clickable" onClick={() => { scrollPos.current = window.scrollY; setSelectionStep("simTypes"); }}>
-            {form.simType || "Select SIM Type"}
-          </div>
-        </Field>
-      )}
-
-      {getExtraOptions("features").length > 0 && (
-        <Field label="Features">
-          <div className="features-checkboxes">
-            {getExtraOptions("features").map(f => (
-              <label key={f} className="feature-label">
-                <input
-                  type="checkbox"
-                  checked={form.features.includes(f)}
-                  onChange={() => {
-                    const updated = form.features.includes(f)
-                      ? form.features.filter(x => x !== f)
-                      : [...form.features, f];
-                    update("features", updated);
-                  }}
-                />
-                {f}
-              </label>
-            ))}
-          </div>
-        </Field>
-      )}
-
-      {getExtraOptions("types").length > 0 && (
-        <Field label="Type">
-          <div className="option-item clickable" onClick={() => { scrollPos.current = window.scrollY; setSelectionStep("types"); }}>
-            {form.type || "Select Type"}
-          </div>
-        </Field>
-      )}
-
-      {/* State */}
-      <Field label="State">
-        <div className="option-item clickable" onClick={() => { scrollPos.current = window.scrollY; setBackStep(null); setSelectionStep("state"); }}>
-          {form.state || "Select State"}
+      {/* Promotion */}
+      <Field label="Promotion Plan">
+        <div className="promotion-scroll">
+          {promotionPlans.map(plan => (
+            <div
+              key={plan.id}
+              className={`promotion-item ${form.promotionPlan?.id === plan.id ? "active" : ""}`}
+              onClick={() => update("promotionPlan", plan)}
+            >
+              <span className="promotion-icon">{plan.icon}</span>
+              <span>{plan.label}</span>
+              <span className="promotion-days">{plan.days} days</span>
+              <span className="promotion-price">{plan.price > 0 ? `₦${plan.price}` : "Free"}</span>
+            </div>
+          ))}
         </div>
-      </Field>
-
-      {/* City */}
-      {form.state && (
-        <Field label="City / LGA">
-          <div className="option-item clickable" onClick={() => { scrollPos.current = window.scrollY; setBackStep("state"); setSelectionStep("city"); }}>
-            {form.city || "Select City / LGA"}
-          </div>
-        </Field>
-      )}
-
-      {/* Description */}
-      <Field label="Description">
-        <textarea rows={4} value={form.description} onChange={e => update("description", e.target.value)} />
-      </Field>
-
-      {/* Promote */}
-      <Field label="Promote Product">
-        <label>
-          <input type="checkbox" checked={form.isPromoted} onChange={() => update("isPromoted", !form.isPromoted)} />
-          Promote this product (free)
-        </label>
       </Field>
 
       {/* Submit */}
@@ -414,7 +388,6 @@ export default function AddProduct() {
         {loading ? "Uploading..." : "Publish"}
       </button>
 
-      {/* Toast */}
       <Toast message={toast.message} icon={toast.icon} visible={toast.visible} />
     </div>
   );
