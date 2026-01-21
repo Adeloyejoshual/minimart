@@ -12,7 +12,6 @@ const DRAFT_KEY = "add_product_draft";
 
 export default function AddProduct() {
   const navigate = useNavigate();
-  const scrollPos = useRef(0);
   const [loading, setLoading] = useState(false);
   const [toast, setToast] = useState({ visible: false, message: "", icon: "⚡" });
   const [form, setForm] = useState({
@@ -23,6 +22,7 @@ export default function AddProduct() {
     previews: [],
     isPromoted: false,
     promotionPlan: null,
+    paymentSuccess: false, // Track if user paid promotion
   });
 
   const [paystackLoaded, setPaystackLoaded] = useState(false);
@@ -50,13 +50,11 @@ export default function AddProduct() {
     }
   }, []);
 
-  // ---------------- Toast ----------------
   const showToast = (message, icon = "⚡", duration = 3000) => {
     setToast({ visible: true, message, icon });
     setTimeout(() => setToast(prev => ({ ...prev, visible: false })), duration);
   };
 
-  // ---------------- Helpers ----------------
   const update = (key, value) => setForm(prev => ({ ...prev, [key]: value }));
 
   const handleImages = files => {
@@ -76,12 +74,14 @@ export default function AddProduct() {
     if (!form.price) return "Enter price";
     if (!form.phone) return "Enter phone";
     if (!form.images.length) return "Upload at least 1 image";
-    if (!form.promotionPlan) return "Select promotion plan";
     return null;
   };
 
   // ---------------- Post Product ----------------
   const postProduct = async () => {
+    const error = validate();
+    if (error) return showToast(error, "⚠️");
+
     try {
       setLoading(true);
       const uploaded = await Promise.all(form.images.map(img => uploadToCloudinary(img)));
@@ -127,11 +127,11 @@ export default function AddProduct() {
       currency: "NGN",
       ref: `promo_${Date.now()}`,
       metadata: { promotionPlanId: plan.id },
-      callback: async () => {
-        showToast("Payment successful! Posting product...", "✅");
+      callback: () => {
+        showToast("Payment successful! 🎉", "✅");
         update("isPromoted", true);
         update("promotionPlan", { ...plan, paid: true });
-        await postProduct();
+        update("paymentSuccess", true); // mark that user can continue posting
       },
       onClose: () => showToast("Payment cancelled", "❌"),
     });
@@ -139,17 +139,24 @@ export default function AddProduct() {
     handler.openIframe();
   };
 
-  // ---------------- Handle Publish ----------------
-  const handlePublish = () => {
-    const error = validate();
-    if (error) return showToast(error, "⚠️");
-
-    if (form.promotionPlan?.type === "paid") {
-      payWithPaystack(form.promotionPlan);
+  // ---------------- Handle Promotion Click ----------------
+  const handlePromotionClick = (plan) => {
+    update("promotionPlan", plan);
+    if (plan.type === "paid" && !plan.paid) {
+      payWithPaystack(plan);
     } else {
       update("isPromoted", true);
-      postProduct();
+      update("paymentSuccess", true);
+      showToast(`${plan.label} selected!`, "⚡");
     }
+  };
+
+  // ---------------- Handle Publish ----------------
+  const handlePublish = () => {
+    if (form.promotionPlan?.type === "paid" && !form.paymentSuccess) {
+      return showToast("Complete payment before posting", "⚠️");
+    }
+    postProduct();
   };
 
   // ---------------- Render ----------------
@@ -190,7 +197,7 @@ export default function AddProduct() {
             <div
               key={plan.id}
               className={`promotion-item ${form.promotionPlan?.id === plan.id ? "active" : ""}`}
-              onClick={() => update("promotionPlan", plan)}
+              onClick={() => handlePromotionClick(plan)}
             >
               <span className="promotion-icon">{plan.icon}</span>
               <span>{plan.label}</span>
@@ -199,6 +206,7 @@ export default function AddProduct() {
             </div>
           ))}
         </div>
+        {form.paymentSuccess && <div className="payment-success">Payment successful! You can now publish your product ✅</div>}
       </Field>
 
       <button className="btn" type="button" onClick={handlePublish} disabled={loading}>
