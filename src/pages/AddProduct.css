@@ -162,6 +162,9 @@
   font-size: 16px;
   cursor: pointer;
   transition: all 0.25s ease;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
 }
 
 .option-item:hover,
@@ -259,13 +262,23 @@
   display: flex;
   flex-direction: column;
   gap: 6px;
+  position: relative;
 }
 
-.promotion-item:hover,
 .promotion-item.active {
   border-color: #0d6efd;
-  background: #e0ecff;
-  box-shadow: 0 4px 12px rgba(13, 110, 253, 0.15);
+  background: #dbe9ff;
+  box-shadow: 0 6px 18px rgba(13, 110, 253, 0.2);
+}
+
+.promotion-item.paid::after {
+  content: "✓ Paid";
+  position: absolute;
+  top: 6px;
+  right: 6px;
+  font-size: 12px;
+  font-weight: 700;
+  color: #0d6efd;
 }
 
 .promotion-icon {
@@ -277,6 +290,21 @@
   font-size: 13px;
   font-weight: 600;
   color: #333;
+}
+
+/* -------------------- Promote Checkbox -------------------- */
+.promotion-toggle {
+  margin-top: 12px;
+}
+
+.promotion-toggle label {
+  font-weight: 600;
+  color: #0d6efd;
+  cursor: pointer;
+}
+
+.promotion-toggle input {
+  margin-right: 8px;
 }
 
 /* -------------------- Submit Button -------------------- */
