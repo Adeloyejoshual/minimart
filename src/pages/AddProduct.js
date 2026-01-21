@@ -256,38 +256,177 @@ export default function AddProduct() {
     }
   }
 
-  return (
-    <div className="add-product-container">
-      {/* Header */}
-      <div className="add-product-header">
-        <button className="back-btn" onClick={() => navigate(`/${marketType}`)}>←</button>
-        <span className="page-title">Add Product</span>
-      </div>
+   // ---------------- Main Form ----------------  
+  return (  
+    <div className="add-product-container">  
+      <div className="add-product-header">  
+        <button className="back-btn" onClick={() => navigate(`/${marketType}`)}>←</button>  
+        <span className="page-title">Add Product</span>  
+      </div>  
+  
+      <Field label="Title">  
+        <input value={form.title} onChange={e => update("title", e.target.value)} placeholder="e.g iPhone 11 Pro Max" />  
+      </Field>  
+  
+      <Field label="Category">  
+        <div className="category-scroll">  
+          {categories.map(cat => (  
+            <div key={cat.name} className={`category-item ${form.mainCategory === cat.name ? "active" : ""}`} onClick={() => handleCategoryChange(cat.name)}>  
+              <span className="category-icon">{cat.icon}</span>  
+              <span className="category-name">{cat.name}</span>  
+            </div>  
+          ))}  
+        </div>  
+      </Field>  
+  
+      {form.mainCategory && (  
+        <Field label="Subcategory">  
+          <div className="option-item clickable" onClick={() => { scrollPos.current = window.scrollY; setBackStep(null); setSelectionStep("subCategory"); }}>  
+            {form.subCategory || "Select Subcategory"}  
+          </div>  
+        </Field>  
+      )}  
+  
+      {form.subCategory && getBrandOptions().length > 0 && (  
+        <Field label="Brand">  
+          <div className="option-item clickable" onClick={() => { scrollPos.current = window.scrollY; setBackStep("subCategory"); setSelectionStep("brand"); }}>  
+            {form.brand || "Select Brand"}  
+          </div>  
+        </Field>  
+      )}  
+  
+      {form.brand && getModelOptions().length > 0 && (  
+        <Field label="Model / Type">  
+          <div className="option-item clickable" onClick={() => { scrollPos.current = window.scrollY; setBackStep("brand"); setSelectionStep("model"); }}>  
+            {form.model || "Select Model"}  
+          </div>  
+        </Field>  
+      )}  
+  
+      {showConditionField() && (  
+        <Field label="Condition">  
+          <div className="option-item clickable" onClick={() => { scrollPos.current = window.scrollY; setBackStep("model"); setSelectionStep("condition"); }}>  
+            {form.condition || "Select Condition"}  
+          </div>  
+        </Field>  
+      )}  
+  
+      {showUsedDetailField() && (  
+        <Field label="Used Detail">  
+          <div className="option-item clickable" onClick={() => { scrollPos.current = window.scrollY; setBackStep("condition"); setSelectionStep("usedDetail"); }}>  
+            {form.usedDetail || "Select Used Detail"}  
+          </div>  
+        </Field>  
+      )}  
+  
+      {getExtraOptions("features").length > 0 && (  
+        <Field label="Features">  
+          <div className="option-item clickable" onClick={() => { scrollPos.current = window.scrollY; setBackStep(null); setSelectionStep("features"); }}>  
+            {form.features.length > 0 ? form.features.join(", ") : "Select Features"}  
+          </div>  
+        </Field>  
+      )}  
+  
+      <Field label="State">  
+        <div className="option-item clickable" onClick={() => { scrollPos.current = window.scrollY; setBackStep(null); setSelectionStep("state"); }}>  
+          {form.state || "Select State"}  
+        </div>  
+      </Field>  
+  
+      {form.state && (  
+        <Field label="City / LGA">  
+          <div className="option-item clickable" onClick={() => { scrollPos.current = window.scrollY; setBackStep("state"); setSelectionStep("city"); }}>  
+            {form.city || "Select City / LGA"}  
+          </div>  
+        </Field>  
+      )}  
+  
+      <Field label="Price (₦)">  
+        <input   
+          value={form.price}   
+          onChange={handlePriceChange}   
+          placeholder="₦ 0"   
+        />  
+      </Field>  
+  
+      <Field label="Phone Number">  
+        <input  
+          type="tel"  
+          value={form.phone}  
+          onChange={e => update("phone", e.target.value)}  
+          placeholder="08012345678"  
+        />  
+      </Field>  
+  
+      <Field label="Images">  
+        <label className="image-upload">  
+          <input   
+            type="file"   
+            multiple   
+            hidden   
+            onChange={e => handleImages(e.target.files)}   
+          />  
+          <span>＋ Add Images</span>  
+        </label>  
+        <div className="images">  
+          {form.previews.map((p, i) => (  
+            <div key={i} className="img-wrap">  
+              <img src={p} alt={`preview-${i}`} />  
+              <button type="button" onClick={() => removeImage(i)}>×</button>  
+            </div>  
+          ))}  
+        </div>  
+      </Field>  
+  
+      <Field label="Promotion Plan">  
+        <div className="promotion-scroll">  
+          {promotionPlans.map(plan => (  
+            <div  
+              key={plan.id}  
+              className={`promotion-item ${form.promotionPlan?.id === plan.id ? "active" : ""}`}  
+              onClick={() => handlePromotionClick(plan)}  
+            >  
+              <span className="promotion-icon">{plan.icon}</span>  
+              <span>{plan.label}</span>  
+              <span className="promotion-days">{plan.days} days</span>  
+              <span className="promotion-price">{plan.price > 0 ? `₦${plan.price}` : "Free"}</span>  
+            </div>  
+          ))}  
+        </div>  
+        <div className="promotion-toggle">  
+          <label>  
+            <input  
+              type="checkbox"  
+              checked={form.isPromoted}  
+              onChange={e => update("isPromoted", e.target.checked)}  
+            />{" "}  
+            Promote this product  
+          </label>  
+        </div>  
+      </Field>  
+  
+      <button   
+        className="btn"   
+        type="button"   
+        onClick={handleSubmit}   
+        disabled={loading}  
+      >  
+        {loading ? "Uploading..." : "Publish"}  
+      </button>  
+  
+      <Toast message={toast.message} icon={toast.icon} visible={toast.visible} />  
+    </div>  
+  );  
+}  
+  
+// ---------------- Field Component ----------------  
+const Field = ({ label, children }) => (  
+  <div className="field">  
+    <label>{label}</label>  
+    {children}  
+  </div>  
+);  
 
-      {/* Form Fields */}
-      <Field label="Title">
-        <input value={form.title} onChange={e => updateForm("title", e.target.value)} placeholder="e.g iPhone 11 Pro Max" />
-      </Field>
-
-      {/* ... all other fields remain similarly structured ... */}
-
-      {/* Submit Button */}
-      <button className="btn" onClick={handleSubmit} disabled={loading}>
-        {loading ? "Uploading..." : "Publish"}
-      </button>
-
-      <Toast message={toast.message} icon={toast.icon} visible={toast.visible} />
-    </div>
-  );
-}
-
-// ---------------- Field Component ----------------
-const Field = ({ label, children }) => (
-  <div className="field">
-    <label>{label}</label>
-    {children}
-  </div>
-);
 
 // ---------------- FullPageList ----------------
 export const FullPageList = ({ title, options, valueKey, form, updateForm, setSelectionStep, scrollPos }) => {
