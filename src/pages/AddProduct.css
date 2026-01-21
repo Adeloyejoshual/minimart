@@ -116,6 +116,8 @@
   padding: 28px;
   z-index: 2000;
   overflow-y: auto;
+  display: flex;
+  flex-direction: column;
 }
 
 .fullpage-list h3 {
@@ -123,6 +125,11 @@
   font-weight: 700;
   color: #0d6efd;
   margin-bottom: 20px;
+  position: sticky;
+  top: 0;
+  background: #f5f9ff;
+  padding-bottom: 10px;
+  z-index: 2100;
 }
 
 .options-back {
@@ -144,6 +151,7 @@
   display: flex;
   flex-direction: column;
   gap: 12px;
+  flex-grow: 1;
 }
 
 .option-item {
@@ -177,10 +185,6 @@
   gap: 6px;
 }
 
-.clickable {
-  cursor: pointer;
-}
-
 /* -------------------- Image Upload -------------------- */
 .image-upload {
   border: 2px dashed #cce0ff;
@@ -191,6 +195,7 @@
   cursor: pointer;
   transition: all 0.25s ease;
   display: inline-block;
+  text-align: center;
 }
 
 .image-upload:hover {
@@ -232,33 +237,6 @@
   display: flex;
   align-items: center;
   justify-content: center;
-}
-
-/* -------------------- Features Checkboxes -------------------- */
-.features-checkboxes {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 12px;
-}
-
-.feature-label {
-  background: #fff;
-  border: 2px solid #cce0ff;
-  padding: 8px 12px;
-  border-radius: 6px;
-  font-size: 14px;
-  cursor: pointer;
-  transition: all 0.25s;
-}
-
-.feature-label input {
-  margin-right: 6px;
-}
-
-.feature-label:hover,
-.feature-label input:checked + & {
-  border-color: #0d6efd;
-  background: #e0ecff;
 }
 
 /* -------------------- Promotion Plan -------------------- */
