@@ -56,7 +56,6 @@ export default function AddProduct() {
   useEffect(() => {
     const saved = localStorage.getItem(DRAFT_KEY);
     if (saved) setForm(JSON.parse(saved));
-
     const savedCat = localStorage.getItem(CATEGORY_KEY);
     if (savedCat) setForm(prev => ({ ...prev, mainCategory: savedCat }));
   }, []);
@@ -126,7 +125,7 @@ export default function AddProduct() {
       callback: async () => {
         update("promotionPlan", { ...plan, paid: true });
         showToast("Promotion activated 🎉", "⚡");
-        await handleSubmit(true);
+        await handleSubmit(true); // after payment
       },
       onClose: () => showToast("Payment cancelled", "❌"),
     });
@@ -139,6 +138,7 @@ export default function AddProduct() {
     if (error) return showToast(error, "⚠️");
     if (!auth.currentUser) return showToast("Login required", "🔒");
 
+    // Paid promotion check
     if (!afterPayment && form.isPromoted && form.promotionPlan?.type === "paid" && !form.promotionPlan?.paid) {
       return payWithPaystack(form.promotionPlan);
     }
@@ -181,6 +181,101 @@ export default function AddProduct() {
     }
   };
 
+  // ---------------- FullPage Selector ----------------
+  const FullPageList = ({ title, options, valueKey }) => {
+    const [search, setSearch] = useState("");
+    const [customValue, setCustomValue] = useState("");
+    const filtered = options.filter(opt => opt.toLowerCase().includes(search.toLowerCase()));
+
+    const handleCustomSubmit = () => {
+      if (customValue.trim() !== "") {
+        update(valueKey, customValue.trim());
+        setCustomValue("");
+        setSelectionStep(null);
+        window.scrollTo(0, scrollPos.current);
+      }
+    };
+
+    return (
+      <div className="fullpage-list">
+        {backStep && <div className="options-back" onClick={() => setSelectionStep(backStep)}>← Back</div>}
+        <h3>{title}</h3>
+        <input
+          type="text"
+          placeholder="Search..."
+          value={search}
+          onChange={e => setSearch(e.target.value)}
+          className="fullpage-search"
+        />
+        <div className="options-scroll">
+          {filtered.map(opt => (
+            <div
+              key={opt}
+              className={`option-item ${form[valueKey] === opt ? "active" : ""}`}
+              onClick={() => { update(valueKey, opt); setSelectionStep(null); window.scrollTo(0, scrollPos.current); }}
+            >
+              {opt}
+            </div>
+          ))}
+          <div className="option-item custom-input">
+            <input
+              type="text"
+              placeholder={`Enter ${valueKey}...`}
+              value={customValue}
+              onChange={e => setCustomValue(e.target.value)}
+              onKeyDown={e => e.key === "Enter" && handleCustomSubmit()}
+            />
+          </div>
+        </div>
+      </div>
+    );
+  };
+
+  // ---------------- FullPage MultiSelect ----------------
+  const FullPageMultiSelect = ({ title, options, valueKey }) => {
+    const [search, setSearch] = useState("");
+    const filtered = options.filter(opt => opt.toLowerCase().includes(search.toLowerCase()));
+
+    const toggleOption = (opt) => {
+      if (form[valueKey].includes(opt)) {
+        update(valueKey, form[valueKey].filter(f => f !== opt));
+      } else {
+        update(valueKey, [...form[valueKey], opt]);
+      }
+    };
+
+    const handleDone = () => {
+      setSelectionStep(null);
+      window.scrollTo(0, scrollPos.current);
+    };
+
+    return (
+      <div className="fullpage-list">
+        {backStep && <div className="options-back" onClick={() => setSelectionStep(backStep)}>← Back</div>}
+        <h3>{title}</h3>
+        <input
+          type="text"
+          placeholder="Search..."
+          value={search}
+          onChange={e => setSearch(e.target.value)}
+          className="fullpage-search"
+        />
+        <div className="options-scroll">
+          {filtered.map(opt => (
+            <div
+              key={opt}
+              className={`option-item ${form[valueKey].includes(opt) ? "active" : ""}`}
+              onClick={() => toggleOption(opt)}
+            >
+              {opt} {form[valueKey].includes(opt) && "✓"}
+            </div>
+          ))}
+        </div>
+        <button className="btn" onClick={handleDone}>Done</button>
+      </div>
+    );
+  };
+
   // ---------------- Derived Options ----------------
   const getSubcategories = () => [...(categories.find(c => c.name === form.mainCategory)?.subcategories || [])];
   const getBrandOptions = () => (form.subCategory ? Object.keys(phoneModels[form.subCategory] || {}) : []);
@@ -194,38 +289,44 @@ export default function AddProduct() {
   };
 
   // ---------------- Reset Dependent Fields ----------------
-  const handleCategoryChange = (category) => setForm(prev => ({
-    ...prev,
-    mainCategory: category,
-    subCategory: "",
-    brand: "",
-    model: "",
-    condition: "",
-    usedDetail: "",
-    color: "",
-    simType: "",
-    type: "",
-  }));
+  const handleCategoryChange = (category) => {
+    setForm(prev => ({
+      ...prev,
+      mainCategory: category,
+      subCategory: "",
+      brand: "",
+      model: "",
+      condition: "",
+      usedDetail: "",
+      color: "",
+      simType: "",
+      type: "",
+    }));
+  };
 
-  const handleSubcategoryChange = (sub) => setForm(prev => ({
-    ...prev,
-    subCategory: sub,
-    brand: "",
-    model: "",
-    condition: "",
-    usedDetail: "",
-    color: "",
-    simType: "",
-    type: "",
-  }));
+  const handleSubcategoryChange = (sub) => {
+    setForm(prev => ({
+      ...prev,
+      subCategory: sub,
+      brand: "",
+      model: "",
+      condition: "",
+      usedDetail: "",
+      color: "",
+      simType: "",
+      type: "",
+    }));
+  };
 
-  const handleBrandChange = (brand) => setForm(prev => ({
-    ...prev,
-    brand,
-    model: "",
-    condition: "",
-    usedDetail: "",
-  }));
+  const handleBrandChange = (brand) => {
+    setForm(prev => ({
+      ...prev,
+      brand,
+      model: "",
+      condition: "",
+      usedDetail: "",
+    }));
+  };
 
   const showConditionField = () => form.model && ["Smartphones", "Feature Phones"].includes(form.subCategory);
   const showUsedDetailField = () => form.condition === "Used";
@@ -256,6 +357,7 @@ export default function AddProduct() {
         <span className="page-title">Add Product</span>
       </div>
 
+      {/* --- FIELDS --- */}
       <Field label="Title">
         <input value={form.title} onChange={e => update("title", e.target.value)} placeholder="e.g iPhone 11 Pro Max" />
       </Field>
@@ -356,13 +458,14 @@ export default function AddProduct() {
         </div>
       </Field>
 
+      {/* Promotion */}
       <Field label="Promotion Plan">
         <div className="promotion-scroll">
           {promotionPlans.map(plan => (
             <div
               key={plan.id}
               className={`promotion-item ${form.promotionPlan?.id === plan.id ? "active" : ""}`}
-              onClick={() => update("promotionPlan", { ...plan, paid: false })}
+              onClick={() => update("promotionPlan", { ...plan, paid: false })} // reset paid status
             >
               <span className="promotion-icon">{plan.icon}</span>
               <span>{plan.label}</span>
@@ -374,7 +477,11 @@ export default function AddProduct() {
 
         <div className="promotion-toggle">
           <label>
-            <input type="checkbox" checked={form.isPromoted} onChange={e => update("isPromoted", e.target.checked)} />
+            <input
+              type="checkbox"
+              checked={form.isPromoted}
+              onChange={e => update("isPromoted", e.target.checked)}
+            />
             {" "}Promote this product
           </label>
         </div>
@@ -396,97 +503,3 @@ const Field = ({ label, children }) => (
     {children}
   </div>
 );
-
-// ---------------- FullPage Selector ----------------
-const FullPageList = ({ title, options, valueKey, form, update, scrollPos, backStep, setSelectionStep }) => {
-  const [search, setSearch] = useState("");
-  const [customValue, setCustomValue] = useState("");
-  const filtered = options.filter(opt => opt.toLowerCase().includes(search.toLowerCase()));
-
-  const handleCustomSubmit = () => {
-    if (customValue.trim() !== "") {
-      update(valueKey, customValue.trim());
-      setCustomValue("");
-      setSelectionStep(null);
-      window.scrollTo(0, scrollPos.current);
-    }
-  };
-
-  return (
-    <div className="fullpage-list">
-      {backStep && <div className="options-back" onClick={() => setSelectionStep(backStep)}>← Back</div>}
-      <h3>{title}</h3>
-      <input
-        type="text"
-        placeholder="Search..."
-        value={search}
-        onChange={e => setSearch(e.target.value)}
-        className="fullpage-search"
-      />
-      <div className="options-scroll">
-        {filtered.map(opt => (
-          <div
-            key={opt}
-            className={`option-item ${form[valueKey] === opt ? "active" : ""}`}
-            onClick={() => { update(valueKey, opt); setSelectionStep(null); window.scrollTo(0, scrollPos.current); }}
-          >
-            {opt}
-          </div>
-        ))}
-        <div className="option-item custom-input">
-          <input
-            type="text"
-            placeholder={`Enter ${valueKey}...`}
-            value={customValue}
-            onChange={e => setCustomValue(e.target.value)}
-            onKeyDown={e => e.key === "Enter" && handleCustomSubmit()}
-          />
-        </div>
-      </div>
-    </div>
-  );
-};
-
-const FullPageMultiSelect = ({ title, options, valueKey, form, update, scrollPos, backStep, setSelectionStep }) => {
-  const [search, setSearch] = useState("");
-  const filtered = options.filter(opt => opt.toLowerCase().includes(search.toLowerCase()));
-
-  const toggleOption = (opt) => {
-    if (form[valueKey].includes(opt)) {
-      update(valueKey, form[valueKey].filter(f => f !== opt));
-    } else {
-      update(valueKey, [...form[valueKey], opt]);
-    }
-  };
-
-  const handleDone = () => {
-    setSelectionStep(null);
-    window.scrollTo(0, scrollPos.current);
-  };
-
-  return (
-    <div className="fullpage-list">
-      {backStep && <div className="options-back" onClick={() => setSelectionStep(backStep)}>← Back</div>}
-      <h3>{title}</h3>
-      <input
-        type="text"
-        placeholder="Search..."
-        value={search}
-        onChange={e => setSearch(e.target.value)}
-        className="fullpage-search"
-      />
-      <div className="options-scroll">
-        {filtered.map(opt => (
-          <div
-            key={opt}
-            className={`option-item ${form[valueKey].includes(opt) ? "active" : ""}`}
-            onClick={() => toggleOption(opt)}
-          >
-            {opt} {form[valueKey].includes(opt) && "✓"}
-          </div>
-        ))}
-      </div>
-      <button className="btn" onClick={handleDone}>Done</button>
-    </div>
-  );
-};
