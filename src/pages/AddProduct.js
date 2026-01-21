@@ -125,6 +125,10 @@ export default function AddProduct() {
       amount: plan.price * 100,
       currency: "NGN",
       ref: `promo_${Date.now()}`,
+      metadata: {
+        productId: form.id || null, // optional: generated later after save
+        promotionPlanId: plan.id,
+      },
       callback: async () => {
         update("promotionPlan", { ...plan, paid: true });
         showToast("Promotion activated 🎉", "⚡");
@@ -141,10 +145,8 @@ export default function AddProduct() {
     if (!plan) return;
 
     if (plan.type === "paid") {
-      // Paid plan → trigger Paystack
       payWithPaystack(plan);
     } else {
-      // Free plan → select immediately
       update("promotionPlan", { ...plan, paid: true });
       update("isPromoted", true);
       showToast(`${plan.label} selected!`, "⚡");
@@ -164,11 +166,14 @@ export default function AddProduct() {
 
     try {
       setLoading(true);
+
+      // Upload images
       const uploaded = await Promise.all(form.images.map(img => uploadToCloudinary(img)));
       const promotionEndAt = form.promotionPlan
         ? new Date(Date.now() + form.promotionPlan.days * 24 * 60 * 60 * 1000)
         : null;
 
+      // Save to Firestore
       await addDoc(collection(db, "products"), {
         ...form,
         price: Number(String(form.price).replace(/,/g, "")),
@@ -375,7 +380,6 @@ export default function AddProduct() {
         <span className="page-title">Add Product</span>
       </div>
 
-      {/* --- FIELDS --- */}
       <Field label="Title">
         <input value={form.title} onChange={e => update("title", e.target.value)} placeholder="e.g iPhone 11 Pro Max" />
       </Field>
@@ -454,7 +458,11 @@ export default function AddProduct() {
       )}
 
       <Field label="Price (₦)">
-        <input value={form.price} onChange={handlePriceChange} placeholder="₦ 0" />
+        <input 
+          value={form.price} 
+          onChange={handlePriceChange} 
+          placeholder="₦ 0" 
+        />
       </Field>
 
       <Field label="Phone Number">
@@ -468,20 +476,24 @@ export default function AddProduct() {
 
       <Field label="Images">
         <label className="image-upload">
-          <input type="file" multiple hidden onChange={e => handleImages(e.target.files)} />
+          <input 
+            type="file" 
+            multiple 
+            hidden 
+            onChange={e => handleImages(e.target.files)} 
+          />
           <span>＋ Add Images</span>
         </label>
         <div className="images">
           {form.previews.map((p, i) => (
             <div key={i} className="img-wrap">
-              <img src={p} alt="" />
+              <img src={p} alt={`preview-${i}`} />
               <button type="button" onClick={() => removeImage(i)}>×</button>
             </div>
           ))}
         </div>
       </Field>
 
-      {/* Promotion Plan */}
       <Field label="Promotion Plan">
         <div className="promotion-scroll">
           {promotionPlans.map(plan => (
@@ -497,7 +509,6 @@ export default function AddProduct() {
             </div>
           ))}
         </div>
-
         <div className="promotion-toggle">
           <label>
             <input
@@ -510,7 +521,12 @@ export default function AddProduct() {
         </div>
       </Field>
 
-      <button className="btn" type="button" onClick={handleSubmit} disabled={loading}>
+      <button 
+        className="btn" 
+        type="button" 
+        onClick={handleSubmit} 
+        disabled={loading}
+      >
         {loading ? "Uploading..." : "Publish"}
       </button>
 
