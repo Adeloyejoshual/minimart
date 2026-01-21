@@ -117,18 +117,22 @@ export default function AddProduct() {
 
   // ---------------- Paystack Payment ----------------
   const payWithPaystack = (plan) => {
+    if (!plan || plan.price <= 0) return;
+
     const handler = window.PaystackPop.setup({
       key: process.env.REACT_APP_PAYSTACK_KEY,
       email: auth.currentUser.email,
       amount: plan.price * 100,
       currency: "NGN",
+      ref: `promo_${Date.now()}`,
       callback: async () => {
         update("promotionPlan", { ...plan, paid: true });
         showToast("Promotion activated 🎉", "⚡");
-        await handleSubmit(true); // after payment
+        await handleSubmit(true);
       },
       onClose: () => showToast("Payment cancelled", "❌"),
     });
+
     handler.openIframe();
   };
 
@@ -138,9 +142,9 @@ export default function AddProduct() {
     if (error) return showToast(error, "⚠️");
     if (!auth.currentUser) return showToast("Login required", "🔒");
 
-    // Paid promotion check
-    if (!afterPayment && form.isPromoted && form.promotionPlan?.type === "paid" && !form.promotionPlan?.paid) {
-      return payWithPaystack(form.promotionPlan);
+    // Block publishing if paid promotion selected but not yet paid
+    if (form.isPromoted && form.promotionPlan?.type === "paid" && !form.promotionPlan?.paid) {
+      if (!afterPayment) return payWithPaystack(form.promotionPlan);
     }
 
     try {
@@ -160,11 +164,11 @@ export default function AddProduct() {
         createdAt: serverTimestamp(),
         promotion: form.isPromoted
           ? {
-              id: form.promotionPlan?.id,
-              label: form.promotionPlan?.label,
-              icon: form.promotionPlan?.icon,
-              price: form.promotionPlan?.price,
-              days: form.promotionPlan?.days,
+              id: form.promotionPlan.id,
+              label: form.promotionPlan.label,
+              icon: form.promotionPlan.icon,
+              price: form.promotionPlan.price,
+              days: form.promotionPlan.days,
               startAt: serverTimestamp(),
               endAt: promotionEndAt,
             }
@@ -181,7 +185,7 @@ export default function AddProduct() {
     }
   };
 
-  // ---------------- FullPage Selector ----------------
+  // ---------------- FullPage Selectors ----------------
   const FullPageList = ({ title, options, valueKey }) => {
     const [search, setSearch] = useState("");
     const [customValue, setCustomValue] = useState("");
@@ -231,7 +235,6 @@ export default function AddProduct() {
     );
   };
 
-  // ---------------- FullPage MultiSelect ----------------
   const FullPageMultiSelect = ({ title, options, valueKey }) => {
     const [search, setSearch] = useState("");
     const filtered = options.filter(opt => opt.toLowerCase().includes(search.toLowerCase()));
@@ -458,14 +461,14 @@ export default function AddProduct() {
         </div>
       </Field>
 
-      {/* Promotion */}
+      {/* Promotion Plan */}
       <Field label="Promotion Plan">
         <div className="promotion-scroll">
           {promotionPlans.map(plan => (
             <div
               key={plan.id}
               className={`promotion-item ${form.promotionPlan?.id === plan.id ? "active" : ""}`}
-              onClick={() => update("promotionPlan", { ...plan, paid: false })} // reset paid status
+              onClick={() => update("promotionPlan", { ...plan, paid: false })}
             >
               <span className="promotion-icon">{plan.icon}</span>
               <span>{plan.label}</span>
