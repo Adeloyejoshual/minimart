@@ -3,6 +3,7 @@ import { useEffect, useState, useRef } from "react";
 import { addDoc, collection, serverTimestamp } from "firebase/firestore";
 import { db, auth } from "../firebase";
 import { uploadToCloudinary } from "../cloudinary";
+import { useNavigate } from "react-router-dom";
 import { promotionPlans } from "../config/promotionPlans";
 import Toast from "../components/Toast";
 import "./AddProduct.css";
@@ -10,28 +11,44 @@ import "./AddProduct.css";
 const DRAFT_KEY = "add_product_draft";
 
 export default function AddProduct() {
+  const navigate = useNavigate();
+  const scrollPos = useRef(0);
+  const [loading, setLoading] = useState(false);
+  const [toast, setToast] = useState({ visible: false, message: "", icon: "⚡" });
   const [form, setForm] = useState({
     title: "",
+    price: "",
+    phone: "",
     images: [],
     previews: [],
-    promotionPlan: null,
     isPromoted: false,
+    promotionPlan: null,
   });
 
-  const [toast, setToast] = useState({ visible: false, message: "", icon: "⚡" });
-  const [loading, setLoading] = useState(false);
-  const scrollPos = useRef(0);
+  const [paystackLoaded, setPaystackLoaded] = useState(false);
 
-  // ---------------- Draft Load ----------------
+  // ---------------- Load Draft ----------------
   useEffect(() => {
     const saved = localStorage.getItem(DRAFT_KEY);
     if (saved) setForm(JSON.parse(saved));
   }, []);
 
-  // ---------------- Draft Save ----------------
-  const saveDraft = () => {
+  useEffect(() => {
     localStorage.setItem(DRAFT_KEY, JSON.stringify(form));
-  };
+  }, [form]);
+
+  // ---------------- Load Paystack ----------------
+  useEffect(() => {
+    if (!window.PaystackPop) {
+      const script = document.createElement("script");
+      script.src = "https://js.paystack.co/v1/inline.js";
+      script.async = true;
+      script.onload = () => setPaystackLoaded(true);
+      document.body.appendChild(script);
+    } else {
+      setPaystackLoaded(true);
+    }
+  }, []);
 
   // ---------------- Toast ----------------
   const showToast = (message, icon = "⚡", duration = 3000) => {
@@ -42,13 +59,13 @@ export default function AddProduct() {
   // ---------------- Helpers ----------------
   const update = (key, value) => setForm(prev => ({ ...prev, [key]: value }));
 
-  const handleImages = (files) => {
+  const handleImages = files => {
     const list = Array.from(files);
     update("images", [...form.images, ...list]);
     update("previews", [...form.previews, ...list.map(f => URL.createObjectURL(f))]);
   };
 
-  const removeImage = (index) => {
+  const removeImage = index => {
     update("images", form.images.filter((_, i) => i !== index));
     update("previews", form.previews.filter((_, i) => i !== index));
   };
@@ -56,14 +73,52 @@ export default function AddProduct() {
   // ---------------- Validation ----------------
   const validate = () => {
     if (!form.title) return "Enter title";
-    if (form.images.length === 0) return "Add at least one image";
+    if (!form.price) return "Enter price";
+    if (!form.phone) return "Enter phone";
+    if (!form.images.length) return "Upload at least 1 image";
     if (!form.promotionPlan) return "Select promotion plan";
     return null;
   };
 
-  // ---------------- Paystack Payment ----------------
+  // ---------------- Post Product ----------------
+  const postProduct = async () => {
+    try {
+      setLoading(true);
+      const uploaded = await Promise.all(form.images.map(img => uploadToCloudinary(img)));
+
+      await addDoc(collection(db, "products"), {
+        ...form,
+        price: Number(String(form.price).replace(/,/g, "")),
+        images: uploaded,
+        coverImage: uploaded[0],
+        ownerId: auth.currentUser.uid,
+        createdAt: serverTimestamp(),
+        promotion: form.isPromoted
+          ? {
+              id: form.promotionPlan.id,
+              label: form.promotionPlan.label,
+              price: form.promotionPlan.price,
+              days: form.promotionPlan.days,
+              startAt: serverTimestamp(),
+              endAt: new Date(Date.now() + form.promotionPlan.days * 24 * 60 * 60 * 1000),
+            }
+          : null,
+      });
+
+      localStorage.removeItem(DRAFT_KEY);
+      showToast("Product posted successfully!", "✅");
+      navigate("/");
+    } catch (err) {
+      showToast(err.message, "❌");
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  // ---------------- Paystack ----------------
   const payWithPaystack = (plan) => {
-    if (!window.PaystackPop) return showToast("Paystack not loaded", "❌");
+    if (!paystackLoaded) return showToast("Paystack not loaded yet", "❌");
+    if (!window.PaystackPop) return showToast("Paystack not available", "❌");
 
     const handler = window.PaystackPop.setup({
       key: process.env.REACT_APP_PAYSTACK_KEY,
@@ -74,7 +129,9 @@ export default function AddProduct() {
       metadata: { promotionPlanId: plan.id },
       callback: async () => {
         showToast("Payment successful! Posting product...", "✅");
-        await postProduct(); // after payment, post
+        update("isPromoted", true);
+        update("promotionPlan", { ...plan, paid: true });
+        await postProduct();
       },
       onClose: () => showToast("Payment cancelled", "❌"),
     });
@@ -82,72 +139,52 @@ export default function AddProduct() {
     handler.openIframe();
   };
 
-  // ---------------- Post Product ----------------
-  const postProduct = async () => {
-    try {
-      setLoading(true);
-
-      // Upload images
-      const uploaded = await Promise.all(form.images.map(img => uploadToCloudinary(img)));
-
-      // Save to Firestore
-      await addDoc(collection(db, "products"), {
-        title: form.title,
-        images: uploaded,
-        coverImage: uploaded[0],
-        promotion: form.isPromoted ? form.promotionPlan : null,
-        ownerId: auth.currentUser.uid,
-        createdAt: serverTimestamp(),
-      });
-
-      localStorage.removeItem(DRAFT_KEY);
-      showToast("Product posted successfully! 🎉", "✅");
-      setForm({ title: "", images: [], previews: [], promotionPlan: null, isPromoted: false });
-    } catch (err) {
-      showToast(err.message, "❌");
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  // ---------------- Publish Button ----------------
+  // ---------------- Handle Publish ----------------
   const handlePublish = () => {
     const error = validate();
     if (error) return showToast(error, "⚠️");
 
-    saveDraft(); // save draft before payment
-
-    if (form.promotionPlan.type === "paid") {
+    if (form.promotionPlan?.type === "paid") {
       payWithPaystack(form.promotionPlan);
     } else {
-      postProduct(); // free promotion
+      update("isPromoted", true);
+      postProduct();
     }
   };
 
+  // ---------------- Render ----------------
   return (
     <div className="add-product-container">
       <h2>Add Product</h2>
 
-      <div className="field">
-        <label>Title</label>
-        <input value={form.title} onChange={e => update("title", e.target.value)} placeholder="Product Title" />
-      </div>
+      <Field label="Title">
+        <input value={form.title} onChange={e => update("title", e.target.value)} placeholder="Product title" />
+      </Field>
 
-      <div className="field">
-        <label>Images</label>
-        <input type="file" multiple onChange={e => handleImages(e.target.files)} />
-        <div className="images-preview">
+      <Field label="Price (₦)">
+        <input value={form.price} onChange={e => update("price", e.target.value)} placeholder="₦0" />
+      </Field>
+
+      <Field label="Phone Number">
+        <input value={form.phone} onChange={e => update("phone", e.target.value)} placeholder="08012345678" />
+      </Field>
+
+      <Field label="Images">
+        <label className="image-upload">
+          <input type="file" multiple hidden onChange={e => handleImages(e.target.files)} />
+          <span>＋ Add Images</span>
+        </label>
+        <div className="images">
           {form.previews.map((p, i) => (
-            <div key={i}>
-              <img src={p} alt={`preview-${i}`} width={80} />
+            <div key={i} className="img-wrap">
+              <img src={p} alt={`preview-${i}`} />
               <button type="button" onClick={() => removeImage(i)}>×</button>
             </div>
           ))}
         </div>
-      </div>
+      </Field>
 
-      <div className="field">
-        <label>Promotion Plan</label>
+      <Field label="Promotion Plan">
         <div className="promotion-scroll">
           {promotionPlans.map(plan => (
             <div
@@ -155,17 +192,28 @@ export default function AddProduct() {
               className={`promotion-item ${form.promotionPlan?.id === plan.id ? "active" : ""}`}
               onClick={() => update("promotionPlan", plan)}
             >
-              <span>{plan.icon}</span> {plan.label} ({plan.days} days) {plan.price > 0 ? `₦${plan.price}` : "Free"}
+              <span className="promotion-icon">{plan.icon}</span>
+              <span>{plan.label}</span>
+              <span>{plan.days} days</span>
+              <span>{plan.price > 0 ? `₦${plan.price}` : "Free"}</span>
             </div>
           ))}
         </div>
-      </div>
+      </Field>
 
       <button className="btn" type="button" onClick={handlePublish} disabled={loading}>
-        {loading ? "Processing..." : "Publish"}
+        {loading ? "Uploading..." : "Publish"}
       </button>
 
       <Toast message={toast.message} icon={toast.icon} visible={toast.visible} />
     </div>
   );
 }
+
+// ---------------- Field ----------------
+const Field = ({ label, children }) => (
+  <div className="field">
+    <label>{label}</label>
+    {children}
+  </div>
+);
