@@ -128,12 +128,27 @@ export default function AddProduct() {
       callback: async () => {
         update("promotionPlan", { ...plan, paid: true });
         showToast("Promotion activated 🎉", "⚡");
-        await handleSubmit(true);
+        await handleSubmit(true); // afterPayment = true
       },
       onClose: () => showToast("Payment cancelled", "❌"),
     });
 
     handler.openIframe();
+  };
+
+  // ---------------- Promotion Plan Click ----------------
+  const handlePromotionClick = (plan) => {
+    if (!plan) return;
+
+    if (plan.type === "paid") {
+      // Paid plan → trigger Paystack
+      payWithPaystack(plan);
+    } else {
+      // Free plan → select immediately
+      update("promotionPlan", { ...plan, paid: true });
+      update("isPromoted", true);
+      showToast(`${plan.label} selected!`, "⚡");
+    }
   };
 
   // ---------------- Submit ----------------
@@ -443,7 +458,12 @@ export default function AddProduct() {
       </Field>
 
       <Field label="Phone Number">
-        <input type="tel" value={form.phone} onChange={e => update("phone", e.target.value)} placeholder="08012345678" />
+        <input
+          type="tel"
+          value={form.phone}
+          onChange={e => update("phone", e.target.value)}
+          placeholder="08012345678"
+        />
       </Field>
 
       <Field label="Images">
@@ -468,7 +488,7 @@ export default function AddProduct() {
             <div
               key={plan.id}
               className={`promotion-item ${form.promotionPlan?.id === plan.id ? "active" : ""}`}
-              onClick={() => update("promotionPlan", { ...plan, paid: false })}
+              onClick={() => handlePromotionClick(plan)}
             >
               <span className="promotion-icon">{plan.icon}</span>
               <span>{plan.label}</span>
@@ -484,8 +504,8 @@ export default function AddProduct() {
               type="checkbox"
               checked={form.isPromoted}
               onChange={e => update("isPromoted", e.target.checked)}
-            />
-            {" "}Promote this product
+            />{" "}
+            Promote this product
           </label>
         </div>
       </Field>
