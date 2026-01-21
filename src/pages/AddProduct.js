@@ -22,7 +22,6 @@ export default function AddProduct() {
   const marketType = params.get("market") || "marketplace";
 
   const scrollPos = useRef(0);
-
   const [loading, setLoading] = useState(false);
   const [toast, setToast] = useState({ visible: false, message: "", icon: "⚡" });
   const [selectionStep, setSelectionStep] = useState(null);
@@ -76,7 +75,7 @@ export default function AddProduct() {
     setTimeout(() => setToast(prev => ({ ...prev, visible: false })), duration);
   };
 
-  // ---------------- Form Helpers ----------------
+  // ---------------- Helpers ----------------
   const update = (key, value) => setForm(prev => ({ ...prev, [key]: value }));
 
   const handlePriceChange = e => {
@@ -126,7 +125,7 @@ export default function AddProduct() {
       callback: async () => {
         update("promotionPlan", { ...plan, paid: true });
         showToast("Promotion activated 🎉", "⚡");
-        await handleSubmit(); // auto-submit after payment
+        await handleSubmit(true); // after payment
       },
       onClose: () => showToast("Payment cancelled", "❌"),
     });
@@ -134,19 +133,19 @@ export default function AddProduct() {
   };
 
   // ---------------- Submit ----------------
-  const handleSubmit = async () => {
+  const handleSubmit = async (afterPayment = false) => {
     const error = validate();
     if (error) return showToast(error, "⚠️");
     if (!auth.currentUser) return showToast("Login required", "🔒");
 
-    if (form.isPromoted && form.promotionPlan?.type === "paid" && !form.promotionPlan?.paid) {
+    // Paid promotion check
+    if (!afterPayment && form.isPromoted && form.promotionPlan?.type === "paid" && !form.promotionPlan?.paid) {
       return payWithPaystack(form.promotionPlan);
     }
 
     try {
       setLoading(true);
       const uploaded = await Promise.all(form.images.map(img => uploadToCloudinary(img)));
-
       const promotionEndAt = form.promotionPlan
         ? new Date(Date.now() + form.promotionPlan.days * 24 * 60 * 60 * 1000)
         : null;
@@ -161,11 +160,11 @@ export default function AddProduct() {
         createdAt: serverTimestamp(),
         promotion: form.isPromoted
           ? {
-              id: form.promotionPlan?.id || "starter",
-              label: form.promotionPlan?.label || "Starter Boost",
-              icon: form.promotionPlan?.icon || "🌟",
-              price: form.promotionPlan?.price || 0,
-              days: form.promotionPlan?.days || 7,
+              id: form.promotionPlan?.id,
+              label: form.promotionPlan?.label,
+              icon: form.promotionPlan?.icon,
+              price: form.promotionPlan?.price,
+              days: form.promotionPlan?.days,
               startAt: serverTimestamp(),
               endAt: promotionEndAt,
             }
@@ -182,7 +181,7 @@ export default function AddProduct() {
     }
   };
 
-  // ---------------- Full Page Selector ----------------
+  // ---------------- FullPage Selector ----------------
   const FullPageList = ({ title, options, valueKey }) => {
     const [search, setSearch] = useState("");
     const [customValue, setCustomValue] = useState("");
@@ -228,6 +227,51 @@ export default function AddProduct() {
             />
           </div>
         </div>
+      </div>
+    );
+  };
+
+  // ---------------- FullPage MultiSelect ----------------
+  const FullPageMultiSelect = ({ title, options, valueKey }) => {
+    const [search, setSearch] = useState("");
+    const filtered = options.filter(opt => opt.toLowerCase().includes(search.toLowerCase()));
+
+    const toggleOption = (opt) => {
+      if (form[valueKey].includes(opt)) {
+        update(valueKey, form[valueKey].filter(f => f !== opt));
+      } else {
+        update(valueKey, [...form[valueKey], opt]);
+      }
+    };
+
+    const handleDone = () => {
+      setSelectionStep(null);
+      window.scrollTo(0, scrollPos.current);
+    };
+
+    return (
+      <div className="fullpage-list">
+        {backStep && <div className="options-back" onClick={() => setSelectionStep(backStep)}>← Back</div>}
+        <h3>{title}</h3>
+        <input
+          type="text"
+          placeholder="Search..."
+          value={search}
+          onChange={e => setSearch(e.target.value)}
+          className="fullpage-search"
+        />
+        <div className="options-scroll">
+          {filtered.map(opt => (
+            <div
+              key={opt}
+              className={`option-item ${form[valueKey].includes(opt) ? "active" : ""}`}
+              onClick={() => toggleOption(opt)}
+            >
+              {opt} {form[valueKey].includes(opt) && "✓"}
+            </div>
+          ))}
+        </div>
+        <button className="btn" onClick={handleDone}>Done</button>
       </div>
     );
   };
@@ -300,6 +344,7 @@ export default function AddProduct() {
       case "types": return <FullPageList title="Select Type" options={getExtraOptions("types")} valueKey="type" />;
       case "state": return <FullPageList title="Select State" options={getStateOptions()} valueKey="state" />;
       case "city": return <FullPageList title="Select City / LGA" options={getCityOptions()} valueKey="city" />;
+      case "features": return <FullPageMultiSelect title="Select Features" options={getExtraOptions("features")} valueKey="features" />;
       default: break;
     }
   }
@@ -312,19 +357,15 @@ export default function AddProduct() {
         <span className="page-title">Add Product</span>
       </div>
 
+      {/* --- FIELDS --- */}
       <Field label="Title">
         <input value={form.title} onChange={e => update("title", e.target.value)} placeholder="e.g iPhone 11 Pro Max" />
       </Field>
 
-      {/* Category */}
       <Field label="Category">
         <div className="category-scroll">
           {categories.map(cat => (
-            <div
-              key={cat.name}
-              className={`category-item ${form.mainCategory === cat.name ? "active" : ""}`}
-              onClick={() => handleCategoryChange(cat.name)}
-            >
+            <div key={cat.name} className={`category-item ${form.mainCategory === cat.name ? "active" : ""}`} onClick={() => handleCategoryChange(cat.name)}>
               <span className="category-icon">{cat.icon}</span>
               <span className="category-name">{cat.name}</span>
             </div>
@@ -332,7 +373,6 @@ export default function AddProduct() {
         </div>
       </Field>
 
-      {/* Subcategory */}
       {form.mainCategory && (
         <Field label="Subcategory">
           <div className="option-item clickable" onClick={() => { scrollPos.current = window.scrollY; setBackStep(null); setSelectionStep("subCategory"); }}>
@@ -341,7 +381,6 @@ export default function AddProduct() {
         </Field>
       )}
 
-      {/* Brand */}
       {form.subCategory && getBrandOptions().length > 0 && (
         <Field label="Brand">
           <div className="option-item clickable" onClick={() => { scrollPos.current = window.scrollY; setBackStep("subCategory"); setSelectionStep("brand"); }}>
@@ -350,7 +389,6 @@ export default function AddProduct() {
         </Field>
       )}
 
-      {/* Model */}
       {form.brand && getModelOptions().length > 0 && (
         <Field label="Model / Type">
           <div className="option-item clickable" onClick={() => { scrollPos.current = window.scrollY; setBackStep("brand"); setSelectionStep("model"); }}>
@@ -359,7 +397,6 @@ export default function AddProduct() {
         </Field>
       )}
 
-      {/* Condition */}
       {showConditionField() && (
         <Field label="Condition">
           <div className="option-item clickable" onClick={() => { scrollPos.current = window.scrollY; setBackStep("model"); setSelectionStep("condition"); }}>
@@ -368,7 +405,6 @@ export default function AddProduct() {
         </Field>
       )}
 
-      {/* Used Detail */}
       {showUsedDetailField() && (
         <Field label="Used Detail">
           <div className="option-item clickable" onClick={() => { scrollPos.current = window.scrollY; setBackStep("condition"); setSelectionStep("usedDetail"); }}>
@@ -377,14 +413,20 @@ export default function AddProduct() {
         </Field>
       )}
 
-      {/* State */}
+      {getExtraOptions("features").length > 0 && (
+        <Field label="Features">
+          <div className="option-item clickable" onClick={() => { scrollPos.current = window.scrollY; setBackStep(null); setSelectionStep("features"); }}>
+            {form.features.length > 0 ? form.features.join(", ") : "Select Features"}
+          </div>
+        </Field>
+      )}
+
       <Field label="State">
         <div className="option-item clickable" onClick={() => { scrollPos.current = window.scrollY; setBackStep(null); setSelectionStep("state"); }}>
           {form.state || "Select State"}
         </div>
       </Field>
 
-      {/* City */}
       {form.state && (
         <Field label="City / LGA">
           <div className="option-item clickable" onClick={() => { scrollPos.current = window.scrollY; setBackStep("state"); setSelectionStep("city"); }}>
@@ -393,17 +435,14 @@ export default function AddProduct() {
         </Field>
       )}
 
-      {/* Price */}
       <Field label="Price (₦)">
         <input value={form.price} onChange={handlePriceChange} placeholder="₦ 0" />
       </Field>
 
-      {/* Phone */}
       <Field label="Phone Number">
         <input type="tel" value={form.phone} onChange={e => update("phone", e.target.value)} placeholder="08012345678" />
       </Field>
 
-      {/* Images */}
       <Field label="Images">
         <label className="image-upload">
           <input type="file" multiple hidden onChange={e => handleImages(e.target.files)} />
@@ -426,7 +465,7 @@ export default function AddProduct() {
             <div
               key={plan.id}
               className={`promotion-item ${form.promotionPlan?.id === plan.id ? "active" : ""}`}
-              onClick={() => update("promotionPlan", plan)}
+              onClick={() => update("promotionPlan", { ...plan, paid: false })} // reset paid status
             >
               <span className="promotion-icon">{plan.icon}</span>
               <span>{plan.label}</span>
@@ -434,6 +473,17 @@ export default function AddProduct() {
               <span className="promotion-price">{plan.price > 0 ? `₦${plan.price}` : "Free"}</span>
             </div>
           ))}
+        </div>
+
+        <div className="promotion-toggle">
+          <label>
+            <input
+              type="checkbox"
+              checked={form.isPromoted}
+              onChange={e => update("isPromoted", e.target.checked)}
+            />
+            {" "}Promote this product
+          </label>
         </div>
       </Field>
 
