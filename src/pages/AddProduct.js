@@ -9,7 +9,7 @@ import categoryRules from "../config/categoryRules";
 import { locationsByState } from "../config/locationsByState";
 import productOptions from "../config/productOptions";
 import phoneModels from "../config/phoneModels";
-import { promotionPlans } from "../config/promotionPlans"; // 📌 Promotion plans
+import { promotionPlans } from "../config/promotionPlans";
 import Toast from "../components/Toast";
 import "./AddProduct.css";
 
@@ -21,7 +21,13 @@ export default function AddProduct() {
   const [params] = useSearchParams();
   const marketType = params.get("market") || "marketplace";
 
+  const scrollPos = useRef(0);
+
   const [loading, setLoading] = useState(false);
+  const [toast, setToast] = useState({ visible: false, message: "", icon: "⚡" });
+  const [selectionStep, setSelectionStep] = useState(null);
+  const [backStep, setBackStep] = useState(null);
+
   const [form, setForm] = useState({
     title: "",
     mainCategory: "",
@@ -42,14 +48,9 @@ export default function AddProduct() {
     features: [],
     type: "",
     isPromoted: false,
-    promotionPlan: null, // 📌 selected promotion
+    promotionPlan: null,
   });
 
-  const [selectionStep, setSelectionStep] = useState(null);
-  const [backStep, setBackStep] = useState(null);
-  const [toast, setToast] = useState({ visible: false, message: "", icon: "⚡" });
-
-  const scrollPos = useRef(0);
   const rules = categoryRules[form.mainCategory] || categoryRules.Default;
 
   // ---------------- Draft Load/Save ----------------
@@ -75,7 +76,7 @@ export default function AddProduct() {
     setTimeout(() => setToast(prev => ({ ...prev, visible: false })), duration);
   };
 
-  // ---------------- Helpers ----------------
+  // ---------------- Form Helpers ----------------
   const update = (key, value) => setForm(prev => ({ ...prev, [key]: value }));
 
   const handlePriceChange = e => {
@@ -99,6 +100,7 @@ export default function AddProduct() {
     update("previews", form.previews.filter((_, i) => i !== index));
   };
 
+  // ---------------- Validation ----------------
   const validate = () => {
     if (!form.title || form.title.length < rules.minTitle)
       return `Title must be at least ${rules.minTitle} characters`;
@@ -115,15 +117,16 @@ export default function AddProduct() {
   };
 
   // ---------------- Paystack Payment ----------------
-  const payWithPaystack = plan => {
+  const payWithPaystack = (plan) => {
     const handler = window.PaystackPop.setup({
-      key: process.env.REACT_APP_PAYSTACK_KEY, // 📌 env key
+      key: process.env.REACT_APP_PAYSTACK_KEY,
       email: auth.currentUser.email,
       amount: plan.price * 100,
       currency: "NGN",
-      callback: () => {
-        update("promotionPlan", plan);
+      callback: async () => {
+        update("promotionPlan", { ...plan, paid: true });
         showToast("Promotion activated 🎉", "⚡");
+        await handleSubmit(); // auto-submit after payment
       },
       onClose: () => showToast("Payment cancelled", "❌"),
     });
@@ -136,7 +139,6 @@ export default function AddProduct() {
     if (error) return showToast(error, "⚠️");
     if (!auth.currentUser) return showToast("Login required", "🔒");
 
-    // Paid promotion handling
     if (form.isPromoted && form.promotionPlan?.type === "paid" && !form.promotionPlan?.paid) {
       return payWithPaystack(form.promotionPlan);
     }
@@ -145,7 +147,6 @@ export default function AddProduct() {
       setLoading(true);
       const uploaded = await Promise.all(form.images.map(img => uploadToCloudinary(img)));
 
-      // promotion end date
       const promotionEndAt = form.promotionPlan
         ? new Date(Date.now() + form.promotionPlan.days * 24 * 60 * 60 * 1000)
         : null;
@@ -181,7 +182,7 @@ export default function AddProduct() {
     }
   };
 
-  // ---------------- Full Page List ----------------
+  // ---------------- Full Page Selector ----------------
   const FullPageList = ({ title, options, valueKey }) => {
     const [search, setSearch] = useState("");
     const [customValue, setCustomValue] = useState("");
@@ -243,11 +244,48 @@ export default function AddProduct() {
     return Array.isArray(subcatOptions[field]) ? subcatOptions[field] : [];
   };
 
-  // ---------------- Dynamic Fields ----------------
+  // ---------------- Reset Dependent Fields ----------------
+  const handleCategoryChange = (category) => {
+    setForm(prev => ({
+      ...prev,
+      mainCategory: category,
+      subCategory: "",
+      brand: "",
+      model: "",
+      condition: "",
+      usedDetail: "",
+      color: "",
+      simType: "",
+      type: "",
+    }));
+  };
+
+  const handleSubcategoryChange = (sub) => {
+    setForm(prev => ({
+      ...prev,
+      subCategory: sub,
+      brand: "",
+      model: "",
+      condition: "",
+      usedDetail: "",
+      color: "",
+      simType: "",
+      type: "",
+    }));
+  };
+
+  const handleBrandChange = (brand) => {
+    setForm(prev => ({
+      ...prev,
+      brand,
+      model: "",
+      condition: "",
+      usedDetail: "",
+    }));
+  };
+
   const showConditionField = () => form.model && ["Smartphones", "Feature Phones"].includes(form.subCategory);
   const showUsedDetailField = () => form.condition === "Used";
-  useEffect(() => { if (!form.model) { update("condition", ""); update("usedDetail", ""); } }, [form.model]);
-  useEffect(() => { if (form.condition !== "Used") update("usedDetail", ""); }, [form.condition]);
 
   // ---------------- Render FullPage Selector ----------------
   if (selectionStep) {
@@ -285,7 +323,7 @@ export default function AddProduct() {
             <div
               key={cat.name}
               className={`category-item ${form.mainCategory === cat.name ? "active" : ""}`}
-              onClick={() => update("mainCategory", cat.name)}
+              onClick={() => handleCategoryChange(cat.name)}
             >
               <span className="category-icon">{cat.icon}</span>
               <span className="category-name">{cat.name}</span>
@@ -339,6 +377,22 @@ export default function AddProduct() {
         </Field>
       )}
 
+      {/* State */}
+      <Field label="State">
+        <div className="option-item clickable" onClick={() => { scrollPos.current = window.scrollY; setBackStep(null); setSelectionStep("state"); }}>
+          {form.state || "Select State"}
+        </div>
+      </Field>
+
+      {/* City */}
+      {form.state && (
+        <Field label="City / LGA">
+          <div className="option-item clickable" onClick={() => { scrollPos.current = window.scrollY; setBackStep("state"); setSelectionStep("city"); }}>
+            {form.city || "Select City / LGA"}
+          </div>
+        </Field>
+      )}
+
       {/* Price */}
       <Field label="Price (₦)">
         <input value={form.price} onChange={handlePriceChange} placeholder="₦ 0" />
@@ -383,7 +437,6 @@ export default function AddProduct() {
         </div>
       </Field>
 
-      {/* Submit */}
       <button className="btn" type="button" onClick={handleSubmit} disabled={loading}>
         {loading ? "Uploading..." : "Publish"}
       </button>
