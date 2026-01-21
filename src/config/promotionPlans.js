@@ -33,9 +33,9 @@ export const promotionPlans = [
     days: 60,
     label: "Platinum Boost",
     icon: "👑",
-    price: 0,
+    price: 100,
     priority: 4,
-    type: "free"
+    type: "paid"
   },
   {
     id: "pro",
