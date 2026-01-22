@@ -11,6 +11,7 @@ import productOptions from "../config/productOptions";
 import phoneModels from "../config/phoneModels";
 import { promotionPlans } from "../config/promotionPlans";
 import conditionConfig from "../config/conditions";
+import AddProductCategory from "../components/AddProductCategory";
 import Toast from "../components/Toast";
 import "./AddProduct.css";
 
@@ -298,24 +299,15 @@ export default function AddProduct() {
         <input value={form.title} onChange={e => updateForm("title", e.target.value)} placeholder="e.g iPhone 11 Pro Max" />
       </Field>
 
-      <Field label="Category">
-        <div className="category-scroll">
-          {categories.map(cat => (
-            <div key={cat.name} className={`category-item ${form.mainCategory === cat.name ? "active" : ""}`} onClick={() => handleCategoryChange(cat.name)}>
-              <span className="category-icon">{cat.icon}</span>
-              <span className="category-name">{cat.name}</span>
-            </div>
-          ))}
-        </div>
-      </Field>
-
-      {form.mainCategory && (
-        <Field label="Subcategory">
-          <div className="option-item clickable" onClick={() => { scrollPos.current = window.scrollY; setBackStep(null); setSelectionStep("subCategory"); }}>
-            {form.subCategory || "Select Subcategory"}
-          </div>
-        </Field>
-      )}
+      <AddProductCategory
+  form={form}
+  handleCategoryChange={handleCategoryChange}
+  openSubCategorySelector={() => {
+    scrollPos.current = window.scrollY;
+    setBackStep(null);
+    setSelectionStep("subCategory");
+  }}
+/>
 
       {form.subCategory && getBrandOptions().length > 0 && (
         <Field label="Brand">
