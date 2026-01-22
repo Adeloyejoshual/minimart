@@ -1,10 +1,6 @@
 import { promotionPlans } from "../config/promotionPlans";
 
-export default function AddProductPromotion({
-  form,
-  onSelectPlan,
-  onTogglePromote,
-}) {
+export default function AddProductPromotion({ form, onSelectPlan, onTogglePromote }) {
   return (
     <div className="promotion-section">
       <label className="promo-toggle">
@@ -19,7 +15,8 @@ export default function AddProductPromotion({
       {form.isPromoted && (
         <div className="promo-plans">
           {promotionPlans.map(plan => {
-            const discounted = plan.discountPrice && plan.discountPrice < plan.price;
+            const isFree = plan.price === 0;
+            const discounted = plan.discountPrice != null && plan.discountPrice < plan.price;
             const active = form.promotionPlan?.id === plan.id;
 
             return (
@@ -28,17 +25,22 @@ export default function AddProductPromotion({
                 className={`promo-card ${active ? "active" : ""}`}
                 onClick={() => onSelectPlan(plan)}
               >
+                {/* Popular badge */}
                 {plan.popular && <span className="badge popular">Popular</span>}
 
+                {/* Discount badge */}
                 {discounted && (
                   <span className="badge discount">
                     Save ₦{plan.price - plan.discountPrice}
                   </span>
                 )}
 
-                <h4>{plan.label}</h4>
+                <h4>{plan.label} {isFree && "(Free)"}</h4>
 
-                {discounted ? (
+                {/* Price display */}
+                {isFree ? (
+                  <div className="price">₦0</div>
+                ) : discounted ? (
                   <>
                     <div className="old-price">₦{plan.price}</div>
                     <div className="price">₦{plan.discountPrice}</div>
@@ -49,7 +51,8 @@ export default function AddProductPromotion({
 
                 <p>{plan.days} day{plan.days > 1 ? "s" : ""}</p>
 
-                {active && form.paymentSuccess && (
+                {/* Paid status */}
+                {active && form.paymentSuccess && !isFree && (
                   <span className="paid">Paid ✓</span>
                 )}
               </div>
