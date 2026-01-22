@@ -12,6 +12,7 @@ import phoneModels from "../config/phoneModels";
 import { promotionPlans } from "../config/promotionPlans";
 import conditionConfig from "../config/conditions";
 import AddProductCategory from "../components/AddProductCategory";
+import AddProductPromotion from "../components/AddProductPromotion";
 import Toast from "../components/Toast";
 import "./AddProduct.css";
 
@@ -394,32 +395,11 @@ export default function AddProduct() {
             </div>
       </Field>
 
-      <Field label="Promotion Plan">
-        <div className="promotion-scroll">
-          {promotionPlans.map(plan => (
-            <div
-              key={plan.id}
-              className={`promotion-item ${form.promotionPlan?.id === plan.id ? "active" : ""}`}
-              onClick={() => handlePromotionClick(plan)}
-            >
-              <span className="promotion-icon">{plan.icon}</span>
-              <span>{plan.label}</span>
-              <span className="promotion-days">{plan.days} days</span>
-              <span className="promotion-price">{plan.price > 0 ? `₦${plan.price}` : "Free"}</span>
-            </div>
-          ))}
-        </div>
-        <div className="promotion-toggle">
-          <label>
-            <input
-              type="checkbox"
-              checked={form.isPromoted}
-              onChange={e => updateForm("isPromoted", e.target.checked)}
-            />{" "}
-            Promote this product
-          </label>
-        </div>
-      </Field>
+      <AddProductPromotion
+  form={form}
+  onSelectPlan={handlePromotionClick}
+  onTogglePromote={checked => updateForm("isPromoted", checked)}
+/>
 
       <button
         className="btn"
