@@ -87,7 +87,7 @@ export default function AddProduct() {
   // ---------------- Helpers ----------------
   const updateForm = useCallback((key, value) => setForm(prev => ({ ...prev, [key]: value })), []);
 
-  // When changing main category, clear dependent fields
+  // ---------------- Category / Location / Price ----------------
   const handleCategoryChange = (cat) => {
     updateForm("mainCategory", cat);
     updateForm("subCategory", "");
@@ -151,60 +151,47 @@ export default function AddProduct() {
   };
 
   // ---------------- Paystack Payment ----------------
-  const payWithPaystack = plan => {
-    if (!auth.currentUser) return showToast("Login required", "🔒");
+  const payWithPaystack = (plan) => {
+    return new Promise((resolve, reject) => {
+      if (!window.PaystackPop) {
+        const script = document.createElement("script");
+        script.src = "https://js.paystack.co/v1/inline.js";
+        script.onload = () => payWithPaystack(plan).then(resolve).catch(reject);
+        document.body.appendChild(script);
+        return showToast("Payment system loading…", "⏳");
+      }
 
-    if (!window.PaystackPop) {
-      const script = document.createElement("script");
-      script.src = "https://js.paystack.co/v1/inline.js";
-      script.onload = () => payWithPaystack(plan);
-      document.body.appendChild(script);
-      return showToast("Payment system loading…", "⏳");
-    }
+      const handler = window.PaystackPop.setup({
+        key: process.env.REACT_APP_PAYSTACK_KEY,
+        email: auth.currentUser.email,
+        amount: plan.price * 100,
+        currency: "NGN",
+        ref: `promo_${Date.now()}`,
+        metadata: { promotionPlanId: plan.id },
+        callback: () => resolve(),
+        onClose: () => reject(new Error("Payment cancelled")),
+      });
 
-    const handler = window.PaystackPop.setup({
-      key: process.env.REACT_APP_PAYSTACK_KEY,
-      email: auth.currentUser.email,
-      amount: plan.price * 100,
-      currency: "NGN",
-      ref: `promo_${Date.now()}`,
-      metadata: { promotionPlanId: plan.id },
-      callback: () => {
-        const updated = {
-          ...form,
-          promotionPlan: { ...plan, paid: true },
-          isPromoted: true,
-          paymentSuccess: true,
-        };
-        setForm(updated);
-        localStorage.setItem(DRAFT_KEY, JSON.stringify(updated));
-        showToast("Payment successful ✅", "⚡");
-      },
-      onClose: () => showToast("Payment cancelled", "❌"),
+      handler.openIframe();
     });
-
-    handler.openIframe();
   };
 
-  const handlePromotionClick = plan => {
+  // ---------------- Promotion Plan Click ----------------
+  const handlePromotionClick = (plan) => {
     if (!plan) return;
 
-    if (form.promotionPlan?.id === plan.id && form.promotionPlan?.paid) return showToast("Already paid ✅", "⚡");
+    if (form.promotionPlan?.id === plan.id) return showToast("Already selected ✅", "⚡");
 
-    // Update form but mark as paid only if free
+    // Only mark free plans as paid immediately
     updateForm("promotionPlan", { ...plan, paid: plan.type === "free" });
     if (plan.type === "free") {
       updateForm("isPromoted", true);
       updateForm("paymentSuccess", true);
       showToast(`${plan.label} selected`, "⚡");
-      localStorage.setItem(DRAFT_KEY, JSON.stringify({
-        ...form,
-        promotionPlan: { ...plan, paid: true },
-        isPromoted: true,
-        paymentSuccess: true
-      }));
     } else {
-      payWithPaystack(plan);
+      updateForm("isPromoted", false);
+      updateForm("paymentSuccess", false);
+      showToast(`${plan.label} selected (pay on publish)`, "⚡");
     }
   };
 
@@ -213,13 +200,29 @@ export default function AddProduct() {
     const error = validateForm();
     if (error) return showToast(error, "⚠️");
     if (!auth.currentUser) return showToast("Login required", "🔒");
-    if (form.promotionPlan?.type === "paid" && !form.paymentSuccess) return showToast("Please complete payment first", "⚠️");
 
     try {
       setLoading(true);
+
+      // Trigger Paystack if paid plan
+      if (form.promotionPlan?.type === "paid" && !form.paymentSuccess) {
+        try {
+          await payWithPaystack(form.promotionPlan);
+          updateForm("paymentSuccess", true);
+          updateForm("isPromoted", true);
+          showToast("Payment successful ✅", "⚡");
+        } catch (err) {
+          showToast(err.message, "❌");
+          setLoading(false);
+          return;
+        }
+      }
+
+      // Upload images
       const uploaded = await Promise.all(form.images.map(img => uploadToCloudinary(img)));
       const promotionEndAt = form.promotionPlan ? new Date(Date.now() + form.promotionPlan.days * 86400000) : null;
 
+      // Save product
       await addDoc(collection(db, "products"), {
         ...form,
         price: Number(String(form.price).replace(/,/g, "")),
@@ -395,8 +398,6 @@ export default function AddProduct() {
               <img src={p} alt={`preview-${i}`} />
               <button type="button" onClick={() => removeImage(i)}>×</button>
             </div>
-          ))}
-        </div>
       </Field>
 
       <Field label="Promotion Plan">
