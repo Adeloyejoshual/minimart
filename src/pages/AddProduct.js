@@ -355,19 +355,19 @@ export default function AddProduct() {
         />
       </Field>
 
-      <Field label="State">
-        <div className="option-item clickable" onClick={() => { scrollPos.current = window.scrollY; setBackStep(null); setSelectionStep("state"); }}>
-          {form.state || "Select State"}
-        </div>
-      </Field>
-
-      {form.state && (
-        <Field label="City / LGA">
-          <div className="option-item clickable" onClick={() => { scrollPos.current = window.scrollY; setBackStep("state"); setSelectionStep("city"); }}>
-            {form.city || "Select City / LGA"}
-          </div>
-        </Field>
-      )}
+      <AddProductLocation
+  form={form}
+  openStateSelector={() => {
+    scrollPos.current = window.scrollY;
+    setBackStep(null);
+    setSelectionStep("state");
+  }}
+  openCitySelector={() => {
+    scrollPos.current = window.scrollY;
+    setBackStep("state");
+    setSelectionStep("city");
+  }}
+/>
 
       <Field label="Price (₦)">
         <input value={form.price} onChange={handlePriceChange} placeholder="₦ 0" />
