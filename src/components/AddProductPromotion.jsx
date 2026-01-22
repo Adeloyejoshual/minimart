@@ -1,6 +1,8 @@
 import { promotionPlans } from "../config/promotionPlans";
 
 export default function AddProductPromotion({ form, onSelectPlan, onTogglePromote }) {
+  const formatPrice = num => num?.toLocaleString("en-NG");
+
   return (
     <div className="promotion-section">
       <label className="promo-toggle">
@@ -24,34 +26,35 @@ export default function AddProductPromotion({ form, onSelectPlan, onTogglePromot
                 key={plan.id}
                 className={`promo-card ${active ? "active" : ""}`}
                 onClick={() => onSelectPlan(plan)}
+                role="button"
+                tabIndex={0}
+                onKeyDown={e => (e.key === "Enter" || e.key === " ") && onSelectPlan(plan)}
               >
-                {/* Popular badge */}
                 {plan.popular && <span className="badge popular">Popular</span>}
 
-                {/* Discount badge */}
                 {discounted && (
                   <span className="badge discount">
-                    Save ₦{plan.price - plan.discountPrice}
+                    Save ₦{Math.max(0, plan.price - plan.discountPrice)}
                   </span>
                 )}
 
-                <h4>{plan.label} {isFree && "(Free)"}</h4>
+                <h4>
+                  {plan.label} {isFree && "(Free)"}
+                </h4>
 
-                {/* Price display */}
                 {isFree ? (
                   <div className="price">₦0</div>
                 ) : discounted ? (
-                  <>
-                    <div className="old-price">₦{plan.price}</div>
-                    <div className="price">₦{plan.discountPrice}</div>
-                  </>
+                  <div className="price-section">
+                    <div className="old-price">₦{formatPrice(plan.price)}</div>
+                    <div className="price">₦{formatPrice(plan.discountPrice)}</div>
+                  </div>
                 ) : (
-                  <div className="price">₦{plan.price}</div>
+                  <div className="price">₦{formatPrice(plan.price)}</div>
                 )}
 
                 <p>{plan.days} day{plan.days > 1 ? "s" : ""}</p>
 
-                {/* Paid status */}
                 {active && form.paymentSuccess && !isFree && (
                   <span className="paid">Paid ✓</span>
                 )}
