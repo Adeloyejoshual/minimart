@@ -14,6 +14,7 @@ import conditionConfig from "../config/conditions";
 import AddProductCategory from "../components/AddProductCategory";
 import AddProductPromotion from "../components/AddProductPromotion";
 import AddProductCondition from "../components/AddProductCondition";
+import AddProductLocation from "../components/AddProductLocation";
 import Toast from "../components/Toast";
 import "./AddProduct.css";
 
