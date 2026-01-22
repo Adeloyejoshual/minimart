@@ -398,6 +398,8 @@ export default function AddProduct() {
               <img src={p} alt={`preview-${i}`} />
               <button type="button" onClick={() => removeImage(i)}>×</button>
             </div>
+          ))}
+            </div>
       </Field>
 
       <Field label="Promotion Plan">
