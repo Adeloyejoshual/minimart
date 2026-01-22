@@ -168,7 +168,7 @@ export default function AddProduct() {
       const handler = window.PaystackPop.setup({
         key: process.env.REACT_APP_PAYSTACK_KEY,
         email: auth.currentUser.email,
-        amount: plan.price * 100,
+        amount: (plan.discountPrice ?? plan.price) * 100,
         currency: "NGN",
         ref: `promo_${Date.now()}`,
         metadata: { promotionPlanId: plan.id },
