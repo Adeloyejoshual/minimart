@@ -5,11 +5,9 @@ export default function AddProductCondition({
   openConditionSelector,
   openUsedDetailSelector,
 }) {
-  const showCondition =
-    form.model && conditionConfig[form.mainCategory]?.main;
-
-  const showUsedDetail =
-    form.condition === "Used" || form.condition === "Refurbished";
+  const categoryConditions = conditionConfig[form.mainCategory]?.main || [];
+  const showCondition = categoryConditions.length > 0;
+  const showUsedDetail = ["Used", "Refurbished"].includes(form.condition);
 
   if (!showCondition) return null;
 
@@ -18,24 +16,26 @@ export default function AddProductCondition({
       {/* Condition */}
       <div className="field">
         <label>Condition</label>
-        <div
+        <button
+          type="button"
           className="option-item clickable"
           onClick={openConditionSelector}
         >
           {form.condition || "Select Condition"}
-        </div>
+        </button>
       </div>
 
       {/* Used Detail */}
       {showUsedDetail && (
         <div className="field">
           <label>Used Detail</label>
-          <div
+          <button
+            type="button"
             className="option-item clickable"
             onClick={openUsedDetailSelector}
           >
             {form.usedDetail || "Select Used Detail"}
-          </div>
+          </button>
         </div>
       )}
     </>
