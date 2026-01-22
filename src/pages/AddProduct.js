@@ -4,11 +4,9 @@ import { addDoc, collection, serverTimestamp } from "firebase/firestore";
 import { db, auth } from "../firebase";
 import { uploadToCloudinary } from "../cloudinary";
 import { useNavigate, useSearchParams } from "react-router-dom";
-import categoriesData from "../config/categories";
+import categoriesData from "../config/categoriesData";
 import categoryRules from "../config/categoryRules";
 import { locationsByState } from "../config/locationsByState";
-import productOptions from "../config/productOptions";
-import phoneModels from "../config/phoneModels";
 import { promotionPlans } from "../config/promotionPlans";
 import conditionConfig from "../config/conditions";
 import AddProductCategory from "../components/AddProductCategory";
@@ -92,32 +90,23 @@ export default function AddProduct() {
   // ---------------- Helpers ----------------
   const updateForm = useCallback((key, value) => setForm(prev => ({ ...prev, [key]: value })), []);
 
+  const resetDependentFields = keys => keys.forEach(k => updateForm(k, ""));
+
   // ---------------- Category / Location / Price ----------------
   const handleCategoryChange = cat => {
     updateForm("mainCategory", cat);
-    updateForm("subCategory", "");
-    updateForm("brand", "");
-    updateForm("model", "");
-    updateForm("condition", "");
-    updateForm("usedDetail", "");
-    updateForm("features", []);
-    updateForm("type", "");
-    updateForm("color", "");
-    updateForm("storage", "");
-    updateForm("simType", "");
+    resetDependentFields([
+      "subCategory","brand","model","condition","usedDetail",
+      "features","type","color","storage","simType"
+    ]);
   };
 
   const handleSubCategoryChange = subCat => {
     updateForm("subCategory", subCat);
-    updateForm("brand", "");
-    updateForm("model", "");
-    updateForm("condition", "");
-    updateForm("usedDetail", "");
-    updateForm("features", []);
-    updateForm("type", "");
-    updateForm("color", "");
-    updateForm("storage", "");
-    updateForm("simType", "");
+    resetDependentFields([
+      "brand","model","condition","usedDetail",
+      "features","type","color","storage","simType"
+    ]);
   };
 
   const handleStateChange = state => {
@@ -153,15 +142,18 @@ export default function AddProduct() {
     if (!form.price) return "Enter price";
     if (!form.phone || form.phone.length < 10) return "Enter valid phone number";
     if (form.images.length < rules.minImages) return `Upload at least ${rules.minImages} image(s)`;
-    if (["Smartphones", "Feature Phones"].includes(form.subCategory)) {
-      if (!form.brand) return "Select brand";
-      if (!form.model) return "Select model";
-      if (!form.condition) return "Select condition";
-      if (form.condition === "Used" && !form.usedDetail) return "Select used detail";
-      if (!form.color) return "Select color";
-      if (!form.storage) return "Select storage";
-      if (!form.simType) return "Select SIM type";
+
+    const catData = categoriesData[form.mainCategory];
+    if (catData) {
+      if (catData.brands?.[form.subCategory]?.length > 0 && !form.brand) return "Select brand";
+      if (catData.models?.[form.brand]?.length > 0 && !form.model) return "Select model";
+      if (conditionConfig[form.mainCategory]?.main?.length > 0 && !form.condition) return "Select condition";
+      if (form.condition === "Used" && conditionConfig[form.mainCategory]?.usedDetails?.length > 0 && !form.usedDetail) return "Select used detail";
+      if (catData.options?.colors?.length > 0 && !form.color) return "Select color";
+      if (catData.options?.storage?.length > 0 && !form.storage) return "Select storage";
+      if (catData.options?.simTypes?.length > 0 && !form.simType) return "Select SIM type";
     }
+
     if (!form.description || form.description.length < 10) return "Enter description (min 10 chars)";
     if (!form.state) return "Select state";
     if (!form.city) return "Select city / LGA";
@@ -169,32 +161,29 @@ export default function AddProduct() {
   };
 
   // ---------------- Paystack Payment ----------------
-  const payWithPaystack = plan => {
-    return new Promise((resolve, reject) => {
-      if (!window.PaystackPop) {
-        const script = document.createElement("script");
-        script.src = "https://js.paystack.co/v1/inline.js";
-        script.onload = () => payWithPaystack(plan).then(resolve).catch(reject);
-        document.body.appendChild(script);
-        return showToast("Payment system loading…", "⏳");
-      }
+  const payWithPaystack = plan => new Promise((resolve, reject) => {
+    if (!window.PaystackPop) {
+      const script = document.createElement("script");
+      script.src = "https://js.paystack.co/v1/inline.js";
+      script.onload = () => payWithPaystack(plan).then(resolve).catch(reject);
+      document.body.appendChild(script);
+      return showToast("Payment system loading…", "⏳");
+    }
 
-      const handler = window.PaystackPop.setup({
-        key: process.env.REACT_APP_PAYSTACK_KEY,
-        email: auth.currentUser.email,
-        amount: (plan.discountPrice ?? plan.price) * 100,
-        currency: "NGN",
-        ref: `promo_${Date.now()}`,
-        metadata: { promotionPlanId: plan.id },
-        callback: () => resolve(),
-        onClose: () => reject(new Error("Payment cancelled")),
-      });
-
-      handler.openIframe();
+    const handler = window.PaystackPop.setup({
+      key: process.env.REACT_APP_PAYSTACK_KEY,
+      email: auth.currentUser.email,
+      amount: (plan.discountPrice ?? plan.price) * 100,
+      currency: "NGN",
+      ref: `promo_${Date.now()}`,
+      metadata: { promotionPlanId: plan.id },
+      callback: () => resolve(),
+      onClose: () => reject(new Error("Payment cancelled")),
     });
-  };
 
-  // ---------------- Promotion Plan Click ----------------
+    handler.openIframe();
+  });
+
   const handlePromotionClick = plan => {
     if (!plan) return;
     if (form.promotionPlan?.id === plan.id) return showToast("Already selected ✅", "⚡");
@@ -268,14 +257,13 @@ export default function AddProduct() {
 
   // ---------------- Derived Options ----------------
   const getSubcategories = () => categoriesData[form.mainCategory]?.subcategories || [];
-  const getBrandOptions = () => form.subCategory ? Object.keys(phoneModels[form.subCategory] || {}) : [];
-  const getModelOptions = () => form.subCategory && form.brand ? phoneModels[form.subCategory][form.brand] || [] : [];
+  const getBrandOptions = () => form.subCategory ? Object.keys(categoriesData[form.mainCategory]?.brands?.[form.subCategory] || {}) : [];
+  const getModelOptions = () => form.subCategory && form.brand ? categoriesData[form.mainCategory]?.models?.[form.brand] || [] : [];
   const getStateOptions = () => Object.keys(locationsByState);
   const getCityOptions = () => form.state ? locationsByState[form.state] : [];
   const getExtraOptions = field => {
-    if (!form.mainCategory || !form.subCategory) return [];
-    const subcatOptions = productOptions[form.mainCategory]?.subcategories?.[form.subCategory] || {};
-    return Array.isArray(subcatOptions[field]) ? subcatOptions[field] : [];
+    const catData = categoriesData[form.mainCategory];
+    return catData?.options?.[field] || [];
   };
 
   // ---------------- FullPage Selectors ----------------
@@ -284,12 +272,11 @@ export default function AddProduct() {
       case "subCategory": return <FullPageList title="Select Subcategory" options={getSubcategories()} valueKey="subCategory" setSelectionStep={setSelectionStep} updateForm={updateForm} form={form} scrollPos={scrollPos} />;
       case "brand": return <FullPageList title="Select Brand" options={getBrandOptions()} valueKey="brand" setSelectionStep={setSelectionStep} updateForm={updateForm} form={form} scrollPos={scrollPos} />;
       case "model": return <FullPageList title="Select Model" options={getModelOptions()} valueKey="model" setSelectionStep={setSelectionStep} updateForm={updateForm} form={form} scrollPos={scrollPos} />;
-      case "condition": return <FullPageList title="Select Condition" options={conditionConfig[form.mainCategory]?.main || ["New", "Used"]} valueKey="condition" setSelectionStep={setSelectionStep} updateForm={updateForm} form={form} scrollPos={scrollPos} />;
+      case "condition": return <FullPageList title="Select Condition" options={conditionConfig[form.mainCategory]?.main || ["New","Used"]} valueKey="condition" setSelectionStep={setSelectionStep} updateForm={updateForm} form={form} scrollPos={scrollPos} />;
       case "usedDetail": return <FullPageList title="Select Used Detail" options={conditionConfig[form.mainCategory]?.usedDetails || ["No defects"]} valueKey="usedDetail" setSelectionStep={setSelectionStep} updateForm={updateForm} form={form} scrollPos={scrollPos} />;
       case "colors": return <FullPageList title="Select Color" options={getExtraOptions("colors")} valueKey="color" setSelectionStep={setSelectionStep} updateForm={updateForm} form={form} scrollPos={scrollPos} />;
       case "storage": return <FullPageList title="Select Storage" options={getExtraOptions("storage")} valueKey="storage" setSelectionStep={setSelectionStep} updateForm={updateForm} form={form} scrollPos={scrollPos} />;
       case "simTypes": return <FullPageList title="Select SIM Type" options={getExtraOptions("simTypes")} valueKey="simType" setSelectionStep={setSelectionStep} updateForm={updateForm} form={form} scrollPos={scrollPos} />;
-      case "types": return <FullPageList title="Select Type" options={getExtraOptions("types")} valueKey="type" setSelectionStep={setSelectionStep} updateForm={updateForm} form={form} scrollPos={scrollPos} />;
       case "features": return <FullPageMultiSelect title="Select Features" options={getExtraOptions("features")} valueKey="features" setSelectionStep={setSelectionStep} updateForm={updateForm} form={form} scrollPos={scrollPos} />;
       case "state": return <FullPageList title="Select State" options={getStateOptions()} valueKey="state" setSelectionStep={setSelectionStep} updateForm={updateForm} form={form} scrollPos={scrollPos} />;
       case "city": return <FullPageList title="Select City / LGA" options={getCityOptions()} valueKey="city" setSelectionStep={setSelectionStep} updateForm={updateForm} form={form} scrollPos={scrollPos} />;
@@ -430,7 +417,7 @@ const Field = ({ label, children }) => (
   </div>
 );
 
-// ---------------- FullPageList ----------------
+// ---------------- FullPageList Component ----------------
 export const FullPageList = ({ title, options, valueKey, form, updateForm, setSelectionStep, scrollPos }) => {
   const [search, setSearch] = useState("");
   const [customValue, setCustomValue] = useState("");
@@ -487,7 +474,7 @@ export const FullPageList = ({ title, options, valueKey, form, updateForm, setSe
   );
 };
 
-// ---------------- FullPageMultiSelect ----------------
+// ---------------- FullPageMultiSelect Component ----------------
 export const FullPageMultiSelect = ({ title, options, valueKey, form, updateForm, setSelectionStep, scrollPos }) => {
   const [search, setSearch] = useState("");
 
