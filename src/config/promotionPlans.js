@@ -7,8 +7,9 @@ export const promotionPlans = [
     label: "Starter Boost",
     icon: "🌟",
     price: 0,
+    discountPrice: 0, // discount field added
     priority: 1,
-    type: "free"
+    type: "free",
   },
   {
     id: "silver",
@@ -16,8 +17,9 @@ export const promotionPlans = [
     label: "Silver Boost",
     icon: "💎",
     price: 0,
+    discountPrice: 0,
     priority: 2,
-    type: "free"
+    type: "free",
   },
   {
     id: "gold",
@@ -25,17 +27,19 @@ export const promotionPlans = [
     label: "Gold Boost",
     icon: "🥇",
     price: 0,
+    discountPrice: 0,
     priority: 3,
-    type: "free"
+    type: "free",
   },
   {
     id: "platinum",
     days: 60,
     label: "Platinum Boost",
     icon: "👑",
-    price: 100,
+    price: 200,
+    discountPrice: 150, // discounted price added
     priority: 4,
-    type: "paid"
+    type: "paid",
   },
   {
     id: "pro",
@@ -43,7 +47,8 @@ export const promotionPlans = [
     label: "Pro Boost",
     icon: "⚡",
     price: 500,
+    discountPrice: 400,
     priority: 5,
-    type: "paid"
-  }
+    type: "paid",
+  },
 ];
