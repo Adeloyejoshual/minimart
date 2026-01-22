@@ -6,42 +6,57 @@ export default function AddProductPromotion({
   onTogglePromote,
 }) {
   return (
-    <div className="field">
-      <label>Promotion Plan</label>
+    <div className="promotion-section">
+      <label className="promo-toggle">
+        <input
+          type="checkbox"
+          checked={form.isPromoted}
+          onChange={e => onTogglePromote(e.target.checked)}
+        />
+        Promote this product
+      </label>
 
-      <div className="promotion-scroll">
-        {promotionPlans.map(plan => (
-          <div
-            key={plan.id}
-            className={`promotion-item ${
-              form.promotionPlan?.id === plan.id ? "active" : ""
-            }`}
-            onClick={() => onSelectPlan(plan)}
-          >
-            <span className="promotion-icon">{plan.icon}</span>
-            <span className="promotion-label">{plan.label}</span>
-            <span className="promotion-days">{plan.days} days</span>
-            <span className="promotion-price">
-              {plan.price > 0 ? `₦${plan.price}` : "Free"}
-            </span>
+      {form.isPromoted && (
+        <div className="promo-plans">
+          {promotionPlans.map(plan => {
+            const discounted = plan.discountPrice && plan.discountPrice < plan.price;
+            const active = form.promotionPlan?.id === plan.id;
 
-            {form.promotionPlan?.id === plan.id && form.paymentSuccess && (
-              <span className="promotion-paid">✓ Paid</span>
-            )}
-          </div>
-        ))}
-      </div>
+            return (
+              <div
+                key={plan.id}
+                className={`promo-card ${active ? "active" : ""}`}
+                onClick={() => onSelectPlan(plan)}
+              >
+                {plan.popular && <span className="badge popular">Popular</span>}
 
-      <div className="promotion-toggle">
-        <label>
-          <input
-            type="checkbox"
-            checked={form.isPromoted}
-            onChange={e => onTogglePromote(e.target.checked)}
-          />{" "}
-          Promote this product
-        </label>
-      </div>
+                {discounted && (
+                  <span className="badge discount">
+                    Save ₦{plan.price - plan.discountPrice}
+                  </span>
+                )}
+
+                <h4>{plan.label}</h4>
+
+                {discounted ? (
+                  <>
+                    <div className="old-price">₦{plan.price}</div>
+                    <div className="price">₦{plan.discountPrice}</div>
+                  </>
+                ) : (
+                  <div className="price">₦{plan.price}</div>
+                )}
+
+                <p>{plan.days} day{plan.days > 1 ? "s" : ""}</p>
+
+                {active && form.paymentSuccess && (
+                  <span className="paid">Paid ✓</span>
+                )}
+              </div>
+            );
+          })}
+        </div>
+      )}
     </div>
   );
 }
