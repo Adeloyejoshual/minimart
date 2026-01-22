@@ -4,82 +4,169 @@ const categories = [
   {
     name: "Mobile Phones & Tablets",
     icon: "📱",
-    subcategories: ["Smartphones", "Feature Phones", "Tablets", "Accessories"]
+    subcategories: [
+      "Mobile Phones",
+      "Tablets",
+      "Phone Accessories"
+    ]
   },
   {
     name: "Electronics",
     icon: "💻",
-    subcategories: ["TVs & Home Theater", "Audio & Speakers", "Cameras & Drones", "Computers & Laptops", "Other Electronics"]
+    subcategories: [
+      "Audio & Music Equipment",
+      "Computer Accessories",
+      "Computer Hardware",
+      "Computer Monitors",
+      "Headphones",
+      "Laptops & Computers",
+      "Networking Products",
+      "Photo & Video Cameras",
+      "Printers & Scanners",
+      "Security & Surveillance",
+      "Software",
+      "TV & DVD Equipment",
+      "Video Game Consoles",
+      "Video Games"
+    ]
   },
   {
     name: "Vehicles",
     icon: "🚗",
-    subcategories: ["Cars", "Motorcycles", "Trucks & Buses", "Bicycles", "Vehicle Parts & Accessories"]
+    subcategories: [
+      "Cars",
+      "Motorcycles",
+      "Trucks",
+      "Buses",
+      "Spare Parts"
+    ]
   },
   {
     name: "Property",
     icon: "🏠",
-    subcategories: ["Houses", "Apartments", "Land & Plots", "Commercial Property", "Vacation Rentals"]
+    subcategories: [
+      "Houses",
+      "Apartments & Flats",
+      "Land",
+      "Commercial Property",
+      "Vacation Rentals"
+    ]
   },
   {
     name: "Home, Furniture & Appliances",
     icon: "🛋️",
-    subcategories: ["Furniture", "Kitchen Appliances", "Home Decor", "Garden & Outdoor", "Other Home Items"]
+    subcategories: [
+      "Furniture",
+      "Kitchen Appliances",
+      "Lighting",
+      "Decor",
+      "Cleaning Supplies"
+    ]
   },
   {
     name: "Fashion",
     icon: "👗",
-    subcategories: ["Men's Clothing", "Women's Clothing", "Shoes", "Bags & Accessories", "Jewelry & Watches"]
+    subcategories: [
+      "Clothing",
+      "Shoes",
+      "Accessories",
+      "Bags",
+      "Jewelry"
+    ]
   },
   {
     name: "Beauty & Personal Care",
     icon: "💄",
-    subcategories: ["Skincare", "Makeup", "Hair Care", "Fragrances", "Other Beauty Products"]
+    subcategories: [
+      "Cosmetics",
+      "Hair Care",
+      "Skincare",
+      "Fragrances"
+    ]
   },
   {
     name: "Services",
     icon: "🛠️",
-    subcategories: ["Repair & Maintenance", "Events & Entertainment", "Tutoring & Education", "Delivery & Logistics", "Other Services"]
+    subcategories: [
+      "Tutoring",
+      "Transportation",
+      "Events",
+      "Health & Wellness"
+    ]
   },
   {
     name: "Repair & Construction",
     icon: "🏗️",
-    subcategories: ["Construction Materials", "Tools & Equipment", "Contractors & Labor", "Other Repair Services"]
+    subcategories: [
+      "Plumbing",
+      "Electrical",
+      "Painting",
+      "Renovation"
+    ]
   },
   {
     name: "Commercial Equipment & Tools",
     icon: "⚙️",
-    subcategories: ["Industrial Machines", "Office Equipment", "Agriculture Tools", "Other Commercial Tools"]
+    subcategories: [
+      "Machinery",
+      "Industrial Tools",
+      "Office Equipment"
+    ]
   },
   {
     name: "Leisure & Activities",
     icon: "🎮",
-    subcategories: ["Sports & Fitness", "Outdoor Activities", "Hobbies & Crafts", "Music & Arts", "Other Leisure Items"]
+    subcategories: [
+      "Sports Equipment",
+      "Gym & Fitness",
+      "Outdoor Activities",
+      "Hobbies"
+    ]
   },
   {
     name: "Babies & Kids",
     icon: "🧸",
-    subcategories: ["Clothing & Shoes", "Toys & Games", "Baby Gear", "Kids Furniture", "Other Kids Items"]
+    subcategories: [
+      "Toys",
+      "Clothing",
+      "Strollers",
+      "Baby Care"
+    ]
   },
   {
     name: "Food, Agriculture & Farming",
     icon: "🌾",
-    subcategories: ["Groceries", "Farm Produce", "Livestock", "Farm Equipment", "Other Food Items"]
+    subcategories: [
+      "Produce",
+      "Livestock",
+      "Farm Equipment"
+    ]
   },
   {
     name: "Animals & Pets",
     icon: "🐶",
-    subcategories: ["Dogs & Cats", "Birds", "Fish & Aquatic Pets", "Pet Supplies", "Other Animals"]
+    subcategories: [
+      "Pets",
+      "Pet Food",
+      "Pet Accessories"
+    ]
   },
   {
     name: "Jobs",
     icon: "💼",
-    subcategories: ["Full-time Jobs", "Part-time Jobs", "Freelance & Gigs", "Internships", "Other Job Listings"]
+    subcategories: [
+      "Full-time",
+      "Part-time",
+      "Freelance"
+    ]
   },
   {
     name: "Seeking Work - CVs",
     icon: "📄",
-    subcategories: ["Professional CV", "Student CV", "Freelancer CV", "Other CVs"]
+    subcategories: [
+      "CVs",
+      "Portfolios"
+    ]
   }
 ];
 
