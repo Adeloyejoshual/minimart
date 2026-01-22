@@ -12,16 +12,17 @@ export default function AddProductCategory({
         <label>Category</label>
         <div className="category-scroll">
           {categories.map(cat => (
-            <div
+            <button
               key={cat.name}
+              type="button"
               className={`category-item ${
                 form.mainCategory === cat.name ? "active" : ""
               }`}
               onClick={() => handleCategoryChange(cat.name)}
             >
-              <span className="category-icon">{cat.icon}</span>
+              <span className="category-icon">{cat.icon || "📦"}</span>
               <span className="category-name">{cat.name}</span>
-            </div>
+            </button>
           ))}
         </div>
       </div>
@@ -30,12 +31,13 @@ export default function AddProductCategory({
       {form.mainCategory && (
         <div className="field">
           <label>Subcategory</label>
-          <div
+          <button
+            type="button"
             className="option-item clickable"
             onClick={openSubCategorySelector}
           >
             {form.subCategory || "Select Subcategory"}
-          </div>
+          </button>
         </div>
       )}
     </>
