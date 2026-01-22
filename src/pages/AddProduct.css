@@ -36,7 +36,7 @@
   color: #0d6efd;
 }
 
-/* -------------------- Fields -------------------- */
+/* -------------------- Form Fields -------------------- */
 .field {
   margin-bottom: 22px;
 }
@@ -242,15 +242,57 @@
   justify-content: center;
 }
 
-/* -------------------- Promotion Plan -------------------- */
-.promotion-scroll {
+/* -------------------- Condition / Used Details -------------------- */
+.condition-section {
+  margin-top: 20px;
+}
+
+.condition-section h4 {
+  font-size: 16px;
+  font-weight: 700;
+  color: #0d6efd;
+  margin-bottom: 10px;
+}
+
+.condition-section .option-item {
+  border-color: #cce0ff;
+  background: #fefefe;
+}
+
+.condition-section .option-item.active {
+  border-color: #0d6efd;
+  background: #e0ecff;
+  font-weight: 600;
+}
+
+/* -------------------- Promotion Section -------------------- */
+.promotion-section {
+  margin-top: 20px;
+}
+
+.promo-toggle {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-weight: 600;
+  color: #0d6efd;
+  cursor: pointer;
+  margin-bottom: 12px;
+}
+
+.promo-toggle input {
+  width: 16px;
+  height: 16px;
+}
+
+.promo-plans {
   display: flex;
   gap: 14px;
   overflow-x: auto;
   padding-bottom: 8px;
 }
 
-.promotion-item {
+.promo-card {
   min-width: 140px;
   background: #fff;
   border: 2px solid #cce0ff;
@@ -265,47 +307,32 @@
   position: relative;
 }
 
-.promotion-item.active {
+.promo-card.active {
   border-color: #0d6efd;
   background: #dbe9ff;
   box-shadow: 0 6px 18px rgba(13, 110, 253, 0.2);
 }
 
-.promotion-item.paid::after {
-  content: "✓ Paid";
+.promo-card .badge {
   position: absolute;
   top: 6px;
   right: 6px;
   font-size: 12px;
   font-weight: 700;
-  color: #0d6efd;
+  padding: 2px 6px;
+  border-radius: 4px;
+  color: #fff;
 }
 
-.promotion-icon {
-  font-size: 22px;
-}
+.promo-card .badge.popular { background: #ffc107; color: #333; }
+.promo-card .badge.discount { background: #28a745; }
+.promo-card .badge.free { background: #20c997; }
 
-.promotion-days,
-.promotion-price {
-  font-size: 13px;
-  font-weight: 600;
-  color: #333;
-}
-
-/* -------------------- Promote Checkbox -------------------- */
-.promotion-toggle {
-  margin-top: 12px;
-}
-
-.promotion-toggle label {
-  font-weight: 600;
-  color: #0d6efd;
-  cursor: pointer;
-}
-
-.promotion-toggle input {
-  margin-right: 8px;
-}
+.promo-card h4 { font-size: 16px; font-weight: 700; }
+.promo-card .old-price { text-decoration: line-through; color: #888; font-size: 14px; }
+.promo-card .price { font-size: 16px; font-weight: 700; color: #0d6efd; }
+.promo-card p { font-size: 13px; font-weight: 600; color: #333; }
+.promo-card .paid { position: absolute; top: 6px; left: 6px; font-size: 12px; font-weight: 700; color: #0d6efd; }
 
 /* -------------------- Submit Button -------------------- */
 .btn {
@@ -351,39 +378,16 @@
   animation: slideIn 0.35s ease;
 }
 
-.toast-icon {
-  font-size: 18px;
-}
+.toast-icon { font-size: 18px; }
 
 @keyframes slideIn {
-  from {
-    transform: translate(-50%, 60px);
-    opacity: 0;
-  }
-  to {
-    transform: translate(-50%, 0);
-    opacity: 1;
-  }
+  from { transform: translate(-50%, 60px); opacity: 0; }
+  to { transform: translate(-50%, 0); opacity: 1; }
 }
 
 /* -------------------- Scrollbars -------------------- */
-* {
-  scrollbar-width: thin;
-  scrollbar-color: #0d6efd #f1f1f1;
-}
+* { scrollbar-width: thin; scrollbar-color: #0d6efd #f1f1f1; }
 
-*::-webkit-scrollbar {
-  width: 8px;
-  height: 8px;
-}
-
-*::-webkit-scrollbar-track {
-  background: #f1f1f1;
-  border-radius: 6px;
-}
-
-*::-webkit-scrollbar-thumb {
-  background-color: #0d6efd;
-  border-radius: 6px;
-  border: 2px solid #f1f1f1;
-}
+*::-webkit-scrollbar { width: 8px; height: 8px; }
+*::-webkit-scrollbar-track { background: #f1f1f1; border-radius: 6px; }
+*::-webkit-scrollbar-thumb { background-color: #0d6efd; border-radius: 6px; border: 2px solid #f1f1f1; }
