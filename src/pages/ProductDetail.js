@@ -3,19 +3,17 @@ import React, { useEffect, useState } from "react";
 import { useParams, useNavigate } from "react-router-dom";
 import { doc, getDoc, query, collection, where, getDocs } from "firebase/firestore";
 import { db, auth } from "../firebase";
-import StarRating from "../components/StarRating";
+import { promotionPlans } from "../config/promotionPlans";
+import "./ProductDetail.css";
 
 export default function ProductDetail() {
   const { productId } = useParams();
   const navigate = useNavigate();
   const [product, setProduct] = useState(null);
-  const [comments, setComments] = useState([]);
-  const [newComment, setNewComment] = useState({ text: "", rating: 0 });
-  const [averageRating, setAverageRating] = useState(0);
+  const [currentImageIndex, setCurrentImageIndex] = useState(0);
   const [similarProducts, setSimilarProducts] = useState([]);
   const currentUser = auth.currentUser;
 
-  // ---------------- Load Product ----------------
   useEffect(() => {
     const loadProduct = async () => {
       const docRef = doc(db, "products", productId);
@@ -23,7 +21,20 @@ export default function ProductDetail() {
       if (docSnap.exists()) {
         const data = { id: docSnap.id, ...docSnap.data() };
         setProduct(data);
-        setComments(data.comments || []);
+
+        if (data.marketType === "marketplace") {
+          const q = query(
+            collection(db, "products"),
+            where("marketType", "==", "marketplace")
+          );
+          const snap = await getDocs(q);
+          setSimilarProducts(
+            snap.docs
+              .map(d => ({ id: d.id, ...d.data() }))
+              .filter(p => p.id !== data.id)
+              .slice(0, 8)
+          );
+        }
       } else {
         alert("Product not found");
         navigate("/marketplace");
@@ -32,58 +43,33 @@ export default function ProductDetail() {
     loadProduct();
   }, [productId, navigate]);
 
-  // ---------------- Calculate Average Rating ----------------
-  useEffect(() => {
-    if (comments.length === 0) return setAverageRating(0);
-    const total = comments.reduce((sum, c) => sum + c.rating, 0);
-    setAverageRating((total / comments.length).toFixed(1));
-  }, [comments]);
-
-  // ---------------- Load Similar Products ----------------
-  useEffect(() => {
-    if (!product || product.marketType !== "marketplace") return;
-
-    const loadSimilar = async () => {
-      const q = query(
-        collection(db, "products"),
-        where("mainCategory", "==", product.mainCategory),
-        where("id", "!=", product.id)
-      );
-      const snap = await getDocs(q);
-      setSimilarProducts(snap.docs.map(d => ({ id: d.id, ...d.data() })).slice(0, 10));
-    };
-    loadSimilar();
-  }, [product]);
-
   if (!product) return <p style={{ textAlign: "center" }}>Loading product...</p>;
 
-  // ---------------- Handlers ----------------
-  const handleStartChat = () => {
-    if (!currentUser || currentUser.uid === product.ownerId) return;
+  // ---------------- Image Navigation ----------------
+  const nextImage = () => {
+    if (!product.images?.length) return;
+    setCurrentImageIndex((prev) => (prev + 1) % product.images.length);
+  };
+  const prevImage = () => {
+    if (!product.images?.length) return;
+    setCurrentImageIndex((prev) =>
+      prev === 0 ? product.images.length - 1 : prev - 1
+    );
+  };
+
+  // ---------------- Quick Message ----------------
+  const handleQuickMessage = () => {
+    if (!currentUser) return alert("Login required");
+    if (currentUser.uid === product.ownerId) return;
     navigate(
-      `/chat/${product.ownerId}?product=${product.id}&productName=${encodeURIComponent(
+      `/chat/${product.ownerId}?product=${productId}&productName=${encodeURIComponent(
         product.name
       )}`
     );
   };
 
-  const handleAddComment = () => {
-    if (!newComment.text || newComment.rating === 0) {
-      return alert("Please add a comment and rating");
-    }
-    const comment = {
-      userId: currentUser.uid,
-      userName: currentUser.displayName || "Anonymous",
-      text: newComment.text,
-      rating: newComment.rating,
-      createdAt: new Date(),
-    };
-    setComments(prev => [comment, ...prev]);
-    setNewComment({ text: "", rating: 0 });
-    // TODO: save comment to Firestore
-  };
-
-  const formatDate = timestamp => {
+  // ---------------- Format Date ----------------
+  const formatDate = (timestamp) => {
     if (!timestamp?.seconds) return "N/A";
     return new Date(timestamp.seconds * 1000).toLocaleString([], {
       year: "numeric",
@@ -94,137 +80,125 @@ export default function ProductDetail() {
     });
   };
 
-  // ---------------- JSX ----------------
-  return (
-    <div style={{ maxWidth: 600, margin: "20px auto", padding: 16 }}>
-      {/* Product Card */}
-      <div className="card">
-        <div style={{ position: "relative" }}>
-          <img
-            src={product.images[0]}
-            alt={product.name}
-            style={{ width: "100%", height: 300, objectFit: "cover", borderRadius: 10 }}
-          />
-          <span
-            style={{
-              position: "absolute",
-              bottom: 8,
-              right: 8,
-              background: "rgba(0,0,0,0.6)",
-              color: "#fff",
-              padding: "2px 6px",
-              borderRadius: 6,
-              fontSize: 12,
-            }}
-          >
-            {product.images.length}/8
-          </span>
-        </div>
+  // ---------------- Average Rating ----------------
+  const averageRating = product.comments?.length
+    ? product.comments.reduce((acc, c) => acc + (c.rating || 0), 0) /
+      product.comments.length
+    : 0;
 
-        <h2 style={{ margin: "8px 0" }}>
-          {product.name}{" "}
-          {product.sold && <span className="sold-badge">(SOLD)</span>}
-        </h2>
+  const renderStars = (rating) => {
+    const stars = [];
+    for (let i = 1; i <= 5; i++) {
+      if (rating >= i) stars.push(<span key={i}>★</span>);
+      else if (rating + 0.5 >= i) stars.push(<span key={i}>☆</span>); // half star
+      else stars.push(<span key={i} style={{ color: "#ccc" }}>★</span>);
+    }
+    return stars;
+  };
+
+  // ---------------- Seller Info ----------------
+  const sellerYears = product.ownerSince
+    ? Math.floor((Date.now() - product.ownerSince.toDate()) / (1000 * 60 * 60 * 24 * 365))
+    : 0;
+  const sellerVerified = product.ownerVerified;
+
+  return (
+    <div className="product-detail-container">
+      {/* Product Card */}
+      <div className="product-card">
+        {product.images?.length > 0 && (
+          <>
+            <img src={product.images[currentImageIndex]} alt={product.name} />
+            {product.images.length > 1 && (
+              <>
+                <button className="img-nav-btn left" onClick={prevImage}>◀</button>
+                <button className="img-nav-btn right" onClick={nextImage}>▶</button>
+                <div className="image-counter">
+                  {currentImageIndex + 1}/{product.images.length}
+                </div>
+              </>
+            )}
+          </>
+        )}
+
+        <div className="product-title">
+          {product.name}
+          {product.sold && <span className="sold-badge">SOLD</span>}
+        </div>
 
         {product.promotion?.label && (
           <div className="promo-badge">{product.promotion.label}</div>
         )}
 
-        <p style={{ fontSize: 20, fontWeight: "bold", color: "#0D6EFD" }}>
-          ₦{product.price.toLocaleString()}
-        </p>
+        <div className="product-price">₦{product.price.toLocaleString()}</div>
+        <div className="product-description">{product.description}</div>
+        <div className="product-meta">
+          Category: <b>{product.category}</b> | Market: <b>{product.marketType}</b>
+        </div>
+        <div className="product-date">Posted: {formatDate(product.createdAt)}</div>
 
-        <div style={{ marginTop: 8 }}>
-          <strong>Category:</strong> {product.category} |{" "}
-          <strong>Market:</strong> {product.marketType}
-        </div>
-
-        <div style={{ fontSize: 12, color: "#777", marginTop: 4 }}>
-          Posted: {formatDate(product.postedAt)}
-        </div>
-
-        <div style={{ fontSize: 14, marginTop: 4 }}>
-          📞 {product.phone} | 💬 Is it available?
-        </div>
-      </div>
-
-      {/* Average Rating */}
-      <div className="card">
-        <h3>Average Rating</h3>
-        <StarRating value={averageRating} readOnly />
-        <span style={{ marginLeft: 8 }}>
-          {averageRating} / 5 ({comments.length} reviews)
-        </span>
-      </div>
-
-      {/* Seller Card */}
-      <div className="card">
-        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-          <strong>{product.ownerName}</strong>
-          {product.ownerVerified && <span className="verified-badge">✔ Verified</span>}
-        </div>
-        <div>📞 {product.ownerPhone}</div>
-        <div>
-          Years active: {product.ownerYearsActive > 5 ? "+5 years" : product.ownerYearsActive}
-        </div>
-        <div>Ads posted: {product.ownerAdsCount || 0}</div>
-        <div>
-          Seller rating: <StarRating value={product.ownerAvgRating || 0} readOnly />
-          <span style={{ marginLeft: 6 }}>{product.ownerAvgRating?.toFixed(1) || 0} ({product.ownerReviewsCount || 0})</span>
-        </div>
-        <div>Least comments: {product.ownerLeastComments || 0}</div>
-        <div>Safety tip: Always meet in public places and check the product before paying.</div>
-        {currentUser && currentUser.uid === product.ownerId && (
-          <button onClick={() => navigate("/add-product")}>Post a product</button>
+        {product.marketType === "marketplace" && currentUser?.uid !== product.ownerId && (
+          <button className="quick-message-btn" onClick={handleQuickMessage}>
+            💬 Is it available?
+          </button>
         )}
       </div>
 
-      {/* Start Chat */}
-      {currentUser?.uid !== product.ownerId && (
-        <button className="btn" onClick={handleStartChat}>💬 Start Chat</button>
+      {/* Seller Info */}
+      <div className="seller-card">
+        <strong>Seller</strong>
+        <p>{product.ownerName}</p>
+        <p>Years Active: {sellerYears > 5 ? "+5 years" : sellerYears}</p>
+        {sellerVerified && <span className="verified-badge">Verified</span>}
+        <p>{product.ownerAdsCount || 0} ads</p>
+      </div>
+
+      {/* Rating & Reviews */}
+      {product.marketType === "marketplace" && (
+        <div className="comments-section">
+          <h3>Reviews & Ratings</h3>
+          <div className="product-rating">
+            {renderStars(averageRating)}{" "}
+            <span>({product.comments?.length || 0} reviews)</span>
+          </div>
+
+          {product.comments?.length > 0 ? (
+            product.comments.map((c, i) => (
+              <div key={i} className="comment-box">
+                <div className="user-name">{c.userName}</div>
+                <p>{c.comment}</p>
+                <p>Rating: {c.rating} ⭐</p>
+              </div>
+            ))
+          ) : (
+            <p>No comments yet.</p>
+          )}
+        </div>
       )}
-
-      {/* Comments Section */}
-      <div className="card">
-        <h3>Comments</h3>
-
-        {/* New Comment */}
-        {currentUser && (
-          <div style={{ marginBottom: 12 }}>
-            <textarea
-              placeholder="Write a comment..."
-              value={newComment.text}
-              onChange={e => setNewComment(prev => ({ ...prev, text: e.target.value }))}
-            />
-            <StarRating
-              value={newComment.rating}
-              onChange={rating => setNewComment(prev => ({ ...prev, rating }))}
-            />
-            <button onClick={handleAddComment}>Post Comment</button>
-          </div>
-        )}
-
-        {/* Existing Comments */}
-        {comments.map((c, i) => (
-          <div key={i} className="comment">
-            <strong>{c.userName}</strong>
-            <StarRating value={c.rating} readOnly />
-            <p>{c.text}</p>
-          </div>
-        ))}
-      </div>
 
       {/* Similar Products */}
       {similarProducts.length > 0 && (
-        <div className="card">
+        <div className="similar-products">
           <h3>Similar Products</h3>
-          <div className="similar-products-scroll">
-            {similarProducts.map(p => (
-              <div key={p.id} className="similar-product-card" onClick={() => navigate(`/product/${p.id}`)}>
-                <img src={p.images[0]} alt={p.name} />
-                <div>{p.name}</div>
-                <div>₦{p.price.toLocaleString()}</div>
-                {p.promotion?.label && <div className="promo-badge-small">{p.promotion.label}</div>}
+          <div className="similar-products-list">
+            {similarProducts.map((p) => (
+              <div
+                key={p.id}
+                className="similar-product-card"
+                onClick={() => navigate(`/product/${p.id}`)}
+              >
+                <img src={p.images?.[0]} alt={p.name} />
+                {p.sold && <div className="sold-badge">SOLD</div>}
+                {p.promotion?.label && <div className="promo-badge">{p.promotion.label}</div>}
+                {p.images?.length > 1 && (
+                  <div className="image-counter">
+                    1/{p.images.length}
+                  </div>
+                )}
+                <div className="card-info">
+                  <div className="card-title">{p.name}</div>
+                  <div className="card-price">₦{p.price.toLocaleString()}</div>
+                </div>
               </div>
             ))}
           </div>
