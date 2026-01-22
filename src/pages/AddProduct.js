@@ -13,6 +13,7 @@ import { promotionPlans } from "../config/promotionPlans";
 import conditionConfig from "../config/conditions";
 import AddProductCategory from "../components/AddProductCategory";
 import AddProductPromotion from "../components/AddProductPromotion";
+import AddProductCondition from "../components/AddProductCondition";
 import Toast from "../components/Toast";
 import "./AddProduct.css";
 
@@ -267,9 +268,6 @@ export default function AddProduct() {
     return Array.isArray(subcatOptions[field]) ? subcatOptions[field] : [];
   };
 
-  const showConditionField = () => form.model && conditionConfig[form.mainCategory]?.main;
-  const showUsedDetailField = () => form.condition === "Used" || form.condition === "Refurbished";
-
   // ---------------- Render ----------------
   if (selectionStep) {
     switch (selectionStep) {
@@ -326,21 +324,19 @@ export default function AddProduct() {
         </Field>
       )}
 
-      {showConditionField() && (
-        <Field label="Condition">
-          <div className="option-item clickable" onClick={() => { scrollPos.current = window.scrollY; setBackStep("model"); setSelectionStep("condition"); }}>
-            {form.condition || "Select Condition"}
-          </div>
-        </Field>
-      )}
-
-      {showUsedDetailField() && (
-        <Field label="Used Detail">
-          <div className="option-item clickable" onClick={() => { scrollPos.current = window.scrollY; setBackStep("condition"); setSelectionStep("usedDetail"); }}>
-            {form.usedDetail || "Select Used Detail"}
-          </div>
-        </Field>
-      )}
+      <AddProductCondition
+  form={form}
+  openConditionSelector={() => {
+    scrollPos.current = window.scrollY;
+    setBackStep("model");
+    setSelectionStep("condition");
+  }}
+  openUsedDetailSelector={() => {
+    scrollPos.current = window.scrollY;
+    setBackStep("condition");
+    setSelectionStep("usedDetail");
+  }}
+/>
 
       {getExtraOptions("features").length > 0 && (
         <Field label="Features">
