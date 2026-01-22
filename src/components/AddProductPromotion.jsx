@@ -5,6 +5,7 @@ export default function AddProductPromotion({ form, onSelectPlan, onTogglePromot
 
   return (
     <div className="promotion-section">
+      {/* Toggle Promote */}
       <label className="promo-toggle">
         <input
           type="checkbox"
@@ -14,6 +15,7 @@ export default function AddProductPromotion({ form, onSelectPlan, onTogglePromot
         Promote this product
       </label>
 
+      {/* Promotion Plans */}
       {form.isPromoted && (
         <div className="promo-plans">
           {promotionPlans.map(plan => {
@@ -30,18 +32,18 @@ export default function AddProductPromotion({ form, onSelectPlan, onTogglePromot
                 tabIndex={0}
                 onKeyDown={e => (e.key === "Enter" || e.key === " ") && onSelectPlan(plan)}
               >
+                {/* Popular / Discount Badges */}
                 {plan.popular && <span className="badge popular">Popular</span>}
-
                 {discounted && (
                   <span className="badge discount">
                     Save ₦{Math.max(0, plan.price - plan.discountPrice)}
                   </span>
                 )}
 
-                <h4>
-                  {plan.label} {isFree && "(Free)"}
-                </h4>
+                {/* Plan Label */}
+                <h4>{plan.label} {isFree && "(Free)"}</h4>
 
+                {/* Price */}
                 {isFree ? (
                   <div className="price">₦0</div>
                 ) : discounted ? (
@@ -53,11 +55,16 @@ export default function AddProductPromotion({ form, onSelectPlan, onTogglePromot
                   <div className="price">₦{formatPrice(plan.price)}</div>
                 )}
 
+                {/* Duration */}
                 <p>{plan.days} day{plan.days > 1 ? "s" : ""}</p>
 
+                {/* Paid Badge */}
                 {active && form.paymentSuccess && !isFree && (
                   <span className="paid">Paid ✓</span>
                 )}
+
+                {/* Plan Icon at the bottom */}
+                <div className="plan-icon-bottom">{plan.icon}</div>
               </div>
             );
           })}
