@@ -8,24 +8,26 @@ export default function AddProductLocation({
       {/* State */}
       <div className="field">
         <label>State</label>
-        <div
+        <button
+          type="button"
           className="option-item clickable"
           onClick={openStateSelector}
         >
           {form.state || "Select State"}
-        </div>
+        </button>
       </div>
 
       {/* City / LGA */}
       {form.state && (
         <div className="field">
           <label>City / LGA</label>
-          <div
+          <button
+            type="button"
             className="option-item clickable"
             onClick={openCitySelector}
           >
             {form.city || "Select City / LGA"}
-          </div>
+          </button>
         </div>
       )}
     </>
