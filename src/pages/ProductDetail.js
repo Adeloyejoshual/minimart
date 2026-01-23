@@ -1,3 +1,4 @@
+// src/pages/ProductDetail.jsx
 import React, { useEffect, useState } from "react";
 import { useParams, useNavigate } from "react-router-dom";
 import { doc, getDoc, collection, query, where, getDocs } from "firebase/firestore";
@@ -16,16 +17,20 @@ export default function ProductDetail() {
   const [newComment, setNewComment] = useState("");
   const [newRating, setNewRating] = useState(5);
   const [imageIndex, setImageIndex] = useState(0);
-  const [showAllSpecs, setShowAllSpecs] = useState(false);
-  const [hasNewMessages, setHasNewMessages] = useState(false); // placeholder for chat notifications
+  const [hasNewMessages, setHasNewMessages] = useState(false);
 
-  // ---------------- Load product ----------------
+  // ---------------- Load Product ----------------
   useEffect(() => {
     const loadProduct = async () => {
       const docRef = doc(db, "products", productId);
       const docSnap = await getDoc(docRef);
       if (docSnap.exists()) {
-        setProduct({ id: docSnap.id, ...docSnap.data() });
+        const data = { id: docSnap.id, ...docSnap.data() };
+        // Attach promotion details if promoted
+        if (data.isPromoted) {
+          data.promotion = promotionPlans.find(p => p.id === data.promotionPlanId);
+        }
+        setProduct(data);
       } else {
         alert("Product not found");
         navigate("/minimart");
@@ -34,26 +39,22 @@ export default function ProductDetail() {
     loadProduct();
   }, [productId, navigate]);
 
-  // ---------------- Load similar products ----------------
+  // ---------------- Similar Products ----------------
   useEffect(() => {
     if (!product) return;
     const loadSimilar = async () => {
       const q = query(
         collection(db, "products"),
         where("mainCategory", "==", product.mainCategory),
+        where("id", "!=", product.id)
       );
       const snap = await getDocs(q);
-      setSimilarProducts(
-        snap.docs
-          .map(d => ({ id: d.id, ...d.data() }))
-          .filter(p => p.id !== product.id)
-          .slice(0, 10)
-      );
+      setSimilarProducts(snap.docs.map(d => ({ id: d.id, ...d.data() })).slice(0, 10));
     };
     loadSimilar();
   }, [product]);
 
-  // ---------------- Load comments ----------------
+  // ---------------- Load Comments ----------------
   useEffect(() => {
     if (!product) return;
     const loadComments = async () => {
@@ -66,34 +67,24 @@ export default function ProductDetail() {
 
   if (!product) return <p style={{ textAlign: "center" }}>Loading product...</p>;
 
-  // ---------------- Helpers ----------------
+  // ---------------- Handlers ----------------
   const handleStartChat = () => {
     if (!currentUser || currentUser.uid === product.ownerId) return;
-    navigate(
-      `/chat/${product.ownerId}?product=${productId}&productName=${encodeURIComponent(
-        product.title
-      )}`
-    );
+    navigate(`/chat/${product.ownerId}?product=${productId}&productName=${encodeURIComponent(product.title)}`);
   };
 
   const handleQuickMessage = () => {
     if (!currentUser) return alert("Login to send message");
-    navigate(
-      `/chat/${product.ownerId}?product=${productId}&productName=${encodeURIComponent(
-        product.title
-      )}&quick=1`
-    );
+    navigate(`/chat/${product.ownerId}?product=${productId}&productName=${encodeURIComponent(product.title)}&quick=1`);
   };
 
   const handleShare = () => {
     if (navigator.share) {
-      navigator
-        .share({
-          title: product.title,
-          text: `Check out this product: ${product.title}`,
-          url: window.location.href,
-        })
-        .catch(err => console.log(err));
+      navigator.share({
+        title: product.title,
+        text: `Check out this product: ${product.title}`,
+        url: window.location.href,
+      }).catch(err => console.log(err));
     } else {
       navigator.clipboard.writeText(window.location.href);
       alert("Link copied to clipboard!");
@@ -116,48 +107,35 @@ export default function ProductDetail() {
     return "★".repeat(full) + (half ? "½" : "") + "☆".repeat(5 - full - (half ? 1 : 0));
   };
 
-  const formatSpecKey = key => key.replace(/([A-Z])/g, " $1").replace(/^./, str => str.toUpperCase());
-
-  // Get promotion plan label
-  const promotionLabel = product.isPromoted
-    ? promotionPlans.find(p => p.id === product.promotion?.id)?.label || "Promoted"
-    : null;
-
-  // ---------------- JSX ----------------
   return (
     <div className="product-detail-container">
 
-      {/* Sticky Header */}
+      {/* ---------------- Header ---------------- */}
       <div className="sticky-header">
         <button className="back-btn" onClick={() => navigate(-1)}>←</button>
-        <h2 className="header-title">
-          {product.title.length > 30 ? product.title.slice(0, 30) + "..." : product.title}
-        </h2>
+        <span className="header-title">{product.title}</span>
         <button className="share-btn" onClick={handleShare}>🔗</button>
       </div>
 
+      {/* ---------------- Scrollable Content ---------------- */}
       <div className="scrollable-content">
 
         {/* ---------------- Product Card ---------------- */}
         <div className="product-card">
-
           <div className="product-images">
             <img src={product.images[imageIndex] || product.coverImage} alt={product.title} />
             {product.images.length > 1 && (
               <span className="image-counter">{imageIndex + 1}/{product.images.length}</span>
             )}
+            {product.isPromoted && <span className="promo-badge">{product.promotion?.label}</span>}
+            {product.sold && <span className="sold-badge">SOLD</span>}
           </div>
 
-          <h2 className="product-title">
-            {product.title} {product.sold && <span className="sold-badge">SOLD</span>}
-          </h2>
-
-          <p className="product-price">₦{product.price.toLocaleString()} {promotionLabel && <span className="promo-badge">{promotionLabel}</span>}</p>
-
+          <h2 className="product-title">{product.title}</h2>
+          <p className="product-price">₦{product.price.toLocaleString()}</p>
           <p className="product-meta">
             Category: <b>{product.mainCategory} / {product.subCategory}</b> | Market: <b>{product.marketType}</b>
           </p>
-
           <p className="product-meta">📞 {product.phone || "Not provided"}</p>
 
           {product.marketType === "marketplace" && currentUser?.uid !== product.ownerId && (
@@ -165,33 +143,24 @@ export default function ProductDetail() {
               <button className="chat-btn" onClick={handleStartChat}>
                 💬 Chat Seller {hasNewMessages && <span className="chat-badge">●</span>}
               </button>
-              <button className="quick-msg-btn" onClick={handleQuickMessage}>
-                ⚡ Is it available?
-              </button>
+              <button className="quick-msg-btn" onClick={handleQuickMessage}>⚡ Is it available?</button>
               <p className="seller-reply-hint">Typically replies in a few mins</p>
             </div>
           )}
         </div>
 
-        {/* ---------------- Product Specs (Collapsible) ---------------- */}
+        {/* ---------------- Product Specs ---------------- */}
         {product.specs && Object.keys(product.specs).length > 0 && (
           <div className="product-specs-card">
-            <h3>Product Specifications</h3>
-            <div className={`specs-grid ${showAllSpecs ? "expanded" : ""}`}>
-              {Object.entries(product.specs).map(([key, value], idx) => (
-                value && (
-                  <div key={key} className={`spec-item ${!showAllSpecs && idx >= 6 ? "hidden-spec" : ""}`}>
-                    <span className="spec-key">{formatSpecKey(key)}</span>
-                    <span className="spec-value">{value}</span>
-                  </div>
-                )
+            <h3>Product Specs</h3>
+            <div className="specs-grid">
+              {Object.entries(product.specs).map(([key, val]) => (
+                <div className="spec-item" key={key}>
+                  <span className="spec-key">{key}</span>
+                  <span className="spec-value">{val}</span>
+                </div>
               ))}
             </div>
-            {Object.keys(product.specs).length > 6 && (
-              <button className="toggle-specs-btn" onClick={() => setShowAllSpecs(!showAllSpecs)}>
-                {showAllSpecs ? "Show less ▲" : "Show more ▼"}
-              </button>
-            )}
           </div>
         )}
 
@@ -207,10 +176,9 @@ export default function ProductDetail() {
           {currentUser?.uid === product.ownerId && <button className="btn">Post a Product</button>}
         </div>
 
-        {/* ---------------- Comments ---------------- */}
+        {/* ---------------- Comments Section ---------------- */}
         <div className="comments-section">
           <h3>Reviews ({comments.length})</h3>
-
           {comments.map(c => (
             <div key={c.id} className="comment-box">
               <span className="user-name">{c.userName}</span> - <span className="comment-rating">{formatStars(c.rating)}</span>
@@ -235,7 +203,7 @@ export default function ProductDetail() {
               {similarProducts.map(p => (
                 <div key={p.id} className="similar-product-card" onClick={() => navigate(`/product/${p.id}`)}>
                   <img src={p.coverImage} alt={p.title} />
-                  {p.isPromoted && <span className="promo-badge">{p.promotion?.label}</span>}
+                  {p.isPromoted && <span className="promo-badge">{promotionPlans.find(plan => plan.id === p.promotionPlanId)?.label}</span>}
                   {p.sold && <span className="sold-badge">SOLD</span>}
                   <div className="card-info">
                     <p className="card-title">{p.title}</p>
