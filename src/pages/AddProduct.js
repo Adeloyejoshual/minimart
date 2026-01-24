@@ -173,14 +173,8 @@ export default function AddProduct() {
 
   // ---------------- Derived Options ----------------
   const getSubcategories = () => categoriesData[form.mainCategory]?.subcategories || [];
-  const getBrandOptions = () => {
-    const brands = categoriesData[form.mainCategory]?.brands?.[form.subCategory];
-    return Array.isArray(brands) ? brands : [];
-  };
-  const getModelOptions = () => {
-    const models = categoriesData[form.mainCategory]?.models?.[form.brand];
-    return Array.isArray(models) ? models : [];
-  };
+  const getBrandOptions = () => form.subCategory ? Object.keys(categoriesData[form.mainCategory]?.brands?.[form.subCategory] || {}) : [];
+  const getModelOptions = () => form.subCategory && form.brand ? categoriesData[form.mainCategory]?.models?.[form.brand] || [] : [];
   const getStateOptions = () => Object.keys(locationsByState);
   const getCityOptions = () => form.state ? locationsByState[form.state] : [];
   const getExtraOptions = field => categoriesData[form.mainCategory]?.options?.[field] || [];
@@ -215,6 +209,71 @@ export default function AddProduct() {
     }
   }
 
+  // ---------------- Promotion Handler ----------------
+  const handlePromotionClick = plan => {
+    updateForm("promotionPlan", plan);
+  };
+
+  // ---------------- Submit Handler ----------------
+  const handleSubmit = async () => {
+    const error = validateForm();
+    if (error) return showToast(error, "⚠️");
+
+    try {
+      setLoading(true);
+
+      // Upload images
+      const uploadedImages = await Promise.all(form.images.map(img => uploadToCloudinary(img)));
+
+      // Prepare product data
+      const productData = {
+        ...form,
+        images: uploadedImages,
+        timestamp: serverTimestamp(),
+        userId: auth.currentUser?.uid || null,
+      };
+
+      // Save to Firestore
+      await addDoc(collection(db, "products"), productData);
+
+      // Clear draft and reset form
+      localStorage.removeItem(DRAFT_KEY);
+      localStorage.removeItem(CATEGORY_KEY);
+      setForm({
+        title: "",
+        mainCategory: "",
+        subCategory: "",
+        brand: "",
+        model: "",
+        condition: "",
+        usedDetail: "",
+        price: "",
+        phone: "",
+        description: "",
+        state: "",
+        city: "",
+        images: [],
+        previews: [],
+        color: "",
+        storage: "",
+        simType: "",
+        features: [],
+        type: "",
+        isPromoted: false,
+        promotionPlan: null,
+        paymentSuccess: false,
+      });
+
+      showToast("Product successfully uploaded!", "✅");
+      navigate(`/${marketType}`);
+    } catch (err) {
+      console.error(err);
+      showToast("Failed to upload product.", "❌");
+    } finally {
+      setLoading(false);
+    }
+  };
+
   // ---------------- Main Form ----------------
   return (
     <div className="add-product-container">
@@ -226,20 +285,33 @@ export default function AddProduct() {
 
       {/* TITLE */}
       <Field label="Title">
-        <input value={form.title} onChange={e => updateForm("title", e.target.value)} placeholder="e.g iPhone 11 Pro Max" />
+        <input
+          value={form.title}
+          onChange={e => updateForm("title", e.target.value)}
+          placeholder="e.g iPhone 11 Pro Max"
+        />
       </Field>
 
       {/* CATEGORY */}
       <AddProductCategory
         form={form}
         handleCategoryChange={handleCategoryChange}
-        openSubCategorySelector={() => { scrollPos.current = window.scrollY; setSelectionStep("subCategory"); }}
+        openSubCategorySelector={() => {
+          scrollPos.current = window.scrollY;
+          setSelectionStep("subCategory");
+        }}
       />
 
       {/* BRAND */}
       {form.subCategory && getBrandOptions().length > 0 && (
         <Field label="Brand">
-          <div className="option-item clickable" onClick={() => { scrollPos.current = window.scrollY; setSelectionStep("brand"); }}>
+          <div
+            className="option-item clickable"
+            onClick={() => {
+              scrollPos.current = window.scrollY;
+              setSelectionStep("brand");
+            }}
+          >
             {form.brand || "Select Brand"}
           </div>
         </Field>
@@ -248,7 +320,13 @@ export default function AddProduct() {
       {/* MODEL */}
       {form.brand && getModelOptions().length > 0 && (
         <Field label="Model / Type">
-          <div className="option-item clickable" onClick={() => { scrollPos.current = window.scrollY; setSelectionStep("model"); }}>
+          <div
+            className="option-item clickable"
+            onClick={() => {
+              scrollPos.current = window.scrollY;
+              setSelectionStep("model");
+            }}
+          >
             {form.model || "Select Model"}
           </div>
         </Field>
@@ -257,14 +335,26 @@ export default function AddProduct() {
       {/* CONDITION */}
       <AddProductCondition
         form={form}
-        openConditionSelector={() => { scrollPos.current = window.scrollY; setSelectionStep("condition"); }}
-        openUsedDetailSelector={() => { scrollPos.current = window.scrollY; setSelectionStep("usedDetail"); }}
+        openConditionSelector={() => {
+          scrollPos.current = window.scrollY;
+          setSelectionStep("condition");
+        }}
+        openUsedDetailSelector={() => {
+          scrollPos.current = window.scrollY;
+          setSelectionStep("usedDetail");
+        }}
       />
 
       {/* COLOR */}
       {getExtraOptions("colors").length > 0 && (
         <Field label="Color">
-          <div className="option-item clickable" onClick={() => { scrollPos.current = window.scrollY; setSelectionStep("colors"); }}>
+          <div
+            className="option-item clickable"
+            onClick={() => {
+              scrollPos.current = window.scrollY;
+              setSelectionStep("colors");
+            }}
+          >
             {form.color || "Select Color"}
           </div>
         </Field>
@@ -273,7 +363,13 @@ export default function AddProduct() {
       {/* STORAGE */}
       {getExtraOptions("storage").length > 0 && (
         <Field label="Storage">
-          <div className="option-item clickable" onClick={() => { scrollPos.current = window.scrollY; setSelectionStep("storage"); }}>
+          <div
+            className="option-item clickable"
+            onClick={() => {
+              scrollPos.current = window.scrollY;
+              setSelectionStep("storage");
+            }}
+          >
             {form.storage || "Select Storage"}
           </div>
         </Field>
@@ -282,7 +378,13 @@ export default function AddProduct() {
       {/* SIM TYPE */}
       {getExtraOptions("simTypes").length > 0 && (
         <Field label="SIM Type">
-          <div className="option-item clickable" onClick={() => { scrollPos.current = window.scrollY; setSelectionStep("simTypes"); }}>
+          <div
+            className="option-item clickable"
+            onClick={() => {
+              scrollPos.current = window.scrollY;
+              setSelectionStep("simTypes");
+            }}
+          >
             {form.simType || "Select SIM Type"}
           </div>
         </Field>
@@ -291,7 +393,13 @@ export default function AddProduct() {
       {/* FEATURES */}
       {getExtraOptions("features").length > 0 && (
         <Field label="Features">
-          <div className="option-item clickable" onClick={() => { scrollPos.current = window.scrollY; setSelectionStep("features"); }}>
+          <div
+            className="option-item clickable"
+            onClick={() => {
+              scrollPos.current = window.scrollY;
+              setSelectionStep("features");
+            }}
+          >
             {form.features.length > 0 ? form.features.join(", ") : "Select Features"}
           </div>
         </Field>
@@ -299,14 +407,24 @@ export default function AddProduct() {
 
       {/* DESCRIPTION */}
       <Field label="Description">
-        <textarea value={form.description} onChange={e => updateForm("description", e.target.value)} placeholder="Write a detailed description of your product..." />
+        <textarea
+          value={form.description}
+          onChange={e => updateForm("description", e.target.value)}
+          placeholder="Write a detailed description of your product..."
+        />
       </Field>
 
       {/* LOCATION */}
       <AddProductLocation
         form={form}
-        openStateSelector={() => { scrollPos.current = window.scrollY; setSelectionStep("state"); }}
-        openCitySelector={() => { scrollPos.current = window.scrollY; setSelectionStep("city"); }}
+        openStateSelector={() => {
+          scrollPos.current = window.scrollY;
+          setSelectionStep("state");
+        }}
+        openCitySelector={() => {
+          scrollPos.current = window.scrollY;
+          setSelectionStep("city");
+        }}
       />
 
       {/* PRICE */}
@@ -316,7 +434,12 @@ export default function AddProduct() {
 
       {/* PHONE */}
       <Field label="Phone Number">
-        <input type="tel" value={form.phone} onChange={e => updateForm("phone", e.target.value)} placeholder="08012345678" />
+        <input
+          type="tel"
+          value={form.phone}
+          onChange={e => updateForm("phone", e.target.value)}
+          placeholder="08012345678"
+        />
       </Field>
 
       {/* IMAGES */}
@@ -336,9 +459,13 @@ export default function AddProduct() {
       </Field>
 
       {/* PROMOTION */}
-      <AddProductPromotion form={form} onSelectPlan={handlePromotionClick} onTogglePromote={checked => updateForm("isPromoted", checked)} />
+      <AddProductPromotion
+        form={form}
+        onSelectPlan={handlePromotionClick}
+        onTogglePromote={checked => updateForm("isPromoted", checked)}
+      />
 
-      {/* SUBMIT */}
+      {/* SUBMIT BUTTON */}
       <button className="btn" type="button" onClick={handleSubmit} disabled={loading}>
         {loading ? "Uploading..." : "Publish"}
       </button>
