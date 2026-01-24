@@ -90,6 +90,7 @@ export default function AddProduct() {
 
   // ---------------- Helpers ----------------
   const updateForm = useCallback((key, value) => setForm(prev => ({ ...prev, [key]: value })), []);
+
   const resetDependentFields = keys => keys.forEach(k => updateForm(k, ""));
 
   // ---------------- Category / Location / Price ----------------
@@ -137,6 +138,7 @@ export default function AddProduct() {
 
   // ---------------- Derived Options ----------------
   const getSubcategories = () => categoriesData[form.mainCategory]?.subcategories || [];
+
   const getBrandOptions = () => {
     if (!form.subCategory) return [];
     if (["Mobile Phones", "Feature Phones", "Tablets", "Accessories"].includes(form.mainCategory)) {
@@ -144,6 +146,7 @@ export default function AddProduct() {
     }
     return Object.keys(categoriesData[form.mainCategory]?.brands?.[form.subCategory] || {});
   };
+
   const getModelOptions = () => {
     if (!form.brand) return [];
     if (["Mobile Phones", "Feature Phones", "Tablets", "Accessories"].includes(form.mainCategory)) {
@@ -151,9 +154,13 @@ export default function AddProduct() {
     }
     return categoriesData[form.mainCategory]?.models?.[form.brand] || [];
   };
+
   const getStateOptions = () => Object.keys(locationsByState);
   const getCityOptions = () => form.state ? locationsByState[form.state] : [];
-  const getExtraOptions = field => categoriesData[form.mainCategory]?.options?.[field] || [];
+  const getExtraOptions = field => {
+    const catData = categoriesData[form.mainCategory];
+    return catData?.options?.[field] || [];
+  };
 
   // ---------------- Smart defaults ----------------
   useEffect(() => {
@@ -328,7 +335,6 @@ export default function AddProduct() {
         openSubCategorySelector={() => { scrollPos.current = window.scrollY; setBackStep(null); setSelectionStep("subCategory"); }}
       />
 
-      {/* BRAND */}
       {form.subCategory && getBrandOptions().length > 0 && (
         <Field label="Brand">
           <div className="option-item clickable" onClick={() => { scrollPos.current = window.scrollY; setBackStep("subCategory"); setSelectionStep("brand"); }}>
@@ -337,7 +343,6 @@ export default function AddProduct() {
         </Field>
       )}
 
-      {/* MODEL */}
       {form.brand && getModelOptions().length > 0 && (
         <Field label="Model / Type">
           <div className="option-item clickable" onClick={() => { scrollPos.current = window.scrollY; setBackStep("brand"); setSelectionStep("model"); }}>
@@ -475,6 +480,7 @@ export const FullPageList = ({ title, options, valueKey, form, updateForm, setSe
         onChange={e => setSearch(e.target.value)}
         className="fullpage-search"
       />
+
       <div className="options-scroll">
         {filtered.map(opt => (
           <div
@@ -485,6 +491,7 @@ export const FullPageList = ({ title, options, valueKey, form, updateForm, setSe
             {opt}
           </div>
         ))}
+
         <div className="option-item custom-input">
           <input
             type="text"
