@@ -13,14 +13,23 @@ import { locationsByState } from "../config/locationsByState";
 import AddProductCategory from "../components/AddProductCategory";
 import AddProductPromotion from "../components/AddProductPromotion";
 import AddProductLocation from "../components/AddProductLocation";
+import Toast from "../components/Toast";
+
 import SingleSelectList from "../components/SingleSelectList";
 import MultiSelectList from "../components/MultiSelectList";
-import Toast from "../components/Toast";
 
 import "./AddProduct.css";
 
 const DRAFT_KEY = "add_product_draft";
 const CATEGORY_KEY = "selected_category";
+
+// Human-friendly labels
+const fieldLabels = {
+  colors: "Color",
+  simTypes: "SIM Type",
+  storageOptions: "Storage",
+  features: "Features",
+};
 
 export default function AddProduct() {
   const navigate = useNavigate();
@@ -31,6 +40,7 @@ export default function AddProduct() {
   const [loading, setLoading] = useState(false);
   const [toast, setToast] = useState({ visible: false, message: "", icon: "⚡" });
   const [selectionStep, setSelectionStep] = useState(null);
+  const [errorFields, setErrorFields] = useState({}); // Track fields with errors
 
   const [form, setForm] = useState({
     title: "",
@@ -78,10 +88,6 @@ export default function AddProduct() {
     localStorage.setItem(DRAFT_KEY, JSON.stringify(form));
     if (form.mainCategory) localStorage.setItem(CATEGORY_KEY, form.mainCategory);
   }, [form]);
-
-  useEffect(() => {
-    return () => form.previews.forEach(url => URL.revokeObjectURL(url));
-  }, [form.previews]);
 
   // ---------------- Toast ----------------
   const showToast = useCallback((message, icon = "⚡", duration = 3000) => {
@@ -135,7 +141,9 @@ export default function AddProduct() {
     }));
   };
 
+  // **Revoke object URL when removing image**
   const removeImage = index => {
+    URL.revokeObjectURL(form.previews[index]);
     setForm(prev => ({
       ...prev,
       images: prev.images.filter((_, i) => i !== index),
@@ -145,27 +153,32 @@ export default function AddProduct() {
 
   // ---------------- Validation ----------------
   const validateForm = () => {
-    if (!form.title || form.title.length < rules.minTitle) return `Title must be at least ${rules.minTitle} characters`;
-    if (!form.mainCategory) return "Select category";
-    if (!form.price) return "Enter price";
-    if (!form.phone || form.phone.length < 10) return "Enter valid phone number";
-    if (form.images.length < rules.minImages) return `Upload at least ${rules.minImages} image(s)`;
+    const errors = {};
+    if (!form.title || form.title.length < rules.minTitle) errors.title = true;
+    if (!form.mainCategory) errors.mainCategory = true;
+    if (!form.price) errors.price = true;
+    if (!form.phone || form.phone.length < 10) errors.phone = true;
+    if (form.images.length < rules.minImages) errors.images = true;
 
     const options = productOptions[form.mainCategory]?.subcategories?.[form.subCategory];
-
     if (options) {
-      if (options.brands?.length > 0 && !form.brand) return "Select brand";
-      if (options.types?.length > 0 && !form.model) return "Select model/type";
-      if (options.storageOptions?.length > 0 && !form.storage) return "Select storage";
-      if (options.colors?.length > 0 && !form.color) return "Select color";
-      if (options.simTypes?.length > 0 && !form.simType) return "Select SIM type";
-      if (form.features.length === 0 && options.features?.length > 0) return "Select features";
+      if (options.brands?.length > 0 && !form.brand) errors.brand = true;
+      if (options.types?.length > 0 && !form.model) errors.model = true;
+      if (options.storageOptions?.length > 0 && !form.storage) errors.storage = true;
+      if (options.colors?.length > 0 && !form.color) errors.color = true;
+      if (options.simTypes?.length > 0 && !form.simType) errors.simType = true;
+      if (form.features.length === 0 && options.features?.length > 0) errors.features = true;
     }
 
-    if (!form.description || form.description.length < 10) return "Enter description (min 10 chars)";
-    if (!form.state) return "Select state";
-    if (!form.city) return "Select city / LGA";
-    return null;
+    if (!form.description || form.description.length < 10) errors.description = true;
+    if (!form.state) errors.state = true;
+    if (!form.city) errors.city = true;
+
+    setErrorFields(errors);
+    const firstError = Object.keys(errors)[0];
+    if (firstError) showToast(`Please fill ${firstError}`, "⚠️");
+
+    return Object.keys(errors).length === 0;
   };
 
   // ---------------- Derived Options ----------------
@@ -179,53 +192,59 @@ export default function AddProduct() {
   // ---------------- FullPage Selectors ----------------
   if (selectionStep) {
     const fullPageProps = { form, updateForm, setSelectionStep, scrollPos };
-    const multiSelectFields = ["features"];
-    const fieldMap = {
-      subCategory: getSubcategories(),
-      brand: getBrandOptions(),
-      model: getModelOptions(),
-      colors: getExtraOptions("colors"),
-      storage: getExtraOptions("storageOptions"),
-      simTypes: getExtraOptions("simTypes"),
-      features: getExtraOptions("features"),
-      state: getStateOptions(),
-      city: getCityOptions(),
-    };
-
-    const options = fieldMap[selectionStep] || [];
-    return multiSelectFields.includes(selectionStep)
-      ? <MultiSelectList title={`Select ${selectionStep}`} options={options} valueKey={selectionStep} {...fullPageProps} />
-      : <SingleSelectList title={`Select ${selectionStep}`} options={options} valueKey={selectionStep} {...fullPageProps} />;
+    switch (selectionStep) {
+      case "subCategory":
+        return <SingleSelectList title="Select Subcategory" options={getSubcategories()} valueKey="subCategory" {...fullPageProps} />;
+      case "brand":
+        return <SingleSelectList title="Select Brand" options={getBrandOptions()} valueKey="brand" {...fullPageProps} />;
+      case "model":
+        return <SingleSelectList title="Select Model / Type" options={getModelOptions()} valueKey="model" {...fullPageProps} />;
+      case "colors":
+        return <SingleSelectList title="Select Color" options={getExtraOptions("colors")} valueKey="color" {...fullPageProps} />;
+      case "storage":
+        return <SingleSelectList title="Select Storage" options={getExtraOptions("storageOptions")} valueKey="storage" {...fullPageProps} />;
+      case "simTypes":
+        return <SingleSelectList title="Select SIM Type" options={getExtraOptions("simTypes")} valueKey="simType" {...fullPageProps} />;
+      case "features":
+        return <MultiSelectList title="Select Features" options={getExtraOptions("features")} valueKey="features" {...fullPageProps} />;
+      case "state":
+        return <SingleSelectList title="Select State" options={getStateOptions()} valueKey="state" {...fullPageProps} />;
+      case "city":
+        return <SingleSelectList title="Select City / LGA" options={getCityOptions()} valueKey="city" {...fullPageProps} />;
+      default: break;
+    }
   }
 
-  // ---------------- Promotion ----------------
+  // ---------------- Promotion Handler ----------------
   const handlePromotionClick = plan => updateForm("promotionPlan", plan);
 
   // ---------------- Submit Handler ----------------
   const handleSubmit = async () => {
-    const error = validateForm();
-    if (error) return showToast(error, "⚠️");
+    if (!validateForm()) return;
 
     try {
       setLoading(true);
 
       const uploadedImages = await Promise.all(form.images.map(img => uploadToCloudinary(img)));
 
-      await addDoc(collection(db, "products"), {
+      const normalizedPhone = form.phone.startsWith("0") ? "+234" + form.phone.slice(1) : form.phone;
+
+      const productData = {
         ...form,
         images: uploadedImages,
+        phone: normalizedPhone,
         timestamp: serverTimestamp(),
         userId: auth.currentUser?.uid || null,
-      });
+      };
+
+      await addDoc(collection(db, "products"), productData);
 
       localStorage.removeItem(DRAFT_KEY);
       localStorage.removeItem(CATEGORY_KEY);
       setForm({
-        title: "", mainCategory: "", subCategory: "", brand: "", model: "",
-        condition: "", usedDetail: "", price: "", phone: "", description: "",
-        state: "", city: "", images: [], previews: [], color: "", storage: "",
-        simType: "", features: [], type: "", isPromoted: false, promotionPlan: null,
-        paymentSuccess: false,
+        title: "", mainCategory: "", subCategory: "", brand: "", model: "", condition: "", usedDetail: "",
+        price: "", phone: "", description: "", state: "", city: "", images: [], previews: [],
+        color: "", storage: "", simType: "", features: [], type: "", isPromoted: false, promotionPlan: null, paymentSuccess: false,
       });
 
       showToast("Product successfully uploaded!", "✅");
@@ -233,23 +252,27 @@ export default function AddProduct() {
     } catch (err) {
       console.error(err);
       showToast("Failed to upload product.", "❌");
-    } finally {
-      setLoading(false);
-    }
+    } finally { setLoading(false); }
   };
+
+  const isDependentDisabled = !form.brand || !form.model;
 
   // ---------------- Main Form ----------------
   return (
     <div className="add-product-container">
       {/* HEADER */}
       <div className="add-product-header">
-        <button className="back-btn" onClick={() => navigate(`/`)}>←</button>
-        <span className="page-title">Add Product</span>
+        <button className="back-btn" onClick={() => navigate(`/`)} aria-label="Go Back">←</button>
+        <h1 className="page-title">Add Product</h1>
       </div>
 
       {/* TITLE */}
-      <Field label="Title">
-        <input value={form.title} onChange={e => updateForm("title", e.target.value)} placeholder="e.g iPhone 11 Pro Max" />
+      <Field label="Title" hasError={errorFields.title}>
+        <input
+          value={form.title}
+          onChange={e => updateForm("title", e.target.value)}
+          placeholder="e.g iPhone 11 Pro Max"
+        />
       </Field>
 
       {/* CATEGORY */}
@@ -259,28 +282,63 @@ export default function AddProduct() {
         openSubCategorySelector={() => { scrollPos.current = window.scrollY; setSelectionStep("subCategory"); }}
       />
 
-      {/* BRAND, MODEL, COLOR, STORAGE, SIM, FEATURES */}
-      {["brand","model","colors","storage","simTypes","features"].map(field => {
-        const options = field === "brand" ? getBrandOptions()
-                      : field === "model" ? getModelOptions()
-                      : getExtraOptions(field === "colors" ? "colors" : field === "storage" ? "storageOptions" : field);
+      {/* BRAND */}
+      {form.subCategory && getBrandOptions().length > 0 && (
+        <Field label="Brand" hasError={errorFields.brand}>
+          <div
+            className={`option-item ${errorFields.brand ? "error" : ""}`}
+            role="button"
+            aria-label={`Select brand: ${form.brand || "None"}`}
+            tabIndex={0}
+            onClick={() => { scrollPos.current = window.scrollY; setSelectionStep("brand"); }}
+          >
+            {form.brand || "Select Brand"}
+          </div>
+        </Field>
+      )}
+
+      {/* MODEL */}
+      {form.brand && getModelOptions().length > 0 && (
+        <Field label="Model / Type" hasError={errorFields.model}>
+          <div
+            className={`option-item ${errorFields.model ? "error" : ""}`}
+            role="button"
+            aria-label={`Select model: ${form.model || "None"}`}
+            tabIndex={0}
+            onClick={() => { scrollPos.current = window.scrollY; setSelectionStep("model"); }}
+          >
+            {form.model || "Select Model / Type"}
+          </div>
+        </Field>
+      )}
+
+      {/* DYNAMIC FIELDS: Color, Storage, SIM, Features */}
+      {["colors","storageOptions","simTypes","features"].map(f => {
+        const options = getExtraOptions(f);
         if (!options.length) return null;
-        const label = field.charAt(0).toUpperCase() + field.slice(0, -1);
-        const value = form[field === "colors" ? "color" : field === "storage" ? "storage" : field];
-        const isDisabled = !form.brand && ["model","colors","storage","simTypes","features"].includes(field);
+        const value = form[f === "features" ? "features" : f.slice(0, -1)];
         return (
-          <Field key={field} label={label}>
-            <div className={`option-item clickable ${isDisabled ? "blurred" : ""}`}
-                 onClick={() => !isDisabled && (scrollPos.current = window.scrollY) && setSelectionStep(field)}>
-              {Array.isArray(value) ? value.join(", ") : value || `Select ${label}`}
+          <Field key={f} label={fieldLabels[f]} hasError={errorFields[f]}>
+            <div
+              className={`option-item ${errorFields[f] ? "error" : ""} ${isDependentDisabled ? "blurred" : ""}`}
+              role="button"
+              aria-label={`Select ${fieldLabels[f]}: ${Array.isArray(value) ? value.join(", ") : value || "None"}`}
+              tabIndex={0}
+              onClick={() => !isDependentDisabled && setSelectionStep(f)}
+            >
+              {Array.isArray(value) ? (value.length ? value.join(", ") : `Select ${fieldLabels[f]}`) : value || `Select ${fieldLabels[f]}`}
             </div>
           </Field>
         );
       })}
 
       {/* DESCRIPTION */}
-      <Field label="Description">
-        <textarea value={form.description} onChange={e => updateForm("description", e.target.value)} placeholder="Write a detailed description of your product..." />
+      <Field label="Description" hasError={errorFields.description}>
+        <textarea
+          value={form.description}
+          onChange={e => updateForm("description", e.target.value)}
+          placeholder="Write a detailed description of your product..."
+        />
       </Field>
 
       {/* LOCATION */}
@@ -291,26 +349,32 @@ export default function AddProduct() {
       />
 
       {/* PRICE */}
-      <Field label="Price (₦)">
+      <Field label="Price (₦)" hasError={errorFields.price}>
         <input value={form.price} onChange={handlePriceChange} placeholder="₦ 0" />
       </Field>
 
       {/* PHONE */}
-      <Field label="Phone Number">
-        <input type="tel" value={form.phone} onChange={e => updateForm("phone", e.target.value)} placeholder="08012345678" />
+      <Field label="Phone Number" hasError={errorFields.phone}>
+        <input
+          type="tel"
+          value={form.phone}
+          pattern="\d*"
+          onChange={e => updateForm("phone", e.target.value.replace(/\D/g, ""))}
+          placeholder="08012345678"
+        />
       </Field>
 
       {/* IMAGES */}
-      <Field label="Images">
-        <label className="image-upload">
+      <Field label="Images" hasError={errorFields.images}>
+        <label className="image-upload" aria-label="Add Images">
           <input type="file" multiple hidden onChange={e => handleImages(e.target.files)} />
           <span>＋ Add Images</span>
         </label>
         <div className="images">
           {form.previews.map((p, i) => (
             <div key={i} className="img-wrap">
-              <img src={p} alt={`preview-${i}`} />
-              <button type="button" onClick={() => removeImage(i)}>×</button>
+              <img src={p} alt={`Preview ${i+1}`} loading="lazy"/>
+              <button type="button" aria-label="Remove image" onClick={() => removeImage(i)}>×</button>
             </div>
           ))}
         </div>
@@ -323,7 +387,7 @@ export default function AddProduct() {
         onTogglePromote={checked => updateForm("isPromoted", checked)}
       />
 
-      {/* SUBMIT */}
+      {/* SUBMIT BUTTON */}
       <button className="btn" type="button" onClick={handleSubmit} disabled={loading}>
         {loading ? "Uploading..." : "Publish"}
       </button>
@@ -335,8 +399,8 @@ export default function AddProduct() {
 }
 
 // ---------------- Field Component ----------------
-const Field = ({ label, children }) => (
-  <div className="field">
+const Field = ({ label, children, hasError }) => (
+  <div className={`field ${hasError ? "error" : ""}`}>
     <label>{label}</label>
     {children}
   </div>
