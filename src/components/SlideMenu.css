@@ -1,0 +1,60 @@
+.slide-menu {
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  background-color: rgba(0, 0, 0, 0.4);
+  transform: translateX(-100%);
+  transition: transform 0.3s ease;
+  z-index: 2000;
+}
+
+.slide-menu.open {
+  transform: translateX(0);
+}
+
+.slide-menu-content {
+  width: 250px;
+  height: 100%;
+  background-color: #f8fafd;
+  padding: 20px;
+  box-shadow: 2px 0 8px rgba(0, 0, 0, 0.2);
+  display: flex;
+  flex-direction: column;
+}
+
+.close-btn {
+  background: none;
+  border: none;
+  font-size: 24px;
+  color: #4da6ff;
+  cursor: pointer;
+  align-self: flex-end;
+  margin-bottom: 20px;
+}
+
+.menu-item {
+  padding: 12px 0;
+  font-size: 16px;
+  color: #333;
+  cursor: pointer;
+  position: relative;
+  border-bottom: 1px solid #ddd;
+}
+
+.menu-item:hover {
+  color: #4da6ff;
+}
+
+.badge {
+  position: absolute;
+  top: 8px;
+  right: 10px;
+  background-color: red;
+  color: #fff;
+  font-size: 12px;
+  padding: 2px 6px;
+  border-radius: 50%;
+  font-weight: bold;
+}
