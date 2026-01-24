@@ -1,70 +1,81 @@
 // src/config/categoriesData.js
+import phoneModels from "./phoneModels";
 
 const categoriesData = {
   "Mobile Phones & Tablets": {
-    subcategories: ["Mobile Phones", "Tablets", "Phone Accessories"],
+    subcategories: ["Smartphones","Feature Phones","Tablets","Phone Accessories"],
     brands: {
-      "Mobile Phones": [
-        "Apple","Samsung","Tecno","Itel","Xiaomi","Huawei","Infinix",
-        "Oppo","Vivo","Nokia","Sony","Realme","Motorola","Asus","LG","BlackBerry","HTC"
-      ],
-      Tablets: ["Apple","Samsung","Huawei","Lenovo","Microsoft","Asus","Amazon"],
-      "Phone Accessories": ["Chargers","Headphones","Cables","Power Banks","Phone Cases"]
+      Smartphones: Object.keys(phoneModels.Smartphones),
+      "Feature Phones": Object.keys(phoneModels["Feature Phones"]),
+      Tablets: Object.keys(phoneModels.Tablets),
+      "Phone Accessories": Object.keys(phoneModels.Accessories)
     },
     models: {
-      Apple: ["iPhone 17 Pro Max","iPhone 17 Pro","iPhone 17","iPhone 16 Pro Max","iPhone 16 Pro"],
-      Samsung: ["Galaxy S23 Ultra","Galaxy S23+","Galaxy S23","Galaxy S22 Ultra","Galaxy S22+"],
-      Tecno: ["Camon 20","Camon 19","Camon 18","Spark 10","Spark 9"],
-      Itel: ["S23","S21","A56","A48","A25"],
-      Xiaomi: ["Redmi Note 12","Redmi Note 11","Redmi 10","Poco X5","Mi 12"],
-      Huawei: ["P50 Pro","P40 Pro","Mate 40 Pro","Mate 30 Pro"],
-      Infinix: ["Zero 5","Hot 20","Hot 10","Note 12","Note 11"],
-      Oppo: ["Find X6 Pro","Reno 9","Reno 8","Reno 7"],
-      Vivo: ["X90","V27","Y33"],
-      Nokia: ["G21","X20","C31"],
-      Sony: ["Xperia 1 IV","Xperia 5 III"],
-      Realme: ["GT 3","Narzo 60"],
-      Motorola: ["Edge 40","G73"],
-      Asus: ["ROG Phone 7","Zenfone 9"],
-      LG: ["Velvet","Wing"],
-      BlackBerry: ["Bold","Curve"],
-      HTC: ["One M9","One M8"]
+      ...phoneModels.Smartphones,
+      ...phoneModels["Feature Phones"],
+      ...phoneModels.Tablets,
+      ...phoneModels.Accessories
     },
     options: {
       storage: ["16GB","32GB","64GB","128GB","256GB","512GB","1TB"],
-      colors: ["Black","White","Gold","Silver","Blue","Red","Green","Purple","Gray","Pink"],
-      simTypes: ["Single SIM","Dual SIM","eSIM"],
+      colors: ["Black","White","Gold","Silver","Blue","Red","Green","Purple","Gray","Pink","Other"],
+      simTypes: ["Single SIM","Dual SIM","eSIM","WiFi Only","WiFi + SIM"],
       condition: ["Brand New","Used","Refurbished"],
-      features: ["5G","4G LTE","Fingerprint Sensor","Face ID","Wireless Charging","Fast Charging","Water Resistant"]
+      features: [
+        "5G","4G LTE","Fingerprint Sensor","Face ID",
+        "Wireless Charging","Fast Charging","Water Resistant",
+        "NFC","Wireless","Noise Cancelling","Stylus Support"
+      ]
     }
   },
 
   Vehicles: {
     subcategories: ["Cars","Motorcycles","Trucks","Buses","Spare Parts"],
     brands: {
-      Cars: ["Toyota","Honda","Ford","BMW","Mercedes"],
-      Motorcycles: ["Honda","Yamaha","Suzuki","KTM"],
-      Trucks: ["Volvo","Mercedes","MAN"],
-      Buses: ["Mercedes","Volvo"],
-      "Spare Parts": ["Bosch","Denso","ACDelco"]
+      Cars: ["Toyota","Honda","Ford","BMW","Mercedes","Hyundai","Kia","Nissan"],
+      Motorcycles: ["Honda","Yamaha","Suzuki","KTM","Bajaj"],
+      Trucks: ["Volvo","Mercedes","MAN","Scania"],
+      Buses: ["Mercedes","Volvo","Scania","Iveco"],
+      "Spare Parts": ["Bosch","Denso","ACDelco","Valeo"]
     },
     models: {},
     options: {
       fuelTypes: ["Petrol","Diesel","Electric","Hybrid"],
       transmissions: ["Manual","Automatic","CVT"],
-      features: ["Air Conditioning","GPS","Sunroof","Leather Seats"]
+      features: ["Air Conditioning","GPS","Sunroof","Leather Seats","Bluetooth","Parking Sensors"]
     }
   },
 
   Electronics: {
-    subcategories: ["Laptops","TVs","Gaming","Cameras"],
+    subcategories: ["Laptops & Computers","TVs & DVD","Gaming Consoles","Cameras & Photo"],
     brands: {},
     models: {},
     options: {}
   },
 
   Property: {
-    subcategories: ["Houses","Apartments","Land"],
+    subcategories: ["Houses","Apartments & Flats","Land","Commercial Property","Vacation Rentals"],
+    brands: {},
+    models: {},
+    options: {}
+  },
+
+  "Home, Furniture & Appliances": {
+    subcategories: ["Furniture","Kitchen Appliances","Lighting","Decor","Cleaning Supplies"],
+    brands: {},
+    models: {},
+    options: {}
+  },
+
+  Fashion: {
+    subcategories: ["Clothing","Shoes","Accessories","Bags","Jewelry"],
+    brands: {},
+    models: {},
+    options: {}
+  },
+
+  "Beauty & Personal Care": {
+    subcategories: ["Cosmetics","Hair Care","Skincare","Fragrances"],
     brands: {},
     models: {},
     options: {}
