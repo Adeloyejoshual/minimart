@@ -10,7 +10,6 @@ import categoryRules from "../config/categoryRules";
 import { locationsByState } from "../config/locationsByState";
 import { promotionPlans } from "../config/promotionPlans";
 import conditionConfig from "../config/conditions";
-import phoneModels from "../config/phoneModels";
 
 import AddProductCategory from "../components/AddProductCategory";
 import AddProductPromotion from "../components/AddProductPromotion";
@@ -174,16 +173,41 @@ export default function AddProduct() {
 
   // ---------------- Derived Options ----------------
   const getSubcategories = () => categoriesData[form.mainCategory]?.subcategories || [];
-  const getBrandOptions = () => form.subCategory ? categoriesData[form.mainCategory]?.brands?.[form.subCategory] || [] : [];
-  const getModelOptions = () => {
-    if (form.mainCategory === "Mobile Phones & Tablets" && form.subCategory === "Mobile Phones") {
-      return phoneModels[form.brand] || [];
-    }
-    return categoriesData[form.mainCategory]?.models?.[form.brand] || [];
-  };
+  const getBrandOptions = () => form.subCategory ? Object.keys(categoriesData[form.mainCategory]?.brands?.[form.subCategory] || {}) : [];
+  const getModelOptions = () => form.subCategory && form.brand ? categoriesData[form.mainCategory]?.models?.[form.brand] || [] : [];
   const getStateOptions = () => Object.keys(locationsByState);
   const getCityOptions = () => form.state ? locationsByState[form.state] : [];
   const getExtraOptions = field => categoriesData[form.mainCategory]?.options?.[field] || [];
+
+  // ---------------- FullPage Selectors ----------------
+  if (selectionStep) {
+    const fullPageProps = { form, updateForm, setSelectionStep, scrollPos };
+    switch (selectionStep) {
+      case "subCategory":
+        return <SingleSelectList title="Select Subcategory" options={getSubcategories()} valueKey="subCategory" {...fullPageProps} />;
+      case "brand":
+        return <SingleSelectList title="Select Brand" options={getBrandOptions()} valueKey="brand" {...fullPageProps} />;
+      case "model":
+        return <SingleSelectList title="Select Model" options={getModelOptions()} valueKey="model" {...fullPageProps} />;
+      case "condition":
+        return <SingleSelectList title="Select Condition" options={conditionConfig[form.mainCategory]?.main || ["New","Used"]} valueKey="condition" {...fullPageProps} />;
+      case "usedDetail":
+        return <SingleSelectList title="Select Used Detail" options={conditionConfig[form.mainCategory]?.usedDetails || ["No defects"]} valueKey="usedDetail" {...fullPageProps} />;
+      case "colors":
+        return <SingleSelectList title="Select Color" options={getExtraOptions("colors")} valueKey="color" {...fullPageProps} />;
+      case "storage":
+        return <SingleSelectList title="Select Storage" options={getExtraOptions("storage")} valueKey="storage" {...fullPageProps} />;
+      case "simTypes":
+        return <SingleSelectList title="Select SIM Type" options={getExtraOptions("simTypes")} valueKey="simType" {...fullPageProps} />;
+      case "features":
+        return <MultiSelectList title="Select Features" options={getExtraOptions("features")} valueKey="features" {...fullPageProps} />;
+      case "state":
+        return <SingleSelectList title="Select State" options={getStateOptions()} valueKey="state" {...fullPageProps} />;
+      case "city":
+        return <SingleSelectList title="Select City / LGA" options={getCityOptions()} valueKey="city" {...fullPageProps} />;
+      default: break;
+    }
+  }
 
   // ---------------- Promotion Handler ----------------
   const handlePromotionClick = plan => updateForm("promotionPlan", plan);
@@ -195,6 +219,7 @@ export default function AddProduct() {
 
     try {
       setLoading(true);
+
       const uploadedImages = await Promise.all(form.images.map(img => uploadToCloudinary(img)));
 
       const productData = {
@@ -206,6 +231,7 @@ export default function AddProduct() {
 
       await addDoc(collection(db, "products"), productData);
 
+      // Clear draft & reset
       localStorage.removeItem(DRAFT_KEY);
       localStorage.removeItem(CATEGORY_KEY);
       setForm({
@@ -234,7 +260,7 @@ export default function AddProduct() {
       });
 
       showToast("Product successfully uploaded!", "✅");
-navigate("/"); // go to homepage
+      navigate(`/`); // <-- redirect to homepage
     } catch (err) {
       console.error(err);
       showToast("Failed to upload product.", "❌");
@@ -243,53 +269,14 @@ navigate("/"); // go to homepage
     }
   };
 
-  // ---------------- FullPage Selectors ----------------
-  if (selectionStep) {
-    const fullPageProps = { form, updateForm, setSelectionStep, scrollPos };
-    switch (selectionStep) {
-      case "subCategory":
-        return <SingleSelectList title="← Select Subcategory" options={getSubcategories()} valueKey="subCategory" {...fullPageProps} />;
-
-      case "brand":
-        return <SingleSelectList title="← Select Brand" options={getBrandOptions()} valueKey="brand" {...fullPageProps} />;
-
-      case "model":
-        return <SingleSelectList title="← Select Model" options={getModelOptions()} valueKey="model" {...fullPageProps} />;
-
-      case "condition":
-        return <SingleSelectList title="← Select Condition" options={conditionConfig[form.mainCategory]?.main || ["New","Used"]} valueKey="condition" {...fullPageProps} />;
-
-      case "usedDetail":
-        return <SingleSelectList title="← Select Used Detail" options={conditionConfig[form.mainCategory]?.usedDetails || ["No defects"]} valueKey="usedDetail" {...fullPageProps} />;
-
-      case "colors":
-        return <SingleSelectList title="← Select Color" options={getExtraOptions("colors")} valueKey="color" {...fullPageProps} />;
-
-      case "storage":
-        return <SingleSelectList title="← Select Storage" options={getExtraOptions("storage")} valueKey="storage" {...fullPageProps} />;
-
-      case "simTypes":
-        return <SingleSelectList title="← Select SIM Type" options={getExtraOptions("simTypes")} valueKey="simType" {...fullPageProps} />;
-
-      case "features":
-        return <MultiSelectList title="← Select Features" options={getExtraOptions("features")} valueKey="features" {...fullPageProps} />;
-
-      case "state":
-        return <SingleSelectList title="← Select State" options={getStateOptions()} valueKey="state" {...fullPageProps} />;
-
-      case "city":
-        return <SingleSelectList title="← Select City / LGA" options={getCityOptions()} valueKey="city" {...fullPageProps} />;
-
-      default: break;
-    }
-  }
-
   // ---------------- Main Form ----------------
+  const isDependentDisabled = !form.brand || !form.model || !form.condition;
+
   return (
     <div className="add-product-container">
       {/* HEADER */}
       <div className="add-product-header">
-        <button className="back-btn" onClick={() => navigate(`/${marketType}`)}>←</button>
+        <button className="back-btn" onClick={() => navigate(`/`)}>←</button>
         <span className="page-title">Add Product</span>
       </div>
 
@@ -306,13 +293,22 @@ navigate("/"); // go to homepage
       <AddProductCategory
         form={form}
         handleCategoryChange={handleCategoryChange}
-        openSubCategorySelector={() => { scrollPos.current = window.scrollY; setSelectionStep("subCategory"); }}
+        openSubCategorySelector={() => {
+          scrollPos.current = window.scrollY;
+          setSelectionStep("subCategory");
+        }}
       />
 
       {/* BRAND */}
       {form.subCategory && getBrandOptions().length > 0 && (
         <Field label="Brand">
-          <div className="option-item clickable" onClick={() => { scrollPos.current = window.scrollY; setSelectionStep("brand"); }}>
+          <div
+            className="option-item clickable"
+            onClick={() => {
+              scrollPos.current = window.scrollY;
+              setSelectionStep("brand");
+            }}
+          >
             {form.brand || "Select Brand"}
           </div>
         </Field>
@@ -321,7 +317,13 @@ navigate("/"); // go to homepage
       {/* MODEL */}
       {form.brand && getModelOptions().length > 0 && (
         <Field label="Model / Type">
-          <div className="option-item clickable" onClick={() => { scrollPos.current = window.scrollY; setSelectionStep("model"); }}>
+          <div
+            className="option-item clickable"
+            onClick={() => {
+              scrollPos.current = window.scrollY;
+              setSelectionStep("model");
+            }}
+          >
             {form.model || "Select Model"}
           </div>
         </Field>
@@ -330,14 +332,23 @@ navigate("/"); // go to homepage
       {/* CONDITION */}
       <AddProductCondition
         form={form}
-        openConditionSelector={() => { scrollPos.current = window.scrollY; setSelectionStep("condition"); }}
-        openUsedDetailSelector={() => { scrollPos.current = window.scrollY; setSelectionStep("usedDetail"); }}
+        openConditionSelector={() => {
+          scrollPos.current = window.scrollY;
+          setSelectionStep("condition");
+        }}
+        openUsedDetailSelector={() => {
+          scrollPos.current = window.scrollY;
+          setSelectionStep("usedDetail");
+        }}
       />
 
       {/* COLOR */}
       {getExtraOptions("colors").length > 0 && (
         <Field label="Color">
-          <div className="option-item clickable" onClick={() => { scrollPos.current = window.scrollY; setSelectionStep("colors"); }}>
+          <div
+            className={`option-item clickable ${isDependentDisabled ? "blurred" : ""}`}
+            onClick={() => !isDependentDisabled && setSelectionStep("colors")}
+          >
             {form.color || "Select Color"}
           </div>
         </Field>
@@ -346,7 +357,10 @@ navigate("/"); // go to homepage
       {/* STORAGE */}
       {getExtraOptions("storage").length > 0 && (
         <Field label="Storage">
-          <div className="option-item clickable" onClick={() => { scrollPos.current = window.scrollY; setSelectionStep("storage"); }}>
+          <div
+            className={`option-item clickable ${isDependentDisabled ? "blurred" : ""}`}
+            onClick={() => !isDependentDisabled && setSelectionStep("storage")}
+          >
             {form.storage || "Select Storage"}
           </div>
         </Field>
@@ -355,7 +369,10 @@ navigate("/"); // go to homepage
       {/* SIM TYPE */}
       {getExtraOptions("simTypes").length > 0 && (
         <Field label="SIM Type">
-          <div className="option-item clickable" onClick={() => { scrollPos.current = window.scrollY; setSelectionStep("simTypes"); }}>
+          <div
+            className={`option-item clickable ${isDependentDisabled ? "blurred" : ""}`}
+            onClick={() => !isDependentDisabled && setSelectionStep("simTypes")}
+          >
             {form.simType || "Select SIM Type"}
           </div>
         </Field>
@@ -364,7 +381,10 @@ navigate("/"); // go to homepage
       {/* FEATURES */}
       {getExtraOptions("features").length > 0 && (
         <Field label="Features">
-          <div className="option-item clickable" onClick={() => { scrollPos.current = window.scrollY; setSelectionStep("features"); }}>
+          <div
+            className={`option-item clickable ${isDependentDisabled ? "blurred" : ""}`}
+            onClick={() => !isDependentDisabled && setSelectionStep("features")}
+          >
             {form.features.length > 0 ? form.features.join(", ") : "Select Features"}
           </div>
         </Field>
@@ -372,14 +392,18 @@ navigate("/"); // go to homepage
 
       {/* DESCRIPTION */}
       <Field label="Description">
-        <textarea value={form.description} onChange={e => updateForm("description", e.target.value)} placeholder="Write a detailed description of your product..." />
+        <textarea
+          value={form.description}
+          onChange={e => updateForm("description", e.target.value)}
+          placeholder="Write a detailed description of your product..."
+        />
       </Field>
 
       {/* LOCATION */}
       <AddProductLocation
         form={form}
-        openStateSelector={() => { scrollPos.current = window.scrollY; setSelectionStep("state"); }}
-        openCitySelector={() => { scrollPos.current = window.scrollY; setSelectionStep("city"); }}
+        openStateSelector={() => setSelectionStep("state")}
+        openCitySelector={() => setSelectionStep("city")}
       />
 
       {/* PRICE */}
@@ -389,7 +413,12 @@ navigate("/"); // go to homepage
 
       {/* PHONE */}
       <Field label="Phone Number">
-        <input type="tel" value={form.phone} onChange={e => updateForm("phone", e.target.value)} placeholder="08012345678" />
+        <input
+          type="tel"
+          value={form.phone}
+          onChange={e => updateForm("phone", e.target.value)}
+          placeholder="08012345678"
+        />
       </Field>
 
       {/* IMAGES */}
