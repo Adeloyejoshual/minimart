@@ -4,55 +4,49 @@ import "./SlideMenu.css";
 
 export default function SlideMenu({ isOpen, onClose }) {
   const navigate = useNavigate();
+
   const [cartCount, setCartCount] = useState(0);
-  const [prevCartCount, setPrevCartCount] = useState(0);
-  const [selectedLocation, setSelectedLocation] = useState(null);
   const [unreadMessages, setUnreadMessages] = useState(0);
-  const [prevUnread, setPrevUnread] = useState(0);
+  const [selectedLocation, setSelectedLocation] = useState(null);
 
   const [cartAnimate, setCartAnimate] = useState(false);
   const [msgAnimate, setMsgAnimate] = useState(false);
 
+  // Load localStorage data
   const loadData = () => {
     const cart = JSON.parse(localStorage.getItem("cart")) || [];
-    if (cart.length > cartCount) setCartAnimate(true);
-    setPrevCartCount(cartCount);
-    setCartCount(cart.length);
-
-    const stored = localStorage.getItem("selectedLocation");
-    if (stored) setSelectedLocation(JSON.parse(stored));
-
     const messages = JSON.parse(localStorage.getItem("messages")) || [];
     const unread = messages.filter((msg) => !msg.read).length;
+    const storedLocation = localStorage.getItem("selectedLocation");
+
+    // Trigger pulse if count increases
+    if (cart.length > cartCount) setCartAnimate(true);
     if (unread > unreadMessages) setMsgAnimate(true);
-    setPrevUnread(unreadMessages);
+
+    setCartCount(cart.length);
     setUnreadMessages(unread);
+    if (storedLocation) setSelectedLocation(JSON.parse(storedLocation));
   };
 
   useEffect(() => {
     if (isOpen) loadData();
-  }, [isOpen]);
 
-  useEffect(() => {
-    const handleStorageChange = (e) => {
-      if (["cart", "messages", "selectedLocation"].includes(e.key)) {
-        loadData();
-      }
-    };
-    window.addEventListener("storage", handleStorageChange);
-    return () => window.removeEventListener("storage", handleStorageChange);
-  }, []);
+    // Live updates every 500ms
+    const interval = setInterval(loadData, 500);
+    return () => clearInterval(interval);
+  }, [isOpen, cartCount, unreadMessages]);
 
+  // Remove pulse animation after complete
   useEffect(() => {
     if (cartAnimate) {
-      const timer = setTimeout(() => setCartAnimate(false), 500);
+      const timer = setTimeout(() => setCartAnimate(false), 700);
       return () => clearTimeout(timer);
     }
   }, [cartAnimate]);
 
   useEffect(() => {
     if (msgAnimate) {
-      const timer = setTimeout(() => setMsgAnimate(false), 500);
+      const timer = setTimeout(() => setMsgAnimate(false), 700);
       return () => clearTimeout(timer);
     }
   }, [msgAnimate]);
@@ -65,44 +59,46 @@ export default function SlideMenu({ isOpen, onClose }) {
         <div className="menu-scroll">
           {/* Home */}
           <div className="menu-item" onClick={() => { navigate("/minimart"); onClose(); }}>
-            🏠 Home
+            <span className="menu-icon">🏠</span> Home
           </div>
 
           {/* Region */}
           <div className="menu-item" onClick={() => { navigate("/select-location"); onClose(); }}>
-            📍 {selectedLocation ? `${selectedLocation.state}, ${selectedLocation.city}` : "Select Region"}
+            <span className="menu-icon">📍</span> {selectedLocation ? `${selectedLocation.state}, ${selectedLocation.city}` : "Select Region"}
           </div>
 
           {/* Price Filters */}
           <div className="menu-item" onClick={() => { navigate("/price-filters"); onClose(); }}>
-            💲 Price Filters
+            <span className="menu-icon">💲</span> Price Filters
           </div>
 
           {/* Post Product */}
           <div className="menu-item" onClick={() => { navigate("/add-product"); onClose(); }}>
-            📝 Post Product
+            <span className="menu-icon">📝</span> Post Product
           </div>
 
           {/* Saved Items */}
           <div className="menu-item" onClick={() => { navigate("/saved-items"); onClose(); }}>
-            💾 Saved
+            <span className="menu-icon">💾</span> Saved
           </div>
 
           {/* Cart */}
-          <div className="menu-item" onClick={() => { navigate("/cart"); onClose(); }}>
-            🛒 Cart
-            {cartCount > 0 && <span className={`badge ${cartAnimate ? "animate-badge" : ""}`}>{cartCount}</span>}
+          <div className={`menu-item ${cartAnimate ? "pulse" : ""} ${cartCount > 0 ? "continuous-pulse" : ""}`} 
+               onClick={() => { navigate("/cart"); onClose(); }}>
+            <span className="menu-icon">🛒</span> Cart
+            {cartCount > 0 && <span className={`badge ${cartAnimate ? "pulse" : ""}`}>{cartCount}</span>}
           </div>
 
           {/* Messages */}
-          <div className="menu-item" onClick={() => { navigate("/messages"); onClose(); }}>
-            💬 Messages
-            {unreadMessages > 0 && <span className={`badge ${msgAnimate ? "animate-badge" : ""}`}>{unreadMessages}</span>}
+          <div className={`menu-item ${msgAnimate ? "pulse" : ""} ${unreadMessages > 0 ? "continuous-pulse" : ""}`} 
+               onClick={() => { navigate("/messages"); onClose(); }}>
+            <span className="menu-icon">💬</span> Messages
+            {unreadMessages > 0 && <span className={`badge ${msgAnimate ? "pulse" : ""}`}>{unreadMessages}</span>}
           </div>
 
           {/* Account */}
           <div className="menu-item" onClick={() => { navigate("/profile"); onClose(); }}>
-            👤 Account
+            <span className="menu-icon">👤</span> Account
           </div>
         </div>
       </div>
