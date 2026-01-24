@@ -234,7 +234,7 @@ export default function AddProduct() {
       });
 
       showToast("Product successfully uploaded!", "✅");
-      navigate(`/${marketType}`);
+navigate("/"); // go to homepage
     } catch (err) {
       console.error(err);
       showToast("Failed to upload product.", "❌");
