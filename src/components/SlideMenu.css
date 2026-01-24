@@ -1,3 +1,31 @@
+@keyframes bounce {
+  0%   { transform: scale(1); }
+  25%  { transform: scale(1.3); }
+  50%  { transform: scale(1); }
+  75%  { transform: scale(1.2); }
+  100% { transform: scale(1); }
+}
+
+@keyframes pulse {
+  0%   { transform: scale(1); opacity: 1; }
+  50%  { transform: scale(1.2); opacity: 0.8; }
+  100% { transform: scale(1); opacity: 1; }
+}
+
+@keyframes continuous-pulse {
+  0%   { transform: scale(1); opacity: 1; }
+  50%  { transform: scale(1.1); opacity: 0.9; }
+  100% { transform: scale(1); opacity: 1; }
+}
+
+.pulse {
+  animation: pulse 0.7s ease-in-out;
+}
+
+.continuous-pulse {
+  animation: continuous-pulse 1.2s ease-in-out infinite;
+}
+
 .slide-menu {
   position: fixed;
   top: 0;
@@ -15,13 +43,18 @@
 }
 
 .slide-menu-content {
-  width: 250px;
+  width: 280px;
   height: 100%;
   background-color: #f8fafd;
   padding: 20px;
   box-shadow: 2px 0 8px rgba(0, 0, 0, 0.2);
   display: flex;
   flex-direction: column;
+}
+
+.menu-scroll {
+  overflow-y: auto;
+  flex: 1;
 }
 
 .close-btn {
@@ -41,10 +74,22 @@
   cursor: pointer;
   position: relative;
   border-bottom: 1px solid #ddd;
+  display: flex;
+  align-items: center;
+  transition: transform 0.2s ease, color 0.2s ease;
 }
 
 .menu-item:hover {
   color: #4da6ff;
+  transform: scale(1.05);
+}
+
+.menu-icon {
+  margin-right: 12px;
+  font-size: 18px;
+  color: #4da6ff;
+  width: 24px;
+  text-align: center;
 }
 
 .badge {
