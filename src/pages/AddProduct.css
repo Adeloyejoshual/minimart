@@ -238,6 +238,62 @@
   align-items: center;
 }
 
+/* -------------------- Promotion Plans -------------------- */
+.promo-section {
+  margin-top: 20px;
+}
+
+.promo-plans {
+  display: flex;
+  gap: 14px;
+  overflow-x: auto;
+  padding-bottom: 8px;
+  -webkit-overflow-scrolling: touch;
+  scroll-behavior: smooth;
+  scroll-snap-type: x mandatory;
+}
+
+.promo-card {
+  min-width: 140px;
+  background: #fff;
+  border: 2px solid #d0e2ff;
+  border-radius: 8px;
+  padding: 14px;
+  text-align: center;
+  cursor: pointer;
+  transition: all 0.25s ease;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  position: relative;
+  scroll-snap-align: center;
+}
+
+.promo-card.active {
+  border-color: #0d6efd;
+  background: #dbe9ff;
+  box-shadow: 0 6px 18px rgba(13,110,253,0.2);
+}
+
+.promo-card.popular {
+  transform: scale(1.08);
+  border-color: #0d6efd;
+  box-shadow: 0 10px 28px rgba(13,110,253,0.25);
+  z-index: 2;
+}
+
+.promo-card h4 { font-size: 16px; font-weight: 700; }
+.promo-card .price { font-size: 16px; font-weight: 700; color: #0d6efd; }
+.promo-card .old-price { text-decoration: line-through; color: #888; font-size: 14px; }
+.promo-card p { font-size: 13px; font-weight: 600; color: #333; }
+
+.plan-icon-bottom {
+  font-size: 28px;
+  margin-top: auto;
+  display: flex;
+  justify-content: center;
+}
+
 /* -------------------- Submit Button -------------------- */
 .btn {
   width: 100%;
