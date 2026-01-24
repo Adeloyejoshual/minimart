@@ -1,7 +1,15 @@
-// src/pages/ProductDetail.jsx
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useState, useMemo } from "react";
 import { useParams, useNavigate } from "react-router-dom";
-import { doc, getDoc, collection, query, where, getDocs } from "firebase/firestore";
+import {
+  doc,
+  getDoc,
+  collection,
+  query,
+  where,
+  getDocs,
+  addDoc,
+  serverTimestamp,
+} from "firebase/firestore";
 import { db, auth } from "../firebase";
 import { promotionPlans } from "../config/promotionPlans";
 import "./ProductDetail.css";
@@ -17,198 +25,203 @@ export default function ProductDetail() {
   const [newComment, setNewComment] = useState("");
   const [newRating, setNewRating] = useState(5);
   const [imageIndex, setImageIndex] = useState(0);
-  const [hasNewMessages, setHasNewMessages] = useState(false);
+  const [hasNewMessages] = useState(false);
 
-  // ---------------- Load Product ----------------
+  /* ---------------- Load Product ---------------- */
   useEffect(() => {
     const loadProduct = async () => {
-      const docRef = doc(db, "products", productId);
-      const docSnap = await getDoc(docRef);
-      if (docSnap.exists()) {
-        const data = { id: docSnap.id, ...docSnap.data() };
-        // Attach promotion details if promoted
-        if (data.isPromoted) {
-          data.promotion = promotionPlans.find(p => p.id === data.promotionPlanId);
-        }
-        setProduct(data);
-      } else {
-        alert("Product not found");
-        navigate("/minimart");
+      const snap = await getDoc(doc(db, "products", productId));
+      if (!snap.exists()) return navigate(-1);
+
+      const data = { id: snap.id, ...snap.data() };
+
+      if (data.isPromoted && data.promotionPlanId) {
+        data.promotion = promotionPlans.find(p => p.id === data.promotionPlanId);
       }
+
+      setProduct(data);
     };
+
     loadProduct();
   }, [productId, navigate]);
 
-  // ---------------- Similar Products ----------------
+  /* ---------------- Load Similar Products ---------------- */
   useEffect(() => {
-    if (!product) return;
+    if (!product?.mainCategory) return;
+
     const loadSimilar = async () => {
       const q = query(
         collection(db, "products"),
-        where("mainCategory", "==", product.mainCategory),
-        where("id", "!=", product.id)
+        where("mainCategory", "==", product.mainCategory)
       );
+
       const snap = await getDocs(q);
-      setSimilarProducts(snap.docs.map(d => ({ id: d.id, ...d.data() })).slice(0, 10));
+      const list = snap.docs
+        .map(d => ({ id: d.id, ...d.data() }))
+        .filter(p => p.id !== product.id)
+        .slice(0, 10);
+
+      setSimilarProducts(list);
     };
+
     loadSimilar();
   }, [product]);
 
-  // ---------------- Load Comments ----------------
+  /* ---------------- Load Comments ---------------- */
   useEffect(() => {
     if (!product) return;
+
     const loadComments = async () => {
       const q = query(collection(db, "comments"), where("productId", "==", product.id));
       const snap = await getDocs(q);
       setComments(snap.docs.map(d => ({ id: d.id, ...d.data() })));
     };
+
     loadComments();
   }, [product]);
 
-  if (!product) return <p style={{ textAlign: "center" }}>Loading product...</p>;
+  /* ---------------- Helpers ---------------- */
+  const images = useMemo(() => {
+    if (!product) return [];
+    return product.images?.length ? product.images : [product.coverImage];
+  }, [product]);
 
-  // ---------------- Handlers ----------------
-  const handleStartChat = () => {
+  const avgRating = useMemo(() => {
+    if (!comments.length) return 0;
+    return comments.reduce((a, b) => a + (b.rating || 0), 0) / comments.length;
+  }, [comments]);
+
+  const formatStars = rating => {
+    const full = Math.floor(rating);
+    const half = rating % 1 >= 0.5;
+    return "★".repeat(full) + (half ? "½" : "") + "☆".repeat(5 - full - (half ? 1 : 0));
+  };
+
+  /* ---------------- Actions ---------------- */
+  const startChat = () => {
     if (!currentUser || currentUser.uid === product.ownerId) return;
-    navigate(`/chat/${product.ownerId}?product=${productId}&productName=${encodeURIComponent(product.title)}`);
+    navigate(`/chat/${product.ownerId}?product=${productId}`);
   };
 
-  const handleQuickMessage = () => {
-    if (!currentUser) return alert("Login to send message");
-    navigate(`/chat/${product.ownerId}?product=${productId}&productName=${encodeURIComponent(product.title)}&quick=1`);
+  const quickMessage = () => {
+    if (!currentUser) return alert("Login required");
+    navigate(`/chat/${product.ownerId}?product=${productId}&quick=1`);
   };
 
-  const handleShare = () => {
+  const shareProduct = () => {
     if (navigator.share) {
       navigator.share({
         title: product.title,
-        text: `Check out this product: ${product.title}`,
+        text: product.title,
         url: window.location.href,
-      }).catch(err => console.log(err));
+      });
     } else {
       navigator.clipboard.writeText(window.location.href);
-      alert("Link copied to clipboard!");
+      alert("Link copied!");
     }
   };
 
-  const handleCommentSubmit = async () => {
-    if (!newComment) return alert("Enter a comment");
-    setComments(prev => [
-      ...prev,
-      { userName: currentUser.displayName, text: newComment, rating: newRating },
-    ]);
+  const submitComment = async () => {
+    if (!newComment.trim()) return;
+    await addDoc(collection(db, "comments"), {
+      productId: product.id,
+      userId: currentUser.uid,
+      userName: currentUser.displayName || "User",
+      text: newComment,
+      rating: newRating,
+      createdAt: serverTimestamp(),
+    });
+    setComments(prev => [...prev, { userName: currentUser.displayName, text: newComment, rating: newRating }]);
     setNewComment("");
     setNewRating(5);
   };
 
-  const formatStars = rating => {
-    const full = Math.floor(rating);
-    const half = rating - full >= 0.5;
-    return "★".repeat(full) + (half ? "½" : "") + "☆".repeat(5 - full - (half ? 1 : 0));
-  };
+  if (!product) return <p className="loading">Loading product...</p>;
 
+  /* ---------------- UI ---------------- */
   return (
     <div className="product-detail-container">
 
-      {/* ---------------- Header ---------------- */}
+      {/* Header */}
       <div className="sticky-header">
         <button className="back-btn" onClick={() => navigate(-1)}>←</button>
         <span className="header-title">{product.title}</span>
-        <button className="share-btn" onClick={handleShare}>🔗</button>
+        <button className="share-btn" onClick={shareProduct}>⤴</button>
       </div>
 
-      {/* ---------------- Scrollable Content ---------------- */}
       <div className="scrollable-content">
 
-        {/* ---------------- Product Card ---------------- */}
+        {/* Product Card */}
         <div className="product-card">
           <div className="product-images">
-            <img src={product.images[imageIndex] || product.coverImage} alt={product.title} />
-            {product.images.length > 1 && (
-              <span className="image-counter">{imageIndex + 1}/{product.images.length}</span>
+            <img src={images[imageIndex]} alt="" />
+            {images.length > 1 && (
+              <span className="image-counter">{imageIndex + 1}/{images.length}</span>
             )}
-            {product.isPromoted && <span className="promo-badge">{product.promotion?.label}</span>}
+            {product.promotion && <span className="promo-badge">{product.promotion.icon} {product.promotion.label}</span>}
             {product.sold && <span className="sold-badge">SOLD</span>}
           </div>
 
           <h2 className="product-title">{product.title}</h2>
-          <p className="product-price">₦{product.price.toLocaleString()}</p>
-          <p className="product-meta">
-            Category: <b>{product.mainCategory} / {product.subCategory}</b> | Market: <b>{product.marketType}</b>
-          </p>
+          <p className="product-price">₦{product.price?.toLocaleString()}</p>
+          <p className="product-meta">{product.mainCategory} / {product.subCategory}</p>
+          <p className="product-meta">📍 {product.state}, {product.city}</p>
           <p className="product-meta">📞 {product.phone || "Not provided"}</p>
 
           {product.marketType === "marketplace" && currentUser?.uid !== product.ownerId && (
             <div className="product-actions">
-              <button className="chat-btn" onClick={handleStartChat}>
+              <button className="chat-btn" onClick={startChat}>
                 💬 Chat Seller {hasNewMessages && <span className="chat-badge">●</span>}
               </button>
-              <button className="quick-msg-btn" onClick={handleQuickMessage}>⚡ Is it available?</button>
-              <p className="seller-reply-hint">Typically replies in a few mins</p>
+              <button className="quick-msg-btn" onClick={quickMessage}>Is it available?</button>
+              <p className="seller-reply-hint">Seller typically replies within minutes</p>
             </div>
           )}
         </div>
 
-        {/* ---------------- Product Specs ---------------- */}
-        {product.specs && Object.keys(product.specs).length > 0 && (
-          <div className="product-specs-card">
-            <h3>Product Specs</h3>
-            <div className="specs-grid">
-              {Object.entries(product.specs).map(([key, val]) => (
-                <div className="spec-item" key={key}>
-                  <span className="spec-key">{key}</span>
-                  <span className="spec-value">{val}</span>
-                </div>
-              ))}
-            </div>
-          </div>
-        )}
-
-        {/* ---------------- Seller Card ---------------- */}
-        <div className="seller-card">
-          <strong>{product.ownerName}</strong> {product.ownerVerified && "✅"}<br/>
-          📞 {product.phone || "Not provided"}<br/>
-          Years active: {product.yearsActive > 5 ? "+5 years" : product.yearsActive}<br/>
-          Ads posted: {product.totalAds || 0}<br/>
-          Avg rating: {product.avgRating?.toFixed(1) || 0} ⭐<br/>
-          Least comments: {product.totalComments || 0}<br/>
-          Safety tips: Always meet in public<br/>
-          {currentUser?.uid === product.ownerId && <button className="btn">Post a Product</button>}
+        {/* Rating */}
+        <div className="rating-summary">
+          <h3>{formatStars(avgRating)} ({comments.length} reviews)</h3>
         </div>
 
-        {/* ---------------- Comments Section ---------------- */}
+        {/* Seller Card */}
+        <div className="seller-card">
+          <strong>{product.ownerName}</strong> {product.ownerVerified && "✔"}
+          <p>Ads posted: {product.totalAds || 0}</p>
+          <p>Years active: {product.yearsActive > 5 ? "+5 years" : product.yearsActive || 1}</p>
+          <p>📞 {product.phone || "Not provided"}</p>
+        </div>
+
+        {/* Comments */}
         <div className="comments-section">
-          <h3>Reviews ({comments.length})</h3>
+          <h3>Reviews</h3>
           {comments.map(c => (
             <div key={c.id} className="comment-box">
-              <span className="user-name">{c.userName}</span> - <span className="comment-rating">{formatStars(c.rating)}</span>
+              <strong>{c.userName}</strong>
+              <span>{formatStars(c.rating)}</span>
               <p>{c.text}</p>
             </div>
           ))}
 
           {currentUser && (
             <div className="new-comment">
-              <textarea placeholder="Write a comment..." value={newComment} onChange={e => setNewComment(e.target.value)} />
-              <input type="number" min={1} max={5} value={newRating} onChange={e => setNewRating(Number(e.target.value))} />
-              <button onClick={handleCommentSubmit}>Post</button>
+              <textarea value={newComment} onChange={e => setNewComment(e.target.value)} placeholder="Write a review..." />
+              <input type="number" min="1" max="5" value={newRating} onChange={e => setNewRating(Number(e.target.value))} />
+              <button onClick={submitComment}>Post Review</button>
             </div>
           )}
         </div>
 
-        {/* ---------------- Similar Products ---------------- */}
+        {/* Similar Products */}
         {similarProducts.length > 0 && (
           <div className="similar-products">
             <h3>Similar Products</h3>
             <div className="similar-products-list">
               {similarProducts.map(p => (
                 <div key={p.id} className="similar-product-card" onClick={() => navigate(`/product/${p.id}`)}>
-                  <img src={p.coverImage} alt={p.title} />
-                  {p.isPromoted && <span className="promo-badge">{promotionPlans.find(plan => plan.id === p.promotionPlanId)?.label}</span>}
-                  {p.sold && <span className="sold-badge">SOLD</span>}
-                  <div className="card-info">
-                    <p className="card-title">{p.title}</p>
-                    <p className="card-price">₦{p.price.toLocaleString()}</p>
-                  </div>
+                  <img src={p.coverImage} alt="" />
+                  <p className="card-title">{p.title}</p>
+                  <p className="card-price">₦{p.price?.toLocaleString()}</p>
                 </div>
               ))}
             </div>
@@ -217,17 +230,13 @@ export default function ProductDetail() {
 
       </div>
 
-      {/* ---------------- Sticky Chat Bar ---------------- */}
+      {/* Sticky Bottom Chat */}
       {product.marketType === "marketplace" && currentUser?.uid !== product.ownerId && (
         <div className="sticky-chat-bar">
-          <button className="chat-btn" onClick={handleStartChat}>
-            💬 Chat Seller {hasNewMessages && <span className="chat-badge">●</span>}
-          </button>
-          <button className="quick-msg-btn" onClick={handleQuickMessage}>⚡ Quick Msg</button>
-          <button className="share-btn" onClick={handleShare}>🔗 Share</button>
+          <button onClick={startChat}>Chat Seller</button>
+          <button onClick={quickMessage}>Quick Message</button>
         </div>
       )}
-
     </div>
   );
 }
