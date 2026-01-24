@@ -1,50 +1,54 @@
-import { useEffect, useRef } from "react";
 import { promotionPlans } from "../config/promotionPlans";
+import { useRef } from "react";
 
 export default function AddProductPromotion({ form, onSelectPlan, onTogglePromote }) {
-  const formatPrice = (num) => num?.toLocaleString("en-NG");
-  const plansRef = useRef(null);
+  const promoRef = useRef();
 
-  // Scroll selected plan into center
-  useEffect(() => {
-    if (form.promotionPlan && plansRef.current) {
-      const activeCard = plansRef.current.querySelector(".promo-card.active");
-      if (activeCard) {
-        const container = plansRef.current;
-        const containerWidth = container.offsetWidth;
-        const cardWidth = activeCard.offsetWidth;
-        const cardLeft = activeCard.offsetLeft;
-        const scrollPosition = cardLeft - containerWidth / 2 + cardWidth / 2;
+  const handleSnap = () => {
+    const container = promoRef.current;
+    if (!container) return;
 
-        container.scrollTo({
-          left: scrollPosition,
-          behavior: "smooth",
-        });
+    const cards = Array.from(container.children);
+    const scrollLeft = container.scrollLeft + container.offsetWidth / 2;
+
+    // Find nearest card
+    let nearest = cards[0];
+    let minDist = Math.abs(nearest.offsetLeft + nearest.offsetWidth / 2 - scrollLeft);
+
+    cards.forEach(card => {
+      const dist = Math.abs(card.offsetLeft + card.offsetWidth / 2 - scrollLeft);
+      if (dist < minDist) {
+        nearest = card;
+        minDist = dist;
       }
-    }
-  }, [form.promotionPlan]);
+    });
+
+    // Smooth scroll to center nearest card
+    container.scrollTo({
+      left: nearest.offsetLeft - container.offsetWidth / 2 + nearest.offsetWidth / 2,
+      behavior: "smooth",
+    });
+  };
 
   return (
     <div className="promotion-section">
-      {/* Toggle Promote */}
       <label className="promo-toggle">
         <input
           type="checkbox"
           checked={form.isPromoted}
-          onChange={(e) => onTogglePromote(e.target.checked)}
+          onChange={e => onTogglePromote(e.target.checked)}
         />
         Promote this product
       </label>
 
-      {/* Promotion Plans */}
       {form.isPromoted && (
         <div
           className="promo-plans"
-          ref={plansRef}
-          tabIndex={0}
-          aria-label="Promotion plans scrollable"
+          ref={promoRef}
+          onTouchEnd={handleSnap}  // Snap nearest card on swipe end
+          onMouseUp={handleSnap}   // Snap on desktop drag
         >
-          {promotionPlans.map((plan) => {
+          {promotionPlans.map(plan => {
             const isFree = plan.price === 0;
             const discounted = plan.discountPrice != null && plan.discountPrice < plan.price;
             const active = form.promotionPlan?.id === plan.id;
@@ -56,12 +60,8 @@ export default function AddProductPromotion({ form, onSelectPlan, onTogglePromot
                 onClick={() => onSelectPlan(plan)}
                 role="button"
                 tabIndex={0}
-                onKeyDown={(e) => {
-                  if (e.key === "Enter" || e.key === " ") onSelectPlan(plan);
-                }}
-                aria-pressed={active}
+                onKeyDown={e => (e.key === "Enter" || e.key === " ") && onSelectPlan(plan)}
               >
-                {/* Popular / Discount Badges */}
                 {plan.popular && <span className="badge popular">Popular</span>}
                 {discounted && (
                   <span className="badge discount">
@@ -69,32 +69,25 @@ export default function AddProductPromotion({ form, onSelectPlan, onTogglePromot
                   </span>
                 )}
 
-                {/* Plan Label */}
-                <h4>
-                  {plan.label} {isFree && "(Free)"}
-                </h4>
+                <h4>{plan.label} {isFree && "(Free)"}</h4>
 
-                {/* Price */}
                 {isFree ? (
                   <div className="price">₦0</div>
                 ) : discounted ? (
                   <div className="price-section">
-                    <div className="old-price">₦{formatPrice(plan.price)}</div>
-                    <div className="price">₦{formatPrice(plan.discountPrice)}</div>
+                    <div className="old-price">₦{plan.price.toLocaleString("en-NG")}</div>
+                    <div className="price">₦{plan.discountPrice.toLocaleString("en-NG")}</div>
                   </div>
                 ) : (
-                  <div className="price">₦{formatPrice(plan.price)}</div>
+                  <div className="price">₦{plan.price.toLocaleString("en-NG")}</div>
                 )}
 
-                {/* Duration */}
                 <p>{plan.days} day{plan.days > 1 ? "s" : ""}</p>
 
-                {/* Paid Badge */}
                 {active && form.paymentSuccess && !isFree && (
                   <span className="paid">Paid ✓</span>
                 )}
 
-                {/* Plan Icon at the bottom */}
                 <div className="plan-icon-bottom">{plan.icon}</div>
               </div>
             );
