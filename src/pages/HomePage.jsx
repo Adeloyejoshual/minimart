@@ -1,50 +1,41 @@
 // src/pages/HomePage.jsx
-import { useEffect, useState, useMemo, useCallback } from "react";
-import { collection, getDocs, query, orderBy } from "firebase/firestore";
-import { db } from "../firebase";
+import { useEffect, useState, useRef } from "react";
+import { collection, getDocs, query, orderBy, doc, setDoc, deleteDoc } from "firebase/firestore";
+import { db, auth } from "../firebase";
 import { useNavigate } from "react-router-dom";
+import { useSwipeable } from "react-swipeable";
 import TopNav from "../components/TopNav";
 import PostAdModal from "../components/PostAdModal";
 import categories from "../config/categories";
-import { promotionPlans, getPromotionPlan, getPromotionPrice, isPaidPlan } from "../config/promotionPlans";
+import { promotionPlans } from "../config/promotionPlans";
 
-// ------------------- SHUFFLE FUNCTION -------------------
-const fisherYatesShuffle = (arr) => {
-  const a = [...arr];
-  for (let i = a.length - 1; i > 0; i--) {
-    const j = Math.floor(Math.random() * (i + 1));
-    [a[i], a[j]] = [a[j], a[i]];
-  }
-  return a;
-};
-
-// ------------------- DEBOUNCE HOOK -------------------
-const useDebounce = (value, delay) => {
-  const [debounced, setDebounced] = useState(value);
-  useEffect(() => {
-    const timer = setTimeout(() => setDebounced(value), delay);
-    return () => clearTimeout(timer);
-  }, [value, delay]);
-  return debounced;
-};
-
-// ------------------- HOME PAGE -------------------
 export default function HomePage() {
   const navigate = useNavigate();
 
+  // --- STATE ---
   const [allProducts, setAllProducts] = useState([]);
-  const [selectedCategory, setSelectedCategory] = useState("");
-  const [searchQuery, setSearchQuery] = useState("");
+  const [displayProducts, setDisplayProducts] = useState([]);
   const [trendingProducts, setTrendingProducts] = useState([]);
   const [trendingByCategory, setTrendingByCategory] = useState({});
+  const [selectedCategory, setSelectedCategory] = useState("");
+  const [searchQuery, setSearchQuery] = useState("");
   const [currentSlide, setCurrentSlide] = useState(0);
-  const [loading, setLoading] = useState(true);
-  const [feedLimit, setFeedLimit] = useState(20);
+  const [columns, setColumns] = useState(2);
+  const [favorites, setFavorites] = useState(new Set());
 
-  const debouncedSearch = useDebounce(searchQuery, 400);
+  const sliderRef = useRef(null);
 
-  // ------------------- HELPER: AI TRENDING SCORE -------------------
-  const calculateAIScore = (product) => {
+  const promoPlanIds = promotionPlans.map(p => p.id);
+
+  // --- HELPERS ---
+  const getPromotionPlan = planId => promotionPlans.find(p => p.id === planId);
+
+  const getPromotionPrice = planId => {
+    const plan = getPromotionPlan(planId);
+    return plan ? plan.discountPrice || plan.price : 0;
+  };
+
+  const calculateAIScore = product => {
     const views = product.views || 0;
     const clicks = product.clicks || 0;
     const searches = product.searchHits || 0;
@@ -56,97 +47,133 @@ export default function HomePage() {
     return views * 3 + clicks * 2 + searches + promotionBoost + freshnessBoost;
   };
 
-  // ------------------- LOAD PRODUCTS -------------------
-  const loadProducts = useCallback(async () => {
-    try {
-      setLoading(true);
-      const snap = await getDocs(query(collection(db, "products"), orderBy("createdAt", "desc")));
-      const products = snap.docs.map((d) => ({ id: d.id, ...d.data() }));
-      setAllProducts(products);
+  const shuffleArray = arr => [...arr].sort(() => Math.random() - 0.5);
 
-      // TRENDING
-      const scored = products.map((p) => ({ ...p, trendingScore: calculateAIScore(p) }));
-      setTrendingProducts(scored.sort((a, b) => b.trendingScore - a.trendingScore).slice(0, 8));
+  // --- LOAD PRODUCTS ---
+  const loadProducts = async () => {
+    const snap = await getDocs(query(collection(db, "products"), orderBy("createdAt", "desc")));
+    const products = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+    setAllProducts(products);
 
-      // TRENDING BY CATEGORY
-      const byCategory = {};
-      scored.forEach((p) => {
-        if (!p.category) return;
-        if (!byCategory[p.category]) byCategory[p.category] = [];
-        byCategory[p.category].push(p);
-      });
-      Object.keys(byCategory).forEach((cat) => {
-        byCategory[cat] = byCategory[cat].sort((a, b) => b.trendingScore - a.trendingScore).slice(0, 5);
-      });
-      setTrendingByCategory(byCategory);
-    } catch (err) {
-      console.error("Error loading products:", err);
-    } finally {
-      setLoading(false);
-    }
+    // Trending
+    const scored = products.map(p => ({ ...p, trendingScore: calculateAIScore(p) }));
+    setTrendingProducts(scored.sort((a, b) => b.trendingScore - a.trendingScore).slice(0, 8));
+
+    // Trending by category
+    const byCategory = {};
+    scored.forEach(p => {
+      if (!p.category) return;
+      if (!byCategory[p.category]) byCategory[p.category] = [];
+      byCategory[p.category].push(p);
+    });
+    Object.keys(byCategory).forEach(cat => {
+      byCategory[cat] = byCategory[cat].sort((a, b) => b.trendingScore - a.trendingScore).slice(0, 5);
+    });
+    setTrendingByCategory(byCategory);
+  };
+
+  useEffect(() => { loadProducts(); }, []);
+
+  // --- LOAD FAVORITES ---
+  useEffect(() => {
+    const loadFavorites = async () => {
+      const user = auth.currentUser;
+      if (!user) return;
+      const snap = await getDocs(collection(db, "users", user.uid, "favorites"));
+      const favIds = new Set(snap.docs.map(doc => doc.id));
+      setFavorites(favIds);
+    };
+    loadFavorites();
   }, []);
 
-  useEffect(() => {
-    loadProducts();
-  }, [loadProducts]);
+  // --- TOGGLE FAVORITE ---
+  const toggleFavorite = async (productId) => {
+    const user = auth.currentUser;
+    if (!user) { alert("Please login to save favorites"); return; }
+    const favRef = doc(db, "users", user.uid, "favorites", productId);
 
-  // ------------------- AUTO SLIDER -------------------
-  useEffect(() => {
-    if (!trendingProducts.length) return;
-    const interval = setInterval(() => {
-      setCurrentSlide((prev) => (prev === trendingProducts.length - 1 ? 0 : prev + 1));
-    }, 4000);
-    return () => clearInterval(interval);
-  }, [trendingProducts]);
+    if (favorites.has(productId)) {
+      await deleteDoc(favRef);
+      setFavorites(prev => { const updated = new Set(prev); updated.delete(productId); return updated; });
+    } else {
+      await setDoc(favRef, { productId, savedAt: new Date() });
+      setFavorites(prev => new Set(prev).add(productId));
+    }
+  };
 
-  // ------------------- FILTER + DISPLAY PRODUCTS -------------------
-  const displayProducts = useMemo(() => {
+  // --- RESPONSIVE COLUMNS ---
+  useEffect(() => {
+    const updateColumns = () => {
+      const width = window.innerWidth;
+      if (width < 500) setColumns(1);
+      else setColumns(2);
+    };
+    updateColumns();
+    window.addEventListener("resize", updateColumns);
+    return () => window.removeEventListener("resize", updateColumns);
+  }, []);
+
+  // --- FILTER PRODUCTS ---
+  useEffect(() => {
     let filtered = [...allProducts];
-
-    if (selectedCategory) filtered = filtered.filter((p) => p.category === selectedCategory);
-    if (debouncedSearch.trim()) {
-      const q = debouncedSearch.toLowerCase();
+    if (selectedCategory) filtered = filtered.filter(p => p.category === selectedCategory);
+    if (searchQuery.trim()) {
+      const q = searchQuery.toLowerCase();
       filtered = filtered.filter(
-        (p) =>
-          p.title?.toLowerCase().includes(q) ||
-          p.city?.toLowerCase().includes(q) ||
-          p.state?.toLowerCase().includes(q)
+        p => p.title?.toLowerCase().includes(q) ||
+             p.city?.toLowerCase().includes(q) ||
+             p.state?.toLowerCase().includes(q)
       );
     }
 
-    const promoted = filtered.filter((p) => isPaidPlan(p.promotionPlan));
-    const promotedIds = new Set(promoted.map((p) => p.id));
-    const regular = filtered.filter((p) => !promotedIds.has(p.id));
+    const promoted = filtered.filter(p => promoPlanIds.includes(p.promotionPlan));
+    const promotedIds = new Set(promoted.map(p => p.id));
+    const regular = filtered.filter(p => !promotedIds.has(p.id));
 
-    return [...promoted.slice(0, 5), ...fisherYatesShuffle(regular)].slice(0, feedLimit);
-  }, [allProducts, selectedCategory, debouncedSearch, feedLimit]);
+    setDisplayProducts([...promoted.slice(0, 5), ...shuffleArray(regular)]);
+  }, [allProducts, selectedCategory, searchQuery]);
 
-  // ------------------- RENDER -------------------
+  // --- SWIPE HANDLERS ---
+  const [isDragging, setIsDragging] = useState(false);
+  const handlers = useSwipeable({
+    onSwipedLeft: () => setCurrentSlide(prev => (prev === trendingProducts.length - 1 ? 0 : prev + 1)),
+    onSwipedRight: () => setCurrentSlide(prev => (prev === 0 ? trendingProducts.length - 1 : prev - 1)),
+    onSwipeStart: () => setIsDragging(true),
+    onSwipeEnd: () => setIsDragging(false),
+    preventDefaultTouchmoveEvent: true,
+    trackMouse: true,
+  });
+
+  // --- AUTO SLIDE ---
+  useEffect(() => {
+    if (isDragging || trendingProducts.length === 0) return;
+    const interval = setInterval(() => {
+      setCurrentSlide(prev => (prev === trendingProducts.length - 1 ? 0 : prev + 1));
+    }, 4000);
+    return () => clearInterval(interval);
+  }, [isDragging, trendingProducts]);
+
   return (
     <div style={{ background: "#f4f6f8", minHeight: "100vh", paddingBottom: 50 }}>
       <TopNav />
 
-      {/* POST AD & SEARCH */}
-      <div
-        style={{
-          display: "flex",
-          flexDirection: "column",
-          alignItems: "stretch",
-          maxWidth: 400,
-          margin: "20px auto",
-          gap: 10,
-          padding: "0 10px",
-        }}
-      >
+      {/* POST AD + SEARCH */}
+      <div style={{
+        display: "flex",
+        flexDirection: "column",
+        alignItems: "stretch",
+        maxWidth: 420,
+        margin: "20px auto",
+        gap: 10,
+        padding: "0 12px",
+      }}>
         <PostAdModal />
         <input
           type="text"
           placeholder="Search products..."
           value={searchQuery}
-          onChange={(e) => setSearchQuery(e.target.value)}
-          aria-label="Search products"
+          onChange={e => setSearchQuery(e.target.value)}
           style={{
-            flex: 1,
             padding: "10px 12px",
             borderRadius: 8,
             border: "1px solid #cce0ff",
@@ -155,21 +182,18 @@ export default function HomePage() {
       </div>
 
       {/* CATEGORY FILTER */}
-      <div
-        style={{
-          maxWidth: 400,
-          margin: "10px auto",
-          display: "flex",
-          flexWrap: "wrap",
-          gap: 6,
-          padding: "0 10px",
-        }}
-      >
-        {categories.map((c) => (
+      <div style={{
+        maxWidth: 420,
+        margin: "10px auto",
+        display: "flex",
+        flexWrap: "wrap",
+        gap: 6,
+        padding: "0 12px",
+      }}>
+        {categories.map(c => (
           <button
             key={c.name}
             onClick={() => setSelectedCategory(selectedCategory === c.name ? "" : c.name)}
-            aria-pressed={selectedCategory === c.name}
             style={{
               flex: "1 0 45%",
               padding: "6px 8px",
@@ -182,301 +206,224 @@ export default function HomePage() {
               fontSize: 12,
             }}
           >
-            <span style={{ marginRight: 4 }}>{c.icon}</span>
-            {c.name}
+            <span style={{ marginRight: 4 }}>{c.icon}</span>{c.name}
           </button>
         ))}
       </div>
 
-      {/* 🔥 TRENDING SLIDER */}
+      {/* TRENDING NOW PRO */}
       {trendingProducts.length > 0 && (
-        <section style={{ maxWidth: 400, margin: "20px auto", padding: "0 10px" }}>
-          <h2 style={{ color: "#0D6EFD", fontSize: 16, marginBottom: 10 }}>🔥 Trending Now</h2>
-
-          <div
-            style={{
-              display: "grid",
-              gridTemplateColumns: "repeat(2, 1fr)", // 2-column layout
-              gap: 12,
-            }}
-          >
-            {trendingProducts.map((product) => {
-              const plan = getPromotionPlan(product.promotionPlan);
-              const imageSrc = product.imageUrl || product.images?.[0] || "/placeholder.png";
+        <section style={{ maxWidth: 420, margin: "20px auto", padding: "0 12px" }}>
+          <h2 style={{ color: "#0D6EFD", fontSize: 16, marginBottom: 12 }}>🔥 Trending Now</h2>
+          <div ref={sliderRef} {...handlers} style={{ display: "flex", overflow: "hidden", gap: 12 }}>
+            {trendingProducts.map(p => {
+              const plan = getPromotionPlan(p.promotionPlan);
+              const imageSrc = p.imageUrl || p.images?.[0] || "/placeholder.png";
 
               return (
                 <div
-                  key={product.id}
-                  onClick={() => navigate(`/product/${product.id}`)}
+                  key={p.id}
+                  onClick={() => navigate(`/product/${p.id}`)}
                   style={{
-                    position: "relative",
-                    border: "1px solid #dee2e6",
-                    borderRadius: 8,
-                    background: "#fff",
+                    flex: `0 0 ${100 / columns}%`,
+                    minWidth: `${100 / columns}%`,
+                    borderRadius: 12,
+                    overflow: "hidden",
                     cursor: "pointer",
-                    display: "flex",
-                    flexDirection: "column",
-                    padding: 8,
+                    transform: `translateX(-${currentSlide * (100 / columns)}%)`,
+                    transition: "transform 0.3s ease-in-out",
+                    position: "relative",
+                    background: "#fff",
+                    border: "1px solid #dee2e6"
                   }}
                 >
-                  {/* LEFT PROMO */}
-                  {plan && (
-                    <div
-                      style={{
-                        position: "absolute",
-                        top: 6,
-                        left: 6,
-                        background: "#ffc107",
-                        padding: "2px 6px",
-                        borderRadius: 4,
-                        fontSize: 10,
-                        fontWeight: 600,
-                      }}
-                    >
-                      PROMO
-                    </div>
-                  )}
-
-                  {/* RIGHT BOOST BADGE */}
-                  {plan && (
-                    <div
-                      style={{
-                        position: "absolute",
-                        top: 6,
-                        right: 6,
-                        background: plan.type === "paid" ? "#dc3545" : "#0D6EFD",
-                        color: "#fff",
-                        padding: "2px 6px",
-                        borderRadius: 12,
-                        fontSize: 10,
-                        fontWeight: 600,
-                        display: "flex",
-                        alignItems: "center",
-                        gap: 2,
-                      }}
-                    >
-                      <span>{plan.icon}</span>
-                      {plan.type === "paid" && "PRO"}
-                    </div>
-                  )}
-
-                  {/* PRODUCT IMAGE */}
+                  {/* IMAGE */}
                   <img
                     src={imageSrc}
-                    alt={product.title}
-                    style={{
-                      width: "100%",
-                      height: 120,
-                      objectFit: "cover",
-                      borderRadius: 4,
-                      marginBottom: 6,
-                    }}
-                    onError={(e) => (e.target.src = "/placeholder.png")}
+                    alt={p.title}
+                    onError={e => (e.target.src = "/placeholder.png")}
+                    style={{ width: "100%", height: 140, objectFit: "cover" }}
                   />
 
-                  {/* PRODUCT TITLE */}
-                  <p
-                    title={product.title}
-                    style={{
-                      fontWeight: 600,
-                      fontSize: 13,
-                      margin: 0,
-                      whiteSpace: "nowrap",
-                      overflow: "hidden",
-                      textOverflow: "ellipsis",
-                    }}
-                  >
-                    {product.title}
-                  </p>
-
-                  {/* LOCATION */}
-                  {product.city && product.state && (
-                    <p
-                      style={{
-                        fontSize: 11,
-                        color: "#6c757d",
-                        margin: "2px 0",
-                        whiteSpace: "nowrap",
-                        overflow: "hidden",
-                        textOverflow: "ellipsis",
-                      }}
-                    >
-                      {product.city}, {product.state}
-                    </p>
-                  )}
+                  {/* TITLE */}
+                  <p title={p.title} style={{
+                    fontWeight: 600,
+                    fontSize: 13,
+                    margin: 6,
+                    whiteSpace: "nowrap",
+                    overflow: "hidden",
+                    textOverflow: "ellipsis",
+                  }}>{p.title}</p>
 
                   {/* PRICE */}
-                  <p
-                    style={{
-                      fontWeight: "bold",
-                      color: "#198754",
-                      fontSize: 13,
-                      marginTop: "auto",
-                    }}
-                  >
-                    ₦{getPromotionPrice(product.promotionPlan).toLocaleString("en-NG")}
+                  <p style={{ fontWeight: "bold", color: "#198754", fontSize: 13, margin: "0 6px 6px" }}>
+                    ₦{getPromotionPrice(p.promotionPlan).toLocaleString("en-NG")}
                   </p>
+
+                  {/* PROMO BADGES */}
+                  {plan && (
+                    <div style={{ position: "absolute", top: 6, right: 6, display: "flex", flexDirection: "column", gap: 4 }}>
+                      <span style={{
+                        background: "#ffc107",
+                        fontSize: 10,
+                        padding: "2px 6px",
+                        borderRadius: 4,
+                        fontWeight: 600,
+                        textAlign: "center"
+                      }}>PROMO</span>
+                      <span style={{
+                        background: plan.type === "paid" ? "#dc3545" : "#0D6EFD",
+                        color: "#fff",
+                        fontSize: 10,
+                        padding: "2px 6px",
+                        borderRadius: 12,
+                        fontWeight: 600,
+                        textAlign: "center"
+                      }}>{plan.icon} {plan.type === "paid" && "PRO"}</span>
+                    </div>
+                  )}
                 </div>
               );
             })}
           </div>
+
+          {/* DOTS NAVIGATION */}
+          <div style={{ display: "flex", justifyContent: "center", marginTop: 8, gap: 6 }}>
+            {Array(Math.ceil(trendingProducts.length / columns)).fill(0).map((_, idx) => (
+              <span key={idx}
+                onClick={() => setCurrentSlide(idx)}
+                style={{
+                  width: 8,
+                  height: 8,
+                  borderRadius: "50%",
+                  background: Math.floor(currentSlide / columns) === idx ? "#0D6EFD" : "#dee2e6",
+                  cursor: "pointer",
+                }}
+              />
+            ))}
+          </div>
         </section>
       )}
 
-      {/* PRODUCTS FEED */}
-      <section style={{ maxWidth: 400, margin: "20px auto", padding: "0 10px" }}>
-        <h2 style={{ color: "#0D6EFD", fontSize: 16 }}>Products Feed</h2>
+      {/* PRODUCTS FEED PRO */}
+      <section style={{ maxWidth: 500, margin: "20px auto", padding: "0 12px" }}>
+        <h2 style={{ color: "#0D6EFD", fontSize: 16, marginBottom: 12 }}>Products Feed</h2>
 
-        {loading ? (
-          <p>Loading products...</p>
-        ) : (
-          <>
+        {displayProducts.length ? displayProducts.map(p => {
+          const plan = getPromotionPlan(p.promotionPlan);
+          const imageSrc = p.imageUrl || p.images?.[0] || "/placeholder.png";
+
+          return (
             <div
+              key={p.id}
+              onClick={() => navigate(`/product/${p.id}`)}
               style={{
-                display: "grid",
-                gridTemplateColumns: "repeat(2, 1fr)", // 2 columns
+                display: "flex",
                 gap: 12,
+                padding: 12,
+                marginBottom: 12,
+                background: "#fff",
+                borderRadius: 12,
+                border: "1px solid #e9ecef",
+                cursor: "pointer",
+                alignItems: "center",
+                transition: "all 0.2s ease",
+                boxShadow: "0 1px 2px rgba(0,0,0,0.05)",
               }}
+              onMouseEnter={e => e.currentTarget.style.boxShadow = "0 6px 18px rgba(0,0,0,0.1)"}
+              onMouseLeave={e => e.currentTarget.style.boxShadow = "0 1px 2px rgba(0,0,0,0.05)"}
             >
-              {displayProducts.length ? (
-                displayProducts.map((p) => {
-                  const plan = getPromotionPlan(p.promotionPlan);
-                  const imageSrc = p.imageUrl || p.images?.[0] || "/placeholder.png";
+              {/* IMAGE */}
+              <div style={{ position: "relative" }}>
+                <img
+                  src={imageSrc}
+                  alt={p.title}
+                  onError={e => (e.target.src = "/placeholder.png")}
+                  style={{ width: 95, height: 95, objectFit: "cover", borderRadius: 10, flexShrink: 0 }}
+                />
 
-                  return (
-                    <div
-                      key={p.id}
-                      onClick={() => navigate(`/product/${p.id}`)}
-                      style={{
-                        position: "relative",
-                        border: "1px solid #dee2e6",
-                        padding: 8,
-                        borderRadius: 8,
-                        background: "#fff",
-                        cursor: "pointer",
-                        display: "flex",
-                        flexDirection: "column",
-                      }}
-                    >
-                      {plan && (
-                        <div
-                          style={{
-                            position: "absolute",
-                            top: 6,
-                            left: 6,
-                            background: "#ffc107",
-                            padding: "2px 6px",
-                            borderRadius: 4,
-                            fontSize: 10,
-                            fontWeight: 600,
-                          }}
-                        >
-                          PROMO
-                        </div>
-                      )}
+                {/* FAVORITE BUTTON */}
+                <div
+                  onClick={e => { e.stopPropagation(); toggleFavorite(p.id); }}
+                  style={{
+                    position: "absolute",
+                    top: 6,
+                    right: 6,
+                    background: "#fff",
+                    borderRadius: "50%",
+                    width: 30,
+                    height: 30,
+                    display: "flex",
+                    alignItems: "center",
+                    justifyContent: "center",
+                    fontSize: 16,
+                    boxShadow: "0 2px 6px rgba(0,0,0,0.15)",
+                    transition: "transform 0.2s ease"
+                  }}
+                >
+                  <span style={{
+                    color: favorites.has(p.id) ? "#dc3545" : "#adb5bd",
+                    transform: favorites.has(p.id) ? "scale(1.2)" : "scale(1)",
+                    transition: "all 0.2s ease"
+                  }}>
+                    {favorites.has(p.id) ? "❤️" : "🤍"}
+                  </span>
+                </div>
+              </div>
 
-                      {plan && (
-                        <div
-                          style={{
-                            position: "absolute",
-                            top: 6,
-                            right: 6,
-                            background: plan.type === "paid" ? "#dc3545" : "#0D6EFD",
-                            color: "#fff",
-                            padding: "2px 6px",
-                            borderRadius: 12,
-                            fontSize: 10,
-                            fontWeight: 600,
-                            display: "flex",
-                            alignItems: "center",
-                            gap: 2,
-                          }}
-                        >
-                          <span>{plan.icon}</span>
-                          {plan.type === "paid" && "PRO"}
-                        </div>
-                      )}
+              {/* DETAILS */}
+              <div style={{ flex: 1, minWidth: 0 }}>
+                <p title={p.title} style={{
+                  fontWeight: 600, fontSize: 14, margin: 0,
+                  whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis"
+                }}>{p.title}</p>
 
-                      <img
-                        src={imageSrc}
-                        alt={p.title}
-                        style={{
-                          width: "100%",
-                          height: 120,
-                          objectFit: "cover",
-                          borderRadius: 4,
-                          marginBottom: 6,
-                        }}
-                        onError={(e) => (e.target.src = "/placeholder.png")}
-                      />
+                {/* VERIFIED SELLER */}
+                {p.isVerifiedSeller && (
+                  <p style={{
+                    fontSize: 11, color: "#0D6EFD", margin: "2px 0 4px 0",
+                    fontWeight: 600, display: "flex", alignItems: "center", gap: 4
+                  }}>
+                    ✔ Verified Seller
+                  </p>
+                )}
 
-                      <p
-                        title={p.title}
-                        style={{
-                          fontWeight: 600,
-                          fontSize: 13,
-                          margin: 0,
-                          whiteSpace: "nowrap",
-                          overflow: "hidden",
-                          textOverflow: "ellipsis",
-                        }}
-                      >
-                        {p.title}
-                      </p>
+                {p.city && p.state && (
+                  <p style={{ fontSize: 12, color: "#6c757d", margin: "2px 0" }}>
+                    📍 {p.city}, {p.state}
+                  </p>
+                )}
 
-                      {p.city && p.state && (
-                        <p
-                          style={{
-                            fontSize: 11,
-                            color: "#6c757d",
-                            margin: "2px 0",
-                            whiteSpace: "nowrap",
-                            overflow: "hidden",
-                            textOverflow: "ellipsis",
-                          }}
-                        >
-                          {p.city}, {p.state}
-                        </p>
-                      )}
+                <p style={{ fontWeight: "bold", color: "#198754", fontSize: 15, marginTop: 4 }}>
+                  ₦{Number(p.price).toLocaleString("en-NG")}
+                </p>
+              </div>
 
-                      <p
-                        style={{
-                          fontWeight: "bold",
-                          color: "#198754",
-                          fontSize: 13,
-                          marginTop: "auto",
-                        }}
-                      >
-                        ₦{getPromotionPrice(p.promotionPlan).toLocaleString("en-NG")}
-                      </p>
-                    </div>
-                  );
-                })
-              ) : (
-                <p>No products found.</p>
+              {/* PROMO BADGES */}
+              {plan && (
+                <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+                  <span style={{
+                    background: "#ffc107",
+                    fontSize: 10,
+                    padding: "3px 6px",
+                    borderRadius: 4,
+                    fontWeight: 700,
+                    textAlign: "center"
+                  }}>PROMO</span>
+                  <span style={{
+                    background: plan.type === "paid" ? "#dc3545" : "#0D6EFD",
+                    color: "#fff",
+                    fontSize: 10,
+                    padding: "3px 6px",
+                    borderRadius: 12,
+                    fontWeight: 700,
+                    textAlign: "center"
+                  }}>{plan.icon} {plan.type === "paid" && "PRO"}</span>
+                </div>
               )}
             </div>
-
-            {/* LOAD MORE BUTTON */}
-            {displayProducts.length >= feedLimit && (
-              <button
-                onClick={() => setFeedLimit((prev) => prev + 20)}
-                style={{
-                  marginTop: 12,
-                  padding: "8px 12px",
-                  borderRadius: 8,
-                  border: "1px solid #0D6EFD",
-                  background: "#fff",
-                  color: "#0D6EFD",
-                  cursor: "pointer",
-                  width: "100%",
-                }}
-              >
-                Load More
-              </button>
-            )}
-          </>
-        )}
+          );
+        }) : <p>No products found.</p>}
       </section>
     </div>
   );
