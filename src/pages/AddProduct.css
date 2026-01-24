@@ -247,7 +247,7 @@
 
 .promo-plans {
   display: flex;
-  gap: 8px;
+  gap: 6px;
   overflow-x: auto;
   padding-bottom: 8px;
   -webkit-overflow-scrolling: touch;
@@ -259,22 +259,36 @@
 .promo-plans::-webkit-scrollbar { display: none; }
 
 .promo-card {
-  min-width: 110px;
+  min-width: 90px; /* smaller professional card */
   flex-shrink: 0;
   background-color: #fff;
   border: 1.5px solid #d0e2ff;
   border-radius: 6px;
-  padding: 10px;
+  padding: 6px;
   text-align: center;
   cursor: pointer;
   display: flex;
   flex-direction: column;
-  gap: 4px;
+  gap: 2px;
   position: relative;
   transition: all 0.25s ease;
-  scroll-snap-align: center;
+  scroll-snap-align: start;
 }
 
+/* Discount badge top-right */
+.promo-card .discount-badge {
+  position: absolute;
+  top: 4px;
+  right: 4px;
+  background-color: #ff4d4f;
+  color: #fff;
+  font-size: 10px;
+  font-weight: 700;
+  padding: 2px 4px;
+  border-radius: 4px;
+}
+
+/* Active / Popular */
 .promo-card.active,
 .promo-card:focus {
   border-color: #0d6efd;
@@ -289,11 +303,12 @@
   z-index: 2;
 }
 
-.promo-card h4 { font-size: 14px; font-weight: 700; }
-.promo-card .price { font-size: 14px; font-weight: 700; color: #28a745; }
-.promo-card .old-price { text-decoration: line-through; color: #ff4d4f; font-size: 12px; }
-.promo-card p { font-size: 12px; font-weight: 500; color: #333; }
-.plan-icon-bottom { font-size: 22px; margin-top: auto; display: flex; justify-content: center; }
+/* Card Content */
+.promo-card h4 { font-size: 12px; font-weight: 700; margin: 2px 0; }
+.promo-card .price { font-size: 12px; font-weight: 700; color: #28a745; }
+.promo-card .old-price { font-size: 10px; text-decoration: line-through; color: #ff4d4f; }
+.promo-card .duration { font-size: 10px; font-weight: 500; color: #333; }
+.promo-card .plan-icon-bottom { font-size: 16px; margin-top: auto; display: flex; justify-content: center; }
 
 /* ==================== Submit Button ==================== */
 .btn {
@@ -333,8 +348,6 @@
   animation: slideIn 0.35s ease;
 }
 
-.toast-container[aria-live] { aria-live: polite; }
-
 .toast-icon { font-size: 16px; }
 
 @keyframes slideIn {
@@ -368,11 +381,12 @@ textarea:focus-visible,
   .option-item { padding: 8px 10px; font-size: 13px; }
   .btn { padding: 12px; font-size: 14px; }
   .img-wrap img { width: 50px; height: 50px; }
-  .promo-card { min-width: 100px; padding: 8px; }
-  .promo-card h4 { font-size: 13px; }
-  .promo-card .price { font-size: 13px; }
-  .promo-card .old-price { font-size: 11px; }
-  .promo-card p { font-size: 11px; }
+  .promo-card { min-width: 85px; padding: 5px; }
+  .promo-card h4 { font-size: 11px; }
+  .promo-card .price { font-size: 11px; }
+  .promo-card .old-price { font-size: 9px; }
+  .promo-card .duration { font-size: 9px; }
+  .promo-card .plan-icon-bottom { font-size: 14px; }
 }
 
 @media (max-width: 480px) {
@@ -384,9 +398,4 @@ textarea:focus-visible,
   .option-item { padding: 6px 8px; font-size: 12px; }
   .btn { padding: 10px; font-size: 13px; }
   .img-wrap img { width: 45px; height: 45px; }
-  .promo-card { min-width: 90px; padding: 6px; }
-  .promo-card h4 { font-size: 12px; }
-  .promo-card .price { font-size: 12px; }
-  .promo-card .old-price { font-size: 10px; }
-  .promo-card p { font-size: 10px; }
 }
