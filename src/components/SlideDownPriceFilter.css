@@ -1,0 +1,56 @@
+/* /components/SlideDownPriceFilter.css */
+.slide-filter {
+  position: fixed;
+  top: -100%;
+  left: 0;
+  width: 100%;
+  transition: top 0.3s ease;
+  z-index: 3000;
+}
+
+.slide-filter.open {
+  top: 0;
+}
+
+.filter-content {
+  background-color: #f8fafd;
+  padding: 20px;
+  border-bottom: 1px solid #ddd;
+  box-shadow: 0 2px 8px rgba(0,0,0,0.2);
+}
+
+.filter-content h3 {
+  margin: 0 0 10px 0;
+  color: #4da6ff;
+}
+
+.inputs {
+  display: flex;
+  gap: 10px;
+  margin-bottom: 10px;
+}
+
+.inputs input {
+  flex: 1;
+  padding: 6px 8px;
+  border-radius: 4px;
+  border: 1px solid #ccc;
+}
+
+.filter-content button {
+  padding: 8px 16px;
+  background-color: #4da6ff;
+  color: #fff;
+  border: none;
+  border-radius: 4px;
+  cursor: pointer;
+}
+
+.filter-overlay {
+  position: fixed;
+  top: 70px; /* height of your top nav */
+  left: 0;
+  width: 100%;
+  height: calc(100% - 70px);
+  background-color: rgba(0,0,0,0.2);
+}
