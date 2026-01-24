@@ -1,15 +1,15 @@
-/* -------------------- Container -------------------- */
+/* ==================== Container ==================== */
 .add-product-container {
   max-width: 900px;
   margin: 0 auto;
   padding: 28px 20px;
   min-height: 100vh;
-  background: #f8fafd;
+  background-color: #f8fafd;
   font-family: "Segoe UI", Tahoma, Geneva, Verdana, sans-serif;
   box-sizing: border-box;
 }
 
-/* -------------------- Header -------------------- */
+/* ==================== Header ==================== */
 .add-product-header {
   display: flex;
   align-items: center;
@@ -23,7 +23,7 @@
   font-size: 20px;
   color: #0d6efd;
   cursor: pointer;
-  transition: color 0.25s;
+  transition: color 0.25s ease;
 }
 
 .back-btn:hover {
@@ -36,7 +36,7 @@
   color: #0d6efd;
 }
 
-/* -------------------- Form Fields -------------------- */
+/* ==================== Form Fields ==================== */
 .field {
   margin-bottom: 20px;
 }
@@ -56,7 +56,7 @@
   font-size: 15px;
   border: 2px solid #d0e2ff;
   border-radius: 8px;
-  background: #fff;
+  background-color: #fff;
   outline: none;
   transition: border 0.25s, box-shadow 0.25s;
 }
@@ -72,14 +72,14 @@
   min-height: 80px;
 }
 
-/* -------------------- Blur for Dependent Fields -------------------- */
+/* ==================== Disabled / Blur ==================== */
 .field .blurred {
   pointer-events: none;
   opacity: 0.6;
   filter: blur(0.5px);
 }
 
-/* -------------------- Category Scroll -------------------- */
+/* ==================== Category Scroll ==================== */
 .category-scroll {
   display: flex;
   gap: 12px;
@@ -95,14 +95,14 @@
   cursor: pointer;
   border: 2px solid #d0e2ff;
   border-radius: 8px;
-  background: #fff;
+  background-color: #fff;
   transition: all 0.25s ease;
 }
 
 .category-item:hover,
 .category-item.active {
   border-color: #0d6efd;
-  background: #e4f0ff;
+  background-color: #e4f0ff;
 }
 
 .category-icon {
@@ -116,11 +116,11 @@
   font-weight: 600;
 }
 
-/* -------------------- Full Page Selector -------------------- */
+/* ==================== Full Page Selector ==================== */
 .fullpage-list {
   position: fixed;
   inset: 0;
-  background: #f8fafd;
+  background-color: #f8fafd;
   padding: 20px;
   z-index: 2000;
   display: flex;
@@ -135,7 +135,7 @@
   margin-bottom: 20px;
   position: sticky;
   top: 0;
-  background: #f8fafd;
+  background-color: #f8fafd;
   padding-bottom: 10px;
   z-index: 2100;
 }
@@ -154,7 +154,7 @@
   color: #0a58ca;
 }
 
-/* -------------------- Options -------------------- */
+/* ==================== Options ==================== */
 .options-scroll {
   display: flex;
   flex-direction: column;
@@ -171,18 +171,18 @@
   cursor: pointer;
   border: 2px solid #d0e2ff;
   border-radius: 8px;
-  background: #fff;
+  background-color: #fff;
   transition: all 0.25s ease;
 }
 
 .option-item:hover,
 .option-item.active {
   border-color: #0d6efd;
-  background: #e4f0ff;
+  background-color: #e4f0ff;
   box-shadow: 0 4px 12px rgba(13, 110, 253, 0.15);
 }
 
-/* -------------------- Image Upload -------------------- */
+/* ==================== Image Upload ==================== */
 .image-upload {
   display: inline-block;
   text-align: center;
@@ -196,7 +196,7 @@
 }
 
 .image-upload:hover {
-  background: #e4f0ff;
+  background-color: #e4f0ff;
   border-color: #0d6efd;
 }
 
@@ -228,7 +228,7 @@
   width: 22px;
   height: 22px;
   border-radius: 50%;
-  background: #ff4d4f;
+  background-color: #ff4d4f;
   color: #fff;
   border: none;
   font-size: 14px;
@@ -238,7 +238,7 @@
   align-items: center;
 }
 
-/* -------------------- Promotion Plans -------------------- */
+/* ==================== Promotion Plans ==================== */
 .promo-section {
   margin-top: 20px;
 }
@@ -247,31 +247,37 @@
   display: flex;
   gap: 14px;
   overflow-x: auto;
-  padding-bottom: 8px;
+  padding-bottom: 12px;
   -webkit-overflow-scrolling: touch;
   scroll-behavior: smooth;
   scroll-snap-type: x mandatory;
+  touch-action: pan-x;
+}
+
+.promo-plans::-webkit-scrollbar {
+  display: none;
 }
 
 .promo-card {
   min-width: 140px;
-  background: #fff;
+  flex-shrink: 0;
+  background-color: #fff;
   border: 2px solid #d0e2ff;
   border-radius: 8px;
   padding: 14px;
   text-align: center;
   cursor: pointer;
-  transition: all 0.25s ease;
   display: flex;
   flex-direction: column;
   gap: 6px;
   position: relative;
+  transition: all 0.25s ease;
   scroll-snap-align: center;
 }
 
 .promo-card.active {
   border-color: #0d6efd;
-  background: #dbe9ff;
+  background-color: #dbe9ff;
   box-shadow: 0 6px 18px rgba(13,110,253,0.2);
 }
 
@@ -282,10 +288,28 @@
   z-index: 2;
 }
 
-.promo-card h4 { font-size: 16px; font-weight: 700; }
-.promo-card .price { font-size: 16px; font-weight: 700; color: #0d6efd; }
-.promo-card .old-price { text-decoration: line-through; color: #888; font-size: 14px; }
-.promo-card p { font-size: 13px; font-weight: 600; color: #333; }
+.promo-card h4 {
+  font-size: 16px;
+  font-weight: 700;
+}
+
+.promo-card .price {
+  font-size: 16px;
+  font-weight: 700;
+  color: #0d6efd;
+}
+
+.promo-card .old-price {
+  text-decoration: line-through;
+  color: #888;
+  font-size: 14px;
+}
+
+.promo-card p {
+  font-size: 13px;
+  font-weight: 600;
+  color: #333;
+}
 
 .plan-icon-bottom {
   font-size: 28px;
@@ -294,10 +318,10 @@
   justify-content: center;
 }
 
-/* -------------------- Submit Button -------------------- */
+/* ==================== Submit Button ==================== */
 .btn {
   width: 100%;
-  background: #0d6efd;
+  background-color: #0d6efd;
   color: #fff;
   padding: 16px;
   border-radius: 8px;
@@ -309,7 +333,7 @@
 }
 
 .btn:hover {
-  background: #0b5ed7;
+  background-color: #0b5ed7;
   box-shadow: 0 4px 14px rgba(0, 0, 0, 0.15);
 }
 
@@ -318,13 +342,13 @@
   cursor: not-allowed;
 }
 
-/* -------------------- Toast -------------------- */
+/* ==================== Toast ==================== */
 .toast-container {
   position: fixed;
   bottom: 20px;
   left: 50%;
   transform: translateX(-50%);
-  background: #0d6efd;
+  background-color: #0d6efd;
   color: #fff;
   padding: 14px 18px;
   border-radius: 8px;
@@ -338,14 +362,16 @@
   animation: slideIn 0.35s ease;
 }
 
-.toast-icon { font-size: 18px; }
+.toast-icon {
+  font-size: 18px;
+}
 
 @keyframes slideIn {
   from { transform: translate(-50%, 60px); opacity: 0; }
   to { transform: translate(-50%, 0); opacity: 1; }
 }
 
-/* -------------------- Responsive -------------------- */
+/* ==================== Responsive ==================== */
 @media (max-width: 768px) {
   .add-product-container { padding: 20px 16px; }
   .page-title { font-size: 20px; }
@@ -357,6 +383,7 @@
   .option-item { padding: 10px 12px; font-size: 14px; }
   .btn { padding: 14px; font-size: 15px; }
   .img-wrap img { width: 70px; height: 70px; }
+  .promo-card { min-width: 130px; }
 }
 
 @media (max-width: 480px) {
@@ -368,4 +395,5 @@
   .option-item { padding: 8px 10px; font-size: 13px; }
   .btn { padding: 12px; font-size: 14px; }
   .img-wrap img { width: 60px; height: 60px; }
+  .promo-card { min-width: 120px; }
 }
