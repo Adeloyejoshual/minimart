@@ -9,7 +9,6 @@ import categoryRules from "../config/categoryRules";
 import { locationsByState } from "../config/locationsByState";
 import { promotionPlans } from "../config/promotionPlans";
 import conditionConfig from "../config/conditions";
-import phoneModels from "../config/phoneModels";
 import AddProductCategory from "../components/AddProductCategory";
 import AddProductPromotion from "../components/AddProductPromotion";
 import AddProductCondition from "../components/AddProductCondition";
@@ -136,49 +135,6 @@ export default function AddProduct() {
     updateForm("previews", form.previews.filter((_, i) => i !== index));
   };
 
-  // ---------------- Derived Options ----------------
-  const getSubcategories = () => categoriesData[form.mainCategory]?.subcategories || [];
-
-  const getBrandOptions = () => {
-    if (!form.subCategory) return [];
-    if (["Mobile Phones", "Feature Phones", "Tablets", "Accessories"].includes(form.mainCategory)) {
-      return Object.keys(phoneModels[form.subCategory] || {});
-    }
-    return Object.keys(categoriesData[form.mainCategory]?.brands?.[form.subCategory] || {});
-  };
-
-  const getModelOptions = () => {
-    if (!form.brand) return [];
-    if (["Mobile Phones", "Feature Phones", "Tablets", "Accessories"].includes(form.mainCategory)) {
-      return phoneModels[form.subCategory]?.[form.brand] || [];
-    }
-    return categoriesData[form.mainCategory]?.models?.[form.brand] || [];
-  };
-
-  const getStateOptions = () => Object.keys(locationsByState);
-  const getCityOptions = () => form.state ? locationsByState[form.state] : [];
-  const getExtraOptions = field => {
-    const catData = categoriesData[form.mainCategory];
-    return catData?.options?.[field] || [];
-  };
-
-  // ---------------- Smart defaults ----------------
-  useEffect(() => {
-    if (form.brand === "Apple" && form.model?.startsWith("iPhone") && !form.storage) {
-      updateForm("storage", "128GB");
-    }
-  }, [form.brand, form.model]);
-
-  // ---------------- Auto-skip Model if empty ----------------
-  useEffect(() => {
-    const models = getModelOptions();
-    if (!models.length && form.brand) {
-      updateForm("model", "");
-      setSelectionStep("condition"); // next step
-      window.scrollTo(0, scrollPos.current || 0);
-    }
-  }, [form.brand]);
-
   // ---------------- Validation ----------------
   const validateForm = () => {
     if (!form.title || form.title.length < rules.minTitle) return `Title must be at least ${rules.minTitle} characters`;
@@ -189,8 +145,8 @@ export default function AddProduct() {
 
     const catData = categoriesData[form.mainCategory];
     if (catData) {
-      if (getBrandOptions().length > 0 && !form.brand) return "Select brand";
-      if (getModelOptions().length > 0 && !form.model) return "Select model";
+      if (catData.brands?.[form.subCategory]?.length > 0 && !form.brand) return "Select brand";
+      if (catData.models?.[form.brand]?.length > 0 && !form.model) return "Select model";
       if (conditionConfig[form.mainCategory]?.main?.length > 0 && !form.condition) return "Select condition";
       if (form.condition === "Used" && conditionConfig[form.mainCategory]?.usedDetails?.length > 0 && !form.usedDetail) return "Select used detail";
       if (catData.options?.colors?.length > 0 && !form.color) return "Select color";
@@ -297,6 +253,17 @@ export default function AddProduct() {
     } finally {
       setLoading(false);
     }
+  };
+
+  // ---------------- Derived Options ----------------
+  const getSubcategories = () => categoriesData[form.mainCategory]?.subcategories || [];
+  const getBrandOptions = () => form.subCategory ? Object.keys(categoriesData[form.mainCategory]?.brands?.[form.subCategory] || {}) : [];
+  const getModelOptions = () => form.subCategory && form.brand ? categoriesData[form.mainCategory]?.models?.[form.brand] || [] : [];
+  const getStateOptions = () => Object.keys(locationsByState);
+  const getCityOptions = () => form.state ? locationsByState[form.state] : [];
+  const getExtraOptions = field => {
+    const catData = categoriesData[form.mainCategory];
+    return catData?.options?.[field] || [];
   };
 
   // ---------------- FullPage Selectors ----------------
@@ -492,6 +459,7 @@ export const FullPageList = ({ title, options, valueKey, form, updateForm, setSe
           </div>
         ))}
 
+        {/* Custom input */}
         <div className="option-item custom-input">
           <input
             type="text"
