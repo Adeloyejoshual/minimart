@@ -25,27 +25,30 @@ export default function ProductDetail() {
   const [newComment, setNewComment] = useState("");
   const [newRating, setNewRating] = useState(5);
   const [imageIndex, setImageIndex] = useState(0);
-  const [hasNewMessages] = useState(false);
 
   /* ---------------- Load Product ---------------- */
   useEffect(() => {
     const loadProduct = async () => {
-      const snap = await getDoc(doc(db, "products", productId));
-      if (!snap.exists()) return navigate(-1);
+      try {
+        const snap = await getDoc(doc(db, "products", productId));
+        if (!snap.exists()) return navigate(-1);
 
-      const data = { id: snap.id, ...snap.data() };
+        const data = { id: snap.id, ...snap.data() };
 
-      if (data.isPromoted && data.promotionPlanId) {
-        data.promotion = promotionPlans.find(p => p.id === data.promotionPlanId);
+        if (data.isPromoted && data.promotionPlanId) {
+          data.promotion = promotionPlans.find(p => p.id === data.promotionPlanId);
+        }
+
+        setProduct(data);
+      } catch (err) {
+        console.error(err);
       }
-
-      setProduct(data);
     };
 
     loadProduct();
   }, [productId, navigate]);
 
-  /* ---------------- Load Similar Products ---------------- */
+  /* ---------------- Similar Products ---------------- */
   useEffect(() => {
     if (!product?.mainCategory) return;
 
@@ -54,8 +57,8 @@ export default function ProductDetail() {
         collection(db, "products"),
         where("mainCategory", "==", product.mainCategory)
       );
-
       const snap = await getDocs(q);
+
       const list = snap.docs
         .map(d => ({ id: d.id, ...d.data() }))
         .filter(p => p.id !== product.id)
@@ -67,7 +70,7 @@ export default function ProductDetail() {
     loadSimilar();
   }, [product]);
 
-  /* ---------------- Load Comments ---------------- */
+  /* ---------------- Comments ---------------- */
   useEffect(() => {
     if (!product) return;
 
@@ -83,7 +86,7 @@ export default function ProductDetail() {
   /* ---------------- Helpers ---------------- */
   const images = useMemo(() => {
     if (!product) return [];
-    return product.images?.length ? product.images : [product.coverImage];
+    return product.images?.length ? product.images : [product.coverImage].filter(Boolean);
   }, [product]);
 
   const avgRating = useMemo(() => {
@@ -108,30 +111,34 @@ export default function ProductDetail() {
     navigate(`/chat/${product.ownerId}?product=${productId}&quick=1`);
   };
 
-  const shareProduct = () => {
-    if (navigator.share) {
-      navigator.share({
+  const shareProduct = async () => {
+    try {
+      await navigator.share({
         title: product.title,
-        text: product.title,
+        text: "Check out this product",
         url: window.location.href,
       });
-    } else {
-      navigator.clipboard.writeText(window.location.href);
-      alert("Link copied!");
+    } catch {
+      await navigator.clipboard.writeText(window.location.href);
+      alert("Product link copied");
     }
   };
 
   const submitComment = async () => {
-    if (!newComment.trim()) return;
-    await addDoc(collection(db, "comments"), {
+    if (!newComment.trim() || !currentUser) return;
+
+    const review = {
       productId: product.id,
       userId: currentUser.uid,
       userName: currentUser.displayName || "User",
       text: newComment,
       rating: newRating,
       createdAt: serverTimestamp(),
-    });
-    setComments(prev => [...prev, { userName: currentUser.displayName, text: newComment, rating: newRating }]);
+    };
+
+    await addDoc(collection(db, "comments"), review);
+
+    setComments(prev => [...prev, { ...review, id: Date.now() }]);
     setNewComment("");
     setNewRating(5);
   };
@@ -140,13 +147,13 @@ export default function ProductDetail() {
 
   /* ---------------- UI ---------------- */
   return (
-    <div className="product-detail-container">
+    <div className="product-detail-page">
 
       {/* Header */}
       <div className="sticky-header">
         <button className="back-btn" onClick={() => navigate(-1)}>←</button>
         <span className="header-title">{product.title}</span>
-        <button className="share-btn" onClick={shareProduct}>⤴</button>
+        <button className="share-btn" onClick={shareProduct}>Share</button>
       </div>
 
       <div className="scrollable-content">
@@ -154,11 +161,13 @@ export default function ProductDetail() {
         {/* Product Card */}
         <div className="product-card">
           <div className="product-images">
-            <img src={images[imageIndex]} alt="" />
+            {images.length > 0 && <img src={images[imageIndex]} alt={product.title} />}
             {images.length > 1 && (
               <span className="image-counter">{imageIndex + 1}/{images.length}</span>
             )}
-            {product.promotion && <span className="promo-badge">{product.promotion.icon} {product.promotion.label}</span>}
+            {product.promotion && (
+              <span className="promo-badge">{product.promotion.icon} {product.promotion.label}</span>
+            )}
             {product.sold && <span className="sold-badge">SOLD</span>}
           </div>
 
@@ -170,9 +179,7 @@ export default function ProductDetail() {
 
           {product.marketType === "marketplace" && currentUser?.uid !== product.ownerId && (
             <div className="product-actions">
-              <button className="chat-btn" onClick={startChat}>
-                💬 Chat Seller {hasNewMessages && <span className="chat-badge">●</span>}
-              </button>
+              <button className="chat-btn" onClick={startChat}>Chat Seller</button>
               <button className="quick-msg-btn" onClick={quickMessage}>Is it available?</button>
               <p className="seller-reply-hint">Seller typically replies within minutes</p>
             </div>
@@ -184,15 +191,14 @@ export default function ProductDetail() {
           <h3>{formatStars(avgRating)} ({comments.length} reviews)</h3>
         </div>
 
-        {/* Seller Card */}
+        {/* Seller */}
         <div className="seller-card">
           <strong>{product.ownerName}</strong> {product.ownerVerified && "✔"}
           <p>Ads posted: {product.totalAds || 0}</p>
           <p>Years active: {product.yearsActive > 5 ? "+5 years" : product.yearsActive || 1}</p>
-          <p>📞 {product.phone || "Not provided"}</p>
         </div>
 
-        {/* Comments */}
+        {/* Reviews */}
         <div className="comments-section">
           <h3>Reviews</h3>
           {comments.map(c => (
@@ -205,23 +211,39 @@ export default function ProductDetail() {
 
           {currentUser && (
             <div className="new-comment">
-              <textarea value={newComment} onChange={e => setNewComment(e.target.value)} placeholder="Write a review..." />
-              <input type="number" min="1" max="5" value={newRating} onChange={e => setNewRating(Number(e.target.value))} />
+              <textarea
+                value={newComment}
+                onChange={e => setNewComment(e.target.value)}
+                placeholder="Write a review..."
+              />
+              <input
+                type="number"
+                min="1"
+                max="5"
+                value={newRating}
+                onChange={e => setNewRating(Number(e.target.value))}
+              />
               <button onClick={submitComment}>Post Review</button>
             </div>
           )}
         </div>
 
-        {/* Similar Products */}
+        {/* RELATED PRODUCTS — LAST */}
         {similarProducts.length > 0 && (
-          <div className="similar-products">
-            <h3>Similar Products</h3>
-            <div className="similar-products-list">
+          <div className="related-products">
+            <h3>Related Products</h3>
+            <div className="related-products-list">
               {similarProducts.map(p => (
-                <div key={p.id} className="similar-product-card" onClick={() => navigate(`/product/${p.id}`)}>
-                  <img src={p.coverImage} alt="" />
-                  <p className="card-title">{p.title}</p>
-                  <p className="card-price">₦{p.price?.toLocaleString()}</p>
+                <div
+                  key={p.id}
+                  className="related-product-card"
+                  onClick={() => navigate(`/product/${p.id}`)}
+                >
+                  <img src={p.coverImage} alt={p.title} />
+                  <div className="card-info">
+                    <p className="card-title">{p.title}</p>
+                    <p className="card-price">₦{p.price?.toLocaleString()}</p>
+                  </div>
                 </div>
               ))}
             </div>
