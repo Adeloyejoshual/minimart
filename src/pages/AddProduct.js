@@ -419,8 +419,19 @@ export const FullPageList = ({ title, options, valueKey, form, updateForm, setSe
 
   const handleSelect = val => {
     updateForm(valueKey, val);
+
+    // If brand is selected, reset model
+    if (valueKey === "brand") updateForm("model", "");
+
+    // If state is selected, reset city
+    if (valueKey === "state") updateForm("city", "");
+
     setSelectionStep(null);
-    window.scrollTo(0, scrollPos.current || 0);
+
+    // Scroll to previous position after closing
+    setTimeout(() => {
+      window.scrollTo(0, scrollPos.current || 0);
+    }, 50);
   };
 
   const handleCustomSubmit = () => {
@@ -484,7 +495,11 @@ export const FullPageMultiSelect = ({ title, options, valueKey, form, updateForm
 
   const handleDone = () => {
     setSelectionStep(null);
-    window.scrollTo(0, scrollPos.current || 0);
+
+    // Scroll to previous position after closing
+    setTimeout(() => {
+      window.scrollTo(0, scrollPos.current || 0);
+    }, 50);
   };
 
   return (
