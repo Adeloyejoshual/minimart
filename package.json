@@ -3,23 +3,23 @@
   "version": "1.0.0",
   "private": true,
   "dependencies": {
+    "@mui/material": "^5.15.15",
+    "@mui/icons-material": "^5.15.15",
     "@emotion/react": "^11.11.4",
     "@emotion/styled": "^11.11.4",
-    "@mui/icons-material": "^5.15.15",
-    "@mui/material": "^5.15.15",
     "axios": "^1.5.0",
-    "browser-image-compression": "^2.0.1",
-    "cors": "^2.8.5",
-    "express": "^4.18.2",
     "firebase": "^10.4.0",
     "react": "^18.2.0",
     "react-dom": "^18.2.0",
-    "react-firebase-hooks": "^5.0.4",
-    "react-icons": "^4.11.0",
     "react-router-dom": "^6.15.0",
+    "react-firebase-hooks": "^5.0.4",
     "react-scripts": "5.0.1",
-    "react-swipeable": "^6.5.1",
-    "web-vitals": "^3.3.1"
+    "web-vitals": "^3.3.1",
+    "express": "^4.18.2",
+    "cors": "^2.8.5",
+    "react-icons": "^4.11.0",
+    "browser-image-compression": "^2.0.1",
+    "react-swipeable": "^7.6.1"
   },
   "scripts": {
     "start": "react-scripts start",
@@ -29,21 +29,10 @@
     "eject": "react-scripts eject"
   },
   "eslintConfig": {
-    "extends": [
-      "react-app",
-      "react-app/jest"
-    ]
+    "extends": ["react-app","react-app/jest"]
   },
   "browserslist": {
-    "production": [
-      ">0.2%",
-      "not dead",
-      "not op_mini all"
-    ],
-    "development": [
-      "last 1 chrome version",
-      "last 1 firefox version",
-      "last 1 safari version"
-    ]
+    "production": [">0.2%","not dead","not op_mini all"],
+    "development": ["last 1 chrome version","last 1 firefox version","last 1 safari version"]
   }
 }
