@@ -1,15 +1,20 @@
-import { useState } from "react";
+// src/components/SingleSelectList.jsx
+import { useState, useEffect, useRef } from "react";
 
 export default function SingleSelectList({ title, options, valueKey, form, updateForm, setSelectionStep, scrollPos }) {
   const [search, setSearch] = useState("");
   const [customValue, setCustomValue] = useState("");
+  const searchRef = useRef();
+
+  useEffect(() => {
+    searchRef.current?.focus();
+  }, []);
 
   const filtered = options.filter(opt => opt.toLowerCase().includes(search.toLowerCase()));
 
   const handleSelect = val => {
     updateForm(valueKey, val);
     setSelectionStep(null);
-    // Scroll back to previous position
     window.scrollTo(0, scrollPos.current || 0);
   };
 
@@ -23,7 +28,9 @@ export default function SingleSelectList({ title, options, valueKey, form, updat
   return (
     <div className="fullpage-list">
       <h3>{title}</h3>
+
       <input
+        ref={searchRef}
         type="text"
         placeholder="Search..."
         value={search}
@@ -32,15 +39,19 @@ export default function SingleSelectList({ title, options, valueKey, form, updat
       />
 
       <div className="options-scroll">
-        {filtered.map(opt => (
-          <div
-            key={opt}
-            className={`option-item ${form[valueKey] === opt ? "active" : ""}`}
-            onClick={() => handleSelect(opt)}
-          >
-            {opt}
-          </div>
-        ))}
+        {filtered.length > 0 ? (
+          filtered.map(opt => (
+            <div
+              key={opt}
+              className={`option-item ${form[valueKey] === opt ? "active" : ""}`}
+              onClick={() => handleSelect(opt)}
+            >
+              {opt}
+            </div>
+          ))
+        ) : (
+          <div className="no-results">No options found</div>
+        )}
 
         {/* Custom input */}
         <div className="option-item custom-input">
