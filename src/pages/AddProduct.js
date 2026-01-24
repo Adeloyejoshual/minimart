@@ -1,19 +1,24 @@
-// src/pages/AddProduct.js
 import { useEffect, useState, useRef, useCallback } from "react";
 import { addDoc, collection, serverTimestamp } from "firebase/firestore";
 import { db, auth } from "../firebase";
 import { uploadToCloudinary } from "../cloudinary";
 import { useNavigate, useSearchParams } from "react-router-dom";
+
 import categoriesData from "../config/categoriesData";
 import categoryRules from "../config/categoryRules";
 import { locationsByState } from "../config/locationsByState";
 import { promotionPlans } from "../config/promotionPlans";
 import conditionConfig from "../config/conditions";
+
 import AddProductCategory from "../components/AddProductCategory";
 import AddProductPromotion from "../components/AddProductPromotion";
 import AddProductCondition from "../components/AddProductCondition";
 import AddProductLocation from "../components/AddProductLocation";
 import Toast from "../components/Toast";
+
+import SingleSelectList from "../components/SingleSelectList";
+import MultiSelectList from "../components/MultiSelectList";
+
 import "./AddProduct.css";
 
 const DRAFT_KEY = "add_product_draft";
@@ -165,108 +170,6 @@ export default function AddProduct() {
     return null;
   };
 
-  // ---------------- Paystack ----------------
-  const payWithPaystack = plan => new Promise((resolve, reject) => {
-    if (!window.PaystackPop) {
-      const script = document.createElement("script");
-      script.src = "https://js.paystack.co/v1/inline.js";
-      script.onload = () => payWithPaystack(plan).then(resolve).catch(reject);
-      document.body.appendChild(script);
-      return showToast("Payment system loading…", "⏳");
-    }
-
-    const handler = window.PaystackPop.setup({
-      key: process.env.REACT_APP_PAYSTACK_KEY,
-      email: auth.currentUser.email,
-      amount: (plan.discountPrice ?? plan.price) * 100,
-      currency: "NGN",
-      ref: `promo_${Date.now()}`,
-      metadata: { promotionPlanId: plan.id },
-      callback: () => resolve(),
-      onClose: () => reject(new Error("Payment cancelled")),
-    });
-
-    handler.openIframe();
-  });
-
-  const handlePromotionClick = plan => {
-    if (!plan) return;
-    if (form.promotionPlan?.id === plan.id) return showToast("Already selected ✅", "⚡");
-
-    updateForm("promotionPlan", { ...plan, paid: plan.type === "free" });
-    if (plan.type === "free") {
-      updateForm("isPromoted", true);
-      updateForm("paymentSuccess", true);
-      showToast(`${plan.label} selected`, "⚡");
-    } else {
-      updateForm("isPromoted", false);
-      updateForm("paymentSuccess", false);
-      showToast(`${plan.label} selected (pay on publish)`, "⚡");
-    }
-  };
-
-  // ---------------- Submit ----------------
-  const handleSubmit = async () => {
-    const error = validateForm();
-    if (error) return showToast(error, "⚠️");
-    if (!auth.currentUser) return showToast("Login required", "🔒");
-
-    setLoading(true);
-    try {
-      if (form.promotionPlan?.type === "paid" && !form.paymentSuccess) {
-        try {
-          await payWithPaystack(form.promotionPlan);
-          setForm(prev => ({ ...prev, paymentSuccess: true, isPromoted: true }));
-          showToast("Payment successful ✅", "⚡");
-        } catch (err) {
-          showToast(err.message || "Payment failed", "❌");
-          setLoading(false);
-          return;
-        }
-      }
-
-      const uploadResults = await Promise.allSettled(form.images.map(img => uploadToCloudinary(img)));
-      const uploaded = uploadResults.filter(r => r.status === "fulfilled").map(r => r.value);
-
-      if (!uploaded.length) {
-        showToast("All image uploads failed ❌", "❌");
-        setLoading(false);
-        return;
-      }
-
-      const promotionEndAt = form.promotionPlan ? new Date(Date.now() + form.promotionPlan.days * 86400000) : null;
-      const promotionData = form.isPromoted && form.promotionPlan
-        ? {
-            id: form.promotionPlan.id,
-            label: form.promotionPlan.label,
-            price: form.promotionPlan.price,
-            days: form.promotionPlan.days,
-            startAt: serverTimestamp(),
-            endAt: promotionEndAt,
-          }
-        : null;
-
-      await addDoc(collection(db, "products"), {
-        ...form,
-        price: Number(String(form.price).replace(/,/g, "")),
-        images: uploaded,
-        coverImage: uploaded[0],
-        marketType,
-        ownerId: auth.currentUser.uid,
-        createdAt: serverTimestamp(),
-        promotion: promotionData,
-      });
-
-      localStorage.removeItem(DRAFT_KEY);
-      showToast("Product posted successfully 🎉", "✅");
-      navigate(`/${marketType}`);
-    } catch (err) {
-      showToast(err.message || "Something went wrong ❌", "❌");
-    } finally {
-      setLoading(false);
-    }
-  };
-
   // ---------------- Derived Options ----------------
   const getSubcategories = () => categoriesData[form.mainCategory]?.subcategories || [];
   const getBrandOptions = () => form.subCategory ? Object.keys(categoriesData[form.mainCategory]?.brands?.[form.subCategory] || {}) : [];
@@ -279,129 +182,232 @@ export default function AddProduct() {
   if (selectionStep) {
     const fullPageProps = { form, updateForm, setSelectionStep, scrollPos };
     switch (selectionStep) {
-      case "subCategory": return <FullPageList title="Select Subcategory" options={getSubcategories()} valueKey="subCategory" {...fullPageProps} />;
-      case "brand": return <FullPageList title="Select Brand" options={getBrandOptions()} valueKey="brand" {...fullPageProps} />;
-      case "model": return <FullPageList title="Select Model" options={getModelOptions()} valueKey="model" {...fullPageProps} />;
-      case "condition": return <FullPageList title="Select Condition" options={conditionConfig[form.mainCategory]?.main || ["New","Used"]} valueKey="condition" {...fullPageProps} />;
-      case "usedDetail": return <FullPageList title="Select Used Detail" options={conditionConfig[form.mainCategory]?.usedDetails || ["No defects"]} valueKey="usedDetail" {...fullPageProps} />;
-      case "colors": return <FullPageList title="Select Color" options={getExtraOptions("colors")} valueKey="color" {...fullPageProps} />;
-      case "storage": return <FullPageList title="Select Storage" options={getExtraOptions("storage")} valueKey="storage" {...fullPageProps} />;
-      case "simTypes": return <FullPageList title="Select SIM Type" options={getExtraOptions("simTypes")} valueKey="simType" {...fullPageProps} />;
-      case "features": return <FullPageMultiSelect title="Select Features" options={getExtraOptions("features")} valueKey="features" {...fullPageProps} />;
-      case "state": return <FullPageList title="Select State" options={getStateOptions()} valueKey="state" {...fullPageProps} />;
-      case "city": return <FullPageList title="Select City / LGA" options={getCityOptions()} valueKey="city" {...fullPageProps} />;
+      case "subCategory":
+        return <SingleSelectList title="Select Subcategory" options={getSubcategories()} valueKey="subCategory" {...fullPageProps} />;
+      case "brand":
+        return <SingleSelectList title="Select Brand" options={getBrandOptions()} valueKey="brand" {...fullPageProps} />;
+      case "model":
+        return <SingleSelectList title="Select Model" options={getModelOptions()} valueKey="model" {...fullPageProps} />;
+      case "condition":
+        return <SingleSelectList title="Select Condition" options={conditionConfig[form.mainCategory]?.main || ["New","Used"]} valueKey="condition" {...fullPageProps} />;
+      case "usedDetail":
+        return <SingleSelectList title="Select Used Detail" options={conditionConfig[form.mainCategory]?.usedDetails || ["No defects"]} valueKey="usedDetail" {...fullPageProps} />;
+      case "colors":
+        return <SingleSelectList title="Select Color" options={getExtraOptions("colors")} valueKey="color" {...fullPageProps} />;
+      case "storage":
+        return <SingleSelectList title="Select Storage" options={getExtraOptions("storage")} valueKey="storage" {...fullPageProps} />;
+      case "simTypes":
+        return <SingleSelectList title="Select SIM Type" options={getExtraOptions("simTypes")} valueKey="simType" {...fullPageProps} />;
+      case "features":
+        return <MultiSelectList title="Select Features" options={getExtraOptions("features")} valueKey="features" {...fullPageProps} />;
+      case "state":
+        return <SingleSelectList title="Select State" options={getStateOptions()} valueKey="state" {...fullPageProps} />;
+      case "city":
+        return <SingleSelectList title="Select City / LGA" options={getCityOptions()} valueKey="city" {...fullPageProps} />;
       default: break;
     }
   }
 
   // ---------------- Main Form ----------------
-  return (
-    <div className="add-product-container">
-      <div className="add-product-header">
-        <button className="back-btn" onClick={() => navigate(`/${marketType}`)}>←</button>
-        <span className="page-title">Add Product</span>
-      </div>
+return (
+  <div className="add-product-container">
+    {/* HEADER */}
+    <div className="add-product-header">
+      <button className="back-btn" onClick={() => navigate(`/${marketType}`)}>←</button>
+      <span className="page-title">Add Product</span>
+    </div>
 
-      <Field label="Title">
-        <input value={form.title} onChange={e => updateForm("title", e.target.value)} placeholder="e.g iPhone 11 Pro Max" />
-      </Field>
-
-      <AddProductCategory form={form} handleCategoryChange={handleCategoryChange} openSubCategorySelector={() => { scrollPos.current = window.scrollY; setSelectionStep("subCategory"); }} />
-
-      {form.subCategory && getBrandOptions().length > 0 && (
-        <Field label="Brand">
-          <div className="option-item clickable" onClick={() => { scrollPos.current = window.scrollY; setSelectionStep("brand"); }}>
-            {form.brand || "Select Brand"}
-          </div>
-        </Field>
-      )}
-
-      {form.brand && getModelOptions().length > 0 && (
-        <Field label="Model / Type">
-          <div className="option-item clickable" onClick={() => { scrollPos.current = window.scrollY; setSelectionStep("model"); }}>
-            {form.model || "Select Model"}
-          </div>
-        </Field>
-      )}
-
-      <AddProductCondition form={form} openConditionSelector={() => { scrollPos.current = window.scrollY; setSelectionStep("condition"); }} openUsedDetailSelector={() => { scrollPos.current = window.scrollY; setSelectionStep("usedDetail"); }} />
-
-      {getExtraOptions("colors").length > 0 && (
-        <Field label="Color">
-          <div className="option-item clickable" onClick={() => { scrollPos.current = window.scrollY; setSelectionStep("colors"); }}>
-            {form.color || "Select Color"}
-          </div>
-        </Field>
-      )}
-
-      {getExtraOptions("storage").length > 0 && (
-        <Field label="Storage">
-          <div className="option-item clickable" onClick={() => { scrollPos.current = window.scrollY; setSelectionStep("storage"); }}>
-            {form.storage || "Select Storage"}
-          </div>
-        </Field>
-      )}
-
-      {getExtraOptions("simTypes").length > 0 && (
-        <Field label="SIM Type">
-          <div className="option-item clickable" onClick={() => { scrollPos.current = window.scrollY; setSelectionStep("simTypes"); }}>
-            {form.simType || "Select SIM Type"}
-          </div>
-        </Field>
-      )}
-
-      {getExtraOptions("features").length > 0 && (
-        <Field label="Features">
-          <div className="option-item clickable" onClick={() => { scrollPos.current = window.scrollY; setSelectionStep("features"); }}>
-            {form.features.length > 0 ? form.features.join(", ") : "Select Features"}
-          </div>
-        </Field>
-      )}
-
-      <Field label="Description">
-        <textarea value={form.description} onChange={e => updateForm("description", e.target.value)} placeholder="Write a detailed description of your product..." />
-      </Field>
-
-      <AddProductLocation
-        form={form}
-        openStateSelector={() => { scrollPos.current = window.scrollY; setSelectionStep("state"); }}
-        openCitySelector={() => { scrollPos.current = window.scrollY; setSelectionStep("city"); }}
+    {/* TITLE */}
+    <Field label="Title">
+      <input
+        value={form.title}
+        onChange={e => updateForm("title", e.target.value)}
+        placeholder="e.g iPhone 11 Pro Max"
       />
+    </Field>
 
-      <Field label="Price (₦)">
-        <input value={form.price} onChange={handlePriceChange} placeholder="₦ 0" />
-      </Field>
+    {/* CATEGORY */}
+    <AddProductCategory
+      form={form}
+      handleCategoryChange={handleCategoryChange}
+      openSubCategorySelector={() => {
+        scrollPos.current = window.scrollY;
+        setSelectionStep("subCategory");
+      }}
+    />
 
-      <Field label="Phone Number">
-        <input type="tel" value={form.phone} onChange={e => updateForm("phone", e.target.value)} placeholder="08012345678" />
-      </Field>
-
-      <Field label="Images">
-        <label className="image-upload">
-          <input type="file" multiple hidden onChange={e => handleImages(e.target.files)} />
-          <span>＋ Add Images</span>
-        </label>
-        <div className="images">
-          {form.previews.map((p, i) => (
-            <div key={i} className="img-wrap">
-              <img src={p} alt={`preview-${i}`} />
-              <button type="button" onClick={() => removeImage(i)}>×</button>
-            </div>
-          ))}
+    {/* BRAND */}
+    {form.subCategory && getBrandOptions().length > 0 && (
+      <Field label="Brand">
+        <div
+          className="option-item clickable"
+          onClick={() => {
+            scrollPos.current = window.scrollY;
+            setSelectionStep("brand");
+          }}
+        >
+          {form.brand || "Select Brand"}
         </div>
       </Field>
+    )}
 
-      <AddProductPromotion form={form} onSelectPlan={handlePromotionClick} onTogglePromote={checked => updateForm("isPromoted", checked)} />
+    {/* MODEL */}
+    {form.brand && getModelOptions().length > 0 && (
+      <Field label="Model / Type">
+        <div
+          className="option-item clickable"
+          onClick={() => {
+            scrollPos.current = window.scrollY;
+            setSelectionStep("model");
+          }}
+        >
+          {form.model || "Select Model"}
+        </div>
+      </Field>
+    )}
 
-      <button className="btn" type="button" onClick={handleSubmit} disabled={loading}>
-        {loading ? "Uploading..." : "Publish"}
-      </button>
+    {/* CONDITION */}
+    <AddProductCondition
+      form={form}
+      openConditionSelector={() => {
+        scrollPos.current = window.scrollY;
+        setSelectionStep("condition");
+      }}
+      openUsedDetailSelector={() => {
+        scrollPos.current = window.scrollY;
+        setSelectionStep("usedDetail");
+      }}
+    />
 
-      <Toast message={toast.message} icon={toast.icon} visible={toast.visible} />
-    </div>
-  );
-}
+    {/* COLOR */}
+    {getExtraOptions("colors").length > 0 && (
+      <Field label="Color">
+        <div
+          className="option-item clickable"
+          onClick={() => {
+            scrollPos.current = window.scrollY;
+            setSelectionStep("colors");
+          }}
+        >
+          {form.color || "Select Color"}
+        </div>
+      </Field>
+    )}
 
+    {/* STORAGE */}
+    {getExtraOptions("storage").length > 0 && (
+      <Field label="Storage">
+        <div
+          className="option-item clickable"
+          onClick={() => {
+            scrollPos.current = window.scrollY;
+            setSelectionStep("storage");
+          }}
+        >
+          {form.storage || "Select Storage"}
+        </div>
+      </Field>
+    )}
+
+    {/* SIM TYPE */}
+    {getExtraOptions("simTypes").length > 0 && (
+      <Field label="SIM Type">
+        <div
+          className="option-item clickable"
+          onClick={() => {
+            scrollPos.current = window.scrollY;
+            setSelectionStep("simTypes");
+          }}
+        >
+          {form.simType || "Select SIM Type"}
+        </div>
+      </Field>
+    )}
+
+    {/* FEATURES */}
+    {getExtraOptions("features").length > 0 && (
+      <Field label="Features">
+        <div
+          className="option-item clickable"
+          onClick={() => {
+            scrollPos.current = window.scrollY;
+            setSelectionStep("features");
+          }}
+        >
+          {form.features.length > 0 ? form.features.join(", ") : "Select Features"}
+        </div>
+      </Field>
+    )}
+
+    {/* DESCRIPTION */}
+    <Field label="Description">
+      <textarea
+        value={form.description}
+        onChange={e => updateForm("description", e.target.value)}
+        placeholder="Write a detailed description of your product..."
+      />
+    </Field>
+
+    {/* LOCATION */}
+    <AddProductLocation
+      form={form}
+      openStateSelector={() => {
+        scrollPos.current = window.scrollY;
+        setSelectionStep("state");
+      }}
+      openCitySelector={() => {
+        scrollPos.current = window.scrollY;
+        setSelectionStep("city");
+      }}
+    />
+
+    {/* PRICE */}
+    <Field label="Price (₦)">
+      <input value={form.price} onChange={handlePriceChange} placeholder="₦ 0" />
+    </Field>
+
+    {/* PHONE */}
+    <Field label="Phone Number">
+      <input
+        type="tel"
+        value={form.phone}
+        onChange={e => updateForm("phone", e.target.value)}
+        placeholder="08012345678"
+      />
+    </Field>
+
+    {/* IMAGES */}
+    <Field label="Images">
+      <label className="image-upload">
+        <input type="file" multiple hidden onChange={e => handleImages(e.target.files)} />
+        <span>＋ Add Images</span>
+      </label>
+      <div className="images">
+        {form.previews.map((p, i) => (
+          <div key={i} className="img-wrap">
+            <img src={p} alt={`preview-${i}`} />
+            <button type="button" onClick={() => removeImage(i)}>×</button>
+          </div>
+        ))}
+      </div>
+    </Field>
+
+    {/* PROMOTION */}
+    <AddProductPromotion
+      form={form}
+      onSelectPlan={handlePromotionClick}
+      onTogglePromote={checked => updateForm("isPromoted", checked)}
+    />
+
+    {/* SUBMIT BUTTON */}
+    <button className="btn" type="button" onClick={handleSubmit} disabled={loading}>
+      {loading ? "Uploading..." : "Publish"}
+    </button>
+
+    {/* TOAST */}
+    <Toast message={toast.message} icon={toast.icon} visible={toast.visible} />
+  </div>
+);
 // ---------------- Field Component ----------------
 const Field = ({ label, children }) => (
   <div className="field">
@@ -409,121 +415,3 @@ const Field = ({ label, children }) => (
     {children}
   </div>
 );
-
-// ---------------- FullPageList Component ----------------
-export const FullPageList = ({ title, options, valueKey, form, updateForm, setSelectionStep, scrollPos }) => {
-  const [search, setSearch] = useState("");
-  const [customValue, setCustomValue] = useState("");
-
-  const filtered = options.filter(opt => opt.toLowerCase().includes(search.toLowerCase()));
-
-  const handleSelect = val => {
-    updateForm(valueKey, val);
-
-    // If brand is selected, reset model
-    if (valueKey === "brand") updateForm("model", "");
-
-    // If state is selected, reset city
-    if (valueKey === "state") updateForm("city", "");
-
-    setSelectionStep(null);
-
-    // Scroll to previous position after closing
-    setTimeout(() => {
-      window.scrollTo(0, scrollPos.current || 0);
-    }, 50);
-  };
-
-  const handleCustomSubmit = () => {
-    if (customValue.trim()) {
-      handleSelect(customValue.trim());
-      setCustomValue("");
-    }
-  };
-
-  return (
-    <div className="fullpage-list">
-      <h3>{title}</h3>
-      <input
-        type="text"
-        placeholder="Search..."
-        value={search}
-        onChange={e => setSearch(e.target.value)}
-        className="fullpage-search"
-      />
-
-      <div className="options-scroll">
-        {filtered.map(opt => (
-          <div
-            key={opt}
-            className={`option-item ${form[valueKey] === opt ? "active" : ""}`}
-            onClick={() => handleSelect(opt)}
-          >
-            {opt}
-          </div>
-        ))}
-
-        {/* Custom input */}
-        <div className="option-item custom-input">
-          <input
-            type="text"
-            placeholder={`Enter ${valueKey}...`}
-            value={customValue}
-            onChange={e => setCustomValue(e.target.value)}
-            onKeyDown={e => e.key === "Enter" && handleCustomSubmit()}
-          />
-        </div>
-      </div>
-    </div>
-  );
-};
-
-// ---------------- FullPageMultiSelect Component ----------------
-export const FullPageMultiSelect = ({ title, options, valueKey, form, updateForm, setSelectionStep, scrollPos }) => {
-  const [search, setSearch] = useState("");
-
-  const filtered = options.filter(opt => opt.toLowerCase().includes(search.toLowerCase()));
-
-  const toggleOption = opt => {
-    const current = form[valueKey] || [];
-    if (current.includes(opt)) {
-      updateForm(valueKey, current.filter(item => item !== opt));
-    } else {
-      updateForm(valueKey, [...current, opt]);
-    }
-  };
-
-  const handleDone = () => {
-    setSelectionStep(null);
-
-    // Scroll to previous position after closing
-    setTimeout(() => {
-      window.scrollTo(0, scrollPos.current || 0);
-    }, 50);
-  };
-
-  return (
-    <div className="fullpage-list">
-      <h3>{title}</h3>
-      <input
-        type="text"
-        placeholder="Search..."
-        value={search}
-        onChange={e => setSearch(e.target.value)}
-        className="fullpage-search"
-      />
-      <div className="options-scroll">
-        {filtered.map(opt => (
-          <div
-            key={opt}
-            className={`option-item ${form[valueKey]?.includes(opt) ? "active" : ""}`}
-            onClick={() => toggleOption(opt)}
-          >
-            {opt} {form[valueKey]?.includes(opt) && "✓"}
-          </div>
-        ))}
-      </div>
-      <button className="btn" onClick={handleDone}>Done</button>
-    </div>
-  );
-};
