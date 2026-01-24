@@ -1,6 +1,6 @@
 /* ==================== Container ==================== */
 .add-product-container {
-  max-width: 600px; /* reduced width for mini/professional look */
+  max-width: 600px; /* mini/professional look */
   margin: 0 auto;
   padding: 20px 16px;
   min-height: 100vh;
@@ -26,7 +26,8 @@
   transition: color 0.25s ease;
 }
 
-.back-btn:hover {
+.back-btn:hover,
+.back-btn:focus {
   color: #0a58ca;
 }
 
@@ -39,6 +40,7 @@
 /* ==================== Form Fields ==================== */
 .field {
   margin-bottom: 16px;
+  position: relative;
 }
 
 .field label {
@@ -72,6 +74,14 @@
   min-height: 60px;
 }
 
+/* ==================== Validation Highlight ==================== */
+.field.error input,
+.field.error textarea,
+.option-item.error {
+  border-color: #ff4d4f;
+  box-shadow: 0 0 6px rgba(255, 77, 79, 0.25);
+}
+
 /* ==================== Disabled / Blur ==================== */
 .field .blurred {
   pointer-events: none;
@@ -100,6 +110,7 @@
 }
 
 .category-item:hover,
+.category-item:focus,
 .category-item.active {
   border-color: #0d6efd;
   background-color: #e4f0ff;
@@ -162,6 +173,7 @@
 }
 
 .option-item:hover,
+.option-item:focus,
 .option-item.active {
   border-color: #0d6efd;
   background-color: #e4f0ff;
@@ -181,7 +193,8 @@
   transition: all 0.25s ease;
 }
 
-.image-upload:hover {
+.image-upload:hover,
+.image-upload:focus {
   background-color: #e4f0ff;
   border-color: #0d6efd;
 }
@@ -224,6 +237,11 @@
   align-items: center;
 }
 
+.img-wrap button:focus {
+  outline: 2px solid #0d6efd;
+  outline-offset: 2px;
+}
+
 /* ==================== Promotion Plans ==================== */
 .promo-section { margin-top: 16px; }
 
@@ -257,7 +275,8 @@
   scroll-snap-align: center;
 }
 
-.promo-card.active {
+.promo-card.active,
+.promo-card:focus {
   border-color: #0d6efd;
   background-color: #e4f0ff;
   box-shadow: 0 4px 12px rgba(13,110,253,0.15);
@@ -290,7 +309,8 @@
   transition: all 0.25s ease;
 }
 
-.btn:hover { background-color: #0b5ed7; box-shadow: 0 3px 10px rgba(0,0,0,0.12); }
+.btn:hover,
+.btn:focus { background-color: #0b5ed7; box-shadow: 0 3px 10px rgba(0,0,0,0.12); }
 .btn:disabled { opacity: 0.6; cursor: not-allowed; }
 
 /* ==================== Toast ==================== */
@@ -313,6 +333,8 @@
   animation: slideIn 0.35s ease;
 }
 
+.toast-container[aria-live] { aria-live: polite; }
+
 .toast-icon { font-size: 16px; }
 
 @keyframes slideIn {
@@ -324,6 +346,16 @@
 .field input[type="tel"] {
   white-space: nowrap;
   overflow-x: hidden;
+}
+
+/* ==================== Focus Visible for Accessibility ==================== */
+input:focus-visible,
+textarea:focus-visible,
+.option-item:focus-visible,
+.image-upload:focus-visible,
+.btn:focus-visible {
+  outline: 2px solid #0d6efd;
+  outline-offset: 2px;
 }
 
 /* ==================== Responsive ==================== */
