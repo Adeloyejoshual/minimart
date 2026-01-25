@@ -1,6 +1,7 @@
+// src/components/TopNav.js
+import React, { useEffect, useState } from "react";
 import { Link, useNavigate, useLocation } from "react-router-dom";
 import { FaBars, FaHome, FaStore, FaShoppingCart, FaUser } from "react-icons/fa";
-import { useEffect, useState } from "react";
 import { collection, onSnapshot, query, where } from "firebase/firestore";
 import { db, auth } from "../firebase";
 import SlideMenu from "./SlideMenu";
@@ -8,22 +9,22 @@ import SlideMenu from "./SlideMenu";
 export default function TopNav() {
   const navigate = useNavigate();
   const location = useLocation();
+
   const [selectedLocation, setSelectedLocation] = useState(null);
   const [menuOpen, setMenuOpen] = useState(false);
-
   const [cartCount, setCartCount] = useState(0);
   const [unreadMessages, setUnreadMessages] = useState(0);
 
   const lightBlue = "#4da6ff";
   const inactiveColor = "#555";
 
-  // Load region from localStorage
+  // Load selected location from localStorage
   useEffect(() => {
     const storedLocation = localStorage.getItem("selectedLocation");
     if (storedLocation) setSelectedLocation(JSON.parse(storedLocation));
   }, []);
 
-  // Firebase real-time updates for cart & messages
+  // Real-time updates from Firebase: cart & unread messages
   useEffect(() => {
     if (!auth.currentUser) return;
     const uid = auth.currentUser.uid;
@@ -59,8 +60,8 @@ export default function TopNav() {
 
   return (
     <>
+      {/* ---------- Top Bar ---------- */}
       <div style={{ fontFamily: "Segoe UI, Tahoma, Geneva, Verdana, sans-serif" }}>
-        {/* ---------- Top Bar ---------- */}
         <div
           style={{
             display: "flex",
