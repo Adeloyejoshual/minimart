@@ -1,12 +1,12 @@
 // src/components/TopNav.jsx
 import React, { useEffect, useState } from "react";
 import { Link, useNavigate, useLocation } from "react-router-dom";
-import { FaBars, FaHome, FaStore, FaShoppingCart, FaUser } from "react-icons/fa";
+import { FaBars, FaShoppingCart, FaUser, FaSearch } from "react-icons/fa";
 import { collection, onSnapshot, query, where } from "firebase/firestore";
 import { db, auth } from "../firebase";
 import SlideMenu from "./SlideMenu";
 
-export default function TopNav({ children }) {
+export default function TopNav({ onSearch }) {
   const navigate = useNavigate();
   const location = useLocation();
 
@@ -14,17 +14,18 @@ export default function TopNav({ children }) {
   const [menuOpen, setMenuOpen] = useState(false);
   const [cartCount, setCartCount] = useState(0);
   const [unreadMessages, setUnreadMessages] = useState(0);
+  const [searchQuery, setSearchQuery] = useState("");
 
   const lightBlue = "#4da6ff";
   const inactiveColor = "#555";
 
-  // Load region from localStorage
+  // Load saved location
   useEffect(() => {
     const storedLocation = localStorage.getItem("selectedLocation");
     if (storedLocation) setSelectedLocation(JSON.parse(storedLocation));
   }, []);
 
-  // Real-time updates from Firebase: cart & unread messages
+  // Real-time cart & messages
   useEffect(() => {
     if (!auth.currentUser) return;
     const uid = auth.currentUser.uid;
@@ -53,30 +54,30 @@ export default function TopNav({ children }) {
 
   const locationText = selectedLocation
     ? `${selectedLocation.state}, ${selectedLocation.city}`
-    : "Region ▼";
+    : "Select Region ▼";
 
-  const bottomLinks = [
-    { path: "/", label: "Home", icon: <FaHome />, badge: 0 },
-    { path: "/minimart", label: "MiniMart", icon: <FaStore />, badge: 0 },
-    { path: "/cart", label: "Cart", icon: <FaShoppingCart />, badge: cartCount },
-    { path: "/profile", label: "Account", icon: <FaUser />, badge: unreadMessages },
-  ];
+  const handleSearch = (e) => {
+    setSearchQuery(e.target.value);
+    if (onSearch) onSearch(e.target.value); // optional callback for HomePage
+  };
 
   return (
-    <div style={{ display: "flex", flexDirection: "column", minHeight: "100vh", fontFamily: "Segoe UI, Tahoma, Geneva, Verdana, sans-serif" }}>
-      
+    <div style={{ fontFamily: "Segoe UI, Tahoma, Geneva, Verdana, sans-serif" }}>
       {/* ---------- Top Bar ---------- */}
       <div
         style={{
           display: "flex",
           alignItems: "center",
-          justifyContent: "space-between",
-          padding: "10px 16px",
-          borderBottom: "1px solid #ddd",
+          gap: 12,
+          padding: "8px 16px",
           backgroundColor: "#f8fafd",
+          borderBottom: "1px solid #ddd",
+          position: "sticky",
+          top: 0,
           zIndex: 1000,
         }}
       >
+        {/* Logo */}
         <Link
           to="/minimart"
           style={{ fontWeight: "bold", fontSize: 18, textDecoration: "none", color: lightBlue }}
@@ -84,11 +85,10 @@ export default function TopNav({ children }) {
           MiniMart
         </Link>
 
+        {/* Location Selector */}
         <div
           onClick={() => navigate("/select-location")}
           style={{
-            flex: 1,
-            marginLeft: 12,
             padding: "6px 12px",
             borderRadius: 20,
             border: "1px solid #ccc",
@@ -96,96 +96,98 @@ export default function TopNav({ children }) {
             cursor: "pointer",
             fontSize: 14,
             color: selectedLocation ? "#333" : "#888",
-            textAlign: "center",
           }}
         >
           {locationText}
         </div>
 
-        <FaBars
-          size={20}
-          style={{ marginLeft: 12, cursor: "pointer", color: "#333" }}
-          onClick={() => setMenuOpen(true)}
-        />
+        {/* Professional Search Bar */}
+        <div style={{ flex: 1, position: "relative" }}>
+          <input
+            type="text"
+            value={searchQuery}
+            onChange={handleSearch}
+            placeholder="Search for products, brands..."
+            style={{
+              width: "100%",
+              padding: "8px 36px 8px 12px",
+              borderRadius: 20,
+              border: "1px solid #ccc",
+              fontSize: 14,
+              outline: "none",
+              boxShadow: "0 2px 4px rgba(0,0,0,0.06)",
+            }}
+          />
+          <FaSearch
+            style={{
+              position: "absolute",
+              right: 10,
+              top: "50%",
+              transform: "translateY(-50%)",
+              color: "#888",
+            }}
+          />
+        </div>
 
-        <div
-          onClick={() => navigate("/search")}
-          style={{
-            marginLeft: 12,
-            flex: 2,
-            padding: "6px 12px",
-            borderRadius: 20,
-            border: "1px solid #ccc",
-            backgroundColor: "#fff",
-            cursor: "pointer",
-            fontSize: 14,
-            color: "#888",
-            textAlign: "center",
-          }}
-        >
-          🔍 Search products...
+        {/* Right Icons */}
+        <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+          <div
+            onClick={() => setMenuOpen(true)}
+            style={{ fontSize: 20, cursor: "pointer", color: "#333" }}
+          >
+            <FaBars />
+          </div>
+          <div
+            onClick={() => navigate("/cart")}
+            style={{ position: "relative", cursor: "pointer", fontSize: 20 }}
+          >
+            <FaShoppingCart />
+            {cartCount > 0 && (
+              <span
+                style={{
+                  position: "absolute",
+                  top: -4,
+                  right: -10,
+                  background: "red",
+                  color: "#fff",
+                  fontSize: 10,
+                  padding: "2px 5px",
+                  borderRadius: "50%",
+                  fontWeight: "bold",
+                }}
+              >
+                {cartCount}
+              </span>
+            )}
+          </div>
+          <div
+            onClick={() => navigate("/profile")}
+            style={{ position: "relative", cursor: "pointer", fontSize: 20 }}
+          >
+            <FaUser />
+            {unreadMessages > 0 && (
+              <span
+                style={{
+                  position: "absolute",
+                  top: -4,
+                  right: -10,
+                  background: "red",
+                  color: "#fff",
+                  fontSize: 10,
+                  padding: "2px 5px",
+                  borderRadius: "50%",
+                  fontWeight: "bold",
+                }}
+              >
+                {unreadMessages}
+              </span>
+            )}
+          </div>
         </div>
       </div>
 
-      {/* ---------- Scrollable Content ---------- */}
-      <div style={{ flex: 1, overflowY: "auto", paddingBottom: 80 }}>
-        {children}
-      </div>
-
-      {/* ---------- Bottom Navigation (Pinned) ---------- */}
-      <div
-        style={{
-          display: "flex",
-          justifyContent: "space-around",
-          padding: "8px 0",
-          borderTop: "1px solid #ddd",
-          backgroundColor: "#f8fafd",
-          position: "fixed",
-          bottom: 0,
-          width: "100%",
-          zIndex: 1000,
-        }}
-      >
-        {bottomLinks.map((link) => {
-          const isActive = location.pathname === link.path;
-          return (
-            <div
-              key={link.path}
-              onClick={() => navigate(link.path)}
-              style={{
-                textAlign: "center",
-                color: isActive ? lightBlue : inactiveColor,
-                fontWeight: isActive ? 600 : 400,
-                fontSize: 12,
-                cursor: "pointer",
-                position: "relative",
-              }}
-            >
-              <div style={{ fontSize: 20, marginBottom: 2 }}>
-                {React.cloneElement(link.icon, { color: isActive ? lightBlue : inactiveColor })}
-              </div>
-              <div>{link.label}</div>
-              {link.badge > 0 && (
-                <span
-                  style={{
-                    position: "absolute",
-                    top: -4,
-                    right: -10,
-                    background: "red",
-                    color: "#fff",
-                    fontSize: 10,
-                    padding: "2px 5px",
-                    borderRadius: "50%",
-                    fontWeight: "bold",
-                  }}
-                >
-                  {link.badge}
-                </span>
-              )}
-            </div>
-          );
-        })}
-      </div>
+      {/* ---------- Children / Page Content ---------- */}
+      <div style={{ flex: 1, overflowY: "auto" }}>{children}</div>
 
       {/* ---------- Slide Menu ---------- */}
       <SlideMenu
