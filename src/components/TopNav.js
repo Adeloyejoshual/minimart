@@ -1,7 +1,6 @@
-// src/components/TopNav.jsx
 import React, { useEffect, useState } from "react";
-import { Link, useNavigate, useLocation } from "react-router-dom";
-import { FaBars, FaHome, FaStore, FaShoppingCart, FaUser } from "react-icons/fa";
+import { useNavigate, useLocation } from "react-router-dom";
+import { FaBars, FaMapMarkerAlt, FaSearch, FaShoppingCart, FaUser } from "react-icons/fa";
 import { collection, onSnapshot, query, where } from "firebase/firestore";
 import { db, auth } from "../firebase";
 import SlideMenu from "./SlideMenu";
@@ -15,104 +14,148 @@ export default function TopNav({ searchQuery, setSearchQuery }) {
   const [cartCount, setCartCount] = useState(0);
   const [unreadMessages, setUnreadMessages] = useState(0);
 
-  const lightBlue = "#4da6ff";
-  const inactiveColor = "#555";
+  const primary = "#0d6efd";
 
-  // Load location
+  // Load saved location
   useEffect(() => {
-    const storedLocation = localStorage.getItem("selectedLocation");
-    if (storedLocation) setSelectedLocation(JSON.parse(storedLocation));
+    const stored = localStorage.getItem("selectedLocation");
+    if (stored) setSelectedLocation(JSON.parse(stored));
   }, []);
 
-  // Real-time cart & messages
+  // Live cart + messages
   useEffect(() => {
     if (!auth.currentUser) return;
     const uid = auth.currentUser.uid;
 
-    const cartRef = collection(db, "carts");
-    const cartQuery = query(cartRef, where("userId", "==", uid));
-    const unsubscribeCart = onSnapshot(cartQuery, snapshot => setCartCount(snapshot.docs.length));
+    const unsubCart = onSnapshot(
+      query(collection(db, "carts"), where("userId", "==", uid)),
+      snap => setCartCount(snap.docs.length)
+    );
 
-    const messagesRef = collection(db, "messages");
-    const messagesQuery = query(messagesRef, where("toUser", "==", uid), where("read", "==", false));
-    const unsubscribeMessages = onSnapshot(messagesQuery, snapshot => setUnreadMessages(snapshot.docs.length));
+    const unsubMsg = onSnapshot(
+      query(collection(db, "messages"), where("toUser", "==", uid), where("read", "==", false)),
+      snap => setUnreadMessages(snap.docs.length)
+    );
 
     return () => {
-      unsubscribeCart();
-      unsubscribeMessages();
+      unsubCart();
+      unsubMsg();
     };
   }, []);
 
   const locationText = selectedLocation
-    ? `${selectedLocation.state}, ${selectedLocation.city}`
-    : "Region ▼";
-
-  const bottomLinks = [
-    { path: "/", label: "Home", icon: <FaHome />, badge: 0 },
-    { path: "/minimart", label: "MiniMart", icon: <FaStore />, badge: 0 },
-    { path: "/cart", label: "Cart", icon: <FaShoppingCart />, badge: cartCount },
-    { path: "/profile", label: "Account", icon: <FaUser />, badge: unreadMessages },
-  ];
+    ? `${selectedLocation.city}, ${selectedLocation.state}`
+    : "Select location";
 
   return (
-    <div style={{ display: "flex", flexDirection: "column", fontFamily: "Segoe UI, Tahoma, Geneva, Verdana, sans-serif" }}>
-      {/* Top Bar */}
+    <>
+      {/* 🔵 TOP HEADER */}
       <div
         style={{
-          display: "flex",
-          alignItems: "center",
-          justifyContent: "space-between",
-          padding: "10px 16px",
-          borderBottom: "1px solid #ddd",
-          backgroundColor: "#f8fafd",
-          position: "sticky",
+          position: "fixed",
           top: 0,
-          zIndex: 1000
+          left: 0,
+          right: 0,
+          zIndex: 2000,
+          background: "#ffffff",
+          borderBottom: "1px solid #e5e7eb",
+          padding: "8px 12px",
+          display: "flex",
+          flexDirection: "column",
+          gap: 8
         }}
       >
-        <Link to="/minimart" style={{ fontWeight: "bold", fontSize: 18, textDecoration: "none", color: lightBlue }}>
-          MiniMart
-        </Link>
+        {/* Row 1 */}
+        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+          <div
+            style={{ fontWeight: "bold", fontSize: 20, color: primary, cursor: "pointer" }}
+            onClick={() => navigate("/")}
+          >
+            MiniMart
+          </div>
 
-        {/* Location */}
-        <div
-          onClick={() => navigate("/select-location")}
-          style={{
-            flex: 1,
-            marginLeft: 12,
-            padding: "6px 12px",
-            borderRadius: 20,
-            border: "1px solid #ccc",
-            backgroundColor: "#fff",
-            cursor: "pointer",
-            fontSize: 14,
-            color: selectedLocation ? "#333" : "#888",
-            textAlign: "center",
-          }}
-        >
-          {locationText}
+          <div style={{ display: "flex", alignItems: "center", gap: 14 }}>
+            <div style={{ position: "relative", cursor: "pointer" }} onClick={() => navigate("/cart")}>
+              <FaShoppingCart size={18} />
+              {cartCount > 0 && (
+                <span style={{
+                  position: "absolute",
+                  top: -6,
+                  right: -8,
+                  background: "red",
+                  color: "#fff",
+                  fontSize: 10,
+                  padding: "2px 5px",
+                  borderRadius: "50%"
+                }}>{cartCount}</span>
+              )}
+            </div>
+
+            <div style={{ position: "relative", cursor: "pointer" }} onClick={() => navigate("/profile")}>
+              <FaUser size={18} />
+              {unreadMessages > 0 && (
+                <span style={{
+                  position: "absolute",
+                  top: -6,
+                  right: -8,
+                  background: "red",
+                  color: "#fff",
+                  fontSize: 10,
+                  padding: "2px 5px",
+                  borderRadius: "50%"
+                }}>{unreadMessages}</span>
+              )}
+            </div>
+
+            <FaBars size={20} style={{ cursor: "pointer" }} onClick={() => setMenuOpen(true)} />
+          </div>
         </div>
 
-        {/* Search */}
-        <input
-          type="text"
-          value={searchQuery}
-          onChange={e => setSearchQuery(e.target.value)}
-          placeholder="🔍 Search products..."
-          style={{
-            marginLeft: 12,
-            flex: 2,
-            padding: "6px 12px",
-            borderRadius: 20,
-            border: "1px solid #ccc",
-            backgroundColor: "#fff",
-            fontSize: 14,
-            outline: "none",
-          }}
-        />
+        {/* Row 2 — Location + Search */}
+        <div style={{ display: "flex", gap: 8 }}>
+          <div
+            onClick={() => navigate("/select-location")}
+            style={{
+              display: "flex",
+              alignItems: "center",
+              gap: 4,
+              background: "#f1f5f9",
+              padding: "8px 10px",
+              borderRadius: 10,
+              fontSize: 13,
+              cursor: "pointer",
+              whiteSpace: "nowrap"
+            }}
+          >
+            <FaMapMarkerAlt color={primary} />
+            {locationText}
+          </div>
 
-        {/* Menu */}
-        <FaBars size={20} style={{ marginLeft: 12, cursor: "pointer", color: "#333" }} onClick={() => setMenuOpen(true)} />
+          <div style={{
+            flex: 1,
+            display: "flex",
+            alignItems: "center",
+            background: "#f1f5f9",
+            borderRadius: 10,
+            padding: "8px 10px"
+          }}>
+            <FaSearch color="#6b7280" />
+            <input
+              type="text"
+              value={searchQuery}
+              onChange={e => setSearchQuery(e.target.value)}
+              placeholder="Search products..."
+              style={{
+                border: "none",
+                outline: "none",
+                background: "transparent",
+                marginLeft: 8,
+                flex: 1,
+                fontSize: 14
+              }}
+            />
+          </div>
+        </div>
       </div>
 
       {/* Slide Menu */}
@@ -122,6 +165,6 @@ export default function TopNav({ searchQuery, setSearchQuery }) {
         cartCount={cartCount}
         unreadMessages={unreadMessages}
       />
-    </div>
+    </>
   );
 }
