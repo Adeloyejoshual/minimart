@@ -1,17 +1,17 @@
 // src/pages/HomePage.jsx
-import { useEffect, useState, useRef } from "react";
+import React, { useEffect, useState, useRef } from "react";
 import { collection, getDocs, query, orderBy } from "firebase/firestore";
-import { db, auth } from "../firebase";
-import { useNavigate, useLocation } from "react-router-dom";
+import { db } from "../firebase";
+import { useNavigate } from "react-router-dom";
 import { useSwipeable } from "react-swipeable";
+import { FaHome, FaStore, FaShoppingCart, FaUser } from "react-icons/fa";
 import TopNav from "../components/TopNav";
+import PostAdModal from "../components/PostAdModal";
 import categories from "../config/categories";
 import { promotionPlans } from "../config/promotionPlans";
-import { FaHome, FaStore, FaShoppingCart, FaUser } from "react-icons/fa";
 
 export default function HomePage() {
   const navigate = useNavigate();
-  const location = useLocation();
 
   const [allProducts, setAllProducts] = useState([]);
   const [displayProducts, setDisplayProducts] = useState([]);
@@ -26,14 +26,6 @@ export default function HomePage() {
 
   const sliderRef = useRef(null);
   const promoPlanIds = promotionPlans.map(p => p.id);
-
-  // Bottom navigation links
-  const bottomLinks = [
-    { path: "/", label: "Home", icon: <FaHome />, badge: 0 },
-    { path: "/minimart", label: "MiniMart", icon: <FaStore />, badge: 0 },
-    { path: "/cart", label: "Cart", icon: <FaShoppingCart />, badge: cartCount },
-    { path: "/profile", label: "Account", icon: <FaUser />, badge: unreadMessages },
-  ];
 
   const getPromotionPlan = id => promotionPlans.find(p => p.id === id);
 
@@ -121,18 +113,12 @@ export default function HomePage() {
     return t;
   };
 
-  // Real-time cart & messages
-  useEffect(() => {
-    if (!auth.currentUser) return;
-    const uid = auth.currentUser.uid;
-    // Cart count
-    const unsubscribeCart = collection(db, "carts");
-    // Message count (simplified example)
-    const unsubscribeMessages = collection(db, "messages");
-    setCartCount(0);
-    setUnreadMessages(0);
-    return () => {};
-  }, []);
+  const bottomLinks = [
+    { path: "/", label: "Home", icon: <FaHome />, badge: 0 },
+    { path: "/minimart", label: "MiniMart", icon: <FaStore />, badge: 0 },
+    { path: "/cart", label: "Cart", icon: <FaShoppingCart />, badge: cartCount },
+    { path: "/profile", label: "Account", icon: <FaUser />, badge: unreadMessages },
+  ];
 
   return (
     <div style={{ background: "#f5f7fb", minHeight: "100vh", display: "flex", flexDirection: "column" }}>
@@ -201,7 +187,6 @@ export default function HomePage() {
                     overflow: "hidden",
                     boxShadow: "0 4px 12px rgba(0,0,0,0.06)",
                     cursor: "pointer",
-                    transition: "transform 0.2s ease, box-shadow 0.2s ease",
                   }}>
                     <img src={p.images?.[0] || "/placeholder.png"} alt="" style={{ width: "100%", height: 150, objectFit: "cover" }} />
                     <div style={{ padding: 10 }}>
@@ -234,7 +219,6 @@ export default function HomePage() {
                 overflow: "hidden",
                 display: "flex",
                 flexDirection: "column",
-                transition: "transform 0.2s ease, box-shadow 0.2s ease",
               }}
             >
               <img src={p.images?.[0] || "/placeholder.png"} alt="" style={{ width: "100%", height: 180, objectFit: "cover" }} />
@@ -248,58 +232,38 @@ export default function HomePage() {
         </section>
       </div>
 
-      {/* ---------- Bottom Navigation ---------- */}
-      <div
-        style={{
-          display: "flex",
-          justifyContent: "space-around",
-          padding: "8px 0",
-          borderTop: "1px solid #ddd",
-          backgroundColor: "#f5f7fb",
-          position: "sticky",
-          bottom: 0,
-          zIndex: 1000,
-        }}
-      >
-        {bottomLinks.map(link => {
-          const isActive = location.pathname === link.path;
-          return (
-            <div
-              key={link.path}
-              onClick={() => navigate(link.path)}
-              style={{
-                textAlign: "center",
-                color: isActive ? "#4da6ff" : "#555",
-                fontWeight: isActive ? 600 : 400,
-                fontSize: 12,
-                cursor: "pointer",
-                position: "relative",
-              }}
-            >
-              <div style={{ fontSize: 20, marginBottom: 2 }}>
-                {React.cloneElement(link.icon, { color: isActive ? "#4da6ff" : "#555" })}
-              </div>
-              <div>{link.label}</div>
-              {link.badge > 0 && (
-                <span
-                  style={{
-                    position: "absolute",
-                    top: -4,
-                    right: -10,
-                    background: "red",
-                    color: "#fff",
-                    fontSize: 10,
-                    padding: "2px 5px",
-                    borderRadius: "50%",
-                    fontWeight: "bold",
-                  }}
-                >
-                  {link.badge}
-                </span>
-              )}
-            </div>
-          );
-        })}
+      {/* Fixed Bottom Navigation */}
+      <div style={{
+        position: "fixed",
+        bottom: 0,
+        width: "100%",
+        background: "#f5f7fb",
+        padding: 8,
+        borderTop: "1px solid #e0e6ef",
+        display: "flex",
+        justifyContent: "space-around",
+        zIndex: 1000
+      }}>
+        {bottomLinks.map(link => (
+          <div key={link.path} onClick={() => navigate(link.path)}
+               style={{ textAlign: "center", cursor: "pointer", fontSize: 12, position: "relative" }}>
+            <div style={{ fontSize: 20 }}>{link.icon}</div>
+            <div>{link.label}</div>
+            {link.badge > 0 && (
+              <span style={{
+                position: "absolute",
+                top: -4,
+                right: -10,
+                background: "red",
+                color: "#fff",
+                fontSize: 10,
+                padding: "2px 5px",
+                borderRadius: "50%",
+                fontWeight: "bold"
+              }}>{link.badge}</span>
+            )}
+          </div>
+        ))}
       </div>
     </div>
   );
