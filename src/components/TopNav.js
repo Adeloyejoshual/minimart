@@ -63,138 +63,128 @@ export default function TopNav({ children }) {
   ];
 
   return (
-    <>
-      <div style={{ fontFamily: "Segoe UI, Tahoma, Geneva, Verdana, sans-serif" }}>
-        {/* ---------- Top Bar ---------- */}
+    <div style={{ display: "flex", flexDirection: "column", minHeight: "100vh", fontFamily: "Segoe UI, Tahoma, Geneva, Verdana, sans-serif" }}>
+      
+      {/* ---------- Top Bar ---------- */}
+      <div
+        style={{
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "space-between",
+          padding: "10px 16px",
+          borderBottom: "1px solid #ddd",
+          backgroundColor: "#f8fafd",
+          zIndex: 1000,
+        }}
+      >
+        <Link
+          to="/minimart"
+          style={{ fontWeight: "bold", fontSize: 18, textDecoration: "none", color: lightBlue }}
+        >
+          MiniMart
+        </Link>
+
         <div
+          onClick={() => navigate("/select-location")}
           style={{
-            display: "flex",
-            alignItems: "center",
-            justifyContent: "space-between",
-            padding: "10px 16px",
-            borderBottom: "1px solid #ddd",
-            backgroundColor: "#f8fafd",
-            position: "sticky",
-            top: 0,
-            zIndex: 1000,
+            flex: 1,
+            marginLeft: 12,
+            padding: "6px 12px",
+            borderRadius: 20,
+            border: "1px solid #ccc",
+            backgroundColor: "#fff",
+            cursor: "pointer",
+            fontSize: 14,
+            color: selectedLocation ? "#333" : "#888",
+            textAlign: "center",
           }}
         >
-          <Link
-            to="/minimart"
-            style={{ fontWeight: "bold", fontSize: 18, textDecoration: "none", color: lightBlue }}
-          >
-            MiniMart
-          </Link>
-
-          <div
-            onClick={() => navigate("/select-location")}
-            style={{
-              flex: 1,
-              marginLeft: 12,
-              padding: "6px 12px",
-              borderRadius: 20,
-              border: "1px solid #ccc",
-              backgroundColor: "#fff",
-              cursor: "pointer",
-              fontSize: 14,
-              color: selectedLocation ? "#333" : "#888",
-              textAlign: "center",
-            }}
-          >
-            {locationText}
-          </div>
-
-          <FaBars
-            size={20}
-            style={{ marginLeft: 12, cursor: "pointer", color: "#333" }}
-            onClick={() => setMenuOpen(true)}
-          />
-
-          <div
-            onClick={() => navigate("/search")}
-            style={{
-              marginLeft: 12,
-              flex: 2,
-              padding: "6px 12px",
-              borderRadius: 20,
-              border: "1px solid #ccc",
-              backgroundColor: "#fff",
-              cursor: "pointer",
-              fontSize: 14,
-              color: "#888",
-              textAlign: "center",
-            }}
-          >
-            🔍 Search products...
-          </div>
+          {locationText}
         </div>
 
-        {/* ---------- Scrollable Content ---------- */}
-        <div
-          style={{
-            paddingTop: 10,
-            paddingBottom: 60, // space for bottom nav
-            overflowY: "auto",
-            maxHeight: "calc(100vh - 104px)", // 52px top + 52px bottom
-          }}
-        >
-          {children}
-        </div>
+        <FaBars
+          size={20}
+          style={{ marginLeft: 12, cursor: "pointer", color: "#333" }}
+          onClick={() => setMenuOpen(true)}
+        />
 
-        {/* ---------- Bottom Navigation ---------- */}
         <div
+          onClick={() => navigate("/search")}
           style={{
-            display: "flex",
-            justifyContent: "space-around",
-            padding: "8px 0",
-            borderTop: "1px solid #ddd",
-            borderBottom: "1px solid #ddd",
-            backgroundColor: "#f8fafd",
-            position: "sticky",
-            bottom: 0,
-            zIndex: 1000,
+            marginLeft: 12,
+            flex: 2,
+            padding: "6px 12px",
+            borderRadius: 20,
+            border: "1px solid #ccc",
+            backgroundColor: "#fff",
+            cursor: "pointer",
+            fontSize: 14,
+            color: "#888",
+            textAlign: "center",
           }}
         >
-          {bottomLinks.map((link) => {
-            const isActive = location.pathname === link.path;
-            return (
-              <div
-                key={link.path}
-                onClick={() => navigate(link.path)}
-                style={{
-                  textAlign: "center",
-                  color: isActive ? lightBlue : inactiveColor,
-                  fontWeight: isActive ? 600 : 400,
-                  fontSize: 12,
-                  cursor: "pointer",
-                  position: "relative",
-                }}
-              >
-                <div style={{ fontSize: 20, marginBottom: 2 }}>
-                  {React.cloneElement(link.icon, { color: isActive ? lightBlue : inactiveColor })}
-                </div>
-                <div>{link.label}</div>
-                {link.badge > 0 && (
-                  <span
-                    style={{
-                      position: "absolute",
-                      top: -4,
-                      right: -10,
-                      background: "red",
-                      color: "#fff",
-                      fontSize: 10,
-                      padding: "2px 5px",
-                      borderRadius: "50%",
-                      fontWeight: "bold",
-                    }}
-                  >
-                    {link.badge}
-                  </span>
-                )}
+          🔍 Search products...
+        </div>
+      </div>
+
+      {/* ---------- Scrollable Content ---------- */}
+      <div style={{ flex: 1, overflowY: "auto", paddingBottom: 80 }}>
+        {children}
+      </div>
+
+      {/* ---------- Bottom Navigation (Pinned) ---------- */}
+      <div
+        style={{
+          display: "flex",
+          justifyContent: "space-around",
+          padding: "8px 0",
+          borderTop: "1px solid #ddd",
+          backgroundColor: "#f8fafd",
+          position: "fixed",
+          bottom: 0,
+          width: "100%",
+          zIndex: 1000,
+        }}
+      >
+        {bottomLinks.map((link) => {
+          const isActive = location.pathname === link.path;
+          return (
+            <div
+              key={link.path}
+              onClick={() => navigate(link.path)}
+              style={{
+                textAlign: "center",
+                color: isActive ? lightBlue : inactiveColor,
+                fontWeight: isActive ? 600 : 400,
+                fontSize: 12,
+                cursor: "pointer",
+                position: "relative",
+              }}
+            >
+              <div style={{ fontSize: 20, marginBottom: 2 }}>
+                {React.cloneElement(link.icon, { color: isActive ? lightBlue : inactiveColor })}
               </div>
-            );
-          })}
-        </div>
+              <div>{link.label}</div>
+              {link.badge > 0 && (
+                <span
+                  style={{
+                    position: "absolute",
+                    top: -4,
+                    right: -10,
+                    background: "red",
+                    color: "#fff",
+                    fontSize: 10,
+                    padding: "2px 5px",
+                    borderRadius: "50%",
+                    fontWeight: "bold",
+                  }}
+                >
+                  {link.badge}
+                </span>
+              )}
+            </div>
+          );
+        })}
       </div>
 
       {/* ---------- Slide Menu ---------- */}
@@ -204,6 +194,6 @@ export default function TopNav({ children }) {
         cartCount={cartCount}
         unreadMessages={unreadMessages}
       />
-    </>
+    </div>
   );
 }
