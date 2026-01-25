@@ -4,6 +4,7 @@ import { collection, getDocs, query, orderBy } from "firebase/firestore";
 import { db } from "../firebase";
 import { useNavigate } from "react-router-dom";
 import { useSwipeable } from "react-swipeable";
+import { FaHome, FaStore, FaShoppingCart, FaUser } from "react-icons/fa";
 import TopNav from "../components/TopNav";
 import categories from "../config/categories";
 import { promotionPlans } from "../config/promotionPlans";
@@ -19,6 +20,8 @@ export default function HomePage() {
   const [currentSlide, setCurrentSlide] = useState(0);
   const [columns, setColumns] = useState(2);
   const [isDragging, setIsDragging] = useState(false);
+  const [cartCount, setCartCount] = useState(0);
+  const [unreadMessages, setUnreadMessages] = useState(0);
 
   const sliderRef = useRef(null);
   const promoPlanIds = promotionPlans.map(p => p.id);
@@ -99,7 +102,7 @@ export default function HomePage() {
     return () => clearInterval(interval);
   }, [isDragging, trendingProducts]);
 
-  const truncateTitle = (title) => {
+  const truncateTitle = title => {
     if (!title) return "";
     const maxWords = 6;
     const maxChars = 40;
@@ -108,15 +111,24 @@ export default function HomePage() {
     return t;
   };
 
+  const bottomLinks = [
+    { path: "/", label: "Home", icon: <FaHome />, badge: 0 },
+    { path: "/minimart", label: "MiniMart", icon: <FaStore />, badge: 0 },
+    { path: "/cart", label: "Cart", icon: <FaShoppingCart />, badge: cartCount },
+    { path: "/profile", label: "Account", icon: <FaUser />, badge: unreadMessages },
+  ];
+
   return (
-    <div style={{ background: "#f5f7fb", minHeight: "100vh", display: "flex", flexDirection: "column" }}>
-      {/* Pinned TopNav with live search */}
-      <TopNav searchQuery={searchQuery} setSearchQuery={setSearchQuery} />
+    <div style={{ display: "flex", flexDirection: "column", minHeight: "100vh" }}>
+      {/* TopNav pinned */}
+      <div style={{ position: "fixed", top: 0, left: 0, right: 0, zIndex: 1000 }}>
+        <TopNav searchQuery={searchQuery} setSearchQuery={setSearchQuery} />
+      </div>
 
       {/* Scrollable content */}
-      <div style={{ flex: 1, overflowY: "auto", padding: "0 16px", marginTop: 12 }}>
+      <div style={{ flex: 1, marginTop: 72, marginBottom: 60, overflowY: "auto" }}>
         {/* Categories */}
-        <div style={{ display: "flex", gap: 8, overflowX: "auto", paddingBottom: 12 }}>
+        <div style={{ maxWidth: 1200, margin: "10px auto 0", padding: "0 16px", display: "flex", gap: 8, overflowX: "auto" }}>
           {categories.map(c => (
             <button
               key={c.name}
@@ -137,9 +149,9 @@ export default function HomePage() {
           ))}
         </div>
 
-        {/* Trending Slider */}
+        {/* Trending */}
         {trendingProducts.length > 0 && (
-          <section style={{ marginBottom: 20 }}>
+          <section style={{ maxWidth: 1200, margin: "20px auto 10px", padding: "0 16px" }}>
             <h2 style={{ fontSize: 18, marginBottom: 12 }}>🔥 Trending</h2>
             <div ref={sliderRef} {...handlers} style={{ display: "flex", overflow: "hidden" }}>
               {trendingProducts.map(p => (
@@ -173,10 +185,12 @@ export default function HomePage() {
 
         {/* Product Feed */}
         <section style={{
+          maxWidth: 1200,
+          margin: "0 auto 20px",
+          padding: "0 16px",
           display: "grid",
           gridTemplateColumns: `repeat(${columns}, 1fr)`,
-          gap: 12,
-          paddingBottom: 80
+          gap: 12
         }}>
           {displayProducts.map(p => (
             <div key={p.id} onClick={() => navigate(`/product/${p.id}`)}
@@ -199,6 +213,41 @@ export default function HomePage() {
             </div>
           ))}
         </section>
+      </div>
+
+      {/* Bottom Navigation */}
+      <div style={{
+        position: "fixed",
+        bottom: 0,
+        left: 0,
+        right: 0,
+        height: 60,
+        borderTop: "1px solid #e0e6ef",
+        background: "#f5f7fb",
+        display: "flex",
+        justifyContent: "space-around",
+        alignItems: "center",
+        zIndex: 1000
+      }}>
+        {bottomLinks.map(link => (
+          <div key={link.path} onClick={() => navigate(link.path)} style={{ textAlign: "center", cursor: "pointer", position: "relative" }}>
+            <div style={{ fontSize: 20 }}>{link.icon}</div>
+            <div style={{ fontSize: 12 }}>{link.label}</div>
+            {link.badge > 0 && (
+              <span style={{
+                position: "absolute",
+                top: -4,
+                right: -10,
+                background: "red",
+                color: "#fff",
+                fontSize: 10,
+                padding: "2px 5px",
+                borderRadius: "50%",
+                fontWeight: "bold"
+              }}>{link.badge}</span>
+            )}
+          </div>
+        ))}
       </div>
     </div>
   );
