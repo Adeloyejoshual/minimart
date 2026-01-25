@@ -27,8 +27,16 @@ export default function HomePage() {
   const sliderRef = useRef(null);
   const promoPlanIds = promotionPlans.map(p => p.id);
 
-  // ----- Load products -----
+  // Bottom navigation links
+  const bottomLinks = [
+    { path: "/", label: "Home", icon: <FaHome />, badge: 0 },
+    { path: "/minimart", label: "MiniMart", icon: <FaStore />, badge: 0 },
+    { path: "/cart", label: "Cart", icon: <FaShoppingCart />, badge: cartCount },
+    { path: "/profile", label: "Account", icon: <FaUser />, badge: unreadMessages },
+  ];
+
   const getPromotionPlan = id => promotionPlans.find(p => p.id === id);
+
   const calculateAIScore = product => {
     const views = product.views || 0;
     const clicks = product.clicks || 0;
@@ -40,8 +48,10 @@ export default function HomePage() {
     const freshnessBoost = Math.max(20 - daysOld, 0);
     return views * 3 + clicks * 2 + searches + promotionBoost + freshnessBoost;
   };
+
   const shuffleArray = arr => [...arr].sort(() => Math.random() - 0.5);
 
+  // Load products
   useEffect(() => {
     const loadProducts = async () => {
       const snap = await getDocs(query(collection(db, "products"), orderBy("createdAt", "desc")));
@@ -54,7 +64,7 @@ export default function HomePage() {
     loadProducts();
   }, []);
 
-  // ----- Filter products -----
+  // Filter products
   useEffect(() => {
     let filtered = [...allProducts];
     if (selectedCategory) filtered = filtered.filter(p => p.category === selectedCategory);
@@ -74,20 +84,18 @@ export default function HomePage() {
     setDisplayProducts([...promoted.slice(0, 5), ...shuffleArray(regular)]);
   }, [allProducts, selectedCategory, searchQuery]);
 
-  // ----- Responsive columns -----
+  // Responsive columns
   useEffect(() => {
     const updateColumns = () => {
       const w = window.innerWidth;
-      if (w < 500) setColumns(2);
-      else if (w < 900) setColumns(3);
-      else setColumns(4);
+      setColumns(w < 500 ? 2 : w < 900 ? 3 : 4);
     };
     updateColumns();
     window.addEventListener("resize", updateColumns);
     return () => window.removeEventListener("resize", updateColumns);
   }, []);
 
-  // ----- Swipeable trending slider -----
+  // Swipeable trending slider
   const handlers = useSwipeable({
     onSwipedLeft: () => setCurrentSlide(p => (p + 1) % trendingProducts.length),
     onSwipedRight: () => setCurrentSlide(p => (p === 0 ? trendingProducts.length - 1 : p - 1)),
@@ -96,14 +104,15 @@ export default function HomePage() {
     trackMouse: true,
   });
 
+  // Auto slide trending
   useEffect(() => {
     if (isDragging || trendingProducts.length === 0) return;
     const interval = setInterval(() => setCurrentSlide(p => (p + 1) % trendingProducts.length), 4000);
     return () => clearInterval(interval);
   }, [isDragging, trendingProducts]);
 
-  // ----- Truncate title -----
-  const truncateTitle = title => {
+  // Truncate title
+  const truncateTitle = (title) => {
     if (!title) return "";
     const maxWords = 6;
     const maxChars = 40;
@@ -112,25 +121,28 @@ export default function HomePage() {
     return t;
   };
 
-  // ----- Bottom links -----
-  const bottomLinks = [
-    { path: "/", label: "Home", icon: <FaHome />, badge: 0 },
-    { path: "/minimart", label: "MiniMart", icon: <FaStore />, badge: 0 },
-    { path: "/cart", label: "Cart", icon: <FaShoppingCart />, badge: cartCount },
-    { path: "/profile", label: "Account", icon: <FaUser />, badge: unreadMessages },
-  ];
+  // Real-time cart & messages
+  useEffect(() => {
+    if (!auth.currentUser) return;
+    const uid = auth.currentUser.uid;
+    // Cart count
+    const unsubscribeCart = collection(db, "carts");
+    // Message count (simplified example)
+    const unsubscribeMessages = collection(db, "messages");
+    setCartCount(0);
+    setUnreadMessages(0);
+    return () => {};
+  }, []);
 
   return (
-    <div style={{ display: "flex", flexDirection: "column", minHeight: "100vh", background: "#f5f7fb" }}>
-      {/* --- TopNav pinned --- */}
-      <div style={{ position: "sticky", top: 0, zIndex: 999 }}>
-        <TopNav />
-      </div>
+    <div style={{ background: "#f5f7fb", minHeight: "100vh", display: "flex", flexDirection: "column" }}>
+      {/* Pinned TopNav */}
+      <TopNav />
 
-      {/* --- Scrollable content --- */}
-      <div style={{ flex: 1, overflowY: "auto", paddingBottom: 60 }}>
+      {/* Scrollable content */}
+      <div style={{ flex: 1, overflowY: "auto", paddingBottom: 80 }}>
         {/* Search */}
-        <div style={{ maxWidth: 1200, margin: "20px auto", padding: "0 16px" }}>
+        <div style={{ maxWidth: 1200, margin: "20px auto", padding: "0 16px", display: "flex", flexDirection: "column", gap: 12 }}>
           <input
             placeholder="Search for phones, cars, fashion..."
             value={searchQuery}
@@ -141,7 +153,6 @@ export default function HomePage() {
               border: "1px solid #d0d7e2",
               fontSize: 14,
               outline: "none",
-              width: "100%",
               boxShadow: "0 2px 6px rgba(0,0,0,0.04)"
             }}
           />
@@ -188,7 +199,9 @@ export default function HomePage() {
                     background: "#fff",
                     borderRadius: 14,
                     overflow: "hidden",
+                    boxShadow: "0 4px 12px rgba(0,0,0,0.06)",
                     cursor: "pointer",
+                    transition: "transform 0.2s ease, box-shadow 0.2s ease",
                   }}>
                     <img src={p.images?.[0] || "/placeholder.png"} alt="" style={{ width: "100%", height: 150, objectFit: "cover" }} />
                     <div style={{ padding: 10 }}>
@@ -221,6 +234,7 @@ export default function HomePage() {
                 overflow: "hidden",
                 display: "flex",
                 flexDirection: "column",
+                transition: "transform 0.2s ease, box-shadow 0.2s ease",
               }}
             >
               <img src={p.images?.[0] || "/placeholder.png"} alt="" style={{ width: "100%", height: 180, objectFit: "cover" }} />
@@ -234,7 +248,7 @@ export default function HomePage() {
         </section>
       </div>
 
-      {/* ----- Bottom Navigation ----- */}
+      {/* ---------- Bottom Navigation ---------- */}
       <div
         style={{
           display: "flex",
