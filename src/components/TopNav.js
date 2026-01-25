@@ -31,19 +31,11 @@ export default function TopNav() {
 
     const cartRef = collection(db, "carts");
     const cartQuery = query(cartRef, where("userId", "==", uid));
-    const unsubscribeCart = onSnapshot(cartQuery, (snapshot) => {
-      setCartCount(snapshot.docs.length);
-    });
+    const unsubscribeCart = onSnapshot(cartQuery, (snapshot) => setCartCount(snapshot.docs.length));
 
     const messagesRef = collection(db, "messages");
-    const messagesQuery = query(
-      messagesRef,
-      where("toUser", "==", uid),
-      where("read", "==", false)
-    );
-    const unsubscribeMessages = onSnapshot(messagesQuery, (snapshot) => {
-      setUnreadMessages(snapshot.docs.length);
-    });
+    const messagesQuery = query(messagesRef, where("toUser", "==", uid), where("read", "==", false));
+    const unsubscribeMessages = onSnapshot(messagesQuery, (snapshot) => setUnreadMessages(snapshot.docs.length));
 
     return () => {
       unsubscribeCart();
@@ -64,140 +56,138 @@ export default function TopNav() {
 
   return (
     <>
-      <div style={{ fontFamily: "Segoe UI, Tahoma, Geneva, Verdana, sans-serif" }}>
-        {/* ---------- Top Bar ---------- */}
+      {/* ---------- Fixed Top Bar ---------- */}
+      <div
+        style={{
+          position: "fixed",
+          top: 0,
+          left: 0,
+          right: 0,
+          zIndex: 1000,
+          backgroundColor: "#f8fafd",
+          borderBottom: "1px solid #ddd",
+          padding: "10px 16px",
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "space-between",
+          fontFamily: "Segoe UI, Tahoma, Geneva, Verdana, sans-serif",
+        }}
+      >
+        <Link to="/minimart" style={{ fontWeight: "bold", fontSize: 18, color: lightBlue, textDecoration: "none" }}>
+          MiniMart
+        </Link>
+
         <div
+          onClick={() => navigate("/select-location")}
           style={{
-            display: "flex",
-            alignItems: "center",
-            justifyContent: "space-between",
-            padding: "10px 16px",
-            borderBottom: "1px solid #ddd",
-            backgroundColor: "#f8fafd",
-            position: "sticky",
-            top: 0,
-            zIndex: 1000,
+            flex: 1,
+            marginLeft: 12,
+            padding: "6px 12px",
+            borderRadius: 20,
+            border: "1px solid #ccc",
+            backgroundColor: "#fff",
+            cursor: "pointer",
+            fontSize: 14,
+            color: selectedLocation ? "#333" : "#888",
+            textAlign: "center",
           }}
         >
-          {/* MiniMart Logo */}
-          <Link
-            to="/minimart"
-            style={{ fontWeight: "bold", fontSize: 18, textDecoration: "none", color: lightBlue }}
-          >
-            MiniMart
-          </Link>
-
-          {/* Region Selector */}
-          <div
-            onClick={() => navigate("/select-location")}
-            style={{
-              flex: 1,
-              marginLeft: 12,
-              padding: "6px 12px",
-              borderRadius: 20,
-              border: "1px solid #ccc",
-              backgroundColor: "#fff",
-              cursor: "pointer",
-              fontSize: 14,
-              color: selectedLocation ? "#333" : "#888",
-              textAlign: "center",
-            }}
-          >
-            {locationText}
-          </div>
-
-          {/* Slide Menu */}
-          <FaBars
-            size={20}
-            style={{ marginLeft: 12, cursor: "pointer", color: "#333" }}
-            onClick={() => setMenuOpen(true)}
-          />
-
-          {/* Search Bar */}
-          <div
-            onClick={() => navigate("/search")}
-            style={{
-              marginLeft: 12,
-              flex: 2,
-              padding: "6px 12px",
-              borderRadius: 20,
-              border: "1px solid #ccc",
-              backgroundColor: "#fff",
-              cursor: "pointer",
-              fontSize: 14,
-              color: "#888",
-              textAlign: "center",
-            }}
-          >
-            🔍 Search products...
-          </div>
+          {locationText}
         </div>
 
-        {/* ---------- Bottom Navigation ---------- */}
+        <FaBars size={20} style={{ marginLeft: 12, cursor: "pointer", color: "#333" }} onClick={() => setMenuOpen(true)} />
+
         <div
+          onClick={() => navigate("/search")}
           style={{
-            display: "flex",
-            justifyContent: "space-around",
-            padding: "8px 0",
-            borderTop: "1px solid #ddd",
-            borderBottom: "1px solid #ddd",
-            backgroundColor: "#f8fafd",
-            position: "fixed",
-            bottom: 0,
-            left: 0,
-            right: 0,
-            zIndex: 1000,
+            marginLeft: 12,
+            flex: 2,
+            padding: "6px 12px",
+            borderRadius: 20,
+            border: "1px solid #ccc",
+            backgroundColor: "#fff",
+            cursor: "pointer",
+            fontSize: 14,
+            color: "#888",
+            textAlign: "center",
           }}
         >
-          {bottomLinks.map((link) => {
-            const isActive = location.pathname === link.path;
-            return (
-              <div
-                key={link.path}
-                onClick={() => navigate(link.path)}
-                style={{
-                  textAlign: "center",
-                  color: isActive ? lightBlue : inactiveColor,
-                  fontWeight: isActive ? 600 : 400,
-                  fontSize: 12,
-                  cursor: "pointer",
-                  position: "relative",
-                }}
-              >
-                <div style={{ fontSize: 20, marginBottom: 2 }}>
-                  {link.icon && React.cloneElement(link.icon, { color: isActive ? lightBlue : inactiveColor })}
-                </div>
-                <div>{link.label}</div>
-                {link.badge > 0 && (
-                  <span
-                    style={{
-                      position: "absolute",
-                      top: -4,
-                      right: -10,
-                      background: "red",
-                      color: "#fff",
-                      fontSize: 10,
-                      padding: "2px 5px",
-                      borderRadius: "50%",
-                      fontWeight: "bold",
-                    }}
-                  >
-                    {link.badge}
-                  </span>
-                )}
-              </div>
-            );
-          })}
+          🔍 Search products...
         </div>
       </div>
 
+      {/* ---------- Scrollable Main Content Wrapper ---------- */}
+      <div
+        style={{
+          paddingTop: 60, // height of top bar
+          paddingBottom: 60, // height of bottom nav
+          minHeight: "100vh",
+          overflowY: "auto",
+        }}
+      >
+        {/* This is where your page content will go */}
+        <div id="page-content">{/* Routes render here */}</div>
+      </div>
+
+      {/* ---------- Fixed Bottom Navigation ---------- */}
+      <div
+        style={{
+          display: "flex",
+          justifyContent: "space-around",
+          padding: "8px 0",
+          borderTop: "1px solid #ddd",
+          borderBottom: "1px solid #ddd",
+          backgroundColor: "#f8fafd",
+          position: "fixed",
+          bottom: 0,
+          left: 0,
+          right: 0,
+          zIndex: 1000,
+        }}
+      >
+        {bottomLinks.map((link) => {
+          const isActive = location.pathname === link.path;
+          return (
+            <div
+              key={link.path}
+              onClick={() => navigate(link.path)}
+              style={{
+                textAlign: "center",
+                color: isActive ? lightBlue : inactiveColor,
+                fontWeight: isActive ? 600 : 400,
+                fontSize: 12,
+                cursor: "pointer",
+                position: "relative",
+              }}
+            >
+              <div style={{ fontSize: 20, marginBottom: 2 }}>
+                {link.icon && React.cloneElement(link.icon, { color: isActive ? lightBlue : inactiveColor })}
+              </div>
+              <div>{link.label}</div>
+              {link.badge > 0 && (
+                <span
+                  style={{
+                    position: "absolute",
+                    top: -4,
+                    right: -10,
+                    background: "red",
+                    color: "#fff",
+                    fontSize: 10,
+                    padding: "2px 5px",
+                    borderRadius: "50%",
+                    fontWeight: "bold",
+                  }}
+                >
+                  {link.badge}
+                </span>
+              )}
+            </div>
+          );
+        })}
+      </div>
+
       {/* ---------- Slide Menu ---------- */}
-      <SlideMenu
-        isOpen={menuOpen}
-        onClose={() => setMenuOpen(false)}
-        cartCount={cartCount}
-        unreadMessages={unreadMessages}
-      />
+      <SlideMenu isOpen={menuOpen} onClose={() => setMenuOpen(false)} cartCount={cartCount} unreadMessages={unreadMessages} />
     </>
   );
 }
