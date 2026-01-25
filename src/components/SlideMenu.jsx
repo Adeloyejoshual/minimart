@@ -65,7 +65,7 @@ export default function SlideMenu({ isOpen, onClose }) {
   }, [msgAnimate]);
 
   const menuItems = [
-    { label: "Home", path: "/minimart", icon: "🏠", badge: 0 },
+    { label: "Home", path: "/", icon: "🏠", badge: 0 },
     { label: "Region", path: "/select-location", icon: "📍", badge: 0, text: selectedLocation ? `${selectedLocation.state}, ${selectedLocation.city}` : "Select Region" },
     { label: "Price Filters", path: "/price-filters", icon: "💲", badge: 0 },
     { label: "Post Product", path: "/add-product", icon: "📝", badge: 0 },
