@@ -1,0 +1,16 @@
+.topnav-container {
+  display: flex; justify-content: space-between; align-items: center;
+  padding: 10px 16px; background-color: #4da6ff; color: #fff;
+  position: sticky; top: 0; z-index: 1000;
+  font-family: "Segoe UI", Tahoma, Geneva, Verdana, sans-serif;
+}
+
+.topnav-left { font-size: 20px; font-weight: bold; cursor: pointer; }
+.topnav-center { cursor: pointer; font-size: 16px; }
+.topnav-right { display: flex; align-items: center; gap: 10px; }
+.topnav-search {
+  background-color: #ffffff33; padding: 6px 12px; border-radius: 20px;
+  font-size: 14px; cursor: pointer; transition: background-color 0.2s;
+}
+.topnav-search:hover { background-color: #ffffff55; }
+.topnav-menu { font-size: 20px; cursor: pointer; }
