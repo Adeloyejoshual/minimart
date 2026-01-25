@@ -1,12 +1,12 @@
 // src/components/TopNav.jsx
 import React, { useEffect, useState } from "react";
 import { Link, useNavigate, useLocation } from "react-router-dom";
-import { FaBars, FaShoppingCart, FaUser, FaSearch } from "react-icons/fa";
+import { FaBars, FaHome, FaStore, FaShoppingCart, FaUser } from "react-icons/fa";
 import { collection, onSnapshot, query, where } from "firebase/firestore";
 import { db, auth } from "../firebase";
 import SlideMenu from "./SlideMenu";
 
-export default function TopNav({ onSearch }) {
+export default function TopNav({ searchQuery, setSearchQuery }) {
   const navigate = useNavigate();
   const location = useLocation();
 
@@ -14,12 +14,11 @@ export default function TopNav({ onSearch }) {
   const [menuOpen, setMenuOpen] = useState(false);
   const [cartCount, setCartCount] = useState(0);
   const [unreadMessages, setUnreadMessages] = useState(0);
-  const [searchQuery, setSearchQuery] = useState("");
 
   const lightBlue = "#4da6ff";
   const inactiveColor = "#555";
 
-  // Load saved location
+  // Load location
   useEffect(() => {
     const storedLocation = localStorage.getItem("selectedLocation");
     if (storedLocation) setSelectedLocation(JSON.parse(storedLocation));
@@ -32,19 +31,11 @@ export default function TopNav({ onSearch }) {
 
     const cartRef = collection(db, "carts");
     const cartQuery = query(cartRef, where("userId", "==", uid));
-    const unsubscribeCart = onSnapshot(cartQuery, (snapshot) => {
-      setCartCount(snapshot.docs.length);
-    });
+    const unsubscribeCart = onSnapshot(cartQuery, snapshot => setCartCount(snapshot.docs.length));
 
     const messagesRef = collection(db, "messages");
-    const messagesQuery = query(
-      messagesRef,
-      where("toUser", "==", uid),
-      where("read", "==", false)
-    );
-    const unsubscribeMessages = onSnapshot(messagesQuery, (snapshot) => {
-      setUnreadMessages(snapshot.docs.length);
-    });
+    const messagesQuery = query(messagesRef, where("toUser", "==", uid), where("read", "==", false));
+    const unsubscribeMessages = onSnapshot(messagesQuery, snapshot => setUnreadMessages(snapshot.docs.length));
 
     return () => {
       unsubscribeCart();
@@ -54,41 +45,41 @@ export default function TopNav({ onSearch }) {
 
   const locationText = selectedLocation
     ? `${selectedLocation.state}, ${selectedLocation.city}`
-    : "Select Region ▼";
+    : "Region ▼";
 
-  const handleSearch = (e) => {
-    setSearchQuery(e.target.value);
-    if (onSearch) onSearch(e.target.value); // optional callback for HomePage
-  };
+  const bottomLinks = [
+    { path: "/", label: "Home", icon: <FaHome />, badge: 0 },
+    { path: "/minimart", label: "MiniMart", icon: <FaStore />, badge: 0 },
+    { path: "/cart", label: "Cart", icon: <FaShoppingCart />, badge: cartCount },
+    { path: "/profile", label: "Account", icon: <FaUser />, badge: unreadMessages },
+  ];
 
   return (
-    <div style={{ fontFamily: "Segoe UI, Tahoma, Geneva, Verdana, sans-serif" }}>
-      {/* ---------- Top Bar ---------- */}
+    <div style={{ display: "flex", flexDirection: "column", fontFamily: "Segoe UI, Tahoma, Geneva, Verdana, sans-serif" }}>
+      {/* Top Bar */}
       <div
         style={{
           display: "flex",
           alignItems: "center",
-          gap: 12,
-          padding: "8px 16px",
-          backgroundColor: "#f8fafd",
+          justifyContent: "space-between",
+          padding: "10px 16px",
           borderBottom: "1px solid #ddd",
+          backgroundColor: "#f8fafd",
           position: "sticky",
           top: 0,
-          zIndex: 1000,
+          zIndex: 1000
         }}
       >
-        {/* Logo */}
-        <Link
-          to="/minimart"
-          style={{ fontWeight: "bold", fontSize: 18, textDecoration: "none", color: lightBlue }}
-        >
+        <Link to="/minimart" style={{ fontWeight: "bold", fontSize: 18, textDecoration: "none", color: lightBlue }}>
           MiniMart
         </Link>
 
-        {/* Location Selector */}
+        {/* Location */}
         <div
           onClick={() => navigate("/select-location")}
           style={{
+            flex: 1,
+            marginLeft: 12,
             padding: "6px 12px",
             borderRadius: 20,
             border: "1px solid #ccc",
@@ -96,100 +87,35 @@ export default function TopNav({ onSearch }) {
             cursor: "pointer",
             fontSize: 14,
             color: selectedLocation ? "#333" : "#888",
+            textAlign: "center",
           }}
         >
           {locationText}
         </div>
 
-        {/* Professional Search Bar */}
-        <div style={{ flex: 1, position: "relative" }}>
-          <input
-            type="text"
-            value={searchQuery}
-            onChange={handleSearch}
-            placeholder="Search for products, brands..."
-            style={{
-              width: "100%",
-              padding: "8px 36px 8px 12px",
-              borderRadius: 20,
-              border: "1px solid #ccc",
-              fontSize: 14,
-              outline: "none",
-              boxShadow: "0 2px 4px rgba(0,0,0,0.06)",
-            }}
-          />
-          <FaSearch
-            style={{
-              position: "absolute",
-              right: 10,
-              top: "50%",
-              transform: "translateY(-50%)",
-              color: "#888",
-            }}
-          />
-        </div>
+        {/* Search */}
+        <input
+          type="text"
+          value={searchQuery}
+          onChange={e => setSearchQuery(e.target.value)}
+          placeholder="🔍 Search products..."
+          style={{
+            marginLeft: 12,
+            flex: 2,
+            padding: "6px 12px",
+            borderRadius: 20,
+            border: "1px solid #ccc",
+            backgroundColor: "#fff",
+            fontSize: 14,
+            outline: "none",
+          }}
+        />
 
-        {/* Right Icons */}
-        <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
-          <div
-            onClick={() => setMenuOpen(true)}
-            style={{ fontSize: 20, cursor: "pointer", color: "#333" }}
-          >
-            <FaBars />
-          </div>
-          <div
-            onClick={() => navigate("/cart")}
-            style={{ position: "relative", cursor: "pointer", fontSize: 20 }}
-          >
-            <FaShoppingCart />
-            {cartCount > 0 && (
-              <span
-                style={{
-                  position: "absolute",
-                  top: -4,
-                  right: -10,
-                  background: "red",
-                  color: "#fff",
-                  fontSize: 10,
-                  padding: "2px 5px",
-                  borderRadius: "50%",
-                  fontWeight: "bold",
-                }}
-              >
-                {cartCount}
-              </span>
-            )}
-          </div>
-          <div
-            onClick={() => navigate("/profile")}
-            style={{ position: "relative", cursor: "pointer", fontSize: 20 }}
-          >
-            <FaUser />
-            {unreadMessages > 0 && (
-              <span
-                style={{
-                  position: "absolute",
-                  top: -4,
-                  right: -10,
-                  background: "red",
-                  color: "#fff",
-                  fontSize: 10,
-                  padding: "2px 5px",
-                  borderRadius: "50%",
-                  fontWeight: "bold",
-                }}
-              >
-                {unreadMessages}
-              </span>
-            )}
-          </div>
-        </div>
+        {/* Menu */}
+        <FaBars size={20} style={{ marginLeft: 12, cursor: "pointer", color: "#333" }} onClick={() => setMenuOpen(true)} />
       </div>
 
-      {/* ---------- Children / Page Content ---------- */}
-      <div style={{ flex: 1, overflowY: "auto" }}>{children}</div>
-
-      {/* ---------- Slide Menu ---------- */}
+      {/* Slide Menu */}
       <SlideMenu
         isOpen={menuOpen}
         onClose={() => setMenuOpen(false)}
