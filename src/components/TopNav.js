@@ -17,25 +17,23 @@ export default function TopNav() {
   const lightBlue = "#4da6ff";
   const inactiveColor = "#555";
 
-  // Load selected location from localStorage
+  // Load region from localStorage
   useEffect(() => {
-    const stored = localStorage.getItem("selectedLocation");
-    if (stored) setSelectedLocation(JSON.parse(stored));
-  }, [location]);
+    const storedLocation = localStorage.getItem("selectedLocation");
+    if (storedLocation) setSelectedLocation(JSON.parse(storedLocation));
+  }, []);
 
-  // Firebase real-time updates for cart and messages
+  // Firebase real-time updates for cart & messages
   useEffect(() => {
     if (!auth.currentUser) return;
     const uid = auth.currentUser.uid;
 
-    // Cart
     const cartRef = collection(db, "carts");
     const cartQuery = query(cartRef, where("userId", "==", uid));
     const unsubscribeCart = onSnapshot(cartQuery, (snapshot) => {
       setCartCount(snapshot.docs.length);
     });
 
-    // Messages
     const messagesRef = collection(db, "messages");
     const messagesQuery = query(messagesRef, where("toUser", "==", uid), where("read", "==", false));
     const unsubscribeMessages = onSnapshot(messagesQuery, (snapshot) => {
@@ -147,15 +145,15 @@ export default function TopNav() {
           {bottomLinks.map((link) => {
             const isActive = location.pathname === link.path;
             return (
-              <Link
+              <div
                 key={link.path}
-                to={link.path}
+                onClick={() => navigate(link.path)}
                 style={{
                   textAlign: "center",
                   color: isActive ? lightBlue : inactiveColor,
-                  textDecoration: "none",
                   fontWeight: isActive ? 600 : 400,
                   fontSize: 12,
+                  cursor: "pointer",
                   position: "relative",
                 }}
               >
@@ -180,7 +178,7 @@ export default function TopNav() {
                     {link.badge}
                   </span>
                 )}
-              </Link>
+              </div>
             );
           })}
         </div>
