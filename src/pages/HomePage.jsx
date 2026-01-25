@@ -40,7 +40,7 @@ export default function HomePage() {
 
   const shuffleArray = arr => [...arr].sort(() => Math.random() - 0.5);
 
-  // --- Load products ---
+  // Load products
   useEffect(() => {
     const loadProducts = async () => {
       const snap = await getDocs(query(collection(db, "products"), orderBy("createdAt", "desc")));
@@ -53,7 +53,7 @@ export default function HomePage() {
     loadProducts();
   }, []);
 
-  // --- Filter products ---
+  // Filter products
   useEffect(() => {
     let filtered = [...allProducts];
     if (selectedCategory) filtered = filtered.filter(p => p.category === selectedCategory);
@@ -73,15 +73,18 @@ export default function HomePage() {
     setDisplayProducts([...promoted.slice(0, 5), ...shuffleArray(regular)]);
   }, [allProducts, selectedCategory, searchQuery]);
 
-  // --- Responsive columns for feed ---
+  // Responsive columns
   useEffect(() => {
-    const updateColumns = () => setColumns(window.innerWidth < 500 ? 2 : window.innerWidth < 900 ? 3 : 4);
+    const updateColumns = () => {
+      const w = window.innerWidth;
+      setColumns(w < 500 ? 2 : w < 900 ? 3 : 4);
+    };
     updateColumns();
     window.addEventListener("resize", updateColumns);
     return () => window.removeEventListener("resize", updateColumns);
   }, []);
 
-  // --- Swipeable trending slider ---
+  // Swipeable trending slider
   const handlers = useSwipeable({
     onSwipedLeft: () => setCurrentSlide(p => (p + 1) % trendingProducts.length),
     onSwipedRight: () => setCurrentSlide(p => (p === 0 ? trendingProducts.length - 1 : p - 1)),
@@ -90,14 +93,14 @@ export default function HomePage() {
     trackMouse: true,
   });
 
-  // --- Auto slide trending ---
+  // Auto slide trending
   useEffect(() => {
     if (isDragging || trendingProducts.length === 0) return;
     const interval = setInterval(() => setCurrentSlide(p => (p + 1) % trendingProducts.length), 4000);
     return () => clearInterval(interval);
   }, [isDragging, trendingProducts]);
 
-  // --- Truncate title ---
+  // Truncate title
   const truncateTitle = (title) => {
     if (!title) return "";
     const maxWords = 6;
@@ -110,12 +113,10 @@ export default function HomePage() {
   return (
     <div style={{ background: "#f5f7fb", minHeight: "100vh", display: "flex", flexDirection: "column" }}>
       {/* Pinned TopNav */}
-      <div style={{ position: "sticky", top: 0, zIndex: 999 }}>
-        <TopNav />
-      </div>
+      <TopNav />
 
       {/* Scrollable content */}
-      <div style={{ flex: 1, overflowY: "auto", paddingBottom: 80 }}>
+      <div style={{ flex: 1, overflowY: "auto", paddingBottom: 100 }}>
         {/* Search */}
         <div style={{ maxWidth: 1200, margin: "20px auto", padding: "0 16px", display: "flex", flexDirection: "column", gap: 12 }}>
           <input
@@ -160,44 +161,40 @@ export default function HomePage() {
           <section style={{ maxWidth: 1200, margin: "25px auto", padding: "0 16px" }}>
             <h2 style={{ fontSize: 18, marginBottom: 12 }}>🔥 Trending</h2>
             <div ref={sliderRef} {...handlers} style={{ display: "flex", overflow: "hidden" }}>
-              {trendingProducts.map(p => {
-                const width = window.innerWidth;
-                let cols = width < 500 ? 2 : width < 900 ? 3 : 4;
-                return (
-                  <div key={p.id} onClick={() => navigate(`/product/${p.id}`)}
-                    style={{
-                      minWidth: `${100 / cols}%`,
-                      padding: 6,
-                      boxSizing: "border-box",
-                      transform: `translateX(-${currentSlide * (100 / cols)}%)`,
-                      transition: "transform 0.3s ease",
-                    }}
-                  >
-                    <div style={{
-                      background: "#fff",
-                      borderRadius: 14,
-                      overflow: "hidden",
-                      boxShadow: "0 4px 12px rgba(0,0,0,0.06)",
-                      cursor: "pointer",
-                      transition: "transform 0.2s ease, box-shadow 0.2s ease",
-                    }}
-                    onMouseEnter={e => {
-                      e.currentTarget.style.transform = "scale(1.03)";
-                      e.currentTarget.style.boxShadow = "0 8px 20px rgba(0,0,0,0.12)";
-                    }}
-                    onMouseLeave={e => {
-                      e.currentTarget.style.transform = "scale(1)";
-                      e.currentTarget.style.boxShadow = "0 4px 12px rgba(0,0,0,0.06)";
-                    }}>
-                      <img src={p.images?.[0] || "/placeholder.png"} alt="" style={{ width: "100%", height: 150, objectFit: "cover" }} />
-                      <div style={{ padding: 10 }}>
-                        <p style={{ fontWeight: 600, fontSize: 14, margin: 0 }}>{truncateTitle(p.title)}</p>
-                        <p style={{ color: "#198754", fontWeight: "bold", marginTop: 4 }}>₦{Number(p.price).toLocaleString()}</p>
-                      </div>
+              {trendingProducts.map(p => (
+                <div key={p.id} onClick={() => navigate(`/product/${p.id}`)}
+                  style={{
+                    minWidth: `${100 / columns}%`,
+                    padding: 6,
+                    boxSizing: "border-box",
+                    transform: `translateX(-${currentSlide * (100 / columns)}%)`,
+                    transition: "transform 0.3s ease",
+                  }}
+                >
+                  <div style={{
+                    background: "#fff",
+                    borderRadius: 14,
+                    overflow: "hidden",
+                    boxShadow: "0 4px 12px rgba(0,0,0,0.06)",
+                    cursor: "pointer",
+                    transition: "transform 0.2s ease, box-shadow 0.2s ease",
+                  }}
+                  onMouseEnter={e => {
+                    e.currentTarget.style.transform = "scale(1.03)";
+                    e.currentTarget.style.boxShadow = "0 8px 20px rgba(0,0,0,0.12)";
+                  }}
+                  onMouseLeave={e => {
+                    e.currentTarget.style.transform = "scale(1)";
+                    e.currentTarget.style.boxShadow = "0 4px 12px rgba(0,0,0,0.06)";
+                  }}>
+                    <img src={p.images?.[0] || "/placeholder.png"} alt="" style={{ width: "100%", height: 150, objectFit: "cover" }} />
+                    <div style={{ padding: 10 }}>
+                      <p style={{ fontWeight: 600, fontSize: 14, margin: 0 }}>{truncateTitle(p.title)}</p>
+                      <p style={{ color: "#198754", fontWeight: "bold", marginTop: 4 }}>₦{Number(p.price).toLocaleString()}</p>
                     </div>
                   </div>
-                )
-              })}
+                </div>
+              ))}
             </div>
           </section>
         )}
@@ -245,7 +242,7 @@ export default function HomePage() {
 
       {/* Fixed bottom PostAd button */}
       <div style={{
-        position: "sticky",
+        position: "fixed",
         bottom: 0,
         width: "100%",
         background: "#f5f7fb",
@@ -253,6 +250,7 @@ export default function HomePage() {
         display: "flex",
         justifyContent: "center",
         borderTop: "1px solid #e0e6ef",
+        zIndex: 1000
       }}>
         <PostAdModal />
       </div>
