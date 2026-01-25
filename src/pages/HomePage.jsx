@@ -1,16 +1,17 @@
 // src/pages/HomePage.jsx
 import { useEffect, useState, useRef } from "react";
 import { collection, getDocs, query, orderBy } from "firebase/firestore";
-import { db } from "../firebase";
-import { useNavigate } from "react-router-dom";
+import { db, auth } from "../firebase";
+import { useNavigate, useLocation } from "react-router-dom";
 import { useSwipeable } from "react-swipeable";
 import TopNav from "../components/TopNav";
-import PostAdModal from "../components/PostAdModal";
 import categories from "../config/categories";
 import { promotionPlans } from "../config/promotionPlans";
+import { FaHome, FaStore, FaShoppingCart, FaUser } from "react-icons/fa";
 
 export default function HomePage() {
   const navigate = useNavigate();
+  const location = useLocation();
 
   const [allProducts, setAllProducts] = useState([]);
   const [displayProducts, setDisplayProducts] = useState([]);
@@ -20,12 +21,14 @@ export default function HomePage() {
   const [currentSlide, setCurrentSlide] = useState(0);
   const [columns, setColumns] = useState(2);
   const [isDragging, setIsDragging] = useState(false);
+  const [cartCount, setCartCount] = useState(0);
+  const [unreadMessages, setUnreadMessages] = useState(0);
 
   const sliderRef = useRef(null);
   const promoPlanIds = promotionPlans.map(p => p.id);
 
+  // ----- Load products -----
   const getPromotionPlan = id => promotionPlans.find(p => p.id === id);
-
   const calculateAIScore = product => {
     const views = product.views || 0;
     const clicks = product.clicks || 0;
@@ -37,10 +40,8 @@ export default function HomePage() {
     const freshnessBoost = Math.max(20 - daysOld, 0);
     return views * 3 + clicks * 2 + searches + promotionBoost + freshnessBoost;
   };
-
   const shuffleArray = arr => [...arr].sort(() => Math.random() - 0.5);
 
-  // Load products
   useEffect(() => {
     const loadProducts = async () => {
       const snap = await getDocs(query(collection(db, "products"), orderBy("createdAt", "desc")));
@@ -53,7 +54,7 @@ export default function HomePage() {
     loadProducts();
   }, []);
 
-  // Filter products
+  // ----- Filter products -----
   useEffect(() => {
     let filtered = [...allProducts];
     if (selectedCategory) filtered = filtered.filter(p => p.category === selectedCategory);
@@ -73,18 +74,20 @@ export default function HomePage() {
     setDisplayProducts([...promoted.slice(0, 5), ...shuffleArray(regular)]);
   }, [allProducts, selectedCategory, searchQuery]);
 
-  // Responsive columns
+  // ----- Responsive columns -----
   useEffect(() => {
     const updateColumns = () => {
       const w = window.innerWidth;
-      setColumns(w < 500 ? 2 : w < 900 ? 3 : 4);
+      if (w < 500) setColumns(2);
+      else if (w < 900) setColumns(3);
+      else setColumns(4);
     };
     updateColumns();
     window.addEventListener("resize", updateColumns);
     return () => window.removeEventListener("resize", updateColumns);
   }, []);
 
-  // Swipeable trending slider
+  // ----- Swipeable trending slider -----
   const handlers = useSwipeable({
     onSwipedLeft: () => setCurrentSlide(p => (p + 1) % trendingProducts.length),
     onSwipedRight: () => setCurrentSlide(p => (p === 0 ? trendingProducts.length - 1 : p - 1)),
@@ -93,15 +96,14 @@ export default function HomePage() {
     trackMouse: true,
   });
 
-  // Auto slide trending
   useEffect(() => {
     if (isDragging || trendingProducts.length === 0) return;
     const interval = setInterval(() => setCurrentSlide(p => (p + 1) % trendingProducts.length), 4000);
     return () => clearInterval(interval);
   }, [isDragging, trendingProducts]);
 
-  // Truncate title
-  const truncateTitle = (title) => {
+  // ----- Truncate title -----
+  const truncateTitle = title => {
     if (!title) return "";
     const maxWords = 6;
     const maxChars = 40;
@@ -110,15 +112,25 @@ export default function HomePage() {
     return t;
   };
 
-  return (
-    <div style={{ background: "#f5f7fb", minHeight: "100vh", display: "flex", flexDirection: "column" }}>
-      {/* Pinned TopNav */}
-      <TopNav />
+  // ----- Bottom links -----
+  const bottomLinks = [
+    { path: "/", label: "Home", icon: <FaHome />, badge: 0 },
+    { path: "/minimart", label: "MiniMart", icon: <FaStore />, badge: 0 },
+    { path: "/cart", label: "Cart", icon: <FaShoppingCart />, badge: cartCount },
+    { path: "/profile", label: "Account", icon: <FaUser />, badge: unreadMessages },
+  ];
 
-      {/* Scrollable content */}
-      <div style={{ flex: 1, overflowY: "auto", paddingBottom: 100 }}>
+  return (
+    <div style={{ display: "flex", flexDirection: "column", minHeight: "100vh", background: "#f5f7fb" }}>
+      {/* --- TopNav pinned --- */}
+      <div style={{ position: "sticky", top: 0, zIndex: 999 }}>
+        <TopNav />
+      </div>
+
+      {/* --- Scrollable content --- */}
+      <div style={{ flex: 1, overflowY: "auto", paddingBottom: 60 }}>
         {/* Search */}
-        <div style={{ maxWidth: 1200, margin: "20px auto", padding: "0 16px", display: "flex", flexDirection: "column", gap: 12 }}>
+        <div style={{ maxWidth: 1200, margin: "20px auto", padding: "0 16px" }}>
           <input
             placeholder="Search for phones, cars, fashion..."
             value={searchQuery}
@@ -129,6 +141,7 @@ export default function HomePage() {
               border: "1px solid #d0d7e2",
               fontSize: 14,
               outline: "none",
+              width: "100%",
               boxShadow: "0 2px 6px rgba(0,0,0,0.04)"
             }}
           />
@@ -175,17 +188,7 @@ export default function HomePage() {
                     background: "#fff",
                     borderRadius: 14,
                     overflow: "hidden",
-                    boxShadow: "0 4px 12px rgba(0,0,0,0.06)",
                     cursor: "pointer",
-                    transition: "transform 0.2s ease, box-shadow 0.2s ease",
-                  }}
-                  onMouseEnter={e => {
-                    e.currentTarget.style.transform = "scale(1.03)";
-                    e.currentTarget.style.boxShadow = "0 8px 20px rgba(0,0,0,0.12)";
-                  }}
-                  onMouseLeave={e => {
-                    e.currentTarget.style.transform = "scale(1)";
-                    e.currentTarget.style.boxShadow = "0 4px 12px rgba(0,0,0,0.06)";
                   }}>
                     <img src={p.images?.[0] || "/placeholder.png"} alt="" style={{ width: "100%", height: 150, objectFit: "cover" }} />
                     <div style={{ padding: 10 }}>
@@ -218,15 +221,6 @@ export default function HomePage() {
                 overflow: "hidden",
                 display: "flex",
                 flexDirection: "column",
-                transition: "transform 0.2s ease, box-shadow 0.2s ease",
-              }}
-              onMouseEnter={e => {
-                e.currentTarget.style.transform = "scale(1.03)";
-                e.currentTarget.style.boxShadow = "0 8px 20px rgba(0,0,0,0.12)";
-              }}
-              onMouseLeave={e => {
-                e.currentTarget.style.transform = "scale(1)";
-                e.currentTarget.style.boxShadow = "0 3px 10px rgba(0,0,0,0.05)";
               }}
             >
               <img src={p.images?.[0] || "/placeholder.png"} alt="" style={{ width: "100%", height: 180, objectFit: "cover" }} />
@@ -240,19 +234,58 @@ export default function HomePage() {
         </section>
       </div>
 
-      {/* Fixed bottom PostAd button */}
-      <div style={{
-        position: "fixed",
-        bottom: 0,
-        width: "100%",
-        background: "#f5f7fb",
-        padding: 12,
-        display: "flex",
-        justifyContent: "center",
-        borderTop: "1px solid #e0e6ef",
-        zIndex: 1000
-      }}>
-        <PostAdModal />
+      {/* ----- Bottom Navigation ----- */}
+      <div
+        style={{
+          display: "flex",
+          justifyContent: "space-around",
+          padding: "8px 0",
+          borderTop: "1px solid #ddd",
+          backgroundColor: "#f5f7fb",
+          position: "sticky",
+          bottom: 0,
+          zIndex: 1000,
+        }}
+      >
+        {bottomLinks.map(link => {
+          const isActive = location.pathname === link.path;
+          return (
+            <div
+              key={link.path}
+              onClick={() => navigate(link.path)}
+              style={{
+                textAlign: "center",
+                color: isActive ? "#4da6ff" : "#555",
+                fontWeight: isActive ? 600 : 400,
+                fontSize: 12,
+                cursor: "pointer",
+                position: "relative",
+              }}
+            >
+              <div style={{ fontSize: 20, marginBottom: 2 }}>
+                {React.cloneElement(link.icon, { color: isActive ? "#4da6ff" : "#555" })}
+              </div>
+              <div>{link.label}</div>
+              {link.badge > 0 && (
+                <span
+                  style={{
+                    position: "absolute",
+                    top: -4,
+                    right: -10,
+                    background: "red",
+                    color: "#fff",
+                    fontSize: 10,
+                    padding: "2px 5px",
+                    borderRadius: "50%",
+                    fontWeight: "bold",
+                  }}
+                >
+                  {link.badge}
+                </span>
+              )}
+            </div>
+          );
+        })}
       </div>
     </div>
   );
