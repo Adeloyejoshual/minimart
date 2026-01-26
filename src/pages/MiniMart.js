@@ -1,13 +1,11 @@
 // src/pages/MiniMart.jsx
-import React, { useEffect, useState, useRef } from "react";
+import React, { useEffect, useState } from "react";
 import { collection, getDocs, query, where, orderBy } from "firebase/firestore";
 import { db, auth } from "../firebase";
 import { useNavigate } from "react-router-dom";
-import { useSwipeable } from "react-swipeable";
 import { FaStore, FaShoppingCart, FaUser } from "react-icons/fa";
 
 import TopNav from "../components/TopNav";
-import categories from "../config/categories";
 import { promotionPlans } from "../config/promotionPlans";
 
 import "./MiniMart.css";
@@ -15,22 +13,16 @@ import "./MiniMart.css";
 export default function MiniMart() {
   const navigate = useNavigate();
 
-  const [allProducts, setAllProducts] = useState([]);
   const [displayProducts, setDisplayProducts] = useState([]);
   const [trendingProducts, setTrendingProducts] = useState([]);
-  const [selectedCategory, setSelectedCategory] = useState("");
-  const [currentSlide, setCurrentSlide] = useState(0);
-  const [columns, setColumns] = useState(2);
-  const [isDragging, setIsDragging] = useState(false);
   const [cartCount, setCartCount] = useState(0);
   const [unreadMessages, setUnreadMessages] = useState(0);
 
-  const sliderRef = useRef(null);
   const promoPlanIds = promotionPlans.map(p => p.id);
 
   // --------------------- Helpers ---------------------
   const getPromotionPlan = id => promotionPlans.find(p => p.id === id);
-  const shuffleArray = arr => [...arr].sort(() => Math.random() - 0.5);
+
   const truncateTitle = title => {
     if (!title) return "";
     const maxWords = 6;
@@ -40,7 +32,8 @@ export default function MiniMart() {
     return t;
   };
 
-  // AI Trending Score
+  const shuffleArray = arr => [...arr].sort(() => Math.random() - 0.5);
+
   const calculateAIScore = product => {
     const views = product.views || 0;
     const clicks = product.clicks || 0;
@@ -62,13 +55,12 @@ export default function MiniMart() {
         orderBy("createdAt", "desc")
       ));
       const products = snap.docs.map(d => ({ id: d.id, ...d.data() }));
-      setAllProducts(products);
 
       // Trending
       const scored = products.map(p => ({ ...p, trendingScore: calculateAIScore(p) }));
       setTrendingProducts(scored.sort((a,b) => b.trendingScore - a.trendingScore).slice(0, 8));
 
-      // Display products with promoted first
+      // Display products: promoted first
       const promoted = products.filter(p => promoPlanIds.includes(p.promotionPlan));
       const promotedIds = new Set(promoted.map(p => p.id));
       const regular = products.filter(p => !promotedIds.has(p.id));
@@ -77,32 +69,6 @@ export default function MiniMart() {
 
     loadProducts();
     loadCartAndMessages();
-  }, []);
-
-  // --------------------- Swipeable Trending ---------------------
-  const handlers = useSwipeable({
-    onSwipedLeft: () => setCurrentSlide(p => (p + 1) % trendingProducts.length),
-    onSwipedRight: () => setCurrentSlide(p => (p === 0 ? trendingProducts.length - 1 : p -1)),
-    onSwipeStart: () => setIsDragging(true),
-    onSwipeEnd: () => setIsDragging(false),
-    trackMouse: true
-  });
-
-  useEffect(() => {
-    if (isDragging || trendingProducts.length === 0) return;
-    const interval = setInterval(() => setCurrentSlide(p => (p + 1) % trendingProducts.length), 4000);
-    return () => clearInterval(interval);
-  }, [isDragging, trendingProducts]);
-
-  // --------------------- Responsive Columns ---------------------
-  useEffect(() => {
-    const updateColumns = () => {
-      const w = window.innerWidth;
-      setColumns(w < 500 ? 2 : w < 900 ? 3 : 4);
-    };
-    updateColumns();
-    window.addEventListener("resize", updateColumns);
-    return () => window.removeEventListener("resize", updateColumns);
   }, []);
 
   // --------------------- Load Cart & Messages ---------------------
@@ -134,19 +100,20 @@ export default function MiniMart() {
 
       {/* Trending */}
       {trendingProducts.length > 0 && (
-        <section className="minimart-trending" {...handlers}>
+        <section className="minimart-trending">
           <h2>🔥 Trending</h2>
           <div className="trending-slider">
-            {trendingProducts.map((p, idx) => (
+            {trendingProducts.map(p => (
               <div key={p.id} className="product-card trending" onClick={() => navigate(`/product/${p.id}`)}>
                 <img src={p.images?.[0] || "/placeholder.png"} alt={p.title} />
                 <div className="product-info">
                   <p className="title">{truncateTitle(p.title)}</p>
                   <p className="price">₦{Number(p.price).toLocaleString()}</p>
                   {p.discount && <span className="discount">-{p.discount}%</span>}
+                  {p.rating && <span className="rating">⭐ {p.rating.toFixed(1)}</span>}
                   {p.soldCount && <span className="sold">{p.soldCount} Sold</span>}
                   {p.stock && p.stock < 10 && <span className="limited-stock">Limited Stock</span>}
-                  {p.flashSaleEnd && <span className="flash-sale">{/* TODO: Timer */}🔥 Flash Sale</span>}
+                  {p.flashSaleEnd && <span className="flash-sale">🔥 Flash Sale</span>}
                 </div>
               </div>
             ))}
@@ -166,16 +133,11 @@ export default function MiniMart() {
               {p.rating && <span className="rating">⭐ {p.rating.toFixed(1)}</span>}
               {p.soldCount && <span className="sold">{p.soldCount} Sold</span>}
               {p.stock && p.stock < 10 && <span className="limited-stock">Limited Stock</span>}
-              {p.flashSaleEnd && <span className="flash-sale">{/* Timer */}🔥 Flash Sale</span>}
+              {p.flashSaleEnd && <span className="flash-sale">🔥 Flash Sale</span>}
             </div>
           </div>
         ))}
       </section>
-
-      {/* Add Product Button */}
-      <div className="add-product-btn">
-        <button onClick={() => navigate("/add-product?market=minimart")}>Add Product</button>
-      </div>
 
       {/* Bottom Navigation */}
       <div className="minimart-bottom-nav">
@@ -187,6 +149,7 @@ export default function MiniMart() {
           </div>
         ))}
       </div>
+
     </div>
   );
 }
