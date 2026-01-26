@@ -22,8 +22,10 @@ export default function HomePage() {
   const [isDragging, setIsDragging] = useState(false);
   const [cartCount, setCartCount] = useState(0);
   const [unreadMessages, setUnreadMessages] = useState(0);
+  const [topNavHeight, setTopNavHeight] = useState(64); // default
 
   const sliderRef = useRef(null);
+  const topNavRef = useRef(null);
   const promoPlanIds = promotionPlans.map(p => p.id);
 
   const getPromotionPlan = id => promotionPlans.find(p => p.id === id);
@@ -102,6 +104,13 @@ export default function HomePage() {
     return () => clearInterval(interval);
   }, [isDragging, trendingProducts]);
 
+  // Measure TopNav height dynamically
+  useEffect(() => {
+    if (topNavRef.current) {
+      setTopNavHeight(topNavRef.current.offsetHeight);
+    }
+  }, []);
+
   const truncateTitle = title => {
     if (!title) return "";
     const maxWords = 6;
@@ -121,12 +130,12 @@ export default function HomePage() {
   return (
     <div style={{ display: "flex", flexDirection: "column", minHeight: "100vh" }}>
       {/* TopNav pinned */}
-      <div style={{ position: "fixed", top: 0, left: 0, right: 0, zIndex: 1000 }}>
+      <div ref={topNavRef} style={{ position: "fixed", top: 0, left: 0, right: 0, zIndex: 1000 }}>
         <TopNav searchQuery={searchQuery} setSearchQuery={setSearchQuery} />
       </div>
 
       {/* Scrollable content */}
-      <div style={{ flex: 1, marginTop: 72, marginBottom: 60, overflowY: "auto" }}>
+      <div style={{ flex: 1, paddingTop: topNavHeight, paddingBottom: 60, overflowY: "auto" }}>
         {/* Categories */}
         <div style={{ maxWidth: 1200, margin: "10px auto 0", padding: "0 16px", display: "flex", gap: 8, overflowX: "auto" }}>
           {categories.map(c => (
