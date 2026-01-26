@@ -8,11 +8,12 @@ import { FaHome, FaStore, FaShoppingCart, FaUser } from "react-icons/fa";
 
 import TopNav from "../components/TopNav";
 import categoriesList from "../config/categories";
-import { promotionPlans } from "../config/promotionPlans";
+import { promotionPlans, getPromotionPlan, isPaidPlan } from "../config/promotionPlans";
 
 export default function MiniMart() {
   const navigate = useNavigate();
 
+  // States
   const [allProducts, setAllProducts] = useState([]);
   const [displayProducts, setDisplayProducts] = useState([]);
   const [trendingProducts, setTrendingProducts] = useState([]);
@@ -26,9 +27,8 @@ export default function MiniMart() {
   const [unreadMessages, setUnreadMessages] = useState(0);
 
   const sliderRef = useRef(null);
-  const promoPlanIds = promotionPlans.map((p) => p.id);
 
-  // --------------------- Fetch MiniMart Products ---------------------
+  // --------------------- Load Products ---------------------
   useEffect(() => {
     const loadProducts = async () => {
       const q = query(
@@ -40,12 +40,12 @@ export default function MiniMart() {
       const products = snap.docs.map((d) => ({ id: d.id, ...d.data() }));
       setAllProducts(products);
 
-      // Trending
-      const scored = products.map((p) => ({
-        ...p,
-        trendingScore: calculateAIScore(p),
-      }));
+      // Trending Products
+      const scored = products.map((p) => ({ ...p, trendingScore: calculateAIScore(p) }));
       setTrendingProducts(scored.sort((a, b) => b.trendingScore - a.trendingScore).slice(0, 8));
+
+      // Display products: insert promoted plans
+      filterProducts(products);
     };
 
     loadProducts();
@@ -54,7 +54,6 @@ export default function MiniMart() {
   }, []);
 
   // --------------------- AI Trending Score ---------------------
-  const getPromotionPlan = (id) => promotionPlans.find((p) => p.id === id);
   const calculateAIScore = (product) => {
     const views = product.views || 0;
     const clicks = product.clicks || 0;
@@ -67,47 +66,60 @@ export default function MiniMart() {
     return views * 3 + clicks * 2 + searches + promotionBoost + freshnessBoost;
   };
 
-  // --------------------- Top Seller Leaderboard ---------------------
+  // --------------------- Filter & Display Products ---------------------
+  const filterProducts = (products = allProducts) => {
+    let filtered = [...products];
+    if (selectedCategory) filtered = filtered.filter((p) => p.category === selectedCategory);
+    if (searchQuery.trim()) {
+      const q = searchQuery.toLowerCase();
+      filtered = filtered.filter((p) => p.title?.toLowerCase().includes(q));
+    }
+
+    // Split promoted vs regular
+    const promoted = filtered.filter((p) => isPaidPlan(p.promotionPlan));
+    const promotedIds = new Set(promoted.map((p) => p.id));
+    const regular = filtered.filter((p) => !promotedIds.has(p.id));
+
+    // Insert paid promoted product every 4 cards
+    const finalDisplay = [];
+    for (let i = 0; i < regular.length; i++) {
+      if (i % 4 === 0 && promoted.length > 0) {
+        finalDisplay.push(promoted[i % promoted.length]);
+      }
+      finalDisplay.push(regular[i]);
+    }
+    setDisplayProducts(finalDisplay);
+  };
+
+  // Re-filter when category or search changes
+  useEffect(() => {
+    filterProducts();
+  }, [allProducts, selectedCategory, searchQuery]);
+
+  // --------------------- Top Sellers ---------------------
   const loadTopSellers = async () => {
     const snap = await getDocs(collection(db, "users"));
     const sellers = snap.docs.map((d) => ({ id: d.id, ...d.data() }));
     const ranked = sellers
       .filter((s) => s.totalSales > 0)
-      .map((s) => ({
-        ...s,
-        score: (s.rating || 0) * 20 + (s.totalSales || 0),
-      }))
+      .map((s) => ({ ...s, score: (s.rating || 0) * 20 + (s.totalSales || 0) }))
       .sort((a, b) => b.score - a.score)
       .slice(0, 5);
     setTopSellers(ranked);
   };
 
-  // --------------------- Free Delivery Badge ---------------------
-  const buyerLocation = JSON.parse(localStorage.getItem("selectedLocation"));
-  const qualifiesForFreeDelivery = (product) => {
-    if (!product.freeDelivery || !buyerLocation) return false;
-    return buyerLocation.state === product.sellerState || product.freeDeliveryNationwide;
+  // --------------------- Cart & Messages ---------------------
+  const loadCartAndMessages = () => {
+    if (!auth.currentUser) return;
+    const uid = auth.currentUser.uid;
+
+    getDocs(query(collection(db, "carts"), where("userId", "==", uid))).then(
+      (snap) => setCartCount(snap.docs.length)
+    );
+    getDocs(
+      query(collection(db, "messages"), where("toUser", "==", uid), where("read", "==", false))
+    ).then((snap) => setUnreadMessages(snap.docs.length));
   };
-
-  // --------------------- Filter Products ---------------------
-  useEffect(() => {
-    let filtered = [...allProducts];
-    if (selectedCategory) filtered = filtered.filter((p) => p.category === selectedCategory);
-    if (searchQuery.trim()) {
-      const q = searchQuery.toLowerCase();
-      filtered = filtered.filter(
-        (p) =>
-          p.title?.toLowerCase().includes(q) ||
-          p.city?.toLowerCase().includes(q) ||
-          p.state?.toLowerCase().includes(q)
-      );
-    }
-
-    const promoted = filtered.filter((p) => promoPlanIds.includes(p.promotionPlan));
-    const promotedIds = new Set(promoted.map((p) => p.id));
-    const regular = filtered.filter((p) => !promotedIds.has(p.id));
-    setDisplayProducts([...promoted.slice(0, 5), ...shuffleArray(regular)]);
-  }, [allProducts, selectedCategory, searchQuery]);
 
   // --------------------- Responsive Columns ---------------------
   useEffect(() => {
@@ -120,15 +132,15 @@ export default function MiniMart() {
     return () => window.removeEventListener("resize", updateColumns);
   }, []);
 
-  // --------------------- Trending Slider ---------------------
+  // --------------------- Swipeable Trending ---------------------
   const handlers = useSwipeable({
     onSwipedLeft: () => setCurrentSlide((p) => (p + 1) % trendingProducts.length),
-    onSwipedRight: () =>
-      setCurrentSlide((p) => (p === 0 ? trendingProducts.length - 1 : p - 1)),
+    onSwipedRight: () => setCurrentSlide((p) => (p === 0 ? trendingProducts.length - 1 : p - 1)),
     onSwipeStart: () => setIsDragging(true),
     onSwipeEnd: () => setIsDragging(false),
     trackMouse: true,
   });
+
   useEffect(() => {
     if (isDragging || trendingProducts.length === 0) return;
     const interval = setInterval(
@@ -139,7 +151,6 @@ export default function MiniMart() {
   }, [isDragging, trendingProducts]);
 
   // --------------------- Helpers ---------------------
-  const shuffleArray = (arr) => [...arr].sort(() => Math.random() - 0.5);
   const truncateTitle = (title) => {
     if (!title) return "";
     const maxWords = 6;
@@ -147,22 +158,6 @@ export default function MiniMart() {
     let t = title.split(" ").slice(0, maxWords).join(" ");
     if (t.length > maxChars) t = t.slice(0, maxChars) + "...";
     return t;
-  };
-
-  // --------------------- Cart & Messages ---------------------
-  const loadCartAndMessages = () => {
-    if (!auth.currentUser) return;
-    const uid = auth.currentUser.uid;
-
-    // Cart
-    getDocs(query(collection(db, "carts"), where("userId", "==", uid))).then(
-      (snap) => setCartCount(snap.docs.length)
-    );
-
-    // Messages
-    getDocs(
-      query(collection(db, "messages"), where("toUser", "==", uid), where("read", "==", false))
-    ).then((snap) => setUnreadMessages(snap.docs.length));
   };
 
   // --------------------- Bottom Navigation ---------------------
@@ -175,10 +170,12 @@ export default function MiniMart() {
 
   // --------------------- Render ---------------------
   return (
-    <div style={{ background: "#f5f7fb", minHeight: "100vh", display: "flex", flexDirection: "column" }}>
+    <div style={{ minHeight: "100vh", display: "flex", flexDirection: "column", background: "#f5f7fb" }}>
+      {/* Header */}
       <TopNav />
 
-      <div style={{ flex: 1, overflowY: "auto", paddingBottom: 100 }}>
+      {/* Content */}
+      <div style={{ flex: 1, overflowY: "auto", paddingBottom: 120 }}>
         {/* Search */}
         <div style={{ maxWidth: 1200, margin: "20px auto", padding: "0 16px", display: "flex", flexDirection: "column", gap: 12 }}>
           <input
@@ -218,7 +215,36 @@ export default function MiniMart() {
           ))}
         </div>
 
-        {/* Trending */}
+        {/* Paid Promotions */}
+        <section style={{ maxWidth: 1200, margin: "25px auto", padding: "0 16px" }}>
+          <h2 style={{ fontSize: 18, marginBottom: 12 }}>🔥 Boost Your Product</h2>
+          <div style={{ display: "flex", gap: 12, overflowX: "auto" }}>
+            {promotionPlans.filter((p) => p.type === "paid").map((p) => (
+              <div
+                key={p.id}
+                onClick={() => navigate(`/promotions/${p.id}`)}
+                style={{
+                  minWidth: 200,
+                  borderRadius: 12,
+                  background: "#fff",
+                  padding: 12,
+                  boxShadow: "0 4px 12px rgba(0,0,0,0.06)",
+                  cursor: "pointer",
+                  display: "flex",
+                  flexDirection: "column",
+                  alignItems: "center",
+                }}
+              >
+                <div style={{ fontSize: 28 }}>{p.icon}</div>
+                <p style={{ fontWeight: "bold", margin: "6px 0 2px 0" }}>{p.label}</p>
+                <p style={{ fontSize: 12, color: "#198754", fontWeight: "bold" }}>₦{p.discountPrice.toLocaleString()}</p>
+                <p style={{ fontSize: 11, color: "#555" }}>{p.days} days</p>
+              </div>
+            ))}
+          </div>
+        </section>
+
+        {/* Trending Slider */}
         {trendingProducts.length > 0 && (
           <section style={{ maxWidth: 1200, margin: "25px auto", padding: "0 16px" }}>
             <h2 style={{ fontSize: 18, marginBottom: 12 }}>🔥 Trending</h2>
@@ -235,16 +261,12 @@ export default function MiniMart() {
                     transition: "transform 0.3s ease",
                   }}
                 >
-                  <div style={{ position: "relative", background: "#fff", borderRadius: 14, overflow: "hidden", cursor: "pointer", boxShadow: "0 4px 12px rgba(0,0,0,0.06)" }}>
+                  <div style={{ background: "#fff", borderRadius: 14, overflow: "hidden", cursor: "pointer", boxShadow: "0 4px 12px rgba(0,0,0,0.06)" }}>
                     <img src={p.images?.[0] || "/placeholder.png"} alt="" style={{ width: "100%", height: 150, objectFit: "cover" }} />
-                    {buyerLocation && qualifiesForFreeDelivery(p) && (
-                      <div style={{ position: "absolute", top: 8, left: 8, background: "#198754", color: "#fff", fontSize: 11, padding: "4px 8px", borderRadius: 6, fontWeight: "bold" }}>
-                        🚚 Free Delivery
-                      </div>
-                    )}
                     <div style={{ padding: 10 }}>
                       <p style={{ fontWeight: 600, fontSize: 14, margin: 0 }}>{truncateTitle(p.title)}</p>
                       <p style={{ color: "#198754", fontWeight: "bold", marginTop: 4 }}>₦{Number(p.price).toLocaleString()}</p>
+                      {p.sold > 0 && <p style={{ fontSize: 11, color: "#555" }}>{p.sold} Sold</p>}
                     </div>
                   </div>
                 </div>
@@ -253,7 +275,7 @@ export default function MiniMart() {
           </section>
         )}
 
-        {/* Top Seller Leaderboard */}
+        {/* Top Sellers */}
         {topSellers.length > 0 && (
           <section style={{ maxWidth: 1200, margin: "20px auto", padding: "0 16px" }}>
             <h2 style={{ fontSize: 18, marginBottom: 12 }}>🏆 Top Sellers</h2>
@@ -269,7 +291,7 @@ export default function MiniMart() {
           </section>
         )}
 
-        {/* Product Feed */}
+        {/* Product Grid */}
         <section
           style={{
             maxWidth: 1200,
@@ -296,35 +318,33 @@ export default function MiniMart() {
               }}
             >
               <img src={p.images?.[0] || "/placeholder.png"} alt="" style={{ width: "100%", height: 180, objectFit: "cover" }} />
-              {buyerLocation && qualifiesForFreeDelivery(p) && (
-                <div style={{ position: "absolute", top: 8, left: 8, background: "#198754", color: "#fff", fontSize: 11, padding: "4px 8px", borderRadius: 6, fontWeight: "bold" }}>
-                  🚚 Free Delivery
+              {isPaidPlan(p.promotionPlan) && (
+                <div style={{ position: "absolute", top: 8, left: 8, background: "#ffc107", color: "#000", fontSize: 11, padding: "4px 8px", borderRadius: 6, fontWeight: "bold" }}>
+                  {getPromotionPlan(p.promotionPlan)?.label}
                 </div>
               )}
               <div style={{ padding: 10 }}>
                 <p style={{ fontWeight: 600, margin: 0 }}>{truncateTitle(p.title)}</p>
-                <p style={{ fontSize: 12, color: "#6c757d", margin: "4px 0" }}>📍 {p.city}, {p.state}</p>
                 <p style={{ color: "#198754", fontWeight: "bold" }}>₦{Number(p.price).toLocaleString()}</p>
+                {p.sold > 0 && <p style={{ fontSize: 11, color: "#555" }}>{p.sold} Sold</p>}
               </div>
             </div>
           ))}
         </section>
       </div>
 
+      {/* Add Product Button */}
+      <div style={{ position: "fixed", bottom: 50, left: 0, width: "100%", display: "flex", justifyContent: "center", zIndex: 1001 }}>
+        <button
+          onClick={() => navigate("/add-product?market=minimart")}
+          style={{ padding: "12px 24px", borderRadius: 30, background: "#198754", color: "#fff", fontWeight: "bold", fontSize: 14, boxShadow: "0 4px 12px rgba(0,0,0,0.1)", border: "none", cursor: "pointer" }}
+        >
+          + Add Product
+        </button>
+      </div>
+
       {/* Bottom Navigation */}
-      <div
-        style={{
-          position: "fixed",
-          bottom: 0,
-          width: "100%",
-          background: "#f5f7fb",
-          padding: 8,
-          borderTop: "1px solid #e0e6ef",
-          display: "flex",
-          justifyContent: "space-around",
-          zIndex: 1000,
-        }}
-      >
+      <div style={{ position: "fixed", bottom: 0, width: "100%", background: "#f5f7fb", padding: 8, borderTop: "1px solid #e0e6ef", display: "flex", justifyContent: "space-around", zIndex: 1000 }}>
         {bottomLinks.map((link) => (
           <div key={link.path} onClick={() => navigate(link.path)} style={{ textAlign: "center", cursor: "pointer", fontSize: 12, position: "relative" }}>
             <div style={{ fontSize: 20 }}>{link.icon}</div>
