@@ -8,17 +8,19 @@ import { FaHome, FaStore, FaShoppingCart, FaUser } from "react-icons/fa";
 
 import TopNav from "../components/TopNav";
 import categoriesList from "../config/categories";
-import { promotionPlans, getPromotionPlan } from "../config/promotionPlans";
+import { promotionPlans } from "../config/promotionPlans";
 
 export default function MiniMart() {
   const navigate = useNavigate();
+
+  // State
   const [allProducts, setAllProducts] = useState([]);
   const [displayProducts, setDisplayProducts] = useState([]);
   const [trendingProducts, setTrendingProducts] = useState([]);
   const [selectedCategory, setSelectedCategory] = useState("");
   const [searchQuery, setSearchQuery] = useState("");
   const [currentSlide, setCurrentSlide] = useState(0);
-  const [columns, setColumns] = useState(2);
+  const [columns, setColumns] = useState(4);
   const [isDragging, setIsDragging] = useState(false);
   const [topSellers, setTopSellers] = useState([]);
   const [cartCount, setCartCount] = useState(0);
@@ -27,7 +29,7 @@ export default function MiniMart() {
   const sliderRef = useRef(null);
   const promoPlanIds = promotionPlans.map((p) => p.id);
 
-  // --------------------- Fetch MiniMart Products ---------------------
+  // --------------------- Load Products ---------------------
   useEffect(() => {
     const loadProducts = async () => {
       const q = query(
@@ -39,10 +41,13 @@ export default function MiniMart() {
       const products = snap.docs.map((d) => ({ id: d.id, ...d.data() }));
       setAllProducts(products);
 
-      const scored = products.map((p) => ({ ...p, trendingScore: calculateAIScore(p) }));
+      const scored = products.map((p) => ({
+        ...p,
+        trendingScore: calculateAIScore(p),
+      }));
       setTrendingProducts(scored.sort((a, b) => b.trendingScore - a.trendingScore).slice(0, 8));
 
-      filterProducts(products, selectedCategory, searchQuery);
+      filterDisplayProducts(products);
     };
 
     loadProducts();
@@ -51,6 +56,7 @@ export default function MiniMart() {
   }, []);
 
   // --------------------- AI Trending Score ---------------------
+  const getPromotionPlan = (id) => promotionPlans.find((p) => p.id === id);
   const calculateAIScore = (product) => {
     const views = product.views || 0;
     const clicks = product.clicks || 0;
@@ -63,24 +69,12 @@ export default function MiniMart() {
     return views * 3 + clicks * 2 + searches + promotionBoost + freshnessBoost;
   };
 
-  // --------------------- Top Seller Leaderboard ---------------------
-  const loadTopSellers = async () => {
-    const snap = await getDocs(collection(db, "users"));
-    const sellers = snap.docs.map((d) => ({ id: d.id, ...d.data() }));
-    const ranked = sellers
-      .filter((s) => s.totalSales > 0)
-      .map((s) => ({ ...s, score: (s.rating || 0) * 20 + (s.totalSales || 0) }))
-      .sort((a, b) => b.score - a.score)
-      .slice(0, 5);
-    setTopSellers(ranked);
-  };
-
-  // --------------------- Filter Products ---------------------
-  const filterProducts = (productsList, category, query) => {
-    let filtered = [...productsList];
-    if (category) filtered = filtered.filter((p) => p.category === category);
-    if (query.trim()) {
-      const q = query.toLowerCase();
+  // --------------------- Filter Display Products ---------------------
+  const filterDisplayProducts = (products = allProducts) => {
+    let filtered = [...products];
+    if (selectedCategory) filtered = filtered.filter((p) => p.category === selectedCategory);
+    if (searchQuery.trim()) {
+      const q = searchQuery.toLowerCase();
       filtered = filtered.filter(
         (p) =>
           p.title?.toLowerCase().includes(q) ||
@@ -92,11 +86,12 @@ export default function MiniMart() {
     const promoted = filtered.filter((p) => promoPlanIds.includes(p.promotionPlan));
     const promotedIds = new Set(promoted.map((p) => p.id));
     const regular = filtered.filter((p) => !promotedIds.has(p.id));
+
     setDisplayProducts([...promoted.slice(0, 5), ...shuffleArray(regular)]);
   };
 
   useEffect(() => {
-    filterProducts(allProducts, selectedCategory, searchQuery);
+    filterDisplayProducts();
   }, [allProducts, selectedCategory, searchQuery]);
 
   // --------------------- Responsive Columns ---------------------
@@ -113,8 +108,7 @@ export default function MiniMart() {
   // --------------------- Trending Slider ---------------------
   const handlers = useSwipeable({
     onSwipedLeft: () => setCurrentSlide((p) => (p + 1) % trendingProducts.length),
-    onSwipedRight: () =>
-      setCurrentSlide((p) => (p === 0 ? trendingProducts.length - 1 : p - 1)),
+    onSwipedRight: () => setCurrentSlide((p) => (p === 0 ? trendingProducts.length - 1 : p - 1)),
     onSwipeStart: () => setIsDragging(true),
     onSwipeEnd: () => setIsDragging(false),
     trackMouse: true,
@@ -122,12 +116,21 @@ export default function MiniMart() {
 
   useEffect(() => {
     if (isDragging || trendingProducts.length === 0) return;
-    const interval = setInterval(
-      () => setCurrentSlide((p) => (p + 1) % trendingProducts.length),
-      4000
-    );
+    const interval = setInterval(() => setCurrentSlide((p) => (p + 1) % trendingProducts.length), 4000);
     return () => clearInterval(interval);
   }, [isDragging, trendingProducts]);
+
+  // --------------------- Top Seller Leaderboard ---------------------
+  const loadTopSellers = async () => {
+    const snap = await getDocs(collection(db, "users"));
+    const sellers = snap.docs.map((d) => ({ id: d.id, ...d.data() }));
+    const ranked = sellers
+      .filter((s) => s.totalSales > 0)
+      .map((s) => ({ ...s, score: (s.rating || 0) * 20 + (s.totalSales || 0) }))
+      .sort((a, b) => b.score - a.score)
+      .slice(0, 5);
+    setTopSellers(ranked);
+  };
 
   // --------------------- Helpers ---------------------
   const shuffleArray = (arr) => [...arr].sort(() => Math.random() - 0.5);
@@ -144,14 +147,10 @@ export default function MiniMart() {
   const loadCartAndMessages = () => {
     if (!auth.currentUser) return;
     const uid = auth.currentUser.uid;
-
-    getDocs(query(collection(db, "carts"), where("userId", "==", uid))).then(
-      (snap) => setCartCount(snap.docs.length)
+    getDocs(query(collection(db, "carts"), where("userId", "==", uid))).then((snap) => setCartCount(snap.docs.length));
+    getDocs(query(collection(db, "messages"), where("toUser", "==", uid), where("read", "==", false))).then((snap) =>
+      setUnreadMessages(snap.docs.length)
     );
-
-    getDocs(
-      query(collection(db, "messages"), where("toUser", "==", uid), where("read", "==", false))
-    ).then((snap) => setUnreadMessages(snap.docs.length));
   };
 
   // --------------------- Bottom Navigation ---------------------
@@ -162,65 +161,59 @@ export default function MiniMart() {
     { path: "/profile", label: "Account", icon: <FaUser />, badge: unreadMessages },
   ];
 
-  // --------------------- Render ---------------------
   return (
     <div style={{ background: "#f5f7fb", minHeight: "100vh", display: "flex", flexDirection: "column" }}>
-      {/* Pinned TopNav */}
+      {/* TopNav pinned */}
       <TopNav />
 
+      {/* Spacer for TopNav */}
+      <div style={{ height: 60 }} />
+
       {/* Search + Content */}
-      <div style={{ flex: 1, padding: "16px 0" }}>
-        {/* Search Bar */}
-        <div style={{ maxWidth: 1200, margin: "0 auto 20px", padding: "0 16px" }}>
-          <input
-            placeholder="Search products..."
-            value={searchQuery}
-            onChange={(e) => setSearchQuery(e.target.value)}
-            style={{
-              width: "100%",
-              padding: "12px 14px",
-              borderRadius: 12,
-              border: "1px solid #d0d7e2",
-              fontSize: 14,
-              outline: "none",
-              boxShadow: "0 2px 6px rgba(0,0,0,0.04)",
-            }}
-          />
-        </div>
+      <div style={{ flex: 1, padding: "0 16px" }}>
+        {/* Search */}
+        <input
+          placeholder="Search products..."
+          value={searchQuery}
+          onChange={(e) => setSearchQuery(e.target.value)}
+          style={{
+            width: "100%",
+            padding: "12px 14px",
+            borderRadius: 12,
+            border: "1px solid #d0d7e2",
+            fontSize: 14,
+            outline: "none",
+            boxShadow: "0 2px 6px rgba(0,0,0,0.04)",
+            margin: "20px 0",
+          }}
+        />
 
         {/* Categories Grid */}
-        <section style={{ maxWidth: 1200, margin: "0 auto 25px", padding: "0 16px" }}>
-          <h2 style={{ fontSize: 18, marginBottom: 12 }}>Categories</h2>
-          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(120px, 1fr))", gap: 12 }}>
-            {categoriesList.map((c) => (
-              <button
-                key={c.name}
-                onClick={() => setSelectedCategory(selectedCategory === c.name ? "" : c.name)}
-                style={{
-                  padding: "12px",
-                  borderRadius: 12,
-                  border: selectedCategory === c.name ? "2px solid #0d6efd" : "1px solid #e0e6ef",
-                  background: selectedCategory === c.name ? "#e7f0ff" : "#fff",
-                  fontSize: 14,
-                  cursor: "pointer",
-                  display: "flex",
-                  flexDirection: "column",
-                  alignItems: "center",
-                  justifyContent: "center",
-                  gap: 6,
-                  fontWeight: 500
-                }}
-              >
-                <span style={{ fontSize: 20 }}>{c.icon}</span>
-                {c.name}
-              </button>
-            ))}
-          </div>
-        </section>
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 12, marginBottom: 20 }}>
+          {categoriesList.map((c) => (
+            <button
+              key={c.name}
+              onClick={() => setSelectedCategory(selectedCategory === c.name ? "" : c.name)}
+              style={{
+                padding: "12px 8px",
+                borderRadius: 12,
+                border: selectedCategory === c.name ? "2px solid #0d6efd" : "1px solid #e0e6ef",
+                background: selectedCategory === c.name ? "#e7f0ff" : "#fff",
+                fontSize: 13,
+                whiteSpace: "nowrap",
+                cursor: "pointer",
+                fontWeight: 500,
+                textAlign: "center",
+              }}
+            >
+              {c.icon} <br /> {c.name}
+            </button>
+          ))}
+        </div>
 
-        {/* Trending Products */}
+        {/* Trending */}
         {trendingProducts.length > 0 && (
-          <section style={{ maxWidth: 1200, margin: "0 auto 25px", padding: "0 16px" }}>
+          <section style={{ marginBottom: 24 }}>
             <h2 style={{ fontSize: 18, marginBottom: 12 }}>🔥 Trending</h2>
             <div ref={sliderRef} {...handlers} style={{ display: "flex", overflow: "hidden" }}>
               {trendingProducts.map((p) => (
@@ -235,27 +228,19 @@ export default function MiniMart() {
                     transition: "transform 0.3s ease",
                   }}
                 >
-                  <div style={{
-                    background: "#fff",
-                    borderRadius: 14,
-                    overflow: "hidden",
-                    cursor: "pointer",
-                    boxShadow: "0 4px 12px rgba(0,0,0,0.06)",
-                    position: "relative"
-                  }}>
+                  <div
+                    style={{
+                      position: "relative",
+                      background: "#fff",
+                      borderRadius: 14,
+                      overflow: "hidden",
+                      cursor: "pointer",
+                      boxShadow: "0 4px 12px rgba(0,0,0,0.06)",
+                    }}
+                  >
                     <img src={p.images?.[0] || "/placeholder.png"} alt="" style={{ width: "100%", height: 150, objectFit: "cover" }} />
-                    <div style={{
-                      position: "absolute",
-                      top: 8,
-                      right: 8,
-                      background: "#ffc107",
-                      color: "#000",
-                      fontSize: 11,
-                      padding: "4px 8px",
-                      borderRadius: 6,
-                      fontWeight: "bold"
-                    }}>
-                      {p.sold || 0} Sold
+                    <div style={{ position: "absolute", top: 8, left: 8, background: "#ffd700", color: "#000", fontSize: 11, padding: "2px 6px", borderRadius: 6, fontWeight: "bold" }}>
+                      {p.totalSold || 0} Sold
                     </div>
                     <div style={{ padding: 10 }}>
                       <p style={{ fontWeight: 600, fontSize: 14, margin: 0 }}>{truncateTitle(p.title)}</p>
@@ -270,11 +255,20 @@ export default function MiniMart() {
 
         {/* Top Sellers */}
         {topSellers.length > 0 && (
-          <section style={{ maxWidth: 1200, margin: "0 auto 25px", padding: "0 16px" }}>
+          <section style={{ marginBottom: 24 }}>
             <h2 style={{ fontSize: 18, marginBottom: 12 }}>🏆 Top Sellers</h2>
             <div style={{ display: "flex", gap: 12, overflowX: "auto" }}>
               {topSellers.map((s, i) => (
-                <div key={s.id} style={{ minWidth: 160, background: "#fff", borderRadius: 12, padding: 12, boxShadow: "0 3px 10px rgba(0,0,0,0.05)" }}>
+                <div
+                  key={s.id}
+                  style={{
+                    minWidth: 160,
+                    background: "#fff",
+                    borderRadius: 12,
+                    padding: 12,
+                    boxShadow: "0 3px 10px rgba(0,0,0,0.05)",
+                  }}
+                >
                   <p style={{ fontWeight: "bold", margin: 0 }}>#{i + 1} {s.shopName || "Seller"}</p>
                   <p style={{ fontSize: 12, color: "#555", margin: "4px 0" }}>⭐ {s.rating?.toFixed(1) || "New"} Rating</p>
                   <p style={{ fontSize: 12, color: "#198754", fontWeight: "bold" }}>{s.totalSales} Sales</p>
@@ -285,43 +279,35 @@ export default function MiniMart() {
         )}
 
         {/* Product Feed */}
-        <section style={{
-          maxWidth: 1200,
-          margin: "0 auto 100px",
-          padding: "0 16px",
-          display: "grid",
-          gridTemplateColumns: `repeat(${columns}, 1fr)`,
-          gap: 12
-        }}>
+        <section
+          style={{
+            display: "grid",
+            gridTemplateColumns: `repeat(${columns}, 1fr)`,
+            gap: 12,
+          }}
+        >
           {displayProducts.map((p) => (
             <div
               key={p.id}
               onClick={() => navigate(`/product/${p.id}`)}
               style={{
+                position: "relative",
                 background: "#fff",
                 borderRadius: 14,
                 boxShadow: "0 3px 10px rgba(0,0,0,0.05)",
                 cursor: "pointer",
                 overflow: "hidden",
-                position: "relative"
+                display: "flex",
+                flexDirection: "column",
               }}
             >
               <img src={p.images?.[0] || "/placeholder.png"} alt="" style={{ width: "100%", height: 180, objectFit: "cover" }} />
-              <div style={{
-                position: "absolute",
-                top: 8,
-                right: 8,
-                background: "#ffc107",
-                color: "#000",
-                fontSize: 11,
-                padding: "4px 8px",
-                borderRadius: 6,
-                fontWeight: "bold"
-              }}>
-                {p.sold || 0} Sold
+              <div style={{ position: "absolute", top: 8, left: 8, background: "#ffd700", color: "#000", fontSize: 11, padding: "2px 6px", borderRadius: 6, fontWeight: "bold" }}>
+                {p.totalSold || 0} Sold
               </div>
               <div style={{ padding: 10 }}>
                 <p style={{ fontWeight: 600, margin: 0 }}>{truncateTitle(p.title)}</p>
+                <p style={{ fontSize: 12, color: "#6c757d", margin: "4px 0" }}>📍 {p.city}, {p.state}</p>
                 <p style={{ color: "#198754", fontWeight: "bold" }}>₦{Number(p.price).toLocaleString()}</p>
               </div>
             </div>
@@ -329,34 +315,26 @@ export default function MiniMart() {
         </section>
       </div>
 
-      {/* Fixed Bottom Navigation */}
-      <div style={{
-        position: "fixed",
-        bottom: 0,
-        width: "100%",
-        background: "#f5f7fb",
-        padding: 8,
-        borderTop: "1px solid #e0e6ef",
-        display: "flex",
-        justifyContent: "space-around",
-        zIndex: 1000
-      }}>
+      {/* Bottom Navigation */}
+      <div
+        style={{
+          position: "fixed",
+          bottom: 0,
+          width: "100%",
+          background: "#f5f7fb",
+          padding: 8,
+          borderTop: "1px solid #e0e6ef",
+          display: "flex",
+          justifyContent: "space-around",
+          zIndex: 1000,
+        }}
+      >
         {bottomLinks.map((link) => (
           <div key={link.path} onClick={() => navigate(link.path)} style={{ textAlign: "center", cursor: "pointer", fontSize: 12, position: "relative" }}>
             <div style={{ fontSize: 20 }}>{link.icon}</div>
             <div>{link.label}</div>
             {link.badge > 0 && (
-              <span style={{
-                position: "absolute",
-                top: -4,
-                right: -10,
-                background: "red",
-                color: "#fff",
-                fontSize: 10,
-                padding: "2px 5px",
-                borderRadius: "50%",
-                fontWeight: "bold"
-              }}>
+              <span style={{ position: "absolute", top: -4, right: -10, background: "red", color: "#fff", fontSize: 10, padding: "2px 5px", borderRadius: "50%", fontWeight: "bold" }}>
                 {link.badge}
               </span>
             )}
