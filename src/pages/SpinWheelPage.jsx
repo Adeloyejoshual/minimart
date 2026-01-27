@@ -1,219 +1,150 @@
 // src/pages/SpinWheelPage.jsx
-import { useState, useEffect, useRef } from "react";
-import { auth, db } from "../firebase";
-import { collection, addDoc, serverTimestamp, query, orderBy, getDocs } from "firebase/firestore";
-import { coupons as spinCoupons } from "../config/coupons";
-import confetti from "canvas-confetti";
-import { FaGift } from "react-icons/fa";
+import { useState, useEffect } from "react";
+import { auth } from "../firebase";
+import axios from "axios";
+import TopNav from "../components/TopNav";
+import { spinRewards } from "../config/spinRewards";
 
 export default function SpinWheelPage() {
-  const [result, setResult] = useState(null);
+  const [user, setUser] = useState(null);
   const [spinning, setSpinning] = useState(false);
-  const [userCoupons, setUserCoupons] = useState([]);
-  const [lastSpin, setLastSpin] = useState(null);
-  const [referralBonus, setReferralBonus] = useState(0);
+  const [result, setResult] = useState(null);
+  const [history, setHistory] = useState([]);
+  const [loading, setLoading] = useState(false);
 
-  const wheelRef = useRef(null);
-  const userName = auth.currentUser.displayName || auth.currentUser.email.split("@")[0];
+  // --- Load current user ---
+  useEffect(() => {
+    if (auth.currentUser) setUser(auth.currentUser);
+  }, []);
 
-  // Load user's coupons & referral bonus
-  const loadUserData = async () => {
-    const snap = await getDocs(query(
-      collection(db, "users", auth.currentUser.uid, "coupons"),
-      orderBy("createdAt", "desc")
-    ));
-    const couponsList = snap.docs.map(doc => ({ id: doc.id, ...doc.data() }));
-    setUserCoupons(couponsList);
-
-    // Referral bonus (sum)
-    const referralSnap = await getDocs(collection(db, "users", auth.currentUser.uid, "referrals"));
-    const bonus = referralSnap.docs.reduce((acc, doc) => acc + (doc.data().bonus || 0), 0);
-    setReferralBonus(bonus);
-
-    // Last spin
-    if (couponsList.length > 0) {
-      const last = couponsList.reduce((prev, curr) => prev.createdAt?.toMillis() > curr.createdAt?.toMillis() ? prev : curr);
-      setLastSpin(last?.createdAt?.toDate());
+  // --- Load spin history ---
+  const loadHistory = async () => {
+    if (!user) return;
+    setLoading(true);
+    try {
+      const res = await axios.get(`/api/spins?userId=${user.uid}`);
+      setHistory(res.data);
+    } catch (err) {
+      console.error(err);
+    } finally {
+      setLoading(false);
     }
   };
 
-  useEffect(() => { loadUserData(); }, []);
+  useEffect(() => {
+    loadHistory();
+  }, [user]);
 
-  const canSpin = () => {
-    if (!lastSpin) return true;
-    const now = new Date();
-    const diff = now - lastSpin; // ms
-    return diff > 24 * 60 * 60 * 1000; // 24h cooldown
-  };
-
-  const spin = async () => {
+  // --- Handle spin ---
+  const spinWheel = async () => {
     if (spinning) return;
-    if (!canSpin()) { alert("You can only spin once every 24 hours."); return; }
-
     setSpinning(true);
-    const reward = spinCoupons[Math.floor(Math.random() * spinCoupons.length)];
-    const degrees = Math.floor(Math.random() * 360) + 720;
 
-    if (wheelRef.current) {
-      wheelRef.current.style.transition = "transform 3s ease-out";
-      wheelRef.current.style.transform = `rotate(${degrees}deg)`;
-    }
+    // Pick random reward
+    const reward = spinRewards[Math.floor(Math.random() * spinRewards.length)];
 
+    // Simulate spin animation delay
     setTimeout(async () => {
-      confetti({ particleCount: 150, spread: 90, origin: { y: 0.6 } });
       setResult(reward);
 
-      // Save reward to user
-      await addDoc(collection(db, "users", auth.currentUser.uid, "coupons"), {
-        ...reward,
-        createdAt: serverTimestamp(),
-        expiresAt: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000)
-      });
+      try {
+        // Save spin to MongoDB
+        await axios.post("/api/spins", {
+          userId: user.uid,
+          rewardId: reward.id,
+          label: reward.label,
+          type: reward.type,
+          value: reward.value,
+          createdAt: new Date(),
+        });
 
-      // Save recent winner
-      await addDoc(collection(db, "recentWins"), {
-        name: userName,
-        reward: reward.label,
-        createdAt: serverTimestamp()
-      });
+        // Reload history
+        loadHistory();
 
-      // Reload
-      loadUserData();
-
-      setSpinning(false);
-      if (wheelRef.current) wheelRef.current.style.transition = "none";
-    }, 3000);
+        alert(`🎉 Congrats ${user.displayName || user.email}! You won ${reward.label}`);
+      } catch (err) {
+        console.error(err);
+        alert("Error saving spin.");
+      } finally {
+        setSpinning(false);
+      }
+    }, 2000);
   };
-
-  const getCardStyle = (type) => {
-    switch (type) {
-      case "money": return { background: "linear-gradient(135deg, #00c6ff, #0072ff)", color: "#fff" };
-      case "freeDelivery": return { background: "linear-gradient(135deg, #ffecb3, #ffc107)", color: "#212121" };
-      case "percentage": return { background: "linear-gradient(135deg, #c8e6c9, #66bb6a)", color: "#212121" };
-      case "repeat": return { background: "linear-gradient(135deg, #e1bee7, #ba68c8)", color: "#fff" };
-      default: return { background: "#f0f0f0", color: "#212121" };
-    }
-  };
-
-  const totalCoupons = userCoupons.reduce((acc, c) => acc + (c.value || 0), 0);
 
   return (
-    <div style={{ textAlign: "center", padding: 20, fontFamily: "Segoe UI, Tahoma, Geneva, Verdana, sans-serif" }}>
-      <h2>🎡 Spin & Win</h2>
-      <p>Welcome, <b>{userName}</b>! Try your luck and win amazing rewards.</p>
+    <div style={{ minHeight: "100vh", background: "#f4f6f8", paddingBottom: 50 }}>
+      <TopNav />
+      <div style={{ maxWidth: 500, margin: "20px auto", padding: "0 12px", textAlign: "center" }}>
+        <h2 style={{ color: "#0D6EFD" }}>🎡 Spin the Wheel</h2>
+        <p>Try your luck and win rewards! Your prizes will be added to your coupon balance.</p>
 
-      {/* Coupon Balance */}
-      <div style={{ margin: "20px 0", fontWeight: "bold", fontSize: 16 }}>
-        💳 Total Coupon Value: ₦{totalCoupons.toLocaleString()} | Referral Bonus: ₦{referralBonus.toLocaleString()}
-      </div>
-
-      {/* User Coupons */}
-      <div style={{ display: "flex", flexWrap: "wrap", justifyContent: "center", gap: 12, marginBottom: 20 }}>
-        {userCoupons.length ? userCoupons.map(c => (
-          <div key={c.id} style={{
-            display: "flex",
-            flexDirection: "column",
-            alignItems: "center",
-            gap: 4,
-            padding: "14px 18px",
-            borderRadius: 16,
-            boxShadow: "0 6px 16px rgba(0,0,0,0.12)",
-            minWidth: 140,
-            position: "relative",
-            ...getCardStyle(c.type),
-            transition: "transform 0.2s",
+        {/* Spin Button */}
+        <button
+          onClick={spinWheel}
+          disabled={spinning || !user}
+          style={{
+            marginTop: 20,
+            padding: "12px 20px",
+            fontSize: 16,
+            fontWeight: 600,
+            borderRadius: 12,
+            border: "none",
+            background: "#0D6EFD",
+            color: "#fff",
+            cursor: "pointer",
           }}
-            title={`Expires: ${c.expiresAt?.toDate ? c.expiresAt.toDate().toLocaleDateString() : ""}`}
-            onMouseEnter={e => e.currentTarget.style.transform = "translateY(-4px) scale(1.05)"}
-            onMouseLeave={e => e.currentTarget.style.transform = "translateY(0) scale(1)"}
-          >
-            <FaGift size={28} />
-            <span style={{ fontWeight: 600, fontSize: 15 }}>{c.label}</span>
-            {c.expiresAt && (
-              <span style={{
-                fontSize: 10,
-                background: "#ff5252",
-                color: "#fff",
-                padding: "2px 6px",
-                borderRadius: 8,
-                position: "absolute",
-                top: 6,
-                right: 6
-              }}>
-                Exp: {c.expiresAt.toDate().toLocaleDateString()}
-              </span>
-            )}
+        >
+          {spinning ? "Spinning..." : "Spin Now"}
+        </button>
+
+        {/* Last Spin Result */}
+        {result && (
+          <div style={{ marginTop: 20, padding: 12, background: "#fff", borderRadius: 12 }}>
+            <h3 style={{ margin: 0, fontSize: 16 }}>🎉 Last Spin Result</h3>
+            <p style={{ marginTop: 8, fontWeight: 600, color: "#198754" }}>
+              {result.label}
+            </p>
           </div>
-        )) : <div style={{ color: "#6c757d", fontSize: 14 }}>No coupons yet. Spin to win!</div>}
-      </div>
+        )}
 
-      {/* Wheel */}
-      <div
-        ref={wheelRef}
-        style={{
-          margin: "20px auto",
-          width: 280,
-          height: 280,
-          borderRadius: "50%",
-          border: "10px solid #0d6efd",
-          position: "relative",
-          background: "conic-gradient(#ffc107 0% 20%, #0d6efd 20% 40%, #28a745 40% 60%, #dc3545 60% 80%, #20c997 80% 100%)",
-          transition: "transform 3s cubic-bezier(0.25, 0.1, 0.25, 1)"
-        }}
-      >
+        {/* Spin History */}
         <div style={{
-          width: 0,
-          height: 0,
-          borderLeft: "14px solid transparent",
-          borderRight: "14px solid transparent",
-          borderBottom: "24px solid #000",
-          position: "absolute",
-          top: -24,
-          left: "50%",
-          transform: "translateX(-50%)"
-        }} />
-      </div>
-
-      <button
-        onClick={spin}
-        disabled={spinning || !canSpin()}
-        style={{
           marginTop: 20,
-          padding: "14px 28px",
-          fontSize: 16,
-          fontWeight: 600,
-          color: "#fff",
-          background: "#0d6efd",
-          border: "none",
-          borderRadius: 10,
-          cursor: spinning || !canSpin() ? "not-allowed" : "pointer",
-          transition: "transform 0.2s",
-        }}
-        onMouseEnter={e => e.currentTarget.style.transform = "scale(1.05)"}
-        onMouseLeave={e => e.currentTarget.style.transform = "scale(1)"}
-      >
-        {spinning ? "Spinning..." : canSpin() ? "Spin Now" : "Come back tomorrow!"}
-      </button>
-
-      {/* Result */}
-      {result && (
-        <div style={{
-          marginTop: 30,
-          maxWidth: 360,
-          marginLeft: "auto",
-          marginRight: "auto",
-          padding: 22,
-          borderRadius: 18,
-          background: "#fff3e0",
-          fontWeight: "bold",
-          color: "#ef6c00",
-          fontSize: 16,
-          boxShadow: "0 6px 20px rgba(0,0,0,0.15)"
+          maxHeight: 300,
+          overflowY: "auto",
+          padding: 8,
+          background: "#e9ecef",
+          borderRadius: 12
         }}>
-          🎉 Congratulations <b>{userName}</b>!<br />
-          You won: <span style={{ color: "#0d6efd" }}>{result.label}</span>
+          <h4>Spin History</h4>
+          {loading ? (
+            <p>Loading...</p>
+          ) : history.length ? (
+            history.map(h => (
+              <div key={h._id} style={{
+                padding: 8,
+                marginBottom: 6,
+                background: "#fff",
+                borderRadius: 8,
+                display: "flex",
+                justifyContent: "space-between",
+                alignItems: "center",
+                boxShadow: "0 1px 2px rgba(0,0,0,0.05)"
+              }}>
+                <div>
+                  <p style={{ margin: 0 }}>{h.label}</p>
+                  <small style={{ color: "#6c757d" }}>{new Date(h.createdAt).toLocaleDateString()}</small>
+                </div>
+                <span style={{ fontWeight: 600, color: "#198754" }}>
+                  {h.type === "money" ? `₦${h.value}` : h.type === "percentage" ? `${h.value}%` : `${h.value}x`}
+                </span>
+              </div>
+            ))
+          ) : (
+            <p>No spins yet.</p>
+          )}
         </div>
-      )}
+      </div>
     </div>
   );
 }
