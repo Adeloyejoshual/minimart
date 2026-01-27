@@ -1,6 +1,6 @@
 // src/pages/VerifyID.jsx
 import { useEffect, useState } from "react";
-import { auth } from "../firebase";
+import { auth, db, storage } from "../firebase";
 import axios from "axios"; // MongoDB backend
 import TopNav from "../components/TopNav";
 import { FaIdCard, FaCamera } from "react-icons/fa";
