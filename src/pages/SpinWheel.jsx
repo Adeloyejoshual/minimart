@@ -1,69 +1,136 @@
+// src/pages/SpinWheelPage.jsx
 import { useState, useEffect } from "react";
+import { auth } from "../firebase";
 import axios from "axios";
-import { coupons } from "../config/coupons";
+import { spinRewards } from "../config/spinRewards";
+import TopNav from "../components/TopNav";
+import { FaGift } from "react-icons/fa";
 
-export default function SpinWheel({ userId }) {
+export default function SpinWheelPage() {
+  const [user, setUser] = useState(null);
   const [history, setHistory] = useState([]);
-  const [lastWin, setLastWin] = useState(null);
   const [spinning, setSpinning] = useState(false);
+  const [lastReward, setLastReward] = useState(null);
 
-  const spin = async () => {
-    if (spinning) return;
-    setSpinning(true);
-    // simulate spin delay
-    setTimeout(async () => {
-      const res = await axios.post("http://localhost:5000/api/spin", { userId });
-      setLastWin(res.data.coupon);
-      loadHistory();
-      setSpinning(false);
-    }, 2000);
-  };
+  // Load user
+  useEffect(() => {
+    if (auth.currentUser) setUser(auth.currentUser);
+  }, []);
 
+  // Load spin history
   const loadHistory = async () => {
-    const res = await axios.get(`http://localhost:5000/api/coupons/${userId}`);
-    setHistory(res.data);
+    if (!user) return;
+    try {
+      const res = await axios.get(`/api/spin?userId=${user.uid}`);
+      setHistory(res.data);
+    } catch (err) {
+      console.error(err);
+    }
   };
 
-  useEffect(() => { loadHistory(); }, []);
+  useEffect(() => {
+    if (user) loadHistory();
+  }, [user]);
 
-  const activeCoupons = history.filter(c => c.status === "active");
+  // Handle spin
+  const spinWheel = async () => {
+    if (!user || spinning) return;
+    setSpinning(true);
+
+    // Randomly pick reward
+    const reward = spinRewards[Math.floor(Math.random() * spinRewards.length)];
+
+    try {
+      // Save spin result to MongoDB
+      await axios.post("/api/spin", {
+        userId: user.uid,
+        rewardLabel: reward.label,
+        rewardType: reward.type,
+        rewardValue: reward.value,
+      });
+
+      setLastReward(reward);
+      loadHistory(); // refresh history
+
+      alert(`🎉 Congrats! You won: ${reward.label}`);
+    } catch (err) {
+      console.error(err);
+      alert("Error recording spin.");
+    } finally {
+      setSpinning(false);
+    }
+  };
 
   return (
-    <div style={{ maxWidth: 500, margin: "0 auto", padding: 20 }}>
-      <h2>Spin Wheel 🎁</h2>
-      <button 
-        onClick={spin} 
-        disabled={spinning} 
-        style={{ padding: "10px 20px", borderRadius: 8, background: "#0d6efd", color: "#fff", fontWeight: "bold", cursor: "pointer" }}
-      >
-        {spinning ? "Spinning..." : "Spin to Win!"}
-      </button>
+    <div style={{ minHeight: "100vh", background: "#f4f6f8", paddingBottom: 50 }}>
+      <TopNav />
+      <div style={{ maxWidth: 500, margin: "20px auto", padding: "0 12px" }}>
+        <h2 style={{ color: "#0D6EFD", fontSize: 18 }}>🎡 Spin Wheel Rewards</h2>
+        <p>Spin the wheel and get exciting rewards! All rewards are added to your coupon balance.</p>
 
-      {lastWin && (
-        <div style={{ marginTop: 20, padding: 10, background: "#e0ecff", borderRadius: 8 }}>
-          <strong>Congratulations!</strong> You won {lastWin.label}
-        </div>
-      )}
+        {/* Spin Button */}
+        <button
+          onClick={spinWheel}
+          disabled={spinning}
+          style={{
+            marginTop: 20,
+            width: "100%",
+            padding: 16,
+            borderRadius: 12,
+            border: "none",
+            background: "#ffc107",
+            fontWeight: 700,
+            fontSize: 16,
+            cursor: spinning ? "not-allowed" : "pointer",
+            color: "#212529",
+          }}
+        >
+          {spinning ? "Spinning..." : "Spin Now!"}
+        </button>
 
-      <h3 style={{ marginTop: 30 }}>Your Coupons 💳</h3>
-      <div style={{ display: "flex", gap: 10, overflowX: "auto", padding: "10px 0" }}>
-        {activeCoupons.length ? activeCoupons.map(c => (
-          <div key={c._id} style={{ padding: 10, background: "#fff3cd", borderRadius: 8, minWidth: 120 }}>
-            <div>{c.label}</div>
-            <div style={{ fontSize: 12, color: "#6c757d" }}>
-              Exp: {new Date(c.expiry).toLocaleDateString()}
+        {/* Last Reward */}
+        {lastReward && (
+          <div style={{
+            marginTop: 20,
+            padding: 12,
+            background: "#fff",
+            borderRadius: 12,
+            boxShadow: "0 1px 3px rgba(0,0,0,0.1)",
+            display: "flex",
+            alignItems: "center",
+            gap: 10
+          }}>
+            <FaGift color="#ffc107" size={24} />
+            <p style={{ margin: 0, fontWeight: 600 }}>{lastReward.label}</p>
+          </div>
+        )}
+
+        {/* Scrollable History */}
+        <div style={{
+          marginTop: 30,
+          maxHeight: 300,
+          overflowY: "auto",
+          padding: 8,
+          background: "#e9ecef",
+          borderRadius: 12
+        }}>
+          <h3 style={{ fontSize: 16, marginTop: 0 }}>Your Spin History</h3>
+          {history.length ? history.map(h => (
+            <div key={h._id} style={{
+              padding: 8,
+              marginBottom: 6,
+              background: "#fff",
+              borderRadius: 8,
+              display: "flex",
+              justifyContent: "space-between",
+              alignItems: "center",
+              boxShadow: "0 1px 2px rgba(0,0,0,0.05)"
+            }}>
+              <p style={{ margin: 0 }}>{h.rewardLabel}</p>
+              <small style={{ color: "#6c757d" }}>{new Date(h.createdAt).toLocaleDateString()}</small>
             </div>
-          </div>
-        )) : <div>No active coupons</div>}
-      </div>
-
-      <h3 style={{ marginTop: 30 }}>History 🕒</h3>
-      <div style={{ maxHeight: 200, overflowY: "auto", borderTop: "1px solid #dee2e6", paddingTop: 10 }}>
-        {history.length ? history.map(c => (
-          <div key={c._id} style={{ padding: 8, borderBottom: "1px solid #dee2e6" }}>
-            {c.label} — {c.status} — {new Date(c.createdAt).toLocaleDateString()}
-          </div>
-        )) : <div>No history</div>}
+          )) : <p>No spins yet. Try your luck!</p>}
+        </div>
       </div>
     </div>
   );
