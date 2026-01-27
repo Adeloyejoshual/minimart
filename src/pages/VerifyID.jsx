@@ -1,7 +1,7 @@
 // src/pages/VerifyID.jsx
 import { useEffect, useState } from "react";
-import { auth, db, storage } from "../firebase";
-import axios from "axios"; // MongoDB backend
+import { auth } from "../firebase";
+import axios from "axios";
 import TopNav from "../components/TopNav";
 import { FaIdCard, FaCamera } from "react-icons/fa";
 
@@ -27,7 +27,7 @@ export default function VerifyID() {
         setStatus(res.data.kycStatus || "Not Submitted");
       }
     } catch (err) {
-      console.error(err);
+      console.error("Failed to load KYC:", err);
     }
   };
 
@@ -49,20 +49,20 @@ export default function VerifyID() {
     setLoading(true);
     const formData = new FormData();
     formData.append("userId", user.uid);
-    formData.append("front", files.front);
-    formData.append("back", files.back);
-    formData.append("selfie", files.selfie);
+    if (files.front) formData.append("front", files.front);
+    if (files.back) formData.append("back", files.back);
+    if (files.selfie) formData.append("selfie", files.selfie);
 
     try {
       const res = await axios.post("/api/kyc", formData, {
-        headers: { "Content-Type": "multipart/form-data" }
+        headers: { "Content-Type": "multipart/form-data" },
       });
       setStatus("Pending");
       setKycData(res.data);
-      alert("KYC submitted successfully! Admin will review it soon.");
+      alert("✅ KYC submitted successfully! Admin will review it soon.");
     } catch (err) {
-      console.error(err);
-      alert("Upload failed. Try again.");
+      console.error("KYC submission failed:", err);
+      alert("❌ Upload failed. Try again.");
     } finally {
       setLoading(false);
     }
