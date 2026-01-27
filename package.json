@@ -12,6 +12,8 @@
     "cors": "^2.8.5",
     "express": "^4.18.2",
     "firebase": "^10.4.0",
+    "mongoose": "^7.5.0",
+    "dotenv": "^16.3.1",
     "react": "^18.2.0",
     "react-dom": "^18.2.0",
     "react-firebase-hooks": "^5.0.4",
@@ -21,10 +23,13 @@
     "react-swipeable": "^7.0.2",
     "web-vitals": "^3.3.1"
   },
+  "devDependencies": {
+    "nodemon": "^3.0.2"
+  },
   "scripts": {
     "start": "react-scripts start",
     "build": "react-scripts build",
-    "serve": "node server/server.js",
+    "serve": "nodemon server/server.js",
     "test": "react-scripts test",
     "eject": "react-scripts eject"
   },
