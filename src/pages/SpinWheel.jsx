@@ -1,109 +1,70 @@
 import { useState, useEffect } from "react";
-import { db, auth } from "../firebase";
-import { doc, getDoc, setDoc, serverTimestamp } from "firebase/firestore";
+import axios from "axios";
 import { coupons } from "../config/coupons";
-import { FaGift } from "react-icons/fa";
 
-export default function SpinWheel() {
-  const [userCoupon, setUserCoupon] = useState(null);
+export default function SpinWheel({ userId }) {
+  const [history, setHistory] = useState([]);
+  const [lastWin, setLastWin] = useState(null);
   const [spinning, setSpinning] = useState(false);
-  const [result, setResult] = useState(null);
-
-  useEffect(() => {
-    const loadCoupon = async () => {
-      if (!auth.currentUser) return;
-      const snap = await getDoc(doc(db, "users", auth.currentUser.uid, "coupons", "main"));
-      if (snap.exists()) setUserCoupon(snap.data());
-    };
-    loadCoupon();
-  }, []);
 
   const spin = async () => {
     if (spinning) return;
     setSpinning(true);
-
-    // Pick random coupon
-    const reward = coupons[Math.floor(Math.random() * coupons.length)];
-    
-    const expires = reward.expiresInDays
-      ? new Date(Date.now() + reward.expiresInDays * 24 * 60 * 60 * 1000)
-      : null;
-
-    const couponData = {
-      ...reward,
-      obtainedAt: serverTimestamp(),
-      expires: expires ? expires : null,
-    };
-
-    // Save to Firestore
-    await setDoc(doc(db, "users", auth.currentUser.uid, "coupons", "main"), couponData);
-
-    setResult(couponData);
-    setUserCoupon(couponData);
-
-    // Stop spinning animation after a bit
-    setTimeout(() => setSpinning(false), 2000);
+    // simulate spin delay
+    setTimeout(async () => {
+      const res = await axios.post("http://localhost:5000/api/spin", { userId });
+      setLastWin(res.data.coupon);
+      loadHistory();
+      setSpinning(false);
+    }, 2000);
   };
 
-  return (
-    <div style={{ maxWidth: 420, margin: "20px auto", textAlign: "center" }}>
-      <h2>🎁 Spin to Win Coupons</h2>
+  const loadHistory = async () => {
+    const res = await axios.get(`http://localhost:5000/api/coupons/${userId}`);
+    setHistory(res.data);
+  };
 
-      <div style={{ margin: "20px 0" }}>
-        <button
-          onClick={spin}
-          disabled={spinning}
-          style={{
-            padding: "16px 24px",
-            fontSize: 18,
-            borderRadius: "50%",
-            border: "none",
-            cursor: "pointer",
-            background: spinning ? "#dee2e6" : "#0d6efd",
-            color: "#fff",
-            width: 120,
-            height: 120,
-            boxShadow: spinning ? "0 2px 6px rgba(0,0,0,0.05)" : "0 6px 12px rgba(0,0,0,0.1)",
-            transition: "all 0.3s ease",
-          }}
-        >
-          {spinning ? "🎡" : "SPIN"}
-        </button>
+  useEffect(() => { loadHistory(); }, []);
+
+  const activeCoupons = history.filter(c => c.status === "active");
+
+  return (
+    <div style={{ maxWidth: 500, margin: "0 auto", padding: 20 }}>
+      <h2>Spin Wheel 🎁</h2>
+      <button 
+        onClick={spin} 
+        disabled={spinning} 
+        style={{ padding: "10px 20px", borderRadius: 8, background: "#0d6efd", color: "#fff", fontWeight: "bold", cursor: "pointer" }}
+      >
+        {spinning ? "Spinning..." : "Spin to Win!"}
+      </button>
+
+      {lastWin && (
+        <div style={{ marginTop: 20, padding: 10, background: "#e0ecff", borderRadius: 8 }}>
+          <strong>Congratulations!</strong> You won {lastWin.label}
+        </div>
+      )}
+
+      <h3 style={{ marginTop: 30 }}>Your Coupons 💳</h3>
+      <div style={{ display: "flex", gap: 10, overflowX: "auto", padding: "10px 0" }}>
+        {activeCoupons.length ? activeCoupons.map(c => (
+          <div key={c._id} style={{ padding: 10, background: "#fff3cd", borderRadius: 8, minWidth: 120 }}>
+            <div>{c.label}</div>
+            <div style={{ fontSize: 12, color: "#6c757d" }}>
+              Exp: {new Date(c.expiry).toLocaleDateString()}
+            </div>
+          </div>
+        )) : <div>No active coupons</div>}
       </div>
 
-      {result && (
-        <div style={{
-          marginTop: 20,
-          padding: 16,
-          borderRadius: 12,
-          background: "#fff",
-          boxShadow: "0 2px 6px rgba(0,0,0,0.08)",
-          display: "flex",
-          flexDirection: "column",
-          alignItems: "center",
-        }}>
-          <div style={{ fontSize: 30 }}>{result.icon}</div>
-          <h3 style={{ margin: 6 }}>{result.label}</h3>
-          {result.expires && (
-            <p style={{ fontSize: 12, color: "#6c757d" }}>
-              Expires: {new Date(result.expires.seconds * 1000).toLocaleDateString()}
-            </p>
-          )}
-        </div>
-      )}
-
-      {userCoupon && !result && (
-        <div style={{
-          marginTop: 20,
-          padding: 12,
-          borderRadius: 12,
-          background: "#fff",
-          boxShadow: "0 2px 6px rgba(0,0,0,0.05)",
-        }}>
-          <h4>Your Current Coupon</h4>
-          <p style={{ margin: "4px 0" }}>{userCoupon.label} {userCoupon.expires && `(Expires: ${new Date(userCoupon.expires.seconds * 1000).toLocaleDateString()})`}</p>
-        </div>
-      )}
+      <h3 style={{ marginTop: 30 }}>History 🕒</h3>
+      <div style={{ maxHeight: 200, overflowY: "auto", borderTop: "1px solid #dee2e6", paddingTop: 10 }}>
+        {history.length ? history.map(c => (
+          <div key={c._id} style={{ padding: 8, borderBottom: "1px solid #dee2e6" }}>
+            {c.label} — {c.status} — {new Date(c.createdAt).toLocaleDateString()}
+          </div>
+        )) : <div>No history</div>}
+      </div>
     </div>
   );
 }
