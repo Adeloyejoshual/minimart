@@ -4,7 +4,7 @@ import { auth, db } from "../firebase";
 import { signOut } from "firebase/auth";
 import { doc, getDoc } from "firebase/firestore";
 import TopNav from "../components/TopNav";
-import { FaHome, FaStore, FaShoppingCart, FaUser, FaGift, FaIdCard, FaEdit, FaMoneyBillAlt, FaStoreAlt } from "react-icons/fa";
+import { FaHome, FaStore, FaShoppingCart, FaUser, FaGift, FaIdCard, FaEdit, FaMoneyBillAlt, FaStoreAlt, FaSpinner } from "react-icons/fa";
 import { useNavigate } from "react-router-dom";
 import axios from "axios";
 
@@ -13,10 +13,12 @@ export default function Profile() {
   const [cartCount, setCartCount] = useState(0);
   const [unreadMessages, setUnreadMessages] = useState(0);
   const [couponBalance, setCouponBalance] = useState(0);
+  const [referralCount, setReferralCount] = useState(0);
+  const [latestSpin, setLatestSpin] = useState(null);
   const [loading, setLoading] = useState(true);
   const navigate = useNavigate();
 
-  // Load user data from Firebase
+  // --- Load Firebase user ---
   useEffect(() => {
     const loadUser = async () => {
       if (!auth.currentUser) return;
@@ -30,39 +32,48 @@ export default function Profile() {
     loadUser();
   }, []);
 
-  // Load live data from backend (MongoDB) for coupons, referrals, cart, messages
+  // --- Load live data from MongoDB ---
+  const fetchLiveData = async () => {
+    if (!auth.currentUser) return;
+    try {
+      const uid = auth.currentUser.uid;
+
+      // 1️⃣ Coupon balance
+      const couponRes = await axios.get(`/api/coupons?userId=${uid}`);
+      setCouponBalance(couponRes.data.totalBalance || 0);
+
+      // 2️⃣ Referral history
+      const referralRes = await axios.get(`/api/referrals?userId=${uid}`);
+      setReferralCount(referralRes.data.length);
+      const totalReferral = referralRes.data.reduce((acc, r) => acc + r.reward, 0);
+
+      // 3️⃣ Cart count
+      const cartRes = await axios.get(`/api/cart?userId=${uid}`);
+      setCartCount(cartRes.data.length || 0);
+
+      // 4️⃣ Unread messages
+      const msgRes = await axios.get(`/api/messages/unread?userId=${uid}`);
+      setUnreadMessages(msgRes.data.count || 0);
+
+      // 5️⃣ Latest Spin reward
+      const spinRes = await axios.get(`/api/spin/latest?userId=${uid}`);
+      if (spinRes.data) setLatestSpin(spinRes.data.reward);
+
+      // Total coupon includes referral bonuses
+      setCouponBalance(prev => (couponRes.data.totalBalance || 0) + totalReferral);
+
+    } catch (err) {
+      console.error("Failed to fetch live data:", err);
+    } finally {
+      setLoading(false);
+    }
+  };
+
   useEffect(() => {
-    const fetchLiveData = async () => {
-      if (!auth.currentUser) return;
-      try {
-        const uid = auth.currentUser.uid;
-
-        // 1️⃣ Coupon balance
-        const couponRes = await axios.get(`/api/coupons?userId=${uid}`);
-        setCouponBalance(couponRes.data.totalBalance || 0);
-
-        // 2️⃣ Referral bonuses
-        const referralRes = await axios.get(`/api/referrals?userId=${uid}`);
-        const totalReferral = referralRes.data.reduce((acc, r) => acc + r.reward, 0);
-
-        // 3️⃣ Cart count
-        const cartRes = await axios.get(`/api/cart?userId=${uid}`);
-        setCartCount(cartRes.data.length || 0);
-
-        // 4️⃣ Unread messages
-        const msgRes = await axios.get(`/api/messages/unread?userId=${uid}`);
-        setUnreadMessages(msgRes.data.count || 0);
-
-        setCouponBalance(prev => prev + totalReferral); // include referral bonus
-      } catch (err) {
-        console.error("Failed to fetch live data:", err);
-      } finally {
-        setLoading(false);
-      }
-    };
-
     fetchLiveData();
-  }, []);
+    const interval = setInterval(fetchLiveData, 15000); // refresh every 15s
+    return () => clearInterval(interval);
+  }, [userData]);
 
   const bottomLinks = [
     { path: "/", label: "Home", icon: <FaHome />, badge: 0 },
@@ -78,13 +89,11 @@ export default function Profile() {
   if (loading) return <p style={{ padding: 20 }}>Loading profile...</p>;
 
   return (
-    <div style={{ minHeight: "100vh", background: "#f4f6f8", paddingBottom: 80 }}>
-      {/* Top Navigation */}
+    <div style={{ minHeight: "100vh", background: "#f4f6f8", paddingBottom: 90 }}>
       <TopNav />
 
-      {/* Main Content */}
       <div style={{ paddingTop: 70, maxWidth: 500, margin: "0 auto", paddingLeft: 16, paddingRight: 16 }}>
-        {/* User Info */}
+        {/* User Card */}
         <div style={{
           background: "#fff",
           borderRadius: 16,
@@ -111,6 +120,12 @@ export default function Profile() {
             <strong>Coupon Balance:</strong>{" "}
             <span style={{ color: "#0D6EFD", fontWeight: 600 }}>₦{couponBalance}</span>
           </p>
+          {referralCount > 0 && (
+            <p><strong>Referrals:</strong> {referralCount} friends</p>
+          )}
+          {latestSpin && (
+            <p><strong>Latest Spin Reward:</strong> {latestSpin}</p>
+          )}
         </div>
 
         {/* Actions */}
