@@ -4,7 +4,7 @@ import admin from "firebase-admin";
 import mongoose from "mongoose";
 
 // ------------------------------------
-// Admin MongoDB Schema
+// MongoDB Admin Schema
 // ------------------------------------
 const adminSchema = new mongoose.Schema({
   uid: { type: String, required: true, unique: true },
@@ -52,10 +52,10 @@ const verifySuperAdmin = async (req, res, next) => {
 router.get("/list", verifySuperAdmin, async (req, res) => {
   try {
     const admins = await AdminModel.find().sort({ createdAt: -1 });
-    res.json(admins);
+    res.json({ success: true, data: admins });
   } catch (err) {
     console.error("Failed to list admins:", err);
-    res.status(500).json({ message: "Server error: Cannot fetch admins" });
+    res.status(500).json({ success: false, message: "Cannot fetch admins", error: err.message });
   }
 });
 
@@ -67,12 +67,12 @@ router.get("/list", verifySuperAdmin, async (req, res) => {
 router.post("/create", verifySuperAdmin, async (req, res) => {
   try {
     const { email, role } = req.body;
-    if (!email || !role) return res.status(400).json({ message: "Email and role are required" });
+    if (!email || !role) return res.status(400).json({ success: false, message: "Email and role are required" });
 
     // Create Firebase user with random password
     const userRecord = await admin.auth().createUser({
       email,
-      password: Math.random().toString(36).slice(-8),
+      password: Math.random().toString(36).slice(-8), // Random temporary password
     });
 
     // Save admin to MongoDB
@@ -83,10 +83,10 @@ router.post("/create", verifySuperAdmin, async (req, res) => {
       active: true,
     });
 
-    res.json({ uid: newAdmin.uid, email: newAdmin.email, role: newAdmin.role });
+    res.json({ success: true, data: { uid: newAdmin.uid, email: newAdmin.email, role: newAdmin.role } });
   } catch (err) {
     console.error("Failed to create admin:", err);
-    res.status(500).json({ message: "Failed to create admin", error: err.message });
+    res.status(500).json({ success: false, message: "Failed to create admin", error: err.message });
   }
 });
 
@@ -98,18 +98,18 @@ router.post("/create", verifySuperAdmin, async (req, res) => {
 router.put("/update", verifySuperAdmin, async (req, res) => {
   try {
     const { uid, role } = req.body;
-    if (!uid || !role) return res.status(400).json({ message: "UID and role are required" });
+    if (!uid || !role) return res.status(400).json({ success: false, message: "UID and role are required" });
 
     const adminRecord = await AdminModel.findOne({ uid });
-    if (!adminRecord) return res.status(404).json({ message: "Admin not found" });
+    if (!adminRecord) return res.status(404).json({ success: false, message: "Admin not found" });
 
     adminRecord.role = role;
     await adminRecord.save();
 
-    res.json({ uid: adminRecord.uid, email: adminRecord.email, role: adminRecord.role });
+    res.json({ success: true, data: { uid: adminRecord.uid, email: adminRecord.email, role: adminRecord.role } });
   } catch (err) {
     console.error("Failed to update admin role:", err);
-    res.status(500).json({ message: "Failed to update admin role" });
+    res.status(500).json({ success: false, message: "Failed to update admin role", error: err.message });
   }
 });
 
@@ -121,10 +121,10 @@ router.put("/update", verifySuperAdmin, async (req, res) => {
 router.delete("/delete", verifySuperAdmin, async (req, res) => {
   try {
     const { uid } = req.body;
-    if (!uid) return res.status(400).json({ message: "UID is required" });
+    if (!uid) return res.status(400).json({ success: false, message: "UID is required" });
 
     const adminRecord = await AdminModel.findOne({ uid });
-    if (!adminRecord) return res.status(404).json({ message: "Admin not found" });
+    if (!adminRecord) return res.status(404).json({ success: false, message: "Admin not found" });
 
     adminRecord.active = false;
     await adminRecord.save();
@@ -132,10 +132,10 @@ router.delete("/delete", verifySuperAdmin, async (req, res) => {
     // Disable Firebase user account
     await admin.auth().updateUser(uid, { disabled: true });
 
-    res.json({ uid: adminRecord.uid, email: adminRecord.email, active: adminRecord.active });
+    res.json({ success: true, data: { uid: adminRecord.uid, email: adminRecord.email, active: adminRecord.active } });
   } catch (err) {
     console.error("Failed to deactivate admin:", err);
-    res.status(500).json({ message: "Failed to deactivate admin" });
+    res.status(500).json({ success: false, message: "Failed to deactivate admin", error: err.message });
   }
 });
 
