@@ -1,5 +1,5 @@
 // src/App.jsx
-import { BrowserRouter as Router, Routes, Route, Navigate } from "react-router-dom";
+import { BrowserRouter as Router, Routes, Route, Navigate, useParams } from "react-router-dom";
 import { useAuthState } from "react-firebase-hooks/auth";
 import { auth } from "./firebase";
 
@@ -22,9 +22,34 @@ import ChatPage from "./pages/ChatPage";
 import CartPage from "./pages/CartPage";
 import MessagesPage from "./pages/MessagesPage";
 import SavedItemsPage from "./pages/SavedItemsPage";
-import SearchBar from "./pages/SearchBar";           // ✅ corrected
+import SearchBar from "./pages/SearchBar";
 import SelectLocation from "./pages/SelectLocation";
 import PriceFiltersPage from "./pages/PriceFiltersPage";
+
+// Admin Role Pages
+import SuperAdminLogin from "./pages/admin/SuperAdminLogin";
+import AdminManager from "./pages/admin/AdminManager";
+import ModeratorPanel from "./pages/admin/ModeratorPanel";
+import FinanceAdminPanel from "./pages/admin/FinanceAdminPanel";
+import SupportAdminPanel from "./pages/admin/SupportAdminPanel";
+
+// --- Dynamic Admin Dashboard Wrapper ---
+function AdminRolePage() {
+  const { role } = useParams();
+
+  switch (role?.toLowerCase()) {
+    case "moderator":
+      return <ModeratorPanel />;
+    case "finance":
+      return <FinanceAdminPanel />;
+    case "support":
+      return <SupportAdminPanel />;
+    case "manager":
+      return <AdminManager />;
+    default:
+      return <Navigate to="/admin" replace />;
+  }
+}
 
 function App() {
   const [user, loading] = useAuthState(auth);
@@ -39,6 +64,7 @@ function App() {
           <>
             <Route path="/login" element={<Login />} />
             <Route path="/register" element={<Register />} />
+            <Route path="/superadmin-login" element={<SuperAdminLogin />} />
             <Route path="*" element={<Navigate to="/login" replace />} />
           </>
         ) : (
@@ -57,7 +83,7 @@ function App() {
             <Route path="/saved-items" element={<SavedItemsPage />} />
 
             {/* Search & Location */}
-            <Route path="/search" element={<SearchBar />} />    {/* ✅ fixed */}
+            <Route path="/search" element={<SearchBar />} />
             <Route path="/select-location" element={<SelectLocation />} />
 
             {/* Price Filters & Add Product */}
@@ -68,9 +94,15 @@ function App() {
             <Route path="/apply-seller" element={<ApplySeller />} />
             <Route path="/admin" element={<AdminPanel />} />
 
+            {/* Dynamic Admin Dashboards */}
+            <Route path="/admin/:role" element={<AdminRolePage />} />
+
             {/* Product Detail & Chat */}
             <Route path="/product/:productId" element={<ProductDetail />} />
             <Route path="/chat/:sellerId" element={<ChatPage />} />
+
+            {/* Super Admin login */}
+            <Route path="/superadmin-login" element={<SuperAdminLogin />} />
 
             {/* Catch-all */}
             <Route path="*" element={<Navigate to="/" replace />} />
