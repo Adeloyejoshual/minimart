@@ -1,6 +1,5 @@
+// src/pages/admin/SuperAdminLogin.jsx
 import { useState } from "react";
-import { auth } from "../../firebase"; // your Firebase config
-import { signInWithEmailAndPassword } from "firebase/auth";
 import { useNavigate } from "react-router-dom";
 
 export default function SuperAdminLogin() {
@@ -10,29 +9,26 @@ export default function SuperAdminLogin() {
   const [error, setError] = useState("");
   const navigate = useNavigate();
 
-  const handleLogin = async (e) => {
+  const handleLogin = (e) => {
     e.preventDefault();
     setError("");
     setLoading(true);
 
-    try {
-      const userCredential = await signInWithEmailAndPassword(auth, email, password);
-      const user = userCredential.user;
+    // SuperAdmin credentials from .env
+    const SUPERADMIN_EMAIL = process.env.REACT_APP_SUPERADMIN_EMAIL;
+    const SUPERADMIN_PASSWORD = process.env.REACT_APP_SUPERADMIN_PASSWORD;
 
-      // Get Firebase ID token
-      const token = await user.getIdToken();
+    if (email === SUPERADMIN_EMAIL && password === SUPERADMIN_PASSWORD) {
+      // Save a simple token in localStorage
+      localStorage.setItem("superAdminLoggedIn", "true");
 
-      // Store token in localStorage for API calls
-      localStorage.setItem("adminToken", token);
-
-      // Redirect to Admin Dashboard
-      navigate("/admin/dashboard");
-    } catch (err) {
-      console.error("Login failed:", err);
+      // Redirect to Super Admin dashboard
+      navigate("/superadmin/dashboard");
+    } else {
       setError("Invalid email or password");
-    } finally {
-      setLoading(false);
     }
+
+    setLoading(false);
   };
 
   return (
