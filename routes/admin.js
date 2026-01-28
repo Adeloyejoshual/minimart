@@ -1,10 +1,19 @@
-// src/routes/adminRoutes.js
+// src/routes/admin.js
 import express from "express";
 import admin from "firebase-admin";
 import mongoose from "mongoose";
+import User from "../models/User.js";
+import Kyc from "../models/Kyc.js";
+import Product from "../models/Product.js";
+import Payout from "../models/Payout.js";
+import AdminPerformance from "../models/AdminPerformance.js";
+import UserLogin from "../models/UserLogin.js";
+import { getClientIp } from "../utils/getClientIp.js";
+
+const router = express.Router();
 
 // ------------------------------------
-// MongoDB Admin Schema
+// Admin MongoDB Schema (SuperAdmin/Admin/Moderator)
 // ------------------------------------
 const adminSchema = new mongoose.Schema({
   uid: { type: String, required: true, unique: true },
@@ -15,11 +24,6 @@ const adminSchema = new mongoose.Schema({
 });
 
 const AdminModel = mongoose.model("Admin", adminSchema);
-
-// ------------------------------------
-// Express Router
-// ------------------------------------
-const router = express.Router();
 
 // ------------------------------------
 // Middleware: Verify SuperAdmin Access
@@ -45,37 +49,31 @@ const verifySuperAdmin = async (req, res, next) => {
 };
 
 // ------------------------------------
-// GET: List All Admins
-// Endpoint: /api/admin/list
-// Access: SuperAdmin only
+// SuperAdmin Routes
 // ------------------------------------
+
+// List all admins
 router.get("/list", verifySuperAdmin, async (req, res) => {
   try {
     const admins = await AdminModel.find().sort({ createdAt: -1 });
-    res.json({ success: true, data: admins });
+    res.json(admins);
   } catch (err) {
     console.error("Failed to list admins:", err);
-    res.status(500).json({ success: false, message: "Cannot fetch admins", error: err.message });
+    res.status(500).json({ message: "Server error: Cannot fetch admins" });
   }
 });
 
-// ------------------------------------
-// POST: Create New Admin
-// Endpoint: /api/admin/create
-// Access: SuperAdmin only
-// ------------------------------------
+// Create new admin
 router.post("/create", verifySuperAdmin, async (req, res) => {
   try {
     const { email, role } = req.body;
-    if (!email || !role) return res.status(400).json({ success: false, message: "Email and role are required" });
+    if (!email || !role) return res.status(400).json({ message: "Email and role are required" });
 
-    // Create Firebase user with random password
     const userRecord = await admin.auth().createUser({
       email,
-      password: Math.random().toString(36).slice(-8), // Random temporary password
+      password: Math.random().toString(36).slice(-8),
     });
 
-    // Save admin to MongoDB
     const newAdmin = await AdminModel.create({
       uid: userRecord.uid,
       email,
@@ -83,60 +81,149 @@ router.post("/create", verifySuperAdmin, async (req, res) => {
       active: true,
     });
 
-    res.json({ success: true, data: { uid: newAdmin.uid, email: newAdmin.email, role: newAdmin.role } });
+    res.json({ uid: newAdmin.uid, email: newAdmin.email, role: newAdmin.role });
   } catch (err) {
     console.error("Failed to create admin:", err);
-    res.status(500).json({ success: false, message: "Failed to create admin", error: err.message });
+    res.status(500).json({ message: "Failed to create admin", error: err.message });
   }
 });
 
-// ------------------------------------
-// PUT: Update Admin Role
-// Endpoint: /api/admin/update
-// Access: SuperAdmin only
-// ------------------------------------
+// Update admin role
 router.put("/update", verifySuperAdmin, async (req, res) => {
   try {
     const { uid, role } = req.body;
-    if (!uid || !role) return res.status(400).json({ success: false, message: "UID and role are required" });
+    if (!uid || !role) return res.status(400).json({ message: "UID and role are required" });
 
     const adminRecord = await AdminModel.findOne({ uid });
-    if (!adminRecord) return res.status(404).json({ success: false, message: "Admin not found" });
+    if (!adminRecord) return res.status(404).json({ message: "Admin not found" });
 
     adminRecord.role = role;
     await adminRecord.save();
 
-    res.json({ success: true, data: { uid: adminRecord.uid, email: adminRecord.email, role: adminRecord.role } });
+    res.json({ uid: adminRecord.uid, email: adminRecord.email, role: adminRecord.role });
   } catch (err) {
     console.error("Failed to update admin role:", err);
-    res.status(500).json({ success: false, message: "Failed to update admin role", error: err.message });
+    res.status(500).json({ message: "Failed to update admin role" });
   }
 });
 
-// ------------------------------------
-// DELETE: Deactivate Admin
-// Endpoint: /api/admin/delete
-// Access: SuperAdmin only
-// ------------------------------------
+// Deactivate admin
 router.delete("/delete", verifySuperAdmin, async (req, res) => {
   try {
     const { uid } = req.body;
-    if (!uid) return res.status(400).json({ success: false, message: "UID is required" });
+    if (!uid) return res.status(400).json({ message: "UID is required" });
 
     const adminRecord = await AdminModel.findOne({ uid });
-    if (!adminRecord) return res.status(404).json({ success: false, message: "Admin not found" });
+    if (!adminRecord) return res.status(404).json({ message: "Admin not found" });
 
     adminRecord.active = false;
     await adminRecord.save();
 
-    // Disable Firebase user account
     await admin.auth().updateUser(uid, { disabled: true });
 
-    res.json({ success: true, data: { uid: adminRecord.uid, email: adminRecord.email, active: adminRecord.active } });
+    res.json({ uid: adminRecord.uid, email: adminRecord.email, active: adminRecord.active });
   } catch (err) {
     console.error("Failed to deactivate admin:", err);
-    res.status(500).json({ success: false, message: "Failed to deactivate admin", error: err.message });
+    res.status(500).json({ message: "Failed to deactivate admin" });
   }
+});
+
+// ------------------------------------
+// Marketplace Admin Routes
+// ------------------------------------
+
+// USERS
+router.get("/users", async (req, res) => {
+  const users = await User.find();
+  res.json(users);
+});
+
+// Admin role lookup
+router.get("/role", async (req, res) => {
+  const { email } = req.query;
+  const user = await User.findOne({ email });
+  res.json({ role: user?.role || null });
+});
+
+// KYC
+router.get("/kyc", async (req, res) => {
+  const kyc = await Kyc.find();
+  res.json(kyc);
+});
+router.patch("/kyc/:userId", async (req, res) => {
+  const { verified } = req.body;
+  const updated = await Kyc.findOneAndUpdate({ userId: req.params.userId }, { verified }, { new: true });
+  req.io.emit("kycUpdated", updated);
+  res.json(updated);
+});
+
+// PRODUCTS
+router.get("/products", async (req, res) => {
+  const products = await Product.find();
+  res.json(products);
+});
+router.patch("/products/:productId", async (req, res) => {
+  const { approved } = req.body;
+  const updated = await Product.findByIdAndUpdate(req.params.productId, { approved }, { new: true });
+  req.io.emit("productUpdated", updated);
+  res.json(updated);
+});
+
+// PAYOUTS
+router.get("/payouts", async (req, res) => {
+  const payouts = await Payout.find();
+  res.json(payouts);
+});
+router.patch("/payouts/:payoutId", async (req, res) => {
+  const { approved } = req.body;
+  const updated = await Payout.findByIdAndUpdate(req.params.payoutId, { approved }, { new: true });
+  req.io.emit("payoutUpdated", updated);
+  res.json(updated);
+});
+
+// FINANCE
+router.get("/finance", async (req, res) => {
+  const totalRevenue = await Payout.aggregate([
+    { $match: { approved: true } },
+    { $group: { _id: null, total: { $sum: "$amount" } } }
+  ]);
+  const pendingPayouts = await Payout.aggregate([
+    { $match: { approved: false } },
+    { $group: { _id: null, total: { $sum: "$amount" } } }
+  ]);
+  res.json({ totalRevenue: totalRevenue[0]?.total || 0, pendingPayouts: pendingPayouts[0]?.total || 0 });
+});
+
+// ADMIN PERFORMANCE
+router.get("/performance", async (req, res) => {
+  const performance = await AdminPerformance.find();
+  res.json(performance);
+});
+
+// FLAGGED SELLERS
+router.get("/flagged-sellers", async (req, res) => {
+  const flagged = await Product.aggregate([
+    { $match: { approved: false } },
+    { $group: { _id: "$sellerId", rejectedCount: { $sum: 1 } } },
+    { $match: { rejectedCount: { $gte: 3 } } },
+    { $lookup: { from: "users", localField: "_id", foreignField: "_id", as: "user" } },
+    { $unwind: "$user" },
+    { $project: { id: "$_id", name: "$user.fullName", flagReason: "Multiple rejected products" } }
+  ]);
+  res.json(flagged);
+});
+
+// LOGIN HISTORY
+router.post("/log-login", async (req, res) => {
+  const { userId, email } = req.body;
+  const ip = getClientIp(req);
+  const login = await UserLogin.create({ userId, email, ip });
+  req.io.emit("loginHistoryUpdated", login);
+  res.json(login);
+});
+router.get("/login-history", async (req, res) => {
+  const logins = await UserLogin.find().sort({ timestamp: -1 }).limit(50);
+  res.json(logins);
 });
 
 export default router;
