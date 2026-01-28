@@ -22,7 +22,10 @@
     "react-scripts": "5.0.1",
     "react-swipeable": "^7.0.2",
     "socket.io": "^4.7.2",
-    "web-vitals": "^3.3.1"
+    "web-vitals": "^3.3.1",
+    "chart.js": "^4.4.0",
+    "react-chartjs-2": "^5.2.0",
+    "papaparse": "^5.4.1"
   },
   "devDependencies": {
     "concurrently": "^8.2.0",
