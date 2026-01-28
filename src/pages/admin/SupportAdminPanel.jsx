@@ -1,7 +1,7 @@
 // src/pages/admin/SupportAdminPanel.jsx
 import React, { useState, useEffect } from "react";
 import { io } from "socket.io-client";
-import { collection, query, where, getDocs } from "firebase/firestore";
+import { collection, query, where, getDocs, doc, updateDoc } from "firebase/firestore";
 import { db } from "../../firebase"; // your firebase.js
 import Header from "../../components/admin/Header";
 import Sidebar from "../../components/admin/Sidebar";
@@ -25,13 +25,13 @@ export default function SupportAdminPanel() {
   const [assistanceRequests, setAssistanceRequests] = useState([]);
   const [socket, setSocket] = useState(null);
 
-  // --- Initialize Socket.IO for real-time updates ---
+  // --- Initialize Socket.IO ---
   useEffect(() => {
     const s = io(process.env.REACT_APP_API_URL || "http://localhost:3000");
     setSocket(s);
 
     s.on("supportUpdate", () => {
-      loadAllData(); // refresh all panels
+      loadAllData(); // refresh all panels in real-time
     });
 
     return () => s.disconnect();
@@ -72,41 +72,41 @@ export default function SupportAdminPanel() {
     loadAllData();
   }, []);
 
-  // --- Handle Actions (Resolve, Escalate, Approve, Reject, Guide) ---
+  // --- Handle Actions ---
   const handleAction = async (action, item) => {
     try {
-      // This is where you update Firebase documents
-      const col = item.type === "complaint" ? "complaints" : item.type === "verification" ? "kyc" : "assistance";
-      const docRef = db.collection(col).doc(item.id);
+      const colName = item.type === "complaint" ? "complaints" : item.type === "verification" ? "kyc" : "assistance";
+      const docRef = doc(db, colName, item.id);
 
       switch (action) {
         case "resolve":
-          await docRef.update({ status: "Resolved", resolvedToday: true });
+          await updateDoc(docRef, { status: "Resolved", resolvedToday: true });
           break;
         case "escalate":
-          await docRef.update({ status: "Escalated" });
+          await updateDoc(docRef, { status: "Escalated" });
           break;
         case "approve":
-          await docRef.update({ status: "Verified" });
+          await updateDoc(docRef, { status: "Verified" });
           break;
         case "reject":
-          await docRef.update({ status: "Rejected" });
+          await updateDoc(docRef, { status: "Rejected" });
           break;
         case "guide":
-          await docRef.update({ status: "In Progress", note: "Support guidance provided" });
+          await updateDoc(docRef, { status: "In Progress", note: "Support guidance provided" });
           break;
         case "note":
           const note = prompt("Add a note for the user:");
-          if (note) await docRef.update({ note });
+          if (note) await updateDoc(docRef, { note });
           break;
         default:
           break;
       }
 
-      socket.emit("supportUpdate"); // notify all admins in real-time
-      loadAllData(); // refresh after action
+      socket.emit("supportUpdate"); // notify all admins
+      loadAllData(); // refresh
     } catch (err) {
       console.error("Failed to perform action:", err);
+      alert("❌ Action failed. Check console for details.");
     }
   };
 
@@ -118,10 +118,34 @@ export default function SupportAdminPanel() {
         <div style={{ padding: 20 }}>
           <QuickStats stats={stats} />
 
-          {activePanel === "Complaints" && <ComplaintsTable complaints={complaints.map(c => ({ ...c, type: "complaint" }))} onAction={handleAction} />}
-          {activePanel === "Verification Requests" && <VerificationTable verifications={verifications.map(v => ({ ...v, type: "verification" }))} onAction={handleAction} />}
-          {activePanel === "Listing Assistance" && <AssistanceTable assistance={assistanceRequests.map(a => ({ ...a, type: "assistance" }))} onAction={handleAction} />}
-          {activePanel === "Reports" && <AnalyticsPanel complaints={complaints} verifications={verifications} assistance={assistanceRequests} />}
+          {activePanel === "Complaints" && (
+            <ComplaintsTable
+              complaints={complaints.map(c => ({ ...c, type: "complaint" }))}
+              onAction={handleAction}
+            />
+          )}
+
+          {activePanel === "Verification Requests" && (
+            <VerificationTable
+              verifications={verifications.map(v => ({ ...v, type: "verification" }))}
+              onAction={handleAction}
+            />
+          )}
+
+          {activePanel === "Listing Assistance" && (
+            <AssistanceTable
+              assistance={assistanceRequests.map(a => ({ ...a, type: "assistance" }))}
+              onAction={handleAction}
+            />
+          )}
+
+          {activePanel === "Reports" && (
+            <AnalyticsPanel
+              complaints={complaints}
+              verifications={verifications}
+              assistance={assistanceRequests}
+            />
+          )}
         </div>
       </div>
     </div>
