@@ -1,16 +1,34 @@
-import axios from "axios";
+// src/utils/getAdminRole.js
+import { collection, query, where, getDocs } from "firebase/firestore";
+import { db } from "../firebase";
 
 /**
- * Checks if a user is an admin and returns their role
- * @param {string} email - user's email
- * @returns {Promise<string|null>} - "SuperAdmin", "Moderator", "FinanceAdmin" or null
+ * Returns the admin role for a given email.
+ * - Checks .env for SuperAdmin first
+ * - Then checks Firestore 'admins' collection
+ * @param {string} email
+ * @returns {string|null} role name or null if not an admin
  */
 export async function getAdminRole(email) {
+  // ---------------- SuperAdmin from .env ----------------
+  const SUPERADMIN_EMAIL = process.env.REACT_APP_SUPERADMIN_EMAIL;
+
+  if (email === SUPERADMIN_EMAIL) {
+    return "SuperAdmin"; // redirect to /superadmin/dashboard
+  }
+
+  // ---------------- Firestore Admin Lookup ----------------
   try {
-    const res = await axios.get(`/api/admin/role?email=${encodeURIComponent(email)}`);
-    return res.data.role || null;
+    const q = query(collection(db, "admins"), where("email", "==", email));
+    const snap = await getDocs(q);
+
+    if (!snap.empty) {
+      const admin = snap.docs[0].data();
+      return admin.role || null; // e.g., "AdminManager", "Moderator"
+    }
+    return null;
   } catch (err) {
-    console.error("Failed to get admin role:", err);
+    console.error("Failed to get admin role:", err.message);
     return null;
   }
 }
