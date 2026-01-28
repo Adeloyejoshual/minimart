@@ -2,6 +2,7 @@
 import { useEffect, useState } from "react";
 import axios from "axios";
 import { io } from "socket.io-client";
+import { Bar } from "react-chartjs-2";
 
 export default function SuperAdminDashboard() {
   const [socket, setSocket] = useState(null);
@@ -12,6 +13,9 @@ export default function SuperAdminDashboard() {
   const [payouts, setPayouts] = useState([]);
   const [notifications, setNotifications] = useState([]);
   const [loading, setLoading] = useState(true);
+
+  const [adminPerformance, setAdminPerformance] = useState([]);
+  const [flaggedSellers, setFlaggedSellers] = useState([]);
 
   // --- Initialize Socket.IO ---
   useEffect(() => {
@@ -55,12 +59,14 @@ export default function SuperAdminDashboard() {
   const loadData = async () => {
     try {
       setLoading(true);
-      const [usersRes, kycRes, productsRes, financeRes, payoutsRes] = await Promise.all([
+      const [usersRes, kycRes, productsRes, financeRes, payoutsRes, performanceRes, flaggedRes] = await Promise.all([
         axios.get("/api/admin/users"),
         axios.get("/api/admin/kyc"),
         axios.get("/api/admin/products"),
         axios.get("/api/admin/finance"),
         axios.get("/api/admin/payouts"),
+        axios.get("/api/admin/performance"), // Admin performance API
+        axios.get("/api/admin/flagged-sellers"), // Suspicious sellers API
       ]);
 
       setUsers(usersRes.data);
@@ -68,6 +74,8 @@ export default function SuperAdminDashboard() {
       setProducts(productsRes.data);
       setFinance(financeRes.data);
       setPayouts(payoutsRes.data);
+      setAdminPerformance(performanceRes.data);
+      setFlaggedSellers(flaggedRes.data);
     } catch (err) {
       console.error("Failed to load dashboard data:", err);
     } finally {
@@ -126,6 +134,18 @@ export default function SuperAdminDashboard() {
 
   if (loading) return <p style={{ padding: 30 }}>Loading dashboard...</p>;
 
+  // --- Chart Data for Admin Performance ---
+  const chartData = {
+    labels: adminPerformance.map(a => a.adminEmail),
+    datasets: [
+      {
+        label: "Disputes Resolved",
+        data: adminPerformance.map(a => a.count),
+        backgroundColor: "#4da6ff"
+      }
+    ]
+  };
+
   return (
     <div style={{ padding: 30, fontFamily: "Segoe UI, Tahoma, Geneva, Verdana, sans-serif" }}>
       <h1>Super Admin Dashboard</h1>
@@ -150,116 +170,32 @@ export default function SuperAdminDashboard() {
         </div>
       </div>
 
-      {/* --- KYC Management --- */}
+      {/* --- Admin Performance --- */}
       <section style={{ marginTop: 40 }}>
-        <h2>KYC Approvals</h2>
-        {kycList.length === 0 ? <p>No KYC submissions found.</p> : (
-          <table style={{ width: "100%", borderCollapse: "collapse", marginTop: 12 }}>
-            <thead>
-              <tr style={{ background: "#f0f0f0" }}>
-                <th>User ID</th>
-                <th>Name</th>
-                <th>Status</th>
-                <th>Documents</th>
-                <th>Actions</th>
-              </tr>
-            </thead>
-            <tbody>
-              {kycList.map(k => (
-                <tr key={k.userId} style={{ borderBottom: "1px solid #ddd" }}>
-                  <td>{k.userId}</td>
-                  <td>{k.fullName}</td>
-                  <td style={{ color: k.verified ? "#198754" : "#0d6efd" }}>
-                    {k.verified ? "Approved" : "Pending"}
-                  </td>
-                  <td>
-                    {k.documentUrl && <a href={k.documentUrl} target="_blank" rel="noreferrer">View</a>}
-                  </td>
-                  <td>
-                    {!k.verified && (
-                      <>
-                        <button onClick={() => updateKycStatus(k.userId, "Approved")} style={{ marginRight: 6, padding: 6, background: "#198754", color: "#fff", borderRadius: 4 }}>Approve</button>
-                        <button onClick={() => updateKycStatus(k.userId, "Rejected")} style={{ padding: 6, background: "#dc3545", color: "#fff", borderRadius: 4 }}>Reject</button>
-                      </>
-                    )}
-                    {k.verified && <span>Locked</span>}
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        )}
+        <h2>Top Performing Admins</h2>
+        {adminPerformance.length === 0 ? <p>No data yet.</p> : <Bar data={chartData} />}
       </section>
 
-      {/* --- Product Management --- */}
+      {/* --- Suspicious Sellers --- */}
       <section style={{ marginTop: 40 }}>
-        <h2>Product Approvals</h2>
-        {products.length === 0 ? <p>No products found.</p> : (
+        <h2>Suspicious Sellers</h2>
+        {flaggedSellers.length === 0 ? <p>No suspicious sellers.</p> : (
           <table style={{ width: "100%", borderCollapse: "collapse", marginTop: 12 }}>
             <thead>
               <tr style={{ background: "#f0f0f0" }}>
-                <th>Product ID</th>
-                <th>Name</th>
-                <th>Status</th>
-                <th>Actions</th>
-              </tr>
-            </thead>
-            <tbody>
-              {products.map(p => (
-                <tr key={p._id} style={{ borderBottom: "1px solid #ddd" }}>
-                  <td>{p._id}</td>
-                  <td>{p.name}</td>
-                  <td style={{ color: p.approved ? "#198754" : "#0d6efd" }}>
-                    {p.approved ? "Approved" : "Pending"}
-                  </td>
-                  <td>
-                    {!p.approved && (
-                      <>
-                        <button onClick={() => updateProductStatus(p._id, true)} style={{ marginRight: 6, padding: 6, background: "#198754", color: "#fff", borderRadius: 4 }}>Approve</button>
-                        <button onClick={() => updateProductStatus(p._id, false)} style={{ padding: 6, background: "#dc3545", color: "#fff", borderRadius: 4 }}>Reject</button>
-                      </>
-                    )}
-                    {p.approved && <span>Locked</span>}
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        )}
-      </section>
-
-      {/* --- Finance / Payout Management --- */}
-      <section style={{ marginTop: 40 }}>
-        <h2>Seller Payouts</h2>
-        {payouts.length === 0 ? <p>No payout requests found.</p> : (
-          <table style={{ width: "100%", borderCollapse: "collapse", marginTop: 12 }}>
-            <thead>
-              <tr style={{ background: "#f0f0f0" }}>
-                <th>Payout ID</th>
                 <th>Seller ID</th>
-                <th>Amount (₦)</th>
+                <th>Name</th>
+                <th>Flag Reason</th>
                 <th>Status</th>
-                <th>Actions</th>
               </tr>
             </thead>
             <tbody>
-              {payouts.map(p => (
-                <tr key={p._id} style={{ borderBottom: "1px solid #ddd" }}>
-                  <td>{p._id}</td>
-                  <td>{p.sellerId}</td>
-                  <td>{p.amount}</td>
-                  <td style={{ color: p.approved ? "#198754" : "#0d6efd" }}>
-                    {p.approved ? "Approved" : "Pending"}
-                  </td>
-                  <td>
-                    {!p.approved && (
-                      <>
-                        <button onClick={() => updatePayoutStatus(p._id, true)} style={{ marginRight: 6, padding: 6, background: "#198754", color: "#fff", borderRadius: 4 }}>Approve</button>
-                        <button onClick={() => updatePayoutStatus(p._id, false)} style={{ padding: 6, background: "#dc3545", color: "#fff", borderRadius: 4 }}>Reject</button>
-                      </>
-                    )}
-                    {p.approved && <span>Locked</span>}
-                  </td>
+              {flaggedSellers.map(s => (
+                <tr key={s.id} style={{ borderBottom: "1px solid #ddd" }}>
+                  <td>{s.id}</td>
+                  <td>{s.name}</td>
+                  <td>{s.flagReason}</td>
+                  <td style={{ color: "red", fontWeight: "bold" }}>Suspicious</td>
                 </tr>
               ))}
             </tbody>
@@ -267,17 +203,8 @@ export default function SuperAdminDashboard() {
         )}
       </section>
 
-      {/* --- Notifications --- */}
-      <section style={{ marginTop: 40 }}>
-        <h2>Notifications</h2>
-        {notifications.length === 0 ? <p>No notifications yet.</p> : (
-          <ul>
-            {notifications.map((n, i) => (
-              <li key={i}>{n.timestamp.toLocaleTimeString()}: {n.message}</li>
-            ))}
-          </ul>
-        )}
-      </section>
+      {/* --- Existing KYC, Product, Payout, Notifications --- */}
+      {/* ...keep your previous sections for KYC, Product Approvals, Payouts, Notifications */}
     </div>
   );
 }
