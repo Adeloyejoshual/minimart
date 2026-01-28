@@ -1,12 +1,16 @@
-import { db } from "../firebase";
-import { collection, query, where, getDocs } from "firebase/firestore";
+import axios from "axios";
 
-export const getAdminRole = async (email) => {
-  const q = query(collection(db, "admins"), where("email", "==", email));
-  const snapshot = await getDocs(q);
-
-  if (!snapshot.empty) {
-    return snapshot.docs[0].data().role;
+/**
+ * Checks if a user is an admin and returns their role
+ * @param {string} email - user's email
+ * @returns {Promise<string|null>} - "SuperAdmin", "Moderator", "FinanceAdmin" or null
+ */
+export async function getAdminRole(email) {
+  try {
+    const res = await axios.get(`/api/admin/role?email=${encodeURIComponent(email)}`);
+    return res.data.role || null;
+  } catch (err) {
+    console.error("Failed to get admin role:", err);
+    return null;
   }
-  return null;
-};
+}
