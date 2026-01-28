@@ -1,24 +1,22 @@
-// src/App.jsx
 import { BrowserRouter as Router, Routes, Route, Navigate, useParams } from "react-router-dom";
 import { useAuthState } from "react-firebase-hooks/auth";
 import { auth } from "./firebase";
 
-// Auth Pages
+/* ================= AUTH PAGES ================= */
 import Login from "./pages/Login";
 import Register from "./pages/Register";
 
-// Main Pages
+/* ================= MAIN USER PAGES ================= */
 import HomePage from "./pages/HomePage";
 import MiniMart from "./pages/MiniMart";
 import Marketplace from "./pages/Marketplace";
 import Profile from "./pages/Profile";
 import ApplySeller from "./pages/ApplySeller";
-import AdminPanel from "./pages/AdminPanel";
 import ProductDetail from "./pages/ProductDetail";
 import AddProduct from "./pages/AddProduct";
 import ChatPage from "./pages/ChatPage";
 
-// Feature Pages
+/* ================= FEATURE PAGES ================= */
 import CartPage from "./pages/CartPage";
 import MessagesPage from "./pages/MessagesPage";
 import SavedItemsPage from "./pages/SavedItemsPage";
@@ -26,14 +24,19 @@ import SearchBar from "./pages/SearchBar";
 import SelectLocation from "./pages/SelectLocation";
 import PriceFiltersPage from "./pages/PriceFiltersPage";
 
-// Admin Role Pages
-import SuperAdminLogin from "./pages/admin/SuperAdminLogin";
+/* ================= ADMIN PAGES ================= */
+import AdminPanel from "./pages/AdminPanel";
 import AdminManager from "./pages/admin/AdminManager";
 import ModeratorPanel from "./pages/admin/ModeratorPanel";
 import FinanceAdminPanel from "./pages/admin/FinanceAdminPanel";
 import SupportAdminPanel from "./pages/admin/SupportAdminPanel";
 
-// --- Dynamic Admin Dashboard Wrapper ---
+/* ================= SUPER ADMIN ================= */
+import SuperAdminLogin from "./pages/admin/SuperAdminLogin";
+import SuperAdminDashboard from "./pages/admin/SuperAdminDashboard";
+import SuperAdminRoute from "./routes/SuperAdminRoute";
+
+/* ================= ROLE-BASED ADMIN ROUTER ================= */
 function AdminRolePage() {
   const { role } = useParams();
 
@@ -59,12 +62,27 @@ function App() {
   return (
     <Router>
       <Routes>
-        {/* Guest routes */}
+
+        {/* ===================================================== */}
+        {/* 🔐 SUPER ADMIN (NOT CONNECTED TO FIREBASE AUTH) */}
+        {/* ===================================================== */}
+        <Route path="/superadmin-login" element={<SuperAdminLogin />} />
+        <Route
+          path="/superadmin/dashboard"
+          element={
+            <SuperAdminRoute>
+              <SuperAdminDashboard />
+            </SuperAdminRoute>
+          }
+        />
+
+        {/* ===================================================== */}
+        {/* 👤 NORMAL USERS (FIREBASE AUTH REQUIRED) */}
+        {/* ===================================================== */}
         {!user ? (
           <>
             <Route path="/login" element={<Login />} />
             <Route path="/register" element={<Register />} />
-            <Route path="/superadmin-login" element={<SuperAdminLogin />} />
             <Route path="*" element={<Navigate to="/login" replace />} />
           </>
         ) : (
@@ -72,42 +90,42 @@ function App() {
             {/* Home */}
             <Route path="/" element={<HomePage />} />
 
-            {/* Core Pages */}
+            {/* Core Marketplace */}
             <Route path="/minimart" element={<MiniMart />} />
             <Route path="/marketplace" element={<Marketplace />} />
             <Route path="/profile" element={<Profile />} />
 
-            {/* Cart, Messages, Saved Items */}
+            {/* Shopping */}
             <Route path="/cart" element={<CartPage />} />
-            <Route path="/messages" element={<MessagesPage />} />
             <Route path="/saved-items" element={<SavedItemsPage />} />
 
-            {/* Search & Location */}
-            <Route path="/search" element={<SearchBar />} />
-            <Route path="/select-location" element={<SelectLocation />} />
-
-            {/* Price Filters & Add Product */}
-            <Route path="/price-filters" element={<PriceFiltersPage />} />
-            <Route path="/add-product" element={<AddProduct />} />
-
-            {/* Seller & Admin */}
-            <Route path="/apply-seller" element={<ApplySeller />} />
-            <Route path="/admin" element={<AdminPanel />} />
-
-            {/* Dynamic Admin Dashboards */}
-            <Route path="/admin/:role" element={<AdminRolePage />} />
-
-            {/* Product Detail & Chat */}
-            <Route path="/product/:productId" element={<ProductDetail />} />
+            {/* Messaging */}
+            <Route path="/messages" element={<MessagesPage />} />
             <Route path="/chat/:sellerId" element={<ChatPage />} />
 
-            {/* Super Admin login */}
-            <Route path="/superadmin-login" element={<SuperAdminLogin />} />
+            {/* Search & Filters */}
+            <Route path="/search" element={<SearchBar />} />
+            <Route path="/select-location" element={<SelectLocation />} />
+            <Route path="/price-filters" element={<PriceFiltersPage />} />
 
-            {/* Catch-all */}
+            {/* Selling */}
+            <Route path="/add-product" element={<AddProduct />} />
+            <Route path="/apply-seller" element={<ApplySeller />} />
+
+            {/* Product */}
+            <Route path="/product/:productId" element={<ProductDetail />} />
+
+            {/* Admin Base Panel */}
+            <Route path="/admin" element={<AdminPanel />} />
+
+            {/* Role-Based Admin Dashboards */}
+            <Route path="/admin/:role" element={<AdminRolePage />} />
+
+            {/* Fallback */}
             <Route path="*" element={<Navigate to="/" replace />} />
           </>
         )}
+
       </Routes>
     </Router>
   );
