@@ -1,4 +1,3 @@
-// src/pages/admin/SuperAdminLogin.jsx
 import { useState } from "react";
 import { useNavigate } from "react-router-dom";
 
@@ -14,21 +13,22 @@ export default function SuperAdminLogin() {
     setError("");
     setLoading(true);
 
-    // SuperAdmin credentials from .env
     const SUPERADMIN_EMAIL = process.env.REACT_APP_SUPERADMIN_EMAIL;
     const SUPERADMIN_PASSWORD = process.env.REACT_APP_SUPERADMIN_PASSWORD;
 
     if (email === SUPERADMIN_EMAIL && password === SUPERADMIN_PASSWORD) {
-      // Save a simple token in localStorage
+      // Save token
       localStorage.setItem("superAdminLoggedIn", "true");
 
-      // Redirect to Super Admin dashboard
-      navigate("/superadmin/dashboard");
+      // Navigate after small delay to ensure state updates
+      setTimeout(() => {
+        navigate("/superadmin/dashboard");
+        setLoading(false);
+      }, 100);
     } else {
       setError("Invalid email or password");
+      setLoading(false);
     }
-
-    setLoading(false);
   };
 
   return (
