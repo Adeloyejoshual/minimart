@@ -53,31 +53,25 @@ exports.verifyPaystackPayment = functions.https.onRequest((req, res) => {
   });
 });
 
-/* ================= AUTO-SUSPEND SELLERS ================= */
-exports.autoSuspendSeller = functions.firestore
+/* ================= REPORT LOGGER ================= */
+exports.logReportActivity = functions.firestore
   .document("reports/{reportId}")
   .onCreate(async (snap) => {
     try {
       const report = snap.data();
       const sellerId = report.sellerId;
+      const reason = report.reason || "No reason provided";
 
-      const since = new Date(Date.now() - 24 * 60 * 60 * 1000);
+      // Save a log entry for the report
+      await admin.firestore().collection("reportLogs").add({
+        sellerId,
+        reason,
+        reportId: snap.id,
+        createdAt: admin.firestore.FieldValue.serverTimestamp(),
+      });
 
-      const reportsSnap = await admin.firestore()
-        .collection("reports")
-        .where("sellerId", "==", sellerId)
-        .where("createdAt", ">=", since)
-        .get();
-
-      if (reportsSnap.size >= 5) {
-        await admin.firestore().collection("users").doc(sellerId).update({
-          suspended: true,
-          suspensionReason: "Too many reports in 24h",
-        });
-
-        console.log(`Seller ${sellerId} suspended`);
-      }
+      console.log(`Report logged for seller ${sellerId}`);
     } catch (error) {
-      console.error("Error auto-suspending seller:", error);
+      console.error("Error logging report:", error);
     }
   });
