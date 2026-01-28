@@ -15,17 +15,11 @@ const PORT = process.env.PORT || 3000;
 
 // HTTP server for Socket.IO
 const server = http.createServer(app);
-const io = new Server(server, {
-  cors: { origin: "*" }
-});
+const io = new Server(server, { cors: { origin: "*" } });
 
-// Enable CORS
+// -------------------- Middleware --------------------
 app.use(cors());
-
-// Parse JSON (except for Paystack webhook)
 app.use(express.json());
-
-// Raw body parser for Paystack webhook
 app.use("/api/paystack/webhook", express.raw({ type: "application/json" }));
 
 // -------------------- MongoDB Setup --------------------
@@ -60,7 +54,7 @@ io.on("connection", (socket) => {
 
 // -------------------- Helper Functions --------------------
 
-// Update product promotion in DB
+// Update product promotion
 async function updateProductPromotion(productId, promotionPlanId) {
   if (!db) throw new Error("DB not connected");
   const products = db.collection("products");
@@ -70,13 +64,12 @@ async function updateProductPromotion(productId, promotionPlanId) {
   );
 }
 
-// Spin reward coupon for user
+// Spin reward coupon
 async function spinReward(userId) {
   if (!db) throw new Error("DB not connected");
   const coupons = db.collection("coupons");
   const spins = db.collection("spins");
 
-  // Pick a random unused coupon
   const coupon = await coupons.aggregate([
     { $match: { used: false } },
     { $sample: { size: 1 } }
@@ -84,24 +77,39 @@ async function spinReward(userId) {
 
   if (!coupon) return null;
 
-  // Mark coupon as used
   await coupons.updateOne({ _id: coupon._id }, { $set: { used: true } });
-
-  // Log spin
   await spins.insertOne({ userId, couponId: coupon._id, timestamp: new Date() });
 
-  // Emit real-time update to user
+  // Real-time update
   io.to(userId).emit("couponWon", coupon);
-
   return coupon;
+}
+
+// Update KYC status and emit live event
+async function updateKycStatus(userId, status) {
+  if (!db) throw new Error("DB not connected");
+  const users = db.collection("users");
+  await users.updateOne({ _id: new ObjectId(userId) }, { $set: { kycStatus: status } });
+
+  // Emit live KYC update
+  io.to(userId).emit("kycStatusUpdated", { userId, status });
+}
+
+// Update cart and emit live event
+async function updateCart(userId, cartItems) {
+  if (!db) throw new Error("DB not connected");
+  const cart = db.collection("cart");
+  await cart.updateOne({ userId }, { $set: { items: cartItems } }, { upsert: true });
+
+  io.to(userId).emit("cartUpdated", { userId, items: cartItems });
 }
 
 // -------------------- API Routes --------------------
 
-// Locations API
+// Locations
 app.use("/api/locations", locationsRouter);
 
-// Spin coupon endpoint
+// Spin coupon
 app.post("/api/spin/:userId", async (req, res) => {
   try {
     const coupon = await spinReward(req.params.userId);
@@ -110,6 +118,30 @@ app.post("/api/spin/:userId", async (req, res) => {
   } catch (err) {
     console.error("Spin error:", err);
     res.status(500).json({ error: "Failed to spin coupon" });
+  }
+});
+
+// Update KYC status manually (Admin)
+app.post("/api/kyc/update", async (req, res) => {
+  try {
+    const { userId, status } = req.body;
+    await updateKycStatus(userId, status);
+    res.json({ message: "KYC status updated", status });
+  } catch (err) {
+    console.error("KYC update error:", err);
+    res.status(500).json({ error: "Failed to update KYC status" });
+  }
+});
+
+// Update cart manually (example)
+app.post("/api/cart/update", async (req, res) => {
+  try {
+    const { userId, items } = req.body;
+    await updateCart(userId, items);
+    res.json({ message: "Cart updated", items });
+  } catch (err) {
+    console.error("Cart update error:", err);
+    res.status(500).json({ error: "Failed to update cart" });
   }
 });
 
@@ -134,14 +166,14 @@ app.post("/api/paystack/webhook", async (req, res) => {
     const { reference, amount, customer, metadata } = event.data;
     console.log(`✅ Payment verified: ${reference} - ${amount / 100} NGN`);
 
-    // Handle product promotion
+    // Product promotion
     if (metadata?.productId && metadata?.promotionPlanId) {
       updateProductPromotion(metadata.productId, metadata.promotionPlanId)
         .then(() => console.log("Product promotion updated"))
         .catch(err => console.error("Failed to update product promotion:", err));
     }
 
-    // Handle wallet credit
+    // Wallet credit
     if (metadata?.userId && metadata?.walletAmount) {
       const wallets = db.collection("wallets");
       const walletUpdate = await wallets.findOneAndUpdate(
@@ -149,8 +181,6 @@ app.post("/api/paystack/webhook", async (req, res) => {
         { $inc: { balance: metadata.walletAmount } },
         { upsert: true, returnDocument: "after" }
       );
-
-      // Emit real-time wallet update
       io.to(metadata.userId).emit("walletUpdated", walletUpdate.value);
       console.log(`Wallet credited for user ${metadata.userId}`);
     }
