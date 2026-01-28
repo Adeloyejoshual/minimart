@@ -16,6 +16,7 @@ export default function SuperAdminDashboard() {
 
   const [adminPerformance, setAdminPerformance] = useState([]);
   const [flaggedSellers, setFlaggedSellers] = useState([]);
+  const [loginHistory, setLoginHistory] = useState([]);
 
   // --- Initialize Socket.IO ---
   useEffect(() => {
@@ -48,6 +49,11 @@ export default function SuperAdminDashboard() {
       addNotification(`Payout status updated for ${updatedPayout.sellerId}`);
     });
 
+    s.on("loginHistoryUpdated", (newLogin) => {
+      setLoginHistory((prev) => [newLogin, ...prev]);
+      addNotification(`User login: ${newLogin.email}`);
+    });
+
     return () => s.disconnect();
   }, []);
 
@@ -59,14 +65,24 @@ export default function SuperAdminDashboard() {
   const loadData = async () => {
     try {
       setLoading(true);
-      const [usersRes, kycRes, productsRes, financeRes, payoutsRes, performanceRes, flaggedRes] = await Promise.all([
+      const [
+        usersRes,
+        kycRes,
+        productsRes,
+        financeRes,
+        payoutsRes,
+        performanceRes,
+        flaggedRes,
+        loginHistoryRes
+      ] = await Promise.all([
         axios.get("/api/admin/users"),
         axios.get("/api/admin/kyc"),
         axios.get("/api/admin/products"),
         axios.get("/api/admin/finance"),
         axios.get("/api/admin/payouts"),
-        axios.get("/api/admin/performance"), // Admin performance API
-        axios.get("/api/admin/flagged-sellers"), // Suspicious sellers API
+        axios.get("/api/admin/performance"),
+        axios.get("/api/admin/flagged-sellers"),
+        axios.get("/api/admin/login-history")
       ]);
 
       setUsers(usersRes.data);
@@ -76,6 +92,7 @@ export default function SuperAdminDashboard() {
       setPayouts(payoutsRes.data);
       setAdminPerformance(performanceRes.data);
       setFlaggedSellers(flaggedRes.data);
+      setLoginHistory(loginHistoryRes.data);
     } catch (err) {
       console.error("Failed to load dashboard data:", err);
     } finally {
@@ -134,7 +151,6 @@ export default function SuperAdminDashboard() {
 
   if (loading) return <p style={{ padding: 30 }}>Loading dashboard...</p>;
 
-  // --- Chart Data for Admin Performance ---
   const chartData = {
     labels: adminPerformance.map(a => a.adminEmail),
     datasets: [
@@ -203,8 +219,161 @@ export default function SuperAdminDashboard() {
         )}
       </section>
 
-      {/* --- Existing KYC, Product, Payout, Notifications --- */}
-      {/* ...keep your previous sections for KYC, Product Approvals, Payouts, Notifications */}
+      {/* --- KYC Management --- */}
+      <section style={{ marginTop: 40 }}>
+        <h2>KYC Approvals</h2>
+        {kycList.length === 0 ? <p>No KYC submissions found.</p> : (
+          <table style={{ width: "100%", borderCollapse: "collapse", marginTop: 12 }}>
+            <thead>
+              <tr style={{ background: "#f0f0f0" }}>
+                <th>User ID</th>
+                <th>Name</th>
+                <th>Status</th>
+                <th>Documents</th>
+                <th>Actions</th>
+              </tr>
+            </thead>
+            <tbody>
+              {kycList.map(k => (
+                <tr key={k.userId} style={{ borderBottom: "1px solid #ddd" }}>
+                  <td>{k.userId}</td>
+                  <td>{k.fullName}</td>
+                  <td style={{ color: k.verified ? "#198754" : "#0d6efd" }}>
+                    {k.verified ? "Approved" : "Pending"}
+                  </td>
+                  <td>
+                    {k.documentUrl && <a href={k.documentUrl} target="_blank" rel="noreferrer">View</a>}
+                  </td>
+                  <td>
+                    {!k.verified && (
+                      <>
+                        <button onClick={() => updateKycStatus(k.userId, "Approved")} style={{ marginRight: 6, padding: 6, background: "#198754", color: "#fff", borderRadius: 4 }}>Approve</button>
+                        <button onClick={() => updateKycStatus(k.userId, "Rejected")} style={{ padding: 6, background: "#dc3545", color: "#fff", borderRadius: 4 }}>Reject</button>
+                      </>
+                    )}
+                    {k.verified && <span>Locked</span>}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        )}
+      </section>
+
+      {/* --- Product Approvals --- */}
+      <section style={{ marginTop: 40 }}>
+        <h2>Product Approvals</h2>
+        {products.length === 0 ? <p>No products found.</p> : (
+          <table style={{ width: "100%", borderCollapse: "collapse", marginTop: 12 }}>
+            <thead>
+              <tr style={{ background: "#f0f0f0" }}>
+                <th>Product ID</th>
+                <th>Name</th>
+                <th>Status</th>
+                <th>Actions</th>
+              </tr>
+            </thead>
+            <tbody>
+              {products.map(p => (
+                <tr key={p._id} style={{ borderBottom: "1px solid #ddd" }}>
+                  <td>{p._id}</td>
+                  <td>{p.name}</td>
+                  <td style={{ color: p.approved ? "#198754" : "#0d6efd" }}>
+                    {p.approved ? "Approved" : "Pending"}
+                  </td>
+                  <td>
+                    {!p.approved && (
+                      <>
+                        <button onClick={() => updateProductStatus(p._id, true)} style={{ marginRight: 6, padding: 6, background: "#198754", color: "#fff", borderRadius: 4 }}>Approve</button>
+                        <button onClick={() => updateProductStatus(p._id, false)} style={{ padding: 6, background: "#dc3545", color: "#fff", borderRadius: 4 }}>Reject</button>
+                      </>
+                    )}
+                    {p.approved && <span>Locked</span>}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        )}
+      </section>
+
+      {/* --- Payout Management --- */}
+      <section style={{ marginTop: 40 }}>
+        <h2>Seller Payouts</h2>
+        {payouts.length === 0 ? <p>No payout requests found.</p> : (
+          <table style={{ width: "100%", borderCollapse: "collapse", marginTop: 12 }}>
+            <thead>
+              <tr style={{ background: "#f0f0f0" }}>
+                <th>Payout ID</th>
+                <th>Seller ID</th>
+                <th>Amount (₦)</th>
+                <th>Status</th>
+                <th>Actions</th>
+              </tr>
+            </thead>
+            <tbody>
+              {payouts.map(p => (
+                <tr key={p._id} style={{ borderBottom: "1px solid #ddd" }}>
+                  <td>{p._id}</td>
+                  <td>{p.sellerId}</td>
+                  <td>{p.amount}</td>
+                  <td style={{ color: p.approved ? "#198754" : "#0d6efd" }}>
+                    {p.approved ? "Approved" : "Pending"}
+                  </td>
+                  <td>
+                    {!p.approved && (
+                      <>
+                        <button onClick={() => updatePayoutStatus(p._id, true)} style={{ marginRight: 6, padding: 6, background: "#198754", color: "#fff", borderRadius: 4 }}>Approve</button>
+                        <button onClick={() => updatePayoutStatus(p._id, false)} style={{ padding: 6, background: "#dc3545", color: "#fff", borderRadius: 4 }}>Reject</button>
+                      </>
+                    )}
+                    {p.approved && <span>Locked</span>}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        )}
+      </section>
+
+      {/* --- Notifications --- */}
+      <section style={{ marginTop: 40 }}>
+        <h2>Notifications</h2>
+        {notifications.length === 0 ? <p>No notifications yet.</p> : (
+          <ul>
+            {notifications.map((n, i) => (
+              <li key={i}>{n.timestamp.toLocaleTimeString()}: {n.message}</li>
+            ))}
+          </ul>
+        )}
+      </section>
+
+      {/* --- Login History (IP tracking) --- */}
+      <section style={{ marginTop: 40 }}>
+        <h2>Recent User Logins</h2>
+        {loginHistory.length === 0 ? <p>No login data.</p> : (
+          <table style={{ width: "100%", borderCollapse: "collapse", marginTop: 12 }}>
+            <thead>
+              <tr style={{ background: "#f0f0f0" }}>
+                <th>User ID</th>
+                <th>Email</th>
+                <th>IP Address</th>
+                <th>Login Time</th>
+              </tr>
+            </thead>
+            <tbody>
+              {loginHistory.map(l => (
+                <tr key={l.id} style={{ borderBottom: "1px solid #ddd" }}>
+                  <td>{l.userId}</td>
+                  <td>{l.email}</td>
+                  <td>{l.ip}</td>
+                  <td>{new Date(l.timestamp).toLocaleString()}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        )}
+      </section>
     </div>
   );
 }
