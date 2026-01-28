@@ -1,6 +1,6 @@
-
+// src/pages/admin/SuperAdminDashboard.jsx
 import React, { useEffect, useState } from "react";
-import { collection, onSnapshot, query, orderBy, limit, where } from "firebase/firestore";
+import { collection, onSnapshot, query, orderBy, limit, where, addDoc, serverTimestamp, getDocs } from "firebase/firestore";
 import { db } from "../../firebase";
 import { Link } from "react-router-dom";
 
@@ -11,7 +11,12 @@ export default function SuperAdminDashboard() {
     pending: 0,
     reports: 0,
   });
+
   const [reportLogs, setReportLogs] = useState([]);
+  const [admins, setAdmins] = useState([]);
+  const [newAdminEmail, setNewAdminEmail] = useState("");
+  const [newAdminRole, setNewAdminRole] = useState("AdminManager");
+  const [creating, setCreating] = useState(false);
 
   // -------------------- Firestore listeners --------------------
   useEffect(() => {
@@ -48,6 +53,13 @@ export default function SuperAdminDashboard() {
       setReportLogs(logs);
     });
 
+    // Load existing admins
+    const loadAdmins = async () => {
+      const snap = await getDocs(collection(db, "admins"));
+      setAdmins(snap.docs.map(doc => ({ id: doc.id, ...doc.data() })));
+    };
+    loadAdmins();
+
     // Cleanup listeners
     return () => {
       unsubUsers();
@@ -57,6 +69,32 @@ export default function SuperAdminDashboard() {
       unsubLogs();
     };
   }, []);
+
+  // ---------------- Create New Admin ----------------
+  const handleCreateAdmin = async (e) => {
+    e.preventDefault();
+    setCreating(true);
+    try {
+      if (!newAdminEmail || !newAdminRole) return;
+      await addDoc(collection(db, "admins"), {
+        email: newAdminEmail,
+        role: newAdminRole,
+        createdAt: serverTimestamp(),
+      });
+      alert("Admin created successfully!");
+      setNewAdminEmail("");
+      setNewAdminRole("AdminManager");
+
+      // Refresh admins
+      const snap = await getDocs(collection(db, "admins"));
+      setAdmins(snap.docs.map(doc => ({ id: doc.id, ...doc.data() })));
+    } catch (err) {
+      console.error(err);
+      alert("Failed to create admin: " + err.message);
+    } finally {
+      setCreating(false);
+    }
+  };
 
   return (
     <div style={{ display: "flex", minHeight: "100vh", fontFamily: "Arial" }}>
@@ -94,6 +132,76 @@ export default function SuperAdminDashboard() {
           <StatCard title="Pending Verifications" value={stats.pending} />
           <StatCard title="Reports Today" value={stats.reports} />
         </div>
+
+        {/* ---------------- Create Admin ---------------- */}
+        <section style={{ marginTop: 40 }}>
+          <h2>Create New Admin</h2>
+          <form
+            onSubmit={handleCreateAdmin}
+            style={{
+              background: "#fff",
+              padding: 20,
+              borderRadius: 10,
+              boxShadow: "0 2px 8px rgba(0,0,0,0.08)",
+              maxWidth: 400,
+              marginBottom: 30
+            }}
+          >
+            <label style={{ display: "block", marginBottom: 10 }}>
+              Email
+              <input
+                type="email"
+                value={newAdminEmail}
+                onChange={(e) => setNewAdminEmail(e.target.value)}
+                required
+                style={{ width: "100%", padding: 8, borderRadius: 6, border: "1px solid #ccc", marginTop: 4 }}
+              />
+            </label>
+
+            <label style={{ display: "block", marginBottom: 12 }}>
+              Role
+              <select
+                value={newAdminRole}
+                onChange={(e) => setNewAdminRole(e.target.value)}
+                style={{ width: "100%", padding: 8, borderRadius: 6, border: "1px solid #ccc", marginTop: 4 }}
+              >
+                <option value="AdminManager">Admin Manager</option>
+                <option value="Moderator">Moderator</option>
+                <option value="Finance">Finance</option>
+                <option value="Support">Support</option>
+                <option value="FlaggedSellers">Flagged Sellers</option>
+                <option value="RolesManagement">Roles Management</option>
+                <option value="AdminPerformance">Admin Performance</option>
+                <option value="AuditLogs">Audit Logs</option>
+              </select>
+            </label>
+
+            <button
+              type="submit"
+              disabled={creating}
+              style={{
+                width: "100%",
+                padding: 10,
+                borderRadius: 6,
+                border: "none",
+                background: "#4da6ff",
+                color: "#fff",
+                fontWeight: "bold",
+                cursor: "pointer"
+              }}
+            >
+              {creating ? "Creating..." : "Create Admin"}
+            </button>
+          </form>
+
+          {/* Existing Admins */}
+          <h3>Existing Admins</h3>
+          <ul>
+            {admins.map(a => (
+              <li key={a.id}>{a.email} — <b>{a.role}</b></li>
+            ))}
+          </ul>
+        </section>
 
         {/* Recent Report Logs */}
         <section style={{ marginTop: 40 }}>
