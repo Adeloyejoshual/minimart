@@ -1,3 +1,4 @@
+// src/App.jsx
 import { BrowserRouter as Router, Routes, Route, Navigate, useParams } from "react-router-dom";
 import { useAuthState } from "react-firebase-hooks/auth";
 import { auth } from "./firebase";
@@ -36,7 +37,23 @@ import SuperAdminLogin from "./pages/admin/SuperAdminLogin";
 import SuperAdminDashboard from "./pages/admin/SuperAdminDashboard";
 import SuperAdminRoute from "./routes/SuperAdminRoute";
 
-/* ================= ROLE-BASED ADMIN ROUTER ================= */
+/* ======================= PROTECTED WRAPPERS ======================= */
+function ProtectedRoute({ user, children }) {
+  if (!user) return <Navigate to="/login" replace />;
+  return children;
+}
+
+function AdminRoleRoute({ user, children }) {
+  // TODO: fetch user role from Firestore or context
+  // For now, assume user object has role property
+  if (!user) return <Navigate to="/login" replace />;
+  if (!["Admin", "Moderator", "Finance", "Support"].includes(user.role)) {
+    return <Navigate to="/" replace />;
+  }
+  return children;
+}
+
+/* ======================= ROLE-BASED ADMIN PAGE ======================= */
 function AdminRolePage() {
   const { role } = useParams();
 
@@ -54,6 +71,7 @@ function AdminRolePage() {
   }
 }
 
+/* ======================= APP ======================= */
 function App() {
   const [user, loading] = useAuthState(auth);
 
@@ -63,9 +81,7 @@ function App() {
     <Router>
       <Routes>
 
-        {/* ===================================================== */}
-        {/* 🔐 SUPER ADMIN (NOT CONNECTED TO FIREBASE AUTH) */}
-        {/* ===================================================== */}
+        {/* ================= SUPER ADMIN ================= */}
         <Route path="/superadmin-login" element={<SuperAdminLogin />} />
         <Route
           path="/superadmin/dashboard"
@@ -76,55 +92,154 @@ function App() {
           }
         />
 
-        {/* ===================================================== */}
-        {/* 👤 NORMAL USERS (FIREBASE AUTH REQUIRED) */}
-        {/* ===================================================== */}
-        {!user ? (
-          <>
-            <Route path="/login" element={<Login />} />
-            <Route path="/register" element={<Register />} />
-            <Route path="*" element={<Navigate to="/login" replace />} />
-          </>
-        ) : (
-          <>
-            {/* Home */}
-            <Route path="/" element={<HomePage />} />
+        {/* ================= GUEST ROUTES ================= */}
+        <Route path="/login" element={!user ? <Login /> : <Navigate to="/" replace />} />
+        <Route path="/register" element={!user ? <Register /> : <Navigate to="/" replace />} />
 
-            {/* Core Marketplace */}
-            <Route path="/minimart" element={<MiniMart />} />
-            <Route path="/marketplace" element={<Marketplace />} />
-            <Route path="/profile" element={<Profile />} />
+        {/* ================= NORMAL USER ROUTES ================= */}
+        <Route
+          path="/"
+          element={
+            <ProtectedRoute user={user}>
+              <HomePage />
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="/minimart"
+          element={
+            <ProtectedRoute user={user}>
+              <MiniMart />
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="/marketplace"
+          element={
+            <ProtectedRoute user={user}>
+              <Marketplace />
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="/profile"
+          element={
+            <ProtectedRoute user={user}>
+              <Profile />
+            </ProtectedRoute>
+          }
+        />
 
-            {/* Shopping */}
-            <Route path="/cart" element={<CartPage />} />
-            <Route path="/saved-items" element={<SavedItemsPage />} />
+        {/* Shopping */}
+        <Route
+          path="/cart"
+          element={
+            <ProtectedRoute user={user}>
+              <CartPage />
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="/saved-items"
+          element={
+            <ProtectedRoute user={user}>
+              <SavedItemsPage />
+            </ProtectedRoute>
+          }
+        />
 
-            {/* Messaging */}
-            <Route path="/messages" element={<MessagesPage />} />
-            <Route path="/chat/:sellerId" element={<ChatPage />} />
+        {/* Messaging */}
+        <Route
+          path="/messages"
+          element={
+            <ProtectedRoute user={user}>
+              <MessagesPage />
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="/chat/:sellerId"
+          element={
+            <ProtectedRoute user={user}>
+              <ChatPage />
+            </ProtectedRoute>
+          }
+        />
 
-            {/* Search & Filters */}
-            <Route path="/search" element={<SearchBar />} />
-            <Route path="/select-location" element={<SelectLocation />} />
-            <Route path="/price-filters" element={<PriceFiltersPage />} />
+        {/* Search & Filters */}
+        <Route
+          path="/search"
+          element={
+            <ProtectedRoute user={user}>
+              <SearchBar />
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="/select-location"
+          element={
+            <ProtectedRoute user={user}>
+              <SelectLocation />
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="/price-filters"
+          element={
+            <ProtectedRoute user={user}>
+              <PriceFiltersPage />
+            </ProtectedRoute>
+          }
+        />
 
-            {/* Selling */}
-            <Route path="/add-product" element={<AddProduct />} />
-            <Route path="/apply-seller" element={<ApplySeller />} />
+        {/* Selling */}
+        <Route
+          path="/add-product"
+          element={
+            <ProtectedRoute user={user}>
+              <AddProduct />
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="/apply-seller"
+          element={
+            <ProtectedRoute user={user}>
+              <ApplySeller />
+            </ProtectedRoute>
+          }
+        />
 
-            {/* Product */}
-            <Route path="/product/:productId" element={<ProductDetail />} />
+        {/* Product */}
+        <Route
+          path="/product/:productId"
+          element={
+            <ProtectedRoute user={user}>
+              <ProductDetail />
+            </ProtectedRoute>
+          }
+        />
 
-            {/* Admin Base Panel */}
-            <Route path="/admin" element={<AdminPanel />} />
+        {/* Admin Panel */}
+        <Route
+          path="/admin"
+          element={
+            <AdminRoleRoute user={user}>
+              <AdminPanel />
+            </AdminRoleRoute>
+          }
+        />
+        <Route
+          path="/admin/:role"
+          element={
+            <AdminRoleRoute user={user}>
+              <AdminRolePage />
+            </AdminRoleRoute>
+          }
+        />
 
-            {/* Role-Based Admin Dashboards */}
-            <Route path="/admin/:role" element={<AdminRolePage />} />
-
-            {/* Fallback */}
-            <Route path="*" element={<Navigate to="/" replace />} />
-          </>
-        )}
+        {/* Fallback */}
+        <Route path="*" element={<Navigate to={user ? "/" : "/login"} replace />} />
 
       </Routes>
     </Router>
