@@ -16,19 +16,17 @@ export default function SuperAdminLogin() {
     const SUPERADMIN_EMAIL = process.env.REACT_APP_SUPERADMIN_EMAIL;
     const SUPERADMIN_PASSWORD = process.env.REACT_APP_SUPERADMIN_PASSWORD;
 
+    // Check credentials
     if (email === SUPERADMIN_EMAIL && password === SUPERADMIN_PASSWORD) {
-      // Save token
-      localStorage.setItem("superAdminLoggedIn", "true");
+      // ✅ Store a token in localStorage
+      localStorage.setItem("superadmin-token", "logged-in");
 
-      // Navigate after small delay to ensure state updates
-      setTimeout(() => {
-        navigate("/superadmin/dashboard");
-        setLoading(false);
-      }, 100);
+      // Navigate to dashboard
+      navigate("/superadmin/dashboard");
     } else {
       setError("Invalid email or password");
-      setLoading(false);
     }
+    setLoading(false);
   };
 
   return (
