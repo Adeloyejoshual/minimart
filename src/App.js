@@ -1,7 +1,8 @@
 // src/App.jsx
 import { BrowserRouter as Router, Routes, Route, Navigate, useParams } from "react-router-dom";
 import { useAuthState } from "react-firebase-hooks/auth";
-import { auth } from "./firebase";
+import { auth, db } from "./firebase";
+import { doc, getDoc } from "firebase/firestore";
 
 /* ================= AUTH PAGES ================= */
 import Login from "./pages/Login";
@@ -37,19 +38,56 @@ import SuperAdminLogin from "./pages/admin/SuperAdminLogin";
 import SuperAdminDashboard from "./pages/admin/SuperAdminDashboard";
 import SuperAdminRoute from "./routes/SuperAdminRoute";
 
-/* ======================= PROTECTED WRAPPERS ======================= */
-function ProtectedRoute({ user, children }) {
+/* ======================= WRAPPERS ======================= */
+
+// Normal user protected route
+function ProtectedRoute({ children }) {
+  const [user, loading] = useAuthState(auth);
+
+  if (loading) return <p>Loading...</p>;
   if (!user) return <Navigate to="/login" replace />;
+
   return children;
 }
 
-function AdminRoleRoute({ user, children }) {
-  // TODO: fetch user role from Firestore or context
-  // For now, assume user object has role property
-  if (!user) return <Navigate to="/login" replace />;
-  if (!["Admin", "Moderator", "Finance", "Support"].includes(user.role)) {
-    return <Navigate to="/" replace />;
-  }
+// Role-based admin protected route
+function AdminRoleRoute({ children }) {
+  const [user, loading] = useAuthState(auth);
+  const [authorized, setAuthorized] = React.useState(false);
+  const [checking, setChecking] = React.useState(true);
+
+  React.useEffect(() => {
+    const checkAdmin = async () => {
+      if (!user) {
+        setAuthorized(false);
+        setChecking(false);
+        return;
+      }
+
+      try {
+        const docRef = doc(db, "admins", user.uid);
+        const docSnap = await getDoc(docRef);
+        const data = docSnap.data();
+
+        if (data && ["Admin", "Moderator", "Finance", "Support"].includes(data.role)) {
+          setAuthorized(true);
+        } else {
+          setAuthorized(false);
+        }
+      } catch (err) {
+        console.error("Admin role fetch failed:", err);
+        setAuthorized(false);
+      } finally {
+        setChecking(false);
+      }
+    };
+
+    checkAdmin();
+  }, [user]);
+
+  if (loading || checking) return <p>Loading Admin...</p>;
+  if (!user || !authorized) return <Navigate to="/" replace />;
+
   return children;
 }
 
@@ -74,13 +112,11 @@ function AdminRolePage() {
 /* ======================= APP ======================= */
 function App() {
   const [user, loading] = useAuthState(auth);
-
   if (loading) return <p>Loading...</p>;
 
   return (
     <Router>
       <Routes>
-
         {/* ================= SUPER ADMIN ================= */}
         <Route path="/superadmin-login" element={<SuperAdminLogin />} />
         <Route
@@ -97,150 +133,27 @@ function App() {
         <Route path="/register" element={!user ? <Register /> : <Navigate to="/" replace />} />
 
         {/* ================= NORMAL USER ROUTES ================= */}
-        <Route
-          path="/"
-          element={
-            <ProtectedRoute user={user}>
-              <HomePage />
-            </ProtectedRoute>
-          }
-        />
-        <Route
-          path="/minimart"
-          element={
-            <ProtectedRoute user={user}>
-              <MiniMart />
-            </ProtectedRoute>
-          }
-        />
-        <Route
-          path="/marketplace"
-          element={
-            <ProtectedRoute user={user}>
-              <Marketplace />
-            </ProtectedRoute>
-          }
-        />
-        <Route
-          path="/profile"
-          element={
-            <ProtectedRoute user={user}>
-              <Profile />
-            </ProtectedRoute>
-          }
-        />
+        <Route path="/" element={<ProtectedRoute><HomePage /></ProtectedRoute>} />
+        <Route path="/minimart" element={<ProtectedRoute><MiniMart /></ProtectedRoute>} />
+        <Route path="/marketplace" element={<ProtectedRoute><Marketplace /></ProtectedRoute>} />
+        <Route path="/profile" element={<ProtectedRoute><Profile /></ProtectedRoute>} />
+        <Route path="/cart" element={<ProtectedRoute><CartPage /></ProtectedRoute>} />
+        <Route path="/saved-items" element={<ProtectedRoute><SavedItemsPage /></ProtectedRoute>} />
+        <Route path="/messages" element={<ProtectedRoute><MessagesPage /></ProtectedRoute>} />
+        <Route path="/chat/:sellerId" element={<ProtectedRoute><ChatPage /></ProtectedRoute>} />
+        <Route path="/search" element={<ProtectedRoute><SearchBar /></ProtectedRoute>} />
+        <Route path="/select-location" element={<ProtectedRoute><SelectLocation /></ProtectedRoute>} />
+        <Route path="/price-filters" element={<ProtectedRoute><PriceFiltersPage /></ProtectedRoute>} />
+        <Route path="/add-product" element={<ProtectedRoute><AddProduct /></ProtectedRoute>} />
+        <Route path="/apply-seller" element={<ProtectedRoute><ApplySeller /></ProtectedRoute>} />
+        <Route path="/product/:productId" element={<ProtectedRoute><ProductDetail /></ProtectedRoute>} />
 
-        {/* Shopping */}
-        <Route
-          path="/cart"
-          element={
-            <ProtectedRoute user={user}>
-              <CartPage />
-            </ProtectedRoute>
-          }
-        />
-        <Route
-          path="/saved-items"
-          element={
-            <ProtectedRoute user={user}>
-              <SavedItemsPage />
-            </ProtectedRoute>
-          }
-        />
+        {/* ================= ADMIN PANEL ================= */}
+        <Route path="/admin" element={<AdminRoleRoute><AdminPanel /></AdminRoleRoute>} />
+        <Route path="/admin/:role" element={<AdminRoleRoute><AdminRolePage /></AdminRoleRoute>} />
 
-        {/* Messaging */}
-        <Route
-          path="/messages"
-          element={
-            <ProtectedRoute user={user}>
-              <MessagesPage />
-            </ProtectedRoute>
-          }
-        />
-        <Route
-          path="/chat/:sellerId"
-          element={
-            <ProtectedRoute user={user}>
-              <ChatPage />
-            </ProtectedRoute>
-          }
-        />
-
-        {/* Search & Filters */}
-        <Route
-          path="/search"
-          element={
-            <ProtectedRoute user={user}>
-              <SearchBar />
-            </ProtectedRoute>
-          }
-        />
-        <Route
-          path="/select-location"
-          element={
-            <ProtectedRoute user={user}>
-              <SelectLocation />
-            </ProtectedRoute>
-          }
-        />
-        <Route
-          path="/price-filters"
-          element={
-            <ProtectedRoute user={user}>
-              <PriceFiltersPage />
-            </ProtectedRoute>
-          }
-        />
-
-        {/* Selling */}
-        <Route
-          path="/add-product"
-          element={
-            <ProtectedRoute user={user}>
-              <AddProduct />
-            </ProtectedRoute>
-          }
-        />
-        <Route
-          path="/apply-seller"
-          element={
-            <ProtectedRoute user={user}>
-              <ApplySeller />
-            </ProtectedRoute>
-          }
-        />
-
-        {/* Product */}
-        <Route
-          path="/product/:productId"
-          element={
-            <ProtectedRoute user={user}>
-              <ProductDetail />
-            </ProtectedRoute>
-          }
-        />
-
-        {/* Admin Panel */}
-        <Route
-          path="/admin"
-          element={
-            <AdminRoleRoute user={user}>
-              <AdminPanel />
-            </AdminRoleRoute>
-          }
-        />
-        <Route
-          path="/admin/:role"
-          element={
-            <AdminRoleRoute user={user}>
-              <AdminRolePage />
-            </AdminRoleRoute>
-          }
-        />
-
-        {/* Fallback */}
+        {/* ================= FALLBACK ================= */}
         <Route path="*" element={<Navigate to={user ? "/" : "/login"} replace />} />
-
       </Routes>
     </Router>
   );
