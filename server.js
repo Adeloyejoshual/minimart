@@ -41,7 +41,6 @@ connectDB();
 io.on("connection", (socket) => {
   console.log("🔌 New client connected:", socket.id);
 
-  // Join user-specific room for live updates
   socket.on("joinRoom", (userId) => {
     socket.join(userId);
     console.log(`User ${userId} joined room ${userId}`);
@@ -53,8 +52,6 @@ io.on("connection", (socket) => {
 });
 
 // -------------------- Helper Functions --------------------
-
-// Update product promotion
 async function updateProductPromotion(productId, promotionPlanId) {
   if (!db) throw new Error("DB not connected");
   const products = db.collection("products");
@@ -64,7 +61,6 @@ async function updateProductPromotion(productId, promotionPlanId) {
   );
 }
 
-// Spin reward coupon
 async function spinReward(userId) {
   if (!db) throw new Error("DB not connected");
   const coupons = db.collection("coupons");
@@ -79,28 +75,21 @@ async function spinReward(userId) {
 
   await coupons.updateOne({ _id: coupon._id }, { $set: { used: true } });
   await spins.insertOne({ userId, couponId: coupon._id, timestamp: new Date() });
-
-  // Real-time update
   io.to(userId).emit("couponWon", coupon);
   return coupon;
 }
 
-// Update KYC status and emit live event
 async function updateKycStatus(userId, status) {
   if (!db) throw new Error("DB not connected");
   const users = db.collection("users");
   await users.updateOne({ _id: new ObjectId(userId) }, { $set: { kycStatus: status } });
-
-  // Emit live KYC update
   io.to(userId).emit("kycStatusUpdated", { userId, status });
 }
 
-// Update cart and emit live event
 async function updateCart(userId, cartItems) {
   if (!db) throw new Error("DB not connected");
   const cart = db.collection("cart");
   await cart.updateOne({ userId }, { $set: { items: cartItems } }, { upsert: true });
-
   io.to(userId).emit("cartUpdated", { userId, items: cartItems });
 }
 
@@ -109,7 +98,47 @@ async function updateCart(userId, cartItems) {
 // Locations
 app.use("/api/locations", locationsRouter);
 
-// Spin coupon
+// -------------------- Admin Routes --------------------
+
+// Create a new admin
+app.post("/api/admin/create", async (req, res) => {
+  try {
+    const { email, password, role } = req.body;
+    if (!email || !password || !role) return res.status(400).json({ error: "Missing fields" });
+    if (!db) throw new Error("DB not connected");
+
+    const existing = await db.collection("users").findOne({ email });
+    if (existing) return res.status(400).json({ error: "Admin already exists" });
+
+    const result = await db.collection("users").insertOne({
+      email,
+      password, // ⚠️ Hash this in production!
+      role,
+      createdAt: new Date()
+    });
+
+    res.json({ success: true, id: result.insertedId, email, role });
+  } catch (err) {
+    console.error("Failed to create admin:", err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// List all admins
+app.get("/api/admin/list", async (req, res) => {
+  try {
+    if (!db) throw new Error("DB not connected");
+    const admins = await db.collection("users").find({
+      role: { $in: ["AdminManager", "Moderator", "Finance", "Support", "AuditLogs"] }
+    }).toArray();
+    res.json(admins);
+  } catch (err) {
+    console.error("Failed to fetch admins:", err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// -------------------- Spin Coupon --------------------
 app.post("/api/spin/:userId", async (req, res) => {
   try {
     const coupon = await spinReward(req.params.userId);
@@ -121,7 +150,7 @@ app.post("/api/spin/:userId", async (req, res) => {
   }
 });
 
-// Update KYC status manually (Admin)
+// -------------------- KYC Update --------------------
 app.post("/api/kyc/update", async (req, res) => {
   try {
     const { userId, status } = req.body;
@@ -133,7 +162,7 @@ app.post("/api/kyc/update", async (req, res) => {
   }
 });
 
-// Update cart manually (example)
+// -------------------- Cart Update --------------------
 app.post("/api/cart/update", async (req, res) => {
   try {
     const { userId, items } = req.body;
@@ -164,16 +193,15 @@ app.post("/api/paystack/webhook", async (req, res) => {
 
   if (event.event === "charge.success") {
     const { reference, amount, customer, metadata } = event.data;
+
     console.log(`✅ Payment verified: ${reference} - ${amount / 100} NGN`);
 
-    // Product promotion
     if (metadata?.productId && metadata?.promotionPlanId) {
       updateProductPromotion(metadata.productId, metadata.promotionPlanId)
         .then(() => console.log("Product promotion updated"))
-        .catch(err => console.error("Failed to update product promotion:", err));
+        .catch(err => console.error(err));
     }
 
-    // Wallet credit
     if (metadata?.userId && metadata?.walletAmount) {
       const wallets = db.collection("wallets");
       const walletUpdate = await wallets.findOneAndUpdate(
