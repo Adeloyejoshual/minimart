@@ -54,8 +54,7 @@ io.on("connection", (socket) => {
 // -------------------- Helper Functions --------------------
 async function updateProductPromotion(productId, promotionPlanId) {
   if (!db) throw new Error("DB not connected");
-  const products = db.collection("products");
-  await products.updateOne(
+  await db.collection("products").updateOne(
     { _id: new ObjectId(productId) },
     { $set: { promoted: true, promotionPlanId, promotionDate: new Date() } }
   );
@@ -75,6 +74,7 @@ async function spinReward(userId) {
 
   await coupons.updateOne({ _id: coupon._id }, { $set: { used: true } });
   await spins.insertOne({ userId, couponId: coupon._id, timestamp: new Date() });
+
   io.to(userId).emit("couponWon", coupon);
   return coupon;
 }
@@ -98,47 +98,41 @@ async function updateCart(userId, cartItems) {
 // Locations
 app.use("/api/locations", locationsRouter);
 
-// -------------------- Admin Routes --------------------
+// ---------------- Admin Routes --------------------
+app.get("/api/admin/list", async (req, res) => {
+  try {
+    if (!db) throw new Error("DB not connected");
+    const admins = await db.collection("admins").find().toArray();
+    res.json(admins);
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ message: "Failed to fetch admins" });
+  }
+});
 
-// Create a new admin
 app.post("/api/admin/create", async (req, res) => {
   try {
-    const { email, password, role } = req.body;
-    if (!email || !password || !role) return res.status(400).json({ error: "Missing fields" });
     if (!db) throw new Error("DB not connected");
+    const { email, role } = req.body;
+    if (!email || !role) return res.status(400).json({ message: "Email and role are required" });
 
-    const existing = await db.collection("users").findOne({ email });
-    if (existing) return res.status(400).json({ error: "Admin already exists" });
+    const existing = await db.collection("admins").findOne({ email });
+    if (existing) return res.status(400).json({ message: "Admin already exists" });
 
-    const result = await db.collection("users").insertOne({
+    const result = await db.collection("admins").insertOne({
       email,
-      password, // ⚠️ Hash this in production!
       role,
       createdAt: new Date()
     });
 
-    res.json({ success: true, id: result.insertedId, email, role });
+    res.json({ message: "Admin created", id: result.insertedId });
   } catch (err) {
-    console.error("Failed to create admin:", err);
-    res.status(500).json({ error: err.message });
+    console.error(err);
+    res.status(500).json({ message: "Failed to create admin" });
   }
 });
 
-// List all admins
-app.get("/api/admin/list", async (req, res) => {
-  try {
-    if (!db) throw new Error("DB not connected");
-    const admins = await db.collection("users").find({
-      role: { $in: ["AdminManager", "Moderator", "Finance", "Support", "AuditLogs"] }
-    }).toArray();
-    res.json(admins);
-  } catch (err) {
-    console.error("Failed to fetch admins:", err);
-    res.status(500).json({ error: err.message });
-  }
-});
-
-// -------------------- Spin Coupon --------------------
+// Spin coupon
 app.post("/api/spin/:userId", async (req, res) => {
   try {
     const coupon = await spinReward(req.params.userId);
@@ -150,7 +144,7 @@ app.post("/api/spin/:userId", async (req, res) => {
   }
 });
 
-// -------------------- KYC Update --------------------
+// Update KYC status manually (Admin)
 app.post("/api/kyc/update", async (req, res) => {
   try {
     const { userId, status } = req.body;
@@ -162,7 +156,7 @@ app.post("/api/kyc/update", async (req, res) => {
   }
 });
 
-// -------------------- Cart Update --------------------
+// Update cart manually
 app.post("/api/cart/update", async (req, res) => {
   try {
     const { userId, items } = req.body;
@@ -179,28 +173,16 @@ app.post("/api/paystack/webhook", async (req, res) => {
   const PAYSTACK_SECRET_KEY = process.env.PAYSTACK_SECRET_KEY;
   const paystackSignature = req.headers["x-paystack-signature"];
 
-  const hash = crypto
-    .createHmac("sha512", PAYSTACK_SECRET_KEY)
-    .update(req.body)
-    .digest("hex");
-
-  if (hash !== paystackSignature) {
-    console.log("⚠️ Invalid Paystack signature");
-    return res.status(400).send("Invalid signature");
-  }
+  const hash = crypto.createHmac("sha512", PAYSTACK_SECRET_KEY).update(req.body).digest("hex");
+  if (hash !== paystackSignature) return res.status(400).send("Invalid signature");
 
   const event = JSON.parse(req.body);
-
   if (event.event === "charge.success") {
-    const { reference, amount, customer, metadata } = event.data;
-
+    const { metadata, amount, reference } = event.data;
     console.log(`✅ Payment verified: ${reference} - ${amount / 100} NGN`);
 
-    if (metadata?.productId && metadata?.promotionPlanId) {
-      updateProductPromotion(metadata.productId, metadata.promotionPlanId)
-        .then(() => console.log("Product promotion updated"))
-        .catch(err => console.error(err));
-    }
+    if (metadata?.productId && metadata?.promotionPlanId)
+      await updateProductPromotion(metadata.productId, metadata.promotionPlanId);
 
     if (metadata?.userId && metadata?.walletAmount) {
       const wallets = db.collection("wallets");
@@ -210,7 +192,6 @@ app.post("/api/paystack/webhook", async (req, res) => {
         { upsert: true, returnDocument: "after" }
       );
       io.to(metadata.userId).emit("walletUpdated", walletUpdate.value);
-      console.log(`Wallet credited for user ${metadata.userId}`);
     }
   }
 
@@ -224,6 +205,4 @@ app.get("*", (req, res) => {
 });
 
 // -------------------- Start Server --------------------
-server.listen(PORT, () => {
-  console.log(`🚀 Server running on port ${PORT}`);
-});
+server.listen(PORT, () => console.log(`🚀 Server running on port ${PORT}`));
