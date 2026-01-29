@@ -9,6 +9,7 @@ import {
 } from "firebase/firestore";
 import { db, auth } from "../../firebase";
 import { Link } from "react-router-dom";
+import { onAuthStateChanged } from "firebase/auth";
 
 export default function SuperAdminDashboard() {
   const [stats, setStats] = useState({
@@ -23,8 +24,17 @@ export default function SuperAdminDashboard() {
   const [newAdminEmail, setNewAdminEmail] = useState("");
   const [newAdminRole, setNewAdminRole] = useState("AdminManager");
   const [creating, setCreating] = useState(false);
+  const [currentUser, setCurrentUser] = useState(null);
 
-  // -------------------- Firestore Live Stats --------------------
+  /* ---------------- AUTH LISTENER ---------------- */
+  useEffect(() => {
+    const unsub = onAuthStateChanged(auth, (user) => {
+      setCurrentUser(user);
+    });
+    return unsub;
+  }, []);
+
+  /* ---------------- FIRESTORE LIVE STATS ---------------- */
   useEffect(() => {
     const unsubUsers = onSnapshot(collection(db, "users"), snap =>
       setStats(prev => ({ ...prev, users: snap.size }))
@@ -51,8 +61,7 @@ export default function SuperAdminDashboard() {
     );
 
     const unsubLogs = onSnapshot(logsQuery, snap => {
-      const logs = snap.docs.map(doc => ({ id: doc.id, ...doc.data() }));
-      setReportLogs(logs);
+      setReportLogs(snap.docs.map(doc => ({ id: doc.id, ...doc.data() })));
     });
 
     return () => {
@@ -64,54 +73,74 @@ export default function SuperAdminDashboard() {
     };
   }, []);
 
-  // -------------------- Load Admins From Backend --------------------
+  /* ---------------- SAFE FETCH HELPER ---------------- */
+  const safeFetchJSON = async (url, options) => {
+    const res = await fetch(url, options);
+
+    const contentType = res.headers.get("content-type") || "";
+    if (!contentType.includes("application/json")) {
+      const text = await res.text();
+      throw new Error("Server returned HTML instead of JSON. Check API route.");
+    }
+
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.message || "Request failed");
+
+    return data;
+  };
+
+  /* ---------------- LOAD ADMINS ---------------- */
   const loadAdmins = async () => {
+    if (!currentUser) return;
+
     try {
-      const token = await auth.currentUser.getIdToken();
-      const res = await fetch("/api/admin/list", {
-        headers: { Authorization: `Bearer ${token}` }
-      });
-      const data = await res.json();
+      const token = await currentUser.getIdToken();
+      const data = await safeFetchJSON(
+        "https://minimart-8k9g.onrender.com/api/admin/list",
+        {
+          headers: { Authorization: `Bearer ${token}` }
+        }
+      );
       setAdmins(data);
     } catch (err) {
-      console.error("Failed to load admins", err);
+      console.error("Load admins error:", err.message);
     }
   };
 
   useEffect(() => {
     loadAdmins();
-  }, []);
+  }, [currentUser]);
 
-  // -------------------- Create Admin (SECURE) --------------------
+  /* ---------------- CREATE ADMIN ---------------- */
   const handleCreateAdmin = async (e) => {
     e.preventDefault();
+    if (!currentUser) return alert("You must be logged in");
+
     setCreating(true);
-
     try {
-      const token = await auth.currentUser.getIdToken();
+      const token = await currentUser.getIdToken();
 
-      const res = await fetch("/api/admin/create", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${token}`
-        },
-        body: JSON.stringify({
-          email: newAdminEmail,
-          role: newAdminRole
-        })
-      });
-
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.message);
+      await safeFetchJSON(
+        "https://minimart-8k9g.onrender.com/api/admin/create",
+        {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: `Bearer ${token}`
+          },
+          body: JSON.stringify({
+            email: newAdminEmail,
+            role: newAdminRole
+          })
+        }
+      );
 
       alert("✅ Admin created successfully");
       setNewAdminEmail("");
       setNewAdminRole("AdminManager");
-      loadAdmins(); // refresh list
+      loadAdmins();
     } catch (err) {
-      console.error(err);
-      alert("❌ Failed to create admin: " + err.message);
+      alert("❌ " + err.message);
     } finally {
       setCreating(false);
     }
@@ -119,7 +148,6 @@ export default function SuperAdminDashboard() {
 
   return (
     <div style={{ display: "flex", minHeight: "100vh", fontFamily: "Arial" }}>
-      {/* Sidebar */}
       <nav style={sidebarStyle}>
         <h2>Admin HQ</h2>
         <Link style={linkStyle} to="/admin">Dashboard</Link>
@@ -127,25 +155,19 @@ export default function SuperAdminDashboard() {
         <Link style={linkStyle} to="/admin/moderator">Moderator Panel</Link>
         <Link style={linkStyle} to="/admin/finance">Finance Panel</Link>
         <Link style={linkStyle} to="/admin/support">Support Panel</Link>
-        <Link style={linkStyle} to="/admin/roles">Roles Management</Link>
-        <Link style={linkStyle} to="/admin/flagged-sellers">Flagged Sellers</Link>
-        <Link style={linkStyle} to="/admin/performance">Admin Performance</Link>
-        <Link style={linkStyle} to="/admin/audit-logs">Audit Logs</Link>
+        <Link style={linkStyle} to="/admin/roles">Roles</Link>
       </nav>
 
-      {/* Main */}
       <main style={{ flex: 1, background: "#f4f6fb", padding: 30 }}>
         <h1 style={{ color: "#1e3a8a" }}>Super Admin Dashboard</h1>
 
-        {/* Stats */}
         <div style={{ display: "flex", gap: 20, flexWrap: "wrap", marginTop: 20 }}>
           <StatCard title="Total Users" value={stats.users} />
           <StatCard title="Total Sellers" value={stats.sellers} />
           <StatCard title="Pending Verifications" value={stats.pending} />
-          <StatCard title="Reports Today" value={stats.reports} />
+          <StatCard title="Reports" value={stats.reports} />
         </div>
 
-        {/* Create Admin */}
         <section style={{ marginTop: 40 }}>
           <h2>Create New Admin</h2>
           <form onSubmit={handleCreateAdmin} style={cardStyle}>
@@ -167,7 +189,6 @@ export default function SuperAdminDashboard() {
               <option value="Moderator">Moderator</option>
               <option value="Finance">Finance</option>
               <option value="Support">Support</option>
-              <option value="AuditLogs">Audit Logs</option>
             </select>
 
             <button type="submit" disabled={creating} style={buttonStyle}>
@@ -178,26 +199,21 @@ export default function SuperAdminDashboard() {
           <h3>Existing Admins</h3>
           <ul>
             {admins.map(a => (
-              <li key={a.uid || a.id}>
-                {a.email} — <b>{a.role}</b>
-              </li>
+              <li key={a.uid || a.id}>{a.email} — <b>{a.role}</b></li>
             ))}
           </ul>
         </section>
 
-        {/* Report Logs */}
         <section style={{ marginTop: 40 }}>
           <h2>Recent Report Logs</h2>
           <div style={cardStyle}>
-            {reportLogs.length === 0 ? (
-              <p>No reports yet</p>
-            ) : (
-              reportLogs.map(log => (
-                <div key={log.id} style={{ borderBottom: "1px solid #eee", padding: "6px 0" }}>
-                  Seller <b>{log.sellerId}</b> — {log.reason || "No reason"}
-                </div>
-              ))
-            )}
+            {reportLogs.length === 0
+              ? <p>No reports yet</p>
+              : reportLogs.map(log => (
+                  <div key={log.id} style={{ borderBottom: "1px solid #eee", padding: "6px 0" }}>
+                    Seller <b>{log.sellerId}</b> — {log.reason || "No reason"}
+                  </div>
+                ))}
           </div>
         </section>
       </main>
@@ -205,7 +221,7 @@ export default function SuperAdminDashboard() {
   );
 }
 
-/* UI Styles */
+/* STYLES */
 const sidebarStyle = {
   width: 220,
   background: "#1e3a8a",
