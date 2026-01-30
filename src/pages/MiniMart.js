@@ -27,7 +27,6 @@ export default function MiniMart() {
   const topNavRef = useRef(null);
   const sliderRef = useRef(null);
   const promoPlanIds = promotionPlans.map(p => p.id);
-
   const getPromotionPlan = id => promotionPlans.find(p => p.id === id);
 
   const calculateAIScore = product => {
@@ -49,7 +48,6 @@ export default function MiniMart() {
     const loadProducts = async () => {
       const snap = await getDocs(query(collection(db, "products"), orderBy("createdAt", "desc")));
       const products = snap.docs.map(d => ({ id: d.id, ...d.data() }));
-      // Filter MiniMart products
       const miniMartProducts = products.filter(p => p.isMiniMart);
       setAllProducts(miniMartProducts);
 
@@ -140,13 +138,13 @@ export default function MiniMart() {
       <div
         style={{
           flex: 1,
-          paddingTop: topNavHeight, // respect TopNav
-          paddingBottom: 60, // bottom nav
+          paddingTop: topNavHeight,
+          paddingBottom: 60,
           overflowY: "auto",
         }}
       >
-        {/* Categories */}
-        <div style={{ maxWidth: 1200, margin: "10px auto 0", padding: "0 16px", display: "flex", gap: 8, overflowX: "auto" }}>
+        {/* Categories + Sell Product */}
+        <div style={{ maxWidth: 1200, margin: "10px auto 10px", padding: "0 16px", display: "flex", gap: 8, overflowX: "auto", alignItems: "center" }}>
           {categories.map(c => (
             <button
               key={c.name}
@@ -165,6 +163,24 @@ export default function MiniMart() {
               {c.icon} {c.name}
             </button>
           ))}
+
+          {/* Sell Product Button */}
+          <button
+            onClick={() => navigate("/mart-product")} // Jumia-style
+            style={{
+              padding: "8px 16px",
+              borderRadius: 20,
+              border: "2px solid #0d6efd",
+              background: "#0d6efd",
+              color: "#fff",
+              fontWeight: 600,
+              cursor: "pointer",
+              whiteSpace: "nowrap",
+              marginLeft: 8,
+            }}
+          >
+            ➕ Sell Product
+          </button>
         </div>
 
         {/* Trending */}
