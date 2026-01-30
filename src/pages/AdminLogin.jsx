@@ -1,9 +1,9 @@
 // src/pages/AdminLogin.jsx
 import { useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { auth, db } from "../firebase";
 import { signInWithEmailAndPassword } from "firebase/auth";
 import { doc, getDoc } from "firebase/firestore";
+import { auth, db } from "../firebase";
 
 export default function AdminLogin() {
   const [email, setEmail] = useState("");
@@ -20,18 +20,15 @@ export default function AdminLogin() {
     try {
       // 1️⃣ Sign in with Firebase Auth
       const userCredential = await signInWithEmailAndPassword(auth, email, password);
-      const uid = userCredential.user.uid;
+      const user = userCredential.user;
 
-      // 2️⃣ Check if user exists in admins collection
-      const adminDoc = await getDoc(doc(db, "admins", uid));
+      // 2️⃣ Check if user is in "admins" collection
+      const adminDoc = await getDoc(doc(db, "admins", user.uid));
       if (!adminDoc.exists()) {
-        setError("You are not registered as admin");
-        await auth.signOut(); // log out user
-        setLoading(false);
-        return;
+        throw new Error("Not authorized as admin");
       }
 
-      // 3️⃣ Success → redirect to admin panel
+      // 3️⃣ Redirect to admin panel
       navigate("/admin");
     } catch (err) {
       console.error(err);
@@ -48,7 +45,7 @@ export default function AdminLogin() {
       justifyContent: "center",
       alignItems: "center",
       background: "#f4f6f8",
-      fontFamily: "Segoe UI, sans-serif"
+      fontFamily: "Segoe UI, Tahoma, Geneva, Verdana, sans-serif"
     }}>
       <form
         onSubmit={handleLogin}
@@ -64,27 +61,23 @@ export default function AdminLogin() {
 
         {error && <p style={{ color: "#dc3545", marginBottom: 10 }}>{error}</p>}
 
-        <label style={{ display: "block", marginBottom: 12 }}>
-          Email
-          <input
-            type="email"
-            value={email}
-            onChange={(e) => setEmail(e.target.value)}
-            required
-            style={inputStyle}
-          />
-        </label>
+        <input
+          type="email"
+          placeholder="Email"
+          value={email}
+          onChange={e => setEmail(e.target.value)}
+          required
+          style={inputStyle}
+        />
 
-        <label style={{ display: "block", marginBottom: 20 }}>
-          Password
-          <input
-            type="password"
-            value={password}
-            onChange={(e) => setPassword(e.target.value)}
-            required
-            style={inputStyle}
-          />
-        </label>
+        <input
+          type="password"
+          placeholder="Password"
+          value={password}
+          onChange={e => setPassword(e.target.value)}
+          required
+          style={inputStyle}
+        />
 
         <button
           type="submit"
@@ -101,10 +94,9 @@ export default function AdminLogin() {
 const inputStyle = {
   width: "100%",
   padding: 10,
-  marginTop: 4,
   marginBottom: 10,
   borderRadius: 6,
-  border: "1px solid #ccc",
+  border: "1px solid #ccc"
 };
 
 const buttonStyle = {
@@ -115,5 +107,5 @@ const buttonStyle = {
   background: "#4da6ff",
   color: "#fff",
   fontWeight: 600,
-  cursor: "pointer",
+  cursor: "pointer"
 };
