@@ -1,52 +1,121 @@
+// src/pages/admin/FinanceAdminPanel.jsx
 import { useEffect, useState } from "react";
-import { Navigate, useLocation } from "react-router-dom";
-import { auth, db } from "../firebase";
-import { doc, getDoc } from "firebase/firestore";
-import { useAuthState } from "react-firebase-hooks/auth";
+import axios from "axios";
+import { Line } from "react-chartjs-2";
+import { Chart as ChartJS, CategoryScale, LinearScale, PointElement, LineElement, Title, Tooltip, Legend } from "chart.js";
 
-export default function AdminRoleRoute({
-  children,
-  allowedRoles = ["Manager", "Admin", "Moderator", "Finance", "Support"]
-}) {
-  const [user, loadingUser] = useAuthState(auth);
+ChartJS.register(CategoryScale, LinearScale, PointElement, LineElement, Title, Tooltip, Legend);
+
+export default function FinanceAdminPanel() {
+  const [dashboard, setDashboard] = useState({ payouts: [], refunds: [], revenueTrend: [] });
   const [loading, setLoading] = useState(true);
-  const [role, setRole] = useState(null);
-  const location = useLocation();
+  const [searchTerm, setSearchTerm] = useState("");
 
   useEffect(() => {
-    const fetchRole = async () => {
-      if (!user) {
-        setRole(null);
-        setLoading(false);
-        return;
-      }
-
+    const loadDashboard = async () => {
+      setLoading(true);
       try {
-        const adminSnap = await getDoc(doc(db, "admins", user.uid));
-        if (adminSnap.exists()) {
-          setRole(adminSnap.data().role?.toLowerCase() || "manager");
-        } else {
-          setRole(null);
-        }
+        const res = await axios.get("/api/admin/finance");
+        setDashboard(res.data);
       } catch (err) {
-        console.error("Failed to fetch admin role:", err);
-        setRole(null);
+        console.error(err);
       } finally {
         setLoading(false);
       }
     };
+    loadDashboard();
+  }, []);
 
-    fetchRole();
-  }, [user]);
+  // Export CSV
+  const exportCSV = (data, filename) => {
+    if (!data || data.length === 0) return alert("No data to export");
 
-  if (loadingUser || loading) return <p>Loading admin access...</p>;
-  if (!user) return <Navigate to="/admin-login" replace />;
-  if (!role || !allowedRoles.map(r => r.toLowerCase()).includes(role)) return <Navigate to="/" replace />;
+    const headers = Object.keys(data[0]).join(",");
+    const rows = data.map(d => Object.values(d).join(",")).join("\n");
+    const csvContent = `data:text/csv;charset=utf-8,${headers}\n${rows}`;
+    const link = document.createElement("a");
+    link.href = encodeURI(csvContent);
+    link.download = filename;
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+  };
 
-  // Redirect /admin to their role page automatically
-  if (location.pathname === "/admin") {
-    return <Navigate to={`/admin/${role}`} replace />;
-  }
+  if (loading) return <p style={{ padding: 20 }}>Loading finance dashboard...</p>;
 
-  return children;
+  return (
+    <div style={{ padding: 20, fontFamily: "Segoe UI, sans-serif" }}>
+      <h2>Finance Admin Dashboard</h2>
+
+      {/* Search */}
+      <input
+        type="text"
+        placeholder="Search..."
+        value={searchTerm}
+        onChange={e => setSearchTerm(e.target.value)}
+        style={{ padding: 6, margin: "10px 0", width: "100%", borderRadius: 4, border: "1px solid #ccc" }}
+      />
+
+      {/* Revenue Chart */}
+      <div style={{ maxWidth: 600, marginBottom: 20 }}>
+        <Line
+          data={{
+            labels: dashboard.revenueTrend.map(r => r.date),
+            datasets: [
+              {
+                label: "Revenue",
+                data: dashboard.revenueTrend.map(r => r.amount),
+                borderColor: "#198754",
+                backgroundColor: "rgba(25,135,84,0.2)",
+              },
+            ],
+          }}
+        />
+      </div>
+
+      {/* Payouts Table */}
+      <h3>Payouts</h3>
+      <button onClick={() => exportCSV(dashboard.payouts, "payouts.csv")}>Export CSV</button>
+      <table border="1" cellPadding="6" style={{ marginTop: 10, width: "100%", borderCollapse: "collapse" }}>
+        <thead>
+          <tr>
+            <th>User ID</th>
+            <th>Amount</th>
+            <th>Status</th>
+          </tr>
+        </thead>
+        <tbody>
+          {dashboard.payouts.map(p => (
+            <tr key={p._id}>
+              <td>{p.userId}</td>
+              <td>₦{p.amount}</td>
+              <td>{p.completed ? "Completed" : "Pending"}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+
+      {/* Refunds Table */}
+      <h3>Refunds</h3>
+      <button onClick={() => exportCSV(dashboard.refunds, "refunds.csv")}>Export CSV</button>
+      <table border="1" cellPadding="6" style={{ marginTop: 10, width: "100%", borderCollapse: "collapse" }}>
+        <thead>
+          <tr>
+            <th>User ID</th>
+            <th>Amount</th>
+            <th>Status</th>
+          </tr>
+        </thead>
+        <tbody>
+          {dashboard.refunds.map(r => (
+            <tr key={r._id}>
+              <td>{r.userId}</td>
+              <td>₦{r.amount}</td>
+              <td>{r.completed ? "Completed" : "Pending"}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  );
 }
