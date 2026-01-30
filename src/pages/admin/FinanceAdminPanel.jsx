@@ -1,9 +1,18 @@
 // src/pages/admin/FinanceAdminPanel.jsx
-import { useEffect, useState } from "react";
+import { useEffect, useState, useMemo } from "react";
 import axios from "axios";
 import { io } from "socket.io-client";
+import {
+  Chart as ChartJS,
+  CategoryScale,
+  LinearScale,
+  PointElement,
+  LineElement,
+  Title,
+  Tooltip,
+  Legend
+} from "chart.js";
 import { Line } from "react-chartjs-2";
-import { Chart as ChartJS, CategoryScale, LinearScale, PointElement, LineElement, Title, Tooltip, Legend } from "chart.js";
 
 ChartJS.register(CategoryScale, LinearScale, PointElement, LineElement, Title, Tooltip, Legend);
 
@@ -16,7 +25,7 @@ export default function FinanceAdminPanel() {
   const [sortConfig, setSortConfig] = useState({ key: null, direction: "asc" });
   const [dateRange, setDateRange] = useState({ start: "", end: "" });
 
-  // Initialize Socket.IO
+  // --- Initialize Socket.IO for real-time updates ---
   useEffect(() => {
     const s = io(process.env.REACT_APP_API_URL || "http://localhost:3000");
     setSocket(s);
@@ -26,7 +35,7 @@ export default function FinanceAdminPanel() {
     return () => s.disconnect();
   }, []);
 
-  // Load Dashboard Data
+  // --- Load dashboard data ---
   const loadDashboard = async () => {
     setLoading(true);
     try {
@@ -43,38 +52,35 @@ export default function FinanceAdminPanel() {
     loadDashboard();
   }, [dateRange]);
 
-  // Approve Payout
+  // --- Approve Payout ---
   const approvePayout = async (payoutId) => {
     try {
-      const res = await axios.post(`/api/admin/finance/payout/${payoutId}/approve`);
-      alert("✅ Payout approved");
-      socket.emit("financeUpdate", res.data);
+      await axios.post(`/api/admin/finance/payout/${payoutId}/approve`);
+      socket.emit("financeUpdate");
     } catch (err) {
       console.error(err);
       alert("❌ Failed to approve payout");
     }
   };
 
-  // Reject Refund
+  // --- Reject Refund ---
   const rejectRefund = async (refundId) => {
     try {
-      const res = await axios.post(`/api/admin/finance/refund/${refundId}/reject`);
-      alert("❌ Refund rejected");
-      socket.emit("financeUpdate", res.data);
+      await axios.post(`/api/admin/finance/refund/${refundId}/reject`);
+      socket.emit("financeUpdate");
     } catch (err) {
       console.error(err);
       alert("❌ Failed to reject refund");
     }
   };
 
-  // --- Sorting & Searching ---
-  const sortedData = (data) => {
-    let filtered = data;
+  // --- Filter & Sort Data ---
+  const filteredAndSorted = (data) => {
+    let result = data;
 
-    // Search
     if (searchTerm) {
       const term = searchTerm.toLowerCase();
-      filtered = filtered.filter(
+      result = result.filter(
         d =>
           d.userId.toLowerCase().includes(term) ||
           d.amount.toString().includes(term) ||
@@ -82,49 +88,59 @@ export default function FinanceAdminPanel() {
       );
     }
 
-    // Sorting
     if (sortConfig.key) {
-      filtered.sort((a, b) => {
-        const aValue = a[sortConfig.key];
-        const bValue = b[sortConfig.key];
+      result.sort((a, b) => {
+        const aVal = a[sortConfig.key];
+        const bVal = b[sortConfig.key];
 
-        if (typeof aValue === "string") return sortConfig.direction === "asc" ? aValue.localeCompare(bValue) : bValue.localeCompare(aValue);
-        if (typeof aValue === "number") return sortConfig.direction === "asc" ? aValue - bValue : bValue - aValue;
+        if (typeof aVal === "string") return sortConfig.direction === "asc" ? aVal.localeCompare(bVal) : bVal.localeCompare(aVal);
+        if (typeof aVal === "number") return sortConfig.direction === "asc" ? aVal - bVal : bVal - aVal;
         return 0;
       });
     }
 
-    return filtered;
+    return result;
   };
 
   // --- Export CSV ---
   const exportCSV = (data, filename) => {
-    if (!data || data.length === 0) return alert("No data to export");
-
+    if (!data || !data.length) return alert("No data to export");
     const headers = Object.keys(data[0]).join(",");
     const rows = data.map(d => Object.values(d).map(v => `"${v}"`).join(",")).join("\n");
     const csvContent = `data:text/csv;charset=utf-8,${headers}\n${rows}`;
-    const encodedUri = encodeURI(csvContent);
-
     const link = document.createElement("a");
-    link.setAttribute("href", encodedUri);
+    link.setAttribute("href", encodeURI(csvContent));
     link.setAttribute("download", filename);
     document.body.appendChild(link);
     link.click();
     document.body.removeChild(link);
   };
 
+  // --- Chart Data ---
+  const chartData = useMemo(() => ({
+    labels: dashboard.revenueTrend.map(r => r.date),
+    datasets: [
+      {
+        label: "Revenue",
+        data: dashboard.revenueTrend.map(r => r.amount),
+        borderColor: "#198754",
+        backgroundColor: "rgba(25,135,84,0.2)",
+      }
+    ]
+  }), [dashboard.revenueTrend]);
+
+  // --- Loading ---
+  if (loading) return <p style={{ padding: 20 }}>Loading finance data...</p>;
+
   return (
-    <div style={{ padding: 30, fontFamily: "Segoe UI, Tahoma, Geneva, Verdana, sans-serif" }}>
+    <div style={{ padding: 30, fontFamily: "Segoe UI, sans-serif", maxWidth: 1000, margin: "0 auto" }}>
       <h2>Finance Admin Dashboard</h2>
 
       {/* Date Filter */}
-      <div style={{ margin: "10px 0", display: "flex", gap: 10 }}>
+      <div style={{ display: "flex", gap: 10, margin: "10px 0" }}>
         <input type="date" value={dateRange.start} onChange={e => setDateRange(prev => ({ ...prev, start: e.target.value }))} />
         <input type="date" value={dateRange.end} onChange={e => setDateRange(prev => ({ ...prev, end: e.target.value }))} />
-        <button onClick={loadDashboard} style={{ padding: "6px 12px", background: "#4da6ff", color: "#fff", border: "none", borderRadius: 4 }}>
-          Apply
-        </button>
+        <button onClick={loadDashboard} style={buttonStyle}>Apply</button>
       </div>
 
       {/* Search */}
@@ -133,99 +149,86 @@ export default function FinanceAdminPanel() {
         placeholder="Search by User ID, Amount, Status..."
         value={searchTerm}
         onChange={e => setSearchTerm(e.target.value)}
-        style={{ padding: 6, marginBottom: 12, width: "100%", borderRadius: 4, border: "1px solid #ccc" }}
+        style={{ padding: 8, width: "100%", borderRadius: 6, border: "1px solid #ccc", marginBottom: 20 }}
       />
 
       {/* Revenue Chart */}
-      <div style={{ maxWidth: 800, marginBottom: 30 }}>
-        <Line
-          data={{
-            labels: dashboard.revenueTrend.map(r => r.date),
-            datasets: [
-              {
-                label: "Revenue",
-                data: dashboard.revenueTrend.map(r => r.amount),
-                borderColor: "#198754",
-                backgroundColor: "rgba(25,135,84,0.2)",
-              },
-            ],
-          }}
-        />
+      <div style={{ maxWidth: "100%", marginBottom: 30 }}>
+        <Line data={chartData} />
       </div>
 
-      {loading ? (
-        <p>Loading finance data...</p>
-      ) : (
-        <>
-          {/* Payouts Table */}
-          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-            <h3>Payouts</h3>
-            <button onClick={() => exportCSV(dashboard.payouts, "payouts.csv")} style={{ padding: 6, background: "#0d6efd", color: "#fff", borderRadius: 4 }}>
-              Export CSV
-            </button>
-          </div>
-          <table style={{ width: "100%", borderCollapse: "collapse", marginBottom: 30 }}>
-            <thead>
-              <tr style={{ background: "#f0f0f0" }}>
-                <th style={{ padding: 8 }}>User ID</th>
-                <th style={{ padding: 8 }}>Amount</th>
-                <th>Status</th>
-                <th>Action</th>
-              </tr>
-            </thead>
-            <tbody>
-              {sortedData(dashboard.payouts)?.map(p => (
-                <tr key={p._id} style={{ borderBottom: "1px solid #ddd" }}>
-                  <td style={{ padding: 8 }}>{p.userId}</td>
-                  <td>₦{p.amount}</td>
-                  <td>{p.completed ? "Completed" : "Pending"}</td>
-                  <td>
-                    {!p.completed && (
-                      <button onClick={() => approvePayout(p._id)} style={{ padding: 6, background: "#198754", color: "#fff", borderRadius: 4 }}>
-                        Approve
-                      </button>
-                    )}
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
+      {/* Payouts Table */}
+      <TableSection
+        title="Payouts"
+        data={filteredAndSorted(dashboard.payouts)}
+        onAction={approvePayout}
+        actionLabel="Approve"
+      />
 
-          {/* Refunds Table */}
-          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-            <h3>Refunds</h3>
-            <button onClick={() => exportCSV(dashboard.refunds, "refunds.csv")} style={{ padding: 6, background: "#0d6efd", color: "#fff", borderRadius: 4 }}>
-              Export CSV
-            </button>
-          </div>
-          <table style={{ width: "100%", borderCollapse: "collapse", marginBottom: 30 }}>
-            <thead>
-              <tr style={{ background: "#f0f0f0" }}>
-                <th style={{ padding: 8 }}>User ID</th>
-                <th style={{ padding: 8 }}>Amount</th>
-                <th>Status</th>
-                <th>Action</th>
+      {/* Refunds Table */}
+      <TableSection
+        title="Refunds"
+        data={filteredAndSorted(dashboard.refunds)}
+        onAction={rejectRefund}
+        actionLabel="Reject"
+      />
+    </div>
+  );
+}
+
+// --- Table Section Component ---
+function TableSection({ title, data, onAction, actionLabel }) {
+  return (
+    <div style={{ marginBottom: 30 }}>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 10 }}>
+        <h3>{title}</h3>
+        <button onClick={() => exportCSV(data, `${title.toLowerCase()}.csv`)} style={buttonStyle}>
+          Export CSV
+        </button>
+      </div>
+      {data.length === 0 ? (
+        <p>No {title.toLowerCase()} found.</p>
+      ) : (
+        <table style={{ width: "100%", borderCollapse: "collapse" }}>
+          <thead style={{ background: "#f0f0f0" }}>
+            <tr>
+              <th style={thStyle}>User ID</th>
+              <th style={thStyle}>Amount</th>
+              <th style={thStyle}>Status</th>
+              <th style={thStyle}>Action</th>
+            </tr>
+          </thead>
+          <tbody>
+            {data.map(d => (
+              <tr key={d._id} style={{ borderBottom: "1px solid #ddd" }}>
+                <td style={tdStyle}>{d.userId}</td>
+                <td style={tdStyle}>₦{d.amount}</td>
+                <td style={tdStyle}>{d.completed ? "Completed" : "Pending"}</td>
+                <td style={tdStyle}>
+                  {!d.completed && (
+                    <button onClick={() => onAction(d._id)} style={{ ...buttonStyle, background: actionLabel === "Approve" ? "#198754" : "#dc3545" }}>
+                      {actionLabel}
+                    </button>
+                  )}
+                </td>
               </tr>
-            </thead>
-            <tbody>
-              {sortedData(dashboard.refunds)?.map(r => (
-                <tr key={r._id} style={{ borderBottom: "1px solid #ddd" }}>
-                  <td style={{ padding: 8 }}>{r.userId}</td>
-                  <td>₦{r.amount}</td>
-                  <td>{r.completed ? "Completed" : "Pending"}</td>
-                  <td>
-                    {!r.completed && (
-                      <button onClick={() => rejectRefund(r._id)} style={{ padding: 6, background: "#dc3545", color: "#fff", borderRadius: 4 }}>
-                        Reject
-                      </button>
-                    )}
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </>
+            ))}
+          </tbody>
+        </table>
       )}
     </div>
   );
 }
+
+// --- Styles ---
+const buttonStyle = {
+  padding: "6px 12px",
+  background: "#0d6efd",
+  color: "#fff",
+  border: "none",
+  borderRadius: 4,
+  cursor: "pointer"
+};
+
+const thStyle = { padding: 8, textAlign: "left" };
+const tdStyle = { padding: 8 };
