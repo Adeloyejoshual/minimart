@@ -1,8 +1,8 @@
 // src/pages/AdminLogin.jsx
-import React, { useState } from "react";
+import { useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { signInWithEmailAndPassword } from "firebase/auth";
 import { auth, db } from "../firebase";
+import { signInWithEmailAndPassword } from "firebase/auth";
 import { doc, getDoc } from "firebase/firestore";
 
 export default function AdminLogin() {
@@ -22,22 +22,21 @@ export default function AdminLogin() {
       const userCredential = await signInWithEmailAndPassword(auth, email, password);
       const uid = userCredential.user.uid;
 
-      // 2️⃣ Check if this user exists in admins collection
+      // 2️⃣ Check if user exists in admins collection
       const adminDoc = await getDoc(doc(db, "admins", uid));
       if (!adminDoc.exists()) {
-        setError("Not an admin account");
+        setError("You are not registered as admin");
+        await auth.signOut(); // log out user
         setLoading(false);
         return;
       }
 
-      const role = adminDoc.data().role;
-
-      // 3️⃣ Redirect to admin dashboard
-      navigate(`/admin`);
-      setLoading(false);
+      // 3️⃣ Success → redirect to admin panel
+      navigate("/admin");
     } catch (err) {
       console.error(err);
-      setError("Login failed: " + err.message);
+      setError(err.message);
+    } finally {
       setLoading(false);
     }
   };
@@ -51,13 +50,16 @@ export default function AdminLogin() {
       background: "#f4f6f8",
       fontFamily: "Segoe UI, sans-serif"
     }}>
-      <form onSubmit={handleLogin} style={{
-        background: "#fff",
-        padding: 30,
-        borderRadius: 12,
-        boxShadow: "0 6px 25px rgba(0,0,0,0.1)",
-        width: 360,
-      }}>
+      <form
+        onSubmit={handleLogin}
+        style={{
+          background: "#fff",
+          padding: 30,
+          borderRadius: 12,
+          boxShadow: "0 6px 25px rgba(0,0,0,0.1)",
+          width: 360,
+        }}
+      >
         <h2 style={{ textAlign: "center", marginBottom: 20 }}>Admin Login</h2>
 
         {error && <p style={{ color: "#dc3545", marginBottom: 10 }}>{error}</p>}
@@ -67,7 +69,7 @@ export default function AdminLogin() {
           <input
             type="email"
             value={email}
-            onChange={e => setEmail(e.target.value)}
+            onChange={(e) => setEmail(e.target.value)}
             required
             style={inputStyle}
           />
@@ -78,13 +80,17 @@ export default function AdminLogin() {
           <input
             type="password"
             value={password}
-            onChange={e => setPassword(e.target.value)}
+            onChange={(e) => setPassword(e.target.value)}
             required
             style={inputStyle}
           />
         </label>
 
-        <button type="submit" disabled={loading} style={buttonStyle}>
+        <button
+          type="submit"
+          disabled={loading}
+          style={buttonStyle}
+        >
           {loading ? "Logging in..." : "Login"}
         </button>
       </form>
@@ -98,16 +104,16 @@ const inputStyle = {
   marginTop: 4,
   marginBottom: 10,
   borderRadius: 6,
-  border: "1px solid #ccc"
+  border: "1px solid #ccc",
 };
 
 const buttonStyle = {
   width: "100%",
   padding: 12,
-  borderRadius: 8,
+  borderRadius: 6,
   border: "none",
   background: "#4da6ff",
   color: "#fff",
   fontWeight: 600,
-  cursor: "pointer"
+  cursor: "pointer",
 };
