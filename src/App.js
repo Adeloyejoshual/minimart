@@ -17,7 +17,8 @@ import Marketplace from "./pages/Marketplace";
 import Profile from "./pages/Profile";
 import ApplySeller from "./pages/ApplySeller";
 import ProductDetail from "./pages/ProductDetail";
-import AddProduct from "./pages/AddProduct";
+import AddProduct from "./pages/AddProduct"; // Jiji-style quick post
+import MartProduct from "./pages/MartProduct"; // Jumia-style smart seller flow
 import ChatPage from "./pages/ChatPage";
 
 /* ================= FEATURE PAGES ================= */
@@ -132,146 +133,43 @@ function App() {
         <Route path="/register" element={!user ? <Register /> : <Navigate to="/" replace />} />
 
         {/* NORMAL USER ROUTES */}
-        <Route
-          path="/"
-          element={
-            <ProtectedRoute user={user}>
-              <HomePage />
-            </ProtectedRoute>
-          }
-        />
-        <Route
-          path="/minimart"
-          element={
-            <ProtectedRoute user={user}>
-              <MiniMart />
-            </ProtectedRoute>
-          }
-        />
-        <Route
-          path="/marketplace"
-          element={
-            <ProtectedRoute user={user}>
-              <Marketplace />
-            </ProtectedRoute>
-          }
-        />
-        <Route
-          path="/profile"
-          element={
-            <ProtectedRoute user={user}>
-              <Profile />
-            </ProtectedRoute>
-          }
-        />
+        <Route path="/" element={<ProtectedRoute user={user}><HomePage /></ProtectedRoute>} />
+        <Route path="/minimart" element={<ProtectedRoute user={user}><MiniMart /></ProtectedRoute>} />
+        <Route path="/marketplace" element={<ProtectedRoute user={user}><Marketplace /></ProtectedRoute>} />
+        <Route path="/profile" element={<ProtectedRoute user={user}><Profile /></ProtectedRoute>} />
 
         {/* SHOPPING */}
-        <Route
-          path="/cart"
-          element={
-            <ProtectedRoute user={user}>
-              <CartPage />
-            </ProtectedRoute>
-          }
-        />
-        <Route
-          path="/saved-items"
-          element={
-            <ProtectedRoute user={user}>
-              <SavedItemsPage />
-            </ProtectedRoute>
-          }
-        />
+        <Route path="/cart" element={<ProtectedRoute user={user}><CartPage /></ProtectedRoute>} />
+        <Route path="/saved-items" element={<ProtectedRoute user={user}><SavedItemsPage /></ProtectedRoute>} />
 
         {/* MESSAGING */}
-        <Route
-          path="/messages"
-          element={
-            <ProtectedRoute user={user}>
-              <MessagesPage />
-            </ProtectedRoute>
-          }
-        />
-        <Route
-          path="/chat/:sellerId"
-          element={
-            <ProtectedRoute user={user}>
-              <ChatPage />
-            </ProtectedRoute>
-          }
-        />
+        <Route path="/messages" element={<ProtectedRoute user={user}><MessagesPage /></ProtectedRoute>} />
+        <Route path="/chat/:sellerId" element={<ProtectedRoute user={user}><ChatPage /></ProtectedRoute>} />
 
         {/* SEARCH & FILTERS */}
-        <Route
-          path="/search"
-          element={
-            <ProtectedRoute user={user}>
-              <SearchBar />
-            </ProtectedRoute>
-          }
-        />
-        <Route
-          path="/select-location"
-          element={
-            <ProtectedRoute user={user}>
-              <SelectLocation />
-            </ProtectedRoute>
-          }
-        />
-        <Route
-          path="/price-filters"
-          element={
-            <ProtectedRoute user={user}>
-              <PriceFiltersPage />
-            </ProtectedRoute>
-          }
-        />
+        <Route path="/search" element={<ProtectedRoute user={user}><SearchBar /></ProtectedRoute>} />
+        <Route path="/select-location" element={<ProtectedRoute user={user}><SelectLocation /></ProtectedRoute>} />
+        <Route path="/price-filters" element={<ProtectedRoute user={user}><PriceFiltersPage /></ProtectedRoute>} />
 
         {/* SELLING */}
-        <Route
-          path="/add-product"
-          element={
-            <ProtectedRoute user={user}>
-              <AddProduct />
-            </ProtectedRoute>
-          }
-        />
-        <Route
-          path="/apply-seller"
-          element={
-            <ProtectedRoute user={user}>
-              <ApplySeller />
-            </ProtectedRoute>
-          }
-        />
+        <Route path="/add-product" element={<ProtectedRoute user={user}><AddProduct /></ProtectedRoute>} />
+        <Route path="/sell-smart" element={<ProtectedRoute user={user}><MartProduct /></ProtectedRoute>} />
+        <Route path="/apply-seller" element={<ProtectedRoute user={user}><ApplySeller /></ProtectedRoute>} />
 
         {/* PRODUCT */}
-        <Route
-          path="/product/:productId"
-          element={
-            <ProtectedRoute user={user}>
-              <ProductDetail />
-            </ProtectedRoute>
-          }
-        />
+        <Route path="/product/:productId" element={<ProtectedRoute user={user}><ProductDetail /></ProtectedRoute>} />
 
         {/* ADMIN PANEL */}
-        <Route
-          path="/admin"
-          element={
-            <AdminRoleRoute allowedRoles={["Admin", "Manager", "Moderator", "Finance", "Support"]}>
-              <AdminPanel />
-            </AdminRoleRoute>
-          }
-        />
-        <Route
-          path="/admin/:role"
-          element={
-            <AdminRoleRoute allowedRoles={["Admin", "Manager", "Moderator", "Finance", "Support"]}>
-              <AdminRolePage />
-            </AdminRoleRoute>
-          }
-        />
+        <Route path="/admin" element={
+          <AdminRoleRoute allowedRoles={["Admin", "Manager", "Moderator", "Finance", "Support"]}>
+            <AdminPanel />
+          </AdminRoleRoute>
+        }/>
+        <Route path="/admin/:role" element={
+          <AdminRoleRoute allowedRoles={["Admin", "Manager", "Moderator", "Finance", "Support"]}>
+            <AdminRolePage />
+          </AdminRoleRoute>
+        }/>
 
         {/* FALLBACK */}
         <Route path="*" element={<Navigate to={user ? "/" : "/login"} replace />} />
