@@ -1,40 +1,44 @@
-// src/routes/AdminRoleRoute.jsx
-import React, { useEffect, useState } from "react";
+import { useEffect, useState } from "react";
 import { Navigate } from "react-router-dom";
-import { doc, getDoc } from "firebase/firestore";
 import { auth, db } from "../firebase";
+import { doc, getDoc } from "firebase/firestore";
+import { useAuthState } from "react-firebase-hooks/auth";
 
-export default function AdminRoleRoute({ children, allowedRoles }) {
-  const [role, setRole] = useState(null);
+export default function AdminRoleRoute({ children, allowedRoles = ["Admin", "Moderator", "Finance", "Support"] }) {
+  const [user, loadingUser] = useAuthState(auth);
   const [loading, setLoading] = useState(true);
+  const [isAllowed, setIsAllowed] = useState(false);
 
   useEffect(() => {
     const fetchRole = async () => {
-      if (!auth.currentUser) {
+      if (!user) {
+        setIsAllowed(false);
         setLoading(false);
         return;
       }
 
       try {
-        const adminDoc = await getDoc(doc(db, "admins", auth.currentUser.uid));
-        if (adminDoc.exists()) {
-          setRole(adminDoc.data().role);
+        const adminSnap = await getDoc(doc(db, "admins", user.uid));
+        if (!adminSnap.exists()) {
+          setIsAllowed(false);
         } else {
-          setRole(null);
+          const role = adminSnap.data().role;
+          setIsAllowed(allowedRoles.includes(role));
         }
       } catch (err) {
-        console.error("Failed to fetch admin role", err);
-        setRole(null);
+        console.error("Failed to check admin role:", err);
+        setIsAllowed(false);
       } finally {
         setLoading(false);
       }
     };
 
     fetchRole();
-  }, []);
+  }, [user, allowedRoles]);
 
-  if (loading) return <p>Loading admin info...</p>;
-  if (!role || !allowedRoles.includes(role)) return <Navigate to="/" replace />;
+  if (loadingUser || loading) return <p>Loading admin access...</p>;
+  if (!user) return <Navigate to="/admin-login" replace />;
+  if (!isAllowed) return <Navigate to="/" replace />;
 
   return children;
 }
