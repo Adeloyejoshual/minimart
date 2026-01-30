@@ -1,7 +1,8 @@
+// src/pages/admin/SuperAdminDashboard.jsx
 import { useEffect, useState } from "react";
-import { auth, db } from "../firebase";
+import { auth, db } from "../../firebase"; // <-- fixed path
 import { collection, getDocs, addDoc } from "firebase/firestore";
-import { getAuth, createUserWithEmailAndPassword } from "firebase/auth";
+import { createUserWithEmailAndPassword } from "firebase/auth";
 
 export default function SuperAdminDashboard() {
   const [admins, setAdmins] = useState([]);
@@ -12,9 +13,13 @@ export default function SuperAdminDashboard() {
 
   // ------------------ Load Admins ------------------
   const loadAdmins = async () => {
-    const snapshot = await getDocs(collection(db, "admins"));
-    const list = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
-    setAdmins(list);
+    try {
+      const snapshot = await getDocs(collection(db, "admins"));
+      const list = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+      setAdmins(list);
+    } catch (err) {
+      console.error("Failed to load admins:", err);
+    }
   };
 
   useEffect(() => {
