@@ -1,6 +1,7 @@
-import { useState, useEffect } from "react";
+// src/pages/admin/SuperAdminDashboard.jsx
+import { useEffect, useState } from "react";
 import { auth, db } from "../../firebase";
-import { collection, getDocs, addDoc, doc, setDoc, serverTimestamp } from "firebase/firestore";
+import { collection, getDocs, setDoc, doc, serverTimestamp } from "firebase/firestore";
 import { createUserWithEmailAndPassword } from "firebase/auth";
 
 export default function SuperAdminDashboard() {
@@ -35,7 +36,7 @@ export default function SuperAdminDashboard() {
       // 1️⃣ Create Firebase Auth user
       const authUser = await createUserWithEmailAndPassword(auth, email, password);
 
-      // 2️⃣ Save to Firestore admins collection with UID as document ID
+      // 2️⃣ Save to Firestore admins collection using UID as document ID
       await setDoc(doc(db, "admins", authUser.user.uid), {
         uid: authUser.user.uid,
         email,
@@ -60,8 +61,9 @@ export default function SuperAdminDashboard() {
     <div style={{ padding: 40, fontFamily: "Segoe UI, sans-serif", maxWidth: 600, margin: "0 auto" }}>
       <h1>SuperAdmin Dashboard</h1>
 
+      {/* Create Admin Form */}
       <form onSubmit={handleCreateAdmin} style={{ marginTop: 20 }}>
-        <h2>Create Admin</h2>
+        <h2>Create Admin / Manager</h2>
 
         <input
           type="email"
@@ -81,16 +83,18 @@ export default function SuperAdminDashboard() {
         />
         <select value={role} onChange={e => setRole(e.target.value)} style={inputStyle}>
           <option value="Admin">Admin</option>
+          <option value="Manager">Manager</option>
           <option value="Moderator">Moderator</option>
           <option value="Finance">Finance</option>
           <option value="Support">Support</option>
         </select>
 
         <button type="submit" disabled={loading} style={buttonStyle}>
-          {loading ? "Creating..." : "Create Admin"}
+          {loading ? "Creating..." : "Create Admin / Manager"}
         </button>
       </form>
 
+      {/* Existing Admins */}
       <div style={{ marginTop: 40 }}>
         <h2>Existing Admins</h2>
         <ul>
