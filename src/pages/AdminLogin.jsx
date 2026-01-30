@@ -1,3 +1,4 @@
+// src/pages/AdminLogin.jsx
 import { useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { signInWithEmailAndPassword } from "firebase/auth";
@@ -30,12 +31,10 @@ export default function AdminLogin() {
         return;
       }
 
-      // Optional: Get role
+      // 3️⃣ Get role and redirect to role-based page
       const adminData = adminSnap.data();
-      console.log("Admin role:", adminData.role);
-
-      // 3️⃣ Redirect to admin panel
-      navigate("/admin");
+      const role = adminData.role?.toLowerCase() || "admin"; // fallback to /admin
+      navigate(`/admin/${role}`);
     } catch (err) {
       console.error(err);
       setError("❌ Invalid email or password");
