@@ -1,7 +1,8 @@
 // src/pages/admin/FinanceAdminPanel.jsx
-import { useEffect, useState, useMemo } from "react";
+import { useEffect, useState } from "react";
 import axios from "axios";
 import { io } from "socket.io-client";
+import { Line } from "react-chartjs-2";
 import {
   Chart as ChartJS,
   CategoryScale,
@@ -12,7 +13,6 @@ import {
   Tooltip,
   Legend
 } from "chart.js";
-import { Line } from "react-chartjs-2";
 
 ChartJS.register(CategoryScale, LinearScale, PointElement, LineElement, Title, Tooltip, Legend);
 
@@ -25,7 +25,7 @@ export default function FinanceAdminPanel() {
   const [sortConfig, setSortConfig] = useState({ key: null, direction: "asc" });
   const [dateRange, setDateRange] = useState({ start: "", end: "" });
 
-  // --- Initialize Socket.IO for real-time updates ---
+  // Initialize Socket.IO
   useEffect(() => {
     const s = io(process.env.REACT_APP_API_URL || "http://localhost:3000");
     setSocket(s);
@@ -35,7 +35,7 @@ export default function FinanceAdminPanel() {
     return () => s.disconnect();
   }, []);
 
-  // --- Load dashboard data ---
+  // Load Dashboard Data
   const loadDashboard = async () => {
     setLoading(true);
     try {
@@ -52,35 +52,37 @@ export default function FinanceAdminPanel() {
     loadDashboard();
   }, [dateRange]);
 
-  // --- Approve Payout ---
+  // Approve Payout
   const approvePayout = async (payoutId) => {
     try {
-      await axios.post(`/api/admin/finance/payout/${payoutId}/approve`);
-      socket.emit("financeUpdate");
+      const res = await axios.post(`/api/admin/finance/payout/${payoutId}/approve`);
+      alert("✅ Payout approved");
+      socket.emit("financeUpdate", res.data);
     } catch (err) {
       console.error(err);
       alert("❌ Failed to approve payout");
     }
   };
 
-  // --- Reject Refund ---
+  // Reject Refund
   const rejectRefund = async (refundId) => {
     try {
-      await axios.post(`/api/admin/finance/refund/${refundId}/reject`);
-      socket.emit("financeUpdate");
+      const res = await axios.post(`/api/admin/finance/refund/${refundId}/reject`);
+      alert("❌ Refund rejected");
+      socket.emit("financeUpdate", res.data);
     } catch (err) {
       console.error(err);
       alert("❌ Failed to reject refund");
     }
   };
 
-  // --- Filter & Sort Data ---
+  // Sorting & Searching
   const filteredAndSorted = (data) => {
-    let result = data;
+    let filtered = data;
 
     if (searchTerm) {
       const term = searchTerm.toLowerCase();
-      result = result.filter(
+      filtered = filtered.filter(
         d =>
           d.userId.toLowerCase().includes(term) ||
           d.amount.toString().includes(term) ||
@@ -89,58 +91,48 @@ export default function FinanceAdminPanel() {
     }
 
     if (sortConfig.key) {
-      result.sort((a, b) => {
-        const aVal = a[sortConfig.key];
-        const bVal = b[sortConfig.key];
-
-        if (typeof aVal === "string") return sortConfig.direction === "asc" ? aVal.localeCompare(bVal) : bVal.localeCompare(aVal);
-        if (typeof aVal === "number") return sortConfig.direction === "asc" ? aVal - bVal : bVal - aVal;
+      filtered.sort((a, b) => {
+        const aValue = a[sortConfig.key];
+        const bValue = b[sortConfig.key];
+        if (typeof aValue === "string") return sortConfig.direction === "asc" ? aValue.localeCompare(bValue) : bValue.localeCompare(aValue);
+        if (typeof aValue === "number") return sortConfig.direction === "asc" ? aValue - bValue : bValue - aValue;
         return 0;
       });
     }
 
-    return result;
+    return filtered;
   };
 
-  // --- Export CSV ---
+  // Export CSV
   const exportCSV = (data, filename) => {
-    if (!data || !data.length) return alert("No data to export");
+    if (!data || data.length === 0) return alert("No data to export");
+
     const headers = Object.keys(data[0]).join(",");
     const rows = data.map(d => Object.values(d).map(v => `"${v}"`).join(",")).join("\n");
     const csvContent = `data:text/csv;charset=utf-8,${headers}\n${rows}`;
+    const encodedUri = encodeURI(csvContent);
+
     const link = document.createElement("a");
-    link.setAttribute("href", encodeURI(csvContent));
+    link.setAttribute("href", encodedUri);
     link.setAttribute("download", filename);
     document.body.appendChild(link);
     link.click();
     document.body.removeChild(link);
   };
 
-  // --- Chart Data ---
-  const chartData = useMemo(() => ({
-    labels: dashboard.revenueTrend.map(r => r.date),
-    datasets: [
-      {
-        label: "Revenue",
-        data: dashboard.revenueTrend.map(r => r.amount),
-        borderColor: "#198754",
-        backgroundColor: "rgba(25,135,84,0.2)",
-      }
-    ]
-  }), [dashboard.revenueTrend]);
-
-  // --- Loading ---
-  if (loading) return <p style={{ padding: 20 }}>Loading finance data...</p>;
+  if (loading) return <p>Loading finance data...</p>;
 
   return (
-    <div style={{ padding: 30, fontFamily: "Segoe UI, sans-serif", maxWidth: 1000, margin: "0 auto" }}>
+    <div style={{ padding: 30, fontFamily: "Segoe UI, Tahoma, Geneva, Verdana, sans-serif" }}>
       <h2>Finance Admin Dashboard</h2>
 
       {/* Date Filter */}
-      <div style={{ display: "flex", gap: 10, margin: "10px 0" }}>
+      <div style={{ margin: "10px 0", display: "flex", gap: 10 }}>
         <input type="date" value={dateRange.start} onChange={e => setDateRange(prev => ({ ...prev, start: e.target.value }))} />
         <input type="date" value={dateRange.end} onChange={e => setDateRange(prev => ({ ...prev, end: e.target.value }))} />
-        <button onClick={loadDashboard} style={buttonStyle}>Apply</button>
+        <button onClick={loadDashboard} style={{ padding: "6px 12px", background: "#4da6ff", color: "#fff", border: "none", borderRadius: 4 }}>
+          Apply
+        </button>
       </div>
 
       {/* Search */}
@@ -149,12 +141,24 @@ export default function FinanceAdminPanel() {
         placeholder="Search by User ID, Amount, Status..."
         value={searchTerm}
         onChange={e => setSearchTerm(e.target.value)}
-        style={{ padding: 8, width: "100%", borderRadius: 6, border: "1px solid #ccc", marginBottom: 20 }}
+        style={{ padding: 6, marginBottom: 12, width: "100%", borderRadius: 4, border: "1px solid #ccc" }}
       />
 
       {/* Revenue Chart */}
-      <div style={{ maxWidth: "100%", marginBottom: 30 }}>
-        <Line data={chartData} />
+      <div style={{ maxWidth: 800, marginBottom: 30 }}>
+        <Line
+          data={{
+            labels: dashboard.revenueTrend.map(r => r.date),
+            datasets: [
+              {
+                label: "Revenue",
+                data: dashboard.revenueTrend.map(r => r.amount),
+                borderColor: "#198754",
+                backgroundColor: "rgba(25,135,84,0.2)",
+              },
+            ],
+          }}
+        />
       </div>
 
       {/* Payouts Table */}
@@ -163,6 +167,7 @@ export default function FinanceAdminPanel() {
         data={filteredAndSorted(dashboard.payouts)}
         onAction={approvePayout}
         actionLabel="Approve"
+        exportCSV={(data) => exportCSV(data, "payouts.csv")}
       />
 
       {/* Refunds Table */}
@@ -171,64 +176,55 @@ export default function FinanceAdminPanel() {
         data={filteredAndSorted(dashboard.refunds)}
         onAction={rejectRefund}
         actionLabel="Reject"
+        exportCSV={(data) => exportCSV(data, "refunds.csv")}
       />
     </div>
   );
 }
 
-// --- Table Section Component ---
-function TableSection({ title, data, onAction, actionLabel }) {
+// TableSection Component
+function TableSection({ title, data, onAction, actionLabel, exportCSV }) {
   return (
     <div style={{ marginBottom: 30 }}>
-      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 10 }}>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
         <h3>{title}</h3>
-        <button onClick={() => exportCSV(data, `${title.toLowerCase()}.csv`)} style={buttonStyle}>
+        <button
+          onClick={() => exportCSV(data)}
+          style={{ padding: 6, background: "#0d6efd", color: "#fff", borderRadius: 4 }}
+        >
           Export CSV
         </button>
       </div>
-      {data.length === 0 ? (
-        <p>No {title.toLowerCase()} found.</p>
-      ) : (
-        <table style={{ width: "100%", borderCollapse: "collapse" }}>
-          <thead style={{ background: "#f0f0f0" }}>
-            <tr>
-              <th style={thStyle}>User ID</th>
-              <th style={thStyle}>Amount</th>
-              <th style={thStyle}>Status</th>
-              <th style={thStyle}>Action</th>
+
+      <table style={{ width: "100%", borderCollapse: "collapse", marginTop: 10 }}>
+        <thead>
+          <tr style={{ background: "#f0f0f0" }}>
+            <th style={{ padding: 8 }}>User ID</th>
+            <th style={{ padding: 8 }}>Amount</th>
+            <th>Status</th>
+            <th>Action</th>
+          </tr>
+        </thead>
+        <tbody>
+          {data?.map(d => (
+            <tr key={d._id} style={{ borderBottom: "1px solid #ddd" }}>
+              <td style={{ padding: 8 }}>{d.userId}</td>
+              <td>₦{d.amount}</td>
+              <td>{d.completed ? "Completed" : "Pending"}</td>
+              <td>
+                {!d.completed && (
+                  <button
+                    onClick={() => onAction(d._id)}
+                    style={{ padding: 6, background: actionLabel === "Approve" ? "#198754" : "#dc3545", color: "#fff", borderRadius: 4 }}
+                  >
+                    {actionLabel}
+                  </button>
+                )}
+              </td>
             </tr>
-          </thead>
-          <tbody>
-            {data.map(d => (
-              <tr key={d._id} style={{ borderBottom: "1px solid #ddd" }}>
-                <td style={tdStyle}>{d.userId}</td>
-                <td style={tdStyle}>₦{d.amount}</td>
-                <td style={tdStyle}>{d.completed ? "Completed" : "Pending"}</td>
-                <td style={tdStyle}>
-                  {!d.completed && (
-                    <button onClick={() => onAction(d._id)} style={{ ...buttonStyle, background: actionLabel === "Approve" ? "#198754" : "#dc3545" }}>
-                      {actionLabel}
-                    </button>
-                  )}
-                </td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      )}
+          ))}
+        </tbody>
+      </table>
     </div>
   );
 }
-
-// --- Styles ---
-const buttonStyle = {
-  padding: "6px 12px",
-  background: "#0d6efd",
-  color: "#fff",
-  border: "none",
-  borderRadius: 4,
-  cursor: "pointer"
-};
-
-const thStyle = { padding: 8, textAlign: "left" };
-const tdStyle = { padding: 8 };
