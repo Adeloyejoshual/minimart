@@ -1,39 +1,30 @@
 // src/routes/AdminRoleRoute.jsx
-import { useEffect, useState } from "react";
+import React, { useEffect, useState } from "react";
 import { Navigate } from "react-router-dom";
-import { auth } from "../firebase";
 import { doc, getDoc } from "firebase/firestore";
-import { db } from "../firebase";
+import { auth, db } from "../firebase";
 
-// Wrapper for role-based Admin routes
-export default function AdminRoleRoute({ children }) {
-  const [loading, setLoading] = useState(true);
-  const [authorized, setAuthorized] = useState(false);
+export default function AdminRoleRoute({ children, allowedRoles }) {
   const [role, setRole] = useState(null);
+  const [loading, setLoading] = useState(true);
 
   useEffect(() => {
     const fetchRole = async () => {
+      if (!auth.currentUser) {
+        setLoading(false);
+        return;
+      }
+
       try {
-        const user = auth.currentUser;
-        if (!user) {
-          setAuthorized(false);
-          setLoading(false);
-          return;
-        }
-
-        // Fetch user role from Firestore (Admin collection)
-        const adminDoc = await getDoc(doc(db, "admins", user.uid));
-        const adminData = adminDoc.data();
-
-        if (adminData && ["Admin", "Moderator", "Finance", "Support"].includes(adminData.role)) {
-          setRole(adminData.role);
-          setAuthorized(true);
+        const adminDoc = await getDoc(doc(db, "admins", auth.currentUser.uid));
+        if (adminDoc.exists()) {
+          setRole(adminDoc.data().role);
         } else {
-          setAuthorized(false);
+          setRole(null);
         }
       } catch (err) {
-        console.error("Admin role check failed", err);
-        setAuthorized(false);
+        console.error("Failed to fetch admin role", err);
+        setRole(null);
       } finally {
         setLoading(false);
       }
@@ -42,8 +33,8 @@ export default function AdminRoleRoute({ children }) {
     fetchRole();
   }, []);
 
-  if (loading) return <p>Loading Admin...</p>;
-  if (!authorized) return <Navigate to="/" replace />;
+  if (loading) return <p>Loading admin info...</p>;
+  if (!role || !allowedRoles.includes(role)) return <Navigate to="/" replace />;
 
   return children;
 }
