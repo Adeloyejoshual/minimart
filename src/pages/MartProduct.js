@@ -1,16 +1,14 @@
 // src/pages/MartProduct.jsx
-import React, { useState, useEffect } from "react";
+import React, { useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { addDoc, collection, serverTimestamp } from "firebase/firestore";
-import { db, auth } from "../firebase";
 import categoriesData from "../config/categoriesData";
 import productOptions from "../config/productOptions";
+import axios from "axios";
 import { compressImage } from "../utils/imageUtils"; // optional helper
 
 export default function MartProduct() {
   const navigate = useNavigate();
 
-  // --- Form State ---
   const [form, setForm] = useState({
     mainCategory: "",
     subCategory: "",
@@ -30,11 +28,10 @@ export default function MartProduct() {
     isPromoted: false,
   });
 
-  const [step, setStep] = useState(0); // multi-step index
+  const [step, setStep] = useState(0);
   const [loading, setLoading] = useState(false);
   const [errors, setErrors] = useState({});
 
-  // --- Handlers ---
   const handleChange = (field, value) => {
     setForm(prev => ({ ...prev, [field]: value }));
     setErrors(prev => ({ ...prev, [field]: "" }));
@@ -51,7 +48,7 @@ export default function MartProduct() {
   };
 
   const validateStep = () => {
-    let stepErrors = {};
+    const stepErrors = {};
     if (step === 0) {
       if (!form.mainCategory) stepErrors.mainCategory = "Select main category";
       if (!form.subCategory) stepErrors.subCategory = "Select subcategory";
@@ -82,25 +79,30 @@ export default function MartProduct() {
 
   const handlePrev = () => setStep(prev => Math.max(prev - 1, 0));
 
+  // --- Submit to MongoDB API ---
   const handleSubmit = async () => {
     if (!validateStep()) return;
     setLoading(true);
-    try {
-      const user = auth.currentUser;
-      if (!user) throw new Error("User not signed in");
 
-      await addDoc(collection(db, "products"), {
-        ...form,
-        isMiniMart: true,
-        sellerId: user.uid,
-        createdAt: serverTimestamp(),
+    try {
+      const formData = new FormData();
+      Object.entries(form).forEach(([key, value]) => {
+        if (key === "images") {
+          value.forEach((file, i) => formData.append("images", file));
+        } else {
+          formData.append(key, value);
+        }
+      });
+
+      await axios.post(`${process.env.REACT_APP_API_URL}/products`, formData, {
+        headers: { "Content-Type": "multipart/form-data" },
       });
 
       alert("Product added successfully!");
       navigate("/minimart");
     } catch (err) {
       console.error(err);
-      alert("Failed to add product: " + err.message);
+      alert("Failed to add product: " + err.response?.data?.message || err.message);
     } finally {
       setLoading(false);
     }
@@ -178,7 +180,7 @@ export default function MartProduct() {
 
   return (
     <div style={{ maxWidth: 600, margin: "50px auto", padding: 20, background: "#fff", borderRadius: 10 }}>
-      <h2 style={{ marginBottom: 20 }}>Sell Product (Jumia-style)</h2>
+      <h2 style={{ marginBottom: 20 }}>Sell Product (MongoDB)</h2>
 
       <StepContent />
 
