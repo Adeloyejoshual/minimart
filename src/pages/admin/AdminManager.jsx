@@ -1,7 +1,7 @@
 // src/pages/admin/AdminManager.jsx
 import { useEffect, useState } from "react";
+import { auth, db } from "../../firebase";
 import { collection, getDocs } from "firebase/firestore";
-import { db } from "../../firebase";
 
 export default function AdminManager() {
   const [sellers, setSellers] = useState([]);
@@ -27,12 +27,12 @@ export default function AdminManager() {
 
   return (
     <div style={{ padding: 20 }}>
-      <h1>Admin Manager (Test Mode)</h1>
+      <h1>Manager Dashboard</h1>
 
       {sellers.length === 0 ? (
-        <p>No sellers found in database.</p>
+        <p>No sellers found.</p>
       ) : (
-        <table border="1" cellPadding="10" style={{ marginTop: 20 }}>
+        <table border="1" cellPadding="10" style={{ marginTop: 20, width: "100%" }}>
           <thead>
             <tr>
               <th>Business Name</th>
