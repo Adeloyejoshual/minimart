@@ -1,7 +1,7 @@
 // src/pages/admin/SuperAdminDashboard.jsx
 import { useEffect, useState } from "react";
-import { auth, db } from "../../firebase"; // <-- fixed path
-import { collection, getDocs, addDoc } from "firebase/firestore";
+import { auth, db } from "../../firebase";
+import { collection, getDocs, doc, setDoc } from "firebase/firestore";
 import { createUserWithEmailAndPassword } from "firebase/auth";
 
 export default function SuperAdminDashboard() {
@@ -36,18 +36,19 @@ export default function SuperAdminDashboard() {
       // 1️⃣ Create Firebase Auth user
       const authUser = await createUserWithEmailAndPassword(auth, email, password);
 
-      // 2️⃣ Save to Firestore admins collection
-      await addDoc(collection(db, "admins"), {
-        uid: authUser.user.uid,
+      // 2️⃣ Save to Firestore with UID as document ID
+      await setDoc(doc(db, "admins", authUser.user.uid), {
         email,
         role,
         createdAt: new Date()
       });
 
+      // Reset form
       setEmail("");
       setPassword("");
       setRole("Admin");
       loadAdmins();
+
       alert("✅ Admin created successfully!");
     } catch (err) {
       console.error(err);
