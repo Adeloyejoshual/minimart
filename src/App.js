@@ -2,11 +2,13 @@
 import React, { useState, useEffect } from "react";
 import { BrowserRouter as Router, Routes, Route, Navigate, useParams } from "react-router-dom";
 import { useAuthState } from "react-firebase-hooks/auth";
-import { auth } from "./firebase";
+import { auth, db } from "./firebase";
+import { doc, getDoc } from "firebase/firestore";
 
 /* ================= AUTH PAGES ================= */
 import Login from "./pages/Login";
 import Register from "./pages/Register";
+import AdminLogin from "./pages/AdminLogin";
 
 /* ================= MAIN USER PAGES ================= */
 import HomePage from "./pages/HomePage";
@@ -45,11 +47,36 @@ function ProtectedRoute({ user, children }) {
 }
 
 function AdminRoleRoute({ user, children }) {
-  // TODO: fetch user role from Firestore or context
-  if (!user) return <Navigate to="/login" replace />;
-  if (!["Admin", "Moderator", "Finance", "Support"].includes(user.role)) {
-    return <Navigate to="/" replace />;
-  }
+  const [role, setRole] = useState(null);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    const fetchRole = async () => {
+      if (!user) {
+        setLoading(false);
+        return;
+      }
+      try {
+        const docRef = doc(db, "admins", user.uid);
+        const docSnap = await getDoc(docRef);
+        if (docSnap.exists()) {
+          setRole(docSnap.data().role);
+        } else {
+          setRole(null);
+        }
+      } catch (err) {
+        console.error("Failed to fetch admin role", err);
+        setRole(null);
+      } finally {
+        setLoading(false);
+      }
+    };
+    fetchRole();
+  }, [user]);
+
+  if (loading) return <p>Loading admin...</p>;
+  if (!role) return <Navigate to="/" replace />;
+
   return children;
 }
 
@@ -81,7 +108,7 @@ function App() {
     <Router>
       <Routes>
 
-        {/* ================= SUPER ADMIN ================= */}
+        {/* SUPER ADMIN */}
         <Route path="/superadmin-login" element={<SuperAdminLogin />} />
         <Route
           path="/superadmin/dashboard"
@@ -92,11 +119,14 @@ function App() {
           }
         />
 
-        {/* ================= GUEST ROUTES ================= */}
+        {/* ADMIN LOGIN */}
+        <Route path="/admin-login" element={<AdminLogin />} />
+
+        {/* GUEST ROUTES */}
         <Route path="/login" element={!user ? <Login /> : <Navigate to="/" replace />} />
         <Route path="/register" element={!user ? <Register /> : <Navigate to="/" replace />} />
 
-        {/* ================= NORMAL USER ROUTES ================= */}
+        {/* NORMAL USER ROUTES */}
         <Route
           path="/"
           element={
@@ -130,7 +160,7 @@ function App() {
           }
         />
 
-        {/* Shopping */}
+        {/* SHOPPING */}
         <Route
           path="/cart"
           element={
@@ -148,7 +178,7 @@ function App() {
           }
         />
 
-        {/* Messaging */}
+        {/* MESSAGING */}
         <Route
           path="/messages"
           element={
@@ -166,7 +196,7 @@ function App() {
           }
         />
 
-        {/* Search & Filters */}
+        {/* SEARCH & FILTERS */}
         <Route
           path="/search"
           element={
@@ -192,7 +222,7 @@ function App() {
           }
         />
 
-        {/* Selling */}
+        {/* SELLING */}
         <Route
           path="/add-product"
           element={
@@ -210,7 +240,7 @@ function App() {
           }
         />
 
-        {/* Product */}
+        {/* PRODUCT */}
         <Route
           path="/product/:productId"
           element={
@@ -220,7 +250,7 @@ function App() {
           }
         />
 
-        {/* Admin Panel */}
+        {/* ADMIN PANEL */}
         <Route
           path="/admin"
           element={
@@ -238,7 +268,7 @@ function App() {
           }
         />
 
-        {/* Fallback */}
+        {/* FALLBACK */}
         <Route path="*" element={<Navigate to={user ? "/" : "/login"} replace />} />
 
       </Routes>
