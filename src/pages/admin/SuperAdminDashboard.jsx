@@ -1,7 +1,6 @@
-// src/pages/admin/SuperAdminDashboard.jsx
-import { useEffect, useState } from "react";
+import { useState, useEffect } from "react";
 import { auth, db } from "../../firebase";
-import { collection, getDocs, doc, setDoc } from "firebase/firestore";
+import { collection, getDocs, addDoc, doc, setDoc, serverTimestamp } from "firebase/firestore";
 import { createUserWithEmailAndPassword } from "firebase/auth";
 
 export default function SuperAdminDashboard() {
@@ -11,7 +10,7 @@ export default function SuperAdminDashboard() {
   const [role, setRole] = useState("Admin");
   const [loading, setLoading] = useState(false);
 
-  // ------------------ Load Admins ------------------
+  // Load existing admins
   const loadAdmins = async () => {
     try {
       const snapshot = await getDocs(collection(db, "admins"));
@@ -26,7 +25,7 @@ export default function SuperAdminDashboard() {
     loadAdmins();
   }, []);
 
-  // ------------------ Create Admin ------------------
+  // Create new admin
   const handleCreateAdmin = async (e) => {
     e.preventDefault();
     if (!email || !password || !role) return;
@@ -36,19 +35,18 @@ export default function SuperAdminDashboard() {
       // 1️⃣ Create Firebase Auth user
       const authUser = await createUserWithEmailAndPassword(auth, email, password);
 
-      // 2️⃣ Save to Firestore with UID as document ID
+      // 2️⃣ Save to Firestore admins collection with UID as document ID
       await setDoc(doc(db, "admins", authUser.user.uid), {
+        uid: authUser.user.uid,
         email,
         role,
-        createdAt: new Date()
+        createdAt: serverTimestamp()
       });
 
-      // Reset form
       setEmail("");
       setPassword("");
       setRole("Admin");
       loadAdmins();
-
       alert("✅ Admin created successfully!");
     } catch (err) {
       console.error(err);
@@ -59,12 +57,12 @@ export default function SuperAdminDashboard() {
   };
 
   return (
-    <div style={{ padding: 40, fontFamily: "Segoe UI, sans-serif" }}>
+    <div style={{ padding: 40, fontFamily: "Segoe UI, sans-serif", maxWidth: 600, margin: "0 auto" }}>
       <h1>SuperAdmin Dashboard</h1>
 
-      {/* Create Admin Form */}
-      <form onSubmit={handleCreateAdmin} style={{ marginTop: 20, maxWidth: 400 }}>
+      <form onSubmit={handleCreateAdmin} style={{ marginTop: 20 }}>
         <h2>Create Admin</h2>
+
         <input
           type="email"
           placeholder="Admin Email"
@@ -87,12 +85,12 @@ export default function SuperAdminDashboard() {
           <option value="Finance">Finance</option>
           <option value="Support">Support</option>
         </select>
+
         <button type="submit" disabled={loading} style={buttonStyle}>
           {loading ? "Creating..." : "Create Admin"}
         </button>
       </form>
 
-      {/* Existing Admins */}
       <div style={{ marginTop: 40 }}>
         <h2>Existing Admins</h2>
         <ul>
