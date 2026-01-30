@@ -1,5 +1,5 @@
 // src/App.jsx
-import React, { useState, useEffect } from "react";
+import React from "react";
 import { BrowserRouter as Router, Routes, Route, Navigate, useParams } from "react-router-dom";
 import { useAuthState } from "react-firebase-hooks/auth";
 import { auth, db } from "./firebase";
@@ -46,36 +46,41 @@ function ProtectedRoute({ user, children }) {
   return children;
 }
 
-function AdminRoleRoute({ user, children }) {
-  const [role, setRole] = useState(null);
-  const [loading, setLoading] = useState(true);
+function AdminRoleRoute({ children, allowedRoles = ["Admin", "Moderator", "Finance", "Support"] }) {
+  const [user, loadingUser] = useAuthState(auth);
+  const [loading, setLoading] = React.useState(true);
+  const [isAllowed, setIsAllowed] = React.useState(false);
 
-  useEffect(() => {
+  React.useEffect(() => {
     const fetchRole = async () => {
       if (!user) {
+        setIsAllowed(false);
         setLoading(false);
         return;
       }
+
       try {
-        const docRef = doc(db, "admins", user.uid);
-        const docSnap = await getDoc(docRef);
-        if (docSnap.exists()) {
-          setRole(docSnap.data().role);
+        const adminSnap = await getDoc(doc(db, "admins", user.uid));
+        if (!adminSnap.exists()) {
+          setIsAllowed(false);
         } else {
-          setRole(null);
+          const role = adminSnap.data().role;
+          setIsAllowed(allowedRoles.includes(role));
         }
       } catch (err) {
-        console.error("Failed to fetch admin role", err);
-        setRole(null);
+        console.error("Failed to fetch admin role:", err);
+        setIsAllowed(false);
       } finally {
         setLoading(false);
       }
     };
-    fetchRole();
-  }, [user]);
 
-  if (loading) return <p>Loading admin...</p>;
-  if (!role) return <Navigate to="/" replace />;
+    fetchRole();
+  }, [user, allowedRoles]);
+
+  if (loadingUser || loading) return <p>Loading admin...</p>;
+  if (!user) return <Navigate to="/admin-login" replace />;
+  if (!isAllowed) return <Navigate to="/" replace />;
 
   return children;
 }
@@ -254,7 +259,7 @@ function App() {
         <Route
           path="/admin"
           element={
-            <AdminRoleRoute user={user}>
+            <AdminRoleRoute>
               <AdminPanel />
             </AdminRoleRoute>
           }
@@ -262,7 +267,7 @@ function App() {
         <Route
           path="/admin/:role"
           element={
-            <AdminRoleRoute user={user}>
+            <AdminRoleRoute>
               <AdminRolePage />
             </AdminRoleRoute>
           }
