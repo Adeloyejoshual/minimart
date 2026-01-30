@@ -46,7 +46,7 @@ function ProtectedRoute({ user, children }) {
   return children;
 }
 
-function AdminRoleRoute({ children, allowedRoles = ["Admin", "Moderator", "Finance", "Support"] }) {
+function AdminRoleRoute({ children, allowedRoles = ["Admin", "Manager", "Moderator", "Finance", "Support"] }) {
   const [user, loadingUser] = useAuthState(auth);
   const [loading, setLoading] = React.useState(true);
   const [isAllowed, setIsAllowed] = React.useState(false);
@@ -90,14 +90,14 @@ function AdminRolePage() {
   const { role } = useParams();
 
   switch (role?.toLowerCase()) {
+    case "manager":
+      return <AdminManager />;
     case "moderator":
       return <ModeratorPanel />;
     case "finance":
       return <FinanceAdminPanel />;
     case "support":
       return <SupportAdminPanel />;
-    case "manager":
-      return <AdminManager />;
     default:
       return <Navigate to="/admin" replace />;
   }
@@ -259,7 +259,7 @@ function App() {
         <Route
           path="/admin"
           element={
-            <AdminRoleRoute>
+            <AdminRoleRoute allowedRoles={["Admin", "Manager", "Moderator", "Finance", "Support"]}>
               <AdminPanel />
             </AdminRoleRoute>
           }
@@ -267,7 +267,7 @@ function App() {
         <Route
           path="/admin/:role"
           element={
-            <AdminRoleRoute>
+            <AdminRoleRoute allowedRoles={["Admin", "Manager", "Moderator", "Finance", "Support"]}>
               <AdminRolePage />
             </AdminRoleRoute>
           }
