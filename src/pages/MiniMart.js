@@ -1,4 +1,4 @@
-// src/pages/MiniMart.jsx
+/ src/pages/MiniMart.jsx
 import axios from "axios";
 
 useEffect(() => {
