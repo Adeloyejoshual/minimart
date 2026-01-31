@@ -1,101 +1,88 @@
 // src/pages/MartProduct.jsx
-import React, { useState, useEffect } from "react";
-import { useNavigate } from "react-router-dom";
-import { auth } from "../firebase";
-import { onAuthStateChanged } from "firebase/auth";
+import React, { useState } from "react";
 import axios from "axios";
+import { useAuthState } from "react-firebase-hooks/auth";
+import { auth } from "../firebase";
+import { useNavigate } from "react-router-dom";
 
 export default function MartProduct() {
-  const [user, setUser] = useState(null); // logged-in user
+  const [user] = useAuthState(auth);
   const [title, setTitle] = useState("");
   const [description, setDescription] = useState("");
   const [price, setPrice] = useState("");
   const [loading, setLoading] = useState(false);
-  const [error, setError] = useState("");
-
+  const [message, setMessage] = useState("");
   const navigate = useNavigate();
 
-  // ✅ Check logged-in user
-  useEffect(() => {
-    const unsubscribe = onAuthStateChanged(auth, (currentUser) => {
-      if (currentUser) {
-        setUser(currentUser);
-      } else {
-        navigate("/login"); // redirect if not logged in
-      }
-    });
-
-    return () => unsubscribe();
-  }, [navigate]);
-
-  // ✅ Handle form submit
   const handleSubmit = async (e) => {
     e.preventDefault();
-    setError("");
 
-    if (!title || !description || !price) {
-      setError("Please fill all fields");
-      return;
-    }
-
-    if (!user) {
-      setError("User not logged in");
-      return;
-    }
+    if (!user) return setMessage("❌ You must be logged in to add a product");
+    if (!title || !price) return setMessage("❌ Title and Price are required");
 
     setLoading(true);
+    setMessage("");
 
     try {
-      await axios.post(`${process.env.REACT_APP_API_URL}/api/mart-products`, {
+      const res = await axios.post(`${process.env.REACT_APP_API_URL}/api/mart-products`, {
         name: title,
         description,
-        price: Number(price),
-        userId: user.uid,      // <-- sellerId from Firebase
-        userEmail: user.email  // optional
+        price,
+        userId: user.uid,
+        userEmail: user.email
       });
 
-      alert("✅ Product added successfully!");
+      setMessage("✅ Product added successfully!");
       setTitle("");
       setDescription("");
       setPrice("");
-      navigate("/minimart"); // redirect to MiniMart page
+
+      // Redirect to MiniMart page after 1.5s
+      setTimeout(() => {
+        navigate("/minimart");
+      }, 1500);
+
     } catch (err) {
       console.error(err);
-      setError("Failed to add product");
+      setMessage("❌ Failed to add product");
     } finally {
       setLoading(false);
     }
   };
 
   return (
-    <div style={containerStyle}>
-      <h2>Add New Product</h2>
-      {error && <p style={{ color: "red" }}>{error}</p>}
+    <div style={{ maxWidth: 500, margin: "40px auto", padding: 20, fontFamily: "Segoe UI, sans-serif" }}>
+      <h1>Add Product</h1>
 
-      <form onSubmit={handleSubmit} style={formStyle}>
+      {message && <p style={{ color: message.startsWith("❌") ? "red" : "green" }}>{message}</p>}
+
+      <form onSubmit={handleSubmit} style={{ display: "flex", flexDirection: "column", gap: 12 }}>
         <input
           type="text"
           placeholder="Product Title"
           value={title}
           onChange={(e) => setTitle(e.target.value)}
-          style={inputStyle}
           required
+          style={inputStyle}
         />
+
         <textarea
-          placeholder="Description"
+          placeholder="Product Description"
           value={description}
           onChange={(e) => setDescription(e.target.value)}
-          style={{ ...inputStyle, height: 100 }}
-          required
+          rows={4}
+          style={inputStyle}
         />
+
         <input
           type="number"
           placeholder="Price"
           value={price}
           onChange={(e) => setPrice(e.target.value)}
-          style={inputStyle}
           required
+          style={inputStyle}
         />
+
         <button type="submit" disabled={loading} style={buttonStyle}>
           {loading ? "Adding..." : "Add Product"}
         </button>
@@ -104,36 +91,22 @@ export default function MartProduct() {
   );
 }
 
-const containerStyle = {
-  maxWidth: 500,
-  margin: "50px auto",
-  padding: 20,
-  fontFamily: "Segoe UI, sans-serif",
-  background: "#f9f9f9",
-  borderRadius: 10,
-  boxShadow: "0 4px 15px rgba(0,0,0,0.1)"
-};
-
-const formStyle = {
-  display: "flex",
-  flexDirection: "column",
-  gap: 12
-};
-
 const inputStyle = {
+  width: "100%",
   padding: 10,
   borderRadius: 6,
   border: "1px solid #ccc",
-  width: "100%",
-  fontSize: 14
+  fontSize: 14,
+  boxSizing: "border-box"
 };
 
 const buttonStyle = {
   padding: 12,
+  borderRadius: 6,
+  border: "none",
   background: "#4da6ff",
   color: "#fff",
-  border: "none",
-  borderRadius: 6,
+  fontWeight: 600,
   cursor: "pointer",
-  fontWeight: 600
+  fontSize: 16
 };
