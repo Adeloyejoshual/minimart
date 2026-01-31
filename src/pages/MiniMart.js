@@ -33,6 +33,8 @@ export default function MiniMart() {
 
   return (
     <div style={{ padding: 20, fontFamily: "Arial, sans-serif" }}>
+      
+      <h2 style={{ marginBottom: 5 }}>Welcome Joshua Abiodun 👋</h2>
       <h1>MiniMart</h1>
 
       <button
