@@ -1,4 +1,3 @@
-// -------------------- Imports --------------------
 require("dotenv").config();
 const express = require("express");
 const path = require("path");
@@ -7,22 +6,23 @@ const crypto = require("crypto");
 const { MongoClient, ObjectId } = require("mongodb");
 const http = require("http");
 const { Server } = require("socket.io");
-const locationsRouter = require("./api/locations");
 
-// -------------------- App Setup --------------------
+const locationsRouter = require("./api/locations");
+const martProductRoutes = require("./routes/martProducts");
+
 const app = express();
 const PORT = process.env.PORT || 3000;
 
-// HTTP server for Socket.IO
+/* -------------------- HTTP + Socket Setup -------------------- */
 const server = http.createServer(app);
 const io = new Server(server, { cors: { origin: "*" } });
 
-// -------------------- Middleware --------------------
+/* -------------------- Middleware -------------------- */
 app.use(cors());
 app.use(express.json());
 app.use("/api/paystack/webhook", express.raw({ type: "application/json" }));
 
-// -------------------- MongoDB Setup --------------------
+/* -------------------- MongoDB -------------------- */
 const client = new MongoClient(process.env.MONGODB_URI);
 let db;
 
@@ -30,6 +30,9 @@ async function connectDB() {
   try {
     await client.connect();
     db = client.db(process.env.DB_NAME || "martDB");
+
+    app.locals.db = db; // make db available in routes
+
     console.log("✅ Connected to MongoDB");
   } catch (err) {
     console.error("❌ MongoDB connection failed:", err);
@@ -37,84 +40,60 @@ async function connectDB() {
 }
 connectDB();
 
-// -------------------- Socket.IO --------------------
+/* -------------------- Socket.IO -------------------- */
 io.on("connection", (socket) => {
-  console.log("🔌 New client connected:", socket.id);
+  console.log("🔌 Client connected:", socket.id);
 
-  socket.on("joinRoom", (userId) => {
-    socket.join(userId);
-    console.log(`User ${userId} joined room ${userId}`);
-  });
+  socket.on("joinRoom", (userId) => socket.join(userId));
 
   socket.on("disconnect", () => {
     console.log("❌ Client disconnected:", socket.id);
   });
 });
 
-// -------------------- Helper Functions --------------------
+/* -------------------- Helper Functions -------------------- */
 async function updateProductPromotion(productId, promotionPlanId) {
-  if (!db) throw new Error("DB not connected");
   await db.collection("products").updateOne(
     { _id: new ObjectId(productId) },
     { $set: { promoted: true, promotionPlanId, promotionDate: new Date() } }
   );
 }
 
-async function spinReward(userId) {
-  if (!db) throw new Error("DB not connected");
-  const coupons = db.collection("coupons");
-  const spins = db.collection("spins");
-
-  const coupon = await coupons.aggregate([
-    { $match: { used: false } },
-    { $sample: { size: 1 } }
-  ]).next();
-
-  if (!coupon) return null;
-
-  await coupons.updateOne({ _id: coupon._id }, { $set: { used: true } });
-  await spins.insertOne({ userId, couponId: coupon._id, timestamp: new Date() });
-
-  io.to(userId).emit("couponWon", coupon);
-  return coupon;
-}
-
 async function updateKycStatus(userId, status) {
-  if (!db) throw new Error("DB not connected");
-  const users = db.collection("users");
-  await users.updateOne({ _id: new ObjectId(userId) }, { $set: { kycStatus: status } });
+  await db.collection("users").updateOne(
+    { _id: new ObjectId(userId) },
+    { $set: { kycStatus: status } }
+  );
   io.to(userId).emit("kycStatusUpdated", { userId, status });
 }
 
 async function updateCart(userId, cartItems) {
-  if (!db) throw new Error("DB not connected");
-  const cart = db.collection("cart");
-  await cart.updateOne({ userId }, { $set: { items: cartItems } }, { upsert: true });
+  await db.collection("cart").updateOne(
+    { userId },
+    { $set: { items: cartItems } },
+    { upsert: true }
+  );
   io.to(userId).emit("cartUpdated", { userId, items: cartItems });
 }
 
-// -------------------- API Routes --------------------
-
-// Locations
+/* -------------------- API Routes -------------------- */
 app.use("/api/locations", locationsRouter);
+app.use("/api/mart-products", martProductRoutes);
 
-// ---------------- Admin Routes --------------------
+/* -------------------- Admin Routes -------------------- */
 app.get("/api/admin/list", async (req, res) => {
   try {
-    if (!db) throw new Error("DB not connected");
     const admins = await db.collection("admins").find().toArray();
     res.json(admins);
-  } catch (err) {
-    console.error(err);
+  } catch {
     res.status(500).json({ message: "Failed to fetch admins" });
   }
 });
 
 app.post("/api/admin/create", async (req, res) => {
   try {
-    if (!db) throw new Error("DB not connected");
     const { email, role } = req.body;
-    if (!email || !role) return res.status(400).json({ message: "Email and role are required" });
+    if (!email || !role) return res.status(400).json({ message: "Email and role required" });
 
     const existing = await db.collection("admins").findOne({ email });
     if (existing) return res.status(400).json({ message: "Admin already exists" });
@@ -126,83 +105,69 @@ app.post("/api/admin/create", async (req, res) => {
     });
 
     res.json({ message: "Admin created", id: result.insertedId });
-  } catch (err) {
-    console.error(err);
+  } catch {
     res.status(500).json({ message: "Failed to create admin" });
   }
 });
 
-// Spin coupon
-app.post("/api/spin/:userId", async (req, res) => {
-  try {
-    const coupon = await spinReward(req.params.userId);
-    if (!coupon) return res.json({ message: "No coupons left!" });
-    res.json({ message: "You won a coupon!", coupon });
-  } catch (err) {
-    console.error("Spin error:", err);
-    res.status(500).json({ error: "Failed to spin coupon" });
-  }
-});
-
-// Update KYC status manually (Admin)
+/* -------------------- KYC + Cart -------------------- */
 app.post("/api/kyc/update", async (req, res) => {
   try {
     const { userId, status } = req.body;
     await updateKycStatus(userId, status);
-    res.json({ message: "KYC status updated", status });
-  } catch (err) {
-    console.error("KYC update error:", err);
-    res.status(500).json({ error: "Failed to update KYC status" });
+    res.json({ message: "KYC updated" });
+  } catch {
+    res.status(500).json({ error: "Failed to update KYC" });
   }
 });
 
-// Update cart manually
 app.post("/api/cart/update", async (req, res) => {
   try {
     const { userId, items } = req.body;
     await updateCart(userId, items);
-    res.json({ message: "Cart updated", items });
-  } catch (err) {
-    console.error("Cart update error:", err);
+    res.json({ message: "Cart updated" });
+  } catch {
     res.status(500).json({ error: "Failed to update cart" });
   }
 });
 
-// -------------------- Paystack Webhook --------------------
+/* -------------------- Paystack Webhook -------------------- */
 app.post("/api/paystack/webhook", async (req, res) => {
-  const PAYSTACK_SECRET_KEY = process.env.PAYSTACK_SECRET_KEY;
-  const paystackSignature = req.headers["x-paystack-signature"];
+  const hash = crypto
+    .createHmac("sha512", process.env.PAYSTACK_SECRET_KEY)
+    .update(req.body)
+    .digest("hex");
 
-  const hash = crypto.createHmac("sha512", PAYSTACK_SECRET_KEY).update(req.body).digest("hex");
-  if (hash !== paystackSignature) return res.status(400).send("Invalid signature");
+  if (hash !== req.headers["x-paystack-signature"])
+    return res.status(400).send("Invalid signature");
 
   const event = JSON.parse(req.body);
-  if (event.event === "charge.success") {
-    const { metadata, amount, reference } = event.data;
-    console.log(`✅ Payment verified: ${reference} - ${amount / 100} NGN`);
 
-    if (metadata?.productId && metadata?.promotionPlanId)
+  if (event.event === "charge.success") {
+    const { metadata } = event.data;
+
+    if (metadata?.productId && metadata?.promotionPlanId) {
       await updateProductPromotion(metadata.productId, metadata.promotionPlanId);
+    }
 
     if (metadata?.userId && metadata?.walletAmount) {
-      const wallets = db.collection("wallets");
-      const walletUpdate = await wallets.findOneAndUpdate(
+      const wallet = await db.collection("wallets").findOneAndUpdate(
         { userId: metadata.userId },
         { $inc: { balance: metadata.walletAmount } },
         { upsert: true, returnDocument: "after" }
       );
-      io.to(metadata.userId).emit("walletUpdated", walletUpdate.value);
+      io.to(metadata.userId).emit("walletUpdated", wallet.value);
     }
   }
 
   res.sendStatus(200);
 });
 
-// -------------------- Serve React Frontend --------------------
+/* -------------------- Serve React Build -------------------- */
 app.use(express.static(path.join(__dirname, "../build")));
 app.get("*", (req, res) => {
   res.sendFile(path.join(__dirname, "../build", "index.html"));
 });
 
-// -------------------- Start Server --------------------
+/* -------------------- Start Server -------------------- */
 server.listen(PORT, () => console.log(`🚀 Server running on port ${PORT}`));
