@@ -1,4 +1,5 @@
-simport React, { useEffect, useState } from "react";
+// src/pages/MiniMart.jsx
+import React, { useEffect, useState } from "react";
 import axios from "axios";
 import { useNavigate } from "react-router-dom";
 
@@ -8,9 +9,7 @@ export default function MiniMart() {
   const [loading, setLoading] = useState(true);
   const navigate = useNavigate();
 
-  // Example AI scoring function
   const calculateAIScore = (product) => {
-    // Simple placeholder: trending score = random
     return Math.random() * 100;
   };
 
@@ -21,7 +20,6 @@ export default function MiniMart() {
         const products = res.data || [];
         setAllProducts(products);
 
-        // Compute trending products
         const scored = products.map(p => ({ ...p, trendingScore: calculateAIScore(p) }));
         setTrendingProducts(scored.sort((a, b) => b.trendingScore - a.trendingScore).slice(0, 8));
       } catch (err) {
