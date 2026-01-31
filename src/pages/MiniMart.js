@@ -6,6 +6,7 @@ import { onAuthStateChanged } from "firebase/auth";
 
 export default function MiniMart() {
   const [user, setUser] = useState(null);
+  const [authChecked, setAuthChecked] = useState(false);
   const [allProducts, setAllProducts] = useState([]);
   const [myProducts, setMyProducts] = useState([]);
   const [showMyProducts, setShowMyProducts] = useState(false);
@@ -17,8 +18,9 @@ export default function MiniMart() {
   // ✅ Check logged-in user
   useEffect(() => {
     const unsubscribe = onAuthStateChanged(auth, (currentUser) => {
-      if (currentUser) setUser(currentUser);
-      else navigate("/login");
+      setUser(currentUser);
+      setAuthChecked(true);
+      if (!currentUser) navigate("/login");
     });
 
     return () => unsubscribe();
@@ -43,7 +45,7 @@ export default function MiniMart() {
   };
 
   useEffect(() => {
-    loadProducts();
+    if (user) loadProducts();
   }, [user]);
 
   // ✅ Refresh after adding a product
@@ -53,6 +55,8 @@ export default function MiniMart() {
       window.history.replaceState({}, document.title); // clear refresh flag
     }
   }, [location.state]);
+
+  if (!authChecked) return <p>Checking authentication...</p>; // wait for auth check
 
   const displayedProducts = showMyProducts ? myProducts : allProducts;
 
