@@ -153,7 +153,7 @@ function App() {
 
         {/* SELLING */}
         <Route path="/add-product" element={<ProtectedRoute user={user}><AddProduct /></ProtectedRoute>} />
-        <Route path="/sell-smart" element={<ProtectedRoute user={user}><MartProduct /></ProtectedRoute>} />
+        <Route path="/mart-product" element={<ProtectedRoute user={user}><MartProduct /></ProtectedRoute>} />
         <Route path="/apply-seller" element={<ProtectedRoute user={user}><ApplySeller /></ProtectedRoute>} />
 
         {/* PRODUCT */}
