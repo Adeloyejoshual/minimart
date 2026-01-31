@@ -1,4 +1,3 @@
-// src/pages/admin/FinanceAdminPanel.jsx
 import { useEffect, useState } from "react";
 import axios from "axios";
 import { Line } from "react-chartjs-2";
@@ -11,23 +10,7 @@ export default function FinanceAdminPanel() {
   const [loading, setLoading] = useState(true);
   const [searchTerm, setSearchTerm] = useState("");
 
-  // --- Export CSV Function ---
-  const exportCSV = (data, filename) => {
-    if (!data || data.length === 0) return alert("No data to export");
-
-    const headers = Object.keys(data[0]).join(",");
-    const rows = data.map(d => Object.values(d).join(",")).join("\n");
-    const csvContent = `data:text/csv;charset=utf-8,${headers}\n${rows}`;
-
-    const link = document.createElement("a");
-    link.href = encodeURI(csvContent);
-    link.download = filename;
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
-  };
-
-  // --- Load Dashboard Data ---
+  // ---------------- Load Dashboard Data ----------------
   useEffect(() => {
     const loadDashboard = async () => {
       setLoading(true);
@@ -57,7 +40,6 @@ export default function FinanceAdminPanel() {
         style={{ padding: 6, margin: "10px 0", width: "100%", borderRadius: 4, border: "1px solid #ccc" }}
       />
 
-      {/* Revenue Chart */}
       <div style={{ maxWidth: 600, marginBottom: 20 }}>
         <Line
           data={{
@@ -76,7 +58,6 @@ export default function FinanceAdminPanel() {
 
       {/* Payouts Table */}
       <h3>Payouts</h3>
-      <button onClick={() => exportCSV(dashboard.payouts, "payouts.csv")}>Export CSV</button>
       <table border="1" cellPadding="6" style={{ marginTop: 10, width: "100%", borderCollapse: "collapse" }}>
         <thead>
           <tr>
@@ -98,7 +79,6 @@ export default function FinanceAdminPanel() {
 
       {/* Refunds Table */}
       <h3>Refunds</h3>
-      <button onClick={() => exportCSV(dashboard.refunds, "refunds.csv")}>Export CSV</button>
       <table border="1" cellPadding="6" style={{ marginTop: 10, width: "100%", borderCollapse: "collapse" }}>
         <thead>
           <tr>
