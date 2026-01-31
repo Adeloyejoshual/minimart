@@ -1,6 +1,5 @@
-// src/pages/MiniMart.jsx
 import React, { useEffect, useState } from "react";
-import { useNavigate } from "react-router-dom";
+import { useNavigate, useLocation } from "react-router-dom";
 import axios from "axios";
 import { auth } from "../firebase";
 import { onAuthStateChanged } from "firebase/auth";
@@ -13,6 +12,7 @@ export default function MiniMart() {
   const [loading, setLoading] = useState(false);
 
   const navigate = useNavigate();
+  const location = useLocation();
 
   // ✅ Check logged-in user
   useEffect(() => {
@@ -25,27 +25,34 @@ export default function MiniMart() {
   }, [navigate]);
 
   // ✅ Load products from backend
+  const loadProducts = async () => {
+    if (!user) return;
+    setLoading(true);
+    try {
+      const res = await axios.get(`${process.env.REACT_APP_API_URL}/api/mart-products`);
+      const products = res.data || [];
+      setAllProducts(products);
+
+      const mine = products.filter(p => p.userId === user.uid);
+      setMyProducts(mine);
+    } catch (err) {
+      console.error("Failed to load products:", err);
+    } finally {
+      setLoading(false);
+    }
+  };
+
   useEffect(() => {
-    const loadProducts = async () => {
-      setLoading(true);
-      try {
-        const res = await axios.get(`${process.env.REACT_APP_API_URL}/api/mart-products`);
-        const products = res.data || [];
-        setAllProducts(products);
-
-        if (user) {
-          const mine = products.filter(p => p.userId === user.uid);
-          setMyProducts(mine);
-        }
-      } catch (err) {
-        console.error("Failed to load products:", err);
-      } finally {
-        setLoading(false);
-      }
-    };
-
-    if (user) loadProducts();
+    loadProducts();
   }, [user]);
+
+  // ✅ Refresh after adding a product
+  useEffect(() => {
+    if (location.state?.refresh) {
+      loadProducts();
+      window.history.replaceState({}, document.title); // clear refresh flag
+    }
+  }, [location.state]);
 
   const displayedProducts = showMyProducts ? myProducts : allProducts;
 
