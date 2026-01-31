@@ -1,14 +1,16 @@
-// src/pages/MiniMart.jsx
-import React, { useEffect, useState } from "react";
+simport React, { useEffect, useState } from "react";
 import axios from "axios";
+import { useNavigate } from "react-router-dom";
 
 export default function MiniMart() {
   const [allProducts, setAllProducts] = useState([]);
   const [trendingProducts, setTrendingProducts] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const navigate = useNavigate();
 
   // Example AI scoring function
   const calculateAIScore = (product) => {
-    // simple placeholder: trending score = random
+    // Simple placeholder: trending score = random
     return Math.random() * 100;
   };
 
@@ -23,30 +25,54 @@ export default function MiniMart() {
         const scored = products.map(p => ({ ...p, trendingScore: calculateAIScore(p) }));
         setTrendingProducts(scored.sort((a, b) => b.trendingScore - a.trendingScore).slice(0, 8));
       } catch (err) {
-        console.error("Failed to load products:", err);
+        console.error("Failed to load products from MongoDB:", err);
+      } finally {
+        setLoading(false);
       }
     };
 
     loadProducts();
   }, []);
 
+  if (loading) return <p>Loading MiniMart...</p>;
+
   return (
     <div style={{ padding: 20 }}>
       <h1>MiniMart</h1>
 
       <h2>Trending Products</h2>
-      <ul>
-        {trendingProducts.map(p => (
-          <li key={p.id || p._id}>{p.name || "Unnamed Product"}</li>
-        ))}
-      </ul>
+      {trendingProducts.length === 0 ? (
+        <p>No trending products yet</p>
+      ) : (
+        <ul>
+          {trendingProducts.map(p => (
+            <li
+              key={p._id || p.id}
+              style={{ cursor: "pointer", marginBottom: 6 }}
+              onClick={() => navigate(`/mart-product/${p._id || p.id}`)}
+            >
+              {p.name || "Unnamed Product"} — ₦{p.price || "0"}
+            </li>
+          ))}
+        </ul>
+      )}
 
       <h2>All Products</h2>
-      <ul>
-        {allProducts.map(p => (
-          <li key={p.id || p._id}>{p.name || "Unnamed Product"}</li>
-        ))}
-      </ul>
+      {allProducts.length === 0 ? (
+        <p>No products found</p>
+      ) : (
+        <ul>
+          {allProducts.map(p => (
+            <li
+              key={p._id || p.id}
+              style={{ cursor: "pointer", marginBottom: 6 }}
+              onClick={() => navigate(`/mart-product/${p._id || p.id}`)}
+            >
+              {p.name || "Unnamed Product"} — ₦{p.price || "0"}
+            </li>
+          ))}
+        </ul>
+      )}
     </div>
   );
 }
