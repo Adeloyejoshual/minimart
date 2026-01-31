@@ -1,75 +1,101 @@
-// src/pages/admin/AdminManager.jsx
-import { useEffect, useState } from "react";
-import { collection, getDocs } from "firebase/firestore";
-import { db } from "../../firebase";
+import React, { useEffect, useState } from "react";
+import axios from "axios";
 
-export default function AdminManager() {
+const API_URL = process.env.REACT_APP_API_URL;
+
+function ManagerDashboard() {
   const [sellers, setSellers] = useState([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState("");
+  const [search, setSearch] = useState("");
+  const [page, setPage] = useState(1);
+  const [limit] = useState(10);
+  const [loading, setLoading] = useState(false);
+  const [total, setTotal] = useState(0);
+
+  const fetchSellers = async () => {
+    setLoading(true);
+    try {
+      const res = await axios.get(`${API_URL}/api/sellers`, {
+        params: { search, page, limit }
+      });
+      setSellers(res.data.sellers);
+      setTotal(res.data.total);
+    } catch (err) {
+      console.error("Failed to fetch sellers:", err);
+    } finally {
+      setLoading(false);
+    }
+  };
 
   useEffect(() => {
-    const loadSellers = async () => {
-      setLoading(true);
-      setError("");
+    fetchSellers();
+  }, [search, page]);
 
-      try {
-        const snapshot = await getDocs(collection(db, "sellers"));
-
-        // Debug: log all fetched docs
-        console.log("Sellers fetched from Firestore:", snapshot.docs.map(d => d.data()));
-
-        if (snapshot.empty) {
-          setSellers([]);
-        } else {
-          const data = snapshot.docs.map(doc => ({
-            id: doc.id,
-            businessName: doc.data().businessName || "N/A",
-            email: doc.data().email || "N/A",
-            status: doc.data().status || "Pending",
-          }));
-          setSellers(data);
-        }
-      } catch (err) {
-        console.error("Error loading sellers:", err);
-        setError("Failed to load sellers. Check console for details.");
-      } finally {
-        setLoading(false);
-      }
-    };
-
-    loadSellers();
-  }, []);
-
-  if (loading) return <p style={{ padding: 20 }}>Loading sellers...</p>;
-  if (error) return <p style={{ padding: 20, color: "red" }}>{error}</p>;
+  const totalPages = Math.ceil(total / limit);
 
   return (
-    <div style={{ padding: 20 }}>
-      <h1>Manager Dashboard</h1>
+    <div style={{ padding: "2rem" }}>
+      <h1>🛒 Manager Dashboard</h1>
 
-      {sellers.length === 0 ? (
+      <input
+        type="text"
+        placeholder="Search sellers..."
+        value={search}
+        onChange={e => setSearch(e.target.value)}
+        style={{ padding: "0.5rem", width: "300px", marginBottom: "1rem" }}
+      />
+
+      {loading ? (
+        <p>Loading sellers...</p>
+      ) : sellers.length === 0 ? (
         <p>No sellers found.</p>
       ) : (
-        <table border="1" cellPadding="10" style={{ marginTop: 20, borderCollapse: "collapse" }}>
+        <table style={{ width: "100%", borderCollapse: "collapse" }}>
           <thead>
-            <tr style={{ background: "#f0f0f0" }}>
-              <th>Business Name</th>
-              <th>Email</th>
-              <th>Status</th>
+            <tr>
+              <th style={{ border: "1px solid #ddd", padding: "0.5rem" }}>Name</th>
+              <th style={{ border: "1px solid #ddd", padding: "0.5rem" }}>Email</th>
+              <th style={{ border: "1px solid #ddd", padding: "0.5rem" }}>Source</th>
             </tr>
           </thead>
           <tbody>
-            {sellers.map(seller => (
-              <tr key={seller.id}>
-                <td>{seller.businessName}</td>
-                <td>{seller.email}</td>
-                <td>{seller.status}</td>
+            {sellers.map(s => (
+              <tr key={s.id || s._id}>
+                <td style={{ border: "1px solid #ddd", padding: "0.5rem" }}>
+                  {s.name || s.storeName}
+                </td>
+                <td style={{ border: "1px solid #ddd", padding: "0.5rem" }}>
+                  {s.email || "-"}
+                </td>
+                <td style={{ border: "1px solid #ddd", padding: "0.5rem" }}>
+                  {s.source}
+                </td>
               </tr>
             ))}
           </tbody>
         </table>
       )}
+
+      {totalPages > 1 && (
+        <div style={{ marginTop: "1rem" }}>
+          <button
+            onClick={() => setPage(p => Math.max(p - 1, 1))}
+            disabled={page === 1}
+          >
+            Prev
+          </button>
+          <span style={{ margin: "0 1rem" }}>
+            Page {page} of {totalPages}
+          </span>
+          <button
+            onClick={() => setPage(p => Math.min(p + 1, totalPages))}
+            disabled={page === totalPages}
+          >
+            Next
+          </button>
+        </div>
+      )}
     </div>
   );
 }
+
+export default ManagerDashboard;
