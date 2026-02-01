@@ -4,79 +4,121 @@ import axios from "axios";
 import { auth } from "../firebase";
 import { onAuthStateChanged } from "firebase/auth";
 
-export default function MartProduct() {
+export default function MartProductPage() {
   const [user, setUser] = useState(null);
-  const [name, setName] = useState("");
+  const [authChecked, setAuthChecked] = useState(false);
+
+  const [title, setTitle] = useState("");
   const [description, setDescription] = useState("");
   const [price, setPrice] = useState("");
+  const [category, setCategory] = useState("Uncategorized");
+  const [images, setImages] = useState([]);
   const [loading, setLoading] = useState(false);
 
   const navigate = useNavigate();
 
-  // ✅ Check logged-in user
+  // ✅ Check auth
   useEffect(() => {
     const unsubscribe = onAuthStateChanged(auth, (currentUser) => {
-      if (currentUser) setUser(currentUser);
-      else navigate("/login");
+      setUser(currentUser);
+      setAuthChecked(true);
+      if (!currentUser) navigate("/login");
     });
-
     return () => unsubscribe();
   }, [navigate]);
 
-  const handleAddProduct = async (e) => {
-    e.preventDefault();
-    if (!user) return alert("User not logged in");
+  // ✅ Handle file selection
+  const handleFileChange = (e) => {
+    const files = Array.from(e.target.files);
+    const urls = files.map(f => URL.createObjectURL(f));
+    setImages(urls);
+  };
 
-    if (!name || !description || !price) return alert("All fields are required");
+  // ✅ Submit product
+  const handleSubmit = async (e) => {
+    e.preventDefault();
+    if (!user) return;
+
+    if (!title || !price) {
+      alert("Title and price are required.");
+      return;
+    }
 
     setLoading(true);
     try {
-      await axios.post(`${process.env.REACT_APP_API_URL}/api/mart-products`, {
-        name,
+      const newProduct = {
+        sellerId: user.uid,
+        sellerName: user.displayName || "Unknown Seller",
+        userEmail: user.email,
+        title,
         description,
-        price,
-        userId: user.uid,
-        userEmail: user.email
-      });
+        category,
+        price: Number(price),
+        images
+      };
 
-      alert("✅ Product added");
-      navigate("/minimart", { state: { refresh: true } }); // refresh MiniMart
+      await axios.post(`${process.env.REACT_APP_API_URL}/api/mart-products`, newProduct);
+
+      alert("Product added successfully!");
+      navigate("/minimart", { state: { refresh: true } });
     } catch (err) {
-      console.error(err);
-      alert("❌ Failed to add product");
+      console.error("Failed to add product:", err);
+      alert("Failed to add product. Check console for details.");
     } finally {
       setLoading(false);
     }
   };
 
+  if (!authChecked) return <p>Checking authentication...</p>;
+
   return (
-    <div style={{ padding: 20, fontFamily: "Segoe UI, sans-serif", maxWidth: 500, margin: "0 auto" }}>
+    <div style={{ padding: 20, maxWidth: 600, margin: "0 auto", fontFamily: "Segoe UI, sans-serif" }}>
       <h1>Add MiniMart Product</h1>
-      <form onSubmit={handleAddProduct} style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+      <form onSubmit={handleSubmit} style={{ display: "flex", flexDirection: "column", gap: 15 }}>
         <input
           type="text"
-          placeholder="Product Name"
-          value={name}
-          onChange={e => setName(e.target.value)}
-          required
+          placeholder="Product Title"
+          value={title}
+          onChange={(e) => setTitle(e.target.value)}
           style={inputStyle}
         />
         <textarea
-          placeholder="Description"
+          placeholder="Product Description"
           value={description}
-          onChange={e => setDescription(e.target.value)}
-          required
-          style={{ ...inputStyle, height: 80 }}
+          onChange={(e) => setDescription(e.target.value)}
+          style={{ ...inputStyle, height: 100 }}
         />
         <input
           type="number"
-          placeholder="Price"
+          placeholder="Price (₦)"
           value={price}
-          onChange={e => setPrice(e.target.value)}
-          required
+          onChange={(e) => setPrice(e.target.value)}
           style={inputStyle}
         />
-        <button type="submit" disabled={loading} style={buttonStyle}>
+        <input
+          type="text"
+          placeholder="Category (optional)"
+          value={category}
+          onChange={(e) => setCategory(e.target.value)}
+          style={inputStyle}
+        />
+        <input
+          type="file"
+          multiple
+          accept="image/*"
+          onChange={handleFileChange}
+          style={inputStyle}
+        />
+
+        {images.length > 0 && (
+          <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
+            {images.map((img, i) => (
+              <img key={i} src={img} alt="" style={{ width: 80, height: 80, objectFit: "cover", borderRadius: 6 }} />
+            ))}
+          </div>
+        )}
+
+        <button type="submit" style={buttonStyle} disabled={loading}>
           {loading ? "Adding..." : "Add Product"}
         </button>
       </form>
@@ -88,15 +130,15 @@ const inputStyle = {
   padding: 10,
   borderRadius: 6,
   border: "1px solid #ccc",
-  fontSize: 16
+  fontSize: 14
 };
 
 const buttonStyle = {
-  padding: 12,
+  padding: "10px 15px",
   background: "#4da6ff",
   color: "#fff",
-  fontWeight: 600,
   border: "none",
   borderRadius: 6,
-  cursor: "pointer"
+  cursor: "pointer",
+  fontWeight: 600
 };
