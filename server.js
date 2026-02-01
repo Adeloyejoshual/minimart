@@ -7,6 +7,7 @@ const { MongoClient, ObjectId } = require("mongodb");
 const http = require("http");
 const { Server } = require("socket.io");
 
+// Routes
 const locationsRouter = require("./api/locations");
 const martProductRoutes = require("./routes/martProducts");
 
@@ -23,17 +24,32 @@ app.use(express.json());
 app.use("/api/paystack/webhook", express.raw({ type: "application/json" }));
 
 /* -------------------- MongoDB -------------------- */
-const client = new MongoClient(process.env.MONGODB_URI);
+const client = new MongoClient(process.env.REACT_APP_MONGODB_URI || process.env.MONGODB_URI);
 let db;
 
 async function connectDB() {
   try {
     await client.connect();
-    db = client.db(process.env.DB_NAME || "martDB");
+
+    // Extract database name from URI
+    const uriDbName = client.s.options.dbName; // MongoClient automatically parses db name from URI
+    db = client.db(uriDbName);
 
     app.locals.db = db; // make db available in routes
 
-    console.log("✅ Connected to MongoDB");
+    console.log(`✅ Connected to MongoDB database: ${uriDbName}`);
+
+    // Optional: create default collections if they don't exist
+    const collections = await db.listCollections().toArray();
+    const existing = collections.map(c => c.name);
+
+    ["users", "products", "cart", "admins", "wallets"].forEach(async (name) => {
+      if (!existing.includes(name)) {
+        await db.createCollection(name);
+        console.log(`🗂 Created collection: ${name}`);
+      }
+    });
+
   } catch (err) {
     console.error("❌ MongoDB connection failed:", err);
   }
