@@ -1,10 +1,10 @@
 import React, { useEffect, useState } from "react";
-import { useNavigate, useLocation } from "react-router-dom";
+import { useNavigate } from "react-router-dom";
 import axios from "axios";
 import { auth } from "../firebase";
 import { onAuthStateChanged } from "firebase/auth";
 
-export default function MiniMart() {
+export default function MiniMartPage() {
   const [user, setUser] = useState(null);
   const [authChecked, setAuthChecked] = useState(false);
   const [allProducts, setAllProducts] = useState([]);
@@ -13,20 +13,18 @@ export default function MiniMart() {
   const [loading, setLoading] = useState(false);
 
   const navigate = useNavigate();
-  const location = useLocation();
 
-  // ✅ Check logged-in user
+  // ✅ Auth Check
   useEffect(() => {
     const unsubscribe = onAuthStateChanged(auth, (currentUser) => {
       setUser(currentUser);
       setAuthChecked(true);
       if (!currentUser) navigate("/login");
     });
-
     return () => unsubscribe();
   }, [navigate]);
 
-  // ✅ Load products from backend
+  // ✅ Load products
   const loadProducts = async () => {
     if (!user) return;
     setLoading(true);
@@ -35,7 +33,7 @@ export default function MiniMart() {
       const products = res.data || [];
       setAllProducts(products);
 
-      const mine = products.filter(p => p.userId === user.uid);
+      const mine = products.filter(p => p.sellerId === user.uid);
       setMyProducts(mine);
     } catch (err) {
       console.error("Failed to load products:", err);
@@ -48,15 +46,12 @@ export default function MiniMart() {
     if (user) loadProducts();
   }, [user]);
 
-  // ✅ Refresh after adding a product
+  // ✅ Refresh after adding
   useEffect(() => {
-    if (location.state?.refresh) {
-      loadProducts();
-      window.history.replaceState({}, document.title); // clear refresh flag
-    }
-  }, [location.state]);
+    loadProducts();
+  }, []);
 
-  if (!authChecked) return <p>Checking authentication...</p>; // wait for auth check
+  if (!authChecked) return <p>Checking authentication...</p>;
 
   const displayedProducts = showMyProducts ? myProducts : allProducts;
 
@@ -66,10 +61,7 @@ export default function MiniMart() {
 
       {/* Buttons */}
       <div style={{ marginBottom: 20, display: "flex", gap: 10 }}>
-        <button
-          style={buttonStyle}
-          onClick={() => navigate("/mart-product")}
-        >
+        <button style={buttonStyle} onClick={() => navigate("/mart-product")}>
           + Add Product
         </button>
         <button
@@ -88,10 +80,10 @@ export default function MiniMart() {
         <ul style={{ listStyle: "none", padding: 0 }}>
           {displayedProducts.map(p => (
             <li key={p._id} style={productCardStyle}>
-              <h3>{p.name}</h3>
+              <h3>{p.title}</h3>
               <p>{p.description}</p>
-              <p><b>₦{p.price}</b></p>
-              <small>Seller: {p.userEmail || "Unknown"}</small>
+              <p><b>₦{Number(p.price).toLocaleString()}</b></p>
+              <small>Seller: {p.sellerName || "Unknown"}</small>
             </li>
           ))}
         </ul>
