@@ -1,9 +1,6 @@
-// src/pages/MiniMart.jsx
 import React, { useEffect, useState } from "react";
 import { useNavigate, useLocation } from "react-router-dom";
 import axios from "axios";
-import { auth } from "../firebase";
-import { onAuthStateChanged } from "firebase/auth";
 
 export default function MiniMartPage() {
   const [user, setUser] = useState(null);
@@ -16,26 +13,34 @@ export default function MiniMartPage() {
   const navigate = useNavigate();
   const location = useLocation();
 
+  const token = localStorage.getItem("token");
+
   // ✅ Check logged-in user
   useEffect(() => {
-    const unsubscribe = onAuthStateChanged(auth, (currentUser) => {
-      setUser(currentUser);
-      setAuthChecked(true);
-      if (!currentUser) navigate("/login");
-    });
-    return () => unsubscribe();
-  }, [navigate]);
+    const checkUser = async () => {
+      if (!token) return navigate("/login");
 
-  // ✅ Load products from backend
+      try {
+        const res = await axios.get(`${process.env.REACT_APP_API_URL}/api/auth/me`, {
+          headers: { Authorization: `Bearer ${token}` }
+        });
+        setUser(res);
+      } catch {
+        navigate("/login");
+      } finally {
+        setAuthChecked(true);
+      }
+    };
+    checkUser();
+  }, [navigate, token]);
+
+  // ✅ Load products
   const loadProducts = async () => {
-    if (!user) return;
     setLoading(true);
     try {
       const res = await axios.get(`${process.env.REACT_APP_API_URL}/api/mart-products`);
-      const products = res.data || [];
-      setAllProducts(products);
-
-      const mine = products.filter(p => p.sellerId === user.uid);
+      setAllProducts(res.data);
+      const mine = res.data.filter(p => p.sellerId === user?.id);
       setMyProducts(mine);
     } catch (err) {
       console.error("Failed to load products:", err);
@@ -44,95 +49,48 @@ export default function MiniMartPage() {
     }
   };
 
-  // Load products on mount and after login
-  useEffect(() => {
-    if (user) loadProducts();
-  }, [user]);
-
-  // Refresh after adding a product
+  useEffect(() => { if (user) loadProducts(); }, [user]);
   useEffect(() => {
     if (location.state?.refresh) {
       loadProducts();
-      window.history.replaceState({}, document.title); // clear refresh flag
+      window.history.replaceState({}, document.title);
     }
   }, [location.state]);
 
-  if (!authChecked) return <p>Checking authentication...</p>; // wait for auth check
+  if (!authChecked) return <p>Checking authentication...</p>;
 
   const displayedProducts = showMyProducts ? myProducts : allProducts;
 
   return (
-    <div style={{ padding: 20, fontFamily: "Segoe UI, sans-serif", maxWidth: 1000, margin: "0 auto" }}>
+    <div style={{ padding: 20, maxWidth: 1000, margin: "0 auto" }}>
       <h1>MiniMart</h1>
-
-      {/* Buttons */}
       <div style={{ marginBottom: 20, display: "flex", gap: 10 }}>
-        <button
-          style={buttonStyle}
-          onClick={() => navigate("/mart-product")}
-        >
-          + Add Product
-        </button>
-        <button
-          style={{ ...buttonStyle, background: showMyProducts ? "#198754" : "#4da6ff" }}
-          onClick={() => setShowMyProducts(prev => !prev)}
-        >
+        <button style={buttonStyle} onClick={() => navigate("/mart-product")}>+ Add Product</button>
+        <button style={{ ...buttonStyle, background: showMyProducts ? "#198754" : "#4da6ff" }}
+          onClick={() => setShowMyProducts(prev => !prev)}>
           {showMyProducts ? "Show All Products" : "Show My Products"}
         </button>
       </div>
 
-      {/* Products */}
-      {loading ? (
-        <p>Loading products...</p>
-      ) : displayedProducts.length === 0 ? (
-        <p>No products found.</p>
-      ) : (
+      {loading ? <p>Loading...</p> :
+        displayedProducts.length === 0 ? <p>No products found.</p> :
         <div style={gridStyle}>
           {displayedProducts.map(p => (
             <div key={p._id} style={productCardStyle} onClick={() => navigate(`/product/${p._id}`)}>
               <img src={p.images?.[0] || "/placeholder.png"} alt={p.title} style={productImageStyle} />
-              <h3 style={{ margin: "10px 0 5px" }}>{p.title}</h3>
-              <p style={{ fontSize: 14, color: "#555" }}>{p.description}</p>
-              <p style={{ fontWeight: "bold", color: "#198754", marginTop: 5 }}>₦{Number(p.price).toLocaleString()}</p>
+              <h3>{p.title}</h3>
+              <p>{p.description}</p>
+              <p>₦{Number(p.price).toLocaleString()}</p>
               <small>Seller: {p.sellerName || "Unknown"}</small>
             </div>
           ))}
         </div>
-      )}
+      }
     </div>
   );
 }
 
-// ====== Styles ======
-const buttonStyle = {
-  padding: "10px 15px",
-  background: "#4da6ff",
-  color: "#fff",
-  border: "none",
-  borderRadius: 6,
-  cursor: "pointer",
-  fontWeight: 600
-};
-
-const gridStyle = {
-  display: "grid",
-  gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))",
-  gap: 15
-};
-
-const productCardStyle = {
-  background: "#fff",
-  borderRadius: 8,
-  boxShadow: "0 2px 6px rgba(0,0,0,0.05)",
-  padding: 10,
-  cursor: "pointer",
-  display: "flex",
-  flexDirection: "column"
-};
-
-const productImageStyle = {
-  width: "100%",
-  height: 160,
-  objectFit: "cover",
-  borderRadius: 6
-};
+const buttonStyle = { padding: "10px 15px", color: "#fff", border: "none", borderRadius: 6, cursor: "pointer" };
+const gridStyle = { display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))", gap: 15 };
+const productCardStyle = { background: "#fff", borderRadius: 8, padding: 10, cursor: "pointer", display: "flex", flexDirection: "column" };
+const productImageStyle = { width: "100%", height: 160, objectFit: "cover", borderRadius: 6 };
