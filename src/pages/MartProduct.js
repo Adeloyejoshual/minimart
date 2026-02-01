@@ -1,8 +1,6 @@
 import React, { useState, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
 import axios from "axios";
-import { auth } from "../firebase";
-import { onAuthStateChanged } from "firebase/auth";
 
 export default function MartProductPage() {
   const [user, setUser] = useState(null);
@@ -16,21 +14,34 @@ export default function MartProductPage() {
   const [loading, setLoading] = useState(false);
 
   const navigate = useNavigate();
+  const token = localStorage.getItem("token"); // JWT token stored in localStorage
 
-  // ✅ Check auth
+  // ✅ Check logged-in user via JWT
   useEffect(() => {
-    const unsubscribe = onAuthStateChanged(auth, (currentUser) => {
-      setUser(currentUser);
-      setAuthChecked(true);
-      if (!currentUser) navigate("/login");
-    });
-    return () => unsubscribe();
-  }, [navigate]);
+    const checkUser = async () => {
+      if (!token) {
+        navigate("/login");
+        return;
+      }
+
+      try {
+        const res = await axios.get(`${process.env.REACT_APP_API_URL}/api/auth/me`, {
+          headers: { Authorization: `Bearer ${token}` },
+        });
+        setUser(res.data);
+      } catch {
+        navigate("/login");
+      } finally {
+        setAuthChecked(true);
+      }
+    };
+    checkUser();
+  }, [navigate, token]);
 
   // ✅ Handle file selection
   const handleFileChange = (e) => {
     const files = Array.from(e.target.files);
-    const urls = files.map(f => URL.createObjectURL(f));
+    const urls = files.map((f) => URL.createObjectURL(f));
     setImages(urls);
   };
 
@@ -47,17 +58,19 @@ export default function MartProductPage() {
     setLoading(true);
     try {
       const newProduct = {
-        sellerId: user.uid,
-        sellerName: user.displayName || "Unknown Seller",
+        sellerId: user.id,
+        sellerName: user.name || "Unknown Seller",
         userEmail: user.email,
         title,
         description,
         category,
         price: Number(price),
-        images
+        images,
       };
 
-      await axios.post(`${process.env.REACT_APP_API_URL}/api/mart-products`, newProduct);
+      await axios.post(`${process.env.REACT_APP_API_URL}/api/mart-products`, newProduct, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
 
       alert("Product added successfully!");
       navigate("/minimart", { state: { refresh: true } });
@@ -102,13 +115,7 @@ export default function MartProductPage() {
           onChange={(e) => setCategory(e.target.value)}
           style={inputStyle}
         />
-        <input
-          type="file"
-          multiple
-          accept="image/*"
-          onChange={handleFileChange}
-          style={inputStyle}
-        />
+        <input type="file" multiple accept="image/*" onChange={handleFileChange} style={inputStyle} />
 
         {images.length > 0 && (
           <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
@@ -130,7 +137,7 @@ const inputStyle = {
   padding: 10,
   borderRadius: 6,
   border: "1px solid #ccc",
-  fontSize: 14
+  fontSize: 14,
 };
 
 const buttonStyle = {
@@ -140,5 +147,5 @@ const buttonStyle = {
   border: "none",
   borderRadius: 6,
   cursor: "pointer",
-  fontWeight: 600
+  fontWeight: 600,
 };
