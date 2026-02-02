@@ -11,7 +11,9 @@ const PORT = process.env.PORT || 3000;
 
 // HTTP + Socket.IO
 const server = http.createServer(app);
-const io = new Server(server, { cors: { origin: "*" } });
+const io = new Server(server, {
+  cors: { origin: "*" },
+});
 
 // Middleware
 app.use(cors());
@@ -19,11 +21,14 @@ app.use(express.json());
 app.use("/api/paystack/webhook", express.raw({ type: "application/json" }));
 
 // -------------------- Socket.IO --------------------
+// Real-time updates for cart, wallet, and KYC
 io.on("connection", (socket) => {
   console.log("🔌 Client connected:", socket.id);
 
+  // Join a room (per-user)
   socket.on("joinRoom", (userId) => socket.join(userId));
 
+  // Receive events from client
   socket.on("cartUpdated", ({ userId, items }) => {
     io.to(userId).emit("cartUpdated", { userId, items });
   });
@@ -45,11 +50,9 @@ app.post("/api/paystack/webhook", (req, res) => {
   if (hash !== req.headers["x-paystack-signature"]) return res.status(400).send("Invalid signature");
 
   const event = JSON.parse(req.body);
+  const { metadata } = event.data;
 
   if (event.event === "charge.success") {
-    const { metadata } = event.data;
-
-    // Emit cart or wallet updates via Socket.IO if needed
     if (metadata?.userId && metadata?.walletAmount) {
       io.to(metadata.userId).emit("walletUpdated", { balance: metadata.walletAmount });
     }
@@ -58,7 +61,7 @@ app.post("/api/paystack/webhook", (req, res) => {
   res.sendStatus(200);
 });
 
-// -------------------- Serve React Build --------------------
+// -------------------- Serve React SPA --------------------
 app.use(express.static(path.join(__dirname, "../build")));
 app.get("*", (req, res) => res.sendFile(path.join(__dirname, "../build", "index.html")));
 
