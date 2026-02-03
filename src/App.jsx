@@ -1,7 +1,7 @@
 import { BrowserRouter, Routes, Route } from "react-router-dom";
 import HomePage from "./pages/HomePage.jsx";
 
-import MiniMartProductDetailsPage from "./pages/minimart/MiniMartProductDetailsPage.jsx";
+import ProductDetail from "./pages/MiniMart/ProductDetail.jsx";
 import MiniMartCartPage from "./pages/minimart/MiniMartCartPage.jsx";
 import MiniMartCheckoutPage from "./pages/minimart/MiniMartCheckoutPage.jsx";
 import MiniMartOrderTrackingPage from "./pages/minimart/MiniMartOrderTrackingPage.jsx";
@@ -16,7 +16,7 @@ function App() {
       <Routes>
         <Route path="/" element={<HomePage />} />
 
-        <Route path="/minimart/product/:id" element={<MiniMartProductDetailsPage />} />
+        <Route path="/minimart/product/:id" element={<ProductDetail />} />
         <Route path="/minimart/cart" element={<MiniMartCartPage />} />
         <Route path="/minimart/checkout" element={<MiniMartCheckoutPage />} />
         <Route path="/minimart/order/:id" element={<MiniMartOrderTrackingPage />} />
