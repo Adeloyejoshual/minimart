@@ -3,7 +3,7 @@ import react from "@vitejs/plugin-react";
 import path from "path";
 
 export default ({ mode }) => {
-  const env = loadEnv(mode, process.cwd(), "");
+  const env = loadEnv(mode, process.cwd(), "VITE_");
 
   return defineConfig({
     plugins: [react()],
@@ -20,9 +20,6 @@ export default ({ mode }) => {
     build: {
       outDir: "build",
       sourcemap: true,
-      rollupOptions: {
-        input: path.resolve(__dirname, "public/index.html"),
-      },
     },
     define: {
       "process.env": env,
