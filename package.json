@@ -1,61 +1,24 @@
 {
-  "name": "minimart",
+  "name": "minimart-marketplace",
   "version": "1.0.0",
   "private": true,
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "preview": "vite preview",
+    "lint": "eslint src --ext .js,.jsx,.ts,.tsx"
+  },
   "dependencies": {
-    "@emotion/react": "^11.11.4",
-    "@emotion/styled": "^11.11.4",
-    "@mui/icons-material": "^5.15.15",
-    "@mui/material": "^5.15.15",
-    "axios": "^1.5.0",
-    "browser-image-compression": "^2.0.1",
-    "cors": "^2.8.5",
-    "dotenv": "^16.3.1",
-    "express": "^4.18.2",
-    "firebase": "^10.4.0",
-    "mongoose": "^7.5.0",
+    "@auth0/auth0-react": "^2.0.0",
+    "axios": "^1.6.0",
     "react": "^18.2.0",
     "react-dom": "^18.2.0",
-    "react-firebase-hooks": "^5.0.4",
-    "react-icons": "^4.11.0",
-    "react-router-dom": "^6.15.0",
-    "react-scripts": "5.0.1",
-    "react-swipeable": "^7.0.2",
-    "socket.io": "^4.7.2",
-    "socket.io-client": "^4.7.2",
-    "web-vitals": "^3.3.1",
-    "chart.js": "^4.4.0",
-    "react-chartjs-2": "^5.2.0",
-    "papaparse": "^5.4.1"
+    "react-router-dom": "^6.14.1",
+    "stream-chat": "^7.0.0",
+    "stream-chat-react": "^8.0.0"
   },
   "devDependencies": {
-    "concurrently": "^8.2.0",
-    "nodemon": "^3.0.2"
-  },
-  "scripts": {
-    "start": "react-scripts start",
-    "build": "react-scripts build",
-    "serve": "nodemon server/server.js",
-    "dev": "concurrently \"npm run start\" \"npm run serve\"",
-    "test": "react-scripts test",
-    "eject": "react-scripts eject"
-  },
-  "eslintConfig": {
-    "extends": [
-      "react-app",
-      "react-app/jest"
-    ]
-  },
-  "browserslist": {
-    "production": [
-      ">0.2%",
-      "not dead",
-      "not op_mini all"
-    ],
-    "development": [
-      "last 1 chrome version",
-      "last 1 firefox version",
-      "last 1 safari version"
-    ]
+    "@vitejs/plugin-react": "^4.0.0",
+    "vite": "^4.5.0"
   }
 }
