@@ -1,29 +1,31 @@
+// src/pages/LoginPage.jsx
+import React from "react";
 import { useAuth0 } from "@auth0/auth0-react";
 
-function Login() {
-  const { loginWithRedirect, isAuthenticated, user } = useAuth0();
+const LoginPage = () => {
+  const { loginWithRedirect, logout, user, isAuthenticated, isLoading } = useAuth0();
+
+  if (isLoading) return <div>Loading...</div>;
 
   return (
-    <div style={{ maxWidth: "400px", margin: "50px auto", textAlign: "center" }}>
-      <h2>Login</h2>
-
+    <div style={{ textAlign: "center", marginTop: "50px" }}>
       {!isAuthenticated ? (
         <>
-          <p>Please login to continue</p>
-          <button
-            onClick={() => loginWithRedirect()}
-            style={{ padding: "8px 16px", cursor: "pointer" }}
-          >
-            Login with Auth0
+          <button onClick={() => loginWithRedirect()}>Login</button>
+          <button onClick={() => loginWithRedirect({ screen_hint: "signup" })}>
+            Register
           </button>
         </>
       ) : (
         <div>
-          <p>Welcome, {user.name || user.email}!</p>
+          <p>Welcome, {user.name || user.email}</p>
+          <button onClick={() => logout({ returnTo: window.location.origin })}>
+            Logout
+          </button>
         </div>
       )}
     </div>
   );
-}
+};
 
-export default Login;
+export default LoginPage;
