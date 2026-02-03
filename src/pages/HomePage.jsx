@@ -1,15 +1,20 @@
-import HeaderNavigation from "../components/layout/HeaderNavigation.jsx";
-import FooterSection from "../components/layout/FooterSection.jsx";
-import ProductGridList from "../components/product/ProductGridList.jsx";
+import React from "react";
+import { Link } from "react-router-dom";
 
-const HomePage = () => {
+export default function HomePage() {
   return (
-    <>
-      <HeaderNavigation />
-      <ProductGridList />
-      <FooterSection />
-    </>
-  );
-};
+    <div style={{ padding: "2rem", textAlign: "center" }}>
+      <h1>Welcome to MiniMart Marketplace</h1>
+      <p>This is the public homepage. Anyone can see this.</p>
 
-export default HomePage;
+      <div style={{ marginTop: "2rem" }}>
+        <Link to="/login" style={{ marginRight: "1rem" }}>Login</Link>
+        <Link to="/register">Register</Link>
+      </div>
+
+      <div style={{ marginTop: "2rem" }}>
+        <Link to="/minimart/cart">Go to MiniMart Cart (Protected)</Link>
+      </div>
+    </div>
+  );
+}
