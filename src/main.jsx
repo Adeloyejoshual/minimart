@@ -1,20 +1,18 @@
-// src/main.jsx
 import React from "react";
 import ReactDOM from "react-dom/client";
-import App from "./App.jsx";
-import { Auth0Provider } from "@auth0/auth0-react";
+import { BrowserRouter } from "react-router-dom";
 
-const domain = import.meta.env.VITE_AUTH0_DOMAIN;
-const clientId = import.meta.env.VITE_AUTH0_CLIENT_ID;
+import App from "./App.jsx";
+import Auth0ProviderWithRedirect from "./configuration/Auth0ProviderWithRedirect.jsx";
+
+import "./styles/globalStyles.css";
 
 ReactDOM.createRoot(document.getElementById("root")).render(
   <React.StrictMode>
-    <Auth0Provider
-      domain={domain}
-      clientId={clientId}
-      authorizationParams={{ redirect_uri: window.location.origin }}
-    >
-      <App />
-    </Auth0Provider>
+    <BrowserRouter>
+      <Auth0ProviderWithRedirect>
+        <App />
+      </Auth0ProviderWithRedirect>
+    </BrowserRouter>
   </React.StrictMode>
 );
