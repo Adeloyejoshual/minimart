@@ -1,123 +1,93 @@
-import React, { useState } from "react";
+import React, { useEffect, useState } from "react";
+import AddProduct from "./marketplace/AddProduct.jsx";
 import { useNavigate } from "react-router-dom";
+import "../styles/homepage.css";
 
-function AddProduct() {
+function HomePage() {
   const navigate = useNavigate();
-  const [title, setTitle] = useState("");
-  const [description, setDescription] = useState("");
-  const [price, setPrice] = useState("");
-  const [location, setLocation] = useState("");
-  const [category, setCategory] = useState("Electronics");
-  const [images, setImages] = useState([]);
-  const [loading, setLoading] = useState(false);
+  const [products, setProducts] = useState([]);
+  const [selectedCategory, setSelectedCategory] = useState("All");
 
-  const categories = ["Electronics", "Fashion", "Home", "Phones", "Beauty"];
+  const categories = ["All", "Electronics", "Fashion", "Home", "Phones", "Beauty"];
 
-  const handleImageChange = (e) => {
-    setImages([...e.target.files]);
-  };
+  useEffect(() => {
+    fetchProducts();
+  }, []);
 
-  const handleSubmit = async (e) => {
-    e.preventDefault();
-    if (!title || !price || images.length === 0) {
-      alert("Title, price, and at least one image are required");
-      return;
-    }
-
-    setLoading(true);
-
+  const fetchProducts = async () => {
     try {
-      // Upload images to Cloudinary
-      const uploadedImages = [];
-      for (const img of images) {
-        const formData = new FormData();
-        formData.append("file", img);
-        formData.append(
-          "upload_preset",
-          import.meta.env.VITE_REACT_APP_CLOUDINARY_UPLOAD_PRESET
-        );
-
-        const res = await fetch(
-          `https://api.cloudinary.com/v1_1/${import.meta.env.VITE_REACT_APP_CLOUDINARY_CLOUD_NAME}/image/upload`,
-          {
-            method: "POST",
-            body: formData,
-          }
-        );
-        const data = await res.json();
-        uploadedImages.push(data.secure_url);
-      }
-
-      // Save product to API
-      const res = await fetch(
-        `${import.meta.env.VITE_API_BASE_URL}/api/marketplace/listings`,
-        {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            title,
-            description,
-            price: Number(price),
-            location,
-            category,
-            images: uploadedImages,
-          }),
-        }
-      );
-
-      if (!res.ok) throw new Error("Failed to add product");
-
-      alert("Product added successfully!");
-      navigate("/");
+      const res = await fetch(`${import.meta.env.VITE_API_BASE_URL}/api/marketplace/listings`);
+      const data = await res.json();
+      setProducts(data);
     } catch (err) {
-      console.error(err);
-      alert("Something went wrong while adding your product.");
-    } finally {
-      setLoading(false);
+      console.error("Failed to fetch listings", err);
     }
   };
+
+  // Filter products by category
+  const filteredProducts =
+    selectedCategory === "All"
+      ? products
+      : products.filter((p) => p.category === selectedCategory);
 
   return (
-    <div className="section" style={{ maxWidth: "600px", margin: "50px auto" }}>
-      <h2 className="section-title">Add New Product</h2>
-      <form onSubmit={handleSubmit} style={{ display: "flex", flexDirection: "column", gap: "16px" }}>
-        <input
-          type="text"
-          placeholder="Product Title"
-          value={title}
-          onChange={(e) => setTitle(e.target.value)}
-          required
-        />
-        <textarea
-          placeholder="Product Description"
-          value={description}
-          onChange={(e) => setDescription(e.target.value)}
-        />
-        <input
-          type="number"
-          placeholder="Price"
-          value={price}
-          onChange={(e) => setPrice(e.target.value)}
-          required
-        />
-        <input
-          type="text"
-          placeholder="Location"
-          value={location}
-          onChange={(e) => setLocation(e.target.value)}
-        />
-        <select value={category} onChange={(e) => setCategory(e.target.value)}>
+    <div className="homepage">
+      <div className="section">
+        {/* ================= SEARCH ================= */}
+        <div className="search-area">
+          <input
+            type="text"
+            placeholder="Search for products..."
+            className="search-input"
+          />
+        </div>
+
+        {/* ================= CATEGORY FILTER ================= */}
+        <div className="category-grid">
           {categories.map((cat) => (
-            <option key={cat} value={cat}>{cat}</option>
+            <div
+              key={cat}
+              className={`category-btn ${selectedCategory === cat ? "active" : ""}`}
+              onClick={() => setSelectedCategory(cat)}
+            >
+              {cat}
+            </div>
           ))}
-        </select>
-        <input type="file" multiple onChange={handleImageChange} />
-        <button type="submit" disabled={loading}>
-          {loading ? "Uploading..." : "Add Product"}
-        </button>
-      </form>
+        </div>
+
+        {/* ================= ADD PRODUCT FORM ================= */}
+        <h2 className="section-title">Add New Product</h2>
+        <AddProduct />
+
+        {/* ================= PRODUCT GRID ================= */}
+        <h2 className="section-title">Latest Listings</h2>
+        <div className="product-grid">
+          {filteredProducts.map((product) => (
+            <div
+              key={product._id}
+              className="product-card"
+              onClick={() => navigate(`/marketplace/listing/${product._id}`)}
+            >
+              {product.isPromoted && <div className="badge-promo">PROMOTED</div>}
+              {product.isProSeller && <div className="badge-pro">PRO SELLER</div>}
+
+              <img
+                src={product.images?.[0] || "https://via.placeholder.com/400x300"}
+                alt={product.title}
+                className="product-img"
+              />
+
+              <h3 className="product-title">{product.title}</h3>
+              <p className="product-location">{product.location}</p>
+              <p className="product-price">₦{product.price?.toLocaleString()}</p>
+            </div>
+          ))}
+        </div>
+
+        <button className="load-more-btn">Load More Products</button>
+      </div>
     </div>
   );
 }
 
-export default AddProduct;
+export default HomePage;
