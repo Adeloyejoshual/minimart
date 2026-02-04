@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
-import io from "socket.io-client";
+import { io } from "socket.io-client";
 import "../styles/homepage.css";
 
 const socket = io(import.meta.env.VITE_API_BASE_URL || "http://localhost:3000");
@@ -15,21 +15,16 @@ function HomePage() {
   useEffect(() => {
     fetchProducts();
 
-    // Listen for real-time new product events
-    socket.on("newListing", (newProduct) => {
-      setProducts((prev) => [newProduct, ...prev]);
+    socket.on("listingAdded", (listing) => {
+      setProducts((prev) => [listing, ...prev]);
     });
 
-    return () => {
-      socket.off("newListing");
-    };
+    return () => socket.off("listingAdded");
   }, []);
 
   const fetchProducts = async () => {
     try {
-      const res = await fetch(
-        `${import.meta.env.VITE_API_BASE_URL}/api/marketplace/listings`
-      );
+      const res = await fetch(`${import.meta.env.VITE_API_BASE_URL}/api/marketplace/listings`);
       const data = await res.json();
       setProducts(data);
     } catch (err) {
@@ -37,27 +32,19 @@ function HomePage() {
     }
   };
 
-  const filteredProducts =
-    selectedCategory === "All"
-      ? products
-      : products.filter((p) => p.category === selectedCategory);
-
   return (
     <div className="homepage">
       <div className="section">
-        {/* Hero + Add Product */}
-        <div className="hero-section">
-          <h1>Welcome to MiniMart Marketplace</h1>
-          <p>Buy and sell products seamlessly in real time</p>
+        <div className="search-area">
+          <input type="text" placeholder="Search for products..." className="search-input" />
           <button
-            className="btn-add-product"
+            className="load-more-btn"
             onClick={() => navigate("/marketplace/addproduct")}
           >
-            + Add Product
+            Add Product
           </button>
         </div>
 
-        {/* Category Filter */}
         <div className="category-grid">
           {categories.map((cat) => (
             <div
@@ -70,29 +57,31 @@ function HomePage() {
           ))}
         </div>
 
-        {/* Latest Listings */}
         <h2 className="section-title">Latest Listings</h2>
+
         <div className="product-grid">
-          {filteredProducts.map((product) => (
-            <div
-              key={product._id}
-              className="product-card"
-              onClick={() => navigate(`/marketplace/listing/${product._id}`)}
-            >
-              {product.isPromoted && <div className="badge-promo">PROMOTED</div>}
-              {product.isProSeller && <div className="badge-pro">PRO SELLER</div>}
+          {products
+            .filter((p) => selectedCategory === "All" || p.category === selectedCategory)
+            .map((product) => (
+              <div
+                key={product._id}
+                className="product-card"
+                onClick={() => navigate(`/marketplace/listing/${product._id}`)}
+              >
+                {product.isPromoted && <div className="badge-promo">PROMOTED</div>}
+                {product.isProSeller && <div className="badge-pro">PRO SELLER</div>}
 
-              <img
-                src={product.images?.[0] || "https://via.placeholder.com/400x300"}
-                alt={product.title}
-                className="product-img"
-              />
+                <img
+                  src={product.images?.[0] || "https://via.placeholder.com/400x300"}
+                  alt={product.title}
+                  className="product-img"
+                />
 
-              <h3 className="product-title">{product.title}</h3>
-              <p className="product-location">{product.location}</p>
-              <p className="product-price">₦{product.price?.toLocaleString()}</p>
-            </div>
-          ))}
+                <h3 className="product-title">{product.title}</h3>
+                <p className="product-location">{product.location}</p>
+                <p className="product-price">₦{product.price?.toLocaleString()}</p>
+              </div>
+            ))}
         </div>
       </div>
     </div>
