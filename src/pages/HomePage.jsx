@@ -1,20 +1,26 @@
 import React from "react";
-import { Link } from "react-router-dom";
+import { useAuth0 } from "@auth0/auth0-react";
+import { useNavigate } from "react-router-dom";
 
 export default function HomePage() {
+  const { user, logout } = useAuth0();
+  const navigate = useNavigate();
+
   return (
-    <div style={{ padding: "2rem", textAlign: "center" }}>
+    <div>
       <h1>Welcome to MiniMart Marketplace</h1>
-      <p>This is the public homepage. Anyone can see this.</p>
 
-      <div style={{ marginTop: "2rem" }}>
-        <Link to="/login" style={{ marginRight: "1rem" }}>Login</Link>
-        <Link to="/register">Register</Link>
-      </div>
-
-      <div style={{ marginTop: "2rem" }}>
-        <Link to="/minimart/cart">Go to MiniMart Cart (Protected)</Link>
-      </div>
+      {user ? (
+        <>
+          <p>Hello, {user.name || user.email}!</p>
+          <button onClick={() => logout({ returnTo: window.location.origin })}>Log Out</button>
+        </>
+      ) : (
+        <>
+          <button onClick={() => navigate("/login")}>Log In</button>
+          <button onClick={() => navigate("/register")}>Sign Up</button>
+        </>
+      )}
     </div>
   );
 }
