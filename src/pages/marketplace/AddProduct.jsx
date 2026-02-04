@@ -1,95 +1,95 @@
 import React, { useState } from "react";
 import { useNavigate } from "react-router-dom";
-import io from "socket.io-client";
-import "../styles/addProduct.css";
+import { io } from "socket.io-client";
+import "../../styles/homepage.css"; // reuse your CSS
 
 const socket = io(import.meta.env.VITE_API_BASE_URL || "http://localhost:3000");
 
 function AddProduct() {
   const navigate = useNavigate();
-
   const [title, setTitle] = useState("");
-  const [description, setDescription] = useState("");
   const [price, setPrice] = useState("");
-  const [category, setCategory] = useState("Electronics");
   const [location, setLocation] = useState("");
-  const [images, setImages] = useState([]);
+  const [image, setImage] = useState("");
+  const [category, setCategory] = useState("Electronics");
   const [isPromoted, setIsPromoted] = useState(false);
   const [isProSeller, setIsProSeller] = useState(false);
-  const [loading, setLoading] = useState(false);
 
   const categories = ["Electronics", "Fashion", "Home", "Phones", "Beauty"];
 
-  const handleFileChange = (e) => {
-    setImages([...e.target.files]);
-  };
-
   const handleSubmit = async (e) => {
     e.preventDefault();
-    setLoading(true);
-
-    const formData = new FormData();
-    formData.append("title", title);
-    formData.append("description", description);
-    formData.append("price", price);
-    formData.append("category", category);
-    formData.append("location", location);
-    formData.append("isPromoted", isPromoted);
-    formData.append("isProSeller", isProSeller);
-    images.forEach((img) => formData.append("images", img));
+    const product = {
+      title,
+      price: Number(price),
+      location,
+      images: [image],
+      category,
+      isPromoted,
+      isProSeller,
+    };
 
     try {
-      const res = await fetch(`${import.meta.env.VITE_API_BASE_URL}/api/marketplace/add`, {
+      const res = await fetch(`${import.meta.env.VITE_API_BASE_URL}/api/marketplace/listings`, {
         method: "POST",
-        body: formData,
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(product),
       });
 
-      if (!res.ok) throw new Error("Failed to add product");
-
-      const newProduct = await res.json();
-
-      // Emit real-time event to homepage
-      socket.emit("newListing", newProduct);
-
-      // Redirect back to homepage
-      navigate("/");
+      if (res.ok) {
+        const savedProduct = await res.json();
+        socket.emit("newListing", savedProduct); // broadcast to homepage
+        navigate("/"); // go back to homepage
+      } else {
+        console.error("Failed to add product");
+      }
     } catch (err) {
-      console.error(err);
-      alert("Failed to add product. Check console.");
-    } finally {
-      setLoading(false);
+      console.error("Error adding product:", err);
     }
   };
 
   return (
-    <div className="add-product-page">
-      <div className="section">
-        <h1 className="section-title">Add New Product</h1>
-        <form className="add-product-form" onSubmit={handleSubmit}>
+    <div className="homepage" style={{ paddingTop: "40px" }}>
+      <div className="section" style={{ maxWidth: 600, margin: "0 auto" }}>
+        <h2 className="section-title">Add New Product</h2>
+        <form
+          onSubmit={handleSubmit}
+          style={{ display: "flex", flexDirection: "column", gap: 16 }}
+        >
           <input
-            type="text"
-            placeholder="Product Title"
+            className="search-input"
+            placeholder="Title"
             value={title}
             onChange={(e) => setTitle(e.target.value)}
             required
           />
-
-          <textarea
-            placeholder="Description"
-            value={description}
-            onChange={(e) => setDescription(e.target.value)}
-            required
-          />
-
           <input
+            className="search-input"
             type="number"
-            placeholder="Price (₦)"
+            placeholder="Price"
             value={price}
             onChange={(e) => setPrice(e.target.value)}
             required
           />
+          <input
+            className="search-input"
+            placeholder="Location"
+            value={location}
+            onChange={(e) => setLocation(e.target.value)}
+            required
+          />
+          <input
+            className="search-input"
+            placeholder="Image URL"
+            value={image}
+            onChange={(e) => setImage(e.target.value)}
+          />
 
-          <select value={category} onChange={(e) => setCategory(e.target.value)}>
+          <select
+            className="search-input"
+            value={category}
+            onChange={(e) => setCategory(e.target.value)}
+          >
             {categories.map((cat) => (
               <option key={cat} value={cat}>
                 {cat}
@@ -97,38 +97,26 @@ function AddProduct() {
             ))}
           </select>
 
-          <input
-            type="text"
-            placeholder="Location"
-            value={location}
-            onChange={(e) => setLocation(e.target.value)}
-            required
-          />
+          <label>
+            <input
+              type="checkbox"
+              checked={isPromoted}
+              onChange={() => setIsPromoted(!isPromoted)}
+            />{" "}
+            Promote Product
+          </label>
 
-          <input type="file" multiple accept="image/*" onChange={handleFileChange} />
+          <label>
+            <input
+              type="checkbox"
+              checked={isProSeller}
+              onChange={() => setIsProSeller(!isProSeller)}
+            />{" "}
+            Pro Seller
+          </label>
 
-          <div className="checkbox-group">
-            <label>
-              <input
-                type="checkbox"
-                checked={isPromoted}
-                onChange={() => setIsPromoted(!isPromoted)}
-              />
-              Promote Listing
-            </label>
-
-            <label>
-              <input
-                type="checkbox"
-                checked={isProSeller}
-                onChange={() => setIsProSeller(!isProSeller)}
-              />
-              Pro Seller
-            </label>
-          </div>
-
-          <button type="submit" className="btn-submit" disabled={loading}>
-            {loading ? "Adding..." : "Add Product"}
+          <button className="load-more-btn" type="submit">
+            Submit Product
           </button>
         </form>
       </div>
