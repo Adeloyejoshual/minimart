@@ -2,11 +2,8 @@ require("dotenv").config();
 const express = require("express");
 const path = require("path");
 const cors = require("cors");
-const http = require("http");
 const mongoose = require("mongoose");
-const { Server } = require("socket.io");
 
-const socketHandlers = require("./socketHandlers");
 const paystackWebhookHandler = require("./paystackWebhook");
 
 const app = express();
@@ -18,24 +15,12 @@ mongoose
   .then(() => console.log("✅ MongoDB Connected"))
   .catch((err) => console.error("MongoDB Error:", err));
 
-/* ================= HTTP + SOCKET.IO ================= */
-const server = http.createServer(app);
-const io = new Server(server, {
-  cors: {
-    origin: "*",
-    methods: ["GET", "POST"],
-  },
-});
-
 /* ================= MIDDLEWARE ================= */
 app.use(cors());
 app.use(express.json());
 
 // Paystack needs raw body
 app.use("/api/paystack/webhook", express.raw({ type: "application/json" }));
-
-/* ================= SOCKET EVENTS ================= */
-socketHandlers(io);
 
 /* ================= ROUTES ================= */
 app.use("/api/marketplace", require("./routes/marketplaceRoutes"));
@@ -44,7 +29,7 @@ app.use("/api/users", require("./routes/userRoutes")); // optional (Auth0 sync)
 
 /* ================= PAYSTACK WEBHOOK ================= */
 app.post("/api/paystack/webhook", (req, res) =>
-  paystackWebhookHandler(req, res, io)
+  paystackWebhookHandler(req, res)
 );
 
 /* ================= SERVE FRONTEND (VITE BUILD) ================= */
@@ -57,4 +42,4 @@ app.get("*", (req, res) => {
 });
 
 /* ================= START SERVER ================= */
-server.listen(PORT, () => console.log(`🚀 Server running on port ${PORT}`));
+app.listen(PORT, () => console.log(`🚀 Server running on port ${PORT}`));
