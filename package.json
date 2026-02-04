@@ -16,7 +16,8 @@
     "@auth0/auth0-react": "^2.0.0",
     "axios": "^1.6.0",
     "stream-chat": "^8.6.0",
-    "stream-chat-react": "^10.22.3"
+    "stream-chat-react": "^10.22.3",
+    "react-icons": "^4.11.0"        // ✅ Added react-icons
   },
   "devDependencies": {
     "vite": "^4.5.0",
