@@ -17,7 +17,7 @@
     "axios": "^1.6.0",
     "stream-chat": "^8.6.0",
     "stream-chat-react": "^10.22.3",
-    "react-icons": "^4.11.0"        // ✅ Added react-icons
+    "react-icons": "^4.11.0"
   },
   "devDependencies": {
     "vite": "^4.5.0",
