@@ -1,9 +1,11 @@
 import React, { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { io } from "socket.io-client";
-import "../styles/homepage.css";
+import "../../styles/homepage.css";
 
-const socket = io(import.meta.env.VITE_API_BASE_URL || "http://localhost:3000");
+// Use .env variable
+const BACKEND_URL = import.meta.env.VITE_API_BASE_URL;
+const socket = io(BACKEND_URL, { transports: ["websocket"] });
 
 function HomePage() {
   const navigate = useNavigate();
@@ -12,41 +14,38 @@ function HomePage() {
 
   const categories = ["All", "Electronics", "Fashion", "Home", "Phones", "Beauty"];
 
+  // Fetch initial products
   useEffect(() => {
-    fetchProducts();
-
-    socket.on("listingAdded", (listing) => {
-      setProducts((prev) => [listing, ...prev]);
-    });
-
-    return () => socket.off("listingAdded");
+    fetch(`${BACKEND_URL}/api/marketplace/listings`)
+      .then(res => res.json())
+      .then(data => setProducts(data))
+      .catch(err => console.error("Failed to fetch listings:", err));
   }, []);
 
-  const fetchProducts = async () => {
-    try {
-      const res = await fetch(`${import.meta.env.VITE_API_BASE_URL}/api/marketplace/listings`);
-      const data = await res.json();
-      setProducts(data);
-    } catch (err) {
-      console.error("Failed to fetch listings", err);
-    }
-  };
+  // Real-time: listen for newly added products
+  useEffect(() => {
+    socket.on("productAdded", (newProduct) => {
+      setProducts(prev => [newProduct, ...prev]);
+    });
+
+    return () => socket.off("productAdded");
+  }, []);
 
   return (
     <div className="homepage">
       <div className="section">
-        <div className="search-area">
-          <input type="text" placeholder="Search for products..." className="search-input" />
-          <button
-            className="load-more-btn"
-            onClick={() => navigate("/marketplace/addproduct")}
-          >
-            Add Product
-          </button>
-        </div>
+        {/* Add Product Button */}
+        <button
+          className="load-more-btn"
+          style={{ marginBottom: 24 }}
+          onClick={() => navigate("/marketplace/addproduct")}
+        >
+          + Add Product
+        </button>
 
+        {/* Category Filter */}
         <div className="category-grid">
-          {categories.map((cat) => (
+          {categories.map(cat => (
             <div
               key={cat}
               className={`category-btn ${selectedCategory === cat ? "active" : ""}`}
@@ -59,10 +58,11 @@ function HomePage() {
 
         <h2 className="section-title">Latest Listings</h2>
 
+        {/* Product Grid */}
         <div className="product-grid">
           {products
-            .filter((p) => selectedCategory === "All" || p.category === selectedCategory)
-            .map((product) => (
+            .filter(p => selectedCategory === "All" || p.category === selectedCategory)
+            .map(product => (
               <div
                 key={product._id}
                 className="product-card"
