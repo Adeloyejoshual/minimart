@@ -1,9 +1,8 @@
+// src/pages/marketplace/AddProduct.jsx
 import React, { useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { io } from "socket.io-client";
 
 const BACKEND_URL = import.meta.env.VITE_API_BASE_URL;
-const socket = io(BACKEND_URL, { transports: ["websocket"] });
 
 function AddProduct() {
   const navigate = useNavigate();
@@ -39,8 +38,7 @@ function AddProduct() {
 
       const data = await res.json();
       if (res.ok) {
-        socket.emit("newProductAdded", data);
-        navigate("/marketplace");
+        navigate("/marketplace"); // redirect to marketplace homepage
       } else {
         alert(data.error || "Failed to add product.");
       }
@@ -53,15 +51,14 @@ function AddProduct() {
   };
 
   return (
-    <div className="homepage" style={{ maxWidth: 600, margin: "0 auto", paddingTop: 40 }}>
-      <h2 className="section-title">Add Product</h2>
+    <div style={{ maxWidth: 600, margin: "0 auto", paddingTop: 40 }}>
+      <h2>Add Product</h2>
       <form onSubmit={handleSubmit} style={{ display: "flex", flexDirection: "column", gap: 16 }}>
         <input
           type="text"
           placeholder="Title"
           value={title}
           onChange={e => setTitle(e.target.value)}
-          className="search-input"
           required
         />
         <input
@@ -69,10 +66,9 @@ function AddProduct() {
           placeholder="Price"
           value={price}
           onChange={e => setPrice(e.target.value)}
-          className="search-input"
           required
         />
-        <select value={category} onChange={e => setCategory(e.target.value)} className="search-input">
+        <select value={category} onChange={e => setCategory(e.target.value)}>
           {categories.map(cat => <option key={cat}>{cat}</option>)}
         </select>
         <input
@@ -80,11 +76,10 @@ function AddProduct() {
           placeholder="Location"
           value={location}
           onChange={e => setLocation(e.target.value)}
-          className="search-input"
           required
         />
         <input type="file" multiple onChange={handleFileChange} />
-        <button type="submit" className="load-more-btn" disabled={loading}>
+        <button type="submit" disabled={loading}>
           {loading ? "Adding..." : "Add Product"}
         </button>
       </form>
