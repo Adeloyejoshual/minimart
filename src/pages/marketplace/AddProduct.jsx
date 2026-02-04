@@ -1,155 +1,170 @@
-// src/pages/marketplace/AddProduct.jsx
 import React, { useState } from "react";
-import { useNavigate } from "react-router-dom";
 
-export default function MarketplaceAddProductPage() {
-  const navigate = useNavigate();
+const categories = ["Electronics", "Fashion", "Home", "Phones", "Beauty"];
+
+function AddProduct() {
   const [title, setTitle] = useState("");
   const [description, setDescription] = useState("");
-  const [category, setCategory] = useState("");
   const [price, setPrice] = useState("");
+  const [location, setLocation] = useState("");
+  const [category, setCategory] = useState(categories[0]);
   const [images, setImages] = useState([]);
-  const [previewImages, setPreviewImages] = useState([]);
+  const [isPromoted, setIsPromoted] = useState(false);
+  const [isProSeller, setIsProSeller] = useState(false);
   const [loading, setLoading] = useState(false);
-  const [error, setError] = useState("");
 
-  // Handle image selection
-  const handleFileChange = (e) => {
+  // Upload images to Cloudinary
+  const handleImageUpload = async (e) => {
     const files = Array.from(e.target.files);
-    setImages(files);
+    const uploadedUrls = [];
 
-    const previews = files.map((file) => URL.createObjectURL(file));
-    setPreviewImages(previews);
+    setLoading(true);
+    for (const file of files) {
+      const formData = new FormData();
+      formData.append("file", file);
+      formData.append("upload_preset", import.meta.env.VITE_CLOUDINARY_UPLOAD_PRESET);
+
+      const res = await fetch(
+        `https://api.cloudinary.com/v1_1/${import.meta.env.VITE_CLOUDINARY_CLOUD_NAME}/upload`,
+        {
+          method: "POST",
+          body: formData,
+        }
+      );
+
+      const data = await res.json();
+      uploadedUrls.push(data.secure_url);
+    }
+
+    setImages(uploadedUrls);
+    setLoading(false);
   };
 
-  // Remove image
-  const removeImage = (index) => {
-    setImages(images.filter((_, i) => i !== index));
-    setPreviewImages(previewImages.filter((_, i) => i !== index));
-  };
-
-  // Submit form
   const handleSubmit = async (e) => {
     e.preventDefault();
-    if (!title || !description || !category) {
-      setError("Title, description, and category are required.");
+
+    if (!title || !price) {
+      alert("Title and price are required!");
       return;
     }
 
-    setLoading(true);
-    setError("");
+    const newProduct = {
+      title,
+      description,
+      price: parseFloat(price),
+      location,
+      category,
+      images,
+      isPromoted,
+      isProSeller,
+    };
 
     try {
-      const formData = new FormData();
-      formData.append("title", title);
-      formData.append("description", description);
-      formData.append("category", category);
-      if (price) formData.append("price", price);
-      images.forEach((img) => formData.append("images", img));
-
-      const token = localStorage.getItem("auth_token"); // Assume you store Auth0 token
       const res = await fetch(`${import.meta.env.VITE_API_BASE_URL}/api/marketplace/listings`, {
         method: "POST",
-        headers: {
-          Authorization: `Bearer ${token}`,
-        },
-        body: formData,
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(newProduct),
       });
 
-      if (!res.ok) throw new Error("Failed to create listing");
+      if (!res.ok) throw new Error("Failed to add product");
 
       const data = await res.json();
-      navigate(`/marketplace/listing/${data._id}`); // Redirect to new listing
+      alert("Product added successfully!");
+      // Reset form
+      setTitle("");
+      setDescription("");
+      setPrice("");
+      setLocation("");
+      setCategory(categories[0]);
+      setImages([]);
+      setIsPromoted(false);
+      setIsProSeller(false);
     } catch (err) {
-      setError(err.message);
-    } finally {
-      setLoading(false);
+      console.error(err);
+      alert("Error adding product");
     }
   };
 
   return (
-    <div className="homepage section">
-      <h2 className="section-title">Add Marketplace Listing</h2>
-
-      <form className="search-area" onSubmit={handleSubmit}>
-        {error && <p style={{ color: "red" }}>{error}</p>}
-
+    <div className="homepage" style={{ padding: "2rem" }}>
+      <h2 className="section-title">Add a New Product</h2>
+      <form onSubmit={handleSubmit} className="section" style={{ maxWidth: "600px" }}>
         <input
-          className="search-input"
           type="text"
-          placeholder="Title"
+          placeholder="Product Title"
           value={title}
           onChange={(e) => setTitle(e.target.value)}
-          required
-        />
-
-        <textarea
           className="search-input"
-          placeholder="Description"
+        />
+        <textarea
+          placeholder="Product Description"
           value={description}
           onChange={(e) => setDescription(e.target.value)}
+          className="search-input"
           rows={4}
-          required
         />
-
         <input
-          className="search-input"
-          type="text"
-          placeholder="Category"
-          value={category}
-          onChange={(e) => setCategory(e.target.value)}
-          required
-        />
-
-        <input
-          className="search-input"
           type="number"
-          placeholder="Price (optional)"
+          placeholder="Price"
           value={price}
           onChange={(e) => setPrice(e.target.value)}
+          className="search-input"
         />
-
+        <input
+          type="text"
+          placeholder="Location"
+          value={location}
+          onChange={(e) => setLocation(e.target.value)}
+          className="search-input"
+        />
+        <select
+          value={category}
+          onChange={(e) => setCategory(e.target.value)}
+          className="search-input"
+        >
+          {categories.map((cat) => (
+            <option key={cat} value={cat}>
+              {cat}
+            </option>
+          ))}
+        </select>
         <input
           type="file"
           multiple
           accept="image/*"
-          onChange={handleFileChange}
+          onChange={handleImageUpload}
+          className="search-input"
         />
-
-        <div className="product-grid">
-          {previewImages.map((img, i) => (
-            <div key={i} style={{ position: "relative" }}>
-              <img
-                src={img}
-                alt="Preview"
-                className="product-img"
-              />
-              <button
-                type="button"
-                onClick={() => removeImage(i)}
-                style={{
-                  position: "absolute",
-                  top: 8,
-                  right: 8,
-                  background: "red",
-                  color: "white",
-                  border: "none",
-                  borderRadius: "50%",
-                  width: 24,
-                  height: 24,
-                  cursor: "pointer",
-                }}
-              >
-                ×
-              </button>
-            </div>
-          ))}
-        </div>
+        {images.length > 0 && (
+          <div style={{ display: "flex", gap: "10px", marginBottom: "16px" }}>
+            {images.map((img, i) => (
+              <img key={i} src={img} alt={`upload-${i}`} width={100} style={{ borderRadius: "8px" }} />
+            ))}
+          </div>
+        )}
+        <label style={{ display: "block", marginBottom: "8px" }}>
+          <input
+            type="checkbox"
+            checked={isPromoted}
+            onChange={() => setIsPromoted(!isPromoted)}
+          />{" "}
+          Promote Listing
+        </label>
+        <label style={{ display: "block", marginBottom: "16px" }}>
+          <input
+            type="checkbox"
+            checked={isProSeller}
+            onChange={() => setIsProSeller(!isProSeller)}
+          />{" "}
+          Pro Seller
+        </label>
 
         <button type="submit" className="load-more-btn" disabled={loading}>
-          {loading ? "Posting..." : "Post Listing"}
+          {loading ? "Uploading..." : "Add Product"}
         </button>
       </form>
     </div>
   );
 }
+
+export default AddProduct;
