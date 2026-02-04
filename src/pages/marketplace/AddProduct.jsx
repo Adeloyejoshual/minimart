@@ -1,102 +1,139 @@
-import React, { useEffect, useState } from "react";
+import React, { useState } from "react";
 import { useNavigate } from "react-router-dom";
 import io from "socket.io-client";
-import "../styles/homepage.css";
+import "../styles/addProduct.css";
 
 const socket = io(import.meta.env.VITE_API_BASE_URL || "http://localhost:3000");
 
-function HomePage() {
+function AddProduct() {
   const navigate = useNavigate();
-  const [products, setProducts] = useState([]);
-  const [selectedCategory, setSelectedCategory] = useState("All");
 
-  const categories = ["All", "Electronics", "Fashion", "Home", "Phones", "Beauty"];
+  const [title, setTitle] = useState("");
+  const [description, setDescription] = useState("");
+  const [price, setPrice] = useState("");
+  const [category, setCategory] = useState("Electronics");
+  const [location, setLocation] = useState("");
+  const [images, setImages] = useState([]);
+  const [isPromoted, setIsPromoted] = useState(false);
+  const [isProSeller, setIsProSeller] = useState(false);
+  const [loading, setLoading] = useState(false);
 
-  useEffect(() => {
-    fetchProducts();
+  const categories = ["Electronics", "Fashion", "Home", "Phones", "Beauty"];
 
-    // Listen for real-time new product events
-    socket.on("newListing", (newProduct) => {
-      setProducts((prev) => [newProduct, ...prev]);
-    });
+  const handleFileChange = (e) => {
+    setImages([...e.target.files]);
+  };
 
-    return () => {
-      socket.off("newListing");
-    };
-  }, []);
+  const handleSubmit = async (e) => {
+    e.preventDefault();
+    setLoading(true);
 
-  const fetchProducts = async () => {
+    const formData = new FormData();
+    formData.append("title", title);
+    formData.append("description", description);
+    formData.append("price", price);
+    formData.append("category", category);
+    formData.append("location", location);
+    formData.append("isPromoted", isPromoted);
+    formData.append("isProSeller", isProSeller);
+    images.forEach((img) => formData.append("images", img));
+
     try {
-      const res = await fetch(
-        `${import.meta.env.VITE_API_BASE_URL}/api/marketplace/listings`
-      );
-      const data = await res.json();
-      setProducts(data);
+      const res = await fetch(`${import.meta.env.VITE_API_BASE_URL}/api/marketplace/add`, {
+        method: "POST",
+        body: formData,
+      });
+
+      if (!res.ok) throw new Error("Failed to add product");
+
+      const newProduct = await res.json();
+
+      // Emit real-time event to homepage
+      socket.emit("newListing", newProduct);
+
+      // Redirect back to homepage
+      navigate("/");
     } catch (err) {
-      console.error("Failed to fetch listings", err);
+      console.error(err);
+      alert("Failed to add product. Check console.");
+    } finally {
+      setLoading(false);
     }
   };
 
-  const filteredProducts =
-    selectedCategory === "All"
-      ? products
-      : products.filter((p) => p.category === selectedCategory);
-
   return (
-    <div className="homepage">
+    <div className="add-product-page">
       <div className="section">
-        {/* Hero + Add Product */}
-        <div className="hero-section">
-          <h1>Welcome to MiniMart Marketplace</h1>
-          <p>Buy and sell products seamlessly in real time</p>
-          <button
-            className="btn-add-product"
-            onClick={() => navigate("/marketplace/addproduct")}
-          >
-            + Add Product
-          </button>
-        </div>
+        <h1 className="section-title">Add New Product</h1>
+        <form className="add-product-form" onSubmit={handleSubmit}>
+          <input
+            type="text"
+            placeholder="Product Title"
+            value={title}
+            onChange={(e) => setTitle(e.target.value)}
+            required
+          />
 
-        {/* Category Filter */}
-        <div className="category-grid">
-          {categories.map((cat) => (
-            <div
-              key={cat}
-              className={`category-btn ${selectedCategory === cat ? "active" : ""}`}
-              onClick={() => setSelectedCategory(cat)}
-            >
-              {cat}
-            </div>
-          ))}
-        </div>
+          <textarea
+            placeholder="Description"
+            value={description}
+            onChange={(e) => setDescription(e.target.value)}
+            required
+          />
 
-        {/* Latest Listings */}
-        <h2 className="section-title">Latest Listings</h2>
-        <div className="product-grid">
-          {filteredProducts.map((product) => (
-            <div
-              key={product._id}
-              className="product-card"
-              onClick={() => navigate(`/marketplace/listing/${product._id}`)}
-            >
-              {product.isPromoted && <div className="badge-promo">PROMOTED</div>}
-              {product.isProSeller && <div className="badge-pro">PRO SELLER</div>}
+          <input
+            type="number"
+            placeholder="Price (₦)"
+            value={price}
+            onChange={(e) => setPrice(e.target.value)}
+            required
+          />
 
-              <img
-                src={product.images?.[0] || "https://via.placeholder.com/400x300"}
-                alt={product.title}
-                className="product-img"
+          <select value={category} onChange={(e) => setCategory(e.target.value)}>
+            {categories.map((cat) => (
+              <option key={cat} value={cat}>
+                {cat}
+              </option>
+            ))}
+          </select>
+
+          <input
+            type="text"
+            placeholder="Location"
+            value={location}
+            onChange={(e) => setLocation(e.target.value)}
+            required
+          />
+
+          <input type="file" multiple accept="image/*" onChange={handleFileChange} />
+
+          <div className="checkbox-group">
+            <label>
+              <input
+                type="checkbox"
+                checked={isPromoted}
+                onChange={() => setIsPromoted(!isPromoted)}
               />
+              Promote Listing
+            </label>
 
-              <h3 className="product-title">{product.title}</h3>
-              <p className="product-location">{product.location}</p>
-              <p className="product-price">₦{product.price?.toLocaleString()}</p>
-            </div>
-          ))}
-        </div>
+            <label>
+              <input
+                type="checkbox"
+                checked={isProSeller}
+                onChange={() => setIsProSeller(!isProSeller)}
+              />
+              Pro Seller
+            </label>
+          </div>
+
+          <button type="submit" className="btn-submit" disabled={loading}>
+            {loading ? "Adding..." : "Add Product"}
+          </button>
+        </form>
       </div>
     </div>
   );
 }
 
-export default HomePage;
+export default AddProduct;
