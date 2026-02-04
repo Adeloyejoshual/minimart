@@ -1,34 +1,18 @@
-require("dotenv").config();
-const express = require("express");
-const path = require("path");
-const cors = require("cors");
-const http = require("http");
-const { Server } = require("socket.io");
+import React from "react";
+import ReactDOM from "react-dom/client";
+import { BrowserRouter } from "react-router-dom";
 
-const socketHandlers = require("./socketHandlers");
-const paystackWebhookHandler = require("./paystackWebhook");
+import App from "./App.jsx";
+import Auth0ProviderWithRedirect from "./configuration/Auth0ProviderWithRedirect.jsx";
 
-const app = express();
-const PORT = process.env.PORT || 3000;
+import "./styles/globalStyles.css";
 
-// HTTP + Socket.IO
-const server = http.createServer(app);
-const io = new Server(server, { cors: { origin: "*" } });
-
-// Middleware
-app.use(cors());
-app.use(express.json());
-app.use("/api/paystack/webhook", express.raw({ type: "application/json" }));
-
-// Socket.IO
-socketHandlers(io);
-
-// Paystack Webhook
-app.post("/api/paystack/webhook", (req, res) => paystackWebhookHandler(req, res, io));
-
-// Serve React SPA
-app.use(express.static(path.join(__dirname, "../build")));
-app.get("*", (req, res) => res.sendFile(path.join(__dirname, "../build", "index.html")));
-
-// Start server
-server.listen(PORT, () => console.log(`🚀 Server running on port ${PORT}`));
+ReactDOM.createRoot(document.getElementById("root")).render(
+  <React.StrictMode>
+    <BrowserRouter>
+      <Auth0ProviderWithRedirect>
+        <App />
+      </Auth0ProviderWithRedirect>
+    </BrowserRouter>
+  </React.StrictMode>
+);
