@@ -1,45 +1,17 @@
-require("dotenv").config();
-const express = require("express");
-const path = require("path");
-const cors = require("cors");
-const mongoose = require("mongoose");
-
-const paystackWebhookHandler = require("./paystackWebhook");
+import express from "express";
+import path from "path";
+import { fileURLToPath } from "url";
 
 const app = express();
 const PORT = process.env.PORT || 3000;
 
-/* ================= DATABASE ================= */
-mongoose
-  .connect(process.env.MONGO_URI)
-  .then(() => console.log("✅ MongoDB Connected"))
-  .catch((err) => console.error("MongoDB Error:", err));
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
 
-/* ================= MIDDLEWARE ================= */
-app.use(cors());
-app.use(express.json());
+app.use(express.static(path.join(__dirname, "dist")));
 
-// Paystack needs raw body
-app.use("/api/paystack/webhook", express.raw({ type: "application/json" }));
-
-/* ================= ROUTES ================= */
-app.use("/api/marketplace", require("./routes/marketplaceRoutes"));
-app.use("/api/minimart", require("./routes/minimartRoutes"));
-app.use("/api/users", require("./routes/userRoutes")); // optional (Auth0 sync)
-
-/* ================= PAYSTACK WEBHOOK ================= */
-app.post("/api/paystack/webhook", (req, res) =>
-  paystackWebhookHandler(req, res)
-);
-
-/* ================= SERVE FRONTEND (VITE BUILD) ================= */
-const frontendPath = path.join(__dirname, "../dist");
-app.use(express.static(frontendPath));
-
-// React Router fallback
 app.get("*", (req, res) => {
-  res.sendFile(path.join(frontendPath, "index.html"));
+  res.sendFile(path.join(__dirname, "dist", "index.html"));
 });
 
-/* ================= START SERVER ================= */
-app.listen(PORT, () => console.log(`🚀 Server running on port ${PORT}`));
+app.listen(PORT, () => console.log("Server running"));
