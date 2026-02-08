@@ -1,25 +1,27 @@
-import { BrowserRouter, Routes, Route } from "react-router-dom";
-import LoginPage from "./pages/auth/LoginPage";
-import RegisterPage from "./pages/auth/RegisterPage";
-import UserProfile from "./components/UserProfile";
+import { Routes, Route } from "react-router-dom";
+import HomePage from "./pages/HomePage.jsx";
+import MiniMartCheckoutPage from "./pages/minimart/MiniMartCheckoutPage.jsx";
+import MarketplaceAddProductPage from "./pages/marketplace/MarketplaceAddProductPage.jsx";
+import ProtectedRoute from "./components/ProtectedRoute.jsx";
 
-function Home() {
+function App() {
   return (
-    <div style={{ padding: "40px" }}>
-      <h1>MiniMart</h1>
-      <UserProfile />
-    </div>
+    <Routes>
+      <Route path="/" element={<HomePage />} />
+
+      <Route path="/minimart/checkout" element={
+        <ProtectedRoute>
+          <MiniMartCheckoutPage />
+        </ProtectedRoute>
+      } />
+
+      <Route path="/marketplace/add-product" element={
+        <ProtectedRoute roles={["seller"]}>
+          <MarketplaceAddProductPage />
+        </ProtectedRoute>
+      } />
+    </Routes>
   );
 }
 
-export default function App() {
-  return (
-    <BrowserRouter>
-      <Routes>
-        <Route path="/" element={<Home />} />
-        <Route path="/login" element={<LoginPage />} />
-        <Route path="/register" element={<RegisterPage />} />
-      </Routes>
-    </BrowserRouter>
-  );
-}
+export default App;
