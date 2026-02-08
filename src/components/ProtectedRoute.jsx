@@ -1,18 +1,17 @@
-// src/components/ProtectedRoute.jsx
 import React from "react";
 import { useAuth0 } from "@auth0/auth0-react";
 import { Navigate } from "react-router-dom";
 
-export default function ProtectedRoute({ children }) {
-  const { isAuthenticated, isLoading } = useAuth0();
+export default function ProtectedRoute({ children, roles }) {
+  const { isAuthenticated, isLoading, user } = useAuth0();
 
   if (isLoading) return <p>Loading...</p>;
 
-  if (!isAuthenticated) {
-    // Redirect to login if not authenticated
-    return <Navigate to="/" replace />;
+  if (!isAuthenticated) return <Navigate to="/" replace />;
+
+  if (roles && !roles.includes(user?.role)) {
+    return <p>Unauthorized</p>;
   }
 
-  // User is authenticated — render the page
   return children;
 }
