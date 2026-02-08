@@ -1,17 +1,20 @@
-import React from "react";
 import { useAuth0 } from "@auth0/auth0-react";
-import { Navigate } from "react-router-dom";
+import { useEffect } from "react";
+import axios from "axios";
 
-export default function ProtectedRoute({ children, roles }) {
-  const { isAuthenticated, isLoading, user } = useAuth0();
+export default function SyncUser() {
+  const { user, isAuthenticated } = useAuth0();
 
-  if (isLoading) return <p>Loading...</p>;
+  useEffect(() => {
+    if (isAuthenticated && user) {
+      axios.post("/api/users/sync", {
+        auth0Id: user.sub,
+        name: user.name,
+        email: user.email,
+        picture: user.picture,
+      });
+    }
+  }, [isAuthenticated, user]);
 
-  if (!isAuthenticated) return <Navigate to="/" replace />;
-
-  if (roles && !roles.includes(user?.role)) {
-    return <p>Unauthorized</p>;
-  }
-
-  return children;
+  return null;
 }
