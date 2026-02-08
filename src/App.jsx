@@ -1,20 +1,20 @@
-import { BrowserRouter, Routes, Route, Link } from "react-router-dom";
+import { BrowserRouter, Routes, Route } from "react-router-dom";
 import LoginPage from "./pages/auth/LoginPage";
 import RegisterPage from "./pages/auth/RegisterPage";
+import UserProfile from "./components/UserProfile";
 
 function Home() {
-  return <h2>Home</h2>;
+  return (
+    <div style={{ padding: "40px" }}>
+      <h1>MiniMart</h1>
+      <UserProfile />
+    </div>
+  );
 }
 
 export default function App() {
   return (
     <BrowserRouter>
-      <nav style={{ display: "flex", gap: "20px", padding: "20px" }}>
-        <Link to="/">Home</Link>
-        <Link to="/login">Login</Link>
-        <Link to="/register">Register</Link>
-      </nav>
-
       <Routes>
         <Route path="/" element={<Home />} />
         <Route path="/login" element={<LoginPage />} />
