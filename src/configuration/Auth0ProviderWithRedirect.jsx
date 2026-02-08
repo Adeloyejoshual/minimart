@@ -8,6 +8,8 @@ export default function Auth0ProviderWithRedirect({ children }) {
       authorizationParams={{
         redirect_uri: import.meta.env.VITE_AUTH0_REDIRECT_URI
       }}
+      cacheLocation="localstorage"
+      useRefreshTokens={true}
     >
       {children}
     </Auth0Provider>
