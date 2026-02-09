@@ -1,50 +1,32 @@
-import { useEffect, useState } from "react";
-import axios from "axios";
+import React from "react";
+import { Link } from "react-router-dom";
 
-function HomePage() {
-  const [products, setProducts] = useState([]);
-
-  useEffect(() => {
-    async function fetchProducts() {
-      try {
-        const res = await axios.get("/api/marketplace/products");
-        setProducts(res.data);
-      } catch (err) {
-        console.error("Failed to fetch products", err);
-      }
-    }
-
-    fetchProducts();
-  }, []);
-
+export default function HomePage() {
   return (
-    <div>
-      <h1>MiniMart Marketplace</h1>
-      {products.length === 0 && <p>No products yet.</p>}
-      <div style={{ display: "flex", flexWrap: "wrap", gap: "16px" }}>
-        {products.map((product) => (
-          <div
-            key={product._id}
-            style={{
-              border: "1px solid #ccc",
-              padding: "8px",
-              width: "200px",
-            }}
-          >
-            {product.images[0] && (
-              <img
-                src={product.images[0]}
-                alt={product.title}
-                style={{ width: "100%", height: "150px", objectFit: "cover" }}
-              />
-            )}
-            <h3>{product.title}</h3>
-            <p>${product.price}</p>
-          </div>
-        ))}
+    <div style={{ padding: "2rem", fontFamily: "sans-serif" }}>
+      <h1>Welcome to MiniMart Marketplace</h1>
+      <p>This is a simple homepage to test routing and rendering.</p>
+
+      <div style={{ marginTop: "1.5rem" }}>
+        <h2>Navigation</h2>
+        <ul>
+          <li>
+            <Link to="/login">Login</Link>
+          </li>
+          <li>
+            <Link to="/register">Register</Link>
+          </li>
+          <li>
+            <Link to="/marketplace/add-product">Add Marketplace Product</Link>
+          </li>
+          <li>
+            <Link to="/marketplace/listing/1">Sample Listing Details</Link>
+          </li>
+          <li>
+            <Link to="/marketplace/chat">Marketplace Chat</Link>
+          </li>
+        </ul>
       </div>
     </div>
   );
 }
-
-export default HomePage;
