@@ -1,3 +1,4 @@
+// server.js
 import express from "express";
 import path from "path";
 import cors from "cors";
@@ -16,12 +17,20 @@ app.use(cors());
 app.use(express.json());
 
 /* ================= MongoDB (Marketplace) ================= */
-mongoose
-  .connect(process.env.MONGO_URI)
-  .then(() => console.log("✅ MongoDB connected"))
-  .catch((err) => console.error("❌ MongoDB connection error:", err));
+if (!process.env.MONGO_URI) {
+  console.error("❌ MONGO_URI is not set in environment variables");
+} else {
+  mongoose
+    .connect(process.env.MONGO_URI)
+    .then(() => console.log("✅ MongoDB connected"))
+    .catch((err) => console.error("❌ MongoDB connection error:", err));
+}
 
 /* ================= CockroachDB (MiniMart) ================= */
+if (!process.env.COCKROACH_URI) {
+  console.error("❌ COCKROACH_URI is not set in environment variables");
+}
+
 const prisma = new PrismaClient();
 
 async function testCockroachConnection() {
@@ -41,6 +50,7 @@ app.get("/api/marketplace/products", async (req, res) => {
     const products = await Product.find().sort({ createdAt: -1 });
     res.json(products);
   } catch (err) {
+    console.error(err);
     res.status(500).json({ message: "Failed to fetch Marketplace products" });
   }
 });
@@ -50,6 +60,7 @@ app.post("/api/marketplace/products", async (req, res) => {
     const product = await Product.create(req.body);
     res.json(product);
   } catch (err) {
+    console.error(err);
     res.status(400).json({ message: "Failed to add Marketplace product" });
   }
 });
@@ -62,17 +73,24 @@ app.get("/api/minimart/products", async (req, res) => {
     });
     res.json(products);
   } catch (err) {
+    console.error(err);
     res.status(500).json({ message: "Failed to fetch MiniMart products" });
   }
 });
 
 app.post("/api/minimart/products", async (req, res) => {
   try {
+    const { title, price } = req.body;
+    if (!title || !price) {
+      return res.status(400).json({ message: "Title and price are required" });
+    }
+
     const product = await prisma.miniMartProduct.create({
-      data: req.body,
+      data: { title, price: parseFloat(price) },
     });
     res.json(product);
   } catch (err) {
+    console.error(err);
     res.status(400).json({ message: "Failed to add MiniMart product" });
   }
 });
