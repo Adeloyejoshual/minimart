@@ -4,10 +4,12 @@ generator client {
 
 datasource db {
   provider = "cockroachdb"
+  url      = env("COCKROACH_URI")
 }
 
-model Product {
-  id    Int    @id @default(autoincrement())
-  name  String
-  price String
+model MiniMartProduct {
+  id        String   @id @default(cuid())
+  title     String
+  price     Float
+  createdAt DateTime @default(now())
 }
