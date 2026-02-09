@@ -1,19 +1,30 @@
 import React from "react";
-import { Routes, Route } from "react-router-dom";
+import { BrowserRouter, Routes, Route } from "react-router-dom";
 
-// Pages
+// Core Pages
 import HomePage from "./pages/HomePage.jsx";
 import LoginPage from "./pages/LoginPage.jsx";
 import RegisterPage from "./pages/RegisterPage.jsx";
 
-function App() {
+// Marketplace Pages
+import AddProduct from "./pages/Marketplace/AddProduct.jsx";
+import ListingDetails from "./pages/Marketplace/ListingDetails.jsx";
+import Chat from "./pages/Marketplace/Chat.jsx";
+
+export default function App() {
   return (
-    <Routes>
-      <Route path="/" element={<HomePage />} />
-      <Route path="/login" element={<LoginPage />} />
-      <Route path="/register" element={<RegisterPage />} />
-    </Routes>
+    <BrowserRouter>
+      <Routes>
+        {/* Core */}
+        <Route path="/" element={<HomePage />} />
+        <Route path="/login" element={<LoginPage />} />
+        <Route path="/register" element={<RegisterPage />} />
+
+        {/* Marketplace */}
+        <Route path="/marketplace/add-product" element={<AddProduct />} />
+        <Route path="/marketplace/listing/:id" element={<ListingDetails />} />
+        <Route path="/marketplace/chat" element={<Chat />} />
+      </Routes>
+    </BrowserRouter>
   );
 }
-
-export default App;
