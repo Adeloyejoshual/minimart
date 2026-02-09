@@ -1,37 +1,30 @@
-require("dotenv").config();
-const express = require("express");
-const cors = require("cors");
-const { Pool } = require("pg");
+import 'dotenv/config';         // loads environment variables
+import express from 'express';
+import cors from 'cors';
+import pkg from 'pg';
+const { Pool } = pkg;
 
 const app = express();
 app.use(cors({
-  origin: "https://minimart-8k9g.onrender.com" // your live frontend URL
+  origin: "https://minimart-8k9g.onrender.com"
 }));
 app.use(express.json());
 
-// Connect to CockroachDB
+// CockroachDB connection
 const pool = new Pool({
   connectionString: process.env.COCKROACHDB_URL,
-  ssl: { rejectUnauthorized: false },
+  ssl: { rejectUnauthorized: false }
 });
 
-// Create products table if not exists
-(async () => {
-  try {
-    await pool.query(`
-      CREATE TABLE IF NOT EXISTS products (
-        id SERIAL PRIMARY KEY,
-        name STRING,
-        price STRING
-      );
-    `);
-    console.log("Products table ready ✅");
-  } catch (err) {
-    console.error("Error creating table:", err);
-  }
-})();
+// Create table if not exists
+await pool.query(`
+  CREATE TABLE IF NOT EXISTS products (
+    id SERIAL PRIMARY KEY,
+    name STRING,
+    price STRING
+  );
+`);
 
-// Routes
 app.get("/test-db", async (req, res) => {
   try {
     const result = await pool.query("SELECT NOW()");
