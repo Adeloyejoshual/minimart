@@ -9,7 +9,7 @@ app.use(cors({
 }));
 app.use(express.json());
 
-// Test DB
+// Test DB connection
 app.get("/test-db", async (req, res) => {
   try {
     const result = await prisma.$queryRaw`SELECT NOW()`;
@@ -20,7 +20,7 @@ app.get("/test-db", async (req, res) => {
   }
 });
 
-// Add product
+// Add Product
 app.post("/products", async (req, res) => {
   const { name, price } = req.body;
   if (!name || !price) return res.status(400).json({ error: "Name and price required" });
@@ -36,7 +36,7 @@ app.post("/products", async (req, res) => {
   }
 });
 
-// List products
+// List Products
 app.get("/products", async (req, res) => {
   try {
     const products = await prisma.product.findMany({
