@@ -1,92 +1,70 @@
-import express from "express";
-import path from "path";
-import cors from "cors";
-import mongoose from "mongoose";
-import dotenv from "dotenv";
-import { PrismaClient } from "@prisma/client";
-import Product from "./models/Product.js"; // MongoDB Marketplace model
-
-dotenv.config();
+require("dotenv").config();
+const express = require("express");
+const cors = require("cors");
+const { Pool } = require("pg");
 
 const app = express();
-const PORT = process.env.PORT || 10000;
-
-/* ================= Middleware ================= */
-app.use(cors());
+app.use(cors({
+  origin: "https://minimart-8k9g.onrender.com" // your live frontend URL
+}));
 app.use(express.json());
 
-/* ================= MongoDB (Marketplace) ================= */
-mongoose
-  .connect(process.env.MONGO_URI)
-  .then(() => console.log("✅ MongoDB connected"))
-  .catch((err) => console.error("❌ MongoDB connection error:", err));
-
-/* ================= CockroachDB (MiniMart) ================= */
-const prisma = new PrismaClient();
-
-async function testCockroachConnection() {
-  try {
-    await prisma.$queryRaw`SELECT 1`;
-    console.log("✅ CockroachDB connected");
-  } catch (err) {
-    console.error("❌ CockroachDB connection error:", err);
-  }
-}
-testCockroachConnection();
-
-/* ================= MongoDB API ROUTES (Marketplace) ================= */
-app.get("/api/marketplace/products", async (req, res) => {
-  try {
-    const products = await Product.find().sort({ createdAt: -1 });
-    res.json(products);
-  } catch (err) {
-    res.status(500).json({ message: "Failed to fetch Marketplace products" });
-  }
+// Connect to CockroachDB
+const pool = new Pool({
+  connectionString: process.env.COCKROACHDB_URL,
+  ssl: { rejectUnauthorized: false },
 });
 
-app.post("/api/marketplace/products", async (req, res) => {
+// Create products table if not exists
+(async () => {
   try {
-    const product = await Product.create(req.body);
-    res.json(product);
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS products (
+        id SERIAL PRIMARY KEY,
+        name STRING,
+        price STRING
+      );
+    `);
+    console.log("Products table ready ✅");
   } catch (err) {
-    res.status(400).json({ message: "Failed to add Marketplace product" });
+    console.error("Error creating table:", err);
+  }
+})();
+
+// Routes
+app.get("/test-db", async (req, res) => {
+  try {
+    const result = await pool.query("SELECT NOW()");
+    res.json({ dbTime: result.rows[0].now });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: "Database error" });
   }
 });
 
-/* ================= Prisma API ROUTES (MiniMart) ================= */
-app.get("/api/minimart/products", async (req, res) => {
+app.post("/products", async (req, res) => {
+  const { name, price } = req.body;
   try {
-    const products = await prisma.miniMartProduct.findMany({
-      orderBy: { createdAt: "desc" },
-    });
-    res.json(products);
+    const result = await pool.query(
+      "INSERT INTO products (name, price) VALUES ($1, $2) RETURNING *",
+      [name, price]
+    );
+    res.json(result.rows[0]);
   } catch (err) {
-    res.status(500).json({ message: "Failed to fetch MiniMart products" });
+    console.error(err);
+    res.status(500).json({ error: "Database error" });
   }
 });
 
-app.post("/api/minimart/products", async (req, res) => {
+app.get("/products", async (req, res) => {
   try {
-    const { title, price } = req.body;
-    const product = await prisma.miniMartProduct.create({
-      data: { title, price: parseFloat(price) },
-    });
-    res.json(product);
+    const result = await pool.query("SELECT * FROM products ORDER BY id DESC");
+    res.json(result.rows);
   } catch (err) {
-    console.error("Failed to add MiniMart product:", err);
-    res.status(400).json({ message: "Failed to add MiniMart product" });
+    console.error(err);
+    res.status(500).json({ error: "Database error" });
   }
 });
 
-/* ================= Serve Frontend ================= */
-const __dirname = path.resolve();
-app.use(express.static(path.join(__dirname, "dist")));
-
-app.get("*", (req, res) => {
-  res.sendFile(path.join(__dirname, "dist", "index.html"));
-});
-
-/* ================= Start Server ================= */
-app.listen(PORT, () => {
-  console.log(`🚀 Server running on port ${PORT}`);
-});
+const PORT = process.env.PORT || 4000;
+app.listen(PORT, () => console.log(`Backend running on port ${PORT}`));
