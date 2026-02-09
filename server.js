@@ -1,6 +1,6 @@
 import express from "express";
 import cors from "cors";
-import { prisma } from "./prisma.config.js"; // import PrismaClient
+import { prisma } from "./prisma.config.js";
 
 const app = express();
 
@@ -9,7 +9,7 @@ app.use(cors({
 }));
 app.use(express.json());
 
-// Test DB connection
+// Test DB
 app.get("/test-db", async (req, res) => {
   try {
     const result = await prisma.$queryRaw`SELECT NOW()`;
@@ -23,6 +23,8 @@ app.get("/test-db", async (req, res) => {
 // Add product
 app.post("/products", async (req, res) => {
   const { name, price } = req.body;
+  if (!name || !price) return res.status(400).json({ error: "Name and price required" });
+
   try {
     const newProduct = await prisma.product.create({
       data: { name, price }
