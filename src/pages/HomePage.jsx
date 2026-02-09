@@ -3,15 +3,14 @@ import React, { useEffect, useState } from "react";
 import axios from "axios";
 
 export default function HomePage() {
-  // State for Marketplace (MongoDB)
+  // ======== States ========
   const [marketplaceProducts, setMarketplaceProducts] = useState([]);
-  const [newMarketplaceProduct, setNewMarketplaceProduct] = useState({ title: "", price: 0 });
-
-  // State for MiniMart (CockroachDB)
   const [miniMartProducts, setMiniMartProducts] = useState([]);
+
+  const [newMarketplaceProduct, setNewMarketplaceProduct] = useState({ title: "", price: 0 });
   const [newMiniMartProduct, setNewMiniMartProduct] = useState({ title: "", price: 0 });
 
-  /* ================= Fetch Products ================= */
+  // ======== Fetch products on mount ========
   useEffect(() => {
     fetchMarketplaceProducts();
     fetchMiniMartProducts();
@@ -35,26 +34,28 @@ export default function HomePage() {
     }
   };
 
-  /* ================= Add Products ================= */
+  // ======== Add product handlers ========
   const addMarketplaceProduct = async () => {
-    if (!newMarketplaceProduct.title || newMarketplaceProduct.price <= 0) return alert("Title and price required!");
+    if (!newMarketplaceProduct.title || !newMarketplaceProduct.price) return alert("Title and price required");
     try {
       await axios.post("/api/marketplace/products", newMarketplaceProduct);
       setNewMarketplaceProduct({ title: "", price: 0 });
-      fetchMarketplaceProducts(); // Refresh list
+      fetchMarketplaceProducts();
     } catch (err) {
       console.error("Failed to add Marketplace product:", err);
+      alert("Failed to add Marketplace product");
     }
   };
 
   const addMiniMartProduct = async () => {
-    if (!newMiniMartProduct.title || newMiniMartProduct.price <= 0) return alert("Title and price required!");
+    if (!newMiniMartProduct.title || !newMiniMartProduct.price) return alert("Title and price required");
     try {
       await axios.post("/api/minimart/products", newMiniMartProduct);
       setNewMiniMartProduct({ title: "", price: 0 });
-      fetchMiniMartProducts(); // Refresh list
+      fetchMiniMartProducts();
     } catch (err) {
       console.error("Failed to add MiniMart product:", err);
+      alert("Failed to add MiniMart product");
     }
   };
 
@@ -62,7 +63,7 @@ export default function HomePage() {
     <div style={{ padding: "2rem", fontFamily: "sans-serif" }}>
       <h1>MiniMart Marketplace</h1>
 
-      {/* ================= Marketplace ================= */}
+      {/* ================= Marketplace Section ================= */}
       <section style={{ marginTop: "2rem" }}>
         <h2>Marketplace Products (Public)</h2>
         <ul>
@@ -78,9 +79,7 @@ export default function HomePage() {
           type="text"
           placeholder="Title"
           value={newMarketplaceProduct.title}
-          onChange={(e) =>
-            setNewMarketplaceProduct({ ...newMarketplaceProduct, title: e.target.value })
-          }
+          onChange={(e) => setNewMarketplaceProduct({ ...newMarketplaceProduct, title: e.target.value })}
         />
         <input
           type="number"
@@ -93,7 +92,7 @@ export default function HomePage() {
         <button onClick={addMarketplaceProduct}>Add Marketplace Product</button>
       </section>
 
-      {/* ================= MiniMart ================= */}
+      {/* ================= MiniMart Section ================= */}
       <section style={{ marginTop: "3rem" }}>
         <h2>MiniMart Products (Private)</h2>
         <ul>
@@ -109,9 +108,7 @@ export default function HomePage() {
           type="text"
           placeholder="Title"
           value={newMiniMartProduct.title}
-          onChange={(e) =>
-            setNewMiniMartProduct({ ...newMiniMartProduct, title: e.target.value })
-          }
+          onChange={(e) => setNewMiniMartProduct({ ...newMiniMartProduct, title: e.target.value })}
         />
         <input
           type="number"
