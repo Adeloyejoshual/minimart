@@ -3,12 +3,8 @@ import path from "path";
 import cors from "cors";
 import mongoose from "mongoose";
 import dotenv from "dotenv";
-
-// Prisma (MiniMart private DB)
 import { PrismaClient } from "@prisma/client";
-
-// MongoDB Marketplace model
-import Product from "./models/Product.js";
+import Product from "./models/Product.js"; // MongoDB Marketplace model
 
 dotenv.config();
 
@@ -27,6 +23,7 @@ mongoose
 
 /* ================= CockroachDB (MiniMart) ================= */
 const prisma = new PrismaClient();
+
 async function testCockroachConnection() {
   try {
     await prisma.$queryRaw`SELECT 1`;
@@ -35,10 +32,10 @@ async function testCockroachConnection() {
     console.error("❌ CockroachDB connection error:", err);
   }
 }
+
 testCockroachConnection();
 
-/* ================= MongoDB API ROUTES ================= */
-// Marketplace (all users)
+/* ================= MongoDB API ROUTES (Marketplace) ================= */
 app.get("/api/marketplace/products", async (req, res) => {
   try {
     const products = await Product.find().sort({ createdAt: -1 });
@@ -48,7 +45,6 @@ app.get("/api/marketplace/products", async (req, res) => {
   }
 });
 
-// Add Marketplace product
 app.post("/api/marketplace/products", async (req, res) => {
   try {
     const product = await Product.create(req.body);
@@ -58,8 +54,7 @@ app.post("/api/marketplace/products", async (req, res) => {
   }
 });
 
-/* ================= CockroachDB API ROUTES ================= */
-// MiniMart (only your products)
+/* ================= Prisma API ROUTES (MiniMart) ================= */
 app.get("/api/minimart/products", async (req, res) => {
   try {
     const products = await prisma.miniMartProduct.findMany({
@@ -71,7 +66,6 @@ app.get("/api/minimart/products", async (req, res) => {
   }
 });
 
-// Add MiniMart product
 app.post("/api/minimart/products", async (req, res) => {
   try {
     const product = await prisma.miniMartProduct.create({
