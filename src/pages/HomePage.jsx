@@ -1,56 +1,50 @@
-import React from "react";
-import { Link } from "react-router-dom";
-import { useAuth0 } from "@auth0/auth0-react";
+import { useEffect, useState } from "react";
+import axios from "axios";
 
-export default function HomePage() {
-  const { isAuthenticated, user, loginWithRedirect, logout, isLoading } = useAuth0();
+function HomePage() {
+  const [products, setProducts] = useState([]);
 
-  if (isLoading) {
-    return (
-      <div style={{ padding: "2rem" }}>
-        <h1>MiniMart</h1>
-        <p>Loading...</p>
-      </div>
-    );
-  }
+  useEffect(() => {
+    async function fetchProducts() {
+      try {
+        const res = await axios.get("/api/marketplace/products");
+        setProducts(res.data);
+      } catch (err) {
+        console.error("Failed to fetch products", err);
+      }
+    }
+
+    fetchProducts();
+  }, []);
 
   return (
-    <div style={{ padding: "2rem", fontFamily: "sans-serif" }}>
-      <h1>MiniMart - Home</h1>
-
-      {isAuthenticated ? (
-        <>
-          <p>Welcome, {user.name || user.email}!</p>
-          <p>Email: {user.email}</p>
-          <button
-            onClick={() => logout({ returnTo: window.location.origin })}
-            style={{ marginRight: "1rem" }}
+    <div>
+      <h1>MiniMart Marketplace</h1>
+      {products.length === 0 && <p>No products yet.</p>}
+      <div style={{ display: "flex", flexWrap: "wrap", gap: "16px" }}>
+        {products.map((product) => (
+          <div
+            key={product._id}
+            style={{
+              border: "1px solid #ccc",
+              padding: "8px",
+              width: "200px",
+            }}
           >
-            Logout
-          </button>
-        </>
-      ) : (
-        <>
-          <p>You are not logged in.</p>
-          <button
-            onClick={() => loginWithRedirect()}
-            style={{ marginRight: "1rem" }}
-          >
-            Login
-          </button>
-          <Link to="/register">
-            <button>Register</button>
-          </Link>
-        </>
-      )}
-
-      <hr style={{ margin: "2rem 0" }} />
-
-      <nav>
-        <Link to="/" style={{ marginRight: "1rem" }}>Home</Link>
-        <Link to="/login" style={{ marginRight: "1rem" }}>Login</Link>
-        <Link to="/register">Register</Link>
-      </nav>
+            {product.images[0] && (
+              <img
+                src={product.images[0]}
+                alt={product.title}
+                style={{ width: "100%", height: "150px", objectFit: "cover" }}
+              />
+            )}
+            <h3>{product.title}</h3>
+            <p>${product.price}</p>
+          </div>
+        ))}
+      </div>
     </div>
   );
 }
+
+export default HomePage;
