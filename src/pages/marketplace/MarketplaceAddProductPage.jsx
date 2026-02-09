@@ -1,67 +1,117 @@
-import React, { useState } from "react";
-import { useAuth0 } from "@auth0/auth0-react";
+import { useState } from "react";
+import axios from "axios";
 
-export default function MarketplaceAddProductPage() {
-  const { isAuthenticated, loginWithRedirect } = useAuth0();
+function MarketplaceAddProductPage({ user }) {
   const [formData, setFormData] = useState({
     title: "",
     description: "",
     price: "",
     images: [],
   });
+  const [products, setProducts] = useState([]);
 
   const handleChange = (e) => {
-    const { name, value } = e.target;
-    setFormData((prev) => ({ ...prev, [name]: value }));
+    const { name, value, files } = e.target;
+    if (name === "images") {
+      setFormData({ ...formData, images: Array.from(files) });
+    } else {
+      setFormData({ ...formData, [name]: value });
+    }
   };
 
-  const handleFileChange = (e) => {
-    setFormData((prev) => ({ ...prev, images: Array.from(e.target.files) }));
+  const fetchProducts = async () => {
+    try {
+      const res = await axios.get("/api/marketplace/products");
+      setProducts(res.data);
+    } catch (err) {
+      console.error(err);
+    }
   };
 
-  const handleSubmit = (e) => {
+  const handleSubmit = async (e) => {
     e.preventDefault();
-    // For now, we just log data. Later, connect to backend.
-    console.log("Product submitted:", formData);
-    alert("Product submitted! Check console for data.");
-  };
+    const data = new FormData();
+    data.append("title", formData.title);
+    data.append("description", formData.description);
+    data.append("price", formData.price);
+    data.append("userEmail", user.email);
 
-  if (!isAuthenticated) {
-    return (
-      <div style={{ padding: "2rem" }}>
-        <h1>Marketplace - Add Product</h1>
-        <p>You must be logged in to add a product.</p>
-        <button onClick={() => loginWithRedirect()}>Login</button>
-      </div>
-    );
-  }
+    formData.images.forEach((file) => data.append("images", file));
+
+    try {
+      await axios.post("/api/marketplace/products", data, {
+        headers: { "Content-Type": "multipart/form-data" },
+      });
+      alert("Product added!");
+      setFormData({ title: "", description: "", price: "", images: [] });
+      fetchProducts(); // reload products
+    } catch (err) {
+      console.error(err);
+      alert("Failed to add product");
+    }
+  };
 
   return (
-    <div style={{ padding: "2rem", fontFamily: "sans-serif" }}>
-      <h1>Marketplace - Add Product</h1>
-      <form onSubmit={handleSubmit} style={{ display: "flex", flexDirection: "column", maxWidth: "400px" }}>
-        <label>
-          Title:
-          <input type="text" name="title" value={formData.title} onChange={handleChange} required />
-        </label>
-
-        <label>
-          Description:
-          <textarea name="description" value={formData.description} onChange={handleChange} required />
-        </label>
-
-        <label>
-          Price:
-          <input type="number" name="price" value={formData.price} onChange={handleChange} required />
-        </label>
-
-        <label>
-          Images:
-          <input type="file" multiple accept="image/*" onChange={handleFileChange} />
-        </label>
-
-        <button type="submit" style={{ marginTop: "1rem" }}>Submit Product</button>
+    <div>
+      <h2>Add Marketplace Product</h2>
+      <form onSubmit={handleSubmit}>
+        <input
+          type="text"
+          name="title"
+          placeholder="Title"
+          value={formData.title}
+          onChange={handleChange}
+          required
+        />
+        <textarea
+          name="description"
+          placeholder="Description"
+          value={formData.description}
+          onChange={handleChange}
+          required
+        />
+        <input
+          type="number"
+          name="price"
+          placeholder="Price"
+          value={formData.price}
+          onChange={handleChange}
+          required
+        />
+        <input
+          type="file"
+          name="images"
+          multiple
+          onChange={handleChange}
+        />
+        <button type="submit">Add Product</button>
       </form>
+
+      <h3>Products</h3>
+      <div style={{ display: "flex", flexWrap: "wrap", gap: "16px" }}>
+        {products.map((product) => (
+          <div
+            key={product._id}
+            style={{
+              border: "1px solid #ccc",
+              padding: "8px",
+              width: "200px",
+            }}
+          >
+            {product.images[0] && (
+              <img
+                src={product.images[0]}
+                alt={product.title}
+                style={{ width: "100%", height: "150px", objectFit: "cover" }}
+              />
+            )}
+            <h4>{product.title}</h4>
+            <p>${product.price}</p>
+          </div>
+        ))}
+      </div>
     </div>
   );
 }
+
+export default MarketplaceAddProductPage;
