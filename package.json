@@ -1,11 +1,14 @@
 {
   "name": "minimart-backend",
   "version": "1.0.0",
+  "description": "Minimart backend with Prisma 7 and CockroachDB",
   "type": "module",
+  "main": "dist/server.js",
   "scripts": {
-    "postinstall": "prisma generate",   
-    "start": "ts-node server.ts",
-    "build": "tsc"
+    "build": "tsc",
+    "generate": "prisma generate --schema=prisma/schema.prisma",
+    "dev": "ts-node server.ts",
+    "start": "node dist/server.js"
   },
   "dependencies": {
     "@prisma/client": "^7.3.0",
@@ -17,5 +20,18 @@
     "prisma": "^7.3.0",
     "ts-node": "^10.9.1",
     "typescript": "^5.2.2"
-  }
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "keywords": [
+    "minimart",
+    "backend",
+    "prisma",
+    "cockroachdb",
+    "typescript",
+    "render"
+  ],
+  "author": "Your Name",
+  "license": "MIT"
 }
