@@ -1,7 +1,6 @@
 {
   "name": "minimart-backend",
   "version": "1.0.0",
-  "description": "Minimart backend with Prisma 7 and CockroachDB",
   "type": "module",
   "main": "server.js",
   "scripts": {
