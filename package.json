@@ -3,6 +3,7 @@
   "version": "1.0.0",
   "type": "module",
   "scripts": {
+    "postinstall": "prisma generate",   // ensures Prisma client is built
     "start": "ts-node server.ts",
     "build": "tsc"
   },
