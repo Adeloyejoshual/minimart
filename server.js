@@ -1,14 +1,12 @@
 // server.js
 import express from "express";
-import path from "path";
 import cors from "cors";
 import mongoose from "mongoose";
 import dotenv from "dotenv";
 import { PrismaClient } from "@prisma/client";
-import Product from "./models/Product.js"; // MongoDB Marketplace model
+import path from "path";
 
 dotenv.config();
-
 const app = express();
 const PORT = process.env.PORT || 10000;
 
@@ -24,7 +22,6 @@ mongoose
 
 /* ================= CockroachDB (MiniMart) ================= */
 const prisma = new PrismaClient();
-
 async function testCockroachConnection() {
   try {
     await prisma.$queryRaw`SELECT 1`;
@@ -33,64 +30,20 @@ async function testCockroachConnection() {
     console.error("❌ CockroachDB connection error:", err);
   }
 }
-
 testCockroachConnection();
 
-/* ================= MongoDB API ROUTES (Marketplace) ================= */
-app.get("/api/marketplace/products", async (req, res) => {
+/* ================= MiniMart Test API ================= */
+app.post("/api/minimart/test", async (req, res) => {
   try {
-    const products = await Product.find().sort({ createdAt: -1 });
-    res.json(products);
-  } catch (err) {
-    console.error("Marketplace GET error:", err);
-    res.status(500).json({ message: "Failed to fetch Marketplace products" });
-  }
-});
-
-app.post("/api/marketplace/products", async (req, res) => {
-  try {
-    const { title, price } = req.body;
-    if (!title || price === undefined) {
-      return res.status(400).json({ message: "Title and price are required" });
-    }
-
-    const product = await Product.create({ title, price });
-    res.json(product);
-  } catch (err) {
-    console.error("Marketplace POST error:", err);
-    res.status(400).json({ message: "Failed to add Marketplace product" });
-  }
-});
-
-/* ================= Prisma API ROUTES (MiniMart) ================= */
-app.get("/api/minimart/products", async (req, res) => {
-  try {
-    const products = await prisma.miniMartProduct.findMany({
-      orderBy: { createdAt: "desc" },
-    });
-    res.json(products);
-  } catch (err) {
-    console.error("MiniMart GET error:", err);
-    res.status(500).json({ message: "Failed to fetch MiniMart products" });
-  }
-});
-
-app.post("/api/minimart/products", async (req, res) => {
-  try {
-    const { title, price } = req.body;
-    if (!title || price === undefined) {
-      return res.status(400).json({ message: "Title and price are required" });
-    }
-
     const product = await prisma.miniMartProduct.create({
       data: {
-        title,
-        price: parseFloat(price),
+        title: req.body.title || "Test Product",
+        price: 1,
       },
     });
-    res.json(product);
+    res.json({ message: "MiniMart product added", id: product.id });
   } catch (err) {
-    console.error("MiniMart POST error:", err);
+    console.error(err);
     res.status(400).json({ message: "Failed to add MiniMart product" });
   }
 });
@@ -98,7 +51,6 @@ app.post("/api/minimart/products", async (req, res) => {
 /* ================= Serve Frontend ================= */
 const __dirname = path.resolve();
 app.use(express.static(path.join(__dirname, "dist")));
-
 app.get("*", (req, res) => {
   res.sendFile(path.join(__dirname, "dist", "index.html"));
 });
