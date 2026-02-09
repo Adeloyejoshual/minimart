@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useEffect, useState } from "react";
 import { getDBTime, getProducts, addProduct } from "./api";
 
 function App() {
@@ -13,14 +13,15 @@ function App() {
   }, []);
 
   const handleAdd = async () => {
+    if (!name || !price) return alert("Enter name and price!");
     const newProduct = await addProduct(name, price);
-    setProducts([...products, newProduct]);
+    setProducts([newProduct, ...products]); // add to top
     setName("");
     setPrice("");
   };
 
   return (
-    <div style={{ padding: "20px" }}>
+    <div style={{ padding: "20px", fontFamily: "sans-serif" }}>
       <h1>Live CockroachDB Service</h1>
       <p>DB Time: {dbTime}</p>
 
