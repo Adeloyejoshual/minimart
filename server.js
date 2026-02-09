@@ -2,8 +2,12 @@
 import express from "express";
 import cors from "cors";
 import dotenv from "dotenv";
+import mongoose from "mongoose";
 import { Pool } from "pg"; // CockroachDB driver
-import mongoose from "mongoose"; // MongoDB for Marketplace
+import path from "path";
+
+// MongoDB Product model (Marketplace)
+import Product from "./models/Product.js";
 
 dotenv.config();
 const app = express();
@@ -26,12 +30,9 @@ const pool = new Pool({
 
 pool.query("SELECT 1")
   .then(() => console.log("✅ CockroachDB connected"))
-  .catch(err => console.error("❌ CockroachDB connection error:", err));
+  .catch((err) => console.error("❌ CockroachDB connection error:", err));
 
-/* ================= MongoDB Marketplace Routes ================= */
-// Replace with your actual Mongoose model
-import Product from "./models/Product.js";
-
+/* ================= MongoDB API (Marketplace) ================= */
 app.get("/api/marketplace/products", async (req, res) => {
   try {
     const products = await Product.find().sort({ createdAt: -1 });
@@ -50,10 +51,12 @@ app.post("/api/marketplace/products", async (req, res) => {
   }
 });
 
-/* ================= CockroachDB MiniMart Routes ================= */
+/* ================= CockroachDB API (MiniMart) ================= */
 app.get("/api/minimart/products", async (req, res) => {
   try {
-    const result = await pool.query("SELECT id, title, price, created_at FROM minimart_products ORDER BY created_at DESC");
+    const result = await pool.query(
+      "SELECT id, title, price, created_at FROM minimart_products ORDER BY created_at DESC"
+    );
     res.json(result.rows);
   } catch (err) {
     res.status(500).json({ message: "Failed to fetch MiniMart products" });
@@ -75,9 +78,9 @@ app.post("/api/minimart/products", async (req, res) => {
 });
 
 /* ================= Serve Frontend ================= */
-import path from "path";
 const __dirname = path.resolve();
 app.use(express.static(path.join(__dirname, "dist")));
+
 app.get("*", (req, res) => {
   res.sendFile(path.join(__dirname, "dist", "index.html"));
 });
