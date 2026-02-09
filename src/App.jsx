@@ -1,25 +1,40 @@
-import React from "react";
-import { Routes, Route } from "react-router-dom";
 
-// Pages
+// src/App.jsx
+import React from "react";
+import { BrowserRouter, Routes, Route } from "react-router-dom";
+
+// -------------------- Core Pages --------------------
 import HomePage from "./pages/HomePage.jsx";
 import LoginPage from "./pages/LoginPage.jsx";
 import RegisterPage from "./pages/RegisterPage.jsx";
 
-// MiniMart
-import AddMiniMartProduct from "./pages/MiniMart/AddProduct.jsx";
+// -------------------- Marketplace Pages --------------------
+import AddProduct from "./pages/Marketplace/AddProduct.jsx";
+import ListingDetails from "./pages/Marketplace/ListingDetails.jsx";
+import Chat from "./pages/Marketplace/Chat.jsx";
 
-function App() {
+// -------------------- MiniMart Pages (Future) --------------------
+// import AddMiniMartProduct from "./pages/MiniMart/AddProduct.jsx";
+// import MiniMartListingDetails from "./pages/MiniMart/ListingDetails.jsx";
+
+export default function App() {
   return (
-    <Routes>
-      <Route path="/" element={<HomePage />} />
-      <Route path="/login" element={<LoginPage />} />
-      <Route path="/register" element={<RegisterPage />} />
+    <BrowserRouter>
+      <Routes>
+        {/* Core */}
+        <Route path="/" element={<HomePage />} />
+        <Route path="/login" element={<LoginPage />} />
+        <Route path="/register" element={<RegisterPage />} />
 
-      {/* MiniMart */}
-      <Route path="/minimart/add-product" element={<AddMiniMartProduct />} />
-    </Routes>
+        {/* Marketplace */}
+        <Route path="/marketplace/add-product" element={<AddProduct />} />
+        <Route path="/marketplace/listing/:id" element={<ListingDetails />} />
+        <Route path="/marketplace/chat" element={<Chat />} />
+
+        {/* MiniMart (uncomment when ready) */}
+        {/* <Route path="/minimart/add-product" element={<AddMiniMartProduct />} /> */}
+        {/* <Route path="/minimart/listing/:id" element={<MiniMartListingDetails />} /> */}
+      </Routes>
+    </BrowserRouter>
   );
 }
-
-export default App;
