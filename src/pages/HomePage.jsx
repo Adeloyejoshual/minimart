@@ -3,14 +3,14 @@ import React, { useEffect, useState } from "react";
 import axios from "axios";
 
 export default function HomePage() {
-  // State
+  // ================= States =================
   const [marketplaceProducts, setMarketplaceProducts] = useState([]);
   const [miniMartProducts, setMiniMartProducts] = useState([]);
 
   const [newMarketplaceProduct, setNewMarketplaceProduct] = useState({ title: "", price: 0 });
   const [newMiniMartProduct, setNewMiniMartProduct] = useState({ title: "", price: 0 });
 
-  /* ================= Fetch Products ================= */
+  // ================= Fetch Products =================
   useEffect(() => {
     fetchMarketplaceProducts();
     fetchMiniMartProducts();
@@ -34,7 +34,7 @@ export default function HomePage() {
     }
   };
 
-  /* ================= Add Products ================= */
+  // ================= Add Products =================
   const addMarketplaceProduct = async () => {
     try {
       await axios.post("/api/marketplace/products", newMarketplaceProduct);
@@ -62,7 +62,6 @@ export default function HomePage() {
       {/* ================= Marketplace ================= */}
       <section style={{ marginTop: "2rem" }}>
         <h2>Marketplace Products (Public)</h2>
-
         <ul>
           {marketplaceProducts.map((p) => (
             <li key={p._id}>
@@ -76,24 +75,29 @@ export default function HomePage() {
           type="text"
           placeholder="Title"
           value={newMarketplaceProduct.title}
-          onChange={(e) => setNewMarketplaceProduct({ ...newMarketplaceProduct, title: e.target.value })}
+          onChange={(e) =>
+            setNewMarketplaceProduct({ ...newMarketplaceProduct, title: e.target.value })
+          }
         />
         <input
           type="number"
           placeholder="Price"
           value={newMarketplaceProduct.price}
-          onChange={(e) => setNewMarketplaceProduct({ ...newMarketplaceProduct, price: parseFloat(e.target.value) })}
+          onChange={(e) =>
+            setNewMarketplaceProduct({ ...newMarketplaceProduct, price: parseFloat(e.target.value) })
+          }
         />
-        <button onClick={addMarketplaceProduct}>Add Marketplace Product</button>
+        <button type="button" onClick={addMarketplaceProduct}>
+          Add Marketplace Product
+        </button>
       </section>
 
       {/* ================= MiniMart ================= */}
       <section style={{ marginTop: "3rem" }}>
         <h2>MiniMart Products (Private)</h2>
-
         <ul>
           {miniMartProducts.map((p) => (
-            <li key={p.id}>
+            <li key={p._id}>
               {p.title} - ${p.price}
             </li>
           ))}
@@ -112,7 +116,9 @@ export default function HomePage() {
           value={newMiniMartProduct.price}
           onChange={(e) => setNewMiniMartProduct({ ...newMiniMartProduct, price: parseFloat(e.target.value) })}
         />
-        <button onClick={addMiniMartProduct}>Add MiniMart Product</button>
+        <button type="button" onClick={addMiniMartProduct}>
+          Add MiniMart Product
+        </button>
       </section>
     </div>
   );
