@@ -1,4 +1,5 @@
 import express from "express";
+import path from "path";
 import cors from "cors";
 import dotenv from "dotenv";
 import { PrismaClient } from "@prisma/client";
@@ -12,9 +13,8 @@ const PORT = process.env.PORT || 10000;
 app.use(cors());
 app.use(express.json());
 
-/* ================= CockroachDB API ================= */
+/* ================= API ROUTES (MiniMart) ================= */
 
-// Get all MiniMart products
 app.get("/api/minimart/products", async (req, res) => {
   try {
     const products = await prisma.miniMartProduct.findMany({
@@ -27,7 +27,6 @@ app.get("/api/minimart/products", async (req, res) => {
   }
 });
 
-// Add MiniMart product
 app.post("/api/minimart/products", async (req, res) => {
   try {
     const { title, price } = req.body;
@@ -41,7 +40,17 @@ app.post("/api/minimart/products", async (req, res) => {
   }
 });
 
+/* ================= Serve Frontend (Vite Build) ================= */
+
+const __dirname = path.resolve();
+app.use(express.static(path.join(__dirname, "dist")));
+
+app.get("*", (req, res) => {
+  res.sendFile(path.join(__dirname, "dist", "index.html"));
+});
+
 /* ================= Start Server ================= */
+
 app.listen(PORT, () => {
   console.log(`🚀 Server running on port ${PORT}`);
 });
