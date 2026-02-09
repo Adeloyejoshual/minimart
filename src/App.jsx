@@ -1,36 +1,42 @@
-import React from "react";
-import { BrowserRouter, Routes, Route } from "react-router-dom";
+import { useState, useEffect } from "react";
+import { getDBTime, getProducts, addProduct } from "./api";
 
-// -------------------- Core Pages --------------------
-import HomePage from "./pages/HomePage.jsx";
-import LoginPage from "./pages/LoginPage.jsx";
-import RegisterPage from "./pages/RegisterPage.jsx";
+function App() {
+  const [dbTime, setDbTime] = useState("");
+  const [products, setProducts] = useState([]);
+  const [name, setName] = useState("");
+  const [price, setPrice] = useState("");
 
-// -------------------- Marketplace Pages --------------------
-import AddProduct from "./pages/Marketplace/AddProduct.jsx";
-import ListingDetails from "./pages/Marketplace/ListingDetails.jsx";
-import Chat from "./pages/Marketplace/Chat.jsx";
+  useEffect(() => {
+    getDBTime().then(data => setDbTime(data.dbTime));
+    getProducts().then(setProducts);
+  }, []);
 
-// -------------------- MiniMart Pages --------------------
-import AddMiniMartProduct from "./pages/MiniMart/AddProduct.jsx";
+  const handleAdd = async () => {
+    const newProduct = await addProduct(name, price);
+    setProducts([...products, newProduct]);
+    setName("");
+    setPrice("");
+  };
 
-export default function App() {
   return (
-    <BrowserRouter>
-      <Routes>
-        {/* Core pages */}
-        <Route path="/" element={<HomePage />} />
-        <Route path="/login" element={<LoginPage />} />
-        <Route path="/register" element={<RegisterPage />} />
+    <div style={{ padding: "20px" }}>
+      <h1>Live CockroachDB Service</h1>
+      <p>DB Time: {dbTime}</p>
 
-        {/* Marketplace pages */}
-        <Route path="/marketplace/add-product" element={<AddProduct />} />
-        <Route path="/marketplace/listing/:id" element={<ListingDetails />} />
-        <Route path="/marketplace/chat" element={<Chat />} />
+      <h2>Add Product</h2>
+      <input value={name} onChange={e => setName(e.target.value)} placeholder="Name" />
+      <input value={price} onChange={e => setPrice(e.target.value)} placeholder="Price" />
+      <button onClick={handleAdd}>Add</button>
 
-        {/* MiniMart pages */}
-        <Route path="/minimart/add-product" element={<AddMiniMartProduct />} />
-      </Routes>
-    </BrowserRouter>
+      <h2>Products</h2>
+      <ul>
+        {products.map(p => (
+          <li key={p.id}>{p.name} - ${p.price}</li>
+        ))}
+      </ul>
+    </div>
   );
 }
+
+export default App;
