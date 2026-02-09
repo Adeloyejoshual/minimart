@@ -9,7 +9,7 @@ app.use(cors({
 }));
 app.use(express.json());
 
-// Test DB connection
+// Test DB
 app.get("/test-db", async (req, res) => {
   try {
     const result = await prisma.$queryRaw`SELECT NOW()`;
