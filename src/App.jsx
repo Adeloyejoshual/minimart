@@ -1,5 +1,3 @@
-
-// src/App.jsx
 import React from "react";
 import { BrowserRouter, Routes, Route } from "react-router-dom";
 
@@ -13,27 +11,25 @@ import AddProduct from "./pages/Marketplace/AddProduct.jsx";
 import ListingDetails from "./pages/Marketplace/ListingDetails.jsx";
 import Chat from "./pages/Marketplace/Chat.jsx";
 
-// -------------------- MiniMart Pages (Future) --------------------
-// import AddMiniMartProduct from "./pages/MiniMart/AddProduct.jsx";
-// import MiniMartListingDetails from "./pages/MiniMart/ListingDetails.jsx";
+// -------------------- MiniMart Pages --------------------
+import AddMiniMartProduct from "./pages/MiniMart/AddProduct.jsx";
 
 export default function App() {
   return (
     <BrowserRouter>
       <Routes>
-        {/* Core */}
+        {/* Core pages */}
         <Route path="/" element={<HomePage />} />
         <Route path="/login" element={<LoginPage />} />
         <Route path="/register" element={<RegisterPage />} />
 
-        {/* Marketplace */}
+        {/* Marketplace pages */}
         <Route path="/marketplace/add-product" element={<AddProduct />} />
         <Route path="/marketplace/listing/:id" element={<ListingDetails />} />
         <Route path="/marketplace/chat" element={<Chat />} />
 
-        {/* MiniMart (uncomment when ready) */}
-        {/* <Route path="/minimart/add-product" element={<AddMiniMartProduct />} /> */}
-        {/* <Route path="/minimart/listing/:id" element={<MiniMartListingDetails />} /> */}
+        {/* MiniMart pages */}
+        <Route path="/minimart/add-product" element={<AddMiniMartProduct />} />
       </Routes>
     </BrowserRouter>
   );
