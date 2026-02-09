@@ -1,30 +1,17 @@
-import React, { useEffect, useState } from "react";
-import axios from "axios";
+import React from "react";
 import { Link } from "react-router-dom";
 
 export default function HomePage() {
-  const [products, setProducts] = useState([]);
-
-  useEffect(() => {
-    axios.get("/api/products").then((res) => setProducts(res.data));
-  }, []);
-
   return (
-    <div style={{ padding: "2rem" }}>
-      <h1>Marketplace Products</h1>
-      <Link to="/marketplace/add-product">Add Product</Link>
+    <div style={{ padding: "2rem", fontFamily: "sans-serif" }}>
+      <h1>MiniMart Marketplace</h1>
+      <p>Welcome! Use the links below to navigate:</p>
       <ul>
-        {products.map((p) => (
-          <li key={p._id} style={{ margin: "1rem 0" }}>
-            <h3>{p.name}</h3>
-            <p>{p.description}</p>
-            <p>Price: ${p.price}</p>
-            {p.images?.length > 0 &&
-              p.images.map((img, i) => (
-                <img key={i} src={img} alt={p.name} width={100} style={{ marginRight: "0.5rem" }} />
-              ))}
-          </li>
-        ))}
+        <li><Link to="/login">Login</Link></li>
+        <li><Link to="/register">Register</Link></li>
+        <li><Link to="/marketplace/add-product">Add Product</Link></li>
+        <li><Link to="/marketplace/listing/1">Listing Details</Link></li>
+        <li><Link to="/marketplace/chat">Marketplace Chat</Link></li>
       </ul>
     </div>
   );
