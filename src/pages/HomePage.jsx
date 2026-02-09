@@ -1,145 +1,57 @@
-// src/pages/HomePage.jsx
-import React, { useEffect, useState } from "react";
+import React, { useState, useEffect } from "react";
 import axios from "axios";
 
-export default function HomePage() {
-  // States
-  const [marketplaceProducts, setMarketplaceProducts] = useState([]);
-  const [miniMartProducts, setMiniMartProducts] = useState([]);
+export default function MiniMartPage() {
+  const [products, setProducts] = useState([]);
+  const [newProduct, setNewProduct] = useState({ title: "", price: 0 });
 
-  const [newMarketplaceProduct, setNewMarketplaceProduct] = useState({
-    title: "",
-    price: "",
-  });
-  const [newMiniMartProduct, setNewMiniMartProduct] = useState({
-    title: "",
-    price: "",
-  });
-
-  /* ================= Fetch Products ================= */
   useEffect(() => {
-    fetchMarketplaceProducts();
-    fetchMiniMartProducts();
+    fetchProducts();
   }, []);
 
-  const fetchMarketplaceProducts = async () => {
-    try {
-      const res = await axios.get("/api/marketplace/products");
-      setMarketplaceProducts(res.data);
-    } catch (err) {
-      console.error("Failed to fetch Marketplace products:", err);
-    }
-  };
-
-  const fetchMiniMartProducts = async () => {
+  const fetchProducts = async () => {
     try {
       const res = await axios.get("/api/minimart/products");
-      setMiniMartProducts(res.data);
+      setProducts(res.data);
     } catch (err) {
-      console.error("Failed to fetch MiniMart products:", err);
+      console.error(err);
     }
   };
 
-  /* ================= Add Products ================= */
-  const addMarketplaceProduct = async () => {
-    if (!newMarketplaceProduct.title || !newMarketplaceProduct.price) return;
+  const addProduct = async () => {
     try {
-      await axios.post("/api/marketplace/products", {
-        title: newMarketplaceProduct.title,
-        price: parseFloat(newMarketplaceProduct.price),
-      });
-      setNewMarketplaceProduct({ title: "", price: "" });
-      fetchMarketplaceProducts();
-    } catch (err) {
-      console.error("Failed to add Marketplace product:", err);
-    }
-  };
-
-  const addMiniMartProduct = async () => {
-    if (!newMiniMartProduct.title || !newMiniMartProduct.price) return;
-    try {
-      await axios.post("/api/minimart/products", {
-        title: newMiniMartProduct.title,
-        price: parseFloat(newMiniMartProduct.price),
-      });
-      setNewMiniMartProduct({ title: "", price: "" });
-      fetchMiniMartProducts();
+      await axios.post("/api/minimart/products", newProduct);
+      setNewProduct({ title: "", price: 0 });
+      fetchProducts();
     } catch (err) {
       console.error("Failed to add MiniMart product:", err);
     }
   };
 
   return (
-    <div style={{ padding: "2rem", fontFamily: "sans-serif" }}>
-      <h1>MiniMart Marketplace</h1>
+    <div style={{ padding: "2rem" }}>
+      <h1>MiniMart Products</h1>
+      <ul>
+        {products.map((p) => (
+          <li key={p.id}>
+            {p.title} - ${p.price}
+          </li>
+        ))}
+      </ul>
 
-      {/* ================= Marketplace ================= */}
-      <section style={{ marginTop: "2rem" }}>
-        <h2>Marketplace Products (Public)</h2>
-        <ul>
-          {marketplaceProducts.map((p) => (
-            <li key={p._id}>
-              {p.title} - ${p.price}
-            </li>
-          ))}
-        </ul>
-
-        <h3>Add Marketplace Product</h3>
-        <input
-          type="text"
-          placeholder="Title"
-          value={newMarketplaceProduct.title}
-          onChange={(e) =>
-            setNewMarketplaceProduct({
-              ...newMarketplaceProduct,
-              title: e.target.value,
-            })
-          }
-        />
-        <input
-          type="number"
-          placeholder="Price"
-          value={newMarketplaceProduct.price}
-          onChange={(e) =>
-            setNewMarketplaceProduct({
-              ...newMarketplaceProduct,
-              price: e.target.value,
-            })
-          }
-        />
-        <button onClick={addMarketplaceProduct}>Add Marketplace Product</button>
-      </section>
-
-      {/* ================= MiniMart ================= */}
-      <section style={{ marginTop: "3rem" }}>
-        <h2>MiniMart Products (Private)</h2>
-        <ul>
-          {miniMartProducts.map((p) => (
-            <li key={p.id}>
-              {p.title} - ${p.price}
-            </li>
-          ))}
-        </ul>
-
-        <h3>Add MiniMart Product</h3>
-        <input
-          type="text"
-          placeholder="Title"
-          value={newMiniMartProduct.title}
-          onChange={(e) =>
-            setNewMiniMartProduct({ ...newMiniMartProduct, title: e.target.value })
-          }
-        />
-        <input
-          type="number"
-          placeholder="Price"
-          value={newMiniMartProduct.price}
-          onChange={(e) =>
-            setNewMiniMartProduct({ ...newMiniMartProduct, price: e.target.value })
-          }
-        />
-        <button onClick={addMiniMartProduct}>Add MiniMart Product</button>
-      </section>
+      <h2>Add Product</h2>
+      <input
+        placeholder="Title"
+        value={newProduct.title}
+        onChange={(e) => setNewProduct({ ...newProduct, title: e.target.value })}
+      />
+      <input
+        placeholder="Price"
+        type="number"
+        value={newProduct.price}
+        onChange={(e) => setNewProduct({ ...newProduct, price: parseFloat(e.target.value) })}
+      />
+      <button onClick={addProduct}>Add MiniMart Product</button>
     </div>
   );
 }
