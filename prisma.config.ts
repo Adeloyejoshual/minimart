@@ -1,5 +1,5 @@
 import { PrismaClient } from "@prisma/client";
 
 export const prisma = new PrismaClient({
-  adapter: process.env.COCKROACH_URI, // Pass your CockroachDB connection string here
+  adapter: process.env.COCKROACH_URI
 });
