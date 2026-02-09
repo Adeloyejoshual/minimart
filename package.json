@@ -1,22 +1,31 @@
 {
-  "name": "minimart-backend",
+  "name": "minimart-marketplace",
   "version": "1.0.0",
+  "private": true,
   "type": "module",
-  "main": "server.js",
   "scripts": {
-    "generate": "prisma generate --schema=prisma/schema.prisma",
-    "start": "node server.js"
+    "dev": "vite",
+    "build": "vite build",
+    "preview": "vite preview",
+    "start": "node server.js",
+    "prisma:generate": "prisma generate",
+    "prisma:migrate": "prisma migrate dev",
+    "postinstall": "npx prisma generate"
   },
   "dependencies": {
-    "@prisma/client": "^7.3.0",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1",
+    "react-router-dom": "^6.14.1",
+    "axios": "^1.6.0",
     "express": "^4.18.2",
     "cors": "^2.8.5",
-    "dotenv": "^16.0.0"
+    "dotenv": "^16.3.1",
+    "@prisma/client": "^5.0.0"
   },
   "devDependencies": {
-    "prisma": "^7.3.0"
-  },
-  "engines": {
-    "node": ">=20"
+    "vite": "^4.5.14",
+    "@vitejs/plugin-react": "^4.0.0",
+    "eslint": "^8.47.0",
+    "prisma": "^5.0.0"
   }
 }
