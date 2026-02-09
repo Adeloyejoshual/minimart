@@ -9,16 +9,17 @@
     "preview": "vite preview",
     "start": "node server.js",
     "prisma:generate": "prisma generate",
-    "prisma:migrate": "prisma migrate dev",
-    "postinstall": "npx prisma generate"
+    "prisma:migrate": "prisma migrate dev"
   },
   "dependencies": {
     "react": "^18.3.1",
     "react-dom": "^18.3.1",
     "react-router-dom": "^6.14.1",
+    "@auth0/auth0-react": "^2.0.0",
     "axios": "^1.6.0",
     "express": "^4.18.2",
     "cors": "^2.8.5",
+    "mongoose": "^7.7.1",
     "dotenv": "^16.3.1",
     "@prisma/client": "^5.0.0"
   },
