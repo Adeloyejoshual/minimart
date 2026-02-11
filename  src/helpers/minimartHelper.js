@@ -1,66 +1,32 @@
 import pkg from "pg";
 const { Pool } = pkg;
-import dotenv from "dotenv";
 
-dotenv.config();
-
+// Pool connection to CockroachDB (Render SSL required)
 const pool = new Pool({
   connectionString: process.env.COCKROACH_URI,
   ssl: { rejectUnauthorized: false },
 });
 
-// --- Helpers ---
-
-/**
- * Fetch all products
- */
-export const getAllProducts = async () => {
+// Get all products
+export async function getAllMiniMartProducts() {
   const { rows } = await pool.query(
-    `SELECT id, title, description, price, category, type, brand, condition, location, created_at
-     FROM products
-     ORDER BY created_at DESC`
+    "SELECT id, title, description, price, created_at FROM products ORDER BY created_at DESC"
   );
   return rows;
-};
+}
 
-/**
- * Add a new product
- */
-export const addProduct = async (product) => {
-  const {
-    title,
-    description,
-    price,
-    category,
-    type,
-    brand,
-    condition,
-    location,
-  } = product;
+// Add a new product
+export async function addMiniMartProduct({ title, description, price }) {
+  if (!title || !price) throw new Error("Title and price are required");
 
   const numericPrice = parseFloat(price);
-  if (!title || isNaN(numericPrice)) {
-    throw new Error("Title and valid price are required");
-  }
+  if (isNaN(numericPrice)) throw new Error("Price must be a number");
 
-  const { rows } = await pool.query(
-    `INSERT INTO products
-     (title, description, price, category, type, brand, condition, location)
-     VALUES ($1,$2,$3,$4,$5,$6,$7,$8)
-     RETURNING id, title, description, price, category, type, brand, condition, location, created_at`,
-    [
-      title.trim(),
-      description?.trim() || null,
-      numericPrice,
-      category || null,
-      type || null,
-      brand || null,
-      condition || null,
-      location || null,
-    ]
-  );
-
+  const query = `
+    INSERT INTO products (title, description, price)
+    VALUES ($1, $2, $3)
+    RETURNING id, title, description, price, created_at
+  `;
+  const { rows } = await pool.query(query, [title.trim(), description?.trim() || null, numericPrice]);
   return rows[0];
-};
-
-export default pool;
+}
