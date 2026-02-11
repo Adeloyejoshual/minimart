@@ -6,9 +6,8 @@ export default function AddProduct() {
   const [description, setDescription] = useState("");
   const [price, setPrice] = useState("");
   const [imageFile, setImageFile] = useState(null);
-  const [type, setType] = useState("marketplace"); // "marketplace" or "minimart"
+  const [type, setType] = useState("marketplace");
 
-  // Upload image to Cloudinary
   const uploadImage = async (file) => {
     const formData = new FormData();
     formData.append("file", file);
@@ -19,10 +18,7 @@ export default function AddProduct() {
 
     const res = await fetch(
       `https://api.cloudinary.com/v1_1/${import.meta.env.VITE_CLOUDINARY_CLOUD_NAME}/image/upload`,
-      {
-        method: "POST",
-        body: formData,
-      }
+      { method: "POST", body: formData }
     );
     const data = await res.json();
     return data.secure_url;
@@ -37,7 +33,7 @@ export default function AddProduct() {
 
     try {
       if (type === "marketplace") {
-        const res = await axios.post("/api/marketplace/products", {
+        await axios.post("/api/marketplace/products", {
           title,
           description,
           price,
@@ -45,8 +41,8 @@ export default function AddProduct() {
         });
         alert("Marketplace product added!");
       } else {
-        const res = await axios.post("/api/products", {
-          name: title, // backend maps name -> title
+        await axios.post("/api/products", {
+          name: title,
           description,
           price,
           image: imageUrl,
@@ -54,7 +50,6 @@ export default function AddProduct() {
         alert("MiniMart product added!");
       }
 
-      // Clear form
       setTitle("");
       setDescription("");
       setPrice("");
@@ -72,8 +67,8 @@ export default function AddProduct() {
       <label>
         Type:
         <select value={type} onChange={(e) => setType(e.target.value)}>
-          <option value="marketplace">Marketplace (MongoDB)</option>
-          <option value="minimart">MiniMart (CockroachDB)</option>
+          <option value="marketplace">Marketplace</option>
+          <option value="minimart">MiniMart</option>
         </select>
       </label>
 
