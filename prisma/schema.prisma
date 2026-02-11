@@ -1,16 +1,18 @@
-generator client {
-  provider = "prisma-client-js"
-}
-
 datasource db {
   provider = "cockroachdb"
   url      = env("COCKROACH_URI")
 }
 
-model miniMartProduct {
+generator client {
+  provider = "prisma-client-js"
+}
+
+model MiniMartProduct {
   id          String   @id @default(uuid())
   title       String
   description String?
   price       Float
-  createdAt   DateTime @default(now())
+  category    String?
+  image_url   String?
+  created_at  DateTime @default(now())
 }
