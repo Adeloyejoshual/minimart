@@ -2,57 +2,32 @@ import React, { useEffect, useState } from "react";
 import axios from "axios";
 
 export default function HomePage() {
-  const [products, setProducts] = useState([]);
-  const [newProduct, setNewProduct] = useState({ title: "", price: 0 });
+  const [miniMartProducts, setMiniMartProducts] = useState([]);
+  const [marketplaceProducts, setMarketplaceProducts] = useState([]);
 
   useEffect(() => {
-    fetchProducts();
+    fetchMiniMart();
+    fetchMarketplace();
   }, []);
 
-  const fetchProducts = async () => {
-    try {
-      const res = await axios.get("/api/minimart/products");
-      setProducts(res.data);
-    } catch (err) {
-      console.error(err);
-    }
+  const fetchMiniMart = async () => {
+    const res = await axios.get("/api/minimart/products");
+    setMiniMartProducts(res.data);
   };
 
-  const addProduct = async () => {
-    try {
-      await axios.post("/api/minimart/products", newProduct);
-      setNewProduct({ title: "", price: 0 });
-      fetchProducts();
-    } catch (err) {
-      console.error(err);
-      alert("Failed to add product: " + err.response?.data?.error);
-    }
+  const fetchMarketplace = async () => {
+    const res = await axios.get("/api/marketplace/products");
+    setMarketplaceProducts(res.data);
   };
 
   return (
-    <div style={{ padding: "2rem", fontFamily: "sans-serif" }}>
-      <h1>MiniMart Products</h1>
+    <div style={{ padding: "2rem" }}>
+      <h1>MiniMart + Marketplace</h1>
+      <h2>MiniMart Products (Private)</h2>
+      <ul>{miniMartProducts.map(p => <li key={p.id}>{p.title} - ${p.price}</li>)}</ul>
 
-      <ul>
-        {products.map((p) => (
-          <li key={p.id}>{p.title} - ${p.price}</li>
-        ))}
-      </ul>
-
-      <h3>Add Product</h3>
-      <input
-        type="text"
-        placeholder="Title"
-        value={newProduct.title}
-        onChange={(e) => setNewProduct({ ...newProduct, title: e.target.value })}
-      />
-      <input
-        type="number"
-        placeholder="Price"
-        value={newProduct.price}
-        onChange={(e) => setNewProduct({ ...newProduct, price: parseFloat(e.target.value) })}
-      />
-      <button onClick={addProduct}>Add Product</button>
+      <h2>Marketplace Products (Public)</h2>
+      <ul>{marketplaceProducts.map(p => <li key={p._id}>{p.title} - ${p.price}</li>)}</ul>
     </div>
   );
 }
