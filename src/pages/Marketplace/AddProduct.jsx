@@ -1,55 +1,46 @@
+import axios from "axios";
 import { useState } from "react";
-import { useNavigate } from "react-router-dom";
 
 export default function AddProduct() {
-  const [title, setTitle] = useState("");
-  const [price, setPrice] = useState("");
-  const [description, setDescription] = useState("");
-  const navigate = useNavigate();
+  const [form, setForm] = useState({
+    title: "",
+    description: "",
+    price: "",
+    image: "",
+  });
 
-  const handleSubmit = async (e) => {
-    e.preventDefault();
+  const uploadImage = async (file) => {
+    const data = new FormData();
+    data.append("file", file);
+    data.append("upload_preset", import.meta.env.VITE_CLOUDINARY_UPLOAD_PRESET);
 
-    await fetch("/api/products", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ title, price, description }),
-    });
+    const res = await axios.post(
+      `https://api.cloudinary.com/v1_1/${import.meta.env.VITE_CLOUDINARY_CLOUD_NAME}/image/upload`,
+      data
+    );
 
-    navigate("/");
+    return res.data.secure_url;
+  };
+
+  const handleSubmit = async () => {
+    await axios.post("/api/marketplace/products", form);
+    alert("Product added");
   };
 
   return (
-    <div style={{ padding: "2rem" }}>
-      <h2>Add Product</h2>
+    <div>
+      <input placeholder="Title"
+        onChange={(e) => setForm({ ...form, title: e.target.value })}
+      />
 
-      <form onSubmit={handleSubmit}>
-        <input
-          placeholder="Product title"
-          value={title}
-          onChange={(e) => setTitle(e.target.value)}
-          required
-        />
-        <br /><br />
+      <input type="file"
+        onChange={async (e) => {
+          const url = await uploadImage(e.target.files[0]);
+          setForm({ ...form, image: url });
+        }}
+      />
 
-        <input
-          type="number"
-          placeholder="Price"
-          value={price}
-          onChange={(e) => setPrice(e.target.value)}
-          required
-        />
-        <br /><br />
-
-        <textarea
-          placeholder="Description"
-          value={description}
-          onChange={(e) => setDescription(e.target.value)}
-        />
-        <br /><br />
-
-        <button type="submit">Save Product</button>
-      </form>
+      <button onClick={handleSubmit}>Post Product</button>
     </div>
   );
 }
