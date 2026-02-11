@@ -3,76 +3,51 @@ import axios from "axios";
 
 export default function HomePage() {
   const [miniMart, setMiniMart] = useState([]);
-  const [newMiniMartProduct, setNewMiniMartProduct] = useState({
-    title: "",
-    description: "",
-    price: 0,
-    category: ""
-  });
-  const [error, setError] = useState("");
-
-  const fetchMiniMart = async () => {
-    try {
-      const res = await axios.get("/api/minimart/products");
-      setMiniMart(res.data);
-    } catch (err) {
-      console.error(err);
-    }
-  };
+  const [newProduct, setNewProduct] = useState({ title: "", description: "", price: 0, category: "" });
+  const [imageFile, setImageFile] = useState(null);
 
   useEffect(() => {
-    fetchMiniMart();
+    axios.get("/api/minimart/products").then(res => setMiniMart(res.data));
   }, []);
 
-  const handleAddMiniMart = async () => {
-    try {
-      const res = await axios.post("/api/minimart/products", newMiniMartProduct);
-      // Add the new product to state so it shows immediately
-      setMiniMart([res.data, ...miniMart]);
-      setNewMiniMartProduct({ title: "", description: "", price: 0, category: "" });
-      setError("");
-    } catch (err) {
-      console.error(err);
-      setError(err.response?.data?.message || "Failed to add MiniMart product");
-    }
+  const toBase64 = file => new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.readAsDataURL(file);
+    reader.onload = () => resolve(reader.result);
+    reader.onerror = err => reject(err);
+  });
+
+  const handleAddProduct = async () => {
+    let imageBase64 = null;
+    if (imageFile) imageBase64 = await toBase64(imageFile);
+
+    const res = await axios.post("/api/minimart/products", { ...newProduct, imageBase64 });
+    setMiniMart([res.data, ...miniMart]);
+    setNewProduct({ title: "", description: "", price: 0, category: "" });
+    setImageFile(null);
   };
 
   return (
-    <div>
+    <div style={{ padding: "2rem" }}>
       <h1>MiniMart Store</h1>
-      {error && <p style={{ color: "red" }}>{error}</p>}
-      <input
-        placeholder="Title"
-        value={newMiniMartProduct.title}
-        onChange={(e) => setNewMiniMartProduct({ ...newMiniMartProduct, title: e.target.value })}
-      />
-      <input
-        placeholder="Description"
-        value={newMiniMartProduct.description}
-        onChange={(e) => setNewMiniMartProduct({ ...newMiniMartProduct, description: e.target.value })}
-      />
-      <input
-        placeholder="Price"
-        type="number"
-        value={newMiniMartProduct.price}
-        onChange={(e) => setNewMiniMartProduct({ ...newMiniMartProduct, price: e.target.value })}
-      />
-      <input
-        placeholder="Category"
-        value={newMiniMartProduct.category}
-        onChange={(e) => setNewMiniMartProduct({ ...newMiniMartProduct, category: e.target.value })}
-      />
-      <button onClick={handleAddMiniMart}>Add MiniMart Product</button>
 
-      <hr />
-      {miniMart.map((p) => (
-        <div key={p.id}>
-          <h3>{p.title}</h3>
-          <p>₦{p.price}</p>
-          {p.description && <p>{p.description}</p>}
-          {p.category && <p>Category: {p.category}</p>}
-        </div>
-      ))}
+      <input type="text" placeholder="Title" value={newProduct.title} onChange={e => setNewProduct({ ...newProduct, title: e.target.value })} />
+      <input type="text" placeholder="Description" value={newProduct.description} onChange={e => setNewProduct({ ...newProduct, description: e.target.value })} />
+      <input type="number" placeholder="Price" value={newProduct.price} onChange={e => setNewProduct({ ...newProduct, price: parseFloat(e.target.value) })} />
+      <input type="text" placeholder="Category" value={newProduct.category} onChange={e => setNewProduct({ ...newProduct, category: e.target.value })} />
+      <input type="file" accept="image/*" onChange={e => setImageFile(e.target.files[0])} />
+      <button onClick={handleAddProduct}>Add Product</button>
+
+      <div style={{ marginTop: "2rem" }}>
+        {miniMart.map(p => (
+          <div key={p.id} style={{ border: "1px solid #ccc", padding: "1rem", marginBottom: "1rem" }}>
+            <h3>{p.title}</h3>
+            <p>₦{p.price}</p>
+            {p.image_url && <img src={p.image_url} alt={p.title} style={{ maxWidth: "200px" }} />}
+            <p>{p.description}</p>
+          </div>
+        ))}
+      </div>
     </div>
   );
 }
