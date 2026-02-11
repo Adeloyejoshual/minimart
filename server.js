@@ -1,10 +1,9 @@
 import express from "express";
 import cors from "cors";
+import path from "path";
+import { fileURLToPath } from "url";
 import dotenv from "dotenv";
-import mongoose from "mongoose";
-import pkg from "pg";
-
-import MarketplaceProduct from "./models/MarketplaceProduct.js";
+import pkg from "pg"; // CockroachDB
 
 dotenv.config();
 const { Pool } = pkg;
@@ -12,60 +11,92 @@ const { Pool } = pkg;
 const app = express();
 const PORT = process.env.PORT || 10000;
 
-app.use(cors());
-app.use(express.json());
-
-/* ================= MongoDB ================= */
-mongoose.connect(process.env.MONGO_URI)
-  .then(() => console.log("✅ MongoDB connected"))
-  .catch(err => console.log(err));
-
-/* ================= CockroachDB ================= */
+// --- CockroachDB connection ---
 const pool = new Pool({
   connectionString: process.env.COCKROACH_URI,
-  ssl: { rejectUnauthorized: false }
+  ssl: { rejectUnauthorized: false }, // Required for Render
 });
 
-console.log("✅ CockroachDB ready");
+// Test DB connection
+(async () => {
+  try {
+    await pool.connect();
+    console.log("✅ CockroachDB ready");
+  } catch (err) {
+    console.error("❌ CockroachDB connection error:", err);
+    process.exit(1);
+  }
+})();
 
-/* ================= MINI MART ROUTES ================= */
+// --- Middleware ---
+app.use(cors());
+app.use(express.json());
+app.use(express.urlencoded({ extended: true }));
 
-app.get("/api/minimart", async (req, res) => {
-  const { rows } = await pool.query(
-    "SELECT * FROM minimart_products WHERE is_active = true ORDER BY created_at DESC"
-  );
-  res.json(rows);
+// --- API Routes ---
+// Get all MiniMart products
+app.get("/api/minimart/products", async (req, res) => {
+  try {
+    const { rows } = await pool.query(
+      `SELECT id, title, description, price, category, type, brand, condition, location, created_at
+       FROM products
+       ORDER BY created_at DESC`
+    );
+    res.json(rows);
+  } catch (err) {
+    console.error("GET /api/minimart/products error:", err);
+    res.status(500).json({ error: "Failed to fetch MiniMart products" });
+  }
 });
 
-app.post("/api/minimart", async (req, res) => {
-  const { title, description, price, image, category, stock } = req.body;
+// Add new MiniMart product
+app.post("/api/minimart/products", async (req, res) => {
+  try {
+    const {
+      title,
+      description,
+      price,
+      category,
+      type,
+      brand,
+      condition,
+      location,
+    } = req.body;
 
-  const { rows } = await pool.query(
-    `INSERT INTO minimart_products 
-     (title, description, price, image, category, stock)
-     VALUES ($1,$2,$3,$4,$5,$6)
-     RETURNING *`,
-    [title, description, price, image, category, stock]
-  );
+    if (!title || !price) {
+      return res.status(400).json({ error: "Title and price are required" });
+    }
 
-  res.json(rows[0]);
+    const numericPrice = parseFloat(price);
+    if (isNaN(numericPrice)) {
+      return res.status(400).json({ error: "Price must be a number" });
+    }
+
+    const { rows } = await pool.query(
+      `INSERT INTO products
+       (title, description, price, category, type, brand, condition, location)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8)
+       RETURNING id, title, description, price, category, type, brand, condition, location, created_at`,
+      [title.trim(), description?.trim() || null, numericPrice, category || null, type || null, brand || null, condition || null, location || null]
+    );
+
+    res.status(201).json(rows[0]);
+  } catch (err) {
+    console.error("POST /api/minimart/products error:", err);
+    res.status(500).json({ error: "Failed to add product" });
+  }
 });
 
-/* ================= MARKETPLACE ROUTES ================= */
+// --- Serve frontend ---
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
 
-app.get("/api/marketplace", async (req, res) => {
-  const products = await MarketplaceProduct.find({ isApproved: true })
-    .sort({ createdAt: -1 });
-  res.json(products);
+app.use(express.static(path.join(__dirname, "dist")));
+app.get("*", (req, res) => {
+  res.sendFile(path.join(__dirname, "dist", "index.html"));
 });
 
-app.post("/api/marketplace", async (req, res) => {
-  const product = await MarketplaceProduct.create(req.body);
-  res.json(product);
-});
-
-/* ================= START SERVER ================= */
-
+// --- Start server ---
 app.listen(PORT, () => {
-  console.log(`🚀 Server running on ${PORT}`);
+  console.log(`🚀 MiniMart running on port ${PORT}`);
 });
