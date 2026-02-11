@@ -1,116 +1,71 @@
 import express from "express";
 import cors from "cors";
-import path from "path";
-import { fileURLToPath } from "url";
 import dotenv from "dotenv";
 import mongoose from "mongoose";
-import { Pool } from "pg"; // CockroachDB
-import Product from "./models/Product.js"; // MongoDB Marketplace model
+import pkg from "pg";
+
+import MarketplaceProduct from "./models/MarketplaceProduct.js";
 
 dotenv.config();
+const { Pool } = pkg;
 
 const app = express();
 const PORT = process.env.PORT || 10000;
 
-// ===== Middleware =====
 app.use(cors());
 app.use(express.json());
-app.use(express.urlencoded({ extended: true }));
 
-// ===== MongoDB (Marketplace) =====
-mongoose
-  .connect(process.env.MONGO_URI)
+/* ================= MongoDB ================= */
+mongoose.connect(process.env.MONGO_URI)
   .then(() => console.log("✅ MongoDB connected"))
-  .catch((err) => console.error("❌ MongoDB connection error:", err));
+  .catch(err => console.log(err));
 
-// ===== CockroachDB (MiniMart) =====
+/* ================= CockroachDB ================= */
 const pool = new Pool({
   connectionString: process.env.COCKROACH_URI,
-  ssl: { rejectUnauthorized: false }, // Required for Render + CockroachDB
+  ssl: { rejectUnauthorized: false }
 });
 
-// Test CockroachDB connection
-(async () => {
-  try {
-    await pool.connect();
-    console.log("✅ CockroachDB connected");
-  } catch (err) {
-    console.error("❌ CockroachDB connection error:", err);
-    process.exit(1);
-  }
-})();
+console.log("✅ CockroachDB ready");
 
-// ===== MongoDB API (Marketplace) =====
-app.get("/api/marketplace/products", async (req, res) => {
-  try {
-    const products = await Product.find().sort({ createdAt: -1 });
-    res.json(products);
-  } catch (err) {
-    console.error(err);
-    res.status(500).json({ message: "Failed to fetch Marketplace products" });
-  }
+/* ================= MINI MART ROUTES ================= */
+
+app.get("/api/minimart", async (req, res) => {
+  const { rows } = await pool.query(
+    "SELECT * FROM minimart_products WHERE is_active = true ORDER BY created_at DESC"
+  );
+  res.json(rows);
 });
 
-app.post("/api/marketplace/products", async (req, res) => {
-  try {
-    const product = await Product.create(req.body);
-    res.status(201).json(product);
-  } catch (err) {
-    console.error(err);
-    res.status(400).json({ message: "Failed to add Marketplace product" });
-  }
+app.post("/api/minimart", async (req, res) => {
+  const { title, description, price, image, category, stock } = req.body;
+
+  const { rows } = await pool.query(
+    `INSERT INTO minimart_products 
+     (title, description, price, image, category, stock)
+     VALUES ($1,$2,$3,$4,$5,$6)
+     RETURNING *`,
+    [title, description, price, image, category, stock]
+  );
+
+  res.json(rows[0]);
 });
 
-// ===== CockroachDB API (MiniMart) =====
-app.get("/api/products", async (req, res) => {
-  try {
-    const { rows } = await pool.query(
-      "SELECT id, title, description, price, created_at FROM products ORDER BY created_at DESC"
-    );
-    res.json(rows);
-  } catch (err) {
-    console.error(err);
-    res.status(500).json({ message: "Failed to fetch MiniMart products" });
-  }
+/* ================= MARKETPLACE ROUTES ================= */
+
+app.get("/api/marketplace", async (req, res) => {
+  const products = await MarketplaceProduct.find({ isApproved: true })
+    .sort({ createdAt: -1 });
+  res.json(products);
 });
 
-app.post("/api/products", async (req, res) => {
-  try {
-    const { title, description, price } = req.body;
-
-    if (!title || !price) {
-      return res.status(400).json({ message: "Title and price are required" });
-    }
-
-    const numericPrice = parseFloat(price);
-    if (isNaN(numericPrice)) {
-      return res.status(400).json({ message: "Price must be a valid number" });
-    }
-
-    const query = `
-      INSERT INTO products (title, description, price)
-      VALUES ($1, $2, $3)
-      RETURNING id, title, description, price, created_at
-    `;
-    const { rows } = await pool.query(query, [title.trim(), description?.trim() || null, numericPrice]);
-    res.status(201).json(rows[0]);
-  } catch (err) {
-    console.error(err);
-    res.status(500).json({ message: "Failed to add MiniMart product" });
-  }
+app.post("/api/marketplace", async (req, res) => {
+  const product = await MarketplaceProduct.create(req.body);
+  res.json(product);
 });
 
-// ===== Serve Frontend =====
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = path.dirname(__filename);
+/* ================= START SERVER ================= */
 
-app.use(express.static(path.join(__dirname, "dist")));
-
-app.get("*", (req, res) => {
-  res.sendFile(path.join(__dirname, "dist", "index.html"));
-});
-
-// ===== Start Server =====
 app.listen(PORT, () => {
-  console.log(`🚀 Server running on port ${PORT}`);
+  console.log(`🚀 Server running on ${PORT}`);
 });
