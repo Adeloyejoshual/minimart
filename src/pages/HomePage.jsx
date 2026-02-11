@@ -3,60 +3,76 @@ import axios from "axios";
 
 export default function HomePage() {
   const [miniMart, setMiniMart] = useState([]);
-  const [newProduct, setNewProduct] = useState({ title: "", description: "", price: 0 });
+  const [newMiniMartProduct, setNewMiniMartProduct] = useState({
+    title: "",
+    description: "",
+    price: 0,
+    category: ""
+  });
+  const [error, setError] = useState("");
 
-  useEffect(() => {
-    fetchProducts();
-  }, []);
-
-  const fetchProducts = async () => {
+  const fetchMiniMart = async () => {
     try {
-      const res = await axios.get("/api/minimart");
+      const res = await axios.get("/api/minimart/products");
       setMiniMart(res.data);
     } catch (err) {
       console.error(err);
     }
   };
 
-  const addProduct = async () => {
+  useEffect(() => {
+    fetchMiniMart();
+  }, []);
+
+  const handleAddMiniMart = async () => {
     try {
-      await axios.post("/api/minimart", newProduct);
-      setNewProduct({ title: "", description: "", price: 0 });
-      fetchProducts();
+      const res = await axios.post("/api/minimart/products", newMiniMartProduct);
+      // Add the new product to state so it shows immediately
+      setMiniMart([res.data, ...miniMart]);
+      setNewMiniMartProduct({ title: "", description: "", price: 0, category: "" });
+      setError("");
     } catch (err) {
-      console.error("Failed to add MiniMart product:", err.response?.data || err.message);
+      console.error(err);
+      setError(err.response?.data?.message || "Failed to add MiniMart product");
     }
   };
 
   return (
-    <div style={{ padding: "2rem" }}>
-      <h1>MiniMart Products</h1>
-      {miniMart.map(p => (
-        <div key={p.id}>
-          <h3>{p.title}</h3>
-          <p>₦{p.price}</p>
-          <p>{p.description}</p>
-        </div>
-      ))}
-
-      <h2>Add Product</h2>
+    <div>
+      <h1>MiniMart Store</h1>
+      {error && <p style={{ color: "red" }}>{error}</p>}
       <input
         placeholder="Title"
-        value={newProduct.title}
-        onChange={(e) => setNewProduct({ ...newProduct, title: e.target.value })}
+        value={newMiniMartProduct.title}
+        onChange={(e) => setNewMiniMartProduct({ ...newMiniMartProduct, title: e.target.value })}
       />
       <input
         placeholder="Description"
-        value={newProduct.description}
-        onChange={(e) => setNewProduct({ ...newProduct, description: e.target.value })}
+        value={newMiniMartProduct.description}
+        onChange={(e) => setNewMiniMartProduct({ ...newMiniMartProduct, description: e.target.value })}
       />
       <input
-        type="number"
         placeholder="Price"
-        value={newProduct.price}
-        onChange={(e) => setNewProduct({ ...newProduct, price: parseFloat(e.target.value) })}
+        type="number"
+        value={newMiniMartProduct.price}
+        onChange={(e) => setNewMiniMartProduct({ ...newMiniMartProduct, price: e.target.value })}
       />
-      <button onClick={addProduct}>Add MiniMart Product</button>
+      <input
+        placeholder="Category"
+        value={newMiniMartProduct.category}
+        onChange={(e) => setNewMiniMartProduct({ ...newMiniMartProduct, category: e.target.value })}
+      />
+      <button onClick={handleAddMiniMart}>Add MiniMart Product</button>
+
+      <hr />
+      {miniMart.map((p) => (
+        <div key={p.id}>
+          <h3>{p.title}</h3>
+          <p>₦{p.price}</p>
+          {p.description && <p>{p.description}</p>}
+          {p.category && <p>Category: {p.category}</p>}
+        </div>
+      ))}
     </div>
   );
 }
