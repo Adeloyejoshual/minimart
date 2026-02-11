@@ -8,8 +8,9 @@ datasource db {
 }
 
 model miniMartProduct {
-  id        String   @id @default(uuid())
-  title     String
-  price     Float
-  createdAt DateTime @default(now())
+  id          String   @id @default(uuid())
+  title       String
+  description String?
+  price       Float
+  createdAt   DateTime @default(now())
 }
