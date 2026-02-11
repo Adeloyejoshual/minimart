@@ -3,20 +3,15 @@ import cors from "cors";
 import path from "path";
 import { fileURLToPath } from "url";
 import dotenv from "dotenv";
-import { Pool } from "pg";
-import mongoose from "mongoose";
-import Product from "./models/Product.js";
+import pkg from "pg";
 
 dotenv.config();
+const { Pool } = pkg;
+
 const app = express();
 const PORT = process.env.PORT || 10000;
 
-/* ================= Middleware ================= */
-app.use(cors());
-app.use(express.json());
-app.use(express.urlencoded({ extended: true }));
-
-/* ================= CockroachDB MiniMart ================= */
+// CockroachDB
 const pool = new Pool({
   connectionString: process.env.COCKROACH_URI,
   ssl: { rejectUnauthorized: false },
@@ -25,70 +20,52 @@ const pool = new Pool({
 (async () => {
   try {
     await pool.connect();
-    console.log("✅ CockroachDB connected");
+    console.log("✅ Connected to CockroachDB");
   } catch (err) {
-    console.error("❌ CockroachDB connection error:", err);
+    console.error("❌ DB connection error:", err);
     process.exit(1);
   }
 })();
 
-/* ================= MongoDB Marketplace ================= */
-mongoose.connect(process.env.MONGO_URI)
-  .then(() => console.log("✅ MongoDB connected"))
-  .catch(err => console.error("❌ MongoDB connection error:", err));
+app.use(cors());
+app.use(express.json());
+app.use(express.urlencoded({ extended: true }));
 
-/* ================= API ROUTES ================= */
-
-// --- MiniMart ---
-app.get("/api/minimart/products", async (req, res) => {
+// GET all products
+app.get("/api/products", async (req, res) => {
   try {
-    const { rows } = await pool.query("SELECT * FROM miniMartProduct ORDER BY createdAt DESC");
+    const { rows } = await pool.query(
+      "SELECT id, title, description, price, image, created_at FROM products ORDER BY created_at DESC"
+    );
     res.json(rows);
   } catch (err) {
-    res.status(500).json({ error: "Failed to fetch MiniMart products" });
+    console.error(err);
+    res.status(500).json({ error: "Failed to fetch products" });
   }
 });
 
-app.post("/api/minimart/products", async (req, res) => {
+// POST new product
+app.post("/api/products", async (req, res) => {
   try {
-    const { title, description, price } = req.body;
-    const { rows } = await pool.query(
-      "INSERT INTO miniMartProduct (title, description, price) VALUES ($1, $2, $3) RETURNING *",
-      [title, description || null, parseFloat(price)]
-    );
-    res.json(rows[0]);
+    const { name, description, price, image } = req.body;
+    if (!name || !price) return res.status(400).json({ error: "Title and price required" });
+
+    const numericPrice = parseFloat(price);
+    const query =
+      "INSERT INTO products (title, description, price, image) VALUES ($1, $2, $3, $4) RETURNING *";
+
+    const { rows } = await pool.query(query, [name, description || null, numericPrice, image || null]);
+    res.status(201).json(rows[0]);
   } catch (err) {
-    res.status(500).json({ error: "Failed to add MiniMart product" });
+    console.error(err);
+    res.status(500).json({ error: "Failed to add product" });
   }
 });
 
-// --- Marketplace ---
-app.get("/api/marketplace/products", async (req, res) => {
-  try {
-    const products = await Product.find().sort({ createdAt: -1 });
-    res.json(products);
-  } catch (err) {
-    res.status(500).json({ error: "Failed to fetch Marketplace products" });
-  }
-});
-
-app.post("/api/marketplace/products", async (req, res) => {
-  try {
-    const product = await Product.create(req.body);
-    res.json(product);
-  } catch (err) {
-    res.status(500).json({ error: "Failed to add Marketplace product" });
-  }
-});
-
-/* ================= Serve frontend ================= */
+// Serve frontend
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
-
 app.use(express.static(path.join(__dirname, "dist")));
-app.get("*", (req, res) => {
-  res.sendFile(path.join(__dirname, "dist", "index.html"));
-});
+app.get("*", (req, res) => res.sendFile(path.join(__dirname, "dist", "index.html")));
 
-/* ================= Start server ================= */
-app.listen(PORT, () => console.log(`🚀 Server running on port ${PORT}`));
+app.listen(PORT, () => console.log(`🚀 MiniMart running on port ${PORT}`));
