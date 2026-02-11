@@ -1,13 +1,16 @@
-// src/models/MarketplaceProduct.js
 import mongoose from "mongoose";
 
-const MarketplaceProductSchema = new mongoose.Schema({
-  title: { type: String, required: true },
-  description: { type: String, required: true },
-  price: { type: Number, required: true },
-  images: [{ type: String }], // URLs after upload
-  userEmail: { type: String, required: true }, // store who added the product
-  createdAt: { type: Date, default: Date.now },
-});
+const marketplaceSchema = new mongoose.Schema(
+  {
+    title: String,
+    description: String,
+    price: Number,
+    image: String,
+    category: String,
+    sellerId: String,
+    isApproved: { type: Boolean, default: false }
+  },
+  { timestamps: true }
+);
 
-export default mongoose.model("MarketplaceProduct", MarketplaceProductSchema);
+export default mongoose.model("MarketplaceProduct", marketplaceSchema);
