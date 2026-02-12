@@ -1,46 +1,56 @@
-import axios from "axios";
+// src/pages/Marketplace/AddProduct.jsx
 import { useState } from "react";
+import axios from "axios";
 
-export default function AddProduct() {
-  const [form, setForm] = useState({
-    title: "",
-    description: "",
-    price: "",
-    image: "",
-  });
+export default function AddMarketplaceProduct() {
+  const [title, setTitle] = useState("");
+  const [price, setPrice] = useState("");
+  const [description, setDescription] = useState("");
+  const [message, setMessage] = useState("");
 
-  const uploadImage = async (file) => {
-    const data = new FormData();
-    data.append("file", file);
-    data.append("upload_preset", import.meta.env.VITE_CLOUDINARY_UPLOAD_PRESET);
-
-    const res = await axios.post(
-      `https://api.cloudinary.com/v1_1/${import.meta.env.VITE_CLOUDINARY_CLOUD_NAME}/image/upload`,
-      data
-    );
-
-    return res.data.secure_url;
-  };
-
-  const handleSubmit = async () => {
-    await axios.post("/api/marketplace/products", form);
-    alert("Product added");
+  const handleSubmit = async (e) => {
+    e.preventDefault();
+    try {
+      const res = await axios.post("/api/marketplace/products", {
+        title,
+        price,
+        description,
+      });
+      setMessage("Product added successfully!");
+      setTitle("");
+      setPrice("");
+      setDescription("");
+    } catch (err) {
+      setMessage("Failed to add Marketplace product");
+    }
   };
 
   return (
     <div>
-      <input placeholder="Title"
-        onChange={(e) => setForm({ ...form, title: e.target.value })}
-      />
-
-      <input type="file"
-        onChange={async (e) => {
-          const url = await uploadImage(e.target.files[0]);
-          setForm({ ...form, image: url });
-        }}
-      />
-
-      <button onClick={handleSubmit}>Post Product</button>
+      <h1>Add Marketplace Product</h1>
+      {message && <p>{message}</p>}
+      <form onSubmit={handleSubmit}>
+        <input
+          type="text"
+          placeholder="Title"
+          value={title}
+          onChange={e => setTitle(e.target.value)}
+          required
+        />
+        <input
+          type="number"
+          placeholder="Price"
+          value={price}
+          onChange={e => setPrice(e.target.value)}
+          required
+        />
+        <textarea
+          placeholder="Description"
+          value={description}
+          onChange={e => setDescription(e.target.value)}
+        />
+        <button type="submit">Add Product</button>
+      </form>
     </div>
   );
 }
