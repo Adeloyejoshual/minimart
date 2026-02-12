@@ -1,58 +1,44 @@
-// src/pages/AddMarketplaceProduct.jsx
 import { useState } from "react";
 import axios from "axios";
 import { useNavigate } from "react-router-dom";
 
-const CLOUD_NAME = import.meta.env.VITE_CLOUDINARY_CLOUD_NAME;
-const UPLOAD_PRESET = import.meta.env.VITE_CLOUDINARY_UPLOAD_PRESET;
-
 export default function AddMarketplaceProduct() {
-  const [product, setProduct] = useState({
-    title: "",
-    price: 0,
-    image_url: "",
-  });
-  const [file, setFile] = useState(null);
+  const [title, setTitle] = useState("");
+  const [price, setPrice] = useState("");
+  const [imageFile, setImageFile] = useState(null);
   const navigate = useNavigate();
 
-  const handleFileChange = (e) => {
-    setFile(e.target.files[0]);
-  };
-
-  const uploadToCloudinary = async () => {
-    if (!file) return null;
-    const formData = new FormData();
-    formData.append("file", file);
-    formData.append("upload_preset", UPLOAD_PRESET);
-
+  const handleSubmit = async (e) => {
+    e.preventDefault();
     try {
-      const res = await axios.post(
-        `https://api.cloudinary.com/v1_1/${CLOUD_NAME}/image/upload`,
-        formData
-      );
-      return res.data.public_id; // store only public_id in DB
-    } catch (err) {
-      console.error("Cloudinary upload error:", err);
-      return null;
-    }
-  };
+      let imageUrl = null;
 
-  const addProduct = async () => {
-    try {
-      let imageId = product.image_url;
-      if (file) {
-        imageId = await uploadToCloudinary();
+      if (imageFile) {
+        const formData = new FormData();
+        formData.append("file", imageFile);
+        formData.append(
+          "upload_preset",
+          import.meta.env.VITE_CLOUDINARY_UPLOAD_PRESET
+        );
+
+        const res = await axios.post(
+          `https://api.cloudinary.com/v1_1/${import.meta.env.VITE_CLOUDINARY_CLOUD_NAME}/image/upload`,
+          formData
+        );
+
+        imageUrl = res.data.secure_url;
       }
 
       await axios.post("/api/marketplace", {
-        ...product,
-        image_url: imageId,
+        title: title.trim(),
+        price: parseFloat(price),
+        image: imageUrl,
       });
 
       alert("Marketplace product added!");
-      navigate("/"); // Go back to homepage
+      navigate("/");
     } catch (err) {
-      console.error("Failed to add product:", err);
+      console.error("Failed to add Marketplace product:", err.response?.data || err);
       alert("Failed to add product");
     }
   };
@@ -60,20 +46,27 @@ export default function AddMarketplaceProduct() {
   return (
     <div style={{ padding: "2rem" }}>
       <h1>Add Marketplace Product</h1>
-
-      <input
-        placeholder="Title"
-        value={product.title}
-        onChange={(e) => setProduct({ ...product, title: e.target.value })}
-      />
-      <input
-        placeholder="Price"
-        type="number"
-        value={product.price}
-        onChange={(e) => setProduct({ ...product, price: e.target.value })}
-      />
-      <input type="file" accept="image/*" onChange={handleFileChange} />
-      <button onClick={addProduct}>Add Product</button>
+      <form onSubmit={handleSubmit}>
+        <input
+          placeholder="Title"
+          value={title}
+          onChange={(e) => setTitle(e.target.value)}
+          required
+        />
+        <input
+          placeholder="Price"
+          type="number"
+          value={price}
+          onChange={(e) => setPrice(e.target.value)}
+          required
+        />
+        <input
+          type="file"
+          accept="image/*"
+          onChange={(e) => setImageFile(e.target.files[0])}
+        />
+        <button type="submit">Add Product</button>
+      </form>
     </div>
   );
 }
