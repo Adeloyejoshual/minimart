@@ -1,56 +1,36 @@
-// src/pages/Marketplace/AddProduct.jsx
 import { useState } from "react";
 import axios from "axios";
+import { useNavigate } from "react-router-dom";
 
 export default function AddMarketplaceProduct() {
-  const [title, setTitle] = useState("");
-  const [price, setPrice] = useState("");
-  const [description, setDescription] = useState("");
-  const [message, setMessage] = useState("");
+  const [product, setProduct] = useState({ title: "", price: 0 });
+  const navigate = useNavigate();
 
-  const handleSubmit = async (e) => {
-    e.preventDefault();
+  const addProduct = async () => {
     try {
-      const res = await axios.post("/api/marketplace/products", {
-        title,
-        price,
-        description,
-      });
-      setMessage("Product added successfully!");
-      setTitle("");
-      setPrice("");
-      setDescription("");
-    } catch (err) {
-      setMessage("Failed to add Marketplace product");
+      await axios.post("/api/marketplace", product);
+      alert("Marketplace product added!");
+      navigate("/"); // Go back to homepage
+    } catch {
+      alert("Failed to add product");
     }
   };
 
   return (
-    <div>
+    <div style={{ padding: "2rem" }}>
       <h1>Add Marketplace Product</h1>
-      {message && <p>{message}</p>}
-      <form onSubmit={handleSubmit}>
-        <input
-          type="text"
-          placeholder="Title"
-          value={title}
-          onChange={e => setTitle(e.target.value)}
-          required
-        />
-        <input
-          type="number"
-          placeholder="Price"
-          value={price}
-          onChange={e => setPrice(e.target.value)}
-          required
-        />
-        <textarea
-          placeholder="Description"
-          value={description}
-          onChange={e => setDescription(e.target.value)}
-        />
-        <button type="submit">Add Product</button>
-      </form>
+      <input
+        placeholder="Title"
+        value={product.title}
+        onChange={e => setProduct({ ...product, title: e.target.value })}
+      />
+      <input
+        placeholder="Price"
+        type="number"
+        value={product.price}
+        onChange={e => setProduct({ ...product, price: e.target.value })}
+      />
+      <button onClick={addProduct}>Add Product</button>
     </div>
   );
 }
