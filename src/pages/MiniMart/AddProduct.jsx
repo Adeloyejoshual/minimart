@@ -1,49 +1,36 @@
-import React, { useState } from "react";
+import { useState } from "react";
+import axios from "axios";
+import { useNavigate } from "react-router-dom";
 
-export default function AddProduct() {
-  const [title, setTitle] = useState("");
-  const [description, setDescription] = useState("");
-  const [price, setPrice] = useState("");
-  const [imageFile, setImageFile] = useState(null);
+export default function AddMiniMartProduct() {
+  const [product, setProduct] = useState({ title: "", price: 0 });
+  const navigate = useNavigate();
 
-  const uploadImageToCloudinary = async (file) => {
-    const formData = new FormData();
-    formData.append("file", file);
-    formData.append("upload_preset", import.meta.env.VITE_CLOUDINARY_UPLOAD_PRESET);
-
-    const res = await fetch(
-      `https://api.cloudinary.com/v1_1/${import.meta.env.VITE_CLOUDINARY_CLOUD_NAME}/image/upload`,
-      { method: "POST", body: formData }
-    );
-
-    const data = await res.json();
-    return data.secure_url;
-  };
-
-  const handleSubmit = async () => {
-    if (!title || !price || !imageFile) return alert("Title, price & image required");
-
-    const imageUrl = await uploadImageToCloudinary(imageFile);
-
-    const res = await fetch("/api/products", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ name: title, description, price, image: imageUrl }),
-    });
-
-    const data = await res.json();
-    if (res.ok) alert("Product added!");
-    else alert("Failed to add product: " + data.error);
+  const addProduct = async () => {
+    try {
+      await axios.post("/api/minimart", product);
+      alert("MiniMart product added!");
+      navigate("/"); // Go back to homepage
+    } catch {
+      alert("Failed to add product");
+    }
   };
 
   return (
-    <div>
-      <h2>Add MiniMart Product</h2>
-      <input placeholder="Title" value={title} onChange={(e) => setTitle(e.target.value)} />
-      <input placeholder="Description" value={description} onChange={(e) => setDescription(e.target.value)} />
-      <input type="number" placeholder="Price" value={price} onChange={(e) => setPrice(e.target.value)} />
-      <input type="file" onChange={(e) => setImageFile(e.target.files[0])} />
-      <button onClick={handleSubmit}>Add Product</button>
+    <div style={{ padding: "2rem" }}>
+      <h1>Add MiniMart Product</h1>
+      <input
+        placeholder="Title"
+        value={product.title}
+        onChange={e => setProduct({ ...product, title: e.target.value })}
+      />
+      <input
+        placeholder="Price"
+        type="number"
+        value={product.price}
+        onChange={e => setProduct({ ...product, price: e.target.value })}
+      />
+      <button onClick={addProduct}>Add Product</button>
     </div>
   );
 }
