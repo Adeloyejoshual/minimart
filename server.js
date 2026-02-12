@@ -7,7 +7,7 @@ import { Pool } from "pg";
 import path from "path";
 import { fileURLToPath } from "url";
 
-// Load env
+// Load environment variables
 dotenv.config();
 
 const app = express();
@@ -19,20 +19,17 @@ app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
 // ================= MongoDB (Marketplace) =================
-// Make sure you have your MONGO_URI in Render env vars
 mongoose
   .connect(process.env.MONGO_URI)
   .then(() => console.log("✅ MongoDB connected"))
   .catch((err) => console.error("❌ MongoDB connection error:", err));
 
-// Example Marketplace model
 import MarketplaceProduct from "./models/MarketplaceProduct.js"; // make sure this exists
 
 // ================= CockroachDB (MiniMart) =================
-// Make sure COCKROACH_URI is set in Render env vars
 const pool = new Pool({
   connectionString: process.env.COCKROACH_URI,
-  ssl: { rejectUnauthorized: false }, // required for Render
+  ssl: { rejectUnauthorized: false },
 });
 
 (async () => {
@@ -48,29 +45,47 @@ const pool = new Pool({
 // ================= API Routes =================
 
 // --- Marketplace ---
+// GET all products
 app.get("/api/marketplace", async (req, res) => {
   try {
     const products = await MarketplaceProduct.find().sort({ createdAt: -1 });
     res.json(products);
   } catch (err) {
+    console.error("GET /api/marketplace error:", err);
     res.status(500).json({ message: "Failed to fetch Marketplace products" });
   }
 });
 
+// POST new product with optional Cloudinary URL
 app.post("/api/marketplace", async (req, res) => {
   try {
-    const product = await MarketplaceProduct.create(req.body);
-    res.json(product);
+    const { title, price, image } = req.body;
+    if (!title || !price)
+      return res.status(400).json({ message: "Title and price are required" });
+
+    const numericPrice = parseFloat(price);
+    if (isNaN(numericPrice))
+      return res.status(400).json({ message: "Price must be a valid number" });
+
+    const product = await MarketplaceProduct.create({
+      title: title.trim(),
+      price: numericPrice,
+      image: image || null,
+    });
+
+    res.status(201).json(product);
   } catch (err) {
-    res.status(400).json({ message: "Failed to add Marketplace product" });
+    console.error("POST /api/marketplace error:", err);
+    res.status(500).json({ message: "Failed to add Marketplace product" });
   }
 });
 
 // --- MiniMart ---
+// GET all products
 app.get("/api/minimart", async (req, res) => {
   try {
     const { rows } = await pool.query(
-      "SELECT id, title, description, price, created_at FROM minimart_products ORDER BY created_at DESC"
+      "SELECT id, title, description, price, image_url, created_at FROM minimart_products ORDER BY created_at DESC"
     );
     res.json(rows);
   } catch (err) {
@@ -79,10 +94,10 @@ app.get("/api/minimart", async (req, res) => {
   }
 });
 
+// POST new MiniMart product
 app.post("/api/minimart", async (req, res) => {
   try {
-    const { title, description, price } = req.body;
-
+    const { title, description, price, image_url } = req.body;
     if (!title || !price)
       return res.status(400).json({ error: "Title and price are required" });
 
@@ -91,14 +106,15 @@ app.post("/api/minimart", async (req, res) => {
       return res.status(400).json({ error: "Price must be a valid number" });
 
     const query = `
-      INSERT INTO minimart_products (title, description, price)
-      VALUES ($1, $2, $3)
-      RETURNING id, title, description, price, created_at
+      INSERT INTO minimart_products (title, description, price, image_url)
+      VALUES ($1, $2, $3, $4)
+      RETURNING id, title, description, price, image_url, created_at
     `;
     const { rows } = await pool.query(query, [
       title.trim(),
       description?.trim() || null,
       numericPrice,
+      image_url || null,
     ]);
 
     res.status(201).json(rows[0]);
@@ -114,7 +130,6 @@ const __dirname = path.dirname(__filename);
 const frontendPath = path.join(__dirname, "dist");
 
 console.log("Serving frontend from:", frontendPath);
-
 app.use(express.static(frontendPath));
 app.get("*", (req, res) => {
   res.sendFile(path.join(frontendPath, "index.html"));
