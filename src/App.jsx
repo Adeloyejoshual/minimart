@@ -1,17 +1,17 @@
-import React from "react";
-import { BrowserRouter, Routes, Route } from "react-router-dom";
-
-// Pages
-import HomePage from "./pages/HomePage.jsx";
-import AddProduct from "./pages/Home/AddProduct.jsx";
+// src/App.jsx
+import { BrowserRouter as Router, Routes, Route } from "react-router-dom";
+import HomePage from "./pages/HomePage";
+import AddMiniMartProduct from "./pages/MiniMart/AddProduct";
+import AddMarketplaceProduct from "./pages/Marketplace/AddProduct";
 
 export default function App() {
   return (
-    <BrowserRouter>
+    <Router>
       <Routes>
         <Route path="/" element={<HomePage />} />
-        <Route path="/home/add-product" element={<AddProduct />} />
+        <Route path="/minimart/add-product" element={<AddMiniMartProduct />} />
+        <Route path="/marketplace/add-product" element={<AddMarketplaceProduct />} />
       </Routes>
-    </BrowserRouter>
+    </Router>
   );
 }
