@@ -27,9 +27,18 @@ export default function HomePage() {
       <h1>MiniMart Store</h1>
       <Link to="/minimart/add">Add MiniMart Product</Link>
       {miniMart.length === 0 && <p>No products yet.</p>}
-      {miniMart.map(p => (
-        <div key={p.id}>
+      {miniMart.map((p) => (
+        <div key={p.id} style={{ border: "1px solid #ccc", margin: "1rem 0", padding: "1rem" }}>
+          {p.image_url && (
+            <img
+              src={p.image_url}
+              alt={p.title}
+              style={{ width: "200px", objectFit: "cover", marginBottom: "0.5rem" }}
+            />
+          )}
           <h3>{p.title}</h3>
+          {p.category && <p>Category: {p.category}</p>}
+          {p.stock !== undefined && <p>Stock: {p.stock}</p>}
           <p>₦{p.price}</p>
         </div>
       ))}
@@ -37,8 +46,15 @@ export default function HomePage() {
       <h1>Marketplace</h1>
       <Link to="/marketplace/add">Add Marketplace Product</Link>
       {marketplace.length === 0 && <p>No products yet.</p>}
-      {marketplace.map(p => (
-        <div key={p._id}>
+      {marketplace.map((p) => (
+        <div key={p._id} style={{ border: "1px solid #ccc", margin: "1rem 0", padding: "1rem" }}>
+          {p.image_url && (
+            <img
+              src={p.image_url}
+              alt={p.title}
+              style={{ width: "200px", objectFit: "cover", marginBottom: "0.5rem" }}
+            />
+          )}
           <h3>{p.title}</h3>
           <p>₦{p.price}</p>
         </div>
