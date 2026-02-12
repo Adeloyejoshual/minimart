@@ -8,9 +8,10 @@ import path from "path";
 import { fileURLToPath } from "url";
 import multer from "multer";
 import { v2 as cloudinary } from "cloudinary";
-import { CloudinaryStorage } from "multer-storage-cloudinary";
 
+// Load env
 dotenv.config();
+
 const app = express();
 const PORT = process.env.PORT || 10000;
 
@@ -43,20 +44,15 @@ const pool = new Pool({
   }
 })();
 
-// ================= Cloudinary Setup =================
+// ================= Cloudinary Config =================
 cloudinary.config({
   cloud_name: process.env.VITE_CLOUDINARY_CLOUD_NAME,
   api_key: process.env.CLOUDINARY_API_KEY,
   api_secret: process.env.CLOUDINARY_API_SECRET,
 });
 
-const storage = new CloudinaryStorage({
-  cloudinary,
-  params: {
-    folder: "minimart",
-    allowed_formats: ["jpg", "png", "jpeg"],
-  },
-});
+// ================= Multer Config =================
+const storage = multer.memoryStorage();
 const upload = multer({ storage });
 
 // ================= API Routes =================
@@ -71,12 +67,29 @@ app.get("/api/marketplace", async (req, res) => {
   }
 });
 
-app.post("/api/marketplace", async (req, res) => {
+app.post("/api/marketplace", upload.single("image"), async (req, res) => {
   try {
-    const product = await MarketplaceProduct.create(req.body);
-    res.json(product);
+    let imageUrl = null;
+    if (req.file) {
+      const uploadResult = await cloudinary.uploader.upload_stream(
+        { folder: "marketplace" },
+        (error, result) => {
+          if (error) throw error;
+          imageUrl = result.secure_url;
+        }
+      );
+      uploadResult.end(req.file.buffer);
+    }
+
+    const product = await MarketplaceProduct.create({
+      ...req.body,
+      image: imageUrl,
+    });
+
+    res.status(201).json(product);
   } catch (err) {
-    res.status(400).json({ message: "Failed to add Marketplace product" });
+    console.error("POST /api/marketplace error:", err);
+    res.status(500).json({ message: "Failed to add Marketplace product" });
   }
 });
 
@@ -93,36 +106,39 @@ app.get("/api/minimart", async (req, res) => {
   }
 });
 
-// Add MiniMart product with optional image upload
 app.post("/api/minimart", upload.single("image"), async (req, res) => {
   try {
-    const { title, description, price, category } = req.body;
+    const { title, description, price } = req.body;
 
-    if (!title || !price) {
+    if (!title || !price)
       return res.status(400).json({ error: "Title and price are required" });
+
+    let imageUrl = null;
+    if (req.file) {
+      const uploadResult = await new Promise((resolve, reject) => {
+        const stream = cloudinary.uploader.upload_stream(
+          { folder: "minimart" },
+          (error, result) => {
+            if (error) reject(error);
+            else resolve(result);
+          }
+        );
+        stream.end(req.file.buffer);
+      });
+      imageUrl = uploadResult.secure_url;
     }
 
     const numericPrice = parseFloat(price);
-    if (isNaN(numericPrice)) {
-      return res.status(400).json({ error: "Price must be a valid number" });
-    }
-
-    let image_url = null;
-    if (req.file && req.file.path) {
-      image_url = req.file.path; // Cloudinary URL
-    }
-
     const query = `
-      INSERT INTO minimart_products (title, description, price, category, image_url)
-      VALUES ($1, $2, $3, $4, $5)
-      RETURNING id, title, description, price, category, image_url, created_at
+      INSERT INTO minimart_products (title, description, price, image_url)
+      VALUES ($1, $2, $3, $4)
+      RETURNING id, title, description, price, image_url, created_at
     `;
     const { rows } = await pool.query(query, [
       title.trim(),
       description?.trim() || null,
       numericPrice,
-      category?.trim() || null,
-      image_url,
+      imageUrl,
     ]);
 
     res.status(201).json(rows[0]);
