@@ -6,10 +6,11 @@ import dotenv from "dotenv";
 import { Pool } from "pg";
 import path from "path";
 import { fileURLToPath } from "url";
+import multer from "multer";
+import { v2 as cloudinary } from "cloudinary";
+import { CloudinaryStorage } from "multer-storage-cloudinary";
 
-// Load environment variables
 dotenv.config();
-
 const app = express();
 const PORT = process.env.PORT || 10000;
 
@@ -24,7 +25,7 @@ mongoose
   .then(() => console.log("✅ MongoDB connected"))
   .catch((err) => console.error("❌ MongoDB connection error:", err));
 
-import MarketplaceProduct from "./models/MarketplaceProduct.js"; // make sure this exists
+import MarketplaceProduct from "./models/MarketplaceProduct.js";
 
 // ================= CockroachDB (MiniMart) =================
 const pool = new Pool({
@@ -42,46 +43,44 @@ const pool = new Pool({
   }
 })();
 
+// ================= Cloudinary Setup =================
+cloudinary.config({
+  cloud_name: process.env.VITE_CLOUDINARY_CLOUD_NAME,
+  api_key: process.env.CLOUDINARY_API_KEY,
+  api_secret: process.env.CLOUDINARY_API_SECRET,
+});
+
+const storage = new CloudinaryStorage({
+  cloudinary,
+  params: {
+    folder: "minimart",
+    allowed_formats: ["jpg", "png", "jpeg"],
+  },
+});
+const upload = multer({ storage });
+
 // ================= API Routes =================
 
 // --- Marketplace ---
-// GET all products
 app.get("/api/marketplace", async (req, res) => {
   try {
     const products = await MarketplaceProduct.find().sort({ createdAt: -1 });
     res.json(products);
   } catch (err) {
-    console.error("GET /api/marketplace error:", err);
     res.status(500).json({ message: "Failed to fetch Marketplace products" });
   }
 });
 
-// POST new product with optional Cloudinary URL
 app.post("/api/marketplace", async (req, res) => {
   try {
-    const { title, price, image } = req.body;
-    if (!title || !price)
-      return res.status(400).json({ message: "Title and price are required" });
-
-    const numericPrice = parseFloat(price);
-    if (isNaN(numericPrice))
-      return res.status(400).json({ message: "Price must be a valid number" });
-
-    const product = await MarketplaceProduct.create({
-      title: title.trim(),
-      price: numericPrice,
-      image: image || null,
-    });
-
-    res.status(201).json(product);
+    const product = await MarketplaceProduct.create(req.body);
+    res.json(product);
   } catch (err) {
-    console.error("POST /api/marketplace error:", err);
-    res.status(500).json({ message: "Failed to add Marketplace product" });
+    res.status(400).json({ message: "Failed to add Marketplace product" });
   }
 });
 
 // --- MiniMart ---
-// GET all products
 app.get("/api/minimart", async (req, res) => {
   try {
     const { rows } = await pool.query(
@@ -94,27 +93,36 @@ app.get("/api/minimart", async (req, res) => {
   }
 });
 
-// POST new MiniMart product
-app.post("/api/minimart", async (req, res) => {
+// Add MiniMart product with optional image upload
+app.post("/api/minimart", upload.single("image"), async (req, res) => {
   try {
-    const { title, description, price, image_url } = req.body;
-    if (!title || !price)
+    const { title, description, price, category } = req.body;
+
+    if (!title || !price) {
       return res.status(400).json({ error: "Title and price are required" });
+    }
 
     const numericPrice = parseFloat(price);
-    if (isNaN(numericPrice))
+    if (isNaN(numericPrice)) {
       return res.status(400).json({ error: "Price must be a valid number" });
+    }
+
+    let image_url = null;
+    if (req.file && req.file.path) {
+      image_url = req.file.path; // Cloudinary URL
+    }
 
     const query = `
-      INSERT INTO minimart_products (title, description, price, image_url)
-      VALUES ($1, $2, $3, $4)
-      RETURNING id, title, description, price, image_url, created_at
+      INSERT INTO minimart_products (title, description, price, category, image_url)
+      VALUES ($1, $2, $3, $4, $5)
+      RETURNING id, title, description, price, category, image_url, created_at
     `;
     const { rows } = await pool.query(query, [
       title.trim(),
       description?.trim() || null,
       numericPrice,
-      image_url || null,
+      category?.trim() || null,
+      image_url,
     ]);
 
     res.status(201).json(rows[0]);
@@ -129,13 +137,10 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 const frontendPath = path.join(__dirname, "dist");
 
-console.log("Serving frontend from:", frontendPath);
 app.use(express.static(frontendPath));
 app.get("*", (req, res) => {
   res.sendFile(path.join(frontendPath, "index.html"));
 });
 
 // ================= Start Server =================
-app.listen(PORT, () => {
-  console.log(`🚀 Server running on port ${PORT}`);
-});
+app.listen(PORT, () => console.log(`🚀 Server running on port ${PORT}`));
