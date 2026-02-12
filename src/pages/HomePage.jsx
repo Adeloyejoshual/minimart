@@ -3,7 +3,12 @@ import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 import axios from "axios";
 
-const CLOUD_NAME = import.meta.env.VITE_CLOUDINARY_CLOUD_NAME;
+// Cloudinary helper
+const getCloudinaryUrl = (publicId) => {
+  if (!publicId) return null;
+  const cloudName = import.meta.env.VITE_CLOUDINARY_CLOUD_NAME;
+  return `https://res.cloudinary.com/${cloudName}/image/upload/${publicId}.jpg`;
+};
 
 export default function HomePage() {
   const [miniMart, setMiniMart] = useState([]);
@@ -25,74 +30,41 @@ export default function HomePage() {
     }
   };
 
-  // Helper: construct Cloudinary URL if only public_id is provided
-  const getCloudinaryUrl = (imageUrlOrId) => {
-    if (!imageUrlOrId) return null;
-    if (imageUrlOrId.startsWith("http")) return imageUrlOrId; // full URL from backend
-    return `https://res.cloudinary.com/${CLOUD_NAME}/image/upload/${imageUrlOrId}`;
-  };
-
   return (
     <div style={{ padding: "2rem" }}>
-      {/* ================= MiniMart ================= */}
       <h1>MiniMart Store</h1>
       <Link to="/minimart/add">Add MiniMart Product</Link>
       {miniMart.length === 0 && <p>No products yet.</p>}
-      <div style={{ display: "flex", flexWrap: "wrap" }}>
-        {miniMart.map((p) => (
-          <div
-            key={p.id}
-            style={{
-              border: "1px solid #ccc",
-              borderRadius: "8px",
-              margin: "1rem",
-              padding: "1rem",
-              width: "220px",
-              textAlign: "center",
-            }}
-          >
-            {p.image_url && (
-              <img
-                src={getCloudinaryUrl(p.image_url)}
-                alt={p.title}
-                style={{ width: "200px", height: "200px", objectFit: "cover", marginBottom: "0.5rem" }}
-              />
-            )}
-            <h3>{p.title}</h3>
-            <p>₦{p.price}</p>
-          </div>
-        ))}
-      </div>
+      {miniMart.map((p) => (
+        <div key={p.id} style={{ margin: "1rem 0", border: "1px solid #ccc", padding: "1rem" }}>
+          {p.image_url && (
+            <img
+              src={getCloudinaryUrl(p.image_url)}
+              alt={p.title}
+              style={{ width: "150px", height: "150px", objectFit: "cover" }}
+            />
+          )}
+          <h3>{p.title}</h3>
+          <p>₦{p.price}</p>
+        </div>
+      ))}
 
-      {/* ================= Marketplace ================= */}
       <h1>Marketplace</h1>
       <Link to="/marketplace/add">Add Marketplace Product</Link>
       {marketplace.length === 0 && <p>No products yet.</p>}
-      <div style={{ display: "flex", flexWrap: "wrap" }}>
-        {marketplace.map((p) => (
-          <div
-            key={p._id}
-            style={{
-              border: "1px solid #ccc",
-              borderRadius: "8px",
-              margin: "1rem",
-              padding: "1rem",
-              width: "220px",
-              textAlign: "center",
-            }}
-          >
-            {p.image_url && (
-              <img
-                src={getCloudinaryUrl(p.image_url)}
-                alt={p.title}
-                style={{ width: "200px", height: "200px", objectFit: "cover", marginBottom: "0.5rem" }}
-              />
-            )}
-            <h3>{p.title}</h3>
-            <p>₦{p.price}</p>
-          </div>
-        ))}
-      </div>
+      {marketplace.map((p) => (
+        <div key={p._id} style={{ margin: "1rem 0", border: "1px solid #ccc", padding: "1rem" }}>
+          {p.image_url && (
+            <img
+              src={getCloudinaryUrl(p.image_url)}
+              alt={p.title}
+              style={{ width: "150px", height: "150px", objectFit: "cover" }}
+            />
+          )}
+          <h3>{p.title}</h3>
+          <p>₦{p.price}</p>
+        </div>
+      ))}
     </div>
   );
 }
