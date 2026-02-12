@@ -10,12 +10,15 @@ export default function AddMiniMartProduct() {
   const handleSubmit = async (e) => {
     e.preventDefault();
     try {
-      await axios.post("/api/minimart/products", { title, price: parseFloat(price) });
+      await axios.post("/api/minimart/products", {
+        title: title.trim(),
+        price: parseFloat(price),
+      });
       alert("Product added!");
-      navigate("/"); // Go back to homepage
+      navigate("/"); // Redirect to homepage
     } catch (err) {
-      console.error("Failed to add product:", err);
-      alert("Failed to add product");
+      console.error("Failed to add MiniMart product:", err);
+      alert("Failed to add MiniMart product");
     }
   };
 
