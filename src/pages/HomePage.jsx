@@ -3,76 +3,65 @@ import axios from "axios";
 
 export default function HomePage() {
   const [miniMart, setMiniMart] = useState([]);
-  const [newMiniMartProduct, setNewMiniMartProduct] = useState({
-    title: "",
-    description: "",
-    price: 0,
-    category: ""
-  });
-  const [error, setError] = useState("");
+  const [marketplace, setMarketplace] = useState([]);
 
-  const fetchMiniMart = async () => {
+  const [newMiniMart, setNewMiniMart] = useState({ title: "", price: 0 });
+  const [newMarketplace, setNewMarketplace] = useState({ title: "", price: 0 });
+
+  useEffect(() => {
+    fetchData();
+  }, []);
+
+  const fetchData = () => {
+    axios.get("/api/minimart").then(res => setMiniMart(res.data));
+    axios.get("/api/marketplace").then(res => setMarketplace(res.data));
+  };
+
+  const addMiniMart = async () => {
     try {
-      const res = await axios.get("/api/minimart/products");
-      setMiniMart(res.data);
-    } catch (err) {
-      console.error(err);
+      await axios.post("/api/minimart", newMiniMart);
+      setNewMiniMart({ title: "", price: 0 });
+      fetchData();
+    } catch {
+      alert("Failed to add MiniMart product");
     }
   };
 
-  useEffect(() => {
-    fetchMiniMart();
-  }, []);
-
-  const handleAddMiniMart = async () => {
+  const addMarketplace = async () => {
     try {
-      const res = await axios.post("/api/minimart/products", newMiniMartProduct);
-      // Add the new product to state so it shows immediately
-      setMiniMart([res.data, ...miniMart]);
-      setNewMiniMartProduct({ title: "", description: "", price: 0, category: "" });
-      setError("");
-    } catch (err) {
-      console.error(err);
-      setError(err.response?.data?.message || "Failed to add MiniMart product");
+      await axios.post("/api/marketplace", newMarketplace);
+      setNewMarketplace({ title: "", price: 0 });
+      fetchData();
+    } catch {
+      alert("Failed to add Marketplace product");
     }
   };
 
   return (
-    <div>
+    <div style={{ padding: "2rem" }}>
       <h1>MiniMart Store</h1>
-      {error && <p style={{ color: "red" }}>{error}</p>}
-      <input
-        placeholder="Title"
-        value={newMiniMartProduct.title}
-        onChange={(e) => setNewMiniMartProduct({ ...newMiniMartProduct, title: e.target.value })}
-      />
-      <input
-        placeholder="Description"
-        value={newMiniMartProduct.description}
-        onChange={(e) => setNewMiniMartProduct({ ...newMiniMartProduct, description: e.target.value })}
-      />
-      <input
-        placeholder="Price"
-        type="number"
-        value={newMiniMartProduct.price}
-        onChange={(e) => setNewMiniMartProduct({ ...newMiniMartProduct, price: e.target.value })}
-      />
-      <input
-        placeholder="Category"
-        value={newMiniMartProduct.category}
-        onChange={(e) => setNewMiniMartProduct({ ...newMiniMartProduct, category: e.target.value })}
-      />
-      <button onClick={handleAddMiniMart}>Add MiniMart Product</button>
-
-      <hr />
-      {miniMart.map((p) => (
+      {miniMart.map(p => (
         <div key={p.id}>
           <h3>{p.title}</h3>
           <p>₦{p.price}</p>
-          {p.description && <p>{p.description}</p>}
-          {p.category && <p>Category: {p.category}</p>}
         </div>
       ))}
+
+      <input placeholder="Title" value={newMiniMart.title} onChange={e => setNewMiniMart({...newMiniMart, title: e.target.value})} />
+      <input placeholder="Price" type="number" value={newMiniMart.price} onChange={e => setNewMiniMart({...newMiniMart, price: e.target.value})} />
+      <button onClick={addMiniMart}>Add MiniMart Product</button>
+
+      <h1>Marketplace</h1>
+      {marketplace.map(p => (
+        <div key={p._id}>
+          <h3>{p.title}</h3>
+          <p>₦{p.price}</p>
+        </div>
+      ))}
+
+      <input placeholder="Title" value={newMarketplace.title} onChange={e => setNewMarketplace({...newMarketplace, title: e.target.value})} />
+      <input placeholder="Price" type="number" value={newMarketplace.price} onChange={e => setNewMarketplace({...newMarketplace, price: e.target.value})} />
+      <button onClick={addMarketplace}>Add Marketplace Product</button>
     </div>
   );
 }
