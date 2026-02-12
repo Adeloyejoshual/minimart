@@ -1,17 +1,31 @@
-// src/App.jsx
-import { BrowserRouter as Router, Routes, Route } from "react-router-dom";
-import HomePage from "./pages/HomePage";
-import AddMiniMartProduct from "./pages/MiniMart/AddProduct";
-import AddMarketplaceProduct from "./pages/Marketplace/AddProduct";
+import { BrowserRouter, Routes, Route } from "react-router-dom";
+
+// Pages
+import HomePage from "./pages/HomePage.jsx";
+import LoginPage from "./pages/LoginPage.jsx";
+import RegisterPage from "./pages/RegisterPage.jsx";
+
+// Marketplace Pages
+import AddMarketplaceProduct from "./pages/Marketplace/AddProduct.jsx";
+
+// MiniMart Pages
+import AddMiniMartProduct from "./pages/MiniMart/AddProduct.jsx";
 
 export default function App() {
   return (
-    <Router>
+    <BrowserRouter>
       <Routes>
+        {/* Core */}
         <Route path="/" element={<HomePage />} />
-        <Route path="/minimart/add-product" element={<AddMiniMartProduct />} />
-        <Route path="/marketplace/add-product" element={<AddMarketplaceProduct />} />
+        <Route path="/login" element={<LoginPage />} />
+        <Route path="/register" element={<RegisterPage />} />
+
+        {/* Marketplace */}
+        <Route path="/marketplace/add" element={<AddMarketplaceProduct />} />
+
+        {/* MiniMart */}
+        <Route path="/minimart/add" element={<AddMiniMartProduct />} />
       </Routes>
-    </Router>
+    </BrowserRouter>
   );
 }
