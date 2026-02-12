@@ -5,17 +5,19 @@ import { useNavigate } from "react-router-dom";
 export default function AddMarketplaceProduct() {
   const [title, setTitle] = useState("");
   const [price, setPrice] = useState("");
-  const [imageFile, setImageFile] = useState(null);
+  const [file, setFile] = useState(null);
   const navigate = useNavigate();
 
   const handleSubmit = async (e) => {
     e.preventDefault();
-    try {
-      let imageUrl = null;
 
-      if (imageFile) {
+    try {
+      let imageUrl = "";
+
+      // 1️⃣ Upload to Cloudinary
+      if (file) {
         const formData = new FormData();
-        formData.append("file", imageFile);
+        formData.append("file", file);
         formData.append(
           "upload_preset",
           import.meta.env.VITE_CLOUDINARY_UPLOAD_PRESET
@@ -29,16 +31,17 @@ export default function AddMarketplaceProduct() {
         imageUrl = res.data.secure_url;
       }
 
+      // 2️⃣ Send to backend (IMPORTANT PART)
       await axios.post("/api/marketplace", {
-        title: title.trim(),
-        price: parseFloat(price),
-        image: imageUrl,
+        title: title,
+        price: Number(price),
+        image: imageUrl, // 👈 THIS WAS MISSING
       });
 
-      alert("Marketplace product added!");
+      alert("Product added!");
       navigate("/");
     } catch (err) {
-      console.error("Failed to add Marketplace product:", err.response?.data || err);
+      console.error(err);
       alert("Failed to add product");
     }
   };
@@ -46,6 +49,7 @@ export default function AddMarketplaceProduct() {
   return (
     <div style={{ padding: "2rem" }}>
       <h1>Add Marketplace Product</h1>
+
       <form onSubmit={handleSubmit}>
         <input
           placeholder="Title"
@@ -53,18 +57,21 @@ export default function AddMarketplaceProduct() {
           onChange={(e) => setTitle(e.target.value)}
           required
         />
+
         <input
-          placeholder="Price"
           type="number"
+          placeholder="Price"
           value={price}
           onChange={(e) => setPrice(e.target.value)}
           required
         />
+
         <input
           type="file"
           accept="image/*"
-          onChange={(e) => setImageFile(e.target.files[0])}
+          onChange={(e) => setFile(e.target.files[0])}
         />
+
         <button type="submit">Add Product</button>
       </form>
     </div>
