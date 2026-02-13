@@ -17,20 +17,19 @@ export default function HomePage() {
   const fetchProducts = async () => {
     try {
       const mini = await getMiniMartProducts();
-      setMiniMart(mini);
-
       const market = await getMarketplaceProducts();
+      setMiniMart(mini);
       setMarketplace(market);
     } catch (err) {
-      console.error("Failed to fetch products:", err);
+      console.error(err);
     }
   };
 
   return (
-    <div className="scrollable-content">
+    <div className="scrollable-content" style={{ padding: "16px" }}>
       {/* ---------------- Header ---------------- */}
       <div className="sticky-header">
-        <h2 className="header-title">MiniMart & Marketplace</h2>
+        <h2 className="header-title">MiniMart Store</h2>
         {isAuthenticated ? (
           <button
             className="chat-btn"
@@ -47,53 +46,65 @@ export default function HomePage() {
 
       {/* ---------------- Add Product Button ---------------- */}
       {isAuthenticated && (
-        <div style={{ margin: "16px 0" }}>
-          <Link to="/minimart/add">
-            <button className="chat-btn" style={{ marginRight: "12px" }}>
-              Add MiniMart Product
-            </button>
-          </Link>
-          <Link to="/marketplace/add">
-            <button className="chat-btn">Add Marketplace Product</button>
-          </Link>
-        </div>
+        <Link to="/minimart/add">
+          <button
+            className="chat-btn"
+            style={{ margin: "16px 0", width: "100%" }}
+          >
+            Add MiniMart Product
+          </button>
+        </Link>
       )}
 
       {/* ---------------- MiniMart Products ---------------- */}
       <h3>MiniMart Products</h3>
-      {miniMart.length === 0 && <p>No MiniMart products yet.</p>}
-      {miniMart.map((p) => (
-        <div key={p.id} className="product-card">
-          {p.image_url && (
-            <img
-              src={p.image_url}
-              alt={p.title}
-              className="product-images"
-              style={{ height: "120px" }}
-            />
-          )}
-          <h3 className="product-title">{p.title}</h3>
-          <p className="product-price">₦{p.price}</p>
-        </div>
-      ))}
+      {miniMart.length === 0 && <p>No products yet.</p>}
+      <div
+        style={{
+          display: "grid",
+          gridTemplateColumns: "repeat(auto-fill, minmax(140px, 1fr))",
+          gap: "12px",
+        }}
+      >
+        {miniMart.map((p) => (
+          <div key={p.id} className="product-card">
+            {p.image_url && (
+              <img
+                src={p.image_url}
+                alt={p.title}
+                style={{ width: "100%", height: "120px", objectFit: "cover" }}
+              />
+            )}
+            <h3 className="product-title">{p.title}</h3>
+            <p className="product-price">₦{p.price}</p>
+          </div>
+        ))}
+      </div>
 
       {/* ---------------- Marketplace Products ---------------- */}
-      <h3>Marketplace Products</h3>
-      {marketplace.length === 0 && <p>No Marketplace products yet.</p>}
-      {marketplace.map((p) => (
-        <div key={p._id} className="product-card">
-          {p.image_url && (
-            <img
-              src={p.image_url}
-              alt={p.title}
-              className="product-images"
-              style={{ height: "120px" }}
-            />
-          )}
-          <h3 className="product-title">{p.title}</h3>
-          <p className="product-price">₦{p.price}</p>
-        </div>
-      ))}
+      <h3 style={{ marginTop: "24px" }}>Marketplace</h3>
+      {marketplace.length === 0 && <p>No products yet.</p>}
+      <div
+        style={{
+          display: "grid",
+          gridTemplateColumns: "repeat(auto-fill, minmax(140px, 1fr))",
+          gap: "12px",
+        }}
+      >
+        {marketplace.map((p) => (
+          <div key={p._id} className="product-card">
+            {p.image_url && (
+              <img
+                src={p.image_url}
+                alt={p.title}
+                style={{ width: "100%", height: "120px", objectFit: "cover" }}
+              />
+            )}
+            <h3 className="product-title">{p.title}</h3>
+            <p className="product-price">₦{p.price}</p>
+          </div>
+        ))}
+      </div>
     </div>
   );
 }
