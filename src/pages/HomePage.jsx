@@ -1,3 +1,4 @@
+// src/pages/HomePage.jsx
 import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 import { useAuth0 } from "@auth0/auth0-react";
@@ -51,11 +52,16 @@ export default function HomePage() {
         </Link>
       )}
 
+      {/* MiniMart Products */}
       <h3>MiniMart Products</h3>
       {miniMart.length === 0 && <p>No products yet.</p>}
       <div className="products-grid">
         {miniMart.map((p) => (
-          <Link key={p.id} to={`/minimart/${p.id}`} className="product-card">
+          <Link
+            key={p.id}
+            to={`/minimart/${p.id}`}
+            className="product-card"
+          >
             {p.image_url && (
               <img src={p.image_url} alt={p.title} className="grid-product-img" />
             )}
@@ -65,17 +71,22 @@ export default function HomePage() {
         ))}
       </div>
 
+      {/* Marketplace Products */}
       <h3>Marketplace</h3>
       {marketplace.length === 0 && <p>No products yet.</p>}
       <div className="products-grid">
         {marketplace.map((p) => (
-          <div key={p._id} className="product-card">
+          <Link
+            key={p._id}
+            to={`/marketplace/${p._id}`}
+            className="product-card"
+          >
             {p.image_url && (
               <img src={p.image_url} alt={p.title} className="grid-product-img" />
             )}
             <h3 className="product-title">{p.title}</h3>
             <p className="product-price">₦{p.price}</p>
-          </div>
+          </Link>
         ))}
       </div>
     </div>
