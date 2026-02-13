@@ -1,9 +1,10 @@
+// src/pages/Marketplace/ProductDetail.jsx
 import { useEffect, useState } from "react";
 import { useParams, useNavigate } from "react-router-dom";
 import { getMarketplaceProductById } from "../../helpers/marketplace";
 import { useAuth0 } from "@auth0/auth0-react";
 
-export default function MarketplaceProductDetail() {
+export default function ProductDetail() {
   const { id } = useParams();
   const navigate = useNavigate();
   const { isAuthenticated, loginWithRedirect } = useAuth0();
@@ -22,9 +23,16 @@ export default function MarketplaceProductDetail() {
     }
   };
 
-  if (!product) {
-    return <p>Loading product...</p>;
-  }
+  if (!product) return <p>Loading product...</p>;
+
+  const handleChat = () => {
+    if (!isAuthenticated) {
+      loginWithRedirect();
+      return;
+    }
+    // Navigate to Marketplace chat page for this seller
+    navigate(`/marketplace/chat/${product.seller_id}`);
+  };
 
   return (
     <div className="marketplace-detail-page">
@@ -35,11 +43,8 @@ export default function MarketplaceProductDetail() {
         </button>
         <h2 className="header-title">{product.title}</h2>
         {isAuthenticated ? (
-          <button
-            className="chat-btn"
-            onClick={() => console.log("Contact Seller")}
-          >
-            Message
+          <button className="chat-btn" onClick={handleChat}>
+            Chat
           </button>
         ) : (
           <button className="chat-btn" onClick={() => loginWithRedirect()}>
@@ -66,7 +71,9 @@ export default function MarketplaceProductDetail() {
         {/* Actions */}
         {isAuthenticated && (
           <div className="product-actions">
-            <button className="chat-btn">Buy Now</button>
+            <button className="chat-btn" onClick={handleChat}>
+              Chat with Seller
+            </button>
             <button className="quick-msg-btn">Add to Wishlist</button>
           </div>
         )}
@@ -164,6 +171,7 @@ export default function MarketplaceProductDetail() {
           display: flex;
           gap: 12px;
           flex-wrap: wrap;
+          margin-top: 12px;
         }
 
         .quick-msg-btn {
@@ -187,17 +195,20 @@ export default function MarketplaceProductDetail() {
           .product-price {
             font-size: 24px;
           }
+          .product-image-wrapper img {
+            max-width: 500px;
+          }
         }
 
         @media (min-width: 900px) {
-          .product-image-wrapper img {
-            max-width: 600px;
-          }
           .product-title {
             font-size: 24px;
           }
           .product-price {
             font-size: 26px;
+          }
+          .product-image-wrapper img {
+            max-width: 600px;
           }
         }
       `}</style>
