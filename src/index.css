@@ -281,3 +281,44 @@ button {
   color: #198754;
   font-weight: 600;
 }
+
+/* ================= Layout Container ================= */
+.page-container {
+  max-width: 1200px;
+  margin: 0 auto;
+  padding: 16px;
+}
+
+/* ================= Desktop Grid Layout ================= */
+@media (min-width: 900px) {
+
+  .products-grid {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 20px;
+  }
+
+  .product-card {
+    margin-bottom: 0;
+  }
+
+  .product-images img {
+    height: 220px; /* smaller on desktop grid */
+  }
+
+  .product-actions {
+    flex-direction: row;
+  }
+
+  .chat-btn,
+  .quick-msg-btn {
+    flex: 1;
+  }
+}
+
+/* ================= Large Desktop ================= */
+@media (min-width: 1200px) {
+  .products-grid {
+    grid-template-columns: repeat(4, 1fr);
+  }
+}
