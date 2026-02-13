@@ -1,295 +1,36 @@
-/* ================= Global Styles ================= */
-body, html {
+/* src/index.css */
+
+/* ================= Global Reset ================= */
+* {
   margin: 0;
   padding: 0;
-  font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
-  background-color: #eaf2ff;
-  color: #222;
-}
-
-button {
-  cursor: pointer;
-  font-family: inherit;
-  border: none;
-  outline: none;
-  transition: 0.2s;
-}
-
-/* ================= Sticky Header ================= */
-.sticky-header {
-  position: sticky;
-  top: 0;
-  background: #0D6EFD;
-  color: #fff;
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  padding: 12px 14px;
-  z-index: 100;
-  box-shadow: 0 3px 8px rgba(0,0,0,0.15);
-}
-
-.back-btn,
-.share-btn {
-  background: rgba(255,255,255,0.15);
-  width: 36px;
-  height: 36px;
-  border-radius: 50%;
-  font-size: 16px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-}
-
-.back-btn:hover,
-.share-btn:hover {
-  background: rgba(255,255,255,0.25);
-}
-
-.header-title {
-  flex: 1;
-  text-align: center;
-  font-size: 16px;
-  font-weight: 600;
-  padding: 0 10px;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-
-/* ================= Scrollable Content ================= */
-.scrollable-content {
-  padding: 16px;
   box-sizing: border-box;
 }
 
-/* ================= Product Card ================= */
-.product-card {
-  background: #fff;
-  border-radius: 16px;
-  padding: 12px;
-  margin-bottom: 16px;
-  box-shadow: 0 6px 18px rgba(0,0,0,0.06);
-  transition: transform 0.2s;
-  display: flex;
-  flex-direction: column;
-  overflow: hidden;
+/* ================= Body ================= */
+body, html {
+  font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+  background-color: #eaf2ff; /* light background for all pages */
+  color: #222;
+  min-height: 100vh;
 }
 
-.product-card:hover {
-  transform: scale(1.02);
+/* ================= Links ================= */
+a {
+  text-decoration: none;
+  color: inherit;
 }
 
-/* Square images for uniform grid */
-.product-images img {
-  width: 100%;
-  aspect-ratio: 1 / 1;  /* perfect square */
-  object-fit: cover;     /* crops image nicely */
-  border-radius: 12px;
-}
-
-/* ================= Badges ================= */
-.promo-badge {
-  position: absolute;
-  top: 8px;
-  left: 8px;
-  background: linear-gradient(135deg, #FFD700, #ffb700);
-  color: #000;
-  padding: 3px 6px;
-  border-radius: 6px;
-  font-size: 10px;
-  font-weight: bold;
-  z-index: 10;
-}
-
-.sold-badge {
-  position: absolute;
-  top: 8px;
-  right: 8px;
-  background: #dc3545;
-  color: #fff;
-  padding: 3px 6px;
-  border-radius: 6px;
-  font-size: 10px;
-  font-weight: bold;
-  z-index: 10;
-}
-
-/* ================= Product Info ================= */
-.product-title {
-  margin: 10px 0 4px;
-  font-size: 16px;
-  font-weight: 600;
-  color: #0D6EFD;
-}
-
-.product-price {
-  font-size: 18px;
-  font-weight: bold;
-  color: #198754;
-  margin-bottom: 6px;
-}
-
-/* ================= Product Actions ================= */
-.product-actions {
-  margin-top: 10px;
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-}
-
-.chat-btn {
-  background: #0D6EFD;
-  color: #fff;
-  padding: 10px;
-  border-radius: 10px;
-  font-weight: 600;
-  font-size: 14px;
-}
-
-.chat-btn:hover {
-  background: #0b5ed7;
-}
-
-.quick-msg-btn {
-  background: #198754;
-  color: #fff;
-  padding: 10px;
-  border-radius: 10px;
-  font-weight: 600;
-  font-size: 14px;
-}
-
-.quick-msg-btn:hover {
-  background: #157347;
-}
-
-.seller-reply-hint {
-  font-size: 12px;
-  color: #666;
-  text-align: center;
-}
-
-/* ================= Seller Card ================= */
-.seller-card {
-  background: #fff;
-  border-radius: 12px;
-  padding: 12px;
-  margin-bottom: 16px;
-  box-shadow: 0 4px 12px rgba(0,0,0,0.05);
-  font-size: 14px;
-}
-
-.btn {
-  margin-top: 8px;
-  padding: 8px 12px;
-  border-radius: 10px;
-  background: #0D6EFD;
-  color: #fff;
-  font-weight: 600;
-  font-size: 14px;
-}
-
-/* ================= Products Grid ================= */
-.products-grid {
-  display: grid;
-  grid-template-columns: repeat(2, 1fr); /* mobile: 2 columns */
-  gap: 12px;
-}
-
-/* ================= Sticky Chat Bar ================= */
-.sticky-chat-bar {
-  position: sticky;
-  bottom: 0;
-  background: #fff;
-  padding: 10px;
-  display: flex;
-  gap: 8px;
-  box-shadow: 0 -4px 14px rgba(0,0,0,0.08);
-  border-top-left-radius: 16px;
-  border-top-right-radius: 16px;
-}
-
-/* ================= Similar / Related Products ================= */
-.similar-products-list {
-  display: flex;
-  gap: 12px;
-  overflow-x: auto;
-  padding-bottom: 10px;
-}
-
-.similar-product-card {
-  min-width: 120px;
-  background: #fff;
-  border-radius: 12px;
-  box-shadow: 0 4px 12px rgba(0,0,0,0.06);
-  overflow: hidden;
+/* ================= Buttons ================= */
+button {
   cursor: pointer;
+  border: none;
+  outline: none;
+  font-family: inherit;
   transition: 0.2s;
 }
 
-.similar-product-card:hover {
-  transform: scale(1.03);
-}
-
-.similar-product-card img {
-  width: 100%;
-  height: 100px;
-  object-fit: cover;
-}
-
-.card-title {
-  font-size: 12px;
-  font-weight: 600;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-
-.card-price {
-  font-size: 12px;
-  color: #198754;
-  font-weight: 600;
-}
-
-/* ================= Responsive Layouts ================= */
-@media (min-width: 600px) {
-  .products-grid {
-    grid-template-columns: repeat(3, 1fr); /* tablet: 3 columns */
-    gap: 16px;
-  }
-}
-
-@media (min-width: 900px) {
-  .products-grid {
-    grid-template-columns: repeat(4, 1fr); /* desktop: 4 columns */
-    gap: 20px;
-  }
-
-  .product-images img {
-    /* keep square */
-  }
-
-  .product-title {
-    font-size: 18px;
-  }
-
-  .product-price {
-    font-size: 20px;
-  }
-
-  .chat-btn,
-  .quick-msg-btn {
-    flex: 1;
-  }
-
-  .product-actions {
-    flex-direction: row;
-  }
-}
-
-@media (min-width: 1200px) {
-  .products-grid {
-    grid-template-columns: repeat(6, 1fr); /* large desktop: 6 columns */
-  }
+/* ================= Scroll Behavior ================= */
+html {
+  scroll-behavior: smooth;
 }
