@@ -1,8 +1,8 @@
 import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 import { useAuth0 } from "@auth0/auth0-react";
-import { getMiniMartProducts } from "../../helpers/minimart";
-import { getMarketplaceProducts } from "../../helpers/marketplace";
+import { getMiniMartProducts } from "../helpers/minimart";
+import { getMarketplaceProducts } from "../helpers/marketplace";
 import "./HomePage.css";
 
 export default function HomePage() {
