@@ -26,8 +26,8 @@ export default function HomePage() {
   };
 
   return (
-    <div className="scrollable-content" style={{ padding: "16px" }}>
-      {/* ---------------- Header ---------------- */}
+    <div className="scrollable-content">
+      {/* Header */}
       <div className="sticky-header">
         <h2 className="header-title">MiniMart Store</h2>
         {isAuthenticated ? (
@@ -44,35 +44,26 @@ export default function HomePage() {
         )}
       </div>
 
-      {/* ---------------- Add Product Button ---------------- */}
+      {/* Add Button */}
       {isAuthenticated && (
         <Link to="/minimart/add">
-          <button
-            className="chat-btn"
-            style={{ margin: "16px 0", width: "100%" }}
-          >
+          <button className="chat-btn full-width-btn">
             Add MiniMart Product
           </button>
         </Link>
       )}
 
-      {/* ---------------- MiniMart Products ---------------- */}
+      {/* MiniMart */}
       <h3>MiniMart Products</h3>
       {miniMart.length === 0 && <p>No products yet.</p>}
-      <div
-        style={{
-          display: "grid",
-          gridTemplateColumns: "repeat(auto-fill, minmax(140px, 1fr))",
-          gap: "12px",
-        }}
-      >
+      <div className="products-grid">
         {miniMart.map((p) => (
           <div key={p.id} className="product-card">
             {p.image_url && (
               <img
                 src={p.image_url}
                 alt={p.title}
-                style={{ width: "100%", height: "120px", objectFit: "cover" }}
+                className="grid-product-img"
               />
             )}
             <h3 className="product-title">{p.title}</h3>
@@ -81,23 +72,17 @@ export default function HomePage() {
         ))}
       </div>
 
-      {/* ---------------- Marketplace Products ---------------- */}
+      {/* Marketplace */}
       <h3 style={{ marginTop: "24px" }}>Marketplace</h3>
       {marketplace.length === 0 && <p>No products yet.</p>}
-      <div
-        style={{
-          display: "grid",
-          gridTemplateColumns: "repeat(auto-fill, minmax(140px, 1fr))",
-          gap: "12px",
-        }}
-      >
+      <div className="products-grid">
         {marketplace.map((p) => (
           <div key={p._id} className="product-card">
             {p.image_url && (
               <img
                 src={p.image_url}
                 alt={p.title}
-                style={{ width: "100%", height: "120px", objectFit: "cover" }}
+                className="grid-product-img"
               />
             )}
             <h3 className="product-title">{p.title}</h3>
