@@ -3,19 +3,25 @@ import axios from "axios";
 import { useNavigate } from "react-router-dom";
 
 export default function AddMiniMartProduct() {
-  const [title, setTitle] = useState("");
-  const [price, setPrice] = useState("");
-  const [description, setDescription] = useState("");
-  const [category, setCategory] = useState("");
-  const [imageFile, setImageFile] = useState(null);
   const navigate = useNavigate();
+
+  const [title, setTitle] = useState("");
+  const [description, setDescription] = useState("");
+  const [price, setPrice] = useState("");
+  const [category, setCategory] = useState("");
+  const [stock, setStock] = useState(0);
+  const [imageFile, setImageFile] = useState(null);
+  const [loading, setLoading] = useState(false);
 
   const handleSubmit = async (e) => {
     e.preventDefault();
+
     try {
+      setLoading(true);
+
       let imageUrl = null;
 
-      // 1️⃣ Upload image to Cloudinary if provided
+      // 1️⃣ Upload image to Cloudinary
       if (imageFile) {
         const formData = new FormData();
         formData.append("file", imageFile);
@@ -28,37 +34,51 @@ export default function AddMiniMartProduct() {
           `https://api.cloudinary.com/v1_1/${import.meta.env.VITE_CLOUDINARY_CLOUD_NAME}/image/upload`,
           formData
         );
-        imageUrl = cloudRes.data.secure_url;
+
+        imageUrl = cloudRes.data.secure_url; // Save FULL URL
       }
 
-      // 2️⃣ Send data to your backend
+      // 2️⃣ Send product to backend
       await axios.post("/api/minimart", {
-        title: title.trim(),
-        description: description.trim(),
+        title,
+        description,
         price: parseFloat(price),
-        category: category.trim(),
+        category,
+        stock: parseInt(stock),
         image_url: imageUrl,
       });
 
-      alert("Product added successfully!");
-      navigate("/"); // redirect to homepage
-    } catch (err) {
-      console.error("Failed to add MiniMart product:", err);
+      alert("MiniMart product added successfully!");
+      navigate("/");
+    } catch (error) {
+      console.error("Failed to add MiniMart product:", error);
       alert("Failed to add MiniMart product");
+    } finally {
+      setLoading(false);
     }
   };
 
   return (
     <div style={{ padding: "2rem" }}>
       <h1>Add MiniMart Product</h1>
-      <form onSubmit={handleSubmit} style={{ display: "flex", flexDirection: "column", gap: "1rem", maxWidth: "400px" }}>
+
+      <form onSubmit={handleSubmit} style={{ maxWidth: "400px" }}>
         <input
           type="text"
-          placeholder="Title"
+          placeholder="Product Title"
           value={title}
           onChange={(e) => setTitle(e.target.value)}
           required
         />
+        <br /><br />
+
+        <textarea
+          placeholder="Description"
+          value={description}
+          onChange={(e) => setDescription(e.target.value)}
+        />
+        <br /><br />
+
         <input
           type="number"
           placeholder="Price"
@@ -66,24 +86,33 @@ export default function AddMiniMartProduct() {
           onChange={(e) => setPrice(e.target.value)}
           required
         />
+        <br /><br />
+
         <input
           type="text"
           placeholder="Category"
           value={category}
           onChange={(e) => setCategory(e.target.value)}
         />
-        <textarea
-          placeholder="Description"
-          value={description}
-          onChange={(e) => setDescription(e.target.value)}
+        <br /><br />
+
+        <input
+          type="number"
+          placeholder="Stock"
+          value={stock}
+          onChange={(e) => setStock(e.target.value)}
         />
+        <br /><br />
+
         <input
           type="file"
           accept="image/*"
           onChange={(e) => setImageFile(e.target.files[0])}
         />
-        <button type="submit" style={{ padding: "0.5rem 1rem", cursor: "pointer" }}>
-          Add Product
+        <br /><br />
+
+        <button type="submit" disabled={loading}>
+          {loading ? "Adding..." : "Add Product"}
         </button>
       </form>
     </div>
