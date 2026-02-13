@@ -8,6 +8,8 @@ import RegisterPage from "./pages/RegisterPage.jsx";
 
 // Marketplace Pages
 import AddMarketplaceProduct from "./pages/Marketplace/AddProduct.jsx";
+import ProductDetail from "./pages/Marketplace/ProductDetail.jsx"; // Marketplace product detail
+import ChatPage from "./pages/Marketplace/ChatPage.jsx"; // Marketplace chat page
 
 // MiniMart Pages
 import AddMiniMartProduct from "./pages/MiniMart/AddProduct.jsx";
@@ -24,13 +26,12 @@ export default function App() {
 
         {/* ================= Marketplace ================= */}
         <Route path="/marketplace/add" element={<AddMarketplaceProduct />} />
+        <Route path="/marketplace/:id" element={<ProductDetail />} />
+        <Route path="/marketplace/chat/:id" element={<ChatPage />} />
 
         {/* ================= MiniMart ================= */}
         <Route path="/minimart/add" element={<AddMiniMartProduct />} />
-        <Route
-          path="/minimart/product/:id"
-          element={<MiniMartProductDetail />}
-        />
+        <Route path="/minimart/:id" element={<MiniMartProductDetail />} />
       </Routes>
     </BrowserRouter>
   );
