@@ -1,62 +1,43 @@
+// src/pages/HomePage.jsx
 import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
-import axios from "axios";
-
-// Cloudinary helper
-const getCloudinaryUrl = (url) => url || null;
+import { useAuth0 } from "@auth0/auth0-react";
+import { getMiniMartProducts } from "../helpers/minimart";
 
 export default function HomePage() {
   const [miniMart, setMiniMart] = useState([]);
-  const [marketplace, setMarketplace] = useState([]);
+  const { isAuthenticated } = useAuth0();
 
   useEffect(() => {
-    fetchData();
+    fetchProducts();
   }, []);
 
-  const fetchData = async () => {
+  const fetchProducts = async () => {
     try {
-      const miniRes = await axios.get("/api/minimart");
-      setMiniMart(miniRes.data);
-
-      const marketRes = await axios.get("/api/marketplace");
-      setMarketplace(marketRes.data);
+      const products = await getMiniMartProducts();
+      setMiniMart(products);
     } catch (err) {
-      console.error("Error fetching products:", err);
+      console.error(err);
     }
   };
 
   return (
     <div className="scrollable-content">
-      {/* ---------------- MiniMart ---------------- */}
-      <div className="sticky-header">
-        <h2 className="header-title">MiniMart Store</h2>
-        <Link to="/minimart/add" className="btn">Add Product</Link>
-      </div>
+      <h1>MiniMart Store</h1>
+      {isAuthenticated && (
+        <Link to="/minimart/add">
+          <button className="chat-btn">Add MiniMart Product</button>
+        </Link>
+      )}
       {miniMart.length === 0 && <p>No products yet.</p>}
       {miniMart.map((p) => (
         <div key={p.id} className="product-card">
           {p.image_url && (
-            <div className="product-images">
-              <img src={getCloudinaryUrl(p.image_url)} alt={p.title} />
-            </div>
-          )}
-          <h3 className="product-title">{p.title}</h3>
-          <p className="product-price">₦{p.price}</p>
-        </div>
-      ))}
-
-      {/* ---------------- Marketplace ---------------- */}
-      <div className="sticky-header" style={{ marginTop: "24px" }}>
-        <h2 className="header-title">Marketplace</h2>
-        <Link to="/marketplace/add" className="btn">Add Product</Link>
-      </div>
-      {marketplace.length === 0 && <p>No products yet.</p>}
-      {marketplace.map((p) => (
-        <div key={p._id} className="product-card">
-          {p.image && (
-            <div className="product-images">
-              <img src={getCloudinaryUrl(p.image)} alt={p.title} />
-            </div>
+            <img
+              src={p.image_url}
+              alt={p.title}
+              className="product-images"
+            />
           )}
           <h3 className="product-title">{p.title}</h3>
           <p className="product-price">₦{p.price}</p>
