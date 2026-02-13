@@ -1,94 +1,93 @@
 import { useEffect, useState } from "react";
-import { Link } from "react-router-dom";
 import axios from "axios";
 
-// Helper to construct Cloudinary URL from public ID
-const getCloudinaryUrl = (publicId) => {
-  if (!publicId) return null;
-  const cloudName = import.meta.env.VITE_CLOUDINARY_CLOUD_NAME;
-  return `https://res.cloudinary.com/${cloudName}/image/upload/${publicId}`;
-};
-
 export default function HomePage() {
-  const [miniMart, setMiniMart] = useState([]);
-  const [marketplace, setMarketplace] = useState([]);
+  const [products, setProducts] = useState([]);
+  const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    fetchData();
+    const fetchProducts = async () => {
+      try {
+        const res = await axios.get("/api/minimart");
+        console.log("MiniMart Data:", res.data); // Debug
+        setProducts(res.data);
+      } catch (error) {
+        console.error("Error fetching products:", error);
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    fetchProducts();
   }, []);
 
-  const fetchData = async () => {
-    try {
-      const miniRes = await axios.get("/api/minimart");
-      setMiniMart(miniRes.data);
-
-      const marketRes = await axios.get("/api/marketplace");
-      setMarketplace(marketRes.data);
-    } catch (err) {
-      console.error("Error fetching products:", err);
-    }
-  };
-
   return (
-    <div style={{ padding: "2rem" }}>
-      <h1>MiniMart Store</h1>
-      <Link to="/minimart/add">Add MiniMart Product</Link>
-      {miniMart.length === 0 && <p>No products yet.</p>}
-      {miniMart.map((p) => (
-        <div
-          key={p.id}
-          style={{
-            margin: "1rem 0",
-            border: "1px solid #ccc",
-            padding: "1rem",
-            display: "flex",
-            alignItems: "center",
-            gap: "1rem",
-          }}
-        >
-          {p.image_url && (
-            <img
-              src={getCloudinaryUrl(p.image_url)}
-              alt={p.title}
-              style={{ width: "120px", height: "120px", objectFit: "cover" }}
-            />
-          )}
-          <div>
-            <h3>{p.title}</h3>
-            <p>₦{p.price}</p>
-            {p.category && <p>Category: {p.category}</p>}
-          </div>
-        </div>
-      ))}
+    <div style={{ padding: "2rem", maxWidth: "1100px", margin: "0 auto" }}>
+      <h1 style={{ marginBottom: "2rem" }}>🛒 MiniMart Store</h1>
 
-      <h1>Marketplace</h1>
-      <Link to="/marketplace/add">Add Marketplace Product</Link>
-      {marketplace.length === 0 && <p>No products yet.</p>}
-      {marketplace.map((p) => (
-        <div
-          key={p._id}
-          style={{
-            margin: "1rem 0",
-            border: "1px solid #ccc",
-            padding: "1rem",
-            display: "flex",
-            alignItems: "center",
-            gap: "1rem",
-          }}
-        >
-          {p.image_url && (
-            <img
-              src={getCloudinaryUrl(p.image_url)}
-              alt={p.title}
-              style={{ width: "120px", height: "120px", objectFit: "cover" }}
-            />
-          )}
-          <div>
-            <h3>{p.title}</h3>
-            <p>₦{p.price}</p>
+      {loading && <p>Loading products...</p>}
+
+      {!loading && products.length === 0 && (
+        <p>No products available yet.</p>
+      )}
+
+      <div
+        style={{
+          display: "grid",
+          gridTemplateColumns: "repeat(auto-fill, minmax(250px, 1fr))",
+          gap: "20px",
+        }}
+      >
+        {products.map((product) => (
+          <div
+            key={product.id}
+            style={{
+              border: "1px solid #ddd",
+              borderRadius: "10px",
+              padding: "15px",
+              boxShadow: "0 4px 8px rgba(0,0,0,0.05)",
+              backgroundColor: "#fff",
+            }}
+          >
+            {product.image_url ? (
+              <img
+                src={product.image_url}
+                alt={product.title}
+                style={{
+                  width: "100%",
+                  height: "200px",
+                  objectFit: "cover",
+                  borderRadius: "8px",
+                  marginBottom: "10px",
+                }}
+              />
+            ) : (
+              <div
+                style={{
+                  width: "100%",
+                  height: "200px",
+                  backgroundColor: "#f0f0f0",
+                  borderRadius: "8px",
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "center",
+                  marginBottom: "10px",
+                }}
+              >
+                No Image
+              </div>
+            )}
+
+            <h3 style={{ margin: "10px 0 5px" }}>{product.title}</h3>
+            <p style={{ color: "#555", fontSize: "14px" }}>
+              {product.description}
+            </p>
+            <h4 style={{ marginTop: "10px", color: "#111" }}>
+              ₦{Number(product.price).toLocaleString()}
+            </h4>
           </div>
-        </div>
-      ))}
+        ))}
+      </div>
     </div>
   );
 }
