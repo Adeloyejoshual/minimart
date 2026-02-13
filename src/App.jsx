@@ -10,6 +10,7 @@ import AddMarketplaceProduct from "./pages/Marketplace/AddProduct.jsx";
 
 // MiniMart Pages
 import AddMiniMartProduct from "./pages/MiniMart/AddProduct.jsx";
+import MiniMartProductDetail from "./pages/MiniMart/ProductDetail";
 
 export default function App() {
   return (
@@ -25,6 +26,9 @@ export default function App() {
 
         {/* MiniMart */}
         <Route path="/minimart/add" element={<AddMiniMartProduct />} />
+        <Route path="/minimart/product/:id"
+  element={<MiniMartProductDetail />}
+/>
       </Routes>
     </BrowserRouter>
   );
