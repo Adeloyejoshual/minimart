@@ -6,27 +6,31 @@ import dotenv from "dotenv";
 import { Pool } from "pg";
 import path from "path";
 import { fileURLToPath } from "url";
+import multer from "multer";
+import { v2 as cloudinary } from "cloudinary";
+import fs from "fs";
 
-// Load environment variables
+// Load env variables
 dotenv.config();
 
+// ================= Express =================
 const app = express();
 const PORT = process.env.PORT || 10000;
 
-// ================= Middleware =================
+// Middleware
 app.use(cors());
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
-// ================= MongoDB (Marketplace) =================
+// ================= MongoDB =================
 mongoose
   .connect(process.env.MONGO_URI)
   .then(() => console.log("✅ MongoDB connected"))
   .catch((err) => console.error("❌ MongoDB connection error:", err));
 
-import MarketplaceProduct from "./models/MarketplaceProduct.js"; // make sure this exists
+import MarketplaceProduct from "./models/MarketplaceProduct.js";
 
-// ================= CockroachDB (MiniMart) =================
+// ================= CockroachDB =================
 const pool = new Pool({
   connectionString: process.env.COCKROACH_URI,
   ssl: { rejectUnauthorized: false },
@@ -42,7 +46,21 @@ const pool = new Pool({
   }
 })();
 
-// ================= API Routes =================
+// ================= Cloudinary =================
+cloudinary.config({
+  cloud_name: process.env.CLOUDINARY_CLOUD_NAME,
+  api_key: process.env.CLOUDINARY_API_KEY,
+  api_secret: process.env.CLOUDINARY_API_SECRET,
+});
+
+// ================= Multer (for file uploads) =================
+const storage = multer.diskStorage({
+  destination: (req, file, cb) => cb(null, "uploads/"),
+  filename: (req, file, cb) => cb(null, Date.now() + "-" + file.originalname),
+});
+const upload = multer({ storage });
+
+// ================= API ROUTES =================
 
 // --- Marketplace ---
 // GET all products
@@ -56,21 +74,33 @@ app.get("/api/marketplace", async (req, res) => {
   }
 });
 
-// POST new product with optional Cloudinary URL
-app.post("/api/marketplace", async (req, res) => {
+// POST new product (with image upload)
+app.post("/api/marketplace", upload.single("image"), async (req, res) => {
   try {
-    const { title, price, image } = req.body;
+    const { title, description, price, country, state, city } = req.body;
     if (!title || !price)
       return res.status(400).json({ message: "Title and price are required" });
 
-    const numericPrice = parseFloat(price);
-    if (isNaN(numericPrice))
-      return res.status(400).json({ message: "Price must be a valid number" });
+    let imageUrl = null;
+    if (req.file) {
+      const result = await cloudinary.uploader.upload(req.file.path, {
+        folder: "marketplace",
+        resource_type: "image",
+      });
+      imageUrl = result.secure_url;
+
+      // remove temp file
+      fs.unlinkSync(req.file.path);
+    }
 
     const product = await MarketplaceProduct.create({
       title: title.trim(),
-      price: numericPrice,
-      image: image || null,
+      description: description?.trim() || "",
+      price: parseFloat(price),
+      image: imageUrl,
+      country: country || "Nigeria",
+      state: state || "",
+      city: city || "",
     });
 
     res.status(201).json(product);
@@ -129,7 +159,6 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 const frontendPath = path.join(__dirname, "dist");
 
-console.log("Serving frontend from:", frontendPath);
 app.use(express.static(frontendPath));
 app.get("*", (req, res) => {
   res.sendFile(path.join(frontendPath, "index.html"));
