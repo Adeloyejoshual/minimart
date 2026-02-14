@@ -1,115 +1,169 @@
-// src/pages/AddMarketplaceProduct.jsx
-
-import { useState } from "react";
+// src/pages/AddProduct.jsx
+import { useState, useEffect } from "react";
 import axios from "axios";
-import { useNavigate } from "react-router-dom";
+import {
+  categories,
+} from "../config/categories";
+import { conditions, usedDetails } from "../config/conditions";
+import { countries, statesByCountry, citiesByState } from "../config/locations";
+import { promotionPlans } from "../config/promotions";
+import "./AddProduct.css";
 
-export default function AddMarketplaceProduct() {
-  const navigate = useNavigate();
+export default function AddProduct() {
+  const [form, setForm] = useState({
+    title: "",
+    category: "",
+    subcategory: "",
+    brand: "",
+    model: "",
+    condition: "New",
+    usedDetail: "",
+    price: "",
+    discountPrice: "",
+    negotiable: false,
+    description: "",
+    specs: {},
+    country: "",
+    state: "",
+    city: "",
+    images: [],
+    promotionPlan: promotionPlans[0],
+  });
 
-  const [title, setTitle] = useState("");
-  const [price, setPrice] = useState("");
-  const [file, setFile] = useState(null);
+  const [allStates, setAllStates] = useState([]);
+  const [allCities, setAllCities] = useState([]);
   const [loading, setLoading] = useState(false);
 
+  // Auto-detect country
+  useEffect(() => {
+    const detectCountry = async () => {
+      try {
+        const res = await axios.get("https://ipapi.co/json/");
+        const country = res.data.country_name || "Nigeria";
+        setForm((prev) => ({ ...prev, country }));
+        setAllStates(statesByCountry[country] || []);
+      } catch {
+        setForm((prev) => ({ ...prev, country: "Nigeria" }));
+        setAllStates(statesByCountry["Nigeria"]);
+      }
+    };
+    detectCountry();
+  }, []);
+
+  const handleInput = (key, value) => setForm({ ...form, [key]: value });
+
+  const handleStateChange = (state) => {
+    setForm({ ...form, state, city: "" });
+    setAllCities(citiesByState[state] || []);
+  };
+
+  const handleImageChange = (e) => {
+    setForm({ ...form, images: [...form.images, ...Array.from(e.target.files)] });
+  };
+
+  const removeImage = (i) => setForm({ ...form, images: form.images.filter((_, idx) => idx !== i) });
+
   const handleSubmit = async (e) => {
-    e.preventDefault(); // 🚨 VERY IMPORTANT
-    console.log("Form submitted");
+    e.preventDefault();
+    if (!form.title || !form.price || form.images.length === 0) return alert("Title, price, and images are required");
 
+    setLoading(true);
     try {
-      setLoading(true);
-
-      let imageUrl = "";
-
-      // ================= Upload to Cloudinary =================
-      if (file) {
-        console.log("Uploading image...");
-
+      const uploadedImages = [];
+      for (const img of form.images) {
         const formData = new FormData();
-        formData.append("file", file);
-        formData.append(
-          "upload_preset",
-          import.meta.env.VITE_CLOUDINARY_UPLOAD_PRESET
-        );
-
+        formData.append("file", img);
+        formData.append("upload_preset", import.meta.env.VITE_CLOUDINARY_UPLOAD_PRESET);
         const cloudRes = await axios.post(
           `https://api.cloudinary.com/v1_1/${import.meta.env.VITE_CLOUDINARY_CLOUD_NAME}/image/upload`,
           formData
         );
-
-        imageUrl = cloudRes.data.secure_url;
-        console.log("Cloudinary success:", imageUrl);
+        uploadedImages.push(cloudRes.data.secure_url);
       }
 
-      // ================= Send to Backend =================
-      console.log("Sending product to backend...");
-
-      const response = await axios.post("/api/marketplace", {
-        title: title.trim(),
-        price: Number(price),
-        image: imageUrl,
-      });
-
-      console.log("Saved product:", response.data);
-
-      alert("Marketplace product added successfully!");
-      navigate("/");
-    } catch (error) {
-      console.error("ERROR:", error.response?.data || error.message);
-      alert("Something went wrong. Check console.");
+      await axios.post("/api/marketplace", { ...form, images: uploadedImages });
+      alert("Product added successfully!");
+      setForm({ ...form, images: [] });
+    } catch (err) {
+      console.error(err);
+      alert("Error adding product");
     } finally {
       setLoading(false);
     }
   };
 
   return (
-    <div style={{ padding: "2rem" }}>
-      <h1>Add Marketplace Product</h1>
-
+    <div className="add-product-page">
+      <h2>Add Product</h2>
       <form onSubmit={handleSubmit}>
-        <div style={{ marginBottom: "1rem" }}>
-          <input
-            type="text"
-            placeholder="Product Title"
-            value={title}
-            onChange={(e) => setTitle(e.target.value)}
-            required
-            style={{ width: "100%", padding: "10px" }}
-          />
+        <input placeholder="Title" value={form.title} onChange={(e) => handleInput("title", e.target.value)} />
+
+        {/* Category */}
+        <select value={form.category} onChange={(e) => handleInput("category", e.target.value)}>
+          <option value="">Select Category</option>
+          {categories.map((c) => <option key={c.name} value={c.name}>{c.name}</option>)}
+        </select>
+
+        {form.category && (
+          <select value={form.subcategory} onChange={(e) => handleInput("subcategory", e.target.value)}>
+            <option value="">Select Subcategory</option>
+            {categories.find((c) => c.name === form.category)?.subcategories.map((s) => (
+              <option key={s} value={s}>{s}</option>
+            ))}
+          </select>
+        )}
+
+        <input placeholder="Brand" value={form.brand} onChange={(e) => handleInput("brand", e.target.value)} />
+        <input placeholder="Model / Variant" value={form.model} onChange={(e) => handleInput("model", e.target.value)} />
+
+        <select value={form.condition} onChange={(e) => handleInput("condition", e.target.value)}>
+          {conditions.map((c) => <option key={c}>{c}</option>)}
+        </select>
+
+        {form.condition === "Used" && (
+          <select value={form.usedDetail} onChange={(e) => handleInput("usedDetail", e.target.value)}>
+            <option value="">Select Used Detail</option>
+            {usedDetails.map((u) => <option key={u}>{u}</option>)}
+          </select>
+        )}
+
+        <input type="number" placeholder="Price" value={form.price} onChange={(e) => handleInput("price", e.target.value)} />
+        <input type="number" placeholder="Discount Price (Optional)" value={form.discountPrice} onChange={(e) => handleInput("discountPrice", e.target.value)} />
+        <label>
+          <input type="checkbox" checked={form.negotiable} onChange={(e) => handleInput("negotiable", e.target.checked)} /> Negotiable
+        </label>
+
+        <textarea placeholder="Description" value={form.description} onChange={(e) => handleInput("description", e.target.value)} />
+
+        <select value={form.country} onChange={(e) => handleInput("country", e.target.value)}>
+          {countries.map((c) => <option key={c}>{c}</option>)}
+        </select>
+        <select value={form.state} onChange={(e) => handleStateChange(e.target.value)}>
+          <option value="">Select State</option>
+          {allStates.map((s) => <option key={s}>{s}</option>)}
+        </select>
+        <select value={form.city} onChange={(e) => handleInput("city", e.target.value)}>
+          <option value="">Select City</option>
+          {allCities.map((c) => <option key={c}>{c}</option>)}
+        </select>
+
+        {/* Promotion */}
+        <select value={form.promotionPlan.id} onChange={(e) => handleInput("promotionPlan", promotionPlans.find(p => p.id === Number(e.target.value)))}>
+          {promotionPlans.map((p) => <option key={p.id} value={p.id}>{p.label}</option>)}
+        </select>
+
+        {/* Images */}
+        <input type="file" multiple onChange={handleImageChange} />
+        <div className="image-preview">
+          {form.images.map((img, i) => (
+            <div key={i}>
+              <img src={URL.createObjectURL(img)} alt="preview" width={100} />
+              <button type="button" onClick={() => removeImage(i)}>✖</button>
+            </div>
+          ))}
         </div>
 
-        <div style={{ marginBottom: "1rem" }}>
-          <input
-            type="number"
-            placeholder="Price"
-            value={price}
-            onChange={(e) => setPrice(e.target.value)}
-            required
-            style={{ width: "100%", padding: "10px" }}
-          />
-        </div>
-
-        <div style={{ marginBottom: "1rem" }}>
-          <input
-            type="file"
-            accept="image/*"
-            onChange={(e) => setFile(e.target.files[0])}
-          />
-        </div>
-
-        <button
-          type="submit"
-          disabled={loading}
-          style={{
-            padding: "10px 20px",
-            background: "black",
-            color: "white",
-            border: "none",
-            cursor: "pointer",
-          }}
-        >
-          {loading ? "Adding..." : "Add Product"}
-        </button>
+        <button type="submit" disabled={loading}>{loading ? "Adding..." : "Add Product"}</button>
       </form>
     </div>
   );
