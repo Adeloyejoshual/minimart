@@ -1,24 +1,30 @@
 // src/helpers/marketplace.js
 import axios from "axios";
 
-// Fetch all Marketplace products
-export const getMarketplaceProducts = async () => {
-  try {
-    const res = await axios.get("/api/marketplace");
-    return res.data;
-  } catch (err) {
-    console.error("Failed to fetch Marketplace products:", err);
-    return [];
-  }
+export const getMarketplaceProducts = async (filters = {}) => {
+  const params = new URLSearchParams(filters).toString();
+  const res = await axios.get(`/api/marketplace${params ? `?${params}` : ""}`);
+  return res.data;
 };
 
-// ✅ Fetch one Marketplace product by ID
 export const getMarketplaceProductById = async (id) => {
-  try {
-    const res = await axios.get(`/api/marketplace/${id}`);
-    return res.data;
-  } catch (err) {
-    console.error(`Failed to fetch Marketplace product ${id}:`, err);
-    return null;
-  }
+  const res = await axios.get(`/api/marketplace/${id}`);
+  return res.data;
+};
+
+export const addMarketplaceProduct = async (formData, token) => {
+  const res = await axios.post("/api/marketplace", formData, {
+    headers: {
+      Authorization: `Bearer ${token}`,
+      "Content-Type": "multipart/form-data",
+    },
+  });
+  return res.data;
+};
+
+export const deleteMarketplaceProduct = async (id, token) => {
+  const res = await axios.delete(`/api/marketplace/${id}`, {
+    headers: { Authorization: `Bearer ${token}` },
+  });
+  return res.data;
 };
