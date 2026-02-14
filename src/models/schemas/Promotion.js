@@ -1,15 +1,11 @@
+// src/models/schemas/Promotion.js
 import mongoose from "mongoose";
 
-const { Schema } = mongoose;
-
-const PromotionSchema = new Schema({
-  id: { type: Number, required: true },
+const promotionSchema = new mongoose.Schema({
   label: { type: String, required: true },
-  type: { type: String, enum: ["free", "paid"], required: true },
-  price: { type: Number, default: 0 },
-  days: { type: Number, default: 7 },
-  startAt: { type: Date },
-  endAt: { type: Date },
+  price: { type: Number, required: true },
+  days: { type: Number, required: true },
+  type: { type: String, enum: ["free", "paid"], default: "free" },
 });
 
-export default PromotionSchema;
+export default mongoose.model("Promotion", promotionSchema);
