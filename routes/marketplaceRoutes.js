@@ -1,66 +1,32 @@
+// src/routes/marketplaceRoutes.js
 import express from "express";
 import MarketplaceProduct from "../models/MarketplaceProduct.js";
-import axios from "axios";
 
 const router = express.Router();
 
 // Add a new product
 router.post("/products", async (req, res) => {
   try {
-    const {
-      title,
-      category,
-      subcategory,
-      brand,
-      model,
-      condition,
-      usedDetail,
-      price,
-      discountPrice,
-      negotiable,
-      description,
-      specifications,
-      country,
-      state,
-      city,
-      images, // array of URLs from frontend (Cloudinary)
-      promotionPlan,
-      ownerId,
-    } = req.body;
+    const data = req.body;
 
-    if (!title || !price || !images || images.length === 0)
+    if (!data.ownerId) return res.status(400).json({ error: "ownerId is required" });
+    if (!data.title || !data.price || !data.images || !data.images.length)
       return res.status(400).json({ error: "Title, price, and images are required" });
 
-    // Format images to match schema
-    const formattedImages = images.map((url) => ({ url, alt: "" }));
+    // Convert images to ImageSchema format
+    const images = data.images.map((url) => ({ url, alt: "" }));
 
+    // Build product object
     const product = new MarketplaceProduct({
-      title,
-      category,
-      subcategory,
-      brand,
-      model,
-      condition,
-      usedDetail,
-      price,
-      discountPrice,
-      negotiable,
-      description,
-      specifications: specifications || [],
-      country,
-      state,
-      city,
-      images: formattedImages,
-      promotionPlan: promotionPlan || {},
-      ownerId,
+      ...data,
+      images,
     });
 
     await product.save();
-
-    res.status(201).json({ message: "Product added successfully", product });
+    res.status(201).json({ message: "Product added", product });
   } catch (err) {
     console.error("Error adding product:", err);
-    res.status(500).json({ error: "Server error adding product" });
+    res.status(500).json({ error: "Server error" });
   }
 });
 
