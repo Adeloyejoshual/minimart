@@ -64,11 +64,13 @@ export default function AddProduct() {
 
   const handleSubmit = async (e) => {
     e.preventDefault();
-    if (!form.title || !form.price || form.images.length === 0)
+    if (!form.title || !form.price || form.images.length === 0) {
       return alert("Title, price, and images are required");
+    }
 
     setLoading(true);
     try {
+      // Upload images to Cloudinary
       const uploadedImages = [];
       for (const img of form.images) {
         const formData = new FormData();
@@ -82,14 +84,30 @@ export default function AddProduct() {
           `https://api.cloudinary.com/v1_1/${import.meta.env.VITE_CLOUDINARY_CLOUD_NAME}/image/upload`,
           formData
         );
-        uploadedImages.push(cloudRes.data.secure_url);
+
+        uploadedImages.push({ url: cloudRes.data.secure_url, alt: form.title });
       }
 
-      await axios.post("/api/marketplace", { ...form, images: uploadedImages });
+      // Map promotionPlan to schema
+      const promotionPlanPayload = {
+        label: form.promotionPlan.label,
+        price: form.promotionPlan.price,
+        days: form.promotionPlan.days,
+        startAt: new Date(),
+        endAt: new Date(Date.now() + form.promotionPlan.days * 86400000),
+      };
+
+      // Send product to backend
+      await axios.post("/api/marketplace", {
+        ...form,
+        images: uploadedImages,
+        promotionPlan: promotionPlanPayload,
+      });
+
       alert("Product added successfully!");
       setForm({ ...form, images: [] });
     } catch (err) {
-      console.error(err);
+      console.error("Backend error:", err.response?.data || err.message);
       alert("Error adding product");
     } finally {
       setLoading(false);
@@ -100,6 +118,7 @@ export default function AddProduct() {
     <div className="add-product-page">
       <h2>Add Product</h2>
       <form onSubmit={handleSubmit}>
+        {/* Title */}
         <input
           placeholder="Title"
           value={form.title}
@@ -119,6 +138,7 @@ export default function AddProduct() {
           ))}
         </select>
 
+        {/* Subcategory */}
         {form.category && (
           <select
             value={form.subcategory}
@@ -135,6 +155,7 @@ export default function AddProduct() {
           </select>
         )}
 
+        {/* Brand & Model */}
         <input
           placeholder="Brand"
           value={form.brand}
@@ -146,6 +167,7 @@ export default function AddProduct() {
           onChange={(e) => handleInput("model", e.target.value)}
         />
 
+        {/* Condition */}
         <select
           value={form.condition}
           onChange={(e) => handleInput("condition", e.target.value)}
@@ -155,6 +177,7 @@ export default function AddProduct() {
           ))}
         </select>
 
+        {/* Used Details */}
         {form.condition === "Used" && (
           <select
             value={form.usedDetail}
@@ -167,6 +190,7 @@ export default function AddProduct() {
           </select>
         )}
 
+        {/* Pricing */}
         <input
           type="number"
           placeholder="Price"
@@ -188,12 +212,14 @@ export default function AddProduct() {
           Negotiable
         </label>
 
+        {/* Description */}
         <textarea
           placeholder="Description"
           value={form.description}
           onChange={(e) => handleInput("description", e.target.value)}
         />
 
+        {/* Location */}
         <select
           value={form.country}
           onChange={(e) => handleInput("country", e.target.value)}
