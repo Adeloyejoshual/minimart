@@ -1,38 +1,66 @@
-// src/routes/marketplaceRoutes.js
 import express from "express";
-import multer from "multer";
 import MarketplaceProduct from "../models/MarketplaceProduct.js";
+import axios from "axios";
 
 const router = express.Router();
 
-// Set up multer for file uploads (store locally in /uploads)
-const storage = multer.diskStorage({
-  destination: (req, file, cb) => cb(null, "uploads/"),
-  filename: (req, file, cb) => cb(null, Date.now() + "-" + file.originalname),
-});
-const upload = multer({ storage });
-
 // Add a new product
-router.post("/products", upload.array("images", 5), async (req, res) => {
+router.post("/products", async (req, res) => {
   try {
-    const { title, description, price, userEmail } = req.body;
+    const {
+      title,
+      category,
+      subcategory,
+      brand,
+      model,
+      condition,
+      usedDetail,
+      price,
+      discountPrice,
+      negotiable,
+      description,
+      specifications,
+      country,
+      state,
+      city,
+      images, // array of URLs from frontend (Cloudinary)
+      promotionPlan,
+      ownerId,
+    } = req.body;
 
-    // Save uploaded file paths
-    const imagePaths = req.files.map((file) => `/uploads/${file.filename}`);
+    if (!title || !price || !images || images.length === 0)
+      return res.status(400).json({ error: "Title, price, and images are required" });
+
+    // Format images to match schema
+    const formattedImages = images.map((url) => ({ url, alt: "" }));
 
     const product = new MarketplaceProduct({
       title,
-      description,
+      category,
+      subcategory,
+      brand,
+      model,
+      condition,
+      usedDetail,
       price,
-      images: imagePaths,
-      userEmail,
+      discountPrice,
+      negotiable,
+      description,
+      specifications: specifications || [],
+      country,
+      state,
+      city,
+      images: formattedImages,
+      promotionPlan: promotionPlan || {},
+      ownerId,
     });
 
     await product.save();
-    res.status(201).json({ message: "Product added", product });
+
+    res.status(201).json({ message: "Product added successfully", product });
   } catch (err) {
-    console.error(err);
-    res.status(500).json({ error: "Server error" });
+    console.error("Error adding product:", err);
+    res.status(500).json({ error: "Server error adding product" });
   }
 });
 
