@@ -1,28 +1,28 @@
+// models/MarketplaceProduct.js
 import mongoose from "mongoose";
-import PromotionSchema from "./schemas/Promotion.js";
-import ImageSchema from "./schemas/Image.js";
 
-const { Schema, model } = mongoose;
-
-const ProductSchema = new Schema({
-  title: { type: String, required: true },
-  description: { type: String, required: true },
-  price: { type: Number, required: true },
-  discountPrice: { type: Number },
-  negotiable: { type: Boolean, default: false },
+const marketplaceProductSchema = new mongoose.Schema({
+  title: { type: String, required: true, trim: true },
+  description: { type: String, trim: true },
   category: { type: String, required: true },
-  subcategory: { type: String },
-  brand: { type: String },
-  model: { type: String },
-  condition: { type: String, enum: ["New", "Used", "Refurbished"], default: "New" },
-  usedDetail: { type: String },
-  country: { type: String, required: true },
+  subCategory: { type: String },
+  price: { type: Number, required: true },
+  images: [{ type: String }], // URLs of uploaded images
+  country: { type: String, default: "Nigeria" },
   state: { type: String },
   city: { type: String },
-  images: [ImageSchema],
-  promotionPlan: PromotionSchema,
-  ownerId: { type: Schema.Types.ObjectId, ref: "User", required: true },
+  negotiable: { type: Boolean, default: false },
+  flashSale: { type: Boolean, default: false },
+  ownerId: { type: mongoose.Schema.Types.ObjectId, ref: "User", required: true },
   createdAt: { type: Date, default: Date.now },
+  updatedAt: { type: Date, default: Date.now },
+  isPromoted: { type: Boolean, default: false },
+  promotion: {
+    plan: { type: String },
+    price: { type: Number },
+    startAt: { type: Date },
+    endAt: { type: Date },
+  },
 });
 
-export default model("MarketplaceProduct", ProductSchema);
+export default mongoose.model("MarketplaceProduct", marketplaceProductSchema);
