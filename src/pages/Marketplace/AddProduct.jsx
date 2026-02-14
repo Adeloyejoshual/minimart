@@ -20,12 +20,14 @@ export default function AddProduct() {
     discountPrice: "",
     negotiable: false,
     description: "",
-    specs: {},
+    specifications: [],
     country: "",
     state: "",
     city: "",
-    images: [],
+    images: [], // local File objects before upload
+    uploadedImages: [], // Cloudinary URLs
     promotionPlan: promotionPlans[0],
+    ownerId: "", // Add a valid user ID here for testing
   });
 
   const [allStates, setAllStates] = useState([]);
@@ -60,54 +62,71 @@ export default function AddProduct() {
   };
 
   const removeImage = (i) =>
-    setForm({ ...form, images: form.images.filter((_, idx) => idx !== i) });
+    setForm({
+      ...form,
+      images: form.images.filter((_, idx) => idx !== i),
+      uploadedImages: form.uploadedImages.filter((_, idx) => idx !== i),
+    });
 
   const handleSubmit = async (e) => {
     e.preventDefault();
-    if (!form.title || !form.price || form.images.length === 0) {
+
+    if (!form.title || !form.price || form.images.length === 0)
       return alert("Title, price, and images are required");
-    }
 
     setLoading(true);
     try {
       // Upload images to Cloudinary
-      const uploadedImages = [];
+      const uploaded = [];
       for (const img of form.images) {
-        const formData = new FormData();
-        formData.append("file", img);
-        formData.append(
-          "upload_preset",
-          import.meta.env.VITE_CLOUDINARY_UPLOAD_PRESET
-        );
+        const data = new FormData();
+        data.append("file", img);
+        data.append("upload_preset", import.meta.env.VITE_CLOUDINARY_UPLOAD_PRESET);
 
-        const cloudRes = await axios.post(
+        const res = await axios.post(
           `https://api.cloudinary.com/v1_1/${import.meta.env.VITE_CLOUDINARY_CLOUD_NAME}/image/upload`,
-          formData
+          data
         );
-
-        uploadedImages.push({ url: cloudRes.data.secure_url, alt: form.title });
+        uploaded.push(res.data.secure_url);
       }
 
-      // Map promotionPlan to schema
-      const promotionPlanPayload = {
-        label: form.promotionPlan.label,
-        price: form.promotionPlan.price,
-        days: form.promotionPlan.days,
-        startAt: new Date(),
-        endAt: new Date(Date.now() + form.promotionPlan.days * 86400000),
+      setForm((prev) => ({ ...prev, uploadedImages: uploaded }));
+
+      // Prepare payload for backend
+      const payload = {
+        ...form,
+        images: uploaded.map((url) => ({ url, alt: "" })), // matches schema
       };
 
-      // Send product to backend
-      await axios.post("/api/marketplace", {
-        ...form,
-        images: uploadedImages,
-        promotionPlan: promotionPlanPayload,
-      });
+      // Send to backend
+      const res = await axios.post("/api/products", payload);
+      alert(res.data.message || "Product added successfully!");
 
-      alert("Product added successfully!");
-      setForm({ ...form, images: [] });
+      // Reset form
+      setForm({
+        title: "",
+        category: "",
+        subcategory: "",
+        brand: "",
+        model: "",
+        condition: "New",
+        usedDetail: "",
+        price: "",
+        discountPrice: "",
+        negotiable: false,
+        description: "",
+        specifications: [],
+        country: form.country,
+        state: "",
+        city: "",
+        images: [],
+        uploadedImages: [],
+        promotionPlan: promotionPlans[0],
+        ownerId: form.ownerId,
+      });
+      setAllCities([]);
     } catch (err) {
-      console.error("Backend error:", err.response?.data || err.message);
+      console.error("Error adding product:", err.response || err);
       alert("Error adding product");
     } finally {
       setLoading(false);
@@ -118,7 +137,6 @@ export default function AddProduct() {
     <div className="add-product-page">
       <h2>Add Product</h2>
       <form onSubmit={handleSubmit}>
-        {/* Title */}
         <input
           placeholder="Title"
           value={form.title}
@@ -126,10 +144,7 @@ export default function AddProduct() {
         />
 
         {/* Category */}
-        <select
-          value={form.category}
-          onChange={(e) => handleInput("category", e.target.value)}
-        >
+        <select value={form.category} onChange={(e) => handleInput("category", e.target.value)}>
           <option value="">Select Category</option>
           {categories.map((c) => (
             <option key={c.name} value={c.name}>
@@ -138,12 +153,8 @@ export default function AddProduct() {
           ))}
         </select>
 
-        {/* Subcategory */}
         {form.category && (
-          <select
-            value={form.subcategory}
-            onChange={(e) => handleInput("subcategory", e.target.value)}
-          >
+          <select value={form.subcategory} onChange={(e) => handleInput("subcategory", e.target.value)}>
             <option value="">Select Subcategory</option>
             {categories
               .find((c) => c.name === form.category)
@@ -155,34 +166,17 @@ export default function AddProduct() {
           </select>
         )}
 
-        {/* Brand & Model */}
-        <input
-          placeholder="Brand"
-          value={form.brand}
-          onChange={(e) => handleInput("brand", e.target.value)}
-        />
-        <input
-          placeholder="Model / Variant"
-          value={form.model}
-          onChange={(e) => handleInput("model", e.target.value)}
-        />
+        <input placeholder="Brand" value={form.brand} onChange={(e) => handleInput("brand", e.target.value)} />
+        <input placeholder="Model / Variant" value={form.model} onChange={(e) => handleInput("model", e.target.value)} />
 
-        {/* Condition */}
-        <select
-          value={form.condition}
-          onChange={(e) => handleInput("condition", e.target.value)}
-        >
+        <select value={form.condition} onChange={(e) => handleInput("condition", e.target.value)}>
           {conditions.map((c) => (
             <option key={c}>{c}</option>
           ))}
         </select>
 
-        {/* Used Details */}
         {form.condition === "Used" && (
-          <select
-            value={form.usedDetail}
-            onChange={(e) => handleInput("usedDetail", e.target.value)}
-          >
+          <select value={form.usedDetail} onChange={(e) => handleInput("usedDetail", e.target.value)}>
             <option value="">Select Used Detail</option>
             {usedDetails.map((u) => (
               <option key={u}>{u}</option>
@@ -190,40 +184,22 @@ export default function AddProduct() {
           </select>
         )}
 
-        {/* Pricing */}
-        <input
-          type="number"
-          placeholder="Price"
-          value={form.price}
-          onChange={(e) => handleInput("price", e.target.value)}
-        />
+        <input type="number" placeholder="Price" value={form.price} onChange={(e) => handleInput("price", e.target.value)} />
         <input
           type="number"
           placeholder="Discount Price (Optional)"
           value={form.discountPrice}
           onChange={(e) => handleInput("discountPrice", e.target.value)}
         />
+
         <label>
-          <input
-            type="checkbox"
-            checked={form.negotiable}
-            onChange={(e) => handleInput("negotiable", e.target.checked)}
-          />{" "}
-          Negotiable
+          <input type="checkbox" checked={form.negotiable} onChange={(e) => handleInput("negotiable", e.target.checked)} /> Negotiable
         </label>
 
-        {/* Description */}
-        <textarea
-          placeholder="Description"
-          value={form.description}
-          onChange={(e) => handleInput("description", e.target.value)}
-        />
+        <textarea placeholder="Description" value={form.description} onChange={(e) => handleInput("description", e.target.value)} />
 
         {/* Location */}
-        <select
-          value={form.country}
-          onChange={(e) => handleInput("country", e.target.value)}
-        >
+        <select value={form.country} onChange={(e) => handleInput("country", e.target.value)}>
           {countries.map((c) => (
             <option key={c}>{c}</option>
           ))}
@@ -264,9 +240,7 @@ export default function AddProduct() {
           {form.images.map((img, i) => (
             <div key={i}>
               <img src={URL.createObjectURL(img)} alt="preview" width={100} />
-              <button type="button" onClick={() => removeImage(i)}>
-                ✖
-              </button>
+              <button type="button" onClick={() => removeImage(i)}>✖</button>
             </div>
           ))}
         </div>
