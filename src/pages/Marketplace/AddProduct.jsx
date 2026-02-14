@@ -1,8 +1,9 @@
-// src/pages/Marketplace/AddProduct.jsx
+// src/pages/Marketplace/AddMarketplaceProduct.jsx
 import { useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { useAuth0 } from "@auth0/auth0-react";
-import { addMarketplaceProduct } from "../../helpers/marketplace";
+import axios from "axios";
+import nigerianStates from "../../config/nigerianStates"; // array of { state, cities: [] }
 
 export default function AddMarketplaceProduct() {
   const { isAuthenticated, loginWithRedirect } = useAuth0();
@@ -10,16 +11,17 @@ export default function AddMarketplaceProduct() {
 
   const [form, setForm] = useState({
     title: "",
-    description: "",
-    price: "",
     category: "",
     subcategory: "",
+    description: "",
+    price: "",
+    country: "Nigeria",
     state: "",
     city: "",
-    images: [],
+    image: null,
   });
 
-  const [previews, setPreviews] = useState([]);
+  const [preview, setPreview] = useState(null);
   const [loading, setLoading] = useState(false);
 
   if (!isAuthenticated) {
@@ -27,165 +29,118 @@ export default function AddMarketplaceProduct() {
     return null;
   }
 
-  // ---------------- Handle input changes ----------------
+  // Handle input changes
   const handleChange = (e) => {
     const { name, value, files } = e.target;
-
-    if (name === "images" && files.length) {
-      const fileArray = Array.from(files);
-      setForm(prev => ({ ...prev, images: fileArray }));
-      setPreviews(fileArray.map(f => URL.createObjectURL(f)));
+    if (name === "image" && files[0]) {
+      setForm({ ...form, image: files[0] });
+      setPreview(URL.createObjectURL(files[0]));
     } else {
-      setForm(prev => ({ ...prev, [name]: value }));
+      setForm({ ...form, [name]: value });
     }
   };
 
-  // ---------------- Submit form ----------------
+  // Handle state change to reset city
+  const handleStateChange = (e) => {
+    setForm({ ...form, state: e.target.value, city: "" });
+  };
+
+  // Submit product
   const handleSubmit = async (e) => {
     e.preventDefault();
-
-    // ✅ Validate required fields
-    const required = ["title", "price", "category", "state", "city"];
-    for (let field of required) {
-      if (!form[field]) {
-        alert(`${field.charAt(0).toUpperCase() + field.slice(1)} is required`);
-        return;
-      }
+    if (!form.title || !form.price) {
+      alert("Title and Price are required.");
+      return;
     }
 
     setLoading(true);
     try {
       const data = new FormData();
-      data.append("title", form.title);
-      data.append("description", form.description);
-      data.append("price", form.price);
-      data.append("category", form.category);
-      data.append("subcategory", form.subcategory);
-      data.append("state", form.state);
-      data.append("city", form.city);
+      Object.entries(form).forEach(([key, value]) => {
+        if (value) data.append(key, value);
+      });
 
-      // Multiple images
-      form.images.forEach(img => data.append("images", img));
+      const res = await axios.post("/api/marketplace", data, {
+        headers: { "Content-Type": "multipart/form-data" },
+      });
 
-      await addMarketplaceProduct(data);
       alert("Product added successfully!");
-      navigate("/marketplace");
+      navigate("/");
     } catch (err) {
       console.error(err);
-      alert("Failed to add product. Check console for details.");
+      alert(err.response?.data?.message || "Failed to add product");
     } finally {
       setLoading(false);
     }
   };
 
+  // Get cities for selected state
+  const cities = form.state
+    ? nigerianStates.find((s) => s.state === form.state)?.cities || []
+    : [];
+
   return (
-    <div style={{ padding: "16px" }}>
+    <div style={{ padding: "16px", maxWidth: "600px", margin: "0 auto" }}>
       <h2>Add Marketplace Product</h2>
       <form onSubmit={handleSubmit}>
-
-        <label>Title*:
-          <input
-            type="text"
-            name="title"
-            value={form.title}
-            onChange={handleChange}
-            required
-          />
+        <label>
+          Title*:
+          <input type="text" name="title" value={form.title} onChange={handleChange} required />
         </label>
 
-        <label>Description:
-          <textarea
-            name="description"
-            value={form.description}
-            onChange={handleChange}
-            rows={4}
-          />
+        <label>
+          Category*:
+          <input type="text" name="category" value={form.category} onChange={handleChange} placeholder="Electronics, Fashion..." />
         </label>
 
-        <label>Price*:
-          <input
-            type="number"
-            name="price"
-            value={form.price}
-            onChange={handleChange}
-            required
-          />
+        <label>
+          Subcategory:
+          <input type="text" name="subcategory" value={form.subcategory} onChange={handleChange} placeholder="Mobile Phones, Laptops..." />
         </label>
 
-        <label>Category*:
-          <input
-            type="text"
-            name="category"
-            value={form.category}
-            onChange={handleChange}
-            required
-          />
+        <label>
+          Description:
+          <textarea name="description" value={form.description} onChange={handleChange} rows={4} />
         </label>
 
-        <label>Subcategory:
-          <input
-            type="text"
-            name="subcategory"
-            value={form.subcategory}
-            onChange={handleChange}
-          />
+        <label>
+          Price*:
+          <input type="number" name="price" value={form.price} onChange={handleChange} required />
         </label>
 
-        <label>State*:
-          <input
-            type="text"
-            name="state"
-            value={form.state}
-            onChange={handleChange}
-            required
-          />
-        </label>
-
-        <label>City*:
-          <input
-            type="text"
-            name="city"
-            value={form.city}
-            onChange={handleChange}
-            required
-          />
-        </label>
-
-        <label>Upload Images:
-          <input
-            type="file"
-            name="images"
-            accept="image/*"
-            multiple
-            onChange={handleChange}
-          />
-        </label>
-
-        {/* Previews */}
-        {previews.length > 0 && (
-          <div style={{ display: "flex", gap: "8px", margin: "12px 0" }}>
-            {previews.map((p, i) => (
-              <img
-                key={i}
-                src={p}
-                alt="Preview"
-                style={{ width: "100px", height: "100px", objectFit: "cover", borderRadius: "8px" }}
-              />
+        <label>
+          State*:
+          <select name="state" value={form.state} onChange={handleStateChange} required>
+            <option value="">Select State</option>
+            {nigerianStates.map((s) => (
+              <option key={s.state} value={s.state}>{s.state}</option>
             ))}
+          </select>
+        </label>
+
+        <label>
+          City / LGA*:
+          <select name="city" value={form.city} onChange={handleChange} required>
+            <option value="">Select City / LGA</option>
+            {cities.map((c) => (
+              <option key={c} value={c}>{c}</option>
+            ))}
+          </select>
+        </label>
+
+        <label>
+          Product Image:
+          <input type="file" name="image" accept="image/*" onChange={handleChange} />
+        </label>
+
+        {preview && (
+          <div style={{ margin: "12px 0" }}>
+            <img src={preview} alt="Preview" style={{ width: "150px", borderRadius: "12px", objectFit: "cover" }} />
+            <button type="button" onClick={() => { setForm({ ...form, image: null }); setPreview(null); }}>Remove</button>
           </div>
         )}
 
-        <button type="submit" disabled={loading} style={{
-          padding: "12px",
-          width: "100%",
-          borderRadius: "12px",
-          background: "#0D6EFD",
-          color: "#fff",
-          fontWeight: 600,
-          fontSize: "16px",
-          border: "none",
-          cursor: "pointer"
-        }}>
+        <button type="submit" disabled={loading} style={{ padding: "12px", width: "100%", background: "#0D6EFD", color: "#fff", border: "none", borderRadius: "12px", fontSize: "16px" }}>
           {loading ? "Adding..." : "Add Product"}
         </button>
       </form>
