@@ -34,10 +34,8 @@ export default function AddProduct() {
       setLoading(true);
 
       let response;
-      let data;
-
-      // If image exists, use FormData
       if (image) {
+        // FormData for image
         const formData = new FormData();
         formData.append("title", title.trim());
         formData.append("description", description.trim());
@@ -46,7 +44,7 @@ export default function AddProduct() {
 
         response = await fetch("/api/marketplace", {
           method: "POST",
-          body: formData, // browser sets multipart/form-data
+          body: formData,
         });
       } else {
         // JSON-only request
@@ -61,17 +59,19 @@ export default function AddProduct() {
         });
       }
 
-      // Try parsing JSON safely
+      // Read body as text first
+      const text = await response.text();
+
+      let data;
       try {
-        data = await response.json();
+        data = JSON.parse(text); // Try parsing JSON
       } catch (err) {
-        const text = await response.text();
         console.error("Server returned non-JSON response:", text);
-        throw new Error("Server error: check logs");
+        throw new Error("Server error: non-JSON response");
       }
 
       if (!response.ok) {
-        throw new Error(data.message || "Failed to add product");
+        throw new Error(data?.message || "Failed to add product");
       }
 
       alert("✅ Product added successfully!");
