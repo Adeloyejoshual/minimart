@@ -1,15 +1,17 @@
+// models/MarketplaceProduct.js
 import mongoose from "mongoose";
 
-const marketplaceSchema = new mongoose.Schema(
+const MarketplaceProductSchema = new mongoose.Schema(
   {
     title: { type: String, required: true },
-    description: String,
+    description: { type: String },
     price: { type: Number, required: true },
+    image: { type: String },
+    country: { type: String, default: "Nigeria" },
+    state: { type: String },
+    city: { type: String },
   },
   { timestamps: true }
 );
 
-export default mongoose.model(
-  "MarketplaceProduct",
-  marketplaceSchema
-);
+export default mongoose.model("MarketplaceProduct", MarketplaceProductSchema);
