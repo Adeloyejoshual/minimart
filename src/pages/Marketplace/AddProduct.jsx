@@ -16,6 +16,9 @@ export default function AddProduct() {
     if (file) {
       setImage(file);
       setPreview(URL.createObjectURL(file));
+    } else {
+      setImage(null);
+      setPreview(null);
     }
   };
 
@@ -30,18 +33,42 @@ export default function AddProduct() {
     try {
       setLoading(true);
 
-      const formData = new FormData();
-      formData.append("title", title.trim());
-      formData.append("description", description.trim());
-      formData.append("price", price);
-      if (image) formData.append("image", image);
+      let response;
+      let data;
 
-      const response = await fetch("/api/marketplace", {
-        method: "POST",
-        body: formData, // Browser sets multipart/form-data automatically
-      });
+      // If image exists, use FormData
+      if (image) {
+        const formData = new FormData();
+        formData.append("title", title.trim());
+        formData.append("description", description.trim());
+        formData.append("price", price);
+        formData.append("image", image);
 
-      const data = await response.json();
+        response = await fetch("/api/marketplace", {
+          method: "POST",
+          body: formData, // browser sets multipart/form-data
+        });
+      } else {
+        // JSON-only request
+        response = await fetch("/api/marketplace", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            title: title.trim(),
+            description: description.trim(),
+            price,
+          }),
+        });
+      }
+
+      // Try parsing JSON safely
+      try {
+        data = await response.json();
+      } catch (err) {
+        const text = await response.text();
+        console.error("Server returned non-JSON response:", text);
+        throw new Error("Server error: check logs");
+      }
 
       if (!response.ok) {
         throw new Error(data.message || "Failed to add product");
@@ -55,7 +82,7 @@ export default function AddProduct() {
       setPrice("");
       setImage(null);
       setPreview(null);
-      fileInputRef.current.value = null;
+      if (fileInputRef.current) fileInputRef.current.value = null;
     } catch (error) {
       console.error("Add product error:", error);
       alert(error.message || "Failed to add product");
