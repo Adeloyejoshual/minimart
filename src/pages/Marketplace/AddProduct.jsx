@@ -1,10 +1,23 @@
-import { useState } from "react";
+import { useState, useRef } from "react";
 
 export default function AddProduct() {
   const [title, setTitle] = useState("");
   const [description, setDescription] = useState("");
   const [price, setPrice] = useState("");
+  const [image, setImage] = useState(null);
+  const [preview, setPreview] = useState(null);
   const [loading, setLoading] = useState(false);
+
+  const fileInputRef = useRef(null);
+
+  // Handle image selection and preview
+  const handleImageChange = (e) => {
+    const file = e.target.files[0];
+    if (file) {
+      setImage(file);
+      setPreview(URL.createObjectURL(file));
+    }
+  };
 
   const handleSubmit = async (e) => {
     e.preventDefault();
@@ -17,16 +30,15 @@ export default function AddProduct() {
     try {
       setLoading(true);
 
+      const formData = new FormData();
+      formData.append("title", title.trim());
+      formData.append("description", description.trim());
+      formData.append("price", price);
+      if (image) formData.append("image", image);
+
       const response = await fetch("/api/marketplace", {
         method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({
-          title,
-          description,
-          price,
-        }),
+        body: formData, // Browser sets multipart/form-data automatically
       });
 
       const data = await response.json();
@@ -35,14 +47,18 @@ export default function AddProduct() {
         throw new Error(data.message || "Failed to add product");
       }
 
-      alert("Product added successfully!");
+      alert("✅ Product added successfully!");
 
+      // Reset form
       setTitle("");
       setDescription("");
       setPrice("");
+      setImage(null);
+      setPreview(null);
+      fileInputRef.current.value = null;
     } catch (error) {
       console.error("Add product error:", error);
-      alert("Failed to add product");
+      alert(error.message || "Failed to add product");
     } finally {
       setLoading(false);
     }
@@ -50,9 +66,10 @@ export default function AddProduct() {
 
   return (
     <div style={{ maxWidth: "400px", margin: "40px auto" }}>
-      <h2>Add Product</h2>
+      <h2>Add Marketplace Product</h2>
 
       <form onSubmit={handleSubmit}>
+        {/* Title */}
         <div style={{ marginBottom: "15px" }}>
           <input
             type="text"
@@ -63,6 +80,7 @@ export default function AddProduct() {
           />
         </div>
 
+        {/* Description */}
         <div style={{ marginBottom: "15px" }}>
           <textarea
             placeholder="Description"
@@ -72,6 +90,7 @@ export default function AddProduct() {
           />
         </div>
 
+        {/* Price */}
         <div style={{ marginBottom: "15px" }}>
           <input
             type="number"
@@ -82,6 +101,24 @@ export default function AddProduct() {
           />
         </div>
 
+        {/* Image Upload */}
+        <div style={{ marginBottom: "15px" }}>
+          <input
+            type="file"
+            accept="image/*"
+            ref={fileInputRef}
+            onChange={handleImageChange}
+          />
+          {preview && (
+            <img
+              src={preview}
+              alt="Preview"
+              style={{ marginTop: "10px", maxWidth: "100%", borderRadius: "5px" }}
+            />
+          )}
+        </div>
+
+        {/* Submit */}
         <button
           type="submit"
           disabled={loading}
