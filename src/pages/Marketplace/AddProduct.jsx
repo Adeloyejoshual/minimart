@@ -1,39 +1,102 @@
 import { useState } from "react";
-import axios from "axios";
 
 export default function AddProduct() {
   const [title, setTitle] = useState("");
   const [description, setDescription] = useState("");
   const [price, setPrice] = useState("");
-  const [image, setImage] = useState(null);
-  const [preview, setPreview] = useState(null);
+  const [loading, setLoading] = useState(false);
 
   const handleSubmit = async (e) => {
     e.preventDefault();
-    try {
-      const formData = new FormData();
-      formData.append("title", title);
-      formData.append("description", description);
-      formData.append("price", price);
-      if (image) formData.append("image", image);
 
-      await axios.post("/api/marketplace", formData);
-      alert("Product added!");
-      setTitle(""); setDescription(""); setPrice(""); setImage(null); setPreview(null);
-    } catch (err) {
-      console.error(err);
+    if (!title || !price) {
+      alert("Title and price are required");
+      return;
+    }
+
+    try {
+      setLoading(true);
+
+      const response = await fetch("/api/marketplace", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          title,
+          description,
+          price,
+        }),
+      });
+
+      const data = await response.json();
+
+      if (!response.ok) {
+        throw new Error(data.message || "Failed to add product");
+      }
+
+      alert("Product added successfully!");
+
+      setTitle("");
+      setDescription("");
+      setPrice("");
+    } catch (error) {
+      console.error("Add product error:", error);
       alert("Failed to add product");
+    } finally {
+      setLoading(false);
     }
   };
 
   return (
-    <form onSubmit={handleSubmit}>
-      <input placeholder="Title*" value={title} onChange={e => setTitle(e.target.value)} required />
-      <textarea placeholder="Description" value={description} onChange={e => setDescription(e.target.value)} />
-      <input placeholder="Price*" type="number" value={price} onChange={e => setPrice(e.target.value)} required />
-      <input type="file" accept="image/*" onChange={e => { setImage(e.target.files[0]); setPreview(URL.createObjectURL(e.target.files[0])); }} />
-      {preview && <img src={preview} alt="Preview" style={{ width: 150, margin: "8px 0" }} />}
-      <button type="submit">Add Product</button>
-    </form>
+    <div style={{ maxWidth: "400px", margin: "40px auto" }}>
+      <h2>Add Product</h2>
+
+      <form onSubmit={handleSubmit}>
+        <div style={{ marginBottom: "15px" }}>
+          <input
+            type="text"
+            placeholder="Title"
+            value={title}
+            onChange={(e) => setTitle(e.target.value)}
+            style={{ width: "100%", padding: "10px" }}
+          />
+        </div>
+
+        <div style={{ marginBottom: "15px" }}>
+          <textarea
+            placeholder="Description"
+            value={description}
+            onChange={(e) => setDescription(e.target.value)}
+            style={{ width: "100%", padding: "10px" }}
+          />
+        </div>
+
+        <div style={{ marginBottom: "15px" }}>
+          <input
+            type="number"
+            placeholder="Price"
+            value={price}
+            onChange={(e) => setPrice(e.target.value)}
+            style={{ width: "100%", padding: "10px" }}
+          />
+        </div>
+
+        <button
+          type="submit"
+          disabled={loading}
+          style={{
+            width: "100%",
+            padding: "10px",
+            background: "black",
+            color: "white",
+            border: "none",
+            cursor: "pointer",
+          }}
+        >
+          {loading ? "Adding..." : "Add Product"}
+        </button>
+      </form>
+    </div>
   );
 }
