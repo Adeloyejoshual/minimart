@@ -1,3 +1,4 @@
+// src/models/MarketplaceProduct.js
 import mongoose from "mongoose";
 
 const marketplaceProductSchema = new mongoose.Schema(
@@ -36,11 +37,18 @@ const marketplaceProductSchema = new mongoose.Schema(
     exchange_possible: { type: Boolean, default: false },
     description: { type: String, default: "" },
     price: { type: Number, required: true },
+    bulk_price: {
+      from: { type: Number, default: null },      // e.g., 10 pieces
+      per_piece: { type: Number, default: null }, // e.g., ₦1,000 per piece
+    },
+    negotiation: { type: String, default: "" }, // Yes / No / Not sure
     phone_number: { type: String, default: "" },
     poster_name: { type: String, default: "" },
 
     // Location
+    country: { type: String, default: "Nigeria" },
     state: { type: String, default: "" },
+    city: { type: String, default: "" },
     location: { type: String, default: "" },
 
     // Media
@@ -50,6 +58,9 @@ const marketplaceProductSchema = new mongoose.Schema(
     // Promotion
     promoted: { type: Boolean, default: false },
     promo_plan: { type: String, default: "" },
+
+    // Delivery options
+    delivery: { type: Object, default: {} },
   },
   { timestamps: true }
 );
