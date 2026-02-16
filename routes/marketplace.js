@@ -1,3 +1,4 @@
+// src/routes/marketplace.js
 import express from "express";
 import MarketplaceProduct from "../models/MarketplaceProduct.js";
 
@@ -39,6 +40,8 @@ router.post("/", async (req, res) => {
       title,
       description,
       price,
+      bulk_price,
+      negotiation,
       images,
       category,
       subcategory,
@@ -61,7 +64,6 @@ router.post("/", async (req, res) => {
       country,
       state,
       city,
-      // Optional: extra fields per category
       engine,
       mileage,
       year,
@@ -74,7 +76,8 @@ router.post("/", async (req, res) => {
       furnished,
     } = req.body;
 
-    if (!title || !price) {
+    // Required validation
+    if (!title?.trim() || !price) {
       return res.status(400).json({ message: "Title and price are required" });
     }
 
@@ -82,7 +85,9 @@ router.post("/", async (req, res) => {
       title: title.trim(),
       description: description?.trim() || "",
       price: parseFloat(price),
-      images: Array.isArray(images) ? images : [], // always an array
+      bulk_price: bulk_price || { from: null, per_piece: null },
+      negotiation: negotiation || "",
+      images: Array.isArray(images) ? images : [],
       category: category || "",
       subcategory: subcategory || "",
       brand: brand || "",
@@ -105,13 +110,13 @@ router.post("/", async (req, res) => {
       state: state || "",
       city: city || "",
       engine: engine || "",
-      mileage: mileage || null,
-      year: year || null,
+      mileage: mileage ? parseFloat(mileage) : null,
+      year: year ? parseInt(year) : null,
       fuel_type: fuel_type || "",
       transmission: transmission || "",
       age_range: age_range || "",
-      bedrooms: bedrooms || null,
-      bathrooms: bathrooms || null,
+      bedrooms: bedrooms ? parseInt(bedrooms) : null,
+      bathrooms: bathrooms ? parseInt(bathrooms) : null,
       size: size || "",
       furnished: furnished || false,
     });
