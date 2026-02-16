@@ -20,8 +20,6 @@ export default function AddMarketplaceProduct() {
 
   const [form, setForm] = useState({
     title: "",
-    description: "",
-    price: "",
     category: "",
     subcategory: "",
     brand: "",
@@ -32,27 +30,28 @@ export default function AddMarketplaceProduct() {
     storage: "",
     color: "",
     sim: "",
-    engine: "",
-    mileage: "",
-    year: "",
     fuel_type: "",
-    transmission: "",
-    age_range: "",
-    bedrooms: "",
-    bathrooms: "",
-    size: "",
-    furnished: false,
     features: "",
-    exchange_possible: false,
-    phone_number: user?.phone_number || "",
+    price: "",
+    bulk_price_from: "",
+    bulk_price_per_piece: "",
+    negotiable: false,
     poster_name: user?.name || "",
-    location: "",
+    phone_number: user?.phone_number || "",
+    additional_numbers: [],
     state: "",
     city: "",
     images: [],
-    video_link: "",
+    delivery: {
+      name: "",
+      region: "",
+      days_from: "",
+      days_to: "",
+      fee: 0,
+    },
     promoted: false,
     promo_plan: "",
+    description: "",
   });
 
   const [imageFiles, setImageFiles] = useState([]);
@@ -70,26 +69,14 @@ export default function AddMarketplaceProduct() {
   const handleChange = (field, value) => {
     setForm(prev => ({ ...prev, [field]: value }));
     if (field === "brand") setForm(prev => ({ ...prev, model: "" }));
-    if (field === "description") autoGenerateTitle(value);
     setErrors(prev => ({ ...prev, [field]: null }));
-  };
-
-  const autoGenerateTitle = (desc) => {
-    if (!form.title) {
-      const firstLine = desc.split("\n")[0] || "";
-      setForm(prev => ({ ...prev, title: firstLine.slice(0, 60) }));
-    }
   };
 
   const handleImagesChange = (e) => {
     const files = Array.from(e.target.files).slice(0, 10);
     setImageFiles(files);
     setImagePreviews(files.map(f => URL.createObjectURL(f)));
-    if (files.length > categoryRules.images.max) {
-      setErrors(prev => ({ ...prev, images: categoryRules.images.msg }));
-    } else {
-      setErrors(prev => ({ ...prev, images: null }));
-    }
+    if (files.length > categoryRules.images.max) setErrors(prev => ({ ...prev, images: categoryRules.images.msg }));
   };
 
   const handlePriceChange = (value) => {
@@ -100,10 +87,8 @@ export default function AddMarketplaceProduct() {
 
   const validate = () => {
     const newErrors = {};
-    if (!form.title || form.title.length < categoryRules.title.min)
-      newErrors.title = categoryRules.title.msg;
-    if (!form.description || form.description.length < categoryRules.description.min)
-      newErrors.description = categoryRules.description.msg;
+    if (!form.title || form.title.length < categoryRules.title.min) newErrors.title = categoryRules.title.msg;
+    if (!form.description || form.description.length < categoryRules.description.min) newErrors.description = categoryRules.description.msg;
     if (!form.price) newErrors.price = categoryRules.price.msg;
     if (imageFiles.length > categoryRules.images.max) newErrors.images = categoryRules.images.msg;
     if (!form.category) newErrors.category = "Please select a category";
@@ -137,11 +122,40 @@ export default function AddMarketplaceProduct() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(productData),
       });
+
       const result = await response.json();
       if (!response.ok) throw new Error(result.message || "Failed to add product");
 
       alert("✅ Product added successfully!");
-      setForm(prev => ({ ...prev, title:"", description:"", price:"", images:[], category:"", subcategory:"" }));
+      setForm({
+        title: "",
+        category: "",
+        subcategory: "",
+        brand: "",
+        model: "",
+        condition: "",
+        used_detail: "",
+        ram: "",
+        storage: "",
+        color: "",
+        sim: "",
+        fuel_type: "",
+        features: "",
+        price: "",
+        bulk_price_from: "",
+        bulk_price_per_piece: "",
+        negotiable: false,
+        poster_name: user?.name || "",
+        phone_number: user?.phone_number || "",
+        additional_numbers: [],
+        state: "",
+        city: "",
+        images: [],
+        delivery: { name:"", region:"", days_from:"", days_to:"", fee:0 },
+        promoted: false,
+        promo_plan: "",
+        description: "",
+      });
       setImageFiles([]);
       setImagePreviews([]);
       if (fileInputRef.current) fileInputRef.current.value = null;
@@ -159,18 +173,30 @@ export default function AddMarketplaceProduct() {
   const availableModels = form.brand ? models[form.category]?.[form.brand] || [] : [];
   const categoryFeatures = featuresByCategory[form.category] || [];
   const availableSims = sims || [];
-  const availableYears = years || [];
 
-  const addSuggestion = (text) => {
-    setForm(prev => ({ ...prev, description: prev.description + "\n" + text }));
-  };
+  const TileList = ({ options, selected, onSelect }) => (
+    <div className="tile-list">
+      {options.map(opt => (
+        <div
+          key={opt}
+          className={`tile ${selected === opt ? "selected" : ""}`}
+          onClick={() => onSelect(opt)}
+        >
+          {opt}
+        </div>
+      ))}
+    </div>
+  );
 
   return (
-    <div className="add-product-container">
+    <div className="add-product-container professional-ui">
       <h2 className="form-title">Post Marketplace Ad</h2>
-
       <form onSubmit={handleSubmit} className="full-form">
-        {/* Category & Subcategory */}
+        {/* 1. Title */}
+        <input placeholder="Title" value={form.title} onChange={e=>handleChange("title", e.target.value)} />
+        {errors.title && <span className="error">{errors.title}</span>}
+
+        {/* 2. Category & Subcategory */}
         <select value={form.category} onChange={e=>handleChange("category", e.target.value)}>
           <option value="">Select Category</option>
           {Object.keys(categoryFields).map(cat=><option key={cat} value={cat}>{cat}</option>)}
@@ -183,122 +209,84 @@ export default function AddMarketplaceProduct() {
         </select>
         {errors.subcategory && <span className="error">{errors.subcategory}</span>}
 
-        {/* Title */}
-        <input name="title" placeholder="Title" value={form.title} onChange={e=>handleChange("title", e.target.value)} />
-        {errors.title && <span className="error">{errors.title}</span>}
-
-        {/* Description */}
-        <textarea name="description" placeholder="Description" value={form.description} onChange={e=>handleChange("description", e.target.value)} />
-        {errors.description && <span className="error">{errors.description}</span>}
-
-        {/* Price */}
-        <input name="price" placeholder="Price" value={form.price} onChange={e=>handlePriceChange(e.target.value)} />
-        {errors.price && <span className="error">{errors.price}</span>}
-
-        {/* Dynamic dropdowns */}
-        {visibleFields.map(field=>{
+        {/* 3. Brand/Model/Color/etc as Tiles */}
+        {visibleFields.map(field => {
           switch(field){
-            case "brand":
-              return (
-                <div key={field}>
-                  <select name="brand" value={form.brand} onChange={e=>handleChange("brand", e.target.value)}>
-                    <option value="">Select Brand</option>
-                    {availableBrands.map(b=><option key={b} value={b}>{b}</option>)}
-                  </select>
-                </div>
-              );
-            case "model":
-              return (
-                <div key={field}>
-                  <select name="model" value={form.model} onChange={e=>handleChange("model", e.target.value)}>
-                    <option value="">Select Model</option>
-                    {availableModels.map(m=><option key={m} value={m}>{m}</option>)}
-                  </select>
-                </div>
-              );
-            case "condition":
-              return (
-                <div key={field}>
-                  <select value={form.condition} onChange={e=>handleChange("condition", e.target.value)}>
-                    <option value="">Select Condition</option>
-                    {conditions.map(c=><option key={c} value={c}>{c}</option>)}
-                  </select>
-                </div>
-              );
-            case "used_detail":
-              return (
-                <div key={field}>
-                  <select value={form.used_detail} onChange={e=>handleChange("used_detail", e.target.value)}>
-                    <option value="">Select Detail if Used</option>
-                    {usedDetails.map(u=><option key={u} value={u}>{u}</option>)}
-                  </select>
-                </div>
-              );
-            case "ram":
-              return (
-                <div key={field}>
-                  <select value={form.ram} onChange={e=>handleChange("ram", e.target.value)}>
-                    <option value="">Select RAM</option>
-                    {ramOptions.map(r=><option key={r} value={r}>{r}</option>)}
-                  </select>
-                </div>
-              );
-            case "storage":
-              return (
-                <div key={field}>
-                  <select value={form.storage} onChange={e=>handleChange("storage", e.target.value)}>
-                    <option value="">Select Storage</option>
-                    {storageOptions.map(s=><option key={s} value={s}>{s}</option>)}
-                  </select>
-                </div>
-              );
-            case "color":
-              return (
-                <div key={field}>
-                  <select value={form.color} onChange={e=>handleChange("color", e.target.value)}>
-                    <option value="">Select Color</option>
-                    {colors.map(c=><option key={c} value={c}>{c}</option>)}
-                  </select>
-                </div>
-              );
-            case "sim":
-              return (
-                <div key={field}>
-                  <select value={form.sim} onChange={e=>handleChange("sim", e.target.value)}>
-                    <option value="">Select SIM</option>
-                    {availableSims.map(s=><option key={s} value={s}>{s}</option>)}
-                  </select>
-                </div>
-              );
-            case "features":
-              return (
-                <div key={field}>
-                  <select value={form.features} onChange={e=>handleChange("features", e.target.value)}>
-                    <option value="">Select Feature</option>
-                    {categoryFeatures.map(f=><option key={f} value={f}>{f}</option>)}
-                  </select>
-                </div>
-              );
-            default:
-              return null;
+            case "brand": return <TileList key="brand" options={availableBrands} selected={form.brand} onSelect={val=>handleChange("brand", val)} />;
+            case "model": return <TileList key="model" options={availableModels} selected={form.model} onSelect={val=>handleChange("model", val)} />;
+            case "condition": return <TileList key="condition" options={conditions} selected={form.condition} onSelect={val=>handleChange("condition", val)} />;
+            case "used_detail": return <TileList key="used_detail" options={usedDetails} selected={form.used_detail} onSelect={val=>handleChange("used_detail", val)} />;
+            case "ram": return <TileList key="ram" options={ramOptions} selected={form.ram} onSelect={val=>handleChange("ram", val)} />;
+            case "storage": return <TileList key="storage" options={storageOptions} selected={form.storage} onSelect={val=>handleChange("storage", val)} />;
+            case "color": return <TileList key="color" options={colors} selected={form.color} onSelect={val=>handleChange("color", val)} />;
+            case "sim": return <TileList key="sim" options={availableSims} selected={form.sim} onSelect={val=>handleChange("sim", val)} />;
+            case "fuel_type": return <TileList key="fuel_type" options={fuelTypes} selected={form.fuel_type} onSelect={val=>handleChange("fuel_type", val)} />;
+            case "features": return <TileList key="features" options={categoryFeatures} selected={form.features} onSelect={val=>handleChange("features", val)} />;
+            default: return null;
           }
         })}
 
-        {/* Smart suggestions */}
-        <div className="suggestions">
-          <button type="button" onClick={()=>addSuggestion("Add Condition")}>Add Condition</button>
-          <button type="button" onClick={()=>addSuggestion("Battery Health")}>Battery Health</button>
-          <button type="button" onClick={()=>addSuggestion("Accessories")}>Accessories</button>
-        </div>
-
-        {/* Images */}
+        {/* 4. Images */}
         <input type="file" accept="image/*" multiple ref={fileInputRef} onChange={handleImagesChange} />
         {errors.images && <span className="error">{errors.images}</span>}
-        <div className="image-preview">
-          {imagePreviews.map((src,i)=><img key={i} src={src} alt="Preview" />)}
-        </div>
+        <div className="image-preview">{imagePreviews.map((src,i)=><img key={i} src={src} alt="Preview" />)}</div>
 
-        <button type="submit" disabled={loading}>{loading ? "Posting..." : "Post Ad"}</button>
+        {/* 5. State & City */}
+        <input placeholder="State" value={form.state} onChange={e=>handleChange("state", e.target.value)} />
+        <input placeholder="City" value={form.city} onChange={e=>handleChange("city", e.target.value)} />
+
+        {/* 6. Description */}
+        <textarea placeholder="Description" value={form.description} onChange={e=>handleChange("description", e.target.value)} />
+
+        {/* 7. Price */}
+        <input placeholder="Price" value={form.price} onChange={e=>handlePriceChange(e.target.value)} />
+
+        {/* 8. Bulk price */}
+        <input placeholder="Bulk Price From" value={form.bulk_price_from} onChange={e=>handleChange("bulk_price_from", e.target.value)} />
+        <input placeholder="Price Per Piece" value={form.bulk_price_per_piece} onChange={e=>handleChange("bulk_price_per_piece", e.target.value)} />
+
+        {/* 9. Negotiable */}
+        <label>
+          <input type="checkbox" checked={form.negotiable} onChange={e=>handleChange("negotiable", e.target.checked)} />
+          Are you negotiable?
+        </label>
+
+        {/* 10. Poster Name */}
+        <input placeholder="Your Name" value={form.poster_name} readOnly />
+
+        {/* 11. Phone Numbers */}
+        <input placeholder="Phone Number" value={form.phone_number} onChange={e=>handleChange("phone_number", e.target.value)} />
+        <input placeholder="Additional Phone Numbers" value={form.additional_numbers.join(", ")} onChange={e=>handleChange("additional_numbers", e.target.value.split(",").map(n=>n.trim()))} />
+
+        {/* 12. Delivery */}
+        <h4>Delivery</h4>
+        <input placeholder="Delivery Name" value={form.delivery.name} onChange={e=>setForm(prev=>({...prev, delivery:{...prev.delivery, name:e.target.value}}))} />
+        <input placeholder="Region" value={form.delivery.region} onChange={e=>setForm(prev=>({...prev, delivery:{...prev.delivery, region:e.target.value}}))} />
+        <input placeholder="Days From" type="number" value={form.delivery.days_from} onChange={e=>setForm(prev=>({...prev, delivery:{...prev.delivery, days_from:e.target.value}}))} />
+        <input placeholder="Days To" type="number" value={form.delivery.days_to} onChange={e=>setForm(prev=>({...prev, delivery:{...prev.delivery, days_to:e.target.value}}))} />
+        <label>
+          <input type="checkbox" checked={form.delivery.fee>0} onChange={e=>setForm(prev=>({...prev, delivery:{...prev.delivery, fee:e.target.checked ? 0 : 0}}))} />
+          Charge Fee for Delivery
+        </label>
+        {form.delivery.fee>0 && <input type="number" placeholder="Fee Amount" value={form.delivery.fee} onChange={e=>setForm(prev=>({...prev, delivery:{...prev.delivery, fee:e.target.value}}))} />}
+
+        {/* 13. Promotion */}
+        <label>
+          <input type="checkbox" checked={form.promoted} onChange={e=>handleChange("promoted", e.target.checked)} />
+          Promote Product
+        </label>
+        {form.promoted && (
+          <select value={form.promo_plan} onChange={e=>handleChange("promo_plan", e.target.value)}>
+            <option value="">Select Promotion Plan</option>
+            {["Standard", "Premium", "Featured"].map(p=><option key={p} value={p}>{p}</option>)}
+          </select>
+        )}
+
+        {/* 14. Submit */}
+        <div className="form-actions">
+          <button type="submit" disabled={loading}>{loading ? "Posting..." : "Post Ad"}</button>
+          <button type="button" onClick={()=>window.location.reload()}>Cancel</button>
+        </div>
       </form>
     </div>
   );
