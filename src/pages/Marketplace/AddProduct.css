@@ -1,141 +1,96 @@
-/* src/pages/Marketplace/AddProduct.css */
-
-/* ===== Page Container ===== */
-.add-product-page {
-  max-width: 800px;
-  margin: 2rem auto;
-  padding: 1rem 2rem;
-  background: #fff;
+.add-product-container {
+  max-width: 700px;
+  margin: 40px auto;
+  padding: 20px;
+  border: 1px solid #eee;
   border-radius: 10px;
-  box-shadow: 0 4px 12px rgba(0,0,0,0.05);
-  font-family: "Segoe UI", Tahoma, Geneva, Verdana, sans-serif;
+  box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+  font-family: sans-serif;
 }
 
-/* ===== Header ===== */
-.add-product-page h2 {
-  font-size: 1.8rem;
-  margin-bottom: 1.5rem;
-  color: #222;
+.form-title {
   text-align: center;
+  margin-bottom: 20px;
+  font-size: 24px;
 }
 
-/* ===== Form Inputs ===== */
-.add-product-page form {
-  display: flex;
-  flex-direction: column;
-  gap: 1rem;
+.category-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
+  gap: 15px;
+  margin-bottom: 20px;
 }
 
-.add-product-page input[type="text"],
-.add-product-page input[type="number"],
-.add-product-page select,
-.add-product-page textarea {
+.category-tile {
+  padding: 20px;
+  background: #f8f8f8;
+  text-align: center;
+  border-radius: 10px;
+  cursor: pointer;
+  font-weight: bold;
+  transition: all 0.2s;
+}
+
+.category-tile:hover {
+  background: #000;
+  color: #fff;
+}
+
+.full-form input, .full-form select, .full-form textarea {
   width: 100%;
-  padding: 0.75rem 1rem;
+  padding: 10px;
+  margin-bottom: 15px;
+  border-radius: 5px;
   border: 1px solid #ccc;
-  border-radius: 6px;
-  font-size: 1rem;
-  transition: border-color 0.2s;
 }
 
-.add-product-page input:focus,
-.add-product-page select:focus,
-.add-product-page textarea:focus {
-  border-color: #007bff;
-  outline: none;
+.full-form textarea {
+  min-height: 80px;
 }
 
-/* ===== Textarea ===== */
-.add-product-page textarea {
-  min-height: 100px;
-  resize: vertical;
+.full-form button {
+  width: 100%;
+  padding: 12px;
+  background: black;
+  color: #fff;
+  border: none;
+  cursor: pointer;
+  font-size: 16px;
+  border-radius: 5px;
 }
 
-/* ===== Checkbox ===== */
-.add-product-page label {
+.suggestions {
   display: flex;
-  align-items: center;
-  gap: 0.5rem;
-  font-size: 0.95rem;
-  cursor: pointer;
+  gap: 10px;
+  margin-bottom: 15px;
 }
 
-/* ===== Image Upload ===== */
-.add-product-page input[type="file"] {
-  border: 1px dashed #aaa;
-  padding: 1rem;
-  border-radius: 6px;
+.suggestions button {
+  padding: 8px 12px;
+  border-radius: 5px;
+  border: 1px solid #000;
   cursor: pointer;
-  text-align: center;
-  font-size: 0.9rem;
+  background: #fff;
 }
 
 .image-preview {
   display: flex;
+  gap: 10px;
   flex-wrap: wrap;
-  gap: 0.75rem;
-  margin-top: 0.5rem;
-}
-
-.image-preview div {
-  position: relative;
+  margin-bottom: 15px;
 }
 
 .image-preview img {
-  width: 100px;
-  height: 100px;
+  width: 80px;
+  height: 80px;
   object-fit: cover;
-  border-radius: 6px;
-  border: 1px solid #ddd;
+  border-radius: 5px;
 }
 
-.image-preview button {
-  position: absolute;
-  top: -6px;
-  right: -6px;
-  background: #ff4d4f;
-  color: #fff;
-  border: none;
-  border-radius: 50%;
+.back-btn {
+  padding: 8px 12px;
+  border-radius: 5px;
+  border: 1px solid #000;
   cursor: pointer;
-  font-size: 0.8rem;
-  width: 22px;
-  height: 22px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-}
-
-/* ===== Submit Button ===== */
-.add-product-page button[type="submit"] {
-  padding: 0.9rem 1.2rem;
-  font-size: 1.1rem;
-  background: #007bff;
-  color: #fff;
-  border: none;
-  border-radius: 6px;
-  cursor: pointer;
-  transition: background 0.2s;
-}
-
-.add-product-page button[type="submit"]:hover {
-  background: #0056b3;
-}
-
-.add-product-page button[disabled] {
-  background: #999;
-  cursor: not-allowed;
-}
-
-/* ===== Responsive ===== */
-@media (max-width: 768px) {
-  .add-product-page {
-    padding: 1rem 1rem;
-    margin: 1rem;
-  }
-
-  .image-preview img {
-    width: 80px;
-    height: 80px;
-  }
+  background: #fff;
 }
