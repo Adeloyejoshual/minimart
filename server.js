@@ -6,11 +6,9 @@ import dotenv from "dotenv";
 import { Pool } from "pg";
 import path from "path";
 import { fileURLToPath } from "url";
-import multer from "multer";
 import { v2 as cloudinary } from "cloudinary";
-import fs from "fs";
 
-// Load env variables
+// Load environment variables
 dotenv.config();
 
 // ================= Express =================
@@ -47,18 +45,12 @@ const pool = new Pool({
 })();
 
 // ================= Cloudinary =================
+// Optional: keep for future use if needed
 cloudinary.config({
   cloud_name: process.env.CLOUDINARY_CLOUD_NAME,
   api_key: process.env.CLOUDINARY_API_KEY,
   api_secret: process.env.CLOUDINARY_API_SECRET,
 });
-
-// ================= Multer (for file uploads) =================
-const storage = multer.diskStorage({
-  destination: (req, file, cb) => cb(null, "uploads/"),
-  filename: (req, file, cb) => cb(null, Date.now() + "-" + file.originalname),
-});
-const upload = multer({ storage });
 
 // ================= API ROUTES =================
 
@@ -74,30 +66,31 @@ app.get("/api/marketplace", async (req, res) => {
   }
 });
 
-// POST new product (with image upload)
-app.post("/api/marketplace", upload.single("image"), async (req, res) => {
+// GET single product by ID
+app.get("/api/marketplace/:id", async (req, res) => {
   try {
-    const { title, description, price, country, state, city } = req.body;
-    if (!title || !price)
+    const product = await MarketplaceProduct.findById(req.params.id);
+    if (!product) return res.status(404).json({ message: "Product not found" });
+    res.json(product);
+  } catch (err) {
+    console.error("GET /api/marketplace/:id error:", err);
+    res.status(500).json({ message: "Failed to fetch product" });
+  }
+});
+
+// POST new product (JSON only, frontend uploads image to Cloudinary)
+app.post("/api/marketplace", async (req, res) => {
+  try {
+    const { title, description, price, image, country, state, city } = req.body;
+    if (!title || !price) {
       return res.status(400).json({ message: "Title and price are required" });
-
-    let imageUrl = null;
-    if (req.file) {
-      const result = await cloudinary.uploader.upload(req.file.path, {
-        folder: "marketplace",
-        resource_type: "image",
-      });
-      imageUrl = result.secure_url;
-
-      // remove temp file
-      fs.unlinkSync(req.file.path);
     }
 
     const product = await MarketplaceProduct.create({
       title: title.trim(),
       description: description?.trim() || "",
       price: parseFloat(price),
-      image: imageUrl,
+      image: image || null, // Cloudinary URL from frontend
       country: country || "Nigeria",
       state: state || "",
       city: city || "",
@@ -110,8 +103,20 @@ app.post("/api/marketplace", upload.single("image"), async (req, res) => {
   }
 });
 
+// DELETE a Marketplace product (optional: admin only)
+app.delete("/api/marketplace/:id", async (req, res) => {
+  try {
+    const product = await MarketplaceProduct.findByIdAndDelete(req.params.id);
+    if (!product) return res.status(404).json({ message: "Product not found" });
+    res.json({ message: "Product deleted" });
+  } catch (err) {
+    console.error("DELETE /api/marketplace/:id error:", err);
+    res.status(500).json({ message: "Failed to delete product" });
+  }
+});
+
 // --- MiniMart ---
-// GET all products
+// GET all MiniMart products
 app.get("/api/minimart", async (req, res) => {
   try {
     const { rows } = await pool.query(
