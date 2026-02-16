@@ -35,7 +35,7 @@ export default function AddProduct() {
 
       let imageUrl = null;
 
-      // 1️⃣ Upload image to Cloudinary (frontend, unsigned preset)
+      // Upload image to Cloudinary if selected
       if (image) {
         const formData = new FormData();
         formData.append("file", image);
@@ -54,7 +54,7 @@ export default function AddProduct() {
         imageUrl = data.secure_url;
       }
 
-      // 2️⃣ Send product data to your backend
+      // Send product data to backend
       const response = await fetch("/api/marketplace", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -62,7 +62,7 @@ export default function AddProduct() {
           title: title.trim(),
           description: description.trim(),
           price,
-          image: imageUrl, // backend stores this URL
+          image: imageUrl || null, // <- make sure this is sent
         }),
       });
 
@@ -78,6 +78,9 @@ export default function AddProduct() {
       setImage(null);
       setPreview(null);
       if (fileInputRef.current) fileInputRef.current.value = null;
+
+      // Redirect to homepage so new product appears
+      window.location.href = "/";
     } catch (err) {
       console.error(err);
       alert(err.message || "Failed to add product");
@@ -91,7 +94,6 @@ export default function AddProduct() {
       <h2>Add Marketplace Product</h2>
 
       <form onSubmit={handleSubmit}>
-        {/* Title */}
         <div style={{ marginBottom: "15px" }}>
           <input
             type="text"
@@ -102,7 +104,6 @@ export default function AddProduct() {
           />
         </div>
 
-        {/* Description */}
         <div style={{ marginBottom: "15px" }}>
           <textarea
             placeholder="Description"
@@ -112,7 +113,6 @@ export default function AddProduct() {
           />
         </div>
 
-        {/* Price */}
         <div style={{ marginBottom: "15px" }}>
           <input
             type="number"
@@ -123,7 +123,6 @@ export default function AddProduct() {
           />
         </div>
 
-        {/* Image Upload */}
         <div style={{ marginBottom: "15px" }}>
           <input
             type="file"
@@ -135,16 +134,11 @@ export default function AddProduct() {
             <img
               src={preview}
               alt="Preview"
-              style={{
-                marginTop: "10px",
-                maxWidth: "100%",
-                borderRadius: "5px",
-              }}
+              style={{ marginTop: "10px", maxWidth: "100%", borderRadius: "5px" }}
             />
           )}
         </div>
 
-        {/* Submit */}
         <button
           type="submit"
           disabled={loading}
