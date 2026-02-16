@@ -12,7 +12,7 @@ import { promotionPlans } from "../../config/promotion";
 import { locationsByState } from "../../config/locationsByState";
 import { brands } from "../../config/brands";
 import { models } from "../../config/models";
-import { simOptions } from "../../config/sim";
+import { simTypes } from "../../config/sim";
 import { years } from "../../config/years";
 
 export default function AddMarketplaceProduct() {
@@ -107,6 +107,7 @@ export default function AddMarketplaceProduct() {
       if (!response.ok) throw new Error(result.message || "Failed to add product");
 
       alert("✅ Product added successfully!");
+      // Reset form
       setForm({
         title: "",
         description: "",
@@ -156,20 +157,13 @@ export default function AddMarketplaceProduct() {
   };
 
   const visibleFields = categoryFields[form.category] || [];
-  const availableBrands = brands[form.category] || {};
+  const availableBrands = brands[form.category] || [];
   const availableModels = form.brand ? models[form.category]?.[form.brand] || [] : [];
   const categoryFeatures = featuresByCategory[form.category] || [];
 
   return (
-    <div style={{
-      maxWidth: "700px",
-      margin: "40px auto",
-      padding: "25px",
-      border: "1px solid #eee",
-      borderRadius: "10px",
-      boxShadow: "0 2px 15px rgba(0,0,0,0.1)"
-    }}>
-      <h2 style={{ textAlign: "center", marginBottom: "25px" }}>Post Marketplace Ad</h2>
+    <div style={{ maxWidth: "700px", margin: "40px auto", padding: "20px", border: "1px solid #eee", borderRadius: "10px", boxShadow: "0 2px 10px rgba(0,0,0,0.1)" }}>
+      <h2 style={{ textAlign: "center", marginBottom: "20px" }}>Post Marketplace Ad</h2>
       <form onSubmit={handleSubmit}>
         {/* Title */}
         <input
@@ -221,11 +215,12 @@ export default function AddMarketplaceProduct() {
                   style={{ width: "100%", padding: "12px", marginBottom: "15px", fontSize: "16px" }}
                 >
                   <option value="">Select Brand</option>
-                  {Object.keys(availableBrands).map((b) => (
+                  {availableBrands.map((b) => (
                     <option key={b} value={b}>{b}</option>
                   ))}
                 </select>
               );
+
             case "model":
               return (
                 <select
@@ -240,6 +235,37 @@ export default function AddMarketplaceProduct() {
                   ))}
                 </select>
               );
+
+            case "sim":
+              return (
+                <select
+                  key={field}
+                  value={form.sim}
+                  onChange={(e) => handleChange("sim", e.target.value)}
+                  style={{ width: "100%", padding: "12px", marginBottom: "15px", fontSize: "16px" }}
+                >
+                  <option value="">Select SIM Type</option>
+                  {simTypes.map((s) => (
+                    <option key={s} value={s}>{s}</option>
+                  ))}
+                </select>
+              );
+
+            case "year":
+              return (
+                <select
+                  key={field}
+                  value={form.year}
+                  onChange={(e) => handleChange("year", e.target.value)}
+                  style={{ width: "100%", padding: "12px", marginBottom: "15px", fontSize: "16px" }}
+                >
+                  <option value="">Select Year</option>
+                  {years.map((y) => (
+                    <option key={y} value={y}>{y}</option>
+                  ))}
+                </select>
+              );
+
             case "condition":
               return (
                 <select
@@ -249,11 +275,10 @@ export default function AddMarketplaceProduct() {
                   style={{ width: "100%", padding: "12px", marginBottom: "15px", fontSize: "16px" }}
                 >
                   <option value="">Select Condition</option>
-                  {conditions.map((c) => (
-                    <option key={c} value={c}>{c}</option>
-                  ))}
+                  {conditions.map((c) => <option key={c} value={c}>{c}</option>)}
                 </select>
               );
+
             case "used_detail":
               return (
                 <select
@@ -263,11 +288,10 @@ export default function AddMarketplaceProduct() {
                   style={{ width: "100%", padding: "12px", marginBottom: "15px", fontSize: "16px" }}
                 >
                   <option value="">Select Detail if Used</option>
-                  {usedDetails.map((u) => (
-                    <option key={u} value={u}>{u}</option>
-                  ))}
+                  {usedDetails.map((u) => <option key={u} value={u}>{u}</option>)}
                 </select>
               );
+
             case "ram":
               return (
                 <select
@@ -280,6 +304,7 @@ export default function AddMarketplaceProduct() {
                   {ramOptions.map((r) => <option key={r} value={r}>{r}</option>)}
                 </select>
               );
+
             case "storage":
               return (
                 <select
@@ -292,6 +317,7 @@ export default function AddMarketplaceProduct() {
                   {storageOptions.map((s) => <option key={s} value={s}>{s}</option>)}
                 </select>
               );
+
             case "color":
               return (
                 <select
@@ -304,6 +330,7 @@ export default function AddMarketplaceProduct() {
                   {colors.map((c) => <option key={c} value={c}>{c}</option>)}
                 </select>
               );
+
             case "engine":
               return (
                 <select
@@ -316,6 +343,7 @@ export default function AddMarketplaceProduct() {
                   {engines.map((en) => <option key={en} value={en}>{en}</option>)}
                 </select>
               );
+
             case "fuel_type":
               return (
                 <select
@@ -328,6 +356,7 @@ export default function AddMarketplaceProduct() {
                   {fuelTypes.map((f) => <option key={f} value={f}>{f}</option>)}
                 </select>
               );
+
             case "features":
               return (
                 <select
@@ -340,11 +369,12 @@ export default function AddMarketplaceProduct() {
                   {categoryFeatures.map((f) => <option key={f} value={f}>{f}</option>)}
                 </select>
               );
+
             case "exchange_possible":
             case "furnished":
             case "promoted":
               return (
-                <label key={field} style={{ display: "block", marginBottom: "15px" }}>
+                <label key={field} style={{ display: "block", marginBottom: "15px", fontSize: "16px" }}>
                   <input
                     type="checkbox"
                     checked={form[field]}
@@ -352,6 +382,7 @@ export default function AddMarketplaceProduct() {
                   /> {field.replace("_", " ").toUpperCase()}
                 </label>
               );
+
             default:
               return (
                 <input
@@ -391,25 +422,11 @@ export default function AddMarketplaceProduct() {
           style={{ width: "100%", padding: "12px", marginBottom: "15px", fontSize: "16px" }}
         />
 
-        {/* Promotion Plan */}
-        {form.promoted && (
-          <select
-            value={form.promo_plan}
-            onChange={(e) => handleChange("promo_plan", e.target.value)}
-            style={{ width: "100%", padding: "12px", marginBottom: "15px", fontSize: "16px" }}
-          >
-            <option value="">Select Promotion Plan</option>
-            {promotionPlans.map((p) => (
-              <option key={p.name} value={p.name}>{p.name} - ₦{p.price}</option>
-            ))}
-          </select>
-        )}
-
-        {/* Submit Button */}
+        {/* Post Button */}
         <button
           type="submit"
           disabled={loading}
-          style={{ width: "100%", padding: "14px", background: "black", color: "#fff", border: "none", cursor: "pointer", fontSize: "16px", borderRadius: "5px" }}
+          style={{ width: "100%", padding: "15px", background: "black", color: "#fff", border: "none", cursor: "pointer", fontSize: "16px", borderRadius: "5px" }}
         >
           {loading ? "Posting..." : "Post Ad"}
         </button>
