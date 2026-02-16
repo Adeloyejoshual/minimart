@@ -1,5 +1,6 @@
+// categoryFields.js
 export const categoryFields = {
-  "Mobile Phones": [
+  "Phones & Tablets": [
     "brand",
     "model",
     "condition",
@@ -8,85 +9,111 @@ export const categoryFields = {
     "color",
     "sim",
     "features",
-    "exchange_possible",
-    "description",
-    "price",
-    "phone_number",
-    "poster_name",
-    "state",
-    "location",
-    "images",
-    "video_link",
-    "promoted",
-    "promo_plan",
+    "exchange_possible"
   ],
+
   "Vehicles": [
     "brand",
     "model",
     "condition",
-    "color",
-    "mileage",
     "engine",
-    "transmission",
+    "mileage",
     "year",
     "fuel_type",
-    "description",
-    "price",
-    "phone_number",
-    "poster_name",
-    "state",
-    "location",
-    "images",
-    "video_link",
-    "promoted",
-    "promo_plan",
+    "transmission",
+    "color",
+    "features",
+    "exchange_possible"
   ],
+
   "Babies & Kids": [
-    "brand",
     "age_range",
     "condition",
-    "color",
-    "description",
-    "price",
-    "phone_number",
-    "poster_name",
-    "state",
-    "location",
-    "images",
-    "video_link",
-    "promoted",
-    "promo_plan",
+    "features",
+    "exchange_possible"
   ],
-  "Beauty & Personal Care": [
-    "brand",
-    "condition",
-    "description",
-    "price",
-    "phone_number",
-    "poster_name",
-    "state",
-    "location",
-    "images",
-    "video_link",
-    "promoted",
-    "promo_plan",
-  ],
+
   "Property": [
-    "property_type",
     "bedrooms",
     "bathrooms",
     "size",
     "furnished",
-    "description",
-    "price",
-    "phone_number",
-    "poster_name",
-    "state",
-    "location",
-    "images",
-    "video_link",
-    "promoted",
-    "promo_plan",
+    "features",
+    "exchange_possible"
   ],
-  // Add more categories as needed...
+
+  "Electronics": [
+    "brand",
+    "model",
+    "condition",
+    "features",
+    "exchange_possible"
+  ],
+
+  "Beauty & Personal Care": [
+    "brand",
+    "features",
+    "exchange_possible"
+  ],
+
+  "Home, Furniture & Appliances": [
+    "brand",
+    "features",
+    "condition",
+    "exchange_possible"
+  ],
+
+  "Commercial Equipment & Tools": [
+    "brand",
+    "features",
+    "condition",
+    "exchange_possible"
+  ],
+
+  "Fashion": [
+    "brand",
+    "features",
+    "size",
+    "color",
+    "exchange_possible"
+  ],
+
+  "Food, Agriculture & Farming": [
+    "features",
+    "condition"
+  ],
+
+  "Leisure & Activities": [
+    "features",
+    "condition"
+  ],
+
+  "Pets": [
+    "age_range",
+    "breed",
+    "features",
+    "condition"
+  ],
+
+  "Jobs": [
+    "experience_level",
+    "skills",
+    "education"
+  ],
+
+  "Repair & Construction": [
+    "brand",
+    "features",
+    "condition"
+  ],
+
+  "Seeking Work CVs": [
+    "experience_level",
+    "skills",
+    "education"
+  ],
+
+  "Services": [
+    "features"
+  ]
 };
