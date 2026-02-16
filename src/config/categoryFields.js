@@ -1,9 +1,11 @@
 // src/config/categoryFields.js
+
 export const categoryFields = {
   "Phones & Tablets": [
     "brand",
     "model",
     "condition",
+    "used_detail",
     "ram",
     "storage",
     "color",
@@ -16,6 +18,7 @@ export const categoryFields = {
     "brand",
     "model",
     "condition",
+    "used_detail",
     "engine",
     "mileage",
     "year",
@@ -29,6 +32,7 @@ export const categoryFields = {
   "Babies & Kids": [
     "age_range",
     "condition",
+    "used_detail",
     "features",
     "exchange_possible"
   ],
@@ -46,6 +50,7 @@ export const categoryFields = {
     "brand",
     "model",
     "condition",
+    "used_detail",
     "features",
     "exchange_possible"
   ],
@@ -60,6 +65,7 @@ export const categoryFields = {
     "brand",
     "features",
     "condition",
+    "used_detail",
     "exchange_possible"
   ],
 
@@ -67,6 +73,7 @@ export const categoryFields = {
     "brand",
     "features",
     "condition",
+    "used_detail",
     "exchange_possible"
   ],
 
@@ -104,7 +111,8 @@ export const categoryFields = {
   "Repair & Construction": [
     "brand",
     "features",
-    "condition"
+    "condition",
+    "used_detail"
   ],
 
   "Seeking Work CVs": [
@@ -121,11 +129,13 @@ export const categoryFields = {
     "brand",
     "model",
     "condition",
+    "used_detail",
     "features"
   ],
 
   "Books & Stationery": [
     "condition",
+    "used_detail",
     "features"
   ],
 
@@ -133,12 +143,14 @@ export const categoryFields = {
     "brand",
     "model",
     "condition",
+    "used_detail",
     "features"
   ],
 
   "Sports & Outdoors": [
     "brand",
     "condition",
+    "used_detail",
     "features"
   ],
 
@@ -146,6 +158,7 @@ export const categoryFields = {
     "brand",
     "model",
     "condition",
+    "used_detail",
     "ram",
     "storage",
     "features",
@@ -156,23 +169,27 @@ export const categoryFields = {
     "brand",
     "model",
     "condition",
+    "used_detail",
     "features"
   ],
 
   "Health & Fitness": [
     "features",
-    "condition"
+    "condition",
+    "used_detail"
   ],
 
   "Art & Collectibles": [
     "features",
-    "condition"
+    "condition",
+    "used_detail"
   ],
 
   "Toys & Games": [
     "brand",
     "age_range",
     "condition",
+    "used_detail",
     "features"
   ]
 };
