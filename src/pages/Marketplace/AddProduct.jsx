@@ -1,4 +1,5 @@
-import { useState, useRef } from "react";
+// src/pages/Marketplace/AddMarketplaceProduct.jsx
+import { useState, useRef, useEffect } from "react";
 import { categoryFields } from "../../config/categoryFields";
 import { locationsByState } from "../../config/locationsByState";
 import { conditions } from "../../config/condition";
@@ -25,7 +26,7 @@ export default function AddMarketplaceProduct() {
     bedrooms: "",
     bathrooms: "",
     size: "",
-    furnished: "",
+    furnished: false,
     features: "",
     exchange_possible: false,
     description: "",
@@ -55,10 +56,24 @@ export default function AddMarketplaceProduct() {
     setImagePreviews(files.map((file) => URL.createObjectURL(file)));
   };
 
+  // Clean up object URLs to prevent memory leaks
+  useEffect(() => {
+    return () => {
+      imagePreviews.forEach((url) => URL.revokeObjectURL(url));
+    };
+  }, [imagePreviews]);
+
   const handleSubmit = async (e) => {
     e.preventDefault();
+
+    // Basic required validation
     if (!form.title || !form.price || !form.category) {
       alert("Title, Price, and Category are required");
+      return;
+    }
+
+    if (imageFiles.length < 2) {
+      alert("Please upload at least 2 images");
       return;
     }
 
@@ -66,6 +81,7 @@ export default function AddMarketplaceProduct() {
       setLoading(true);
       const uploadedUrls = [];
 
+      // Upload images to Cloudinary
       for (let file of imageFiles) {
         const formData = new FormData();
         formData.append("file", file);
@@ -82,6 +98,7 @@ export default function AddMarketplaceProduct() {
         uploadedUrls.push(data.secure_url);
       }
 
+      // Submit to backend
       const response = await fetch("/api/marketplace", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -92,6 +109,8 @@ export default function AddMarketplaceProduct() {
       if (!response.ok) throw new Error(result.message || "Failed to add product");
 
       alert("✅ Product added successfully!");
+
+      // Reset form
       setForm({
         title: "",
         category: "",
@@ -112,7 +131,7 @@ export default function AddMarketplaceProduct() {
         bedrooms: "",
         bathrooms: "",
         size: "",
-        furnished: "",
+        furnished: false,
         features: "",
         exchange_possible: false,
         description: "",
@@ -143,6 +162,7 @@ export default function AddMarketplaceProduct() {
     <div style={{ maxWidth: "600px", margin: "40px auto" }}>
       <h2>Add Marketplace Product</h2>
       <form onSubmit={handleSubmit}>
+        {/* Title */}
         <input
           type="text"
           placeholder="Title"
@@ -151,6 +171,7 @@ export default function AddMarketplaceProduct() {
           style={{ width: "100%", padding: "10px", marginBottom: "15px" }}
         />
 
+        {/* Category */}
         <select
           value={form.category}
           onChange={(e) => handleChange("category", e.target.value)}
@@ -162,6 +183,7 @@ export default function AddMarketplaceProduct() {
           ))}
         </select>
 
+        {/* Dynamic fields */}
         {visibleFields.map((field) => {
           switch (field) {
             case "brand":
@@ -183,6 +205,7 @@ export default function AddMarketplaceProduct() {
                   style={{ width: "100%", padding: "10px", marginBottom: "15px" }}
                 />
               );
+
             case "condition":
               return (
                 <select
@@ -197,6 +220,7 @@ export default function AddMarketplaceProduct() {
                   ))}
                 </select>
               );
+
             case "ram":
             case "storage":
             case "mileage":
@@ -213,6 +237,7 @@ export default function AddMarketplaceProduct() {
                   style={{ width: "100%", padding: "10px", marginBottom: "15px" }}
                 />
               );
+
             case "exchange_possible":
             case "furnished":
             case "promoted":
@@ -225,6 +250,7 @@ export default function AddMarketplaceProduct() {
                   /> {field.replace("_", " ").toUpperCase()}
                 </label>
               );
+
             case "description":
               return (
                 <textarea
@@ -235,6 +261,7 @@ export default function AddMarketplaceProduct() {
                   style={{ width: "100%", padding: "10px", marginBottom: "15px" }}
                 />
               );
+
             case "price":
               return (
                 <input
@@ -246,6 +273,7 @@ export default function AddMarketplaceProduct() {
                   style={{ width: "100%", padding: "10px", marginBottom: "15px" }}
                 />
               );
+
             case "phone_number":
             case "poster_name":
               return (
@@ -258,6 +286,7 @@ export default function AddMarketplaceProduct() {
                   style={{ width: "100%", padding: "10px", marginBottom: "15px" }}
                 />
               );
+
             case "state":
               return (
                 <select
@@ -272,6 +301,7 @@ export default function AddMarketplaceProduct() {
                   ))}
                 </select>
               );
+
             case "location":
               return (
                 <select
@@ -286,6 +316,7 @@ export default function AddMarketplaceProduct() {
                   ))}
                 </select>
               );
+
             case "images":
               return (
                 <div key={field} style={{ marginBottom: "15px" }}>
@@ -298,11 +329,17 @@ export default function AddMarketplaceProduct() {
                   />
                   <div style={{ display: "flex", gap: "10px", flexWrap: "wrap", marginTop: "10px" }}>
                     {imagePreviews.map((src, i) => (
-                      <img key={i} src={src} alt="Preview" style={{ width: "80px", height: "80px", objectFit: "cover", borderRadius: "5px" }} />
+                      <img
+                        key={i}
+                        src={src}
+                        alt="Preview"
+                        style={{ width: "80px", height: "80px", objectFit: "cover", borderRadius: "5px" }}
+                      />
                     ))}
                   </div>
                 </div>
               );
+
             case "video_link":
               return (
                 <input
@@ -314,6 +351,7 @@ export default function AddMarketplaceProduct() {
                   style={{ width: "100%", padding: "10px", marginBottom: "15px" }}
                 />
               );
+
             case "promo_plan":
               return form.promoted && (
                 <select
@@ -328,6 +366,7 @@ export default function AddMarketplaceProduct() {
                   ))}
                 </select>
               );
+
             default:
               return null;
           }
@@ -336,7 +375,14 @@ export default function AddMarketplaceProduct() {
         <button
           type="submit"
           disabled={loading}
-          style={{ width: "100%", padding: "12px", background: "black", color: "#fff", border: "none", cursor: "pointer" }}
+          style={{
+            width: "100%",
+            padding: "12px",
+            background: "black",
+            color: "#fff",
+            border: "none",
+            cursor: "pointer",
+          }}
         >
           {loading ? "Adding..." : "Post Ad"}
         </button>
