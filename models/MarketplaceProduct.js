@@ -1,49 +1,55 @@
-// src/models/MarketplaceProduct.js
 import mongoose from "mongoose";
 
 const marketplaceProductSchema = new mongoose.Schema(
   {
     title: { type: String, required: true, trim: true },
-    category: { type: String, required: true },      // e.g., Mobile Phones
-    subcategory: { type: String },                   // optional
-    brand: { type: String },
-    model: { type: String },
-    condition: { type: String },                     // Brand New, Used, etc.
-    ram: { type: String },
-    storage: { type: String },
-    color: { type: String },
-    sim: { type: String },
-    features: { type: String },                      // comma-separated string
+    category: { type: String, required: true },
+    subcategory: { type: String, default: "" },
+
+    // Electronics / Phones
+    brand: { type: String, default: "" },
+    model: { type: String, default: "" },
+    condition: { type: String, default: "" },
+    ram: { type: String, default: "" },
+    storage: { type: String, default: "" },
+    color: { type: String, default: "" },
+    sim: { type: String, default: "" },
+
+    // Vehicles
+    engine: { type: String, default: "" },
+    mileage: { type: Number, default: null },
+    year: { type: Number, default: null },
+    fuel_type: { type: String, default: "" },
+    transmission: { type: String, default: "" },
+
+    // Babies & Kids
+    age_range: { type: String, default: "" },
+
+    // Property / Real Estate
+    bedrooms: { type: Number, default: null },
+    bathrooms: { type: Number, default: null },
+    size: { type: String, default: "" },
+    furnished: { type: Boolean, default: false },
+
+    // Common fields
+    features: { type: String, default: "" },
     exchange_possible: { type: Boolean, default: false },
-    description: { type: String },
+    description: { type: String, default: "" },
     price: { type: Number, required: true },
-    bulk_price: { type: String },
-    negotiation: { type: String },                  // Yes / No / Not sure
-    phone_number: { type: String },
-    poster_name: { type: String },
-    second_condition: { type: String },
-    screen_size: { type: String },
-    os: { type: String },
-    display_type: { type: String },
-    resolution: { type: String },
-    card_slot: { type: String },
-    main_camera: { type: String },
-    selfie_camera: { type: String },
-    battery: { type: String },
-    location: { type: String },                      // e.g., Ijebu Ode
-    delivery: {
-      name: String,
-      region: String,
-      days_from: Number,
-      days_to: Number,
-      fee_charged: Boolean,
-      fee_from: Number,
-      fee_to: Number,
-    },
-    images: [{ type: String }],                     // store multiple image URLs
-    video_link: { type: String },
+    phone_number: { type: String, default: "" },
+    poster_name: { type: String, default: "" },
+
+    // Location
+    state: { type: String, default: "" },
+    location: { type: String, default: "" },
+
+    // Media
+    images: { type: [String], default: [] }, // multiple images
+    video_link: { type: String, default: "" },
+
+    // Promotion
     promoted: { type: Boolean, default: false },
-    promo_plan: { type: String },                   // e.g., "TOP promo"
+    promo_plan: { type: String, default: "" },
   },
   { timestamps: true }
 );
