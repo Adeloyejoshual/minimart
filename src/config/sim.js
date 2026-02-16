@@ -1,2 +1,2 @@
 // src/config/sim.js
-export const simTypes = ["Single SIM", "Dual SIM", "eSIM"];
+export const sims = ["Single SIM", "Dual SIM", "eSIM"];
