@@ -1,0 +1,1 @@
+export const ramOptions = ["2 GB","4 GB","6 GB","8 GB","12 GB","16 GB"];
