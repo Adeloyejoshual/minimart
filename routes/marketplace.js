@@ -1,12 +1,10 @@
-// src/routes/marketplace.js
 import express from "express";
 import MarketplaceProduct from "../models/MarketplaceProduct.js";
 
 const router = express.Router();
 
 /**
- * GET /api/marketplace
- * Fetch all marketplace products, sorted by newest first
+ * GET all marketplace products
  */
 router.get("/", async (req, res) => {
   try {
@@ -19,8 +17,7 @@ router.get("/", async (req, res) => {
 });
 
 /**
- * GET /api/marketplace/:id
- * Fetch a single product by ID
+ * GET single product by ID
  */
 router.get("/:id", async (req, res) => {
   try {
@@ -34,13 +31,7 @@ router.get("/:id", async (req, res) => {
 });
 
 /**
- * POST /api/marketplace
- * Add a new product
- * Expects JSON body:
- * {
- *   title, description, price, images[], category, brand, model, condition,
- *   country, state, city, etc.
- * }
+ * POST new product
  */
 router.post("/", async (req, res) => {
   try {
@@ -67,9 +58,22 @@ router.post("/", async (req, res) => {
       delivery,
       promoted,
       promo_plan,
+      country,
+      state,
+      city,
+      // Optional: extra fields per category
+      engine,
+      mileage,
+      year,
+      fuel_type,
+      transmission,
+      age_range,
+      bedrooms,
+      bathrooms,
+      size,
+      furnished,
     } = req.body;
 
-    // Basic validation
     if (!title || !price) {
       return res.status(400).json({ message: "Title and price are required" });
     }
@@ -78,7 +82,7 @@ router.post("/", async (req, res) => {
       title: title.trim(),
       description: description?.trim() || "",
       price: parseFloat(price),
-      images: images || [],           // array of Cloudinary URLs
+      images: Array.isArray(images) ? images : [], // always an array
       category: category || "",
       subcategory: subcategory || "",
       brand: brand || "",
@@ -97,9 +101,19 @@ router.post("/", async (req, res) => {
       delivery: delivery || {},
       promoted: promoted || false,
       promo_plan: promo_plan || "",
-      country: req.body.country || "Nigeria",
-      state: req.body.state || "",
-      city: req.body.city || "",
+      country: country || "Nigeria",
+      state: state || "",
+      city: city || "",
+      engine: engine || "",
+      mileage: mileage || null,
+      year: year || null,
+      fuel_type: fuel_type || "",
+      transmission: transmission || "",
+      age_range: age_range || "",
+      bedrooms: bedrooms || null,
+      bathrooms: bathrooms || null,
+      size: size || "",
+      furnished: furnished || false,
     });
 
     res.status(201).json(product);
@@ -110,8 +124,7 @@ router.post("/", async (req, res) => {
 });
 
 /**
- * DELETE /api/marketplace/:id
- * Remove a product by ID
+ * DELETE product by ID
  */
 router.delete("/:id", async (req, res) => {
   try {
