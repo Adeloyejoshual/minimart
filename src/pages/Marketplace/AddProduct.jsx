@@ -1,8 +1,8 @@
-import { useState, useRef, useEffect } from "react";
-import { categoryFields } from "../config/categoryFields.js";
-import { locationsByState } from "../config/locationsByState.js";
-import { conditions } from "../config/condition.js";
-import { promotionPlans } from "../config/promotion.js";
+import { useState, useRef } from "react";
+import { categoryFields } from "../../config/categoryFields";
+import { locationsByState } from "../../config/locationsByState";
+import { conditions } from "../../config/condition";
+import { promotionPlans } from "../../config/promotion";
 
 export default function AddMarketplaceProduct() {
   const [form, setForm] = useState({
@@ -43,15 +43,12 @@ export default function AddMarketplaceProduct() {
   const [imageFiles, setImageFiles] = useState([]);
   const [imagePreviews, setImagePreviews] = useState([]);
   const [loading, setLoading] = useState(false);
-
   const fileInputRef = useRef(null);
 
-  // Handle input changes
   const handleChange = (field, value) => {
     setForm((prev) => ({ ...prev, [field]: value }));
   };
 
-  // Handle multiple image selection
   const handleImagesChange = (e) => {
     const files = Array.from(e.target.files);
     setImageFiles(files);
@@ -67,13 +64,15 @@ export default function AddMarketplaceProduct() {
 
     try {
       setLoading(true);
-
-      // 1️⃣ Upload images to Cloudinary
       const uploadedUrls = [];
+
       for (let file of imageFiles) {
         const formData = new FormData();
         formData.append("file", file);
-        formData.append("upload_preset", import.meta.env.VITE_CLOUDINARY_UPLOAD_PRESET);
+        formData.append(
+          "upload_preset",
+          import.meta.env.VITE_CLOUDINARY_UPLOAD_PRESET
+        );
 
         const res = await fetch(
           `https://api.cloudinary.com/v1_1/${import.meta.env.VITE_CLOUDINARY_CLOUD_NAME}/upload`,
@@ -83,7 +82,6 @@ export default function AddMarketplaceProduct() {
         uploadedUrls.push(data.secure_url);
       }
 
-      // 2️⃣ Send product to backend
       const response = await fetch("/api/marketplace", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -94,8 +92,6 @@ export default function AddMarketplaceProduct() {
       if (!response.ok) throw new Error(result.message || "Failed to add product");
 
       alert("✅ Product added successfully!");
-
-      // Reset form
       setForm({
         title: "",
         category: "",
@@ -141,14 +137,12 @@ export default function AddMarketplaceProduct() {
     }
   };
 
-  // Get fields to show based on category
   const visibleFields = categoryFields[form.category] || [];
 
   return (
     <div style={{ maxWidth: "600px", margin: "40px auto" }}>
       <h2>Add Marketplace Product</h2>
       <form onSubmit={handleSubmit}>
-        {/* Title */}
         <input
           type="text"
           placeholder="Title"
@@ -157,7 +151,6 @@ export default function AddMarketplaceProduct() {
           style={{ width: "100%", padding: "10px", marginBottom: "15px" }}
         />
 
-        {/* Category */}
         <select
           value={form.category}
           onChange={(e) => handleChange("category", e.target.value)}
@@ -169,7 +162,6 @@ export default function AddMarketplaceProduct() {
           ))}
         </select>
 
-        {/* Dynamically render fields */}
         {visibleFields.map((field) => {
           switch (field) {
             case "brand":
