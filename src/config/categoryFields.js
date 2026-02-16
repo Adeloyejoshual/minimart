@@ -1,4 +1,4 @@
-// categoryFields.js
+// src/config/categoryFields.js
 export const categoryFields = {
   "Phones & Tablets": [
     "brand",
@@ -114,6 +114,65 @@ export const categoryFields = {
   ],
 
   "Services": [
+    "features"
+  ],
+
+  "Vehicles Parts & Accessories": [
+    "brand",
+    "model",
+    "condition",
+    "features"
+  ],
+
+  "Books & Stationery": [
+    "condition",
+    "features"
+  ],
+
+  "Musical Instruments": [
+    "brand",
+    "model",
+    "condition",
+    "features"
+  ],
+
+  "Sports & Outdoors": [
+    "brand",
+    "condition",
+    "features"
+  ],
+
+  "Computers & Laptops": [
+    "brand",
+    "model",
+    "condition",
+    "ram",
+    "storage",
+    "features",
+    "exchange_possible"
+  ],
+
+  "Gaming": [
+    "brand",
+    "model",
+    "condition",
+    "features"
+  ],
+
+  "Health & Fitness": [
+    "features",
+    "condition"
+  ],
+
+  "Art & Collectibles": [
+    "features",
+    "condition"
+  ],
+
+  "Toys & Games": [
+    "brand",
+    "age_range",
+    "condition",
     "features"
   ]
 };
