@@ -1,5 +1,5 @@
 // src/pages/Marketplace/AddMarketplaceProduct.jsx
-import { useState, useRef, useEffect } from "react";
+import { useState, useRef } from "react";
 import { categoryFields } from "../../config/categoryFields";
 import { locationsByState } from "../../config/locationsByState";
 import { conditions } from "../../config/condition";
@@ -56,24 +56,11 @@ export default function AddMarketplaceProduct() {
     setImagePreviews(files.map((file) => URL.createObjectURL(file)));
   };
 
-  // Clean up object URLs to prevent memory leaks
-  useEffect(() => {
-    return () => {
-      imagePreviews.forEach((url) => URL.revokeObjectURL(url));
-    };
-  }, [imagePreviews]);
-
   const handleSubmit = async (e) => {
     e.preventDefault();
 
-    // Basic required validation
     if (!form.title || !form.price || !form.category) {
       alert("Title, Price, and Category are required");
-      return;
-    }
-
-    if (imageFiles.length < 2) {
-      alert("Please upload at least 2 images");
       return;
     }
 
@@ -98,7 +85,6 @@ export default function AddMarketplaceProduct() {
         uploadedUrls.push(data.secure_url);
       }
 
-      // Submit to backend
       const response = await fetch("/api/marketplace", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -160,30 +146,39 @@ export default function AddMarketplaceProduct() {
 
   return (
     <div style={{ maxWidth: "600px", margin: "40px auto" }}>
-      <h2>Add Marketplace Product</h2>
+      <h2 style={{ marginBottom: "20px" }}>Post Your Ad</h2>
       <form onSubmit={handleSubmit}>
-        {/* Title */}
+        {/* Always visible fields */}
         <input
           type="text"
-          placeholder="Title"
+          placeholder="Title*"
           value={form.title}
           onChange={(e) => handleChange("title", e.target.value)}
           style={{ width: "100%", padding: "10px", marginBottom: "15px" }}
         />
 
-        {/* Category */}
+        <input
+          type="number"
+          placeholder="Price*"
+          value={form.price}
+          onChange={(e) => handleChange("price", e.target.value)}
+          style={{ width: "100%", padding: "10px", marginBottom: "15px" }}
+        />
+
         <select
           value={form.category}
           onChange={(e) => handleChange("category", e.target.value)}
           style={{ width: "100%", padding: "10px", marginBottom: "15px" }}
         >
-          <option value="">Select Category</option>
+          <option value="">Select Category*</option>
           {Object.keys(categoryFields).map((cat) => (
-            <option key={cat} value={cat}>{cat}</option>
+            <option key={cat} value={cat}>
+              {cat}
+            </option>
           ))}
         </select>
 
-        {/* Dynamic fields */}
+        {/* Dynamic fields based on category */}
         {visibleFields.map((field) => {
           switch (field) {
             case "brand":
@@ -195,87 +190,7 @@ export default function AddMarketplaceProduct() {
             case "age_range":
             case "property_type":
             case "size":
-              return (
-                <input
-                  key={field}
-                  type="text"
-                  placeholder={field.charAt(0).toUpperCase() + field.slice(1)}
-                  value={form[field]}
-                  onChange={(e) => handleChange(field, e.target.value)}
-                  style={{ width: "100%", padding: "10px", marginBottom: "15px" }}
-                />
-              );
-
-            case "condition":
-              return (
-                <select
-                  key={field}
-                  value={form.condition}
-                  onChange={(e) => handleChange("condition", e.target.value)}
-                  style={{ width: "100%", padding: "10px", marginBottom: "15px" }}
-                >
-                  <option value="">Select Condition</option>
-                  {conditions.map((c) => (
-                    <option key={c} value={c}>{c}</option>
-                  ))}
-                </select>
-              );
-
-            case "ram":
-            case "storage":
-            case "mileage":
-            case "year":
-            case "bedrooms":
-            case "bathrooms":
-              return (
-                <input
-                  key={field}
-                  type="number"
-                  placeholder={field.charAt(0).toUpperCase() + field.slice(1)}
-                  value={form[field]}
-                  onChange={(e) => handleChange(field, e.target.value)}
-                  style={{ width: "100%", padding: "10px", marginBottom: "15px" }}
-                />
-              );
-
-            case "exchange_possible":
-            case "furnished":
-            case "promoted":
-              return (
-                <label key={field} style={{ display: "block", marginBottom: "15px" }}>
-                  <input
-                    type="checkbox"
-                    checked={form[field]}
-                    onChange={(e) => handleChange(field, e.target.checked)}
-                  /> {field.replace("_", " ").toUpperCase()}
-                </label>
-              );
-
-            case "description":
-              return (
-                <textarea
-                  key={field}
-                  placeholder="Description"
-                  value={form.description}
-                  onChange={(e) => handleChange("description", e.target.value)}
-                  style={{ width: "100%", padding: "10px", marginBottom: "15px" }}
-                />
-              );
-
-            case "price":
-              return (
-                <input
-                  key={field}
-                  type="number"
-                  placeholder="Price"
-                  value={form.price}
-                  onChange={(e) => handleChange("price", e.target.value)}
-                  style={{ width: "100%", padding: "10px", marginBottom: "15px" }}
-                />
-              );
-
-            case "phone_number":
-            case "poster_name":
+            case "features":
               return (
                 <input
                   key={field}
@@ -286,7 +201,61 @@ export default function AddMarketplaceProduct() {
                   style={{ width: "100%", padding: "10px", marginBottom: "15px" }}
                 />
               );
-
+            case "condition":
+              return (
+                <select
+                  key={field}
+                  value={form.condition}
+                  onChange={(e) => handleChange("condition", e.target.value)}
+                  style={{ width: "100%", padding: "10px", marginBottom: "15px" }}
+                >
+                  <option value="">Select Condition</option>
+                  {conditions.map((c) => (
+                    <option key={c} value={c}>
+                      {c}
+                    </option>
+                  ))}
+                </select>
+              );
+            case "ram":
+            case "storage":
+            case "mileage":
+            case "year":
+            case "bedrooms":
+            case "bathrooms":
+              return (
+                <input
+                  key={field}
+                  type="number"
+                  placeholder={field.replace("_", " ").toUpperCase()}
+                  value={form[field]}
+                  onChange={(e) => handleChange(field, e.target.value)}
+                  style={{ width: "100%", padding: "10px", marginBottom: "15px" }}
+                />
+              );
+            case "exchange_possible":
+            case "furnished":
+            case "promoted":
+              return (
+                <label key={field} style={{ display: "block", marginBottom: "15px" }}>
+                  <input
+                    type="checkbox"
+                    checked={form[field]}
+                    onChange={(e) => handleChange(field, e.target.checked)}
+                  />{" "}
+                  {field.replace("_", " ").toUpperCase()}
+                </label>
+              );
+            case "description":
+              return (
+                <textarea
+                  key={field}
+                  placeholder="Description"
+                  value={form.description}
+                  onChange={(e) => handleChange("description", e.target.value)}
+                  style={{ width: "100%", padding: "10px", marginBottom: "15px" }}
+                />
+              );
             case "state":
               return (
                 <select
@@ -297,11 +266,12 @@ export default function AddMarketplaceProduct() {
                 >
                   <option value="">Select State</option>
                   {Object.keys(locationsByState).map((st) => (
-                    <option key={st} value={st}>{st}</option>
+                    <option key={st} value={st}>
+                      {st}
+                    </option>
                   ))}
                 </select>
               );
-
             case "location":
               return (
                 <select
@@ -312,11 +282,12 @@ export default function AddMarketplaceProduct() {
                 >
                   <option value="">Select Location</option>
                   {locationsByState[form.state]?.map((loc) => (
-                    <option key={loc} value={loc}>{loc}</option>
+                    <option key={loc} value={loc}>
+                      {loc}
+                    </option>
                   ))}
                 </select>
               );
-
             case "images":
               return (
                 <div key={field} style={{ marginBottom: "15px" }}>
@@ -327,31 +298,41 @@ export default function AddMarketplaceProduct() {
                     ref={fileInputRef}
                     onChange={handleImagesChange}
                   />
-                  <div style={{ display: "flex", gap: "10px", flexWrap: "wrap", marginTop: "10px" }}>
+                  <div
+                    style={{
+                      display: "flex",
+                      gap: "10px",
+                      flexWrap: "wrap",
+                      marginTop: "10px",
+                    }}
+                  >
                     {imagePreviews.map((src, i) => (
                       <img
                         key={i}
                         src={src}
                         alt="Preview"
-                        style={{ width: "80px", height: "80px", objectFit: "cover", borderRadius: "5px" }}
+                        style={{
+                          width: "80px",
+                          height: "80px",
+                          objectFit: "cover",
+                          borderRadius: "5px",
+                        }}
                       />
                     ))}
                   </div>
                 </div>
               );
-
             case "video_link":
               return (
                 <input
                   key={field}
                   type="text"
-                  placeholder="Video link"
+                  placeholder="Video Link"
                   value={form.video_link}
                   onChange={(e) => handleChange("video_link", e.target.value)}
                   style={{ width: "100%", padding: "10px", marginBottom: "15px" }}
                 />
               );
-
             case "promo_plan":
               return form.promoted && (
                 <select
@@ -362,11 +343,12 @@ export default function AddMarketplaceProduct() {
                 >
                   <option value="">Select Promotion Plan</option>
                   {promotionPlans.map((p) => (
-                    <option key={p.name} value={p.name}>{p.name} - ₦{p.price}</option>
+                    <option key={p.name} value={p.name}>
+                      {p.name} - ₦{p.price}
+                    </option>
                   ))}
                 </select>
               );
-
             default:
               return null;
           }
