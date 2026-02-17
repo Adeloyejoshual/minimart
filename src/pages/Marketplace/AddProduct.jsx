@@ -1,6 +1,8 @@
 // src/pages/Marketplace/AddMarketplaceProduct.jsx
+
 import { useState, useRef, useEffect } from "react";
 import { useAuth0 } from "@auth0/auth0-react";
+
 import { categoryFields } from "../../config/categoryFields";
 import { conditions, usedDetails } from "../../config/conditions";
 import { ramOptions } from "../../config/ram";
@@ -9,328 +11,386 @@ import { colors } from "../../config/color";
 import { engines } from "../../config/engine";
 import { fuelTypes } from "../../config/fuelTypes";
 import { featuresByCategory } from "../../config/features";
-import { promotionPlans } from "../../config/promotion";
 import { locationsByState } from "../../config/locationsByState";
 import { brands } from "../../config/brands";
 import { models } from "../../config/models";
 import { sims } from "../../config/sim";
 import { years } from "../../config/years";
 
+const MAX_IMAGES = 6;
+
 export default function AddMarketplaceProduct() {
-const { user } = useAuth0();
+  const { user } = useAuth0();
 
-const [form, setForm] = useState({
-title: "",
-description: "",
-price: "",
-bulk_price_from: "",
-bulk_price_per_piece: "",
-negotiation: "",
-category: "",
-subcategory: "",
-brand: "",
-model: "",
-condition: "",
-used_detail: "",
-ram: "",
-storage: "",
-color: "",
-sim: "",
-engine: "",
-mileage: "",
-year: "",
-fuel_type: "",
-transmission: "",
-age_range: "",
-bedrooms: "",
-bathrooms: "",
-size: "",
-furnished: false,
-features: "",
-exchange_possible: false,
-phone_number: user?.phone_number || "",
-poster_name: user?.name || "",
-location: "",
-state: "",
-country: "Nigeria",
-city: "",
-images: [],
-video_link: "",
-promoted: false,
-promo_plan: "",
-delivery: {},
-});
+  const [activeSelector, setActiveSelector] = useState(null);
+  const [loading, setLoading] = useState(false);
 
-const [imageFiles, setImageFiles] = useState([]);
-const [imagePreviews, setImagePreviews] = useState([]);
-const [loading, setLoading] = useState(false);
-const fileInputRef = useRef(null);
+  const fileInputRef = useRef(null);
 
-const handleChange = (field, value) => {
-setForm((prev) => ({ ...prev, [field]: value }));
-if (field === "brand") setForm((prev) => ({ ...prev, model: "" }));
-};
+  const [form, setForm] = useState({
+    title: "",
+    description: "",
+    price: "",
+    bulk_price_from: "",
+    bulk_price_per_piece: "",
+    negotiation: "",
+    category: "",
+    brand: "",
+    model: "",
+    condition: "",
+    used_detail: "",
+    ram: "",
+    storage: "",
+    color: "",
+    sim: "",
+    engine: "",
+    mileage: "",
+    year: "",
+    fuel_type: "",
+    transmission: "",
+    features: "",
+    exchange_possible: false,
+    furnished: false,
+    state: "",
+    city: "",
+    country: "Nigeria",
+    images: [],
+    video_link: "",
+    seller_id: user?.sub || "",
+    poster_name: user?.name || "",
+    phone_number: user?.phone_number || "",
+    delivery: {
+      pickup: false,
+      nationwide: false,
+      delivery_fee: "",
+    },
+  });
 
-const handleImagesChange = (e) => {
-const files = Array.from(e.target.files);
-setImageFiles(files);
-setImagePreviews(files.map((file) => URL.createObjectURL(file)));
-};
+  const [imageFiles, setImageFiles] = useState([]);
+  const [imagePreviews, setImagePreviews] = useState([]);
 
-const handleSubmit = async (e) => {
-e.preventDefault();
-if (!form.title || !form.price || !form.category) {
-alert("Title, Price, and Category are required");
-return;
+  const visibleFields = categoryFields[form.category] || [];
+  const availableBrands = brands[form.category] || [];
+  const availableModels =
+    form.brand && models[form.category]
+      ? models[form.category][form.brand] || []
+      : [];
+  const categoryFeatures = featuresByCategory[form.category] || [];
+
+  /* ---------------------- */
+  /* HANDLE CHANGE */
+  /* ---------------------- */
+  const handleChange = (field, value) => {
+    setForm((prev) => ({
+      ...prev,
+      [field]: value,
+      ...(field === "brand" && { model: "" }),
+      ...(field === "state" && { city: "" }),
+    }));
+  };
+
+  /* ---------------------- */
+  /* IMAGE HANDLING */
+  /* ---------------------- */
+  const handleImagesChange = (e) => {
+    const files = Array.from(e.target.files);
+
+    if (files.length > MAX_IMAGES) {
+      alert(`Maximum ${MAX_IMAGES} images allowed`);
+      return;
+    }
+
+    setImageFiles(files);
+    setImagePreviews(files.map((file) => URL.createObjectURL(file)));
+  };
+
+  useEffect(() => {
+    return () => {
+      imagePreviews.forEach((url) => URL.revokeObjectURL(url));
+    };
+  }, [imagePreviews]);
+
+  /* ---------------------- */
+  /* SUBMIT */
+  /* ---------------------- */
+  const handleSubmit = async (e) => {
+    e.preventDefault();
+
+    if (!form.title || !form.price || !form.category) {
+      alert("Title, Price and Category are required.");
+      return;
+    }
+
+    if (imageFiles.length === 0) {
+      alert("Upload at least one image.");
+      return;
+    }
+
+    try {
+      setLoading(true);
+
+      const uploadPromises = imageFiles.map((file) => {
+        const formData = new FormData();
+        formData.append("file", file);
+        formData.append(
+          "upload_preset",
+          import.meta.env.VITE_CLOUDINARY_UPLOAD_PRESET
+        );
+
+        return fetch(
+          `https://api.cloudinary.com/v1_1/${import.meta.env.VITE_CLOUDINARY_CLOUD_NAME}/upload`,
+          { method: "POST", body: formData }
+        ).then((res) => res.json());
+      });
+
+      const uploadResults = await Promise.all(uploadPromises);
+      const uploadedUrls = uploadResults.map((data) => data.secure_url);
+
+      const productData = {
+        ...form,
+        images: uploadedUrls,
+        slug: form.title.toLowerCase().replace(/\s+/g, "-"),
+        created_at: new Date(),
+        views: 0,
+        bulk_price: {
+          from: form.bulk_price_from || null,
+          per_piece: form.bulk_price_per_piece || null,
+        },
+      };
+
+      const response = await fetch("/api/marketplace", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(productData),
+      });
+
+      const result = await response.json();
+      if (!response.ok)
+        throw new Error(result.message || "Failed to add product");
+
+      alert("✅ Product added successfully!");
+
+      setForm((prev) => ({
+        ...prev,
+        title: "",
+        description: "",
+        price: "",
+        category: "",
+        brand: "",
+        model: "",
+        condition: "",
+        used_detail: "",
+        ram: "",
+        storage: "",
+        color: "",
+        sim: "",
+        engine: "",
+        mileage: "",
+        year: "",
+        fuel_type: "",
+        transmission: "",
+        features: "",
+        state: "",
+        city: "",
+        images: [],
+        video_link: "",
+      }));
+
+      setImageFiles([]);
+      setImagePreviews([]);
+      if (fileInputRef.current) fileInputRef.current.value = null;
+    } catch (err) {
+      console.error(err);
+      alert(err.message || "Error posting ad");
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  /* ---------------------- */
+  /* FULL PAGE SELECTOR */
+  /* ---------------------- */
+  const FullPageSelector = ({ title, options, field }) => (
+    <div style={styles.overlay}>
+      <div style={styles.header}>
+        <button onClick={() => setActiveSelector(null)}>← Back</button>
+        <h3>{title}</h3>
+      </div>
+      <div style={styles.list}>
+        {options.map((option) => (
+          <div
+            key={option}
+            style={styles.item}
+            onClick={() => {
+              handleChange(field, option);
+              setActiveSelector(null);
+            }}
+          >
+            {option}
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+
+  /* ---------------------- */
+  /* RENDER */
+  /* ---------------------- */
+  return (
+    <div style={styles.container}>
+      <h2 style={{ textAlign: "center" }}>Post Marketplace Ad</h2>
+
+      <form onSubmit={handleSubmit}>
+        <input
+          placeholder="Title"
+          value={form.title}
+          onChange={(e) => handleChange("title", e.target.value)}
+          style={styles.input}
+        />
+
+        <textarea
+          placeholder="Description"
+          value={form.description}
+          onChange={(e) => handleChange("description", e.target.value)}
+          style={styles.input}
+        />
+
+        <input
+          type="number"
+          placeholder="Price"
+          value={form.price}
+          onChange={(e) => handleChange("price", e.target.value)}
+          style={styles.input}
+        />
+
+        {/* CATEGORY */}
+        <div
+          style={styles.selectorInput}
+          onClick={() => setActiveSelector("category")}
+        >
+          {form.category || "Select Category"}
+        </div>
+
+        {/* Dynamic Fields */}
+        {visibleFields.includes("brand") && (
+          <div
+            style={styles.selectorInput}
+            onClick={() => setActiveSelector("brand")}
+          >
+            {form.brand || "Select Brand"}
+          </div>
+        )}
+
+        {visibleFields.includes("model") && (
+          <div
+            style={styles.selectorInput}
+            onClick={() => setActiveSelector("model")}
+          >
+            {form.model || "Select Model"}
+          </div>
+        )}
+
+        {/* IMAGES */}
+        <input
+          type="file"
+          accept="image/*"
+          multiple
+          ref={fileInputRef}
+          onChange={handleImagesChange}
+          style={{ marginTop: 15 }}
+        />
+
+        <button type="submit" disabled={loading} style={styles.button}>
+          {loading ? "Posting..." : "Post Ad"}
+        </button>
+      </form>
+
+      {/* SELECTOR SCREENS */}
+      {activeSelector === "category" && (
+        <FullPageSelector
+          title="Select Category"
+          options={Object.keys(categoryFields)}
+          field="category"
+        />
+      )}
+
+      {activeSelector === "brand" && (
+        <FullPageSelector
+          title="Select Brand"
+          options={availableBrands}
+          field="brand"
+        />
+      )}
+
+      {activeSelector === "model" && (
+        <FullPageSelector
+          title="Select Model"
+          options={availableModels}
+          field="model"
+        />
+      )}
+    </div>
+  );
 }
 
-try {  
-  setLoading(true);  
-  const uploadedUrls = [];  
-
-  for (let file of imageFiles) {  
-    const formData = new FormData();  
-    formData.append("file", file);  
-    formData.append(  
-      "upload_preset",  
-      import.meta.env.VITE_CLOUDINARY_UPLOAD_PRESET  
-    );  
-
-    const res = await fetch(  
-      `https://api.cloudinary.com/v1_1/${import.meta.env.VITE_CLOUDINARY_CLOUD_NAME}/upload`,  
-      { method: "POST", body: formData }  
-    );  
-    const data = await res.json();  
-    uploadedUrls.push(data.secure_url);  
-  }  
-
-  const productData = {  
-    ...form,  
-    images: uploadedUrls,  
-    bulk_price: {  
-      from: form.bulk_price_from || null,  
-      per_piece: form.bulk_price_per_piece || null,  
-    },  
-  };  
-
-  const response = await fetch("/api/marketplace", {  
-    method: "POST",  
-    headers: { "Content-Type": "application/json" },  
-    body: JSON.stringify(productData),  
-  });  
-
-  const result = await response.json();  
-  if (!response.ok) throw new Error(result.message || "Failed to add product");  
-
-  alert("✅ Product added successfully!");  
-  // reset form except auto-filled user info  
-  setForm((prev) => ({  
-    ...prev,  
-    title: "",  
-    description: "",  
-    price: "",  
-    bulk_price_from: "",  
-    bulk_price_per_piece: "",  
-    negotiation: "",  
-    category: "",  
-    subcategory: "",  
-    brand: "",  
-    model: "",  
-    condition: "",  
-    used_detail: "",  
-    ram: "",  
-    storage: "",  
-    color: "",  
-    sim: "",  
-    engine: "",  
-    mileage: "",  
-    year: "",  
-    fuel_type: "",  
-    transmission: "",  
-    age_range: "",  
-    bedrooms: "",  
-    bathrooms: "",  
-    size: "",  
-    furnished: false,  
-    features: "",  
-    exchange_possible: false,  
-    location: "",  
-    state: "",  
-    city: "",  
-    images: [],  
-    video_link: "",  
-    promoted: false,  
-    promo_plan: "",  
-    delivery: {},  
-  }));  
-  setImageFiles([]);  
-  setImagePreviews([]);  
-  if (fileInputRef.current) fileInputRef.current.value = null;  
-} catch (err) {  
-  console.error(err);  
-  alert(err.message || "Failed to add product");  
-} finally {  
-  setLoading(false);  
-}
-
+/* ---------------------- */
+/* STYLES */
+/* ---------------------- */
+const styles = {
+  container: {
+    maxWidth: 700,
+    margin: "40px auto",
+    padding: 20,
+    borderRadius: 10,
+    boxShadow: "0 2px 10px rgba(0,0,0,0.1)",
+    background: "#fff",
+  },
+  input: {
+    width: "100%",
+    padding: 12,
+    marginBottom: 15,
+    border: "1px solid #ddd",
+    borderRadius: 6,
+  },
+  selectorInput: {
+    padding: 12,
+    border: "1px solid #ddd",
+    borderRadius: 6,
+    marginBottom: 15,
+    cursor: "pointer",
+  },
+  button: {
+    width: "100%",
+    padding: 14,
+    background: "black",
+    color: "#fff",
+    border: "none",
+    borderRadius: 6,
+    fontSize: 16,
+    cursor: "pointer",
+  },
+  overlay: {
+    position: "fixed",
+    inset: 0,
+    background: "#fff",
+    zIndex: 9999,
+    display: "flex",
+    flexDirection: "column",
+  },
+  header: {
+    padding: 15,
+    borderBottom: "1px solid #eee",
+    display: "flex",
+    gap: 10,
+    alignItems: "center",
+  },
+  list: {
+    overflowY: "auto",
+    flex: 1,
+  },
+  item: {
+    padding: 15,
+    borderBottom: "1px solid #f2f2f2",
+    cursor: "pointer",
+  },
 };
-
-const visibleFields = categoryFields[form.category] || [];
-const availableBrands = brands[form.category] || [];
-const availableModels = form.brand ? models[form.category]?.[form.brand] || [] : [];
-const categoryFeatures = featuresByCategory[form.category] || [];
-const availableSims = sims || [];
-const availableYears = years || [];
-
-return (
-<div style={{ maxWidth: "700px", margin: "40px auto", padding: "20px", border: "1px solid #eee", borderRadius: "10px", boxShadow: "0 2px 10px rgba(0,0,0,0.1)" }}>
-<h2 style={{ textAlign: "center", marginBottom: "20px" }}>Post Marketplace Ad</h2>
-<form onSubmit={handleSubmit}>
-
-{/* Title & Description */}  
-    <input type="text" placeholder="Title" value={form.title} onChange={(e) => handleChange("title", e.target.value)} style={{ width: "100%", padding: "10px", marginBottom: "15px" }} />  
-    <textarea placeholder="Description" value={form.description} onChange={(e) => handleChange("description", e.target.value)} style={{ width: "100%", padding: "10px", marginBottom: "15px" }} />  
-
-    {/* Price & Bulk */}  
-    <input type="number" placeholder="Price" value={form.price} onChange={(e) => handleChange("price", e.target.value)} style={{ width: "48%", padding: "10px", marginBottom: "15px", marginRight: "4%" }} />  
-    <input type="number" placeholder="Bulk from (pieces)" value={form.bulk_price_from} onChange={(e) => handleChange("bulk_price_from", e.target.value)} style={{ width: "24%", padding: "10px", marginBottom: "15px", marginRight: "2%" }} />  
-    <input type="number" placeholder="Per piece (₦)" value={form.bulk_price_per_piece} onChange={(e) => handleChange("bulk_price_per_piece", e.target.value)} style={{ width: "24%", padding: "10px", marginBottom: "15px" }} />  
-
-    {/* Negotiation */}  
-    <select value={form.negotiation} onChange={(e) => handleChange("negotiation", e.target.value)} style={{ width: "100%", padding: "10px", marginBottom: "15px" }}>  
-      <option value="">Are you open to negotiation?</option>  
-      <option value="Yes">Yes</option>  
-      <option value="No">No</option>  
-      <option value="Not sure">Not sure</option>  
-    </select>  
-
-    {/* Category */}  
-    <select value={form.category} onChange={(e) => handleChange("category", e.target.value)} style={{ width: "100%", padding: "10px", marginBottom: "15px" }}>  
-      <option value="">Select Category</option>  
-      {Object.keys(categoryFields).map((cat) => <option key={cat} value={cat}>{cat}</option>)}  
-    </select>  
-
-    {/* Dynamic Fields */}  
-    {visibleFields.map((field) => {  
-      switch (field) {  
-        case "brand":  
-          return (  
-            <select key={field} value={form.brand} onChange={(e) => handleChange("brand", e.target.value)} style={{ width: "100%", padding: "10px", marginBottom: "15px" }}>  
-              <option value="">Select Brand</option>  
-              {availableBrands.map((b) => <option key={b} value={b}>{b}</option>)}  
-            </select>  
-          );  
-        case "model":  
-          return (  
-            <select key={field} value={form.model} onChange={(e) => handleChange("model", e.target.value)} style={{ width: "100%", padding: "10px", marginBottom: "15px" }}>  
-              <option value="">Select Model</option>  
-              {availableModels.map((m) => <option key={m} value={m}>{m}</option>)}  
-            </select>  
-          );  
-        case "sim":  
-          return (  
-            <select key={field} value={form.sim} onChange={(e) => handleChange("sim", e.target.value)} style={{ width: "100%", padding: "10px", marginBottom: "15px" }}>  
-              <option value="">Select SIM</option>  
-              {availableSims.map((s) => <option key={s} value={s}>{s}</option>)}  
-            </select>  
-          );  
-        case "year":  
-          return (  
-            <select key={field} value={form.year} onChange={(e) => handleChange("year", e.target.value)} style={{ width: "100%", padding: "10px", marginBottom: "15px" }}>  
-              <option value="">Select Year</option>  
-              {availableYears.map((y) => <option key={y} value={y}>{y}</option>)}  
-            </select>  
-          );  
-        case "condition":  
-          return (  
-            <select key={field} value={form.condition} onChange={(e) => handleChange("condition", e.target.value)} style={{ width: "100%", padding: "10px", marginBottom: "15px" }}>  
-              <option value="">Select Condition</option>  
-              {conditions.map((c) => <option key={c} value={c}>{c}</option>)}  
-            </select>  
-          );  
-        case "used_detail":  
-          return (  
-            <select key={field} value={form.used_detail} onChange={(e) => handleChange("used_detail", e.target.value)} style={{ width: "100%", padding: "10px", marginBottom: "15px" }}>  
-              <option value="">Select Detail if Used</option>  
-              {usedDetails.map((u) => <option key={u} value={u}>{u}</option>)}  
-            </select>  
-          );  
-        case "ram":  
-          return (  
-            <select key={field} value={form.ram} onChange={(e) => handleChange("ram", e.target.value)} style={{ width: "100%", padding: "10px", marginBottom: "15px" }}>  
-              <option value="">Select RAM</option>  
-              {ramOptions.map((r) => <option key={r} value={r}>{r}</option>)}  
-            </select>  
-          );  
-        case "storage":  
-          return (  
-            <select key={field} value={form.storage} onChange={(e) => handleChange("storage", e.target.value)} style={{ width: "100%", padding: "10px", marginBottom: "15px" }}>  
-              <option value="">Select Storage</option>  
-              {storageOptions.map((s) => <option key={s} value={s}>{s}</option>)}  
-            </select>  
-          );  
-        case "color":  
-          return (  
-            <select key={field} value={form.color} onChange={(e) => handleChange("color", e.target.value)} style={{ width: "100%", padding: "10px", marginBottom: "15px" }}>  
-              <option value="">Select Color</option>  
-              {colors.map((c) => <option key={c} value={c}>{c}</option>)}  
-            </select>  
-          );  
-        case "engine":  
-          return (  
-            <select key={field} value={form.engine} onChange={(e) => handleChange("engine", e.target.value)} style={{ width: "100%", padding: "10px", marginBottom: "15px" }}>  
-              <option value="">Select Engine</option>  
-              {engines.map((en) => <option key={en} value={en}>{en}</option>)}  
-            </select>  
-          );  
-        case "fuel_type":  
-          return (  
-            <select key={field} value={form.fuel_type} onChange={(e) => handleChange("fuel_type", e.target.value)} style={{ width: "100%", padding: "10px", marginBottom: "15px" }}>  
-              <option value="">Select Fuel Type</option>  
-              {fuelTypes.map((f) => <option key={f} value={f}>{f}</option>)}  
-            </select>  
-          );  
-        case "features":  
-          return (  
-            <select key={field} value={form.features} onChange={(e) => handleChange("features", e.target.value)} style={{ width: "100%", padding: "10px", marginBottom: "15px" }}>  
-              <option value="">Select Features</option>  
-              {categoryFeatures.map((f) => <option key={f} value={f}>{f}</option>)}  
-            </select>  
-          );  
-        case "exchange_possible":  
-        case "furnished":  
-        case "promoted":  
-          return (  
-            <label key={field} style={{ display: "block", marginBottom: "15px" }}>  
-              <input type="checkbox" checked={form[field]} onChange={(e) => handleChange(field, e.target.checked)} /> {field.replace("_", " ").toUpperCase()}  
-            </label>  
-          );  
-        default:  
-          return (  
-            <input key={field} type="text" placeholder={field.replace("_", " ").toUpperCase()} value={form[field]} onChange={(e) => handleChange(field, e.target.value)} style={{ width: "100%", padding: "10px", marginBottom: "15px" }} />  
-          );  
-      }  
-    })}  
-
-    {/* Images */}  
-    <div style={{ marginBottom: "15px" }}>  
-      <input type="file" accept="image/*" multiple ref={fileInputRef} onChange={handleImagesChange} />  
-      <div style={{ display: "flex", gap: "10px", flexWrap: "wrap", marginTop: "10px" }}>  
-        {imagePreviews.map((src, i) => (  
-          <img key={i} src={src} alt="Preview" style={{ width: "80px", height: "80px", objectFit: "cover", borderRadius: "5px" }} />  
-        ))}  
-      </div>  
-    </div>  
-
-    {/* Video Link */}  
-    <input type="text" placeholder="Video Link" value={form.video_link} onChange={(e) => handleChange("video_link", e.target.value)} style={{ width: "100%", padding: "10px", marginBottom: "15px" }} />  
-
-    {/* Post Button */}  
-    <button type="submit" disabled={loading} style={{ width: "100%", padding: "12px", background: "black", color: "#fff", border: "none", cursor: "pointer", fontSize: "16px" }}>  
-      {loading ? "Posting..." : "Post Ad"}  
-    </button>  
-  </form>  
-</div>
-
-);
-}
