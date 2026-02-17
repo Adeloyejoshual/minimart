@@ -5,7 +5,6 @@ import { conditions, usedDetails } from "../../config/conditions";
 import { ramOptions } from "../../config/ram";
 import { storageOptions } from "../../config/storage";
 import { colors } from "../../config/color";
-import { engines } from "../../config/engine";
 import { fuelTypes } from "../../config/fuelTypes";
 import { featuresByCategory } from "../../config/features";
 import { brands } from "../../config/brands";
@@ -31,7 +30,7 @@ export default function AddMarketplaceProduct() {
     color: "",
     sim: "",
     fuel_type: "",
-    features: "",
+    features: [],
     price: "",
     bulk_price_from: "",
     bulk_price_per_piece: "",
@@ -70,6 +69,13 @@ export default function AddMarketplaceProduct() {
     setForm(prev => ({ ...prev, [field]: value }));
     if (field === "brand") setForm(prev => ({ ...prev, model: "" }));
     setErrors(prev => ({ ...prev, [field]: null }));
+  };
+
+  const handleFeatureSelect = (feature) => {
+    setForm(prev => {
+      const exists = prev.features.includes(feature);
+      return { ...prev, features: exists ? prev.features.filter(f => f !== feature) : [...prev.features, feature] };
+    });
   };
 
   const handleImagesChange = (e) => {
@@ -122,44 +128,11 @@ export default function AddMarketplaceProduct() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(productData),
       });
-
       const result = await response.json();
       if (!response.ok) throw new Error(result.message || "Failed to add product");
 
       alert("✅ Product added successfully!");
-      setForm({
-        title: "",
-        category: "",
-        subcategory: "",
-        brand: "",
-        model: "",
-        condition: "",
-        used_detail: "",
-        ram: "",
-        storage: "",
-        color: "",
-        sim: "",
-        fuel_type: "",
-        features: "",
-        price: "",
-        bulk_price_from: "",
-        bulk_price_per_piece: "",
-        negotiable: false,
-        poster_name: user?.name || "",
-        phone_number: user?.phone_number || "",
-        additional_numbers: [],
-        state: "",
-        city: "",
-        images: [],
-        delivery: { name:"", region:"", days_from:"", days_to:"", fee:0 },
-        promoted: false,
-        promo_plan: "",
-        description: "",
-      });
-      setImageFiles([]);
-      setImagePreviews([]);
-      if (fileInputRef.current) fileInputRef.current.value = null;
-      setErrors({});
+      window.location.reload();
     } catch (err) {
       console.error(err);
       alert(err.message || "Failed to add product");
@@ -174,17 +147,20 @@ export default function AddMarketplaceProduct() {
   const categoryFeatures = featuresByCategory[form.category] || [];
   const availableSims = sims || [];
 
-  const TileList = ({ options, selected, onSelect }) => (
+  const TileList = ({ options = [], selected, onSelect, multiSelect = false }) => (
     <div className="tile-list">
-      {options.map(opt => (
-        <div
-          key={opt}
-          className={`tile ${selected === opt ? "selected" : ""}`}
-          onClick={() => onSelect(opt)}
-        >
-          {opt}
-        </div>
-      ))}
+      {options.map(opt => {
+        const isSelected = multiSelect ? selected.includes(opt) : selected === opt;
+        return (
+          <div
+            key={opt}
+            className={`tile ${isSelected ? "selected" : ""}`}
+            onClick={() => multiSelect ? onSelect(opt) : onSelect(opt)}
+          >
+            {opt}
+          </div>
+        );
+      })}
     </div>
   );
 
@@ -209,7 +185,7 @@ export default function AddMarketplaceProduct() {
         </select>
         {errors.subcategory && <span className="error">{errors.subcategory}</span>}
 
-        {/* 3. Brand/Model/Color/etc as Tiles */}
+        {/* 3. Tiles: Brand, Model, Condition, RAM, Storage, Color, SIM, Features */}
         {visibleFields.map(field => {
           switch(field){
             case "brand": return <TileList key="brand" options={availableBrands} selected={form.brand} onSelect={val=>handleChange("brand", val)} />;
@@ -220,8 +196,7 @@ export default function AddMarketplaceProduct() {
             case "storage": return <TileList key="storage" options={storageOptions} selected={form.storage} onSelect={val=>handleChange("storage", val)} />;
             case "color": return <TileList key="color" options={colors} selected={form.color} onSelect={val=>handleChange("color", val)} />;
             case "sim": return <TileList key="sim" options={availableSims} selected={form.sim} onSelect={val=>handleChange("sim", val)} />;
-            case "fuel_type": return <TileList key="fuel_type" options={fuelTypes} selected={form.fuel_type} onSelect={val=>handleChange("fuel_type", val)} />;
-            case "features": return <TileList key="features" options={categoryFeatures} selected={form.features} onSelect={val=>handleChange("features", val)} />;
+            case "features": return <TileList key="features" options={categoryFeatures} selected={form.features} onSelect={handleFeatureSelect} multiSelect={true} />;
             default: return null;
           }
         })}
@@ -238,10 +213,8 @@ export default function AddMarketplaceProduct() {
         {/* 6. Description */}
         <textarea placeholder="Description" value={form.description} onChange={e=>handleChange("description", e.target.value)} />
 
-        {/* 7. Price */}
+        {/* 7-8. Price & Bulk */}
         <input placeholder="Price" value={form.price} onChange={e=>handlePriceChange(e.target.value)} />
-
-        {/* 8. Bulk price */}
         <input placeholder="Bulk Price From" value={form.bulk_price_from} onChange={e=>handleChange("bulk_price_from", e.target.value)} />
         <input placeholder="Price Per Piece" value={form.bulk_price_per_piece} onChange={e=>handleChange("bulk_price_per_piece", e.target.value)} />
 
@@ -251,10 +224,8 @@ export default function AddMarketplaceProduct() {
           Are you negotiable?
         </label>
 
-        {/* 10. Poster Name */}
+        {/* 10-11. Poster Name & Phone */}
         <input placeholder="Your Name" value={form.poster_name} readOnly />
-
-        {/* 11. Phone Numbers */}
         <input placeholder="Phone Number" value={form.phone_number} onChange={e=>handleChange("phone_number", e.target.value)} />
         <input placeholder="Additional Phone Numbers" value={form.additional_numbers.join(", ")} onChange={e=>handleChange("additional_numbers", e.target.value.split(",").map(n=>n.trim()))} />
 
@@ -265,7 +236,7 @@ export default function AddMarketplaceProduct() {
         <input placeholder="Days From" type="number" value={form.delivery.days_from} onChange={e=>setForm(prev=>({...prev, delivery:{...prev.delivery, days_from:e.target.value}}))} />
         <input placeholder="Days To" type="number" value={form.delivery.days_to} onChange={e=>setForm(prev=>({...prev, delivery:{...prev.delivery, days_to:e.target.value}}))} />
         <label>
-          <input type="checkbox" checked={form.delivery.fee>0} onChange={e=>setForm(prev=>({...prev, delivery:{...prev.delivery, fee:e.target.checked ? 0 : 0}}))} />
+          <input type="checkbox" checked={form.delivery.fee>0} onChange={e=>setForm(prev=>({...prev, delivery:{...prev.delivery, fee: prev.delivery.fee>0 ? 0 : 100}}))} />
           Charge Fee for Delivery
         </label>
         {form.delivery.fee>0 && <input type="number" placeholder="Fee Amount" value={form.delivery.fee} onChange={e=>setForm(prev=>({...prev, delivery:{...prev.delivery, fee:e.target.value}}))} />}
@@ -285,7 +256,6 @@ export default function AddMarketplaceProduct() {
         {/* 14. Submit */}
         <div className="form-actions">
           <button type="submit" disabled={loading}>{loading ? "Posting..." : "Post Ad"}</button>
-          <button type="button" onClick={()=>window.location.reload()}>Cancel</button>
         </div>
       </form>
     </div>
