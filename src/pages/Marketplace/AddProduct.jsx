@@ -300,7 +300,86 @@ export default function AddMarketplaceProduct() {
           field="model"
         />
       )}
+       
+       {activeSelector === "condition" && (
+  <FullPageSelector
+    title="Select Condition"
+    options={conditions}
+    field="condition"
+  />
+)}
 
+{activeSelector === "used_detail" && (
+  <FullPageSelector
+    title="Select Used Detail"
+    options={usedDetails}
+    field="used_detail"
+  />
+)}
+
+{activeSelector === "ram" && (
+  <FullPageSelector
+    title="Select RAM"
+    options={ramOptions}
+    field="ram"
+  />
+)}
+
+{activeSelector === "storage" && (
+  <FullPageSelector
+    title="Select Storage"
+    options={storageOptions}
+    field="storage"
+  />
+)}
+
+{activeSelector === "color" && (
+  <FullPageSelector
+    title="Select Color"
+    options={colors}
+    field="color"
+  />
+)}
+
+{activeSelector === "sim" && (
+  <FullPageSelector
+    title="Select SIM"
+    options={sims}
+    field="sim"
+  />
+)}
+
+{activeSelector === "year" && (
+  <FullPageSelector
+    title="Select Year"
+    options={years}
+    field="year"
+  />
+)}
+
+{activeSelector === "engine" && (
+  <FullPageSelector
+    title="Select Engine"
+    options={engines}
+    field="engine"
+  />
+)}
+
+{activeSelector === "fuel_type" && (
+  <FullPageSelector
+    title="Select Fuel Type"
+    options={fuelTypes}
+    field="fuel_type"
+  />
+)}
+
+{activeSelector === "features" && (
+  <FullPageSelector
+    title="Select Features"
+    options={categoryFeatures}
+    field="features"
+  />
+)}
       {activeSelector === "state" && (
         <FullPageSelector
           title="Select State"
