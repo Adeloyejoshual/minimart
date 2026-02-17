@@ -1,5 +1,5 @@
 // src/pages/Marketplace/AddMarketplaceProduct.jsx
-import { useState, useRef, useEffect } from "react";
+import { useState, useRef } from "react";
 import { useAuth0 } from "@auth0/auth0-react";
 import { categoryFields } from "../../config/categoryFields";
 import { conditions, usedDetails } from "../../config/conditions";
@@ -16,29 +16,6 @@ import { models } from "../../config/models";
 import { sims } from "../../config/sim";
 import { years } from "../../config/years";
 
-// Example FullPageSelector component
-function FullPageSelector({ title, options, field, onSelect, onBack }) {
-  return (
-    <div style={{
-      position: "fixed",
-      top: 0, left: 0, right: 0, bottom: 0,
-      background: "#fff",
-      zIndex: 1000,
-      padding: "20px",
-      overflowY: "auto"
-    }}>
-      <button onClick={onBack} style={{ marginBottom: "20px" }}>Back</button>
-      <h3 style={{ marginBottom: "15px" }}>{title}</h3>
-      {options.map((opt) => (
-        <div key={opt} style={{ padding: "10px 0", borderBottom: "1px solid #eee", cursor: "pointer" }}
-             onClick={() => onSelect(field, opt)}>
-          {opt}
-        </div>
-      ))}
-    </div>
-  );
-}
-
 export default function AddMarketplaceProduct() {
   const { user } = useAuth0();
 
@@ -46,9 +23,6 @@ export default function AddMarketplaceProduct() {
     title: "",
     description: "",
     price: "",
-    bulk_price_from: "",
-    bulk_price_per_piece: "",
-    negotiation: "",
     category: "",
     subcategory: "",
     brand: "",
@@ -64,31 +38,23 @@ export default function AddMarketplaceProduct() {
     year: "",
     fuel_type: "",
     transmission: "",
-    age_range: "",
-    bedrooms: "",
-    bathrooms: "",
-    size: "",
-    furnished: false,
-    features: "",
-    exchange_possible: false,
     phone_number: user?.phone_number || "",
-    additional_phone_number: "",
+    additional_phone: "",
     poster_name: user?.name || "",
-    location: "",
     state: "",
-    country: "Nigeria",
     city: "",
+    location: "",
     images: [],
     video_link: "",
     promoted: false,
     promo_plan: "",
+    exchange_possible: false,
     delivery: {},
   });
 
   const [imageFiles, setImageFiles] = useState([]);
   const [imagePreviews, setImagePreviews] = useState([]);
   const [loading, setLoading] = useState(false);
-  const [activeSelector, setActiveSelector] = useState(null);
   const fileInputRef = useRef(null);
 
   const handleChange = (field, value) => {
@@ -99,26 +65,42 @@ export default function AddMarketplaceProduct() {
 
   const handleImagesChange = (e) => {
     const files = Array.from(e.target.files);
+    if (files.length > 10) {
+      alert("You can upload maximum 10 images");
+      return;
+    }
     setImageFiles(files);
     setImagePreviews(files.map((file) => URL.createObjectURL(file)));
   };
 
-  const handleSelect = (field, value) => {
-    handleChange(field, value);
-    setActiveSelector(null);
+  const validateForm = () => {
+    const errors = {};
+    if (!form.title || form.title.trim().length < 30)
+      errors.title = "Title must be at least 30 characters";
+    if (!form.description || form.description.trim().length < 50)
+      errors.description = "Description must be at least 50 characters";
+    if (!form.price || Number(form.price) <= 0)
+      errors.price = "Price must be greater than 0";
+    if (!form.phone_number || !/^\d{10,11}$/.test(form.phone_number))
+      errors.phone_number = "Enter a valid phone number";
+    if (!form.category) errors.category = "Category is required";
+    if (!form.state) errors.state = "Select a state";
+    if (!form.city) errors.city = "Select a city";
+    if (!imageFiles.length) errors.images = "Upload at least 1 image";
+    return errors;
   };
 
   const handleSubmit = async (e) => {
     e.preventDefault();
-    if (!form.title || !form.price || !form.category) {
-      alert("Title, Price, and Category are required");
+    const errors = validateForm();
+    if (Object.keys(errors).length > 0) {
+      alert(Object.values(errors)[0]);
       return;
     }
 
     try {
       setLoading(true);
       const uploadedUrls = [];
-
       for (let file of imageFiles) {
         const formData = new FormData();
         formData.append("file", file);
@@ -126,7 +108,6 @@ export default function AddMarketplaceProduct() {
           "upload_preset",
           import.meta.env.VITE_CLOUDINARY_UPLOAD_PRESET
         );
-
         const res = await fetch(
           `https://api.cloudinary.com/v1_1/${import.meta.env.VITE_CLOUDINARY_CLOUD_NAME}/upload`,
           { method: "POST", body: formData }
@@ -135,14 +116,7 @@ export default function AddMarketplaceProduct() {
         uploadedUrls.push(data.secure_url);
       }
 
-      const productData = {
-        ...form,
-        images: uploadedUrls,
-        bulk_price: {
-          from: form.bulk_price_from || null,
-          per_piece: form.bulk_price_per_piece || null,
-        },
-      };
+      const productData = { ...form, images: uploadedUrls };
 
       const response = await fetch("/api/marketplace", {
         method: "POST",
@@ -159,9 +133,6 @@ export default function AddMarketplaceProduct() {
         title: "",
         description: "",
         price: "",
-        bulk_price_from: "",
-        bulk_price_per_piece: "",
-        negotiation: "",
         category: "",
         subcategory: "",
         brand: "",
@@ -177,20 +148,14 @@ export default function AddMarketplaceProduct() {
         year: "",
         fuel_type: "",
         transmission: "",
-        age_range: "",
-        bedrooms: "",
-        bathrooms: "",
-        size: "",
-        furnished: false,
-        features: "",
-        exchange_possible: false,
-        location: "",
         state: "",
         city: "",
+        location: "",
         images: [],
         video_link: "",
         promoted: false,
         promo_plan: "",
+        exchange_possible: false,
         delivery: {},
       }));
       setImageFiles([]);
@@ -210,175 +175,7 @@ export default function AddMarketplaceProduct() {
   const categoryFeatures = featuresByCategory[form.category] || [];
   const availableSims = sims || [];
   const availableYears = years || [];
-  const availableCities = form.state ? locationsByState[form.state] || [] : [];
-
-  // If a selector is active, show only the full page selector
-  if (activeSelector) {
-    switch (activeSelector) {
-      case "category":
-        return (
-          <FullPageSelector
-            title="Select Category"
-            options={Object.keys(categoryFields)}
-            field="category"
-            onSelect={handleSelect}
-            onBack={() => setActiveSelector(null)}
-          />
-        );
-      case "brand":
-        return (
-          <FullPageSelector
-            title="Select Brand"
-            options={availableBrands}
-            field="brand"
-            onSelect={handleSelect}
-            onBack={() => setActiveSelector(null)}
-          />
-        );
-      case "model":
-        return (
-          <FullPageSelector
-            title="Select Model"
-            options={availableModels}
-            field="model"
-            onSelect={handleSelect}
-            onBack={() => setActiveSelector(null)}
-          />
-        );
-      case "condition":
-        return (
-          <FullPageSelector
-            title="Select Condition"
-            options={conditions}
-            field="condition"
-            onSelect={handleSelect}
-            onBack={() => setActiveSelector(null)}
-          />
-        );
-      case "used_detail":
-        return (
-          <FullPageSelector
-            title="Select Used Detail"
-            options={usedDetails}
-            field="used_detail"
-            onSelect={handleSelect}
-            onBack={() => setActiveSelector(null)}
-          />
-        );
-      case "ram":
-        return (
-          <FullPageSelector
-            title="Select RAM"
-            options={ramOptions}
-            field="ram"
-            onSelect={handleSelect}
-            onBack={() => setActiveSelector(null)}
-          />
-        );
-      case "storage":
-        return (
-          <FullPageSelector
-            title="Select Storage"
-            options={storageOptions}
-            field="storage"
-            onSelect={handleSelect}
-            onBack={() => setActiveSelector(null)}
-          />
-        );
-      case "color":
-        return (
-          <FullPageSelector
-            title="Select Color"
-            options={colors}
-            field="color"
-            onSelect={handleSelect}
-            onBack={() => setActiveSelector(null)}
-          />
-        );
-      case "sim":
-        return (
-          <FullPageSelector
-            title="Select SIM"
-            options={availableSims}
-            field="sim"
-            onSelect={handleSelect}
-            onBack={() => setActiveSelector(null)}
-          />
-        );
-      case "year":
-        return (
-          <FullPageSelector
-            title="Select Year"
-            options={availableYears}
-            field="year"
-            onSelect={handleSelect}
-            onBack={() => setActiveSelector(null)}
-          />
-        );
-      case "engine":
-        return (
-          <FullPageSelector
-            title="Select Engine"
-            options={engines}
-            field="engine"
-            onSelect={handleSelect}
-            onBack={() => setActiveSelector(null)}
-          />
-        );
-      case "fuel_type":
-        return (
-          <FullPageSelector
-            title="Select Fuel Type"
-            options={fuelTypes}
-            field="fuel_type"
-            onSelect={handleSelect}
-            onBack={() => setActiveSelector(null)}
-          />
-        );
-      case "features":
-        return (
-          <FullPageSelector
-            title="Select Features"
-            options={categoryFeatures}
-            field="features"
-            onSelect={handleSelect}
-            onBack={() => setActiveSelector(null)}
-          />
-        );
-      case "state":
-        return (
-          <FullPageSelector
-            title="Select State"
-            options={Object.keys(locationsByState)}
-            field="state"
-            onSelect={handleSelect}
-            onBack={() => setActiveSelector(null)}
-          />
-        );
-      case "city":
-        return (
-          <FullPageSelector
-            title="Select City"
-            options={availableCities}
-            field="city"
-            onSelect={handleSelect}
-            onBack={() => setActiveSelector(null)}
-          />
-        );
-      case "promo_plan":
-        return (
-          <FullPageSelector
-            title="Select Promotion Plan"
-            options={promotionPlans.map(p => p.name)}
-            field="promo_plan"
-            onSelect={handleSelect}
-            onBack={() => setActiveSelector(null)}
-          />
-        );
-      default:
-        return null;
-    }
-  }
+  const availableCities = locationsByState[form.state] || [];
 
   return (
     <div style={{ maxWidth: "700px", margin: "40px auto", padding: "20px", border: "1px solid #eee", borderRadius: "10px", boxShadow: "0 2px 10px rgba(0,0,0,0.1)" }}>
@@ -389,58 +186,155 @@ export default function AddMarketplaceProduct() {
         <input type="text" placeholder="Title" value={form.title} onChange={(e) => handleChange("title", e.target.value)} style={{ width: "100%", padding: "10px", marginBottom: "15px" }} />
         <textarea placeholder="Description" value={form.description} onChange={(e) => handleChange("description", e.target.value)} style={{ width: "100%", padding: "10px", marginBottom: "15px" }} />
 
-        {/* Price & Bulk */}
-        <input type="number" placeholder="Price" value={form.price} onChange={(e) => handleChange("price", e.target.value)} style={{ width: "48%", padding: "10px", marginBottom: "15px", marginRight: "4%" }} />
-        <input type="number" placeholder="Bulk from (pieces)" value={form.bulk_price_from} onChange={(e) => handleChange("bulk_price_from", e.target.value)} style={{ width: "24%", padding: "10px", marginBottom: "15px", marginRight: "2%" }} />
-        <input type="number" placeholder="Per piece (₦)" value={form.bulk_price_per_piece} onChange={(e) => handleChange("bulk_price_per_piece", e.target.value)} style={{ width: "24%", padding: "10px", marginBottom: "15px" }} />
+        {/* Price */}
+        <input type="number" placeholder="Price" value={form.price} onChange={(e) => handleChange("price", e.target.value)} style={{ width: "100%", padding: "10px", marginBottom: "15px" }} />
 
-        {/* Negotiation */}
-        <select value={form.negotiation} onChange={(e) => handleChange("negotiation", e.target.value)} style={{ width: "100%", padding: "10px", marginBottom: "15px" }}>
-          <option value="">Are you open to negotiation?</option>
-          <option value="Yes">Yes</option>
-          <option value="No">No</option>
-          <option value="Not sure">Not sure</option>
+        {/* Phone Numbers */}
+        <input type="text" placeholder="Phone Number" value={form.phone_number} onChange={(e) => handleChange("phone_number", e.target.value)} style={{ width: "100%", padding: "10px", marginBottom: "15px" }} />
+        <input type="text" placeholder="Additional Phone Number" value={form.additional_phone} onChange={(e) => handleChange("additional_phone", e.target.value)} style={{ width: "100%", padding: "10px", marginBottom: "15px" }} />
+
+        {/* Poster Name */}
+        <input type="text" placeholder="Poster Name" value={form.poster_name} readOnly style={{ width: "100%", padding: "10px", marginBottom: "15px", background: "#f5f5f5" }} />
+
+        {/* Category */}
+        <select value={form.category} onChange={(e) => handleChange("category", e.target.value)} style={{ width: "100%", padding: "10px", marginBottom: "15px" }}>
+          <option value="">Select Category</option>
+          {Object.keys(categoryFields).map((cat) => <option key={cat} value={cat}>{cat}</option>)}
         </select>
 
-        {/* Poster & Phones */}
-        <input type="text" placeholder="Poster Name" value={form.poster_name} disabled style={{ width: "100%", padding: "10px", marginBottom: "15px", background: "#eee" }} />
-        <input type="text" placeholder="Phone Number" value={form.phone_number} onChange={(e) => handleChange("phone_number", e.target.value)} style={{ width: "48%", padding: "10px", marginBottom: "15px", marginRight: "4%" }} />
-        <input type="text" placeholder="Additional Phone Number" value={form.additional_phone_number} onChange={(e) => handleChange("additional_phone_number", e.target.value)} style={{ width: "48%", padding: "10px", marginBottom: "15px" }} />
-
-        {/* Category Selector */}
-        <div onClick={() => setActiveSelector("category")} style={{ width: "100%", padding: "10px", marginBottom: "15px", border: "1px solid #ccc", cursor: "pointer" }}>
-          {form.category || "Select Category"}
-        </div>
-
         {/* Dynamic Fields */}
-        {visibleFields.map((field) => (
-          <div
-            key={field}
-            onClick={() => {
-              if (["brand","model","condition","used_detail","ram","storage","color","sim","features","engine","fuel_type","year","state","city","promo_plan"].includes(field))
-                setActiveSelector(field);
-            }}
-            style={{ width: "100%", padding: "10px", marginBottom: "15px", border: "1px solid #ccc", cursor: ["brand","model","condition","used_detail","ram","storage","color","sim","features","engine","fuel_type","year","state","city","promo_plan"].includes(field) ? "pointer" : "auto" }}
-          >
-            {form[field] || field.replace("_", " ").toUpperCase()}
-          </div>
-        ))}
+        {visibleFields.map((field) => {
+          switch (field) {
+            case "brand":
+              return (
+                <select key={field} value={form.brand} onChange={(e) => handleChange("brand", e.target.value)} style={{ width: "100%", padding: "10px", marginBottom: "15px" }}>
+                  <option value="">Select Brand</option>
+                  {availableBrands.map((b) => <option key={b} value={b}>{b}</option>)}
+                </select>
+              );
+            case "model":
+              return (
+                <select key={field} value={form.model} onChange={(e) => handleChange("model", e.target.value)} style={{ width: "100%", padding: "10px", marginBottom: "15px" }}>
+                  <option value="">Select Model</option>
+                  {availableModels.map((m) => <option key={m} value={m}>{m}</option>)}
+                </select>
+              );
+            case "condition":
+              return (
+                <select key={field} value={form.condition} onChange={(e) => handleChange("condition", e.target.value)} style={{ width: "100%", padding: "10px", marginBottom: "15px" }}>
+                  <option value="">Select Condition</option>
+                  {conditions.map((c) => <option key={c} value={c}>{c}</option>)}
+                </select>
+              );
+            case "used_detail":
+              return (
+                <select key={field} value={form.used_detail} onChange={(e) => handleChange("used_detail", e.target.value)} style={{ width: "100%", padding: "10px", marginBottom: "15px" }}>
+                  <option value="">Select Detail if Used</option>
+                  {usedDetails.map((u) => <option key={u} value={u}>{u}</option>)}
+                </select>
+              );
+            case "ram":
+              return (
+                <select key={field} value={form.ram} onChange={(e) => handleChange("ram", e.target.value)} style={{ width: "100%", padding: "10px", marginBottom: "15px" }}>
+                  <option value="">Select RAM</option>
+                  {ramOptions.map((r) => <option key={r} value={r}>{r}</option>)}
+                </select>
+              );
+            case "storage":
+              return (
+                <select key={field} value={form.storage} onChange={(e) => handleChange("storage", e.target.value)} style={{ width: "100%", padding: "10px", marginBottom: "15px" }}>
+                  <option value="">Select Storage</option>
+                  {storageOptions.map((s) => <option key={s} value={s}>{s}</option>)}
+                </select>
+              );
+            case "color":
+              return (
+                <select key={field} value={form.color} onChange={(e) => handleChange("color", e.target.value)} style={{ width: "100%", padding: "10px", marginBottom: "15px" }}>
+                  <option value="">Select Color</option>
+                  {colors.map((c) => <option key={c} value={c}>{c}</option>)}
+                </select>
+              );
+            case "sim":
+              return (
+                <select key={field} value={form.sim} onChange={(e) => handleChange("sim", e.target.value)} style={{ width: "100%", padding: "10px", marginBottom: "15px" }}>
+                  <option value="">Select SIM</option>
+                  {availableSims.map((s) => <option key={s} value={s}>{s}</option>)}
+                </select>
+              );
+            case "year":
+              return (
+                <select key={field} value={form.year} onChange={(e) => handleChange("year", e.target.value)} style={{ width: "100%", padding: "10px", marginBottom: "15px" }}>
+                  <option value="">Select Year</option>
+                  {availableYears.map((y) => <option key={y} value={y}>{y}</option>)}
+                </select>
+              );
+            case "engine":
+              return (
+                <select key={field} value={form.engine} onChange={(e) => handleChange("engine", e.target.value)} style={{ width: "100%", padding: "10px", marginBottom: "15px" }}>
+                  <option value="">Select Engine</option>
+                  {engines.map((en) => <option key={en} value={en}>{en}</option>)}
+                </select>
+              );
+            case "fuel_type":
+              return (
+                <select key={field} value={form.fuel_type} onChange={(e) => handleChange("fuel_type", e.target.value)} style={{ width: "100%", padding: "10px", marginBottom: "15px" }}>
+                  <option value="">Select Fuel Type</option>
+                  {fuelTypes.map((f) => <option key={f} value={f}>{f}</option>)}
+                </select>
+              );
+            case "features":
+              return (
+                <select key={field} value={form.features} onChange={(e) => handleChange("features", e.target.value)} style={{ width: "100%", padding: "10px", marginBottom: "15px" }}>
+                  <option value="">Select Features</option>
+                  {categoryFeatures.map((f) => <option key={f} value={f}>{f}</option>)}
+                </select>
+              );
+            case "exchange_possible":
+            case "promoted":
+              return (
+                <label key={field} style={{ display: "block", marginBottom: "15px" }}>
+                  <input type="checkbox" checked={form[field]} onChange={(e) => handleChange(field, e.target.checked)} /> {field.replace("_", " ").toUpperCase()}
+                </label>
+              );
+            default:
+              return null;
+          }
+        })}
+
+        {/* State / City */}
+        <select value={form.state} onChange={(e) => handleChange("state", e.target.value)} style={{ width: "100%", padding: "10px", marginBottom: "15px" }}>
+          <option value="">Select State</option>
+          {Object.keys(locationsByState).map((st) => <option key={st} value={st}>{st}</option>)}
+        </select>
+        <select value={form.city} onChange={(e) => handleChange("city", e.target.value)} style={{ width: "100%", padding: "10px", marginBottom: "15px" }}>
+          <option value="">Select City</option>
+          {availableCities.map((ct) => <option key={ct} value={ct}>{ct}</option>)}
+        </select>
 
         {/* Location / Address */}
         <input type="text" placeholder="Location / Address" value={form.location} onChange={(e) => handleChange("location", e.target.value)} style={{ width: "100%", padding: "10px", marginBottom: "15px" }} />
 
         {/* Images */}
-        <div style={{ marginBottom: "15px" }}>
-          <input type="file" accept="image/*" multiple ref={fileInputRef} onChange={handleImagesChange} />
-          <div style={{ display: "flex", gap: "10px", flexWrap: "wrap", marginTop: "10px" }}>
-            {imagePreviews.map((src, i) => (
-              <img key={i} src={src} alt="Preview" style={{ width: "80px", height: "80px", objectFit: "cover", borderRadius: "5px" }} />
-            ))}
-          </div>
+        <input type="file" accept="image/*" multiple ref={fileInputRef} onChange={handleImagesChange} style={{ marginBottom: "15px" }} />
+        <div style={{ display: "flex", gap: "10px", flexWrap: "wrap", marginBottom: "15px" }}>
+          {imagePreviews.map((src, i) => (
+            <img key={i} src={src} alt="Preview" style={{ width: "80px", height: "80px", objectFit: "cover", borderRadius: "5px" }} />
+          ))}
         </div>
 
         {/* Video Link */}
         <input type="text" placeholder="Video Link" value={form.video_link} onChange={(e) => handleChange("video_link", e.target.value)} style={{ width: "100%", padding: "10px", marginBottom: "15px" }} />
+
+        {/* Promotion Plan */}
+        <label style={{ display: "block", marginBottom: "15px" }}>
+          <input type="checkbox" checked={form.promoted} onChange={(e) => handleChange("promoted", e.target.checked)} /> Promote Ad
+        </label>
+        {form.promoted && (
+          <select value={form.promo_plan} onChange={(e) => handleChange("promo_plan", e.target.value)} style={{ width: "100%", padding: "10px", marginBottom: "15px" }}>
+            <option value="">Select Promotion Plan</option>
+            {promotionPlans.map((p) => <option key={p} value={p}>{p}</option>)}
+          </select>
+        )}
 
         {/* Submit */}
         <button type="submit" disabled={loading} style={{ width: "100%", padding: "12px", background: "black", color: "#fff", border: "none", cursor: "pointer", fontSize: "16px" }}>
