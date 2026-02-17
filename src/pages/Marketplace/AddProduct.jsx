@@ -53,7 +53,8 @@ export default function AddMarketplaceProduct() {
     promo_plan: "",
     flash_sale: false,
     exchange_possible: false,
-    delivery: {},
+    negotiable: false,
+    deliveryRegions: [],
   });
 
   const [imageFiles, setImageFiles] = useState([]);
