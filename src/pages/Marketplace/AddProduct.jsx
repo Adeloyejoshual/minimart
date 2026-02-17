@@ -1,5 +1,5 @@
 // src/pages/Marketplace/AddMarketplaceProduct.jsx
-import { useState, useRef, useEffect } from "react";
+import { useState, useRef } from "react";
 import { useAuth0 } from "@auth0/auth0-react";
 import { categoryFields } from "../../config/categoryFields";
 import { conditions, usedDetails } from "../../config/conditions";
@@ -123,7 +123,6 @@ export default function AddMarketplaceProduct() {
       if (!response.ok) throw new Error(result.message || "Failed to add product");
 
       alert("✅ Product added successfully!");
-      // reset form except auto-filled user info
       setForm((prev) => ({
         ...prev,
         title: "",
@@ -182,21 +181,74 @@ export default function AddMarketplaceProduct() {
   const availableYears = years || [];
 
   return (
-    <div style={{ maxWidth: "700px", margin: "40px auto", padding: "20px", border: "1px solid #eee", borderRadius: "10px", boxShadow: "0 2px 10px rgba(0,0,0,0.1)" }}>
-      <h2 style={{ textAlign: "center", marginBottom: "20px" }}>Post Marketplace Ad</h2>
+    <div
+      style={{
+        maxWidth: "700px",
+        margin: "40px auto",
+        padding: "20px",
+        border: "1px solid #eee",
+        borderRadius: "10px",
+        boxShadow: "0 2px 10px rgba(0,0,0,0.1)",
+      }}
+    >
+      <h2 style={{ textAlign: "center", marginBottom: "20px" }}>
+        Post Marketplace Ad
+      </h2>
       <form onSubmit={handleSubmit}>
-
         {/* Title & Description */}
-        <input type="text" placeholder="Title" value={form.title} onChange={(e) => handleChange("title", e.target.value)} style={{ width: "100%", padding: "10px", marginBottom: "15px" }} />
-        <textarea placeholder="Description" value={form.description} onChange={(e) => handleChange("description", e.target.value)} style={{ width: "100%", padding: "10px", marginBottom: "15px" }} />
+        <input
+          type="text"
+          placeholder="Title"
+          value={form.title}
+          onChange={(e) => handleChange("title", e.target.value)}
+          style={{ width: "100%", padding: "10px", marginBottom: "15px" }}
+        />
+        <textarea
+          placeholder="Description"
+          value={form.description}
+          onChange={(e) => handleChange("description", e.target.value)}
+          style={{ width: "100%", padding: "10px", marginBottom: "15px" }}
+        />
 
         {/* Price & Bulk */}
-        <input type="number" placeholder="Price" value={form.price} onChange={(e) => handleChange("price", e.target.value)} style={{ width: "48%", padding: "10px", marginBottom: "15px", marginRight: "4%" }} />
-        <input type="number" placeholder="Bulk from (pieces)" value={form.bulk_price_from} onChange={(e) => handleChange("bulk_price_from", e.target.value)} style={{ width: "24%", padding: "10px", marginBottom: "15px", marginRight: "2%" }} />
-        <input type="number" placeholder="Per piece (₦)" value={form.bulk_price_per_piece} onChange={(e) => handleChange("bulk_price_per_piece", e.target.value)} style={{ width: "24%", padding: "10px", marginBottom: "15px" }} />
+        <input
+          type="number"
+          placeholder="Price"
+          value={form.price}
+          onChange={(e) => handleChange("price", e.target.value)}
+          style={{
+            width: "48%",
+            padding: "10px",
+            marginBottom: "15px",
+            marginRight: "4%",
+          }}
+        />
+        <input
+          type="number"
+          placeholder="Bulk from (pieces)"
+          value={form.bulk_price_from}
+          onChange={(e) => handleChange("bulk_price_from", e.target.value)}
+          style={{
+            width: "24%",
+            padding: "10px",
+            marginBottom: "15px",
+            marginRight: "2%",
+          }}
+        />
+        <input
+          type="number"
+          placeholder="Per piece (₦)"
+          value={form.bulk_price_per_piece}
+          onChange={(e) => handleChange("bulk_price_per_piece", e.target.value)}
+          style={{ width: "24%", padding: "10px", marginBottom: "15px" }}
+        />
 
         {/* Negotiation */}
-        <select value={form.negotiation} onChange={(e) => handleChange("negotiation", e.target.value)} style={{ width: "100%", padding: "10px", marginBottom: "15px" }}>
+        <select
+          value={form.negotiation}
+          onChange={(e) => handleChange("negotiation", e.target.value)}
+          style={{ width: "100%", padding: "10px", marginBottom: "15px" }}
+        >
           <option value="">Are you open to negotiation?</option>
           <option value="Yes">Yes</option>
           <option value="No">No</option>
@@ -204,9 +256,17 @@ export default function AddMarketplaceProduct() {
         </select>
 
         {/* Category */}
-        <select value={form.category} onChange={(e) => handleChange("category", e.target.value)} style={{ width: "100%", padding: "10px", marginBottom: "15px" }}>
+        <select
+          value={form.category}
+          onChange={(e) => handleChange("category", e.target.value)}
+          style={{ width: "100%", padding: "10px", marginBottom: "15px" }}
+        >
           <option value="">Select Category</option>
-          {Object.keys(categoryFields).map((cat) => <option key={cat} value={cat}>{cat}</option>)}
+          {Object.keys(categoryFields).map((cat) => (
+            <option key={cat} value={cat}>
+              {cat}
+            </option>
+          ))}
         </select>
 
         {/* Dynamic Fields */}
@@ -214,118 +274,254 @@ export default function AddMarketplaceProduct() {
           switch (field) {
             case "brand":
               return (
-                <select key={field} value={form.brand} onChange={(e) => handleChange("brand", e.target.value)} style={{ width: "100%", padding: "10px", marginBottom: "15px" }}>
+                <select
+                  key={field}
+                  value={form.brand}
+                  onChange={(e) => handleChange("brand", e.target.value)}
+                  style={{ width: "100%", padding: "10px", marginBottom: "15px" }}
+                >
                   <option value="">Select Brand</option>
-                  {availableBrands.map((b) => <option key={b} value={b}>{b}</option>)}
+                  {availableBrands.map((b) => (
+                    <option key={b} value={b}>
+                      {b}
+                    </option>
+                  ))}
                 </select>
               );
             case "model":
               return (
-                <select key={field} value={form.model} onChange={(e) => handleChange("model", e.target.value)} style={{ width: "100%", padding: "10px", marginBottom: "15px" }}>
+                <select
+                  key={field}
+                  value={form.model}
+                  onChange={(e) => handleChange("model", e.target.value)}
+                  style={{ width: "100%", padding: "10px", marginBottom: "15px" }}
+                >
                   <option value="">Select Model</option>
-                  {availableModels.map((m) => <option key={m} value={m}>{m}</option>)}
-                </select>
-              );
-            case "sim":
-              return (
-                <select key={field} value={form.sim} onChange={(e) => handleChange("sim", e.target.value)} style={{ width: "100%", padding: "10px", marginBottom: "15px" }}>
-                  <option value="">Select SIM</option>
-                  {availableSims.map((s) => <option key={s} value={s}>{s}</option>)}
-                </select>
-              );
-            case "year":
-              return (
-                <select key={field} value={form.year} onChange={(e) => handleChange("year", e.target.value)} style={{ width: "100%", padding: "10px", marginBottom: "15px" }}>
-                  <option value="">Select Year</option>
-                  {availableYears.map((y) => <option key={y} value={y}>{y}</option>)}
-                </select>
-              );
-            case "condition":
-              return (
-                <select key={field} value={form.condition} onChange={(e) => handleChange("condition", e.target.value)} style={{ width: "100%", padding: "10px", marginBottom: "15px" }}>
-                  <option value="">Select Condition</option>
-                  {conditions.map((c) => <option key={c} value={c}>{c}</option>)}
-                </select>
-              );
-            case "used_detail":
-              return (
-                <select key={field} value={form.used_detail} onChange={(e) => handleChange("used_detail", e.target.value)} style={{ width: "100%", padding: "10px", marginBottom: "15px" }}>
-                  <option value="">Select Detail if Used</option>
-                  {usedDetails.map((u) => <option key={u} value={u}>{u}</option>)}
+                  {availableModels.map((m) => (
+                    <option key={m} value={m}>
+                      {m}
+                    </option>
+                  ))}
                 </select>
               );
             case "ram":
               return (
-                <select key={field} value={form.ram} onChange={(e) => handleChange("ram", e.target.value)} style={{ width: "100%", padding: "10px", marginBottom: "15px" }}>
+                <select
+                  key={field}
+                  value={form.ram}
+                  onChange={(e) => handleChange("ram", e.target.value)}
+                  style={{ width: "100%", padding: "10px", marginBottom: "15px" }}
+                >
                   <option value="">Select RAM</option>
-                  {ramOptions.map((r) => <option key={r} value={r}>{r}</option>)}
+                  {ramOptions.map((r) => (
+                    <option key={r} value={r}>
+                      {r}
+                    </option>
+                  ))}
                 </select>
               );
             case "storage":
               return (
-                <select key={field} value={form.storage} onChange={(e) => handleChange("storage", e.target.value)} style={{ width: "100%", padding: "10px", marginBottom: "15px" }}>
+                <select
+                  key={field}
+                  value={form.storage}
+                  onChange={(e) => handleChange("storage", e.target.value)}
+                  style={{ width: "100%", padding: "10px", marginBottom: "15px" }}
+                >
                   <option value="">Select Storage</option>
-                  {storageOptions.map((s) => <option key={s} value={s}>{s}</option>)}
+                  {storageOptions.map((s) => (
+                    <option key={s} value={s}>
+                      {s}
+                    </option>
+                  ))}
                 </select>
               );
             case "color":
               return (
-                <select key={field} value={form.color} onChange={(e) => handleChange("color", e.target.value)} style={{ width: "100%", padding: "10px", marginBottom: "15px" }}>
+                <select
+                  key={field}
+                  value={form.color}
+                  onChange={(e) => handleChange("color", e.target.value)}
+                  style={{ width: "100%", padding: "10px", marginBottom: "15px" }}
+                >
                   <option value="">Select Color</option>
-                  {colors.map((c) => <option key={c} value={c}>{c}</option>)}
+                  {colors.map((c) => (
+                    <option key={c} value={c}>
+                      {c}
+                    </option>
+                  ))}
                 </select>
               );
-            case "engine":
+            case "condition":
               return (
-                <select key={field} value={form.engine} onChange={(e) => handleChange("engine", e.target.value)} style={{ width: "100%", padding: "10px", marginBottom: "15px" }}>
-                  <option value="">Select Engine</option>
-                  {engines.map((en) => <option key={en} value={en}>{en}</option>)}
+                <select
+                  key={field}
+                  value={form.condition}
+                  onChange={(e) => handleChange("condition", e.target.value)}
+                  style={{ width: "100%", padding: "10px", marginBottom: "15px" }}
+                >
+                  <option value="">Select Condition</option>
+                  {conditions.map((c) => (
+                    <option key={c} value={c}>
+                      {c}
+                    </option>
+                  ))}
                 </select>
               );
-            case "fuel_type":
+            case "used_detail":
               return (
-                <select key={field} value={form.fuel_type} onChange={(e) => handleChange("fuel_type", e.target.value)} style={{ width: "100%", padding: "10px", marginBottom: "15px" }}>
-                  <option value="">Select Fuel Type</option>
-                  {fuelTypes.map((f) => <option key={f} value={f}>{f}</option>)}
+                <select
+                  key={field}
+                  value={form.used_detail}
+                  onChange={(e) => handleChange("used_detail", e.target.value)}
+                  style={{ width: "100%", padding: "10px", marginBottom: "15px" }}
+                >
+                  <option value="">Select Detail if Used</option>
+                  {usedDetails.map((u) => (
+                    <option key={u} value={u}>
+                      {u}
+                    </option>
+                  ))}
                 </select>
-              );
-            case "features":
-              return (
-                <select key={field} value={form.features} onChange={(e) => handleChange("features", e.target.value)} style={{ width: "100%", padding: "10px", marginBottom: "15px" }}>
-                  <option value="">Select Features</option>
-                  {categoryFeatures.map((f) => <option key={f} value={f}>{f}</option>)}
-                </select>
-              );
-            case "exchange_possible":
-            case "furnished":
-            case "promoted":
-              return (
-                <label key={field} style={{ display: "block", marginBottom: "15px" }}>
-                  <input type="checkbox" checked={form[field]} onChange={(e) => handleChange(field, e.target.checked)} /> {field.replace("_", " ").toUpperCase()}
-                </label>
               );
             default:
               return (
-                <input key={field} type="text" placeholder={field.replace("_", " ").toUpperCase()} value={form[field]} onChange={(e) => handleChange(field, e.target.value)} style={{ width: "100%", padding: "10px", marginBottom: "15px" }} />
+                <input
+                  key={field}
+                  type="text"
+                  placeholder={field.replace("_", " ").toUpperCase()}
+                  value={form[field]}
+                  onChange={(e) => handleChange(field, e.target.value)}
+                  style={{ width: "100%", padding: "10px", marginBottom: "15px" }}
+                />
               );
           }
         })}
 
+        {/* Contact & Location */}
+        <h3 style={{ marginBottom: "10px" }}>Contact & Location</h3>
+        <input
+          type="text"
+          placeholder="Phone Number"
+          value={form.phone_number}
+          onChange={(e) => handleChange("phone_number", e.target.value)}
+          style={{
+            width: "48%",
+            padding: "10px",
+            marginBottom: "15px",
+            marginRight: "4%",
+          }}
+        />
+        <input
+          type="text"
+          placeholder="Poster Name"
+          value={form.poster_name}
+          onChange={(e) => handleChange("poster_name", e.target.value)}
+          style={{ width: "48%", padding: "10px", marginBottom: "15px" }}
+        />
+
+        {/* State & City */}
+        <select
+          value={form.state}
+          onChange={(e) => {
+            handleChange("state", e.target.value);
+            handleChange("city", "");
+          }}
+          style={{
+            width: "48%",
+            padding: "10px",
+            marginBottom: "15px",
+            marginRight: "4%",
+          }}
+        >
+          <option value="">Select State</option>
+          {Object.keys(locationsByState).map((state) => (
+            <option key={state} value={state}>
+              {state}
+            </option>
+          ))}
+        </select>
+
+        <select
+          value={form.city}
+          onChange={(e) => handleChange("city", e.target.value)}
+          style={{ width: "48%", padding: "10px", marginBottom: "15px" }}
+          disabled={!form.state}
+        >
+          <option value="">
+            {form.state ? "Select City" : "Select State First"}
+          </option>
+          {(locationsByState[form.state] || []).map((city) => (
+            <option key={city} value={city}>
+              {city}
+            </option>
+          ))}
+        </select>
+
+        <input
+          type="text"
+          placeholder="Location / Address"
+          value={form.location}
+          onChange={(e) => handleChange("location", e.target.value)}
+          style={{ width: "100%", padding: "10px", marginBottom: "15px" }}
+        />
+
         {/* Images */}
         <div style={{ marginBottom: "15px" }}>
-          <input type="file" accept="image/*" multiple ref={fileInputRef} onChange={handleImagesChange} />
-          <div style={{ display: "flex", gap: "10px", flexWrap: "wrap", marginTop: "10px" }}>
+          <input
+            type="file"
+            accept="image/*"
+            multiple
+            ref={fileInputRef}
+            onChange={handleImagesChange}
+          />
+          <div
+            style={{
+              display: "flex",
+              gap: "10px",
+              flexWrap: "wrap",
+              marginTop: "10px",
+            }}
+          >
             {imagePreviews.map((src, i) => (
-              <img key={i} src={src} alt="Preview" style={{ width: "80px", height: "80px", objectFit: "cover", borderRadius: "5px" }} />
+              <img
+                key={i}
+                src={src}
+                alt="Preview"
+                style={{
+                  width: "80px",
+                  height: "80px",
+                  objectFit: "cover",
+                  borderRadius: "5px",
+                }}
+              />
             ))}
           </div>
         </div>
 
         {/* Video Link */}
-        <input type="text" placeholder="Video Link" value={form.video_link} onChange={(e) => handleChange("video_link", e.target.value)} style={{ width: "100%", padding: "10px", marginBottom: "15px" }} />
+        <input
+          type="text"
+          placeholder="Video Link"
+          value={form.video_link}
+          onChange={(e) => handleChange("video_link", e.target.value)}
+          style={{ width: "100%", padding: "10px", marginBottom: "15px" }}
+        />
 
         {/* Post Button */}
-        <button type="submit" disabled={loading} style={{ width: "100%", padding: "12px", background: "black", color: "#fff", border: "none", cursor: "pointer", fontSize: "16px" }}>
+        <button
+          type="submit"
+          disabled={loading}
+          style={{
+            width: "100%",
+            padding: "12px",
+            background: "black",
+            color: "#fff",
+            border: "none",
+            cursor: "pointer",
+            fontSize: "16px",
+          }}
+        >
           {loading ? "Posting..." : "Post Ad"}
         </button>
       </form>
