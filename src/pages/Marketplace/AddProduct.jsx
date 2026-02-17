@@ -1,5 +1,5 @@
 // src/pages/Marketplace/AddMarketplaceProduct.jsx
-import { useState, useRef } from "react";
+import { useState, useRef, useEffect } from "react";
 import { useAuth0 } from "@auth0/auth0-react";
 import { categoryFields } from "../../config/categoryFields";
 import { conditions, usedDetails } from "../../config/conditions";
@@ -19,7 +19,6 @@ import { years } from "../../config/years";
 export default function AddMarketplaceProduct() {
   const { user } = useAuth0();
 
-  // ---------------- FORM STATE ----------------
   const [form, setForm] = useState({
     title: "",
     description: "",
@@ -27,7 +26,6 @@ export default function AddMarketplaceProduct() {
     discount_price: "",
     quantity: "",
     category: "",
-    subcategory: "",
     brand: "",
     model: "",
     condition: "",
@@ -55,7 +53,7 @@ export default function AddMarketplaceProduct() {
     flash_sale: false,
     exchange_possible: false,
     negotiable: false,
-    deliveryRegions: []
+    deliveryRegions: [],
   });
 
   const [deliveryForm, setDeliveryForm] = useState({
@@ -79,11 +77,33 @@ export default function AddMarketplaceProduct() {
 
   const fileInputRef = useRef(null);
 
-  // ---------------- FORM HANDLERS ----------------
+  // ------------------ Load Draft ------------------
+  useEffect(() => {
+    const savedForm = localStorage.getItem("marketplace_draft");
+    const savedImages = localStorage.getItem("marketplace_images");
+    const savedDelivery = localStorage.getItem("marketplace_delivery");
+
+    if (savedForm) setForm(JSON.parse(savedForm));
+    if (savedImages) setImagePreviews(JSON.parse(savedImages));
+    if (savedDelivery)
+      setForm(prev => ({ ...prev, deliveryRegions: JSON.parse(savedDelivery) }));
+  }, []);
+
+  // ------------------ Auto-save Draft ------------------
+  useEffect(() => {
+    localStorage.setItem("marketplace_draft", JSON.stringify(form));
+    localStorage.setItem("marketplace_delivery", JSON.stringify(form.deliveryRegions));
+  }, [form]);
+
+  useEffect(() => {
+    localStorage.setItem("marketplace_images", JSON.stringify(imagePreviews));
+  }, [imagePreviews]);
+
+  // ------------------ Handlers ------------------
   const handleChange = (field, value) => {
-    setForm((prev) => ({ ...prev, [field]: value }));
-    if (field === "brand") setForm((prev) => ({ ...prev, model: "" }));
-    if (field === "state") setForm((prev) => ({ ...prev, city: "" }));
+    setForm(prev => ({ ...prev, [field]: value }));
+    if (field === "brand") setForm(prev => ({ ...prev, model: "" }));
+    if (field === "state") setForm(prev => ({ ...prev, city: "" }));
   };
 
   const openSelector = (field, options) => {
@@ -103,10 +123,10 @@ export default function AddMarketplaceProduct() {
       return;
     }
     setImageFiles(files);
-    setImagePreviews(files.map((file) => URL.createObjectURL(file)));
+    setImagePreviews(files.map(f => URL.createObjectURL(f)));
   };
 
-  // ---------------- DELIVERY FUNCTIONS ----------------
+  // ------------------ Delivery Functions ------------------
   const addDeliveryRegion = () => {
     if (!deliveryForm.state || !deliveryForm.city) {
       alert("Select delivery state and city");
@@ -125,10 +145,7 @@ export default function AddMarketplaceProduct() {
 
     setForm(prev => ({
       ...prev,
-      deliveryRegions: [
-        ...prev.deliveryRegions,
-        { ...deliveryForm, isFreeDelivery }
-      ]
+      deliveryRegions: [...prev.deliveryRegions, { ...deliveryForm, isFreeDelivery }]
     }));
 
     setDeliveryForm({
@@ -151,7 +168,7 @@ export default function AddMarketplaceProduct() {
     }));
   };
 
-  // ---------------- VALIDATION ----------------
+  // ------------------ Validation ------------------
   const validateForm = () => {
     const errors = {};
     if (!form.title || form.title.trim().length < 30)
@@ -169,7 +186,7 @@ export default function AddMarketplaceProduct() {
     return errors;
   };
 
-  // ---------------- SUBMIT / PREVIEW ----------------
+  // ------------------ Submit & Preview ------------------
   const handleSubmit = (e) => {
     e.preventDefault();
     const errors = validateForm();
@@ -184,10 +201,12 @@ export default function AddMarketplaceProduct() {
     try {
       setLoading(true);
       const uploadedUrls = [];
+
       for (let file of imageFiles) {
         const formData = new FormData();
         formData.append("file", file);
         formData.append("upload_preset", import.meta.env.VITE_CLOUDINARY_UPLOAD_PRESET);
+
         const res = await fetch(
           `https://api.cloudinary.com/v1_1/${import.meta.env.VITE_CLOUDINARY_CLOUD_NAME}/upload`,
           { method: "POST", body: formData }
@@ -201,15 +220,18 @@ export default function AddMarketplaceProduct() {
       const response = await fetch("/api/marketplace", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(productData)
+        body: JSON.stringify(productData),
       });
 
       const result = await response.json();
       if (!response.ok) throw new Error(result.message || "Failed to add product");
 
       alert("✅ Product published successfully!");
+      localStorage.removeItem("marketplace_draft");
+      localStorage.removeItem("marketplace_images");
+      localStorage.removeItem("marketplace_delivery");
+
       setShowPreview(false);
-      // Optionally reset form here
     } catch (err) {
       alert(err.message);
     } finally {
@@ -217,7 +239,7 @@ export default function AddMarketplaceProduct() {
     }
   };
 
-  // ---------------- OPTIONS ----------------
+  // ------------------ UI Options ------------------
   const visibleFields = categoryFields[form.category] || [];
   const availableBrands = brands[form.category] || [];
   const availableModels = form.brand ? models[form.category]?.[form.brand] || [] : [];
@@ -247,29 +269,41 @@ export default function AddMarketplaceProduct() {
     borderRadius: "12px",
     padding: "20px",
     marginBottom: "20px",
-    background: "#E6F0FF"
+    background: "#E6F0FF",
   };
 
-  // ---------------- JSX ----------------
+  // ------------------ RENDER ------------------
   return (
     <div style={{ maxWidth: "700px", margin: "40px auto" }}>
       <h2 style={{ textAlign: "center", marginBottom: "20px" }}>Post Marketplace Ad</h2>
       <form onSubmit={handleSubmit}>
+
         {/* ---------------- Product Details ---------------- */}
         <div style={sectionStyle}>
           <h3>Product Details</h3>
-          <input type="text" placeholder="Product Name" value={form.title} onChange={(e) => handleChange("title", e.target.value)} style={{ width: "100%", padding: "10px", marginBottom: "15px" }} />
-          <div style={{ display: "flex", gap: "10px", marginBottom: "15px" }}>
-            <button type="button" style={{ flex: 1, padding: "10px" }} onClick={() => openSelector("category", Object.keys(categoryFields))}>
-              {form.category || "Select Category"}
-            </button>
-            <button type="button" style={{ flex: 1, padding: "10px" }} onClick={() => openSelector("subcategory", [])}>
-              {form.subcategory || "Select Subcategory"}
-            </button>
-          </div>
-          {visibleFields.map((field) => (
+          <input
+            type="text"
+            placeholder="Product Name"
+            value={form.title}
+            onChange={(e) => handleChange("title", e.target.value)}
+            style={{ width: "100%", padding: "10px", marginBottom: "15px" }}
+          />
+
+          <button
+            type="button"
+            style={{ width: "100%", padding: "10px", marginBottom: "15px" }}
+            onClick={() => openSelector("category", Object.keys(categoryFields))}
+          >
+            {form.category || "Select Category"}
+          </button>
+
+          {visibleFields.map(field => (
             <div key={field} style={{ marginBottom: "10px" }}>
-              <button type="button" style={{ width: "100%", padding: "10px" }} onClick={() => openSelector(field, getFieldOptions(field))}>
+              <button
+                type="button"
+                style={{ width: "100%", padding: "10px" }}
+                onClick={() => openSelector(field, getFieldOptions(field))}
+              >
                 {form[field] || `Select ${field.replace("_", " ")}`}
               </button>
             </div>
@@ -279,57 +313,155 @@ export default function AddMarketplaceProduct() {
         {/* ---------------- Pricing & Offers ---------------- */}
         <div style={sectionStyle}>
           <h3>Pricing & Offers</h3>
-          <input type="number" placeholder="Price" value={form.price} onChange={(e) => handleChange("price", e.target.value)} style={{ width: "100%", padding: "10px", marginBottom: "15px" }} />
-          <input type="number" placeholder="Discount / Sale Price (Optional)" value={form.discount_price} onChange={(e) => handleChange("discount_price", e.target.value)} style={{ width: "100%", padding: "10px", marginBottom: "15px" }} />
+          <input
+            type="number"
+            placeholder="Price"
+            value={form.price}
+            onChange={(e) => handleChange("price", e.target.value)}
+            style={{ width: "100%", padding: "10px", marginBottom: "10px" }}
+          />
+
+          <input
+            type="number"
+            placeholder="Discount / Sale Price (Optional)"
+            value={form.discount_price}
+            onChange={(e) => handleChange("discount_price", e.target.value)}
+            style={{ width: "100%", padding: "10px", marginBottom: "10px" }}
+          />
+
           <label style={{ display: "block", marginBottom: "10px" }}>
-            <input type="checkbox" checked={form.flash_sale} onChange={(e) => handleChange("flash_sale", e.target.checked)} /> Flash Sale
+            <input
+              type="checkbox"
+              checked={form.flash_sale}
+              onChange={(e) => handleChange("flash_sale", e.target.checked)}
+            /> Flash Sale
           </label>
+
           <label style={{ display: "block", marginBottom: "10px" }}>
-            <input type="checkbox" checked={form.negotiable} onChange={(e) => handleChange("negotiable", e.target.checked)} /> Price Negotiable
+            <input
+              type="checkbox"
+              checked={form.negotiable}
+              onChange={(e) => handleChange("negotiable", e.target.checked)}
+            /> Price Negotiable
           </label>
+
           <label style={{ display: "block", marginBottom: "10px" }}>
-            <input type="checkbox" checked={form.exchange_possible} onChange={(e) => handleChange("exchange_possible", e.target.checked)} /> Exchange Possible
+            <input
+              type="checkbox"
+              checked={form.exchange_possible}
+              onChange={(e) => handleChange("exchange_possible", e.target.checked)}
+            /> Exchange Possible
           </label>
         </div>
 
-        {/* ---------------- Description & Quantity ---------------- */}
+        {/* ---------------- Product Description ---------------- */}
         <div style={sectionStyle}>
           <h3>Product Description & Details</h3>
-          <textarea placeholder="Short Description" value={form.description} onChange={(e) => handleChange("description", e.target.value)} style={{ width: "100%", padding: "10px", marginBottom: "15px" }} />
-          <input type="number" placeholder="Quantity / Stock" value={form.quantity} onChange={(e) => handleChange("quantity", e.target.value)} style={{ width: "100%", padding: "10px", marginBottom: "15px" }} />
+          <textarea
+            placeholder="Short Description"
+            value={form.description}
+            onChange={(e) => handleChange("description", e.target.value)}
+            style={{ width: "100%", padding: "10px", marginBottom: "15px" }}
+          />
+          <input
+            type="number"
+            placeholder="Quantity / Stock"
+            value={form.quantity}
+            onChange={(e) => handleChange("quantity", e.target.value)}
+            style={{ width: "100%", padding: "10px", marginBottom: "15px" }}
+          />
         </div>
 
-        {/* ---------------- Images / Media ---------------- */}
+        {/* ---------------- Images ---------------- */}
         <div style={sectionStyle}>
           <h3>Product Images / Media</h3>
-          <input type="file" accept="image/*" multiple ref={fileInputRef} onChange={handleImagesChange} style={{ marginBottom: "15px" }} />
+          <input
+            type="file"
+            accept="image/*"
+            multiple
+            ref={fileInputRef}
+            onChange={handleImagesChange}
+            style={{ marginBottom: "15px" }}
+          />
           <div style={{ display: "flex", gap: "10px", flexWrap: "wrap", marginBottom: "15px" }}>
             {imagePreviews.map((src, i) => (
               <img key={i} src={src} alt="Preview" style={{ width: "80px", height: "80px", objectFit: "cover", borderRadius: "5px" }} />
             ))}
           </div>
-          <input type="text" placeholder="Optional Video / 360° View Link" value={form.video_link} onChange={(e) => handleChange("video_link", e.target.value)} style={{ width: "100%", padding: "10px", marginBottom: "15px" }} />
+          <input
+            type="text"
+            placeholder="Optional Video / 360° View Link"
+            value={form.video_link}
+            onChange={(e) => handleChange("video_link", e.target.value)}
+            style={{ width: "100%", padding: "10px", marginBottom: "15px" }}
+          />
         </div>
 
-        {/* ---------------- Contact & Seller Info ---------------- */}
+        {/* ---------------- Contact & Seller ---------------- */}
         <div style={sectionStyle}>
           <h3>Contact & Seller Info</h3>
-          <input type="text" placeholder="Phone Number" value={form.phone_number} onChange={(e) => handleChange("phone_number", e.target.value)} style={{ width: "100%", padding: "10px", marginBottom: "15px" }} />
-          <input type="text" placeholder="Additional Phone / WhatsApp" value={form.additional_phone} onChange={(e) => handleChange("additional_phone", e.target.value)} style={{ width: "100%", padding: "10px", marginBottom: "15px" }} />
-          <input type="text" placeholder="Seller Name" value={form.poster_name} readOnly style={{ width: "100%", padding: "10px", marginBottom: "15px", background: "#f5f5f5" }} />
-          <select value={form.state} onChange={(e) => handleChange("state", e.target.value)} style={{ width: "100%", padding: "10px", marginBottom: "15px" }}>
+          <input
+            type="text"
+            placeholder="Phone Number"
+            value={form.phone_number}
+            onChange={(e) => handleChange("phone_number", e.target.value)}
+            style={{ width: "100%", padding: "10px", marginBottom: "10px" }}
+          />
+          <input
+            type="text"
+            placeholder="Additional Phone / WhatsApp"
+            value={form.additional_phone}
+            onChange={(e) => handleChange("additional_phone", e.target.value)}
+            style={{ width: "100%", padding: "10px", marginBottom: "10px" }}
+          />
+          <input
+            type="text"
+            placeholder="Seller Name"
+            value={form.poster_name}
+            readOnly
+            style={{ width: "100%", padding: "10px", marginBottom: "10px", background: "#f5f5f5" }}
+          />
+
+          <select
+            value={form.state}
+            onChange={(e) => handleChange("state", e.target.value)}
+            style={{ width: "100%", padding: "10px", marginBottom: "10px" }}
+          >
             <option value="">Select State</option>
-            {Object.keys(locationsByState).map((st) => <option key={st} value={st}>{st}</option>)}
+            {Object.keys(locationsByState).map(st => (
+              <option key={st} value={st}>{st}</option>
+            ))}
           </select>
-          <select value={form.city} onChange={(e) => handleChange("city", e.target.value)} style={{ width: "100%", padding: "10px", marginBottom: "15px" }}>
+
+          <select
+            value={form.city}
+            onChange={(e) => handleChange("city", e.target.value)}
+            style={{ width: "100%", padding: "10px", marginBottom: "10px" }}
+          >
             <option value="">Select City</option>
-            {availableCities.map((ct) => <option key={ct} value={ct}>{ct}</option>)}
+            {availableCities.map(ct => (
+              <option key={ct} value={ct}>{ct}</option>
+            ))}
           </select>
-          <input type="text" placeholder="Location / Address" value={form.location} onChange={(e) => handleChange("location", e.target.value)} style={{ width: "100%", padding: "10px", marginBottom: "15px" }} />
-          <input type="text" placeholder="Social Media / Store Link (Optional)" value={form.social_link} onChange={(e) => handleChange("social_link", e.target.value)} style={{ width: "100%", padding: "10px", marginBottom: "15px" }} />
+
+          <input
+            type="text"
+            placeholder="Location / Address"
+            value={form.location}
+            onChange={(e) => handleChange("location", e.target.value)}
+            style={{ width: "100%", padding: "10px", marginBottom: "10px" }}
+          />
+
+          <input
+            type="text"
+            placeholder="Social Media / Store Link (Optional)"
+            value={form.social_link}
+            onChange={(e) => handleChange("social_link", e.target.value)}
+            style={{ width: "100%", padding: "10px", marginBottom: "10px" }}
+          />
         </div>
 
-        {/* ---------------- Delivery ---------------- */}
+                {/* ---------------- Delivery ---------------- */}
         <div style={sectionStyle}>
           <h3>Delivery Options</h3>
 
