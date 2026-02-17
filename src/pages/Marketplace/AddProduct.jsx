@@ -1,8 +1,5 @@
-// src/pages/Marketplace/AddMarketplaceProduct.jsx
-
-import { useState, useRef, useEffect } from "react";
+import { useState, useRef } from "react";
 import { useAuth0 } from "@auth0/auth0-react";
-
 import { categoryFields } from "../../config/categoryFields";
 import { conditions, usedDetails } from "../../config/conditions";
 import { ramOptions } from "../../config/ram";
@@ -17,15 +14,15 @@ import { models } from "../../config/models";
 import { sims } from "../../config/sim";
 import { years } from "../../config/years";
 
-const MAX_IMAGES = 6;
-
 export default function AddMarketplaceProduct() {
   const { user } = useAuth0();
 
   const [activeSelector, setActiveSelector] = useState(null);
   const [loading, setLoading] = useState(false);
-
   const fileInputRef = useRef(null);
+
+  const [imageFiles, setImageFiles] = useState([]);
+  const [imagePreviews, setImagePreviews] = useState([]);
 
   const [form, setForm] = useState({
     title: "",
@@ -47,27 +44,37 @@ export default function AddMarketplaceProduct() {
     mileage: "",
     year: "",
     fuel_type: "",
-    transmission: "",
+    bedrooms: "",
+    bathrooms: "",
+    size: "",
+    furnished: false,
     features: "",
     exchange_possible: false,
-    furnished: false,
+    phone_number: user?.phone_number || "",
+    poster_name: user?.name || "",
     state: "",
     city: "",
     country: "Nigeria",
     images: [],
     video_link: "",
-    seller_id: user?.sub || "",
-    poster_name: user?.name || "",
-    phone_number: user?.phone_number || "",
-    delivery: {
-      pickup: false,
-      nationwide: false,
-      delivery_fee: "",
-    },
   });
 
-  const [imageFiles, setImageFiles] = useState([]);
-  const [imagePreviews, setImagePreviews] = useState([]);
+  const handleChange = (field, value) => {
+    setForm((prev) => {
+      const updated = { ...prev, [field]: value };
+
+      if (field === "brand") updated.model = "";
+      if (field === "state") updated.city = "";
+
+      return updated;
+    });
+  };
+
+  const handleImagesChange = (e) => {
+    const files = Array.from(e.target.files);
+    setImageFiles(files);
+    setImagePreviews(files.map((f) => URL.createObjectURL(f)));
+  };
 
   const visibleFields = categoryFields[form.category] || [];
   const availableBrands = brands[form.category] || [];
@@ -77,81 +84,39 @@ export default function AddMarketplaceProduct() {
       : [];
   const categoryFeatures = featuresByCategory[form.category] || [];
 
-  /* ---------------------- */
-  /* HANDLE CHANGE */
-  /* ---------------------- */
-  const handleChange = (field, value) => {
-    setForm((prev) => ({
-      ...prev,
-      [field]: value,
-      ...(field === "brand" && { model: "" }),
-      ...(field === "state" && { city: "" }),
-    }));
-  };
-
-  /* ---------------------- */
-  /* IMAGE HANDLING */
-  /* ---------------------- */
-  const handleImagesChange = (e) => {
-    const files = Array.from(e.target.files);
-
-    if (files.length > MAX_IMAGES) {
-      alert(`Maximum ${MAX_IMAGES} images allowed`);
-      return;
-    }
-
-    setImageFiles(files);
-    setImagePreviews(files.map((file) => URL.createObjectURL(file)));
-  };
-
-  useEffect(() => {
-    return () => {
-      imagePreviews.forEach((url) => URL.revokeObjectURL(url));
-    };
-  }, [imagePreviews]);
-
-  /* ---------------------- */
-  /* SUBMIT */
-  /* ---------------------- */
   const handleSubmit = async (e) => {
     e.preventDefault();
 
     if (!form.title || !form.price || !form.category) {
-      alert("Title, Price and Category are required.");
-      return;
-    }
-
-    if (imageFiles.length === 0) {
-      alert("Upload at least one image.");
+      alert("Title, Price, and Category are required");
       return;
     }
 
     try {
       setLoading(true);
 
-      const uploadPromises = imageFiles.map((file) => {
-        const formData = new FormData();
-        formData.append("file", file);
-        formData.append(
+      const uploadedUrls = [];
+
+      for (let file of imageFiles) {
+        const data = new FormData();
+        data.append("file", file);
+        data.append(
           "upload_preset",
           import.meta.env.VITE_CLOUDINARY_UPLOAD_PRESET
         );
 
-        return fetch(
+        const res = await fetch(
           `https://api.cloudinary.com/v1_1/${import.meta.env.VITE_CLOUDINARY_CLOUD_NAME}/upload`,
-          { method: "POST", body: formData }
-        ).then((res) => res.json());
-      });
+          { method: "POST", body: data }
+        );
 
-      const uploadResults = await Promise.all(uploadPromises);
-      const uploadedUrls = uploadResults.map((data) => data.secure_url);
+        const result = await res.json();
+        uploadedUrls.push(result.secure_url);
+      }
 
       const productData = {
         ...form,
         images: uploadedUrls,
-        slug: form.title.toLowerCase().replace(/\s+/g, "-"),
-        created_at: new Date(),
-        views: 0,
         bulk_price: {
           from: form.bulk_price_from || null,
           per_piece: form.bulk_price_per_piece || null,
@@ -164,9 +129,7 @@ export default function AddMarketplaceProduct() {
         body: JSON.stringify(productData),
       });
 
-      const result = await response.json();
-      if (!response.ok)
-        throw new Error(result.message || "Failed to add product");
+      if (!response.ok) throw new Error("Failed to post");
 
       alert("✅ Product added successfully!");
 
@@ -188,8 +151,12 @@ export default function AddMarketplaceProduct() {
         mileage: "",
         year: "",
         fuel_type: "",
-        transmission: "",
+        bedrooms: "",
+        bathrooms: "",
+        size: "",
+        furnished: false,
         features: "",
+        exchange_possible: false,
         state: "",
         city: "",
         images: [],
@@ -200,59 +167,55 @@ export default function AddMarketplaceProduct() {
       setImagePreviews([]);
       if (fileInputRef.current) fileInputRef.current.value = null;
     } catch (err) {
-      console.error(err);
-      alert(err.message || "Error posting ad");
+      alert(err.message);
     } finally {
       setLoading(false);
     }
   };
 
-  /* ---------------------- */
-  /* FULL PAGE SELECTOR */
-  /* ---------------------- */
   const FullPageSelector = ({ title, options, field }) => (
-    <div style={styles.overlay}>
-      <div style={styles.header}>
-        <button onClick={() => setActiveSelector(null)}>← Back</button>
+    <div style={overlayStyle}>
+      <div style={modalStyle}>
         <h3>{title}</h3>
-      </div>
-      <div style={styles.list}>
-        {options.map((option) => (
-          <div
-            key={option}
-            style={styles.item}
-            onClick={() => {
-              handleChange(field, option);
-              setActiveSelector(null);
-            }}
-          >
-            {option}
-          </div>
-        ))}
+        <div style={{ maxHeight: 400, overflowY: "auto" }}>
+          {options.map((item) => (
+            <div
+              key={item}
+              style={optionStyle}
+              onClick={() => {
+                handleChange(field, item);
+                setActiveSelector(null);
+              }}
+            >
+              {item}
+            </div>
+          ))}
+        </div>
+        <button onClick={() => setActiveSelector(null)} style={closeBtn}>
+          Close
+        </button>
       </div>
     </div>
   );
 
-  /* ---------------------- */
-  /* RENDER */
-  /* ---------------------- */
   return (
-    <div style={styles.container}>
-      <h2 style={{ textAlign: "center" }}>Post Marketplace Ad</h2>
+    <div style={wrapper}>
+      <h2>Post Marketplace Ad</h2>
 
       <form onSubmit={handleSubmit}>
         <input
+          type="text"
           placeholder="Title"
           value={form.title}
           onChange={(e) => handleChange("title", e.target.value)}
-          style={styles.input}
+          style={input}
         />
 
         <textarea
           placeholder="Description"
           value={form.description}
           onChange={(e) => handleChange("description", e.target.value)}
-          style={styles.input}
+          style={input}
         />
 
         <input
@@ -260,52 +223,60 @@ export default function AddMarketplaceProduct() {
           placeholder="Price"
           value={form.price}
           onChange={(e) => handleChange("price", e.target.value)}
-          style={styles.input}
+          style={input}
         />
 
         {/* CATEGORY */}
-        <div
-          style={styles.selectorInput}
-          onClick={() => setActiveSelector("category")}
-        >
+        <div style={selector} onClick={() => setActiveSelector("category")}>
           {form.category || "Select Category"}
         </div>
 
-        {/* Dynamic Fields */}
-        {visibleFields.includes("brand") && (
-          <div
-            style={styles.selectorInput}
-            onClick={() => setActiveSelector("brand")}
-          >
-            {form.brand || "Select Brand"}
-          </div>
-        )}
+        {/* DYNAMIC FIELDS */}
+        {visibleFields.map((field) => {
+          if (["exchange_possible", "furnished"].includes(field)) {
+            return (
+              <label key={field}>
+                <input
+                  type="checkbox"
+                  checked={form[field]}
+                  onChange={(e) =>
+                    handleChange(field, e.target.checked)
+                  }
+                />
+                {field.replace("_", " ").toUpperCase()}
+              </label>
+            );
+          }
 
-        {visibleFields.includes("model") && (
-          <div
-            style={styles.selectorInput}
-            onClick={() => setActiveSelector("model")}
-          >
-            {form.model || "Select Model"}
-          </div>
-        )}
+          return (
+            <div
+              key={field}
+              style={selector}
+              onClick={() => {
+                if (field === "model" && !form.brand) return;
+                if (field === "city" && !form.state) return;
+                setActiveSelector(field);
+              }}
+            >
+              {form[field] || `Select ${field}`}
+            </div>
+          );
+        })}
 
-        {/* IMAGES */}
         <input
           type="file"
-          accept="image/*"
           multiple
+          accept="image/*"
           ref={fileInputRef}
           onChange={handleImagesChange}
-          style={{ marginTop: 15 }}
         />
 
-        <button type="submit" disabled={loading} style={styles.button}>
+        <button type="submit" disabled={loading} style={button}>
           {loading ? "Posting..." : "Post Ad"}
         </button>
       </form>
 
-      {/* SELECTOR SCREENS */}
+      {/* SELECTORS */}
       {activeSelector === "category" && (
         <FullPageSelector
           title="Select Category"
@@ -329,68 +300,84 @@ export default function AddMarketplaceProduct() {
           field="model"
         />
       )}
+
+      {activeSelector === "state" && (
+        <FullPageSelector
+          title="Select State"
+          options={Object.keys(locationsByState)}
+          field="state"
+        />
+      )}
+
+      {activeSelector === "city" && (
+        <FullPageSelector
+          title="Select City"
+          options={locationsByState[form.state] || []}
+          field="city"
+        />
+      )}
     </div>
   );
 }
 
-/* ---------------------- */
 /* STYLES */
-/* ---------------------- */
-const styles = {
-  container: {
-    maxWidth: 700,
-    margin: "40px auto",
-    padding: 20,
-    borderRadius: 10,
-    boxShadow: "0 2px 10px rgba(0,0,0,0.1)",
-    background: "#fff",
-  },
-  input: {
-    width: "100%",
-    padding: 12,
-    marginBottom: 15,
-    border: "1px solid #ddd",
-    borderRadius: 6,
-  },
-  selectorInput: {
-    padding: 12,
-    border: "1px solid #ddd",
-    borderRadius: 6,
-    marginBottom: 15,
-    cursor: "pointer",
-  },
-  button: {
-    width: "100%",
-    padding: 14,
-    background: "black",
-    color: "#fff",
-    border: "none",
-    borderRadius: 6,
-    fontSize: 16,
-    cursor: "pointer",
-  },
-  overlay: {
-    position: "fixed",
-    inset: 0,
-    background: "#fff",
-    zIndex: 9999,
-    display: "flex",
-    flexDirection: "column",
-  },
-  header: {
-    padding: 15,
-    borderBottom: "1px solid #eee",
-    display: "flex",
-    gap: 10,
-    alignItems: "center",
-  },
-  list: {
-    overflowY: "auto",
-    flex: 1,
-  },
-  item: {
-    padding: 15,
-    borderBottom: "1px solid #f2f2f2",
-    cursor: "pointer",
-  },
+const wrapper = {
+  maxWidth: 600,
+  margin: "40px auto",
+  padding: 20,
+  border: "1px solid #eee",
+  borderRadius: 10,
+};
+
+const input = {
+  width: "100%",
+  padding: 10,
+  marginBottom: 15,
+};
+
+const selector = {
+  padding: 12,
+  border: "1px solid #ccc",
+  marginBottom: 15,
+  cursor: "pointer",
+};
+
+const button = {
+  width: "100%",
+  padding: 12,
+  background: "black",
+  color: "white",
+  border: "none",
+};
+
+const overlayStyle = {
+  position: "fixed",
+  inset: 0,
+  background: "rgba(0,0,0,0.6)",
+  display: "flex",
+  justifyContent: "center",
+  alignItems: "center",
+};
+
+const modalStyle = {
+  background: "white",
+  padding: 20,
+  width: "90%",
+  maxWidth: 400,
+  borderRadius: 10,
+};
+
+const optionStyle = {
+  padding: 12,
+  borderBottom: "1px solid #eee",
+  cursor: "pointer",
+};
+
+const closeBtn = {
+  marginTop: 10,
+  padding: 10,
+  width: "100%",
+  background: "black",
+  color: "white",
+  border: "none",
 };
