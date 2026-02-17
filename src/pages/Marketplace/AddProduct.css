@@ -1,86 +1,91 @@
 /* AddProduct.css */
 
-/* Container & Form */
-.add-product-container {
-  max-width: 900px;
+/* Container */
+.add-product-container.professional-ui {
+  max-width: 800px;
   margin: 20px auto;
-  padding: 20px;
-  background-color: #f9fbff; /* very light blue */
+  background: #f0f8ff; /* light blue background */
+  padding: 25px;
   border-radius: 12px;
-  box-shadow: 0 4px 12px rgba(0, 0, 50, 0.1);
-  font-family: 'Inter', sans-serif;
+  box-shadow: 0 4px 20px rgba(0, 0, 50, 0.1);
+  font-family: "Segoe UI", Tahoma, Geneva, Verdana, sans-serif;
 }
 
-.form-title {
+/* Form Title */
+.add-product-container.professional-ui .form-title {
   text-align: center;
-  font-size: 28px;
-  color: #1a4db7; /* professional blue */
+  font-size: 1.8rem;
+  color: #004080;
   margin-bottom: 20px;
+  font-weight: 600;
 }
 
-/* Input Fields */
+/* Full form */
 .full-form input,
-.full-form textarea,
-.full-form select {
+.full-form select,
+.full-form textarea {
   width: 100%;
-  padding: 10px 14px;
-  margin: 8px 0;
-  border: 1px solid #c5cde8;
+  padding: 10px 12px;
+  margin-bottom: 12px;
   border-radius: 8px;
-  font-size: 16px;
+  border: 1px solid #b0c4de;
+  font-size: 1rem;
   outline: none;
-  transition: all 0.2s;
+  transition: 0.2s all;
 }
 
 .full-form input:focus,
-.full-form textarea:focus,
-.full-form select:focus {
-  border-color: #1a4db7;
-  box-shadow: 0 0 5px rgba(26, 77, 183, 0.3);
+.full-form select:focus,
+.full-form textarea:focus {
+  border-color: #0073e6;
+  box-shadow: 0 0 5px rgba(0, 115, 230, 0.3);
 }
 
-/* Error Messages */
+/* Error messages */
 .error {
-  color: #e02424;
-  font-size: 14px;
-  margin-bottom: 6px;
+  color: #d8000c;
+  font-size: 0.875rem;
+  margin-bottom: 10px;
+  display: block;
 }
 
-/* Pills Container */
-.pill-container {
+/* Tile List */
+.tile-list {
   display: flex;
   flex-wrap: wrap;
-  gap: 8px;
-  margin: 10px 0 20px 0;
+  gap: 10px;
+  margin-bottom: 15px;
 }
 
-.pill {
-  padding: 8px 14px;
-  background-color: #e5ecff;
-  color: #1a4db7;
+.tile-list .tile {
+  padding: 8px 15px;
   border-radius: 20px;
+  border: 1px solid #0073e6;
+  background: #e6f0ff;
+  color: #004080;
   cursor: pointer;
-  font-size: 14px;
-  transition: all 0.2s;
-  user-select: none;
+  font-size: 0.95rem;
+  transition: 0.2s all;
 }
 
-.pill:hover {
-  background-color: #c5d4ff;
-}
-
-.pill.selected {
-  background-color: #1a4db7;
+.tile-list .tile:hover {
+  background: #0073e6;
   color: white;
-  font-weight: 500;
+  transform: scale(1.05);
 }
 
-/* Image Preview */
+.tile-list .tile.selected {
+  background: #005bb5;
+  color: white;
+  border-color: #004080;
+}
+
+/* Image preview */
 .image-preview {
   display: flex;
   flex-wrap: wrap;
   gap: 10px;
-  margin: 10px 0 20px 0;
+  margin-bottom: 15px;
 }
 
 .image-preview img {
@@ -88,74 +93,84 @@
   height: 100px;
   object-fit: cover;
   border-radius: 10px;
-  border: 2px solid #c5cde8;
+  border: 1px solid #b0c4de;
 }
 
-/* Delivery Section */
-.delivery-btn {
-  width: 100%;
-  background-color: #1a4db7;
-  color: white;
-  padding: 10px 0;
-  border: none;
-  border-radius: 8px;
-  font-size: 16px;
-  cursor: pointer;
-  margin-top: 12px;
-  transition: all 0.2s;
+/* Section headers */
+h4 {
+  color: #004080;
+  margin: 15px 0 10px 0;
 }
 
-.delivery-btn:hover {
-  background-color: #163d91;
+/* Checkbox labels */
+.full-form label {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 0.95rem;
+  margin-bottom: 12px;
 }
 
-.delivery-card {
-  margin: 10px 0 20px 0;
-  padding: 12px;
-  border: 1px solid #c5cde8;
-  border-radius: 10px;
-  background-color: #f1f5ff;
-}
-
-.delivery-card input {
-  margin-top: 8px;
-}
-
-/* Submit Button */
-.full-form button[type="submit"] {
-  width: 100%;
-  padding: 12px 0;
-  background-color: #1a4db7;
-  color: white;
-  font-size: 18px;
-  font-weight: 500;
-  border: none;
-  border-radius: 10px;
-  cursor: pointer;
+/* Buttons */
+.form-actions {
+  display: flex;
+  justify-content: space-between;
   margin-top: 20px;
-  transition: all 0.2s;
+  gap: 10px;
 }
 
-.full-form button[type="submit"]:hover {
-  background-color: #163d91;
+.form-actions button {
+  flex: 1;
+  padding: 12px;
+  font-size: 1rem;
+  border-radius: 8px;
+  border: none;
+  cursor: pointer;
+  transition: 0.2s all;
 }
 
-.full-form button:disabled {
-  background-color: #9bb4e0;
+.form-actions button[type="submit"] {
+  background-color: #0073e6;
+  color: white;
+}
+
+.form-actions button[type="submit"]:hover {
+  background-color: #005bb5;
+}
+
+.form-actions button[type="submit"]:disabled {
+  background-color: #a0c4ff;
   cursor: not-allowed;
 }
 
+/* Cancel / reload button */
+.form-actions button[type="button"] {
+  background-color: #e0e0e0;
+  color: #333;
+}
+
+.form-actions button[type="button"]:hover {
+  background-color: #b0b0b0;
+}
+
+/* Textarea */
+textarea {
+  min-height: 100px;
+  resize: vertical;
+}
+
 /* Responsive */
-@media (max-width: 768px) {
-  .pill-container {
+@media (max-width: 600px) {
+  .tile-list {
     gap: 6px;
   }
-  .pill {
-    font-size: 12px;
+
+  .tile-list .tile {
     padding: 6px 10px;
+    font-size: 0.85rem;
   }
-  .image-preview img {
-    width: 80px;
-    height: 80px;
+
+  .form-actions {
+    flex-direction: column;
   }
 }
