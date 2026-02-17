@@ -67,7 +67,53 @@ export default function AddMarketplaceProduct() {
     if (field === "brand") setForm((prev) => ({ ...prev, model: "" }));
     if (field === "state") setForm((prev) => ({ ...prev, city: "" }));
   };
+   
+    const addDeliveryRegion = () => {
+  if (!deliveryForm.state || !deliveryForm.city) {
+    alert("Select delivery state and city");
+    return;
+  }
 
+  if (!deliveryForm.from || !deliveryForm.to) {
+    alert("Set delivery time range");
+    return;
+  }
+
+  if (Number(deliveryForm.from) > Number(deliveryForm.to)) {
+    alert("From days cannot be greater than To days");
+    return;
+  }
+
+  const isFreeDelivery =
+    deliveryForm.chargeFee && Number(deliveryForm.fee) === 0;
+
+  setForm(prev => ({
+    ...prev,
+    deliveryRegions: [
+      ...prev.deliveryRegions,
+      { ...deliveryForm, isFreeDelivery }
+    ]
+  }));
+
+  setDeliveryForm({
+    state: "",
+    city: "",
+    method: "Courier",
+    from: "",
+    to: "",
+    chargeFee: false,
+    fee: "",
+    expressAvailable: false,
+    warehouseAddress: ""
+  });
+};
+
+const removeDeliveryRegion = (index) => {
+  setForm(prev => ({
+    ...prev,
+    deliveryRegions: prev.deliveryRegions.filter((_, i) => i !== index)
+  }));
+};
   const handleImagesChange = (e) => {
     const files = Array.from(e.target.files);
     if (files.length > 10) {
