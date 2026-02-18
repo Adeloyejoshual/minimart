@@ -6,8 +6,6 @@ import { conditions, usedDetails } from "../../config/conditions";
 import { ramOptions } from "../../config/ram";
 import { storageOptions } from "../../config/storage";
 import { colors } from "../../config/color";
-import { engines } from "../../config/engine";
-import { fuelTypes } from "../../config/fuelTypes";
 import { featuresByCategory } from "../../config/features";
 import { promotionPlans } from "../../config/promotion";
 import { locationsByState } from "../../config/locationsByState";
@@ -20,15 +18,14 @@ export default function AddMarketplaceProduct() {
   const { user } = useAuth0();
   const fileInputRef = useRef(null);
 
-  // ===== Form State =====
   const [form, setForm] = useState({
     title: "",
     description: "",
     price: "",
     discount_price: "",
+    discount_percent: 0,
     quantity: "",
     category: "",
-    subcategory: "",
     brand: "",
     model: "",
     condition: "",
@@ -37,11 +34,7 @@ export default function AddMarketplaceProduct() {
     storage: "",
     color: "",
     sim: [],
-    engine: "",
-    mileage: "",
-    year: "",
-    fuel_type: "",
-    transmission: "",
+    features: [],
     phone_number: user?.phone_number || "",
     additional_phone: "",
     poster_name: user?.name || "",
@@ -54,17 +47,14 @@ export default function AddMarketplaceProduct() {
     promoted: false,
     promo_plan: "",
     flash_sale: false,
-    exchange_possible: false,
     negotiable: false,
     deliveryRegions: [],
-    features: [],
   });
 
   const [imageFiles, setImageFiles] = useState([]);
   const [imagePreviews, setImagePreviews] = useState([]);
   const [loading, setLoading] = useState(false);
 
-  // ===== Delivery Form State =====
   const [deliveryForm, setDeliveryForm] = useState({
     state: "",
     city: "",
@@ -78,14 +68,11 @@ export default function AddMarketplaceProduct() {
   });
   const [showDeliveryForm, setShowDeliveryForm] = useState(false);
 
-  // ===== Preview Modal =====
   const [showPreview, setShowPreview] = useState(false);
-
-  // ===== Full-page Selector State =====
   const [selectorField, setSelectorField] = useState(null);
   const [selectorOptions, setSelectorOptions] = useState([]);
 
-  // ===== Load Draft on Refresh =====
+  // Load draft
   useEffect(() => {
     const draft = localStorage.getItem("marketplace_draft");
     if (draft) setForm(JSON.parse(draft));
@@ -95,17 +82,34 @@ export default function AddMarketplaceProduct() {
     localStorage.setItem("marketplace_draft", JSON.stringify(form));
   }, [form]);
 
-  // ===== Handlers =====
+  // Handle field change
   const handleChange = (field, value) => {
-    setForm((prev) => ({ ...prev, [field]: value }));
-    if (field === "brand") setForm((prev) => ({ ...prev, model: "" }));
-    if (field === "state") setForm((prev) => ({ ...prev, city: "" }));
+    setForm(prev => {
+      let updated = { ...prev, [field]: value };
+
+      // Reset dependent fields
+      if (field === "category") {
+        updated.brand = "";
+        updated.model = "";
+        updated.condition = "";
+        updated.used_detail = "";
+        updated.ram = "";
+        updated.storage = "";
+        updated.color = "";
+        updated.sim = [];
+        updated.features = [];
+      }
+      if (field === "brand") updated.model = "";
+      if (field === "state") updated.city = "";
+
+      return updated;
+    });
   };
 
   const handleMultiSelect = (field, value) => {
-    setForm((prev) => {
+    setForm(prev => {
       const arr = prev[field];
-      if (arr.includes(value)) return { ...prev, [field]: arr.filter((v) => v !== value) };
+      if (arr.includes(value)) return { ...prev, [field]: arr.filter(v => v !== value) };
       return { ...prev, [field]: [...arr, value] };
     });
   };
@@ -116,47 +120,54 @@ export default function AddMarketplaceProduct() {
   };
 
   const selectOption = (value) => {
-    handleChange(selectorField, value);
+    if (selectorField === "sim" || selectorField === "features") {
+      handleMultiSelect(selectorField, value);
+    } else if (selectorField === "state") {
+      handleChange("state", value);
+    } else if (selectorField === "city") {
+      handleChange("city", value);
+    } else {
+      handleChange(selectorField, value);
+    }
     setSelectorField(null);
   };
 
   const handleImagesChange = (e) => {
     const files = Array.from(e.target.files);
-    if (files.length > 10) {
-      alert("You can upload maximum 10 images");
-      return;
-    }
+    if (files.length > 10) { alert("Maximum 10 images"); return; }
     setImageFiles(files);
-    setImagePreviews(files.map((file) => URL.createObjectURL(file)));
+    setImagePreviews(files.map(f => URL.createObjectURL(f)));
   };
 
-  // ===== Price Auto-format =====
-  const handlePriceChange = (e) => {
-    const raw = e.target.value.replace(/,/g, "");
+  // Price auto-format
+  const formatNumberWithCommas = (value) => {
+    const num = value.replace(/,/g, "");
+    if (isNaN(num)) return "";
+    return Number(num).toLocaleString();
+  };
+
+  const handlePriceChange = (field, value) => {
+    const raw = value.replace(/,/g, "");
     if (!isNaN(raw)) {
-      setForm((prev) => ({ ...prev, price: raw }));
+      handleChange(field, raw);
+
+      // Auto calculate discount %
+      if (field === "discount_price" && form.price) {
+        const percent = raw > 0 ? Math.round(((Number(form.price) - Number(raw)) / Number(form.price)) * 100) : 0;
+        setForm(prev => ({ ...prev, discount_percent: percent }));
+      }
     }
   };
 
-  // ===== Delivery Handlers =====
+  // Delivery
   const addDeliveryRegion = () => {
-    if (!deliveryForm.state || !deliveryForm.city) {
-      alert("Select delivery state and city");
-      return;
-    }
-    if (!deliveryForm.from || !deliveryForm.to) {
-      alert("Set delivery time range");
-      return;
-    }
-    if (Number(deliveryForm.from) > Number(deliveryForm.to)) {
-      alert("From days cannot be greater than To days");
-      return;
-    }
+    if (!deliveryForm.state || !deliveryForm.city) return alert("Select state & city");
+    if (!deliveryForm.from || !deliveryForm.to) return alert("Set delivery range");
+    if (Number(deliveryForm.from) > Number(deliveryForm.to)) return alert("From days cannot exceed To days");
+
     const isFreeDelivery = deliveryForm.chargeFee && Number(deliveryForm.fee) === 0;
-    setForm((prev) => ({
-      ...prev,
-      deliveryRegions: [...prev.deliveryRegions, { ...deliveryForm, isFreeDelivery }],
-    }));
+    setForm(prev => ({ ...prev, deliveryRegions: [...prev.deliveryRegions, { ...deliveryForm, isFreeDelivery }] }));
+
     setDeliveryForm({
       state: "",
       city: "",
@@ -172,34 +183,26 @@ export default function AddMarketplaceProduct() {
   };
 
   const removeDeliveryRegion = (index) => {
-    setForm((prev) => ({
-      ...prev,
-      deliveryRegions: prev.deliveryRegions.filter((_, i) => i !== index),
-    }));
+    setForm(prev => ({ ...prev, deliveryRegions: prev.deliveryRegions.filter((_, i) => i !== index) }));
   };
 
-  // ===== Validation =====
+  // Validation
   const validateForm = () => {
     const errors = {};
-    if (!form.title || form.title.trim().length < 30) errors.title = "Title must be at least 30 characters";
-    if (!form.description || form.description.trim().length < 50) errors.description = "Description must be at least 50 characters";
-    if (!form.price || Number(form.price) <= 0) errors.price = "Price must be greater than 0";
-    if (!form.phone_number || !/^\d{10,11}$/.test(form.phone_number)) errors.phone_number = "Enter valid phone number";
+    if (!form.title || form.title.trim().length < 30) errors.title = "Title min 30 chars";
+    if (!form.description || form.description.trim().length < 50) errors.description = "Description min 50 chars";
+    if (!form.price || Number(form.price) <= 0) errors.price = "Price > 0 required";
+    if (!form.phone_number || !/^\d{10,11}$/.test(form.phone_number)) errors.phone_number = "Invalid phone";
     if (!form.state) errors.state = "State required";
     if (!form.city) errors.city = "City required";
-    if (imageFiles.length < 1) errors.images = "Minimum 1 image required";
-    if (imageFiles.length > 10) errors.images = "Maximum 10 images allowed";
+    if (imageFiles.length < 1) errors.images = "At least 1 image required";
     return errors;
   };
 
-  // ===== Submit =====
   const handleSubmit = (e) => {
     e.preventDefault();
     const errors = validateForm();
-    if (Object.keys(errors).length > 0) {
-      alert(Object.values(errors)[0]);
-      return;
-    }
+    if (Object.keys(errors).length > 0) return alert(Object.values(errors)[0]);
     setShowPreview(true);
   };
 
@@ -215,185 +218,95 @@ export default function AddMarketplaceProduct() {
         const data = await res.json();
         uploadedUrls.push(data.secure_url);
       }
+
       const productData = { ...form, images: uploadedUrls };
-      const response = await fetch("/api/marketplace", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(productData),
-      });
+      const response = await fetch("/api/marketplace", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(productData) });
       const result = await response.json();
-      if (!response.ok) throw new Error(result.message || "Failed to add product");
-      alert("✅ Product published successfully!");
+      if (!response.ok) throw new Error(result.message || "Failed");
+
+      alert("✅ Product published!");
       localStorage.removeItem("marketplace_draft");
       setShowPreview(false);
-      // Reset Form
-      setForm((prev) => ({
-        ...prev,
-        title: "",
-        description: "",
-        price: "",
-        discount_price: "",
-        quantity: "",
-        category: "",
-        subcategory: "",
-        brand: "",
-        model: "",
-        condition: "",
-        used_detail: "",
-        ram: "",
-        storage: "",
-        color: "",
-        sim: [],
-        engine: "",
-        mileage: "",
-        year: "",
-        fuel_type: "",
-        transmission: "",
-        state: "",
-        city: "",
-        location: "",
-        social_link: "",
-        images: [],
-        video_link: "",
-        promoted: false,
-        promo_plan: "",
-        flash_sale: false,
-        exchange_possible: false,
-        negotiable: false,
-        deliveryRegions: [],
-        features: [],
-      }));
+
+      // Reset
+      setForm({
+        title: "", description: "", price: "", discount_price: "", discount_percent: 0,
+        quantity: "", category: "", brand: "", model: "", condition: "", used_detail: "",
+        ram: "", storage: "", color: "", sim: [], features: [], phone_number: user?.phone_number || "",
+        additional_phone: "", poster_name: user?.name || "", state: "", city: "", location: "",
+        social_link: "", images: [], video_link: "", promoted: false, promo_plan: "",
+        flash_sale: false, negotiable: false, deliveryRegions: []
+      });
       setImageFiles([]);
       setImagePreviews([]);
       if (fileInputRef.current) fileInputRef.current.value = null;
     } catch (err) {
       alert(err.message);
-    } finally {
-      setLoading(false);
-    }
+    } finally { setLoading(false); }
   };
 
-  // ===== Options =====
+  // Options
   const visibleFields = categoryFields[form.category] || [];
   const availableBrands = brands[form.category] || [];
   const availableModels = form.brand ? models[form.category]?.[form.brand] || [] : [];
   const categoryFeatures = featuresByCategory[form.category] || [];
   const availableSims = sims || [];
-  const availableYears = years || [];
   const availableCities = locationsByState[form.state] || [];
 
   const getFieldOptions = (field) => {
     switch (field) {
-      case "brand":
-        return availableBrands;
-      case "model":
-        return availableModels;
-      case "ram":
-        return ramOptions;
-      case "storage":
-        return storageOptions;
-      case "color":
-        return colors;
-      case "sim":
-        return availableSims;
-      case "features":
-        return categoryFeatures;
-      case "year":
-        return availableYears;
-      case "condition":
-        return conditions;
-      case "used_detail":
-        return usedDetails;
-      default:
-        return [];
+      case "brand": return availableBrands;
+      case "model": return availableModels;
+      case "ram": return ramOptions;
+      case "storage": return storageOptions;
+      case "color": return colors;
+      case "sim": return availableSims;
+      case "features": return categoryFeatures;
+      case "condition": return conditions;
+      case "used_detail": return usedDetails;
+      case "year": return years;
+      default: return [];
     }
   };
 
-  // ===== Styles =====
-  const sectionStyle = {
-    border: "2px solid #007BFF",
-    borderRadius: "12px",
-    padding: "20px",
-    marginBottom: "20px",
-    background: "#E6F0FF",
-  };
+  const sectionStyle = { border: "2px solid #007BFF", borderRadius: "12px", padding: "20px", marginBottom: "20px", background: "#E6F0FF" };
 
   return (
     <div style={{ maxWidth: "700px", margin: "40px auto" }}>
-      <h2 style={{ textAlign: "center", marginBottom: "20px", color: "#007BFF" }}>Post Marketplace Ad</h2>
+      <h2 style={{ textAlign: "center", color: "#007BFF", marginBottom: "20px" }}>Post Marketplace Ad</h2>
       <form onSubmit={handleSubmit}>
-        {/* PRODUCT DETAILS */}
+        {/* Product Details */}
         <div style={sectionStyle}>
-          <h3>Product Details</h3>
-          <input
-            type="text"
-            placeholder="Product Name"
-            value={form.title}
-            onChange={(e) => handleChange("title", e.target.value)}
-            style={{ width: "100%", padding: "10px", marginBottom: "15px" }}
-          />
+          <input type="text" placeholder="Product Name" value={form.title} onChange={(e) => handleChange("title", e.target.value)} style={{ width: "100%", padding: "10px", marginBottom: "15px" }} />
+          <button type="button" style={{ width: "100%", padding: "10px", marginBottom: "10px" }} onClick={() => openSelector("category", Object.keys(categoryFields))}>{form.category || "Select Category"}</button>
 
-          {/* CATEGORY & BRAND */}
-          <button type="button" style={{ width: "100%", padding: "10px", marginBottom: "10px" }} onClick={() => openSelector("category", Object.keys(categoryFields))}>
-            {form.category || "Select Category"}
-          </button>
+          {visibleFields.map((field) => field === "sim" || field === "features" ? (
+            <div key={field} style={{ marginBottom: "10px" }}>
+              <p>{field.replace("_", " ")}</p>
+              {getFieldOptions(field).map((opt) => (
+                <label key={opt} style={{ display: "block", marginBottom: "5px" }}>
+                  <input type="checkbox" checked={form[field].includes(opt)} onChange={() => handleMultiSelect(field, opt)} /> {opt}
+                </label>
+              ))}
+            </div>
+          ) : (
+            <button key={field} type="button" style={{ width: "100%", padding: "10px", marginBottom: "10px" }} onClick={() => openSelector(field, getFieldOptions(field))}>{form[field] || `Select ${field.replace("_", " ")}`}</button>
+          ))}
 
-          {visibleFields.map((field) =>
-            field === "features" || field === "sim" ? (
-              <div key={field} style={{ marginBottom: "10px" }}>
-                <p style={{ marginBottom: "5px" }}>{field.replace("_", " ")}</p>
-                {getFieldOptions(field).map((opt) => (
-                  <label key={opt} style={{ display: "block", marginBottom: "5px" }}>
-                    <input
-                      type="checkbox"
-                      checked={form[field].includes(opt)}
-                      onChange={() => handleMultiSelect(field, opt)}
-                    />{" "}
-                    {opt}
-                  </label>
-                ))}
-              </div>
-            ) : (
-              <button key={field} type="button" style={{ width: "100%", padding: "10px", marginBottom: "10px" }} onClick={() => openSelector(field, getFieldOptions(field))}>
-                {form[field] || `Select ${field.replace("_", " ")}`}
-              </button>
-            )
-          )}
-
-          {/* BRAND & MODEL */}
-          {availableBrands.length > 0 && (
-            <button type="button" style={{ width: "100%", padding: "10px", marginBottom: "10px" }} onClick={() => openSelector("brand", availableBrands)}>
-              {form.brand || "Select Brand"}
-            </button>
-          )}
-
-          {availableModels.length > 0 && (
-            <button type="button" style={{ width: "100%", padding: "10px", marginBottom: "10px" }} onClick={() => openSelector("model", availableModels)}>
-              {form.model || "Select Model"}
-            </button>
-          )}
+          {availableBrands.length > 0 && <button type="button" style={{ width: "100%", padding: "10px", marginBottom: "10px" }} onClick={() => openSelector("brand", availableBrands)}>{form.brand || "Select Brand"}</button>}
+          {availableModels.length > 0 && <button type="button" style={{ width: "100%", padding: "10px", marginBottom: "10px" }} onClick={() => openSelector("model", availableModels)}>{form.model || "Select Model"}</button>}
         </div>
 
-        {/* PRICING */}
+        {/* Pricing & Offers */}
         <div style={sectionStyle}>
-          <h3>Pricing & Offers</h3>
-          <input type="text" placeholder="Price" value={Number(form.price).toLocaleString()} onChange={handlePriceChange} style={{ width: "100%", padding: "10px", marginBottom: "15px" }} />
-          <input type="number" placeholder="Discount / Sale Price (Optional)" value={form.discount_price} onChange={(e) => handleChange("discount_price", e.target.value)} style={{ width: "100%", padding: "10px", marginBottom: "15px" }} />
-
-          <label style={{ display: "block", marginBottom: "10px" }}>
-            <input type="checkbox" checked={form.negotiable} onChange={(e) => handleChange("negotiable", e.target.checked)} /> Price Negotiable
-          </label>
-
-          <label style={{ display: "block", marginBottom: "10px" }}>
-            <input type="checkbox" checked={form.exchange_possible} onChange={(e) => handleChange("exchange_possible", e.target.checked)} /> Exchange Possible
-          </label>
-
-          <label style={{ display: "block", marginBottom: "10px" }}>
-            <input type="checkbox" checked={form.flash_sale} onChange={(e) => handleChange("flash_sale", e.target.checked)} /> Flash Sale
-          </label>
+          <input type="text" placeholder="Price" value={formatNumberWithCommas(form.price)} onChange={(e) => handlePriceChange("price", e.target.value)} style={{ width: "100%", padding: "10px", marginBottom: "15px" }} />
+          <input type="text" placeholder="Discount Price" value={formatNumberWithCommas(form.discount_price)} onChange={(e) => handlePriceChange("discount_price", e.target.value)} style={{ width: "100%", padding: "10px", marginBottom: "5px" }} />
+          {form.discount_percent > 0 && <div style={{ color: "green", marginBottom: "10px" }}>{form.discount_percent}% OFF</div>}
+          <label><input type="checkbox" checked={form.negotiable} onChange={(e) => handleChange("negotiable", e.target.checked)} /> Price Negotiable</label>
+          <label><input type="checkbox" checked={form.flash_sale} onChange={(e) => handleChange("flash_sale", e.target.checked)} /> Flash Sale</label>
         </div>
 
-        {/* DESCRIPTION */}
+                {/* DESCRIPTION */}
         <div style={sectionStyle}>
           <h3>Product Description & Details</h3>
           <textarea placeholder="Short Description" value={form.description} onChange={(e) => handleChange("description", e.target.value)} style={{ width: "100%", padding: "10px", marginBottom: "15px" }} />
