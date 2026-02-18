@@ -1,38 +1,31 @@
 // src/pages/Marketplace/ProductDetail.jsx
 
 import { useEffect, useState } from "react";
-import { useParams, useNavigate } from "react-router-dom";
-import {
-  FaArrowLeft,
-  FaStar,
-  FaFire,
-  FaHeart,
-  FaCommentDots
-} from "react-icons/fa";
-
-const API_URL = import.meta.env.VITE_API_URL; // For Vite
-// const API_URL = process.env.REACT_APP_API_URL; // For CRA
+import { useParams } from "react-router-dom";
 
 export default function ProductDetail() {
   const { id } = useParams();
-  const navigate = useNavigate();
 
   const [product, setProduct] = useState(null);
-  const [mainImage, setMainImage] = useState("");
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
+  const [selectedImage, setSelectedImage] = useState(0);
+  const [timeLeft, setTimeLeft] = useState("");
 
-  // Fetch Product
+  const API_URL = import.meta.env.VITE_API_URL || "";
+
+  // Fetch product
   useEffect(() => {
     const fetchProduct = async () => {
       try {
         const res = await fetch(`${API_URL}/api/marketplace/${id}`);
         const data = await res.json();
 
-        if (!res.ok) throw new Error(data.message || "Failed to load product");
+        if (!res.ok) {
+          throw new Error(data.error || "Failed to load product");
+        }
 
         setProduct(data);
-        setMainImage(data.images?.[0] || "");
       } catch (err) {
         setError(err.message);
       } finally {
@@ -43,236 +36,126 @@ export default function ProductDetail() {
     fetchProduct();
   }, [id]);
 
-  // Image Helper
-  const getImageUrl = (img) => {
-    if (!img) return "";
-    if (img.startsWith("http")) return img;
-    return `${API_URL}/${img}`;
-  };
+  // Promotion countdown
+  useEffect(() => {
+    if (!product?.promo_expiry) return;
 
-  // Loading State
-  if (loading) {
-    return (
-      <div style={{ textAlign: "center", marginTop: "100px" }}>
-        <h3 style={{ color: "#007BFF" }}>Loading product...</h3>
-      </div>
-    );
-  }
+    const interval = setInterval(() => {
+      const now = new Date();
+      const expiry = new Date(product.promo_expiry);
+      const diff = expiry - now;
 
-  // Error State
-  if (error || !product) {
-    return (
-      <div style={{ textAlign: "center", marginTop: "100px" }}>
-        <h3 style={{ color: "red" }}>
-          {error || "Product not found"}
-        </h3>
-      </div>
-    );
-  }
+      if (diff <= 0) {
+        setTimeLeft("Promotion expired");
+        clearInterval(interval);
+        return;
+      }
+
+      const hours = Math.floor(diff / (1000 * 60 * 60));
+      const minutes = Math.floor((diff / (1000 * 60)) % 60);
+
+      setTimeLeft(`${hours}h ${minutes}m left`);
+    }, 60000);
+
+    return () => clearInterval(interval);
+  }, [product]);
+
+  if (loading) return <div className="p-6">Loading product...</div>;
+  if (error) return <div className="p-6 text-red-500">{error}</div>;
+  if (!product) return null;
 
   return (
-    <div
-      style={{
-        maxWidth: "1000px",
-        margin: "40px auto",
-        padding: "0 20px",
-        fontFamily: "Inter, sans-serif"
-      }}
-    >
-      {/* BACK BUTTON */}
-      <button
-        onClick={() => navigate(-1)}
-        style={{
-          display: "flex",
-          alignItems: "center",
-          gap: "8px",
-          background: "none",
-          border: "none",
-          color: "#007BFF",
-          fontWeight: "600",
-          cursor: "pointer",
-          marginBottom: "25px",
-          fontSize: "16px"
-        }}
-      >
-        <FaArrowLeft /> Back
-      </button>
-
-      {/* PROMOTION BADGE */}
+    <div className="max-w-6xl mx-auto p-4 md:p-8">
+      
+      {/* Promotion Badge */}
       {product.promoted && (
-        <div
-          style={{
-            background: "linear-gradient(90deg, #ff4d4f, #ff7a45)",
-            color: "#fff",
-            padding: "8px 16px",
-            borderRadius: "8px",
-            display: "inline-flex",
-            alignItems: "center",
-            gap: "6px",
-            fontWeight: "600",
-            marginBottom: "20px",
-            boxShadow: "0 4px 10px rgba(0,0,0,0.15)"
-          }}
-        >
-          <FaFire /> Promoted • {product.promo_plan}
+        <div className="mb-4">
+          <span className="bg-yellow-400 text-black px-4 py-1 rounded-full font-semibold">
+            🔥 {product.promo_plan}
+          </span>
+          {timeLeft && (
+            <span className="ml-3 text-sm text-gray-600">
+              {timeLeft}
+            </span>
+          )}
         </div>
       )}
 
-      {/* IMAGE SECTION */}
-      <div
-        style={{
-          display: "flex",
-          gap: "25px",
-          marginBottom: "40px",
-          flexWrap: "wrap"
-        }}
-      >
-        <div style={{ flex: 2 }}>
+      <div className="grid md:grid-cols-2 gap-8">
+        
+        {/* Image Section */}
+        <div>
           <img
-            src={getImageUrl(mainImage)}
-            alt="Product"
-            style={{
-              width: "100%",
-              height: "450px",
-              objectFit: "cover",
-              borderRadius: "16px",
-              boxShadow: "0 8px 20px rgba(0,0,0,0.1)"
-            }}
+            src={product.images[selectedImage]}
+            alt={product.title}
+            className="w-full h-96 object-cover rounded-xl"
           />
+
+          <div className="flex gap-2 mt-4 overflow-x-auto">
+            {product.images.map((img, index) => (
+              <img
+                key={index}
+                src={img}
+                alt="thumbnail"
+                onClick={() => setSelectedImage(index)}
+                className={`w-20 h-20 object-cover rounded-lg cursor-pointer border ${
+                  selectedImage === index
+                    ? "border-blue-600"
+                    : "border-gray-300"
+                }`}
+              />
+            ))}
+          </div>
         </div>
 
-        <div
-          style={{
-            flex: 1,
-            display: "flex",
-            flexDirection: "column",
-            gap: "10px"
-          }}
-        >
-          {product.images?.map((img, index) => (
-            <img
-              key={index}
-              src={getImageUrl(img)}
-              alt="Thumbnail"
-              onClick={() => setMainImage(img)}
-              style={{
-                height: "100px",
-                objectFit: "cover",
-                borderRadius: "10px",
-                cursor: "pointer",
-                boxShadow: "0 2px 8px rgba(0,0,0,0.08)"
-              }}
-            />
-          ))}
-        </div>
-      </div>
+        {/* Product Info */}
+        <div>
+          <h1 className="text-2xl md:text-3xl font-bold mb-2">
+            {product.title}
+          </h1>
 
-      {/* PRODUCT INFO */}
-      <h1 style={{ fontSize: "28px", color: "#1a1a1a", marginBottom: "10px" }}>
-        {product.title}
-      </h1>
-
-      <div style={{ marginBottom: "10px", color: "#555" }}>
-        Seller: <strong>{product.poster_name}</strong>
-      </div>
-
-      <div style={{ marginBottom: "10px", color: "#777" }}>
-        {product.city}, {product.state}
-      </div>
-
-      <div
-        style={{
-          display: "flex",
-          alignItems: "center",
-          gap: "5px",
-          color: "#FFC107",
-          marginBottom: "20px"
-        }}
-      >
-        <FaStar /> 4.5 (23 Reviews)
-      </div>
-
-      {/* PRICE SECTION */}
-      <div
-        style={{
-          background: "#f5f9ff",
-          padding: "20px",
-          borderRadius: "14px",
-          border: "1px solid #dbe9ff",
-          marginBottom: "30px"
-        }}
-      >
-        <h2 style={{ color: "#007BFF", marginBottom: "10px" }}>
-          ₦{Number(product.price).toLocaleString()}
-        </h2>
-
-        {product.negotiation && (
-          <p style={{ color: "#28a745", fontWeight: "500" }}>
-            Negotiable
+          <p className="text-3xl text-green-600 font-bold mb-4">
+            ₦{product.price?.toLocaleString()}
           </p>
-        )}
-      </div>
 
-      {/* ACTION BUTTONS */}
-      <div
-        style={{
-          display: "flex",
-          gap: "15px",
-          flexWrap: "wrap",
-          marginBottom: "40px"
-        }}
-      >
-        <button
-          style={{
-            flex: 1,
-            padding: "14px",
-            background: "#007BFF",
-            color: "#fff",
-            borderRadius: "10px",
-            border: "none",
-            cursor: "pointer",
-            fontWeight: "600"
-          }}
-        >
-          <FaCommentDots /> Chat Seller
-        </button>
+          <div className="space-y-2 text-gray-700">
+            <p><strong>Category:</strong> {product.category}</p>
+            {product.brand && (
+              <p><strong>Brand:</strong> {product.brand}</p>
+            )}
+            {product.model && (
+              <p><strong>Model:</strong> {product.model}</p>
+            )}
+            {product.condition && (
+              <p><strong>Condition:</strong> {product.condition}</p>
+            )}
+            <p><strong>Location:</strong> {product.state}, {product.city}</p>
+          </div>
 
-        <button
-          style={{
-            flex: 1,
-            padding: "14px",
-            background: "#28a745",
-            color: "#fff",
-            borderRadius: "10px",
-            border: "none",
-            cursor: "pointer",
-            fontWeight: "600"
-          }}
-        >
-          Make Offer
-        </button>
+          <hr className="my-6" />
 
-        <button
-          style={{
-            padding: "14px 20px",
-            background: "#FFC107",
-            color: "#000",
-            borderRadius: "10px",
-            border: "none",
-            cursor: "pointer",
-            fontWeight: "600"
-          }}
-        >
-          <FaHeart />
-        </button>
-      </div>
+          <h2 className="text-lg font-semibold mb-2">
+            Description
+          </h2>
+          <p className="text-gray-700 leading-relaxed">
+            {product.description}
+          </p>
 
-      {/* DESCRIPTION */}
-      <div>
-        <h3 style={{ marginBottom: "10px" }}>Product Description</h3>
-        <p style={{ lineHeight: "1.6", color: "#444" }}>
-          {product.description}
-        </p>
+          <hr className="my-6" />
+
+          {/* Seller Contact */}
+          <div className="bg-gray-100 p-4 rounded-xl">
+            <h3 className="font-semibold mb-2">
+              Seller Contact
+            </h3>
+            <a
+              href={`tel:${product.phone}`}
+              className="block bg-blue-600 text-white text-center py-2 rounded-lg"
+            >
+              Call Seller
+            </a>
+          </div>
+        </div>
       </div>
     </div>
   );
