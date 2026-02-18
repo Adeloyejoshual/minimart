@@ -1,6 +1,6 @@
-// src/routes/marketplace.js
 import express from "express";
 import MarketplaceProduct from "../models/MarketplaceProduct.js";
+import { verifyPaystackPayment } from "../utils/paystackHelper.js"; // Backend helper
 
 const router = express.Router();
 
@@ -33,6 +33,7 @@ router.get("/:id", async (req, res) => {
 
 /**
  * POST new product
+ * If `promoted` is true, verify Paystack payment before saving
  */
 router.post("/", async (req, res) => {
   try {
@@ -40,8 +41,6 @@ router.post("/", async (req, res) => {
       title,
       description,
       price,
-      bulk_price,
-      negotiation,
       images,
       category,
       subcategory,
@@ -61,6 +60,7 @@ router.post("/", async (req, res) => {
       delivery,
       promoted,
       promo_plan,
+      payment_reference, // REQUIRED for promoted products
       country,
       state,
       city,
@@ -76,17 +76,29 @@ router.post("/", async (req, res) => {
       furnished,
     } = req.body;
 
-    // Required validation
+    // Basic validation
     if (!title?.trim() || !price) {
       return res.status(400).json({ message: "Title and price are required" });
     }
 
+    // If promotion selected → verify Paystack
+    if (promoted && promo_plan) {
+      if (!payment_reference) {
+        return res.status(400).json({ message: "Payment reference required for promotion" });
+      }
+
+      const verification = await verifyPaystackPayment(payment_reference);
+
+      if (!verification.success) {
+        return res.status(400).json({ message: "Promotion payment not verified" });
+      }
+    }
+
+    // Save product
     const product = await MarketplaceProduct.create({
       title: title.trim(),
       description: description?.trim() || "",
       price: parseFloat(price),
-      bulk_price: bulk_price || { from: null, per_piece: null },
-      negotiation: negotiation || "",
       images: Array.isArray(images) ? images : [],
       category: category || "",
       subcategory: subcategory || "",
@@ -96,8 +108,8 @@ router.post("/", async (req, res) => {
       ram: ram || "",
       storage: storage || "",
       color: color || "",
-      sim: sim || "",
-      features: features || "",
+      sim: sim || [],
+      features: features || [],
       exchange_possible: exchange_possible || false,
       phone_number: phone_number || "",
       poster_name: poster_name || "",
@@ -106,6 +118,7 @@ router.post("/", async (req, res) => {
       delivery: delivery || {},
       promoted: promoted || false,
       promo_plan: promo_plan || "",
+      payment_reference: payment_reference || null,
       country: country || "Nigeria",
       state: state || "",
       city: city || "",
@@ -121,7 +134,7 @@ router.post("/", async (req, res) => {
       furnished: furnished || false,
     });
 
-    res.status(201).json(product);
+    res.status(201).json({ message: "Product added successfully", product });
   } catch (err) {
     console.error("POST /api/marketplace error:", err);
     res.status(500).json({ message: "Failed to add Marketplace product" });
