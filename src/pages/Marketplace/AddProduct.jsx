@@ -353,10 +353,7 @@ export default function AddMarketplaceProduct() {
                   </button>
                 )}
               </div>
-            );
-          })}
-        </div>
-    
+           
          {/* SECTION 2: Pricing & Offers */}
         <div style={sectionStyle}>
           <h3>Pricing & Offers</h3>
