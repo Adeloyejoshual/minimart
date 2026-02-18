@@ -1198,28 +1198,179 @@ export default function AddMarketplaceProduct() {
   
 
   
-        {/* Submit */}
-  
-        <div style={sectionStyle}>
-  
+        // DeliveryModal Component
+const DeliveryModal = ({ deliveryForm, setDeliveryForm, onAdd, onClose }) => {
+  const availableCities = deliveryForm.state ? locationsByState[deliveryForm.state] || [] : [];
+
+  return (
+    <div style={modalOverlayStyle}>
+      <div style={modalContentStyle}>
+        <h3>Add Delivery Region</h3>
+
+        <button
+          type="button"
+          onClick={() => setDeliveryForm(prev => ({ ...prev, state: "" }))}
+          style={selectorButtonStyle(deliveryForm.state)}
+        >
+          {deliveryForm.state || "Select State"}
+        </button>
+        {deliveryForm.state && (
           <button
-  
-            type="submit"
-  
-            disabled={loading || imageFiles.length === 0}
-  
-            style={submitButtonStyle(loading || imageFiles.length === 0)}
-  
+            type="button"
+            onClick={() => setDeliveryForm(prev => ({ ...prev, city: "" }))}
+            style={selectorButtonStyle(deliveryForm.city)}
           >
-  
-            {loading ? "⏳ Publishing..." : `🚀 Preview & Publish (${imageFiles.length}/10 images)`}
-  
+            {deliveryForm.city || "Select City"}
           </button>
-  
+        )}
+
+        {deliveryForm.state && availableCities.length > 0 && (
+          <div style={{ margin: "12px 0" }}>
+            {availableCities.map(city => (
+              <div
+                key={city}
+                style={selectorOptionStyle}
+                onClick={() => setDeliveryForm(prev => ({ ...prev, city }))}
+              >
+                {city}
+              </div>
+            ))}
+          </div>
+        )}
+
+        <input
+          type="number"
+          placeholder="From (days)"
+          value={deliveryForm.from}
+          onChange={e => setDeliveryForm(prev => ({ ...prev, from: e.target.value }))}
+          style={inputStyle}
+        />
+        <input
+          type="number"
+          placeholder="To (days)"
+          value={deliveryForm.to}
+          onChange={e => setDeliveryForm(prev => ({ ...prev, to: e.target.value }))}
+          style={inputStyle}
+        />
+
+        <label style={{ display: "block", marginBottom: "8px" }}>
+          <input
+            type="checkbox"
+            checked={deliveryForm.chargeFee}
+            onChange={e => setDeliveryForm(prev => ({ ...prev, chargeFee: e.target.checked }))}
+          /> Charge delivery fee
+        </label>
+        {deliveryForm.chargeFee && (
+          <input
+            type="number"
+            placeholder="Fee (NGN)"
+            value={deliveryForm.fee}
+            onChange={e => setDeliveryForm(prev => ({ ...prev, fee: e.target.value }))}
+            style={inputStyle}
+          />
+        )}
+
+        <label style={{ display: "block", marginBottom: "8px" }}>
+          <input
+            type="checkbox"
+            checked={deliveryForm.expressAvailable}
+            onChange={e => setDeliveryForm(prev => ({ ...prev, expressAvailable: e.target.checked }))}
+          /> Express delivery available
+        </label>
+
+        <input
+          type="text"
+          placeholder="Warehouse Address (optional)"
+          value={deliveryForm.warehouseAddress}
+          onChange={e => setDeliveryForm(prev => ({ ...prev, warehouseAddress: e.target.value }))}
+          style={inputStyle}
+        />
+
+        <button style={primaryButtonStyle} onClick={onAdd}>Add Region</button>
+        <button style={cancelButtonStyle} onClick={onClose}>Cancel</button>
+      </div>
+    </div>
+  );
+};
+
+// PaymentModal Component
+const PaymentModal = ({ plan, paystackKey, userEmail, onSuccess, onClose }) => {
+  const amountInKobo = plan.price * 100;
+
+  return (
+    <div style={modalOverlayStyle}>
+      <div style={modalContentStyle}>
+        <h3>💳 Pay for Promotion</h3>
+        <div style={{ marginBottom: "15px" }}>
+          <strong>{plan.name}</strong>
+          <p>{plan.duration}</p>
+          <p>
+            Price: {plan.discount > 0 && <span style={{ textDecoration: "line-through", color: "#999" }}>₦{plan.price.toLocaleString()}</span>}{" "}
+            ₦{(plan.price - plan.discount).toLocaleString()}
+          </p>
+          {plan.price === 0 && <span style={freeBadgeStyle}>FREE</span>}
         </div>
-  
-      </form>
-  
+
+        {plan.price > 0 ? (
+          <PaystackButton
+            text="Pay Now"
+            className="paystack-button"
+            amount={amountInKobo}
+            email={userEmail}
+            publicKey={paystackKey}
+            onSuccess={onSuccess}
+            onClose={onClose}
+          />
+        ) : (
+          <button style={primaryButtonStyle} onClick={() => onSuccess({ reference: "FREE_PROMO" })}>
+            Activate Free Promotion
+          </button>
+        )}
+
+        <button style={cancelButtonStyle} onClick={onClose}>Cancel</button>
+      </div>
+    </div>
+  );
+};
+
+// PreviewModal Component
+const PreviewModal = ({ form, imagePreviews, currentPlan, onEdit, onPublish, loading }) => {
+  return (
+    <div style={modalOverlayStyle}>
+      <div style={modalContentStyle}>
+        <h3>👀 Preview Your Product</h3>
+
+        <div style={{ marginBottom: "15px" }}>
+          <h4>{form.title}</h4>
+          <p>{form.description}</p>
+          <p><strong>Price:</strong> ₦{form.price}</p>
+          {form.discount_price && <p><strong>Discount Price:</strong> ₦{form.discount_price}</p>}
+          {form.promoted && currentPlan && (
+            <p>Promotion: {currentPlan.name} ({currentPlan.duration})</p>
+          )}
+        </div>
+
+        <div style={{ display: "flex", gap: "10px", flexWrap: "wrap", marginBottom: "15px" }}>
+          {imagePreviews.map((src, i) => (
+            <img
+              key={i}
+              src={src}
+              alt={`Preview ${i + 1}`}
+              style={{ width: "80px", height: "80px", objectFit: "cover", borderRadius: "8px", border: "2px solid #007BFF" }}
+            />
+          ))}
+        </div>
+
+        <div style={{ display: "flex", gap: "10px" }}>
+          <button style={primaryButtonStyle} onClick={onPublish} disabled={loading}>
+            {loading ? "⏳ Publishing..." : "✅ Confirm & Publish"}
+          </button>
+          <button style={cancelButtonStyle} onClick={onEdit}>✏️ Edit</button>
+        </div>
+      </div>
+    </div>
+  );
+};
 
   
       {/* Modals */}
