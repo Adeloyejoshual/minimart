@@ -1,6 +1,6 @@
-{
+r{
   "name": "minimart-marketplace",
-  "version": "1.2.0",
+  "version": "1.2.1",
   "private": true,
   "type": "module",
   "scripts": {
@@ -8,9 +8,9 @@
     "build": "vite build",
     "preview": "vite preview",
     "start": "node server.js",
+    "serve": "nodemon server.js",
     "lint": "eslint . --ext .js,.jsx",
-    "format": "prettier --write .",
-    "serve": "nodemon server.js"
+    "format": "prettier --write ."
   },
   "dependencies": {
     "react": "^18.3.1",
@@ -26,7 +26,8 @@
     "pg": "^8.12.0",
     "cloudinary": "^2.8.0",
     "multer": "^1.4.5-lts.1",
-    "node-cron": "^3.0.3"
+    "node-cron": "^3.0.3",
+    "react-icons": "^4.11.0"
   },
   "devDependencies": {
     "vite": "^4.5.14",
@@ -34,7 +35,10 @@
     "eslint": "^8.47.0",
     "eslint-plugin-react": "^7.33.2",
     "prettier": "^3.5.0",
-    "nodemon": "^3.0.2"
+    "nodemon": "^3.0.2",
+    "tailwindcss": "^3.6.0",
+    "postcss": "^8.4.32",
+    "autoprefixer": "^10.4.15"
   },
   "engines": {
     "node": ">=18.0.0"
