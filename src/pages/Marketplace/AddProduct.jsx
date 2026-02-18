@@ -1,4 +1,3 @@
-```jsx
 // src/pages/Marketplace/AddMarketplaceProduct.jsx
 import { useState, useRef, useEffect, useCallback } from "react";
 import { useAuth0 } from "@auth0/auth0-react";
@@ -98,7 +97,7 @@ export default function AddMarketplaceProduct() {
   const availableCities = locationsByState[form.state] || [];
   const paystackKey = import.meta.env.MODE === 'production' 
     ? import.meta.env.VITE_PAYSTACK_PUBLIC_KEY 
-    : `pk_test_${import.meta.env.VITE_PAYSTACK_PUBLIC_KEY?.split('_') [therichpost](https://therichpost.com/create-an-ecommerce-add-product-form-using-reactjs-for-the-frontend-and-php-with-mysql/)}`;
+    : `pk_test_${import.meta.env.VITE_PAYSTACK_PUBLIC_KEY?.split('_')[1]}`;
 
   // Style constants
   const sectionStyle = {
