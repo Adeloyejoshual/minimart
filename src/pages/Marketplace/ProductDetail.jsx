@@ -1,150 +1,207 @@
 // src/pages/Marketplace/ProductDetail.jsx
-import { useState } from "react";
-import { useNavigate, useParams } from "react-router-dom";
-import { FaArrowLeft, FaStar, FaStarHalfAlt, FaRegStar, FaHeart, FaShareAlt, FaComment } from "react-icons/fa";
+import React from "react";
+import { useNavigate } from "react-router-dom";
+import { FaArrowLeft, FaStar } from "react-icons/fa";
 
 export default function ProductDetail({ product }) {
   const navigate = useNavigate();
-  const [mainImage, setMainImage] = useState(product?.images?.[0] || "");
-  const [favorite, setFavorite] = useState(false);
 
-  if (!product) return <p className="text-center mt-20 text-gray-500">Product not found</p>;
+  if (!product) return <p>Loading product...</p>;
+
+  const {
+    title,
+    poster_name,
+    state,
+    city,
+    price,
+    discount_price,
+    negotiable,
+    exchange_possible,
+    description,
+    images = [],
+    deliveryRegions = [],
+    rating = 0,
+    reviewCount = 0,
+  } = product;
+
+  const displayPrice = discount_price || price;
 
   return (
-    <div className="max-w-5xl mx-auto p-4 space-y-6">
-      {/* Back Arrow */}
+    <div style={{ maxWidth: "900px", margin: "30px auto", padding: "0 15px", fontFamily: "'Inter', sans-serif" }}>
+      {/* BACK BUTTON */}
       <button
         onClick={() => navigate(-1)}
-        className="flex items-center gap-2 text-blue-600 hover:text-blue-800 font-semibold"
+        style={{
+          display: "flex",
+          alignItems: "center",
+          gap: "8px",
+          padding: "8px 12px",
+          background: "#007BFF",
+          color: "#fff",
+          border: "none",
+          borderRadius: "6px",
+          cursor: "pointer",
+          marginBottom: "20px",
+        }}
       >
         <FaArrowLeft /> Back
       </button>
 
-      {/* Images Section */}
-      <div className="flex flex-col md:flex-row gap-6">
-        {/* Main Image */}
-        <div className="flex-1">
-          <img
-            src={mainImage}
-            alt={product.title}
-            className="w-full h-[400px] md:h-[500px] object-cover rounded-lg shadow-lg"
-          />
-          {/* Thumbnails */}
-          <div className="flex gap-2 mt-3 overflow-x-auto">
-            {product.images.map((img, i) => (
+      {/* PRODUCT IMAGES / MEDIA */}
+      <div style={{ display: "flex", gap: "20px", marginBottom: "20px", flexWrap: "wrap" }}>
+        <div style={{ flex: 1, minWidth: "300px" }}>
+          {images.length > 0 ? (
+            <img
+              src={images[0]}
+              alt="Main product"
+              style={{ width: "100%", borderRadius: "12px", objectFit: "cover" }}
+            />
+          ) : (
+            <div
+              style={{
+                width: "100%",
+                height: "300px",
+                borderRadius: "12px",
+                background: "#f0f0f0",
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "center",
+                color: "#999",
+              }}
+            >
+              No Image
+            </div>
+          )}
+
+          {/* Thumbnail Strip */}
+          <div style={{ display: "flex", gap: "10px", marginTop: "10px", flexWrap: "wrap" }}>
+            {images.slice(1).map((img, i) => (
               <img
                 key={i}
                 src={img}
-                alt={`Thumbnail ${i}`}
-                onClick={() => setMainImage(img)}
-                className={`w-20 h-20 object-cover rounded cursor-pointer border-2 ${
-                  mainImage === img ? "border-blue-500" : "border-transparent"
-                }`}
+                alt={`Thumb ${i}`}
+                style={{ width: "80px", height: "80px", borderRadius: "8px", objectFit: "cover", cursor: "pointer" }}
+                onClick={() => window.scrollTo({ top: 0, behavior: "smooth" })}
               />
             ))}
           </div>
         </div>
+      </div>
 
-        {/* Product Info */}
-        <div className="flex-1 space-y-4">
-          <h1 className="text-3xl font-bold text-gray-800">{product.title}</h1>
-          <p className="text-gray-600">Sold by <span className="font-semibold">{product.poster_name}</span></p>
-          <p className="text-gray-600">{product.city}, {product.state}</p>
+      {/* PRODUCT INFO */}
+      <div
+        style={{
+          padding: "20px",
+          background: "#f8f9fa",
+          borderRadius: "12px",
+          marginBottom: "20px",
+        }}
+      >
+        <h1 style={{ fontSize: "28px", fontWeight: "700", marginBottom: "10px", color: "#333" }}>
+          {title}
+        </h1>
+        <p style={{ margin: "5px 0", color: "#555" }}>
+          Seller: <strong>{poster_name}</strong> • {city}, {state}
+        </p>
 
-          {/* Price */}
-          <div className="text-2xl font-bold text-green-600">
-            ₦{Number(product.price).toLocaleString()}
-            {product.negotiable && <span className="text-gray-500 text-lg ml-2">Negotiable</span>}
-          </div>
-
-          {/* Ratings */}
-          <div className="flex items-center gap-1">
-            {Array.from({ length: 5 }).map((_, i) => (
-              <FaStar key={i} className="text-yellow-400" />
-            ))}
-            <span className="text-gray-600 ml-2">(24 Reviews)</span>
-          </div>
-
-          {/* Description */}
-          <p className="text-gray-700">{product.description}</p>
-
-          {/* Offers & Delivery */}
-          <div className="space-y-2">
-            {product.discount_price && (
-              <p className="text-red-500 font-semibold">Discount Price: ₦{Number(product.discount_price).toLocaleString()}</p>
-            )}
-            {product.deliveryRegions?.length > 0 && (
-              <div className="bg-blue-50 p-3 rounded shadow-sm">
-                <h3 className="font-semibold text-blue-700">Delivery Options:</h3>
-                {product.deliveryRegions.map((d, i) => (
-                  <p key={i} className="text-gray-700">
-                    {d.state} - {d.city} • {d.from}-{d.to} days {d.isFreeDelivery && <span className="text-green-600 font-semibold">FREE</span>}
-                  </p>
-                ))}
-              </div>
-            )}
-          </div>
-
-          {/* Interaction Buttons */}
-          <div className="flex gap-4 mt-4">
-            <button
-              onClick={() => setFavorite(!favorite)}
-              className={`flex-1 flex items-center justify-center gap-2 py-2 px-4 border rounded-lg font-semibold ${
-                favorite ? "bg-red-600 text-white border-red-600" : "bg-white text-gray-800 border-gray-300 hover:bg-gray-100"
-              }`}
-            >
-              <FaHeart /> {favorite ? "Favorited" : "Favorite"}
-            </button>
-            <button
-              className="flex-1 flex items-center justify-center gap-2 py-2 px-4 border rounded-lg bg-blue-600 text-white font-semibold hover:bg-blue-700"
-            >
-              <FaShareAlt /> Share
-            </button>
-            <button
-              className="flex-1 flex items-center justify-center gap-2 py-2 px-4 border rounded-lg bg-gray-200 text-gray-800 hover:bg-gray-300 font-semibold"
-            >
-              <FaComment /> Chat
-            </button>
-          </div>
+        {/* Rating */}
+        <div style={{ display: "flex", alignItems: "center", margin: "10px 0" }}>
+          {Array.from({ length: 5 }).map((_, i) => (
+            <FaStar
+              key={i}
+              color={i < rating ? "#FFD700" : "#ddd"}
+              style={{ marginRight: "4px" }}
+            />
+          ))}
+          <span style={{ marginLeft: "10px", color: "#555" }}>({reviewCount} reviews)</span>
         </div>
-      </div>
 
-      {/* Full Product Description & Features */}
-      <div className="bg-white p-4 rounded-lg shadow-md space-y-3">
-        <h2 className="text-xl font-bold text-gray-800">Product Details</h2>
-        {product.features?.length > 0 && (
-          <ul className="list-disc list-inside text-gray-700 space-y-1">
-            {product.features.map((f, i) => (
-              <li key={i}>{f}</li>
-            ))}
-          </ul>
+        {/* Price */}
+        <p style={{ fontSize: "24px", fontWeight: "700", color: "#007BFF", marginBottom: "10px" }}>
+          ₦{Number(displayPrice).toLocaleString()} {negotiable && <span style={{ fontWeight: "500", color: "#28a745" }}>• Negotiable</span>}
+        </p>
+
+        {exchange_possible && (
+          <p style={{ fontSize: "16px", color: "#17a2b8" }}>🔄 Exchange Possible</p>
         )}
-        <p className="text-gray-700">{product.description}</p>
-        <p className="text-gray-600 mt-2">Condition: {product.condition}</p>
-        <p className="text-gray-600">Brand: {product.brand} | Model: {product.model}</p>
-        {product.year && <p className="text-gray-600">Year: {product.year}</p>}
-        {product.ram && <p className="text-gray-600">RAM: {product.ram}</p>}
-        {product.storage && <p className="text-gray-600">Storage: {product.storage}</p>}
+
+        <p style={{ color: "#555", lineHeight: "1.6" }}>{description}</p>
       </div>
 
-      {/* Reviews Section */}
-      <div className="bg-white p-4 rounded-lg shadow-md space-y-3">
-        <h2 className="text-xl font-bold text-gray-800">Reviews & Ratings</h2>
-        <p className="text-gray-600">No reviews yet. Be the first to review!</p>
-      </div>
-
-      {/* Similar Products / Recommendations */}
-      <div className="bg-white p-4 rounded-lg shadow-md space-y-3">
-        <h2 className="text-xl font-bold text-gray-800">Similar Listings</h2>
-        <div className="flex gap-4 overflow-x-auto">
-          {product.similar?.map((p, i) => (
-            <div key={i} className="w-48 bg-gray-100 p-2 rounded-lg flex-shrink-0 cursor-pointer hover:shadow-lg">
-              <img src={p.images?.[0]} alt={p.title} className="w-full h-32 object-cover rounded" />
-              <h3 className="text-gray-800 font-semibold mt-1">{p.title}</h3>
-              <p className="text-green-600 font-bold">₦{Number(p.price).toLocaleString()}</p>
-            </div>
+      {/* DELIVERY */}
+      {deliveryRegions.length > 0 && (
+        <div
+          style={{
+            padding: "20px",
+            background: "#fff3cd",
+            borderRadius: "12px",
+            marginBottom: "20px",
+          }}
+        >
+          <h3 style={{ marginBottom: "10px", color: "#856404" }}>Delivery Options</h3>
+          {deliveryRegions.map((d, i) => (
+            <p key={i} style={{ marginBottom: "5px", color: "#856404" }}>
+              {d.state} - {d.city} • {d.from}-{d.to} days {d.isFreeDelivery && "• FREE"}{" "}
+              {d.expressAvailable && "• Express"}
+            </p>
           ))}
         </div>
+      )}
+
+      {/* INTERACTION */}
+      <div style={{ display: "flex", gap: "10px", flexWrap: "wrap" }}>
+        <button
+          style={{
+            flex: 1,
+            padding: "12px",
+            background: "#007BFF",
+            color: "#fff",
+            border: "none",
+            borderRadius: "8px",
+            cursor: "pointer",
+          }}
+        >
+          Chat with Seller
+        </button>
+        <button
+          style={{
+            flex: 1,
+            padding: "12px",
+            background: "#28a745",
+            color: "#fff",
+            border: "none",
+            borderRadius: "8px",
+            cursor: "pointer",
+          }}
+        >
+          Make Offer
+        </button>
+        <button
+          style={{
+            flex: 1,
+            padding: "12px",
+            background: "#ffc107",
+            color: "#fff",
+            border: "none",
+            borderRadius: "8px",
+            cursor: "pointer",
+          }}
+        >
+          Save / Favorite
+        </button>
+        <button
+          style={{
+            flex: 1,
+            padding: "12px",
+            background: "#6c757d",
+            color: "#fff",
+            border: "none",
+            borderRadius: "8px",
+            cursor: "pointer",
+          }}
+        >
+          Share Listing
+        </button>
       </div>
     </div>
   );
