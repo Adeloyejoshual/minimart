@@ -15,9 +15,7 @@
     "react-dom": "^18.3.1",
     "react-router-dom": "^6.14.1",
     "@auth0/auth0-react": "^2.0.0",
-
-    "@paystack/inline-js": "^2.14.0",        // ✅ Paystack frontend SDK
-
+    "@paystack/inline-js": "^2.14.0",
     "axios": "^1.6.0",
     "express": "^4.18.2",
     "cors": "^2.8.5",
@@ -26,8 +24,7 @@
     "pg": "^8.12.0",
     "cloudinary": "^2.8.0",
     "multer": "^1.4.5-lts.1",
-
-    "node-cron": "^3.0.3"                    // ✅ For auto promotion expiry cleanup
+    "node-cron": "^3.0.3"
   },
   "devDependencies": {
     "vite": "^4.5.14",
