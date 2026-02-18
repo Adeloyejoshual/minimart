@@ -1,6 +1,8 @@
 // src/pages/Marketplace/AddMarketplaceProduct.jsx
 import { useState, useRef, useEffect } from "react";
 import { useAuth0 } from "@auth0/auth0-react";
+import { Helmet } from "react-helmet-async";
+
 import { categoryFields } from "../../config/categoryFields";
 import { conditions, usedDetails } from "../../config/conditions";
 import { ramOptions } from "../../config/ram";
@@ -17,311 +19,246 @@ import { sims } from "../../config/sim";
 import { years } from "../../config/years";
 
 export default function AddMarketplaceProduct() {
-const { user } = useAuth0();
-const fileInputRef = useRef(null);
+  const { user } = useAuth0();
+  const fileInputRef = useRef(null);
 
-// ===== Form State =====
-const [form, setForm] = useState({
-title: "",
-description: "",
-price: "",
-discount_price: "",
-quantity: "",
-category: "",
-subcategory: "",
-brand: "",
-model: "",
-condition: "",
-used_detail: "",
-ram: "",
-storage: "",
-color: "",
-sim: [],
-engine: "",
-mileage: "",
-year: "",
-fuel_type: "",
-transmission: "",
-phone_number: user?.phone_number || "",
-additional_phone: "",
-poster_name: user?.name || "",
-state: "",
-city: "",
-location: "",
-social_link: "",
-images: [],
-video_link: "",
-promoted: false,
-promo_plan: "",
-flash_sale: false,
-exchange_possible: false,
-negotiable: false,
-deliveryRegions: [],
-features: [],
-});
+  // ===== Form State =====
+  const [form, setForm] = useState({
+    title: "",
+    description: "",
+    price: "",
+    discount_price: "",
+    quantity: "",
+    category: "",
+    subcategory: "",
+    brand: "",
+    model: "",
+    condition: "",
+    used_detail: "",
+    ram: "",
+    storage: "",
+    color: "",
+    sim: [],
+    engine: "",
+    mileage: "",
+    year: "",
+    fuel_type: "",
+    transmission: "",
+    phone_number: user?.phone_number || "",
+    additional_phone: "",
+    poster_name: user?.name || "",
+    state: "",
+    city: "",
+    location: "",
+    social_link: "",
+    images: [],
+    video_link: "",
+    promoted: false,
+    promo_plan: "",
+    flash_sale: false,
+    exchange_possible: false,
+    negotiable: false,
+    deliveryRegions: [],
+    features: [],
+  });
 
-const [imageFiles, setImageFiles] = useState([]);
-const [imagePreviews, setImagePreviews] = useState([]);
-const [loading, setLoading] = useState(false);
+  const [imageFiles, setImageFiles] = useState([]);
+  const [imagePreviews, setImagePreviews] = useState([]);
+  const [loading, setLoading] = useState(false);
 
-// ===== Delivery Form State =====
-const [deliveryForm, setDeliveryForm] = useState({
-state: "",
-city: "",
-method: "Courier",
-from: "",
-to: "",
-chargeFee: false,
-fee: "",
-expressAvailable: false,
-warehouseAddress: "",
-});
-const [showDeliveryForm, setShowDeliveryForm] = useState(false);
+  // ===== Delivery Form State =====
+  const [deliveryForm, setDeliveryForm] = useState({
+    state: "",
+    city: "",
+    method: "Courier",
+    from: "",
+    to: "",
+    chargeFee: false,
+    fee: "",
+    expressAvailable: false,
+    warehouseAddress: "",
+  });
+  const [showDeliveryForm, setShowDeliveryForm] = useState(false);
 
-// ===== Preview Modal =====
-const [showPreview, setShowPreview] = useState(false);
+  // ===== Preview Modal =====
+  const [showPreview, setShowPreview] = useState(false);
 
-// ===== Full-page Selector State =====
-const [selectorField, setSelectorField] = useState(null);
-const [selectorOptions, setSelectorOptions] = useState([]);
+  // ===== Full-page Selector State =====
+  const [selectorField, setSelectorField] = useState(null);
+  const [selectorOptions, setSelectorOptions] = useState([]);
 
-// ===== Load Draft on Refresh =====
-useEffect(() => {
-const draft = localStorage.getItem("marketplace_draft");
-if (draft) setForm(JSON.parse(draft));
-}, []);
+  // ===== Load Draft on Refresh =====
+  useEffect(() => {
+    const draft = localStorage.getItem("marketplace_draft");
+    if (draft) setForm(JSON.parse(draft));
+  }, []);
 
-useEffect(() => {
-localStorage.setItem("marketplace_draft", JSON.stringify(form));
-}, [form]);
+  useEffect(() => {
+    localStorage.setItem("marketplace_draft", JSON.stringify(form));
+  }, [form]);
 
-// ===== Handlers =====
-const handleChange = (field, value) => {
-setForm((prev) => ({ ...prev, [field]: value }));
-if (field === "brand") setForm((prev) => ({ ...prev, model: "" }));
-if (field === "state") setForm((prev) => ({ ...prev, city: "" }));
-};
+  // ===== Handlers =====
+  const handleChange = (field, value) => {
+    setForm((prev) => ({ ...prev, [field]: value }));
+    if (field === "brand") setForm((prev) => ({ ...prev, model: "" }));
+    if (field === "state") setForm((prev) => ({ ...prev, city: "" }));
+  };
 
-const handleMultiSelect = (field, value) => {
-setForm((prev) => {
-const arr = prev[field];
-if (arr.includes(value)) return { ...prev, [field]: arr.filter((v) => v !== value) };
-return { ...prev, [field]: [...arr, value] };
-});
-};
+  const handleMultiSelect = (field, value) => {
+    setForm((prev) => {
+      const arr = prev[field];
+      if (arr.includes(value)) return { ...prev, [field]: arr.filter((v) => v !== value) };
+      return { ...prev, [field]: [...arr, value] };
+    });
+  };
 
-const openSelector = (field, options) => {
-setSelectorField(field);
-setSelectorOptions(options);
-};
+  const openSelector = (field, options) => {
+    setSelectorField(field);
+    setSelectorOptions(options);
+  };
 
-const selectOption = (value) => {
-handleChange(selectorField, value);
-setSelectorField(null);
-};
+  const selectOption = (value) => {
+    handleChange(selectorField, value);
+    setSelectorField(null);
+  };
 
-const handleImagesChange = (e) => {
-const files = Array.from(e.target.files);
-if (files.length > 10) {
-alert("You can upload maximum 10 images");
-return;
-}
-setImageFiles(files);
-setImagePreviews(files.map((file) => URL.createObjectURL(file)));
-};
+  const handleImagesChange = (e) => {
+    const files = Array.from(e.target.files);
+    if (files.length > 10) {
+      alert("You can upload maximum 10 images");
+      return;
+    }
+    setImageFiles(files);
+    setImagePreviews(files.map((file) => URL.createObjectURL(file)));
+  };
 
-// ===== Price Auto-format =====
-const handlePriceChange = (e) => {
-const raw = e.target.value.replace(/,/g, "");
-if (!isNaN(raw)) {
-setForm((prev) => ({ ...prev, price: raw }));
-}
-};
+  const handlePriceChange = (e) => {
+    const raw = e.target.value.replace(/,/g, "");
+    if (!isNaN(raw)) {
+      setForm((prev) => ({ ...prev, price: raw }));
+    }
+  };
 
-// ===== Delivery Handlers =====
-const addDeliveryRegion = () => {
-if (!deliveryForm.state || !deliveryForm.city) {
-alert("Select delivery state and city");
-return;
-}
-if (!deliveryForm.from || !deliveryForm.to) {
-alert("Set delivery time range");
-return;
-}
-if (Number(deliveryForm.from) > Number(deliveryForm.to)) {
-alert("From days cannot be greater than To days");
-return;
-}
-const isFreeDelivery = deliveryForm.chargeFee && Number(deliveryForm.fee) === 0;
-setForm((prev) => ({
-...prev,
-deliveryRegions: [...prev.deliveryRegions, { ...deliveryForm, isFreeDelivery }],
-}));
-setDeliveryForm({
-state: "",
-city: "",
-method: "Courier",
-from: "",
-to: "",
-chargeFee: false,
-fee: "",
-expressAvailable: false,
-warehouseAddress: "",
-});
-setShowDeliveryForm(false);
-};
+  // ===== Delivery Handlers =====
+  const addDeliveryRegion = () => {
+    if (!deliveryForm.state || !deliveryForm.city) {
+      alert("Select delivery state and city");
+      return;
+    }
+    if (!deliveryForm.from || !deliveryForm.to) {
+      alert("Set delivery time range");
+      return;
+    }
+    if (Number(deliveryForm.from) > Number(deliveryForm.to)) {
+      alert("From days cannot be greater than To days");
+      return;
+    }
+    const isFreeDelivery = deliveryForm.chargeFee && Number(deliveryForm.fee) === 0;
+    setForm((prev) => ({
+      ...prev,
+      deliveryRegions: [...prev.deliveryRegions, { ...deliveryForm, isFreeDelivery }],
+    }));
+    setDeliveryForm({
+      state: "",
+      city: "",
+      method: "Courier",
+      from: "",
+      to: "",
+      chargeFee: false,
+      fee: "",
+      expressAvailable: false,
+      warehouseAddress: "",
+    });
+    setShowDeliveryForm(false);
+  };
 
-const removeDeliveryRegion = (index) => {
-setForm((prev) => ({
-...prev,
-deliveryRegions: prev.deliveryRegions.filter((_, i) => i !== index),
-}));
-};
+  const removeDeliveryRegion = (index) => {
+    setForm((prev) => ({
+      ...prev,
+      deliveryRegions: prev.deliveryRegions.filter((_, i) => i !== index),
+    }));
+  };
 
-// ===== Validation =====
-const validateForm = () => {
-const errors = {};
-if (!form.title || form.title.trim().length < 30) errors.title = "Title must be at least 30 characters";
-if (!form.description || form.description.trim().length < 50) errors.description = "Description must be at least 50 characters";
-if (!form.price || Number(form.price) <= 0) errors.price = "Price must be greater than 0";
-if (!form.phone_number || !/^\d{10,11}$/.test(form.phone_number)) errors.phone_number = "Enter valid phone number";
-if (!form.state) errors.state = "State required";
-if (!form.city) errors.city = "City required";
-if (imageFiles.length < 1) errors.images = "Minimum 1 image required";
-if (imageFiles.length > 10) errors.images = "Maximum 10 images allowed";
-return errors;
-};
+  // ===== Validation =====
+  const validateForm = () => {
+    const errors = {};
+    if (!form.title || form.title.trim().length < 30) errors.title = "Title must be at least 30 characters";
+    if (!form.description || form.description.trim().length < 50) errors.description = "Description must be at least 50 characters";
+    if (!form.price || Number(form.price) <= 0) errors.price = "Price must be greater than 0";
+    if (!form.phone_number || !/^\d{10,11}$/.test(form.phone_number)) errors.phone_number = "Enter valid phone number";
+    if (!form.state) errors.state = "State required";
+    if (!form.city) errors.city = "City required";
+    if (imageFiles.length < 1) errors.images = "Minimum 1 image required";
+    if (imageFiles.length > 10) errors.images = "Maximum 10 images allowed";
+    return errors;
+  };
 
-// ===== Submit =====
-const handleSubmit = (e) => {
-e.preventDefault();
-const errors = validateForm();
-if (Object.keys(errors).length > 0) {
-alert(Object.values(errors)[0]);
-return;
-}
-setShowPreview(true);
-};
+  const handleSubmit = (e) => {
+    e.preventDefault();
+    const errors = validateForm();
+    if (Object.keys(errors).length > 0) {
+      alert(Object.values(errors)[0]);
+      return;
+    }
+    setShowPreview(true);
+  };
 
-const confirmPublish = async () => {
-try {
-setLoading(true);
-const uploadedUrls = [];
-for (let file of imageFiles) {
-const formData = new FormData();
-formData.append("file", file);
-formData.append("upload_preset", import.meta.env.VITE_CLOUDINARY_UPLOAD_PRESET);
-const res = await fetch(https://api.cloudinary.com/v1_1/${import.meta.env.VITE_CLOUDINARY_CLOUD_NAME}/upload, { method: "POST", body: formData });
-const data = await res.json();
-uploadedUrls.push(data.secure_url);
-}
-const productData = { ...form, images: uploadedUrls };
-const response = await fetch("/api/marketplace", {
-method: "POST",
-headers: { "Content-Type": "application/json" },
-body: JSON.stringify(productData),
-});
-const result = await response.json();
-if (!response.ok) throw new Error(result.message || "Failed to add product");
-alert("✅ Product published successfully!");
-localStorage.removeItem("marketplace_draft");
-setShowPreview(false);
-// Reset Form
-setForm((prev) => ({
-...prev,
-title: "",
-description: "",
-price: "",
-discount_price: "",
-quantity: "",
-category: "",
-subcategory: "",
-brand: "",
-model: "",
-condition: "",
-used_detail: "",
-ram: "",
-storage: "",
-color: "",
-sim: [],
-engine: "",
-mileage: "",
-year: "",
-fuel_type: "",
-transmission: "",
-state: "",
-city: "",
-location: "",
-social_link: "",
-images: [],
-video_link: "",
-promoted: false,
-promo_plan: "",
-flash_sale: false,
-exchange_possible: false,
-negotiable: false,
-deliveryRegions: [],
-features: [],
-}));
-setImageFiles([]);
-setImagePreviews([]);
-if (fileInputRef.current) fileInputRef.current.value = null;
-} catch (err) {
-alert(err.message);
-} finally {
-setLoading(false);
-}
-};
+  // ===== Options =====
+  const visibleFields = categoryFields[form.category] || [];
+  const availableBrands = brands[form.category] || [];
+  const availableModels = form.brand ? models[form.category]?.[form.brand] || [] : [];
+  const categoryFeatures = featuresByCategory[form.category] || [];
+  const availableSims = sims || [];
+  const availableYears = years || [];
+  const availableCities = locationsByState[form.state] || [];
 
-// ===== Options =====
-const visibleFields = categoryFields[form.category] || [];
-const availableBrands = brands[form.category] || [];
-const availableModels = form.brand ? models[form.category]?.[form.brand] || [] : [];
-const categoryFeatures = featuresByCategory[form.category] || [];
-const availableSims = sims || [];
-const availableYears = years || [];
-const availableCities = locationsByState[form.state] || [];
+  const getFieldOptions = (field) => {
+    switch (field) {
+      case "brand":
+        return availableBrands;
+      case "model":
+        return availableModels;
+      case "ram":
+        return ramOptions;
+      case "storage":
+        return storageOptions;
+      case "color":
+        return colors;
+      case "sim":
+        return availableSims;
+      case "features":
+        return categoryFeatures;
+      case "year":
+        return availableYears;
+      case "condition":
+        return conditions;
+      case "used_detail":
+        return usedDetails;
+      default:
+        return [];
+    }
+  };
 
-const getFieldOptions = (field) => {
-switch (field) {
-case "brand":
-return availableBrands;
-case "model":
-return availableModels;
-case "ram":
-return ramOptions;
-case "storage":
-return storageOptions;
-case "color":
-return colors;
-case "sim":
-return availableSims;
-case "features":
-return categoryFeatures;
-case "year":
-return availableYears;
-case "condition":
-return conditions;
-case "used_detail":
-return usedDetails;
-default:
-return [];
-}
-};
+  // ===== Styles =====
+  const sectionStyle = {
+    border: "2px solid #007BFF",
+    borderRadius: "12px",
+    padding: "20px",
+    marginBottom: "20px",
+    background: "#E6F0FF",
+  };
 
-// ===== Styles =====
-const sectionStyle = {
-border: "2px solid #007BFF",
-borderRadius: "12px",
-padding: "20px",
-marginBottom: "20px",
-background: "#E6F0FF",
-};
+  return (
+    <div style={{ maxWidth: "700px", margin: "40px auto" }}>
+      {/* ==== Helmet for SEO ==== */}
+      <Helmet>
+        <title>{form.title ? `${form.title} - MiniMart Marketplace` : "Post Marketplace Ad - MiniMart"}</title>
+        <meta name="description" content={form.description || "Post and sell your products on MiniMart Marketplace"} />
+      </Helmet>
 
-return (
-<div style={{ maxWidth: "700px", margin: "40px auto" }}>
-<h2 style={{ textAlign: "center", marginBottom: "20px", color: "#007BFF" }}>Post Marketplace Ad</h2>
-<form onSubmit={handleSubmit}>
+      <h2 style={{ textAlign: "center", marginBottom: "20px", color: "#007BFF" }}>Post Marketplace Ad</h2>
+      <form onSubmit={handleSubmit}>
+        
 {/* PRODUCT DETAILS */}
 <div style={sectionStyle}>
 <h3>Product Details</h3>
