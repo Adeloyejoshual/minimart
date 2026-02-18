@@ -784,7 +784,47 @@ const PreviewModal = ({ form, imagePreviews, currentPlan, onEdit, onPublish, loa
     }
   </button>
 </div>
+      </form>
 
+      {/* Modals */}
+{selectorField && selectorField !== "delivery" && (
+  <SelectorModal
+    field={selectorField}
+    options={selectorOptions}
+    onSelect={selectOption}
+    onClose={() => setSelectorField(null)}
+  />
+)}
+
+{selectorField === "delivery" && (
+  <DeliveryModal
+    deliveryForm={deliveryForm}
+    setDeliveryForm={setDeliveryForm}
+    onAdd={addDeliveryRegion}
+    onClose={() => setSelectorField(null)}
+  />
+)}
+
+{showPaymentModal && selectedPlan && (
+  <PaymentModal
+    plan={selectedPlan}
+    paystackKey={paystackKey}
+    userEmail={user?.email}
+    onSuccess={handlePaymentSuccess}
+    onClose={() => setShowPaymentModal(false)}
+  />
+)}
+
+{showPreview && (
+  <PreviewModal
+    form={form}
+    imagePreviews={imagePreviews}
+    currentPlan={currentPlan}
+    onEdit={() => setShowPreview(false)}
+    onPublish={confirmPublish}
+    loading={loading}
+  />
+)}
 
      
 // Style Components (extracted for reusability)
