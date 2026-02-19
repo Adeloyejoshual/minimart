@@ -1,6 +1,6 @@
 // api/marketplace.js - ENTERPRISE POST ENDPOINT
-import MarketplaceProduct from '../../models/MarketplaceProduct.js';
-import { verifyPaystackPayment } from '../../utils/paystackHelper.js';
+import MarketplaceProduct from '../models/MarketplaceProduct.js';
+import { verifyPaystackPayment } from '../utils/paystackHelper.js';
 import { v4 as uuidv4 } from 'uuid';
 
 export async function POST(req) {
