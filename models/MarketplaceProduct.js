@@ -1,18 +1,17 @@
-// src/models/MarketplaceProduct.js
 import mongoose from "mongoose";
 
 const deliveryRegionSchema = new mongoose.Schema(
   {
-    state: String,
-    city: String,
-    method: String, // Courier / Pickup
-    from: Number,   // delivery days (min)
-    to: Number,     // delivery days (max)
-    chargeFee: Boolean,
-    fee: Number,
-    expressAvailable: Boolean,
-    warehouseAddress: String,
-    isFreeDelivery: Boolean
+    state: { type: String, default: "" },
+    city: { type: String, default: "" },
+    method: { type: String, default: "" },
+    from: { type: Number, default: null },
+    to: { type: Number, default: null },
+    chargeFee: { type: Boolean, default: false },
+    fee: { type: Number, default: null },
+    expressAvailable: { type: Boolean, default: false },
+    warehouseAddress: { type: String, default: "" },
+    isFreeDelivery: { type: Boolean, default: false }
   },
   { _id: false }
 );
@@ -27,73 +26,61 @@ const bulkPriceSchema = new mongoose.Schema(
 
 const marketplaceProductSchema = new mongoose.Schema(
   {
-    // Basic Info
     title: { type: String, required: true, trim: true },
-    description: { type: String, required: true },
-    category: { type: String, required: true },
-    subcategory: { type: String, default: "" },
+    description: { type: String, required: true, trim: true },
+    category: { type: String, required: true, trim: true },
+    subcategory: { type: String, default: "", trim: true },
 
-    // Electronics / Phones
-    brand: { type: String, default: "" },
-    model: { type: String, default: "" },
-    condition: { type: String, default: "" },
-    used_detail: { type: String, default: "" },
-    ram: { type: String, default: "" },
-    storage: { type: String, default: "" },
-    color: { type: String, default: "" },
-    sim: { type: [String], default: [] }, // FIXED
-    features: { type: [String], default: [] }, // FIXED
+    brand: { type: String, default: "", trim: true },
+    model: { type: String, default: "", trim: true },
+    condition: { type: String, default: "", trim: true },
+    used_detail: { type: String, default: "", trim: true },
+    ram: { type: String, default: "", trim: true },
+    storage: { type: String, default: "", trim: true },
+    color: { type: String, default: "", trim: true },
+    sim: { type: [String], default: [] },
+    features: { type: [String], default: [] },
 
-    // Vehicles
-    engine: { type: String, default: "" },
+    engine: { type: String, default: "", trim: true },
     mileage: { type: Number, default: null },
     year: { type: Number, default: null },
-    fuel_type: { type: String, default: "" },
-    transmission: { type: String, default: "" },
+    fuel_type: { type: String, default: "", trim: true },
+    transmission: { type: String, default: "", trim: true },
 
-    // Property
     bedrooms: { type: Number, default: null },
     bathrooms: { type: Number, default: null },
-    size: { type: String, default: "" },
+    size: { type: String, default: "", trim: true },
     furnished: { type: Boolean, default: false },
 
-    // Pricing
     price: { type: Number, required: true },
     discount_price: { type: Number, default: null },
     quantity: { type: Number, default: 1 },
     bulk_price: { type: bulkPriceSchema, default: () => ({}) },
 
-    // Negotiation & Exchange
     negotiable: { type: Boolean, default: false },
     exchange_possible: { type: Boolean, default: false },
 
-    // Seller Info
-    phone_number: { type: String, required: true },
-    additional_phone: { type: String, default: "" },
-    poster_name: { type: String, default: "" },
-    social_link: { type: String, default: "" },
+    phone_number: { type: String, required: true, trim: true },
+    additional_phone: { type: String, default: "", trim: true },
+    poster_name: { type: String, default: "", trim: true },
+    social_link: { type: String, default: "", trim: true },
 
-    // Location
-    country: { type: String, default: "Nigeria" },
-    state: { type: String, required: true },
-    city: { type: String, required: true },
-    location: { type: String, default: "" },
+    country: { type: String, default: "Nigeria", trim: true },
+    state: { type: String, required: true, trim: true },
+    city: { type: String, required: true, trim: true },
+    location: { type: String, default: "", trim: true },
 
-    // Media
     images: { type: [String], default: [] },
-    video_link: { type: String, default: "" },
+    video_link: { type: String, default: "", trim: true },
 
-    // Promotion
     promoted: { type: Boolean, default: false },
-    promo_plan: { type: String, default: "" },
-    promo_status: { type: String, default: "" }, // paid / free
-    payment_reference: { type: String, default: "" },
+    promo_plan: { type: String, default: "", trim: true },
+    promo_status: { type: String, default: "", trim: true },
+    payment_reference: { type: String, default: "", trim: true },
     flash_sale: { type: Boolean, default: false },
 
-    // Delivery
     deliveryRegions: { type: [deliveryRegionSchema], default: [] },
 
-    // Status
     status: {
       type: String,
       enum: ["active", "pending", "sold", "rejected"],
