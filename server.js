@@ -6,27 +6,26 @@ import { Pool } from "pg";
 import path from "path";
 import { fileURLToPath } from "url";
 
-// Load env variables
 dotenv.config();
 
-// ================= Express =================
 const app = express();
 const PORT = process.env.PORT || 10000;
 
-app.use(cors());
-app.use(express.json());
+app.use(cors({
+  origin: "*", 
+  credentials: true
+}));
+app.use(express.json({ limit: '10mb' }));
 app.use(express.urlencoded({ extended: true }));
 
-// ================= MongoDB =================
-mongoose
-  .connect(process.env.MONGO_URI)
+// MongoDB
+mongoose.connect(process.env.MONGO_URI)
   .then(() => console.log("✅ MongoDB connected"))
-  .catch((err) => console.error("❌ MongoDB connection error:", err));
+  .catch(err => console.error("❌ MongoDB error:", err));
 
-// Import models
 import MarketplaceProduct from "./models/MarketplaceProduct.js";
 
-// ================= CockroachDB =================
+// CockroachDB
 export const pool = new Pool({
   connectionString: process.env.COCKROACH_URI,
   ssl: { rejectUnauthorized: false },
@@ -37,61 +36,73 @@ export const pool = new Pool({
     await pool.connect();
     console.log("✅ CockroachDB ready");
   } catch (err) {
-    console.error("❌ CockroachDB connection error:", err);
-    process.exit(1);
+    console.error("❌ CockroachDB error:", err);
   }
 })();
 
-// ================= VIEW COUNT ENDPOINT =================
+// ================= JIJI VIEW COUNT API =================
 app.post("/api/marketplace/:id/increment-view", async (req, res) => {
   try {
     const { id } = req.params;
-    
-    // Update MongoDB view counts
     await MarketplaceProduct.updateOne(
       { _id: id },
-      {
-        $inc: {
-          views_total: 1,
-          views_today: 1
-        },
-        $set: {
-          last_viewed: new Date()
-        }
+      { 
+        $inc: { views_total: 1, views_today: 1 },
+        $set: { last_viewed: new Date() }
       }
     );
-
-    // Optional: Update CockroachDB for analytics
-    await pool.query(
-      `INSERT INTO product_views (product_id, viewed_at, view_type) 
-       VALUES ($1, NOW(), 'page_view')
-       ON CONFLICT (product_id, viewed_at) DO NOTHING`,
-      [id]
-    );
-
     res.json({ success: true });
   } catch (error) {
-    console.error("View increment error:", error);
-    res.status(500).json({ error: "Failed to update view count" });
+    res.status(500).json({ error: "View tracking failed" });
   }
 });
 
-// ================= Routes =================
+// ================= YOUR EXISTING ROUTES =================
 import marketplaceRoutes from "./routes/marketplace.js";
 import minimartRoutes from "./routes/minimart.js";
 
 app.use("/api/marketplace", marketplaceRoutes);
 app.use("/api/minimart", minimartRoutes);
 
-// ================= Serve React Frontend =================
+// ================= LIVE DEPLOYMENT - NO BUILD NEEDED =================
+// Serve source files directly (Development/Live mode)
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
-const frontendPath = path.join(__dirname, "dist");
 
-app.use(express.static(frontendPath));
-app.get("*", (req, res) => res.sendFile(path.join(frontendPath, "index.html")));
+// Method 1: Serve React source (if using Vite dev server style)
+const srcPath = path.join(__dirname, "src"); // Your React source
+app.use(express.static(srcPath));
 
-app.listen(PORT, () => {
-  console.log(`🚀 Server running on port ${PORT}`);
-  console.log(`📊 View tracking: POST /api/marketplace/:id/increment-view`);
+// Method 2: Proxy to Vite dev server (RECOMMENDED for live dev)
+app.get("/vite", (req, res) => {
+  res.redirect("http://localhost:5173/vite"); // Vite default port
+});
+
+// Catch-all for React Router
+app.get("*", (req, res) => {
+  // For live development - proxy to Vite dev server
+  if (process.env.NODE_ENV === "development") {
+    res.redirect(`http://localhost:5173${req.originalUrl}`);
+  } else {
+    // Production fallback
+    res.send(`
+      <!DOCTYPE html>
+      <html>
+        <head>
+          <title>Jiji Clone Marketplace</title>
+          <meta charset="utf-8">
+          <meta name="viewport" content="width=device-width, initial-scale=1">
+        </head>
+        <body>
+          <div id="root"></div>
+          <script type="module" src="/src/main.jsx"></script>
+        </body>
+      </html>
+    `);
+  }
+});
+
+app.listen(PORT, "0.0.0.0", () => {
+  console.log(`🚀 LIVE Server: http://localhost:${PORT}`);
+  console.log(`📱 Visit: http://localhost:${PORT}/marketplace`);
 });
