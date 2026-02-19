@@ -19,18 +19,24 @@ export default function HomePage() {
     try {
       const mini = await getMiniMartProducts();
       const market = await getMarketplaceProducts();
-      console.log("Marketplace products:", market); // check image keys
       setMiniMart(mini);
       setMarketplace(market);
     } catch (err) {
-      console.error(err);
+      console.error("Failed to fetch products:", err);
     }
   };
 
   return (
     <div className="home-page" style={{ padding: "16px" }}>
-      {/* ================= Sticky Header ================= */}
-      <div className="sticky-header" style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+      {/* Sticky Header */}
+      <div
+        className="sticky-header"
+        style={{
+          display: "flex",
+          justifyContent: "space-between",
+          alignItems: "center",
+        }}
+      >
         <h2 className="header-title">MiniMart Store</h2>
         {isAuthenticated ? (
           <button
@@ -46,67 +52,74 @@ export default function HomePage() {
         )}
       </div>
 
-      {/* ================= Navigation Cards ================= */}
-      <div className="home-navigation" style={{ display: "flex", gap: "16px", margin: "16px 0" }}>
+      {/* Navigation Cards */}
+      <div
+        className="home-navigation"
+        style={{ display: "flex", gap: "16px", margin: "16px 0" }}
+      >
         <Link to="/marketplace" className="nav-card">
-          <div style={{
-            padding: "20px",
-            borderRadius: "12px",
-            backgroundColor: "#0D6EFD",
-            color: "#fff",
-            flex: 1,
-            textAlign: "center",
-            fontWeight: "600",
-            cursor: "pointer",
-            transition: "0.2s"
-          }}>
+          <div
+            style={{
+              padding: "20px",
+              borderRadius: "12px",
+              backgroundColor: "#0D6EFD",
+              color: "#fff",
+              flex: 1,
+              textAlign: "center",
+              fontWeight: "600",
+              cursor: "pointer",
+              transition: "0.2s",
+            }}
+          >
             Marketplace
           </div>
         </Link>
 
         <Link to="/minimart" className="nav-card">
-          <div style={{
-            padding: "20px",
-            borderRadius: "12px",
-            backgroundColor: "#198754",
-            color: "#fff",
-            flex: 1,
-            textAlign: "center",
-            fontWeight: "600",
-            cursor: "pointer",
-            transition: "0.2s"
-          }}>
+          <div
+            style={{
+              padding: "20px",
+              borderRadius: "12px",
+              backgroundColor: "#198754",
+              color: "#fff",
+              flex: 1,
+              textAlign: "center",
+              fontWeight: "600",
+              cursor: "pointer",
+              transition: "0.2s",
+            }}
+          >
             MiniMart
           </div>
         </Link>
 
         <Link to="/offers" className="nav-card">
-          <div style={{
-            padding: "20px",
-            borderRadius: "12px",
-            backgroundColor: "#FFC107",
-            color: "#000",
-            flex: 1,
-            textAlign: "center",
-            fontWeight: "600",
-            cursor: "pointer",
-            transition: "0.2s"
-          }}>
+          <div
+            style={{
+              padding: "20px",
+              borderRadius: "12px",
+              backgroundColor: "#FFC107",
+              color: "#000",
+              flex: 1,
+              textAlign: "center",
+              fontWeight: "600",
+              cursor: "pointer",
+              transition: "0.2s",
+            }}
+          >
             Offers
           </div>
         </Link>
       </div>
 
-      {/* ================= Add MiniMart Product ================= */}
+      {/* Add MiniMart Product */}
       {isAuthenticated && (
         <Link to="/minimart/add">
-          <button className="chat-btn full-width-btn">
-            Add MiniMart Product
-          </button>
+          <button className="chat-btn full-width-btn">Add MiniMart Product</button>
         </Link>
       )}
 
-      {/* ================= MiniMart Products ================= */}
+      {/* MiniMart Products */}
       <h3 style={{ marginTop: "24px" }}>MiniMart Products</h3>
       {miniMart.length === 0 && <p>No products yet.</p>}
       <div className="products-grid">
@@ -123,7 +136,7 @@ export default function HomePage() {
         ))}
       </div>
 
-      {/* ================= Add Marketplace Product ================= */}
+      {/* Add Marketplace Product */}
       {isAuthenticated && (
         <Link to="/marketplace/add">
           <button className="chat-btn full-width-btn" style={{ marginTop: "16px" }}>
@@ -132,24 +145,24 @@ export default function HomePage() {
         </Link>
       )}
 
-      {/* ================= Marketplace Products ================= */}
-<h3 style={{ marginTop: "24px" }}>Marketplace</h3>
-{marketplace.length === 0 && <p>No products yet.</p>}
-<div className="products-grid">
-  {marketplace.map((p) => (
-    <Link key={p._id} to={`/marketplace/${p._id}`} className="product-card">
-      <img
-        src={p.images?.[0] || "/placeholder.png"}
-        alt={p.title}
-        className="grid-product-img"
-      />
-      <h3 className="product-title">{p.title}</h3>
-      <p className="product-price">₦{p.price}</p>
-    </Link>
-  ))}
-</div>
+      {/* Marketplace Products */}
+      <h3 style={{ marginTop: "24px" }}>Marketplace</h3>
+      {marketplace.length === 0 && <p>No products yet.</p>}
+      <div className="products-grid">
+        {marketplace.map((p) => (
+          <Link key={p._id} to={`/marketplace/${p._id}`} className="product-card">
+            <img
+              src={p.images?.[0] || "/placeholder.png"}
+              alt={p.title}
+              className="grid-product-img"
+            />
+            <h3 className="product-title">{p.title}</h3>
+            <p className="product-price">₦{p.price}</p>
+          </Link>
+        ))}
+      </div>
 
-      {/* ================= Styles ================= */}
+      {/* Styles */}
       <style>{`
         .chat-btn {
           background: #0D6EFD;
