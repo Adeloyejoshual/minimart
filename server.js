@@ -13,7 +13,7 @@ import { Queue, Worker } from "bullmq";
 import IORedis from "ioredis";
 
 // Routes
-import marketplaceRoutes from "./src/routes/marketplace.js";
+import marketplaceRoutes from "./routes/marketplace.js";
 import minimartRoutes from "./routes/minimart.js";
 
 dotenv.config();
