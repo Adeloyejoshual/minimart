@@ -133,21 +133,21 @@ export default function HomePage() {
       )}
 
       {/* ================= Marketplace Products ================= */}
-      <h3 style={{ marginTop: "24px" }}>Marketplace</h3>
-      {marketplace.length === 0 && <p>No products yet.</p>}
-      <div className="products-grid">
-        {marketplace.map((p) => (
-          <Link key={p._id} to={`/marketplace/${p._id}`} className="product-card">
-            <img
-              src={p.image || p.image_url || "/placeholder.png"}
-              alt={p.title}
-              className="grid-product-img"
-            />
-            <h3 className="product-title">{p.title}</h3>
-            <p className="product-price">₦{p.price}</p>
-          </Link>
-        ))}
-      </div>
+<h3 style={{ marginTop: "24px" }}>Marketplace</h3>
+{marketplace.length === 0 && <p>No products yet.</p>}
+<div className="products-grid">
+  {marketplace.map((p) => (
+    <Link key={p._id} to={`/marketplace/${p._id}`} className="product-card">
+      <img
+        src={p.images?.[0] || "/placeholder.png"}
+        alt={p.title}
+        className="grid-product-img"
+      />
+      <h3 className="product-title">{p.title}</h3>
+      <p className="product-price">₦{p.price}</p>
+    </Link>
+  ))}
+</div>
 
       {/* ================= Styles ================= */}
       <style>{`
