@@ -1,10 +1,10 @@
 import api from "../utils/api";
 
-// GET ALL
+// GET ALL (with filters, pagination)
 export const getMarketplaceProducts = async (filters = {}) => {
   const params = new URLSearchParams(filters).toString();
   const res = await api.get(`/api/marketplace${params ? `?${params}` : ""}`);
-  return res.data;
+  return res.data.products || [];
 };
 
 // GET ONE
@@ -13,7 +13,7 @@ export const getMarketplaceProductById = async (id) => {
   return res.data;
 };
 
-// ADD (JSON only, no multipart)
+// ADD (JSON only)
 export const addMarketplaceProduct = async (data, token) => {
   const res = await api.post("/api/marketplace", data, {
     headers: {
