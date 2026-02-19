@@ -1,191 +1,89 @@
-import mongoose from "mongoose";
+// models/MarketplaceProduct.js
+const mongoose = require('mongoose');
 
-const deliveryRegionSchema = new mongoose.Schema(
-  {
-    state: { type: String, required: true },
-    city: { type: String, required: true },
-    method: { type: String, enum: ["Courier", "Pickup", "Self Delivery"], required: true },
-    from: { type: Number, min: 0, required: true },
-    to: { type: Number, min: 0, required: true },
-    chargeFee: { type: Boolean, default: false },
-    fee: { type: Number, min: 0 },
-    expressAvailable: { type: Boolean, default: false },
-    warehouseAddress: { type: String },
-    isFreeDelivery: { type: Boolean, default: false }
+const deliveryRegionSchema = new mongoose.Schema({
+  state: { type: String, required: true },
+  city: { type: String, required: true },
+  method: { type: String, default: 'Courier' },
+  from: { type: String, required: true }, // delivery days
+  to: { type: String, required: true }, // delivery days
+  chargeFee: { type: Boolean, default: true },
+  fee: { type: String }, // price as string to match form
+  expressAvailable: { type: Boolean, default: false },
+  warehouseAddress: { type: String },
+  isFreeDelivery: { type: Boolean, default: false }
+}, { _id: false });
+
+const marketplaceProductSchema = new mongoose.Schema({
+  // Core product info
+  title: { type: String, required: [true, 'Title is required'], minlength: 30 },
+  description: { type: String, required: [true, 'Description is required'], minlength: 50 },
+  price: { type: String, required: [true, 'Price is required'] }, // String to match form format
+  discount_price: { type: String },
+  
+  // Categorization
+  category: { type: String, required: true },
+  subcategory: { type: String },
+  brand: { type: String },
+  model: { type: String },
+  
+  // Condition & specs
+  condition: { type: String },
+  used_detail: { type: String },
+  ram: { type: String },
+  storage: { type: String },
+  color: { type: String },
+  sim: [{ type: String }],
+  features: [{ type: String }],
+  
+  // Vehicle specific
+  engine: { type: String },
+  mileage: { type: String },
+  year: { type: String },
+  fuel_type: { type: String },
+  transmission: { type: String },
+  
+  // Media
+  images: [{ type: String, required: [true, 'At least one image is required'] }], // Cloudinary URLs
+  video_link: { type: String },
+  
+  // Seller info
+  quantity: { type: String },
+  phone_number: { 
+    type: String, 
+    required: true,
+    match: [/^(0|\+234)[0-9]{10}$/, 'Valid Nigerian phone number required']
   },
-  { _id: false, timestamps: true }
-);
-
-const bulkPriceSchema = new mongoose.Schema(
-  {
-    from: { type: Number, min: 2 },
-    per_piece: { type: Number, min: 0 }
-  },
-  { _id: false }
-);
-
-const marketplaceProductSchema = new mongoose.Schema(
-  {
-    // ✅ CORE PRODUCT INFO
-    title: { type: String, required: [true, "Title required"], maxlength: 200, trim: true },
-    description: { type: String, required: [true, "Description required"], maxlength: 5000, trim: true },
-    category: { type: String, required: [true, "Category required"], trim: true },
-    subcategory: { type: String, trim: true },
-
-    // ✅ SPECIFIC ATTRIBUTES
-    brand: { type: String, trim: true },
-    model: { type: String, trim: true },
-    condition: { 
-      type: String, 
-      enum: ["New", "Like New", "Very Good", "Good", "Fair"], 
-      trim: true 
-    },
-    used_detail: { type: String, trim: true },
-    
-    // Electronics
-    ram: { type: String, trim: true },
-    storage: { type: String, trim: true },
-    color: { type: String, trim: true },
-    sim: { type: [String], default: [] },
-    features: { type: [String], default: [] },
-
-    // ✅ FIXED #1: Automotive - CORRECT SYNTAX
-    engine: { type: String, trim: true }, // ❌ Was: trim: trim: true
-    mileage: { type: Number, min: 0 },
-    year: { type: Number, min: 1900, max: new Date().getFullYear() + 1 },
-    fuel_type: { type: String, trim: true },
-    transmission: { type: String, enum: ["Manual", "Automatic", "CVT"], trim: true },
-
-    // Real Estate
-    bedrooms: { type: Number, min: 0 },
-    bathrooms: { type: Number, min: 0 },
-    size: { type: String, trim: true },
-    furnished: { type: Boolean, default: false },
-
-    // ✅ PRICING - FIXED #2: Bulk price
-    price: { type: Number, required: [true, "Price required"], min: 0 },
-    discount_price: { type: Number, min: 0 },
-    quantity: { type: Number, min: 0, default: 1 },
-    bulk_price: { type: bulkPriceSchema, default: undefined }, // ✅ FIXED
-
-    negotiable: { type: Boolean, default: true },
-    exchange_possible: { type: Boolean, default: false },
-
-    // ✅ SELLER INFO - FIXED #3: Phone regex
-    phone_number: { 
-      type: String, 
-      required: [true, "Phone number required"],
-      match: [/^(0|\+234)[0-9]{10}$/, "Valid Nigerian phone required"] // ✅ FIXED regex
-    },
-    additional_phone: { type: String, match: [/^(0|\+234)[0-9]{10}$/] },
-    poster_name: { type: String, required: [true, "Seller name required"], trim: true },
-    social_link: { type: String, trim: true },
-
-    // ✅ LOCATION
-    country: { type: String, default: "Nigeria", trim: true },
-    state: { type: String, required: [true, "State required"], trim: true },
-    city: { type: String, required: [true, "City required"], trim: true },
-    location: { type: String, trim: true },
-
-    // ✅ MEDIA - FIXED regex
-    images: [{ 
-      type: String, 
-      match: [/^https?:\/\//, "Valid image URL required"] // ✅ FIXED regex
-    }],
-    video_link: { type: String, trim: true },
-
-    // ✅ PROMOTIONS - FIXED #4: Enum defaults
-    promoted: { type: Boolean, default: false },
-    promo_plan: { 
-      type: String, 
-      enum: ["basic", "standard", "premium", "flash", "gift"], 
-      default: null // ✅ FIXED
-    },
-    promo_status: { 
-      type: String, 
-      enum: ["active", "expired", "pending"], 
-      default: null // ✅ FIXED
-    },
-    payment_reference: { type: String },
-    boost_expires: { type: Date },
-    flash_sale: { type: Boolean, default: false },
-
-    // ✅ ADVANCED FEATURES
-    deliveryRegions: { type: [deliveryRegionSchema], default: [] },
-    trending_score: { type: Number, default: 0, index: true },
-    listing_expires: { type: Date, index: true },
-
-    // ✅ JIJI LIVE TRACKING
-    views_total: { type: Number, default: 0, index: true },
-    views_today: { type: Number, default: 0 },
-    live_viewers: { type: Number, default: 0 },
-    favorites: { type: Number, default: 0 },
-    last_viewed: { type: Date },
-
-    // ✅ SELLER VERIFICATION
-    phone_verified: { type: Boolean, default: false },
-    id_verified: { type: Boolean, default: false },
-    seller_rating: { type: Number, min: 0, max: 5, default: 0 },
-    total_sales: { type: Number, default: 0 },
-
-    // ✅ STATUS & LIFECYCLE
-    status: {
-      type: String,
-      enum: ["active", "pending", "sold", "rejected", "expired"],
-      default: "pending"
-    },
-    active: { type: Boolean, default: true, index: true },
-    deletedAt: { type: Date },
-    
-    // ✅ ASSOCIATIONS
-    poster_id: { type: mongoose.Schema.Types.ObjectId, ref: "User", index: true },
-    tags: [{ type: String, trim: true }],
-
-    // ✅ AUDIT
-    approved_by: { type: mongoose.Schema.Types.ObjectId, ref: "User" },
-    rejected_reason: { type: String }
-  },
-  { 
-    timestamps: true,
-    toJSON: { virtuals: true, transform: (doc, ret) => { delete ret.__v; return ret; } },
-    toObject: { virtuals: true }
-  }
-);
-
-// ✅ VIRTUAL FIELDS
-marketplaceProductSchema.virtual("discount_percent").get(function() {
-  if (!this.discount_price || this.discount_price >= this.price) return 0;
-  return Math.round(((this.price - this.discount_price) / this.price) * 100);
+  additional_phone: { type: String },
+  poster_name: { type: String, required: true },
+  state: { type: String, required: true },
+  city: { type: String, required: true },
+  location: { type: String },
+  social_link: { type: String },
+  
+  // Business options
+  promoted: { type: Boolean, default: false },
+  promo_plan: { type: String },
+  promo_status: { type: String, enum: ['free', 'paid', 'pending'] },
+  payment_reference: { type: String }, // Paystack reference
+  flash_sale: { type: Boolean, default: false },
+  exchange_possible: { type: Boolean, default: false },
+  negotiable: { type: Boolean, default: false },
+  
+  // Delivery
+  deliveryRegions: [deliveryRegionSchema],
+  
+  // Metadata
+  createdAt: { type: Date, default: Date.now },
+  updatedAt: { type: Date, default: Date.now }
+}, {
+  timestamps: true
 });
 
-// ✅ AUTO-EXPIRE HOOKS
-marketplaceProductSchema.pre("save", function(next) {
-  // Auto-expire promotions
-  if (this.boost_expires && this.boost_expires < new Date()) {
-    this.promoted = false;
-    this.promo_status = "expired";
-  }
-  
-  // Auto-set listing expiry (30 days)
-  if (!this.isNew && !this.listing_expires) {
-    this.listing_expires = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000);
-  }
-  
-  next();
-});
+// Index for better search performance
+marketplaceProductSchema.index({ category: 1, brand: 1, state: 1 });
+marketplaceProductSchema.index({ title: 'text', description: 'text', brand: 'text' });
+marketplaceProductSchema.index({ promoted: 1, createdAt: -1 });
+marketplaceProductSchema.index({ state: 1, city: 1 });
 
-// ✅ PERFORMANCE INDEXES + TTL
-marketplaceProductSchema.index({ category: 1, active: 1 });
-marketplaceProductSchema.index({ state: 1, city: 1, active: 1 });
-marketplaceProductSchema.index({ price: 1, active: 1 });
-marketplaceProductSchema.index({ promoted: -1, boost_expires: -1 });
-marketplaceProductSchema.index({ views_total: -1 });
-marketplaceProductSchema.index({ createdAt: -1 });
-marketplaceProductSchema.index({ status: 1, active: 1 });
-marketplaceProductSchema.index({ poster_id: 1 });
-
-// ✅ TTL INDEXES (MongoDB auto-deletes expired docs)
-marketplaceProductSchema.index({ boost_expires: 1 }, { expireAfterSeconds: 0 });
-marketplaceProductSchema.index({ listing_expires: 1 }, { expireAfterSeconds: 0 });
-
-export default mongoose.model("MarketplaceProduct", marketplaceProductSchema);
+module.exports = mongoose.model('MarketplaceProduct', marketplaceProductSchema);
