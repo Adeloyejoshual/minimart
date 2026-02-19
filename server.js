@@ -49,10 +49,16 @@ cockroachPool.connect()
   .then(() => console.log("✅ CockroachDB connected"))
   .catch(err => console.error("❌ CockroachDB connection error:", err));
 
-app.use((req, res, next) => { req.cockroach = cockroachPool; next(); });
+app.use((req, res, next) => {
+  req.cockroach = cockroachPool;
+  next();
+});
 
-// BULLMQ / REDIS
-const redisConnection = new IORedis(process.env.REDIS_URL || "redis://127.0.0.1:6379");
+// REDIS & BULLMQ
+const redisConnection = new IORedis(process.env.REDIS_URL || "redis://127.0.0.1:6379", {
+  maxRetriesPerRequest: null
+});
+
 export const exampleQueue = new Queue("example-queue", { connection: redisConnection });
 
 new Worker("example-queue", async job => {
