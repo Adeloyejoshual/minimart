@@ -18,11 +18,14 @@ dotenv.config();
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
-const PORT = process.env.PORT || 5000;
 
 const app = express();
+const PORT = process.env.PORT || 10000;
 
-// SECURITY & PERFORMANCE
+/* ========================
+   SECURITY & MIDDLEWARE
+======================== */
+
 if (process.env.NODE_ENV === "production") {
   app.use(helmet());
   app.use(compression());
@@ -30,59 +33,118 @@ if (process.env.NODE_ENV === "production") {
 
 app.use(cors());
 app.use(express.json({ limit: "10mb" }));
-app.use(express.urlencoded({ extended: true, limit: "10mb" }));
+app.use(express.urlencoded({ extended: true }));
 
-// RATE LIMIT
-app.use(rateLimit({ windowMs: 60_000, max: 100 }));
+app.use(
+  rateLimit({
+    windowMs: 60 * 1000,
+    max: 100
+  })
+);
 
-// MONGODB
-mongoose.connect(process.env.MONGO_URI)
+/* ========================
+   DATABASE CONNECTIONS
+======================== */
+
+// MongoDB
+mongoose
+  .connect(process.env.MONGO_URI)
   .then(() => console.log("✅ MongoDB connected"))
-  .catch(err => console.error("❌ MongoDB connection error:", err));
+  .catch(err => console.error("❌ MongoDB error:", err.message));
 
-// COCKROACHDB
+// CockroachDB
 const cockroachPool = new Pool({
   connectionString: process.env.COCKROACH_URI,
   ssl: { rejectUnauthorized: false }
 });
-cockroachPool.connect()
+
+cockroachPool
+  .connect()
   .then(() => console.log("✅ CockroachDB connected"))
-  .catch(err => console.error("❌ CockroachDB connection error:", err));
+  .catch(err => console.error("❌ CockroachDB error:", err.message));
 
 app.use((req, res, next) => {
   req.cockroach = cockroachPool;
   next();
 });
 
-// REDIS & BULLMQ
-const redisConnection = new IORedis(process.env.REDIS_URL || "redis://127.0.0.1:6379", {
-  maxRetriesPerRequest: null
-});
+/* ========================
+   REDIS & BULLMQ
+======================== */
 
-export const exampleQueue = new Queue("example-queue", { connection: redisConnection });
+let redisConnection;
+let exampleQueue;
 
-new Worker("example-queue", async job => {
-  console.log("Processing job:", job.id, job.name, job.data);
-}, { connection: redisConnection });
+if (process.env.REDIS_URL) {
+  try {
+    redisConnection = new IORedis(process.env.REDIS_URL, {
+      maxRetriesPerRequest: null
+    });
 
-// ROUTES
+    redisConnection.on("connect", () =>
+      console.log("✅ Redis connected")
+    );
+
+    redisConnection.on("error", err =>
+      console.error("❌ Redis error:", err.message)
+    );
+
+    exampleQueue = new Queue("example-queue", {
+      connection: redisConnection
+    });
+
+    new Worker(
+      "example-queue",
+      async job => {
+        console.log("Processing job:", job.id, job.data);
+      },
+      { connection: redisConnection }
+    );
+
+  } catch (err) {
+    console.error("❌ Redis initialization failed:", err.message);
+  }
+} else {
+  console.warn("⚠️ REDIS_URL not set — skipping Redis");
+}
+
+/* ========================
+   ROUTES
+======================== */
+
 app.use("/api/marketplace", marketplaceRoutes);
 app.use("/api/minimart", minimartRoutes);
 
-// SERVE FRONTEND
+/* ========================
+   SERVE FRONTEND
+======================== */
+
 if (process.env.NODE_ENV === "production") {
   const distPath = path.join(__dirname, "dist");
   app.use(express.static(distPath));
-  app.get("*", (req, res) => res.sendFile(path.join(distPath, "index.html")));
+
+  app.get("*", (req, res) => {
+    res.sendFile(path.join(distPath, "index.html"));
+  });
 }
 
-// ERROR HANDLER
+/* ========================
+   ERROR HANDLER
+======================== */
+
 app.use((err, req, res, next) => {
   console.error(err.stack);
-  res.status(500).json({ success: false, message: "Something went wrong!", error: err.message });
+  res.status(500).json({
+    success: false,
+    message: "Internal Server Error",
+    error: err.message
+  });
 });
 
-// START SERVER
-app.listen(PORT, () => console.log(`🚀 Server running on port ${PORT} (${process.env.NODE_ENV || "development"})`));
+/* ========================
+   START SERVER
+======================== */
 
-export default app;
+app.listen(PORT, () => {
+  console.log(`🚀 Server running on port ${PORT}`);
+});
