@@ -1,18 +1,36 @@
-import { BrowserRouter, Routes, Route } from "react-router-dom";
-import HomePage from "./pages/HomePage.jsx";
-import LoginPage from "./pages/LoginPage.jsx";
-import RegisterPage from "./pages/RegisterPage.jsx";
-import CallbackPage from "./pages/CallbackPage.jsx";
+import { useAuth0 } from "@auth0/auth0-react";
 
 export default function App() {
+  const {
+    loginWithRedirect,
+    logout,
+    user,
+    isAuthenticated,
+    isLoading
+  } = useAuth0();
+
+  if (isLoading) return <h2>Loading...</h2>;
+
   return (
-    <BrowserRouter>
-      <Routes>
-        <Route path="/" element={<HomePage />} />
-        <Route path="/login" element={<LoginPage />} />
-        <Route path="/register" element={<RegisterPage />} />
-        <Route path="/callback" element={<CallbackPage />} />
-      </Routes>
-    </BrowserRouter>
+    <div style={{ padding: 40 }}>
+      <h1>Auth0 Working Test</h1>
+
+      {!isAuthenticated ? (
+        <button onClick={() => loginWithRedirect()}>
+          Log In
+        </button>
+      ) : (
+        <>
+          <h3>Welcome {user?.name}</h3>
+          <button
+            onClick={() =>
+              logout({ logoutParams: { returnTo: window.location.origin } })
+            }
+          >
+            Log Out
+          </button>
+        </>
+      )}
+    </div>
   );
 }
