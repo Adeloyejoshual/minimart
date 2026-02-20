@@ -1,55 +1,45 @@
-// api/marketplace/route.js - PRODUCTION READY
+// routes/marketplace.js - EXPRESS ROUTER (NOT Next.js)
+import express from 'express';
 import MarketplaceProduct from '../models/MarketplaceProduct.js';
-import { verifyPaystackPayment } from '../../../utils/paystackHelper.js';
+import { verifyPaystackPayment } from '../utils/paystackHelper.js';
 import { v4 as uuidv4 } from 'uuid';
-import authMiddleware from '../../../middleware/auth.js'; // Add auth
 
-export async function POST(req) {
+const router = express.Router();
+
+// POST /api/marketplace - Create product
+router.post('/', async (req, res) => {
   try {
-    // 🔒 Authentication (add your JWT middleware)
-    const authHeader = req.headers.get('authorization');
-    if (!authHeader?.startsWith('Bearer ')) {
-      return NextResponse.json(
-        { success: false, message: 'Authentication required' },
-        { status: 401 }
-      );
-    }
-
-    const productData = await req.json();
+    const productData = req.body;
     
     // 🛡️ Input validation
     const requiredFields = ['title', 'price', 'category', 'description'];
     const missingFields = requiredFields.filter(field => !productData[field]);
     if (missingFields.length > 0) {
-      return NextResponse.json(
-        { success: false, message: `Missing fields: ${missingFields.join(', ')}` },
-        { status: 400 }
-      );
+      return res.status(400).json({
+        success: false,
+        message: `Missing fields: ${missingFields.join(', ')}`
+      });
     }
 
-    // 💰 Payment verification for promoted listings
+    // 💰 Payment verification
     if (productData.promoted && productData.payment_reference) {
       const verification = await verifyPaystackPayment(productData.payment_reference);
       if (verification.status !== 'success') {
-        return NextResponse.json(
-          { 
-            success: false, 
-            message: 'Payment verification failed',
-            error: verification.message 
-          }, 
-          { status: 402 } // Payment Required
-        );
+        return res.status(402).json({
+          success: false,
+          message: 'Payment verification failed'
+        });
       }
       productData.promo_status = 'paid';
-      productData.promoted_until = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000); // 30 days
+      productData.promoted_until = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000);
     }
 
-    // 🆔 Generate poster_id if not provided
+    // 🆔 Generate poster_id
     if (!productData.poster_id) {
       productData.poster_id = `seller_${uuidv4().slice(0, 8)}`;
     }
 
-    // 📍 Geolocation formatting (MongoDB GeoJSON)
+    // 📍 Location formatting
     if (productData.latitude && productData.longitude) {
       productData.location = {
         type: 'Point',
@@ -59,62 +49,52 @@ export async function POST(req) {
       delete productData.longitude;
     }
 
-    // ☎️ Sanitize phone numbers (Nigeria format)
+    // ☎️ Phone sanitization
     if (productData.phone_number) {
       productData.phone_number = productData.phone_number
         .replace(/[^0-9+]/g, '')
-        .replace(/^0/, '+234'); // Convert 080 to +23480
+        .replace(/^0/, '+234');
     }
 
-    // 🕐 Timestamps
-    productData.createdAt = new Date();
-    productData.updatedAt = new Date();
-
-    // 💾 Save to MongoDB
-    const product = new MarketplaceProduct(productData);
+    // 💾 Save product
+    const product = new MarketplaceProduct({ ...productData, createdAt: new Date() });
     await product.save();
 
-    // Populate seller if needed
-    await product.populate('seller_id');
-
-    return NextResponse.json(
-      { 
-        success: true, 
-        message: 'Product listed successfully!',
-        data: {
-          id: product._id,
-          title: product.title,
-          price: product.price,
-          poster_id: product.poster_id,
-          status: product.status
-        }
-      },
-      { status: 201 }
-    );
+    res.status(201).json({
+      success: true,
+      message: 'Product listed successfully!',
+      data: {
+        id: product._id,
+        title: product.title,
+        price: product.price,
+        poster_id: product.poster_id
+      }
+    });
 
   } catch (error) {
-    console.error('POST /api/marketplace error:', error);
-    
-    // Mongoose validation errors
-    if (error.name === 'ValidationError') {
-      const errors = Object.values(error.errors).map(e => e.message);
-      return NextResponse.json(
-        { success: false, message: 'Validation failed', errors },
-        { status: 400 }
-      );
-    }
-
-    // Paystack errors
-    if (error.message.includes('paystack')) {
-      return NextResponse.json(
-        { success: false, message: 'Payment service error' },
-        { status: 503 }
-      );
-    }
-
-    return NextResponse.json(
-      { success: false, message: 'Failed to create product' },
-      { status: 500 }
-    );
+    console.error('Marketplace POST error:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Failed to create product'
+    });
   }
-}
+});
+
+// GET /api/marketplace - List products
+router.get('/', async (req, res) => {
+  try {
+    const products = await MarketplaceProduct.find({ status: 'active' })
+      .limit(20)
+      .sort({ createdAt: -1 });
+    
+    res.json({
+      success: true,
+      count: products.length,
+      data: products
+    });
+  } catch (error) {
+    res.status(500).json({ success: false, message: 'Failed to fetch products' });
+  }
+});
+
+export default router;
