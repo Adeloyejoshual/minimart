@@ -1,5 +1,5 @@
 // api/marketplace/route.js - PRODUCTION READY
-import MarketplaceProduct from '../../../models/MarketplaceProduct.js';
+import MarketplaceProduct from '../models/MarketplaceProduct.js';
 import { verifyPaystackPayment } from '../../../utils/paystackHelper.js';
 import { v4 as uuidv4 } from 'uuid';
 import authMiddleware from '../../../middleware/auth.js'; // Add auth
