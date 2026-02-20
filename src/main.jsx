@@ -3,21 +3,16 @@ import ReactDOM from "react-dom/client";
 import App from "./App.jsx";
 import { Auth0Provider } from "@auth0/auth0-react";
 
-const domain = import.meta.env.VITE_AUTH0_DOMAIN;
-const clientId = import.meta.env.VITE_AUTH0_CLIENT_ID;
-
 ReactDOM.createRoot(document.getElementById("root")).render(
-  <React.StrictMode>
-    <Auth0Provider
-      domain={domain}
-      clientId={clientId}
-      authorizationParams={{
-        redirect_uri: window.location.origin + "/callback",
-      }}
-      useRefreshTokens={true}       // persist login even after page reload
-      cacheLocation="localstorage"  // store tokens
-    >
-      <App />
-    </Auth0Provider>
-  </React.StrictMode>
+  <Auth0Provider
+    domain="dev-akuuw0q85johcauu.us.auth0.com"
+    clientId="DLaOqwRXO8XXVaAv57cJQAToorkV0x7y"
+    authorizationParams={{
+      redirect_uri: window.location.origin
+    }}
+    cacheLocation="localstorage"
+    useRefreshTokens={true}
+  >
+    <App />
+  </Auth0Provider>
 );
