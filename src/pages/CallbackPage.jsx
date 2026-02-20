@@ -3,14 +3,22 @@ import { useEffect } from "react";
 import { useNavigate } from "react-router-dom";
 
 export default function CallbackPage() {
-  const { isLoading, isAuthenticated } = useAuth0();
+  const { isLoading, isAuthenticated, error } = useAuth0();
   const navigate = useNavigate();
 
   useEffect(() => {
-    if (!isLoading && isAuthenticated) {
-      navigate("/"); // redirect after successful login/signup
+    if (!isLoading) {
+      if (isAuthenticated) {
+        navigate("/");
+      } else {
+        navigate("/"); // fallback if something failed
+      }
     }
   }, [isLoading, isAuthenticated]);
 
-  return <p>Loading...</p>;
+  if (error) {
+    return <p>Error: {error.message}</p>;
+  }
+
+  return <p>Loading authentication...</p>;
 }
