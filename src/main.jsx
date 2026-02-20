@@ -2,11 +2,9 @@ import React from "react";
 import ReactDOM from "react-dom/client";
 import App from "./App.jsx";
 import { Auth0Provider } from "@auth0/auth0-react";
-import "./index.css";
 
 const domain = import.meta.env.VITE_AUTH0_DOMAIN;
 const clientId = import.meta.env.VITE_AUTH0_CLIENT_ID;
-const audience = import.meta.env.VITE_AUTH0_AUDIENCE; // optional, only if you call APIs
 
 ReactDOM.createRoot(document.getElementById("root")).render(
   <React.StrictMode>
@@ -14,11 +12,10 @@ ReactDOM.createRoot(document.getElementById("root")).render(
       domain={domain}
       clientId={clientId}
       authorizationParams={{
-        redirect_uri: window.location.origin,
-        audience, // optional
+        redirect_uri: window.location.origin + "/callback",
       }}
-      useRefreshTokens={true} // recommended for SPAs
-      cacheLocation="localstorage" // persists login across refreshes
+      useRefreshTokens={true}       // persist login even after page reload
+      cacheLocation="localstorage"  // store tokens
     >
       <App />
     </Auth0Provider>
