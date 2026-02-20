@@ -1,17 +1,25 @@
+// src/main.jsx
+import React from "react";
 import ReactDOM from "react-dom/client";
+import App from "./App.jsx";
 import { Auth0Provider } from "@auth0/auth0-react";
-import App from "./App";
+import "./index.css";
+
+const domain = import.meta.env.VITE_AUTH0_DOMAIN;
+const clientId = import.meta.env.VITE_AUTH0_CLIENT_ID;
 
 ReactDOM.createRoot(document.getElementById("root")).render(
-  <Auth0Provider
-    domain="dev-akuuw0q85johcauu.us.auth0.com"
-    clientId="DLaOqwRXO8XXVaAv57cJQAToorkV0x7y"
-    authorizationParams={{
-      redirect_uri: window.location.origin
-    }}
-    cacheLocation="localstorage"
-    useRefreshTokens={true}
-  >
-    <App />
-  </Auth0Provider>
+  <React.StrictMode>
+    <Auth0Provider
+      domain={domain}
+      clientId={clientId}
+      authorizationParams={{
+        redirect_uri: window.location.origin
+      }}
+      useRefreshTokens={true}       // keeps session alive
+      cacheLocation="localstorage"   // prevents losing session on reload
+    >
+      <App />
+    </Auth0Provider>
+  </React.StrictMode>
 );
