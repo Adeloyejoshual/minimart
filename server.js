@@ -13,6 +13,7 @@ import IORedis from "ioredis";
 
 import marketplaceRoutes from "./routes/marketplace.js";
 import minimartRoutes from "./routes/minimart.js";
+import configRoutes from "./routes/config.js
 
 dotenv.config();
 
@@ -114,6 +115,7 @@ if (process.env.REDIS_URL) {
 
 app.use("/api/marketplace", marketplaceRoutes);
 app.use("/api/minimart", minimartRoutes);
+app.use("/api/config", configRoutes);
 
 /* ========================
    SERVE FRONTEND
