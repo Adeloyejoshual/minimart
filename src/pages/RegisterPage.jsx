@@ -5,11 +5,11 @@ export default function RegisterPage() {
   const { loginWithRedirect } = useAuth0();
 
   return (
-    <div style={{ padding: "2rem" }}>
-      <h1>Register Page</h1>
+    <div style={{ padding: 20 }}>
+      <h2>Register</h2>
       <button
         onClick={() =>
-          loginWithRedirect({ screen_hint: "signup" })
+          loginWithRedirect({ screen_hint: "signup" }) // forces signup form
         }
       >
         Sign Up
