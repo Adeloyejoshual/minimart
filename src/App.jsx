@@ -1,8 +1,14 @@
-import React from "react";
+import React, { useEffect } from "react";
 import { useAuth0 } from "@auth0/auth0-react";
 
 export default function App() {
-  const { isAuthenticated, user, loginWithRedirect, logout, isLoading } = useAuth0();
+  const { isAuthenticated, user, loginWithRedirect, logout, isLoading, handleRedirectCallback } =
+    useAuth0();
+
+  // Handle redirect after Auth0 login
+  useEffect(() => {
+    handleRedirectCallback().catch(() => {});
+  }, []);
 
   if (isLoading) return <p>Loading...</p>;
 
@@ -12,13 +18,13 @@ export default function App() {
 
       {isAuthenticated ? (
         <div>
-          <p>Hello, {user.name}</p>
-          <button onClick={() => logout({ returnTo: window.location.origin })}>
-            Logout
-          </button>
+          <p>Hello, {user?.name}</p>
+          <p>Email: {user?.email}</p>
+          <button onClick={() => logout({ returnTo: window.location.origin })}>Logout</button>
         </div>
       ) : (
         <div>
+          <p>You are not logged in.</p>
           <button onClick={() => loginWithRedirect({ authorizationParams: { prompt: "login" } })}>
             Login
           </button>
