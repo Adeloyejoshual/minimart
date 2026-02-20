@@ -1,36 +1,188 @@
-/* src/index.css */
-
-/* ================= Global Reset ================= */
+/* =========================
+   GLOBAL RESET & BASE
+========================= */
 * {
   margin: 0;
   padding: 0;
   box-sizing: border-box;
 }
 
-/* ================= Body ================= */
-body, html {
+html, body, #root {
+  height: 100%;
+  width: 100%;
   font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
-  background-color: #eaf2ff; /* light background for all pages */
-  color: #222;
-  min-height: 100vh;
+  background-color: #f9f9f9;
+  color: #333;
 }
 
-/* ================= Links ================= */
-a {
-  text-decoration: none;
-  color: inherit;
+/* =========================
+   CONTAINERS
+========================= */
+.container {
+  max-width: 1200px;
+  margin: 0 auto;
+  padding: 16px;
 }
 
-/* ================= Buttons ================= */
+/* =========================
+   BUTTONS
+========================= */
 button {
   cursor: pointer;
   border: none;
-  outline: none;
-  font-family: inherit;
+  border-radius: 12px;
+  font-weight: 600;
+  padding: 12px 16px;
+  font-size: 16px;
   transition: 0.2s;
 }
 
-/* ================= Scroll Behavior ================= */
-html {
-  scroll-behavior: smooth;
+button:hover {
+  opacity: 0.9;
+}
+
+/* Primary button */
+.btn-primary {
+  background-color: #0d6efd;
+  color: #fff;
+}
+
+.btn-primary:hover {
+  background-color: #0b5ed7;
+}
+
+/* Success button */
+.btn-success {
+  background-color: #198754;
+  color: #fff;
+}
+
+.btn-success:hover {
+  background-color: #146c43;
+}
+
+/* Warning button */
+.btn-warning {
+  background-color: #ffc107;
+  color: #000;
+}
+
+.btn-warning:hover {
+  background-color: #e0a800;
+}
+
+/* =========================
+   HEADER
+========================= */
+header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 12px 16px;
+  background-color: #fff;
+  box-shadow: 0 2px 6px rgba(0,0,0,0.05);
+  position: sticky;
+  top: 0;
+  z-index: 10;
+}
+
+header h1, header h2 {
+  font-size: 20px;
+}
+
+/* =========================
+   GRIDS & CARDS
+========================= */
+.products-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+  gap: 16px;
+  margin-top: 12px;
+}
+
+.product-card {
+  text-decoration: none;
+  color: inherit;
+  border: 1px solid #eee;
+  border-radius: 12px;
+  overflow: hidden;
+  background-color: #fff;
+  transition: 0.2s;
+}
+
+.product-card:hover {
+  box-shadow: 0 4px 12px rgba(0,0,0,0.1);
+  transform: translateY(-2px);
+}
+
+.product-card img {
+  width: 100%;
+  height: 120px;
+  object-fit: cover;
+}
+
+.product-card .title {
+  font-size: 14px;
+  padding: 6px 8px 0;
+}
+
+.product-card .price {
+  font-weight: 600;
+  padding: 0 8px 8px;
+  color: #0d6efd;
+}
+
+/* =========================
+   NAVIGATION CARDS
+========================= */
+.nav-card {
+  flex: 1;
+  padding: 20px;
+  border-radius: 12px;
+  text-align: center;
+  font-weight: 600;
+  color: #fff;
+  cursor: pointer;
+  transition: 0.2s;
+}
+
+.nav-card:hover {
+  transform: translateY(-3px);
+  box-shadow: 0 4px 12px rgba(0,0,0,0.15);
+}
+
+.nav-marketplace {
+  background-color: #0d6efd;
+}
+
+.nav-minimart {
+  background-color: #198754;
+}
+
+.nav-offers {
+  background-color: #ffc107;
+  color: #000;
+}
+
+/* =========================
+   RESPONSIVE
+========================= */
+@media (max-width: 768px) {
+  header h1, header h2 {
+    font-size: 18px;
+  }
+
+  .products-grid {
+    grid-template-columns: repeat(auto-fill, minmax(120px, 1fr));
+  }
+
+  button {
+    font-size: 14px;
+    padding: 10px 12px;
+  }
+
+  .nav-card {
+    padding: 16px;
+    font-size: 14px;
+  }
 }
