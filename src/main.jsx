@@ -14,8 +14,8 @@ ReactDOM.createRoot(document.getElementById("root")).render(
       domain={domain}
       clientId={clientId}
       authorizationParams={{ redirect_uri: redirectUri }}
-      useRefreshTokens={true}         // keeps user logged in in SPA
-      cacheLocation="localstorage"    // optional, persists session on refresh
+      useRefreshTokens={true}       // keeps user logged in across refresh
+      cacheLocation="localstorage"   // persist session
     >
       <App />
     </Auth0Provider>
