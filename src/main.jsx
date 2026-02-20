@@ -9,7 +9,7 @@ function Main() {
   useEffect(() => {
     fetch("/api/config")
       .then(res => res.json())
-      .then(data => setConfig(data))
+      .then(setConfig)
       .catch(console.error);
   }, []);
 
