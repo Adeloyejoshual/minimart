@@ -1,37 +1,29 @@
 import React from "react";
-import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom";
-import HomePage from "./pages/HomePage.jsx";
-import LoginPage from "./pages/LoginPage.jsx";
-import RegisterPage from "./pages/RegisterPage.jsx";
-
-// PrivateRoute wrapper
-function PrivateRoute({ children }) {
-  const { isAuthenticated, isLoading } = useAuth0();
-  if (isLoading) return <p>Loading...</p>;
-  if (!isAuthenticated) return <Navigate to="/login" />;
-  return children;
-}
+import { useAuth0 } from "@auth0/auth0-react";
 
 export default function App() {
+  const { isAuthenticated, user, loginWithRedirect, logout, isLoading } = useAuth0();
+
+  if (isLoading) return <p>Loading...</p>;
+
   return (
-    <BrowserRouter>
-      <Routes>
-        <Route path="/" element={<HomePage />} />
-        <Route path="/login" element={<LoginPage />} />
-        <Route path="/register" element={<RegisterPage />} />
+    <div style={{ padding: 20 }}>
+      <h1>MiniMart Auth0 Test</h1>
 
-        {/* Example protected page */}
-        <Route
-          path="/protected"
-          element={
-            <PrivateRoute>
-              <h2>Protected Page: You are logged in!</h2>
-            </PrivateRoute>
-          }
-        />
-
-        <Route path="*" element={<Navigate to="/" />} />
-      </Routes>
-    </BrowserRouter>
+      {isAuthenticated ? (
+        <div>
+          <p>Hello, {user.name}</p>
+          <button onClick={() => logout({ returnTo: window.location.origin })}>
+            Logout
+          </button>
+        </div>
+      ) : (
+        <div>
+          <button onClick={() => loginWithRedirect({ authorizationParams: { prompt: "login" } })}>
+            Login
+          </button>
+        </div>
+      )}
+    </div>
   );
 }
