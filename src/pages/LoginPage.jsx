@@ -1,25 +1,12 @@
-import React from "react";
 import { useAuth0 } from "@auth0/auth0-react";
+import { useEffect } from "react";
 
 export default function LoginPage() {
-  const { loginWithRedirect, isLoading, isAuthenticated, user, logout } = useAuth0();
+  const { loginWithRedirect } = useAuth0();
 
-  if (isLoading) return <p>Loading...</p>;
+  useEffect(() => {
+    loginWithRedirect({ screen_hint: "login" });
+  }, []);
 
-  if (isAuthenticated) {
-    return (
-      <div style={{ padding: "2rem" }}>
-        <h1>Logged In</h1>
-        <p>{user.email}</p>
-        <button onClick={() => logout({ returnTo: window.location.origin })}>Logout</button>
-      </div>
-    );
-  }
-
-  return (
-    <div style={{ padding: "2rem" }}>
-      <h1>Login Page</h1>
-      <button onClick={() => loginWithRedirect()}>Login / Sign Up</button>
-    </div>
-  );
+  return <p>Redirecting to login...</p>;
 }
