@@ -1,38 +1,9 @@
-import { useAuth0 } from "@auth0/auth0-react";
-
-export default function App() {
-  const {
-    loginWithRedirect,
-    logout,
-    isAuthenticated,
-    user,
-    isLoading
-  } = useAuth0();
-
-  console.log("Authenticated:", isAuthenticated);
-
-  if (isLoading) return <h2>Loading...</h2>;
-
-  return (
-    <div style={{ padding: 40 }}>
-      <h1>MiniMart Auth Test</h1>
-
-      {!isAuthenticated ? (
-        <button onClick={() => loginWithRedirect()}>
-          Log In
-        </button>
-      ) : (
-        <>
-          <h3>Welcome {user?.name}</h3>
-          <button
-            onClick={() =>
-              logout({ logoutParams: { returnTo: window.location.origin } })
-            }
-          >
-            Log Out
-          </button>
-        </>
-      )}
-    </div>
-  );
-}
+<button
+  onClick={() =>
+    window.location.href =
+      "https://dev-akuuw0q85johcauu.us.auth0.com/authorize?response_type=code&client_id=DLaOqwRXO8XXVaAv57cJQAToorkV0x7y&redirect_uri=" +
+      encodeURIComponent(window.location.origin)
+  }
+>
+  FORCE LOGIN
+</button>
