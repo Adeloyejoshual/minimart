@@ -14,8 +14,8 @@ ReactDOM.createRoot(document.getElementById("root")).render(
       domain={domain}
       clientId={clientId}
       authorizationParams={{ redirect_uri: redirectUri }}
-      useRefreshTokens={true}       // keeps user logged in across refresh
-      cacheLocation="localstorage"   // persist session
+      useRefreshTokens={true}       // keeps user logged in
+      cacheLocation="localstorage"   // persists session across refresh
     >
       <App />
     </Auth0Provider>
