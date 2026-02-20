@@ -2,17 +2,32 @@ import React from "react";
 import { useAuth0 } from "@auth0/auth0-react";
 
 export default function LoginPage() {
-  const { loginWithRedirect } = useAuth0();
+  const { loginWithRedirect, isAuthenticated, user, logout, isLoading } = useAuth0();
+
+  if (isLoading) return <p>Loading...</p>;
+
+  if (isAuthenticated) {
+    return (
+      <div style={{ padding: "16px" }}>
+        <h2>Welcome, {user.name || user.email}</h2>
+        <button
+          style={{ padding: "12px", borderRadius: "8px", cursor: "pointer" }}
+          onClick={() => logout({ returnTo: window.location.origin })}
+        >
+          Logout
+        </button>
+      </div>
+    );
+  }
 
   return (
-    <div style={{ padding: 20 }}>
-      <h2>Login</h2>
+    <div style={{ padding: "16px" }}>
+      <h2>Sign In</h2>
       <button
-        onClick={() =>
-          loginWithRedirect({ authorizationParams: { prompt: "login" } })
-        }
+        style={{ padding: "12px", borderRadius: "8px", cursor: "pointer" }}
+        onClick={() => loginWithRedirect()}
       >
-        Log In
+        Login with Auth0
       </button>
     </div>
   );
