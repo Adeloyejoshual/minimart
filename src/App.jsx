@@ -1,110 +1,62 @@
-// App.jsx - Production-ready with error handling
-import React, { useEffect } from "react";
-import { useAuth0 } from "@auth0/auth0-react";
+// App.jsx - HARDCODED VALUES FROM YOUR SCREENSHOT
+import React, { useState, useEffect } from "react";
+
+const DOMAIN = "dev-akuuw0q85johcauu.us.auth0.com";
+const CLIENT_ID = "DLaOqwRXO8XXVaAv57cJQAToorkV0x7y";
+const REDIRECT_URI = "https://minimart-ivrm.onrender.com/";
 
 export default function App() {
-  const { 
-    isAuthenticated, 
-    user, 
-    loginWithRedirect, 
-    logout, 
-    isLoading, 
-    error,
-    handleRedirectCallback 
-  } = useAuth0();
+  const [user, setUser] = useState(null);
+  const [loading, setLoading] = useState(true);
 
-  // Handle Auth0 redirect callback
   useEffect(() => {
-    handleRedirectCallback()
-      .catch((err) => {
-        console.error('Auth0 callback error:', err);
-        // Don't throw - let user retry login
-      });
-  }, [handleRedirectCallback]);
+    // Check for auth callback
+    const urlParams = new URLSearchParams(window.location.search);
+    if (urlParams.get('code')) {
+      window.history.replaceState({}, '', '/');
+      setLoading(false);
+      return;
+    }
+    
+    // Check stored token
+    const token = localStorage.getItem('token');
+    if (token) setUser({ name: 'User', email: 'user@example.com' }); // Mock for now
+    setLoading(false);
+  }, []);
 
-  if (isLoading) {
-    return (
-      <div style={{ padding: 40, textAlign: 'center' }}>
-        <p>Loading MiniMart...</p>
-      </div>
-    );
-  }
+  const login = () => {
+    window.location.href = `https://${DOMAIN}/authorize?` +
+      `response_type=code&` +
+      `client_id=${CLIENT_ID}&` +
+      `redirect_uri=${encodeURIComponent(REDIRECT_URI)}&` +
+      `scope=openid%20profile%20email`;
+  };
 
-  if (error) {
-    return (
-      <div style={{ padding: 20, color: 'red' }}>
-        <h2>Authentication Error</h2>
-        <p>{error.message}</p>
-        <button onClick={() => window.location.reload()}>Retry</button>
-      </div>
-    );
-  }
+  const logout = () => {
+    localStorage.removeItem('token');
+    setUser(null);
+  };
+
+  if (loading) return <div style={{padding: 40, textAlign: 'center'}}>Loading...</div>;
 
   return (
-    <div style={{ 
-      padding: 20, 
-      maxWidth: 600, 
-      margin: '0 auto',
-      fontFamily: 'system-ui'
-    }}>
-      <h1>🛒 MiniMart Auth0 Test</h1>
+    <div style={{ padding: 20, maxWidth: 600, margin: '0 auto' }}>
+      <h1>🛒 MiniMart Marketplace</h1>
       
-      {isAuthenticated ? (
-        <div style={{ border: '1px solid #ccc', padding: 20, borderRadius: 8 }}>
-          <h3>✅ Welcome back!</h3>
-          <img 
-            src={user.picture} 
-            alt={user.name} 
-            style={{ width: 50, height: 50, borderRadius: '50%' }}
-          />
-          <p><strong>Hello, {user.name}</strong></p>
-          <p><strong>Email:</strong> {user.email}</p>
-          {user.email_verified && <p style={{ color: 'green' }}>✅ Email Verified</p>}
-          <button 
-            onClick={() => logout({ logoutParams: { returnTo: window.location.origin } })}
-            style={{
-              background: '#ff6b6b',
-              color: 'white',
-              border: 'none',
-              padding: '10px 20px',
-              borderRadius: 6,
-              cursor: 'pointer'
-            }}
-          >
-            🚪 Logout
+      {user ? (
+        <div style={{ border: '1px solid #ccc', padding: 20 }}>
+          <h3>✅ Welcome {user.name}!</h3>
+          <button onClick={logout} style={{background: '#ff6b6b', color: 'white', padding: '10px 20px'}}>
+            Logout
           </button>
         </div>
       ) : (
-        <div style={{ border: '1px solid #ccc', padding: 20, borderRadius: 8 }}>
-          <h3>🔐 Please log in</h3>
-          <p>You are not logged in to MiniMart.</p>
-          <button 
-            onClick={() => loginWithRedirect({ 
-              authorizationParams: { 
-                prompt: "login",
-                screen_hint: "login" 
-              } 
-            })}
-            style={{
-              background: '#4f46e5',
-              color: 'white',
-              border: 'none',
-              padding: '12px 24px',
-              borderRadius: 6,
-              cursor: 'pointer',
-              fontSize: 16
-            }}
-          >
-            🚀 Login with Auth0
+        <div style={{ border: '1px solid #ccc', padding: 20 }}>
+          <button onClick={login} style={{background: '#4f46e5', color: 'white', padding: '12px 24px'}}>
+            Login with Auth0
           </button>
         </div>
       )}
-      
-      {/* Debug info for troubleshooting */}
-      <details style={{ marginTop: 20, fontSize: 12 }}>
-        <summary>Debug Info (click to expand)</summary>
-        <pre>{JSON.stringify({ isAuthenticated, isLoading, error: error?.message }, null, 2)}</pre>
-      </details>
     </div>
   );
 }
