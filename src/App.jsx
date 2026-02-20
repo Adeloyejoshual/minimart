@@ -4,16 +4,18 @@ export default function App() {
   const {
     loginWithRedirect,
     logout,
-    user,
     isAuthenticated,
+    user,
     isLoading
   } = useAuth0();
+
+  console.log("Authenticated:", isAuthenticated);
 
   if (isLoading) return <h2>Loading...</h2>;
 
   return (
     <div style={{ padding: 40 }}>
-      <h1>Auth0 Working Test</h1>
+      <h1>MiniMart Auth Test</h1>
 
       {!isAuthenticated ? (
         <button onClick={() => loginWithRedirect()}>
