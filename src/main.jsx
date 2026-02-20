@@ -4,9 +4,9 @@ import App from "./App.jsx";
 import { Auth0Provider } from "@auth0/auth0-react";
 import "./index.css";
 
-const domain = import.meta.env.VITE_AUTH0_DOMAIN;     // e.g., dev-akuuw0q85johcauu.us.auth0.com
-const clientId = import.meta.env.VITE_AUTH0_CLIENT_ID; // e.g., DLaOqwRXO8XXVaAv57cJQAToorkV0x7y
-const audience = import.meta.env.VITE_AUTH0_AUDIENCE; // optional, if using your API
+const domain = import.meta.env.VITE_AUTH0_DOMAIN;
+const clientId = import.meta.env.VITE_AUTH0_CLIENT_ID;
+const audience = import.meta.env.VITE_AUTH0_AUDIENCE; // optional, only if you call APIs
 
 ReactDOM.createRoot(document.getElementById("root")).render(
   <React.StrictMode>
@@ -17,8 +17,8 @@ ReactDOM.createRoot(document.getElementById("root")).render(
         redirect_uri: window.location.origin,
         audience, // optional
       }}
-      useRefreshTokens={true}       // keeps the user logged in
-      cacheLocation="localstorage"   // persist login across refresh
+      useRefreshTokens={true} // recommended for SPAs
+      cacheLocation="localstorage" // persists login across refreshes
     >
       <App />
     </Auth0Provider>
