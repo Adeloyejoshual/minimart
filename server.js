@@ -9,7 +9,8 @@ import { fileURLToPath } from "url";
 import helmet from "helmet";
 import compression from "compression";
 import rateLimit from "express-rate-limit";
-import { auth, requiredScopes } from "express-oauth2-jwt-bearer";
+import { expressjwt as jwt } from "express-jwt";
+import jwksRsa from "jwks-rsa";
 
 import marketplaceRoutes from "./routes/marketplace.js";
 import minimartRoutes from "./routes/minimart.js";
@@ -70,14 +71,20 @@ app.use((req, res, next) => {
 /* ========================
    AUTH0 JWT MIDDLEWARE
 ======================== */
-const checkJwt = auth({
-  audience: process.env.VITE_AUTH0_AUDIENCE, // your API identifier
-  issuerBaseURL: `https://${process.env.VITE_AUTH0_DOMAIN}/`,
-  tokenSigningAlg: "RS256",
+const checkJwt = jwt({
+  secret: jwksRsa.expressJwtSecret({
+    cache: true,
+    rateLimit: true,
+    jwksRequestsPerMinute: 5,
+    jwksUri: `https://${process.env.VITE_AUTH0_DOMAIN}/.well-known/jwks.json`,
+  }),
+  audience: process.env.VITE_AUTH0_AUDIENCE,
+  issuer: `https://${process.env.VITE_AUTH0_DOMAIN}/`,
+  algorithms: ["RS256"],
 });
 
 /* ========================
-   ROUTES
+   API ROUTES
 ======================== */
 app.use("/api/marketplace", checkJwt, marketplaceRoutes);
 app.use("/api/minimart", minimartRoutes);
@@ -90,6 +97,7 @@ if (process.env.NODE_ENV === "production") {
   const distPath = path.join(__dirname, "dist");
   app.use(express.static(distPath));
 
+  // SPA fallback
   app.get("*", (req, res) => {
     res.sendFile(path.join(distPath, "index.html"));
   });
@@ -100,10 +108,9 @@ if (process.env.NODE_ENV === "production") {
 ======================== */
 app.use((err, req, res, next) => {
   console.error(err.stack);
-  res.status(500).json({
+  res.status(err.status || 500).json({
     success: false,
-    message: "Internal Server Error",
-    error: err.message,
+    message: err.message || "Internal Server Error",
   });
 });
 
@@ -111,5 +118,5 @@ app.use((err, req, res, next) => {
    START SERVER
 ======================== */
 app.listen(PORT, () => {
-  console.log(`🚀 Server running on port ${PORT}`);
+  console.log(`🚀 Server running on http://localhost:${PORT}`);
 });
