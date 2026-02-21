@@ -4,7 +4,7 @@ import { useAuth0 } from "@auth0/auth0-react";
 import { PaystackButton } from "react-paystack";
 import { FaStar, FaRocket, FaGift, FaBullhorn, FaBolt } from "react-icons/fa";
 
-// ✅ YOUR EXACT PROJECT STRUCTURE - 17 INDIVIDUAL IMPORTS
+// ✅ YOUR EXACT 17 INDIVIDUAL CONFIG IMPORTS
 import { categoryFields } from "../../config/categoryFields";
 import { conditions, usedDetails } from "../../config/conditions";
 import { ramOptions } from "../../config/ram";
@@ -20,14 +20,26 @@ import { models } from "../../config/models";
 import { sims } from "../../config/sim";
 import { years } from "../../config/years";
 
-// 🟢 PRODUCTION STYLES (outside component - no re-renders)
+// 🟢 PRICE FORMATTER UTILITY
+const formatNumberWithCommas = (value) => {
+  const num = value.toString().replace(/[^0-9]/g, "");
+  return num ? Number(num).toLocaleString() : "";
+};
+
+// 🟢 MOBILE-FRIENDLY SECTION STYLE HELPER
+const getSectionStyle = () => ({
+  border: "2px solid #007BFF",
+  borderRadius: "12px", 
+  padding: window.innerWidth <= 768 ? "24px" : "20px",
+  marginBottom: "20px", 
+  background: "#E6F0FF",
+  minHeight: window.innerWidth <= 768 ? "260px" : "auto"
+});
+
+// 🟢 PRODUCTION STYLES
 const STYLES = {
   container: { maxWidth: "800px", margin: "0 auto", padding: "20px" },
   title: { textAlign: "center", color: "#007BFF", marginBottom: "30px", fontSize: "28px" },
-  section: { 
-    border: "2px solid #007BFF", borderRadius: "12px", 
-    padding: "20px", marginBottom: "20px", background: "#E6F0FF" 
-  },
   input: { 
     width: "100%", padding: "12px", borderRadius: "8px", 
     border: "1px solid #ddd", fontSize: "16px", marginBottom: "12px", boxSizing: "border-box"
@@ -35,7 +47,7 @@ const STYLES = {
   textarea: { 
     width: "100%", padding: "12px", borderRadius: "8px", 
     border: "1px solid #ddd", fontSize: "16px", marginBottom: "12px", boxSizing: "border-box",
-    resize: "vertical", minHeight: "100px"
+    resize: "vertical", minHeight: "120px"
   },
   errorInput: { borderColor: "#dc3545", boxShadow: "0 0 0 0.2rem rgba(220,53,69,.25)" },
   errorText: { color: "#dc3545", fontSize: "14px", display: "block" },
@@ -50,7 +62,7 @@ const STYLES = {
   primaryButton: {
     width: "100%", padding: "12px", background: "#007BFF",
     color: "white", border: "none", borderRadius: "8px",
-    fontSize: "16px", marginBottom: "15px", cursor: "pointer"
+    fontSize: "16px", cursor: "pointer"
   },
   submitButton: (disabled) => ({
     width: "100%", padding: "16px", 
@@ -95,7 +107,7 @@ const STYLES = {
     width: "100%", height: "100%", objectFit: "cover",
     borderRadius: "8px", border: "2px solid #007BFF"
   },
-  imageNumberOverlay: {
+   imageNumberOverlay: {
     position: "absolute", bottom: "8px", left: "8px",
     background: "rgba(0, 123, 255, 0.9)", color: "white",
     width: "24px", height: "24px", borderRadius: "50%",
@@ -177,13 +189,13 @@ export default function AddMarketplaceProduct() {
     showPayment: false, selectorField: null, selectorOptions: [], errors: {}
   });
 
-  // 🟢 PRE-COMPUTE (fixes self-reference)
+  // 🟢 PRE-COMPUTE
   const currentPlan = useMemo(() => 
     promotionPlans.find(p => p.id === form.promo_plan), 
     [form.promo_plan]
   );
 
-  // 🟢 COMPUTED VALUES (perfect dependencies)
+  // 🟢 COMPUTED VALUES
   const computed = useMemo(() => ({
     visibleFields: categoryFields[form.category] || [],
     availableBrands: brands[form.category] || [],
@@ -202,7 +214,7 @@ export default function AddMarketplaceProduct() {
     form.price, images.files.length, currentPlan
   ]);
 
-  // 🟢 EVENT HANDLERS (all callback stable)
+  // 🟢 EVENT HANDLERS
   const handleChange = useCallback((field, value) => {
     setForm(prev => {
       const updated = { ...prev, [field]: value };
@@ -221,13 +233,13 @@ export default function AddMarketplaceProduct() {
     setUi(prev => ({ ...prev, errors: { ...prev.errors, [field]: "" } }));
   }, []);
 
+  // ✅ PRICE & DISCOUNT FORMATTERS
   const handlePriceInput = useCallback((value) => {
-    const num = value.replace(/[^0-9]/g, "");
-    if (!num) {
-      handleChange("price", "");
-      return;
-    }
-    handleChange("price", Number(num).toLocaleString());
+    handleChange("price", formatNumberWithCommas(value));
+  }, [handleChange]);
+
+  const handleDiscountInput = useCallback((value) => {
+    handleChange("discount_price", formatNumberWithCommas(value));
   }, [handleChange]);
 
   const handleImagesAdd = useCallback((newFiles) => {
@@ -277,7 +289,6 @@ export default function AddMarketplaceProduct() {
     }
   }, [images.files]);
 
-  // 🟢 ALL REMAINING FUNCTIONS (validation, submit, etc.)
   const validateForm = useCallback(() => {
     const errors = {};
     if (!form.title?.trim() || form.title.length < 30)
@@ -333,7 +344,7 @@ export default function AddMarketplaceProduct() {
     }
   }, [form, uploadImages, computed.currentPlan]);
 
-    const handlePaySuccess = useCallback(async (response) => {
+  const handlePaySuccess = useCallback(async (response) => {
     setUi(prev => ({ ...prev, showPayment: false, loading: true, isSubmitting: false }));
     try {
       const imageUrls = await uploadImages();
@@ -342,13 +353,11 @@ export default function AddMarketplaceProduct() {
         images: imageUrls, 
         payment_reference: response.reference 
       };
-
       const res = await fetch("/api/marketplace", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(productData),
       });
-
       if (!res.ok) throw new Error("Publish failed");
       alert("✅ Product published with promotion!");
       resetForm();
@@ -373,7 +382,7 @@ export default function AddMarketplaceProduct() {
     if (fileInputRef.current) fileInputRef.current.value = "";
   }, [user]);
 
-  // 🟢 CLEANUP (component unmount only)
+  // 🟢 REMAINING HANDLERS
   useEffect(() => {
     return () => {
       images.previews.forEach(url => {
@@ -421,14 +430,13 @@ export default function AddMarketplaceProduct() {
   const cancelPreview = () => setUi(prev => ({ ...prev, showPreview: false, isSubmitting: false }));
   const cancelPayment = () => setUi(prev => ({ ...prev, showPayment: false, isSubmitting: false }));
 
-  // 🟢 COMPLETE JSX RENDER
   return (
     <div style={STYLES.container}>
       <h1 style={STYLES.title}>🚀 Post New Marketplace Product</h1>
 
       <form onSubmit={handleSubmit}>
-        {/* 🟢 PRODUCT DETAILS SECTION */}
-        <div style={STYLES.section}>
+        {/* 🟢 PRODUCT DETAILS */}
+        <div style={getSectionStyle()}>
           <h3 style={{ marginTop: 0, color: "#333" }}>📦 Product Details</h3>
           
           <input 
@@ -446,9 +454,7 @@ export default function AddMarketplaceProduct() {
           >
             {form.category || "🎯 Select Category"}
           </button>
-          {ui.errors.category && <small style={STYLES.errorText}>{ui.errors.category}</small>}
 
-          {/* 🟢 DYNAMIC FIELDS BY CATEGORY */}
           {computed.visibleFields.map(field => (
             <div key={field} style={{ marginBottom: "12px" }}>
               {field === "features" ? (
@@ -501,29 +507,31 @@ export default function AddMarketplaceProduct() {
                   onClick={() => openSelector(field, getFieldOptions(field, computed))}
                   style={STYLES.selectorButton(!!form[field])}
                 >
-                  {form[field] || `🎯 Select ${field.replace("_", " ").toUpperCase()}`}
+                                    {form[field] || `🎯 Select ${field.replace("_", " ").toUpperCase()}`}
                 </button>
               )}
             </div>
           ))}
         </div>
 
-        {/* 🟢 PRICING & PROMOTIONS */}
-        <div style={STYLES.section}>
+        {/* 🟢 PRICING & BOOST */}
+        <div style={getSectionStyle()}>
           <h3 style={{ marginTop: 0, color: "#333" }}>💰 Pricing & Boost</h3>
           
+          {/* ✅ PRICE WITH COMMAS */}
           <input
-            placeholder="Price (e.g. 50000)"
+            placeholder="Price (e.g. 50,000)"
             value={form.price}
-            onChange={e => handlePriceInput(e.target.value)}
+            onChange={e => handlePriceInput(e.target.value)}  // ✅ Formatter
             style={{ ...STYLES.input, ...(ui.errors.price && STYLES.errorInput) }}
           />
           {ui.errors.price && <small style={STYLES.errorText}>{ui.errors.price}</small>}
 
+          {/* ✅ DISCOUNT PRICE WITH COMMAS */}
           <input
-            placeholder="Discount Price (optional)"
+            placeholder="Discount Price (optional, e.g. 45,000)"
             value={form.discount_price}
-            onChange={e => handleChange("discount_price", e.target.value.replace(/[^0-9]/g, ""))}
+            onChange={e => handleDiscountInput(e.target.value)}  // ✅ Formatter
             style={STYLES.input}
           />
 
@@ -588,7 +596,7 @@ export default function AddMarketplaceProduct() {
         </div>
 
         {/* 🟢 DESCRIPTION & MEDIA */}
-        <div style={STYLES.section}>
+        <div style={getSectionStyle()}>
           <h3 style={{ marginTop: 0, color: "#333" }}>📝 Description & Media</h3>
           
           <textarea
@@ -681,11 +689,10 @@ export default function AddMarketplaceProduct() {
           />
         </div>
 
-               {/* 🟢 DELIVERY & CONTACT (CONTINUED) */}
-        <div style={STYLES.section}>
+        {/* 🟢 DELIVERY & CONTACT */}
+        <div style={getSectionStyle()}>
           <h3 style={{ marginTop: 0, color: "#333" }}>🚚 Delivery & Contact</h3>
           
-          {/* Delivery Region Button */}
           <button 
             type="button" 
             onClick={() => setUi(prev => ({ ...prev, selectorField: "delivery" }))}
@@ -694,7 +701,6 @@ export default function AddMarketplaceProduct() {
             + Add Delivery Region
           </button>
 
-          {/* Delivery Regions List */}
           {form.deliveryRegions.map((region, index) => (
             <div key={index} style={STYLES.deliveryRegion}>
               <div>
@@ -717,7 +723,6 @@ export default function AddMarketplaceProduct() {
             </div>
           ))}
 
-          {/* Location Selectors */}
           <div style={{ marginTop: "20px" }}>
             <button
               type="button"
@@ -768,7 +773,7 @@ export default function AddMarketplaceProduct() {
         </div>
 
         {/* 🟢 ADDITIONAL OPTIONS */}
-        <div style={STYLES.section}>
+        <div style={getSectionStyle()}>
           <h3 style={{ marginTop: 0, color: "#333" }}>⚙️ Additional Options</h3>
           
           <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(200px, 1fr))", gap: "15px" }}>
@@ -809,8 +814,8 @@ export default function AddMarketplaceProduct() {
           />
         </div>
 
-        {/* 🟢 FINAL SUBMIT SECTION */}
-        <div style={STYLES.section}>
+        {/* 🟢 SUBMIT */}
+        <div style={getSectionStyle()}>
           <button
             type="submit"
             disabled={ui.loading || ui.isSubmitting || computed.imageCount === 0}
@@ -837,9 +842,7 @@ export default function AddMarketplaceProduct() {
         </div>
       </form>
 
-      {/* 🟢 MODALS SYSTEM */}
-
-      {/* 1. SELECTOR MODAL */}
+      {/* 🟢 MODALS */}
       {ui.selectorField && ui.selectorField !== "delivery" && (
         <div style={STYLES.modalOverlay}>
           <div style={STYLES.modalContent}>
@@ -855,8 +858,7 @@ export default function AddMarketplaceProduct() {
                     borderBottom: "1px solid #eee",
                     cursor: "pointer",
                     fontSize: "16px",
-                    transition: "background 0.2s",
-                    background: "white"
+                    transition: "background 0.2s"
                   }}
                   onClick={() => selectOption(option)}
                   onMouseOver={e => e.target.style.background = "#f8f9fa"}
@@ -876,12 +878,11 @@ export default function AddMarketplaceProduct() {
         </div>
       )}
 
-      {/* 2. DELIVERY MODAL */}
+      {/* Delivery Modal */}
       {ui.selectorField === "delivery" && (
         <div style={STYLES.modalOverlay}>
           <div style={{ ...STYLES.modalContent, maxWidth: "450px" }}>
             <h3 style={{ marginTop: 0 }}>Add Delivery Region</h3>
-            
             <select 
               value={deliveryForm.state} 
               onChange={e => setDeliveryForm(prev => ({ ...prev, state: e.target.value }))}
@@ -906,11 +907,8 @@ export default function AddMarketplaceProduct() {
               </select>
             )}
 
-            <select 
-              value={deliveryForm.method} 
-              onChange={e => setDeliveryForm(prev => ({ ...prev, method: e.target.value }))}
-              style={STYLES.input}
-            >
+                      <select value={deliveryForm.method} onChange={e => setDeliveryForm(prev => ({ ...prev,
+              method: e.target.value }))} style={STYLES.input}>
               <option value="Courier">📦 Courier</option>
               <option value="Pickup">🚗 Pickup</option>
               <option value="Express">⚡ Express</option>
@@ -964,7 +962,7 @@ export default function AddMarketplaceProduct() {
         </div>
       )}
 
-      {/* 3. PREVIEW MODAL */}
+      {/* 🟢 PREVIEW MODAL */}
       {ui.showPreview && (
         <div style={STYLES.modalOverlay}>
           <div style={{ ...STYLES.modalContent, maxWidth: "650px" }}>
@@ -979,6 +977,11 @@ export default function AddMarketplaceProduct() {
               <h4 style={{ margin: "0 0 10px 0", color: "#333" }}>{form.title}</h4>
               <div style={{ fontSize: "24px", fontWeight: "bold", color: "#28a745", marginBottom: "10px" }}>
                 ₦{computed.cleanPrice.toLocaleString()}
+                {form.discount_price && (
+                  <span style={{ fontSize: "18px", color: "#dc3545", marginLeft: "10px" }}>
+                    ~~₦{Number(form.discount_price.replace(/,/g, "")).toLocaleString()}~~
+                  </span>
+                )}
               </div>
               <p style={{ margin: "0 0 15px 0", color: "#666" }}>
                 {form.description.substring(0, 150)}...
@@ -995,7 +998,7 @@ export default function AddMarketplaceProduct() {
               )}
             </div>
 
-            <div style={{ display: "flex", gap: "10px", marginBottom: "20px" }}>
+            <div style={{ display: "flex", gap: "10px", marginBottom: "20px", flexWrap: "wrap" }}>
               {images.previews.slice(0, 4).map((src, i) => (
                 <img 
                   key={i} 
@@ -1029,7 +1032,8 @@ export default function AddMarketplaceProduct() {
                 style={{ 
                   ...STYLES.cancelButton, 
                   flex: "1", 
-                  background: "#007BFF" 
+                  background: "#007BFF",
+                  minWidth: "120px"
                 }}
               >
                 ✏️ Edit
@@ -1039,7 +1043,7 @@ export default function AddMarketplaceProduct() {
         </div>
       )}
 
-      {/* 4. PAYMENT MODAL */}
+      {/* 🟢 PAYMENT MODAL */}
       {ui.showPayment && computed.currentPlan && computed.paystackKey && (
         <div style={STYLES.modalOverlay}>
           <div style={STYLES.modalContent}>
@@ -1079,14 +1083,15 @@ export default function AddMarketplaceProduct() {
               style={{
                 width: "100%",
                 padding: "16px",
-                background: "#007BFF",
+                background: "linear-gradient(135deg, #007BFF, #0056b3)",
                 color: "white",
                 border: "none",
                 borderRadius: "8px",
                 fontSize: "18px",
                 fontWeight: "bold",
                 cursor: "pointer",
-                marginBottom: "15px"
+                marginBottom: "15px",
+                boxShadow: "0 4px 12px rgba(0,123,255,0.3)"
               }}
             />
             
