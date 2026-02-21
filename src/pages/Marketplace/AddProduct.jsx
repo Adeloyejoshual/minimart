@@ -16,7 +16,7 @@ import {
   FaStar, FaRocket, FaGift, FaBullhorn, FaBolt, FaSave, FaCheckCircle, 
   FaSpinner, FaCreditCard, FaImage, FaMapMarkerAlt, FaPhone, FaBrain 
 } from "react-icons/fa";
-import './Product.css';
+import './AddProduct.css';
 
 // 🔥 ALL CONFIG IMPORTS RESTORED ✅
 import { categoryFields } from "../../config/categoryFields";
