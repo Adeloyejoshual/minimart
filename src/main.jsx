@@ -1,31 +1,17 @@
-import React from 'react';
-import ReactDOM from 'react-dom/client';
-import { BrowserRouter } from 'react-router-dom';
-import { Auth0Provider } from '@auth0/auth0-react';
-import App from './App.jsx';
-import './index.css';
+// main.jsx
+import React from "react";
+import ReactDOM from "react-dom/client";
+import { Auth0Provider } from "@auth0/auth0-react";
+import App from "./App.jsx";
 
-const domain = import.meta.env.VITE_AUTH0_DOMAIN;
-const clientId = import.meta.env.VITE_AUTH0_CLIENT_ID;
-const redirectUri = import.meta.env.VITE_AUTH0_REDIRECT_URI || window.location.origin;
+const root = ReactDOM.createRoot(document.getElementById("root"));
 
-ReactDOM.createRoot(document.getElementById('root')).render(
-  <React.StrictMode>
-    <BrowserRouter>
-      <Auth0Provider
-        domain={domain}
-        clientId={clientId}
-        authorizationParams={{
-          redirect_uri: redirectUri,
-          scope: 'openid profile email'
-        }}
-        cacheLocation="localstorage"
-        onRedirectCallback={(appState) => {
-          window.history.replaceState({}, document.title, window.location.pathname);
-        }}
-      >
-        <App />
-      </Auth0Provider>
-    </BrowserRouter>
-  </React.StrictMode>
+root.render(
+  <Auth0Provider
+    domain={import.meta.env.VITE_AUTH0_DOMAIN}
+    clientId={import.meta.env.VITE_AUTH0_CLIENT_ID}
+    authorizationParams={{ redirect_uri: window.location.origin }}
+  >
+    <App />
+  </Auth0Provider>
 );
