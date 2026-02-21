@@ -1,45 +1,47 @@
+// App.jsx
+import React from "react";
 import { useAuth0 } from "@auth0/auth0-react";
+import api from "./api.js";
 
 function App() {
-  const {
-    loginWithRedirect,
-    logout,
-    user,
-    isAuthenticated,
-    isLoading
-  } = useAuth0();
+  const { loginWithRedirect, logout, user, isAuthenticated, isLoading } = useAuth0();
+  const [products, setProducts] = React.useState([]);
 
-  if (isLoading) {
-    return <div style={{ textAlign: "center", marginTop: "100px" }}>Loading...</div>;
-  }
+  const fetchProducts = async () => {
+    try {
+      const res = await api.get("/api/marketplace");
+      setProducts(res.data.products);
+    } catch (err) {
+      console.error("API error:", err);
+    }
+  };
+
+  if (isLoading) return <p>Loading...</p>;
 
   return (
-    <div style={{ textAlign: "center", marginTop: "100px" }}>
-      <h1>🚀 Auth0 Test</h1>
+    <div style={{ padding: "2rem", fontFamily: "sans-serif" }}>
+      <h1>React + Auth0 + Axios Test</h1>
 
       {!isAuthenticated ? (
-        <button onClick={() => loginWithRedirect()}>
-          Login
-        </button>
+        <button onClick={() => loginWithRedirect()}>Log In</button>
       ) : (
         <>
-          <img
-            src={user.picture}
-            alt="profile"
-            style={{ borderRadius: "50%", width: "100px" }}
-          />
-          <h2>{user.name}</h2>
-          <p>{user.email}</p>
-
-          <button
-            onClick={() =>
-              logout({ logoutParams: { returnTo: window.location.origin } })
-            }
-          >
-            Logout
-          </button>
+          <p>Welcome, {user.name}</p>
+          <button onClick={() => logout({ returnTo: window.location.origin })}>Log Out</button>
         </>
       )}
+
+      <hr />
+
+      <button onClick={fetchProducts}>Fetch Products</button>
+
+      <ul>
+        {products.map((p) => (
+          <li key={p.id}>
+            {p.name} (ID: {p.id})
+          </li>
+        ))}
+      </ul>
     </div>
   );
 }
