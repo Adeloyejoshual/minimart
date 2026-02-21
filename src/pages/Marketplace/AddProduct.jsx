@@ -1546,4 +1546,4 @@ cursor: "pointer"
 
 // [Truncated for brevity - full implementation available on request]
 
-export { getDiscountPercent } defferent between
+export { getDiscountPercent } 
