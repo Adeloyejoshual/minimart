@@ -1,47 +1,28 @@
 import React from 'react';
 import ReactDOM from 'react-dom/client';
 import { BrowserRouter } from 'react-router-dom';
+import { Auth0Provider } from '@auth0/auth0-react';
+import App from './App.jsx';
 import './index.css';
+
+const domain = import.meta.env.VITE_AUTH0_DOMAIN;
+const clientId = import.meta.env.VITE_AUTH0_CLIENT_ID;
+const redirectUri = import.meta.env.VITE_AUTH0_REDIRECT_URI || window.location.origin;
 
 ReactDOM.createRoot(document.getElementById('root')).render(
   <React.StrictMode>
     <BrowserRouter>
-      <Auth0ProviderWithRedirect>
+      <Auth0Provider
+        domain={domain}
+        clientId={clientId}
+        authorizationParams={{
+          redirect_uri: redirectUri,
+          scope: 'openid profile email'
+        }}
+        cacheLocation="localstorage"
+      >
         <App />
-      </Auth0ProviderWithRedirect>
+      </Auth0Provider>
     </BrowserRouter>
   </React.StrictMode>
 );
-
-// Auth0 Provider Component (Everything in main.jsx)
-function Auth0ProviderWithRedirect({ children }) {
-  const navigate = useNavigate();
-  
-  const domain = import.meta.env.VITE_AUTH0_DOMAIN;
-  const clientId = import.meta.env.VITE_AUTH0_CLIENT_ID;
-  const redirectUri = import.meta.env.VITE_AUTH0_REDIRECT_URI || window.location.origin;
-
-  const onRedirectCallback = () => {
-    window.history.replaceState({}, '', '/dashboard');
-    navigate('/dashboard', { replace: true });
-  };
-
-  if (!domain || !clientId) {
-    return <div>❌ Missing Auth0 config</div>;
-  }
-
-  return (
-    <Auth0Provider
-      domain={domain}
-      clientId={clientId}
-      authorizationParams={{
-        redirect_uri: redirectUri,
-        scope: 'openid profile email'
-      }}
-      onRedirectCallback={onRedirectCallback}
-      cacheLocation="localstorage"
-    >
-      {children}
-    </Auth0Provider>
-  );
-}
