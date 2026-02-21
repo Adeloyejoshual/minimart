@@ -4,7 +4,7 @@ import React, { useState, useRef, useEffect, useCallback } from "react";
 import { useAuth0 } from "@auth0/auth0-react";
 import { PaystackButton } from "react-paystack";
 import { FaStar, FaRocket, FaGift, FaBullhorn, FaBolt, FaSpinner } from "react-icons/fa";
-import './Product.css'; // 🔥 WORLD-CLASS STYLES
+import './AddProduct.css'; // 🔥 WORLD-CLASS STYLES
 
 // 🔥 ALL CONFIG IMPORTS
 import { categoryFields } from "../../config/categoryFields";
