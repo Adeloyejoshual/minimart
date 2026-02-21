@@ -1,56 +1,57 @@
+// server.js
 import express from "express";
 import cors from "cors";
 import path from "path";
 import { fileURLToPath } from "url";
-import dotenv from "dotenv";
-import jwt from "express-jwt";
+import { expressjwt as jwt } from "express-jwt";
 import jwksRsa from "jwks-rsa";
+import dotenv from "dotenv";
 
 dotenv.config();
 
 const app = express();
 const PORT = process.env.PORT || 5000;
 
-// ===== CORS =====
+// ================= CORS =================
 app.use(cors());
 app.use(express.json());
 
-// ===== Auth0 JWT Middleware =====
+// ================= AUTH0 JWT =================
 const checkJwt = jwt({
   secret: jwksRsa.expressJwtSecret({
     cache: true,
     rateLimit: true,
     jwksRequestsPerMinute: 5,
-    jwksUri: `https://${process.env.VITE_AUTH0_DOMAIN}/.well-known/jwks.json`
+    jwksUri: `https://${process.env.VITE_AUTH0_DOMAIN}/.well-known/jwks.json`,
   }),
   audience: process.env.VITE_AUTH0_AUDIENCE,
   issuer: `https://${process.env.VITE_AUTH0_DOMAIN}/`,
-  algorithms: ["RS256"]
+  algorithms: ["RS256"],
 });
 
-// ===== Mock API =====
+// ================= STATIC REACT BUILD =================
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
+app.use(express.static(path.join(__dirname, "dist")));
+
+// ================= API ROUTES =================
 app.get("/api/marketplace", checkJwt, (req, res) => {
   res.json({
     success: true,
+    user: req.auth, // JWT payload
     products: [
       { id: 1, name: "Test Product 1" },
       { id: 2, name: "Test Product 2" },
     ],
-    user: req.auth
   });
 });
 
-// ===== Serve React build =====
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = path.dirname(__filename);
-const distPath = path.join(__dirname, "dist");
-
-app.use(express.static(distPath));
+// ================= SPA FALLBACK =================
 app.get("*", (req, res) => {
-  res.sendFile(path.join(distPath, "index.html"));
+  res.sendFile(path.join(__dirname, "dist", "index.html"));
 });
 
-// ===== Start server =====
-app.listen(PORT, () => {
-  console.log(`🚀 Server running on http://localhost:${PORT}`);
-});
+// ================= START SERVER =================
+app.listen(PORT, () =>
+  console.log(`🚀 Server running on http://localhost:${PORT}`)
+);
