@@ -1,4 +1,4 @@
-// src/configuration/Auth0ProviderWithRedirect.jsx
+// src/configuration/Auth0ProviderWithRedirect.jsx - FIXED CALLBACK
 import React, { useEffect } from 'react';
 import { Auth0Provider } from '@auth0/auth0-react';
 import { useNavigate } from 'react-router-dom';
@@ -12,8 +12,19 @@ const Auth0ProviderWithRedirect = ({ children }) => {
 
   const onRedirectCallback = (appState) => {
     console.log('✅ Auth0 callback success!');
-    navigate(appState?.returnTo || '/dashboard', { replace: true });
+    // Clean URL completely
+    window.history.replaceState({}, '', '/dashboard');
+    navigate('/dashboard', { replace: true });
   };
+
+  // Fix callback URL params BEFORE Auth0Provider mounts
+  useEffect(() => {
+    const urlParams = new URLSearchParams(window.location.search);
+    if (urlParams.has('code') || urlParams.has('error')) {
+      console.log('🔄 Cleaning Auth0 callback params');
+      window.history.replaceState({}, '', window.location.pathname);
+    }
+  }, []);
 
   return (
     <Auth0Provider
@@ -21,10 +32,11 @@ const Auth0ProviderWithRedirect = ({ children }) => {
       clientId={clientId}
       authorizationParams={{
         redirect_uri: redirectUri,
-        scope: 'openid profile email'  // ← NO AUDIENCE = WORKS INSTANTLY
+        scope: 'openid profile email'
       }}
       onRedirectCallback={onRedirectCallback}
       cacheLocation="localstorage"
+      useRefreshTokens={true}
     >
       {children}
     </Auth0Provider>
