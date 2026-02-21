@@ -1,9 +1,10 @@
-// server.js
 import express from "express";
 import cors from "cors";
-import { expressjwt as jwt } from "express-jwt"; // modern import
-import jwksRsa from "jwks-rsa";
+import path from "path";
+import { fileURLToPath } from "url";
 import dotenv from "dotenv";
+import jwt from "express-jwt";
+import jwksRsa from "jwks-rsa";
 
 dotenv.config();
 
@@ -20,14 +21,14 @@ const checkJwt = jwt({
     cache: true,
     rateLimit: true,
     jwksRequestsPerMinute: 5,
-    jwksUri: `https://${process.env.VITE_AUTH0_DOMAIN}/.well-known/jwks.json`,
+    jwksUri: `https://${process.env.VITE_AUTH0_DOMAIN}/.well-known/jwks.json`
   }),
-  audience: process.env.VITE_AUTH0_AUDIENCE, // Must match your Auth0 API
+  audience: process.env.VITE_AUTH0_AUDIENCE,
   issuer: `https://${process.env.VITE_AUTH0_DOMAIN}/`,
-  algorithms: ["RS256"],
+  algorithms: ["RS256"]
 });
 
-// ===== Protected Route =====
+// ===== Mock API =====
 app.get("/api/marketplace", checkJwt, (req, res) => {
   res.json({
     success: true,
@@ -35,16 +36,21 @@ app.get("/api/marketplace", checkJwt, (req, res) => {
       { id: 1, name: "Test Product 1" },
       { id: 2, name: "Test Product 2" },
     ],
-    user: req.auth, // JWT payload
+    user: req.auth
   });
 });
 
-// ===== Public Test Route =====
-app.get("/api/public", (req, res) => {
-  res.json({ message: "Public endpoint works!" });
+// ===== Serve React build =====
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
+const distPath = path.join(__dirname, "dist");
+
+app.use(express.static(distPath));
+app.get("*", (req, res) => {
+  res.sendFile(path.join(distPath, "index.html"));
 });
 
-// ===== Start Server =====
-app.listen(PORT, () =>
-  console.log(`Server running on http://localhost:${PORT}`)
-);
+// ===== Start server =====
+app.listen(PORT, () => {
+  console.log(`🚀 Server running on http://localhost:${PORT}`);
+});
