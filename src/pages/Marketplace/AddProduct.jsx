@@ -20,55 +20,56 @@ import { models } from "../../config/models";
 import { sims } from "../../config/sim";
 import { years } from "../../config/years";
 
-// 🟢 PRICE FORMATTER UTILITY
-const formatNumberWithCommas = (value) => {
-  const num = value.toString().replace(/[^0-9]/g, "");
-  return num ? Number(num).toLocaleString() : "";
-};
-
-// 🟢 MOBILE-FRIENDLY SECTION STYLE HELPER
-const getSectionStyle = () => ({
-  border: "2px solid #007BFF",
-  borderRadius: "12px", 
-  padding: window.innerWidth <= 768 ? "24px" : "20px",
-  marginBottom: "20px", 
-  background: "#E6F0FF",
-  minHeight: window.innerWidth <= 768 ? "260px" : "auto"
-});
-
-// 🟢 PRODUCTION STYLES
+// 🟢 MOBILE-FIRST RESPONSIVE STYLES
 const STYLES = {
-  container: { maxWidth: "800px", margin: "0 auto", padding: "20px" },
+  container: {
+    width: "95%",              // Mobile: almost full width
+    maxWidth: "800px",         // Desktop: perfect cap
+    margin: "0 auto",
+    padding: "20px",
+    boxSizing: "border-box"
+  },
+  section: {
+    border: "2px solid #007BFF",
+    borderRadius: "12px",
+    padding: "20px",
+    marginBottom: "20px",
+    background: "#E6F0FF",
+    width: "100%",
+    maxWidth: "800px",
+    boxSizing: "border-box"
+  },
   title: { textAlign: "center", color: "#007BFF", marginBottom: "30px", fontSize: "28px" },
-  input: { 
-    width: "100%", padding: "12px", borderRadius: "8px", 
+  input: {
+    width: "100%", padding: "12px", borderRadius: "8px",
     border: "1px solid #ddd", fontSize: "16px", marginBottom: "12px", boxSizing: "border-box"
   },
-  textarea: { 
-    width: "100%", padding: "12px", borderRadius: "8px", 
+  textarea: {
+    width: "100%", padding: "12px", borderRadius: "8px",
     border: "1px solid #ddd", fontSize: "16px", marginBottom: "12px", boxSizing: "border-box",
-    resize: "vertical", minHeight: "120px"
+    resize: "vertical", minHeight: "100px"
   },
   errorInput: { borderColor: "#dc3545", boxShadow: "0 0 0 0.2rem rgba(220,53,69,.25)" },
   errorText: { color: "#dc3545", fontSize: "14px", display: "block" },
   selectorButton: (hasValue) => ({
-    width: "100%", padding: "12px", 
+    width: "100%", padding: "12px",
     background: hasValue ? "#007BFF" : "#f8f9fa",
     color: hasValue ? "white" : "#333",
     border: hasValue ? "none" : "1px solid #ddd",
     borderRadius: "8px", marginBottom: "12px", cursor: "pointer",
-    fontSize: "16px", textAlign: "left"
+    fontSize: "16px", textAlign: "left", boxSizing: "border-box"
   }),
   primaryButton: {
     width: "100%", padding: "12px", background: "#007BFF",
     color: "white", border: "none", borderRadius: "8px",
-    fontSize: "16px", cursor: "pointer"
+    fontSize: "16px", marginBottom: "15px", cursor: "pointer", boxSizing: "border-box"
   },
   submitButton: (disabled) => ({
-    width: "100%", padding: "16px", 
+    width: "100%", padding: "16px",
     background: disabled ? "#6c757d" : "#28a745",
     color: "white", border: "none", borderRadius: "12px",
-    fontSize: "18px", fontWeight: "bold", cursor: disabled ? "not-allowed" : "pointer"
+    fontSize: "18px", fontWeight: "bold", cursor: disabled ? "not-allowed" : "pointer",
+    boxSizing: "border-box"
   }),
   planCard: (selected, isFree) => ({
     border: selected ? "3px solid #007BFF" : "1px solid #e0e0e0",
@@ -76,7 +77,8 @@ const STYLES = {
     background: selected ? "linear-gradient(135deg, #E6F0FF 0%, #B3D9FF 100%)" : "#fff",
     boxShadow: selected ? "0 8px 25px rgba(0,123,255,0.3)" : "0 2px 8px rgba(0,0,0,0.1)",
     transition: "all 0.3s ease",
-    ...(isFree && { borderColor: "#28a745" })
+    ...(isFree && { borderColor: "#28a745" }),
+    boxSizing: "border-box"
   }),
   freeBadge: {
     display: "inline-block", background: "#28a745", color: "white",
@@ -87,17 +89,19 @@ const STYLES = {
   deliveryRegion: {
     background: "#fff", padding: "15px", borderRadius: "8px",
     marginBottom: "10px", border: "1px solid #ddd",
-    display: "flex", justifyContent: "space-between", alignItems: "center"
+    display: "flex", justifyContent: "space-between", alignItems: "center",
+    boxSizing: "border-box"
   },
   dangerButton: {
     background: "#dc3545", color: "white", border: "none",
-    padding: "6px 12px", borderRadius: "6px", fontSize: "12px", cursor: "pointer"
+    padding: "6px 12px", borderRadius: "6px", fontSize: "12px", cursor: "pointer",
+    boxSizing: "border-box"
   },
   imageUploadArea: (hasImages) => ({
     border: hasImages ? "3px dashed #007BFF" : "2px dashed #ddd",
     borderRadius: "12px", padding: hasImages ? "20px" : "40px",
     background: hasImages ? "#E6F0FF" : "#f8f9fa", cursor: "pointer",
-    transition: "all 0.3s ease", textAlign: "center"
+    transition: "all 0.3s ease", textAlign: "center", boxSizing: "border-box"
   }),
   imageGrid: {
     display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(100px, 1fr))",
@@ -107,7 +111,7 @@ const STYLES = {
     width: "100%", height: "100%", objectFit: "cover",
     borderRadius: "8px", border: "2px solid #007BFF"
   },
-   imageNumberOverlay: {
+  imageNumberOverlay: {
     position: "absolute", bottom: "8px", left: "8px",
     background: "rgba(0, 123, 255, 0.9)", color: "white",
     width: "24px", height: "24px", borderRadius: "50%",
@@ -128,12 +132,14 @@ const STYLES = {
   },
   modalContent: {
     background: "#fff", width: "90%", maxWidth: "500px",
-    maxHeight: "80vh", borderRadius: "12px", padding: "25px", overflowY: "auto"
+    maxHeight: "80vh", borderRadius: "12px", padding: "25px", overflowY: "auto",
+    boxSizing: "border-box"
   },
   cancelButton: {
     width: "100%", padding: "14px", background: "#6c757d",
     color: "white", border: "none", borderRadius: "8px",
-    fontSize: "16px", marginTop: "15px", cursor: "pointer"
+    fontSize: "16px", marginTop: "15px", cursor: "pointer",
+    boxSizing: "border-box"
   }
 };
 
@@ -151,7 +157,7 @@ const initializeForm = (user) => ({
   fuel_type: "", transmission: "", phone_number: user?.phone_number || "",
   additional_phone: "", poster_name: user?.name || "", state: "", city: "",
   location: "", social_link: "", images: [], video_link: "",
-  promoted: false, promo_plan: "", flash_sale: false, 
+  promoted: false, promo_plan: "", flash_sale: false,
   exchange_possible: false, negotiable: false, deliveryRegions: []
 });
 
@@ -190,8 +196,8 @@ export default function AddMarketplaceProduct() {
   });
 
   // 🟢 PRE-COMPUTE
-  const currentPlan = useMemo(() => 
-    promotionPlans.find(p => p.id === form.promo_plan), 
+  const currentPlan = useMemo(() =>
+    promotionPlans.find(p => p.id === form.promo_plan),
     [form.promo_plan]
   );
 
@@ -210,7 +216,7 @@ export default function AddMarketplaceProduct() {
     imageCount: images.files.length,
     discountPercent: currentPlan ? getDiscountPercent(currentPlan.price, currentPlan.discount) : 0
   }), [
-    form.category, form.brand, form.state, form.promo_plan, 
+    form.category, form.brand, form.state, form.promo_plan,
     form.price, images.files.length, currentPlan
   ]);
 
@@ -233,13 +239,13 @@ export default function AddMarketplaceProduct() {
     setUi(prev => ({ ...prev, errors: { ...prev.errors, [field]: "" } }));
   }, []);
 
-  // ✅ PRICE & DISCOUNT FORMATTERS
   const handlePriceInput = useCallback((value) => {
-    handleChange("price", formatNumberWithCommas(value));
-  }, [handleChange]);
-
-  const handleDiscountInput = useCallback((value) => {
-    handleChange("discount_price", formatNumberWithCommas(value));
+    const num = value.replace(/[^0-9]/g, "");
+    if (!num) {
+      handleChange("price", "");
+      return;
+    }
+    handleChange("price", Number(num).toLocaleString());
   }, [handleChange]);
 
   const handleImagesAdd = useCallback((newFiles) => {
@@ -302,7 +308,7 @@ export default function AddMarketplaceProduct() {
       errors.phone_number = "Valid Nigerian phone required";
     if (!form.state) errors.state = "Select state";
     if (!form.city) errors.city = "Select city";
-    if (computed.imageCount === 0) errors.images = "Add 1+ image";
+        if (computed.imageCount === 0) errors.images = "Add 1+ image";
     if (form.promoted && !form.promo_plan) errors.promo_plan = "Select plan";
     
     setUi(prev => ({ ...prev, errors }));
@@ -382,7 +388,7 @@ export default function AddMarketplaceProduct() {
     if (fileInputRef.current) fileInputRef.current.value = "";
   }, [user]);
 
-  // 🟢 REMAINING HANDLERS
+  // 🟢 CLEANUP
   useEffect(() => {
     return () => {
       images.previews.forEach(url => {
@@ -430,13 +436,14 @@ export default function AddMarketplaceProduct() {
   const cancelPreview = () => setUi(prev => ({ ...prev, showPreview: false, isSubmitting: false }));
   const cancelPayment = () => setUi(prev => ({ ...prev, showPayment: false, isSubmitting: false }));
 
+  // 🟢 COMPLETE RENDER
   return (
     <div style={STYLES.container}>
       <h1 style={STYLES.title}>🚀 Post New Marketplace Product</h1>
 
       <form onSubmit={handleSubmit}>
-        {/* 🟢 PRODUCT DETAILS */}
-        <div style={getSectionStyle()}>
+        {/* PRODUCT DETAILS */}
+        <div style={STYLES.section}>
           <h3 style={{ marginTop: 0, color: "#333" }}>📦 Product Details</h3>
           
           <input 
@@ -454,6 +461,7 @@ export default function AddMarketplaceProduct() {
           >
             {form.category || "🎯 Select Category"}
           </button>
+          {ui.errors.category && <small style={STYLES.errorText}>{ui.errors.category}</small>}
 
           {computed.visibleFields.map(field => (
             <div key={field} style={{ marginBottom: "12px" }}>
@@ -507,31 +515,29 @@ export default function AddMarketplaceProduct() {
                   onClick={() => openSelector(field, getFieldOptions(field, computed))}
                   style={STYLES.selectorButton(!!form[field])}
                 >
-                                    {form[field] || `🎯 Select ${field.replace("_", " ").toUpperCase()}`}
+                  {form[field] || `🎯 Select ${field.replace("_", " ").toUpperCase()}`}
                 </button>
               )}
             </div>
           ))}
         </div>
 
-        {/* 🟢 PRICING & BOOST */}
-        <div style={getSectionStyle()}>
+        {/* PRICING & PROMOTIONS */}
+        <div style={STYLES.section}>
           <h3 style={{ marginTop: 0, color: "#333" }}>💰 Pricing & Boost</h3>
           
-          {/* ✅ PRICE WITH COMMAS */}
           <input
-            placeholder="Price (e.g. 50,000)"
+            placeholder="Price (e.g. 50000)"
             value={form.price}
-            onChange={e => handlePriceInput(e.target.value)}  // ✅ Formatter
+            onChange={e => handlePriceInput(e.target.value)}
             style={{ ...STYLES.input, ...(ui.errors.price && STYLES.errorInput) }}
           />
           {ui.errors.price && <small style={STYLES.errorText}>{ui.errors.price}</small>}
 
-          {/* ✅ DISCOUNT PRICE WITH COMMAS */}
-          <input
-            placeholder="Discount Price (optional, e.g. 45,000)"
+                    <input
+            placeholder="Discount Price (optional)"
             value={form.discount_price}
-            onChange={e => handleDiscountInput(e.target.value)}  // ✅ Formatter
+            onChange={e => handleChange("discount_price", e.target.value.replace(/[^0-9]/g, ""))}
             style={STYLES.input}
           />
 
@@ -595,8 +601,8 @@ export default function AddMarketplaceProduct() {
           )}
         </div>
 
-        {/* 🟢 DESCRIPTION & MEDIA */}
-        <div style={getSectionStyle()}>
+        {/* DESCRIPTION & MEDIA */}
+        <div style={STYLES.section}>
           <h3 style={{ marginTop: 0, color: "#333" }}>📝 Description & Media</h3>
           
           <textarea
@@ -607,7 +613,7 @@ export default function AddMarketplaceProduct() {
           />
           {ui.errors.description && <small style={STYLES.errorText}>{ui.errors.description}</small>}
 
-          {/* 🟢 IMAGE UPLOAD */}
+          {/* IMAGE UPLOAD */}
           <div style={{ margin: "20px 0" }}>
             <div 
               style={STYLES.imageUploadArea(images.files.length > 0)}
@@ -689,8 +695,8 @@ export default function AddMarketplaceProduct() {
           />
         </div>
 
-        {/* 🟢 DELIVERY & CONTACT */}
-        <div style={getSectionStyle()}>
+        {/* DELIVERY & CONTACT */}
+        <div style={STYLES.section}>
           <h3 style={{ marginTop: 0, color: "#333" }}>🚚 Delivery & Contact</h3>
           
           <button 
@@ -772,8 +778,8 @@ export default function AddMarketplaceProduct() {
           </div>
         </div>
 
-        {/* 🟢 ADDITIONAL OPTIONS */}
-        <div style={getSectionStyle()}>
+        {/* ADDITIONAL OPTIONS */}
+        <div style={STYLES.section}>
           <h3 style={{ marginTop: 0, color: "#333" }}>⚙️ Additional Options</h3>
           
           <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(200px, 1fr))", gap: "15px" }}>
@@ -814,8 +820,8 @@ export default function AddMarketplaceProduct() {
           />
         </div>
 
-        {/* 🟢 SUBMIT */}
-        <div style={getSectionStyle()}>
+        {/* SUBMIT */}
+        <div style={STYLES.section}>
           <button
             type="submit"
             disabled={ui.loading || ui.isSubmitting || computed.imageCount === 0}
@@ -842,7 +848,7 @@ export default function AddMarketplaceProduct() {
         </div>
       </form>
 
-      {/* 🟢 MODALS */}
+      {/* MODALS */}
       {ui.selectorField && ui.selectorField !== "delivery" && (
         <div style={STYLES.modalOverlay}>
           <div style={STYLES.modalContent}>
@@ -858,7 +864,8 @@ export default function AddMarketplaceProduct() {
                     borderBottom: "1px solid #eee",
                     cursor: "pointer",
                     fontSize: "16px",
-                    transition: "background 0.2s"
+                    transition: "background 0.2s",
+                    background: "white"
                   }}
                   onClick={() => selectOption(option)}
                   onMouseOver={e => e.target.style.background = "#f8f9fa"}
@@ -878,11 +885,12 @@ export default function AddMarketplaceProduct() {
         </div>
       )}
 
-      {/* Delivery Modal */}
+      {/* DELIVERY MODAL */}
       {ui.selectorField === "delivery" && (
         <div style={STYLES.modalOverlay}>
           <div style={{ ...STYLES.modalContent, maxWidth: "450px" }}>
             <h3 style={{ marginTop: 0 }}>Add Delivery Region</h3>
+            
             <select 
               value={deliveryForm.state} 
               onChange={e => setDeliveryForm(prev => ({ ...prev, state: e.target.value }))}
@@ -900,15 +908,18 @@ export default function AddMarketplaceProduct() {
                 onChange={e => setDeliveryForm(prev => ({ ...prev, city: e.target.value }))}
                 style={STYLES.input}
               >
-                <option value="">Select City</option>
+                               <option value="">Select City</option>
                 {locationsByState[deliveryForm.state]?.map(city => (
                   <option key={city} value={city}>{city}</option>
                 ))}
               </select>
             )}
 
-                      <select value={deliveryForm.method} onChange={e => setDeliveryForm(prev => ({ ...prev,
-              method: e.target.value }))} style={STYLES.input}>
+            <select 
+              value={deliveryForm.method} 
+              onChange={e => setDeliveryForm(prev => ({ ...prev, method: e.target.value }))}
+              style={STYLES.input}
+            >
               <option value="Courier">📦 Courier</option>
               <option value="Pickup">🚗 Pickup</option>
               <option value="Express">⚡ Express</option>
@@ -962,7 +973,7 @@ export default function AddMarketplaceProduct() {
         </div>
       )}
 
-      {/* 🟢 PREVIEW MODAL */}
+      {/* PREVIEW MODAL */}
       {ui.showPreview && (
         <div style={STYLES.modalOverlay}>
           <div style={{ ...STYLES.modalContent, maxWidth: "650px" }}>
@@ -977,21 +988,22 @@ export default function AddMarketplaceProduct() {
               <h4 style={{ margin: "0 0 10px 0", color: "#333" }}>{form.title}</h4>
               <div style={{ fontSize: "24px", fontWeight: "bold", color: "#28a745", marginBottom: "10px" }}>
                 ₦{computed.cleanPrice.toLocaleString()}
-                {form.discount_price && (
-                  <span style={{ fontSize: "18px", color: "#dc3545", marginLeft: "10px" }}>
-                    ~~₦{Number(form.discount_price.replace(/,/g, "")).toLocaleString()}~~
-                  </span>
-                )}
               </div>
               <p style={{ margin: "0 0 15px 0", color: "#666" }}>
                 {form.description.substring(0, 150)}...
               </p>
+              {form.category && (
+                <div style={{ color: "#007BFF", fontWeight: "500" }}>
+                  📦 {form.category} • {form.brand || form.model || 'New'}
+                </div>
+              )}
               {computed.currentPlan && (
                 <div style={{ 
                   background: "#E6F0FF", 
                   padding: "10px", 
                   borderRadius: "6px", 
-                  fontSize: "14px" 
+                  fontSize: "14px",
+                  marginTop: "10px"
                 }}>
                   🚀 Boost Plan: <strong>{computed.currentPlan.name}</strong>
                 </div>
@@ -1014,12 +1026,7 @@ export default function AddMarketplaceProduct() {
               ))}
             </div>
 
-            <div style={{ 
-              display: "flex", 
-              gap: "15px", 
-              marginTop: "25px",
-              flexWrap: "wrap"
-            }}>
+            <div style={{ display: "flex", gap: "15px", marginTop: "25px", flexWrap: "wrap" }}>
               <button 
                 onClick={confirmPublish} 
                 disabled={ui.loading} 
@@ -1043,7 +1050,7 @@ export default function AddMarketplaceProduct() {
         </div>
       )}
 
-      {/* 🟢 PAYMENT MODAL */}
+      {/* PAYMENT MODAL */}
       {ui.showPayment && computed.currentPlan && computed.paystackKey && (
         <div style={STYLES.modalOverlay}>
           <div style={STYLES.modalContent}>
@@ -1083,15 +1090,14 @@ export default function AddMarketplaceProduct() {
               style={{
                 width: "100%",
                 padding: "16px",
-                background: "linear-gradient(135deg, #007BFF, #0056b3)",
+                background: "#007BFF",
                 color: "white",
                 border: "none",
                 borderRadius: "8px",
                 fontSize: "18px",
                 fontWeight: "bold",
                 cursor: "pointer",
-                marginBottom: "15px",
-                boxShadow: "0 4px 12px rgba(0,123,255,0.3)"
+                marginBottom: "15px"
               }}
             />
             
