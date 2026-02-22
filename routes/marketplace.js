@@ -1,4 +1,4 @@
-// routes/marketplace.js - FULLY WORKING VERSION WITH MIN/MAX PRICE
+// routes/marketplace.js - ENTERPRISE READY
 import express from 'express';
 import MarketplaceProduct from '../models/MarketplaceProduct.js';
 import { verifyPaystackPayment } from '../utils/paystackHelper.js';
@@ -6,7 +6,23 @@ import { v4 as uuidv4 } from 'uuid';
 
 const router = express.Router();
 
-// Helper to add formatted prices & min/max
+// Placeholder image for frontend
+const DEFAULT_IMAGE = 'https://via.placeholder.com/500x500?text=No+Image';
+
+// --- Helpers ---
+
+// Normalize price & discount
+const normalizePrices = (data) => {
+  if (data.price != null) {
+    data.price = typeof data.price === 'string' ? Number(data.price.replace(/,/g, '')) : Number(data.price);
+  }
+  if (data.discount_price != null) {
+    data.discount_price = typeof data.discount_price === 'string' ? Number(data.discount_price.replace(/,/g, '')) : Number(data.discount_price);
+    if (data.price != null && data.discount_price > data.price) data.discount_price = data.price;
+  }
+};
+
+// Add formatted prices & min/max + default image
 const addFormattedPrices = (product) => {
   const obj = product.toObject ? product.toObject() : product;
   obj.formattedPrice = obj.price != null ? Number(obj.price).toLocaleString() : '0';
@@ -18,8 +34,12 @@ const addFormattedPrices = (product) => {
   obj.formattedMinPrice = obj.minPrice.toLocaleString();
   obj.formattedMaxPrice = obj.maxPrice.toLocaleString();
 
+  if (!Array.isArray(obj.images) || !obj.images.length) obj.images = [DEFAULT_IMAGE];
+
   return obj;
 };
+
+// --- Routes ---
 
 // POST /api/marketplace - Create product
 router.post('/', async (req, res) => {
@@ -29,19 +49,19 @@ router.post('/', async (req, res) => {
     const missing = requiredFields.filter(f => !data[f]);
     if (missing.length) return res.status(400).json({ success: false, message: `Missing: ${missing.join(', ')}` });
 
+    // Normalize phones
+    data.phone_number = data.phone_number.replace(/[^0-9+]/g, '').replace(/^0/, '+234');
+    if (data.additional_phone) data.additional_phone = data.additional_phone.replace(/[^0-9+]/g, '').replace(/^0/, '+234');
+
+    // Normalize prices
+    normalizePrices(data);
+
     // Payment verification for promoted products
     if (data.promoted && data.payment_reference) {
       const payment = await verifyPaystackPayment(data.payment_reference);
       if (payment.status !== 'success') return res.status(402).json({ success: false, message: 'Payment failed' });
       data.promo_status = 'paid';
     }
-
-    // Normalize phone numbers
-    data.phone_number = data.phone_number.replace(/[^0-9+]/g, '').replace(/^0/, '+234');
-    if (data.additional_phone) data.additional_phone = data.additional_phone.replace(/[^0-9+]/g, '').replace(/^0/, '+234');
-
-    // Ensure discount_price does not exceed price
-    if (data.discount_price && data.discount_price > data.price) data.discount_price = data.price;
 
     const product = new MarketplaceProduct({ ...data });
     await product.save();
@@ -53,7 +73,7 @@ router.post('/', async (req, res) => {
   }
 });
 
-// GET /api/marketplace - List products with optional filters & pagination
+// GET /api/marketplace - List products with filters & pagination
 router.get('/', async (req, res) => {
   try {
     const { category, promoted, search, page = 1, limit = 20 } = req.query;
@@ -69,7 +89,6 @@ router.get('/', async (req, res) => {
       .limit(Number(limit));
 
     const total = await MarketplaceProduct.countDocuments(filter);
-
     const formattedProducts = products.map(addFormattedPrices);
 
     res.json({ success: true, count: formattedProducts.length, total, page: Number(page), data: formattedProducts });
@@ -78,7 +97,7 @@ router.get('/', async (req, res) => {
   }
 });
 
-// GET /api/marketplace/:id - Get single product
+// GET /api/marketplace/:id - Single product
 router.get('/:id', async (req, res) => {
   try {
     const product = await MarketplaceProduct.findOne({ _id: req.params.id, deleted: false });
@@ -96,19 +115,25 @@ router.put('/:id', async (req, res) => {
   try {
     const data = req.body;
 
-    // Normalize phone numbers
+    // Normalize phones
     if (data.phone_number) data.phone_number = data.phone_number.replace(/[^0-9+]/g, '').replace(/^0/, '+234');
     if (data.additional_phone) data.additional_phone = data.additional_phone.replace(/[^0-9+]/g, '').replace(/^0/, '+234');
+
+    // Normalize prices
+    normalizePrices(data);
 
     const product = await MarketplaceProduct.findOne({ _id: req.params.id, deleted: false });
     if (!product) return res.status(404).json({ success: false, message: 'Product not found' });
 
     Object.keys(data).forEach(key => { product[key] = data[key]; });
 
-    if (product.discount_price > product.price) product.discount_price = product.price;
+    // Payment verification if promoted changed
+    if (product.promoted && product.payment_reference && product.promo_status !== 'paid') {
+      const payment = await verifyPaystackPayment(product.payment_reference);
+      if (payment.status === 'success') product.promo_status = 'paid';
+    }
 
     await product.save();
-
     const formatted = addFormattedPrices(product);
     res.json({ success: true, message: 'Product updated', data: formatted });
   } catch (err) {
@@ -121,6 +146,7 @@ router.delete('/:id', async (req, res) => {
   try {
     const product = await MarketplaceProduct.findById(req.params.id);
     if (!product || product.deleted) return res.status(404).json({ success: false, message: 'Product not found' });
+
     await product.softDelete();
     res.json({ success: true, message: 'Product deleted' });
   } catch (err) {
