@@ -89,7 +89,9 @@ export const models = Object.freeze({
     "BMW": Object.freeze([
   "1 Series","2 Series","2 Series Gran Coupe","3 Series","3 Series Touring","4 Series","4 Series Gran Coupe","4 Series Coupe","4 Series Convertible","5 Series","5 Series Touring","6 Series","6 Series Gran Turismo","7 Series","8 Series","8 Series Gran Coupe","8 Series Coupe","8 Series Convertible","X1","X2","X3","X3 M","X4","X4 M","X5","X5 M","X6","X6 M","X7","i3","i4","iX","iX3","i7","Z3","Z4","Z8","M2","M2 Competition","M3","M3 Touring","M4","M4 Competition","M5","M5 Competition","M6","M8","iX1","iX5","iX6","iVision Circular","Concept XM","Concept iX M","Hydrogen NEXT","X1 xDrive","X2 xDrive","X3 xDrive","X4 xDrive","X5 xDrive","X6 xDrive","X7 xDrive","M2 CS","M4 CSL"
 ]),
-    "Mercedes": Object.freeze(["C-Class","E-Class","GLA","GLE","S-Class","GLC","GLB","GLS","A-Class","G-Class","EQS","EQE","AMG GT","CLA","GLB","Maybach"]),
+    "Mercedes": Object.freeze([
+  "A-Class","A-Class Sedan","B-Class","C-Class","C-Class Sedan","C-Class Coupe","C-Class Cabriolet","CLA","CLA Sedan","CLA Shooting Brake","CLS","CLS Sedan","CLS Shooting Brake","E-Class","E-Class Sedan","E-Class Coupe","E-Class Cabriolet","E-Class All-Terrain","S-Class","S-Class Sedan","S-Class Coupe","S-Class Cabriolet","G-Class","G-Class SUV","GLA","GLB","GLC","GLC Coupe","GLE","GLE Coupe","GLS","GLS Maybach","GLS SUV","EQC","EQS","EQE","EQB","EQA","AMG GT","AMG GT 4-Door","AMG One","AMG A 35","AMG A 45","AMG C 43","AMG C 63","AMG E 53","AMG E 63","AMG G 63","AMG GLC 43","AMG GLE 53","AMG GLS 63","Maybach S-Class","Maybach GLS","SL","SL Roadster","SLC","SLC Roadster","G 350","G 500","G 550","G 63 AMG"
+]),
     "Ford": Object.freeze(["Focus","Escape","Mustang","F-150","Explorer","Edge","Bronco","Ranger","Expedition","Fusion","Maverick","Lightning","Mach-E"]),
     "Volkswagen": Object.freeze(["Golf","Passat","Tiguan","Atlas","Jetta","Taos","Teramont","Arteon","ID.4","ID.7","ID.Buzz"]),
     "Hyundai": Object.freeze(["Tucson","Santa Fe","Elantra","Sonata","Palisade","Kona","Ioniq 5","Ioniq 6","Venue","Nexo","Bayon"]),
