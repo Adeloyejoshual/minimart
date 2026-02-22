@@ -213,7 +213,16 @@ export const models = Object.freeze({
   "R8","R8 V10","R8 V10 Performance","R8 Spyder",
   "V8", "V6 TDI", "Allroad Quattro", "Quattro Edition", "Prologue Concept"
 ]),
-    "Porsche": Object.freeze(["911","Cayenne","Macan","Panamera","Taycan","Boxster","Cayman","718","718 Spyder"]),
+    "Porsche": Object.freeze([
+  "911 Carrera","911 Carrera S","911 Carrera 4","911 Carrera 4S","911 Targa 4","911 Targa 4S","911 Targa","911 Turbo","911 Turbo S","911 GT3","911 GT3 RS","911 GT2 RS","911 Speedster","911 Carrera GTS",
+  "Cayenne","Cayenne S","Cayenne GTS","Cayenne Turbo","Cayenne Turbo S E-Hybrid","Cayenne Coupe","Cayenne E-Hybrid","Cayenne S E-Hybrid","Cayenne Turbo Coupe","Cayenne Turbo S E-Hybrid Coupe",
+  "Macan","Macan S","Macan GTS","Macan Turbo","Macan EV",
+  "Panamera","Panamera 4","Panamera 4S","Panamera GTS","Panamera Turbo","Panamera Turbo S E-Hybrid","Panamera Sport Turismo","Panamera 4 E-Hybrid","Panamera GTS Sport Turismo","Panamera Turbo S E-Hybrid Sport Turismo",
+  "Taycan","Taycan 4S","Taycan Turbo","Taycan Turbo S","Taycan 4 Cross Turismo","Taycan Turbo Cross Turismo","Taycan Turbo S Cross Turismo",
+  "Boxster","Boxster 718","Boxster 718 Spyder","Boxster T","Boxster GTS",
+  "Cayman","Cayman 718","Cayman GT4","Cayman T","Cayman GTS",
+  "718","718 Spyder","718 Cayman GT4","718 Cayman T","718 Boxster T","718 Boxster GTS"
+]),
     "Jeep": Object.freeze(["Wrangler","Grand Cherokee","Compass","Renegade","Gladiator","Cherokee","Grand Wagoneer"]),
     "Land Rover": Object.freeze(["Range Rover","Defender","Discovery","Velar","Evoque","Discovery Sport","Range Rover Sport"]),
     "Genesis": Object.freeze(["G70","G80","G90","GV60","GV70","GV80","GV90"]),
