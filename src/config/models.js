@@ -149,7 +149,16 @@ export const models = Object.freeze({
   "Semi","Semi 300-mile","Semi 500-mile","Semi 500-mile Plus","Semi Limited Edition","Semi Long Haul",
   "Tesla Plaid","Tesla Performance Series","Tesla Special Edition","Tesla Founder Series","Tesla Raven Series"
 ]),
-    "Subaru": Object.freeze(["Forester","Outback","Impreza","Crosstrek","Ascent","WRX","BRZ","Solterra"]),
+    "Subaru": Object.freeze([
+  "Forester","Forester 2.5i","Forester 2.5i Premium","Forester 2.5i Limited","Forester 2.5i Touring","Forester XT","Forester Wilderness",
+  "Outback","Outback Base","Outback Premium","Outback Limited","Outback Onyx Edition","Outback Touring","Outback XT","Outback Wilderness",
+  "Impreza","Impreza 2.0i","Impreza 2.0i Premium","Impreza Sport","Impreza Sport Premium","Impreza Limited","Impreza WRX","Impreza WRX STI",
+  "Crosstrek","Crosstrek Base","Crosstrek Premium","Crosstrek Limited","Crosstrek Hybrid","Crosstrek Sport",
+  "Ascent","Ascent Premium","Ascent Limited","Ascent Touring",
+  "WRX","WRX Premium","WRX Limited","WRX STI","WRX STI Type RA","WRX 2022 Edition",
+  "BRZ","BRZ Premium","BRZ Limited","BRZ tS","BRZ 2022 Edition","BRZ GT","BRZ Special Edition",
+  "Solterra","Solterra Base","Solterra Limited","Solterra Touring","Solterra e-4WD"
+]),
     "Mazda": Object.freeze(["CX-5","CX-9","Mazda3","Mazda6","CX-30","CX-50","MX-5 Miata","CX-90","CX-70"]),
     "Lexus": Object.freeze(["RX","NX","ES","IS","GX","LX","UX","LS","RC","LC","RZ","TX"]),
         "Audi": Object.freeze(["A3","A4","A6","Q5","Q7","Q8","e-tron","RS6","TT","A8","Q4 e-tron","A1","A5","A7","R8"]),
