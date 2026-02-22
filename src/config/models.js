@@ -86,7 +86,6 @@ export const models = Object.freeze({
     "Torneo", "Partner", "Vamos Classic", "Acty Van", "Lifepop",
     "Aspire", "Artega", "Ballade Sport", "Capa", "Edix", "Domani Wagon", "Logos", "Lagreat Van"
   ])
-};
     "BMW": Object.freeze(["X5","X3","3 Series","5 Series","X7","X1","8 Series","i4","iX","M4","M5","Z4","X6","2 Series","7 Series","i5","iX3","i7"]),
     "Mercedes": Object.freeze(["C-Class","E-Class","GLA","GLE","S-Class","GLC","GLB","GLS","A-Class","G-Class","EQS","EQE","AMG GT","CLA","GLB","Maybach"]),
     "Ford": Object.freeze(["Focus","Escape","Mustang","F-150","Explorer","Edge","Bronco","Ranger","Expedition","Fusion","Maverick","Lightning","Mach-E"]),
