@@ -13,25 +13,30 @@ function App() {
 
   return (
     <Router>
-      <div style={{ padding: "2rem", fontFamily: "sans-serif" }}>
-        <h1>MiniMart Marketplace</h1>
-
-        {!isAuthenticated ? (
+      <div>
+        {isAuthenticated ? (
+          <button onClick={() => logout({ returnTo: window.location.origin })}>
+            Log out
+          </button>
+        ) : (
           <button onClick={() => loginWithRedirect()}>
             Log in
           </button>
-        ) : (
-          <>
-            <button onClick={() => logout({ returnTo: window.location.origin })}>
-              Log out
-            </button>
-
-            <Routes>
-              <Route path="/" element={<HomePage user={user} />} />
-              <Route path="/add-product" element={<AddProduct />} />
-            </Routes>
-          </>
         )}
+
+        <Routes>
+          <Route path="/" element={<HomePage user={user} />} />
+          <Route
+            path="/add-product"
+            element={
+              isAuthenticated ? (
+                <AddProduct />
+              ) : (
+                <p>You must log in to add a product.</p>
+              )
+            }
+          />
+        </Routes>
       </div>
     </Router>
   );
