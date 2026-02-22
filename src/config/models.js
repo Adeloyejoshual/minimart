@@ -92,7 +92,14 @@ export const models = Object.freeze({
     "Mercedes": Object.freeze([
   "A-Class","A-Class Sedan","B-Class","C-Class","C-Class Sedan","C-Class Coupe","C-Class Cabriolet","CLA","CLA Sedan","CLA Shooting Brake","CLS","CLS Sedan","CLS Shooting Brake","E-Class","E-Class Sedan","E-Class Coupe","E-Class Cabriolet","E-Class All-Terrain","S-Class","S-Class Sedan","S-Class Coupe","S-Class Cabriolet","G-Class","G-Class SUV","GLA","GLB","GLC","GLC Coupe","GLE","GLE Coupe","GLS","GLS Maybach","GLS SUV","EQC","EQS","EQE","EQB","EQA","AMG GT","AMG GT 4-Door","AMG One","AMG A 35","AMG A 45","AMG C 43","AMG C 63","AMG E 53","AMG E 63","AMG G 63","AMG GLC 43","AMG GLE 53","AMG GLS 63","Maybach S-Class","Maybach GLS","SL","SL Roadster","SLC","SLC Roadster","G 350","G 500","G 550","G 63 AMG"
 ]),
-    "Ford": Object.freeze(["Focus","Escape","Mustang","F-150","Explorer","Edge","Bronco","Ranger","Expedition","Fusion","Maverick","Lightning","Mach-E"]),
+    "Ford": Object.freeze([
+  "Fiesta","Fiesta ST","Focus","Focus ST","Focus RS","Fusion","Fusion Hybrid","Fusion Energi",
+  "Mustang","Mustang Mach 1","Mustang Shelby GT350","Mustang Shelby GT500","Taurus","Taurus SHO",
+  "EcoSport","Escape","Escape Hybrid","Kuga","Bronco","Bronco Sport","Explorer","Explorer ST",
+  "Expedition","Expedition MAX","Edge","Edge ST","Ranger","Ranger Raptor","F-150","F-150 Raptor",
+  "F-150 Lightning","Super Duty F-250","Super Duty F-350","Maverick","Transit","Transit Connect",
+  "Tourneo Connect","Transit Custom","E-Transit","GT","GT500","Shelby GT350R","Lightning EV"
+]),
     "Volkswagen": Object.freeze(["Golf","Passat","Tiguan","Atlas","Jetta","Taos","Teramont","Arteon","ID.4","ID.7","ID.Buzz"]),
     "Hyundai": Object.freeze(["Tucson","Santa Fe","Elantra","Sonata","Palisade","Kona","Ioniq 5","Ioniq 6","Venue","Nexo","Bayon"]),
     "Kia": Object.freeze(["Sportage","Sorento","Rio","Stinger","Telluride","Seltos","K5","Carnival","Soul","Forte","EV6","EV9","Niro"]),
