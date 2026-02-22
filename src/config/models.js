@@ -111,7 +111,14 @@ export const models = Object.freeze({
   "Forte5","EV6","EV6 GT","EV9","Niro","Niro EV","Niro PHEV","Mohave","Cerato","Cerato GT","Cerato Koup","Picanto","Picanto X-Line",
   "Stonic","ProCeed","XCeed","Ceed","Ceed GT","Ceed SW","Ceed X-Line","Carens","Venga"
 ]),
-    "Nissan": Object.freeze(["Altima","Sentra","Rogue","X-Trail","Pathfinder","Murano","Armada","Frontier","Titan","370Z","Z","Patrol","Ariya"]),
+    "Nissan": Object.freeze([
+  "Altima","Altima SR","Altima Platinum","Sentra","Sentra SR","Sentra SV","Rogue","Rogue Sport","Rogue SL",
+  "X-Trail","Pathfinder","Pathfinder Platinum","Murano","Murano SL","Murano Platinum","Armada","Armada Platinum",
+  "Frontier","Frontier PRO-4X","Titan","Titan XD","Titan Platinum Reserve","370Z","Z","GT-R","Patrol","Patrol SE",
+  "Ariya","Ariya e-4ORCE","Leaf","NV200","NV3500","Maxima","Juke","Kicks","Qashqai","Note","Cube","NV250",
+  "NV400","NP300","NP300 Hardbody","Navara","Terrano","GT-R Nismo","370Z Nismo","Pathfinder Rock Creek","Rogue SL Midnight Edition",
+  "Rogue Sport SL","Armada Night Edition","Murano Midnight Edition","Frontier SV","Titan Pro-4X","X-Trail SL"
+]),
     "Chevrolet": Object.freeze(["Silverado","Tahoe","Equinox","Traverse","Camaro","Corvette","Colorado","Blazer","Trax"]),
     "Tesla": Object.freeze(["Model 3","Model Y","Model S","Model X","Cybertruck","Semi","Roadster"]),
     "Subaru": Object.freeze(["Forester","Outback","Impreza","Crosstrek","Ascent","WRX","BRZ","Solterra"]),
