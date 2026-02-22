@@ -1,5 +1,4 @@
-// src/config/categoryFields.js
-
+// src/config/categoryFields.js - NO EXCHANGE FIELDS
 export const categoryFields = {
   "Phones & Tablets": [
     "brand",
@@ -10,8 +9,7 @@ export const categoryFields = {
     "storage",
     "color",
     "sim",
-    "features",
-    "exchange_possible"
+    "features"
   ],
 
   "Vehicles": [
@@ -25,16 +23,14 @@ export const categoryFields = {
     "fuel_type",
     "transmission",
     "color",
-    "features",
-    "exchange_possible"
+    "features"
   ],
 
   "Babies & Kids": [
     "age_range",
     "condition",
     "used_detail",
-    "features",
-    "exchange_possible"
+    "features"
   ],
 
   "Property": [
@@ -42,8 +38,7 @@ export const categoryFields = {
     "bathrooms",
     "size",
     "furnished",
-    "features",
-    "exchange_possible"
+    "features"
   ],
 
   "Electronics": [
@@ -51,38 +46,33 @@ export const categoryFields = {
     "model",
     "condition",
     "used_detail",
-    "features",
-    "exchange_possible"
+    "features"
   ],
 
   "Beauty & Personal Care": [
     "brand",
-    "features",
-    "exchange_possible"
+    "features"
   ],
 
   "Home, Furniture & Appliances": [
     "brand",
     "features",
     "condition",
-    "used_detail",
-    "exchange_possible"
+    "used_detail"
   ],
 
   "Commercial Equipment & Tools": [
     "brand",
     "features",
     "condition",
-    "used_detail",
-    "exchange_possible"
+    "used_detail"
   ],
 
   "Fashion": [
     "brand",
     "features",
     "size",
-    "color",
-    "exchange_possible"
+    "color"
   ],
 
   "Food, Agriculture & Farming": [
@@ -161,8 +151,7 @@ export const categoryFields = {
     "used_detail",
     "ram",
     "storage",
-    "features",
-    "exchange_possible"
+    "features"
   ],
 
   "Gaming": [
