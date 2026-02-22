@@ -1,4 +1,4 @@
-// routes/marketplace.js - COMPLETE WORKING VERSION
+// routes/marketplace.js - FULLY WORKING VERSION WITH MIN/MAX PRICE
 import express from 'express';
 import MarketplaceProduct from '../models/MarketplaceProduct.js';
 import { verifyPaystackPayment } from '../utils/paystackHelper.js';
@@ -6,85 +6,125 @@ import { v4 as uuidv4 } from 'uuid';
 
 const router = express.Router();
 
+// Helper to add formatted prices & min/max
+const addFormattedPrices = (product) => {
+  const obj = product.toObject ? product.toObject() : product;
+  obj.formattedPrice = obj.price != null ? Number(obj.price).toLocaleString() : '0';
+  obj.formattedDiscountPrice = obj.discount_price != null ? Number(obj.discount_price).toLocaleString() : '0';
+
+  const prices = [obj.price, obj.discount_price].filter(v => v != null && v > 0);
+  obj.minPrice = prices.length ? Math.min(...prices) : 0;
+  obj.maxPrice = prices.length ? Math.max(...prices) : 0;
+  obj.formattedMinPrice = obj.minPrice.toLocaleString();
+  obj.formattedMaxPrice = obj.maxPrice.toLocaleString();
+
+  return obj;
+};
+
 // POST /api/marketplace - Create product
 router.post('/', async (req, res) => {
   try {
-    const productData = req.body;
-    
-    // Input validation
-    const requiredFields = ['title', 'price', 'category', 'description'];
-    const missingFields = requiredFields.filter(field => !productData[field]);
-    if (missingFields.length > 0) {
-      return res.status(400).json({
-        success: false,
-        message: `Missing: ${missingFields.join(', ')}`
-      });
+    const data = req.body;
+    const requiredFields = ['title', 'price', 'category', 'description', 'phone_number', 'poster_name', 'createdBy'];
+    const missing = requiredFields.filter(f => !data[f]);
+    if (missing.length) return res.status(400).json({ success: false, message: `Missing: ${missing.join(', ')}` });
+
+    // Payment verification for promoted products
+    if (data.promoted && data.payment_reference) {
+      const payment = await verifyPaystackPayment(data.payment_reference);
+      if (payment.status !== 'success') return res.status(402).json({ success: false, message: 'Payment failed' });
+      data.promo_status = 'paid';
     }
 
-    // Payment verification
-    if (productData.promoted && productData.payment_reference) {
-      const verification = await verifyPaystackPayment(productData.payment_reference);
-      if (verification.status !== 'success') {
-        return res.status(402).json({
-          success: false,
-          message: 'Payment failed'
-        });
-      }
-      productData.promo_status = 'paid';
-    }
+    // Normalize phone numbers
+    data.phone_number = data.phone_number.replace(/[^0-9+]/g, '').replace(/^0/, '+234');
+    if (data.additional_phone) data.additional_phone = data.additional_phone.replace(/[^0-9+]/g, '').replace(/^0/, '+234');
 
-    // Generate poster_id
-    if (!productData.poster_id) {
-      productData.poster_id = `seller_${uuidv4().slice(0, 8)}`;
-    }
+    // Ensure discount_price does not exceed price
+    if (data.discount_price && data.discount_price > data.price) data.discount_price = data.price;
 
-    // Phone sanitization (Nigeria)
-    if (productData.phone_number) {
-      productData.phone_number = productData.phone_number
-        .replace(/[^0-9+]/g, '')
-        .replace(/^0/, '+234');
-    }
-
-    // Save to MongoDB
-    const product = new MarketplaceProduct({ 
-      ...productData, 
-      createdAt: new Date() 
-    });
+    const product = new MarketplaceProduct({ ...data });
     await product.save();
 
-    res.status(201).json({
-      success: true,
-      message: 'Product created!',
-      data: {
-        id: product._id,
-        title: product.title,
-        price: product.price
-      }
-    });
-
-  } catch (error) {
-    console.error('Marketplace error:', error);
-    res.status(500).json({
-      success: false,
-      message: 'Server error'
-    });
+    const formatted = addFormattedPrices(product);
+    res.status(201).json({ success: true, message: 'Product created', data: formatted });
+  } catch (err) {
+    res.status(500).json({ success: false, message: 'Server error', error: err.message });
   }
 });
 
-// GET /api/marketplace - List products
+// GET /api/marketplace - List products with optional filters & pagination
 router.get('/', async (req, res) => {
   try {
-    const products = await MarketplaceProduct.find({ status: 'active' })
-      .limit(20)
-      .sort({ createdAt: -1 });
-    
-    res.json({
-      success: true,
-      count: products.length,
-      data: products
-    });
-  } catch (error) {
-    res.status(500).json({ success: false, message: 'Failed to fetch' });
+    const { category, promoted, search, page = 1, limit = 20 } = req.query;
+    const filter = { deleted: false, status: 'active' };
+    if (category) filter.category = category;
+    if (promoted) filter.promoted = promoted === 'true';
+    if (search) filter.$text = { $search: search };
+
+    const skip = (page - 1) * limit;
+    const products = await MarketplaceProduct.find(filter)
+      .sort({ createdAt: -1 })
+      .skip(skip)
+      .limit(Number(limit));
+
+    const total = await MarketplaceProduct.countDocuments(filter);
+
+    const formattedProducts = products.map(addFormattedPrices);
+
+    res.json({ success: true, count: formattedProducts.length, total, page: Number(page), data: formattedProducts });
+  } catch (err) {
+    res.status(500).json({ success: false, message: 'Failed to fetch', error: err.message });
+  }
+});
+
+// GET /api/marketplace/:id - Get single product
+router.get('/:id', async (req, res) => {
+  try {
+    const product = await MarketplaceProduct.findOne({ _id: req.params.id, deleted: false });
+    if (!product) return res.status(404).json({ success: false, message: 'Product not found' });
+
+    const formatted = addFormattedPrices(product);
+    res.json({ success: true, data: formatted });
+  } catch (err) {
+    res.status(500).json({ success: false, message: 'Server error', error: err.message });
+  }
+});
+
+// PUT /api/marketplace/:id - Update product
+router.put('/:id', async (req, res) => {
+  try {
+    const data = req.body;
+
+    // Normalize phone numbers
+    if (data.phone_number) data.phone_number = data.phone_number.replace(/[^0-9+]/g, '').replace(/^0/, '+234');
+    if (data.additional_phone) data.additional_phone = data.additional_phone.replace(/[^0-9+]/g, '').replace(/^0/, '+234');
+
+    const product = await MarketplaceProduct.findOne({ _id: req.params.id, deleted: false });
+    if (!product) return res.status(404).json({ success: false, message: 'Product not found' });
+
+    Object.keys(data).forEach(key => { product[key] = data[key]; });
+
+    if (product.discount_price > product.price) product.discount_price = product.price;
+
+    await product.save();
+
+    const formatted = addFormattedPrices(product);
+    res.json({ success: true, message: 'Product updated', data: formatted });
+  } catch (err) {
+    res.status(500).json({ success: false, message: 'Server error', error: err.message });
+  }
+});
+
+// DELETE /api/marketplace/:id - Soft delete
+router.delete('/:id', async (req, res) => {
+  try {
+    const product = await MarketplaceProduct.findById(req.params.id);
+    if (!product || product.deleted) return res.status(404).json({ success: false, message: 'Product not found' });
+    await product.softDelete();
+    res.json({ success: true, message: 'Product deleted' });
+  } catch (err) {
+    res.status(500).json({ success: false, message: 'Server error', error: err.message });
   }
 });
 
