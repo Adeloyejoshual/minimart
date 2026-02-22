@@ -159,7 +159,20 @@ export const models = Object.freeze({
   "BRZ","BRZ Premium","BRZ Limited","BRZ tS","BRZ 2022 Edition","BRZ GT","BRZ Special Edition",
   "Solterra","Solterra Base","Solterra Limited","Solterra Touring","Solterra e-4WD"
 ]),
-    "Mazda": Object.freeze(["CX-5","CX-9","Mazda3","Mazda6","CX-30","CX-50","MX-5 Miata","CX-90","CX-70"]),
+    "Mazda": Object.freeze([
+  "CX-5","CX-5 Sport","CX-5 Touring","CX-5 Carbon Edition","CX-5 Grand Touring","CX-5 Grand Touring Reserve","CX-5 Signature",
+  "CX-9","CX-9 Sport","CX-9 Touring","CX-9 Carbon Edition","CX-9 Grand Touring","CX-9 Signature",
+  "Mazda3","Mazda3 Hatchback","Mazda3 Sedan","Mazda3 Sport","Mazda3 Select","Mazda3 Preferred","Mazda3 Premium","Mazda3 Turbo","Mazda3 Turbo Premium Plus",
+  "Mazda6","Mazda6 Sport","Mazda6 Touring","Mazda6 Grand Touring","Mazda6 Signature",
+  "CX-30","CX-30 Base","CX-30 Select","CX-30 Preferred","CX-30 Premium","CX-30 2.5 Turbo","CX-30 2.5 Turbo Premium Plus","CX-30 Carbon Edition",
+  "CX-50","CX-50 2.5","CX-50 2.5 Turbo","CX-50 Premium","CX-50 Premium Plus","CX-50 2.5 Turbo Premium Plus","CX-50 2.5 Turbo Signature","CX-50 Hybrid",
+  "MX-5 Miata","MX-5 Miata Sport","MX-5 Miata Club","MX-5 Miata Grand Touring","MX-5 Miata RF","MX-5 Miata 100th Anniversary Edition",
+  "CX-90","CX-90 Premium","CX-90 Premium Plus","CX-90 Turbo","CX-90 Turbo Premium Plus","CX-90 Turbo Signature","CX-90 Hybrid",
+  "CX-70","CX-70 Base","CX-70 Premium","CX-70 Turbo","CX-70 Turbo Premium","CX-70 Turbo Signature","CX-70 Hybrid",
+  "Mazda2","Mazda2 Hatchback","Mazda2 Sedan",
+  "Mazda CX-3","CX-3 Sport","CX-3 Touring","CX-3 Grand Touring",
+  "Mazda MX-30","MX-30 EV","MX-30 Base","MX-30 Premium"
+]),
     "Lexus": Object.freeze(["RX","NX","ES","IS","GX","LX","UX","LS","RC","LC","RZ","TX"]),
         "Audi": Object.freeze(["A3","A4","A6","Q5","Q7","Q8","e-tron","RS6","TT","A8","Q4 e-tron","A1","A5","A7","R8"]),
     "Porsche": Object.freeze(["911","Cayenne","Macan","Panamera","Taycan","Boxster","Cayman","718","718 Spyder"]),
