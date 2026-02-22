@@ -223,7 +223,15 @@ export const models = Object.freeze({
   "Cayman","Cayman 718","Cayman GT4","Cayman T","Cayman GTS",
   "718","718 Spyder","718 Cayman GT4","718 Cayman T","718 Boxster T","718 Boxster GTS"
 ]),
-    "Jeep": Object.freeze(["Wrangler","Grand Cherokee","Compass","Renegade","Gladiator","Cherokee","Grand Wagoneer"]),
+    "Jeep": Object.freeze([
+  "Wrangler","Wrangler Unlimited","Wrangler Rubicon","Wrangler Sahara","Wrangler 4xe","Wrangler Willys","Wrangler Sport","Wrangler Islander","Wrangler High Altitude","Wrangler Freedom Edition",
+  "Grand Cherokee","Grand Cherokee L","Grand Cherokee 4xe","Grand Cherokee Trailhawk","Grand Cherokee Limited","Grand Cherokee Summit","Grand Cherokee Overland","Grand Cherokee High Altitude",
+  "Compass","Compass Trailhawk","Compass Limited","Compass Altitude","Compass High Altitude","Compass 80th Anniversary",
+  "Renegade","Renegade Trailhawk","Renegade Limited","Renegade Altitude","Renegade 80th Anniversary",
+  "Gladiator","Gladiator Rubicon","Gladiator Sport","Gladiator Overland","Gladiator Mojave","Gladiator High Altitude",
+  "Cherokee","Cherokee Trailhawk","Cherokee Limited","Cherokee Latitude","Cherokee Latitude Plus","Cherokee Overland","Cherokee High Altitude",
+  "Grand Wagoneer","Grand Wagoneer Series I","Grand Wagoneer Series II","Grand Wagoneer Series III","Grand Wagoneer Obsidian","Grand Wagoneer Series III Obsidian"
+]),
     "Land Rover": Object.freeze(["Range Rover","Defender","Discovery","Velar","Evoque","Discovery Sport","Range Rover Sport"]),
     "Genesis": Object.freeze(["G70","G80","G90","GV60","GV70","GV80","GV90"]),
     "Volvo": Object.freeze(["XC90","XC60","S60","V60","EX90","C40 Recharge","XC40","S90"]),
