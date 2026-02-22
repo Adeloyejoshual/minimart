@@ -23,123 +23,89 @@ import { years } from "../../config/years";
 // 🟢 MOBILE-FIRST RESPONSIVE STYLES
 const STYLES = {
   container: {
-    width: "95%",              // Mobile: almost full width
-    maxWidth: "800px",         // Desktop: perfect cap
-    margin: "0 auto",
-    padding: "20px",
-    boxSizing: "border-box"
+    width: "95%", maxWidth: "800px", margin: "0 auto", padding: "20px", boxSizing: "border-box"
   },
   section: {
-    border: "2px solid #007BFF",
-    borderRadius: "12px",
-    padding: "20px",
-    marginBottom: "20px",
-    background: "#E6F0FF",
-    width: "100%",
-    maxWidth: "800px",
-    boxSizing: "border-box"
+    border: "2px solid #007BFF", borderRadius: "12px", padding: "20px", marginBottom: "20px",
+    background: "#E6F0FF", width: "100%", maxWidth: "800px", boxSizing: "border-box"
   },
   title: { textAlign: "center", color: "#007BFF", marginBottom: "30px", fontSize: "28px" },
   input: {
-    width: "100%", padding: "12px", borderRadius: "8px",
-    border: "1px solid #ddd", fontSize: "16px", marginBottom: "12px", boxSizing: "border-box"
+    width: "100%", padding: "12px", borderRadius: "8px", border: "1px solid #ddd",
+    fontSize: "16px", marginBottom: "12px", boxSizing: "border-box"
   },
   textarea: {
-    width: "100%", padding: "12px", borderRadius: "8px",
-    border: "1px solid #ddd", fontSize: "16px", marginBottom: "12px", boxSizing: "border-box",
-    resize: "vertical", minHeight: "100px"
+    width: "100%", padding: "12px", borderRadius: "8px", border: "1px solid #ddd",
+    fontSize: "16px", marginBottom: "12px", boxSizing: "border-box", resize: "vertical", minHeight: "100px"
   },
   errorInput: { borderColor: "#dc3545", boxShadow: "0 0 0 0.2rem rgba(220,53,69,.25)" },
   errorText: { color: "#dc3545", fontSize: "14px", display: "block" },
   selectorButton: (hasValue) => ({
-    width: "100%", padding: "12px",
-    background: hasValue ? "#007BFF" : "#f8f9fa",
-    color: hasValue ? "white" : "#333",
-    border: hasValue ? "none" : "1px solid #ddd",
-    borderRadius: "8px", marginBottom: "12px", cursor: "pointer",
-    fontSize: "16px", textAlign: "left", boxSizing: "border-box"
+    width: "100%", padding: "12px", background: hasValue ? "#007BFF" : "#f8f9fa",
+    color: hasValue ? "white" : "#333", border: hasValue ? "none" : "1px solid #ddd",
+    borderRadius: "8px", marginBottom: "12px", cursor: "pointer", fontSize: "16px",
+    textAlign: "left", boxSizing: "border-box"
   }),
   primaryButton: {
-    width: "100%", padding: "12px", background: "#007BFF",
-    color: "white", border: "none", borderRadius: "8px",
-    fontSize: "16px", marginBottom: "15px", cursor: "pointer", boxSizing: "border-box"
+    width: "100%", padding: "12px", background: "#007BFF", color: "white", border: "none",
+    borderRadius: "8px", fontSize: "16px", marginBottom: "15px", cursor: "pointer", boxSizing: "border-box"
   },
   submitButton: (disabled) => ({
-    width: "100%", padding: "16px",
-    background: disabled ? "#6c757d" : "#28a745",
-    color: "white", border: "none", borderRadius: "12px",
-    fontSize: "18px", fontWeight: "bold", cursor: disabled ? "not-allowed" : "pointer",
-    boxSizing: "border-box"
+    width: "100%", padding: "16px", background: disabled ? "#6c757d" : "#28a745",
+    color: "white", border: "none", borderRadius: "12px", fontSize: "18px", fontWeight: "bold",
+    cursor: disabled ? "not-allowed" : "pointer", boxSizing: "border-box"
   }),
   planCard: (selected, isFree) => ({
-    border: selected ? "3px solid #007BFF" : "1px solid #e0e0e0",
-    borderRadius: "12px", padding: "16px", cursor: "pointer",
-    background: selected ? "linear-gradient(135deg, #E6F0FF 0%, #B3D9FF 100%)" : "#fff",
+    border: selected ? "3px solid #007BFF" : "1px solid #e0e0e0", borderRadius: "12px",
+    padding: "16px", cursor: "pointer", background: selected ? "linear-gradient(135deg, #E6F0FF 0%, #B3D9FF 100%)" : "#fff",
     boxShadow: selected ? "0 8px 25px rgba(0,123,255,0.3)" : "0 2px 8px rgba(0,0,0,0.1)",
-    transition: "all 0.3s ease",
-    ...(isFree && { borderColor: "#28a745" }),
-    boxSizing: "border-box"
+    transition: "all 0.3s ease", ...(isFree && { borderColor: "#28a745" }), boxSizing: "border-box"
   }),
   freeBadge: {
-    display: "inline-block", background: "#28a745", color: "white",
-    padding: "4px 12px", borderRadius: "20px", fontSize: "12px",
-    fontWeight: "600", marginTop: "8px"
+    display: "inline-block", background: "#28a745", color: "white", padding: "4px 12px",
+    borderRadius: "20px", fontSize: "12px", fontWeight: "600", marginTop: "8px"
   },
   checkboxLabel: { display: "block", marginBottom: "8px", cursor: "pointer", fontSize: "14px" },
   deliveryRegion: {
-    background: "#fff", padding: "15px", borderRadius: "8px",
-    marginBottom: "10px", border: "1px solid #ddd",
-    display: "flex", justifyContent: "space-between", alignItems: "center",
+    background: "#fff", padding: "15px", borderRadius: "8px", marginBottom: "10px",
+    border: "1px solid #ddd", display: "flex", justifyContent: "space-between", alignItems: "center",
     boxSizing: "border-box"
   },
   dangerButton: {
-    background: "#dc3545", color: "white", border: "none",
-    padding: "6px 12px", borderRadius: "6px", fontSize: "12px", cursor: "pointer",
-    boxSizing: "border-box"
+    background: "#dc3545", color: "white", border: "none", padding: "6px 12px",
+    borderRadius: "6px", fontSize: "12px", cursor: "pointer", boxSizing: "border-box"
   },
   imageUploadArea: (hasImages) => ({
-    border: hasImages ? "3px dashed #007BFF" : "2px dashed #ddd",
-    borderRadius: "12px", padding: hasImages ? "20px" : "40px",
-    background: hasImages ? "#E6F0FF" : "#f8f9fa", cursor: "pointer",
-    transition: "all 0.3s ease", textAlign: "center", boxSizing: "border-box"
+    border: hasImages ? "3px dashed #007BFF" : "2px dashed #ddd", borderRadius: "12px",
+    padding: hasImages ? "20px" : "40px", background: hasImages ? "#E6F0FF" : "#f8f9fa",
+    cursor: "pointer", transition: "all 0.3s ease", textAlign: "center", boxSizing: "border-box"
   }),
   imageGrid: {
     display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(100px, 1fr))",
     gap: "15px", maxHeight: "300px", overflowY: "auto"
   },
-  imagePreview: {
-    width: "100%", height: "100%", objectFit: "cover",
-    borderRadius: "8px", border: "2px solid #007BFF"
-  },
+  imagePreview: { width: "100%", height: "100%", objectFit: "cover", borderRadius: "8px", border: "2px solid #007BFF" },
   imageNumberOverlay: {
-    position: "absolute", bottom: "8px", left: "8px",
-    background: "rgba(0, 123, 255, 0.9)", color: "white",
-    width: "24px", height: "24px", borderRadius: "50%",
-    display: "flex", alignItems: "center", justifyContent: "center",
-    fontSize: "12px", fontWeight: "bold"
+    position: "absolute", bottom: "8px", left: "8px", background: "rgba(0, 123, 255, 0.9)",
+    color: "white", width: "24px", height: "24px", borderRadius: "50%", display: "flex",
+    alignItems: "center", justifyContent: "center", fontSize: "12px", fontWeight: "bold"
   },
   removeImageButton: {
-    position: "absolute", top: "-8px", right: "-8px",
-    width: "24px", height: "24px", background: "#dc3545",
-    color: "white", border: "none", borderRadius: "50%",
-    fontSize: "14px", cursor: "pointer", display: "flex",
-    alignItems: "center", justifyContent: "center"
+    position: "absolute", top: "-8px", right: "-8px", width: "24px", height: "24px",
+    background: "#dc3545", color: "white", border: "none", borderRadius: "50%", fontSize: "14px",
+    cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center"
   },
   modalOverlay: {
-    position: "fixed", top: 0, left: 0, right: 0, bottom: 0,
-    background: "rgba(0,0,0,0.7)", display: "flex",
-    justifyContent: "center", alignItems: "center", zIndex: 10000
+    position: "fixed", top: 0, left: 0, right: 0, bottom: 0, background: "rgba(0,0,0,0.7)",
+    display: "flex", justifyContent: "center", alignItems: "center", zIndex: 10000
   },
   modalContent: {
-    background: "#fff", width: "90%", maxWidth: "500px",
-    maxHeight: "80vh", borderRadius: "12px", padding: "25px", overflowY: "auto",
-    boxSizing: "border-box"
+    background: "#fff", width: "90%", maxWidth: "500px", maxHeight: "80vh",
+    borderRadius: "12px", padding: "25px", overflowY: "auto", boxSizing: "border-box"
   },
   cancelButton: {
-    width: "100%", padding: "14px", background: "#6c757d",
-    color: "white", border: "none", borderRadius: "8px",
-    fontSize: "16px", marginTop: "15px", cursor: "pointer",
-    boxSizing: "border-box"
+    width: "100%", padding: "14px", background: "#6c757d", color: "white", border: "none",
+    borderRadius: "8px", fontSize: "16px", marginTop: "15px", cursor: "pointer", boxSizing: "border-box"
   }
 };
 
@@ -150,102 +116,160 @@ const getDiscountPercent = (price, discount) => {
 };
 
 const initializeForm = (user) => ({
-  title: "", description: "", price: "", discount_price: "",
-  quantity: "", category: "", subcategory: "", brand: "", model: "",
-  condition: "", used_detail: "", ram: "", storage: "", color: "",
-  sim: [], features: [], engine: "", mileage: "", year: "",
-  fuel_type: "", transmission: "", phone_number: user?.phone_number || "",
-  additional_phone: "", poster_name: user?.name || "", state: "", city: "",
-  location: "", social_link: "", images: [], video_link: "",
-  promoted: false, promo_plan: "", flash_sale: false,
+  title: "", description: "", price: "", discount_price: "", quantity: "", category: "",
+  subcategory: "", brand: "", model: "", condition: "", used_detail: "", ram: "", storage: "",
+  color: "", sim: [], features: [], engine: "", mileage: "", year: "", fuel_type: "",
+  transmission: "", phone_number: user?.phone_number || "", additional_phone: "",
+  poster_name: user?.name || "", state: "", city: "", location: "", social_link: "",
+  images: [], video_link: "", promoted: false, promo_plan: "", flash_sale: false,
   exchange_possible: false, negotiable: false, deliveryRegions: []
 });
 
 function getFieldOptions(field, computed) {
   const optionsMap = {
-    subcategory: computed.visibleFields,
-    brand: computed.availableBrands,
-    model: computed.availableModels,
-    condition: conditions,
-    used_detail: usedDetails,
-    ram: ramOptions,
-    storage: storageOptions,
-    color: colors,
-    engine: engines,
-    fuel_type: fuelTypes,
-    year: years,
-    transmission: ["Manual", "Automatic", "CVT"]
+    subcategory: computed.visibleFields, brand: computed.availableBrands,
+    model: computed.availableModels, condition: conditions, used_detail: usedDetails,
+    ram: ramOptions, storage: storageOptions, color: colors, engine: engines,
+    fuel_type: fuelTypes, year: years, transmission: ["Manual", "Automatic", "CVT"]
   };
   return optionsMap[field] || [];
 }
 
+// 🟢 MAIN COMPONENT
 export default function AddMarketplaceProduct() {
   const { user } = useAuth0();
   const fileInputRef = useRef(null);
 
-  // 🟢 STATE PARTITIONING
+  // 🟢 STATE
   const [form, setForm] = useState(() => initializeForm(user));
   const [images, setImages] = useState({ files: [], previews: [] });
   const [deliveryForm, setDeliveryForm] = useState({
-    state: "", city: "", method: "Courier", from: "", to: "",
-    chargeFee: false, fee: "", expressAvailable: false, warehouseAddress: ""
+    state: "", city: "", method: "Courier", from: "", to: "", chargeFee: false,
+    fee: "", expressAvailable: false, warehouseAddress: ""
   });
   const [ui, setUi] = useState({
-    loading: false, isSubmitting: false, showPreview: false,
-    showPayment: false, selectorField: null, selectorOptions: [], errors: {}
+    loading: false, isSubmitting: false, showPreview: false, showPayment: false,
+    selectorField: null, selectorOptions: [], errors: {}
   });
 
-  // 🟢 PRE-COMPUTE
-  const currentPlan = useMemo(() =>
-    promotionPlans.find(p => p.id === form.promo_plan),
-    [form.promo_plan]
-  );
-
-  // 🟢 COMPUTED VALUES
+  // 🟢 COMPUTED
+  const currentPlan = useMemo(() => promotionPlans.find(p => p.id === form.promo_plan), [form.promo_plan]);
   const computed = useMemo(() => ({
     visibleFields: categoryFields[form.category] || [],
     availableBrands: brands[form.category] || [],
     availableModels: form.brand ? models[form.category]?.[form.brand] || [] : [],
     categoryFeatures: featuresByCategory[form.category] || [],
     availableCities: locationsByState[form.state] || [],
-    currentPlan,
-    paystackKey: import.meta.env.MODE === "production"
-      ? import.meta.env.VITE_PAYSTACK_LIVE_KEY
-      : import.meta.env.VITE_PAYSTACK_TEST_KEY,
-    cleanPrice: Number(form.price.replace(/,/g, "")),
-    imageCount: images.files.length,
+    currentPlan, paystackKey: import.meta.env.MODE === "production"
+      ? import.meta.env.VITE_PAYSTACK_LIVE_KEY : import.meta.env.VITE_PAYSTACK_TEST_KEY,
+    cleanPrice: Number(form.price.replace(/,/g, "")), imageCount: images.files.length,
     discountPercent: currentPlan ? getDiscountPercent(currentPlan.price, currentPlan.discount) : 0
-  }), [
-    form.category, form.brand, form.state, form.promo_plan,
-    form.price, images.files.length, currentPlan
-  ]);
+  }), [form.category, form.brand, form.state, form.promo_plan, form.price, images.files.length, currentPlan]);
 
-  // 🟢 EVENT HANDLERS
+  // 🟢 CLOUDINARY UPLOAD
+  const uploadImages = useCallback(async () => {
+    if (!images.files.length) return [];
+    const uploadedImages = [];
+    for (const file of images.files) {
+      try {
+        const formData = new FormData();
+        formData.append("file", file);
+        formData.append("upload_preset", import.meta.env.VITE_CLOUDINARY_UPLOAD_PRESET);
+        const res = await fetch(
+          `https://api.cloudinary.com/v1_1/${import.meta.env.VITE_CLOUDINARY_CLOUD_NAME}/upload`,
+          { method: "POST", body: formData }
+        );
+        if (!res.ok) throw new Error(`Upload failed: ${res.status}`);
+        const data = await res.json();
+        if (data.error) throw new Error(data.error.message);
+        uploadedImages.push(data.secure_url);
+      } catch (err) {
+        console.error("Upload error:", err);
+        alert(`Failed to upload ${file.name}`);
+      }
+    }
+    return uploadedImages;
+  }, [images.files]);
+
+  // 🟢 JUMIA-LEVEL FLOW FUNCTIONS
+  const validateForm = useCallback(() => {
+    const errors = {};
+    if (!form.title?.trim() || form.title.length < 30) errors.title = "Title: 30+ chars required";
+    if (!form.description?.trim() || form.description.length < 50) errors.description = "Description: 50+ chars required";
+    if (!form.category) errors.category = "Select category";
+    if (!computed.cleanPrice || computed.cleanPrice <= 0) errors.price = "Valid price required";
+    if (!form.phone_number?.match(/^(?:\+234|0)[789]\d{9}$/)) errors.phone_number = "Valid Nigerian phone required";
+    if (!form.state) errors.state = "Select state";
+    if (!form.city) errors.city = "Select city";
+    if (computed.imageCount === 0) errors.images = "Add 1+ image";
+    if (form.promoted && !form.promo_plan) errors.promo_plan = "Select plan";
+    setUi(prev => ({ ...prev, errors })); return Object.keys(errors).length === 0;
+  }, [form, computed.cleanPrice, computed.imageCount]);
+
+  // 1️⃣ STEP 1: ALWAYS SHOW PREVIEW
+  const handleSubmit = useCallback((e) => {
+    e.preventDefault();
+    if (!validateForm()) return;
+    setUi(prev => ({ ...prev, isSubmitting: true, showPreview: true }));
+  }, [validateForm]);
+
+  // 2️⃣ STEP 2: PREVIEW CONFIRM - DECISION POINT
+  const confirmPublish = useCallback(async () => {
+    setUi(prev => ({ ...prev, showPreview: false }));
+    if (form.promoted && computed.currentPlan?.price > 0) {
+      setUi(prev => ({ ...prev, showPayment: true }));
+    } else {
+      await finalPublish();
+    }
+  }, [form.promoted, computed.currentPlan]);
+
+  // 3️⃣ STEP 3: FINAL PUBLISH (shared function)
+  const finalPublish = useCallback(async (paymentRef = null) => {
+    setUi(prev => ({ ...prev, loading: true }));
+    try {
+      const imageUrls = await uploadImages();
+      const productData = {
+        ...form, images: imageUrls,
+        ...(form.promoted && computed.currentPlan?.price === 0 && { promo_status: 'free' }),
+        ...(paymentRef && { payment_reference: paymentRef })
+      };
+      const res = await fetch("/api/marketplace", {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(productData)
+      });
+      if (!res.ok) throw new Error("Publish failed");
+      alert("✅ Product published successfully!");
+      resetForm();
+    } catch (err) {
+      alert("❌ " + err.message);
+    } finally {
+      setUi(prev => ({ ...prev, loading: false, isSubmitting: false }));
+    }
+  }, [form, uploadImages, computed.currentPlan]);
+
+  // 4️⃣ STEP 4: PAYMENT SUCCESS
+  const handlePaySuccess = useCallback(async (response) => {
+    setUi(prev => ({ ...prev, showPayment: false }));
+    await finalPublish(response.reference);
+  }, [finalPublish]);
+
   const handleChange = useCallback((field, value) => {
     setForm(prev => {
       const updated = { ...prev, [field]: value };
-      switch (field) {
-        case "category":
-          return {
-            ...updated,
-            subcategory: "", brand: "", model: "", ram: "", storage: "", color: "",
-            sim: [], features: [], condition: "", used_detail: ""
-          };
-        case "brand": return { ...updated, model: "" };
-        case "state": return { ...updated, city: "" };
-        default: return updated;
-      }
+      if (field === "category") return {
+        ...updated, subcategory: "", brand: "", model: "", ram: "", storage: "", color: "",
+        sim: [], features: [], condition: "", used_detail: ""
+      };
+      if (field === "brand") return { ...updated, model: "" };
+      if (field === "state") return { ...updated, city: "" };
+      return updated;
     });
     setUi(prev => ({ ...prev, errors: { ...prev.errors, [field]: "" } }));
   }, []);
 
   const handlePriceInput = useCallback((value) => {
     const num = value.replace(/[^0-9]/g, "");
-    if (!num) {
-      handleChange("price", "");
-      return;
-    }
-    handleChange("price", Number(num).toLocaleString());
+    handleChange("price", num ? Number(num).toLocaleString() : "");
   }, [handleChange]);
 
   const handleImagesAdd = useCallback((newFiles) => {
@@ -255,7 +279,6 @@ export default function AddMarketplaceProduct() {
         return prev;
       }
       const validFiles = newFiles.filter(f => f.size <= 10 * 1024 * 1024);
-      if (!validFiles.length) return prev;
       const newPreviews = validFiles.map(URL.createObjectURL);
       return {
         files: [...prev.files, ...validFiles],
@@ -272,130 +295,13 @@ export default function AddMarketplaceProduct() {
     }));
   }, [images.previews]);
 
-  const uploadImages = useCallback(async () => {
-    try {
-      const uploadPromises = images.files.map(async (file) => {
-        const formData = new FormData();
-        formData.append("file", file);
-        formData.append("upload_preset", import.meta.env.VITE_CLOUDINARY_UPLOAD_PRESET);
-        const res = await fetch(
-          `https://api.cloudinary.com/v1_1/${import.meta.env.VITE_CLOUDINARY_CLOUD_NAME}/upload`,
-          { method: "POST", body: formData }
-        );
-        if (!res.ok) throw new Error(`Upload failed: ${res.status}`);
-        const data = await res.json();
-        if (!data.secure_url) throw new Error("Invalid upload response");
-        return data.secure_url;
-      });
-      return await Promise.all(uploadPromises);
-    } catch (error) {
-      console.error("Upload error:", error);
-      alert("Image upload failed. Please try again.");
-      throw error;
-    }
-  }, [images.files]);
-
-  const validateForm = useCallback(() => {
-    const errors = {};
-    if (!form.title?.trim() || form.title.length < 30)
-      errors.title = "Title: 30+ chars required";
-    if (!form.description?.trim() || form.description.length < 50)
-      errors.description = "Description: 50+ chars required";
-    if (!form.category) errors.category = "Select category";
-    if (!computed.cleanPrice || computed.cleanPrice <= 0)
-      errors.price = "Valid price required";
-    if (!form.phone_number?.match(/^(?:\+234|0)[789]\d{9}$/))
-      errors.phone_number = "Valid Nigerian phone required";
-    if (!form.state) errors.state = "Select state";
-    if (!form.city) errors.city = "Select city";
-        if (computed.imageCount === 0) errors.images = "Add 1+ image";
-    if (form.promoted && !form.promo_plan) errors.promo_plan = "Select plan";
-    
-    setUi(prev => ({ ...prev, errors }));
-    return Object.keys(errors).length === 0;
-  }, [form, computed.cleanPrice, computed.imageCount]);
-
-  const handleSubmit = useCallback((e) => {
-    e.preventDefault();
-    if (ui.isSubmitting || !validateForm()) return;
-    setUi(prev => ({ ...prev, isSubmitting: true }));
-    
-    if (form.promoted && computed.currentPlan?.price > 0) {
-      setUi(prev => ({ ...prev, showPayment: true }));
-    } else {
-      setUi(prev => ({ ...prev, showPreview: true }));
-    }
-  }, [ui.isSubmitting, validateForm, form.promoted, computed.currentPlan]);
-
-  const confirmPublish = useCallback(async () => {
-    setUi(prev => ({ ...prev, loading: true, isSubmitting: false }));
-    try {
-      const imageUrls = await uploadImages();
-      const productData = { 
-        ...form, images: imageUrls,
-        ...(form.promoted && computed.currentPlan?.price === 0 && { promo_status: 'free' })
-      };
-      const res = await fetch("/api/marketplace", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(productData),
-      });
-      if (!res.ok) throw new Error("Publish failed");
-      alert("✅ Product published successfully!");
-      resetForm();
-    } catch (err) {
-      alert("Error: " + err.message);
-    } finally {
-      setUi(prev => ({ ...prev, loading: false }));
-    }
-  }, [form, uploadImages, computed.currentPlan]);
-
-  const handlePaySuccess = useCallback(async (response) => {
-    setUi(prev => ({ ...prev, showPayment: false, loading: true, isSubmitting: false }));
-    try {
-      const imageUrls = await uploadImages();
-      const productData = { 
-        ...form, 
-        images: imageUrls, 
-        payment_reference: response.reference 
-      };
-      const res = await fetch("/api/marketplace", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(productData),
-      });
-      if (!res.ok) throw new Error("Publish failed");
-      alert("✅ Product published with promotion!");
-      resetForm();
-    } catch (err) {
-      alert("Publish failed: " + err.message);
-    } finally {
-      setUi(prev => ({ ...prev, loading: false }));
-    }
-  }, [form, uploadImages]);
-
   const resetForm = useCallback(() => {
     setForm(initializeForm(user));
     setImages({ files: [], previews: [] });
-    setDeliveryForm({ 
-      state: "", city: "", method: "Courier", from: "", to: "",
-      chargeFee: false, fee: "", expressAvailable: false, warehouseAddress: ""
-    });
-    setUi({ 
-      loading: false, isSubmitting: false, showPreview: false, showPayment: false, 
-      selectorField: null, selectorOptions: [], errors: {} 
-    });
+    setDeliveryForm({ state: "", city: "", method: "Courier", from: "", to: "", chargeFee: false, fee: "", expressAvailable: false, warehouseAddress: "" });
+    setUi({ loading: false, isSubmitting: false, showPreview: false, showPayment: false, selectorField: null, selectorOptions: [], errors: {} });
     if (fileInputRef.current) fileInputRef.current.value = "";
   }, [user]);
-
-  // 🟢 CLEANUP
-  useEffect(() => {
-    return () => {
-      images.previews.forEach(url => {
-        if (url && typeof url === 'string') URL.revokeObjectURL(url);
-      });
-    };
-  }, []);
 
   const addDeliveryRegion = useCallback(() => {
     if (!deliveryForm.state || !deliveryForm.city || !deliveryForm.from || !deliveryForm.to) {
@@ -408,19 +314,14 @@ export default function AddMarketplaceProduct() {
     }
     const isFreeDelivery = deliveryForm.chargeFee && Number(deliveryForm.fee) === 0;
     setForm(prev => ({
-      ...prev,
-      deliveryRegions: [...prev.deliveryRegions, { ...deliveryForm, isFreeDelivery }]
+      ...prev, deliveryRegions: [...prev.deliveryRegions, { ...deliveryForm,     isFreeDelivery }]
     }));
-    setDeliveryForm({
-      state: "", city: "", method: "Courier", from: "", to: "",
-      chargeFee: false, fee: "", expressAvailable: false, warehouseAddress: ""
-    });
+    setDeliveryForm({ state: "", city: "", method: "Courier", from: "", to: "", chargeFee: false, fee: "", expressAvailable: false, warehouseAddress: "" });
   }, [deliveryForm]);
 
   const removeDeliveryRegion = useCallback((index) => {
     setForm(prev => ({
-      ...prev,
-      deliveryRegions: prev.deliveryRegions.filter((_, i) => i !== index)
+      ...prev, deliveryRegions: prev.deliveryRegions.filter((_, i) => i !== index)
     }));
   }, []);
 
@@ -436,7 +337,16 @@ export default function AddMarketplaceProduct() {
   const cancelPreview = () => setUi(prev => ({ ...prev, showPreview: false, isSubmitting: false }));
   const cancelPayment = () => setUi(prev => ({ ...prev, showPayment: false, isSubmitting: false }));
 
-  // 🟢 COMPLETE RENDER
+  // 🟢 CLEANUP
+  useEffect(() => {
+    return () => {
+      images.previews.forEach(url => {
+        if (url && typeof url === 'string') URL.revokeObjectURL(url);
+      });
+    };
+  }, []);
+
+  // 🟢 JSX RENDER
   return (
     <div style={STYLES.container}>
       <h1 style={STYLES.title}>🚀 Post New Marketplace Product</h1>
@@ -534,7 +444,7 @@ export default function AddMarketplaceProduct() {
           />
           {ui.errors.price && <small style={STYLES.errorText}>{ui.errors.price}</small>}
 
-                    <input
+          <input
             placeholder="Discount Price (optional)"
             value={form.discount_price}
             onChange={e => handleChange("discount_price", e.target.value.replace(/[^0-9]/g, ""))}
@@ -562,11 +472,8 @@ export default function AddMarketplaceProduct() {
               {promotionPlans.map(plan => {
                 const finalPrice = plan.price - (plan.discount || 0);
                 const PlanIcon = { 
-                  basic: FaStar, 
-                  standard: FaRocket, 
-                  premium: FaBullhorn, 
-                  flash: FaBolt, 
-                  gift: FaGift 
+                  basic: FaStar, standard: FaRocket, premium: FaBullhorn, 
+                  flash: FaBolt, gift: FaGift 
                 }[plan.id] || FaStar;
                 
                 return (
@@ -583,10 +490,8 @@ export default function AddMarketplaceProduct() {
                     <div style={{ fontSize: "16px", fontWeight: "bold", color: "#28a745" }}>
                       {computed.discountPercent > 0 && (
                         <span style={{ 
-                          textDecoration: "line-through", 
-                          fontSize: "14px", 
-                          color: "#999", 
-                          marginRight: "5px" 
+                          textDecoration: "line-through", fontSize: "14px", 
+                          color: "#999", marginRight: "5px" 
                         }}>
                           ₦{plan.price.toLocaleString()}
                         </span>
@@ -613,7 +518,6 @@ export default function AddMarketplaceProduct() {
           />
           {ui.errors.description && <small style={STYLES.errorText}>{ui.errors.description}</small>}
 
-          {/* IMAGE UPLOAD */}
           <div style={{ margin: "20px 0" }}>
             <div 
               style={STYLES.imageUploadArea(images.files.length > 0)}
@@ -624,7 +528,7 @@ export default function AddMarketplaceProduct() {
                 handleImagesAdd(Array.from(e.dataTransfer.files).filter(f => f.type.startsWith('image/')));
               }}
             >
-              {images.files.length === 0 ? (
+                           {images.files.length === 0 ? (
                 <>
                   <div style={{ fontSize: "48px", color: "#007BFF", marginBottom: "10px" }}>➕</div>
                   <p style={{ fontSize: "18px", fontWeight: "500", color: "#333", margin: "0 0 5px 0" }}>
@@ -650,23 +554,15 @@ export default function AddMarketplaceProduct() {
                   ))}
                   {images.files.length < 10 && (
                     <div style={{ 
-                      display: "flex", 
-                      flexDirection: "column", 
-                      alignItems: "center", 
-                      justifyContent: "center", 
-                      border: "2px dashed #007BFF", 
-                      borderRadius: "8px", 
-                      cursor: "pointer", 
-                      aspectRatio: "1" 
+                      display: "flex", flexDirection: "column", alignItems: "center", 
+                      justifyContent: "center", border: "2px dashed #007BFF", 
+                      borderRadius: "8px", cursor: "pointer", aspectRatio: "1" 
                     }} 
                     onClick={() => fileInputRef.current?.click()}
                     >
                       <div style={{ fontSize: "24px", color: "#007BFF" }}>➕</div>
                       <span style={{ 
-                        fontSize: "14px", 
-                        color: "#007BFF", 
-                        fontWeight: "500", 
-                        marginTop: "5px" 
+                        fontSize: "14px", color: "#007BFF", fontWeight: "500", marginTop: "5px" 
                       }}>
                         Add more ({images.files.length}/10)
                       </span>
@@ -760,21 +656,11 @@ export default function AddMarketplaceProduct() {
             />
             {ui.errors.phone_number && <small style={STYLES.errorText}>{ui.errors.phone_number}</small>}
 
-            <input
-              type="text"
-              placeholder="Additional Phone (optional)"
-              value={form.additional_phone}
-              onChange={e => handleChange("additional_phone", e.target.value)}
-              style={STYLES.input}
-            />
+            <input type="text" placeholder="Additional Phone (optional)" value={form.additional_phone}
+              onChange={e => handleChange("additional_phone", e.target.value)} style={STYLES.input} />
 
-            <input
-              type="text"
-              placeholder="Your Name"
-              value={form.poster_name}
-              onChange={e => handleChange("poster_name", e.target.value)}
-              style={STYLES.input}
-            />
+            <input type="text" placeholder="Your Name" value={form.poster_name}
+              onChange={e => handleChange("poster_name", e.target.value)} style={STYLES.input} />
           </div>
         </div>
 
@@ -784,40 +670,25 @@ export default function AddMarketplaceProduct() {
           
           <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(200px, 1fr))", gap: "15px" }}>
             <label style={STYLES.checkboxLabel}>
-              <input
-                type="checkbox"
-                checked={form.negotiable}
-                onChange={e => handleChange("negotiable", e.target.checked)}
-              />
+              <input type="checkbox" checked={form.negotiable}
+                onChange={e => handleChange("negotiable", e.target.checked)} />
               💰 Price Negotiable
             </label>
-            
             <label style={STYLES.checkboxLabel}>
-              <input
-                type="checkbox"
-                checked={form.exchange_possible}
-                onChange={e => handleChange("exchange_possible", e.target.checked)}
-              />
+              <input type="checkbox" checked={form.exchange_possible}
+                onChange={e => handleChange("exchange_possible", e.target.checked)} />
               🔄 Exchange Possible
             </label>
-            
             <label style={STYLES.checkboxLabel}>
-              <input
-                type="checkbox"
-                checked={form.flash_sale}
-                onChange={e => handleChange("flash_sale", e.target.checked)}
-              />
+              <input type="checkbox" checked={form.flash_sale}
+                onChange={e => handleChange("flash_sale", e.target.checked)} />
               ⚡ Flash Sale
             </label>
           </div>
 
-          <input
-            type="url"
-            placeholder="Social Media/WhatsApp Link (optional)"
-            value={form.social_link}
-            onChange={e => handleChange("social_link", e.target.value)}
-            style={STYLES.input}
-          />
+          <input type="url" placeholder="Social Media/WhatsApp Link (optional)" 
+            value={form.social_link} onChange={e => handleChange("social_link", e.target.value)} 
+            style={STYLES.input} />
         </div>
 
         {/* SUBMIT */}
@@ -827,58 +698,41 @@ export default function AddMarketplaceProduct() {
             disabled={ui.loading || ui.isSubmitting || computed.imageCount === 0}
             style={STYLES.submitButton(ui.loading || ui.isSubmitting || computed.imageCount === 0)}
           >
-            {ui.loading ? "⏳ Publishing..." : 
-             `🚀 Preview & Publish (${computed.imageCount}/10 images)`}
+            {ui.loading ? "⏳ Publishing..." : `🚀 Preview & Publish (${computed.imageCount}/10 images)`}
           </button>
           
-          <div style={{ 
-            textAlign: "center", 
-            color: "#666", 
-            fontSize: "14px", 
-            marginTop: "10px" 
-          }}>
+          <div style={{ textAlign: "center", color: "#666", fontSize: "14px", marginTop: "10px" }}>
             {computed.imageCount === 0 && "⚠️ Add at least 1 image to continue"}
             {form.promoted && computed.currentPlan && (
-              <div>
-                Plan: <strong>{computed.currentPlan.name}</strong> 
-                - ₦{(computed.currentPlan.price - (computed.currentPlan.discount || 0)).toLocaleString()}
-              </div>
+              <div>Plan: <strong>{computed.currentPlan.name}</strong> - ₦{(computed.currentPlan.price - (computed.currentPlan.discount || 0)).toLocaleString()}</div>
             )}
           </div>
         </div>
       </form>
 
-      {/* MODALS */}
+      {/* 🟢 MODALS - JUMIA-LEVEL FLOW */}
+
+      {/* SELECTOR MODAL */}
       {ui.selectorField && ui.selectorField !== "delivery" && (
         <div style={STYLES.modalOverlay}>
           <div style={STYLES.modalContent}>
-            <h3 style={{ marginTop: 0 }}>
-              Select {ui.selectorField.replace("_", " ").toUpperCase()}
-            </h3>
+            <h3 style={{ marginTop: 0 }}>Select {ui.selectorField.replace("_", " ").toUpperCase()}</h3>
             <div style={{ maxHeight: "400px", overflowY: "auto" }}>
               {ui.selectorOptions.map((option, index) => (
-                <div
-                  key={index}
-                  style={{
-                    padding: "16px",
-                    borderBottom: "1px solid #eee",
-                    cursor: "pointer",
-                    fontSize: "16px",
-                    transition: "background 0.2s",
-                    background: "white"
-                  }}
-                  onClick={() => selectOption(option)}
-                  onMouseOver={e => e.target.style.background = "#f8f9fa"}
-                  onMouseOut={e => e.target.style.background = "white"}
+                <div key={index} style={{
+                  padding: "16px", borderBottom: "1px solid #eee", cursor: "pointer",
+                  fontSize: "16px", transition: "background 0.2s", background: "white"
+                }}
+                onClick={() => selectOption(option)}
+                onMouseOver={e => e.target.style.background = "#f8f9fa"}
+                onMouseOut={e => e.target.style.background = "white"}
                 >
                   {option}
                 </div>
               ))}
             </div>
-            <button 
-              style={STYLES.cancelButton} 
-              onClick={() => setUi(prev => ({ ...prev, selectorField: null }))}
-            >
+            <button style={STYLES.cancelButton} 
+              onClick={() => setUi(prev => ({ ...prev, selectorField: null }))}>
               Cancel
             </button>
           </div>
@@ -890,82 +744,56 @@ export default function AddMarketplaceProduct() {
         <div style={STYLES.modalOverlay}>
           <div style={{ ...STYLES.modalContent, maxWidth: "450px" }}>
             <h3 style={{ marginTop: 0 }}>Add Delivery Region</h3>
-            
-            <select 
-              value={deliveryForm.state} 
+            <select value={deliveryForm.state} 
               onChange={e => setDeliveryForm(prev => ({ ...prev, state: e.target.value }))}
-              style={STYLES.input}
-            >
+              style={STYLES.input}>
               <option value="">Select State</option>
               {Object.keys(locationsByState).map(state => (
                 <option key={state} value={state}>{state}</option>
               ))}
             </select>
-
             {deliveryForm.state && (
-              <select 
-                value={deliveryForm.city} 
+              <select value={deliveryForm.city} 
                 onChange={e => setDeliveryForm(prev => ({ ...prev, city: e.target.value }))}
-                style={STYLES.input}
-              >
-                               <option value="">Select City</option>
+                style={STYLES.input}>
+                <option value="">Select City</option>
                 {locationsByState[deliveryForm.state]?.map(city => (
                   <option key={city} value={city}>{city}</option>
                 ))}
               </select>
             )}
-
-            <select 
-              value={deliveryForm.method} 
+            <select value={deliveryForm.method} 
               onChange={e => setDeliveryForm(prev => ({ ...prev, method: e.target.value }))}
-              style={STYLES.input}
-            >
+              style={STYLES.input}>
               <option value="Courier">📦 Courier</option>
               <option value="Pickup">🚗 Pickup</option>
               <option value="Express">⚡ Express</option>
             </select>
-
             <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "10px" }}>
-              <input 
-                placeholder="From (days)" 
-                value={deliveryForm.from}
+              <input placeholder="From (days)" value={deliveryForm.from}
                 onChange={e => setDeliveryForm(prev => ({ ...prev, from: e.target.value.replace(/[^0-9]/g, "") }))}
-                style={STYLES.input}
-              />
-              <input 
-                placeholder="To (days)" 
-                value={deliveryForm.to}
+                style={STYLES.input} />
+              <input placeholder="To (days)" value={deliveryForm.to}
                 onChange={e => setDeliveryForm(prev => ({ ...prev, to: e.target.value.replace(/[^0-9]/g, "") }))}
-                style={STYLES.input}
-              />
+                style={STYLES.input} />
             </div>
-
             <label style={STYLES.checkboxLabel}>
-              <input 
-                type="checkbox" 
-                checked={deliveryForm.chargeFee} 
-                onChange={e => setDeliveryForm(prev => ({ ...prev, chargeFee: e.target.checked }))}
-              />
+              <input type="checkbox" checked={deliveryForm.chargeFee}
+                onChange={e => setDeliveryForm(prev => ({ ...prev, chargeFee: e.target.checked }))} />
               💰 Charge delivery fee
             </label>
-
-            {deliveryForm.chargeFee && (
-              <input 
-                placeholder="Fee amount (₦)" 
-                value={deliveryForm.fee}
+                        {deliveryForm.chargeFee && (
+              <input placeholder="Fee amount (₦)" value={deliveryForm.fee}
                 onChange={e => setDeliveryForm(prev => ({ ...prev, fee: e.target.value.replace(/[^0-9]/g, "") }))}
-                style={STYLES.input}
-              />
+                style={STYLES.input} />
             )}
 
             <div style={{ display: "flex", gap: "10px" }}>
               <button onClick={addDeliveryRegion} style={STYLES.primaryButton}>
                 ✅ Add Region
               </button>
-              <button 
-                onClick={() => setUi(prev => ({ ...prev, selectorField: null }))} 
-                style={STYLES.cancelButton}
-              >
+              <button onClick={() => setUi(prev => ({ ...prev, selectorField: null }))} 
+                style={STYLES.cancelButton}>
                 Cancel
               </button>
             </div>
@@ -973,17 +801,14 @@ export default function AddMarketplaceProduct() {
         </div>
       )}
 
-      {/* PREVIEW MODAL */}
+      {/* PREVIEW MODAL - JUMIA UX */}
       {ui.showPreview && (
         <div style={STYLES.modalOverlay}>
           <div style={{ ...STYLES.modalContent, maxWidth: "650px" }}>
             <h3 style={{ marginTop: 0 }}>👀 Product Preview</h3>
             
             <div style={{ 
-              background: "#f8f9fa", 
-              padding: "20px", 
-              borderRadius: "8px", 
-              marginBottom: "20px" 
+              background: "#f8f9fa", padding: "20px", borderRadius: "8px", marginBottom: "20px" 
             }}>
               <h4 style={{ margin: "0 0 10px 0", color: "#333" }}>{form.title}</h4>
               <div style={{ fontSize: "24px", fontWeight: "bold", color: "#28a745", marginBottom: "10px" }}>
@@ -999,11 +824,8 @@ export default function AddMarketplaceProduct() {
               )}
               {computed.currentPlan && (
                 <div style={{ 
-                  background: "#E6F0FF", 
-                  padding: "10px", 
-                  borderRadius: "6px", 
-                  fontSize: "14px",
-                  marginTop: "10px"
+                  background: "#E6F0FF", padding: "10px", borderRadius: "6px", 
+                  fontSize: "14px", marginTop: "10px"
                 }}>
                   🚀 Boost Plan: <strong>{computed.currentPlan.name}</strong>
                 </div>
@@ -1012,35 +834,28 @@ export default function AddMarketplaceProduct() {
 
             <div style={{ display: "flex", gap: "10px", marginBottom: "20px", flexWrap: "wrap" }}>
               {images.previews.slice(0, 4).map((src, i) => (
-                <img 
-                  key={i} 
-                  src={src} 
-                  style={{ 
-                    width: "80px", 
-                    height: "80px", 
-                    objectFit: "cover", 
-                    borderRadius: "8px",
-                    border: "3px solid #007BFF"
-                  }} 
-                />
+                <img key={i} src={src} style={{ 
+                  width: "80px", height: "80px", objectFit: "cover", 
+                  borderRadius: "8px", border: "3px solid #007BFF" 
+                }} />
               ))}
             </div>
 
             <div style={{ display: "flex", gap: "15px", marginTop: "25px", flexWrap: "wrap" }}>
               <button 
                 onClick={confirmPublish} 
-                disabled={ui.loading} 
+                disabled={ui.loading}
                 style={STYLES.submitButton(ui.loading)}
               >
-                {ui.loading ? "⏳ Publishing..." : "✅ Publish Now"}
+                {ui.loading ? "⏳ Publishing..." : 
+                 form.promoted && computed.currentPlan?.price > 0 
+                 ? `💳 Pay ₦${(computed.currentPlan.price - (computed.currentPlan.discount || 0)).toLocaleString()} & Publish`
+                 : "✅ Publish Now"}
               </button>
               <button 
                 onClick={cancelPreview} 
                 style={{ 
-                  ...STYLES.cancelButton, 
-                  flex: "1", 
-                  background: "#007BFF",
-                  minWidth: "120px"
+                  ...STYLES.cancelButton, flex: "1", background: "#007BFF", minWidth: "120px" 
                 }}
               >
                 ✏️ Edit
@@ -1054,27 +869,21 @@ export default function AddMarketplaceProduct() {
       {ui.showPayment && computed.currentPlan && computed.paystackKey && (
         <div style={STYLES.modalOverlay}>
           <div style={STYLES.modalContent}>
-            <h3 style={{ marginTop: 0 }}>💳 Complete Payment</h3>
+            <h3 style={{ marginTop: 0 }}>💳 Complete Payment to Publish</h3>
             <div style={{ 
-              background: "#E6F0FF", 
-              padding: "20px", 
-              borderRadius: "12px", 
-              marginBottom: "20px",
-              textAlign: "center"
+              background: "#E6F0FF", padding: "20px", borderRadius: "12px", 
+              marginBottom: "20px", textAlign: "center"
             }}>
               <div style={{ fontSize: "28px", marginBottom: "10px" }}>
                 {computed.currentPlan.name}
               </div>
               <div style={{ 
-                fontSize: "32px", 
-                fontWeight: "bold", 
-                color: "#28a745",
-                marginBottom: "10px"
+                fontSize: "32px", fontWeight: "bold", color: "#28a745", marginBottom: "10px"
               }}>
                 ₦{(computed.currentPlan.price - (computed.currentPlan.discount || 0)).toLocaleString()}
               </div>
               <div style={{ color: "#666", fontSize: "14px" }}>
-                {computed.currentPlan.duration}
+                {computed.currentPlan.duration} • After payment → Product published instantly
               </div>
             </div>
 
@@ -1088,23 +897,13 @@ export default function AddMarketplaceProduct() {
               onSuccess={handlePaySuccess}
               onClose={cancelPayment}
               style={{
-                width: "100%",
-                padding: "16px",
-                background: "#007BFF",
-                color: "white",
-                border: "none",
-                borderRadius: "8px",
-                fontSize: "18px",
-                fontWeight: "bold",
-                cursor: "pointer",
-                marginBottom: "15px"
+                width: "100%", padding: "16px", background: "#007BFF", color: "white",
+                border: "none", borderRadius: "8px", fontSize: "18px", fontWeight: "bold",
+                cursor: "pointer", marginBottom: "15px"
               }}
             />
             
-            <button 
-              onClick={cancelPayment} 
-              style={STYLES.cancelButton}
-            >
+            <button onClick={cancelPayment} style={STYLES.cancelButton}>
               Cancel Payment
             </button>
           </div>
@@ -1115,3 +914,5 @@ export default function AddMarketplaceProduct() {
 }
 
 export { getDiscountPercent, initializeForm, getFieldOptions };
+
+
