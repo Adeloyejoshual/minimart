@@ -232,7 +232,14 @@ export const models = Object.freeze({
   "Cherokee","Cherokee Trailhawk","Cherokee Limited","Cherokee Latitude","Cherokee Latitude Plus","Cherokee Overland","Cherokee High Altitude",
   "Grand Wagoneer","Grand Wagoneer Series I","Grand Wagoneer Series II","Grand Wagoneer Series III","Grand Wagoneer Obsidian","Grand Wagoneer Series III Obsidian"
 ]),
-    "Land Rover": Object.freeze(["Range Rover","Defender","Discovery","Velar","Evoque","Discovery Sport","Range Rover Sport"]),
+    "Land Rover": Object.freeze([
+  "Range Rover","Range Rover Vogue","Range Rover Autobiography","Range Rover SVAutobiography","Range Rover Sentinel","Range Rover Fifty","Range Rover Sport","Range Rover Sport HSE","Range Rover Sport Autobiography","Range Rover Sport SVR","Range Rover Sport Dynamic","Range Rover Sport Black Edition",
+  "Defender","Defender 90","Defender 110","Defender 130","Defender X-Dynamic S","Defender X-Dynamic SE","Defender X-Dynamic HSE","Defender First Edition","Defender XS","Defender SE","Defender HSE","Defender X","Defender V8",
+  "Discovery","Discovery S","Discovery SE","Discovery HSE","Discovery First Edition","Discovery X","Discovery Landmark Edition",
+  "Discovery Sport","Discovery Sport S","Discovery Sport SE","Discovery Sport HSE","Discovery Sport First Edition","Discovery Sport R-Dynamic",
+  "Velar","Velar S","Velar R-Dynamic S","Velar R-Dynamic SE","Velar R-Dynamic HSE","Velar First Edition","Velar Autobiography","Velar SVAutobiography Dynamic",
+  "Evoque","Evoque S","Evoque SE","Evoque R-Dynamic S","Evoque R-Dynamic SE","Evoque R-Dynamic HSE","Evoque First Edition","Evoque Autobiography","Evoque SVAutobiography Dynamic"
+]),
     "Genesis": Object.freeze(["G70","G80","G90","GV60","GV70","GV80","GV90"]),
     "Volvo": Object.freeze(["XC90","XC60","S60","V60","EX90","C40 Recharge","XC40","S90"]),
     "Ram": Object.freeze(["1500","2500","3500","ProMaster","Rebel","Power Wagon"]),
