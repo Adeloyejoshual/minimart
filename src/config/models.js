@@ -47,7 +47,25 @@ export const models = Object.freeze({
   }),
   
   "Vehicles": Object.freeze({
-    "Toyota": Object.freeze(["Corolla","Camry","RAV4","Highlander","Prado","Hilux","Sienna","Land Cruiser","Fortuner","Avalon","Supra","GR86","Tundra","4Runner","Tacoma","Prius","C-HR","Yaris","Crown","RAV4 Hybrid","Venza","bZ4X"]),
+    "Toyota": Object.freeze([
+  "AA", "AB", "AC", "AE", "BA", "DA", "SA", "SB", "SD", "SF", "SG", "RH", "RK", "Super", "FA", "ToyoAce",
+  "1000", "1900", "2000GT", "Publica", "Sports 800", "MiniAce", "Corona", "Corona Mark II", "Mark II",
+  "Sprinter", "Carina", "Carina II", "Carina E", "Celica", "Cressida", "Tiara", "Mega Cruiser", "Verossa",
+  "Origin", "Opa", "Sprinter Carib", "MR2", "Aristo", "Altezza", "Auris", "Avensis", "BX", "BJ",
+  "Corolla", "Corolla Cross", "Corolla Sprinter", "Corolla Fielder", "Corolla Axio",
+  "Corona Premio", "Axio", "Blade", "Allex", "Allion", "Alphard", "Vellfire", "Avanza", "Avanza Veloz",
+  "Aqua", "Aygo", "Aygo X", "Belta", "Beleno", "bB", "C-HR", "Etios", "Esquire", "Glanza", "GR Corolla",
+  "GR86", "GR Yaris", "iQ", "Innova", "Levin", "Massa Dyna", "Mirai", "Pixis Epoch", "Pixis Space",
+  "Pixis Mega", "Pixis Joy", "ProAce Verso", "ProAce City Verso", "Raize", "Roomy", "Rumion", "Tank",
+  "Urban Cruiser", "Veloz", "Wigo", "Yaris", "Yaris Cross", "Yaris GR Sport", "Century", "Century SUV",
+  "Crown", "Crown Estate", "Land Cruiser", "Land Cruiser 70", "Land Cruiser Prado",
+  "4Runner", "FJ40", "FJ60", "RAV4", "Grand Highlander", "Highlander", "Sequoia",
+  "Venza", "Rush", "Wildlander", "Voxy", "Noah", "Wish", "Verso-S",
+  "Camry", "Camry Hybrid", "Avalon", "Avalon Hybrid", "Sienna", "Sienna Hybrid",
+  "Hilux", "Hilux Surf", "Tacoma", "Tacoma Hybrid", "Tundra", "Tundra Hybrid",
+  "Prius", "Prius c", "Prius v", "Prius Prime", "bZ3", "bZ4X",
+  "86", "Supra", "MR-S", "Echo", "Tercel", "Solara", "Starlet", "Publica Sports"
+])
     "Honda": Object.freeze(["Civic","Accord","CR-V","Pilot","HR-V","Ridgeline","Passport","Odyssey","Element","Fit","Prelude","Insight","Prologue"]),
     "BMW": Object.freeze(["X5","X3","3 Series","5 Series","X7","X1","8 Series","i4","iX","M4","M5","Z4","X6","2 Series","7 Series","i5","iX3","i7"]),
     "Mercedes": Object.freeze(["C-Class","E-Class","GLA","GLE","S-Class","GLC","GLB","GLS","A-Class","G-Class","EQS","EQE","AMG GT","CLA","GLB","Maybach"]),
