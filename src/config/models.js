@@ -105,7 +105,12 @@ export const models = Object.freeze({
   "Polo","Taos","Tiguan","Tiguan R-Line","Tiguan Allspace","Atlas","Atlas Cross Sport","Teramont",
   "ID.4","ID.4 GTX","ID.7","ID.Buzz","Touareg","Touareg R-Line","CC","Beetle","e-Golf","Sharan","Caddy","Amarok","Transporter","Multivan","Caravelle","Crafter","Touran","T-Roc","T-Cross","Lavida","Lamando","Phideon"
 ]),
-    "Kia": Object.freeze(["Sportage","Sorento","Rio","Stinger","Telluride","Seltos","K5","Carnival","Soul","Forte","EV6","EV9","Niro"]),
+    "Kia": Object.freeze([
+  "Sportage","Sportage GT-Line","Sportage X-Line","Sorento","Sorento HEV","Sorento PHEV","Telluride","Seltos","Seltos X-Line",
+  "K5","K5 GT","Optima","Rio","Rio X-Line","Stinger","Stinger GT","Carnival","Carnival SX","Soul","Soul EV","Forte","Forte GT",
+  "Forte5","EV6","EV6 GT","EV9","Niro","Niro EV","Niro PHEV","Mohave","Cerato","Cerato GT","Cerato Koup","Picanto","Picanto X-Line",
+  "Stonic","ProCeed","XCeed","Ceed","Ceed GT","Ceed SW","Ceed X-Line","Carens","Venga"
+]),
     "Nissan": Object.freeze(["Altima","Sentra","Rogue","X-Trail","Pathfinder","Murano","Armada","Frontier","Titan","370Z","Z","Patrol","Ariya"]),
     "Chevrolet": Object.freeze(["Silverado","Tahoe","Equinox","Traverse","Camaro","Corvette","Colorado","Blazer","Trax"]),
     "Tesla": Object.freeze(["Model 3","Model Y","Model S","Model X","Cybertruck","Semi","Roadster"]),
