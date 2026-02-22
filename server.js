@@ -1,4 +1,3 @@
-// server.js
 import express from "express";
 import cors from "cors";
 import path from "path";
@@ -6,17 +5,22 @@ import { fileURLToPath } from "url";
 import { expressjwt as jwt } from "express-jwt";
 import jwksRsa from "jwks-rsa";
 import dotenv from "dotenv";
+import mongoose from "mongoose";
+import marketplaceRouter from "./routes/marketplace.js";
 
 dotenv.config();
 
 const app = express();
 const PORT = process.env.PORT || 5000;
 
-// ================= CORS =================
 app.use(cors());
 app.use(express.json());
 
-// ================= AUTH0 JWT =================
+mongoose
+  .connect(process.env.MONGO_URI, { useNewUrlParser: true, useUnifiedTopology: true })
+  .then(() => console.log("MongoDB connected"))
+  .catch((err) => console.error("MongoDB connection error:", err.message));
+
 const checkJwt = jwt({
   secret: jwksRsa.expressJwtSecret({
     cache: true,
@@ -29,29 +33,25 @@ const checkJwt = jwt({
   algorithms: ["RS256"],
 });
 
-// ================= STATIC REACT BUILD =================
+app.use("/api/marketplace", checkJwt, marketplaceRouter);
+
+app.get("/api/test", checkJwt, (req, res) => {
+  res.json({ success: true, user: req.auth, message: "JWT verified!" });
+});
+
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 app.use(express.static(path.join(__dirname, "dist")));
 
-// ================= API ROUTES =================
-app.get("/api/marketplace", checkJwt, (req, res) => {
-  res.json({
-    success: true,
-    user: req.auth, // JWT payload
-    products: [
-      { id: 1, name: "Test Product 1" },
-      { id: 2, name: "Test Product 2" },
-    ],
-  });
-});
-
-// ================= SPA FALLBACK =================
 app.get("*", (req, res) => {
   res.sendFile(path.join(__dirname, "dist", "index.html"));
 });
 
-// ================= START SERVER =================
-app.listen(PORT, () =>
-  console.log(`🚀 Server running on http://localhost:${PORT}`)
-);
+app.use((err, req, res, next) => {
+  if (err.name === "UnauthorizedError") {
+    return res.status(401).json({ success: false, message: "Invalid token" });
+  }
+  res.status(err.status || 500).json({ success: false, message: err.message });
+});
+
+app.listen(PORT, () => console.log(`Server running on http://localhost:${PORT}`));
