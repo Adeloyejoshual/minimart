@@ -3,6 +3,7 @@ import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 import { useAuth0 } from "@auth0/auth0-react";
 import { getMiniMartProducts } from "../../helpers/minimart";
+import MiniMartBottomNav from "../../components/MiniMartBottomNav.jsx";
 
 export default function MiniMartHome() {
   const [products, setProducts] = useState([]);
@@ -21,11 +22,30 @@ export default function MiniMartHome() {
     }
   };
 
+  // Reusable button
+  const ActionButton = ({ onClick, children, fullWidth = false, style = {} }) => (
+    <button
+      onClick={onClick}
+      style={{
+        padding: "10px 16px",
+        background: "#0D6EFD",
+        color: "#fff",
+        border: "none",
+        borderRadius: "8px",
+        cursor: "pointer",
+        fontWeight: 600,
+        width: fullWidth ? "100%" : "auto",
+        ...style,
+      }}
+    >
+      {children}
+    </button>
+  );
+
   return (
-    <div className="minimart-home-page" style={{ padding: "16px", maxWidth: "1200px", margin: "0 auto" }}>
+    <div style={{ padding: "16px", maxWidth: "1200px", margin: "0 auto", paddingBottom: "80px" }}>
       {/* ===== Header ===== */}
       <div
-        className="sticky-header"
         style={{
           display: "flex",
           justifyContent: "space-between",
@@ -40,61 +60,25 @@ export default function MiniMartHome() {
       >
         <h2>MiniMart Store</h2>
         {isAuthenticated ? (
-          <button
-            style={{
-              padding: "10px 16px",
-              background: "#0D6EFD",
-              color: "#fff",
-              border: "none",
-              borderRadius: "8px",
-              cursor: "pointer",
-              fontWeight: 600,
-            }}
-            onClick={() => logout({ returnTo: window.location.origin })}
-          >
+          <ActionButton onClick={() => logout({ returnTo: window.location.origin })}>
             Logout
-          </button>
+          </ActionButton>
         ) : (
-          <button
-            style={{
-              padding: "10px 16px",
-              background: "#0D6EFD",
-              color: "#fff",
-              border: "none",
-              borderRadius: "8px",
-              cursor: "pointer",
-              fontWeight: 600,
-            }}
-            onClick={() => loginWithRedirect()}
-          >
+          <ActionButton onClick={() => loginWithRedirect()}>
             Login / Register
-          </button>
+          </ActionButton>
         )}
       </div>
 
       {/* ===== Add Product Button ===== */}
       {isAuthenticated && (
         <Link to="/minimart/add">
-          <button
-            style={{
-              padding: "10px 16px",
-              background: "#0D6EFD",
-              color: "#fff",
-              border: "none",
-              borderRadius: "8px",
-              cursor: "pointer",
-              fontWeight: 600,
-              width: "100%",
-              marginBottom: "16px",
-            }}
-          >
-            Add MiniMart Product
-          </button>
+          <ActionButton fullWidth>Add MiniMart Product</ActionButton>
         </Link>
       )}
 
       {/* ===== Products Grid ===== */}
-      <h3>MiniMart Products</h3>
+      <h3 style={{ marginTop: "24px" }}>MiniMart Products</h3>
       {products.length === 0 && <p>No products yet.</p>}
       <div
         style={{
@@ -130,6 +114,9 @@ export default function MiniMartHome() {
           </Link>
         ))}
       </div>
+
+      {/* ===== Bottom Nav ===== */}
+      <MiniMartBottomNav />
     </div>
   );
 }
