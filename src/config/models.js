@@ -65,7 +65,7 @@ export const models = Object.freeze({
   "Hilux", "Hilux Surf", "Tacoma", "Tacoma Hybrid", "Tundra", "Tundra Hybrid",
   "Prius", "Prius c", "Prius v", "Prius Prime", "bZ3", "bZ4X",
   "86", "Supra", "MR-S", "Echo", "Tercel", "Solara", "Starlet", "Publica Sports"
-])
+]),
     "Honda": Object.freeze([
     "Accord", "Accord Hybrid", "City", "City Hatchback", "Civic", "Civic Type R", "Civic Si",
     "Ballade", "Ballade Sports", "Domani", "Concerto", "Ballade CRX", "Integra", "Integra Type R",
@@ -85,8 +85,10 @@ export const models = Object.freeze({
     "City Turbo II", "Coupe", "Accord Coupe", "Civic Coupe", "Civic CRX SiR", "Stream",
     "Torneo", "Partner", "Vamos Classic", "Acty Van", "Lifepop",
     "Aspire", "Artega", "Ballade Sport", "Capa", "Edix", "Domani Wagon", "Logos", "Lagreat Van"
-  ])
-    "BMW": Object.freeze(["X5","X3","3 Series","5 Series","X7","X1","8 Series","i4","iX","M4","M5","Z4","X6","2 Series","7 Series","i5","iX3","i7"]),
+  ]),
+    "BMW": Object.freeze([
+  "1 Series","2 Series","2 Series Gran Coupe","3 Series","3 Series Touring","4 Series","4 Series Gran Coupe","4 Series Coupe","4 Series Convertible","5 Series","5 Series Touring","6 Series","6 Series Gran Turismo","7 Series","8 Series","8 Series Gran Coupe","8 Series Coupe","8 Series Convertible","X1","X2","X3","X3 M","X4","X4 M","X5","X5 M","X6","X6 M","X7","i3","i4","iX","iX3","i7","Z3","Z4","Z8","M2","M2 Competition","M3","M3 Touring","M4","M4 Competition","M5","M5 Competition","M6","M8","iX1","iX5","iX6","iVision Circular","Concept XM","Concept iX M","Hydrogen NEXT","X1 xDrive","X2 xDrive","X3 xDrive","X4 xDrive","X5 xDrive","X6 xDrive","X7 xDrive","M2 CS","M4 CSL"
+]),
     "Mercedes": Object.freeze(["C-Class","E-Class","GLA","GLE","S-Class","GLC","GLB","GLS","A-Class","G-Class","EQS","EQE","AMG GT","CLA","GLB","Maybach"]),
     "Ford": Object.freeze(["Focus","Escape","Mustang","F-150","Explorer","Edge","Bronco","Ranger","Expedition","Fusion","Maverick","Lightning","Mach-E"]),
     "Volkswagen": Object.freeze(["Golf","Passat","Tiguan","Atlas","Jetta","Taos","Teramont","Arteon","ID.4","ID.7","ID.Buzz"]),
