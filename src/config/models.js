@@ -137,7 +137,18 @@ export const models = Object.freeze({
   "Bolt EV","Bolt EUV","Bolt EV Premier","Bolt EUV Premier",
   "Trax","Trax LS","Trax LT","Trax Premier"
 ]),
-    "Tesla": Object.freeze(["Model 3","Model Y","Model S","Model X","Cybertruck","Semi","Roadster"]),
+    "Tesla": Object.freeze([
+  "Model S","Model S Long Range","Model S Plaid","Model S Plaid+","Model S Raven","Model S Refresh",
+  "Model S Performance","Model S 100D","Model S 90D","Model S 85D","Model S P100D","Model S P90D","Model S P85D",
+  "Model 3","Model 3 Standard Range","Model 3 Standard Range Plus","Model 3 Long Range","Model 3 Performance","Model 3 Rear-Wheel Drive","Model 3 AWD",
+  "Model 3 Mid Range","Model 3 SR+ Refresh","Model 3 Long Range Dual Motor","Model 3 Performance Dual Motor",
+  "Model X","Model X Long Range","Model X Plaid","Model X Refresh","Model X Performance","Model X 100D","Model X 90D","Model X P100D","Model X P90D",
+  "Model Y","Model Y Standard Range","Model Y Long Range","Model Y Performance","Model Y AWD","Model Y Standard Plus","Model Y Dual Motor","Model Y Long Range Dual Motor",
+  "Cybertruck","Cybertruck Single Motor RWD","Cybertruck Dual Motor AWD","Cybertruck Tri Motor AWD","Cybertruck Founders Series","Cybertruck Limited Edition",
+  "Roadster","Roadster Base","Roadster Founders Series","Roadster 2023 Edition","Roadster 2nd Gen",
+  "Semi","Semi 300-mile","Semi 500-mile","Semi 500-mile Plus","Semi Limited Edition","Semi Long Haul",
+  "Tesla Plaid","Tesla Performance Series","Tesla Special Edition","Tesla Founder Series","Tesla Raven Series"
+]),
     "Subaru": Object.freeze(["Forester","Outback","Impreza","Crosstrek","Ascent","WRX","BRZ","Solterra"]),
     "Mazda": Object.freeze(["CX-5","CX-9","Mazda3","Mazda6","CX-30","CX-50","MX-5 Miata","CX-90","CX-70"]),
     "Lexus": Object.freeze(["RX","NX","ES","IS","GX","LX","UX","LS","RC","LC","RZ","TX"]),
