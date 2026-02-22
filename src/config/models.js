@@ -66,7 +66,27 @@ export const models = Object.freeze({
   "Prius", "Prius c", "Prius v", "Prius Prime", "bZ3", "bZ4X",
   "86", "Supra", "MR-S", "Echo", "Tercel", "Solara", "Starlet", "Publica Sports"
 ])
-    "Honda": Object.freeze(["Civic","Accord","CR-V","Pilot","HR-V","Ridgeline","Passport","Odyssey","Element","Fit","Prelude","Insight","Prologue"]),
+    "Honda": Object.freeze([
+    "Accord", "Accord Hybrid", "City", "City Hatchback", "Civic", "Civic Type R", "Civic Si",
+    "Ballade", "Ballade Sports", "Domani", "Concerto", "Ballade CRX", "Integra", "Integra Type R",
+    "Legend", "Prelude", "CR-X", "CR-X del Sol",
+    "CR-V", "CR-V Hybrid", "HR-V", "HR-V e:HEV", "Vezel", "Passport", "Pilot", "BR-V", "Element",
+    "ZDX", "Prologue", "Elevate",
+    "Ridgeline", "Acty Truck", "ACX", "T5", "Bravo",
+    "Odyssey", "Odyssey Hybrid", "StepWGN", "StepWGN Spada", "Freed", "Freed Spike",
+    "Mobilio", "Mobilio Spike", "Elysion", "Lagreat", "S-MX", "Let's",
+    "Fit", "Fit Shuttle", "Jazz", "Life", "Life Dunk", "Zest", "Zest Sports", "N-Box",
+    "N-One", "N-WGN", "Today", "Vamos", "Vamos Hobio", "Beat", "S660",
+    "Insight", "Insight Hybrid", "Clarity Fuel Cell", "Clarity Plug-in Hybrid",
+    "CR-V Hybrid", "Accord Hybrid", "Odyssey Hybrid", "Fit Hybrid",
+    "Prologue (EV)", "e:NY1", "e:NP1", "e:NP2",
+    "S2000", "NSX", "NSX Type S", "Integra Type R",
+    "Tercel", "Civic Wagon", "Orthia", "Shuttle", "Prelude Si", "Concerto Wagon",
+    "City Turbo II", "Coupe", "Accord Coupe", "Civic Coupe", "Civic CRX SiR", "Stream",
+    "Torneo", "Partner", "Vamos Classic", "Acty Van", "Lifepop",
+    "Aspire", "Artega", "Ballade Sport", "Capa", "Edix", "Domani Wagon", "Logos", "Lagreat Van"
+  ])
+};
     "BMW": Object.freeze(["X5","X3","3 Series","5 Series","X7","X1","8 Series","i4","iX","M4","M5","Z4","X6","2 Series","7 Series","i5","iX3","i7"]),
     "Mercedes": Object.freeze(["C-Class","E-Class","GLA","GLE","S-Class","GLC","GLB","GLS","A-Class","G-Class","EQS","EQE","AMG GT","CLA","GLB","Maybach"]),
     "Ford": Object.freeze(["Focus","Escape","Mustang","F-150","Explorer","Edge","Bronco","Ranger","Expedition","Fusion","Maverick","Lightning","Mach-E"]),
