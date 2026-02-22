@@ -1,74 +1,105 @@
-// src/config/promotion.js
-import { FaStar, FaRocket, FaGift, FaBullhorn, FaBolt } from "react-icons/fa";
+// src/config/promotion.js - ENHANCED NIGERIAN MARKETPLACE PLANS
+import { FaStar, FaRocket, FaGift, FaBullhorn, FaBolt, FaCrown, FaFire, FaChartLine } from "react-icons/fa";
 
 export const promotionPlans = [
-{
-id: 1,
-name: "TOP Promo",
-duration: "7 days",
-price: 300,
-discount: 50, // NGN off
-icon: FaStar,
-description: "Get top placement for your product for 7 days",
-},
-{
-id: 2,
-name: "Boost Premium",
-duration: "1 month",
-price: 1000,
-discount: 200,
-icon: FaRocket,
-description: "Premium promotion for maximum visibility for 1 month",
-},
-{
-id: 3,
-name: "Trial Free",
-duration: "14 days",
-price: 0,
-discount: 0,
-icon: FaGift,
-description: "Try our promotion for free and see the impact",
-},
-{
-id: 4,
-name: "Professional Pro",
-duration: "30 days",
-price: 2000,
-discount: 500,
-icon: FaBullhorn,
-description: "Professional promotion for high engagement and exposure",
-},
-{
-id: 5,
-name: "Lightning Boost",
-duration: "47 days",
-price: 500,
-discount: 100,
-icon: FaBolt,
-description: "Quick boost to your product for immediate attention",
-},
-{
-id: 6,
-name: "Super Spotlight",
-duration: "60 days",
-price: 800,
-discount: 150,
-icon: FaRocket,
-description: "Highlight your product in the spotlight section",
-},
-{
-id: 7,
-name: "Ultimate Max",
-duration: "120 days",
-price: 1500,
-discount: 300,
-icon: FaBullhorn,
-description: "Ultimate visibility for maximum reach",
-},
+  {
+    id: 1,
+    name: "TOP Promo",
+    duration: "7 days",
+    price: 500,
+    discount: 100,
+    originalPrice: 600,
+    icon: FaStar,
+    description: "Top 3 placement + featured badge (highest clicks)",
+    priority: 1,
+    features: ["Top 3 listing", "Featured badge", "Priority support"]
+  },
+  {
+    id: 2,
+    name: "Boost Premium", 
+    duration: "30 days",
+    price: 1500,
+    discount: 300,
+    originalPrice: 1800,
+    icon: FaRocket,
+    description: "Homepage + category featured for 1 month",
+    priority: 2,
+    features: ["Homepage rotation", "Category top 5", "Push notifications", "Analytics dashboard"]
+  },
+  {
+    id: 3,
+    name: "Trial Free",
+    duration: "14 days",
+    price: 0,
+    discount: 0,
+    originalPrice: 0,
+    icon: FaGift,
+    description: "FREE trial - see 3x more views instantly",
+    priority: 3,
+    features: ["Priority listing", "View analytics", "WhatsApp leads"]
+  },
+  {
+    id: 4,
+    name: "Professional Pro",
+    duration: "30 days",
+    price: 2500,
+    discount: 500,
+    originalPrice: 3000,
+    icon: FaBullhorn,
+    description: "Max exposure + WhatsApp blast to 10K buyers",
+    priority: 4,
+    features: ["Homepage banner", "WhatsApp blast", "Email promotion", "Priority customer service"]
+  },
+  {
+    id: 5,
+    name: "Lightning Boost",
+    duration: "7 days", 
+    price: 800,
+    discount: 200,
+    originalPrice: 1000,
+    icon: FaBolt,
+    description: "Instant top ranking for immediate sales",
+    priority: 5,
+    features: ["Instant #1 position", "Urgent badge", "24/7 top placement"]
+  },
+  {
+    id: 6,
+    name: "Super Spotlight",
+    duration: "60 days",
+    price: 2800,
+    discount: 700,
+    originalPrice: 3500,
+    icon: FaCrown,
+    description: "King of listings - guaranteed top 1 position",
+    priority: 6,
+    features: ["Permanent #1", "Spotlight badge", "VIP support", "Custom banner"]
+  },
+  {
+    id: 7,
+    name: "Market Leader",
+    duration: "90 days",
+    price: 4500,
+    discount: 1000,
+    originalPrice: 5500,
+    icon: FaChartLine,
+    description: "Dominate your category for 3 months",
+    priority: 7,
+    features: ["Category takeover", "Analytics Pro", "Dedicated manager", "Performance guarantee"]
+  }
 ];
 
-// Helper function to auto-calculate discount percentage
+// Enhanced discount calculation
 export const getDiscountPercent = (price, discount) => {
-if (!price || price === 0 || !discount) return 0;
-return Math.round((discount / price) * 100);
+  if (!price || price === 0 || !discount) return 0;
+  return Math.round((discount / (price + discount)) * 100);
+};
+
+// Get active price after discount
+export const getActivePrice = (price, discount) => {
+  return Math.max(0, price - discount);
+};
+
+// Get plan by ID
+export const getPlanById = (id) => {
+  return promotionPlans.find(plan => plan.id === id) || null;
 };
