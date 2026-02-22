@@ -1,21 +1,32 @@
+// src/helpers/marketplaceApi.js
 import api from "../utils/api";
 
-// GET ALL (with filters, pagination)
+// Base API URL from environment
+const API_BASE = import.meta.env.VITE_API_URL || "/api/marketplace";
+
+/**
+ * GET ALL PRODUCTS (with optional filters)
+ */
 export const getMarketplaceProducts = async (filters = {}) => {
   const params = new URLSearchParams(filters).toString();
-  const res = await api.get(`/api/marketplace${params ? `?${params}` : ""}`);
+  const url = `${API_BASE}${params ? `?${params}` : ""}`;
+  const res = await api.get(url);
   return res.data.products || [];
 };
 
-// GET ONE
+/**
+ * GET ONE PRODUCT BY ID
+ */
 export const getMarketplaceProductById = async (id) => {
-  const res = await api.get(`/api/marketplace/${id}`);
+  const res = await api.get(`${API_BASE}/${id}`);
   return res.data;
 };
 
-// ADD (JSON only)
+/**
+ * ADD NEW PRODUCT
+ */
 export const addMarketplaceProduct = async (data, token) => {
-  const res = await api.post("/api/marketplace", data, {
+  const res = await api.post(API_BASE, data, {
     headers: {
       Authorization: `Bearer ${token}`,
       "Content-Type": "application/json",
@@ -24,9 +35,11 @@ export const addMarketplaceProduct = async (data, token) => {
   return res.data;
 };
 
-// DELETE
+/**
+ * DELETE PRODUCT BY ID
+ */
 export const deleteMarketplaceProduct = async (id, token) => {
-  const res = await api.delete(`/api/marketplace/${id}`, {
+  const res = await api.delete(`${API_BASE}/${id}`, {
     headers: { Authorization: `Bearer ${token}` },
   });
   return res.data;
