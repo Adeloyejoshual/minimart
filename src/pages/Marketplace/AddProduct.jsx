@@ -249,7 +249,7 @@ export default function AddProduct() {
     const requiredFields = getCategoryRules(form.category);
     requiredFields.forEach(field => {
       if (isEmptyValue(form[field])) {
-        errors[field] = `${field.replace(/_/g, " ").replace(/\bw/g, l => l.toUpperCase())} required`;
+        errors[field] = `${field.replace(/_/g, " ").replace(/\b\w/g, l => l.toUpperCase())} required`;
       }
     });
 
