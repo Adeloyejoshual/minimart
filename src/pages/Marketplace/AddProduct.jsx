@@ -1,5 +1,5 @@
 // src/pages/Marketplace/AddProduct.jsx
-// v21 - TRUE PRODUCTION READY (All 5 Critical Issues Fixed)
+// v22 - REMOVED PHONE VALIDATION + CSS SUPPORT
 
 import {
   useState,
@@ -10,6 +10,7 @@ import {
   useLayoutEffect
 } from "react";
 import { useAuth0 } from "@auth0/auth0-react";
+import "./AddProduct.css"; // 🔥 ADDED: Dedicated CSS module
 
 /* ---------------- CONFIG ---------------- */
 import { categoryFields } from "../../config/categoryFields";
@@ -34,14 +35,14 @@ import DescriptionMediaSection from "../../components/AddProduct/DescriptionMedi
 import DeliveryContactSection from "../../components/AddProduct/DeliveryContactSection";
 
 /* ---------------- CONSTANTS ---------------- */
-const STORAGE_KEYS = { DRAFT: "marketplace_draft_v21" };
+const STORAGE_KEYS = { DRAFT: "marketplace_draft_v22" }; // 🔥 Updated version
 const MAX_FILE_SIZE = 5_000_000;
 const MAX_IMAGES = 10;
 const CONCURRENT_UPLOADS = 3;
 const QUEUE_TIMEOUT = 15000;
 const MAX_PRICE = 999_999_999_999;
 
-const NIGERIAN_PHONE_REGEX = /^0[789]d{9}$/;
+// 🔥 REMOVED: NIGERIAN_PHONE_REGEX
 
 const apiUrl = import.meta.env.VITE_API_URL || "/api/marketplace";
 const cloudinaryUrl = `https://api.cloudinary.com/v1_1/${import.meta.env.VITE_CLOUDINARY_CLOUD_NAME}/image/upload`;
@@ -79,7 +80,7 @@ const initializeForm = (user) => ({
   experience_level: "",
   skills: [],
   education: "",
-  phone_number: user?.phone_number || "",
+  phone_number: user?.phone_number || "", // 🔥 Still kept in form but no validation
   additional_phone: "",
   poster_name: user?.name || "",
   state: "",
@@ -135,8 +136,8 @@ export default function AddProduct() {
   const abortControllerRef = useRef(null);
   const queueAbortControllerRef = useRef(null);
   const validationTimeoutRef = useRef(null);
-  const uploadedPublicIdsRef = useRef([]); // 🔥 FIX #4: Cleanup tracking
-  const currentIdempotencyKeyRef = useRef(null); // 🔥 Enterprise idempotency
+  const uploadedPublicIdsRef = useRef([]);
+  const currentIdempotencyKeyRef = useRef(null);
 
   // State
   const [form, setForm] = useState(() => initializeForm(user));
@@ -210,9 +211,7 @@ export default function AddProduct() {
   const validateField = useCallback((field, value) => {
     const errors = {};
 
-    if (field === "phone_number" && value && !NIGERIAN_PHONE_REGEX.test(value)) {
-      errors.phone_number = "Enter valid Nigerian number (080/090/070)";
-    }
+    // 🔥 REMOVED: phone_number validation
 
     if (field === "price" && !cleanPrice) {
       errors.price = "Price is required";
@@ -236,20 +235,17 @@ export default function AddProduct() {
     if (isEmptyValue(form.title)) errors.title = "Product title required";
     if (isEmptyValue(form.category)) errors.category = "Select category";
 
-    if (isEmptyValue(form.phone_number) ||
-        (form.phone_number && !NIGERIAN_PHONE_REGEX.test(form.phone_number))) {
-      errors.phone_number = "Valid Nigerian phone required (080/090/070)";
-    }
+    // 🔥 REMOVED: phone_number validation completely
 
     if (isEmptyValue(form.state)) errors.state = "Select state";
     if (isEmptyValue(form.city)) errors.city = "City required";
     if (!cleanPrice) errors.price = "Valid price required";
 
-    // 🔥 FIX #3: ACTUALLY VALIDATE CATEGORY FIELDS
+    // Category-specific validation
     const requiredFields = getCategoryRules(form.category);
     requiredFields.forEach(field => {
       if (isEmptyValue(form[field])) {
-        errors[field] = `${field.replace(/_/g, " ").replace(/\b\w/g, l => l.toUpperCase())} required`;
+        errors[field] = `${field.replace(/_/g, " ").replace(/\bw/g, l => l.toUpperCase())} required`;
       }
     });
 
@@ -264,7 +260,6 @@ export default function AddProduct() {
   }, [form, deliveryForm, cleanPrice, images.files.length, isEmptyValue, getCategoryRules]);
 
   /* ---------------- CLEANUP FUNCTION ---------------- */
-  // 🔥 FIX #4: Cloudinary cleanup
   const cleanupUploads = useCallback(async () => {
     if (!uploadedPublicIdsRef.current.length) return;
 
@@ -296,11 +291,10 @@ export default function AddProduct() {
       clearTimeout(validationTimeoutRef.current);
     }
     validationTimeoutRef.current = setTimeout(() => {
-      // 🔥 FIX #5: Self-healing errors
       const fieldErrors = validateField(field, value);
       setUi(prev => {
         const updated = { ...prev.errors };
-        delete updated[field]; // Clear old error
+        delete updated[field];
         return {
           ...prev,
           errors: { ...updated, ...fieldErrors }
@@ -360,14 +354,13 @@ export default function AddProduct() {
     let timeoutId = null;
 
     try {
-      // Generate idempotency key once and reuse
       if (!currentIdempotencyKeyRef.current) {
         currentIdempotencyKeyRef.current = await generateIdempotencyKey(form, images, user?.sub);
       }
       const idempotencyKey = currentIdempotencyKeyRef.current;
 
       const { urls, publicIds } = await uploadImages();
-      uploadedPublicIdsRef.current = [...publicIds]; // Track for cleanup
+      uploadedPublicIdsRef.current = [...publicIds];
 
       queueAbortControllerRef.current = new AbortController();
       const token = await getAccessTokenSilently();
@@ -403,7 +396,6 @@ export default function AddProduct() {
         throw new Error(errorData.message || `HTTP ${response.status}: ${response.statusText}`);
       }
 
-      // Success - clear everything
       setUi({ loading: false, publishStatus: "success", errors: {}, submitError: null });
       localStorage.removeItem(STORAGE_KEYS.DRAFT);
       currentIdempotencyKeyRef.current = null;
@@ -422,13 +414,12 @@ export default function AddProduct() {
         setUi(prev => ({
           ...prev,
           loading: false,
-          publishStatus: "processing", // 🔥 Show processing for timeouts
+          publishStatus: "processing",
           submitError: error.message || "Publish failed. Please try again.",
           errors: {}
         }));
-        await cleanupUploads(); // 🔥 FIX #4: Cleanup on failure
+        await cleanupUploads();
       } else {
-        // Timeout/abort - keep idempotency key for retry safety
         setUi(prev => ({
           ...prev,
           loading: false,
@@ -494,8 +485,8 @@ export default function AddProduct() {
 
   /* ---------------- RENDER ---------------- */
   return (
-    <div className="min-h-screen bg-gradient-to-br from-slate-50 to-blue-50">  
-      <div className="add-product-container max-w-6xl mx-auto p-6 md:p-8 space-y-8">
+    <div className="add-product-container min-h-screen bg-gradient-to-br from-slate-50 to-blue-50">  
+      <div className="max-w-6xl mx-auto p-6 md:p-8 space-y-8">
         {/* Header */}
         <div className="text-center pb-8">
           <h1 className="text-4xl md:text-5xl font-bold bg-gradient-to-r from-blue-600 to-purple-600 bg-clip-text text-transparent mb-4">
