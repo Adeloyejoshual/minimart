@@ -1,7 +1,9 @@
 // src/pages/Marketplace/AddProduct.jsx
-import { useState, useRef, useEffect, useCallback, useMemo } from "react";
+
+import { useState, useRef, useCallback, useMemo } from "react";
 import { useAuth0 } from "@auth0/auth0-react";
 import { PaystackButton } from "react-paystack";
+import "./AddProduct.css";
 
 /* ---------------- CONFIG ---------------- */
 import { categoryFields } from "../../config/categoryFields";
@@ -26,11 +28,6 @@ import DescriptionMediaSection from "../../components/AddProduct/DescriptionMedi
 import DeliveryContactSection from "../../components/AddProduct/DeliveryContactSection";
 
 /* ---------------- UTIL ---------------- */
-
-const getDiscountPercent = (price, discount) =>
-  !price || price === 0 || !discount
-    ? 0
-    : Math.round((discount / price) * 100);
 
 const initializeForm = (user) => ({
   title: "",
@@ -77,6 +74,7 @@ export default function AddMarketplaceProduct() {
 
   const [form, setForm] = useState(() => initializeForm(user));
   const [images, setImages] = useState({ files: [], previews: [] });
+
   const [deliveryForm, setDeliveryForm] = useState({
     state: "",
     city: "",
@@ -88,13 +86,11 @@ export default function AddMarketplaceProduct() {
     expressAvailable: false,
     warehouseAddress: ""
   });
+
   const [ui, setUi] = useState({
     loading: false,
-    isSubmitting: false,
     showPreview: false,
     showPayment: false,
-    selectorField: null,
-    selectorOptions: [],
     errors: {}
   });
 
@@ -107,12 +103,11 @@ export default function AddMarketplaceProduct() {
 
   const computed = useMemo(() => {
     const baseFields = categoryFields[form.category] || [];
-    const visibleFields = baseFields.filter(
-      (field) => field !== "used_detail" || form.condition === "Used"
-    );
 
     return {
-      visibleFields,
+      visibleFields: baseFields.filter(
+        (field) => field !== "used_detail" || form.condition === "Used"
+      ),
       availableBrands: brands[form.category] || [],
       availableModels: form.brand
         ? models[form.category]?.[form.brand] || []
@@ -128,11 +123,7 @@ export default function AddMarketplaceProduct() {
       imageCount: images.files.length,
       apiUrl: import.meta.env.VITE_API_URL || "/api/marketplace"
     };
-  }, [
-    form,
-    images.files.length,
-    currentPlan
-  ]);
+  }, [form, images.files.length, currentPlan]);
 
   /* ---------------- HANDLERS ---------------- */
 
@@ -152,26 +143,14 @@ export default function AddMarketplaceProduct() {
     [handleChange]
   );
 
-  const handleSubmit = useCallback(
-    (e) => {
-      e.preventDefault();
-      setUi((prev) => ({ ...prev, showPreview: true }));
-    },
-    []
-  );
-
-  const confirmPublish = useCallback(async () => {
-    setUi((prev) => ({ ...prev, showPreview: false }));
-
-    if (form.promoted && currentPlan?.price > 0) {
-      setUi((prev) => ({ ...prev, showPayment: true }));
-    } else {
-      await finalPublish();
-    }
-  }, [form.promoted, currentPlan]);
+  const handleSubmit = useCallback((e) => {
+    e.preventDefault();
+    setUi((prev) => ({ ...prev, showPreview: true }));
+  }, []);
 
   const finalPublish = useCallback(async () => {
     setUi((prev) => ({ ...prev, loading: true }));
+
     try {
       const token = await getAccessTokenSilently();
 
@@ -195,53 +174,74 @@ export default function AddMarketplaceProduct() {
     }
   }, [form, computed.apiUrl, getAccessTokenSilently]);
 
+  const confirmPublish = useCallback(async () => {
+    setUi((prev) => ({ ...prev, showPreview: false }));
+
+    if (form.promoted && currentPlan?.price > 0) {
+      setUi((prev) => ({ ...prev, showPayment: true }));
+    } else {
+      await finalPublish();
+    }
+  }, [form.promoted, currentPlan, finalPublish]);
+
   /* ---------------- RENDER ---------------- */
 
   return (
-    <div style={{ width: "95%", maxWidth: "800px", margin: "0 auto" }}>
-      <h1>🚀 Post New Marketplace Product</h1>
+    <div className="marketplace-form">
+      <h1 className="form-title">🚀 Post New Marketplace Product</h1>
 
       <form onSubmit={handleSubmit}>
+        <div className="step-content-wrapper">
+          <ProductDetailsSection
+            form={form}
+            ui={ui}
+            computed={computed}
+            handleChange={handleChange}
+          />
 
-        <ProductDetailsSection
-          form={form}
-          ui={ui}
-          computed={computed}
-          handleChange={handleChange}
-        />
+          <PricingBoostSection
+            form={form}
+            computed={computed}
+            handleChange={handleChange}
+            handlePriceInput={handlePriceInput}
+          />
 
-        <PricingBoostSection
-          form={form}
-          computed={computed}
-          handleChange={handleChange}
-          handlePriceInput={handlePriceInput}
-        />
+          <DescriptionMediaSection
+            form={form}
+            images={images}
+            setImages={setImages}
+            fileInputRef={fileInputRef}
+            ui={ui}
+          />
 
-        <DescriptionMediaSection
-          form={form}
-          images={images}
-          setImages={setImages}
-          fileInputRef={fileInputRef}
-          ui={ui}
-        />
+          <DeliveryContactSection
+            form={form}
+            deliveryForm={deliveryForm}
+            setDeliveryForm={setDeliveryForm}
+            ui={ui}
+            handleChange={handleChange}
+          />
+        </div>
 
-        <DeliveryContactSection
-          form={form}
-          deliveryForm={deliveryForm}
-          setDeliveryForm={setDeliveryForm}
-          ui={ui}
-          handleChange={handleChange}
-        />
-
-        <button type="submit">
-          🚀 Preview & Publish
-        </button>
+        <div className="step-actions">
+          <button
+            type="submit"
+            className="btn btn-primary"
+            disabled={ui.loading}
+          >
+            🚀 Preview & Publish
+          </button>
+        </div>
       </form>
 
       {ui.showPreview && (
-        <div>
+        <div className="preview-modal">
           <h3>Preview</h3>
-          <button onClick={confirmPublish}>
+
+          <button
+            onClick={confirmPublish}
+            className="btn btn-success-large"
+          >
             {form.promoted && currentPlan?.price > 0
               ? "💳 Pay & Publish"
               : "✅ Publish Now"}
