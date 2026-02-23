@@ -96,7 +96,7 @@ const initializeForm = (user) => ({
 const initializeDeliveryForm = () => ({
   state: "",
   city: "",
-  method: "Courier",
+  method: "",
   from: "",
   to: "",
   chargeFee: false,
