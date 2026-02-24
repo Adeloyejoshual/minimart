@@ -1,5 +1,5 @@
 // src/components/AddProduct/DescriptionMediaSection.jsx
-// v21 FINAL - 10/10 PRODUCTION CERTIFIED
+// v23 - SMALLER IMAGES + ADD MORE BUTTON
 
 import React, { useEffect, useCallback } from "react";
 
@@ -11,7 +11,6 @@ export default function DescriptionMediaSection({
   errors,
   touched
 }) {
-  // ✅ PERFECT MEMORY SAFETY
   useEffect(() => {
     return () => images.previews.forEach(url => URL.revokeObjectURL(url));
   }, [images.previews]);
@@ -34,10 +33,8 @@ export default function DescriptionMediaSection({
 
     const previews = validFiles.map(file => URL.createObjectURL(file));
     
-    // ✅ SURFACE ERRORS TO PARENT (10/10 fix)
     if (validationErrors.length > 0) {
       console.warn('File validation errors:', validationErrors);
-      // Parent's validateField("images") will catch count/size anyway
     }
     
     onImagesChange({
@@ -62,9 +59,11 @@ export default function DescriptionMediaSection({
   
   const imageCountClass = images.files.length === 0 
     ? 'border-red-500 ring-2 ring-red-200' 
-    : images.files.length > 10 
+    : images.files.length >= 10 
     ? 'border-orange-500 ring-2 ring-orange-200'
     : 'border-gray-300';
+
+  const remainingSlots = 10 - images.files.length;
 
   return (
     <section className="space-y-6 p-8 bg-white/50 backdrop-blur-xl rounded-3xl border border-white/50 shadow-2xl">
@@ -72,6 +71,7 @@ export default function DescriptionMediaSection({
         📝 Description & Media
       </h2>
 
+      {/* DESCRIPTION */}
       <div className="form-group space-y-2">
         <label htmlFor="field-description" className="block text-sm font-medium text-gray-700">
           Description *
@@ -93,6 +93,7 @@ export default function DescriptionMediaSection({
         )}
       </div>
 
+      {/* IMAGES */}
       <div className="form-group space-y-2">
         <label htmlFor="field-images" className="block text-sm font-medium text-gray-700">
           Product Images * (Max 10, 5MB each)
@@ -100,39 +101,61 @@ export default function DescriptionMediaSection({
         <input
           id="field-images"
           type="file"
-          multiple
+          multiple={remainingSlots > 1}
           accept="image/*"
           onChange={handleImageSelect}
-          className={`w-full px-4 py-3 border ${imageCountClass} rounded-xl file:mr-4 file:py-2 file:px-4 file:rounded-xl file:border-0 file:text-sm file:font-semibold file:bg-blue-50 file:text-blue-700 hover:file:bg-blue-100 transition-all`}
+          disabled={images.files.length >= 10}
+          className={`w-full px-4 py-3 border rounded-xl file:mr-4 file:py-2 file:px-4 file:rounded-xl file:border-0 file:text-sm file:font-semibold file:bg-blue-50 file:text-blue-700 hover:file:bg-blue-100 transition-all disabled:cursor-not-allowed disabled:bg-gray-50 disabled:text-gray-400 ${imageCountClass}`}
         />
-        <p className="text-sm text-gray-500">{images.files.length}/10 images • {totalSizeMB}MB</p>
+        <p className="text-sm text-gray-500">
+          {images.files.length}/10 images • {totalSizeMB}MB 
+          {remainingSlots > 0 && ` • +${remainingSlots} more`}
+        </p>
         {touched?.images && errors?.images && (
           <p className="text-sm text-red-600" role="alert">{errors.images}</p>
         )}
       </div>
 
+      {/* 🔥 SMALLER IMAGE PREVIEWS + ADD MORE BUTTON */}
       {images.previews.length > 0 && (
-        <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-4">
-          {images.previews.map((src, index) => (
-            <div key={index} className="relative group">
-              <img
-                src={src}
-                alt={`Preview ${index + 1}`}
-                className="w-full h-24 object-cover rounded-xl shadow-md hover:shadow-xl transition-all duration-200 group-hover:scale-[1.02]"
-              />
-              <button
-                type="button"
-                onClick={() => removeImage(index)}
-                className="absolute -top-2 -right-2 bg-red-500 hover:bg-red-600 text-white text-xs w-6 h-6 rounded-full flex items-center justify-center shadow-lg hover:shadow-xl transition-all duration-200 opacity-0 group-hover:opacity-100"
-                aria-label={`Remove image ${index + 1}`}
+        <div className="space-y-4">
+          {/* Image Grid */}
+          <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-3">
+            {images.previews.map((src, index) => (
+              <div key={index} className="relative group aspect-square rounded-xl overflow-hidden shadow-md hover:shadow-xl transition-all duration-200">
+                <img
+                  src={src}
+                  alt={`Preview ${index + 1}`}
+                  className="w-full h-full object-cover group-hover:scale-[1.05] transition-transform duration-200"
+                />
+                <button
+                  type="button"
+                  onClick={() => removeImage(index)}
+                  className="absolute -top-2 -right-2 bg-red-500 hover:bg-red-600 text-white text-xs w-5 h-5 rounded-full flex items-center justify-center shadow-lg hover:shadow-xl transition-all duration-200 opacity-0 group-hover:opacity-100 z-10"
+                  aria-label={`Remove image ${index + 1}`}
+                >
+                  ×
+                </button>
+              </div>
+            ))}
+          </div>
+
+          {/* 🔥 ADD MORE BUTTON */}
+          {remainingSlots > 0 && (
+            <div className="flex justify-center">
+              <label
+                htmlFor="field-images"
+                className="flex items-center justify-center gap-2 px-6 py-3 bg-gradient-to-r from-blue-500 to-blue-600 text-white font-semibold rounded-xl hover:from-blue-600 hover:to-blue-700 shadow-lg hover:shadow-xl transition-all duration-300 cursor-pointer w-full sm:w-auto"
               >
-                ×
-              </button>
+                <span className="text-lg">+</span>
+                Add {remainingSlots > 1 ? `${remainingSlots} more` : '1 more'} image{remainingSlots > 1 ? 's' : ''}
+              </label>
             </div>
-          ))}
+          )}
         </div>
       )}
 
+      {/* VIDEO LINK */}
       <div className="form-group space-y-2">
         <label htmlFor="field-video_link" className="block text-sm font-medium text-gray-700">
           Video Link (Optional)
@@ -142,7 +165,7 @@ export default function DescriptionMediaSection({
           type="url"
           value={form.video_link}
           onChange={(e) => onFieldChange("video_link", e.target.value)}
-          className="w-full px-4 py-3 border border-gray-300 rounded-xl focus:ring-4 focus:ring-blue-500 focus:border-blue-500 transition-all"
+          className="w-full px-4 py-3 border border-gray-300 rounded-xl focus:ring-4 focus:ring-blue-500 focus:border-blue-500 transition-all hover:border-gray-400"
           placeholder="https://youtube.com/watch?v=... or https://tiktok.com/..."
         />
         <p className="text-xs text-gray-500">YouTube, TikTok, Instagram Reels supported</p>
