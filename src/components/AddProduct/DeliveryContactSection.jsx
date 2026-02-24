@@ -1,5 +1,5 @@
 // src/components/AddProduct/DeliveryContactSection.jsx
-// v21 FINAL - ALL BUGS FIXED, CONTRACT PERFECT
+// v22 - GLOBAL PHONE + MODAL SUPPORT + NO NIGERIAN RESTRICTIONS
 
 import React from "react";
 
@@ -8,17 +8,15 @@ export default function DeliveryContactSection({
   deliveryForm,
   onFieldChange,
   onDeliveryChange,
+  openSelectionModal,  // 🔥 NEW: Modal support
+  locationsByState,    // 🔥 NEW: For state/city modals
   errors,
   touched
 }) {
   const showDeliveryFee = ["delivery", "both"].includes(deliveryForm.method);
   
-  // ✅ FIXED PHONE REGEX - Nigerian mobile numbers
-  const normalizedPhone = form.phone_number?.replace(/\D/g, '');
-
-const isValidPhone =
-  normalizedPhone &&
-  /^(?:234|0)?[789]\d{9}$/.test(normalizedPhone);
+  // 🔥 REMOVED: All Nigerian phone validation - now global
+  // Just check for reasonable length (7-15 digits)
 
   return (
     <section className="space-y-6 p-8 bg-white/50 backdrop-blur-xl rounded-3xl border border-white/50 shadow-2xl">
@@ -26,48 +24,68 @@ const isValidPhone =
         🚚 Delivery & Contact
       </h2>
 
-      {/* LOCATION - PARENT FIELDS */}
+      {/* 🔥 STATE & CITY - NOW WITH MODAL SUPPORT */}
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
         <div className="form-group space-y-2">
-          <label htmlFor="field-state" className="block text-sm font-medium text-gray-700">
+          <label className="block text-sm font-medium text-gray-700">
             State *
           </label>
-          <input
+          <div 
             id="field-state"
-            type="text"
-            value={form.state || ""}
-            onChange={(e) => onFieldChange("state", e.target.value)}
-            className={`w-full px-4 py-3 rounded-xl border transition-all focus:ring-4 focus:ring-orange-500 focus:border-orange-500 ${
-              touched?.state && errors?.state ? 'border-red-500 ring-2 ring-red-200' : 'border-gray-300'
-            }`}
-            placeholder="Lagos"
-          />
+            className="w-full px-4 py-3 rounded-xl border border-gray-300 hover:border-gray-400 group cursor-pointer select-none pr-10 bg-white relative transition-all focus:ring-4 focus:ring-orange-500 focus:border-orange-500"
+            onClick={() => openSelectionModal('state', 
+              Object.entries(locationsByState).map(([state]) => ({ 
+                value: state, 
+                label: state.replace(/_/g, ' ').replace(/\bw/g, l => l.toUpperCase()) 
+              })), 
+              form.state, 
+              'Select State'
+            )}
+            tabIndex={0}
+          >
+            <span className="truncate block h-full py-2">
+              {form.state ? form.state.replace(/_/g, ' ').replace(/\bw/g, l => l.toUpperCase()) : 'Click to select state'}
+            </span>
+            <div className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 group-hover:text-orange-500 transition-all pointer-events-none">
+              ▼
+            </div>
+          </div>
           {touched?.state && errors?.state && (
             <p className="text-sm text-red-600" role="alert">{errors.state}</p>
           )}
         </div>
 
         <div className="form-group space-y-2">
-          <label htmlFor="field-city" className="block text-sm font-medium text-gray-700">
+          <label className="block text-sm font-medium text-gray-700">
             City *
           </label>
-          <input
+          <div 
             id="field-city"
-            type="text"
-            value={form.city || ""}
-            onChange={(e) => onFieldChange("city", e.target.value)}
-            className={`w-full px-4 py-3 rounded-xl border transition-all focus:ring-4 focus:ring-orange-500 focus:border-orange-500 ${
-              touched?.city && errors?.city ? 'border-red-500 ring-2 ring-red-200' : 'border-gray-300'
-            }`}
-            placeholder="Ikeja"
-          />
+            className="w-full px-4 py-3 rounded-xl border border-gray-300 hover:border-gray-400 group cursor-pointer select-none pr-10 bg-white relative transition-all focus:ring-4 focus:ring-orange-500 focus:border-orange-500"
+            onClick={() => openSelectionModal('city', 
+              locationsByState[form.state]?.map(city => ({ 
+                value: city, 
+                label: city.replace(/_/g, ' ').replace(/\bw/g, l => l.toUpperCase()) 
+              })) || [], 
+              form.city, 
+              'Select City'
+            )}
+            tabIndex={0}
+          >
+            <span className="truncate block h-full py-2">
+              {form.city ? form.city.replace(/_/g, ' ').replace(/\bw/g, l => l.toUpperCase()) : 'Click to select city'}
+            </span>
+            <div className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 group-hover:text-orange-500 transition-all pointer-events-none">
+              ▼
+            </div>
+          </div>
           {touched?.city && errors?.city && (
             <p className="text-sm text-red-600" role="alert">{errors.city}</p>
           )}
         </div>
       </div>
 
-      {/* PHONE - ✅ FIXED REGEX + TOUCHED CHECK */}
+      {/* 🔥 PHONE - GLOBAL VALIDATION ONLY (NO NIGERIAN RULES) */}
       <div className="form-group space-y-2">
         <label htmlFor="field-phone_number" className="block text-sm font-medium text-gray-700">
           Phone Number *
@@ -80,41 +98,51 @@ const isValidPhone =
           className={`w-full px-4 py-3 rounded-xl border transition-all focus:ring-4 focus:ring-green-500 focus:border-green-500 ${
             touched?.phone_number && errors?.phone_number
               ? 'border-red-500 ring-2 ring-red-200'
-              : touched?.phone_number && form.phone_number && !isValidPhone
-              ? 'border-orange-500 ring-2 ring-orange-200'
-              : form.phone_number && isValidPhone
-              ? 'border-green-300 ring-1 ring-green-200'
-              : 'border-gray-300'
+              : 'border-gray-300 hover:border-gray-400'
           }`}
-          placeholder="08012345678 or +2348012345678"
+          placeholder="Enter phone number (+1234567890 or 08012345678)"
         />
         {touched?.phone_number && errors?.phone_number && (
           <p className="text-sm text-red-600" role="alert">{errors.phone_number}</p>
         )}
-        {touched?.phone_number && form.phone_number && !isValidPhone && (
-          <p className="text-sm text-orange-600">Enter valid Nigerian number (080, 070, 090, 234)</p>
-        )}
+        {/* 🔥 REMOVED: Nigerian-specific warning - now global */}
       </div>
 
-      {/* DELIVERY - ✅ FIXED onDeliveryChange OBJECT FORMAT */}
+      {/* DELIVERY METHOD - MODAL STYLE */}
       <div className="form-group space-y-2">
-        <label htmlFor="field-delivery_method" className="block text-sm font-medium text-gray-700">
+        <label className="block text-sm font-medium text-gray-700">
           Delivery Method
         </label>
-        <select
-          id="field-delivery_method"
-          value={deliveryForm.method || ""}
-          onChange={(e) => onDeliveryChange({ method: e.target.value })}  // ✅ FIXED: Object format
-          className="w-full px-4 py-3 border border-gray-300 rounded-xl focus:ring-4 focus:ring-orange-500 focus:border-orange-500"
-        >
-          <option value="">Select delivery method</option>
-          <option value="pickup">🏠 Pickup Only</option>
-          <option value="delivery">🚚 Delivery Only</option>
-          <option value="both">📦 Pickup & Delivery</option>
-        </select>
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+          {[
+            { value: 'pickup', label: '🏠 Pickup Only', desc: 'Local pickup' },
+            { value: 'delivery', label: '🚚 Delivery Only', desc: 'Ship anywhere' },
+            { value: 'both', label: '📦 Pickup & Delivery', desc: 'Customer choice' }
+          ].map(option => (
+            <label
+              key={option.value}
+              className={`flex flex-col p-4 border-2 rounded-xl cursor-pointer hover:shadow-lg transition-all group ${
+                deliveryForm.method === option.value
+                  ? 'border-orange-500 bg-orange-50 shadow-lg ring-2 ring-orange-200'
+                  : 'border-gray-200 hover:border-orange-300'
+              }`}
+            >
+              <input
+                type="radio"
+                name="delivery_method"
+                value={option.value}
+                checked={deliveryForm.method === option.value}
+                onChange={() => onDeliveryChange({ method: option.value })}
+                className="sr-only"
+              />
+              <span className="font-semibold text-lg group-hover:text-orange-600">{option.label}</span>
+              <span className="text-sm text-gray-600">{option.desc}</span>
+            </label>
+          ))}
+        </div>
       </div>
 
-      {/* DELIVERY FEE - ✅ FIXED onDeliveryChange OBJECT FORMAT */}
+      {/* DELIVERY FEE */}
       {showDeliveryFee && (
         <div className="form-group space-y-2">
           <label htmlFor="field-delivery_fee" className="block text-sm font-medium text-gray-700">
@@ -126,15 +154,18 @@ const isValidPhone =
             min="0"
             step="100"
             value={deliveryForm.fee || ""}
-            onChange={(e) => onDeliveryChange({ fee: e.target.value })}  // ✅ FIXED: Object format
-            className="w-full px-4 py-3 border border-gray-300 rounded-xl focus:ring-4 focus:ring-orange-500 focus:border-orange-500"
+            onChange={(e) => onDeliveryChange({ fee: e.target.value })}
+            className="w-full px-4 py-3 border border-gray-300 hover:border-gray-400 rounded-xl focus:ring-4 focus:ring-orange-500 focus:border-orange-500"
             placeholder="500 - 5000"
           />
           <p className="text-xs text-gray-500">Enter flat delivery fee (0 for free)</p>
+          {touched?.delivery_fee && errors?.delivery_fee && (
+            <p className="text-sm text-red-600">{errors.delivery_fee}</p>
+          )}
         </div>
       )}
 
-      {/* WHATSAPP - Safe fallback */}
+      {/* WHATSAPP */}
       <div className="pt-4 border-t border-gray-200">
         <label className="flex items-center space-x-3 p-4 border border-emerald-200 rounded-xl hover:border-emerald-300 bg-emerald-50 cursor-pointer group transition-all">
           <input
