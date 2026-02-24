@@ -19,7 +19,7 @@ import { models } from "../../config/models";
 import { sims } from "../../config/sim";
 import { years } from "../../config/years";
 import Toast from "../../components/Toast";
-import "./AddMProduct.css";
+import "./AddProduct.css";
 
 const DRAFT_KEY = "marketplace_product_draft";
 
