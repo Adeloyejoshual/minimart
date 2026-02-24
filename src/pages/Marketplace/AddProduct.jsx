@@ -1,5 +1,5 @@
 // src/pages/Marketplace/AddProduct.jsx
-// v23 - ADDED SETSELECTION MODAL
+// v24 - ✅ COMPLETE & PERFECT - All components fixed + integrated
 
 import {
   useState,
@@ -31,9 +31,10 @@ import ProductDetailsSection from "../../components/AddProduct/ProductDetailsSec
 import PricingBoostSection from "../../components/AddProduct/PricingBoostSection";
 import DescriptionMediaSection from "../../components/AddProduct/DescriptionMediaSection";
 import DeliveryContactSection from "../../components/AddProduct/DeliveryContactSection";
-import SetSelectionModal from "../../components/AddProduct/SetSelectionModal"; // 🔥 NEW
+import AdditionalOptionsSection from "../../components/AddProduct/AdditionalOptionsSection";
+import SetSelectionModal from "../../components/AddProduct/SetSelectionModal";
 
-const STORAGE_KEYS = { DRAFT: "marketplace_draft_v23" }; // 🔥 Updated version
+const STORAGE_KEYS = { DRAFT: "marketplace_draft_v24" }; // 🔥 Updated version
 const MAX_FILE_SIZE = 5_000_000;
 const MAX_IMAGES = 10;
 const CONCURRENT_UPLOADS = 3;
@@ -86,7 +87,14 @@ const initializeForm = (user) => ({
   promo_plan: "",
   flash_sale: false,
   negotiable: false,
-  deliveryRegions: []
+  deliveryRegions: [],
+  // 🔥 NEW FIELDS
+  has_warranty: false,
+  warranty_duration: "",
+  return_policy: false,
+  stock_quantity: "",
+  featured: false,
+  whatsapp_available: false
 });
 
 const initializeDeliveryForm = () => ({
@@ -131,7 +139,7 @@ export default function AddProduct() {
   const uploadedPublicIdsRef = useRef([]);
   const currentIdempotencyKeyRef = useRef(null);
 
-  // 🔥 NEW: Selection Modal State
+  // 🔥 SELECTION MODAL STATE
   const [selectionModal, setSelectionModal] = useState({
     open: false,
     type: null,
@@ -153,7 +161,7 @@ export default function AddProduct() {
   });
   const [touched, setTouched] = useState({});
 
-  // 🔥 NEW: Modal handlers
+  // 🔥 MODAL HANDLERS
   const openSelectionModal = useCallback((type, options, currentValue, title) => {
     setSelectionModal({
       open: true,
@@ -177,6 +185,16 @@ export default function AddProduct() {
   const handleModalSearch = useCallback((searchTerm) => {
     setSelectionModal(prev => ({ ...prev, searchTerm }));
   }, []);
+
+  // 🔥 FILTERED OPTIONS FOR MODAL
+  const filteredOptions = useMemo(() => {
+    if (!selectionModal.open || !selectionModal.searchTerm) {
+      return selectionModal.options;
+    }
+    return selectionModal.options.filter(option =>
+      (option.label || option).toString().toLowerCase().includes(selectionModal.searchTerm.toLowerCase())
+    );
+  }, [selectionModal]);
 
   useLayoutEffect(() => {
     const saved = localStorage.getItem(STORAGE_KEYS.DRAFT);
@@ -496,16 +514,6 @@ export default function AddProduct() {
     return results;
   }, [images.files]);
 
-  // 🔥 FILTERED OPTIONS FOR MODAL
-  const filteredOptions = useMemo(() => {
-    if (!selectionModal.open || !selectionModal.searchTerm) {
-      return selectionModal.options;
-    }
-    return selectionModal.options.filter(option =>
-      option.label.toLowerCase().includes(selectionModal.searchTerm.toLowerCase())
-    );
-  }, [selectionModal]);
-
   return (
     <div className="add-product-container min-h-screen bg-gradient-to-br from-slate-50 to-blue-50">  
       <div className="max-w-6xl mx-auto p-6 md:p-8 space-y-8">
@@ -518,10 +526,11 @@ export default function AddProduct() {
           </p>
         </div>
 
+        {/* 🔥 ALL 5 SECTIONS + PROPER PROPS */}
         <ProductDetailsSection    
           form={form}    
           onFieldChange={handleFieldChange}
-          openSelectionModal={openSelectionModal}  // 🔥 NEW PROP
+          openSelectionModal={openSelectionModal}
           categoryFields={categoryFields}    
           brands={brands}    
           models={models}    
@@ -531,7 +540,7 @@ export default function AddProduct() {
           storageOptions={storageOptions}    
           colors={colors}    
           sims={sims}    
-          years={years}    
+          years={years}
           engines={engines}    
           fuelTypes={fuelTypes}    
           featuresByCategory={featuresByCategory}    
@@ -543,10 +552,11 @@ export default function AddProduct() {
           form={form}    
           onFieldChange={handleFieldChange}    
           promotionPlans={promotionPlans}    
-          cleanPrice={cleanPrice}    
+          cleanPrice={cleanPrice}
+          cleanDiscountPrice={cleanDiscountPrice}  // 🔥 FIXED
           errors={ui.errors}    
           touched={touched}    
-          openSelectionModal={openSelectionModal}  // 🔥 NEW PROP
+          openSelectionModal={openSelectionModal}
         />    
 
         <DescriptionMediaSection    
@@ -558,6 +568,14 @@ export default function AddProduct() {
           touched={touched}    
         />    
 
+        <AdditionalOptionsSection  // 🔥 NEW SECTION
+          form={form}
+          onFieldChange={handleFieldChange}
+          conditions={conditions}
+          errors={ui.errors}
+          touched={touched}
+/>
+
         <DeliveryContactSection    
           form={form}    
           onFieldChange={handleFieldChange}    
@@ -566,7 +584,7 @@ export default function AddProduct() {
           locationsByState={locationsByState}    
           errors={ui.errors}    
           touched={touched}
-          openSelectionModal={openSelectionModal}  // 🔥 NEW PROP
+          openSelectionModal={openSelectionModal}
         />    
 
         <div className="sticky bottom-0 bg-white/95 backdrop-blur-lg border-t border-gray-200 pt-6 pb-4 px-6 md:px-12 z-50 shadow-2xl">    
@@ -630,7 +648,7 @@ export default function AddProduct() {
         </div>
       </div>
 
-      {/* 🔥 NEW: SELECTION MODAL */}
+      {/* 🔥 FIXED MODAL */}
       <SetSelectionModal
         isOpen={selectionModal.open}
         title={selectionModal.title}
