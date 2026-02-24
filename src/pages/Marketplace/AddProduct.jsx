@@ -1,5 +1,5 @@
 // src/pages/Marketplace/AddProduct.jsx
-// v22 - REMOVED PHONE VALIDATION + CSS SUPPORT
+// v23 - ADDED SETSELECTION MODAL
 
 import {
   useState,
@@ -10,9 +10,8 @@ import {
   useLayoutEffect
 } from "react";
 import { useAuth0 } from "@auth0/auth0-react";
-import "./AddProduct.css"; // 🔥 ADDED: Dedicated CSS module
+import "./AddProduct.css";
 
-/* ---------------- CONFIG ---------------- */
 import { categoryFields } from "../../config/categoryFields";
 import { conditions, usedDetails } from "../../config/conditions";
 import { ramOptions } from "../../config/ram";
@@ -28,26 +27,22 @@ import { models } from "../../config/models";
 import { sims } from "../../config/sim";
 import { years } from "../../config/years";
 
-/* ---------------- SECTIONS ---------------- */
 import ProductDetailsSection from "../../components/AddProduct/ProductDetailsSection";
 import PricingBoostSection from "../../components/AddProduct/PricingBoostSection";
 import DescriptionMediaSection from "../../components/AddProduct/DescriptionMediaSection";
 import DeliveryContactSection from "../../components/AddProduct/DeliveryContactSection";
+import SetSelectionModal from "../../components/AddProduct/SetSelectionModal"; // 🔥 NEW
 
-/* ---------------- CONSTANTS ---------------- */
-const STORAGE_KEYS = { DRAFT: "marketplace_draft_v22" }; // 🔥 Updated version
+const STORAGE_KEYS = { DRAFT: "marketplace_draft_v23" }; // 🔥 Updated version
 const MAX_FILE_SIZE = 5_000_000;
 const MAX_IMAGES = 10;
 const CONCURRENT_UPLOADS = 3;
 const QUEUE_TIMEOUT = 15000;
 const MAX_PRICE = 999_999_999_999;
 
-// 🔥 REMOVED: NIGERIAN_PHONE_REGEX
-
 const apiUrl = import.meta.env.VITE_API_URL || "/api/marketplace";
 const cloudinaryUrl = `https://api.cloudinary.com/v1_1/${import.meta.env.VITE_CLOUDINARY_CLOUD_NAME}/image/upload`;
 
-/* ---------------- UTILS ---------------- */
 const extractDigits = (value = "") => value.replace(/[^d]/g, "");
 
 const initializeForm = (user) => ({
@@ -80,7 +75,7 @@ const initializeForm = (user) => ({
   experience_level: "",
   skills: [],
   education: "",
-  phone_number: user?.phone_number || "", // 🔥 Still kept in form but no validation
+  phone_number: user?.phone_number || "",
   additional_phone: "",
   poster_name: user?.name || "",
   state: "",
@@ -106,7 +101,6 @@ const initializeDeliveryForm = () => ({
   warehouseAddress: ""
 });
 
-/* ---------------- FIXED IDEMPOTENCY ---------------- */
 const generateIdempotencyKey = async (form, images, userId) => {
   const fileSignature = images.files
     .map(f => `${f.name}-${f.size}`)
@@ -126,8 +120,6 @@ const generateIdempotencyKey = async (form, images, userId) => {
     .slice(0, 32)}`;
 };
 
-/* ===================================================== */
-
 export default function AddProduct() {
   const { user, getAccessTokenSilently } = useAuth0();
 
@@ -138,6 +130,16 @@ export default function AddProduct() {
   const validationTimeoutRef = useRef(null);
   const uploadedPublicIdsRef = useRef([]);
   const currentIdempotencyKeyRef = useRef(null);
+
+  // 🔥 NEW: Selection Modal State
+  const [selectionModal, setSelectionModal] = useState({
+    open: false,
+    type: null,
+    options: [],
+    title: '',
+    value: '',
+    searchTerm: ''
+  });
 
   // State
   const [form, setForm] = useState(() => initializeForm(user));
@@ -151,7 +153,31 @@ export default function AddProduct() {
   });
   const [touched, setTouched] = useState({});
 
-  /* ---------------- DRAFT PERSISTENCE ---------------- */
+  // 🔥 NEW: Modal handlers
+  const openSelectionModal = useCallback((type, options, currentValue, title) => {
+    setSelectionModal({
+      open: true,
+      type,
+      options,
+      title,
+      value: currentValue,
+      searchTerm: ''
+    });
+  }, []);
+
+  const closeSelectionModal = useCallback(() => {
+    setSelectionModal(prev => ({ ...prev, open: false }));
+  }, []);
+
+  const handleModalSelect = useCallback((value) => {
+    handleFieldChange(selectionModal.type, value);
+    closeSelectionModal();
+  }, [selectionModal.type, handleFieldChange, closeSelectionModal]);
+
+  const handleModalSearch = useCallback((searchTerm) => {
+    setSelectionModal(prev => ({ ...prev, searchTerm }));
+  }, []);
+
   useLayoutEffect(() => {
     const saved = localStorage.getItem(STORAGE_KEYS.DRAFT);
     if (saved) {
@@ -173,7 +199,6 @@ export default function AddProduct() {
     );
   }, [form, deliveryForm, touched]);
 
-  /* ---------------- CLEANUP ---------------- */
   useEffect(() => {
     return () => {
       abortControllerRef.current?.abort();
@@ -184,7 +209,6 @@ export default function AddProduct() {
     };
   }, []);
 
-  /* ---------------- COMPUTED VALUES ---------------- */
   const cleanPrice = useMemo(() => {
     const n = Number(extractDigits(form.price));
     return n > 0 && n <= MAX_PRICE ? n : 0;
@@ -195,7 +219,6 @@ export default function AddProduct() {
     return n > 0 && n <= cleanPrice ? n : 0;
   }, [form.discount_price, cleanPrice]);
 
-  /* ---------------- VALIDATION ENGINE ---------------- */
   const isEmptyValue = useCallback((value) => {
     if (value === undefined || value === null) return true;
     if (typeof value === "string") return !value.trim();
@@ -210,8 +233,6 @@ export default function AddProduct() {
 
   const validateField = useCallback((field, value) => {
     const errors = {};
-
-    // 🔥 REMOVED: phone_number validation
 
     if (field === "price" && !cleanPrice) {
       errors.price = "Price is required";
@@ -234,14 +255,10 @@ export default function AddProduct() {
 
     if (isEmptyValue(form.title)) errors.title = "Product title required";
     if (isEmptyValue(form.category)) errors.category = "Select category";
-
-    // 🔥 REMOVED: phone_number validation completely
-
     if (isEmptyValue(form.state)) errors.state = "Select state";
     if (isEmptyValue(form.city)) errors.city = "City required";
     if (!cleanPrice) errors.price = "Valid price required";
 
-    // Category-specific validation
     const requiredFields = getCategoryRules(form.category);
     requiredFields.forEach(field => {
       if (isEmptyValue(form[field])) {
@@ -259,7 +276,6 @@ export default function AddProduct() {
     return errors;
   }, [form, deliveryForm, cleanPrice, images.files.length, isEmptyValue, getCategoryRules]);
 
-  /* ---------------- CLEANUP FUNCTION ---------------- */
   const cleanupUploads = useCallback(async () => {
     if (!uploadedPublicIdsRef.current.length) return;
 
@@ -282,7 +298,6 @@ export default function AddProduct() {
     uploadedPublicIdsRef.current = [];
   }, [apiUrl, getAccessTokenSilently]);
 
-  /* ---------------- EVENT HANDLERS ---------------- */
   const handleFieldChange = useCallback((field, value) => {
     setForm(prev => ({ ...prev, [field]: value }));
     setTouched(prev => ({ ...prev, [field]: true }));
@@ -322,7 +337,6 @@ export default function AddProduct() {
     setDeliveryForm(prev => ({ ...prev, ...updates }));
   }, []);
 
-  /* ---------------- BULLETPROOF PUBLISH ---------------- */
   const handlePublish = useCallback(async () => {
     if (publishLockRef.current || ui.loading) return;
 
@@ -435,7 +449,6 @@ export default function AddProduct() {
     }
   }, [form, deliveryForm, cleanPrice, cleanDiscountPrice, images, ui.loading, user, validateForm, cleanupUploads]);
 
-  /* ---------------- FIXED IMAGE UPLOAD ---------------- */
   const uploadImages = useCallback(async () => {
     if (!images.files.length) return { urls: [], publicIds: [] };
 
@@ -483,11 +496,19 @@ export default function AddProduct() {
     return results;
   }, [images.files]);
 
-  /* ---------------- RENDER ---------------- */
+  // 🔥 FILTERED OPTIONS FOR MODAL
+  const filteredOptions = useMemo(() => {
+    if (!selectionModal.open || !selectionModal.searchTerm) {
+      return selectionModal.options;
+    }
+    return selectionModal.options.filter(option =>
+      option.label.toLowerCase().includes(selectionModal.searchTerm.toLowerCase())
+    );
+  }, [selectionModal]);
+
   return (
     <div className="add-product-container min-h-screen bg-gradient-to-br from-slate-50 to-blue-50">  
       <div className="max-w-6xl mx-auto p-6 md:p-8 space-y-8">
-        {/* Header */}
         <div className="text-center pb-8">
           <h1 className="text-4xl md:text-5xl font-bold bg-gradient-to-r from-blue-600 to-purple-600 bg-clip-text text-transparent mb-4">
             Add New Product
@@ -499,7 +520,8 @@ export default function AddProduct() {
 
         <ProductDetailsSection    
           form={form}    
-          onFieldChange={handleFieldChange}    
+          onFieldChange={handleFieldChange}
+          openSelectionModal={openSelectionModal}  // 🔥 NEW PROP
           categoryFields={categoryFields}    
           brands={brands}    
           models={models}    
@@ -524,6 +546,7 @@ export default function AddProduct() {
           cleanPrice={cleanPrice}    
           errors={ui.errors}    
           touched={touched}    
+          openSelectionModal={openSelectionModal}  // 🔥 NEW PROP
         />    
 
         <DescriptionMediaSection    
@@ -542,10 +565,10 @@ export default function AddProduct() {
           onDeliveryChange={handleDeliveryChange}    
           locationsByState={locationsByState}    
           errors={ui.errors}    
-          touched={touched}    
+          touched={touched}
+          openSelectionModal={openSelectionModal}  // 🔥 NEW PROP
         />    
 
-        {/* Sticky Action Bar */}    
         <div className="sticky bottom-0 bg-white/95 backdrop-blur-lg border-t border-gray-200 pt-6 pb-4 px-6 md:px-12 z-50 shadow-2xl">    
           {ui.submitError && (    
             <div className="mb-6 p-4 bg-orange-50 border-2 border-orange-200 rounded-2xl text-orange-800 text-sm animate-pulse">    
@@ -605,7 +628,19 @@ export default function AddProduct() {
             </div>    
           )}    
         </div>
-      </div>    
+      </div>
+
+      {/* 🔥 NEW: SELECTION MODAL */}
+      <SetSelectionModal
+        isOpen={selectionModal.open}
+        title={selectionModal.title}
+        options={filteredOptions}
+        value={selectionModal.value}
+        searchTerm={selectionModal.searchTerm}
+        onSearch={handleModalSearch}
+        onSelect={handleModalSelect}
+        onClose={closeSelectionModal}
+      />
     </div>
   );
 }
