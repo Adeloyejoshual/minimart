@@ -1,6 +1,5 @@
-
 // src/components/AddProduct/ProductDetailsSection.jsx
-// v24 - FIXED: No duplicates + RAM modal works
+// v25 - ✅ FIXED: Works with flat config arrays
 
 import React, { useCallback, useMemo } from "react";
 
@@ -13,7 +12,7 @@ export default function ProductDetailsSection({
   models,
   conditions,
   usedDetails,
-  ramOptions,  // 🔥 Now properly passed as category-specific
+  ramOptions,
   storageOptions,
   colors,
   sims,
@@ -24,41 +23,39 @@ export default function ProductDetailsSection({
   errors,
   touched
 }) {
-  // 🔥 FIXED: Get ALL options including category-specific
+  // 🔥 FIXED: Works with your FLAT config arrays
   const allOptions = useMemo(() => ({
     condition: conditions,
     used_detail: usedDetails,
-    ram: ramOptions[form.category] || ramOptions.default || [],  // 🔥 Category-specific RAM
-    storage: storageOptions[form.category] || storageOptions.default || [],
-    color: colors[form.category] || colors.default || [],
-    sim: sims[form.category] || sims.default || [],
+    ram: ramOptions,           // ✅ Flat array works
+    storage: storageOptions,   // ✅ Flat array works
+    color: colors,             // ✅ Flat array works
+    sim: sims,                 // ✅ Flat array works
     year: years,
-    engine: engines[form.category] || engines.default || [],
+    engine: engines,
     fuel_type: fuelTypes,
-    brand: brands[form.category] || [],  // 🔥 Brand options by category
-    model: models[form.category]?.[form.brand] || [],
+    brand: brands[form.category] || Object.values(brands).flat() || [],
+    model: models[form.category]?.[form.brand] || Object.values(models).flat().flat() || [],
     category: Object.keys(categoryFields).map(cat => ({
       value: cat,
       label: cat.replace(/_/g, ' ').replace(/\bw/g, l => l.toUpperCase())
     }))
-  }), [form.category, form.brand, categoryFields, brands, models, ramOptions, storageOptions, colors, sims, engines, fuelTypes]);
+  }), [form.category, form.brand, categoryFields, brands, models, ramOptions, storageOptions, colors, sims, engines, fuelTypes, years]);
 
   const visibleFields = useMemo(() => categoryFields[form.category] || [], [form.category, categoryFields]);
   
-  // 🔥 FIXED: NO DUPLICATES - Only render what's needed
-  const coreFields = useMemo(() => ['title', 'category'], []);
+  const coreFields = ['title', 'category'];
   const specialFields = useMemo(() => {
     const fields = [];
-    if (brands[form.category]?.length > 0) fields.push('brand');
-    if (models[form.category]?.[form.brand]?.length > 0) fields.push('model');
+    if (brands[form.category]?.length > 0 || Object.keys(brands).length > 0) fields.push('brand');
+    if (models[form.category]?.[form.brand]?.length > 0 || Object.keys(models).length > 0) fields.push('model');
     return fields;
   }, [form.category, form.brand, brands, models]);
 
   const categoryOnlyFields = useMemo(() => 
     visibleFields.filter(field => 
       !coreFields.includes(field) && !specialFields.includes(field)
-    ), [visibleFields, coreFields, specialFields]
-  );
+    ), [visibleFields, specialFields]);
 
   const getOptionLabel = useCallback((field, value) => {
     const options = allOptions[field] || [];
@@ -90,7 +87,7 @@ export default function ProductDetailsSection({
         
         {/* 🔥 SPECIAL CASES */}
         {field === "features" ? (
-          <div className="grid grid-cols-2 md:grid-cols-3 gap-3 pt-2">
+          <div className="grid grid-cols-2 md:grid-cols-3 gap-3 pt-2 max-h-48 overflow-y-auto">
             {(featuresByCategory[form.category] || []).map(option => (
               <label key={option} className="flex items-center p-3 rounded-xl hover:bg-gray-50 cursor-pointer group">
                 <input
@@ -109,24 +106,25 @@ export default function ProductDetailsSection({
               </label>
             ))}
           </div>
-        ) : ["year", "ram", "mileage", "bedrooms", "bathrooms"].includes(field) ? (
-          /* Number fields - no modal */
+        ) : ["year", "ram", "mileage", "bedrooms", "bathrooms", "size"].includes(field) ? (
           <input
             id={`field-${field}`}
-            type="number"
-            min="0"
+            type="text"
+            inputMode="numeric"
+            pattern="[0-9]*"
             value={safeValue}
             onChange={(e) => onFieldChange(field, e.target.value)}
             className={`${baseClass.replace('cursor-pointer select-none', 'cursor-auto')} pr-4`}
             placeholder={`Enter ${labelText.toLowerCase()}`}
           />
         ) : hasSelectionOptions ? (
-          /* 🔥 MODAL TRIGGER - Brand, RAM, Colors, etc. */
           <div 
             id={`field-${field}`}
             className={`${baseClass} pr-10 bg-white relative`}
-            onClick={() => openSelectionModal(field, options, safeValue, labelText)}
+            onClick={() => options.length > 0 && openSelectionModal(field, options, safeValue, labelText)}
             tabIndex={0}
+            role="button"
+            aria-label={`Select ${labelText}`}
           >
             <span className="truncate block h-full py-2">
               {getOptionLabel(field, safeValue)}
@@ -136,7 +134,6 @@ export default function ProductDetailsSection({
             </div>
           </div>
         ) : options.length > 0 ? (
-          /* Small native select */
           <select
             id={`field-${field}`}
             value={safeValue}
@@ -176,13 +173,11 @@ export default function ProductDetailsSection({
         📦 Product Details
       </h2>
 
-      {/* 🔥 FIXED: Sequential rendering - NO DUPLICATES */}
       <FieldRenderer field="title" />
       <FieldRenderer field="category" />
       {specialFields.includes('brand') && <FieldRenderer field="brand" />}
       {specialFields.includes('model') && <FieldRenderer field="model" />}
       
-      {/* All other category fields */}
       {categoryOnlyFields.map(field => (
         <FieldRenderer key={field} field={field} />
       ))}
