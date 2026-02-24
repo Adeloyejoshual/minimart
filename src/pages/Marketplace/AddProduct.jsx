@@ -182,9 +182,8 @@ export default function AddMarketplaceProduct() {
     if (!form.category) errors.category = "Select category";
     if (!computed.cleanPrice || computed.cleanPrice <= 0) errors.price = "Valid price required";
 const phonePattern = /^\+?[1-9]\d{1,14}$/;
-
-if (!form.phone_number?.trim() || !phonePattern.test(form.phone_number)) {
-  errors.phone_number = "Enter a valid phone number (e.g. +2348012345678)";
+if (form.additional_phone?.trim() && !phonePattern.test(form.additional_phone)) {
+  errors.additional_phone = "Enter a valid phone number (e.g. +2348012345678)";
 }
     if (!form.state) errors.state = "Select state";
     if (!form.city) errors.city = "Select city";
