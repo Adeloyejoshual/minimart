@@ -181,7 +181,9 @@ export default function AddMarketplaceProduct() {
     if (!form.description?.trim() || form.description.length < 50) errors.description = "Description: 50+ chars required";
     if (!form.category) errors.category = "Select category";
     if (!computed.cleanPrice || computed.cleanPrice <= 0) errors.price = "Valid price required";
-    if (!form.phone_number?.match(/^(+234|0)?[789]d{9}$/)) errors.phone_number = "Valid Nigerian phone required";
+    if (!form.phone_number?.match(/^\+?[1-9]\d{1,14}$/)) {
+  errors.phone_number = "Enter a valid phone number";
+}
     if (!form.state) errors.state = "Select state";
     if (!form.city) errors.city = "Select city";
     if (computed.imageCount === 0) errors.images = "Add 1+ image";
