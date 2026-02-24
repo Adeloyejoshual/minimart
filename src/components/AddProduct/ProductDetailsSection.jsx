@@ -1,7 +1,7 @@
 // src/components/AddProduct/ProductDetailsSection.jsx
-// v21 - PRODUCTION READY, PERFECT PARENT MATCH
+// v22 - FIXED: No state/city, no duplicates, title fixed
 
-import React from "react";
+import React, { useCallback, useMemo } from "react";
 
 export default function ProductDetailsSection({
   form,
@@ -22,12 +22,20 @@ export default function ProductDetailsSection({
   errors,
   touched
 }) {
-  const visibleFields = categoryFields[form.category] || [];
-  const categoryBrands = brands[form.category] || [];
-  const categoryModels = models[form.category]?.[form.brand] || [];
-  const categoryFeatures = featuresByCategory[form.category] || [];
+  // 🔥 FIXED: Memoize to prevent recalculation
+  const visibleFields = useMemo(() => categoryFields[form.category] || [], [form.category, categoryFields]);
+  const categoryBrands = useMemo(() => brands[form.category] || [], [form.category, brands]);
+  const categoryModels = useMemo(() => models[form.category]?.[form.brand] || [], [form.category, form.brand, models]);
+  const categoryFeatures = useMemo(() => featuresByCategory[form.category] || [], [form.category, featuresByCategory]);
 
-  const getFieldOptions = (field) => {
+  // 🔥 FIXED: Deduplicate fields - exclude title, category, brand, model, state, city
+  const categoryOnlyFields = useMemo(() => 
+    visibleFields.filter(field => 
+      !['title', 'category', 'brand', 'model', 'state', 'city'].includes(field)
+    ), [visibleFields]
+  );
+
+  const getFieldOptions = useCallback((field) => {
     const optionsMap = {
       condition: conditions,
       used_detail: usedDetails,
@@ -40,7 +48,7 @@ export default function ProductDetailsSection({
       fuel_type: fuelTypes
     };
     return optionsMap[field] || [];
-  };
+  }, [conditions, usedDetails, ramOptions, storageOptions, colors, sims, years, engines, fuelTypes]);
 
   const FieldRenderer = ({ field, value, options = [], showLabel = true }) => {
     const hasError = touched?.[field] && errors?.[field];
@@ -48,7 +56,7 @@ export default function ProductDetailsSection({
     
     const labelText = field
       .replace(/_/g, " ")
-      .replace(/\b\w/g, l => l.toUpperCase());
+      .replace(/\bw/g, l => l.toUpperCase());
     
     const baseClass = `w-full px-4 py-3 rounded-xl border transition-all focus:ring-4 focus:ring-blue-500 focus:border-blue-500 ${
       hasError ? 'border-red-500 ring-2 ring-red-200' : 'border-gray-300'
@@ -133,9 +141,13 @@ export default function ProductDetailsSection({
         📦 Product Details
       </h2>
 
+      {/* 🔥 FIXED: Title first, stable rendering */}
       <FieldRenderer field="title" value={form.title} options={[]} />
+      
+      {/* 🔥 FIXED: Category second, prevents duplicates */}
       <FieldRenderer field="category" value={form.category} options={Object.keys(categoryFields)} />
 
+      {/* 🔥 FIXED: Conditional brand/model only */}
       {categoryBrands.length > 0 && (
         <FieldRenderer field="brand" value={form.brand} options={categoryBrands} />
       )}
@@ -143,7 +155,8 @@ export default function ProductDetailsSection({
         <FieldRenderer field="model" value={form.model} options={categoryModels} />
       )}
 
-      {visibleFields.map(field => {
+      {/* 🔥 FIXED: Only category-specific fields, no duplicates, no state/city */}
+      {categoryOnlyFields.map(field => {
         if (field === "used_detail" && form.condition !== "Used") return null;
         
         return (
@@ -155,9 +168,6 @@ export default function ProductDetailsSection({
           />
         );
       })}
-
-      <FieldRenderer field="state" value={form.state} options={[]} />
-      <FieldRenderer field="city" value={form.city} options={[]} />
     </section>
   );
 }
