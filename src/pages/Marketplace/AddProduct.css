@@ -1,90 +1,190 @@
-/* AddProduct.css - EXTRACTED FROM v1 STYLES */
-.container { width: 95%; max-width: 800px; margin: 0 auto; padding: 20px; box-sizing: border-box; }
-.section { 
-  border: 2px solid #007BFF; border-radius: 12px; padding: 20px; margin-bottom: 20px; 
-  background: #E6F0FF; width: 100%; max-width: 800px; box-sizing: border-box; 
-}
-.title { text-align: center; color: #007BFF; margin-bottom: 30px; font-size: 28px; }
-.input, .textarea { 
-  width: 100%; padding: 12px; border-radius: 8px; border: 1px solid #ddd; font-size: 16px; 
-  margin-bottom: 12px; box-sizing: border-box; 
-}
-.textarea { resize: vertical; min-height: 100px; }
-.error-input { border-color: #dc3545; box-shadow: 0 0 0 0.2rem rgba(220,53,69,.25); }
-.error-text { color: #dc3545; font-size: 14px; display: block; }
-.selector-button { 
-  width: 100%; padding: 12px; border-radius: 8px; margin-bottom: 12px; cursor: pointer; 
-  font-size: 16px; text-align: left; box-sizing: border-box; border: 1px solid #ddd; 
-  background: #f8f9fa; color: #333; transition: all 0.2s; 
-}
-.selector-button.has-value { background: #007BFF; color: white; border: none; }
-.primary-button { 
-  width: 100%; padding: 12px; background: #007BFF; color: white; border: none; 
-  border-radius: 8px; font-size: 16px; margin-bottom: 15px; cursor: pointer; box-sizing: border-box; 
-}
-.submit-button { 
-  width: 100%; padding: 16px; background: #28a745; color: white; border: none; 
-  border-radius: 12px; font-size: 18px; font-weight: bold; cursor: pointer; box-sizing: border-box; 
-}
-.submit-button:disabled { background: #6c757d; cursor: not-allowed; }
-.plan-card { 
-  border: 1px solid #e0e0e0; border-radius: 12px; padding: 16px; cursor: pointer; 
-  background: #fff; box-shadow: 0 2px 8px rgba(0,0,0,0.1); transition: all 0.3s ease; 
-}
-.plan-card.selected { 
-  border: 3px solid #007BFF; background: linear-gradient(135deg, #E6F0FF 0%, #B3D9FF 100%); 
-  box-shadow: 0 8px 25px rgba(0,123,255,0.3); 
-}
-.plan-card.free { border-color: #28a745; }
-.free-badge { 
-  display: inline-block; background: #28a745; color: white; padding: 4px 12px; 
-  border-radius: 20px; font-size: 12px; font-weight: 600; margin-top: 8px; 
-}
-.checkbox-label { display: block; margin-bottom: 8px; cursor: pointer; font-size: 14px; }
-.delivery-region { 
-  background: #fff; padding: 15px; border-radius: 8px; margin-bottom: 10px; 
-  border: 1px solid #ddd; display: flex; justify-content: space-between; align-items: center; 
-  box-sizing: border-box; 
-}
-.danger-button { 
-  background: #dc3545; color: white; border: none; padding: 6px 12px; border-radius: 6px; 
-  font-size: 12px; cursor: pointer; box-sizing: border-box; 
-}
-.image-upload-area { 
-  border: 2px dashed #ddd; border-radius: 12px; padding: 40px; background: #f8f9fa; 
-  cursor: pointer; transition: all 0.3s ease; text-align: center; box-sizing: border-box; 
-}
-.image-upload-area.has-images { 
-  border: 3px dashed #007BFF; padding: 20px; background: #E6F0FF; 
-}
-.image-grid { 
-  display: grid; grid-template-columns: repeat(auto-fill, minmax(100px, 1fr)); gap: 15px; 
-  max-height: 300px; overflow-y: auto; 
-}
-.image-preview { width: 100%; height: 100%; object-fit: cover; border-radius: 8px; border: 2px solid #007BFF; }
-.image-number-overlay { 
-  position: absolute; bottom: 8px; left: 8px; background: rgba(0, 123, 255, 0.9); color: white; 
-  width: 24px; height: 24px; border-radius: 50%; display: flex; align-items: center; 
-  justify-content: center; font-size: 12px; font-weight: bold; 
-}
-.remove-image-button { 
-  position: absolute; top: -8px; right: -8px; width: 24px; height: 24px; background: #dc3545; 
-  color: white; border: none; border-radius: 50%; font-size: 14px; cursor: pointer; 
-  display: flex; align-items: center; justify-content: center; 
-}
-.modal-overlay { 
-  position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: rgba(0,0,0,0.7); 
-  display: flex; justify-content: center; align-items: center; z-index: 10000; 
-}
-.modal-content { 
-  background: #fff; width: 90%; max-width: 500px; max-height: 80vh; border-radius: 12px; 
-  padding: 25px; overflow-y: auto; box-sizing: border-box; 
-}
-.cancel-button { 
-  width: 100%; padding: 14px; background: #6c757d; color: white; border: none; 
-  border-radius: 8px; font-size: 16px; margin-top: 15px; cursor: pointer; box-sizing: border-box; 
+/* AddProduct.css - v24 MODERN TAILWIND VERSION */
+/* Matches your Tailwind-styled React components perfectly */
+
+.add-product-container {
+  @apply min-h-screen bg-gradient-to-br from-slate-50 to-blue-50;
 }
 
-/* Hover states for better UX */
-.selector-button:hover { border-color: #007BFF; background: #e3f2fd; }
-.plan-card:hover { transform: translateY(-2px); box-shadow: 0 8px 25px rgba(0,0,0,0.15); }
+.add-product-section {
+  @apply space-y-6 p-8 bg-white/50 backdrop-blur-xl rounded-3xl border border-white/50 shadow-2xl;
+}
+
+.section-title {
+  @apply text-3xl font-bold bg-gradient-to-r bg-clip-text text-transparent border-b pb-4;
+}
+
+.section-title-product { @apply from-gray-900 to-gray-700; }
+.section-title-pricing { @apply from-emerald-600 to-blue-600; }
+.section-title-media { @apply from-gray-900 to-gray-700; }
+.section-title-options { @apply from-purple-600 to-indigo-600; }
+.section-title-delivery { @apply from-orange-600 to-blue-600; }
+
+.form-group {
+  @apply space-y-2;
+}
+
+.form-label {
+  @apply block text-sm font-medium text-gray-700;
+}
+
+.form-input, .form-select, .form-textarea {
+  @apply w-full px-4 py-3 rounded-xl border transition-all focus:ring-4 focus:border-transparent resize-vertical;
+}
+
+.form-input:focus { @apply ring-blue-500 focus:border-blue-500; }
+.form-select:focus { @apply ring-blue-500 focus:border-blue-500; }
+.form-textarea:focus { @apply ring-blue-500 focus:border-blue-500; }
+
+.error-field {
+  @apply border-red-500 ring-2 ring-red-200;
+}
+
+.error-message {
+  @apply text-sm text-red-600 mt-1;
+}
+
+.selection-trigger {
+  @apply pr-10 bg-white relative cursor-pointer select-none group hover:border-gray-400;
+}
+
+.selection-arrow {
+  @apply absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 group-hover:text-blue-500 transition-all pointer-events-none;
+}
+
+.modal-overlay {
+  @apply fixed inset-0 bg-black/50 backdrop-blur-sm z-50 flex items-center justify-center p-4;
+}
+
+.modal-content {
+  @apply bg-white rounded-2xl shadow-2xl max-w-md w-full max-h-[90vh] overflow-hidden animate-in slide-in-from-top-4 duration-300;
+}
+
+.modal-header {
+  @apply p-6 border-b border-gray-200;
+}
+
+.modal-title {
+  @apply text-xl font-bold text-gray-900;
+}
+
+.modal-close {
+  @apply p-2 hover:bg-gray-100 rounded-xl transition-all;
+}
+
+.search-input {
+  @apply w-full p-3 border border-gray-200 rounded-xl focus:ring-2 focus:ring-blue-500 focus:border-transparent mb-4;
+}
+
+.option-button {
+  @apply w-full p-3 text-left rounded-xl transition-all flex items-center gap-3;
+}
+
+.option-selected {
+  @apply bg-blue-500 text-white shadow-lg;
+}
+
+.option-hover {
+  @apply hover:bg-gray-50 text-gray-900;
+}
+
+.image-grid {
+  @apply grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-3;
+}
+
+.image-preview-container {
+  @apply relative group aspect-square rounded-xl overflow-hidden shadow-md hover:shadow-xl transition-all duration-200;
+}
+
+.image-preview {
+  @apply w-full h-full object-cover group-hover:scale-[1.05] transition-transform duration-200;
+}
+
+.remove-image-btn {
+  @apply absolute -top-2 -right-2 bg-red-500 hover:bg-red-600 text-white text-xs w-5 h-5 rounded-full flex items-center justify-center shadow-lg hover:shadow-xl transition-all duration-200 opacity-0 group-hover:opacity-100 z-10;
+}
+
+.add-more-btn {
+  @apply flex items-center justify-center gap-2 px-6 py-3 bg-gradient-to-r from-blue-500 to-blue-600 text-white font-semibold rounded-xl hover:from-blue-600 hover:to-blue-700 shadow-lg hover:shadow-xl transition-all duration-300 cursor-pointer w-full sm:w-auto;
+}
+
+.toggle-card {
+  @apply flex items-center space-x-3 p-4 border rounded-xl hover:border-gray-300 cursor-pointer group transition-all;
+}
+
+.toggle-input {
+  @apply w-5 h-5 text-blue-600 border-gray-300 rounded focus:ring-blue-500;
+}
+
+.boost-card {
+  @apply flex items-center space-x-3 p-4 border rounded-xl hover:border-purple-300 bg-purple-50 cursor-pointer group transition-all;
+}
+
+.summary-card {
+  @apply p-6 bg-gradient-to-r rounded-2xl border shadow-sm;
+}
+
+.summary-item {
+  @apply flex items-center space-x-3 p-3 bg-white rounded-lg shadow-sm;
+}
+
+.pricing-summary {
+  @apply bg-gradient-to-r from-emerald-50 to-blue-50 p-6 rounded-2xl border border-emerald-200;
+}
+
+.delivery-radio {
+  @apply flex flex-col p-4 border-2 rounded-xl cursor-pointer hover:shadow-lg transition-all group;
+}
+
+.delivery-selected {
+  @apply border-orange-500 bg-orange-50 shadow-lg ring-2 ring-orange-200;
+}
+
+.sticky-footer {
+  @apply sticky bottom-0 bg-white/95 backdrop-blur-lg border-t border-gray-200 pt-6 pb-4 px-6 md:px-12 z-50 shadow-2xl;
+}
+
+.publish-btn {
+  @apply group relative w-full max-w-md py-4 px-8 font-bold text-lg rounded-2xl transition-all duration-300 overflow-hidden;
+}
+
+.publish-loading {
+  @apply bg-gray-400 cursor-not-allowed;
+}
+
+.publish-active {
+  @apply bg-gradient-to-r from-emerald-500 via-blue-600 to-purple-600 hover:from-emerald-600 hover:to-purple-700 text-white shadow-xl hover:shadow-2xl transform hover:-translate-y-1 active:translate-y-0;
+}
+
+.spinner {
+  @apply w-7 h-7 border-3 border-white/30 border-t-white rounded-full animate-spin;
+}
+
+.badge-pulse {
+  @apply w-5 h-5 bg-white/20 rounded-full animate-ping;
+}
+
+.error-badge {
+  @apply mb-6 p-4 bg-orange-50 border-2 border-orange-200 rounded-2xl text-orange-800 text-sm animate-pulse;
+}
+
+/* Custom animations */
+@keyframes slide-in-from-top {
+  from { opacity: 0; transform: translateY(-20px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+.animate-in {
+  animation: slide-in-from-top 0.3s ease-out;
+}
+
+/* Responsive adjustments */
+@media (max-width: 768px) {
+  .add-product-section { @apply p-6; }
+  .image-grid { @apply grid-cols-2 gap-2; }
+  .publish-btn { @apply max-w-none px-4 py-3 text-base; }
+}
+
+@media (max-width: 640px) {
+  .add-product-container { @apply p-4; }
+  .section-title { @apply text-2xl; }
+}
