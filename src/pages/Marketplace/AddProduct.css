@@ -1,282 +1,323 @@
-/* Container */
-.add-product-container {
-  width: 95%;
-  max-width: 800px;
-  margin: 0 auto;
-  padding: 20px;
-  box-sizing: border-box;
+/*================================================================
+  ADDPRODUCT V2.0 - ENTERPRISE DESIGN SYSTEM
+  Modern, accessible, performant dropdown selectors
+================================================================*/
+
+:root {
+  --primary-50:  #eff6ff;
+  --primary-100: #dbeafe;
+  --primary-500: #3b82f6;
+  --primary-600: #2563eb;
+  --primary-700: #1d4ed8;
+  
+  --gray-50:  #f9fafb;
+  --gray-100: #f3f4f6;
+  --gray-200: #e5e7eb;
+  --gray-500: #6b7280;
+  --gray-900: #111827;
+  
+  --success-500: #10b981;
+  --error-400:  #f87171;
+  --error-500:  #ef4444;
+  
+  --shadow-sm:  0 1px 2px 0 rgb(0 0 0 / 0.05);
+  --shadow-md:  0 4px 6px -1px rgb(0 0 0 / 0.1), 0 2px 4px -2px rgb(0 0 0 / 0.1);
+  --shadow-lg:  0 10px 15px -3px rgb(0 0 0 / 0.1), 0 4px 6px -4px rgb(0 0 0 / 0.1);
+  --shadow-xl:  0 20px 25px -5px rgb(0 0 0 / 0.1), 0 8px 10px -6px rgb(0 0 0 / 0.1);
+  
+  --radius-sm:  0.5rem;
+  --radius-md:  0.75rem;
+  --radius-lg:  1rem;
+  --radius-xl:  1.5rem;
 }
 
-/* Section */
-.add-product-section {
-  border: 2px solid #007BFF;
-  border-radius: 12px;
-  padding: 20px;
-  margin-bottom: 20px;
-  background: #E6F0FF;
+/* =================================================================
+   1. SELECTOR BUTTON SYSTEM (Core Feature)
+   ================================================================= */
+.field-selector {
+  position: relative;
+  display: flex;
+  align-items: center;
   width: 100%;
-  max-width: 800px;
-  box-sizing: border-box;
+  min-height: 3.5rem;
+  padding: 0.875rem 2.5rem 0.875rem 1rem;
+  
+  border: 2px solid var(--gray-200);
+  border-radius: var(--radius-lg);
+  background: linear-gradient(135deg, var(--gray-50) 0%, white 100%);
+  
+  font-size: 1rem;
+  font-weight: 500;
+  color: var(--gray-900);
+  text-align: left;
+  cursor: pointer;
+  transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1);
+  
+  box-shadow: var(--shadow-sm);
 }
 
-/* Title */
-.add-product-title {
-  text-align: center;
-  color: #007BFF;
-  margin-bottom: 30px;
-  font-size: 28px;
+.field-selector::after {
+  content: '';
+  position: absolute;
+  inset-inline-end: 1rem;
+  inset-block-start: 50%;
+  transform: translateY(-50%);
+  
+  width: 0;
+  height: 0;
+  border-left: 0.3125rem solid transparent;
+  border-right: 0.3125rem solid transparent;
+  border-top: 0.4375rem solid var(--gray-500);
+  
+  transition: all 0.2s ease;
+  pointer-events: none;
 }
 
-/* Inputs */
-.add-product-input {
-  width: 100%;
-  padding: 12px;
-  border-radius: 8px;
-  border: 1px solid #ddd;
-  font-size: 16px;
-  margin-bottom: 12px;
-  box-sizing: border-box;
+.field-selector:hover {
+  border-color: var(--primary-500);
+  box-shadow: 0 0 0 3px rgb(59 130 246 / 0.1), var(--shadow-md);
+  transform: translateY(-0.0625rem);
 }
 
+.field-selector:focus-visible {
+  outline: 2px solid var(--primary-500);
+  outline-offset: 2px;
+}
+
+.field-selector.active,
+.field-selector[data-selected="true"] {
+  border-color: var(--primary-500);
+  background: linear-gradient(135deg, var(--primary-100) 0%, var(--primary-50) 100%);
+  color: var(--primary-700);
+  box-shadow: 0 4px 12px rgb(59 130 246 / 0.25);
+}
+
+.field-selector.active::after,
+.field-selector[data-selected="true"]::after {
+  border-top-color: var(--primary-600);
+}
+
+/* =================================================================
+   2. MODAL SYSTEM (Full Coverage)
+   ================================================================= */
+.modal-backdrop {
+  position: fixed;
+  inset: 0;
+  background: rgb(0 0 0 / 0.65);
+  backdrop-filter: blur(8px);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 50;
+  
+  animation: backdropFadeIn 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+@keyframes backdropFadeIn {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+.modal-container {
+  background: white;
+  width: clamp(320px, 90vw, 500px);
+  max-height: 80vh;
+  max-width: 500px;
+  border-radius: var(--radius-xl);
+  overflow: hidden;
+  box-shadow: var(--shadow-2xl);
+  
+  animation: modalSlideIn 0.25s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+@keyframes modalSlideIn {
+  from { 
+    opacity: 0; 
+    transform: scale(0.95) translateY(-20px); 
+  }
+  to { 
+    opacity: 1; 
+    transform: scale(1) translateY(0); 
+  }
+}
+
+.modal-header {
+  padding: 1.5rem;
+  border-bottom: 1px solid var(--gray-200);
+}
+
+.modal-title {
+  margin: 0;
+  font-size: 1.25rem;
+  font-weight: 700;
+  color: var(--gray-900);
+}
+
+.dropdown-list {
+  max-height: 28rem;
+  overflow-y: auto;
+  scrollbar-width: thin;
+  scrollbar-color: var(--gray-300) var(--gray-100);
+}
+
+.dropdown-list::-webkit-scrollbar {
+  width: 0.5rem;
+}
+
+.dropdown-list::-webkit-scrollbar-track {
+  background: var(--gray-100);
+  border-radius: 0.25rem;
+}
+
+.dropdown-list::-webkit-scrollbar-thumb {
+  background: var(--gray-300);
+  border-radius: 0.25rem;
+}
+
+.dropdown-item {
+  padding: 1.125rem 1.5rem;
+  cursor: pointer;
+  border-bottom: 1px solid var(--gray-100);
+  transition: all 0.2s ease;
+  font-size: 1rem;
+  color: var(--gray-900);
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+}
+
+.dropdown-item:hover {
+  background: linear-gradient(90deg, var(--gray-50) 0%, var(--primary-50) 100%);
+  color: var(--primary-700);
+  padding-inline-start: 1.75rem;
+  transform: translateX(0.25rem);
+}
+
+.dropdown-item:last-child {
+  border-bottom: none;
+}
+
+/* =================================================================
+   3. FORM ELEMENTS (Enhanced)
+   ================================================================= */
+.add-product-input,
 .add-product-textarea {
-  width: 100%;
-  padding: 12px;
-  border-radius: 8px;
-  border: 1px solid #ddd;
-  font-size: 16px;
-  margin-bottom: 12px;
-  box-sizing: border-box;
-  resize: vertical;
-  min-height: 100px;
+  @extend .field-selector;
+  padding-inline-end: 1rem;
+  background: white;
+}
+
+.add-product-input:focus,
+.add-product-textarea:focus {
+  border-color: var(--primary-500);
+  box-shadow: 0 0 0 3px rgb(59 130 246 / 0.1);
+  outline: none;
 }
 
 .input-error {
-  border-color: #dc3545;
-  box-shadow: 0 0 0 0.2rem rgba(220,53,69,.25);
+  border-color: var(--error-400);
+  box-shadow: 0 0 0 3px rgb(248 113 113 / 0.2);
+  background-color: rgb(254 242 242 / 0.5);
 }
 
 .error-text {
-  color: #dc3545;
-  font-size: 14px;
+  color: var(--error-500);
+  font-size: 0.875rem;
+  margin-top: 0.25rem;
   display: block;
 }
 
-/* Selector Button */
-.selector-button {
-  width: 100%;
-  padding: 12px;
-  border-radius: 8px;
-  margin-bottom: 12px;
-  cursor: pointer;
-  font-size: 16px;
-  text-align: left;
-  box-sizing: border-box;
-  border: 1px solid #ddd;
-  background: #f8f9fa;
-  color: #333;
-}
-
-.selector-button.active {
-  background: #007BFF;
-  color: white;
-  border: none;
-}
-
-/* Primary Button */
+/* =================================================================
+   4. BUTTONS (Professional System)
+   ================================================================= */
 .primary-button {
   width: 100%;
-  padding: 12px;
-  background: #007BFF;
+  padding: 0.875rem 1.5rem;
+  background: linear-gradient(135deg, var(--primary-500) 0%, var(--primary-600) 100%);
   color: white;
   border: none;
-  border-radius: 8px;
-  font-size: 16px;
-  margin-bottom: 15px;
+  border-radius: var(--radius-lg);
+  font-size: 1rem;
+  font-weight: 600;
   cursor: pointer;
-  box-sizing: border-box;
+  transition: all 0.2s ease;
+  box-shadow: var(--shadow-md);
 }
 
-/* Submit Button */
+.primary-button:hover {
+  transform: translateY(-0.0625rem);
+  box-shadow: var(--shadow-lg);
+}
+
 .submit-button {
-  width: 100%;
-  padding: 16px;
-  background: #28a745;
-  color: white;
-  border: none;
-  border-radius: 12px;
-  font-size: 18px;
-  font-weight: bold;
-  cursor: pointer;
-  box-sizing: border-box;
+  @extend .primary-button;
+  padding: 1rem 2rem;
+  font-size: 1.125rem;
+  border-radius: var(--radius-xl);
+  font-weight: 700;
 }
 
 .submit-button:disabled {
-  background: #6c757d;
+  opacity: 0.6;
   cursor: not-allowed;
-}
-
-/* Plan Card */
-.plan-card {
-  border: 1px solid #e0e0e0;
-  border-radius: 12px;
-  padding: 16px;
-  cursor: pointer;
-  background: #fff;
-  box-shadow: 0 2px 8px rgba(0,0,0,0.1);
-  transition: all 0.3s ease;
-}
-
-.plan-card.selected {
-  border: 3px solid #007BFF;
-  background: linear-gradient(135deg, #E6F0FF 0%, #B3D9FF 100%);
-  box-shadow: 0 8px 25px rgba(0,123,255,0.3);
-}
-
-.plan-card.free {
-  border-color: #28a745;
-}
-
-.free-badge {
-  display: inline-block;
-  background: #28a745;
-  color: white;
-  padding: 4px 12px;
-  border-radius: 20px;
-  font-size: 12px;
-  font-weight: 600;
-  margin-top: 8px;
-}
-
-/* Checkbox */
-.checkbox-label {
-  display: block;
-  margin-bottom: 8px;
-  cursor: pointer;
-  font-size: 14px;
-}
-
-/* Delivery Region */
-.delivery-region {
-  background: #fff;
-  padding: 15px;
-  border-radius: 8px;
-  margin-bottom: 10px;
-  border: 1px solid #ddd;
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  box-sizing: border-box;
-}
-
-.danger-button {
-  background: #dc3545;
-  color: white;
-  border: none;
-  padding: 6px 12px;
-  border-radius: 6px;
-  font-size: 12px;
-  cursor: pointer;
-}
-
-/* Image Upload */
-.image-upload-area {
-  border: 2px dashed #ddd;
-  border-radius: 12px;
-  padding: 40px;
-  background: #f8f9fa;
-  cursor: pointer;
-  transition: all 0.3s ease;
-  text-align: center;
-}
-
-.image-upload-area.has-images {
-  border: 3px dashed #007BFF;
-  padding: 20px;
-  background: #E6F0FF;
-}
-
-.image-grid {
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(100px, 1fr));
-  gap: 15px;
-  max-height: 300px;
-  overflow-y: auto;
-}
-
-.image-preview {
-  width: 100%;
-  height: 100%;
-  object-fit: cover;
-  border-radius: 8px;
-  border: 2px solid #007BFF;
-}
-
-.image-number-overlay {
-  position: absolute;
-  bottom: 8px;
-  left: 8px;
-  background: rgba(0, 123, 255, 0.9);
-  color: white;
-  width: 24px;
-  height: 24px;
-  border-radius: 50%;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  font-size: 12px;
-  font-weight: bold;
-}
-
-.remove-image-button {
-  position: absolute;
-  top: -8px;
-  right: -8px;
-  width: 24px;
-  height: 24px;
-  background: #dc3545;
-  color: white;
-  border: none;
-  border-radius: 50%;
-  font-size: 14px;
-  cursor: pointer;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-}
-
-/* Modal */
-.modal-overlay {
-  position: fixed;
-  top: 0;
-  left: 0;
-  right: 0;
-  bottom: 0;
-  background: rgba(0,0,0,0.7);
-  display: flex;
-  justify-content: center;
-  align-items: center;
-  z-index: 10000;
-}
-
-.modal-content {
-  background: #fff;
-  width: 90%;
-  max-width: 500px;
-  max-height: 80vh;
-  border-radius: 12px;
-  padding: 25px;
-  overflow-y: auto;
-  box-sizing: border-box;
+  transform: none;
+  background: var(--gray-500);
+  box-shadow: var(--shadow-sm);
 }
 
 .cancel-button {
-  width: 100%;
-  padding: 14px;
-  background: #6c757d;
-  color: white;
-  border: none;
-  border-radius: 8px;
-  font-size: 16px;
-  margin-top: 15px;
-  cursor: pointer;
+  @extend .primary-button;
+  background: var(--gray-500);
+}
+
+.danger-button {
+  @extend .primary-button;
+  background: var(--error-500);
+  padding: 0.375rem 1rem;
+  font-size: 0.875rem;
+}
+
+/* =================================================================
+   5. RESPONSIVE & ACCESSIBILITY
+   ================================================================= */
+@media (max-width: 640px) {
+  .field-selector {
+    min-height: 3rem;
+    padding: 0.75rem 2.25rem 0.75rem 0.875rem;
+    font-size: 0.9375rem;
+  }
+  
+  .modal-container {
+    margin: 1rem;
+    width: 95vw;
+  }
+}
+
+/* High contrast mode */
+@media (prefers-contrast: high) {
+  .field-selector {
+    border-width: 3px;
+  }
+  
+  .dropdown-item:hover {
+    background: var(--primary-500);
+    color: white;
+  }
+}
+
+/* Reduced motion */
+@media (prefers-reduced-motion: reduce) {
+  * {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}
+
+/* Print styles */
+@media print {
+  .modal-backdrop,
+  .submit-button {
+    display: none;
+  }
 }
