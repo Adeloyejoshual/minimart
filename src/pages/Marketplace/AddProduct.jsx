@@ -1,13 +1,10 @@
 // src/pages/Marketplace/AddMarketplaceProduct.jsx
-// v32 ENTERPRISE UPGRADE - All old modals → SetSelectionModal perfection
+// v32 ENTERPRISE UPGRADE - COMPLETE INLINE SetSelectionModal (NO IMPORTS)
 
 import { useState, useRef, useEffect, useCallback, useMemo } from "react";
 import { useAuth0 } from "@auth0/auth0-react";
 import { PaystackButton } from "react-paystack";
 import { FaStar, FaRocket, FaGift, FaBullhorn, FaBolt } from "react-icons/fa";
-
-// 🔥 IMPORT v32 ENTERPRISE MODAL
-import SetSelectionModal from "../../components/AddProduct/SetSelectionModal.jsx";
 
 import { categoryFields } from "../../config/categoryFields";
 import { conditions, usedDetails } from "../../config/conditions";
@@ -24,6 +21,85 @@ import { models } from "../../config/models";
 import { sims } from "../../config/sim";
 import { years } from "../../config/years";
 
+// 🔥 v32 ENTERPRISE: INLINE SetSelectionModal - NO SEPARATE FILE NEEDED
+function SetSelectionModal({ 
+  isOpen, 
+  title, 
+  options = [], 
+  value = "", 
+  searchTerm, 
+  onSearch, 
+  onSelect, 
+  onClose 
+}) {
+  const [localSearch, setLocalSearch] = useState(searchTerm || "");
+  
+  if (!isOpen) return null;
+
+  const filteredOptions = options.filter(option =>
+    !localSearch || option.toLowerCase().includes(localSearch.toLowerCase())
+  );
+
+  return (
+    <div style={{
+      position: "fixed", top: 0, left: 0, right: 0, bottom: 0,
+      background: "rgba(0,0,0,0.7)", zIndex: 10000,
+      display: "flex", justifyContent: "center", alignItems: "center",
+      padding: "20px"
+    }}>
+      <div style={{
+        background: "white", width: "95%", maxWidth: "500px", maxHeight: "80vh",
+        borderRadius: "12px", overflow: "hidden", boxShadow: "0 20px 40px rgba(0,0,0,0.3)"
+      }}>
+        <div style={{
+          padding: "24px 24px 16px", borderBottom: "1px solid #e5e7eb",
+          display: "flex", justifyContent: "space-between", alignItems: "center"
+        }}>
+          <h3 style={{ margin: 0, fontSize: "20px", fontWeight: 600, color: "#111827" }}>{title}</h3>
+          <button onClick={onClose} style={{
+            border: "none", background: "#f3f4f6", width: "40px", height: "40px",
+            borderRadius: "50%", cursor: "pointer", fontSize: "18px", color: "#6b7280"
+          }}>×</button>
+        </div>
+        <div style={{ padding: "0 24px 16px" }}>
+          <input
+            value={localSearch}
+            onChange={(e) => {
+              setLocalSearch(e.target.value);
+              onSearch?.(e.target.value);
+            }}
+            placeholder={`Search ${title.toLowerCase()}...`}
+            style={{
+              width: "100%", padding: "12px 16px", border: "2px solid #e5e7eb",
+              borderRadius: "12px", fontSize: "16px", outline: "none"
+            }}
+            autoFocus
+          />
+        </div>
+        <div style={{ maxHeight: "400px", overflow: "auto", padding: "0 24px 24px" }}>
+          {filteredOptions.length ? filteredOptions.map((option, i) => (
+            <div
+              key={i}
+              onClick={() => onSelect(option)}
+              style={{
+                padding: "16px", marginBottom: "8px", borderRadius: "10px", cursor: "pointer",
+                background: option === value ? "#007BFF" : "#f8f9fa",
+                color: option === value ? "white" : "#333",
+                border: option === value ? "none" : "1px solid #eee"
+              }}
+            >
+              {option}
+            </div>
+          )) : (
+            <div style={{ textAlign: "center", padding: "40px", color: "#666" }}>
+              No {title.toLowerCase()} found
+            </div>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
 const STYLES = {
   container: { width: "95%", maxWidth: "800px", margin: "0 auto", padding: "20px", boxSizing: "border-box" },
   section: { border: "2px solid #007BFF", borderRadius: "12px", padding: "20px", marginBottom: "20px", background: "#E6F0FF", width: "100%", maxWidth: "800px", boxSizing: "border-box" },
