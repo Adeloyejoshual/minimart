@@ -5,11 +5,12 @@ import { useNavigate } from 'react-router-dom';
 import CustomDropdown from './CustomDropdown';
 import LoadingSpinner from './LoadingSpinner';
 import Toast from './Toast';
-import {
-  API_BASE_URL,
-  MAX_IMAGES,
-  MIN_DESCRIPTION_LENGTH
-} from '../../config/constants';
+// ✅ INLINE CONSTANTS - NO IMPORTS NEEDED
+const API_BASE_URL = 'https://minimart-ivrm.onrender.com';
+const MAX_IMAGES = 12;
+const MIN_DESCRIPTION_LENGTH = 30;
+const MAX_FILE_SIZE = 10 * 1024 * 1024;
+
 import { categoryFields } from "../../config/categoryFields";
 import { categoryRules } from "../../config/categoryRules";
 import { conditions } from "../../config/conditions";
