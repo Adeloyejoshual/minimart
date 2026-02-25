@@ -2,9 +2,9 @@
 import React, { useState, useRef, useEffect, useCallback } from 'react';
 import { useAuth0 } from '@auth0/auth0-react';
 import { useNavigate } from 'react-router-dom';
-import CustomDropdown from './components/CustomDropdown';
-import LoadingSpinner from './components/LoadingSpinner';
-import Toast from './components/Toast';
+import CustomDropdown from './CustomDropdown';
+import LoadingSpinner from './LoadingSpinner';
+import Toast from './Toast';
 import {
   API_BASE_URL,
   MAX_IMAGES,
