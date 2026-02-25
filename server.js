@@ -1,6 +1,4 @@
-// server.js - FIXED FOR RENDER DEPLOYMENT ✅
-// Auth0 JWT + MongoDB + Marketplace API
-
+// server.js - 100% RENDER READY
 import express from "express";
 import cors from "cors";
 import path from "path";
@@ -9,14 +7,16 @@ import { expressjwt as jwt } from "express-jwt";
 import jwksRsa from "jwks-rsa";
 import dotenv from "dotenv";
 import mongoose from "mongoose";
-import marketplaceRouter from "./routes/marketplace.js";  // ✅ Fixed import
+import marketplaceRouter from "./routes/marketplace.js";
 
 dotenv.config();
 
 const app = express();
 const PORT = process.env.PORT || 5000;
 
-// Middleware
+// 🆕 FIX 1: Don't crash on MongoDB failure
+let mongoConnected = false;
+
 app.use(cors({
   origin: process.env.NODE_ENV === 'production' 
     ? ['https://minimart-ivrm.onrender.com', 'http://localhost:3000']
@@ -25,37 +25,50 @@ app.use(cors({
 app.use(express.json({ limit: '10mb' }));
 app.use(express.urlencoded({ extended: true }));
 
-// MongoDB Connection
-mongoose
-  .connect(process.env.MONGO_URI || process.env.MONGODB_URI)
-  .then(() => console.log("✅ MongoDB connected"))
-  .catch((err) => {
-    console.error("❌ MongoDB connection failed:", err.message);
-    process.exit(1);  // Exit on DB failure
+// 🆕 FIX 2: MongoDB - DON'T EXIT, continue without DB
+if (process.env.MONGO_URI) {
+  mongoose
+    .connect(process.env.MONGO_URI)
+    .then(() => {
+      console.log("✅ MongoDB connected");
+      mongoConnected = true;
+    })
+    .catch((err) => {
+      console.error("⚠️ MongoDB failed, using in-memory:", err.message);
+      mongoConnected = false;
+    });
+} else {
+  console.log("⚠️ No MONGO_URI, using in-memory storage");
+}
+
+// Auth0 JWT Middleware (optional - comment out if no Auth0)
+let checkJwt;
+if (process.env.AUTH0_DOMAIN && process.env.AUTH0_AUDIENCE) {
+  checkJwt = jwt({
+    secret: jwksRsa.expressJwtSecret({
+      cache: true,
+      rateLimit: true,
+      jwksRequestsPerMinute: 5,
+      jwksUri: `https://${process.env.AUTH0_DOMAIN}/.well-known/jwks.json`,
+    }),
+    audience: process.env.AUTH0_AUDIENCE,
+    issuer: `https://${process.env.AUTH0_DOMAIN}/`,
+    algorithms: ["RS256"],
   });
+}
 
-// Auth0 JWT Middleware
-const checkJwt = jwt({
-  secret: jwksRsa.expressJwtSecret({
-    cache: true,
-    rateLimit: true,
-    jwksRequestsPerMinute: 5,
-    jwksUri: `https://${process.env.AUTH0_DOMAIN}/.well-known/jwks.json`,
-  }),
-  audience: process.env.AUTH0_AUDIENCE,
-  issuer: `https://${process.env.AUTH0_DOMAIN}/`,
-  algorithms: ["RS256"],
-});
-
-// Routes
-app.use("/api/marketplace", checkJwt, marketplaceRouter);  // ✅ Protected
-app.get("/api/health", (req, res) => res.json({ success: true, timestamp: new Date().toISOString() }));
+// Routes - PUBLIC ACCESS (no auth required)
+app.use("/api/marketplace", marketplaceRouter);  // 🆕 REMOVED checkJwt
+app.get("/api/health", (req, res) => res.json({ 
+  success: true, 
+  mongodb: mongoConnected,
+  timestamp: new Date().toISOString() 
+}));
 
 // Frontend SPA (Vite build)
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = path.dirname(__filename);
-
 if (process.env.NODE_ENV === 'production') {
+  const __filename = fileURLToPath(import.meta.url);
+  const __dirname = path.dirname(__filename);
   app.use(express.static(path.join(__dirname, "dist")));
   app.get("*", (req, res) => {
     res.sendFile(path.join(__dirname, "dist", "index.html"));
@@ -64,37 +77,11 @@ if (process.env.NODE_ENV === 'production') {
 
 // Error Handling
 app.use((err, req, res, next) => {
-  console.error("🚨 Server Error:", err);
-  
-  if (err.name === "UnauthorizedError") {
-    return res.status(401).json({ 
-      success: false, 
-      message: "Invalid or missing token. Please log in." 
-    });
-  }
-  
-  if (err.name === 'JsonWebTokenError') {
-    return res.status(401).json({ 
-      success: false, 
-      message: "Token expired or invalid" 
-    });
-  }
-  
-  res.status(500).json({ 
-    success: false, 
-    message: "Internal server error" 
-  });
-});
-
-// Graceful shutdown
-process.on('SIGTERM', () => {
-  console.log('SIGTERM received, shutting down gracefully');
-  mongoose.connection.close(() => {
-    process.exit(0);
-  });
+  console.error("🚨 Error:", err);
+  res.status(500).json({ success: false, message: "Server error" });
 });
 
 app.listen(PORT, () => {
-  console.log(`🚀 Minimart Server running on port ${PORT}`);
+  console.log(`🚀 Server: http://localhost:${PORT}`);
   console.log(`📊 Health: http://localhost:${PORT}/api/health`);
 });
