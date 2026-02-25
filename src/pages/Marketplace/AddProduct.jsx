@@ -1,5 +1,5 @@
-// AddProduct.jsx - PRODUCTION READY ✅ COPY & DEPLOY
-// Minimart Marketplace - Enterprise Architecture
+// AddProduct.jsx - COMPLETE PRODUCTION READY ✅ 
+// Copy-paste deployable - Minimart Marketplace
 
 import React, { useState, useRef, useEffect, useCallback, useMemo } from 'react';
 import { useAuth0 } from '@auth0/auth0-react';
@@ -8,7 +8,7 @@ import PaystackPop from '@paystack/inline-js';
 import ProductFormSections from './ProductFormSections';
 import './AddProduct.css';
 import { categoryFields } from "../../config/categoryFields";
-import { categoryRules } from "../../config/categoryRules"; 
+import { categoryRules } from "../../config/categoryRules"; // ✅ Using rules for validation
 import { conditions } from "../../config/conditions";
 import { ramOptions } from "../../config/ram";
 import { storageOptions } from "../../config/storage";
@@ -42,8 +42,9 @@ export default function AddMarketplaceProduct() {
   const { user, isAuthenticated, isLoading, getAccessTokenSilently } = useAuth0();
   const navigate = useNavigate();
   const fileInputRef = useRef(null);
-  const abortControllerRef = useRef(null); // 💎 No re-renders
-  
+  const abortControllerRef = useRef(null);
+
+  // State
   const [form, setForm] = useState(() => initializeForm(user));
   const [images, setImages] = useState({ files: [], previews: [], urls: [] });
   const [cities, setCities] = useState([]);
@@ -53,6 +54,7 @@ export default function AddMarketplaceProduct() {
   const [showTerms, setShowTerms] = useState(false);
   const [uploadingImages, setUploadingImages] = useState(false);
 
+  // Computed fields
   const computedFields = useMemo(() => ({
     availableBrands: form.category ? brands[form.category] || [] : [],
     availableModels: form.brand && form.category ? models[form.category]?.[form.brand] || [] : [],
@@ -66,7 +68,7 @@ export default function AddMarketplaceProduct() {
     []
   );
 
-  // 🧠 AbortController cleanup - no state re-renders
+  // Effects
   useEffect(() => {
     return () => abortControllerRef.current?.abort();
   }, []);
@@ -87,6 +89,7 @@ export default function AddMarketplaceProduct() {
     };
   }, [images.previews]);
 
+  // Form field updater
   const updateFormField = useCallback((field, value) => {
     setForm(prev => {
       const updated = { ...prev, [field]: value, errors: { ...prev.errors, [field]: '' } };
@@ -107,11 +110,16 @@ export default function AddMarketplaceProduct() {
     });
   }, []);
 
-  // 🧠 Memoized validation - no re-calculation
+  // Memoized validation
   const validationErrors = useMemo(() => {
     const errors = {};
-    if (form.title.trim().length < 25) errors.title = `Title min 25 chars (${form.title.trim().length}/25)`;
-    if (form.description.trim().length < 50) errors.description = `Description min 50 chars (${form.description.trim().length}/50)`;
+    
+    if (form.title.trim().length < 25) {
+      errors.title = `Title min 25 chars (${form.title.trim().length}/25)`;
+    }
+    if (form.description.trim().length < 50) {
+      errors.description = `Description min 50 chars (${form.description.trim().length}/50)`;
+    }
     if (!form.phone_number.trim()) errors.phone = 'Phone required';
     if (images.files.length === 0) errors.images = 'At least 1 image required';
     if (!form.category) errors.category = 'Category required';
@@ -127,6 +135,7 @@ export default function AddMarketplaceProduct() {
     return errors;
   }, [form, images.files.length, computedFields.categoryRules]);
 
+  // Sequential Cloudinary upload (African internet optimized)
   const uploadImagesToCloudinary = useCallback(async (files) => {
     const controller = new AbortController();
     abortControllerRef.current = controller;
@@ -142,7 +151,9 @@ export default function AddMarketplaceProduct() {
         formData.append('upload_preset', CLOUDINARY_UPLOAD_PRESET);
         
         const res = await fetch(`https://api.cloudinary.com/v1_1/${CLOUDINARY_CLOUD_NAME}/image/upload`, {
-          method: 'POST', body: formData, signal: controller.signal
+          method: 'POST', 
+          body: formData, 
+          signal: controller.signal
         });
         
         if (!res.ok) throw new Error('Image upload failed');
@@ -194,7 +205,25 @@ export default function AddMarketplaceProduct() {
       previews: prev.previews.filter((_, i) => i !== index),
       urls: prev.urls.filter((_, i) => i !== index)
     }));
-  }, [images]);
+  }, []);
+
+  const toggleFeature = useCallback((feature) => {
+    setForm(prev => ({
+      ...prev,
+      features: prev.features.includes(feature)
+        ? prev.features.filter(f => f !== feature)
+        : [...prev.features, feature]
+    }));
+  }, []);
+
+  const toggleSim = useCallback((simType) => {
+    setForm(prev => ({
+      ...prev,
+      sim: prev.sim.includes(simType)
+        ? prev.sim.filter(s => s !== simType)
+        : [...prev.sim, simType]
+    }));
+  }, []);
 
   const handlePromotionPayment = useCallback(async (productId) => {
     const plan = promotionPlans.find(p => p.name === form.promo_plan);
@@ -217,7 +246,10 @@ export default function AddMarketplaceProduct() {
                 'Content-Type': 'application/json',
                 'Authorization': `Bearer ${token}`
               },
-              body: JSON.stringify({ promo_plan: form.promo_plan, paystack_ref: response.reference })
+              body: JSON.stringify({ 
+                promo_plan: form.promo_plan, 
+                paystack_ref: response.reference 
+              })
             });
             resolve(res.ok);
           } catch {
@@ -249,7 +281,7 @@ export default function AddMarketplaceProduct() {
       const imageUrls = await uploadImagesToCloudinary(images.files);
       const token = await getAccessTokenSilently();
 
-      // 🛡️ SECURE: Explicit fields only
+      // 🛡️ SECURE: Explicit fields only - no dangerous spread
       const submitData = {
         title: form.title.trim(),
         description: form.description.trim(),
@@ -276,6 +308,7 @@ export default function AddMarketplaceProduct() {
         promo_plan: form.promo_plan,
         flash_sale: form.flash_sale,
         negotiable: form.negotiable,
+        exchange_possible: form.exchange_possible,
         images: imageUrls,
         sellerId: user.sub,
         status,
@@ -284,7 +317,10 @@ export default function AddMarketplaceProduct() {
 
       const response = await fetch(`${API_BASE_URL}/api/products`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
+        headers: { 
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`
+        },
         body: JSON.stringify(submitData)
       });
 
@@ -293,19 +329,19 @@ export default function AddMarketplaceProduct() {
 
       const productId = result.product?._id || result.id;
       
-      // 🧠 SEPARATE SUCCESS MESSAGES
+      // 🧠 SEPARATE LISTING vs PROMOTION feedback
       let promotionSuccess = true;
       if (status === 'published' && form.promoted && form.promo_plan) {
         promotionSuccess = await handlePromotionPayment(productId);
       }
 
       alert(promotionSuccess 
-        ? `🎉 "${form.title}" ${status === 'published' ? 'published!' : 'saved as draft!'}`
+        ? `🎉 "${form.title}" ${status === 'published' ? 'published!' : 'saved as draft!'}` 
         : `✅ "${form.title}" published!
 ⚠️ Promotion failed`
       );
 
-      // Reset
+      // Reset form
       setForm(initializeForm(user));
       setImages({ files: [], previews: [], urls: [] });
       setTermsAccepted(false);
@@ -318,14 +354,14 @@ export default function AddMarketplaceProduct() {
     }
   };
 
-  if (isLoading) return <div>Loading...</div>;
-  if (!isAuthenticated) return <div>Please log in...</div>;
+  if (isLoading) return <div className="loading">Loading form...</div>;
+  if (!isAuthenticated) return <div className="loading">Please log in to add products...</div>;
 
   return (
     <div className="add-product-container">
       <div className="add-product-header">
         <h1>Add New Product</h1>
-        <p>List on Minimart Marketplace</p>
+        <p>List your item on Minimart Marketplace</p>
       </div>
 
       {submitError && (
@@ -349,70 +385,96 @@ export default function AddMarketplaceProduct() {
             removeImage={removeImage}
             fileInputRef={fileInputRef}
             uploadingImages={uploadingImages}
-            toggleFeature={() => {}}
-            toggleSim={() => {}}
+            toggleFeature={toggleFeature}
+            toggleSim={toggleSim}
           />
         </div>
 
         <div className="sidebar">
           <div className="publish-panel">
-            <h3>Ready?</h3>
+            <h3>Ready to Publish?</h3>
             <div className="checklist">
               <div className={`checklist-item ${form.title.length >= 25 ? 'completed' : ''}`}>
                 <span className={`check-icon ${form.title.length >= 25 ? 'checkmark' : ''}`}>✓</span>
-                Title ({form.title.length})
+                Title ({form.title.length}/100)
               </div>
               <div className={`checklist-item ${form.description.length >= 50 ? 'completed' : ''}`}>
                 <span className={`check-icon ${form.description.length >= 50 ? 'checkmark' : ''}`}>✓</span>
-                Description ({form.description.length})
+                Description ({form.description.length}/1000)
               </div>
               <div className={`checklist-item ${form.phone_number.trim() ? 'completed' : ''}`}>
-                <span className={`check-icon ${form.phone_number.trim() ? 'checkmark' : ''}`}>✓</span>Phone
+                <span className={`check-icon ${form.phone_number.trim() ? 'checkmark' : ''}`}>✓</span>
+                Phone
               </div>
               <div className={`checklist-item ${images.files.length > 0 ? 'completed' : ''}`}>
                 <span className={`check-icon ${images.files.length > 0 ? 'checkmark' : ''}`}>✓</span>
                 Images ({images.files.length}/10)
               </div>
               <div className={`checklist-item ${termsAccepted ? 'completed' : ''}`}>
-                <span className={`check-icon ${termsAccepted ? 'checkmark' : ''}`}>✓</span>Terms
+                <span className={`check-icon ${termsAccepted ? 'checkmark' : ''}`}>✓</span>
+                Terms
               </div>
             </div>
 
             <div className="publish-buttons">
-              <button className="btn btn-secondary" onClick={() => handleSubmit('draft')} disabled={isSubmitting || uploadingImages}>
-                💾 Draft
+              <button 
+                className="btn btn-secondary" 
+                onClick={() => handleSubmit('draft')}
+                disabled={isSubmitting || uploadingImages}
+              >
+                💾 Save Draft
               </button>
-              <button className="btn btn-primary" onClick={() => handleSubmit('published')} 
-                disabled={isSubmitting || uploadingImages || Object.keys(validationErrors).length > 0}>
+              <button 
+                className="btn btn-primary"
+                onClick={() => handleSubmit('published')}
+                disabled={isSubmitting || uploadingImages || Object.keys(validationErrors).length > 0}
+              >
                 {isSubmitting || uploadingImages ? (
                   <>
                     <span className="spinner"></span>
                     {isSubmitting ? 'Publishing...' : 'Uploading...'}
                   </>
                 ) : (
-                  '🚀 Publish'
+                  '🚀 Publish Product'
                 )}
               </button>
             </div>
 
             <label className="terms-checkbox">
-              <input type="checkbox" checked={termsAccepted} onChange={e => setTermsAccepted(e.target.checked)} />
-              <span>I agree to <button type="button" className="terms-link" onClick={e => { e.stopPropagation(); setShowTerms(true); }}>Terms</button></span>
+              <input 
+                type="checkbox" 
+                checked={termsAccepted} 
+                onChange={e => setTermsAccepted(e.target.checked)} 
+              />
+              <span>
+                I agree to <button 
+                  type="button" 
+                  className="terms-link" 
+                  onClick={e => { e.stopPropagation(); setShowTerms(true); }}
+                >
+                  Terms & Conditions
+                </button>
+              </span>
             </label>
           </div>
         </div>
       </div>
 
+      {/* Terms Modal */}
       {showTerms && (
         <div className="terms-modal" onClick={e => e.target === e.currentTarget && setShowTerms(false)}>
           <div className="terms-content">
             <h3>Terms & Conditions</h3>
             <div className="terms-body">
-              <p>• Honest listings only</p>
-              <p>• No prohibited items</p>
-              <p>• Platform not liable</p>
+              <p>• All listings must be accurate & honest</p>
+              <p>• No prohibited items (weapons, drugs, etc.)</p>
+              <p>• Images must represent actual product</p>
+              <p>• Respond to inquiries within 24hrs</p>
+              <p>• Platform not liable for transactions</p>
             </div>
-            <button className="btn btn-primary" onClick={() => setShowTerms(false)}>Agree</button>
+            <button className="btn btn-primary" onClick={() => setShowTerms(false)}>
+              I Agree
+            </button>
           </div>
         </div>
       )}
