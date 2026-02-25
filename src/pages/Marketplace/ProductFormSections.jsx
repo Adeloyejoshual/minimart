@@ -350,7 +350,7 @@ export default function ProductFormSections({
             className="hidden"
           />
           <div className="upload-placeholder">
-            <span className="upload-icon">📷</span>
+            <span className="upload-icon"></span>
             <p>{uploadingImages ? 'Uploading...' : 'Click to upload (max 10)'}</p>
             <small>{images.files.length}/10 • Max 5MB each</small>
           </div>
