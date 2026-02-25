@@ -5,20 +5,24 @@ import { useNavigate } from 'react-router-dom';
 import CustomDropdown from './CustomDropdown';
 import LoadingSpinner from './LoadingSpinner';
 import Toast from './Toast';
-
-import { categoryFields } from "../config/categoryFields";
-import { categoryRules } from "../config/categoryRules";
-import { conditions } from "../config/conditions";
-import { ramOptions } from "../config/ram";
-import { storageOptions } from "../config/storage";
-import { colors } from "../config/color";
-import { engines } from "../config/engine";
-import { fuelTypes } from "../config/fuelTypes";
-import { featuresByCategory } from "../config/features";
-import { promotionPlans } from "../config/promotion";
-import { locationsByState } from "../config/locationsByState";
-import { brands } from "../config/brands";
-import { models } from "../config/models";
+import {
+  API_BASE_URL,
+  MAX_IMAGES,
+  MIN_DESCRIPTION_LENGTH
+} from '../config/constants';
+import { categoryFields } from "../../config/categoryFields";
+import { categoryRules } from "../../config/categoryRules";
+import { conditions } from "../../config/conditions";
+import { ramOptions } from "../../config/ram";
+import { storageOptions } from "../../config/storage";
+import { colors } from "../../config/color";
+import { engines } from "../../config/engine";
+import { fuelTypes } from "../../config/fuelTypes";
+import { featuresByCategory } from "../../config/features";
+import { promotionPlans } from "../../config/promotion";
+import { locationsByState } from "../../config/locationsByState";
+import { brands } from "../../config/brands";
+import { models } from "../../config/models";
 import './AddProduct.css';
 
 const FIELD_CONFIG = {
@@ -641,4 +645,4 @@ const AddMarketplaceProduct = () => {
   );
 };
 
-export default AddProduct;
+export default Addroduct;
