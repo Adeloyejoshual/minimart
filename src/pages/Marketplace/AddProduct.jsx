@@ -1,6 +1,6 @@
 // PromotionPlans.jsx - YOUR NIGERIAN MARKETPLACE PROMOTIONS
 import { FaStar, FaRocket, FaGift, FaBullhorn, FaBolt, FaCrown, FaChartLine } from "react-icons/fa";
-import { promotionPlans, getDiscountPercent, getActivePrice } from '../config/promotion.js';
+import { promotionPlans, getDiscountPercent, getActivePrice } from '../../config/promotion.js';
 import { useState } from 'react';
 
 const PromotionPlans = () => {
