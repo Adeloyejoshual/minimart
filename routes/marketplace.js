@@ -1,13 +1,24 @@
-// routes/marketplace.js - BYPASS CLOUDINARY (IMAGES WORK INSTANTLY)
+// routes/marketplace.js - UNSIGNED CLOUDINARY UPLOAD (NO API KEYS!)
 router.post('/products', upload.single('image'), async (req, res) => {
   try {
     let imageUrl = '';
 
-    // ✅ BYPASS: Just use placeholder OR skip image for now
     if (req.file) {
-      // Store BASE64 image temporarily (no Cloudinary needed)
-      imageUrl = `/placeholder/${Date.now()}.jpg`; 
-      console.log('🖼️ Image bypassed, using placeholder');
+      // ✅ UNSIGNED UPLOAD - Only needs cloud_name + preset
+      const result = await new Promise((resolve, reject) => {
+        const stream = cloudinary.v2.uploader.upload_stream(
+          { 
+            folder: 'minimart',
+            upload_preset: process.env.VITE_CLOUDINARY_UPLOAD_PRESET  // Your preset!
+          },
+          (error, result) => {
+            if (error) reject(error);
+            else resolve(result);
+          }
+        );
+        stream.end(req.file.buffer);
+      });
+      imageUrl = result.secure_url;
     }
 
     const product = new Product({
@@ -22,6 +33,7 @@ router.post('/products', upload.single('image'), async (req, res) => {
     const saved = await product.save();
     res.status(201).json(saved);
   } catch (error) {
+    console.error('Error:', error.message);
     res.status(400).json({ error: error.message });
   }
 });
