@@ -16,7 +16,7 @@ import { brands } from "../../config/brands";
 import { models } from "../../config/models";
 
 const initializeForm = (user) => ({  
-  title: "", description: "", price: "", discount_price: "", category: "", subcategory: "", brand: "", model: "",  
+  title: "", description: "", price: "", discount_price: "", category: "", brand: "", model: "",  
   condition: "", used_detail: "", ram: "", storage: "", color: "", sim: [], features: [], engine: "", mileage: "",  
   year: "", fuel_type: "", transmission: "", phone_number: user?.phone_number || "", additional_phone: "",  
   poster_name: user?.name || "", state: "", city: "", social_link: "", images: [], video_link: "", promoted: false,  
@@ -25,7 +25,6 @@ const initializeForm = (user) => ({
 
 function getFieldOptions(field, computed) {  
   const optionsMap = {  
-    subcategory: computed.visibleFields,   
     brand: computed.availableBrands,   
     model: computed.availableModels,   
     condition: conditions,   
@@ -36,7 +35,8 @@ function getFieldOptions(field, computed) {
     engine: engines,   
     fuel_type: fuelTypes,   
     year: Array.from({length: 30}, (_, i) => (new Date().getFullYear() - i).toString()),
-    transmission: ["Manual", "Automatic", "CVT", "AMT"]  
+    transmission: ["Manual", "Automatic", "CVT", "AMT"],
+    promo_plan: promotionPlans.map(p => p.name)
   };  
   return optionsMap[field] || [];  
 }
@@ -52,12 +52,12 @@ export default function AddMarketplaceProduct() {
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [showTerms, setShowTerms] = useState(false);
 
-  // Computed fields based on category selection
+  // FIXED: Computed fields using categoryRules properly
   const computedFields = {
-    visibleFields: form.category ? categoryFields[form.category]?.subcategories || [] : [],
     availableBrands: form.category ? brands[form.category] || [] : [],
     availableModels: form.brand && form.category ? models[form.category]?.[form.brand] || [] : [],
     categoryFeatures: form.category ? featuresByCategory[form.category] || [] : [],
+    // ✅ CORRECT USAGE OF categoryRules
     showCategoryFields: form.category ? categoryRules[form.category] || [] : []
   };
 
@@ -128,7 +128,16 @@ export default function AddMarketplaceProduct() {
     }));
   };
 
-  // FULL WORKING PUBLISH FUNCTION
+  const toggleDeliveryRegion = (region) => {
+    setForm(prev => ({
+      ...prev,
+      deliveryRegions: prev.deliveryRegions.includes(region)
+        ? prev.deliveryRegions.filter(r => r !== region)
+        : [...prev.deliveryRegions, region]
+    }));
+  };
+
+  // ✅ FULL WORKING PUBLISH FUNCTION
   const handleSubmit = async (status = 'draft') => {
     if (!termsAccepted) {
       setShowTerms(true);
@@ -156,6 +165,8 @@ export default function AddMarketplaceProduct() {
         createdAt: new Date().toISOString()
       };
 
+      console.log('Submitting:', submitData); // Debug log
+
       const response = await fetch('/api/products', {
         method: 'POST',
         headers: { 
@@ -169,13 +180,14 @@ export default function AddMarketplaceProduct() {
 
       if (response.ok) {
         alert(status === 'published' ? 
-          '🎉 Product published successfully!' : 
+          `🎉 Product "${form.title}" published successfully! ID: ${result.productId}` : 
           '💾 Product saved as draft!'
         );
         
+        // ✅ Promotion handling
         if (status === 'published' && form.promoted && form.promo_plan) {
-          // Redirect to Paystack payment
-          window.location.href = `/paystack-promote?productId=${result.productId}&plan=${form.promo_plan}`;
+          const plan = promotionPlans.find(p => p.name === form.promo_plan);
+          window.location.href = `/paystack-promote?productId=${result.productId}&plan=${plan.id}`;
         } else {
           window.location.href = '/my-products';
         }
@@ -203,7 +215,7 @@ export default function AddMarketplaceProduct() {
       <div className="add-product-main">
         <div className="form-sections">
           
-          {/* SECTION 1: BASIC INFO */}
+          {/* SECTION 1: BASIC INFO - NO SUBCATEGORY */}
           <section className="form-section">
             <h2>1. Basic Information</h2>
             <div className="form-grid">
@@ -231,19 +243,7 @@ export default function AddMarketplaceProduct() {
                 </select>
               </div>
 
-              <div className="form-group">
-                <label>Subcategory</label>
-                <select
-                  value={form.subcategory}
-                  onChange={(e) => updateFormField('subcategory', e.target.value)}
-                >
-                  <option value="">Select Subcategory</option>
-                  {getFieldOptions('subcategory', computedFields).map(sub => (
-                    <option key={sub} value={sub}>{sub}</option>
-                  ))}
-                </select>
-              </div>
-
+              {/* ✅ FIXED: Brand dropdown (no subcategory) */}
               <div className="form-group">
                 <label>Brand</label>
                 <select
@@ -283,29 +283,35 @@ export default function AddMarketplaceProduct() {
             </div>
           </section>
 
-          {/* DYNAMIC CATEGORY FIELDS */}
+          {/* ✅ FIXED: DYNAMIC FIELDS SHOWING PROPERLY */}
           {computedFields.showCategoryFields.length > 0 && (
             <section className="form-section">
               <h2>2. Specifications</h2>
               <div className="form-grid">
+                {/* Condition */}
                 {computedFields.showCategoryFields.includes('condition') && (
-                  <>
-                    <div className="form-group">
-                      <label>Condition *</label>
-                      <select value={form.condition} onChange={(e) => updateFormField('condition', e.target.value)}>
-                        <option value="">Select Condition</option>
-                        {getFieldOptions('condition', computedFields).map(cond => (
-                          <option key={cond} value={cond}>{cond}</option>
-                        ))}
-                      </select>
-                    </div>
-                  </>
+                  <div className="form-group">
+                    <label>Condition</label>
+                    <select 
+                      value={form.condition} 
+                      onChange={(e) => updateFormField('condition', e.target.value)}
+                    >
+                      <option value="">Select Condition</option>
+                      {getFieldOptions('condition', computedFields).map(cond => (
+                        <option key={cond} value={cond}>{cond}</option>
+                      ))}
+                    </select>
+                  </div>
                 )}
 
+                {/* RAM */}
                 {computedFields.showCategoryFields.includes('ram') && (
                   <div className="form-group">
                     <label>RAM</label>
-                    <select value={form.ram} onChange={(e) => updateFormField('ram', e.target.value)}>
+                    <select 
+                      value={form.ram} 
+                      onChange={(e) => updateFormField('ram', e.target.value)}
+                    >
                       <option value="">Select RAM</option>
                       {getFieldOptions('ram', computedFields).map(ram => (
                         <option key={ram} value={ram}>{ram}</option>
@@ -314,10 +320,14 @@ export default function AddMarketplaceProduct() {
                   </div>
                 )}
 
+                {/* Storage */}
                 {computedFields.showCategoryFields.includes('storage') && (
                   <div className="form-group">
                     <label>Storage</label>
-                    <select value={form.storage} onChange={(e) => updateFormField('storage', e.target.value)}>
+                    <select 
+                      value={form.storage} 
+                      onChange={(e) => updateFormField('storage', e.target.value)}
+                    >
                       <option value="">Select Storage</option>
                       {getFieldOptions('storage', computedFields).map(storage => (
                         <option key={storage} value={storage}>{storage}</option>
@@ -326,10 +336,14 @@ export default function AddMarketplaceProduct() {
                   </div>
                 )}
 
+                {/* Color */}
                 {computedFields.showCategoryFields.includes('color') && (
                   <div className="form-group">
                     <label>Color</label>
-                    <select value={form.color} onChange={(e) => updateFormField('color', e.target.value)}>
+                    <select 
+                      value={form.color} 
+                      onChange={(e) => updateFormField('color', e.target.value)}
+                    >
                       <option value="">Select Color</option>
                       {getFieldOptions('color', computedFields).map(color => (
                         <option key={color} value={color}>{color}</option>
@@ -338,9 +352,10 @@ export default function AddMarketplaceProduct() {
                   </div>
                 )}
 
+                {/* SIM - Fixed */}
                 {computedFields.showCategoryFields.includes('sim') && (
                   <div className="form-group">
-                    <label>SIM</label>
+                    <label>SIM Type</label>
                     <div className="checkbox-grid">
                       {getFieldOptions('sim', computedFields).map(simType => (
                         <label key={simType} className="checkbox-label">
@@ -356,10 +371,14 @@ export default function AddMarketplaceProduct() {
                   </div>
                 )}
 
+                {/* Year - Fixed */}
                 {computedFields.showCategoryFields.includes('year') && (
                   <div className="form-group">
                     <label>Year</label>
-                    <select value={form.year} onChange={(e) => updateFormField('year', e.target.value)}>
+                    <select 
+                      value={form.year} 
+                      onChange={(e) => updateFormField('year', e.target.value)}
+                    >
                       <option value="">Select Year</option>
                       {getFieldOptions('year', computedFields).map(year => (
                         <option key={year} value={year}>{year}</option>
@@ -368,11 +387,15 @@ export default function AddMarketplaceProduct() {
                   </div>
                 )}
 
+                {/* Engine & Fuel */}
                 {computedFields.showCategoryFields.includes('engine') && (
                   <>
                     <div className="form-group">
                       <label>Engine</label>
-                      <select value={form.engine} onChange={(e) => updateFormField('engine', e.target.value)}>
+                      <select 
+                        value={form.engine} 
+                        onChange={(e) => updateFormField('engine', e.target.value)}
+                      >
                         <option value="">Select Engine</option>
                         {getFieldOptions('engine', computedFields).map(engine => (
                           <option key={engine} value={engine}>{engine}</option>
@@ -381,7 +404,10 @@ export default function AddMarketplaceProduct() {
                     </div>
                     <div className="form-group">
                       <label>Fuel Type</label>
-                      <select value={form.fuel_type} onChange={(e) => updateFormField('fuel_type', e.target.value)}>
+                      <select 
+                        value={form.fuel_type} 
+                        onChange={(e) => updateFormField('fuel_type', e.target.value)}
+                      >
                         <option value="">Select Fuel</option>
                         {getFieldOptions('fuel_type', computedFields).map(fuel => (
                           <option key={fuel} value={fuel}>{fuel}</option>
@@ -394,9 +420,46 @@ export default function AddMarketplaceProduct() {
             </section>
           )}
 
-          {/* PRICING SECTION */}
+          {/* PROMOTION SECTION - Added */}
+          {form.category && (
+            <section className="form-section">
+              <h2>Promotion Plans</h2>
+              <div className="form-grid">
+                <div className="form-group">
+                  <label>Promote Listing</label>
+                  <label className="checkbox-label full-width">
+                    <input
+                      type="checkbox"
+                      checked={form.promoted}
+                      onChange={(e) => {
+                        updateFormField('promoted', e.target.checked);
+                        if (!e.target.checked) updateFormField('promo_plan', '');
+                      }}
+                    />
+                    Make this listing featured
+                  </label>
+                </div>
+                {form.promoted && (
+                  <div className="form-group">
+                    <label>Promotion Plan</label>
+                    <select 
+                      value={form.promo_plan} 
+                      onChange={(e) => updateFormField('promo_plan', e.target.value)}
+                    >
+                      <option value="">Select Plan</option>
+                      {getFieldOptions('promo_plan', computedFields).map(plan => (
+                        <option key={plan} value={plan}>{plan}</option>
+                      ))}
+                    </select>
+                  </div>
+                )}
+              </div>
+            </section>
+          )}
+
+          {/* PRICING */}
           <section className="form-section">
-            <h2>3. Pricing</h2>
+            <h2>Pricing</h2>
             <div className="form-grid">
               <div className="form-group">
                 <label>Price (₦) *</label>
@@ -439,7 +502,7 @@ export default function AddMarketplaceProduct() {
 
           {/* IMAGES */}
           <section className="form-section">
-            <h2>4. Images *</h2>
+            <h2>Images *</h2>
             <div className="image-upload-area" onClick={() => fileInputRef.current?.click()}>
               <input
                 ref={fileInputRef}
@@ -473,7 +536,7 @@ export default function AddMarketplaceProduct() {
 
           {/* CONTACT */}
           <section className="form-section">
-            <h2>5. Contact Information</h2>
+            <h2>Contact Information</h2>
             <div className="form-grid">
               <div className="form-group">
                 <label>Phone Number *</label>
@@ -548,7 +611,14 @@ export default function AddMarketplaceProduct() {
                 onClick={() => handleSubmit('published')}
                 disabled={isSubmitting || !form.title || !form.phone_number || images.files.length === 0}
               >
-                {isSubmitting ? 'Publishing...' : '🚀 Publish Product'}
+                {isSubmitting ? (
+                  <>
+                    <span className="spinner"></span>
+                    Publishing...
+                  </>
+                ) : (
+                  '🚀 Publish Product'
+                )}
               </button>
             </div>
 
@@ -570,6 +640,40 @@ export default function AddMarketplaceProduct() {
           </div>
         </div>
       </div>
+
+      {/* Terms Modal */}
+      {showTerms && (
+        <div className="modal-overlay" onClick={() => setShowTerms(false)}>
+          <div className="modal-content" onClick={e => e.stopPropagation()}>
+            <div className="modal-header">
+              <h3>Terms & Conditions</h3>
+              <button className="modal-close" onClick={() => setShowTerms(false)}>×</button>
+            </div>
+            <iframe
+              src="/terms-policy"
+              className="terms-iframe"
+              title="Terms & Conditions"
+            />
+            <div className="modal-actions">
+              <button 
+                className="btn btn-secondary"
+                onClick={() => setShowTerms(false)}
+              >
+                Close
+              </button>
+              <button 
+                className="btn btn-primary"
+                onClick={() => {
+                  setTermsAccepted(true);
+                  setShowTerms(false);
+                }}
+              >
+                I Accept
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
