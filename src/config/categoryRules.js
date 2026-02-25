@@ -1,136 +1,74 @@
 // src/config/categoryRules.js
 export const categoryRules = {
-  electronics: {
-    phones: {
-      condition: true,
-      dynamicFields: ['ram', 'storage', 'color'],
-      simSupport: true,
-      features: true,
-      maxImages: 8
-    },
-    laptops: {
-      condition: true,
-      dynamicFields: ['ram', 'storage', 'color'],
-      features: true,
-      maxImages: 6
-    },
-    tablets: {
-      condition: true,
-      dynamicFields: ['ram', 'storage', 'color'],
-      features: true,
-      maxImages: 6
-    },
-    cameras: {
-      condition: true,
-      dynamicFields: ['color'],
-      features: true,
-      maxImages: 10
-    },
-    gaming_consoles: {
-      condition: true,
-      features: true,
-      maxImages: 6
-    },
-    accessories: {
-      condition: true,
-      dynamicFields: ['color'],
-      maxImages: 6
+  "Phones & Tablets": {
+    required: ["title", "price", "phone_number", "images", "brand", "condition"],
+    minDescription: 50,
+    maxImages: 12,
+    fields: ["brand", "model", "condition", "ram", "storage", "color", "sim", "features"],
+    validation: {
+      ram: { required: true },
+      storage: { required: true },
+      condition: { required: true }
     }
   },
-  vehicles: {
-    cars: {
-      condition: true,
-      dynamicFields: ['year', 'engine', 'fuelType', 'transmission', 'color'],
-      features: true,
-      maxImages: 12
-    },
-    motorcycles: {
-      condition: true,
-      dynamicFields: ['year', 'engine', 'color'],
-      features: true,
-      maxImages: 8
-    },
-    bicycles: {
-      condition: true,
-      dynamicFields: ['color'],
-      features: true,
-      maxImages: 6
+
+  "Vehicles": {
+    required: ["title", "price", "phone_number", "images", "brand", "year", "condition"],
+    minDescription: 100,
+    maxImages: 15,
+    fields: ["brand", "model", "condition", "engine", "mileage", "year", "fuel_type", "transmission", "color", "features"],
+    validation: {
+      year: { required: true, min: 1990, max: 2026 },
+      mileage: { required: true, min: 0 },
+      condition: { required: true }
     }
   },
-  fashion: {
-    mens_clothing: {
-      condition: true,
-      dynamicFields: ['color'],
-      maxImages: 6
-    },
-    womens_clothing: {
-      condition: true,
-      dynamicFields: ['color'],
-      maxImages: 6
-    },
-    shoes: {
-      condition: true,
-      dynamicFields: ['color'],
-      maxImages: 6
-    },
-    bags: {
-      condition: true,
-      dynamicFields: ['color'],
-      maxImages: 6
-    },
-    watches: {
-      condition: true,
-      dynamicFields: ['color'],
-      maxImages: 8
+
+  "Computers & Laptops": {
+    required: ["title", "price", "phone_number", "images", "brand", "ram", "storage"],
+    minDescription: 50,
+    maxImages: 10,
+    fields: ["brand", "model", "condition", "ram", "storage", "features"],
+    validation: {
+      ram: { required: true },
+      storage: { required: true }
     }
   },
-  home_living: {
-    furniture: {
-      condition: true,
-      dynamicFields: ['color'],
-      features: true,
-      maxImages: 8
-    },
-    appliances: {
-      condition: true,
-      dynamicFields: ['color'],
-      features: true,
-      maxImages: 6
-    },
-    kitchenware: {
-      condition: true,
-      dynamicFields: ['color'],
-      maxImages: 6
-    },
-    decor: {
-      condition: true,
-      dynamicFields: ['color'],
-      maxImages: 8
+
+  "Electronics": {
+    required: ["title", "price", "phone_number", "images"],
+    minDescription: 30,
+    maxImages: 8,
+    fields: ["brand", "model", "condition", "features"]
+  },
+
+  "Property": {
+    required: ["title", "price", "phone_number", "images", "bedrooms"],
+    minDescription: 150,
+    maxImages: 20,
+    fields: ["bedrooms", "bathrooms", "size", "furnished", "features"],
+    validation: {
+      bedrooms: { required: true, min: 1 },
+      bathrooms: { min: 1 }
     }
   },
-  real_estate: {
-    apartments: {
-      features: true,
-      maxImages: 15
-    },
-    houses: {
-      features: true,
-      maxImages: 15
-    },
-    land: {
-      features: true,
-      maxImages: 10
-    }
+
+  "Fashion": {
+    required: ["title", "price", "phone_number", "images"],
+    minDescription: 30,
+    maxImages: 8,
+    fields: ["brand", "size", "color", "features"]
   },
-  services: {
-    beauty: {
-      maxImages: 6
-    },
-    repair: {
-      maxImages: 6
-    },
-    lessons: {
-      maxImages: 4
-    }
+
+  "default": {
+    required: ["title", "price", "phone_number", "images"],
+    minDescription: 30,
+    maxImages: 12,
+    fields: []
   }
+};
+
+// Helper function to get rules for category
+export const getCategoryRules = (category) => {
+  return categoryRules[category] || categoryRules.default;
 };
