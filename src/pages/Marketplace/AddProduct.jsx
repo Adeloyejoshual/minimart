@@ -1,5 +1,8 @@
 import React, { useState, useRef, useEffect, useCallback } from 'react';
 import { useAuth0 } from '@auth0/auth0-react';
+import { useNavigate } from 'react-router-dom';
+import LoadingSpinner from './LoadingSpinner';
+import Toast from './Toast';
 import './AddProduct.css';
 import { categoryFields } from "../../config/categoryFields";
 import { categoryRules } from "../../config/categoryRules";
@@ -41,7 +44,24 @@ function getFieldOptions(field, computed) {
   return optionsMap[field] || [];  
 }
 
+const DROPDOWN_FIELDS = {
+  condition: "Condition",
+  ram: "RAM", 
+  storage: "Storage",
+  color: "Color",
+  engine: "Engine",
+  fuel_type: "Fuel Type",
+  year: "Year",
+  transmission: "Transmission"
+};
+
+const CHECKBOX_FIELDS = {
+  sim: "SIM Type",
+  features: "Features"
+};
+
 export default function AddMarketplaceProduct() {
+  const navigate = useNavigate();
   const { user, isAuthenticated, isLoading, getAccessTokenSilently } = useAuth0();
   const fileInputRef = useRef(null);
   
@@ -50,22 +70,17 @@ export default function AddMarketplaceProduct() {
   const [cities, setCities] = useState([]);
   const [termsAccepted, setTermsAccepted] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
-  const [showTerms, setShowTerms] = useState(false);
+  const [toasts, setToasts] = useState([]);
+  const [openDropdown, setOpenDropdown] = useState(null);
 
-  // ✅ FIXED: Using YOUR categoryFields structure properly
   const computedFields = {
     availableBrands: form.category ? brands[form.category] || [] : [],
     availableModels: form.brand && form.category ? models[form.category]?.[form.brand] || [] : [],
     categoryFeatures: form.category ? featuresByCategory[form.category] || [] : [],
-    // ✅ CORRECT: Use YOUR categoryFields as showCategoryFields
     showCategoryFields: form.category ? categoryFields[form.category] || [] : []
   };
 
-  console.log('Category:', form.category);
-  console.log('Show fields:', computedFields.showCategoryFields);
-  console.log('Available brands:', computedFields.availableBrands);
-
-  // Update cities when state changes
+  // Effects
   useEffect(() => {
     if (form.state && locationsByState[form.state]) {
       setCities(locationsByState[form.state]);
@@ -78,29 +93,35 @@ export default function AddMarketplaceProduct() {
     setForm(prev => ({ ...prev, [field]: value }));
   }, []);
 
-  // Format price with commas
-  const formatPrice = (value) => {
-    return new Intl.NumberFormat('en-NG').format(value).replace(/,/g, ',');
+  const addToast = (message, type = 'success') => {
+    const id = Date.now();
+    setToasts(prev => [...prev, { id, message, type }]);
   };
 
-  const parsePrice = (value) => {
-    return value.replace(/,/g, '');
+  const removeToast = (id) => {
+    setToasts(prev => prev.filter(toast => toast.id !== id));
   };
 
+  // Price formatting
+  const formatPrice = (value) => new Intl.NumberFormat('en-NG').format(value);
+  const parsePrice = (value) => value.replace(/,/g, '');
   const handlePriceChange = (e, field) => {
     let value = e.target.value.replace(/[^0-9]/g, '');
     updateFormField(field, formatPrice(value));
   };
 
+  // Image handling
   const handleImageUpload = (e) => {
-    const newFiles = Array.from(e.target.files);
-    const newPreviews = newFiles.map(file => URL.createObjectURL(file));
+    const newFiles = Array.from(e.target.files).slice(0, 10 - images.files.length);
+    if (newFiles.length === 0) return;
     
+    const newPreviews = newFiles.map(file => URL.createObjectURL(file));
     setImages(prev => ({
       files: [...prev.files, ...newFiles],
       previews: [...prev.previews, ...newPreviews]
     }));
     updateFormField('images', [...form.images, ...newFiles.map(f => f.name)]);
+    addToast(`${newFiles.length} image(s) uploaded!`);
   };
 
   const removeImage = (index) => {
@@ -114,39 +135,38 @@ export default function AddMarketplaceProduct() {
     }));
   };
 
-  const toggleFeature = (feature) => {
+  // Dynamic field toggles
+  const toggleArrayField = (field, value) => {
     setForm(prev => ({
       ...prev,
-      features: prev.features.includes(feature)
-        ? prev.features.filter(f => f !== feature)
-        : [...prev.features, feature]
-    }));
-  };
-
-  const toggleSim = (simType) => {
-    setForm(prev => ({
-      ...prev,
-      sim: prev.sim.includes(simType)
-        ? prev.sim.filter(s => s !== simType)
-        : [...prev.sim, simType]
+      [field]: prev[field].includes(value)
+        ? prev[field].filter(item => item !== value)
+        : [...prev[field], value]
     }));
   };
 
   const handleSubmit = async (status = 'draft') => {
     if (!termsAccepted) {
-      setShowTerms(true);
+      addToast('Please accept Terms & Conditions first', 'error');
       return;
     }
 
-    if (!form.title.trim() || !form.phone_number.trim() || images.files.length === 0) {
-      alert('Please fill required fields: Title, Phone, and add at least 1 image');
+    if (!form.title.trim()) {
+      addToast('Product title is required', 'error');
+      return;
+    }
+    if (!form.phone_number.trim()) {
+      addToast('Phone number is required', 'error');
+      return;
+    }
+    if (images.files.length === 0) {
+      addToast('At least 1 image is required', 'error');
       return;
     }
 
     setIsSubmitting(true);
     try {
       const token = await getAccessTokenSilently();
-      
       const submitData = {
         ...form,
         sellerId: user.sub,
@@ -168,41 +188,37 @@ export default function AddMarketplaceProduct() {
         body: JSON.stringify(submitData)
       });
 
-      const result = await response.json();
-
       if (response.ok) {
-        alert(status === 'published' ? 
-          `🎉 Product "${form.title}" published successfully!` : 
-          '💾 Product saved as draft!'
-        );
-        window.location.href = '/my-products';
+        addToast(`Product "${form.title}" ${status === 'published' ? 'published!' : 'saved as draft!'}`);
+        setTimeout(() => navigate('/my-products'), 2000);
       } else {
-        throw new Error(result.message || 'Failed to save product');
+        throw new Error('Failed to save product');
       }
     } catch (error) {
-      console.error('Submit error:', error);
-      alert(`❌ Error: ${error.message}`);
+      addToast(`Error: ${error.message}`, 'error');
     } finally {
       setIsSubmitting(false);
     }
   };
 
-  if (isLoading) return <ProfessionalLoadingSpinner />;
-  if (!isAuthenticated) return <ProfessionalLoadingSpinner message="Please log in..." />;
+  if (isLoading || !isAuthenticated) return <LoadingSpinner />;
 
   return (
     <div className="add-product-container">
+      {/* Header with Back Arrow */}
       <div className="add-product-header">
-        <h1>Add New Product</h1>
+        <button className="back-arrow" onClick={() => navigate(-1)}>
+          ←
+        </button>
+        <h1>Basic Information</h1>
         <p>Complete all sections to list your product</p>
       </div>
 
       <div className="add-product-main">
         <div className="form-sections">
-          
-          {/* SECTION 1: BASIC INFO */}
+          {/* Basic Info */}
           <section className="form-section">
-            <h2>1. Basic Information</h2>
+            <h2>Basic Information</h2>
             <div className="form-grid">
               <div className="form-group">
                 <label>Product Title *</label>
@@ -217,46 +233,35 @@ export default function AddMarketplaceProduct() {
               
               <div className="form-group">
                 <label>Category *</label>
-                <select
+                <CustomDropdown
+                  options={Object.keys(categoryFields)}
                   value={form.category}
-                  onChange={(e) => updateFormField('category', e.target.value)}
-                >
-                  <option value="">Select Category</option>
-                  {Object.keys(categoryFields).map(cat => (
-                    <option key={cat} value={cat}>{cat}</option>
-                  ))}
-                </select>
+                  onChange={(value) => updateFormField('category', value)}
+                  placeholder="Select Category"
+                />
               </div>
 
-              {/* ✅ Brand - Shows after category selection */}
               {form.category && computedFields.availableBrands.length > 0 && (
                 <div className="form-group">
                   <label>Brand</label>
-                  <select
+                  <CustomDropdown
+                    options={computedFields.availableBrands}
                     value={form.brand}
-                    onChange={(e) => updateFormField('brand', e.target.value)}
-                  >
-                    <option value="">Select Brand</option>
-                    {computedFields.availableBrands.map(brand => (
-                      <option key={brand} value={brand}>{brand}</option>
-                    ))}
-                  </select>
+                    onChange={(value) => updateFormField('brand', value)}
+                    placeholder="Select Brand"
+                  />
                 </div>
               )}
 
-              {/* Model - Shows after brand selection */}
               {form.brand && computedFields.availableModels.length > 0 && (
                 <div className="form-group">
                   <label>Model</label>
-                  <select
+                  <CustomDropdown
+                    options={computedFields.availableModels}
                     value={form.model}
-                    onChange={(e) => updateFormField('model', e.target.value)}
-                  >
-                    <option value="">Select Model</option>
-                    {computedFields.availableModels.map(model => (
-                      <option key={model} value={model}>{model}</option>
-                    ))}
-                  </select>
+                    onChange={(value) => updateFormField('model', value)}
+                    placeholder="Select Model"
+                  />
                 </div>
               )}
 
@@ -272,160 +277,57 @@ export default function AddMarketplaceProduct() {
             </div>
           </section>
 
-          {/* ✅ FIXED: DYNAMIC SPECIFICATIONS - NOW WORKS */}
+          {/* ✅ DYNAMIC FIELD MAPPING */}
           {form.category && computedFields.showCategoryFields.length > 0 && (
             <section className="form-section">
-              <h2>2. Specifications</h2>
+              <h2>Specifications</h2>
               <div className="form-grid">
-                
-                {/* Condition */}
-                {computedFields.showCategoryFields.includes('condition') && (
-                  <div className="form-group">
-                    <label>Condition</label>
-                    <select 
-                      value={form.condition} 
-                      onChange={(e) => updateFormField('condition', e.target.value)}
-                    >
-                      <option value="">Select Condition</option>
-                      {conditions.map(cond => (
-                        <option key={cond} value={cond}>{cond}</option>
-                      ))}
-                    </select>
-                  </div>
-                )}
+                {/* Dynamic Dropdown Fields */}
+                {computedFields.showCategoryFields.map(field => {
+                  if (DROPDOWN_FIELDS[field]) {
+                    return (
+                      <div key={field} className="form-group">
+                        <label>{DROPDOWN_FIELDS[field]}</label>
+                        <CustomDropdown
+                          options={getFieldOptions(field, computedFields)}
+                          value={form[field]}
+                          onChange={(value) => updateFormField(field, value)}
+                          placeholder={`Select ${DROPDOWN_FIELDS[field]}`}
+                        />
+                      </div>
+                    );
+                  }
+                  return null;
+                })}
 
-                {/* RAM - NOW SHOWS */}
-                {computedFields.showCategoryFields.includes('ram') && (
-                  <div className="form-group">
-                    <label>RAM</label>
-                    <select 
-                      value={form.ram} 
-                      onChange={(e) => updateFormField('ram', e.target.value)}
-                    >
-                      <option value="">Select RAM</option>
-                      {ramOptions.map(ram => (
-                        <option key={ram} value={ram}>{ram}</option>
-                      ))}
-                    </select>
-                  </div>
-                )}
+                {/* Dynamic Checkbox Fields */}
+                {computedFields.showCategoryFields.map(field => {
+                  if (CHECKBOX_FIELDS[field]) {
+                    const options = field === 'sim' 
+                      ? ["Single SIM", "Dual SIM", "eSIM", "eSIM + Physical"]
+                      : computedFields.categoryFeatures.slice(0, 12);
+                    return (
+                      <div key={field} className="form-group full-width">
+                        <label>{CHECKBOX_FIELDS[field]}</label>
+                        <div className="checkbox-grid">
+                          {options.map(option => (
+                            <label key={option} className="checkbox-label">
+                              <input
+                                type="checkbox"
+                                checked={form[field]?.includes(option)}
+                                onChange={() => toggleArrayField(field, option)}
+                              />
+                              {option}
+                            </label>
+                          ))}
+                        </div>
+                      </div>
+                    );
+                  }
+                  return null;
+                })}
 
-                {/* Storage - NOW SHOWS */}
-                {computedFields.showCategoryFields.includes('storage') && (
-                  <div className="form-group">
-                    <label>Storage</label>
-                    <select 
-                      value={form.storage} 
-                      onChange={(e) => updateFormField('storage', e.target.value)}
-                    >
-                      <option value="">Select Storage</option>
-                      {storageOptions.map(storage => (
-                        <option key={storage} value={storage}>{storage}</option>
-                      ))}
-                    </select>
-                  </div>
-                )}
-
-                {/* Color */}
-                {computedFields.showCategoryFields.includes('color') && (
-                  <div className="form-group">
-                    <label>Color</label>
-                    <select 
-                      value={form.color} 
-                      onChange={(e) => updateFormField('color', e.target.value)}
-                    >
-                      <option value="">Select Color</option>
-                      {colors.map(color => (
-                        <option key={color} value={color}>{color}</option>
-                      ))}
-                    </select>
-                  </div>
-                )}
-
-                {/* SIM */}
-                {computedFields.showCategoryFields.includes('sim') && (
-                  <div className="form-group">
-                    <label>SIM Type</label>
-                    <div className="checkbox-grid">
-                      {["Single SIM", "Dual SIM", "eSIM", "eSIM + Physical"].map(simType => (
-                        <label key={simType} className="checkbox-label">
-                          <input
-                            type="checkbox"
-                            checked={form.sim.includes(simType)}
-                            onChange={() => toggleSim(simType)}
-                          />
-                          {simType}
-                        </label>
-                      ))}
-                    </div>
-                  </div>
-                )}
-
-                {/* Year - NOW SHOWS */}
-                {computedFields.showCategoryFields.includes('year') && (
-                  <div className="form-group">
-                    <label>Year</label>
-                    <select 
-                      value={form.year} 
-                      onChange={(e) => updateFormField('year', e.target.value)}
-                    >
-                      <option value="">Select Year</option>
-                      {Array.from({length: 30}, (_, i) => (new Date().getFullYear() - i).toString()).map(year => (
-                        <option key={year} value={year}>{year}</option>
-                      ))}
-                    </select>
-                  </div>
-                )}
-
-                {/* Engine */}
-                {computedFields.showCategoryFields.includes('engine') && (
-                  <div className="form-group">
-                    <label>Engine</label>
-                    <select 
-                      value={form.engine} 
-                      onChange={(e) => updateFormField('engine', e.target.value)}
-                    >
-                      <option value="">Select Engine</option>
-                      {engines.map(engine => (
-                        <option key={engine} value={engine}>{engine}</option>
-                      ))}
-                    </select>
-                  </div>
-                )}
-
-                {/* Fuel Type */}
-                {computedFields.showCategoryFields.includes('fuel_type') && (
-                  <div className="form-group">
-                    <label>Fuel Type</label>
-                    <select 
-                      value={form.fuel_type} 
-                      onChange={(e) => updateFormField('fuel_type', e.target.value)}
-                    >
-                      <option value="">Select Fuel</option>
-                      {fuelTypes.map(fuel => (
-                        <option key={fuel} value={fuel}>{fuel}</option>
-                      ))}
-                    </select>
-                  </div>
-                )}
-
-                {/* Transmission */}
-                {computedFields.showCategoryFields.includes('transmission') && (
-                  <div className="form-group">
-                    <label>Transmission</label>
-                    <select 
-                      value={form.transmission} 
-                      onChange={(e) => updateFormField('transmission', e.target.value)}
-                    >
-                      <option value="">Select Transmission</option>
-                      {["Manual", "Automatic", "CVT", "AMT"].map(trans => (
-                        <option key={trans} value={trans}>{trans}</option>
-                      ))}
-                    </select>
-                  </div>
-                )}
-
-                {/* Mileage */}
+                {/* Mileage - Special number input */}
                 {computedFields.showCategoryFields.includes('mileage') && (
                   <div className="form-group">
                     <label>Mileage (km)</label>
@@ -437,68 +339,13 @@ export default function AddMarketplaceProduct() {
                     />
                   </div>
                 )}
-
-                {/* Features */}
-                {computedFields.showCategoryFields.includes('features') && computedFields.categoryFeatures.length > 0 && (
-                  <div className="form-group full-width">
-                    <label>Features</label>
-                    <div className="checkbox-grid-2">
-                      {computedFields.categoryFeatures.slice(0, 12).map(feature => (
-                        <label key={feature} className="checkbox-label">
-                          <input
-                            type="checkbox"
-                            checked={form.features.includes(feature)}
-                            onChange={() => toggleFeature(feature)}
-                          />
-                          {feature}
-                        </label>
-                      ))}
-                    </div>
-                  </div>
-                )}
               </div>
             </section>
           )}
 
-          {/* PROMOTION */}
+          {/* Pricing & Promotion */}
           <section className="form-section">
-            <h2>Promotion</h2>
-            <div className="form-grid">
-              <div className="form-group">
-                <label className="checkbox-label full-width">
-                  <input
-                    type="checkbox"
-                    checked={form.promoted}
-                    onChange={(e) => {
-                      updateFormField('promoted', e.target.checked);
-                      if (!e.target.checked) updateFormField('promo_plan', '');
-                    }}
-                  />
-                  <span>Promote this listing</span>
-                </label>
-              </div>
-              {form.promoted && promotionPlans.length > 0 && (
-                <div className="form-group">
-                  <label>Promotion Plan</label>
-                  <select 
-                    value={form.promo_plan} 
-                    onChange={(e) => updateFormField('promo_plan', e.target.value)}
-                  >
-                    <option value="">Select Plan</option>
-                    {promotionPlans.map(plan => (
-                      <option key={plan.name} value={plan.name}>
-                        {plan.name} (₦{plan.price}/mo)
-                      </option>
-                    ))}
-                  </select>
-                </div>
-              )}
-            </div>
-          </section>
-
-          {/* PRICING */}
-          <section className="form-section">
-            <h2>Pricing</h2>
+            <h2>Pricing & Promotion</h2>
             <div className="form-grid">
               <div className="form-group">
                 <label>Price (₦) *</label>
@@ -520,61 +367,94 @@ export default function AddMarketplaceProduct() {
               </div>
               <div className="form-group checkbox-row">
                 <label className="checkbox-label full-width">
-                  <input
-                    type="checkbox"
-                    checked={form.negotiable}
-                    onChange={(e) => updateFormField('negotiable', e.target.checked)}
-                  />
+                  <input type="checkbox" checked={form.negotiable} onChange={(e) => updateFormField('negotiable', e.target.checked)} />
                   Price Negotiable
                 </label>
                 <label className="checkbox-label full-width">
-                  <input
-                    type="checkbox"
-                    checked={form.flash_sale}
-                    onChange={(e) => updateFormField('flash_sale', e.target.checked)}
-                  />
+                  <input type="checkbox" checked={form.flash_sale} onChange={(e) => updateFormField('flash_sale', e.target.checked)} />
                   Flash Sale
                 </label>
               </div>
+              <div className="form-group">
+                <label className="checkbox-label full-width">
+                  <input
+                    type="checkbox"
+                    checked={form.promoted}
+                    onChange={(e) => {
+                      updateFormField('promoted', e.target.checked);
+                      if (!e.target.checked) updateFormField('promo_plan', '');
+                    }}
+                  />
+                  <span>Promote this listing</span>
+                </label>
+                {form.promoted && (
+                  <CustomDropdown
+                    options={promotionPlans.map(p => p.name)}
+                    value={form.promo_plan}
+                    onChange={(value) => updateFormField('promo_plan', value)}
+                    placeholder="Select Plan"
+                  />
+                )}
+              </div>
             </div>
           </section>
 
-          {/* IMAGES */}
+          {/* Professional Image Uploader */}
           <section className="form-section">
-            <h2>Images *</h2>
-            <div className="image-upload-area" onClick={() => fileInputRef.current?.click()}>
-              <input
-                ref={fileInputRef}
-                type="file"
-                multiple
-                accept="image/*"
-                onChange={handleImageUpload}
-                className="hidden"
-              />
-              <div className="upload-placeholder">
-                <div className="upload-icon">📸</div>
-                <p>Click to upload (Max 10 images)</p>
-                <small>{images.previews.length}/10 images</small>
-              </div>
-            </div>
-            {images.previews.length > 0 && (
-              <div className="image-previews">
-                {images.previews.map((preview, index) => (
-                  <div key={index} className="image-preview">
-                    <img src={preview} alt="Preview" />
-                    <button 
-                      className="remove-image"
-                      onClick={() => removeImage(index)}
-                    >
-                      ×
-                    </button>
+            <h2>Product Images *</h2>
+            <div className="professional-image-uploader">
+              <div 
+                className="image-upload-zone" 
+                onClick={() => fileInputRef.current?.click()}
+                onDragOver={(e) => e.preventDefault()}
+                onDrop={(e) => {
+                  e.preventDefault();
+                  handleImageUpload({ target: { files: e.dataTransfer.files } });
+                }}
+              >
+                <input
+                  ref={fileInputRef}
+                  type="file"
+                  multiple
+                  accept="image/*"
+                  onChange={handleImageUpload}
+                  className="hidden"
+                />
+                <div className="upload-content">
+                  <div className="upload-icon">📸</div>
+                  <h3>Drop images here or click to browse</h3>
+                  <p>Max 10 images • JPG, PNG up to 10MB each</p>
+                  <div className="upload-stats">
+                    <span>{images.previews.length}/10 images</span>
                   </div>
-                ))}
+                </div>
               </div>
-            )}
+              
+              {images.previews.length > 0 && (
+                <div className="image-gallery">
+                  {images.previews.map((preview, index) => (
+                    <div key={index} className="image-item">
+                      <img src={preview} alt={`Preview ${index}`} />
+                      <div className="image-overlay">
+                        <button 
+                          className="image-action remove-btn"
+                          onClick={() => removeImage(index)}
+                          title="Remove"
+                        >
+                          ×
+                        </button>
+                        <button className="image-action reorder-btn" title="Reorder">
+                          ↕
+                        </button>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
           </section>
 
-          {/* CONTACT */}
+          {/* Contact */}
           <section className="form-section">
             <h2>Contact Information</h2>
             <div className="form-grid">
@@ -589,38 +469,30 @@ export default function AddMarketplaceProduct() {
               </div>
               <div className="form-group">
                 <label>State *</label>
-                <select
+                <CustomDropdown
+                  options={Object.keys(locationsByState)}
                   value={form.state}
-                  onChange={(e) => updateFormField('state', e.target.value)}
-                >
-                  <option value="">Select State</option>
-                  {Object.keys(locationsByState).map(state => (
-                    <option key={state} value={state}>{state}</option>
-                  ))}
-                </select>
+                  onChange={(value) => updateFormField('state', value)}
+                  placeholder="Select State"
+                />
               </div>
               <div className="form-group">
                 <label>City</label>
-                <select
+                <CustomDropdown
+                  options={cities}
                   value={form.city}
-                  onChange={(e) => updateFormField('city', e.target.value)}
-                >
-                  <option value="">Select City</option>
-                  {cities.map(city => (
-                    <option key={city} value={city}>{city}</option>
-                  ))}
-                </select>
+                  onChange={(value) => updateFormField('city', value)}
+                  placeholder="Select City"
+                />
               </div>
             </div>
           </section>
-
         </div>
 
-        {/* SIDEBAR */}
+        {/* Sidebar */}
         <div className="sidebar">
           <div className="publish-panel">
             <h3>Ready to Publish?</h3>
-            
             <div className="checklist">
               <div className={`checklist-item ${form.title.trim() ? 'completed' : ''}`}>
                 <span className={`check-icon ${form.title.trim() ? 'checkmark' : ''}`}>✓</span>
@@ -649,7 +521,7 @@ export default function AddMarketplaceProduct() {
                 💾 Save Draft
               </button>
               <button
-                className={`btn btn-primary ${isSubmitting || !form.title.trim() || !form.phone_number.trim() || images.files.length === 0 || !termsAccepted ? 'disabled' : ''}`}
+                className="btn btn-primary"
                 onClick={() => handleSubmit('published')}
                 disabled={isSubmitting || !form.title.trim() || !form.phone_number.trim() || images.files.length === 0 || !termsAccepted}
               >
@@ -672,7 +544,13 @@ export default function AddMarketplaceProduct() {
                   onChange={(e) => setTermsAccepted(e.target.checked)}
                 />
                 <span>
-                  I agree to <button className="terms-link" onClick={() => setShowTerms(true)}>
+                  I agree to <button 
+                    className="terms-link" 
+                    onClick={(e) => {
+                      e.preventDefault();
+                      navigate('/terms-policy');
+                    }}
+                  >
                     Terms & Conditions
                   </button>
                 </span>
@@ -682,41 +560,49 @@ export default function AddMarketplaceProduct() {
         </div>
       </div>
 
-      {/* ✅ PROFESSIONAL LOADING SCREEN */}
-      {false && (
-        <ProfessionalLoadingSpinner />
-      )}
-    </div>
-  );
-}
-
-// ✅ PROFESSIONAL ANIMATED LOADING SPINNER
-function ProfessionalLoadingSpinner({ message = "Loading Add Product..." }) {
-  return (
-    <div className="professional-loader">
-      <div className="loader-container">
-        <div className="loader-ring">
-          <div></div>
-          <div></div>
-          <div></div>
-          <div></div>
-        </div>
-        <div className="loader-glow"></div>
-        <div className="loader-text">
-          <div className="loader-title">{message}</div>
-          <div className="loader-dots">
-            <span></span>
-            <span></span>
-            <span></span>
-          </div>
-        </div>
-        <div className="loader-particles">
-          <div className="particle"></div>
-          <div className="particle"></div>
-          <div className="particle"></div>
-          <div className="particle"></div>
-        </div>
+      {/* Toast Notifications */}
+      <div className="toast-container">
+        {toasts.map(toast => (
+          <Toast
+            key={toast.id}
+            message={toast.message}
+            type={toast.type}
+            onClose={() => removeToast(toast.id)}
+          />
+        ))}
       </div>
     </div>
   );
 }
+
+// Custom Dropdown Component
+const CustomDropdown = ({ options, value, onChange, placeholder }) => {
+  const [open, setOpen] = useState(false);
+
+  return (
+    <div className="custom-dropdown" onClick={() => setOpen(!open)}>
+      <div className="dropdown-display">
+        <span>{value || placeholder}</span>
+        <svg className={`dropdown-arrow ${open ? 'rotated' : ''}`} viewBox="0 0 24 24">
+          <path d="M7 10l5 5 5-5z"/>
+        </svg>
+      </div>
+      {open && (
+        <div className="dropdown-options">
+          {options.map(option => (
+            <div
+              key={option}
+              className={`dropdown-option ${value === option ? 'selected' : ''}`}
+              onClick={() => {
+                onChange(option);
+                setOpen(false);
+              }}
+            >
+              {option}
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+};
