@@ -1,50 +1,47 @@
-// routes/marketplace.js - NOW WITH MONGODB ✅
-import express from 'express';
-import Product from '../models/Product.js';
-
+// routes/products.js
+const express = require('express');
+const multer = require('multer');
+const cloudinary = require('cloudinary').v2;
 const router = express.Router();
 
-// 🛒 CREATE PRODUCT
-router.post('/products', async (req, res) => {
+// Configure Cloudinary (use your .env vars)
+cloudinary.config({
+  cloud_name: process.env.CLOUDINARY_CLOUD_NAME,
+  preset: process.env.CLOUDINARY_UPLOAD_PRESET
+});
+
+// Multer for file handling
+const upload = multer({ dest: 'uploads/' });
+
+router.post('/', upload.single('image'), async (req, res) => {
   try {
-    console.log('📦 Saving to MongoDB:', req.body.title);
+    let imageUrl = '';
     
+    // Upload image to Cloudinary
+    if (req.file) {
+      const result = await cloudinary.uploader.upload(req.file.path);
+      imageUrl = result.secure_url;
+    }
+
+    // Save to MongoDB
     const product = new Product({
-      ...req.body,
-      sellerId: req.auth?.sub || req.body.sellerId || 'anonymous'
+      name: req.body.name,
+      price: req.body.price,
+      description: req.body.description,
+      image: imageUrl,
+      category: req.body.category
     });
-    
+
     await product.save();
-    
-    res.status(201).json({ 
-      success: true,
-      product: product.toJSON(),
-      message: 'Product created successfully!'
-    });
+    res.json(product);
   } catch (error) {
-    console.error('❌ MongoDB error:', error);
-    res.status(400).json({ 
-      success: false, 
-      message: error.message 
-    });
+    res.status(400).json({ error: error.message });
   }
 });
 
-// 📋 LIST PRODUCTS
-router.get('/products', async (req, res) => {
-  try {
-    const products = await Product.find({ status: 'published' })
-      .sort({ createdAt: -1 })
-      .limit(20);
-    
-    res.json({ 
-      success: true, 
-      products: products.map(p => p.toJSON()),
-      count: products.length 
-    });
-  } catch (error) {
-    res.status(500).json({ success: false, message: error.message });
-  }
+router.get('/', async (req, res) => {
+  const products = await Product.find();
+  res.json(products);
 });
 
-export default router;
+module.exports = router;
