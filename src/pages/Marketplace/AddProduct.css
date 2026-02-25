@@ -433,3 +433,157 @@
     padding: 1.5rem;
   }
 }
+
+/* PROFESSIONAL LOADING SCREEN */
+.professional-loader {
+  min-height: 100vh;
+  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  position: relative;
+  overflow: hidden;
+}
+
+.loader-container {
+  text-align: center;
+  position: relative;
+  z-index: 2;
+}
+
+.loader-ring {
+  width: 80px;
+  height: 80px;
+  border-radius: 50%;
+  position: relative;
+  margin: 0 auto 2rem;
+  animation: spin 1.2s cubic-bezier(0.4, 0, 0.2, 1) infinite;
+}
+
+.loader-ring div {
+  box-sizing: border-box;
+  position: absolute;
+  width: 48px;
+  height: 48px;
+  margin: 8px;
+  border-radius: 50%;
+  border: 4px solid rgba(255, 255, 255, 0.1);
+  border-top: 4px solid #ffffff;
+  opacity: 0;
+  animation: loaderFade 1.2s cubic-bezier(0.4, 0, 0.2, 1) infinite;
+}
+
+.loader-ring div:nth-child(1) { animation-delay: -0.3s; }
+.loader-ring div:nth-child(2) { animation-delay: -0.2s; }
+.loader-ring div:nth-child(3) { animation-delay: -0.1s; }
+.loader-ring div:nth-child(4) { animation-delay: 0s; }
+
+.loader-glow {
+  position: absolute;
+  width: 200px;
+  height: 200px;
+  border-radius: 50%;
+  background: radial-gradient(circle, rgba(255,255,255,0.3) 0%, transparent 70%);
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  animation: pulseGlow 2s ease-in-out infinite;
+  z-index: 1;
+}
+
+.loader-text .loader-title {
+  font-size: 1.5rem;
+  font-weight: 700;
+  color: white;
+  margin-bottom: 0.5rem;
+  text-shadow: 0 2px 10px rgba(0,0,0,0.3);
+}
+
+.loader-dots {
+  display: flex;
+  gap: 0.5rem;
+  justify-content: center;
+}
+
+.loader-dots span {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: rgba(255,255,255,0.7);
+  animation: dotsBounce 1.4s infinite ease-in-out both;
+}
+
+.loader-dots span:nth-child(1) { animation-delay: -0.32s; }
+.loader-dots span:nth-child(2) { animation-delay: -0.16s; }
+.loader-dots span:nth-child(3) { animation-delay: 0s; }
+
+.loader-particles {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+}
+
+.particle {
+  position: absolute;
+  width: 4px;
+  height: 4px;
+  background: rgba(255,255,255,0.6);
+  border-radius: 50%;
+  animation: particleFloat 6s infinite linear;
+}
+
+.particle:nth-child(1) { left: 20%; animation-delay: 0s; }
+.particle:nth-child(2) { left: 50%; animation-delay: 1.5s; }
+.particle:nth-child(3) { left: 80%; animation-delay: 3s; }
+.particle:nth-child(4) { left: 10%; animation-delay: 4.5s; }
+
+@keyframes spin {
+  0% { transform: rotate(0deg); }
+  100% { transform: rotate(360deg); }
+}
+
+@keyframes loaderFade {
+  0% { opacity: 0; transform: scale(0.8); }
+  50% { opacity: 1; transform: scale(1); }
+  100% { opacity: 0; transform: scale(1.2); }
+}
+
+@keyframes pulseGlow {
+  0%, 100% { transform: translate(-50%, -50%) scale(1); opacity: 0.5; }
+  50% { transform: translate(-50%, -50%) scale(1.2); opacity: 0.8; }
+}
+
+@keyframes dotsBounce {
+  0%, 80%, 100% { transform: scale(0); }
+  40% { transform: scale(1); }
+}
+
+@keyframes particleFloat {
+  0% { 
+    opacity: 0; 
+    transform: translateY(100vh) rotate(0deg); 
+  }
+  10% { opacity: 1; }
+  90% { opacity: 1; }
+  100% { 
+    opacity: 0; 
+    transform: translateY(-100vh) rotate(360deg); 
+  }
+}
+
+/* Additional fixes for checkbox-grid */
+.checkbox-grid-2 {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+  gap: 0.75rem;
+}
+
+.spinner {
+  width: 20px;
+  height: 20px;
+  border: 2px solid rgba(255,255,255,0.3);
+  border-top: 2px solid white;
+  border-radius: 50%;
+  animation: spin 1s linear infinite;
+  margin-right: 0.5rem;
+}
