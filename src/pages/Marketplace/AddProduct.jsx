@@ -5,11 +5,7 @@ import { useNavigate } from 'react-router-dom';
 import CustomDropdown from './CustomDropdown';
 import LoadingSpinner from './LoadingSpinner';
 import Toast from './Toast';
-import {
-  API_BASE_URL,
-  MAX_IMAGES,
-  MIN_DESCRIPTION_LENGTH
-} from '../config/constants';
+
 import { categoryFields } from "../config/categoryFields";
 import { categoryRules } from "../config/categoryRules";
 import { conditions } from "../config/conditions";
