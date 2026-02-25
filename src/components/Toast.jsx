@@ -1,34 +1,24 @@
-// src/components/Toast.jsx
-import { useEffect, useState, createContext, useContext } from 'react';
+// components/Toast.jsx
+import React, { useState, useEffect } from 'react';
+import './AddProduct.css';
 
-const ToastContext = createContext();
+const Toast = ({ message, type = 'success', duration = 4000 }) => {
+  const [visible, setVisible] = useState(true);
 
-export const ToastProvider = ({ children }) => {
-  const [toasts, setToasts] = useState([]);
+  useEffect(() => {
+    const timer = setTimeout(() => setVisible(false), duration);
+    return () => clearTimeout(timer);
+  }, []);
 
-  const addToast = (message, type = 'info') => {
-    const id = Date.now();
-    setToasts(prev => [...prev, { id, message, type }]);
-    setTimeout(() => removeToast(id), 4000);
-  };
-
-  const removeToast = (id) => {
-    setToasts(prev => prev.filter(toast => toast.id !== id));
-  };
+  if (!visible) return null;
 
   return (
-    <ToastContext.Provider value={{ addToast, removeToast }}>
-      {children}
-      <div className="toast-container">
-        {toasts.map(toast => (
-          <div key={toast.id} className={`toast toast-${toast.type}`}>
-            {toast.message}
-            <button onClick={() => removeToast(toast.id)}>×</button>
-          </div>
-        ))}
-      </div>
-    </ToastContext.Provider>
+    <div className={`toast toast-${type}`}>
+      <div className="toast-icon">{type === 'success' ? '✅' : '❌'}</div>
+      <div className="toast-message">{message}</div>
+      <button className="toast-close" onClick={() => setVisible(false)}>×</button>
+    </div>
   );
 };
 
-export const useToast = () => useContext(ToastContext);
+export default Toast;
