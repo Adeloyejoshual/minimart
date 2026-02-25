@@ -1,27 +1,50 @@
-// routes/marketplace.js - NO MODEL DEPENDENCY
+// routes/marketplace.js - NOW WITH MONGODB ✅
 import express from 'express';
+import Product from '../models/Product.js';
 
 const router = express.Router();
 
-// 🧪 TEST ENDPOINT - NO DATABASE NEEDED
+// 🛒 CREATE PRODUCT
 router.post('/products', async (req, res) => {
-  console.log('📦 Product received:', req.body.title);
-  res.status(201).json({ 
-    success: true,
-    product: { 
-      _id: 'test-' + Date.now(),
-      ...req.body 
-    },
-    message: 'Product created successfully!'
-  });
+  try {
+    console.log('📦 Saving to MongoDB:', req.body.title);
+    
+    const product = new Product({
+      ...req.body,
+      sellerId: req.auth?.sub || req.body.sellerId || 'anonymous'
+    });
+    
+    await product.save();
+    
+    res.status(201).json({ 
+      success: true,
+      product: product.toJSON(),
+      message: 'Product created successfully!'
+    });
+  } catch (error) {
+    console.error('❌ MongoDB error:', error);
+    res.status(400).json({ 
+      success: false, 
+      message: error.message 
+    });
+  }
 });
 
-router.post('/products/:id/promote', (req, res) => {
-  res.json({ success: true, message: 'Product promoted!' });
+// 📋 LIST PRODUCTS
+router.get('/products', async (req, res) => {
+  try {
+    const products = await Product.find({ status: 'published' })
+      .sort({ createdAt: -1 })
+      .limit(20);
+    
+    res.json({ 
+      success: true, 
+      products: products.map(p => p.toJSON()),
+      count: products.length 
+    });
+  } catch (error) {
+    res.status(500).json({ success: false, message: error.message });
+  }
 });
 
-router.get('/products', (req, res) => {
-  res.json({ success: true, products: [] });
-});
-
-export default router;  // ✅ ESM export
+export default router;
