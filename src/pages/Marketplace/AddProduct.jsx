@@ -2,11 +2,19 @@
 import { useEffect, useState, useRef, useCallback } from "react";
 import { useNavigate } from "react-router-dom";
 import { useAuth0 } from "@auth0/auth0-react";
-import {
-  categoryFields, categoryRules, conditions, usedDetails, ramOptions,
-  storageOptions, colors, engines, fuelTypes, featuresByCategory,
-  promotionPlans, locationsByState, brands, models, sims, years
-} from "../../config"; // ✅ Single import
+import { categoryFields } from "../../config/categoryFields";
+import { categoryRules } from "../../config/categoryRules";
+import { conditions, usedDetails } from "../../config/conditions";
+import { ramOptions } from "../../config/ram";
+import { storageOptions } from "../../config/storage";
+import { colors } from "../../config/color";
+import { engines } from "../../config/engine";
+import { fuelTypes } from "../../config/fuelTypes";
+import { featuresByCategory } from "../../config/features";
+import { promotionPlans } from "../../config/promotion";
+import { locationsByState } from "../../config/locationsByState";
+import { brands } from "../../config/brands";
+import { models } from "../../config/models";
 import "./AddMarketplaceProduct.css";
 
 const DRAFT_KEY = "marketplace_product_draft";
