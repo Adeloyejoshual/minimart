@@ -9,7 +9,7 @@ import {
   API_BASE_URL,
   MAX_IMAGES,
   MIN_DESCRIPTION_LENGTH
-} from '../config/constants';
+} from '../../config/constants';
 import { categoryFields } from "../../config/categoryFields";
 import { categoryRules } from "../../config/categoryRules";
 import { conditions } from "../../config/conditions";
