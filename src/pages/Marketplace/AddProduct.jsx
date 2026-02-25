@@ -2,11 +2,20 @@ import React, { useState, useRef, useEffect, useCallback, useMemo } from 'react'
 import { useAuth0 } from '@auth0/auth0-react';
 import PaystackPop from '@paystack/inline-js';
 import './AddProduct.css';
-import { 
-  categoryFields, categoryRules, conditions, usedDetails, ramOptions, 
-  storageOptions, colors, engines, fuelTypes, featuresByCategory, 
-  promotionPlans, locationsByState, brands, models 
-} from "../../config/categoryFields";
+import { categoryFields } from "../../config/categoryFields";
+import { categoryRules } from "../../config/categoryRules"; // ✅ Using rules for validation
+import { conditions } from "../../config/conditions";
+import { ramOptions } from "../../config/ram";
+import { storageOptions } from "../../config/storage";
+import { colors } from "../../config/color";
+import { engines } from "../../config/engine";
+import { fuelTypes } from "../../config/fuelTypes";
+import { featuresByCategory } from "../../config/features";
+import { promotionPlans } from "../../config/promotion";
+import { locationsByState } from "../../config/locationsByState";
+import { brands } from "../../config/brands";
+import { models } from "../../config/models";
+
 
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL;
 const CLOUDINARY_CLOUD_NAME = import.meta.env.VITE_CLOUDINARY_CLOUD_NAME;
