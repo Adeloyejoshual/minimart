@@ -457,32 +457,32 @@ const AddProduct = () => {
 
           {/* Images */}
           <div className="form-section">
-            <h2>Images ({images.length}/10)</h2>
-            <div className="image-upload-area" onClick={() => fileInputRef.current?.click()}>
-              <div className="upload-placeholder">
-                <div className="upload-icon">📸</div>
-                <p>Click or drag to upload (Max 10, <10MB each)</p>
-              </div>
-              {images.length > 0 && (
-                <div className="image-previews">
-                  {images.map((img, index) => (
-                    <div key={index} className="image-preview">
-                      <img src={img.preview} alt={`Preview ${index}`} />
-                      <button className="remove-image" onClick={() => removeImage(index)}>×</button>
-                    </div>
-                  ))}
-                </div>
-              )}
-            </div>
-            <input
-              ref={fileInputRef}
-              type="file"
-              multiple
-              accept="image/*"
-              onChange={(e) => handleImageChange(e.target.files)}
-              className="hidden"
-            />
+  <h2>Images ({images.length}/10)</h2>
+  <div className="image-upload-area" onClick={() => fileInputRef.current?.click()}>
+    <div className="upload-placeholder">
+      <div className="upload-icon">📸</div>
+      <p>Click or drag to upload (Max 10, &lt;10MB each)</p> {/* ✅ FIXED */}
+    </div>
+    {images.length > 0 && (
+      <div className="image-previews">
+        {images.map((img, index) => (
+          <div key={index} className="image-preview">
+            <img src={img.preview} alt={`Preview ${index}`} />
+            <button className="remove-image" onClick={() => removeImage(index)}>×</button>
           </div>
+        ))}
+      </div>
+    )}
+  </div>
+  <input
+    ref={fileInputRef}
+    type="file"
+    multiple
+    accept="image/*"
+    onChange={(e) => handleImageChange(e.target.files)}
+    className="hidden"
+  />
+</div>
 
           {/* Description & Terms */}
           <div className="form-section">
