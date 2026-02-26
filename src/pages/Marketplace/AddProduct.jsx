@@ -1,4 +1,4 @@
-// src/pages/Marketplace/AddProduct.jsx - ✅ ALL SECTIONS VISIBLE + FIXED PUBLISH
+// src/pages/Marketplace/AddProduct.jsx - ✅ PROFESSIONAL + ALL FIXES
 import React, { useState, useRef, useCallback, useEffect } from 'react';
 import { useAuth0 } from '@auth0/auth0-react';
 import './AddProduct.css';
@@ -21,6 +21,7 @@ import { years } from '../../config/years';
 
 const AddProduct = () => {
   const [category, setCategory] = useState('');
+  const [prevCategory, setPrevCategory] = useState('');
   const [state, setState] = useState('');
   const [imagesPreview, setImagesPreview] = useState([]);
   const [loading, setLoading] = useState(false);
@@ -29,10 +30,20 @@ const AddProduct = () => {
   
   const fieldRefs = useRef({});
   const fileInputRef = useRef(null);
-  const { user, isAuthenticated, getAccessTokenSilently } = useAuth0();
+  const { user, isAuthenticated } = useAuth0();
+
+  // ✅ RESET FEATURES WHEN CATEGORY CHANGES
+  useEffect(() => {
+    if (category && category !== prevCategory) {
+      setSelectedFeatures([]);
+      setPrevCategory(category);
+    }
+  }, [category, prevCategory]);
 
   // ✅ ALL CONFIG COMPUTATIONS
-  const dynamicFields = category ? categoryFields[category] || [] : [];
+  const dynamicFields = category ? categoryFields[category]?.filter(field => 
+    !['features', 'transmission', 'mileage'].includes(field)
+  ) || [] : [];
   const categoryBrands = category ? brands[category] || [] : [];
   const categoryModels = category ? models[category] || [] : [];
   const categoryFeatures = category ? featuresByCategory[category] || [] : [];
@@ -50,8 +61,8 @@ const AddProduct = () => {
       sim: sims,
       engine: engines,
       fuel_type: fuelTypes,
-      year: years,
-      ...fieldOptions
+      transmission: ['Manual', 'Automatic', 'Semi-Automatic'],
+      year: years
     };
     return options[fieldName] || [];
   };
@@ -81,7 +92,7 @@ const AddProduct = () => {
     setImagesPreview(prev => prev.filter((_, i) => i !== index));
   }, [imagesPreview]);
 
-  // ✅ FIXED FEATURES CHECKBOX HANDLER
+  // ✅ FEATURES CHECKBOX TOGGLE
   const toggleFeature = (feature) => {
     setSelectedFeatures(prev => 
       prev.includes(feature)
@@ -92,19 +103,12 @@ const AddProduct = () => {
 
   const renderDynamicField = (fieldName) => {
     const options = getFieldOptions(fieldName);
-    const isCheckbox = fieldName === 'negotiation';
-    const isSelect = options.length > 1;
+    const isSelect = options.length > 0;
 
     return (
       <div className="dynamic-field" key={fieldName}>
         <label>{fieldName.replace(/_/g, ' ').replace(/\bw/g, l => l.toUpperCase())}</label>
-        {isCheckbox ? (
-          <input 
-            ref={el => fieldRefs.current[fieldName] = el}
-            type="checkbox"
-            className="field-checkbox"
-          />
-        ) : isSelect ? (
+        {isSelect ? (
           <select ref={el => fieldRefs.current[fieldName] = el} className="field-select">
             <option value="">{`Select ${fieldName}`}</option>
             {options.map(option => (
@@ -114,7 +118,7 @@ const AddProduct = () => {
         ) : (
           <input
             ref={el => fieldRefs.current[fieldName] = el}
-            type={fieldName.includes('price|mileage|year') ? 'number' : 'text'}
+            type={fieldName.includes('mileage') ? 'number' : 'text'}
             placeholder={`Enter ${fieldName}`}
             className="field-input"
           />
@@ -123,29 +127,37 @@ const AddProduct = () => {
     );
   };
 
-  // ✅ FIXED PUBLISHING - FormData + All Fields + Debug
+  // ✅ FORMATTED PRICE WITH COMMAS
+  const formatPrice = (value) => {
+    return new Intl.NumberFormat('en-NG', {
+      style: 'decimal',
+      minimumFractionDigits: 0
+    }).format(value || 0);
+  };
+
+  // ✅ PROFESSIONAL NEGOTIATION
+  const negotiationOptions = [
+    { value: 'no', label: 'Fixed Price' },
+    { value: 'slight', label: 'Slight Negotiation (5%)' },
+    { value: 'moderate', label: 'Moderate Negotiation (10%)' },
+    { value: 'open', label: 'Open Negotiation' }
+  ];
+
   const handleSubmit = async (e) => {
     e.preventDefault();
-    
-    console.log('🚀 FORM SUBMISSION STARTED');
     
     const productData = {
       title: fieldRefs.current.title?.value?.trim() || '',
       category,
-      brand: fieldRefs.current.brand?.value || '',
-      model: fieldRefs.current.model?.value || '',
-      condition: fieldRefs.current.condition?.value || '',
-      price: parseInt(fieldRefs.current.price?.value) || 0,
-      phone_number: fieldRefs.current.phone?.value || '',
+      price: parseInt(fieldRefs.current.price?.value?.replace(/,/g, '')) || 0,
+      phone_number: fieldRefs.current.phone?.value?.trim() || '',
       state,
       city: fieldRefs.current.city?.value || '',
       description: fieldRefs.current.description?.value?.trim() || '',
-      negotiation: fieldRefs.current.negotiation?.checked ? "Yes" : "No",
+      negotiation: fieldRefs.current.negotiation?.value || 'no',
       poster_name: user?.name || 'Anonymous Seller',
       country: "Nigeria",
       features: selectedFeatures,
-      images: imagesPreview.map(img => img.file),
-      exchange_possible: false,
       status: 'active'
     };
 
@@ -155,15 +167,8 @@ const AddProduct = () => {
       if (value) productData[field] = value;
     });
 
-    console.log('📦 PRODUCT DATA:', productData);
-
-    if (!productData.title || productData.price <= 0) {
-      setMessage('❌ Title and price required');
-      return;
-    }
-
-    if (!productData.phone_number.trim()) {
-      setMessage('❌ Phone number required');
+    if (!productData.title || productData.price <= 0 || !productData.phone_number) {
+      setMessage('❌ Title, price, and phone required');
       return;
     }
 
@@ -172,57 +177,37 @@ const AddProduct = () => {
       setMessage('🚀 Publishing product...');
 
       const formData = new FormData();
-      
-      // Add all fields to FormData
       Object.entries(productData).forEach(([key, value]) => {
         if (Array.isArray(value)) {
           value.forEach(item => formData.append(key, item));
-        } else if (value !== null && value !== undefined) {
+        } else {
           formData.append(key, value);
         }
       });
 
-      // Add image files separately
-      imagesPreview.forEach((img, index) => {
-        formData.append('images', img.file);
-      });
+      imagesPreview.forEach(img => formData.append('images', img.file));
 
-      console.log('📤 FormData keys:', Array.from(formData.keys()));
-      
       const response = await fetch('/api/marketplace/products', {
         method: 'POST',
         body: formData
       });
 
-      console.log('📡 Response status:', response.status);
-      
       const result = await response.json();
-      console.log('📥 Response data:', result);
-
+      
       if (response.ok) {
         setMessage(`🎉 Product published successfully! ID: ${result.data?._id || result._id}`);
-        
         // Reset form
         Object.keys(fieldRefs.current).forEach(key => {
           const el = fieldRefs.current[key];
-          if (el) {
-            if (el.type === 'checkbox') el.checked = false;
-            else el.value = '';
-          }
+          if (el) el.value = '';
         });
-        setCategory(''); 
-        setState(''); 
-        setImagesPreview([]); 
-        setSelectedFeatures([]);
-        
+        setCategory(''); setState(''); setImagesPreview([]); setSelectedFeatures([]);
         setTimeout(() => setMessage(''), 5000);
       } else {
-        console.error('❌ Backend error:', result);
-        throw new Error(result.message || `HTTP ${response.status}`);
+        throw new Error(result.message || 'Publish failed');
       }
     } catch (error) {
-      console.error('❌ Publish error:', error);
-      setMessage(`❌ Publish failed: ${error.message}`);
+      setMessage(`❌ ${error.message}`);
     } finally {
       setLoading(false);
     }
@@ -240,7 +225,7 @@ const AddProduct = () => {
         </div>
       )}
 
-      <form onSubmit={handleSubmit} className="product-form all-sections-visible">
+      <form onSubmit={handleSubmit} className="product-form">
         {/* SECTION 1: PRODUCT DETAILS */}
         <section className="form-section">
           <h2>📦 Product Details</h2>
@@ -277,42 +262,52 @@ const AddProduct = () => {
                 ))}
               </select>
             </div>
+            <div className="input-group">
+              <label>Model</label>
+              <select ref={el => fieldRefs.current.model = el} className="input-large">
+                <option value="">Select Model</option>
+                {categoryModels.map(model => (
+                  <option key={model} value={model}>{model}</option>
+                ))}
+              </select>
+            </div>
           </div>
         </section>
 
-        {/* SECTION 2: PRICING */}
+        {/* SECTION 2: PRICING - PROFESSIONAL */}
         <section className="form-section">
-          <h2>💰 Pricing</h2>
+          <h2>💰 Pricing & Negotiation</h2>
           <div className="input-grid">
             <div className="input-group">
               <label className="required">Price (₦) *</label>
               <input 
                 ref={el => fieldRefs.current.price = el}
-                type="number" 
-                min="0"
-                step="1000"
-                placeholder="150000"
-                className="input-large required"
-                required 
+                type="text"
+                placeholder="150,000"
+                className="input-large price-input required"
+                onInput={(e) => {
+                  let value = e.target.value.replace(/,/g, '');
+                  e.target.value = formatPrice(value);
+                }}
+                required
               />
             </div>
-            <div className="input-group checkbox-group">
-              <label className="checkbox-label">
-                <input 
-                  ref={el => fieldRefs.current.negotiation = el}
-                  type="checkbox"
-                  className="checkbox"
-                />
-                Negotiation Allowed
-              </label>
+            <div className="input-group">
+              <label>Negotiation Type</label>
+              <select ref={el => fieldRefs.current.negotiation = el} className="input-large">
+                <option value="no">Fixed Price</option>
+                <option value="slight">Slight Negotiation (5%)</option>
+                <option value="moderate">Moderate Negotiation (10%)</option>
+                <option value="open">Open Negotiation</option>
+              </select>
             </div>
           </div>
         </section>
 
-        {/* SECTION 3: SPECIFICATIONS - ALL YOUR CONFIGS */}
+        {/* SECTION 3: SPECIFICATIONS - NO EMOJI + NO FEATURES/MILEAGE/TRANSMISSION */}
         {dynamicFields.length > 0 && (
           <section className="form-section">
-            <h2>⚙️ Specifications</h2>
+            <h2>Specifications</h2>
             <div className="dynamic-grid">
               {dynamicFields.map(renderDynamicField)}
             </div>
@@ -398,7 +393,7 @@ const AddProduct = () => {
 
         {/* SECTION 7: IMAGES */}
         <section className="form-section">
-          <h2>🖼️ Product Images (Max 8, 10MB each)</h2>
+          <h2>🖼️ Product Images</h2>
           <input 
             ref={fileInputRef}
             type="file" 
@@ -433,7 +428,7 @@ const AddProduct = () => {
             disabled={loading}
             className="submit-button"
           >
-            {loading ? '📤 Publishing...' : `🚀 Publish ${category || 'Product'}`}
+            {loading ? '📤 Publishing...' : '🚀 Publish Product'}
           </button>
         </div>
       </form>
