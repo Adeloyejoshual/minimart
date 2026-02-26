@@ -1,0 +1,1 @@
+export const usedDetails = ["Like New", "Good", "Fair", "For Parts"];
