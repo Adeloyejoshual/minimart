@@ -1,17 +1,16 @@
-// src/pages/Marketplace/AddProduct.jsx - ✅ SUBMIT ALWAYS WORKS
-import React, { useState, useRef } from 'react';
+// src/pages/Marketplace/AddProduct.jsx - ✅ PERFECT KEYBOARD TYPING
+import React, { useState, useRef, useCallback, useEffect } from 'react';
 import { useAuth0 } from '@auth0/auth0-react';
 
 const AddProduct = () => {
-  const [formData, setFormData] = useState({
-    title: '',
-    price: '',
-    category: '',
-    state: '',
-    city: '',
-    phone_number: '',
-    description: ''
-  });
+  // ✅ UNCONTROLLED INPUTS - refs capture values on submit
+  const titleRef = useRef('');
+  const priceRef = useRef('');
+  const phoneRef = useRef('');
+  const categoryRef = useRef('');
+  const stateRef = useRef('');
+  const cityRef = useRef('');
+  const descriptionRef = useRef('');
 
   const [imagesPreview, setImagesPreview] = useState([]);
   const [loading, setLoading] = useState(false);
@@ -20,170 +19,89 @@ const AddProduct = () => {
 
   const { user, isAuthenticated } = useAuth0();
 
-  // ✅ SIMPLIFIED CATEGORIES - NO NESTED OBJECTS
   const categories = ['Electronics', 'Vehicles', 'Fashion', 'Real Estate'];
   const states = ['Lagos', 'Abuja', 'Kano'];
   const cities = ['Ikeja', 'Lekki', 'Wuse', 'Garki'];
 
-  const handleChange = (e) => {
-    console.log('🔄 Input change:', e.target.name, e.target.value);
-    const { name, value } = e.target;
-    setFormData(prev => ({ ...prev, [name]: value }));
-  };
-
-  const handleImages = (e) => {
-    console.log('🖼️ Images selected:', e.target.files.length);
+  // ✅ OPTIMIZED IMAGE HANDLER
+  const handleImages = useCallback((e) => {
     const files = Array.from(e.target.files);
+    if (files.length + imagesPreview.length > 8) {
+      setMessage('Maximum 8 images');
+      return;
+    }
     files.forEach(file => {
       const preview = URL.createObjectURL(file);
       setImagesPreview(prev => [...prev, { file, preview, name: file.name }]);
     });
-  };
+  }, [imagesPreview.length]);
 
-  const removeImage = (index) => {
-    setImagesPreview(prev => prev.filter((_, i) => i !== index));
-  };
+  const removeImage = useCallback((index) => {
+    setImagesPreview(prev => {
+      const newImages = prev.filter((_, i) => i !== index);
+      prev[index]?.preview && URL.revokeObjectURL(prev[index].preview);
+      return newImages;
+    });
+  }, []);
 
-  // ✅ ULTRA-SIMPLE VALIDATION - NEVER BLOCKS
-  const validateForm = () => {
-    console.log('🔍 Validating form:', formData);
-    const newErrors = {};
+  // ✅ COLLECT FORM DATA ON SUBMIT ONLY
+  const handleSubmit = useCallback(async (e) => {
+    e.preventDefault();
     
-    if (!formData.title.trim()) newErrors.title = 'Title required';
-    if (!formData.price || formData.price <= 0) newErrors.price = 'Price required';
-    
-    console.log('❌ Errors found:', newErrors);
-    return Object.keys(newErrors).length === 0;
-  };
+    // ✅ GET VALUES FROM REFS - NO LAG
+    const formData = {
+      title: titleRef.current.value,
+      price: priceRef.current.value,
+      phone_number: phoneRef.current.value,
+      category: categoryRef.current.value,
+      state: stateRef.current.value,
+      city: cityRef.current.value,
+      description: descriptionRef.current.value,
+      images: imagesPreview.map(img => img.name)
+    };
 
-  // 🚀 MAIN SUBMIT - ALWAYS WORKS
-  const handleSubmit = async (e) => {
-    e.preventDefault(); // ✅ CRITICAL - prevents page reload
-    console.log('🎯 FORM SUBMITTED! 🎯');
-    console.log('📋 Form Data:', formData);
-    console.log('🖼️ Images:', imagesPreview.length);
-    console.log('👤 User:', user);
+    console.log('🎯 FORM SUBMITTED:', formData);
 
-    // ✅ IMMEDIATE FEEDBACK
-    setMessage('🚀 Processing...');
-    
-    if (!validateForm()) {
-      console.log('❌ Validation failed');
-      setMessage('❌ Please fix errors above');
+    // ✅ SIMPLE VALIDATION
+    if (!formData.title.trim()) {
+      setMessage('❌ Title is required');
+      titleRef.current.focus();
+      return;
+    }
+    if (!formData.price || parseFloat(formData.price) <= 0) {
+      setMessage('❌ Valid price required');
+      priceRef.current.focus();
       return;
     }
 
     setLoading(true);
-    
-    // ✅ SIMULATE REAL API CALL
+    setMessage('🚀 Publishing...');
+
+    // ✅ SIMULATE API CALL
     setTimeout(() => {
-      console.log('✅ SUCCESS - Product created!');
-      setMessage('🎉 Product published successfully! Check console.');
+      console.log('✅ SUCCESS:', formData);
+      setMessage('🎉 Product published successfully!');
       
       // Reset form
-      setFormData({
-        title: '', price: '', category: '', state: '', city: '', 
-        phone_number: '', description: ''
-      });
+      titleRef.current.value = '';
+      priceRef.current.value = '';
+      phoneRef.current.value = '';
+      categoryRef.current.value = '';
+      stateRef.current.value = '';
+      cityRef.current.value = '';
+      descriptionRef.current.value = '';
       setImagesPreview([]);
       
+      titleRef.current.focus();
       setLoading(false);
-    }, 2000);
-  };
-
-  // ✅ REUSABLE INPUT COMPONENT
-  const Input = ({ name, label, type = 'text', required = false, error, ...props }) => (
-    <div style={{ marginBottom: '1.5rem' }}>
-      <label style={{ 
-        display: 'block', 
-        fontWeight: '600', 
-        marginBottom: '.5rem',
-        color: '#374151'
-      }}>
-        {label} {required && <span style={{ color: '#ef4444' }}>*</span>}
-      </label>
-      <input
-        name={name}
-        type={type}
-        value={formData[name] || ''}
-        onChange={handleChange}
-        style={{
-          width: '100%',
-          padding: '14px 16px',
-          border: error ? '2px solid #ef4444' : '2px solid #e5e7eb',
-          borderRadius: '10px',
-          fontSize: '16px',
-          background: '#fafbfc',
-          transition: 'border-color 0.2s'
-        }}
-        {...props}
-      />
-      {error && (
-        <p style={{ 
-          color: '#ef4444', 
-          fontSize: '14px', 
-          marginTop: '.25rem',
-          fontWeight: '500'
-        }}>
-          {error}
-        </p>
-      )}
-    </div>
-  );
-
-  const Select = ({ name, label, options, required = false, error }) => (
-    <div style={{ marginBottom: '1.5rem' }}>
-      <label style={{ 
-        display: 'block', 
-        fontWeight: '600', 
-        marginBottom: '.5rem',
-        color: '#374151'
-      }}>
-        {label} {required && <span style={{ color: '#ef4444' }}>*</span>}
-      </label>
-      <select
-        name={name}
-        value={formData[name] || ''}
-        onChange={handleChange}
-        style={{
-          width: '100%',
-          padding: '14px 16px',
-          border: error ? '2px solid #ef4444' : '2px solid #e5e7eb',
-          borderRadius: '10px',
-          fontSize: '16px',
-          background: 'white'
-        }}
-      >
-        <option value="">Select {label}</option>
-        {options.map(option => (
-          <option key={option} value={option}>{option}</option>
-        ))}
-      </select>
-      {error && (
-        <p style={{ 
-          color: '#ef4444', 
-          fontSize: '14px', 
-          marginTop: '.25rem',
-          fontWeight: '500'
-        }}>
-          {error}
-        </p>
-      )}
-    </div>
-  );
+      setTimeout(() => setMessage(''), 4000);
+    }, 1500);
+  }, [imagesPreview]);
 
   if (!isAuthenticated) {
-    return (
-      <div style={{ 
-        padding: '4rem 2rem', 
-        textAlign: 'center', 
-        maxWidth: '600px', 
-        margin: '0 auto' 
-      }}>
-        <h2 style={{ color: '#ef4444' }}>🔐 Login Required</h2>
-        <p>Please sign in to list products</p>
-      </div>
-    );
+    return <div style={{ padding: '4rem', textAlign: 'center' }}>
+      <h2>🔐 Login Required</h2>
+    </div>;
   }
 
   return (
@@ -191,9 +109,8 @@ const AddProduct = () => {
       maxWidth: '1200px', 
       margin: '0 auto', 
       padding: '2rem', 
-      fontFamily: 'system-ui, -apple-system, sans-serif' 
+      fontFamily: 'system-ui, sans-serif' 
     }}>
-      {/* 🔔 SUCCESS MESSAGE */}
       {message && (
         <div style={{
           background: message.includes('🎉') ? '#10b981' : message.includes('❌') ? '#ef4444' : '#3b82f6',
@@ -202,92 +119,147 @@ const AddProduct = () => {
           borderRadius: '12px',
           marginBottom: '2rem',
           textAlign: 'center',
-          fontWeight: '500',
-          boxShadow: '0 4px 12px rgba(0,0,0,0.15)'
+          fontWeight: '600'
         }}>
           {message}
         </div>
       )}
 
       <div style={{ display: 'grid', gridTemplateColumns: '1fr 350px', gap: '2rem' }}>
-        {/* 📋 MAIN FORM */}
-        <form 
-          onSubmit={handleSubmit} 
-          style={{
-            background: 'white',
-            padding: '2.5rem',
-            borderRadius: '20px',
-            boxShadow: '0 20px 60px rgba(0,0,0,0.1)',
-            border: '1px solid #f1f5f9'
-          }}
-        >
-          <div style={{ 
-            display: 'flex', 
-            justifyContent: 'space-between', 
-            alignItems: 'center', 
+        {/* MAIN FORM */}
+        <form onSubmit={handleSubmit} style={{
+          background: 'white',
+          padding: '2.5rem',
+          borderRadius: '20px',
+          boxShadow: '0 20px 60px rgba(0,0,0,0.08)'
+        }}>
+          <h1 style={{ 
+            fontSize: '2.5rem', 
+            fontWeight: '800', 
+            color: '#111827', 
             marginBottom: '2rem' 
           }}>
-            <h1 style={{ 
-              fontSize: '2.25rem', 
-              fontWeight: '800', 
-              color: '#111827', 
-              margin: 0 
-            }}>
-              Add New Product
-            </h1>
-            <span style={{ 
-              background: '#10b981', 
-              color: 'white', 
-              padding: '0.5rem 1rem', 
-              borderRadius: '50px', 
-              fontSize: '0.875rem',
-              fontWeight: '600'
-            }}>
-              Welcome, {user?.name?.split(' ')[0]}!
-            </span>
-          </div>
+            Add New Product
+          </h1>
 
-          {/* BASIC INFO */}
+          {/* ✅ UNCONTROLLED INPUTS - PERFECT TYPING */}
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '2rem', marginBottom: '2rem' }}>
-            <Input 
-              name="title" 
-              label="Product Title" 
-              placeholder="iPhone 15 Pro Max 256GB" 
-              required 
-              error={formData.title ? null : 'Title required'}
-            />
-            <Input 
-              name="price" 
-              label="Price (₦)" 
-              type="number" 
-              placeholder="150000" 
-              required 
-              error={formData.price && formData.price > 0 ? null : 'Price required'}
-            />
+            <div>
+              <label style={{ display: 'block', fontWeight: '600', marginBottom: '.75rem' }}>
+                Product Title *
+              </label>
+              <input
+                ref={titleRef}
+                type="text"
+                placeholder="iPhone 15 Pro Max - Perfect condition"
+                style={{
+                  width: '100%',
+                  padding: '16px 20px',
+                  border: '2px solid #e5e7eb',
+                  borderRadius: '12px',
+                  fontSize: '16px',
+                  background: '#fafbfc',
+                  transition: 'border-color 0.2s ease',
+                  outline: 'none'
+                }}
+              />
+            </div>
+
+            <div>
+              <label style={{ display: 'block', fontWeight: '600', marginBottom: '.75rem' }}>
+                Price (₦) *
+              </label>
+              <input
+                ref={priceRef}
+                type="number"
+                placeholder="150000"
+                style={{
+                  width: '100%',
+                  padding: '16px 20px',
+                  border: '2px solid #e5e7eb',
+                  borderRadius: '12px',
+                  fontSize: '16px',
+                  background: '#fafbfc'
+                }}
+              />
+            </div>
           </div>
 
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '1.5rem', marginBottom: '2rem' }}>
-            <Select name="category" label="Category" options={categories} required />
-            <Select name="state" label="State" options={states} required />
-            <Select name="city" label="City" options={cities} />
+            <div>
+              <label style={{ display: 'block', fontWeight: '600', marginBottom: '.75rem' }}>Category *</label>
+              <select ref={categoryRef} style={{
+                width: '100%',
+                padding: '16px 20px',
+                border: '2px solid #e5e7eb',
+                borderRadius: '12px',
+                background: 'white',
+                fontSize: '16px'
+              }}>
+                <option value="">Select Category</option>
+                {categories.map(cat => (
+                  <option key={cat} value={cat}>{cat}</option>
+                ))}
+              </select>
+            </div>
+
+            <div>
+              <label style={{ display: 'block', fontWeight: '600', marginBottom: '.75rem' }}>State *</label>
+              <select ref={stateRef} style={{
+                width: '100%',
+                padding: '16px 20px',
+                border: '2px solid #e5e7eb',
+                borderRadius: '12px',
+                background: 'white',
+                fontSize: '16px'
+              }}>
+                <option value="">Select State</option>
+                {states.map(state => (
+                  <option key={state} value={state}>{state}</option>
+                ))}
+              </select>
+            </div>
+
+            <div>
+              <label style={{ display: 'block', fontWeight: '600', marginBottom: '.75rem' }}>City</label>
+              <select ref={cityRef} style={{
+                width: '100%',
+                padding: '16px 20px',
+                border: '2px solid #e5e7eb',
+                borderRadius: '12px',
+                background: 'white',
+                fontSize: '16px'
+              }}>
+                <option value="">Select City</option>
+                {cities.map(city => (
+                  <option key={city} value={city}>{city}</option>
+                ))}
+              </select>
+            </div>
           </div>
 
-          <Input 
-            name="phone_number" 
-            label="Phone Number" 
-            type="tel" 
-            placeholder="08012345678" 
-            required 
-          />
-
-          {/* 🖼️ IMAGES */}
           <div style={{ marginBottom: '2rem' }}>
-            <label style={{ 
-              display: 'block', 
-              fontWeight: '600', 
-              marginBottom: '1rem',
-              color: '#374151'
-            }}>
+            <label style={{ display: 'block', fontWeight: '600', marginBottom: '.75rem' }}>
+              Phone Number *
+            </label>
+            <input
+              ref={phoneRef}
+              type="tel"
+              placeholder="08012345678"
+              style={{
+                width: '100%',
+                padding: '16px 20px',
+                border: '2px solid #e5e7eb',
+                borderRadius: '12px',
+                fontSize: '16px',
+                background: '#fafbfc'
+              }}
+            />
+          </div>
+
+          {/* IMAGES */}
+          <div style={{ marginBottom: '2rem' }}>
+            <label style={{ display: 'block', fontWeight: '600', marginBottom: '1rem' }}>
               Product Images (Max 8)
             </label>
             <input
@@ -302,8 +274,7 @@ const AddProduct = () => {
                 border: '3px dashed #d1d5db',
                 borderRadius: '12px',
                 background: '#f8fafc',
-                cursor: 'pointer',
-                fontSize: '16px'
+                cursor: 'pointer'
               }}
             />
           </div>
@@ -311,23 +282,18 @@ const AddProduct = () => {
           {imagesPreview.length > 0 && (
             <div style={{
               display: 'grid',
-              gridTemplateColumns: 'repeat(auto-fill, minmax(130px, 1fr))',
+              gridTemplateColumns: 'repeat(auto-fill, minmax(140px, 1fr))',
               gap: '1rem',
               marginBottom: '2rem'
             }}>
               {imagesPreview.map((img, index) => (
                 <div key={img.name} style={{ position: 'relative' }}>
-                  <img
-                    src={img.preview}
-                    alt="Preview"
-                    style={{
-                      width: '100%',
-                      height: '130px',
-                      objectFit: 'cover',
-                      borderRadius: '12px',
-                      display: 'block'
-                    }}
-                  />
+                  <img src={img.preview} alt="Preview" style={{
+                    width: '100%',
+                    height: '140px',
+                    objectFit: 'cover',
+                    borderRadius: '12px'
+                  }} />
                   <button
                     type="button"
                     onClick={() => removeImage(index)}
@@ -341,9 +307,7 @@ const AddProduct = () => {
                       background: '#ef4444',
                       color: 'white',
                       border: 'none',
-                      cursor: 'pointer',
-                      fontSize: '16px',
-                      fontWeight: 'bold'
+                      cursor: 'pointer'
                     }}
                   >
                     ×
@@ -353,16 +317,27 @@ const AddProduct = () => {
             </div>
           )}
 
-          <Input 
-            name="description" 
-            label="Description" 
-            type="textarea" 
-            as="textarea" 
-            rows="4"
-            placeholder="Tell buyers about your product condition, usage, etc..."
-          />
+          <div style={{ marginBottom: '2.5rem' }}>
+            <label style={{ display: 'block', fontWeight: '600', marginBottom: '.75rem' }}>
+              Description
+            </label>
+            <textarea
+              ref={descriptionRef}
+              rows="4"
+              placeholder="Tell buyers about your product..."
+              style={{
+                width: '100%',
+                padding: '16px 20px',
+                border: '2px solid #e5e7eb',
+                borderRadius: '12px',
+                fontSize: '16px',
+                fontFamily: 'inherit',
+                resize: 'vertical',
+                background: '#fafbfc'
+              }}
+            />
+          </div>
 
-          {/* 🚀 SUBMIT BUTTON */}
           <button
             type="submit"
             disabled={loading}
@@ -375,35 +350,28 @@ const AddProduct = () => {
               borderRadius: '16px',
               fontSize: '18px',
               fontWeight: '700',
-              cursor: loading ? 'not-allowed' : 'pointer',
-              transition: 'all 0.3s ease',
-              boxShadow: loading ? 'none' : '0 10px 30px rgba(16,185,129,0.4)'
+              cursor: loading ? 'not-allowed' : 'pointer'
             }}
           >
-            {loading ? '📤 Publishing Product...' : '🚀 Publish Product Now'}
+            {loading ? '📤 Publishing...' : '🚀 Publish Product'}
           </button>
         </form>
 
-        {/* 📊 SIDEBAR */}
+        {/* SIDEBAR */}
         <div>
           <div style={{
             background: 'white',
             padding: '2rem',
             borderRadius: '20px',
-            boxShadow: '0 20px 60px rgba(0,0,0,0.1)',
-            height: 'fit-content'
+            boxShadow: '0 20px 60px rgba(0,0,0,0.08)'
           }}>
-            <h3 style={{ marginBottom: '1.5rem', fontWeight: '700', color: '#111827' }}>
-              📋 Debug Info
-            </h3>
-            <div style={{ fontSize: '14px', lineHeight: '1.6' }}>
-              <div><strong>Form State:</strong> {Object.keys(formData).filter(key => formData[key]).length}/7 fields</div>
-              <div><strong>Images:</strong> {imagesPreview.length}/8</div>
-              <div><strong>User:</strong> {user?.name || 'Logged in'}</div>
-              <div style={{ marginTop: '1rem', padding: '1rem', background: '#f0f9ff', borderRadius: '8px', fontSize: '12px' }}>
-                👆 Open browser console (F12) to see detailed logs
-              </div>
-            </div>
+            <h3 style={{ marginBottom: '1rem', fontWeight: '700' }}>Quick Tips</h3>
+            <ul style={{ color: '#6b7280', fontSize: '15px', lineHeight: '1.7' }}>
+              <li>✅ Title & Price required</li>
+              <li>📱 Add phone number</li>
+              <li>🖼️ Max 8 images</li>
+              <li>⭐ Good photos sell faster</li>
+            </ul>
           </div>
         </div>
       </div>
