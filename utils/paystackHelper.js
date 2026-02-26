@@ -1,37 +1,38 @@
-import axios from "axios";
+// utils/paystackHelper.js - ✅ PAYSTACK NIGERIA
+import axios from 'axios';
 
 const PAYSTACK_SECRET_KEY = process.env.PAYSTACK_SECRET_KEY;
 
-/**
- * Verify a Paystack transaction
- * @param {string} reference
- * @returns {Promise<Object>} transaction data
- */
-export const verifyPaystackPayment = async (reference) => {
+export const paystackPayment = async (paymentData) => {
+  try {
+    const response = await axios.post(
+      'https://api.paystack.co/transaction/initialize',
+      paymentData,
+      {
+        headers: {
+          Authorization: `Bearer ${PAYSTACK_SECRET_KEY}`,
+          'Content-Type': 'application/json'
+        }
+      }
+    );
+    return response.data;
+  } catch (error) {
+    throw new Error(error.response?.data?.message || 'Payment initialization failed');
+  }
+};
+
+export const verifyPayment = async (reference) => {
   try {
     const response = await axios.get(
       `https://api.paystack.co/transaction/verify/${reference}`,
       {
         headers: {
-          Authorization: `Bearer ${PAYSTACK_SECRET_KEY}`,
-        },
+          Authorization: `Bearer ${PAYSTACK_SECRET_KEY}`
+        }
       }
     );
-
-    const data = response.data;
-
-    if (data.status === true && data.data.status === "success") {
-      return {
-        success: true,
-        amount: data.data.amount / 100, // convert kobo → naira
-        reference: data.data.reference,
-        email: data.data.customer.email,
-      };
-    }
-
-    return { success: false };
-  } catch (err) {
-    console.error("❌ Paystack verification error:", err.message);
-    return { success: false, error: err.message };
+    return response.data;
+  } catch (error) {
+    throw new Error(error.response?.data?.message || 'Payment verification failed');
   }
 };
