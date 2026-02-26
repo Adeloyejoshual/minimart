@@ -1,11 +1,10 @@
-
-  // src/pages/Marketplace/AddProduct.jsx - ✅ CONFIGS + FALLBACKS = BULLETPROOF
+// src/pages/Marketplace/AddProduct.jsx - ✅ ALL CONFIGS + BULLETPROOF
 import React, { useState, useCallback, useEffect } from 'react';
 import { useAuth0 } from '@auth0/auth0-react';
 import CustomDropdown from '../../components/CustomDropdown';
 import './AddProduct.css';
 
-// ✅ YOUR 13 CONFIGS
+// ✅ ALL 13 CONFIGS
 import { categoryFields } from '../../config/categoryFields';
 import { brands } from '../../config/brands';
 import { colors } from '../../config/colors';
@@ -23,7 +22,7 @@ import { years } from '../../config/years';
 import { promotionPlans } from '../../config/promotion';
 
 const AddProduct = () => {
-  // ✅ FULLY CONTROLLED STATE (unchanged)
+  // ✅ FULLY CONTROLLED STATE
   const [formData, setFormData] = useState({
     title: '',
     brand: '',
@@ -41,7 +40,8 @@ const AddProduct = () => {
     fuel_type: '',
     transmission: '',
     year: '',
-    mileage: ''
+    mileage: '',
+    used_detail: ''
   });
   
   const [category, setCategory] = useState('');
@@ -52,27 +52,22 @@ const AddProduct = () => {
   const [loading, setLoading] = useState(false);
   const [message, setMessage] = useState('');
   const [selectedFeatures, setSelectedFeatures] = useState([]);
-  const [termsAccepted, setTermsAccepted] = useState(false);
+  const [termsAccepted, setTermsAccepted] = useState(localStorage.getItem('termsAccepted') === 'true');
   
   const { user, isAuthenticated } = useAuth0();
 
-  // ✅ CONFIGS + FALLBACKS = NEVER BLANK
-  const categoriesList = Object.keys(categoryFields || {}) || 
-    ["Phones & Tablets", "Vehicles", "Laptops"];
-
-  // 🔑 YOUR CONFIGS WITH SAFETY NET
-  const categoryBrands = brands?.[category] || 
-    ["Samsung", "Tecno", "Infinix", "Apple"];
-    
-  const categoryModels = models?.[category] || 
-    ["Camon 19", "Spark 10", "A54", "iPhone 14"];
-
+  // ✅ CONFIG DATA WITH FALLBACKS
+  const categoriesList = Object.keys(categoryFields || {});
+  const categoryBrands = brands?.[category] || [];
+  const categoryModels = models?.[category] || [];
   const categoryFeatures = featuresByCategory?.[category] || [];
   const stateCities = locationsByState?.[state] || [];
 
-  // ✅ MASTER OPTIONS - YOUR CONFIGS FIRST
+  // ✅ MASTER FIELD OPTIONS
   const getFieldOptions = (fieldName) => {
-    const configOptions = {
+    const optionsMap = {
+      brand: categoryBrands,
+      model: categoryModels,
       condition: conditions || [],
       used_detail: usedDetails || [],
       color: colors || [],
@@ -81,28 +76,18 @@ const AddProduct = () => {
       sim: sims || [],
       engine: engines || [],
       fuel_type: fuelTypes || [],
-      transmission: fieldOptions?.transmission || ['Manual', 'Automatic'],
-      year: years || [],
-      brand: categoryBrands,
-      model: categoryModels,
-      ...fieldOptions
+      transmission: fieldOptions?.transmission || ['Manual', 'Automatic', 'Semi-Automatic'],
+      year: years || []
     };
-
-    const options = configOptions[fieldName] || [];
-    
-    // ✅ FALLBACK - NEVER EMPTY
-    return options.length > 0 ? options : 
-      fieldName === 'condition' ? ['New', 'Used'] :
-      fieldName === 'color' ? ['Black', 'White'] :
-      ['Option 1', 'Option 2'];
+    return optionsMap[fieldName] || fieldOptions?.[fieldName] || [];
   };
 
-  // ✅ DYNAMIC FIELDS FROM YOUR categoryFields
+  // ✅ DYNAMIC FIELDS FROM CONFIG
   const dynamicFields = categoryFields?.[category]?.filter(field => 
     !['features', 'transmission', 'mileage'].includes(field)
   ) || [];
 
-  // ✅ REST OF YOUR CODE (unchanged from working version)
+  // ✅ CATEGORY CHANGE RESET
   useEffect(() => {
     if (category) {
       setSelectedFeatures([]);
@@ -119,7 +104,8 @@ const AddProduct = () => {
         fuel_type: '',
         transmission: '',
         year: '',
-        mileage: ''
+        mileage: '',
+        used_detail: ''
       }));
     }
   }, [category]);
@@ -131,25 +117,6 @@ const AddProduct = () => {
   const updateFormField = (field, value) => {
     setFormData(prev => ({ ...prev, [field]: value }));
   };
-
-  const renderDynamicField = (fieldName) => {
-    const options = getFieldOptions(fieldName);
-    const fieldLabel = fieldName.replace(/_/g, ' ').replace(/\bw/g, l => l.toUpperCase());
-    
-    return (
-      <div className="dynamic-field" key={fieldName}>
-        <label>{fieldLabel}</label>
-        <CustomDropdown
-          options={options.slice(0, 25)}  // Limit for performance
-          value={formData[fieldName]}
-          onChange={(value) => updateFormField(fieldName, value)}
-          placeholder={`Select ${fieldLabel}`}
-        />
-      </div>
-    );
-  };
-
-  
 
   const handleImages = useCallback((e) => {
     const files = Array.from(e.target.files);
@@ -177,9 +144,38 @@ const AddProduct = () => {
 
   const toggleFeature = useCallback((feature) => {
     setSelectedFeatures(prev => 
-      prev.includes(feature) ? prev.filter(f => f !== feature) : [...prev, feature]
+      prev.includes(feature)
+        ? prev.filter(f => f !== feature)
+        : [...prev, feature]
     );
   }, []);
+
+  const renderDynamicField = (fieldName) => {
+    const options = getFieldOptions(fieldName);
+    const fieldLabel = fieldName.replace(/_/g, ' ').replace(/\bw/g, l => l.toUpperCase());
+    
+    return (
+      <div className="dynamic-field" key={fieldName}>
+        <label>{fieldLabel}</label>
+        {options.length > 0 ? (
+          <CustomDropdown
+            options={options.slice(0, 25)}
+            value={formData[fieldName]}
+            onChange={(value) => updateFormField(fieldName, value)}
+            placeholder={`Select ${fieldLabel}`}
+          />
+        ) : (
+          <input
+            value={formData[fieldName]}
+            onChange={(e) => updateFormField(fieldName, e.target.value)}
+            type={fieldName.includes('mileage') ? 'number' : 'text'}
+            placeholder={`Enter ${fieldLabel}`}
+            className="field-input"
+          />
+        )}
+      </div>
+    );
+  };
 
   const handleSubmit = async (e) => {
     e.preventDefault();
@@ -236,10 +232,14 @@ const AddProduct = () => {
           title: '', brand: '', model: '', price: '', phone_number: '',
           description: '', negotiation: 'no', condition: '', color: '',
           ram: '', storage: '', sim: '', engine: '', fuel_type: '',
-          transmission: '', year: '2023', mileage: ''
+          transmission: '', year: '', mileage: '', used_detail: ''
         });
-        setCategory(''); setState(''); setCity(''); 
-        setImagesPreview([]); setSelectedFeatures([]); setSelectedPlan(null);
+        setCategory(''); 
+        setState(''); 
+        setCity(''); 
+        setImagesPreview([]); 
+        setSelectedFeatures([]); 
+        setSelectedPlan(null);
         
         setTimeout(() => setMessage(''), 5000);
       } else {
@@ -329,6 +329,22 @@ const AddProduct = () => {
               />
             </div>
             <div className="input-group">
+              <label>Promotion Plan</label>
+              <CustomDropdown
+                options={promotionPlans?.map(p => ({ 
+                  value: p.id, 
+                  label: `${p.name} - ₦${formatPrice(p.price)} (${p.duration})` 
+                })) || []}
+                value={selectedPlan?.id || ''}
+                onChange={(id) => {
+                  const plan = promotionPlans?.find(p => p.id == id);
+                  setSelectedPlan(plan);
+                }}
+                placeholder="Free Listing"
+                className="input-large"
+              />
+            </div>
+            <div className="input-group">
               <label>Negotiation</label>
               <CustomDropdown
                 options={[
@@ -356,7 +372,39 @@ const AddProduct = () => {
           </section>
         )}
 
-        {/* LOCATION & CONTACT */}
+        {/* FEATURES */}
+        {categoryFeatures.length > 0 && (
+          <section className="form-section">
+            <h2>✨ Features</h2>
+            <div className="features-grid">
+              {categoryFeatures.slice(0, 12).map(feature => (
+                <label key={feature} className="feature-checkbox">
+                  <input
+                    type="checkbox"
+                    checked={selectedFeatures.includes(feature)}
+                    onChange={() => toggleFeature(feature)}
+                  />
+                  <span>{feature}</span>
+                </label>
+              ))}
+            </div>
+          </section>
+        )}
+
+        {/* DESCRIPTION & LOCATION */}
+        <section className="form-section">
+          <h2>📝 Description</h2>
+          <div className="input-group full-width">
+            <label>Description</label>
+            <textarea 
+              value={formData.description}
+              onChange={(e) => updateFormField('description', e.target.value)}
+              rows="5"
+              className="textarea-large"
+            />
+          </div>
+        </section>
+
         <section className="form-section">
           <h2>📍 Location & Contact</h2>
           <div className="input-grid">
@@ -374,7 +422,7 @@ const AddProduct = () => {
             <div className="input-group">
               <label className="required">State *</label>
               <CustomDropdown
-                options={Object.keys(stateCities)}
+                options={Object.keys(locationsByState || {})}
                 value={state}
                 onChange={(value) => {
                   setState(value);
@@ -395,21 +443,6 @@ const AddProduct = () => {
                 disabled={!state}
               />
             </div>
-          </div>
-        </section>
-
-        {/* DESCRIPTION */}
-        <section className="form-section">
-          <h2>📝 Description</h2>
-          <div className="input-group full-width">
-            <label>Description</label>
-            <textarea 
-              value={formData.description}
-              onChange={(e) => updateFormField('description', e.target.value)}
-              rows="5"
-              className="textarea-large"
-              placeholder="Tell buyers more about your product..."
-            />
           </div>
         </section>
 
@@ -441,17 +474,20 @@ const AddProduct = () => {
           )}
         </section>
 
-        {/* TERMS & SUBMIT */}
+        {/* TERMS & PUBLISH */}
         <section className="form-section">
           <div className="terms-section">
             <label className="terms-checkbox">
               <input
                 type="checkbox"
                 checked={termsAccepted}
-                onChange={(e) => setTermsAccepted(e.target.checked)}
+                onChange={(e) => {
+                  setTermsAccepted(e.target.checked);
+                  localStorage.setItem('termsAccepted', e.target.checked);
+                }}
               />
               <span>
-                I agree to <a href="/terms" target="_blank" className="terms-link">Terms & Conditions</a>
+                I agree to <a href="/terms" target="_blank" rel="noopener noreferrer" className="terms-link">Terms & Conditions</a>
               </span>
             </label>
           </div>
