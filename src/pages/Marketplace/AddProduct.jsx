@@ -1,4 +1,4 @@
-// src/pages/Marketplace/AddProduct.jsx - ✅ FULL CONFIG INTEGRATION
+// src/pages/Marketplace/AddProduct.jsx - ✅ ROUTING + MULTER + AUTH FIXED
 import React, { useState, useRef, useCallback, useEffect } from 'react';
 import { useAuth0 } from '@auth0/auth0-react';
 import './AddProduct.css';
@@ -75,6 +75,8 @@ const AddProduct = () => {
         file, preview, name: shortName, originalName: file.name 
       }]);
     });
+    // Reset input
+    e.target.value = '';
   }, [imagesPreview.length]);
 
   const removeImage = useCallback((index) => {
@@ -83,12 +85,12 @@ const AddProduct = () => {
     setImagesPreview(prev => prev.filter((_, i) => i !== index));
   }, [imagesPreview]);
 
+  // ✅ FIXED: FormData + Multer + Correct Endpoint + No Auth Header
   const handleSubmit = async (e) => {
     e.preventDefault();
     
-    // ✅ PERFECT MATCH YOUR MONGODB SCHEMA
     const productData = {
-      title: fieldRefs.current.title?.value || '',
+      title: fieldRefs.current.title?.value?.trim() || '',
       category,
       brand: fieldRefs.current.brand?.value || '',
       model: fieldRefs.current.model?.value || '',
@@ -98,67 +100,99 @@ const AddProduct = () => {
       color: fieldRefs.current.color?.value || '',
       sim: fieldRefs.current.sim?.value || '',
       engine: fieldRefs.current.engine?.value || '',
-      mileage: fieldRefs.current.mileage?.value || null,
-      year: fieldRefs.current.year?.value || null,
+      mileage: fieldRefs.current.mileage?.value ? parseFloat(fieldRefs.current.mileage.value) : null,
+      year: fieldRefs.current.year?.value ? parseInt(fieldRefs.current.year.value) : null,
       fuel_type: fieldRefs.current.fuel_type?.value || '',
       transmission: fieldRefs.current.transmission?.value || '',
-      description: fieldRefs.current.description?.value || '',
+      description: fieldRefs.current.description?.value?.trim() || '',
       price: parseInt(fieldRefs.current.price?.value) || 0,
       negotiation: fieldRefs.current.negotiation?.checked ? "Yes" : "No",
-      phone_number: fieldRefs.current.phone?.value || '',
-      poster_name: user?.name || 'Anonymous',
+      phone_number: fieldRefs.current.phone?.value || '08000000000',
+      poster_name: user?.name || 'Anonymous Seller',
       country: "Nigeria",
-      state,
+      state: state || 'Lagos',
       city: fieldRefs.current.city?.value || '',
       location: fieldRefs.current.city?.value || '',
-      exchange_possible: exchangePossible,
-      features: fieldRefs.current.features?.value || '',
-      images: imagesPreview.map(img => img.originalName),
-      promoted: false,
-      promo_plan: ""
+      exchange_possible: exchangePossible === true || exchangePossible === 'true',
+      features: fieldRefs.current.features?.value?.split(',').map(f => f.trim()).filter(Boolean) || [],
+      video_link: '',
+      status: 'active'
     };
 
-    console.log('🚀 SUBMITTING EXACT DB STRUCTURE:', productData);
+    console.log('🚀 SUBMITTING:', productData);
 
-    if (!productData.title.trim() || !productData.price || productData.price <= 0) {
-      setMessage('❌ Title and valid price required');
-      fieldRefs.current.title?.focus();
+    if (!productData.title || productData.price <= 0) {
+      setMessage('❌ Title and valid price (₦) required');
+      fieldRefs.current.title?.focus?.();
+      return;
+    }
+
+    if (!productData.phone_number.match(/^0[789][01]d{8}$/)) {
+      setMessage('❌ Valid Nigerian phone number required (080/090/070/081)');
+      fieldRefs.current.phone?.focus?.();
       return;
     }
 
     try {
       setLoading(true);
-      setMessage('🚀 Publishing to database...');
+      setMessage('🚀 Publishing product...');
 
-      const token = await getAccessTokenSilently();
-      const response = await fetch('/api/products', {
-        method: 'POST',
-        headers: {
-          'Authorization': `Bearer ${token}`,
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify(productData)
+      // ✅ FIXED: FormData for Multer + CORRECT ENDPOINT + NO AUTH
+      const formData = new FormData();
+      
+      // Append all fields
+      Object.keys(productData).forEach(key => {
+        if (productData[key] !== null && productData[key] !== undefined) {
+          if (Array.isArray(productData[key])) {
+            productData[key].forEach(item => formData.append(key, item));
+          } else {
+            formData.append(key, productData[key]);
+          }
+        }
       });
 
+      // Append image files
+      imagesPreview.forEach((img, index) => {
+        formData.append('images', img.file);
+      });
+
+      console.log('📤 FormData ready. Images:', imagesPreview.length);
+
+      const response = await fetch('/api/marketplace/products', {  // ✅ FIXED ROUTE
+        method: 'POST',
+        body: formData,  // ✅ Multer expects FormData
+        // ❌ REMOVED: No 'Content-Type' or 'Authorization' headers for FormData + Multer
+      });
+
+      const result = await response.json();
+
       if (response.ok) {
-        const result = await response.json();
-        setMessage(`🎉 Product published successfully! ID: ${result._id}`);
+        setMessage(`🎉 Product published! ID: ${result.data?._id || result._id}`);
         
         // RESET FORM
         Object.keys(fieldRefs.current).forEach(key => {
-          if (fieldRefs.current[key]) fieldRefs.current[key].value = '';
+          const el = fieldRefs.current[key];
+          if (el) {
+            if (el.tagName === 'INPUT' && el.type === 'checkbox') {
+              el.checked = false;
+            } else {
+              el.value = '';
+            }
+          }
         });
-        fieldRefs.current.negotiation && (fieldRefs.current.negotiation.checked = false);
-        setCategory(''); setState(''); setImagesPreview([]); setExchangePossible(false);
-        fieldRefs.current.title?.focus();
+        setCategory(''); 
+        setState(''); 
+        setImagesPreview([]); 
+        setExchangePossible(false);
+        fieldRefs.current.title?.focus?.();
         
         setTimeout(() => setMessage(''), 5000);
       } else {
-        throw new Error(await response.text());
+        throw new Error(result.message || 'Publish failed');
       }
     } catch (error) {
       console.error('❌ Publish error:', error);
-      setMessage(`❌ Publish failed: ${error.message}`);
+      setMessage(`❌ ${error.message}`);
     } finally {
       setLoading(false);
     }
@@ -167,7 +201,7 @@ const AddProduct = () => {
   const renderField = (fieldName) => {
     const options = getFieldOptions(fieldName);
     const isCheckbox = fieldName === 'negotiation';
-    const isSelect = options.length > 1 && !isCheckbox;
+    const isSelect = options && options.length > 1 && !isCheckbox;
 
     return (
       <div className="dynamic-field">
@@ -190,8 +224,8 @@ const AddProduct = () => {
         ) : (
           <input
             ref={el => fieldRefs.current[fieldName] = el}
-            type={fieldName === 'price' ? 'number' : fieldName.includes('mileage') ? 'number' : 'text'}
-            placeholder={`Enter ${fieldName}`}
+            type={fieldName.includes('price|mileage|year') ? 'number' : 'text'}
+            placeholder={`Enter ${fieldName.replace(/_/g, ' ')}`}
             className="field-input"
           />
         )}
@@ -200,20 +234,25 @@ const AddProduct = () => {
   };
 
   if (!isAuthenticated) {
-    return <div className="login-required">🔐 Please login to add products</div>;
+    return (
+      <div className="login-required">
+        <h2>🔐 Please Login</h2>
+        <p>Sign in with Auth0 to list your products</p>
+      </div>
+    );
   }
 
   return (
     <div className="add-product-container">
       {message && (
-        <div className={`message ${message.includes('🎉') ? 'success' : 'error'}`}>
+        <div className={`message ${message.includes('🎉') ? 'success' : message.includes('❌') ? 'error' : ''}`}>
           {message}
         </div>
       )}
 
       <div className="form-grid">
         {/* MAIN FORM */}
-        <form onSubmit={handleSubmit} className="product-form">
+        <form onSubmit={handleSubmit} className="product-form" encType="multipart/form-data">
           <header className="form-header">
             <h1 className="form-title">Add New Product</h1>
             <div className="user-info">
@@ -231,7 +270,7 @@ const AddProduct = () => {
                   ref={el => fieldRefs.current.title = el}
                   type="text" 
                   placeholder="Tecno Camon 19 32GB Green - Brand New"
-                  className="input-large required"
+                  className="input-large"
                   required 
                 />
               </div>
@@ -240,8 +279,10 @@ const AddProduct = () => {
                 <input 
                   ref={el => fieldRefs.current.price = el}
                   type="number" 
+                  min="0"
+                  step="1000"
                   placeholder="150000"
-                  className="input-large required"
+                  className="input-large"
                   required 
                 />
               </div>
@@ -266,11 +307,12 @@ const AddProduct = () => {
                 </select>
               </div>
               <div className="input-group">
-                <label className="input-label">State</label>
+                <label className="input-label required">State *</label>
                 <select 
                   ref={el => fieldRefs.current.state = el}
                   onChange={(e) => setState(e.target.value)}
-                  className="input-dense"
+                  className="input-dense required"
+                  required
                 >
                   <option value="">Select State</option>
                   {Object.keys(locationsByState).map(s => (
@@ -288,12 +330,13 @@ const AddProduct = () => {
                 </select>
               </div>
               <div className="input-group">
-                <label className="input-label">Phone</label>
+                <label className="input-label required">Phone *</label>
                 <input 
                   ref={el => fieldRefs.current.phone = el}
                   type="tel" 
                   placeholder="08012345678"
-                  className="input-dense"
+                  className="input-dense required"
+                  required
                 />
               </div>
             </div>
@@ -363,7 +406,7 @@ const AddProduct = () => {
               <div className="images-grid">
                 {imagesPreview.map((img, index) => (
                   <div key={img.name} className="image-preview">
-                    <img src={img.preview} alt="Preview" />
+                    <img src={img.preview} alt={`Preview ${index}`} />
                     <div className="image-name">{img.name}</div>
                     <button
                       type="button"
@@ -383,11 +426,11 @@ const AddProduct = () => {
             disabled={loading}
             className="submit-button"
           >
-            {loading ? '📤 Publishing...' : `🚀 Publish ${category || 'Product'}`}
+            {loading ? '📤 Publishing to Cloudinary...' : `🚀 Publish ${category || 'Product'}`}
           </button>
         </form>
 
-        {/* PREVIEW */}
+        {/* PREVIEW SIDEBAR */}
         <aside className="preview-sidebar">
           <div className="preview-card">
             <h3 className="preview-title">📊 Live Preview</h3>
@@ -405,6 +448,10 @@ const AddProduct = () => {
               <div className="preview-item">
                 <span>Category:</span>
                 <strong>{category || 'Select'}</strong>
+              </div>
+              <div className="preview-item">
+                <span>Phone:</span>
+                <strong>{fieldRefs.current.phone?.value || 'Add phone'}</strong>
               </div>
               <div className="preview-item">
                 <span>Images:</span>
