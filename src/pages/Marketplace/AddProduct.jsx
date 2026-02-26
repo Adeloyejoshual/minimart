@@ -1,4 +1,4 @@
-// src/pages/Marketplace/AddProduct.jsx - ✅ ALL CONFIGS + BULLETPROOF
+// src/pages/Marketplace/AddProduct.jsx - ✅ NESTED MODELS + ALL 13 CONFIGS
 import React, { useState, useCallback, useEffect } from 'react';
 import { useAuth0 } from '@auth0/auth0-react';
 import CustomDropdown from '../../components/CustomDropdown';
@@ -56,38 +56,19 @@ const AddProduct = () => {
   
   const { user, isAuthenticated } = useAuth0();
 
-  // ✅ CONFIG DATA WITH FALLBACKS
+  // ✅ NESTED MODELS SUPPORT - KEY FIX
   const categoriesList = Object.keys(categoryFields || {});
   const categoryBrands = brands?.[category] || [];
-  const categoryModels = models?.[category] || [];
+  const categoryModels = models?.[category]?.[formData.brand] || [];
   const categoryFeatures = featuresByCategory?.[category] || [];
   const stateCities = locationsByState?.[state] || [];
 
-  // ✅ MASTER FIELD OPTIONS
-  const getFieldOptions = (fieldName) => {
-    const optionsMap = {
-      brand: categoryBrands,
-      model: categoryModels,
-      condition: conditions || [],
-      used_detail: usedDetails || [],
-      color: colors || [],
-      ram: ramOptions || [],
-      storage: storageOptions || [],
-      sim: sims || [],
-      engine: engines || [],
-      fuel_type: fuelTypes || [],
-      transmission: fieldOptions?.transmission || ['Manual', 'Automatic', 'Semi-Automatic'],
-      year: years || []
-    };
-    return optionsMap[fieldName] || fieldOptions?.[fieldName] || [];
-  };
+  // ✅ RESET MODEL ON BRAND CHANGE
+  useEffect(() => {
+    setFormData(prev => ({ ...prev, model: '' }));
+  }, [formData.brand]);
 
-  // ✅ DYNAMIC FIELDS FROM CONFIG
-  const dynamicFields = categoryFields?.[category]?.filter(field => 
-    !['features', 'transmission', 'mileage'].includes(field)
-  ) || [];
-
-  // ✅ CATEGORY CHANGE RESET
+  // ✅ RESET FIELDS ON CATEGORY CHANGE
   useEffect(() => {
     if (category) {
       setSelectedFeatures([]);
@@ -109,6 +90,35 @@ const AddProduct = () => {
       }));
     }
   }, [category]);
+
+  // ✅ MASTER FIELD OPTIONS
+  const getFieldOptions = (fieldName) => {
+    // ✅ SPECIAL CASE: Model depends on brand
+    if (fieldName === 'model' && formData.brand && category) {
+      return models?.[category]?.[formData.brand] || [];
+    }
+
+    const optionsMap = {
+      brand: categoryBrands,
+      condition: conditions || [],
+      used_detail: usedDetails || [],
+      color: colors || [],
+      ram: ramOptions || [],
+      storage: storageOptions || [],
+      sim: sims || [],
+      engine: engines || [],
+      fuel_type: fuelTypes || [],
+      transmission: fieldOptions?.transmission || ['Manual', 'Automatic', 'Semi-Automatic'],
+      year: years || []
+    };
+    
+    return optionsMap[fieldName] || fieldOptions?.[fieldName] || [];
+  };
+
+  // ✅ DYNAMIC FIELDS FROM CONFIG
+  const dynamicFields = categoryFields?.[category]?.filter(field => 
+    !['features', 'transmission', 'mileage'].includes(field)
+  ) || [];
 
   const formatPrice = (value) => {
     return new Intl.NumberFormat('en-NG').format(parseInt(value) || 0);
@@ -227,7 +237,6 @@ const AddProduct = () => {
       if (response.ok) {
         setMessage(`🎉 Product published! ID: ${result.data?._id || result._id}`);
         
-        // RESET FORM
         setFormData({
           title: '', brand: '', model: '', price: '', phone_number: '',
           description: '', negotiation: 'no', condition: '', color: '',
@@ -298,6 +307,7 @@ const AddProduct = () => {
                 onChange={(value) => updateFormField('brand', value)}
                 placeholder="Select Brand"
                 className="input-large"
+                disabled={!category}
               />
             </div>
             <div className="input-group">
@@ -306,9 +316,13 @@ const AddProduct = () => {
                 options={categoryModels}
                 value={formData.model}
                 onChange={(value) => updateFormField('model', value)}
-                placeholder="Select Model"
+                placeholder={formData.brand ? `Select ${formData.brand} Model` : "Select Brand First"}
                 className="input-large"
+                disabled={!formData.brand || !category}
               />
+              {categoryModels.length === 0 && formData.brand && (
+                <small style={{color: '#666', fontSize: '12px'}}>No models found for this brand</small>
+              )}
             </div>
           </div>
         </section>
@@ -401,6 +415,7 @@ const AddProduct = () => {
               onChange={(e) => updateFormField('description', e.target.value)}
               rows="5"
               className="textarea-large"
+              placeholder="Tell buyers more about your product..."
             />
           </div>
         </section>
