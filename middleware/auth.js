@@ -1,30 +1,28 @@
-const jwt = require('jsonwebtoken');
-const { jwtVerify } = require('jose');
+// middleware/auth.js - ✅ DEFAULT EXPORT
+import jwt from 'jsonwebtoken';
 
-const authenticateToken = async (req, res, next) => {
+const auth = (req, res, next) => {
   try {
-    const authHeader = req.headers['authorization'];
-    const token = authHeader && authHeader.split(' ')[1];
-
+    // Demo token - replace with real JWT in production
+    const token = req.header('Authorization')?.replace('Bearer ', '');
+    
     if (!token) {
-      return res.status(401).json({ message: 'Access token required' });
+      return res.status(401).json({ 
+        success: false, 
+        message: 'No token provided - Access denied' 
+      });
     }
 
-    // Verify Auth0 JWT (RS256)
-    const JWKS = require('jose').createRemoteJWKSet(
-      new URL('https://YOUR_DOMAIN.auth0.com/.well-known/jwks.json')
-    );
-    
-    const { payload } = await jwtVerify(token, JWKS, {
-      issuer: 'https://YOUR_DOMAIN.auth0.com/',
-      audience: 'YOUR_AUDIENCE'
-    });
-
-    req.user = payload;
+    // Demo verification (replace with real secret)
+    const decoded = jwt.verify(token, 'marketplace_demo_secret');
+    req.user = decoded;
     next();
   } catch (error) {
-    return res.status(403).json({ message: 'Invalid token' });
+    res.status(401).json({ 
+      success: false, 
+      message: 'Invalid token' 
+    });
   }
 };
 
-module.exports = { authenticateToken };
+export default auth;
