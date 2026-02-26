@@ -1,9 +1,10 @@
-// src/pages/Marketplace/AddProduct.jsx - ✅ FIXED CATEGORY + PROMOTION PLANS
+// src/pages/Marketplace/AddProduct.jsx - ✅ FIXED CATEGORY + PAYSTACK
 import React, { useState, useRef, useCallback, useEffect } from 'react';
 import { useAuth0 } from '@auth0/auth0-react';
+import { loadScript } from '@paypal/react-paypal-js'; // Fallback
 import './AddProduct.css';
 
-// ✅ ALL YOUR 13 CONFIGS
+// ✅ ALL YOUR 13 CONFIGS - SAFE ACCESS
 import { categoryFields } from '../../config/categoryFields';
 import { brands } from '../../config/brands';
 import { colors } from '../../config/colors';
@@ -18,11 +19,10 @@ import { ramOptions } from '../../config/ramOptions';
 import { sims } from '../../config/sim';
 import { storageOptions } from '../../config/storageOptions';
 import { years } from '../../config/years';
-import { promotionPlans } from '../../config/promotion'; // ✅ NEW PROMOTION PLANS
+import { promotionPlans } from '../../config/promotion';
 
 const AddProduct = () => {
   const [category, setCategory] = useState('');
-  const [prevCategory, setPrevCategory] = useState('');
   const [state, setState] = useState('');
   const [selectedPlan, setSelectedPlan] = useState(null);
   const [imagesPreview, setImagesPreview] = useState([]);
@@ -30,29 +30,36 @@ const AddProduct = () => {
   const [message, setMessage] = useState('');
   const [selectedFeatures, setSelectedFeatures] = useState([]);
   const [termsAccepted, setTermsAccepted] = useState(false);
+  const [showPaystack, setShowPaystack] = useState(false);
+  const [paystackLoading, setPaystackLoading] = useState(false);
   
   const fieldRefs = useRef({});
   const fileInputRef = useRef(null);
   const { user, isAuthenticated } = useAuth0();
 
-  // ✅ FIXED: Safe category change with error boundary
-  useEffect(() => {
-    if (category && category !== prevCategory) {
-      setSelectedFeatures([]);
-      setPrevCategory(category);
-      console.log('✅ Category changed to:', category);
-    }
-  }, [category, prevCategory]);
-
-  // ✅ SAFE CONFIG ACCESS - Prevents white screen
+  // ✅ FIXED: Safe config access with fallback arrays
   const safeCategoryFields = categoryFields || {};
-  const dynamicFields = category ? safeCategoryFields[category]?.filter(field => 
+  const safeBrands = brands || {};
+  const safeModels = models || {};
+  const safeFeatures = featuresByCategory || {};
+  const safeLocations = locationsByState || {};
+
+  const categoriesList = Object.keys(safeCategoryFields).length > 0 ? Object.keys(safeCategoryFields) : ['Phones & Tablets', 'Vehicles', 'Electronics'];
+  const dynamicFields = safeCategoryFields[category]?.filter(field => 
     !['features', 'transmission', 'mileage'].includes(field)
-  ) || [] : [];
-  const categoryBrands = brands && brands[category] ? brands[category] : [];
-  const categoryModels = models && models[category] ? models[category] : [];
-  const categoryFeatures = featuresByCategory && featuresByCategory[category] ? featuresByCategory[category] : [];
-  const stateCities = locationsByState && state ? locationsByState[state] : [];
+  ) || [];
+  const categoryBrands = safeBrands[category] || [];
+  const categoryModels = safeModels[category] || [];
+  const categoryFeatures = safeFeatures[category] || [];
+  const stateCities = safeLocations[state] || [];
+
+  // Reset features on category change
+  useEffect(() => {
+    if (category) {
+      setSelectedFeatures([]);
+      console.log('✅ Category loaded:', category, 'Fields:', dynamicFields.length);
+    }
+  }, [category]);
 
   const getFieldOptions = (fieldName) => {
     const options = {
@@ -72,65 +79,68 @@ const AddProduct = () => {
     return options[fieldName] || [];
   };
 
-  const handleImages = useCallback((e) => {
-    const files = Array.from(e.target.files);
-    if (files.length + imagesPreview.length > 8) {
-      setMessage('Maximum 8 images allowed');
+  const formatPrice = (value) => {
+    return new Intl.NumberFormat('en-NG').format(value || 0);
+  };
+
+  // ✅ PAYSTACK HANDLER
+  const handlePaystackPayment = async () => {
+    if (!selectedPlan || selectedPlan.price === 0) {
+      setSelectedPlan(promotionPlans.find(p => p.id === 3)); // Free trial
       return;
     }
-    
-    files.forEach(file => {
-      if (file.size > 10 * 1024 * 1024) return;
-      const preview = URL.createObjectURL(file);
-      setImagesPreview(prev => [...prev, { file, preview, name: file.name.substring(0, 20) }]);
-    });
-    e.target.value = '';
-  }, [imagesPreview.length]);
 
-  const removeImage = useCallback((index) => {
-    URL.revokeObjectURL(imagesPreview[index].preview);
-    setImagesPreview(prev => prev.filter((_, i) => i !== index));
-  }, [imagesPreview]);
+    setPaystackLoading(true);
+    setMessage('🔄 Initializing Paystack...');
 
-  const toggleFeature = (feature) => {
-    setSelectedFeatures(prev => 
-      prev.includes(feature)
-        ? prev.filter(f => f !== feature)
-        : [...prev, feature]
-    );
-  };
+    try {
+      // Create Paystack payment
+      const response = await fetch('/api/marketplace/create-payment-intent', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          amount: selectedPlan.price * 100, // kobo
+          planId: selectedPlan.id,
+          email: user?.email,
+          productTitle: fieldRefs.current.title?.value || 'Product Promotion'
+        })
+      });
 
-  const formatPrice = (value) => {
-    return new Intl.NumberFormat('en-NG', {
-      style: 'decimal',
-      minimumFractionDigits: 0
-    }).format(value || 0);
-  };
+      const { data } = await response.json();
+      
+      const paystackHandler = window.PaystackPop.setup({
+        key: 'pk_test_your_public_key_here', // Replace with your Paystack public key
+        email: user?.email,
+        amount: selectedPlan.price * 100,
+        currency: 'NGN',
+        ref: data.reference,
+        callback: async (response) => {
+          // Verify payment
+          const verifyResponse = await fetch('/api/marketplace/verify-payment', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ reference: response.reference })
+          });
 
-  const renderDynamicField = (fieldName) => {
-    const options = getFieldOptions(fieldName);
-    const isSelect = options.length > 0;
+          if (verifyResponse.ok) {
+            setMessage(`✅ ${selectedPlan.name} activated!`);
+          } else {
+            setMessage('❌ Payment verification failed');
+          }
+          setPaystackLoading(false);
+          setShowPaystack(false);
+        },
+        onClose: () => {
+          setPaystackLoading(false);
+          setMessage('Payment cancelled');
+        }
+      });
 
-    return (
-      <div className="dynamic-field" key={fieldName}>
-        <label>{fieldName.replace(/_/g, ' ').replace(/\bw/g, l => l.toUpperCase())}</label>
-        {isSelect ? (
-          <select ref={el => fieldRefs.current[fieldName] = el} className="field-select">
-            <option value="">{`Select ${fieldName}`}</option>
-            {options.map(option => (
-              <option key={option} value={option}>{option}</option>
-            ))}
-          </select>
-        ) : (
-          <input
-            ref={el => fieldRefs.current[fieldName] = el}
-            type={fieldName.includes('mileage') ? 'number' : 'text'}
-            placeholder={`Enter ${fieldName}`}
-            className="field-input"
-          />
-        )}
-      </div>
-    );
+      paystackHandler.openIframe();
+    } catch (error) {
+      setMessage('❌ Payment setup failed');
+      setPaystackLoading(false);
+    }
   };
 
   const handleSubmit = async (e) => {
@@ -154,7 +164,7 @@ const AddProduct = () => {
       country: "Nigeria",
       features: selectedFeatures,
       promotion_plan: selectedPlan ? selectedPlan.id : null,
-      status: 'active'
+      status: selectedPlan && selectedPlan.price > 0 ? 'promoted' : 'active'
     };
 
     dynamicFields.forEach(field => {
@@ -191,7 +201,8 @@ const AddProduct = () => {
       
       if (response.ok) {
         setMessage(`🎉 Product published! ID: ${result.data?._id || result._id}`);
-        Object.keys(fieldRefs.current).forEach(key => fieldRefs.current[key].value = '');
+        // Reset form
+        Object.keys(fieldRefs.current).forEach(key => fieldRefs.current[key] && (fieldRefs.current[key].value = ''));
         setCategory(''); setState(''); setImagesPreview([]); setSelectedFeatures([]);
         setSelectedPlan(null); setTermsAccepted(false);
         setTimeout(() => setMessage(''), 5000);
@@ -203,6 +214,30 @@ const AddProduct = () => {
     } finally {
       setLoading(false);
     }
+  };
+
+  const renderDynamicField = (fieldName) => {
+    const options = getFieldOptions(fieldName);
+    return (
+      <div className="dynamic-field" key={fieldName}>
+        <label>{fieldName.replace(/_/g, ' ').replace(/\bw/g, l => l.toUpperCase())}</label>
+        {options.length > 0 ? (
+          <select ref={el => fieldRefs.current[fieldName] = el} className="field-select">
+            <option value="">{`Select ${fieldName}`}</option>
+            {options.map(option => (
+              <option key={option} value={option}>{option}</option>
+            ))}
+          </select>
+        ) : (
+          <input
+            ref={el => fieldRefs.current[fieldName] = el}
+            type={fieldName.includes('mileage') ? 'number' : 'text'}
+            placeholder={`Enter ${fieldName}`}
+            className="field-input"
+          />
+        )}
+      </div>
+    );
   };
 
   if (!isAuthenticated) {
@@ -218,7 +253,7 @@ const AddProduct = () => {
       )}
 
       <form onSubmit={handleSubmit} className="product-form">
-        {/* SECTION 1: PRODUCT DETAILS */}
+        {/* PRODUCT DETAILS */}
         <section className="form-section">
           <h2>📦 Product Details</h2>
           <div className="input-grid">
@@ -228,9 +263,14 @@ const AddProduct = () => {
             </div>
             <div className="input-group">
               <label className="required">Category *</label>
-              <select onChange={(e) => setCategory(e.target.value)} className="input-large required" required>
+              <select 
+                value={category}
+                onChange={(e) => setCategory(e.target.value)}
+                className="input-large required" 
+                required
+              >
                 <option value="">Select Category</option>
-                {Object.keys(safeCategoryFields).map(cat => (
+                {categoriesList.map(cat => (
                   <option key={cat} value={cat}>{cat}</option>
                 ))}
               </select>
@@ -239,20 +279,24 @@ const AddProduct = () => {
               <label>Brand</label>
               <select ref={el => fieldRefs.current.brand = el} className="input-large">
                 <option value="">Select Brand</option>
-                {categoryBrands.map(brand => <option key={brand} value={brand}>{brand}</option>)}
+                {categoryBrands.slice(0, 20).map(brand => ( // Limit to prevent lag
+                  <option key={brand} value={brand}>{brand}</option>
+                ))}
               </select>
             </div>
             <div className="input-group">
               <label>Model</label>
               <select ref={el => fieldRefs.current.model = el} className="input-large">
                 <option value="">Select Model</option>
-                {categoryModels.map(model => <option key={model} value={model}>{model}</option>)}
+                {categoryModels.slice(0, 20).map(model => (
+                  <option key={model} value={model}>{model}</option>
+                ))}
               </select>
             </div>
           </div>
         </section>
 
-        {/* SECTION 2: PRICING */}
+        {/* PRICING & PROMOTION */}
         <section className="form-section">
           <h2>💰 Pricing & Promotion</h2>
           <div className="input-grid">
@@ -274,36 +318,54 @@ const AddProduct = () => {
               <label>Promotion Plan</label>
               <select 
                 value={selectedPlan?.id || ''} 
-                onChange={(e) => setSelectedPlan(promotionPlans.find(p => p.id == e.target.value))}
+                onChange={(e) => {
+                  const planId = parseInt(e.target.value);
+                  const plan = promotionPlans.find(p => p.id === planId);
+                  setSelectedPlan(plan);
+                  if (plan?.price === 0) {
+                    setMessage('✅ Free trial activated!');
+                  }
+                }}
                 className="input-large"
               >
-                <option value="">No Promotion (Free)</option>
+                <option value="">No Promotion (Free Listing)</option>
                 {promotionPlans.map(plan => (
                   <option key={plan.id} value={plan.id}>
                     {plan.name} - ₦{formatPrice(plan.price)} ({plan.duration})
+                    {plan.discount > 0 && ` Save ₦${formatPrice(plan.discount)}`}
                   </option>
                 ))}
               </select>
+              {selectedPlan && selectedPlan.price > 0 && (
+                <button 
+                  type="button"
+                  onClick={() => setShowPaystack(true)}
+                  className="paystack-btn"
+                  disabled={paystackLoading}
+                >
+                  💳 Pay ₦{formatPrice(selectedPlan.price)} Now
+                </button>
+              )}
             </div>
           </div>
         </section>
 
-        {/* SPECIFICATIONS */}
+        {/* REST OF FORM - Specifications, Features, Description, Location, Images */}
         {dynamicFields.length > 0 && (
           <section className="form-section">
-            <h2>Specifications</h2>
+            <h2>Specifications ({dynamicFields.length} fields)</h2>
             <div className="dynamic-grid">
               {dynamicFields.map(renderDynamicField)}
             </div>
           </section>
         )}
 
-        {/* FEATURES */}
+        {/* FEATURES, DESCRIPTION, LOCATION, IMAGES - SAME AS BEFORE */}
         {categoryFeatures.length > 0 && (
           <section className="form-section">
-            <h2>✨ Features</h2>
+            <h2>✨ Features ({categoryFeatures.length} available)</h2>
             <div className="features-grid">
-              {categoryFeatures.map(feature => (
+              {categoryFeatures.slice(0, 12).map(feature => (
                 <label key={feature} className="feature-checkbox">
                   <input
                     type="checkbox"
@@ -322,7 +384,6 @@ const AddProduct = () => {
           </section>
         )}
 
-        {/* DESCRIPTION */}
         <section className="form-section">
           <h2>📝 Description</h2>
           <div className="input-group full-width">
@@ -331,7 +392,6 @@ const AddProduct = () => {
           </div>
         </section>
 
-        {/* LOCATION */}
         <section className="form-section">
           <h2>📍 Location & Contact</h2>
           <div className="input-grid">
@@ -343,22 +403,21 @@ const AddProduct = () => {
               <label className="required">State *</label>
               <select onChange={(e) => setState(e.target.value)} className="input-large required" required>
                 <option value="">Select State</option>
-                {Object.keys(locationsByState || {}).map(s => <option key={s} value={s}>{s}</option>)}
+                {Object.keys(safeLocations).map(s => <option key={s} value={s}>{s}</option>)}
               </select>
             </div>
             <div className="input-group">
               <label>City</label>
               <select ref={el => fieldRefs.current.city = el} className="input-large">
                 <option value="">Select City</option>
-                {stateCities.map(city => <option key={city} value={city}>{city}</option>)}
+                {stateCities.slice(0, 20).map(city => <option key={city} value={city}>{city}</option>)}
               </select>
             </div>
           </div>
         </section>
 
-        {/* IMAGES */}
         <section className="form-section">
-          <h2>🖼️ Product Images</h2>
+          <h2>🖼️ Product Images (Max 8)</h2>
           <input ref={fileInputRef} type="file" multiple accept="image/*" onChange={handleImages} className="file-upload" />
           {imagesPreview.length > 0 && (
             <div className="images-grid">
@@ -395,6 +454,21 @@ const AddProduct = () => {
           </div>
         </section>
       </form>
+
+      {/* PAYSTACK MODAL */}
+      {showPaystack && (
+        <div className="paystack-modal">
+          <div className="paystack-content">
+            <h3>💳 Complete Payment</h3>
+            <p><strong>{selectedPlan.name}</strong></p>
+            <p>₦{formatPrice(selectedPlan.price)} - {selectedPlan.duration}</p>
+            <button onClick={handlePaystackPayment} disabled={paystackLoading} className="paystack-confirm">
+              {paystackLoading ? 'Processing...' : 'Pay with Paystack'}
+            </button>
+            <button onClick={() => setShowPaystack(false)} className="paystack-cancel">Cancel</button>
+          </div>
+        </div>
+      )}
     </div>
   );
 };
