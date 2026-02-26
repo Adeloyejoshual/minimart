@@ -1,11 +1,11 @@
-// src/pages/Marketplace/AddProduct.jsx - ✅ CustomDropdown + Terms Page + Clean
+// src/pages/Marketplace/AddProduct.jsx - ✅ PERFECT + CustomDropdown + No Errors
 import React, { useState, useRef, useCallback, useEffect } from 'react';
 import { useAuth0 } from '@auth0/auth0-react';
 import { useNavigate } from 'react-router-dom';
-import CustomDropdown from '../../components/CustomDropdown'; // ✅ CustomDropdown
+import CustomDropdown from '../../components/CustomDropdown';
 import './AddProduct.css';
 
-// ✅ ALL YOUR 13 CONFIGS
+// ✅ ALL 13 CONFIGS
 import { categoryFields } from '../../config/categoryFields';
 import { brands } from '../../config/brands';
 import { colors } from '../../config/colors';
@@ -38,7 +38,7 @@ const AddProduct = () => {
   const navigate = useNavigate();
   const { user, isAuthenticated } = useAuth0();
 
-  // ✅ CLEAN CONFIG ACCESS - No numbers/counts
+  // ✅ CLEAN CONFIG ACCESS
   const categoriesList = Object.keys(categoryFields || {});
   const dynamicFields = categoryFields?.[category]?.filter(field => 
     !['features', 'transmission', 'mileage'].includes(field)
@@ -68,8 +68,11 @@ const AddProduct = () => {
     return optionsMap[fieldName] || [];
   };
 
+  // Reset features on category change
   useEffect(() => {
-    if (category) setSelectedFeatures([]);
+    if (category) {
+      setSelectedFeatures([]);
+    }
   }, [category]);
 
   const formatPrice = (value) => {
@@ -84,7 +87,10 @@ const AddProduct = () => {
     }
     
     files.forEach(file => {
-      if (file.size > 10 * 1024 * 1024) return;
+      if (file.size > 10 * 1024 * 1024) {
+        setMessage('Maximum 10MB per image');
+        return;
+      }
       const preview = URL.createObjectURL(file);
       setImagesPreview(prev => [...prev, { file, preview, name: file.name.substring(0, 20) }]);
     });
@@ -92,18 +98,21 @@ const AddProduct = () => {
   }, [imagesPreview.length]);
 
   const removeImage = useCallback((index) => {
-    URL.revokeObjectURL(imagesPreview[index].preview);
+    if (imagesPreview[index]) {
+      URL.revokeObjectURL(imagesPreview[index].preview);
+    }
     setImagesPreview(prev => prev.filter((_, i) => i !== index));
   }, [imagesPreview]);
 
-  const toggleFeature = (feature) => {
+  const toggleFeature = useCallback((feature) => {
     setSelectedFeatures(prev => 
       prev.includes(feature)
         ? prev.filter(f => f !== feature)
         : [...prev, feature]
     );
-  };
+  }, []);
 
+  // ✅ FIXED: Safe dynamic field rendering
   const renderDynamicField = (fieldName) => {
     const options = getFieldOptions(fieldName);
     const fieldLabel = fieldName.replace(/_/g, ' ').replace(/\bw/g, l => l.toUpperCase());
@@ -115,8 +124,10 @@ const AddProduct = () => {
           <CustomDropdown
             options={options.slice(0, 25)}
             placeholder={`Select ${fieldLabel}`}
-            onChange={(value) => fieldRefs.current[fieldName].value = value}
-            ref={el => fieldRefs.current[fieldName] = el}
+            onChange={(value) => {
+              const element = fieldRefs.current[fieldName];
+              if (element) element.value = value;
+            }}
           />
         ) : (
           <input
@@ -130,6 +141,25 @@ const AddProduct = () => {
     );
   };
 
+  // ✅ FIXED: Safe form reset + NO ESBUILD ERRORS
+  const resetForm = () => {
+    // Clear input values safely
+    Object.keys(fieldRefs.current).forEach(key => {
+      const element = fieldRefs.current[key];
+      if (element && typeof element.value !== 'undefined') {
+        element.value = '';
+      }
+    });
+    
+    // Reset state
+    setCategory('');
+    setState('');
+    setCity('');
+    setImagesPreview([]);
+    setSelectedFeatures([]);
+    setSelectedPlan(null);
+  };
+
   const handleSubmit = async (e) => {
     e.preventDefault();
     
@@ -138,30 +168,39 @@ const AddProduct = () => {
       return;
     }
 
+    // ✅ Safe data collection
+    const titleEl = fieldRefs.current.title;
+    const priceEl = fieldRefs.current.price;
+    const phoneEl = fieldRefs.current.phone;
+    const descriptionEl = fieldRefs.current.description;
+
     const productData = {
-      title: fieldRefs.current.title?.value?.trim() || '',
+      title: titleEl?.value?.trim() || '',
       category,
-      price: parseInt(fieldRefs.current.price?.value?.replace(/,/g, '')) || 0,
-      phone_number: fieldRefs.current.phone?.value?.trim() || '',
+      price: parseInt(priceEl?.value?.replace(/,/g, '')) || 0,
+      phone_number: phoneEl?.value?.trim() || '',
       state,
       city,
-      description: fieldRefs.current.description?.value?.trim() || '',
+      description: descriptionEl?.value?.trim() || '',
       negotiation: fieldRefs.current.negotiation?.value || 'no',
       poster_name: user?.name || 'Anonymous Seller',
       country: "Nigeria",
       features: selectedFeatures,
-      promotion_plan: selectedPlan ? selectedPlan.id : null
+      promotion_plan: selectedPlan ? selectedPlan.id : null,
+      brand: fieldRefs.current.brand?.value || '',
+      model: fieldRefs.current.model?.value || ''
     };
 
-    // Add dynamic fields
-    Object.keys(fieldRefs.current).forEach(key => {
-      if (dynamicFields.includes(key) && fieldRefs.current[key]?.value) {
-        productData[key] = fieldRefs.current[key].value;
+    // Add dynamic fields safely
+    dynamicFields.forEach(field => {
+      const element = fieldRefs.current[field];
+      if (element?.value) {
+        productData[field] = element.value;
       }
     });
 
     if (!productData.title || productData.price <= 0 || !productData.phone_number) {
-      setMessage('❌ Title, price, and phone required');
+      setMessage('❌ Title, price, and phone number required');
       return;
     }
 
@@ -188,11 +227,8 @@ const AddProduct = () => {
       const result = await response.json();
       
       if (response.ok) {
-        setMessage(`🎉 Product published! ID: ${result.data?._id}`);
-        // Reset form
-        Object.keys(fieldRefs.current).forEach(key => fieldRefs.current[key]?.value = '');
-        setCategory(''); setState(''); setCity(''); setImagesPreview([]); 
-        setSelectedFeatures([]); setSelectedPlan(null);
+        setMessage(`🎉 Product published! ID: ${result.data?._id || result._id}`);
+        resetForm();
         setTimeout(() => setMessage(''), 5000);
       } else {
         throw new Error(result.message || 'Publish failed');
@@ -205,7 +241,11 @@ const AddProduct = () => {
   };
 
   if (!isAuthenticated) {
-    return <div className="login-required">🔐 Please login to add products</div>;
+    return (
+      <div className="login-required" style={{ padding: '2rem', textAlign: 'center' }}>
+        <h2>🔐 Please login to add products</h2>
+      </div>
+    );
   }
 
   return (
@@ -246,7 +286,10 @@ const AddProduct = () => {
               <label>Brand</label>
               <CustomDropdown
                 options={categoryBrands}
-                ref={el => fieldRefs.current.brand = el}
+                onChange={(value) => {
+                  const el = fieldRefs.current.brand;
+                  if (el) el.value = value;
+                }}
                 placeholder="Select Brand"
                 className="input-large"
               />
@@ -255,7 +298,10 @@ const AddProduct = () => {
               <label>Model</label>
               <CustomDropdown
                 options={categoryModels}
-                ref={el => fieldRefs.current.model = el}
+                onChange={(value) => {
+                  const el = fieldRefs.current.model;
+                  if (el) el.value = value;
+                }}
                 placeholder="Select Model"
                 className="input-large"
               />
@@ -284,7 +330,10 @@ const AddProduct = () => {
             <div className="input-group">
               <label>Promotion Plan</label>
               <CustomDropdown
-                options={promotionPlans.map(p => ({ value: p.id, label: `${p.name} - ₦${formatPrice(p.price)} (${p.duration})` }))}
+                options={promotionPlans.map(p => ({ 
+                  value: p.id, 
+                  label: `${p.name} - ₦${formatPrice(p.price)} (${p.duration})` 
+                }))}
                 value={selectedPlan?.id || ''}
                 onChange={(id) => {
                   const plan = promotionPlans.find(p => p.id == id);
@@ -303,7 +352,10 @@ const AddProduct = () => {
                   { value: 'moderate', label: 'Moderate Negotiation' },
                   { value: 'open', label: 'Open Negotiation' }
                 ]}
-                ref={el => fieldRefs.current.negotiation = el}
+                onChange={(value) => {
+                  const el = fieldRefs.current.negotiation;
+                  if (el) el.value = value;
+                }}
                 placeholder="Select Negotiation Type"
                 className="input-large"
               />
@@ -338,7 +390,9 @@ const AddProduct = () => {
               ))}
             </div>
             {selectedFeatures.length > 0 && (
-              <div className="selected-features">Selected: {selectedFeatures.join(', ')}</div>
+              <div className="selected-features">
+                Selected: {selectedFeatures.join(', ')}
+              </div>
             )}
           </section>
         )}
@@ -351,6 +405,7 @@ const AddProduct = () => {
             <textarea 
               ref={el => fieldRefs.current.description = el}
               rows="5"
+              placeholder="Describe your product..."
               className="textarea-large"
             />
           </div>
@@ -400,7 +455,7 @@ const AddProduct = () => {
 
         {/* IMAGES */}
         <section className="form-section">
-          <h2>🖼️ Product Images</h2>
+          <h2>🖼️ Product Images (Max 8)</h2>
           <input 
             ref={fileInputRef}
             type="file" 
@@ -427,7 +482,7 @@ const AddProduct = () => {
           )}
         </section>
 
-        {/* TERMS LINK + PUBLISH */}
+        {/* TERMS & PUBLISH */}
         <section className="form-section">
           <div className="terms-section">
             <label className="terms-checkbox">
@@ -437,7 +492,7 @@ const AddProduct = () => {
                 onChange={(e) => setTermsAccepted(e.target.checked)}
               />
               <span>
-                I agree to <a href="/terms" target="_blank" className="terms-link">Terms & Conditions</a>
+                I agree to <a href="/terms" target="_blank" rel="noopener noreferrer" className="terms-link">Terms & Conditions</a>
               </span>
             </label>
           </div>
@@ -447,7 +502,7 @@ const AddProduct = () => {
               disabled={loading || !termsAccepted}
               className="submit-button"
             >
-              {loading ? '📤 Publishing...' : '🚀 Publish Product'}
+              {loading ? '📤 Publishing...' : `🚀 Publish Product`}
             </button>
           </div>
         </section>
