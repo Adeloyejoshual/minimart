@@ -1,9 +1,9 @@
-// src/pages/Marketplace/AddProduct.jsx - ✅ NO PAYPAL + PURE PAYSTACK
+// src/pages/Marketplace/AddProduct.jsx - ✅ ALL 13 CONFIGS BULLETPROOF
 import React, { useState, useRef, useCallback, useEffect } from 'react';
 import { useAuth0 } from '@auth0/auth0-react';
 import './AddProduct.css';
 
-// ✅ ALL YOUR 13 CONFIGS - SAFE ACCESS
+// ✅ ALL YOUR 13 CONFIGS - FULLY UTILIZED
 import { categoryFields } from '../../config/categoryFields';
 import { brands } from '../../config/brands';
 import { colors } from '../../config/colors';
@@ -34,28 +34,21 @@ const AddProduct = () => {
   const fileInputRef = useRef(null);
   const { user, isAuthenticated } = useAuth0();
 
-  // ✅ SAFE CONFIG ACCESS - NO CRASH
-  const safeCategoryFields = categoryFields || {};
-  const safeBrands = brands || {};
-  const safeModels = models || {};
-  const safeFeatures = featuresByCategory || {};
-  const safeLocations = locationsByState || {};
-
-  const categoriesList = Object.keys(safeCategoryFields).length > 0 ? Object.keys(safeCategoryFields) : ['Phones & Tablets', 'Vehicles', 'Electronics'];
-  const dynamicFields = safeCategoryFields[category]?.filter(field => 
+  // ✅ BULLETPROOF CONFIG ACCESS - Uses ALL 13 imports
+  const categoriesList = Object.keys(categoryFields || {}).length > 0 ? Object.keys(categoryFields) : [];
+  const dynamicFields = categoryFields?.[category]?.filter(field => 
     !['features', 'transmission', 'mileage'].includes(field)
   ) || [];
-  const categoryBrands = safeBrands[category] || [];
-  const categoryModels = safeModels[category] || [];
-  const categoryFeatures = safeFeatures[category] || [];
-  const stateCities = safeLocations[state] || [];
+  
+  const categoryBrands = brands?.[category] || [];
+  const categoryModels = models?.[category] || [];
+  const categoryFeatures = featuresByCategory?.[category] || [];
+  const stateCities = locationsByState?.[state] || [];
 
-  useEffect(() => {
-    if (category) setSelectedFeatures([]);
-  }, [category]);
-
+  // ✅ COMPREHENSIVE FIELD OPTIONS - ALL 13 configs
   const getFieldOptions = (fieldName) => {
-    const options = {
+    const optionsMap = {
+      // Your 13 configs
       brand: categoryBrands,
       model: categoryModels,
       condition: conditions || [],
@@ -67,10 +60,20 @@ const AddProduct = () => {
       engine: engines || [],
       fuel_type: fuelTypes || [],
       transmission: ['Manual', 'Automatic', 'Semi-Automatic'],
-      year: years || []
+      year: years || [],
+      
+      // fieldOptions catch-all
+      ...fieldOptions
     };
-    return options[fieldName] || [];
+    return optionsMap[fieldName] || [];
   };
+
+  // Reset features when category changes
+  useEffect(() => {
+    if (category && selectedFeatures.length > 0) {
+      setSelectedFeatures([]);
+    }
+  }, [category]);
 
   const formatPrice = (value) => {
     return new Intl.NumberFormat('en-NG').format(value || 0);
@@ -79,11 +82,15 @@ const AddProduct = () => {
   const handleImages = useCallback((e) => {
     const files = Array.from(e.target.files);
     if (files.length + imagesPreview.length > 8) {
-      setMessage('Maximum 8 images');
+      setMessage('Maximum 8 images allowed');
       return;
     }
+    
     files.forEach(file => {
-      if (file.size > 10 * 1024 * 1024) return;
+      if (file.size > 10 * 1024 * 1024) {
+        setMessage('Maximum 10MB per image');
+        return;
+      }
       const preview = URL.createObjectURL(file);
       setImagesPreview(prev => [...prev, { file, preview, name: file.name.substring(0, 20) }]);
     });
@@ -95,29 +102,33 @@ const AddProduct = () => {
     setImagesPreview(prev => prev.filter((_, i) => i !== index));
   }, [imagesPreview]);
 
-  const toggleFeature = (feature) => {
+  const toggleFeature = useCallback((feature) => {
     setSelectedFeatures(prev => 
-      prev.includes(feature) ? prev.filter(f => f !== feature) : [...prev, feature]
+      prev.includes(feature)
+        ? prev.filter(f => f !== feature)
+        : [...prev, feature]
     );
-  };
+  }, []);
 
   const renderDynamicField = (fieldName) => {
     const options = getFieldOptions(fieldName);
+    const fieldLabel = fieldName.replace(/_/g, ' ').replace(/\bw/g, l => l.toUpperCase());
+    
     return (
       <div className="dynamic-field" key={fieldName}>
-        <label>{fieldName.replace(/_/g, ' ').replace(/\bw/g, l => l.toUpperCase())}</label>
+        <label>{fieldLabel}</label>
         {options.length > 0 ? (
           <select ref={el => fieldRefs.current[fieldName] = el} className="field-select">
-            <option value="">{`Select ${fieldName}`}</option>
-            {options.slice(0, 20).map(option => (
+            <option value="">{`Select ${fieldLabel}`}</option>
+            {options.slice(0, 25).map(option => (
               <option key={option} value={option}>{option}</option>
             ))}
           </select>
         ) : (
           <input
             ref={el => fieldRefs.current[fieldName] = el}
-            type={fieldName.includes('mileage') ? 'number' : 'text'}
-            placeholder={`Enter ${fieldName}`}
+            type={fieldName.includes('mileage|price|year') ? 'number' : 'text'}
+            placeholder={`Enter ${fieldLabel}`}
             className="field-input"
           />
         )}
@@ -145,32 +156,39 @@ const AddProduct = () => {
       poster_name: user?.name || 'Anonymous Seller',
       country: "Nigeria",
       features: selectedFeatures,
-      promotion_plan: selectedPlan ? selectedPlan.id : null
+      promotion_plan: selectedPlan ? selectedPlan.id : null,
+      brand: fieldRefs.current.brand?.value || '',
+      model: fieldRefs.current.model?.value || ''
     };
 
-    dynamicFields.forEach(field => {
-      const value = fieldRefs.current[field]?.value;
-      if (value) productData[field] = value;
+    // Add ALL dynamic fields from your 13 configs
+    Object.keys(fieldRefs.current).forEach(key => {
+      if (dynamicFields.includes(key) && fieldRefs.current[key]?.value) {
+        productData[key] = fieldRefs.current[key].value;
+      }
     });
 
     if (!productData.title || productData.price <= 0 || !productData.phone_number) {
-      setMessage('❌ Title, price, and phone required');
+      setMessage('❌ Title, price, and phone number required');
       return;
     }
 
     try {
       setLoading(true);
-      setMessage('🚀 Publishing...');
+      setMessage('🚀 Publishing product...');
 
       const formData = new FormData();
       Object.entries(productData).forEach(([key, value]) => {
         if (Array.isArray(value)) {
           value.forEach(item => formData.append(key, item));
-        } else {
+        } else if (value !== null && value !== undefined && value !== '') {
           formData.append(key, value);
         }
       });
-      imagesPreview.forEach(img => formData.append('images', img.file));
+
+      imagesPreview.forEach((img, index) => {
+        formData.append('images', img.file);
+      });
 
       const response = await fetch('/api/marketplace/products', {
         method: 'POST',
@@ -180,59 +198,101 @@ const AddProduct = () => {
       const result = await response.json();
       
       if (response.ok) {
-        setMessage(`🎉 Published! ID: ${result.data?._id}`);
-        Object.keys(fieldRefs.current).forEach(key => fieldRefs.current[key] && (fieldRefs.current[key].value = ''));
-        setCategory(''); setState(''); setImagesPreview([]); setSelectedFeatures([]); setSelectedPlan(null); setTermsAccepted(false);
+        setMessage(`🎉 Product published successfully! ID: ${result.data?._id || result._id}`);
+        
+        // Reset ALL form fields
+        Object.keys(fieldRefs.current).forEach(key => {
+          const el = fieldRefs.current[key];
+          if (el) el.value = '';
+        });
+        setCategory(''); 
+        setState(''); 
+        setImagesPreview([]); 
+        setSelectedFeatures([]); 
+        setSelectedPlan(null); 
+        setTermsAccepted(false);
+        
+        setTimeout(() => setMessage(''), 5000);
       } else {
-        throw new Error(result.message || 'Failed');
+        throw new Error(result.message || 'Publish failed');
       }
     } catch (error) {
-      setMessage(`❌ ${error.message}`);
+      console.error('Publish error:', error);
+      setMessage(`❌ Publish failed: ${error.message}`);
     } finally {
       setLoading(false);
     }
   };
 
-  if (!isAuthenticated) return <div className="login-required">🔐 Login required</div>;
+  if (!isAuthenticated) {
+    return (
+      <div className="login-required">
+        <h2>🔐 Please login to add products</h2>
+      </div>
+    );
+  }
 
   return (
     <div className="add-product-container">
-      {message && <div className={`message ${message.includes('🎉') ? 'success' : 'error'}`}>{message}</div>}
-      
+      {message && (
+        <div className={`message ${message.includes('🎉') ? 'success' : 'error'}`}>
+          {message}
+        </div>
+      )}
+
       <form onSubmit={handleSubmit} className="product-form">
-        {/* PRODUCT DETAILS */}
+        {/* 1. PRODUCT DETAILS - Uses brands, models */}
         <section className="form-section">
           <h2>📦 Product Details</h2>
           <div className="input-grid">
             <div className="input-group">
               <label className="required">Product Title *</label>
-              <input ref={el => fieldRefs.current.title = el} type="text" placeholder="Tecno Camon 19" className="input-large required" required />
+              <input 
+                ref={el => fieldRefs.current.title = el}
+                type="text" 
+                placeholder="Tecno Camon 19 32GB Green"
+                className="input-large required"
+                required 
+              />
             </div>
             <div className="input-group">
               <label className="required">Category *</label>
-              <select value={category} onChange={(e) => setCategory(e.target.value)} className="input-large required" required>
-                <option value="">Select Category</option>
-                {categoriesList.map(cat => <option key={cat} value={cat}>{cat}</option>)}
+              <select 
+                value={category}
+                onChange={(e) => setCategory(e.target.value)}
+                className="input-large required"
+                required
+              >
+                <option value="">Select Category ({categoriesList.length} available)</option>
+                {categoriesList.map(cat => (
+                  <option key={cat} value={cat}>
+                    {cat} {categoryFields?.[cat]?.length ? `(${categoryFields[cat].length} fields)` : ''}
+                  </option>
+                ))}
               </select>
             </div>
             <div className="input-group">
               <label>Brand</label>
               <select ref={el => fieldRefs.current.brand = el} className="input-large">
-                <option value="">Select Brand</option>
-                {categoryBrands.slice(0, 20).map(brand => <option key={brand} value={brand}>{brand}</option>)}
+                <option value="">Select Brand ({categoryBrands.length} options)</option>
+                {categoryBrands.slice(0, 25).map(brand => (
+                  <option key={brand} value={brand}>{brand}</option>
+                ))}
               </select>
             </div>
             <div className="input-group">
               <label>Model</label>
               <select ref={el => fieldRefs.current.model = el} className="input-large">
-                <option value="">Select Model</option>
-                {categoryModels.slice(0, 20).map(model => <option key={model} value={model}>{model}</option>)}
+                <option value="">Select Model ({categoryModels.length} options)</option>
+                {categoryModels.slice(0, 25).map(model => (
+                  <option key={model} value={model}>{model}</option>
+                ))}
               </select>
             </div>
           </div>
         </section>
 
-        {/* PRICING & PROMOTION */}
+        {/* 2. PRICING - Uses promotionPlans */}
         <section className="form-section">
           <h2>💰 Pricing & Promotion</h2>
           <div className="input-grid">
@@ -243,7 +303,10 @@ const AddProduct = () => {
                 type="text"
                 placeholder="150,000"
                 className="input-large price-input required"
-                onInput={(e) => e.target.value = formatPrice(e.target.value.replace(/,/g, ''))}
+                onInput={(e) => {
+                  let value = e.target.value.replace(/,/g, '');
+                  e.target.value = formatPrice(value);
+                }}
                 required
               />
             </div>
@@ -266,96 +329,155 @@ const AddProduct = () => {
                 ))}
               </select>
             </div>
+            <div className="input-group">
+              <label>Negotiation</label>
+              <select ref={el => fieldRefs.current.negotiation = el} className="input-large">
+                <option value="no">Fixed Price</option>
+                <option value="slight">Slight Negotiation</option>
+                <option value="moderate">Moderate Negotiation</option>
+                <option value="open">Open Negotiation</option>
+              </select>
+            </div>
           </div>
         </section>
 
-        {/* SPECIFICATIONS */}
+        {/* 3. SPECIFICATIONS - Uses categoryFields + ALL 13 configs */}
         {dynamicFields.length > 0 && (
           <section className="form-section">
-            <h2>Specifications ({dynamicFields.length})</h2>
+            <h2>Specifications ({dynamicFields.length} fields)</h2>
             <div className="dynamic-grid">
               {dynamicFields.map(renderDynamicField)}
             </div>
           </section>
         )}
 
-        {/* FEATURES */}
+        {/* 4. FEATURES - Uses featuresByCategory */}
         {categoryFeatures.length > 0 && (
           <section className="form-section">
-            <h2>✨ Features</h2>
+            <h2>✨ Features ({categoryFeatures.length} available)</h2>
             <div className="features-grid">
               {categoryFeatures.slice(0, 12).map(feature => (
                 <label key={feature} className="feature-checkbox">
-                  <input type="checkbox" checked={selectedFeatures.includes(feature)} onChange={() => toggleFeature(feature)} />
+                  <input
+                    type="checkbox"
+                    checked={selectedFeatures.includes(feature)}
+                    onChange={() => toggleFeature(feature)}
+                  />
                   <span>{feature}</span>
                 </label>
               ))}
             </div>
             {selectedFeatures.length > 0 && (
-              <div className="selected-features">Selected: {selectedFeatures.join(', ')}</div>
+              <div className="selected-features">
+                Selected: {selectedFeatures.join(', ')}
+              </div>
             )}
           </section>
         )}
 
-        {/* DESCRIPTION */}
+        {/* 5. DESCRIPTION */}
         <section className="form-section">
           <h2>📝 Description</h2>
           <div className="input-group full-width">
             <label>Description</label>
-            <textarea ref={el => fieldRefs.current.description = el} rows="5" className="textarea-large" />
+            <textarea 
+              ref={el => fieldRefs.current.description = el}
+              rows="5"
+              placeholder="Describe your product condition, features, usage..."
+              className="textarea-large"
+            />
           </div>
         </section>
 
-        {/* LOCATION */}
+        {/* 6. LOCATION - Uses locationsByState */}
         <section className="form-section">
-          <h2>📍 Location</h2>
+          <h2>📍 Location & Contact</h2>
           <div className="input-grid">
             <div className="input-group">
-              <label className="required">Phone *</label>
-              <input ref={el => fieldRefs.current.phone = el} type="tel" placeholder="08012345678" className="input-large required" required />
+              <label className="required">Phone Number *</label>
+              <input 
+                ref={el => fieldRefs.current.phone = el}
+                type="tel" 
+                placeholder="08012345678"
+                className="input-large required"
+                required
+              />
             </div>
             <div className="input-group">
               <label className="required">State *</label>
-              <select onChange={(e) => setState(e.target.value)} className="input-large required" required>
-                <option value="">Select State</option>
-                {Object.keys(safeLocations).map(s => <option key={s} value={s}>{s}</option>)}
+              <select 
+                value={state}
+                onChange={(e) => setState(e.target.value)}
+                className="input-large required"
+                required
+              >
+                <option value="">Select State ({Object.keys(locationsByState || {}).length} states)</option>
+                {Object.keys(locationsByState || {}).map(s => (
+                  <option key={s} value={s}>{s}</option>
+                ))}
               </select>
             </div>
             <div className="input-group">
               <label>City</label>
               <select ref={el => fieldRefs.current.city = el} className="input-large">
-                <option value="">Select City</option>
-                {stateCities.slice(0, 20).map(city => <option key={city} value={city}>{city}</option>)}
+                <option value="">Select City ({stateCities.length} cities)</option>
+                {stateCities.slice(0, 25).map(city => (
+                  <option key={city} value={city}>{city}</option>
+                ))}
               </select>
             </div>
           </div>
         </section>
 
-        {/* IMAGES */}
+        {/* 7. IMAGES */}
         <section className="form-section">
-          <h2>🖼️ Images (Max 8)</h2>
-          <input ref={fileInputRef} type="file" multiple accept="image/*" onChange={handleImages} className="file-upload" />
+          <h2>🖼️ Product Images (Max 8, 10MB each)</h2>
+          <input 
+            ref={fileInputRef}
+            type="file" 
+            multiple 
+            accept="image/*" 
+            onChange={handleImages}
+            className="file-upload"
+          />
           {imagesPreview.length > 0 && (
             <div className="images-grid">
-              {imagesPreview.map((img, i) => (
-                <div key={i} className="image-preview">
-                  <img src={img.preview} alt="Preview" />
-                  <button type="button" onClick={() => removeImage(i)} className="remove-image">×</button>
+              {imagesPreview.map((img, index) => (
+                <div key={index} className="image-preview">
+                  <img src={img.preview} alt={`Preview ${index}`} />
+                  <div className="image-name">{img.name}</div>
+                  <button
+                    type="button"
+                    onClick={() => removeImage(index)}
+                    className="remove-image"
+                  >
+                    ×
+                  </button>
                 </div>
               ))}
             </div>
           )}
         </section>
 
-        {/* TERMS & SUBMIT */}
+        {/* 8. TERMS & PUBLISH */}
         <section className="form-section">
-          <label className="terms-checkbox">
-            <input type="checkbox" checked={termsAccepted} onChange={(e) => setTermsAccepted(e.target.checked)} />
-            <span>I agree to <strong>Terms & Conditions</strong></span>
-          </label>
+          <div className="terms-section">
+            <label className="terms-checkbox">
+              <input
+                type="checkbox"
+                checked={termsAccepted}
+                onChange={(e) => setTermsAccepted(e.target.checked)}
+              />
+              <span>I agree to <strong>Terms & Conditions</strong> and marketplace policies</span>
+            </label>
+          </div>
           <div className="form-actions">
-            <button type="submit" disabled={loading || !termsAccepted} className="submit-button">
-              {loading ? 'Publishing...' : `🚀 Publish${selectedPlan ? ` + ${selectedPlan.name}` : ''}`}
+            <button
+              type="submit"
+              disabled={loading || !termsAccepted}
+              className="submit-button"
+            >
+              {loading ? '📤 Publishing...' : `🚀 Publish Product${selectedPlan ? ` + ${selectedPlan.name}` : ''}`}
             </button>
           </div>
         </section>
