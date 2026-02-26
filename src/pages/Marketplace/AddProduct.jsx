@@ -1,465 +1,393 @@
-// src/pages/Marketplace/AddProduct.jsx - ✅ ROUTING + MULTER + AUTH FIXED
-import React, { useState, useRef, useCallback, useEffect } from 'react';
+
+// src/pages/Marketplace/AddProduct.jsx - ✅ 7-SECTIONS ENTERPRISE LAYOUT
+import React, { useState, useRef, useCallback } from 'react';
 import { useAuth0 } from '@auth0/auth0-react';
 import './AddProduct.css';
 
 // ✅ ALL YOUR CONFIGS
-import { categoryFields } from '../../config/categoryFields';
+import { categoryFields, subcategories } from '../../config/categoryFields';
 import { brands } from '../../config/brands';
 import { colors } from '../../config/colors';
-import { conditions, usedDetails } from '../../config/conditions';
-import { engines } from '../../config/engines';
-import { featuresByCategory } from '../../config/featuresByCategory';
-import { fieldOptions } from '../../config/fieldOptions';
-import { fuelTypes } from '../../config/fuelTypes';
+import { conditions } from '../../config/conditions';
 import { locationsByState } from '../../config/locationsByState';
 import { models } from '../../config/models';
-import { ramOptions } from '../../config/ramOptions';
-import { sims } from '../../config/sim';
-import { storageOptions } from '../../config/storageOptions';
-import { years } from '../../config/years';
 
 const AddProduct = () => {
+  // SECTION STATES
+  const [activeSection, setActiveSection] = useState(1);
   const [category, setCategory] = useState('');
+  const [subcategory, setSubcategory] = useState('');
   const [state, setState] = useState('');
   const [imagesPreview, setImagesPreview] = useState([]);
   const [loading, setLoading] = useState(false);
   const [message, setMessage] = useState('');
-  const [exchangePossible, setExchangePossible] = useState(false);
   
   const fieldRefs = useRef({});
-  const fileInputRef = useRef(null);
 
-  const { user, isAuthenticated, getAccessTokenSilently } = useAuth0();
+  const { user, isAuthenticated } = useAuth0();
 
-  // ✅ COMPUTED FROM YOUR FULL CONFIGS
-  const dynamicFields = category ? categoryFields[category] || [] : [];
+  // DYNAMIC OPTIONS
   const categoryBrands = category ? brands[category] || [] : [];
+  const categorySubcats = category ? subcategories[category] || [] : [];
   const categoryModels = category ? models[category] || [] : [];
-  const categoryFeatures = category ? featuresByCategory[category] || [] : [];
   const stateCities = state ? locationsByState[state] || [] : [];
-
-  // ✅ FULL FIELD OPTIONS MAPPING
-  const getFieldOptions = (fieldName) => {
-    return fieldOptions[fieldName] ||
-           (fieldName === 'brand' ? categoryBrands : []) ||
-           (fieldName === 'model' ? categoryModels : []) ||
-           (fieldName === 'condition' ? conditions : []) ||
-           (fieldName === 'used_detail' ? usedDetails : []) ||
-           (fieldName === 'color' ? colors : []) ||
-           (fieldName === 'ram' ? ramOptions : []) ||
-           (fieldName === 'storage' ? storageOptions : []) ||
-           (fieldName === 'sim' ? sims : []) ||
-           (fieldName === 'engine' ? engines : []) ||
-           (fieldName === 'fuel_type' ? fuelTypes : []) ||
-           (fieldName === 'year' ? years : []) ||
-           (fieldName === 'features' ? categoryFeatures : []);
-  };
 
   const handleImages = useCallback((e) => {
     const files = Array.from(e.target.files);
     if (files.length + imagesPreview.length > 8) {
-      setMessage('Maximum 8 images allowed');
+      setMessage('Maximum 8 images');
       return;
     }
-    
     files.forEach(file => {
-      if (file.size > 10 * 1024 * 1024) {
-        setMessage('Maximum 10MB per image');
-        return;
-      }
-      const shortName = file.name.length > 25 ? 
-        `${file.name.substring(0, 22)}...${file.name.split('.').pop()}` : file.name;
+      if (file.size > 10 * 1024 * 1024) return;
       const preview = URL.createObjectURL(file);
       setImagesPreview(prev => [...prev, { 
-        file, preview, name: shortName, originalName: file.name 
+        file, preview, name: file.name.substring(0, 20) 
       }]);
     });
-    // Reset input
     e.target.value = '';
   }, [imagesPreview.length]);
 
   const removeImage = useCallback((index) => {
-    const img = imagesPreview[index];
-    URL.revokeObjectURL(img.preview);
+    URL.revokeObjectURL(imagesPreview[index].preview);
     setImagesPreview(prev => prev.filter((_, i) => i !== index));
   }, [imagesPreview]);
 
-  // ✅ FIXED: FormData + Multer + Correct Endpoint + No Auth Header
   const handleSubmit = async (e) => {
     e.preventDefault();
     
-    const productData = {
-      title: fieldRefs.current.title?.value?.trim() || '',
-      category,
-      brand: fieldRefs.current.brand?.value || '',
-      model: fieldRefs.current.model?.value || '',
-      condition: fieldRefs.current.condition?.value || '',
-      ram: fieldRefs.current.ram?.value || '',
-      storage: fieldRefs.current.storage?.value || '',
-      color: fieldRefs.current.color?.value || '',
-      sim: fieldRefs.current.sim?.value || '',
-      engine: fieldRefs.current.engine?.value || '',
-      mileage: fieldRefs.current.mileage?.value ? parseFloat(fieldRefs.current.mileage.value) : null,
-      year: fieldRefs.current.year?.value ? parseInt(fieldRefs.current.year.value) : null,
-      fuel_type: fieldRefs.current.fuel_type?.value || '',
-      transmission: fieldRefs.current.transmission?.value || '',
-      description: fieldRefs.current.description?.value?.trim() || '',
-      price: parseInt(fieldRefs.current.price?.value) || 0,
-      negotiation: fieldRefs.current.negotiation?.checked ? "Yes" : "No",
-      phone_number: fieldRefs.current.phone?.value || '08000000000',
-      poster_name: user?.name || 'Anonymous Seller',
-      country: "Nigeria",
-      state: state || 'Lagos',
-      city: fieldRefs.current.city?.value || '',
-      location: fieldRefs.current.city?.value || '',
-      exchange_possible: exchangePossible === true || exchangePossible === 'true',
-      features: fieldRefs.current.features?.value?.split(',').map(f => f.trim()).filter(Boolean) || [],
-      video_link: '',
-      status: 'active'
-    };
-
-    console.log('🚀 SUBMITTING:', productData);
-
-    if (!productData.title || productData.price <= 0) {
-      setMessage('❌ Title and valid price (₦) required');
-      fieldRefs.current.title?.focus?.();
-      return;
-    }
-
-    if (!productData.phone_number.match(/^0[789][01]d{8}$/)) {
-      setMessage('❌ Valid Nigerian phone number required (080/090/070/081)');
-      fieldRefs.current.phone?.focus?.();
-      return;
-    }
+    const formData = new FormData();
+    formData.append('title', fieldRefs.current.title?.value?.trim() || '');
+    formData.append('category', category);
+    formData.append('subcategory', subcategory);
+    formData.append('brand', fieldRefs.current.brand?.value || '');
+    formData.append('model', fieldRefs.current.model?.value || '');
+    formData.append('condition', fieldRefs.current.condition?.value || '');
+    formData.append('quantity', fieldRefs.current.quantity?.value || '1');
+    formData.append('price', fieldRefs.current.price?.value || '0');
+    formData.append('discount_price', fieldRefs.current.discount_price?.value || '');
+    formData.append('negotiation', fieldRefs.current.negotiation?.checked ? 'Yes' : 'No');
+    formData.append('description', fieldRefs.current.description?.value || '');
+    formData.append('features', fieldRefs.current.features?.value || '');
+    formData.append('phone_number', fieldRefs.current.phone?.value || '');
+    formData.append('state', state);
+    formData.append('city', fieldRefs.current.city?.value || '');
+    formData.append('poster_name', user?.name || 'Anonymous');
+    
+    imagesPreview.forEach(img => formData.append('images', img.file));
 
     try {
       setLoading(true);
-      setMessage('🚀 Publishing product...');
-
-      // ✅ FIXED: FormData for Multer + CORRECT ENDPOINT + NO AUTH
-      const formData = new FormData();
-      
-      // Append all fields
-      Object.keys(productData).forEach(key => {
-        if (productData[key] !== null && productData[key] !== undefined) {
-          if (Array.isArray(productData[key])) {
-            productData[key].forEach(item => formData.append(key, item));
-          } else {
-            formData.append(key, productData[key]);
-          }
-        }
-      });
-
-      // Append image files
-      imagesPreview.forEach((img, index) => {
-        formData.append('images', img.file);
-      });
-
-      console.log('📤 FormData ready. Images:', imagesPreview.length);
-
-      const response = await fetch('/api/marketplace/products', {  // ✅ FIXED ROUTE
+      const response = await fetch('/api/marketplace/products', {
         method: 'POST',
-        body: formData,  // ✅ Multer expects FormData
-        // ❌ REMOVED: No 'Content-Type' or 'Authorization' headers for FormData + Multer
+        body: formData
       });
 
       const result = await response.json();
-
       if (response.ok) {
-        setMessage(`🎉 Product published! ID: ${result.data?._id || result._id}`);
-        
-        // RESET FORM
-        Object.keys(fieldRefs.current).forEach(key => {
-          const el = fieldRefs.current[key];
-          if (el) {
-            if (el.tagName === 'INPUT' && el.type === 'checkbox') {
-              el.checked = false;
-            } else {
-              el.value = '';
-            }
-          }
-        });
-        setCategory(''); 
-        setState(''); 
-        setImagesPreview([]); 
-        setExchangePossible(false);
-        fieldRefs.current.title?.focus?.();
-        
+        setMessage(`🎉 Product published! ID: ${result.data?._id}`);
+        // Reset form
+        Object.keys(fieldRefs.current).forEach(key => fieldRefs.current[key].value = '');
+        setCategory(''); setSubcategory(''); setState(''); setImagesPreview([]);
         setTimeout(() => setMessage(''), 5000);
       } else {
         throw new Error(result.message || 'Publish failed');
       }
     } catch (error) {
-      console.error('❌ Publish error:', error);
       setMessage(`❌ ${error.message}`);
     } finally {
       setLoading(false);
     }
   };
 
-  const renderField = (fieldName) => {
-    const options = getFieldOptions(fieldName);
-    const isCheckbox = fieldName === 'negotiation';
-    const isSelect = options && options.length > 1 && !isCheckbox;
-
-    return (
-      <div className="dynamic-field">
-        <label className="field-label">
-          {fieldName.replace(/_/g, ' ').replace(/\bw/g, l => l.toUpperCase())}
-        </label>
-        {isCheckbox ? (
-          <input 
-            ref={el => fieldRefs.current[fieldName] = el}
-            type="checkbox"
-            className="field-checkbox"
-          />
-        ) : isSelect ? (
-          <select ref={el => fieldRefs.current[fieldName] = el} className="field-select">
-            <option value="">{`Select ${fieldName}`}</option>
-            {options.map(option => (
-              <option key={option} value={option}>{option}</option>
-            ))}
-          </select>
-        ) : (
-          <input
-            ref={el => fieldRefs.current[fieldName] = el}
-            type={fieldName.includes('price|mileage|year') ? 'number' : 'text'}
-            placeholder={`Enter ${fieldName.replace(/_/g, ' ')}`}
-            className="field-input"
-          />
-        )}
-      </div>
-    );
-  };
+  const SectionNav = () => (
+    <nav className="section-nav">
+      {[
+        'Product Details', 'Pricing', 'Description', 'Images', 
+        'Shipping', 'Contact', 'Preview'
+      ].map((title, index) => (
+        <button
+          key={index}
+          className={`nav-btn ${activeSection === index + 1 ? 'active' : ''}`}
+          onClick={() => setActiveSection(index + 1)}
+        >
+          {index + 1}. {title}
+        </button>
+      ))}
+    </nav>
+  );
 
   if (!isAuthenticated) {
-    return (
-      <div className="login-required">
-        <h2>🔐 Please Login</h2>
-        <p>Sign in with Auth0 to list your products</p>
-      </div>
-    );
+    return <div className="login-required">🔐 Please login</div>;
   }
 
   return (
-    <div className="add-product-container">
+    <div className="enterprise-form">
       {message && (
-        <div className={`message ${message.includes('🎉') ? 'success' : message.includes('❌') ? 'error' : ''}`}>
+        <div className={`message ${message.includes('🎉') ? 'success' : 'error'}`}>
           {message}
         </div>
       )}
 
-      <div className="form-grid">
-        {/* MAIN FORM */}
-        <form onSubmit={handleSubmit} className="product-form" encType="multipart/form-data">
-          <header className="form-header">
-            <h1 className="form-title">Add New Product</h1>
-            <div className="user-info">
-              <div className="seller-name">{user?.name?.split(' ')[0] || 'Seller'}</div>
-              <div className="field-count">{dynamicFields.length} dynamic fields</div>
-            </div>
-          </header>
+      <div className="form-wrapper">
+        {/* 🧭 SECTION NAVIGATION */}
+        <SectionNav />
 
-          {/* BASIC INFO */}
-          <section className="form-section">
-            <div className="input-grid">
-              <div className="input-group">
-                <label className="input-label required">Product Title *</label>
-                <input 
-                  ref={el => fieldRefs.current.title = el}
-                  type="text" 
-                  placeholder="Tecno Camon 19 32GB Green - Brand New"
-                  className="input-large"
-                  required 
-                />
-              </div>
-              <div className="input-group">
-                <label className="input-label required">Price (₦) *</label>
-                <input 
-                  ref={el => fieldRefs.current.price = el}
-                  type="number" 
-                  min="0"
-                  step="1000"
-                  placeholder="150000"
-                  className="input-large"
-                  required 
-                />
-              </div>
-            </div>
-          </section>
-
-          {/* LOCATION & CONTACT */}
-          <section className="form-section">
-            <div className="input-grid-dense">
-              <div className="input-group">
-                <label className="input-label required">Category *</label>
-                <select 
-                  ref={el => fieldRefs.current.category = el}
-                  onChange={(e) => setCategory(e.target.value)}
-                  className="input-dense required"
-                  required
-                >
-                  <option value="">Select Category</option>
-                  {Object.keys(categoryFields).map(cat => (
-                    <option key={cat} value={cat}>{cat}</option>
-                  ))}
-                </select>
-              </div>
-              <div className="input-group">
-                <label className="input-label required">State *</label>
-                <select 
-                  ref={el => fieldRefs.current.state = el}
-                  onChange={(e) => setState(e.target.value)}
-                  className="input-dense required"
-                  required
-                >
-                  <option value="">Select State</option>
-                  {Object.keys(locationsByState).map(s => (
-                    <option key={s} value={s}>{s}</option>
-                  ))}
-                </select>
-              </div>
-              <div className="input-group">
-                <label className="input-label">City</label>
-                <select ref={el => fieldRefs.current.city = el} className="input-dense">
-                  <option value="">Select City</option>
-                  {stateCities.map(city => (
-                    <option key={city} value={city}>{city}</option>
-                  ))}
-                </select>
-              </div>
-              <div className="input-group">
-                <label className="input-label required">Phone *</label>
-                <input 
-                  ref={el => fieldRefs.current.phone = el}
-                  type="tel" 
-                  placeholder="08012345678"
-                  className="input-dense required"
-                  required
-                />
-              </div>
-            </div>
-          </section>
-
-          {/* DYNAMIC FIELDS */}
-          {dynamicFields.length > 0 && (
-            <section className="form-section dynamic-section">
-              <h3 className="section-title">
-                {category} Details ({dynamicFields.length} fields)
-              </h3>
-              <div className="dynamic-grid">
-                {dynamicFields.map(renderField)}
+        {/* 📋 MAIN FORM */}
+        <form onSubmit={handleSubmit} className="enterprise-product-form">
+          
+          {/* SECTION 1: PRODUCT DETAILS */}
+          {activeSection === 1 && (
+            <section className="form-section">
+              <h2>📦 Product Details</h2>
+              <div className="input-grid-2">
+                <div className="input-group">
+                  <label>Product Name *</label>
+                  <input ref={el => fieldRefs.current.title = el} required />
+                </div>
+                <div className="input-group">
+                  <label>Category *</label>
+                  <select 
+                    ref={el => fieldRefs.current.category = el} 
+                    onChange={e => setCategory(e.target.value)}
+                    required
+                  >
+                    <option value="">Select Category</option>
+                    {Object.keys(categoryFields).map(cat => (
+                      <option key={cat} value={cat}>{cat}</option>
+                    ))}
+                  </select>
+                </div>
+                <div className="input-group">
+                  <label>Subcategory</label>
+                  <select 
+                    onChange={e => setSubcategory(e.target.value)}
+                    value={subcategory}
+                  >
+                    <option value="">Select Subcategory</option>
+                    {categorySubcats.map(sub => (
+                      <option key={sub} value={sub}>{sub}</option>
+                    ))}
+                  </select>
+                </div>
+                <div className="input-group">
+                  <label>Brand</label>
+                  <select ref={el => fieldRefs.current.brand = el}>
+                    <option value="">Select Brand</option>
+                    {categoryBrands.map(brand => (
+                      <option key={brand} value={brand}>{brand}</option>
+                    ))}
+                  </select>
+                </div>
+                <div className="input-group">
+                  <label>Model</label>
+                  <input ref={el => fieldRefs.current.model = el} />
+                </div>
+                <div className="input-group">
+                  <label>Condition</label>
+                  <select ref={el => fieldRefs.current.condition = el}>
+                    <option value="">Select Condition</option>
+                    {conditions.map(cond => (
+                      <option key={cond} value={cond}>{cond}</option>
+                    ))}
+                  </select>
+                </div>
+                <div className="input-group">
+                  <label>Quantity</label>
+                  <input 
+                    ref={el => fieldRefs.current.quantity = el} 
+                    type="number" 
+                    min="1"
+                    defaultValue="1"
+                  />
+                </div>
               </div>
             </section>
           )}
 
-          {/* DESCRIPTION & OPTIONS */}
-          <section className="form-section">
-            <div className="flex-grid">
-              <div className="textarea-group">
-                <label className="input-label">Description</label>
-                <textarea 
-                  ref={el => fieldRefs.current.description = el}
-                  rows="5"
-                  placeholder="Describe your product condition, features, usage..."
-                  className="textarea-large"
+          {/* SECTION 2: PRICING */}
+          {activeSection === 2 && (
+            <section className="form-section">
+              <h2>💰 Pricing & Offers</h2>
+              <div className="input-grid-2">
+                <div className="input-group">
+                  <label>Price (₦) *</label>
+                  <input ref={el => fieldRefs.current.price = el} type="number" required />
+                </div>
+                <div className="input-group">
+                  <label>Discount Price (Optional)</label>
+                  <input ref={el => fieldRefs.current.discount_price = el} type="number" />
+                </div>
+                <label className="checkbox-group">
+                  <input ref={el => fieldRefs.current.negotiation = el} type="checkbox" />
+                  Allow Negotiation
+                </label>
+                <div className="input-group">
+                  <label>Flash Sale End Date</label>
+                  <input type="date" />
+                </div>
+              </div>
+            </section>
+          )}
+
+          {/* SECTION 3: DESCRIPTION */}
+          {activeSection === 3 && (
+            <section className="form-section">
+              <h2>📝 Description & Details</h2>
+              <div className="input-grid-2">
+                <div className="input-group full-width">
+                  <label>Short Description</label>
+                  <input ref={el => fieldRefs.current.short_desc = el} />
+                </div>
+                <div className="input-group full-width">
+                  <label>Full Description</label>
+                  <textarea 
+                    ref={el => fieldRefs.current.description = el} 
+                    rows="6"
+                    placeholder="Tell buyers about your product..."
+                  />
+                </div>
+                <div className="input-group full-width">
+                  <label>Key Features (comma separated)</label>
+                  <input 
+                    ref={el => fieldRefs.current.features = el}
+                    placeholder="5G, 128GB, Fast Charging"
+                  />
+                </div>
+              </div>
+            </section>
+          )}
+
+          {/* SECTION 4: IMAGES */}
+          {activeSection === 4 && (
+            <section className="form-section">
+              <h2>🖼️ Product Images</h2>
+              <div className="file-upload-zone">
+                <input 
+                  type="file" 
+                  multiple 
+                  accept="image/*" 
+                  onChange={handleImages}
+                  className="file-input"
                 />
+                <p>Drag & drop or click to upload (Max 8 images, 10MB each)</p>
               </div>
-              <div className="options-group">
-                <label className="checkbox-label">
-                  <input 
-                    ref={el => fieldRefs.current.negotiation = el}
-                    type="checkbox"
-                    className="checkbox"
-                  />
-                  <span>Negotiation Allowed</span>
-                </label>
-                <label className="checkbox-label">
-                  <input 
-                    type="checkbox"
-                    checked={exchangePossible}
-                    onChange={(e) => setExchangePossible(e.target.checked)}
-                    className="checkbox"
-                  />
-                  <span>Exchange Possible</span>
+              {imagesPreview.length > 0 && (
+                <div className="images-grid">
+                  {imagesPreview.map((img, index) => (
+                    <div key={index} className="image-preview">
+                      <img src={img.preview} alt="Preview" />
+                      <button 
+                        type="button" 
+                        onClick={() => removeImage(index)}
+                        className="remove-btn"
+                      >
+                        ✕
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </section>
+          )}
+
+          {/* SECTION 5: SHIPPING */}
+          {activeSection === 5 && (
+            <section className="form-section">
+              <h2>🚚 Shipping & Delivery</h2>
+              <div className="input-grid-2">
+                <div className="input-group">
+                  <label>Shipping Cost</label>
+                  <input type="number" placeholder="Free / ₦2000" />
+                </div>
+                <div className="input-group">
+                  <label>Delivery Areas</label>
+                  <select multiple>
+                    <option>Lagos</option>
+                    <option>Abuja</option>
+                    <option>Port Harcourt</option>
+                  </select>
+                </div>
+                <label className="checkbox-group">
+                  <input type="checkbox" /> Free Shipping
                 </label>
               </div>
-            </div>
-          </section>
+            </section>
+          )}
 
-          {/* IMAGES */}
-          <section className="form-section">
-            <label className="input-label large">🖼️ Product Images (Max 8, 10MB each)</label>
-            <input 
-              ref={fileInputRef}
-              type="file" 
-              multiple 
-              accept="image/*" 
-              onChange={handleImages}
-              className="file-upload"
-            />
-          </section>
+          {/* SECTION 6: CONTACT */}
+          {activeSection === 6 && (
+            <section className="form-section">
+              <h2>📞 Contact & Location</h2>
+              <div className="input-grid-2">
+                <div className="input-group">
+                  <label>Phone/WhatsApp *</label>
+                  <input ref={el => fieldRefs.current.phone = el} required />
+                </div>
+                <div className="input-group">
+                  <label>Email (Optional)</label>
+                  <input type="email" />
+                </div>
+                <div className="input-group">
+                  <label>State *</label>
+                  <select 
+                    ref={el => fieldRefs.current.state = el}
+                    onChange={e => setState(e.target.value)}
+                    required
+                  >
+                    <option value="">Select State</option>
+                    {Object.keys(locationsByState).map(s => (
+                      <option key={s} value={s}>{s}</option>
+                    ))}
+                  </select>
+                </div>
+                <div className="input-group">
+                  <label>City</label>
+                  <select ref={el => fieldRefs.current.city = el}>
+                    <option value="">Select City</option>
+                    {stateCities.map(city => (
+                      <option key={city} value={city}>{city}</option>
+                    ))}
+                  </select>
+                </div>
+              </div>
+            </section>
+          )}
 
-          {imagesPreview.length > 0 && (
-            <section className="image-preview-section">
-              <div className="images-grid">
-                {imagesPreview.map((img, index) => (
-                  <div key={img.name} className="image-preview">
-                    <img src={img.preview} alt={`Preview ${index}`} />
-                    <div className="image-name">{img.name}</div>
-                    <button
-                      type="button"
-                      onClick={() => removeImage(index)}
-                      className="remove-image"
-                    >
-                      ×
-                    </button>
+          {/* SECTION 7: PREVIEW & PUBLISH */}
+          {activeSection === 7 && (
+            <section className="form-section preview-section">
+              <h2>👀 Preview & Publish</h2>
+              <div className="preview-content">
+                <div className="preview-card">
+                  <h3>{fieldRefs.current.title?.value || 'Your Product'}</h3>
+                  <div className="preview-price">
+                    ₦{parseInt(fieldRefs.current.price?.value || 0).toLocaleString()}
                   </div>
-                ))}
+                  <div className="preview-meta">
+                    <span>{category} • {fieldRefs.current.brand?.value}</span>
+                    <span>{fieldRefs.current.city?.value}, {state}</span>
+                  </div>
+                </div>
+                
+                <div className="publish-actions">
+                  <label className="checkbox-group">
+                    <input type="checkbox" required /> 
+                    I agree to terms & conditions
+                  </label>
+                  <button 
+                    type="submit" 
+                    disabled={loading}
+                    className="publish-btn"
+                  >
+                    {loading ? '🚀 Publishing...' : '🚀 Publish Product'}
+                  </button>
+                </div>
               </div>
             </section>
           )}
 
-          <button
-            type="submit"
-            disabled={loading}
-            className="submit-button"
-          >
-            {loading ? '📤 Publishing to Cloudinary...' : `🚀 Publish ${category || 'Product'}`}
-          </button>
         </form>
-
-        {/* PREVIEW SIDEBAR */}
-        <aside className="preview-sidebar">
-          <div className="preview-card">
-            <h3 className="preview-title">📊 Live Preview</h3>
-            <div className="preview-items">
-              <div className="preview-item">
-                <span>Title:</span>
-                <strong>{fieldRefs.current.title?.value?.substring(0, 25) || 'Enter title'}...</strong>
-              </div>
-              <div className="preview-item">
-                <span>Price:</span>
-                <strong className="price-preview">
-                  ₦{parseInt(fieldRefs.current.price?.value || 0).toLocaleString()}
-                </strong>
-              </div>
-              <div className="preview-item">
-                <span>Category:</span>
-                <strong>{category || 'Select'}</strong>
-              </div>
-              <div className="preview-item">
-                <span>Phone:</span>
-                <strong>{fieldRefs.current.phone?.value || 'Add phone'}</strong>
-              </div>
-              <div className="preview-item">
-                <span>Images:</span>
-                <strong>{imagesPreview.length}/8</strong>
-              </div>
-            </div>
-          </div>
-        </aside>
       </div>
     </div>
   );
