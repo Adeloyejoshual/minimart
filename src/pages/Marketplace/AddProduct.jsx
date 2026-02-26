@@ -1,4 +1,4 @@
-// src/pages/Marketplace/AddProduct.jsx - ✅ PROFESSIONAL + ALL FIXES
+// src/pages/Marketplace/AddProduct.jsx - ✅ FIXED CATEGORY + PROMOTION PLANS
 import React, { useState, useRef, useCallback, useEffect } from 'react';
 import { useAuth0 } from '@auth0/auth0-react';
 import './AddProduct.css';
@@ -18,51 +18,56 @@ import { ramOptions } from '../../config/ramOptions';
 import { sims } from '../../config/sim';
 import { storageOptions } from '../../config/storageOptions';
 import { years } from '../../config/years';
+import { promotionPlans } from '../../config/promotion'; // ✅ NEW PROMOTION PLANS
 
 const AddProduct = () => {
   const [category, setCategory] = useState('');
   const [prevCategory, setPrevCategory] = useState('');
   const [state, setState] = useState('');
+  const [selectedPlan, setSelectedPlan] = useState(null);
   const [imagesPreview, setImagesPreview] = useState([]);
   const [loading, setLoading] = useState(false);
   const [message, setMessage] = useState('');
   const [selectedFeatures, setSelectedFeatures] = useState([]);
+  const [termsAccepted, setTermsAccepted] = useState(false);
   
   const fieldRefs = useRef({});
   const fileInputRef = useRef(null);
   const { user, isAuthenticated } = useAuth0();
 
-  // ✅ RESET FEATURES WHEN CATEGORY CHANGES
+  // ✅ FIXED: Safe category change with error boundary
   useEffect(() => {
     if (category && category !== prevCategory) {
       setSelectedFeatures([]);
       setPrevCategory(category);
+      console.log('✅ Category changed to:', category);
     }
   }, [category, prevCategory]);
 
-  // ✅ ALL CONFIG COMPUTATIONS
-  const dynamicFields = category ? categoryFields[category]?.filter(field => 
+  // ✅ SAFE CONFIG ACCESS - Prevents white screen
+  const safeCategoryFields = categoryFields || {};
+  const dynamicFields = category ? safeCategoryFields[category]?.filter(field => 
     !['features', 'transmission', 'mileage'].includes(field)
   ) || [] : [];
-  const categoryBrands = category ? brands[category] || [] : [];
-  const categoryModels = category ? models[category] || [] : [];
-  const categoryFeatures = category ? featuresByCategory[category] || [] : [];
-  const stateCities = state ? locationsByState[state] || [] : [];
+  const categoryBrands = brands && brands[category] ? brands[category] : [];
+  const categoryModels = models && models[category] ? models[category] : [];
+  const categoryFeatures = featuresByCategory && featuresByCategory[category] ? featuresByCategory[category] : [];
+  const stateCities = locationsByState && state ? locationsByState[state] : [];
 
   const getFieldOptions = (fieldName) => {
     const options = {
       brand: categoryBrands,
       model: categoryModels,
-      condition: conditions,
-      used_detail: usedDetails,
-      color: colors,
-      ram: ramOptions,
-      storage: storageOptions,
-      sim: sims,
-      engine: engines,
-      fuel_type: fuelTypes,
+      condition: conditions || [],
+      used_detail: usedDetails || [],
+      color: colors || [],
+      ram: ramOptions || [],
+      storage: storageOptions || [],
+      sim: sims || [],
+      engine: engines || [],
+      fuel_type: fuelTypes || [],
       transmission: ['Manual', 'Automatic', 'Semi-Automatic'],
-      year: years
+      year: years || []
     };
     return options[fieldName] || [];
   };
@@ -75,14 +80,9 @@ const AddProduct = () => {
     }
     
     files.forEach(file => {
-      if (file.size > 10 * 1024 * 1024) {
-        setMessage('Maximum 10MB per image');
-        return;
-      }
+      if (file.size > 10 * 1024 * 1024) return;
       const preview = URL.createObjectURL(file);
-      setImagesPreview(prev => [...prev, { 
-        file, preview, name: file.name.substring(0, 20) 
-      }]);
+      setImagesPreview(prev => [...prev, { file, preview, name: file.name.substring(0, 20) }]);
     });
     e.target.value = '';
   }, [imagesPreview.length]);
@@ -92,13 +92,19 @@ const AddProduct = () => {
     setImagesPreview(prev => prev.filter((_, i) => i !== index));
   }, [imagesPreview]);
 
-  // ✅ FEATURES CHECKBOX TOGGLE
   const toggleFeature = (feature) => {
     setSelectedFeatures(prev => 
       prev.includes(feature)
         ? prev.filter(f => f !== feature)
         : [...prev, feature]
     );
+  };
+
+  const formatPrice = (value) => {
+    return new Intl.NumberFormat('en-NG', {
+      style: 'decimal',
+      minimumFractionDigits: 0
+    }).format(value || 0);
   };
 
   const renderDynamicField = (fieldName) => {
@@ -127,25 +133,14 @@ const AddProduct = () => {
     );
   };
 
-  // ✅ FORMATTED PRICE WITH COMMAS
-  const formatPrice = (value) => {
-    return new Intl.NumberFormat('en-NG', {
-      style: 'decimal',
-      minimumFractionDigits: 0
-    }).format(value || 0);
-  };
-
-  // ✅ PROFESSIONAL NEGOTIATION
-  const negotiationOptions = [
-    { value: 'no', label: 'Fixed Price' },
-    { value: 'slight', label: 'Slight Negotiation (5%)' },
-    { value: 'moderate', label: 'Moderate Negotiation (10%)' },
-    { value: 'open', label: 'Open Negotiation' }
-  ];
-
   const handleSubmit = async (e) => {
     e.preventDefault();
     
+    if (!termsAccepted) {
+      setMessage('❌ Please accept Terms & Conditions');
+      return;
+    }
+
     const productData = {
       title: fieldRefs.current.title?.value?.trim() || '',
       category,
@@ -158,10 +153,10 @@ const AddProduct = () => {
       poster_name: user?.name || 'Anonymous Seller',
       country: "Nigeria",
       features: selectedFeatures,
+      promotion_plan: selectedPlan ? selectedPlan.id : null,
       status: 'active'
     };
 
-    // Add dynamic fields
     dynamicFields.forEach(field => {
       const value = fieldRefs.current[field]?.value;
       if (value) productData[field] = value;
@@ -180,7 +175,7 @@ const AddProduct = () => {
       Object.entries(productData).forEach(([key, value]) => {
         if (Array.isArray(value)) {
           value.forEach(item => formData.append(key, item));
-        } else {
+        } else if (value !== null && value !== undefined) {
           formData.append(key, value);
         }
       });
@@ -195,13 +190,10 @@ const AddProduct = () => {
       const result = await response.json();
       
       if (response.ok) {
-        setMessage(`🎉 Product published successfully! ID: ${result.data?._id || result._id}`);
-        // Reset form
-        Object.keys(fieldRefs.current).forEach(key => {
-          const el = fieldRefs.current[key];
-          if (el) el.value = '';
-        });
+        setMessage(`🎉 Product published! ID: ${result.data?._id || result._id}`);
+        Object.keys(fieldRefs.current).forEach(key => fieldRefs.current[key].value = '');
         setCategory(''); setState(''); setImagesPreview([]); setSelectedFeatures([]);
+        setSelectedPlan(null); setTermsAccepted(false);
         setTimeout(() => setMessage(''), 5000);
       } else {
         throw new Error(result.message || 'Publish failed');
@@ -232,23 +224,13 @@ const AddProduct = () => {
           <div className="input-grid">
             <div className="input-group">
               <label className="required">Product Title *</label>
-              <input 
-                ref={el => fieldRefs.current.title = el}
-                type="text" 
-                placeholder="Tecno Camon 19 32GB Green"
-                className="input-large required"
-                required 
-              />
+              <input ref={el => fieldRefs.current.title = el} type="text" placeholder="Tecno Camon 19" className="input-large required" required />
             </div>
             <div className="input-group">
               <label className="required">Category *</label>
-              <select 
-                onChange={(e) => setCategory(e.target.value)}
-                className="input-large required"
-                required
-              >
+              <select onChange={(e) => setCategory(e.target.value)} className="input-large required" required>
                 <option value="">Select Category</option>
-                {Object.keys(categoryFields).map(cat => (
+                {Object.keys(safeCategoryFields).map(cat => (
                   <option key={cat} value={cat}>{cat}</option>
                 ))}
               </select>
@@ -257,26 +239,22 @@ const AddProduct = () => {
               <label>Brand</label>
               <select ref={el => fieldRefs.current.brand = el} className="input-large">
                 <option value="">Select Brand</option>
-                {categoryBrands.map(brand => (
-                  <option key={brand} value={brand}>{brand}</option>
-                ))}
+                {categoryBrands.map(brand => <option key={brand} value={brand}>{brand}</option>)}
               </select>
             </div>
             <div className="input-group">
               <label>Model</label>
               <select ref={el => fieldRefs.current.model = el} className="input-large">
                 <option value="">Select Model</option>
-                {categoryModels.map(model => (
-                  <option key={model} value={model}>{model}</option>
-                ))}
+                {categoryModels.map(model => <option key={model} value={model}>{model}</option>)}
               </select>
             </div>
           </div>
         </section>
 
-        {/* SECTION 2: PRICING - PROFESSIONAL */}
+        {/* SECTION 2: PRICING */}
         <section className="form-section">
-          <h2>💰 Pricing & Negotiation</h2>
+          <h2>💰 Pricing & Promotion</h2>
           <div className="input-grid">
             <div className="input-group">
               <label className="required">Price (₦) *</label>
@@ -293,18 +271,24 @@ const AddProduct = () => {
               />
             </div>
             <div className="input-group">
-              <label>Negotiation Type</label>
-              <select ref={el => fieldRefs.current.negotiation = el} className="input-large">
-                <option value="no">Fixed Price</option>
-                <option value="slight">Slight Negotiation (5%)</option>
-                <option value="moderate">Moderate Negotiation (10%)</option>
-                <option value="open">Open Negotiation</option>
+              <label>Promotion Plan</label>
+              <select 
+                value={selectedPlan?.id || ''} 
+                onChange={(e) => setSelectedPlan(promotionPlans.find(p => p.id == e.target.value))}
+                className="input-large"
+              >
+                <option value="">No Promotion (Free)</option>
+                {promotionPlans.map(plan => (
+                  <option key={plan.id} value={plan.id}>
+                    {plan.name} - ₦{formatPrice(plan.price)} ({plan.duration})
+                  </option>
+                ))}
               </select>
             </div>
           </div>
         </section>
 
-        {/* SECTION 3: SPECIFICATIONS - NO EMOJI + NO FEATURES/MILEAGE/TRANSMISSION */}
+        {/* SPECIFICATIONS */}
         {dynamicFields.length > 0 && (
           <section className="form-section">
             <h2>Specifications</h2>
@@ -314,7 +298,7 @@ const AddProduct = () => {
           </section>
         )}
 
-        {/* SECTION 4: FEATURES CHECKBOXES */}
+        {/* FEATURES */}
         {categoryFeatures.length > 0 && (
           <section className="form-section">
             <h2>✨ Features</h2>
@@ -338,99 +322,78 @@ const AddProduct = () => {
           </section>
         )}
 
-        {/* SECTION 5: DESCRIPTION */}
+        {/* DESCRIPTION */}
         <section className="form-section">
           <h2>📝 Description</h2>
           <div className="input-group full-width">
             <label>Description</label>
-            <textarea 
-              ref={el => fieldRefs.current.description = el}
-              rows="5"
-              placeholder="Describe your product condition, features, usage..."
-              className="textarea-large"
-            />
+            <textarea ref={el => fieldRefs.current.description = el} rows="5" className="textarea-large" />
           </div>
         </section>
 
-        {/* SECTION 6: LOCATION & CONTACT */}
+        {/* LOCATION */}
         <section className="form-section">
           <h2>📍 Location & Contact</h2>
           <div className="input-grid">
             <div className="input-group">
               <label className="required">Phone Number *</label>
-              <input 
-                ref={el => fieldRefs.current.phone = el}
-                type="tel" 
-                placeholder="08012345678"
-                className="input-large required"
-                required
-              />
+              <input ref={el => fieldRefs.current.phone = el} type="tel" placeholder="08012345678" className="input-large required" required />
             </div>
             <div className="input-group">
               <label className="required">State *</label>
-              <select 
-                onChange={(e) => setState(e.target.value)}
-                className="input-large required"
-                required
-              >
+              <select onChange={(e) => setState(e.target.value)} className="input-large required" required>
                 <option value="">Select State</option>
-                {Object.keys(locationsByState).map(s => (
-                  <option key={s} value={s}>{s}</option>
-                ))}
+                {Object.keys(locationsByState || {}).map(s => <option key={s} value={s}>{s}</option>)}
               </select>
             </div>
             <div className="input-group">
               <label>City</label>
               <select ref={el => fieldRefs.current.city = el} className="input-large">
                 <option value="">Select City</option>
-                {stateCities.map(city => (
-                  <option key={city} value={city}>{city}</option>
-                ))}
+                {stateCities.map(city => <option key={city} value={city}>{city}</option>)}
               </select>
             </div>
           </div>
         </section>
 
-        {/* SECTION 7: IMAGES */}
+        {/* IMAGES */}
         <section className="form-section">
           <h2>🖼️ Product Images</h2>
-          <input 
-            ref={fileInputRef}
-            type="file" 
-            multiple 
-            accept="image/*" 
-            onChange={handleImages}
-            className="file-upload"
-          />
+          <input ref={fileInputRef} type="file" multiple accept="image/*" onChange={handleImages} className="file-upload" />
           {imagesPreview.length > 0 && (
             <div className="images-grid">
               {imagesPreview.map((img, index) => (
                 <div key={index} className="image-preview">
                   <img src={img.preview} alt={`Preview ${index}`} />
-                  <div className="image-name">{img.name}</div>
-                  <button
-                    type="button"
-                    onClick={() => removeImage(index)}
-                    className="remove-image"
-                  >
-                    ×
-                  </button>
+                  <button type="button" onClick={() => removeImage(index)} className="remove-image">×</button>
                 </div>
               ))}
             </div>
           )}
         </section>
 
-        {/* PUBLISH BUTTON */}
-        <div className="form-actions">
-          <button
-            type="submit"
-            disabled={loading}
-            className="submit-button"
-          >
-            {loading ? '📤 Publishing...' : '🚀 Publish Product'}
-          </button>
-        </div>
+        {/* TERMS & PUBLISH */}
+        <section className="form-section">
+          <div className="terms-section">
+            <label className="terms-checkbox">
+              <input
+                type="checkbox"
+                checked={termsAccepted}
+                onChange={(e) => setTermsAccepted(e.target.checked)}
+              />
+              <span>I agree to <strong>Terms & Conditions</strong> and marketplace policies</span>
+            </label>
+          </div>
+          <div className="form-actions">
+            <button
+              type="submit"
+              disabled={loading || !termsAccepted}
+              className="submit-button"
+            >
+              {loading ? '📤 Publishing...' : `🚀 Publish Product${selectedPlan ? ` + ${selectedPlan.name}` : ''}`}
+            </button>
+          </div>
+        </section>
       </form>
     </div>
   );
