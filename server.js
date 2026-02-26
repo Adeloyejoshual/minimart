@@ -1,4 +1,4 @@
-// server.js - 100% RENDER READY + ENTERPRISE MARKETPLACE ✅
+// server.js - ✅ FIXED ROUTING + PRODUCTION READY
 import express from "express";
 import cors from "cors";
 import path from "path";
@@ -13,6 +13,8 @@ dotenv.config();
 
 const app = express();
 const PORT = process.env.PORT || 5000;
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
 
 // 🛡️ ENTERPRISE: Graceful MongoDB handling
 let mongoConnected = false;
@@ -24,10 +26,13 @@ app.use(cors({
   credentials: true
 }));
 
-app.use(express.json({ limit: '50mb' })); // 🆕 Increased for Cloudinary URLs
+app.use(express.json({ limit: '50mb' }));
 app.use(express.urlencoded({ extended: true, limit: '50mb' }));
 
-// 🛡️ MongoDB - FAILSAFE (continues without DB)
+// ✅ ROUTES FIRST - BEFORE STATIC FILES
+app.use("/api/marketplace", marketplaceRouter);  // ✅ Matches AddProduct.jsx
+
+// 🛡️ MongoDB Connection
 if (process.env.MONGO_URI) {
   mongoose
     .connect(process.env.MONGO_URI)
@@ -36,14 +41,14 @@ if (process.env.MONGO_URI) {
       mongoConnected = true;
     })
     .catch((err) => {
-      console.error("⚠️ MongoDB failed, continuing with in-memory:", err.message);
+      console.error("⚠️ MongoDB failed, continuing:", err.message);
       mongoConnected = false;
     });
 } else {
-  console.warn("⚠️ No MONGO_URI - In-memory storage active");
+  console.warn("⚠️ No MONGO_URI - Running without database");
 }
 
-// 🛡️ Auth0 JWT (DISABLED for public marketplace - uncomment for auth)
+// 🛡️ Auth0 (optional)
 let checkJwt;
 if (process.env.AUTH0_DOMAIN && process.env.AUTH0_AUDIENCE) {
   checkJwt = jwt({
@@ -59,29 +64,30 @@ if (process.env.AUTH0_DOMAIN && process.env.AUTH0_AUDIENCE) {
   });
 }
 
-// 🚀 ENTERPRISE ROUTES - PUBLIC ACCESS ✅
-app.use("/api/marketplace", marketplaceRouter); // No auth required
-
-// 🆕 HEALTH CHECK + STATS
+// 🆕 HEALTH CHECK
 app.get("/api/health", (req, res) => res.json({ 
   success: true, 
   mongodb: mongoConnected,
   timestamp: new Date().toISOString(),
-  routes: ['/api/marketplace/products', '/api/marketplace/stats']
+  endpoints: [
+    'POST /api/marketplace/products',
+    'GET /api/marketplace/products',
+    'GET /api/marketplace/my-products'
+  ]
 }));
 
-// 🆕 MARKETPLACE STATS ENDPOINT
+// 🆕 STATS ENDPOINT
 app.get("/api/stats", async (req, res) => {
   try {
     if (!mongoConnected) {
-      return res.json({ success: true, data: { totalProducts: 0, promoted: 0 } });
+      return res.json({ success: true, data: { totalProducts: 0 } });
     }
     
-    // Marketplace stats
+    const Product = mongoose.model('Product');
     const stats = await Promise.all([
-      mongoose.connection.db.collection('products').countDocuments({ status: 'active' }),
-      mongoose.connection.db.collection('products').countDocuments({ promoted: true }),
-      mongoose.connection.db.collection('products').distinct('category', { status: 'active' })
+      Product.countDocuments({ status: 'active' }),
+      Product.countDocuments({ promoted: true }),
+      Product.distinct('category', { status: 'active' })
     ]);
 
     res.json({
@@ -90,7 +96,7 @@ app.get("/api/stats", async (req, res) => {
         totalProducts: stats[0],
         promotedProducts: stats[1],
         categories: stats[2].length,
-        mongodb: mongoConnected
+        mongodb: true
       }
     });
   } catch (error) {
@@ -98,91 +104,57 @@ app.get("/api/stats", async (req, res) => {
   }
 });
 
-// 🆕 AUTH ROUTES (optional - for future user features)
-app.use("/api/auth", (req, res, next) => {
-  if (checkJwt) {
-    checkJwt(req, res, next);
-  } else {
-    next();
-  }
-});
-
-// 🛠️ DEVELOPMENT ENDPOINT (remove in production)
-if (process.env.NODE_ENV !== 'production') {
-  app.post("/api/test-product", async (req, res) => {
-    try {
-      const testProduct = {
-        title: "iPhone 15 Pro Max Test",
-        description: "Test product for marketplace",
-        price: 850000,
-        category: "electronics",
-        state: "Lagos",
-        city: "Ikeja",
-        phone_number: "+2341234567890",
-        poster_name: "Test Seller",
-        images: ["https://via.placeholder.com/400x300"],
-        features: ["5G", "Face ID", "A17 Pro"]
-      };
-      
-      if (mongoConnected) {
-        const Product = mongoose.model('Product');
-        const product = new Product(testProduct);
-        await product.save();
-        res.json({ success: true, product });
-      } else {
-        res.json({ success: true, message: "Test product created (in-memory)" });
-      }
-    } catch (error) {
-      res.status(500).json({ success: false, error: error.message });
-    }
-  });
-}
-
-// 🛡️ PRODUCTION SPA SERVING (Vite build)
+// ✅ PRODUCTION: Serve Vite Frontend
 if (process.env.NODE_ENV === 'production') {
-  const __filename = fileURLToPath(import.meta.url);
-  const __dirname = path.dirname(__filename);
-  
   app.use(express.static(path.join(__dirname, "dist")));
   
-  // SPA catch-all
+  // SPA catch-all - AFTER API routes
   app.get("*", (req, res) => {
+    // Don't serve frontend for API routes
+    if (req.path.startsWith('/api/')) {
+      return res.status(404).json({ success: false, message: 'API endpoint not found' });
+    }
     res.sendFile(path.join(__dirname, "dist", "index.html"));
   });
 }
 
-// 🛡️ ENTERPRISE ERROR HANDLING
+// 🛡️ ERROR HANDLING
 app.use((err, req, res, next) => {
   console.error("🚨 ERROR:", {
     url: req.originalUrl,
     method: req.method,
-    error: err.message,
-    stack: err.stack
+    error: err.message
   });
   
   if (err.name === 'UnauthorizedError') {
-    return res.status(401).json({ 
-      success: false, 
-      message: 'Authentication required' 
-    });
+    return res.status(401).json({ success: false, message: 'Authentication required' });
   }
   
   res.status(500).json({ 
     success: false, 
-    message: mongoConnected ? err.message : 'Service temporarily unavailable' 
+    message: 'Internal server error' 
+  });
+});
+
+// 🛡️ 404 Handler
+app.use("*", (req, res) => {
+  res.status(404).json({ 
+    success: false, 
+    message: `Route ${req.method} ${req.originalUrl} not found` 
   });
 });
 
 // 🛡️ GRACEFUL SHUTDOWN
 process.on('SIGTERM', () => {
-  console.log('🛑 SIGTERM received, shutting down gracefully');
+  console.log('🛑 Shutting down gracefully');
   process.exit(0);
 });
 
 app.listen(PORT, "0.0.0.0", () => {
-  console.log(`🚀 Server running → http://localhost:${PORT}`);
-  console.log(`📊 Health check → http://localhost:${PORT}/api/health`);
-  console.log(`🛒 Marketplace → http://localhost:${PORT}/api/marketplace/products`);
-  console.log(`📈 Stats → http://localhost:${PORT}/api/stats`);
+  console.log(`🚀 Server: http://localhost:${PORT}`);
+  console.log(`📊 Health: http://localhost:${PORT}/api/health`);
+  console.log(`🛒 Products: POST http://localhost:${PORT}/api/marketplace/products`);
   console.log(`💾 MongoDB: ${mongoConnected ? '✅ CONNECTED' : '⚠️ OFFLINE'}`);
 });
+
+export default app;
