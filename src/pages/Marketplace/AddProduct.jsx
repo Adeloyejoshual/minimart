@@ -1,41 +1,62 @@
-
-// src/pages/Marketplace/AddProduct.jsx - ✅ 7-SECTIONS ENTERPRISE LAYOUT
+// src/pages/Marketplace/AddProduct.jsx - ✅ ALL 13 CONFIGS + 7-SECTIONS
 import React, { useState, useRef, useCallback } from 'react';
 import { useAuth0 } from '@auth0/auth0-react';
 import './AddProduct.css';
 
-// ✅ ALL YOUR CONFIGS
-import { categoryFields, subcategories } from '../../config/categoryFields';
+// ✅ ALL YOUR 13 CONFIGS - SAFE IMPORTS
+import { categoryFields } from '../../config/categoryFields';
 import { brands } from '../../config/brands';
 import { colors } from '../../config/colors';
-import { conditions } from '../../config/conditions';
+import { conditions, usedDetails } from '../../config/conditions';
+import { engines } from '../../config/engines';
+import { featuresByCategory } from '../../config/featuresByCategory';
+import { fieldOptions } from '../../config/fieldOptions';
+import { fuelTypes } from '../../config/fuelTypes';
 import { locationsByState } from '../../config/locationsByState';
 import { models } from '../../config/models';
+import { ramOptions } from '../../config/ramOptions';
+import { sims } from '../../config/sim';
+import { storageOptions } from '../../config/storageOptions';
+import { years } from '../../config/years';
 
 const AddProduct = () => {
-  // SECTION STATES
   const [activeSection, setActiveSection] = useState(1);
   const [category, setCategory] = useState('');
-  const [subcategory, setSubcategory] = useState('');
   const [state, setState] = useState('');
   const [imagesPreview, setImagesPreview] = useState([]);
   const [loading, setLoading] = useState(false);
   const [message, setMessage] = useState('');
   
   const fieldRefs = useRef({});
-
+  const fileInputRef = useRef(null);
   const { user, isAuthenticated } = useAuth0();
 
-  // DYNAMIC OPTIONS
+  // ✅ DYNAMIC FIELDS FROM ALL CONFIGS
+  const dynamicFields = category ? categoryFields[category] || [] : [];
   const categoryBrands = category ? brands[category] || [] : [];
-  const categorySubcats = category ? subcategories[category] || [] : [];
   const categoryModels = category ? models[category] || [] : [];
   const stateCities = state ? locationsByState[state] || [] : [];
+
+  const getFieldOptions = (field) => {
+    const optionsMap = {
+      condition: conditions,
+      used_detail: usedDetails,
+      color: colors,
+      ram: ramOptions,
+      storage: storageOptions,
+      sim: sims,
+      engine: engines,
+      fuel_type: fuelTypes,
+      transmission: fieldOptions.transmission || [],
+      year: years
+    };
+    return optionsMap[field] || fieldOptions[field] || [];
+  };
 
   const handleImages = useCallback((e) => {
     const files = Array.from(e.target.files);
     if (files.length + imagesPreview.length > 8) {
-      setMessage('Maximum 8 images');
+      setMessage('Maximum 8 images allowed');
       return;
     }
     files.forEach(file => {
@@ -53,42 +74,81 @@ const AddProduct = () => {
     setImagesPreview(prev => prev.filter((_, i) => i !== index));
   }, [imagesPreview]);
 
+  const renderDynamicField = (fieldName) => {
+    const options = getFieldOptions(fieldName);
+    const isSelect = options.length > 0;
+    
+    return (
+      <div className="dynamic-field" key={fieldName}>
+        <label>{fieldName.replace(/_/g, ' ').replace(/\bw/g, l => l.toUpperCase())}</label>
+        {isSelect ? (
+          <select ref={el => fieldRefs.current[fieldName] = el}>
+            <option value="">{`Select ${fieldName}`}</option>
+            {options.map(option => (
+              <option key={option} value={option}>{option}</option>
+            ))}
+          </select>
+        ) : (
+          <input 
+            ref={el => fieldRefs.current[fieldName] = el}
+            type={fieldName.includes('price|mileage') ? 'number' : 'text'}
+            placeholder={`Enter ${fieldName}`}
+          />
+        )}
+      </div>
+    );
+  };
+
   const handleSubmit = async (e) => {
     e.preventDefault();
     
     const formData = new FormData();
-    formData.append('title', fieldRefs.current.title?.value?.trim() || '');
-    formData.append('category', category);
-    formData.append('subcategory', subcategory);
-    formData.append('brand', fieldRefs.current.brand?.value || '');
-    formData.append('model', fieldRefs.current.model?.value || '');
-    formData.append('condition', fieldRefs.current.condition?.value || '');
-    formData.append('quantity', fieldRefs.current.quantity?.value || '1');
-    formData.append('price', fieldRefs.current.price?.value || '0');
-    formData.append('discount_price', fieldRefs.current.discount_price?.value || '');
-    formData.append('negotiation', fieldRefs.current.negotiation?.checked ? 'Yes' : 'No');
-    formData.append('description', fieldRefs.current.description?.value || '');
-    formData.append('features', fieldRefs.current.features?.value || '');
-    formData.append('phone_number', fieldRefs.current.phone?.value || '');
-    formData.append('state', state);
-    formData.append('city', fieldRefs.current.city?.value || '');
-    formData.append('poster_name', user?.name || 'Anonymous');
     
+    // ✅ ALL FIELDS FROM FORM + DYNAMIC FIELDS
+    const staticFields = {
+      title: fieldRefs.current.title?.value?.trim() || '',
+      category,
+      price: parseInt(fieldRefs.current.price?.value) || 0,
+      phone_number: fieldRefs.current.phone?.value || '',
+      poster_name: user?.name || 'Anonymous Seller',
+      country: 'Nigeria',
+      state,
+      description: fieldRefs.current.description?.value || ''
+    };
+
+    // Add static fields
+    Object.entries(staticFields).forEach(([key, value]) => {
+      formData.append(key, value);
+    });
+
+    // Add dynamic fields
+    dynamicFields.forEach(field => {
+      const value = fieldRefs.current[field]?.value;
+      if (value) formData.append(field, value);
+    });
+
+    // Add images
     imagesPreview.forEach(img => formData.append('images', img.file));
 
     try {
       setLoading(true);
+      setMessage('🚀 Publishing to Cloudinary & Database...');
+
       const response = await fetch('/api/marketplace/products', {
         method: 'POST',
         body: formData
       });
 
       const result = await response.json();
+      
       if (response.ok) {
-        setMessage(`🎉 Product published! ID: ${result.data?._id}`);
+        setMessage(`🎉 Product published! ID: ${result.data?._id || result._id}`);
         // Reset form
-        Object.keys(fieldRefs.current).forEach(key => fieldRefs.current[key].value = '');
-        setCategory(''); setSubcategory(''); setState(''); setImagesPreview([]);
+        Object.keys(fieldRefs.current).forEach(key => {
+          const el = fieldRefs.current[key];
+          if (el) el.value = '';
+        });
+        setCategory(''); setState(''); setImagesPreview([]);
         setTimeout(() => setMessage(''), 5000);
       } else {
         throw new Error(result.message || 'Publish failed');
@@ -100,25 +160,13 @@ const AddProduct = () => {
     }
   };
 
-  const SectionNav = () => (
-    <nav className="section-nav">
-      {[
-        'Product Details', 'Pricing', 'Description', 'Images', 
-        'Shipping', 'Contact', 'Preview'
-      ].map((title, index) => (
-        <button
-          key={index}
-          className={`nav-btn ${activeSection === index + 1 ? 'active' : ''}`}
-          onClick={() => setActiveSection(index + 1)}
-        >
-          {index + 1}. {title}
-        </button>
-      ))}
-    </nav>
-  );
-
   if (!isAuthenticated) {
-    return <div className="login-required">🔐 Please login</div>;
+    return (
+      <div style={{ textAlign: 'center', padding: '4rem' }}>
+        <h2>🔐 Please Login</h2>
+        <p>Sign in to publish products</p>
+      </div>
+    );
   }
 
   return (
@@ -130,8 +178,21 @@ const AddProduct = () => {
       )}
 
       <div className="form-wrapper">
-        {/* 🧭 SECTION NAVIGATION */}
-        <SectionNav />
+        {/* 🧭 7-SECTION NAVIGATION */}
+        <nav className="section-nav">
+          {[
+            'Product Details', 'Pricing', 'Description', 
+            'Dynamic Fields', 'Images', 'Location', 'Publish'
+          ].map((title, index) => (
+            <button
+              key={index}
+              className={`nav-btn ${activeSection === index + 1 ? 'active' : ''}`}
+              onClick={() => setActiveSection(index + 1)}
+            >
+              {index + 1}. {title}
+            </button>
+          ))}
+        </nav>
 
         {/* 📋 MAIN FORM */}
         <form onSubmit={handleSubmit} className="enterprise-product-form">
@@ -142,31 +203,15 @@ const AddProduct = () => {
               <h2>📦 Product Details</h2>
               <div className="input-grid-2">
                 <div className="input-group">
-                  <label>Product Name *</label>
-                  <input ref={el => fieldRefs.current.title = el} required />
+                  <label>Product Title *</label>
+                  <input ref={el => fieldRefs.current.title = el} required placeholder="Tecno Camon 19" />
                 </div>
                 <div className="input-group">
                   <label>Category *</label>
-                  <select 
-                    ref={el => fieldRefs.current.category = el} 
-                    onChange={e => setCategory(e.target.value)}
-                    required
-                  >
+                  <select onChange={(e) => setCategory(e.target.value)} required>
                     <option value="">Select Category</option>
                     {Object.keys(categoryFields).map(cat => (
                       <option key={cat} value={cat}>{cat}</option>
-                    ))}
-                  </select>
-                </div>
-                <div className="input-group">
-                  <label>Subcategory</label>
-                  <select 
-                    onChange={e => setSubcategory(e.target.value)}
-                    value={subcategory}
-                  >
-                    <option value="">Select Subcategory</option>
-                    {categorySubcats.map(sub => (
-                      <option key={sub} value={sub}>{sub}</option>
                     ))}
                   </select>
                 </div>
@@ -179,28 +224,6 @@ const AddProduct = () => {
                     ))}
                   </select>
                 </div>
-                <div className="input-group">
-                  <label>Model</label>
-                  <input ref={el => fieldRefs.current.model = el} />
-                </div>
-                <div className="input-group">
-                  <label>Condition</label>
-                  <select ref={el => fieldRefs.current.condition = el}>
-                    <option value="">Select Condition</option>
-                    {conditions.map(cond => (
-                      <option key={cond} value={cond}>{cond}</option>
-                    ))}
-                  </select>
-                </div>
-                <div className="input-group">
-                  <label>Quantity</label>
-                  <input 
-                    ref={el => fieldRefs.current.quantity = el} 
-                    type="number" 
-                    min="1"
-                    defaultValue="1"
-                  />
-                </div>
               </div>
             </section>
           )}
@@ -208,23 +231,11 @@ const AddProduct = () => {
           {/* SECTION 2: PRICING */}
           {activeSection === 2 && (
             <section className="form-section">
-              <h2>💰 Pricing & Offers</h2>
+              <h2>💰 Pricing</h2>
               <div className="input-grid-2">
                 <div className="input-group">
                   <label>Price (₦) *</label>
-                  <input ref={el => fieldRefs.current.price = el} type="number" required />
-                </div>
-                <div className="input-group">
-                  <label>Discount Price (Optional)</label>
-                  <input ref={el => fieldRefs.current.discount_price = el} type="number" />
-                </div>
-                <label className="checkbox-group">
-                  <input ref={el => fieldRefs.current.negotiation = el} type="checkbox" />
-                  Allow Negotiation
-                </label>
-                <div className="input-group">
-                  <label>Flash Sale End Date</label>
-                  <input type="date" />
+                  <input ref={el => fieldRefs.current.price = el} type="number" min="0" required />
                 </div>
               </div>
             </section>
@@ -233,52 +244,47 @@ const AddProduct = () => {
           {/* SECTION 3: DESCRIPTION */}
           {activeSection === 3 && (
             <section className="form-section">
-              <h2>📝 Description & Details</h2>
-              <div className="input-grid-2">
-                <div className="input-group full-width">
-                  <label>Short Description</label>
-                  <input ref={el => fieldRefs.current.short_desc = el} />
-                </div>
-                <div className="input-group full-width">
-                  <label>Full Description</label>
-                  <textarea 
-                    ref={el => fieldRefs.current.description = el} 
-                    rows="6"
-                    placeholder="Tell buyers about your product..."
-                  />
-                </div>
-                <div className="input-group full-width">
-                  <label>Key Features (comma separated)</label>
-                  <input 
-                    ref={el => fieldRefs.current.features = el}
-                    placeholder="5G, 128GB, Fast Charging"
-                  />
-                </div>
+              <h2>📝 Description</h2>
+              <div className="input-group full-width">
+                <label>Description</label>
+                <textarea 
+                  ref={el => fieldRefs.current.description = el} 
+                  rows="6" 
+                  placeholder="Describe your product..."
+                />
               </div>
             </section>
           )}
 
-          {/* SECTION 4: IMAGES */}
-          {activeSection === 4 && (
+          {/* SECTION 4: DYNAMIC FIELDS - ALL YOUR CONFIGS */}
+          {activeSection === 4 && dynamicFields.length > 0 && (
             <section className="form-section">
-              <h2>🖼️ Product Images</h2>
-              <div className="file-upload-zone">
-                <input 
-                  type="file" 
-                  multiple 
-                  accept="image/*" 
-                  onChange={handleImages}
-                  className="file-input"
-                />
-                <p>Drag & drop or click to upload (Max 8 images, 10MB each)</p>
+              <h2>⚙️ {category} Specifications</h2>
+              <div className="dynamic-grid">
+                {dynamicFields.map(renderDynamicField)}
               </div>
+            </section>
+          )}
+
+          {/* SECTION 5: IMAGES */}
+          {activeSection === 5 && (
+            <section className="form-section">
+              <h2>🖼️ Product Images (Max 8)</h2>
+              <input 
+                ref={fileInputRef}
+                type="file" 
+                multiple 
+                accept="image/*" 
+                onChange={handleImages}
+                className="file-upload"
+              />
               {imagesPreview.length > 0 && (
                 <div className="images-grid">
                   {imagesPreview.map((img, index) => (
                     <div key={index} className="image-preview">
                       <img src={img.preview} alt="Preview" />
                       <button 
-                        type="button" 
+                        type="button"
                         onClick={() => removeImage(index)}
                         className="remove-btn"
                       >
@@ -291,50 +297,18 @@ const AddProduct = () => {
             </section>
           )}
 
-          {/* SECTION 5: SHIPPING */}
-          {activeSection === 5 && (
-            <section className="form-section">
-              <h2>🚚 Shipping & Delivery</h2>
-              <div className="input-grid-2">
-                <div className="input-group">
-                  <label>Shipping Cost</label>
-                  <input type="number" placeholder="Free / ₦2000" />
-                </div>
-                <div className="input-group">
-                  <label>Delivery Areas</label>
-                  <select multiple>
-                    <option>Lagos</option>
-                    <option>Abuja</option>
-                    <option>Port Harcourt</option>
-                  </select>
-                </div>
-                <label className="checkbox-group">
-                  <input type="checkbox" /> Free Shipping
-                </label>
-              </div>
-            </section>
-          )}
-
-          {/* SECTION 6: CONTACT */}
+          {/* SECTION 6: LOCATION & CONTACT */}
           {activeSection === 6 && (
             <section className="form-section">
-              <h2>📞 Contact & Location</h2>
+              <h2>📍 Location & Contact</h2>
               <div className="input-grid-2">
                 <div className="input-group">
-                  <label>Phone/WhatsApp *</label>
-                  <input ref={el => fieldRefs.current.phone = el} required />
-                </div>
-                <div className="input-group">
-                  <label>Email (Optional)</label>
-                  <input type="email" />
+                  <label>Phone Number *</label>
+                  <input ref={el => fieldRefs.current.phone = el} required placeholder="08012345678" />
                 </div>
                 <div className="input-group">
                   <label>State *</label>
-                  <select 
-                    ref={el => fieldRefs.current.state = el}
-                    onChange={e => setState(e.target.value)}
-                    required
-                  >
+                  <select onChange={(e) => setState(e.target.value)} required>
                     <option value="">Select State</option>
                     {Object.keys(locationsByState).map(s => (
                       <option key={s} value={s}>{s}</option>
@@ -354,39 +328,36 @@ const AddProduct = () => {
             </section>
           )}
 
-          {/* SECTION 7: PREVIEW & PUBLISH */}
+          {/* SECTION 7: PUBLISH */}
           {activeSection === 7 && (
             <section className="form-section preview-section">
-              <h2>👀 Preview & Publish</h2>
-              <div className="preview-content">
-                <div className="preview-card">
-                  <h3>{fieldRefs.current.title?.value || 'Your Product'}</h3>
-                  <div className="preview-price">
-                    ₦{parseInt(fieldRefs.current.price?.value || 0).toLocaleString()}
-                  </div>
-                  <div className="preview-meta">
-                    <span>{category} • {fieldRefs.current.brand?.value}</span>
-                    <span>{fieldRefs.current.city?.value}, {state}</span>
-                  </div>
+              <h2>🚀 Ready to Publish</h2>
+              <div className="preview-card">
+                <h3>{fieldRefs.current.title?.value || 'Your Product'}</h3>
+                <div className="preview-price">
+                  ₦{parseInt(fieldRefs.current.price?.value || 0).toLocaleString()}
                 </div>
-                
-                <div className="publish-actions">
-                  <label className="checkbox-group">
-                    <input type="checkbox" required /> 
-                    I agree to terms & conditions
-                  </label>
-                  <button 
-                    type="submit" 
-                    disabled={loading}
-                    className="publish-btn"
-                  >
-                    {loading ? '🚀 Publishing...' : '🚀 Publish Product'}
-                  </button>
+                <div className="preview-meta">
+                  <span>{category} • {fieldRefs.current.brand?.value}</span>
+                  <span>{fieldRefs.current.city?.value || 'Nationwide'}</span>
                 </div>
+                {imagesPreview.length > 0 && (
+                  <div className="preview-images">
+                    {imagesPreview.slice(0, 3).map((img, i) => (
+                      <img key={i} src={img.preview} alt="Preview" />
+                    ))}
+                  </div>
+                )}
               </div>
+              <button 
+                type="submit" 
+                disabled={loading || !fieldRefs.current.title?.value}
+                className="publish-btn"
+              >
+                {loading ? '📤 Publishing...' : `🚀 Publish ${category || 'Product'}`}
+              </button>
             </section>
           )}
-
         </form>
       </div>
     </div>
