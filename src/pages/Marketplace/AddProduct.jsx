@@ -1,8 +1,11 @@
-// src/pages/Marketplace/AddProduct.jsx - ✅ NESTED MODELS + ALL 13 CONFIGS
+// src/pages/Marketplace/AddProduct.jsx - ✅ .env AUDIENCE + PRODUCTION READY
 import React, { useState, useCallback, useEffect } from 'react';
 import { useAuth0 } from '@auth0/auth0-react';
 import CustomDropdown from '../../components/CustomDropdown';
 import './AddProduct.css';
+
+// ✅ REACT_APP_ prefix for Create React App
+const API_AUDIENCE = process.env.REACT_APP_AUTH0_AUDIENCE || 'https://minimart.localhost';
 
 // ✅ ALL 13 CONFIGS
 import { categoryFields } from '../../config/categoryFields';
@@ -22,6 +25,9 @@ import { years } from '../../config/years';
 import { promotionPlans } from '../../config/promotion';
 
 const AddProduct = () => {
+  // ✅ FULL Auth0 destructuring
+  const { user, isAuthenticated, getAccessTokenSilently } = useAuth0();
+
   // ✅ FULLY CONTROLLED STATE
   const [formData, setFormData] = useState({
     title: '',
@@ -53,10 +59,8 @@ const AddProduct = () => {
   const [message, setMessage] = useState('');
   const [selectedFeatures, setSelectedFeatures] = useState([]);
   const [termsAccepted, setTermsAccepted] = useState(localStorage.getItem('termsAccepted') === 'true');
-  
-  const { user, isAuthenticated } = useAuth0();
 
-  // ✅ NESTED MODELS SUPPORT - KEY FIX
+  // ✅ NESTED MODELS + CONFIG DATA
   const categoriesList = Object.keys(categoryFields || {});
   const categoryBrands = brands?.[category] || [];
   const categoryModels = models?.[category]?.[formData.brand] || [];
@@ -68,7 +72,7 @@ const AddProduct = () => {
     setFormData(prev => ({ ...prev, model: '' }));
   }, [formData.brand]);
 
-  // ✅ RESET FIELDS ON CATEGORY CHANGE
+  // ✅ RESET ON CATEGORY CHANGE
   useEffect(() => {
     if (category) {
       setSelectedFeatures([]);
@@ -91,9 +95,8 @@ const AddProduct = () => {
     }
   }, [category]);
 
-  // ✅ MASTER FIELD OPTIONS
+  // ✅ FIELD OPTIONS
   const getFieldOptions = (fieldName) => {
-    // ✅ SPECIAL CASE: Model depends on brand
     if (fieldName === 'model' && formData.brand && category) {
       return models?.[category]?.[formData.brand] || [];
     }
@@ -115,7 +118,6 @@ const AddProduct = () => {
     return optionsMap[fieldName] || fieldOptions?.[fieldName] || [];
   };
 
-  // ✅ DYNAMIC FIELDS FROM CONFIG
   const dynamicFields = categoryFields?.[category]?.filter(field => 
     !['features', 'transmission', 'mileage'].includes(field)
   ) || [];
@@ -187,6 +189,7 @@ const AddProduct = () => {
     );
   };
 
+  // ✅ FIXED: .env AUTH0 TOKEN + PRODUCTION READY
   const handleSubmit = async (e) => {
     e.preventDefault();
     
@@ -195,26 +198,37 @@ const AddProduct = () => {
       return;
     }
 
-    const productData = {
-      ...formData,
-      category,
-      state,
-      city,
-      features: selectedFeatures,
-      promotion_plan: selectedPlan ? selectedPlan.id : null,
-      poster_name: user?.name || 'Anonymous Seller',
-      country: "Nigeria",
-      price: parseInt(formData.price.replace(/,/g, '')) || 0
-    };
-
-    if (!productData.title.trim() || productData.price <= 0 || !productData.phone_number) {
-      setMessage('❌ Title, price, and phone number required');
+    if (!isAuthenticated) {
+      setMessage('❌ Please login first');
       return;
     }
 
     try {
       setLoading(true);
       setMessage('🚀 Publishing product...');
+
+      // ✅ .env AUDIENCE FROM ENVIRONMENT
+      const token = await getAccessTokenSilently({
+        audience: API_AUDIENCE,
+        scope: 'write:products'
+      });
+
+      const productData = {
+        ...formData,
+        category,
+        state,
+        city,
+        features: selectedFeatures,
+        promotion_plan: selectedPlan ? selectedPlan.id : null,
+        poster_name: user?.name || 'Anonymous Seller',
+        country: "Nigeria",
+        price: parseInt(formData.price.replace(/,/g, '')) || 0
+      };
+
+      if (!productData.title.trim() || productData.price <= 0 || !productData.phone_number) {
+        setMessage('❌ Title, price, and phone number required');
+        return;
+      }
 
       const formDataSubmit = new FormData();
       Object.entries(productData).forEach(([key, value]) => {
@@ -229,6 +243,9 @@ const AddProduct = () => {
 
       const response = await fetch('/api/marketplace/products', {
         method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${token}`,  // ✅ .env FIXED
+        },
         body: formDataSubmit
       });
 
@@ -237,24 +254,22 @@ const AddProduct = () => {
       if (response.ok) {
         setMessage(`🎉 Product published! ID: ${result.data?._id || result._id}`);
         
+        // RESET FORM
         setFormData({
           title: '', brand: '', model: '', price: '', phone_number: '',
           description: '', negotiation: 'no', condition: '', color: '',
           ram: '', storage: '', sim: '', engine: '', fuel_type: '',
           transmission: '', year: '', mileage: '', used_detail: ''
         });
-        setCategory(''); 
-        setState(''); 
-        setCity(''); 
-        setImagesPreview([]); 
-        setSelectedFeatures([]); 
-        setSelectedPlan(null);
+        setCategory(''); setState(''); setCity(''); 
+        setImagesPreview([]); setSelectedFeatures([]); setSelectedPlan(null);
         
         setTimeout(() => setMessage(''), 5000);
       } else {
         throw new Error(result.message || 'Publish failed');
       }
     } catch (error) {
+      console.error('Publish error:', error);
       setMessage(`❌ ${error.message}`);
     } finally {
       setLoading(false);
@@ -405,7 +420,7 @@ const AddProduct = () => {
           </section>
         )}
 
-        {/* DESCRIPTION & LOCATION */}
+        {/* DESCRIPTION */}
         <section className="form-section">
           <h2>📝 Description</h2>
           <div className="input-group full-width">
@@ -420,6 +435,7 @@ const AddProduct = () => {
           </div>
         </section>
 
+        {/* LOCATION */}
         <section className="form-section">
           <h2>📍 Location & Contact</h2>
           <div className="input-grid">
