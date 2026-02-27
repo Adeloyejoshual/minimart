@@ -1,9 +1,9 @@
 // routes/marketplace.js - ✅ FIXED + GLOBAL + CLOUDINARY
 import express from 'express';
-import Product from '../models/Product.js';
+import Product from './models/Product.js';
 import multer from 'multer';
 import cloudinary from '../config/cloudinary.js';
-import { paystackPayment, verifyPayment } from '../utils/paystackHelper.js';
+import { paystackPayment, verifyPayment } from './utils/paystackHelper.js';
 
 const router = express.Router();
 
