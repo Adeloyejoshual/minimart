@@ -1,10 +1,10 @@
-// src/pages/Marketplace/AddProduct.jsx - ✅ Fixed & Clean
+// src/pages/Marketplace/AddProduct.jsx
 import React, { useState, useCallback, useEffect } from 'react';
 import { useAuth0 } from '@auth0/auth0-react';
 import CustomDropdown from '../../components/CustomDropdown';
 import './AddProduct.css';
 
-// ✅ ALL CONFIGS (ensure these export real objects)
+// ✅ Configs (safe guards everywhere)
 import { categoryFields } from '../../config/categoryFields';
 import { brands } from '../../config/brands';
 import { colors } from '../../config/colors';
@@ -20,7 +20,7 @@ import { sims } from '../../config/sim';
 import { storageOptions } from '../../config/storageOptions';
 import { years } from '../../config/years';
 
-// ✅ Example promotion plans (remove or replace with real data)
+// ✅ Example promotion plans (change / remove when you have backend plans)
 const promotionPlans = [
   { id: 'free', name: 'Free Listing', price: 0, duration: '7 days' },
   { id: 'boost', name: 'Boost Listing', price: 500, duration: '7 days' },
@@ -29,7 +29,6 @@ const promotionPlans = [
 const AddProduct = () => {
   const { user, isAuthenticated } = useAuth0();
 
-  // ✅ FULL STATE
   const [formData, setFormData] = useState({
     title: '',
     brand: '',
@@ -59,20 +58,33 @@ const AddProduct = () => {
   const [loading, setLoading] = useState(false);
   const [message, setMessage] = useState('');
   const [selectedFeatures, setSelectedFeatures] = useState([]);
-  const [termsAccepted, setTermsAccepted] = useState(localStorage.getItem('termsAccepted') === 'true');
+  const [termsAccepted, setTermsAccepted] = useState(
+    localStorage.getItem('termsAccepted') === 'true'
+  );
 
-  // ✅ Guarded data from configs
-  const categoriesList = Object.keys(categoryFields || {});
-  const categoryBrands  = brands?.[category] || [];
-  const categoryModels  = models?.[category]?.[formData.brand] || [];
-  const categoryFeatures = featuresByCategory?.[category] || [];
-  const stateCities     = locationsByState?.[state] || [];
+  // ✅ Safe guarded data (no crash even if config is undefined)
+  const categoriesList = Array.isArray(categoryFields)
+    ? Object.keys(categoryFields)
+    : [];
+  const categoryBrands  = Array.isArray(brands?.[category])
+    ? brands[category]
+    : [];
+  const categoryModels  = Array.isArray(models?.[category]?.[formData.brand])
+    ? models[category][formData.brand]
+    : [];
+  const categoryFeatures = Array.isArray(featuresByCategory?.[category])
+    ? featuresByCategory[category]
+    : [];
+  const stateCities     = Array.isArray(locationsByState?.[state])
+    ? locationsByState[state]
+    : [];
 
-  // ✅ EFFECTS - Reset Logic
+  // ✅ Reset model when brand changes
   useEffect(() => {
     setFormData(prev => ({ ...prev, model: '' }));
   }, [formData.brand]);
 
+  // ✅ Reset all fields when category changes
   useEffect(() => {
     if (category) {
       setSelectedFeatures([]);
@@ -85,24 +97,26 @@ const AddProduct = () => {
     }
   }, [category]);
 
-  // ✅ FIELD OPTIONS - Dynamic + Safe
+  // ✅ Safe dynamic field options
   const getFieldOptions = (fieldName) => {
     if (fieldName === 'model' && formData.brand && category) {
-      return models?.[category]?.[formData.brand] || [];
+      return categoryModels;
     }
 
     const optionsMap = {
       brand:        categoryBrands,
-      condition:    conditions || [],
-      used_detail:  usedDetails || [],
-      color:        colors || [],
-      ram:          ramOptions || [],
-      storage:      storageOptions || [],
-      sim:          sims || [],
-      engine:       engines || [],
-      fuel_type:    fuelTypes || [],
-      transmission: fieldOptions?.transmission || ['Manual', 'Automatic', 'Semi-Automatic'],
-      year:         years || []
+      condition:    Array.isArray(conditions) ? conditions : [],
+      used_detail:  Array.isArray(usedDetails) ? usedDetails : [],
+      color:        Array.isArray(colors) ? colors : [],
+      ram:          Array.isArray(ramOptions) ? ramOptions : [],
+      storage:      Array.isArray(storageOptions) ? storageOptions : [],
+      sim:          Array.isArray(sims) ? sims : [],
+      engine:       Array.isArray(engines) ? engines : [],
+      fuel_type:    Array.isArray(fuelTypes) ? fuelTypes : [],
+      transmission: Array.isArray(fieldOptions?.transmission)
+        ? fieldOptions.transmission
+        : ['Manual', 'Automatic', 'Semi‑Automatic'],
+      year:         Array.isArray(years) ? years : []
     };
 
     return Array.isArray(optionsMap[fieldName])
@@ -112,13 +126,15 @@ const AddProduct = () => {
         : [];
   };
 
-  const dynamicFields = (categoryFields?.[category] || []).filter(
-    field => !['features', 'transmission', 'mileage'].includes(field)
-  );
+  const dynamicFields = Array.isArray(categoryFields?.[category])
+    ? categoryFields[category].filter(
+        field => !['features', 'transmission', 'mileage'].includes(field)
+      )
+    : [];
 
-  // ✅ HELPERS
+  // ✅ Helpers
   const formatPrice = (value) => {
-    return new Intl.NumberFormat('en-NG').format(parseInt(value) || 0);
+    return new Intl.NumberFormat('en‑NG').format(parseInt(value) || 0);
   };
 
   const updateFormField = (field, value) => {
@@ -132,7 +148,7 @@ const AddProduct = () => {
       return;
     }
 
-    files.forEach(file => {
+    for (const file of files) {
       if (file.size > 10 * 1024 * 1024) {
         setMessage('Maximum 10MB per image');
         return;
@@ -142,7 +158,7 @@ const AddProduct = () => {
         ...prev,
         { file, preview, name: file.name.substring(0, 20) }
       ]);
-    });
+    }
   }, [imagesPreview.length]);
 
   const removeImage = useCallback((index) => {
@@ -186,7 +202,7 @@ const AddProduct = () => {
     );
   };
 
-  // ✅ SUBMIT HANDLER
+  // ✅ Safe submit (any Auth0 user email works)
   const handleSubmit = async (e) => {
     e.preventDefault();
 
@@ -202,7 +218,7 @@ const AddProduct = () => {
 
     const priceNum = parseInt(formData.price.replace(/,/g, ''), 10) || 0;
     if (!formData.title?.trim() || priceNum <= 0 || !formData.phone_number) {
-      setMessage('❌ Title, price, and phone number required');
+      setMessage('❌ Title, price, and phone number are required');
       return;
     }
 
@@ -217,6 +233,7 @@ const AddProduct = () => {
         city,
         features: selectedFeatures,
         promotion_plan: selectedPlan ? selectedPlan.id : null,
+        // ✅ Any Auth0 user’s Gmail works here
         poster_name: user.name || 'Anonymous Seller',
         seller_email: user.email,
         country: 'Nigeria',
@@ -244,6 +261,7 @@ const AddProduct = () => {
       if (response.ok) {
         setMessage(`🎉 Product published! ID: ${result.data?._id || result._id}`);
 
+        // Reset form
         setFormData({
           title: '', brand: '', model: '', price: '', phone_number: '',
           description: '', negotiation: 'no', condition: '', color: '',
@@ -269,6 +287,7 @@ const AddProduct = () => {
     }
   };
 
+  // ✅ Always show something (no blank page)
   if (!isAuthenticated) {
     return (
       <div className="login-required" style={{ textAlign: 'center', padding: '2rem' }}>
@@ -286,7 +305,7 @@ const AddProduct = () => {
       )}
 
       <form onSubmit={handleSubmit} className="product-form">
-        {/* PRODUCT DETAILS */}
+        {/* Product Details */}
         <section className="form-section">
           <h2>📦 Product Details</h2>
           <div className="input-grid">
@@ -341,7 +360,7 @@ const AddProduct = () => {
           </div>
         </section>
 
-        {/* PRICING */}
+        {/* Pricing */}
         <section className="form-section">
           <h2>💰 Pricing</h2>
           <div className="input-grid">
@@ -355,21 +374,24 @@ const AddProduct = () => {
                 type="text"
                 placeholder="150,000"
                 className="input-large price-input required"
-                required
               />
             </div>
             <div className="input-group">
               <label>Promotion Plan</label>
               <CustomDropdown
                 options={
-                  promotionPlans?.map(p => ({
-                    value: p.id,
-                    label: `${p.name} - ₦${formatPrice(p.price)} (${p.duration})`
-                  })) || []
+                  Array.isArray(promotionPlans)
+                    ? promotionPlans.map(p => ({
+                        value: p.id,
+                        label: `${p.name} - ₦${formatPrice(p.price)} (${p.duration})`
+                      }))
+                    : []
                 }
                 value={selectedPlan?.id || ''}
                 onChange={(id) => {
-                  const plan = promotionPlans?.find(p => String(p.id) === String(id));
+                  const plan = Array.isArray(promotionPlans)
+                    ? promotionPlans.find(p => String(p.id) === String(id))
+                    : undefined;
                   setSelectedPlan(plan);
                 }}
                 placeholder="Free Listing"
@@ -394,7 +416,7 @@ const AddProduct = () => {
           </div>
         </section>
 
-        {/* SPECIFICATIONS */}
+        {/* Specifications */}
         {dynamicFields.length > 0 && (
           <section className="form-section">
             <h2>Specifications</h2>
@@ -404,7 +426,7 @@ const AddProduct = () => {
           </section>
         )}
 
-        {/* FEATURES */}
+        {/* Features */}
         {categoryFeatures.length > 0 && (
           <section className="form-section">
             <h2>✨ Features</h2>
@@ -423,7 +445,7 @@ const AddProduct = () => {
           </section>
         )}
 
-        {/* DESCRIPTION & LOCATION */}
+        {/* Description */}
         <section className="form-section">
           <h2>📝 Description</h2>
           <div className="input-group full-width">
@@ -438,6 +460,7 @@ const AddProduct = () => {
           </div>
         </section>
 
+        {/* Location & Contact */}
         <section className="form-section">
           <h2>📍 Location & Contact</h2>
           <div className="input-grid">
@@ -455,7 +478,7 @@ const AddProduct = () => {
             <div className="input-group">
               <label className="required">State *</label>
               <CustomDropdown
-                options={Object.keys(locationsByState || {})}
+                options={Array.isArray(locationsByState) ? Object.keys(locationsByState) : []}
                 value={state}
                 onChange={value => {
                   setState(value);
@@ -479,7 +502,7 @@ const AddProduct = () => {
           </div>
         </section>
 
-        {/* IMAGES */}
+        {/* Images */}
         <section className="form-section">
           <h2>🖼️ Product Images (Max 8)</h2>
           <input
@@ -507,7 +530,7 @@ const AddProduct = () => {
           )}
         </section>
 
-        {/* TERMS & SUBMIT */}
+        {/* Terms & Submit */}
         <section className="form-section">
           <div className="terms-section">
             <label className="terms-checkbox">
