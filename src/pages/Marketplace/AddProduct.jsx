@@ -1,10 +1,10 @@
-// src/pages/Marketplace/AddProduct.jsx - 🌍 GLOBAL + VITE + REAL GMAIL
+// src/pages/Marketplace/AddProduct.jsx - ✅ Fixed & Clean
 import React, { useState, useCallback, useEffect } from 'react';
 import { useAuth0 } from '@auth0/auth0-react';
 import CustomDropdown from '../../components/CustomDropdown';
 import './AddProduct.css';
 
-// ✅ ALL CONFIGS
+// ✅ ALL CONFIGS (ensure these export real objects)
 import { categoryFields } from '../../config/categoryFields';
 import { brands } from '../../config/brands';
 import { colors } from '../../config/colors';
@@ -20,8 +20,13 @@ import { sims } from '../../config/sim';
 import { storageOptions } from '../../config/storageOptions';
 import { years } from '../../config/years';
 
+// ✅ Example promotion plans (remove or replace with real data)
+const promotionPlans = [
+  { id: 'free', name: 'Free Listing', price: 0, duration: '7 days' },
+  { id: 'boost', name: 'Boost Listing', price: 500, duration: '7 days' },
+];
+
 const AddProduct = () => {
-  // ✅ GLOBAL Auth0 - ANY user works!
   const { user, isAuthenticated } = useAuth0();
 
   // ✅ FULL STATE
@@ -45,7 +50,7 @@ const AddProduct = () => {
     mileage: '',
     used_detail: ''
   });
-  
+
   const [category, setCategory] = useState('');
   const [state, setState] = useState('');
   const [city, setCity] = useState('');
@@ -56,12 +61,12 @@ const AddProduct = () => {
   const [selectedFeatures, setSelectedFeatures] = useState([]);
   const [termsAccepted, setTermsAccepted] = useState(localStorage.getItem('termsAccepted') === 'true');
 
-  // ✅ GLOBAL DATA - Nested Models
+  // ✅ Guarded data from configs
   const categoriesList = Object.keys(categoryFields || {});
-  const categoryBrands = brands?.[category] || [];
-  const categoryModels = models?.[category]?.[formData.brand] || [];
+  const categoryBrands  = brands?.[category] || [];
+  const categoryModels  = models?.[category]?.[formData.brand] || [];
   const categoryFeatures = featuresByCategory?.[category] || [];
-  const stateCities = locationsByState?.[state] || [];
+  const stateCities     = locationsByState?.[state] || [];
 
   // ✅ EFFECTS - Reset Logic
   useEffect(() => {
@@ -80,32 +85,36 @@ const AddProduct = () => {
     }
   }, [category]);
 
-  // ✅ FIELD OPTIONS - Dynamic
+  // ✅ FIELD OPTIONS - Dynamic + Safe
   const getFieldOptions = (fieldName) => {
     if (fieldName === 'model' && formData.brand && category) {
       return models?.[category]?.[formData.brand] || [];
     }
 
     const optionsMap = {
-      brand: categoryBrands,
-      condition: conditions || [],
-      used_detail: usedDetails || [],
-      color: colors || [],
-      ram: ramOptions || [],
-      storage: storageOptions || [],
-      sim: sims || [],
-      engine: engines || [],
-      fuel_type: fuelTypes || [],
+      brand:        categoryBrands,
+      condition:    conditions || [],
+      used_detail:  usedDetails || [],
+      color:        colors || [],
+      ram:          ramOptions || [],
+      storage:      storageOptions || [],
+      sim:          sims || [],
+      engine:       engines || [],
+      fuel_type:    fuelTypes || [],
       transmission: fieldOptions?.transmission || ['Manual', 'Automatic', 'Semi-Automatic'],
-      year: years || []
+      year:         years || []
     };
-    
-    return optionsMap[fieldName] || fieldOptions?.[fieldName] || [];
+
+    return Array.isArray(optionsMap[fieldName])
+      ? optionsMap[fieldName]
+      : Array.isArray(fieldOptions?.[fieldName])
+        ? fieldOptions[fieldName]
+        : [];
   };
 
-  const dynamicFields = categoryFields?.[category]?.filter(field => 
-    !['features', 'transmission', 'mileage'].includes(field)
-  ) || [];
+  const dynamicFields = (categoryFields?.[category] || []).filter(
+    field => !['features', 'transmission', 'mileage'].includes(field)
+  );
 
   // ✅ HELPERS
   const formatPrice = (value) => {
@@ -122,26 +131,28 @@ const AddProduct = () => {
       setMessage('Maximum 8 images allowed');
       return;
     }
-    
+
     files.forEach(file => {
       if (file.size > 10 * 1024 * 1024) {
         setMessage('Maximum 10MB per image');
         return;
       }
       const preview = URL.createObjectURL(file);
-      setImagesPreview(prev => [...prev, { file, preview, name: file.name.substring(0, 20) }]);
+      setImagesPreview(prev => [
+        ...prev,
+        { file, preview, name: file.name.substring(0, 20) }
+      ]);
     });
   }, [imagesPreview.length]);
 
   const removeImage = useCallback((index) => {
-    if (imagesPreview[index]) {
-      URL.revokeObjectURL(imagesPreview[index].preview);
-    }
+    const item = imagesPreview[index];
+    if (item) URL.revokeObjectURL(item.preview);
     setImagesPreview(prev => prev.filter((_, i) => i !== index));
   }, [imagesPreview]);
 
   const toggleFeature = useCallback((feature) => {
-    setSelectedFeatures(prev => 
+    setSelectedFeatures(prev =>
       prev.includes(feature)
         ? prev.filter(f => f !== feature)
         : [...prev, feature]
@@ -151,7 +162,7 @@ const AddProduct = () => {
   const renderDynamicField = (fieldName) => {
     const options = getFieldOptions(fieldName);
     const fieldLabel = fieldName.replace(/_/g, ' ').replace(/\bw/g, l => l.toUpperCase());
-    
+
     return (
       <div className="dynamic-field" key={fieldName}>
         <label>{fieldLabel}</label>
@@ -175,18 +186,23 @@ const AddProduct = () => {
     );
   };
 
-  // 🌍 GLOBAL SUBMIT - ANY USER'S GMAIL!
+  // ✅ SUBMIT HANDLER
   const handleSubmit = async (e) => {
     e.preventDefault();
-    
+
     if (!termsAccepted) {
       setMessage('❌ Please accept Terms & Conditions first');
       return;
     }
 
-    // ✅ GLOBAL LOGIN CHECK - ANY Auth0 user
     if (!isAuthenticated || !user?.email) {
       setMessage('❌ Please login first');
+      return;
+    }
+
+    const priceNum = parseInt(formData.price.replace(/,/g, ''), 10) || 0;
+    if (!formData.title?.trim() || priceNum <= 0 || !formData.phone_number) {
+      setMessage('❌ Title, price, and phone number required');
       return;
     }
 
@@ -201,54 +217,46 @@ const AddProduct = () => {
         city,
         features: selectedFeatures,
         promotion_plan: selectedPlan ? selectedPlan.id : null,
-        // 🌍 GLOBAL - REAL USER DATA
         poster_name: user.name || 'Anonymous Seller',
-        seller_email: user.email,  // ANY Gmail works!
-        country: "Nigeria",
-        price: parseInt(formData.price.replace(/,/g, '')) || 0
+        seller_email: user.email,
+        country: 'Nigeria',
+        price: priceNum
       };
-
-      if (!productData.title?.trim() || productData.price <= 0 || !productData.phone_number) {
-        setMessage('❌ Title, price, and phone number required');
-        return;
-      }
 
       const formDataSubmit = new FormData();
       Object.entries(productData).forEach(([key, value]) => {
         if (Array.isArray(value)) {
           value.forEach(item => formDataSubmit.append(key, item));
-        } else if (value !== null && value !== undefined && value !== '') {
+        } else if (value !== null && value !== undefined) {
           formDataSubmit.append(key, String(value));
         }
       });
 
       imagesPreview.forEach(img => formDataSubmit.append('images', img.file));
 
-      // ✅ PUBLIC ROUTE - NO HEADERS NEEDED
       const response = await fetch('/api/marketplace/products', {
         method: 'POST',
         body: formDataSubmit
       });
 
       const result = await response.json();
-      
+
       if (response.ok) {
         setMessage(`🎉 Product published! ID: ${result.data?._id || result._id}`);
-        
-        // RESET FORM
+
         setFormData({
           title: '', brand: '', model: '', price: '', phone_number: '',
           description: '', negotiation: 'no', condition: '', color: '',
           ram: '', storage: '', sim: '', engine: '', fuel_type: '',
           transmission: '', year: '', mileage: '', used_detail: ''
         });
-        setCategory(''); 
-        setState(''); 
-        setCity(''); 
-        setImagesPreview([]); 
-        setSelectedFeatures([]); 
+        setCategory('');
+        setState('');
+        setCity('');
+        setImagesPreview([]);
+        setSelectedFeatures([]);
         setSelectedPlan(null);
-        
+
         setTimeout(() => setMessage(''), 5000);
       } else {
         throw new Error(result.message || 'Publish failed');
@@ -271,14 +279,12 @@ const AddProduct = () => {
 
   return (
     <div className="add-product-container">
-      {/* MESSAGE */}
       {message && (
         <div className={`message ${message.includes('🎉') ? 'success' : 'error'}`}>
           {message}
         </div>
       )}
 
-      {/* FORM */}
       <form onSubmit={handleSubmit} className="product-form">
         {/* PRODUCT DETAILS */}
         <section className="form-section">
@@ -286,13 +292,13 @@ const AddProduct = () => {
           <div className="input-grid">
             <div className="input-group">
               <label className="required">Product Title *</label>
-              <input 
+              <input
                 value={formData.title}
                 onChange={(e) => updateFormField('title', e.target.value)}
-                type="text" 
+                type="text"
                 placeholder="Tecno Camon 19 32GB Green - Perfect Condition"
                 className="input-large required"
-                required 
+                required
               />
             </div>
             <div className="input-group">
@@ -322,12 +328,14 @@ const AddProduct = () => {
                 options={categoryModels}
                 value={formData.model}
                 onChange={(value) => updateFormField('model', value)}
-                placeholder={formData.brand ? `Select ${formData.brand} Model` : "Select Brand First"}
+                placeholder={formData.brand ? `Select ${formData.brand} Model` : 'Select Brand First'}
                 className="input-large"
                 disabled={!formData.brand || !category}
               />
               {categoryModels.length === 0 && formData.brand && (
-                <small style={{color: '#666', fontSize: '12px'}}>No models found for this brand</small>
+                <small style={{ color: '#666', fontSize: '12px' }}>
+                  No models found for this brand
+                </small>
               )}
             </div>
           </div>
@@ -339,9 +347,11 @@ const AddProduct = () => {
           <div className="input-grid">
             <div className="input-group">
               <label className="required">Price (₦) *</label>
-              <input 
+              <input
                 value={formData.price}
-                onChange={(e) => updateFormField('price', formatPrice(e.target.value.replace(/,/g, '')))}
+                onChange={(e) =>
+                  updateFormField('price', formatPrice(e.target.value.replace(/,/g, '')))
+                }
                 type="text"
                 placeholder="150,000"
                 className="input-large price-input required"
@@ -351,13 +361,15 @@ const AddProduct = () => {
             <div className="input-group">
               <label>Promotion Plan</label>
               <CustomDropdown
-                options={promotionPlans?.map(p => ({ 
-                  value: p.id, 
-                  label: `${p.name} - ₦${formatPrice(p.price)} (${p.duration})` 
-                })) || []}
+                options={
+                  promotionPlans?.map(p => ({
+                    value: p.id,
+                    label: `${p.name} - ₦${formatPrice(p.price)} (${p.duration})`
+                  })) || []
+                }
                 value={selectedPlan?.id || ''}
                 onChange={(id) => {
-                  const plan = promotionPlans?.find(p => p.id == id);
+                  const plan = promotionPlans?.find(p => String(p.id) === String(id));
                   setSelectedPlan(plan);
                 }}
                 placeholder="Free Listing"
@@ -416,7 +428,7 @@ const AddProduct = () => {
           <h2>📝 Description</h2>
           <div className="input-group full-width">
             <label>Description</label>
-            <textarea 
+            <textarea
               value={formData.description}
               onChange={(e) => updateFormField('description', e.target.value)}
               rows="5"
@@ -431,10 +443,10 @@ const AddProduct = () => {
           <div className="input-grid">
             <div className="input-group">
               <label className="required">Phone Number *</label>
-              <input 
+              <input
                 value={formData.phone_number}
                 onChange={(e) => updateFormField('phone_number', e.target.value)}
-                type="tel" 
+                type="tel"
                 placeholder="08012345678"
                 className="input-large required"
                 required
@@ -445,7 +457,7 @@ const AddProduct = () => {
               <CustomDropdown
                 options={Object.keys(locationsByState || {})}
                 value={state}
-                onChange={(value) => {
+                onChange={value => {
                   setState(value);
                   setCity('');
                 }}
@@ -470,10 +482,10 @@ const AddProduct = () => {
         {/* IMAGES */}
         <section className="form-section">
           <h2>🖼️ Product Images (Max 8)</h2>
-          <input 
-            type="file" 
-            multiple 
-            accept="image/*" 
+          <input
+            type="file"
+            multiple
+            accept="image/*"
             onChange={handleImages}
             className="file-upload"
           />
@@ -502,13 +514,16 @@ const AddProduct = () => {
               <input
                 type="checkbox"
                 checked={termsAccepted}
-                onChange={(e) => {
+                onChange={e => {
                   setTermsAccepted(e.target.checked);
                   localStorage.setItem('termsAccepted', e.target.checked);
                 }}
               />
               <span>
-                I agree to <a href="/terms" target="_blank" rel="noopener noreferrer" className="terms-link">Terms & Conditions</a>
+                I agree to{' '}
+                <a href="/terms" target="_blank" rel="noopener noreferrer" className="terms-link">
+                  Terms & Conditions
+                </a>
               </span>
             </label>
           </div>
