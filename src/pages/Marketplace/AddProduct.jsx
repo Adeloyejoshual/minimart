@@ -17,47 +17,64 @@ import { sims } from "../../config/sim";
 import { storageOptions } from "../../config/storageOptions";
 import { years } from "../../config/years";
 
-// -------------------- Reusable Dynamic Field Component --------------------
+// ---------------- DynamicField Component ----------------
 function DynamicField({ field, formData, handleChange, currentCategory }) {
   const fieldComponents = {
     brand: <select name="brand" value={formData.brand} onChange={handleChange} aria-label="Brand">
-      <option value="">Select Brand</option>{brands.map(b => <option key={b} value={b}>{b}</option>)}
+      <option value="">Select Brand</option>
+      {brands.map(b => <option key={b} value={b}>{b}</option>)}
     </select>,
     model: <select name="model" value={formData.model} onChange={handleChange} aria-label="Model">
-      <option value="">Select Model</option>{(models[formData.brand] || []).map(m => <option key={m} value={m}>{m}</option>)}
+      <option value="">Select Model</option>
+      {(models[formData.brand] || []).map(m => <option key={m} value={m}>{m}</option>)}
     </select>,
     condition: <select name="condition" value={formData.condition} onChange={handleChange} aria-label="Condition">
-      <option value="">Condition</option>{conditions.map(c => <option key={c} value={c}>{c}</option>)}
+      <option value="">Condition</option>
+      {conditions.map(c => <option key={c} value={c}>{c}</option>)}
     </select>,
     used_detail: <select name="used_detail" value={formData.used_detail} onChange={handleChange} aria-label="Used Detail">
-      <option value="">Used Detail</option>{usedDetails.map(u => <option key={u} value={u}>{u}</option>)}
+      <option value="">Used Detail</option>
+      {usedDetails.map(u => <option key={u} value={u}>{u}</option>)}
     </select>,
     ram: <select name="ram" value={formData.ram} onChange={handleChange} aria-label="RAM">
-      <option value="">RAM</option>{ramOptions.map(r => <option key={r} value={r}>{r}</option>)}
+      <option value="">RAM</option>
+      {ramOptions.map(r => <option key={r} value={r}>{r}</option>)}
     </select>,
     storage: <select name="storage" value={formData.storage} onChange={handleChange} aria-label="Storage">
-      <option value="">Storage</option>{storageOptions.map(s => <option key={s} value={s}>{s}</option>)}
+      <option value="">Storage</option>
+      {storageOptions.map(s => <option key={s} value={s}>{s}</option>)}
     </select>,
     color: <select name="color" value={formData.color} onChange={handleChange} aria-label="Color">
-      <option value="">Color</option>{colors.map(c => <option key={c} value={c}>{c}</option>)}
+      <option value="">Color</option>
+      {colors.map(c => <option key={c} value={c}>{c}</option>)}
     </select>,
     engine: <select name="engine" value={formData.engine} onChange={handleChange} aria-label="Engine">
-      <option value="">Engine</option>{engines.map(e => <option key={e} value={e}>{e}</option>)}
+      <option value="">Engine</option>
+      {engines.map(e => <option key={e} value={e}>{e}</option>)}
     </select>,
     fuel_type: <select name="fuel_type" value={formData.fuel_type} onChange={handleChange} aria-label="Fuel Type">
-      <option value="">Fuel Type</option>{fuelTypes.map(f => <option key={f} value={f}>{f}</option>)}
+      <option value="">Fuel Type</option>
+      {fuelTypes.map(f => <option key={f} value={f}>{f}</option>)}
     </select>,
     year: <select name="year" value={formData.year} onChange={handleChange} aria-label="Year">
-      <option value="">Year</option>{years.map(y => <option key={y} value={y}>{y}</option>)}
+      <option value="">Year</option>
+      {years.map(y => <option key={y} value={y}>{y}</option>)}
     </select>,
     sim: <select name="sim" value={formData.sim} onChange={handleChange} aria-label="SIM">
-      <option value="">SIM</option>{sims.map(s => <option key={s} value={s}>{s}</option>)}
+      <option value="">SIM</option>
+      {sims.map(s => <option key={s} value={s}>{s}</option>)}
     </select>,
-    features: featuresByCategory[currentCategory]?.length
+    features: (featuresByCategory[currentCategory] || []).length > 0
       ? <div className="features-multiselect scrollable">
           {featuresByCategory[currentCategory].map(f => (
             <label key={f}>
-              <input type="checkbox" name="features" value={f} checked={formData.features.includes(f)} onChange={handleChange} />
+              <input
+                type="checkbox"
+                name="features"
+                value={f}
+                checked={formData.features.includes(f)}
+                onChange={handleChange}
+              />
               {f}
             </label>
           ))}
@@ -68,7 +85,7 @@ function DynamicField({ field, formData, handleChange, currentCategory }) {
   return <div className="field">{fieldComponents[field] || <input type="text" name={field} value={formData[field]} onChange={handleChange} />}</div>;
 }
 
-// -------------------- Main Component --------------------
+// ---------------- Main Component ----------------
 export default function AddProduct() {
   const { user, isAuthenticated, loginWithRedirect, getAccessTokenSilently } = useAuth0();
   const navigate = useNavigate();
@@ -107,28 +124,45 @@ export default function AddProduct() {
   const [dynamicFields, setDynamicFields] = useState([]);
   const [subcategories, setSubcategories] = useState([]);
 
-  // Safe currentCategory reference for rendering
-  const currentCategory = formData.category;
+  const currentCategory = formData.category; // safe reference for rendering
 
   // ---------------- Category change ----------------
   useEffect(() => {
     if (currentCategory) {
       setDynamicFields(categoryFields[currentCategory] || []);
-      setSubcategories({
+
+      const subcats = {
         "Phones & Tablets": ["Smartphones", "Tablets"],
         Vehicles: ["Cars", "Bikes"],
         "Computers & Laptops": ["Laptops", "Desktops"],
-      }[currentCategory] || []);
+      };
 
-      // Only reset fields that must clear
-      setFormData(prev => ({ ...prev, features: [], subcategory: "" }));
+      setSubcategories(subcats[currentCategory] || []);
+
+      // Only reset dependent fields
+      setFormData(prev => ({
+        ...prev,
+        brand: "",
+        model: "",
+        condition: "",
+        used_detail: "",
+        ram: "",
+        storage: "",
+        color: "",
+        engine: "",
+        fuel_type: "",
+        year: "",
+        sim: "",
+        features: [],
+        subcategory: "",
+      }));
     }
   }, [currentCategory]);
 
   // Reset model when brand changes
   useEffect(() => setFormData(prev => ({ ...prev, model: "" })), [formData.brand]);
 
-  // ---------------- Handle Input ----------------
+  // ---------------- Handle input ----------------
   const handleChange = (e) => {
     const { name, value, type, checked } = e.target;
 
@@ -153,7 +187,6 @@ export default function AddProduct() {
       return setErrors(prev => ({ ...prev, images: `Maximum ${maxImages} images allowed` }));
     }
 
-    // Optional: file size validation
     if (files.some(f => f.size > 5 * 1024 * 1024)) {
       return setErrors(prev => ({ ...prev, images: "One or more images exceed 5MB" }));
     }
@@ -186,13 +219,18 @@ export default function AddProduct() {
     const rules = categoryRules[currentCategory];
     const newErrors = {};
 
-    // Dynamic validation
+    // Validate required dynamic fields
     if (rules?.required) {
       for (const field of rules.required) {
         const value = formData[field];
         if (!value || (Array.isArray(value) && value.length === 0)) newErrors[field] = `${field} is required`;
       }
     }
+
+    if (!formData.title) newErrors.title = "Title is required";
+    if (!formData.category) newErrors.category = "Category is required";
+    if (!formData.description) newErrors.description = "Description is required";
+    if (!formData.price) newErrors.price = "Price is required";
 
     if (Object.keys(newErrors).length) {
       setErrors(newErrors);
@@ -277,7 +315,7 @@ export default function AddProduct() {
           </div>
         )}
 
-        {dynamicFields.map(field => (
+        {dynamicFields.length > 0 && dynamicFields.map(field => (
           <div key={field} className="form-group">
             <label>{field.charAt(0).toUpperCase() + field.slice(1)}</label>
             <DynamicField field={field} formData={formData} handleChange={handleChange} currentCategory={currentCategory} />
