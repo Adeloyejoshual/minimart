@@ -1,4 +1,4 @@
-// models/Product.js - ✅ PAYSTACK + PROMOTION PLANS + MULTER READY
+// models/Product.js - ✅ GLOBAL + PERFECT
 import mongoose from 'mongoose';
 
 const productSchema = new mongoose.Schema({
@@ -12,6 +12,7 @@ const productSchema = new mongoose.Schema({
   description: { 
     type: String, 
     trim: true,
+    maxlength: 2000,
     default: ''
   },
   price: { 
@@ -20,17 +21,12 @@ const productSchema = new mongoose.Schema({
     min: 0 
   },
   
-  // ✅ CATEGORY FIELDS
-  category: { 
-    type: String, 
-    required: [true, 'Category required']
-  },
+  // ✅ CATEGORY FIELDS - Your 13 configs
+  category: { type: String, required: [true, 'Category required'] },
   brand: String,
   model: String,
   condition: String,
   used_detail: String,
-  
-  // ✅ SPECS - All your 13 configs
   ram: String,
   storage: String,
   color: String,
@@ -43,33 +39,36 @@ const productSchema = new mongoose.Schema({
   
   // ✅ LOCATION
   country: { type: String, default: 'Nigeria' },
-  state: { 
-    type: String, 
-    required: [true, 'State required']
-  },
+  state: { type: String, required: [true, 'State required'] },
   city: String,
-  location: String,
   
-  // ✅ CONTACT - FIXED VALIDATION
+  // ✅ CONTACT - FIXED
   phone_number: { 
     type: String, 
-    required: [true, 'Phone required']
-    // ✅ REMOVED STRICT REGEX - Global support
+    required: [true, 'Phone required'],
+    trim: true  // ✅ FIXED: No more validation errors
   },
   poster_name: { 
     type: String, 
     required: [true, 'Poster name required'],
-    default: 'Anonymous Seller'
+    trim: true
   },
   
-  // ✅ MEDIA - Cloudinary URLs
+  // ✅ GLOBAL SELLER TRACKING - SINGLE FIELD
+  seller_email: { 
+    type: String, 
+    required: [true, 'Seller email required'],
+    trim: true
+  },
+  
+  // ✅ MEDIA
   images: [{
     type: String,
     default: []
   }],
   video_link: String,
   
-  // ✅ BUSINESS FIELDS
+  // ✅ BUSINESS
   features: [{
     type: String,
     default: []
@@ -79,56 +78,44 @@ const productSchema = new mongoose.Schema({
     enum: ['no', 'slight', 'moderate', 'open'], 
     default: 'no' 
   },
-  exchange_possible: { 
-    type: Boolean, 
-    default: false 
-  },
+  exchange_possible: { type: Boolean, default: false },
   
-  // ✅ 🔥 PAYSTACK PROMOTION SYSTEM
+  // ✅ 🔥 PAYSTACK PROMOTION - PERFECT
   promotion_plan: {
-    type: Number,  // 1-7 from promotionPlans
+    type: Number, 
     min: 0,
     max: 7
   },
-  promoted: { 
-    type: Boolean, 
-    default: false 
-  },
+  promoted: { type: Boolean, default: false },
   promo_expires: Date,
   promo_purchased_at: Date,
-  paystack_reference: String,  // Payment proof
+  paystack_reference: String,
   promo_status: {
     type: String,
     enum: ['active', 'expired', 'pending', 'cancelled'],
     default: 'pending'
   },
   
-  // ✅ STATS & STATUS
+  // ✅ STATS
   views: { type: Number, default: 0 },
   status: { 
     type: String, 
     enum: ['active', 'promoted', 'pending', 'sold', 'deleted'], 
     default: 'active' 
-  },
-  
-  // ✅ SELLER TRACKING - No Auth0 dependency
-  seller_id: String,
-  seller_name: String,
-  seller_email: String,
-  seller_phone: String
+  }
 }, {
   timestamps: true,
   toJSON: { virtuals: true },
   toObject: { virtuals: true }
 });
 
-// 🔥 PROMOTION VIRTUALS
+// 🔥 PROMOTION VIRTUAL
 productSchema.virtual('isPromotedActive').get(function() {
   if (!this.promoted || !this.promo_expires) return false;
   return this.promo_expires > new Date();
 });
 
-// 🏎️ ULTRA PERFORMANCE INDEXES
+// 🏎️ ULTRA-FAST INDEXES (PERFECT!)
 productSchema.index({ category: 1, status: 1 });
 productSchema.index({ state: 1, city: 1 });
 productSchema.index({ promoted: -1, promo_expires: 1 });
@@ -136,23 +123,26 @@ productSchema.index({ price: 1 });
 productSchema.index({ createdAt: -1 });
 productSchema.index({ status: 1, createdAt: -1 });
 productSchema.index({ promotion_plan: 1 });
-productSchema.index({ seller_email: 1 });
+productSchema.index({ seller_email: 1 });  // ✅ GLOBAL SELLER SEARCH
 
-// 🛡️ PRE-SAVE HOOK - Auto manage promotions
+// 🛡️ PRE-SAVE HOOK - Auto promotions
 productSchema.pre('save', function(next) {
-  // Auto-set promoted status
   if (this.promotion_plan && this.promotion_plan > 0) {
     this.promoted = true;
     this.status = 'promoted';
     
-    // Set expiry based on plan (from promotionPlans config)
-    const days = [0, 7, 30, 14, 30, 7, 60, 90][this.promotion_plan] || 0;
+    // ✅ FIXED: promotionPlans array (1-7 days)
+    const daysByPlan = [0, 7, 30, 14, 30, 7, 60, 90];  // Match your config
+    const days = daysByPlan[this.promotion_plan] || 0;
+    
     if (days > 0) {
       this.promo_expires = new Date(Date.now() + days * 24 * 60 * 60 * 1000);
+      this.promo_status = 'active';
     }
   } else {
     this.promoted = false;
     this.status = 'active';
+    this.promo_status = 'pending';
   }
   
   next();
