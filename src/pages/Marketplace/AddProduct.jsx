@@ -1,425 +1,359 @@
-// src/pages/Marketplace/AddProduct.jsx - FULLY WORKING
-import React, { useState, useCallback, useEffect } from 'react';
-import { useAuth0 } from '@auth0/auth0-react';
-import { useNavigate } from 'react-router-dom';
-import CustomDropdown from '../../components/CustomDropdown';
-import './AddProduct.css';
+import { useState, useEffect } from "react";
+import { useAuth0 } from "@auth0/auth0-react";
+import "./AddProduct.css";
 
-// ✅ YOUR CONFIG IMPORTS (safe fallbacks)
-import { categoryFields } from '../../config/categoryFields';
-import { brands } from '../../config/brands';
-import { colors } from '../../config/colors';
-import { conditions, usedDetails } from '../../config/conditions';
-import { engines } from '../../config/engines';
-import { featuresByCategory } from '../../config/featuresByCategory';
-import { fieldOptions } from '../../config/fieldOptions';
-import { fuelTypes } from '../../config/fuelTypes';
-import { locationsByState } from '../../config/locationsByState';
-import { models } from '../../config/models';
-import { ramOptions } from '../../config/ramOptions';
-import { sims } from '../../config/sim';
-import { storageOptions } from '../../config/storageOptions';
-import { years } from '../../config/years';
+import { categoryFields } from "../../config/categoryFields";
+import { brands } from "../../config/brands";
+import { models } from "../../config/models";
+import { colors } from "../../config/colors";
+import { conditions, usedDetails } from "../../config/conditions";
+import { engines } from "../../config/engines";
+import { featuresByCategory } from "../../config/featuresByCategory";
+import { fieldOptions } from "../../config/fieldOptions";
+import { fuelTypes } from "../../config/fuelTypes";
+import { locationsByState } from "../../config/locationsByState";
+import { ramOptions } from "../../config/ramOptions";
+import { sims } from "../../config/sim";
+import { storageOptions } from "../../config/storageOptions";
+import { years } from "../../config/years";
 
-const AddProduct = () => {
-  const { user, isAuthenticated, getAccessTokenSilently } = useAuth0();
-  const navigate = useNavigate();
+export default function AddProduct() {
+  const { user, isAuthenticated, loginWithRedirect, getAccessTokenSilently } =
+    useAuth0();
 
-  // ✅ SIMPLIFIED STATE
+  const [loading, setLoading] = useState(false);
+  const [imagesUploading, setImagesUploading] = useState(false);
+
   const [formData, setFormData] = useState({
-    title: '',
-    brand: '',
-    model: '',
-    price: '',
-    phone_number: '',
-    description: '',
-    negotiation: 'no',
-    condition: '',
-    color: ''
+    title: "",
+    category: "",
+    subcategory: "",
+    description: "",
+    price: "",
+    negotiation: "No",
+    exchange_possible: false,
+    country: "Nigeria",
+    state: "",
+    city: "",
+    location: "",
+    images: [],
   });
 
-  const [category, setCategory] = useState('');
-  const [state, setState] = useState('Lagos');
-  const [city, setCity] = useState('');
-  const [imagesPreview, setImagesPreview] = useState([]);
-  const [loading, setLoading] = useState(false);
-  const [message, setMessage] = useState('');
-  const [termsAccepted, setTermsAccepted] = useState(false);
+  const [dynamicFields, setDynamicFields] = useState([]);
 
-  // ✅ SAFE CONFIG ACCESS
-  const categoriesList = Object.keys(categoryFields || {});
-  const categoryBrands = brands?.[category] || [];
-  const categoryModels = models?.[category]?.[formData.brand] || [];
-  const stateCities = locationsByState?.[state] || [];
-
-  // ✅ EFFECTS
+  /* ------------------ CATEGORY CHANGE ------------------ */
   useEffect(() => {
-    setFormData(prev => ({ ...prev, model: '' }));
-  }, [formData.brand]);
-
-  useEffect(() => {
-    if (category) {
-      setFormData(prev => ({
-        ...prev,
-        brand: '', model: '', condition: '', color: ''
-      }));
+    if (formData.category) {
+      setDynamicFields(categoryFields[formData.category] || []);
     }
-  }, [category]);
+  }, [formData.category]);
 
-  // ✅ HELPERS
-  const formatPrice = (value) => {
-    return new Intl.NumberFormat('en-NG').format(parseInt(value) || 0);
+  /* ------------------ HANDLE INPUT ------------------ */
+  const handleChange = (e) => {
+    const { name, value, type, checked } = e.target;
+
+    setFormData((prev) => ({
+      ...prev,
+      [name]: type === "checkbox" ? checked : value,
+    }));
   };
 
-  const updateFormField = (field, value) => {
-    setFormData(prev => ({ ...prev, [field]: value }));
-    setMessage('');
+  /* ------------------ CLOUDINARY UPLOAD ------------------ */
+  const handleImageUpload = async (e) => {
+    const files = Array.from(e.target.files);
+    if (!files.length) return;
+
+    setImagesUploading(true);
+
+    const uploadedImages = [];
+
+    for (const file of files) {
+      const data = new FormData();
+      data.append("file", file);
+      data.append("upload_preset", "YOUR_UPLOAD_PRESET");
+
+      const res = await fetch(
+        "https://api.cloudinary.com/v1_1/YOUR_CLOUD_NAME/image/upload",
+        {
+          method: "POST",
+          body: data,
+        }
+      );
+
+      const result = await res.json();
+      uploadedImages.push(result.secure_url);
+    }
+
+    setFormData((prev) => ({
+      ...prev,
+      images: [...prev.images, ...uploadedImages],
+    }));
+
+    setImagesUploading(false);
   };
 
-  const handleImages = useCallback((e) => {
-    const files = Array.from(e.target.files).slice(0, 8);
-    files.forEach(file => {
-      if (file.size > 10 * 1024 * 1024) return;
-      const preview = URL.createObjectURL(file);
-      setImagesPreview(prev => [...prev, { file, preview, name: file.name.substring(0, 20) }]);
-    });
-  }, []);
+  /* ------------------ RENDER DYNAMIC FIELD ------------------ */
+  const renderField = (field) => {
+    switch (field) {
+      case "brand":
+        return (
+          <select name="brand" onChange={handleChange}>
+            <option value="">Select Brand</option>
+            {brands?.map((b) => (
+              <option key={b} value={b}>
+                {b}
+              </option>
+            ))}
+          </select>
+        );
 
-  const removeImage = useCallback((index) => {
-    const item = imagesPreview[index];
-    if (item) URL.revokeObjectURL(item.preview);
-    setImagesPreview(prev => prev.filter((_, i) => i !== index));
-  }, [imagesPreview]);
+      case "model":
+        return (
+          <select name="model" onChange={handleChange}>
+            <option value="">Select Model</option>
+            {(models?.[formData.brand] || []).map((m) => (
+              <option key={m} value={m}>
+                {m}
+              </option>
+            ))}
+          </select>
+        );
 
-  // ✅ FIXED SUBMIT - WORKING VERSION
+      case "condition":
+        return (
+          <select name="condition" onChange={handleChange}>
+            <option value="">Condition</option>
+            {conditions.map((c) => (
+              <option key={c} value={c}>
+                {c}
+              </option>
+            ))}
+          </select>
+        );
+
+      case "used_detail":
+        return (
+          <select name="used_detail" onChange={handleChange}>
+            <option value="">Used Detail</option>
+            {usedDetails.map((u) => (
+              <option key={u} value={u}>
+                {u}
+              </option>
+            ))}
+          </select>
+        );
+
+      case "ram":
+        return (
+          <select name="ram" onChange={handleChange}>
+            <option value="">RAM</option>
+            {ramOptions.map((r) => (
+              <option key={r} value={r}>
+                {r}
+              </option>
+            ))}
+          </select>
+        );
+
+      case "storage":
+        return (
+          <select name="storage" onChange={handleChange}>
+            <option value="">Storage</option>
+            {storageOptions.map((s) => (
+              <option key={s} value={s}>
+                {s}
+              </option>
+            ))}
+          </select>
+        );
+
+      case "color":
+        return (
+          <select name="color" onChange={handleChange}>
+            <option value="">Color</option>
+            {colors.map((c) => (
+              <option key={c} value={c}>
+                {c}
+              </option>
+            ))}
+          </select>
+        );
+
+      case "engine":
+        return (
+          <select name="engine" onChange={handleChange}>
+            <option value="">Engine</option>
+            {engines.map((e) => (
+              <option key={e} value={e}>
+                {e}
+              </option>
+            ))}
+          </select>
+        );
+
+      case "fuel_type":
+        return (
+          <select name="fuel_type" onChange={handleChange}>
+            <option value="">Fuel Type</option>
+            {fuelTypes.map((f) => (
+              <option key={f} value={f}>
+                {f}
+              </option>
+            ))}
+          </select>
+        );
+
+      case "year":
+        return (
+          <select name="year" onChange={handleChange}>
+            <option value="">Year</option>
+            {years.map((y) => (
+              <option key={y} value={y}>
+                {y}
+              </option>
+            ))}
+          </select>
+        );
+
+      case "sim":
+        return (
+          <select name="sim" onChange={handleChange}>
+            <option value="">SIM</option>
+            {sims.map((s) => (
+              <option key={s} value={s}>
+                {s}
+              </option>
+            ))}
+          </select>
+        );
+
+      case "features":
+        return (
+          <select name="features" onChange={handleChange}>
+            <option value="">Features</option>
+            {(featuresByCategory[formData.category] || []).map((f) => (
+              <option key={f} value={f}>
+                {f}
+              </option>
+            ))}
+          </select>
+        );
+
+      default:
+        return (
+          <input
+            type="text"
+            name={field}
+            placeholder={field.replace("_", " ").toUpperCase()}
+            onChange={handleChange}
+          />
+        );
+    }
+  };
+
+  /* ------------------ SUBMIT ------------------ */
   const handleSubmit = async (e) => {
     e.preventDefault();
 
-    if (!termsAccepted) {
-      setMessage('❌ Please accept Terms & Conditions');
-      return;
+    if (!isAuthenticated) {
+      return loginWithRedirect();
     }
-
-    if (!isAuthenticated || !user) {
-      setMessage('❌ Please login first');
-      return;
-    }
-
-    const priceNum = parseInt(formData.price.replace(/,/g, ''), 10);
-    if (!formData.title.trim() || priceNum <= 0 || !formData.phone_number) {
-      setMessage('❌ Title, valid price, and phone required');
-      return;
-    }
-
-    setLoading(true);
-    setMessage('🚀 Publishing product...');
 
     try {
-      // ✅ Auth0 token (tested working)
+      setLoading(true);
+
       const token = await getAccessTokenSilently();
 
-      const productData = {
-        title: formData.title.trim(),
-        category,
-        brand: formData.brand,
-        model: formData.model,
-        price: priceNum,
-        phone_number: formData.phone_number,
-        description: formData.description,
-        state,
-        city,
-        condition: formData.condition,
-        color: formData.color,
-        negotiation: formData.negotiation,
-        images: imagesPreview.map(img => img.name),
-        sellerId: user.sub,
-        seller_email: user.email,
-        seller_name: user.name
-      };
-
-      // ✅ YOUR TESTED ENDPOINT
-      const response = await fetch('https://minimart-ivrm.onrender.com/api/marketplace/products', {
-        method: 'POST',
+      await fetch("/api/products", {
+        method: "POST",
         headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${token}`
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${token}`,
         },
-        body: JSON.stringify(productData)
+        body: JSON.stringify({
+          ...formData,
+          poster_name: user?.name,
+        }),
       });
 
-      const result = await response.json();
-
-      if (response.ok && result.success) {
-        setMessage(`🎉 "${formData.title}" published successfully!`);
-        
-        // Reset form
-        setTimeout(() => {
-          setFormData({
-            title: '', brand: '', model: '', price: '', 
-            phone_number: '', description: '', negotiation: 'no'
-          });
-          setCategory('');
-          setState('Lagos');
-          setCity('');
-          setImagesPreview([]);
-          setTermsAccepted(false);
-          setMessage('');
-        }, 2500);
-      } else {
-        setMessage(`❌ ${result.message || 'Publish failed'}`);
-      }
-    } catch (error) {
-      console.error('Error:', error);
-      setMessage(`❌ ${error.message}`);
-    } finally {
+      alert("Product Added Successfully");
+      setLoading(false);
+    } catch (err) {
+      console.error(err);
       setLoading(false);
     }
   };
 
-  if (!isAuthenticated) {
-    return (
-      <div style={{ textAlign: 'center', padding: '4rem 2rem' }}>
-        <h2>🔐 Login Required</h2>
-        <p>Please login to add products to marketplace</p>
-      </div>
-    );
-  }
-
+  /* ------------------ UI ------------------ */
   return (
-    <div className="add-product-container">
-      {message && (
-        <div className={`message-banner ${message.includes('🎉') ? 'success' : 'error'}`}>
-          {message}
-        </div>
-      )}
+    <div className="add-product">
+      <h2>Post New Ad</h2>
 
-      <form onSubmit={handleSubmit} className="add-product-form">
-        {/* HEADER */}
-        <div className="form-header">
-          <h1>📦 Add New Product</h1>
-          <p>Create your marketplace listing</p>
-        </div>
+      <form onSubmit={handleSubmit}>
+        <input
+          type="text"
+          name="title"
+          placeholder="Ad Title"
+          required
+          onChange={handleChange}
+        />
 
-        {/* BASIC INFO */}
-        <section className="form-section">
-          <h3>📋 Basic Details</h3>
-          <div className="input-grid">
-            <div className="input-group">
-              <label className="required">Product Title *</label>
-              <input
-                value={formData.title}
-                onChange={(e) => updateFormField('title', e.target.value)}
-                placeholder="iPhone 15 Pro Max 256GB - Like New"
-                className="input-field"
-                maxLength={100}
-              />
-            </div>
+        <select name="category" required onChange={handleChange}>
+          <option value="">Select Category</option>
+          {Object.keys(categoryFields).map((cat) => (
+            <option key={cat} value={cat}>
+              {cat}
+            </option>
+          ))}
+        </select>
 
-            <div className="input-group">
-              <label className="required">Category *</label>
-              <CustomDropdown
-                options={categoriesList}
-                value={category}
-                onChange={setCategory}
-                placeholder="Select Category"
-              />
-            </div>
-
-            <div className="input-group">
-              <label>Brand</label>
-              <CustomDropdown
-                options={categoryBrands}
-                value={formData.brand}
-                onChange={(value) => updateFormField('brand', value)}
-                placeholder="Select Brand"
-                disabled={!category}
-              />
-            </div>
-
-            <div className="input-group">
-              <label>Model</label>
-              <CustomDropdown
-                options={categoryModels}
-                value={formData.model}
-                onChange={(value) => updateFormField('model', value)}
-                placeholder={formData.brand ? 'Select Model' : 'Select Brand First'}
-                disabled={!formData.brand || !category}
-              />
-            </div>
+        {/* Dynamic Fields */}
+        {dynamicFields.map((field) => (
+          <div key={field} className="field">
+            {renderField(field)}
           </div>
-        </section>
+        ))}
 
-        {/* PRICING */}
-        <section className="form-section">
-          <h3>💰 Price</h3>
-          <div className="input-grid">
-            <div className="input-group">
-              <label className="required">Price (₦) *</label>
-              <input
-                value={formData.price}
-                onChange={(e) => updateFormField('price', formatPrice(e.target.value.replace(/,/g, '')))}
-                placeholder="150000"
-                className="input-field price-input"
-              />
-            </div>
-            <div className="input-group">
-              <label>Negotiation</label>
-              <CustomDropdown
-                options={[
-                  { value: 'no', label: 'Fixed Price' },
-                  { value: 'yes', label: 'Negotiable' }
-                ]}
-                value={formData.negotiation}
-                onChange={(value) => updateFormField('negotiation', value)}
-                placeholder="Fixed Price"
-              />
-            </div>
-          </div>
-        </section>
+        <textarea
+          name="description"
+          placeholder="Description"
+          required
+          onChange={handleChange}
+        />
 
-        {/* LOCATION & CONTACT */}
-        <section className="form-section">
-          <h3>📍 Location & Contact</h3>
-          <div className="input-grid">
-            <div className="input-group">
-              <label className="required">Phone Number *</label>
-              <input
-                value={formData.phone_number}
-                onChange={(e) => updateFormField('phone_number', e.target.value)}
-                type="tel"
-                placeholder="08012345678"
-                className="input-field"
-                maxLength={15}
-              />
-            </div>
-            <div className="input-group">
-              <label>State</label>
-              <CustomDropdown
-                options={Object.keys(locationsByState || {})}
-                value={state}
-                onChange={(value) => {
-                  setState(value);
-                  setCity('');
-                }}
-                placeholder="Lagos"
-              />
-            </div>
-            <div className="input-group">
-              <label>City/Area</label>
-              <CustomDropdown
-                options={stateCities}
-                value={city}
-                onChange={setCity}
-                placeholder="Ikeja, Lekki, etc."
-                disabled={!state}
-              />
-            </div>
-          </div>
-        </section>
+        <input
+          type="number"
+          name="price"
+          placeholder="Price"
+          required
+          onChange={handleChange}
+        />
 
-        {/* DESCRIPTION */}
-        <section className="form-section">
-          <h3>📝 Description</h3>
-          <textarea
-            value={formData.description}
-            onChange={(e) => updateFormField('description', e.target.value)}
-            placeholder="Describe your product condition, usage, reason for selling..."
-            rows={4}
-            className="textarea-field"
-            maxLength={1000}
-          />
-        </section>
+        <label>
+          Negotiable
+          <select name="negotiation" onChange={handleChange}>
+            <option>No</option>
+            <option>Yes</option>
+          </select>
+        </label>
 
-        {/* CONDITION & COLOR */}
-        {category && (
-          <section className="form-section">
-            <h3>🔧 Specifications</h3>
-            <div className="input-grid">
-              <div className="input-group">
-                <label>Condition</label>
-                <CustomDropdown
-                  options={conditions || []}
-                  value={formData.condition}
-                  onChange={(value) => updateFormField('condition', value)}
-                  placeholder="New, Used, Refurbished"
-                />
-              </div>
-              <div className="input-group">
-                <label>Color</label>
-                <CustomDropdown
-                  options={colors || []}
-                  value={formData.color}
-                  onChange={(value) => updateFormField('color', value)}
-                  placeholder="Black, White, Blue"
-                />
-              </div>
-            </div>
-          </section>
-        )}
-
-        {/* IMAGES */}
-        <section className="form-section">
-          <h3>🖼️ Photos (Max 8)</h3>
+        <label>
+          Exchange Possible
           <input
-            type="file"
-            multiple
-            accept="image/*"
-            onChange={handleImages}
-            className="file-input"
+            type="checkbox"
+            name="exchange_possible"
+            onChange={handleChange}
           />
-          {imagesPreview.length > 0 && (
-            <div className="images-preview">
-              {imagesPreview.map((img, index) => (
-                <div key={index} className="image-item">
-                  <img src={img.preview} alt="Preview" />
-                  <span>{img.name}</span>
-                  <button
-                    type="button"
-                    onClick={() => removeImage(index)}
-                    className="remove-btn"
-                  >
-                    ✕
-                  </button>
-                </div>
-              ))}
-            </div>
-          )}
-        </section>
+        </label>
 
-        {/* TERMS & SUBMIT */}
-        <section className="form-section">
-          <label className="terms-checkbox">
-            <input
-              type="checkbox"
-              checked={termsAccepted}
-              onChange={(e) => setTermsAccepted(e.target.checked)}
-            />
-            <span>
-              I agree to the <a href="/terms">Terms & Conditions</a>
-            </span>
-          </label>
+        <input type="file" multiple onChange={handleImageUpload} />
 
-          <div className="form-actions">
-            <button
-              type="button"
-              onClick={() => navigate('/marketplace')}
-              className="btn-secondary"
-              disabled={loading}
-            >
-              Cancel
-            </button>
-            <button
-              type="submit"
-              disabled={loading || !termsAccepted}
-              className="btn-primary"
-            >
-              {loading ? '🚀 Publishing...' : '🚀 Publish Product'}
-            </button>
-          </div>
-        </section>
+        {imagesUploading && <p>Uploading images...</p>}
+
+        <button type="submit" disabled={loading}>
+          {loading ? "Posting..." : "Post Ad"}
+        </button>
       </form>
     </div>
   );
-};
-
-export default AddProduct;
+}
