@@ -1,140 +1,108 @@
 // models/Product.js
-const mongoose = require('mongoose');
+
+import mongoose from "mongoose";
+
+const bulkPriceSchema = new mongoose.Schema({
+  from: { type: Number },
+  per_piece: { type: Number },
+});
 
 const productSchema = new mongoose.Schema(
   {
-    // 🔹 Basic Info
     title: {
       type: String,
       required: true,
       trim: true,
-      maxlength: 100
     },
 
     category: {
       type: String,
       required: true,
-      index: true
     },
 
-    brand: {
-      type: String,
-      default: '',
-      index: true
-    },
+    subcategory: String,
 
-    model: {
-      type: String,
-      default: ''
-    },
+    // ---------- Dynamic Fields ----------
+    brand: String,
+    model: String,
+    condition: String,
+    used_detail: String,
+    ram: String,
+    storage: String,
+    color: String,
+    sim: String,
+    engine: String,
+    mileage: Number,
+    year: String,
+    fuel_type: String,
+    transmission: String,
+    age_range: String,
+    bedrooms: Number,
+    bathrooms: Number,
+    size: String,
+    furnished: Boolean,
+    features: [String],
+    breed: String,
+    experience_level: String,
+    skills: String,
+    education: String,
 
-    description: {
-      type: String,
-      trim: true,
-      maxlength: 2000,
-      default: ''
-    },
-
-    // 🔹 Pricing
+    // ---------- Pricing ----------
     price: {
       type: Number,
       required: true,
-      min: 0,
-      index: true
     },
+
+    bulk_price: bulkPriceSchema,
 
     negotiation: {
       type: String,
-      enum: ['yes', 'no'],
-      default: 'no'
+      enum: ["Yes", "No"],
+      default: "No",
     },
 
-    // 🔹 Condition & Specs
-    condition: {
+    exchange_possible: {
+      type: Boolean,
+      default: false,
+    },
+
+    // ---------- Location ----------
+    country: {
       type: String,
-      default: ''
+      default: "Nigeria",
     },
 
-    color: {
-      type: String,
-      default: ''
-    },
+    state: String,
+    city: String,
+    location: String,
 
-    // 🔹 Location
-    state: {
-      type: String,
-      required: true,
-      index: true
-    },
-
-    city: {
-      type: String,
-      default: ''
-    },
-
-    // 🔹 Contact
-    phone_number: {
-      type: String,
-      required: true,
-      trim: true
-    },
-
-    // 🔹 Images
+    // ---------- Media ----------
     images: [
       {
-        type: String
-      }
+        type: String,
+      },
     ],
 
-    // 🔹 Seller Info (from Auth0)
-    sellerId: {
+    video_link: String,
+
+    // ---------- Promotion ----------
+    promoted: {
+      type: Boolean,
+      default: false,
+    },
+
+    promo_plan: String,
+
+    // ---------- Seller ----------
+    poster_name: String,
+    user_id: {
       type: String,
       required: true,
-      index: true
     },
 
-    seller_email: {
-      type: String,
-      required: true
-    },
-
-    seller_name: {
-      type: String,
-      required: true
-    },
-
-    // 🔹 Marketplace Status
-    status: {
-      type: String,
-      enum: ['active', 'sold', 'pending', 'rejected'],
-      default: 'active',
-      index: true
-    },
-
-    isApproved: {
-      type: Boolean,
-      default: true
-    },
-
-    views: {
-      type: Number,
-      default: 0
-    }
+    phone_number: String,
   },
-  {
-    timestamps: true // adds createdAt and updatedAt automatically
-  }
+  { timestamps: true }
 );
 
-// 🔥 TEXT SEARCH INDEX (Very Important)
-productSchema.index({
-  title: 'text',
-  description: 'text',
-  brand: 'text',
-  model: 'text'
-});
-
-// 🔥 COMPOUND INDEX (Filtering Optimization)
-productSchema.index({ category: 1, state: 1, price: 1 });
-
-module.exports = mongoose.model('Product', productSchema);
+export default mongoose.model("Product", productSchema);
