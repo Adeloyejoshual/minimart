@@ -5,11 +5,20 @@ import CustomDropdown from '../../components/CustomDropdown';
 import './AddProduct.css';
 
 // ✅ ALL CONFIGS
-import { 
-  categoryFields, brands, colors, conditions, usedDetails, engines, 
-  featuresByCategory, fieldOptions, fuelTypes, locationsByState, 
-  models, ramOptions, sims, storageOptions, years, promotionPlans 
-} from '../../config';
+import { categoryFields } from '../../config/categoryFields';
+import { brands } from '../../config/brands';
+import { colors } from '../../config/colors';
+import { conditions, usedDetails } from '../../config/conditions';
+import { engines } from '../../config/engines';
+import { featuresByCategory } from '../../config/featuresByCategory';
+import { fieldOptions } from '../../config/fieldOptions';
+import { fuelTypes } from '../../config/fuelTypes';
+import { locationsByState } from '../../config/locationsByState';
+import { models } from '../../config/models';
+import { ramOptions } from '../../config/ramOptions';
+import { sims } from '../../config/sim';
+import { storageOptions } from '../../config/storageOptions';
+import { years } from '../../config/years';
 
 const AddProduct = () => {
   // ✅ GLOBAL Auth0 - ANY user works!
