@@ -1,6 +1,6 @@
 {
   "name": "minimart-marketplace",
-  "version": "1.3.5",
+  "version": "1.3.6",
   "private": true,
   "type": "module",
   "engines": {
@@ -16,49 +16,63 @@
     "format": "prettier --write ."
   },
   "dependencies": {
-    "axios": "^1.6.0",
-    "bullmq": "^5.58.0",
+    // ✅ CORE BACKEND
+    "axios": "^1.7.2",
     "cloudinary": "^2.8.0",
     "compression": "^1.8.0",
     "cors": "^2.8.5",
-    "dotenv": "^16.3.1",
-    "express": "^4.18.2",
-    "express-jwt": "^8.4.2",
-    "express-oauth2-jwt-bearer": "^1.3.0",
-    "express-rate-limit": "^7.0.0",
-    "helmet": "^7.0.0",
-    "ioredis": "^5.3.2",
-    "jwks-rsa": "^3.0.2",
-    "mongoose": "^7.7.1",
+    "dotenv": "^16.4.5",
+    "express": "^4.19.2",
+    "express-rate-limit": "^7.4.0",
+    "helmet": "^7.1.0",
+    "mongoose": "^8.3.1",
     "multer": "^1.4.5-lts.1",
-    "node-cron": "^3.0.3",
-    "pg": "^8.12.0",
+    "xss": "^1.0.14",
 
-    "react": "^18.3.1",
-    "react-dom": "^18.3.1",
-    "react-router-dom": "^6.14.0",
-    "react-helmet-async": "^2.0.5",
-    "react-icons": "^4.11.0",
-    "react-paystack": "^6.0.0",
-    "@auth0/auth0-react": "^2.0.0",
+    // ✅ PAYSTACK
+    "node-cron": "^3.0.3",
     "@paystack/inline-js": "^2.14.0",
 
-    "vite": "^4.5.14",
-    "@vitejs/plugin-react": "^4.0.0",
+    // ✅ DATABASE & QUEUE (Optional)
+    "bullmq": "^5.58.0",
+    "ioredis": "^5.4.1",
+    "pg": "^8.13.0",
 
+    // ✅ AUTH
+    "express-jwt": "^8.4.2",
+    "express-oauth2-jwt-bearer": "^1.3.0",
+    "jwks-rsa": "^3.1.0",
+
+    // ✅ REACT + FRONTEND
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1",
+    "react-router-dom": "^6.26.1",
+    "react-helmet-async": "^2.0.5",
+    "react-icons": "^5.3.0",
+    "react-paystack": "^6.0.0",
+    "@auth0/auth0-react": "^2.2.4",
+
+    // ✅ UI & RICH TEXT
     "react-quill": "^2.0.0",
-    "browser-image-compression": "^2.0.1",
     "react-medium-image-zoom": "^4.3.1",
+    "browser-image-compression": "^2.0.2",
 
+    // ✅ DRAG & DROP
     "@dnd-kit/core": "^6.3.1",
     "@dnd-kit/sortable": "^10.0.0",
     "@dnd-kit/utilities": "^3.2.2",
-    "@dnd-kit/modifiers": "^9.0.0"
+    "@dnd-kit/modifiers": "^9.0.0",
+
+    // ✅ BUILD TOOLS
+    "vite": "^5.4.2",
+    "@vitejs/plugin-react": "^4.3.1"
   },
   "devDependencies": {
-    "eslint": "^8.47.0",
-    "eslint-plugin-react": "^7.33.2",
-    "nodemon": "^3.0.2",
-    "prettier": "^3.5.0"
+    "eslint": "^8.57.0",
+    "eslint-plugin-react": "^7.35.0",
+    "eslint-plugin-react-hooks": "^4.6.0",
+    "eslint-plugin-react-refresh": "^0.4.7",
+    "nodemon": "^3.1.4",
+    "prettier": "^3.3.3"
   }
 }
