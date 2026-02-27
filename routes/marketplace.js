@@ -1,13 +1,13 @@
-// routes/marketplace.js - ✅ FIXED + GLOBAL + CLOUDINARY
+// routes/marketplace.js - ✅ MULTER + PAYSTACK + NO AUTH
 import express from 'express';
-import Product from './models/Product.js';
+import Product from '../models/Product.js';
 import multer from 'multer';
 import cloudinary from '../config/cloudinary.js';
-import { paystackPayment, verifyPayment } from './utils/paystackHelper.js';
+import { paystackPayment, verifyPayment } from '../utils/paystackHelper.js';
 
 const router = express.Router();
 
-// ✅ FIXED: Multer config
+// ✅ FIXED: Multer for images + NO AUTH for public uploads
 const storage = multer.memoryStorage();
 const upload = multer({ 
   storage,
@@ -21,31 +21,26 @@ const upload = multer({
   }
 });
 
-// ✅ FIXED: Products POST - Proper Cloudinary + seller_email
 router.post('/products', upload.array('images', 8), async (req, res) => {
   try {
     const images = req.files || [];
     const productData = req.body;
 
-    // ✅ FIXED: Proper Cloudinary upload (Promise-based)
+    // ✅ CLOUDINARY UPLOAD
     const imageUrls = [];
-    for (const image of images) {
-      const result = await new Promise((resolve, reject) => {
-        cloudinary.uploader.upload_stream(
-          { folder: 'marketplace' },
-          (error, result) => {
-            if (error) reject(error);
-            else resolve(result.secure_url);
-          }
-        ).end(image.buffer);
-      });
-      imageUrls.push(result);
+    for (let i = 0; i < images.length; i++) {
+      const result = await cloudinary.uploader.upload_stream(
+        { folder: 'marketplace' },
+        (error, result) => {
+          if (result) imageUrls.push(result.secure_url);
+        }
+      ).end(images[i].buffer);
     }
 
-    // ✅ GLOBAL USER TRACKING
+    // ✅ SANITIZED PRODUCT DATA
     const product = new Product({
-      title: productData.title?.trim() || '',
-      category: productData.category || '',
+      title: productData.title?.trim(),
+      category: productData.category,
       brand: productData.brand || '',
       model: productData.model || '',
       price: parseInt(productData.price) || 0,
@@ -55,21 +50,16 @@ router.post('/products', upload.array('images', 8), async (req, res) => {
       description: productData.description?.trim() || '',
       negotiation: productData.negotiation || 'no',
       poster_name: productData.poster_name || 'Anonymous Seller',
-      seller_email: productData.seller_email || '',  // ✅ GLOBAL TRACKING
       country: 'Nigeria',
-      features: Array.isArray(productData.features) 
-        ? productData.features 
-        : productData.features?.split(',').map(f => f.trim()).filter(Boolean) || [],
+      features: Array.isArray(productData.features) ? productData.features : productData.features?.split(',') || [],
       images: imageUrls,
       promotion_plan: productData.promotion_plan ? parseInt(productData.promotion_plan) : null,
       status: productData.promotion_plan && productData.promotion_plan !== '3' ? 'promoted' : 'active'
     });
 
-    // ✅ FIXED: Dynamic fields (CORRECT SYNTAX)
-    ['condition', 'ram', 'storage', 'color', 'sim', 'engine', 'fuel_type', 'transmission', 'year', 'mileage', 'used_detail'].forEach(field => {
-      if (productData[field]) {
-        product[field] = productData[field];  // ✅ FIXED: product[field] not product.product[field]
-      }
+    // Dynamic fields
+    ['condition', 'ram', 'storage', 'color', 'sim', 'engine', 'fuel_type', 'transmission', 'year', 'mileage'].forEach(field => {
+      if (productData[field]) product.product[field] = productData[field];
     });
 
     await product.save();
@@ -85,19 +75,20 @@ router.post('/products', upload.array('images', 8), async (req, res) => {
   }
 });
 
-// ✅ PAYSTACK ENDPOINTS (UNCHANGED)
+// ✅ PAYSTACK ENDPOINTS
 router.post('/create-payment-intent', async (req, res) => {
   try {
     const { amount, planId, email, productTitle } = req.body;
     
     const paymentData = {
-      amount: amount,
+      amount: amount, // kobo
       email,
       reference: 'mrkt_' + Date.now() + '_' + Math.random().toString(36).substr(2, 9),
       metadata: { planId, productTitle }
     };
 
     const response = await paystackPayment(paymentData);
+    
     res.json({ success: true, data: response });
   } catch (error) {
     res.status(400).json({ success: false, message: error.message });
@@ -123,26 +114,25 @@ router.post('/verify-payment', async (req, res) => {
   }
 });
 
-// ✅ GET Products (Public) - FIXED pagination
+// 📱 GET Products (Public)
 router.get('/products', async (req, res) => {
   try {
     const { category, state, city, limit = 20, page = 1, promoted = 'true' } = req.query;
     
     const query = { 
-      status: { $in: ['active', 'promoted'] }
+      status: { $in: ['active', 'promoted'] },
+      ...(promoted === 'false' && { promotion_plan: null })
     };
     
-    if (promoted === 'false') query.promotion_plan = null;
     if (category) query.category = category;
     if (state) query.state = state;
     if (city) query.city = city;
 
     const skip = (parseInt(page) - 1) * parseInt(limit);
-    const total = await Product.countDocuments(query);
     
     const products = await Product.find(query)
       .sort({ 
-        promotion_plan: promoted === 'true' ? -1 : 1,
+        ...(promoted === 'true' && { promotion_plan: -1 }),
         createdAt: -1 
       })
       .limit(parseInt(limit))
@@ -152,32 +142,23 @@ router.get('/products', async (req, res) => {
     res.json({
       success: true,
       data: products,
-      pagination: { total, page: parseInt(page), limit: parseInt(limit) }
+      pagination: { total: products.length, page: parseInt(page), limit: parseInt(limit) }
     });
   } catch (error) {
     res.status(500).json({ success: false, message: error.message });
   }
 });
 
-// ✅ GET My Products - GLOBAL
+// 👤 GET My Products
 router.get('/my-products', async (req, res) => {
   try {
     const { seller_email } = req.query;
-    
-    if (!seller_email) {
-      return res.status(400).json({ success: false, message: 'seller_email required' });
-    }
-
     const products = await Product.find({ 
       seller_email,
       status: { $ne: 'deleted' }
-    }).sort({ createdAt: -1 }).lean();
+    }).sort({ createdAt: -1 });
 
-    res.json({ 
-      success: true, 
-      data: products,
-      count: products.length 
-    });
+    res.json({ success: true, data: products });
   } catch (error) {
     res.status(500).json({ success: false, message: error.message });
   }
