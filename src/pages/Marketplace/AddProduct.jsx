@@ -1,7 +1,7 @@
 import { useState, useEffect } from "react";
 import { useAuth0 } from "@auth0/auth0-react";
 import { useNavigate } from "react-router-dom";
-import { loadScript } from "@paystack/inline-js"; // Paystack script loader
+import { loadScript } from "@paystack/inline-js";
 
 import "./AddProduct.css";
 import { categoryFields } from "../config/categoryFields";
@@ -25,10 +25,8 @@ function DynamicField({ field, formData, handleChange, currentCategory }) {
     brand: (
       <select name="brand" value={formData.brand} onChange={handleChange}>
         <option value="">Select Brand</option>
-        {brands.map((b) => (
-          <option key={b} value={b}>
-            {b}
-          </option>
+        {(brandsByCategory[currentCategory] || []).map((b) => (
+          <option key={b} value={b}>{b}</option>
         ))}
       </select>
     ),
@@ -36,100 +34,62 @@ function DynamicField({ field, formData, handleChange, currentCategory }) {
       <select name="model" value={formData.model} onChange={handleChange}>
         <option value="">Select Model</option>
         {(models[formData.brand] || []).map((m) => (
-          <option key={m} value={m}>
-            {m}
-          </option>
+          <option key={m} value={m}>{m}</option>
         ))}
       </select>
     ),
     condition: (
       <select name="condition" value={formData.condition} onChange={handleChange}>
         <option value="">Condition</option>
-        {conditions.map((c) => (
-          <option key={c} value={c}>
-            {c}
-          </option>
-        ))}
+        {conditions.map((c) => <option key={c} value={c}>{c}</option>)}
       </select>
     ),
     used_detail: (
       <select name="used_detail" value={formData.used_detail} onChange={handleChange}>
         <option value="">Used Detail</option>
-        {usedDetails.map((u) => (
-          <option key={u} value={u}>
-            {u}
-          </option>
-        ))}
+        {usedDetails.map((u) => <option key={u} value={u}>{u}</option>)}
       </select>
     ),
     ram: (
       <select name="ram" value={formData.ram} onChange={handleChange}>
         <option value="">RAM</option>
-        {ramOptions.map((r) => (
-          <option key={r} value={r}>
-            {r}
-          </option>
-        ))}
+        {ramOptions.map((r) => <option key={r} value={r}>{r}</option>)}
       </select>
     ),
     storage: (
       <select name="storage" value={formData.storage} onChange={handleChange}>
         <option value="">Storage</option>
-        {storageOptions.map((s) => (
-          <option key={s} value={s}>
-            {s}
-          </option>
-        ))}
+        {storageOptions.map((s) => <option key={s} value={s}>{s}</option>)}
       </select>
     ),
     color: (
       <select name="color" value={formData.color} onChange={handleChange}>
         <option value="">Color</option>
-        {colors.map((c) => (
-          <option key={c} value={c}>
-            {c}
-          </option>
-        ))}
+        {colors.map((c) => <option key={c} value={c}>{c}</option>)}
       </select>
     ),
     engine: (
       <select name="engine" value={formData.engine} onChange={handleChange}>
         <option value="">Engine</option>
-        {engines.map((e) => (
-          <option key={e} value={e}>
-            {e}
-          </option>
-        ))}
+        {engines.map((e) => <option key={e} value={e}>{e}</option>)}
       </select>
     ),
     fuel_type: (
       <select name="fuel_type" value={formData.fuel_type} onChange={handleChange}>
         <option value="">Fuel Type</option>
-        {fuelTypes.map((f) => (
-          <option key={f} value={f}>
-            {f}
-          </option>
-        ))}
+        {fuelTypes.map((f) => <option key={f} value={f}>{f}</option>)}
       </select>
     ),
     year: (
       <select name="year" value={formData.year} onChange={handleChange}>
         <option value="">Year</option>
-        {years.map((y) => (
-          <option key={y} value={y}>
-            {y}
-          </option>
-        ))}
+        {years.map((y) => <option key={y} value={y}>{y}</option>)}
       </select>
     ),
     sim: (
       <select name="sim" value={formData.sim} onChange={handleChange}>
         <option value="">SIM</option>
-        {sims.map((s) => (
-          <option key={s} value={s}>
-            {s}
-          </option>
-        ))}
+        {sims.map((s) => <option key={s} value={s}>{s}</option>)}
       </select>
     ),
     features:
@@ -149,24 +109,19 @@ function DynamicField({ field, formData, handleChange, currentCategory }) {
           ))}
         </div>
       ) : (
-        <input
-          type="text"
-          name="features"
-          value={formData.features}
-          onChange={handleChange}
-          placeholder="Features"
-        />
+        <input type="text" name="features" value={formData.features} onChange={handleChange} placeholder="Features" />
       ),
   };
 
-  return (
-    <div className="field">
-      {fieldComponents[field] || (
-        <input type="text" name={field} value={formData[field]} onChange={handleChange} />
-      )}
-    </div>
-  );
+  return <div className="field">{fieldComponents[field] || <input type="text" name={field} value={formData[field]} onChange={handleChange} />}</div>;
 }
+
+// ---------------- Brands by Category ----------------
+const brandsByCategory = {
+  "Phones & Tablets": ["Apple", "Samsung", "Tecno", "Infinix"],
+  "Computers & Laptops": ["Dell", "HP", "Apple"],
+  Vehicles: ["Toyota", "Honda", "Lexus"],
+};
 
 // ---------------- Main Component ----------------
 export default function AddProduct() {
@@ -207,7 +162,6 @@ export default function AddProduct() {
 
   const [dynamicFields, setDynamicFields] = useState([]);
   const [subcategories, setSubcategories] = useState([]);
-
   const currentCategory = formData.category;
 
   // ---------------- Category change ----------------
@@ -217,8 +171,8 @@ export default function AddProduct() {
 
       const subcats = {
         "Phones & Tablets": ["Smartphones", "Tablets"],
-        Vehicles: ["Cars", "Bikes"],
         "Computers & Laptops": ["Laptops", "Desktops"],
+        Vehicles: ["Cars", "Bikes"],
       };
       setSubcategories(subcats[currentCategory] || []);
 
@@ -247,7 +201,6 @@ export default function AddProduct() {
   // ---------------- Handle input ----------------
   const handleChange = (e) => {
     const { name, value, type, checked } = e.target;
-
     if (name === "features") {
       const updatedFeatures = checked
         ? [...formData.features, value]
@@ -255,7 +208,6 @@ export default function AddProduct() {
       setFormData((prev) => ({ ...prev, features: updatedFeatures }));
       return;
     }
-
     setFormData((prev) => ({ ...prev, [name]: type === "checkbox" ? checked : value }));
   };
 
@@ -293,10 +245,7 @@ export default function AddProduct() {
       })
     );
 
-    setFormData((prev) => ({
-      ...prev,
-      images: [...prev.images, ...uploadedImages.filter(Boolean)],
-    }));
+    setFormData((prev) => ({ ...prev, images: [...prev.images, ...uploadedImages.filter(Boolean)] }));
     setImagesUploading(false);
     setErrors((prev) => ({ ...prev, images: "" }));
   };
@@ -304,8 +253,7 @@ export default function AddProduct() {
   // ---------------- Paystack Checkout ----------------
   const handlePaystackPayment = async (plan) => {
     if (!isAuthenticated) return loginWithRedirect();
-
-    const amountNGN = getActivePrice(plan.price, plan.discount) * 100; // kobo
+    const amountNGN = getActivePrice(plan.price, plan.discount) * 100;
     const paystackPublicKey = import.meta.env.VITE_PAYSTACK_KEY;
 
     const script = await loadScript("https://js.paystack.co/v1/inline.js");
@@ -318,8 +266,8 @@ export default function AddProduct() {
       currency: "NGN",
       ref: `PS-${Date.now()}`,
       onClose: () => alert("Payment cancelled"),
-      callback: async (response) => {
-        alert("Payment successful! Ref: " + response.reference);
+      callback: () => {
+        alert("Payment successful!");
         setSelectedPlan(plan);
       },
     });
@@ -328,14 +276,13 @@ export default function AddProduct() {
   };
 
   // ---------------- Submit ----------------
-  const handleSubmit = async (e) => {
+  const handleSubmit = (e) => {
     e.preventDefault();
     if (!isAuthenticated) return loginWithRedirect();
 
     const rules = categoryRules[currentCategory];
     const newErrors = {};
 
-    // Validate required dynamic fields
     if (rules?.required) {
       for (const field of rules.required) {
         const value = formData[field];
@@ -348,62 +295,50 @@ export default function AddProduct() {
     if (!formData.category) newErrors.category = "Category is required";
     if (!formData.description) newErrors.description = "Description is required";
     if (!formData.price) newErrors.price = "Price is required";
-
     if (!selectedPlan) newErrors.plan = "Please select a promotion plan";
 
-    if (Object.keys(newErrors).length) {
-      setErrors(newErrors);
-      return;
-    }
+    if (Object.keys(newErrors).length) return setErrors(newErrors);
 
-    try {
-      setLoading(true);
-      // Normally you'd send this to your backend; here we simulate a frontend save
-      const productData = {
-        ...formData,
-        poster_name: user?.name,
-        promo_plan: selectedPlan?.name,
-      };
+    const productData = {
+      ...formData,
+      poster_name: user?.name,
+      promo_plan: selectedPlan?.name,
+    };
 
-      console.log("Product Submitted:", productData);
+    console.log("Product Submitted:", productData);
 
-      // Reset form
-      setFormData({
-        title: "",
-        category: "",
-        subcategory: "",
-        description: "",
-        price: "",
-        negotiation: "No",
-        exchange_possible: false,
-        country: "Nigeria",
-        state: "",
-        city: "",
-        location: "",
-        images: [],
-        brand: "",
-        model: "",
-        condition: "",
-        used_detail: "",
-        ram: "",
-        storage: "",
-        color: "",
-        engine: "",
-        fuel_type: "",
-        year: "",
-        sim: "",
-        features: [],
-      });
-      setDynamicFields([]);
-      setSubcategories([]);
-      setSelectedPlan(null);
-      setErrors({});
-      setLoading(false);
-      navigate("/");
-    } catch (err) {
-      console.error(err);
-      setLoading(false);
-    }
+    // Reset form
+    setFormData({
+      title: "",
+      category: "",
+      subcategory: "",
+      description: "",
+      price: "",
+      negotiation: "No",
+      exchange_possible: false,
+      country: "Nigeria",
+      state: "",
+      city: "",
+      location: "",
+      images: [],
+      brand: "",
+      model: "",
+      condition: "",
+      used_detail: "",
+      ram: "",
+      storage: "",
+      color: "",
+      engine: "",
+      fuel_type: "",
+      year: "",
+      sim: "",
+      features: [],
+    });
+    setDynamicFields([]);
+    setSubcategories([]);
+    setSelectedPlan(null);
+    setErrors({});
+    navigate("/");
   };
 
   return (
@@ -420,11 +355,7 @@ export default function AddProduct() {
           <label>Category</label>
           <select name="category" value={formData.category} onChange={handleChange}>
             <option value="">Select Category</option>
-            {Object.keys(categoryFields).map((cat) => (
-              <option key={cat} value={cat}>
-                {cat}
-              </option>
-            ))}
+            {Object.keys(categoryFields).map((cat) => <option key={cat} value={cat}>{cat}</option>)}
           </select>
           {errors.category && <p className="error">{errors.category}</p>}
         </div>
@@ -434,11 +365,7 @@ export default function AddProduct() {
             <label>Subcategory</label>
             <select name="subcategory" value={formData.subcategory} onChange={handleChange}>
               <option value="">Select Subcategory</option>
-              {subcategories.map((s) => (
-                <option key={s} value={s}>
-                  {s}
-                </option>
-              ))}
+              {subcategories.map((s) => <option key={s} value={s}>{s}</option>)}
             </select>
           </div>
         )}
@@ -474,12 +401,7 @@ export default function AddProduct() {
               >
                 <plan.icon size={24} />
                 <h4>{plan.name}</h4>
-                <p>
-                  {getActivePrice(plan.price, plan.discount).toLocaleString()} NGN
-                  {plan.discount > 0 && (
-                    <span className="discount"> ({plan.discount} NGN OFF)</span>
-                  )}
-                </p>
+                <p>{getActivePrice(plan.price, plan.discount).toLocaleString()} NGN {plan.discount > 0 && <span className="discount">({plan.discount} NGN OFF)</span>}</p>
               </div>
             ))}
           </div>
@@ -494,14 +416,10 @@ export default function AddProduct() {
         </div>
 
         <div className="image-preview">
-          {formData.images.map((url, idx) => (
-            <img key={idx} src={url} alt="preview" />
-          ))}
+          {formData.images.map((url, idx) => <img key={idx} src={url} alt="preview" />)}
         </div>
 
-        <button type="submit" disabled={loading || imagesUploading}>
-          {loading ? "Posting..." : "Post Ad"}
-        </button>
+        <button type="submit" disabled={loading || imagesUploading}>{loading ? "Posting..." : "Post Ad"}</button>
       </form>
     </div>
   );
