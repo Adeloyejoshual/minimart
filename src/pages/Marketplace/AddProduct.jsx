@@ -4,20 +4,20 @@ import { useNavigate } from "react-router-dom";
 import { loadScript } from "@paystack/inline-js";
 
 import "./AddProduct.css";
-import { categoryFields } from "../config/categoryFields";
-import { categoryRules } from "../config/categoryRules";
-import { brands } from "../config/brands";
-import { models } from "../config/models";
-import { colors } from "../config/colors";
+import { categoryFields } from "../../config/categoryFields";
+import { categoryRules } from "../../config/categoryRules";
+import { brands } from "../../config/brands";
+import { models } from "../../config/models";
+import { colors } from "../../config/colors";
 import { conditions, usedDetails } from "../config/conditions";
-import { engines } from "../config/engines";
-import { featuresByCategory } from "../config/featuresByCategory";
-import { fuelTypes } from "../config/fuelTypes";
-import { ramOptions } from "../config/ramOptions";
-import { sims } from "../config/sim";
-import { storageOptions } from "../config/storageOptions";
-import { years } from "../config/years";
-import { promotionPlans, getActivePrice } from "../config/promotion";
+import { engines } from "../../config/engines";
+import { featuresByCategory } from "../../config/featuresByCategory";
+import { fuelTypes } from "../../config/fuelTypes";
+import { ramOptions } from "../../config/ramOptions";
+import { sims } from "../../config/sim";
+import { storageOptions } from "../../config/storageOptions";
+import { years } from "../../config/years";
+import { promotionPlans, getActivePrice } from "../../config/promotion";
 
 // ---------------- DynamicField Component ----------------
 function DynamicField({ field, formData, handleChange, currentCategory }) {
