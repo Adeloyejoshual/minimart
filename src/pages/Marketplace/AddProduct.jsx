@@ -4,7 +4,7 @@ import { useAuth0 } from '@auth0/auth0-react';
 import CustomDropdown from '../../components/CustomDropdown';
 import './AddProduct.css';
 
-// ✅ All config imports (ensure these export real objects)
+// ✅ All config imports (even if some are empty, we guard them)
 import { categoryFields } from '../../config/categoryFields';
 import { brands } from '../../config/brands';
 import { colors } from '../../config/colors';
@@ -20,10 +20,9 @@ import { sims } from '../../config/sim';
 import { storageOptions } from '../../config/storageOptions';
 import { years } from '../../config/years';
 
-// ✅ Example promotion plans (remove or replace with your backend data)
+// ✅ Example promotion plans (you can remove later / replace with backend data)
 const promotionPlans = [
-  { id: 'free', name: 'Free Listing', price: 0, duration: '7 days' },
-  { id: 'boost', name: 'Boost Listing', price: 500, duration: '7 days' },
+  { id: 'free', name: 'Free Listing', price: 0, duration: '7 days' }
 ];
 
 const AddProduct = () => {
@@ -58,14 +57,22 @@ const AddProduct = () => {
   const [loading, setLoading] = useState(false);
   const [message, setMessage] = useState('');
   const [selectedFeatures, setSelectedFeatures] = useState([]);
-  const [termsAccepted, setTermsAccepted] = useState(localStorage.getItem('termsAccepted') === 'true');
+  const [termsAccepted, setTermsAccepted] = useState(
+    localStorage.getItem('termsAccepted') === 'true'
+  );
 
-  // ✅ Safe config access
+  // ✅ Guarded data access (no crash if a config is undefined)
   const categoriesList = Object.keys(categoryFields || {});
-  const categoryBrands  = brands?.[category] || [];
-  const categoryModels  = models?.[category]?.[formData.brand] || [];
-  const categoryFeatures = featuresByCategory?.[category] || [];
-  const stateCities     = locationsByState?.[state] || [];
+  const categoryBrands  = Array.isArray(brands?.[category]) ? brands[category] : [];
+  const categoryModels  = Array.isArray(models?.[category]?.[formData.brand])
+    ? models[category][formData.brand]
+    : [];
+  const categoryFeatures = Array.isArray(featuresByCategory?.[category])
+    ? featuresByCategory[category]
+    : [];
+  const stateCities     = Array.isArray(locationsByState?.[state])
+    ? locationsByState[state]
+    : [];
 
   // ✅ Reset model when brand changes
   useEffect(() => {
@@ -88,21 +95,23 @@ const AddProduct = () => {
   // ✅ Safe dynamic field options
   const getFieldOptions = (fieldName) => {
     if (fieldName === 'model' && formData.brand && category) {
-      return models?.[category]?.[formData.brand] || [];
+      return categoryModels;
     }
 
     const optionsMap = {
       brand:        categoryBrands,
-      condition:    conditions || [],
-      used_detail:  usedDetails || [],
-      color:        colors || [],
-      ram:          ramOptions || [],
-      storage:      storageOptions || [],
-      sim:          sims || [],
-      engine:       engines || [],
-      fuel_type:    fuelTypes || [],
-      transmission: fieldOptions?.transmission || ['Manual', 'Automatic', 'Semi‑Automatic'],
-      year:         years || []
+      condition:    Array.isArray(conditions) ? conditions : [],
+      used_detail:  Array.isArray(usedDetails) ? usedDetails : [],
+      color:        Array.isArray(colors) ? colors : [],
+      ram:          Array.isArray(ramOptions) ? ramOptions : [],
+      storage:      Array.isArray(storageOptions) ? storageOptions : [],
+      sim:          Array.isArray(sims) ? sims : [],
+      engine:       Array.isArray(engines) ? engines : [],
+      fuel_type:    Array.isArray(fuelTypes) ? fuelTypes : [],
+      transmission: Array.isArray(fieldOptions?.transmission)
+        ? fieldOptions.transmission
+        : ['Manual', 'Automatic', 'Semi‑Automatic'],
+      year:         Array.isArray(years) ? years : []
     };
 
     return Array.isArray(optionsMap[fieldName])
@@ -112,9 +121,11 @@ const AddProduct = () => {
         : [];
   };
 
-  const dynamicFields = (categoryFields?.[category] || []).filter(
-    field => !['features', 'transmission', 'mileage'].includes(field)
-  );
+  const dynamicFields = Array.isArray(categoryFields?.[category])
+    ? categoryFields[category].filter(
+        field => !['features', 'transmission', 'mileage'].includes(field)
+      )
+    : [];
 
   // ✅ Helpers
   const formatPrice = (value) => {
@@ -132,7 +143,7 @@ const AddProduct = () => {
       return;
     }
 
-    files.forEach(file => {
+    for (const file of files) {
       if (file.size > 10 * 1024 * 1024) {
         setMessage('Maximum 10MB per image');
         return;
@@ -142,7 +153,7 @@ const AddProduct = () => {
         ...prev,
         { file, preview, name: file.name.substring(0, 20) }
       ]);
-    });
+    }
   }, [imagesPreview.length]);
 
   const removeImage = useCallback((index) => {
@@ -270,7 +281,7 @@ const AddProduct = () => {
     }
   };
 
-  // ✅ Login check
+  // ✅ Always show login message or form
   if (!isAuthenticated) {
     return (
       <div className="login-required" style={{ textAlign: 'center', padding: '2rem' }}>
@@ -279,6 +290,7 @@ const AddProduct = () => {
     );
   }
 
+  // This is the main form; if page is blank, an error exists in this block.
   return (
     <div className="add-product-container">
       {message && (
@@ -363,14 +375,18 @@ const AddProduct = () => {
               <label>Promotion Plan</label>
               <CustomDropdown
                 options={
-                  promotionPlans?.map(p => ({
-                    value: p.id,
-                    label: `${p.name} - ₦${formatPrice(p.price)} (${p.duration})`
-                  })) || []
+                  Array.isArray(promotionPlans)
+                    ? promotionPlans.map(p => ({
+                        value: p.id,
+                        label: `${p.name} - ₦${formatPrice(p.price)} (${p.duration})`
+                      }))
+                    : []
                 }
                 value={selectedPlan?.id || ''}
                 onChange={(id) => {
-                  const plan = promotionPlans?.find(p => String(p.id) === String(id));
+                  const plan = Array.isArray(promotionPlans)
+                    ? promotionPlans.find(p => String(p.id) === String(id))
+                    : undefined;
                   setSelectedPlan(plan);
                 }}
                 placeholder="Free Listing"
@@ -457,7 +473,7 @@ const AddProduct = () => {
             <div className="input-group">
               <label className="required">State *</label>
               <CustomDropdown
-                options={Object.keys(locationsByState || {})}
+                options={Array.isArray(locationsByState) ? Object.keys(locationsByState) : []}
                 value={state}
                 onChange={value => {
                   setState(value);
