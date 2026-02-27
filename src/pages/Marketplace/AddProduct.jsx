@@ -18,7 +18,7 @@ import { storageOptions } from "../../config/storageOptions";
 import { years } from "../../config/years";
 
 // -------------------- Reusable Dynamic Field Component --------------------
-function DynamicField({ field, formData, handleChange }) {
+function DynamicField({ field, formData, handleChange, currentCategory }) {
   const fieldComponents = {
     brand: <select name="brand" value={formData.brand} onChange={handleChange} aria-label="Brand">
       <option value="">Select Brand</option>{brands.map(b => <option key={b} value={b}>{b}</option>)}
@@ -53,16 +53,16 @@ function DynamicField({ field, formData, handleChange }) {
     sim: <select name="sim" value={formData.sim} onChange={handleChange} aria-label="SIM">
       <option value="">SIM</option>{sims.map(s => <option key={s} value={s}>{s}</option>)}
     </select>,
-    features: featuresByCategory[formData.category]?.length
+    features: featuresByCategory[currentCategory]?.length
       ? <div className="features-multiselect scrollable">
-          {featuresByCategory[formData.category].map(f => (
+          {featuresByCategory[currentCategory].map(f => (
             <label key={f}>
               <input type="checkbox" name="features" value={f} checked={formData.features.includes(f)} onChange={handleChange} />
               {f}
             </label>
           ))}
         </div>
-      : <input type="text" name="features" value={formData.features} onChange={handleChange} aria-label="Features" placeholder="Features" />,
+      : <input type="text" name="features" value={formData.features} onChange={handleChange} placeholder="Features" />,
   };
 
   return <div className="field">{fieldComponents[field] || <input type="text" name={field} value={formData[field]} onChange={handleChange} />}</div>;
@@ -75,7 +75,7 @@ export default function AddProduct() {
 
   const [loading, setLoading] = useState(false);
   const [imagesUploading, setImagesUploading] = useState(false);
-  const [errors, setErrors] = useState({}); // Inline error messages
+  const [errors, setErrors] = useState({});
 
   const [formData, setFormData] = useState({
     title: "",
@@ -107,39 +107,26 @@ export default function AddProduct() {
   const [dynamicFields, setDynamicFields] = useState([]);
   const [subcategories, setSubcategories] = useState([]);
 
-  // ---------------- Dynamic Fields & Subcategories ----------------
-  useEffect(() => {
-    if (formData.category) {
-      setDynamicFields(categoryFields[formData.category] || []);
-      setFormData(prev => ({
-        ...prev,
-        brand: "",
-        model: "",
-        condition: "",
-        used_detail: "",
-        ram: "",
-        storage: "",
-        color: "",
-        engine: "",
-        fuel_type: "",
-        year: "",
-        sim: "",
-        features: [],
-        subcategory: "",
-      }));
+  // Safe currentCategory reference for rendering
+  const currentCategory = formData.category;
 
-      const mockSubcategories = {
+  // ---------------- Category change ----------------
+  useEffect(() => {
+    if (currentCategory) {
+      setDynamicFields(categoryFields[currentCategory] || []);
+      setSubcategories({
         "Phones & Tablets": ["Smartphones", "Tablets"],
         Vehicles: ["Cars", "Bikes"],
         "Computers & Laptops": ["Laptops", "Desktops"],
-      };
-      setSubcategories(mockSubcategories[formData.category] || []);
-    }
-  }, [formData.category]);
+      }[currentCategory] || []);
 
-  useEffect(() => {
-    setFormData(prev => ({ ...prev, model: "" }));
-  }, [formData.brand]);
+      // Only reset fields that must clear
+      setFormData(prev => ({ ...prev, features: [], subcategory: "" }));
+    }
+  }, [currentCategory]);
+
+  // Reset model when brand changes
+  useEffect(() => setFormData(prev => ({ ...prev, model: "" })), [formData.brand]);
 
   // ---------------- Handle Input ----------------
   const handleChange = (e) => {
@@ -161,16 +148,15 @@ export default function AddProduct() {
     const files = Array.from(e.target.files);
     if (!files.length) return;
 
-    const rules = categoryRules[formData.category];
-    const maxImages = rules?.maxImages || 10;
-
+    const maxImages = categoryRules[currentCategory]?.maxImages || 10;
     if (formData.images.length + files.length > maxImages) {
       return setErrors(prev => ({ ...prev, images: `Maximum ${maxImages} images allowed` }));
     }
 
-    // Optional: file size validation (5MB max)
-    const tooLarge = files.find(f => f.size > 5 * 1024 * 1024);
-    if (tooLarge) return setErrors(prev => ({ ...prev, images: "One or more images exceed 5MB" }));
+    // Optional: file size validation
+    if (files.some(f => f.size > 5 * 1024 * 1024)) {
+      return setErrors(prev => ({ ...prev, images: "One or more images exceed 5MB" }));
+    }
 
     setImagesUploading(true);
     const uploadedImages = await Promise.all(files.map(async (file) => {
@@ -186,6 +172,7 @@ export default function AddProduct() {
         return null;
       }
     }));
+
     setFormData(prev => ({ ...prev, images: [...prev.images, ...uploadedImages.filter(Boolean)] }));
     setImagesUploading(false);
     setErrors(prev => ({ ...prev, images: "" }));
@@ -196,10 +183,10 @@ export default function AddProduct() {
     e.preventDefault();
     if (!isAuthenticated) return loginWithRedirect();
 
-    const rules = categoryRules[formData.category];
+    const rules = categoryRules[currentCategory];
     const newErrors = {};
 
-    // Dynamic field validation
+    // Dynamic validation
     if (rules?.required) {
       for (const field of rules.required) {
         const value = formData[field];
@@ -207,7 +194,7 @@ export default function AddProduct() {
       }
     }
 
-    if (Object.keys(newErrors).length > 0) {
+    if (Object.keys(newErrors).length) {
       setErrors(newErrors);
       return;
     }
@@ -215,14 +202,13 @@ export default function AddProduct() {
     try {
       setLoading(true);
       const token = await getAccessTokenSilently();
-
       await fetch("/api/products", {
         method: "POST",
         headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
         body: JSON.stringify({ ...formData, poster_name: user?.name }),
       });
 
-      // Reset form
+      // Reset all
       setFormData({
         title: "",
         category: "",
@@ -294,7 +280,7 @@ export default function AddProduct() {
         {dynamicFields.map(field => (
           <div key={field} className="form-group">
             <label>{field.charAt(0).toUpperCase() + field.slice(1)}</label>
-            <DynamicField field={field} formData={formData} handleChange={handleChange} />
+            <DynamicField field={field} formData={formData} handleChange={handleChange} currentCategory={currentCategory} />
             {errors[field] && <p className="error">{errors[field]}</p>}
           </div>
         ))}
