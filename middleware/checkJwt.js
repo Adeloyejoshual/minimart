@@ -1,28 +1,15 @@
-// middleware/auth.js - ✅ DEFAULT EXPORT
-import jwt from 'jsonwebtoken';
+import { auth } from "express-oauth2-jwt-bearer";
 
-const auth = (req, res, next) => {
-  try {
-    // Demo token - replace with real JWT in production
-    const token = req.header('Authorization')?.replace('Bearer ', '');
-    
-    if (!token) {
-      return res.status(401).json({ 
-        success: false, 
-        message: 'No token provided - Access denied' 
-      });
-    }
-
-    // Demo verification (replace with real secret)
-    const decoded = jwt.verify(token, 'marketplace_demo_secret');
-    req.user = decoded;
-    next();
-  } catch (error) {
-    res.status(401).json({ 
-      success: false, 
-      message: 'Invalid token' 
-    });
-  }
-};
-
-export default auth;
+export const checkJwt =
+  process.env.AUTH0_DOMAIN && process.env.AUTH0_AUDIENCE
+    ? auth({
+        audience: process.env.AUTH0_AUDIENCE,
+        issuerBaseURL: `https://${process.env.AUTH0_DOMAIN}/`,
+        tokenSigningAlg: "RS256",
+      })
+    : (req, res, next) => {
+        console.warn("Auth0 not configured");
+        return res.status(500).json({
+          message: "Auth0 environment variables missing",
+        });
+      };
