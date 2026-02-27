@@ -9,7 +9,7 @@ import { categoryRules } from "../../config/categoryRules";
 import { brands } from "../../config/brands";
 import { models } from "../../config/models";
 import { colors } from "../../config/colors";
-import { conditions, usedDetails } from "../config/conditions";
+import { conditions, usedDetails } from "../../config/conditions";
 import { engines } from "../../config/engines";
 import { featuresByCategory } from "../../config/featuresByCategory";
 import { fuelTypes } from "../../config/fuelTypes";
