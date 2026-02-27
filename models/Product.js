@@ -1,151 +1,140 @@
-// models/Product.js - ✅ GLOBAL + PERFECT
-import mongoose from 'mongoose';
+// models/Product.js
+const mongoose = require('mongoose');
 
-const productSchema = new mongoose.Schema({
-  // ✅ BASIC FIELDS
-  title: { 
-    type: String, 
-    required: [true, 'Title required'],
-    trim: true,
-    maxlength: 200
-  },
-  description: { 
-    type: String, 
-    trim: true,
-    maxlength: 2000,
-    default: ''
-  },
-  price: { 
-    type: Number, 
-    required: [true, 'Price required'], 
-    min: 0 
-  },
-  
-  // ✅ CATEGORY FIELDS - Your 13 configs
-  category: { type: String, required: [true, 'Category required'] },
-  brand: String,
-  model: String,
-  condition: String,
-  used_detail: String,
-  ram: String,
-  storage: String,
-  color: String,
-  sim: [String],
-  engine: String,
-  mileage: Number,
-  year: Number,
-  fuel_type: String,
-  transmission: String,
-  
-  // ✅ LOCATION
-  country: { type: String, default: 'Nigeria' },
-  state: { type: String, required: [true, 'State required'] },
-  city: String,
-  
-  // ✅ CONTACT - FIXED
-  phone_number: { 
-    type: String, 
-    required: [true, 'Phone required'],
-    trim: true  // ✅ FIXED: No more validation errors
-  },
-  poster_name: { 
-    type: String, 
-    required: [true, 'Poster name required'],
-    trim: true
-  },
-  
-  // ✅ GLOBAL SELLER TRACKING - SINGLE FIELD
-  seller_email: { 
-    type: String, 
-    required: [true, 'Seller email required'],
-    trim: true
-  },
-  
-  // ✅ MEDIA
-  images: [{
-    type: String,
-    default: []
-  }],
-  video_link: String,
-  
-  // ✅ BUSINESS
-  features: [{
-    type: String,
-    default: []
-  }],
-  negotiation: { 
-    type: String, 
-    enum: ['no', 'slight', 'moderate', 'open'], 
-    default: 'no' 
-  },
-  exchange_possible: { type: Boolean, default: false },
-  
-  // ✅ 🔥 PAYSTACK PROMOTION - PERFECT
-  promotion_plan: {
-    type: Number, 
-    min: 0,
-    max: 7
-  },
-  promoted: { type: Boolean, default: false },
-  promo_expires: Date,
-  promo_purchased_at: Date,
-  paystack_reference: String,
-  promo_status: {
-    type: String,
-    enum: ['active', 'expired', 'pending', 'cancelled'],
-    default: 'pending'
-  },
-  
-  // ✅ STATS
-  views: { type: Number, default: 0 },
-  status: { 
-    type: String, 
-    enum: ['active', 'promoted', 'pending', 'sold', 'deleted'], 
-    default: 'active' 
-  }
-}, {
-  timestamps: true,
-  toJSON: { virtuals: true },
-  toObject: { virtuals: true }
-});
+const productSchema = new mongoose.Schema(
+  {
+    // 🔹 Basic Info
+    title: {
+      type: String,
+      required: true,
+      trim: true,
+      maxlength: 100
+    },
 
-// 🔥 PROMOTION VIRTUAL
-productSchema.virtual('isPromotedActive').get(function() {
-  if (!this.promoted || !this.promo_expires) return false;
-  return this.promo_expires > new Date();
-});
+    category: {
+      type: String,
+      required: true,
+      index: true
+    },
 
-// 🏎️ ULTRA-FAST INDEXES (PERFECT!)
-productSchema.index({ category: 1, status: 1 });
-productSchema.index({ state: 1, city: 1 });
-productSchema.index({ promoted: -1, promo_expires: 1 });
-productSchema.index({ price: 1 });
-productSchema.index({ createdAt: -1 });
-productSchema.index({ status: 1, createdAt: -1 });
-productSchema.index({ promotion_plan: 1 });
-productSchema.index({ seller_email: 1 });  // ✅ GLOBAL SELLER SEARCH
+    brand: {
+      type: String,
+      default: '',
+      index: true
+    },
 
-// 🛡️ PRE-SAVE HOOK - Auto promotions
-productSchema.pre('save', function(next) {
-  if (this.promotion_plan && this.promotion_plan > 0) {
-    this.promoted = true;
-    this.status = 'promoted';
-    
-    // ✅ FIXED: promotionPlans array (1-7 days)
-    const daysByPlan = [0, 7, 30, 14, 30, 7, 60, 90];  // Match your config
-    const days = daysByPlan[this.promotion_plan] || 0;
-    
-    if (days > 0) {
-      this.promo_expires = new Date(Date.now() + days * 24 * 60 * 60 * 1000);
-      this.promo_status = 'active';
+    model: {
+      type: String,
+      default: ''
+    },
+
+    description: {
+      type: String,
+      trim: true,
+      maxlength: 2000,
+      default: ''
+    },
+
+    // 🔹 Pricing
+    price: {
+      type: Number,
+      required: true,
+      min: 0,
+      index: true
+    },
+
+    negotiation: {
+      type: String,
+      enum: ['yes', 'no'],
+      default: 'no'
+    },
+
+    // 🔹 Condition & Specs
+    condition: {
+      type: String,
+      default: ''
+    },
+
+    color: {
+      type: String,
+      default: ''
+    },
+
+    // 🔹 Location
+    state: {
+      type: String,
+      required: true,
+      index: true
+    },
+
+    city: {
+      type: String,
+      default: ''
+    },
+
+    // 🔹 Contact
+    phone_number: {
+      type: String,
+      required: true,
+      trim: true
+    },
+
+    // 🔹 Images
+    images: [
+      {
+        type: String
+      }
+    ],
+
+    // 🔹 Seller Info (from Auth0)
+    sellerId: {
+      type: String,
+      required: true,
+      index: true
+    },
+
+    seller_email: {
+      type: String,
+      required: true
+    },
+
+    seller_name: {
+      type: String,
+      required: true
+    },
+
+    // 🔹 Marketplace Status
+    status: {
+      type: String,
+      enum: ['active', 'sold', 'pending', 'rejected'],
+      default: 'active',
+      index: true
+    },
+
+    isApproved: {
+      type: Boolean,
+      default: true
+    },
+
+    views: {
+      type: Number,
+      default: 0
     }
-  } else {
-    this.promoted = false;
-    this.status = 'active';
-    this.promo_status = 'pending';
+  },
+  {
+    timestamps: true // adds createdAt and updatedAt automatically
   }
-  
-  next();
+);
+
+// 🔥 TEXT SEARCH INDEX (Very Important)
+productSchema.index({
+  title: 'text',
+  description: 'text',
+  brand: 'text',
+  model: 'text'
 });
 
-export default mongoose.models.Product || mongoose.model('Product', productSchema);
+// 🔥 COMPOUND INDEX (Filtering Optimization)
+productSchema.index({ category: 1, state: 1, price: 1 });
+
+module.exports = mongoose.model('Product', productSchema);
