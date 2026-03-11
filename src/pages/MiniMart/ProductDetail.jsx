@@ -28,17 +28,13 @@ export default function ProductDetail() {
 
   return (
     <div className="product-detail-page">
-      {/* Sticky Header */}
       <div className="sticky-header">
         <button className="back-btn" onClick={() => navigate(-1)}>
           ←
         </button>
         <h2 className="header-title">{product.title}</h2>
         {isAuthenticated ? (
-          <button
-            className="chat-btn"
-            onClick={() => console.log("Message seller")}
-          >
+          <button className="chat-btn" onClick={() => console.log("Message seller")}>
             Message
           </button>
         ) : (
@@ -48,22 +44,17 @@ export default function ProductDetail() {
         )}
       </div>
 
-      {/* Product Image */}
-      {product.image_url && (
+      {product.image && (
         <div className="product-image-wrapper">
-          <img src={product.image_url} alt={product.title} />
+          <img src={product.image} alt={product.title} />
         </div>
       )}
 
-      {/* Product Info */}
       <div className="product-info">
         <h3 className="product-title">{product.title}</h3>
         <p className="product-price">₦{product.price}</p>
-        {product.description && (
-          <p className="product-description">{product.description}</p>
-        )}
+        {product.description && <p className="product-description">{product.description}</p>}
 
-        {/* Product Actions */}
         {isAuthenticated && (
           <div className="product-actions">
             <button className="chat-btn">Contact Seller</button>
@@ -72,7 +63,6 @@ export default function ProductDetail() {
         )}
       </div>
 
-      {/* Inline Styles */}
       <style>{`
         .product-detail-page {
           padding: 16px;
@@ -80,7 +70,6 @@ export default function ProductDetail() {
           background-color: #eaf2ff;
           color: #222;
         }
-
         .sticky-header {
           position: sticky;
           top: 0;
@@ -93,113 +82,20 @@ export default function ProductDetail() {
           box-shadow: 0 3px 8px rgba(0,0,0,0.15);
           z-index: 100;
         }
-
-        .header-title {
-          flex: 1;
-          text-align: center;
-          font-weight: 600;
-          font-size: 16px;
-          white-space: nowrap;
-          overflow: hidden;
-          text-overflow: ellipsis;
-        }
-
-        .back-btn,
-        .chat-btn {
-          background: #0D6EFD;
-          color: #fff;
-          border: none;
-          padding: 8px 12px;
-          border-radius: 10px;
-          font-weight: 600;
-          cursor: pointer;
-        }
-
-        .back-btn:hover,
-        .chat-btn:hover {
-          background: #0b5ed7;
-        }
-
-        .product-image-wrapper {
-          margin: 16px 0;
-          text-align: center;
-        }
-
-        .product-image-wrapper img {
-          width: 100%;
-          max-width: 400px;
-          height: auto;
-          border-radius: 16px;
-          object-fit: cover;
-        }
-
-        .product-info {
-          background: #fff;
-          padding: 16px;
-          border-radius: 16px;
-          box-shadow: 0 6px 18px rgba(0,0,0,0.06);
-        }
-
-        .product-title {
-          font-size: 20px;
-          font-weight: 600;
-          color: #0D6EFD;
-          margin-bottom: 8px;
-        }
-
-        .product-price {
-          font-size: 22px;
-          font-weight: bold;
-          color: #198754;
-          margin-bottom: 12px;
-        }
-
-        .product-description {
-          font-size: 14px;
-          margin-bottom: 16px;
-          color: #444;
-        }
-
-        .product-actions {
-          display: flex;
-          gap: 12px;
-          flex-wrap: wrap;
-        }
-
-        .quick-msg-btn {
-          background: #198754;
-          color: #fff;
-          border: none;
-          padding: 10px 16px;
-          border-radius: 10px;
-          font-weight: 600;
-          cursor: pointer;
-        }
-
-        .quick-msg-btn:hover {
-          background: #157347;
-        }
-
-        @media (min-width: 600px) {
-          .product-title {
-            font-size: 22px;
-          }
-          .product-price {
-            font-size: 24px;
-          }
-        }
-
-        @media (min-width: 900px) {
-          .product-image-wrapper img {
-            max-width: 600px;
-          }
-          .product-title {
-            font-size: 24px;
-          }
-          .product-price {
-            font-size: 26px;
-          }
-        }
+        .header-title { flex: 1; text-align: center; font-weight: 600; font-size: 16px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+        .back-btn, .chat-btn { background: #0D6EFD; color: #fff; border: none; padding: 8px 12px; border-radius: 10px; font-weight: 600; cursor: pointer; }
+        .back-btn:hover, .chat-btn:hover { background: #0b5ed7; }
+        .product-image-wrapper { margin: 16px 0; text-align: center; }
+        .product-image-wrapper img { width: 100%; max-width: 400px; height: auto; border-radius: 16px; object-fit: cover; }
+        .product-info { background: #fff; padding: 16px; border-radius: 16px; box-shadow: 0 6px 18px rgba(0,0,0,0.06); }
+        .product-title { font-size: 20px; font-weight: 600; color: #0D6EFD; margin-bottom: 8px; }
+        .product-price { font-size: 22px; font-weight: bold; color: #198754; margin-bottom: 12px; }
+        .product-description { font-size: 14px; margin-bottom: 16px; color: #444; }
+        .product-actions { display: flex; gap: 12px; flex-wrap: wrap; }
+        .quick-msg-btn { background: #198754; color: #fff; border: none; padding: 10px 16px; border-radius: 10px; font-weight: 600; cursor: pointer; }
+        .quick-msg-btn:hover { background: #157347; }
+        @media (min-width: 600px) { .product-title { font-size: 22px; } .product-price { font-size: 24px; } }
+        @media (min-width: 900px) { .product-image-wrapper img { max-width: 600px; } .product-title { font-size: 24px; } .product-price { font-size: 26px; } }
       `}</style>
     </div>
   );
