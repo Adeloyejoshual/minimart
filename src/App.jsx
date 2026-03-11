@@ -1,6 +1,6 @@
 import { BrowserRouter as Router, Routes, Route } from "react-router-dom";
 import MiniMartHome from "./pages/MiniMart/Home.jsx";
-import AddMiniMartProduct from "./pages/MiniMart/AddMiniMartProduct.jsx";
+import AddMiniMartProduct from "./pages/MiniMart/AddProduct.jsx";
 import ProductDetail from "./pages/MiniMart/ProductDetail.jsx";
 
 export default function App() {
