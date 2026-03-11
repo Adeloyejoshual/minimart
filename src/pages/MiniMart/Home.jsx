@@ -1,4 +1,3 @@
-// src/pages/MiniMart/Home.jsx
 import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 import { useAuth0 } from "@auth0/auth0-react";
@@ -22,7 +21,6 @@ export default function MiniMartHome() {
     }
   };
 
-  // Reusable button
   const ActionButton = ({ onClick, children, fullWidth = false, style = {} }) => (
     <button
       onClick={onClick}
@@ -44,7 +42,6 @@ export default function MiniMartHome() {
 
   return (
     <div style={{ padding: "16px", maxWidth: "1200px", margin: "0 auto", paddingBottom: "80px" }}>
-      {/* ===== Header ===== */}
       <div
         style={{
           display: "flex",
@@ -70,16 +67,15 @@ export default function MiniMartHome() {
         )}
       </div>
 
-      {/* ===== Add Product Button ===== */}
       {isAuthenticated && (
         <Link to="/minimart/add">
           <ActionButton fullWidth>Add MiniMart Product</ActionButton>
         </Link>
       )}
 
-      {/* ===== Products Grid ===== */}
       <h3 style={{ marginTop: "24px" }}>MiniMart Products</h3>
       {products.length === 0 && <p>No products yet.</p>}
+
       <div
         style={{
           display: "grid",
@@ -105,7 +101,7 @@ export default function MiniMartHome() {
             }}
           >
             <img
-              src={p.image_url || "/placeholder.png"}
+              src={p.image || "/placeholder.png"}
               alt={p.title}
               style={{ width: "100%", height: "150px", objectFit: "cover" }}
             />
@@ -115,8 +111,7 @@ export default function MiniMartHome() {
         ))}
       </div>
 
-      {/* ===== Bottom Nav ===== */}
       <MiniMartBottomNav />
     </div>
   );
-}
+            }
