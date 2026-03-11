@@ -1,12 +1,11 @@
 import { useEffect, useState } from "react";
+import axios from "axios";
 import { Link } from "react-router-dom";
-import { useAuth0 } from "@auth0/auth0-react";
-import { getMiniMartProducts } from "../../helpers/minimart";
-import MiniMartBottomNav from "../../components/MiniMartBottomNav.jsx";
 
-export default function MiniMartHome() {
+export default function Home() {
   const [products, setProducts] = useState([]);
-  const { isAuthenticated, loginWithRedirect, logout } = useAuth0();
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState("");
 
   useEffect(() => {
     fetchProducts();
@@ -14,104 +13,80 @@ export default function MiniMartHome() {
 
   const fetchProducts = async () => {
     try {
-      const data = await getMiniMartProducts();
-      setProducts(data);
+      const res = await axios.get("/api/marketplace");
+      setProducts(res.data);
+      setLoading(false);
     } catch (err) {
-      console.error("Failed to fetch MiniMart products:", err);
+      setError("Failed to load products");
+      setLoading(false);
     }
   };
 
-  const ActionButton = ({ onClick, children, fullWidth = false, style = {} }) => (
-    <button
-      onClick={onClick}
-      style={{
-        padding: "10px 16px",
-        background: "#0D6EFD",
-        color: "#fff",
-        border: "none",
-        borderRadius: "8px",
-        cursor: "pointer",
-        fontWeight: 600,
-        width: fullWidth ? "100%" : "auto",
-        ...style,
-      }}
-    >
-      {children}
-    </button>
-  );
+  if (loading) return <h2 style={{ textAlign: "center" }}>Loading products...</h2>;
+  if (error) return <h2 style={{ textAlign: "center" }}>{error}</h2>;
 
   return (
-    <div style={{ padding: "16px", maxWidth: "1200px", margin: "0 auto", paddingBottom: "80px" }}>
-      <div
-        style={{
-          display: "flex",
-          justifyContent: "space-between",
-          alignItems: "center",
-          marginBottom: "16px",
-          position: "sticky",
-          top: 0,
-          background: "#fff",
-          padding: "12px 0",
-          zIndex: 10,
-        }}
-      >
-        <h2>MiniMart Store</h2>
-        {isAuthenticated ? (
-          <ActionButton onClick={() => logout({ returnTo: window.location.origin })}>
-            Logout
-          </ActionButton>
-        ) : (
-          <ActionButton onClick={() => loginWithRedirect()}>
-            Login / Register
-          </ActionButton>
-        )}
-      </div>
-
-      {isAuthenticated && (
-        <Link to="/minimart/add">
-          <ActionButton fullWidth>Add MiniMart Product</ActionButton>
-        </Link>
-      )}
-
-      <h3 style={{ marginTop: "24px" }}>MiniMart Products</h3>
-      {products.length === 0 && <p>No products yet.</p>}
+    <div style={{ padding: "20px" }}>
+      <h1 style={{ marginBottom: "20px" }}>MiniMart Marketplace</h1>
 
       <div
         style={{
           display: "grid",
-          gridTemplateColumns: "repeat(auto-fill, minmax(180px, 1fr))",
-          gap: "16px",
-          marginTop: "12px",
+          gridTemplateColumns: "repeat(auto-fill, minmax(220px, 1fr))",
+          gap: "20px"
         }}
       >
-        {products.map((p) => (
+        {products.map((product) => (
           <Link
-            key={p.id}
-            to={`/minimart/${p.id}`}
+            key={product.id}
+            to={`/product/${product.id}`}
             style={{
-              display: "flex",
-              flexDirection: "column",
-              background: "#f8fafd",
-              borderRadius: "12px",
-              overflow: "hidden",
               textDecoration: "none",
               color: "inherit",
-              boxShadow: "0 2px 6px rgba(0,0,0,0.05)",
-              transition: "transform 0.2s",
+              border: "1px solid #eee",
+              borderRadius: "10px",
+              overflow: "hidden",
+              background: "#fff"
             }}
           >
-            <img
-              src={p.image || "/placeholder.png"}
-              alt={p.title}
-              style={{ width: "100%", height: "150px", objectFit: "cover" }}
-            />
-            <h3 style={{ margin: "8px", fontSize: "16px", fontWeight: 600 }}>{p.title}</h3>
-            <p style={{ margin: "0 8px 12px", color: "#0D6EFD", fontWeight: 700 }}>₦{p.price}</p>
+            <div>
+              {product.image_url ? (
+                <img
+                  src={product.image_url}
+                  alt={product.title}
+                  style={{
+                    width: "100%",
+                    height: "180px",
+                    objectFit: "cover"
+                  }}
+                />
+              ) : (
+                <div
+                  style={{
+                    height: "180px",
+                    background: "#f5f5f5",
+                    display: "flex",
+                    alignItems: "center",
+                    justifyContent: "center"
+                  }}
+                >
+                  No Image
+                </div>
+              )}
+            </div>
+
+            <div style={{ padding: "10px" }}>
+              <h3 style={{ fontSize: "16px", marginBottom: "5px" }}>
+                {product.title}
+              </h3>
+
+              <p style={{ color: "#777", fontSize: "14px" }}>
+                ₦{product.price}
+              </p>
+            </div>
           </Link>
         ))}
       </div>
-
-      <MiniMartBottomNav />
     </div>
   );
-            }
+}
