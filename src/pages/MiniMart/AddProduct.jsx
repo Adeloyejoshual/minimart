@@ -18,34 +18,32 @@ export default function AddMiniMartProduct() {
 
     try {
       setLoading(true);
-
       let imageUrl = null;
 
-      // 1️⃣ Upload image to Cloudinary
+      // 1️⃣ Upload image to S3
       if (imageFile) {
-        const formData = new FormData();
-        formData.append("file", imageFile);
-        formData.append(
-          "upload_preset",
-          import.meta.env.VITE_CLOUDINARY_UPLOAD_PRESET
-        );
+        // Get a signed URL from your backend
+        const { data: signedData } = await axios.post("/api/products/s3-sign", {
+          fileName: imageFile.name,
+          fileType: imageFile.type,
+        });
 
-        const cloudRes = await axios.post(
-          `https://api.cloudinary.com/v1_1/${import.meta.env.VITE_CLOUDINARY_CLOUD_NAME}/image/upload`,
-          formData
-        );
+        // Upload file directly to S3
+        await axios.put(signedData.url, imageFile, {
+          headers: { "Content-Type": imageFile.type },
+        });
 
-        imageUrl = cloudRes.data.secure_url; // Save FULL URL
+        imageUrl = signedData.key; // save the S3 key or full URL
       }
 
       // 2️⃣ Send product to backend
-      await axios.post("/api/minimart", {
+      await axios.post("/api/products", {
         title,
         description,
         price: parseFloat(price),
         category,
         stock: parseInt(stock),
-        image_url: imageUrl,
+        image: imageUrl,
       });
 
       alert("MiniMart product added successfully!");
