@@ -1,40 +1,53 @@
-// src/pages/Home.jsx
-import React, { useEffect, useState, useContext } from "react";
+import React, { useState } from "react";
 import axios from "axios";
-import { AuthContext } from "../App";
 
 export default function Home() {
-  const [products, setProducts] = useState([]);
-  const { user } = useContext(AuthContext);
+  const [user, setUser] = useState(null);
+  const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
+  const [error, setError] = useState("");
 
-  useEffect(() => {
-    axios
-      .get("/api/marketplace")
-      .then((res) => setProducts(res.data))
-      .catch((err) => console.error(err));
-  }, []);
+  const login = async () => {
+    try {
+      const { data } = await axios.post("/api/auth/login", { email, password });
+      setUser(data.user);
+      setError("");
+    } catch (err) {
+      setError(err.response?.data?.message || "Login failed");
+    }
+  };
+
+  const logout = () => setUser(null);
 
   return (
-    <div style={{ paddingBottom: "70px" }}>
-      <h1>Welcome {user ? user.name : "Guest"}</h1>
-      <h2>MiniMart Products</h2>
-      {products.length === 0 && <p>No products found.</p>}
-      <div style={{ display: "grid", gap: 16 }}>
-        {products.map((p) => (
-          <div
-            key={p.id}
-            style={{
-              border: "1px solid #ddd",
-              borderRadius: 10,
-              padding: 12,
-            }}
-          >
-            <h3>{p.title}</h3>
-            <p>₦{p.price}</p>
-            <p>{p.description}</p>
-          </div>
-        ))}
-      </div>
+    <div>
+      <h1>MiniMart</h1>
+
+      {!user ? (
+        <div>
+          <input
+            type="email"
+            placeholder="Email"
+            value={email}
+            onChange={(e) => setEmail(e.target.value)}
+          />
+          <input
+            type="password"
+            placeholder="Password"
+            value={password}
+            onChange={(e) => setPassword(e.target.value)}
+          />
+          <button onClick={login}>Login</button>
+          {error && <p style={{ color: "red" }}>{error}</p>}
+        </div>
+      ) : (
+        <div>
+          <p>Welcome, {user.name}!</p>
+          <button onClick={logout}>Logout</button>
+        </div>
+      )}
+
+      {/* Display products here */}
     </div>
   );
 }
