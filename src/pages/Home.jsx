@@ -1,8 +1,10 @@
 // src/pages/Home.jsx
 import React, { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
+import { useAuth0 } from "@auth0/auth0-react";
 
 export default function Home() {
+  const { isAuthenticated, loginWithRedirect, logout } = useAuth0();
   const [products, setProducts] = useState([]);
   const [loading, setLoading] = useState(true);
 
@@ -19,21 +21,49 @@ export default function Home() {
         setLoading(false);
       }
     };
-
     fetchProducts();
   }, []);
 
-  if (loading) {
-    return <p style={{ textAlign: "center", marginTop: "50px" }}>Loading products...</p>;
-  }
-
-  if (!products.length) {
-    return <p style={{ textAlign: "center", marginTop: "50px" }}>No products available.</p>;
-  }
+  if (loading) return <p style={{ textAlign: "center", marginTop: "50px" }}>Loading products...</p>;
+  if (!products.length) return <p style={{ textAlign: "center", marginTop: "50px" }}>No products available.</p>;
 
   return (
     <div style={{ padding: "20px" }}>
-      <h2 style={{ marginBottom: "20px", textAlign: "center" }}>MiniMart Products</h2>
+      {/* Header with login/logout */}
+      <div style={{ display: "flex", justifyContent: "space-between", marginBottom: "20px" }}>
+        <h2>MiniMart Products</h2>
+        {isAuthenticated ? (
+          <button
+            onClick={() => logout({ returnTo: window.location.origin })}
+            style={{
+              padding: "8px 14px",
+              background: "#0D6EFD",
+              color: "#fff",
+              border: "none",
+              borderRadius: "8px",
+              cursor: "pointer",
+            }}
+          >
+            Logout
+          </button>
+        ) : (
+          <button
+            onClick={() => loginWithRedirect()}
+            style={{
+              padding: "8px 14px",
+              background: "#0D6EFD",
+              color: "#fff",
+              border: "none",
+              borderRadius: "8px",
+              cursor: "pointer",
+            }}
+          >
+            Login
+          </button>
+        )}
+      </div>
+
+      {/* Product Grid */}
       <div
         style={{
           display: "grid",
@@ -57,9 +87,10 @@ export default function Home() {
               flexDirection: "column",
             }}
           >
+            {/* S3 Image or Placeholder */}
             {p.image_url ? (
               <img
-                src={p.image_url}
+                src={p.image_url} // S3 URL
                 alt={p.title}
                 style={{ width: "100%", height: "180px", objectFit: "cover" }}
               />
