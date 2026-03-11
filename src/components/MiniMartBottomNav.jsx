@@ -4,18 +4,17 @@ import { Link, useLocation } from "react-router-dom";
 import { useAuth0 } from "@auth0/auth0-react";
 
 export default function MiniMartBottomNav() {
-  const { isAuthenticated, logout, loginWithRedirect } = useAuth0();
+  const { isAuthenticated, loginWithRedirect, logout } = useAuth0();
   const location = useLocation();
 
-  // Helper to highlight active route
   const isActive = (path) => location.pathname === path;
 
   const navItems = [
     { label: "🏠 Home", path: "/" },
     { label: "🛒 MiniMart", path: "/minimart" },
-    { label: "➕ Sell", path: "/minimart/add" },
-    { label: "💬 Message", path: "/messages" },
-    { label: "👤 Profile", path: "/profile" },
+    { label: "➕ Sell", path: "/minimart/add", protected: true },
+    { label: "💬 Messages", path: "/messages", protected: true },
+    { label: "👤 Profile", path: "/profile", protected: true },
   ];
 
   return (
@@ -33,14 +32,11 @@ export default function MiniMartBottomNav() {
       }}
     >
       {navItems.map((item) => {
-        // Protect "Sell" and "Profile" if not authenticated
-        if (
-          !isAuthenticated &&
-          (item.path === "/minimart/add" || item.path === "/profile")
-        ) {
+        if (item.protected && !isAuthenticated) {
           return (
             <button
               key={item.path}
+              onClick={() => loginWithRedirect()}
               style={{
                 background: "none",
                 border: "none",
@@ -48,7 +44,6 @@ export default function MiniMartBottomNav() {
                 fontWeight: isActive(item.path) ? 700 : 500,
                 cursor: "pointer",
               }}
-              onClick={() => loginWithRedirect()}
             >
               {item.label}
             </button>
@@ -70,7 +65,7 @@ export default function MiniMartBottomNav() {
         );
       })}
 
-      {/* Optional logout button on the nav for authenticated users */}
+      {/* Logout button only if authenticated */}
       {isAuthenticated && (
         <button
           onClick={() => logout({ returnTo: window.location.origin })}
