@@ -1,21 +1,16 @@
-// src/App.jsx
-import React from "react";
 import { BrowserRouter as Router, Routes, Route } from "react-router-dom";
+import MiniMartHome from "./pages/MiniMart/Home.jsx";
+import AddMiniMartProduct from "./pages/MiniMart/AddMiniMartProduct.jsx";
+import ProductDetail from "./pages/MiniMart/ProductDetail.jsx";
 
-import HomePage from "./pages/HomePage.jsx";
-import AddProduct from "./pages/Marketplace/AddProduct.jsx";
-import ProfilePage from "./pages/ProfilePage.jsx"; // ← Added ProfilePage
-
-function App() {
+export default function App() {
   return (
     <Router>
       <Routes>
-        <Route path="/" element={<HomePage />} />
-        <Route path="/add-product" element={<AddProduct />} />
-        <Route path="/profile" element={<ProfilePage />} /> {/* ← Added */}
+        <Route path="/" element={<MiniMartHome />} />
+        <Route path="/minimart/add" element={<AddMiniMartProduct />} />
+        <Route path="/minimart/:id" element={<ProductDetail />} />
       </Routes>
     </Router>
   );
 }
-
-export default App;
