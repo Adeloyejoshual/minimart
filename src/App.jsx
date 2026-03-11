@@ -1,43 +1,33 @@
 import { BrowserRouter as Router, Routes, Route } from "react-router-dom";
-
-// Layout
-import Layout from "./layout/Layout";
+import { Auth0Provider } from "@auth0/auth0-react";
 
 // Pages
-import Home from "./pages/Home";
-import ProductDetails from "./pages/ProductDetails";
+import MiniMartHome from "./pages/MiniMart/Home";
 import AddProduct from "./pages/AddProduct";
+import ProductDetail from "./pages/ProductDetail";
 import Search from "./pages/Search";
 import SellerProfile from "./pages/SellerProfile";
-import NotFound from "./pages/NotFound";
 
 function App() {
   return (
-    <Router>
-      <Layout>
+    <Auth0Provider
+      domain={process.env.REACT_APP_AUTH0_DOMAIN}
+      clientId={process.env.REACT_APP_AUTH0_CLIENT_ID}
+      authorizationParams={{
+        redirect_uri: window.location.origin,
+        audience: process.env.REACT_APP_AUTH0_AUDIENCE,
+      }}
+    >
+      <Router>
         <Routes>
-
-          {/* Homepage */}
-          <Route path="/" element={<Home />} />
-
-          {/* Product page */}
-          <Route path="/product/:id" element={<ProductDetails />} />
-
-          {/* Add product */}
-          <Route path="/sell" element={<AddProduct />} />
-
-          {/* Search */}
+          <Route path="/" element={<MiniMartHome />} />
+          <Route path="/minimart/add" element={<AddProduct />} />
+          <Route path="/minimart/:id" element={<ProductDetail />} />
           <Route path="/search" element={<Search />} />
-
-          {/* Seller profile */}
           <Route path="/seller/:id" element={<SellerProfile />} />
-
-          {/* 404 */}
-          <Route path="*" element={<NotFound />} />
-
         </Routes>
-      </Layout>
-    </Router>
+      </Router>
+    </Auth0Provider>
   );
 }
 
