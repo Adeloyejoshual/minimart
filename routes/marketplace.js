@@ -1,86 +1,66 @@
-// routes/products.js
-
+// routes/marketplace.js
 import express from "express";
-import Product from "../models/Product.js";
-import { checkJwt } from "../middleware/checkJwt.js";
+import { pool } from "../server.js";
 
 const router = express.Router();
 
-/* --------------------------------------------------
-   CREATE PRODUCT
--------------------------------------------------- */
-router.post("/", checkJwt, async (req, res) => {
+// ✅ Add a new product
+router.post("/products", async (req, res) => {
+  const { title, description, price, category, stock, image_url } = req.body;
+
+  if (!title || !price) {
+    return res.status(400).json({ success: false, message: "Title and price are required" });
+  }
+
   try {
-    const product = new Product({
-      ...req.body,
-      user_id: req.auth.payload.sub,
-    });
+    const query = `
+      INSERT INTO products (title, description, price, category, stock, image_url)
+      VALUES ($1, $2, $3, $4, $5, $6)
+      RETURNING *
+    `;
+    const values = [title, description || "", price, category || "", stock || 0, image_url || null];
+    const { rows } = await pool.query(query, values);
 
-    await product.save();
-
-    res.status(201).json({
-      success: true,
-      message: "Product created successfully",
-      product,
-    });
-  } catch (error) {
-    console.error(error);
-    res.status(500).json({
-      success: false,
-      message: "Failed to create product",
-    });
+    res.json({ success: true, product: rows[0] });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ success: false, message: "Failed to add product" });
   }
 });
 
-/* --------------------------------------------------
-   GET ALL PRODUCTS
--------------------------------------------------- */
-router.get("/", async (req, res) => {
+// ✅ Get all products
+router.get("/products", async (req, res) => {
   try {
-    const products = await Product.find().sort({ createdAt: -1 });
-
-    res.json(products);
-  } catch (error) {
-    res.status(500).json({ message: "Server error" });
+    const { rows } = await pool.query("SELECT * FROM products ORDER BY id DESC");
+    res.json(rows);
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ success: false, message: "Failed to fetch products" });
   }
 });
 
-/* --------------------------------------------------
-   GET SINGLE PRODUCT
--------------------------------------------------- */
-router.get("/:id", async (req, res) => {
+// ✅ Get a product by ID
+router.get("/products/:id", async (req, res) => {
+  const { id } = req.params;
   try {
-    const product = await Product.findById(req.params.id);
-
-    if (!product) {
-      return res.status(404).json({ message: "Product not found" });
-    }
-
-    res.json(product);
-  } catch (error) {
-    res.status(500).json({ message: "Server error" });
+    const { rows } = await pool.query("SELECT * FROM products WHERE id = $1", [id]);
+    if (rows.length === 0) return res.status(404).json({ success: false, message: "Product not found" });
+    res.json(rows[0]);
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ success: false, message: "Failed to fetch product" });
   }
 });
 
-/* --------------------------------------------------
-   DELETE PRODUCT (Owner Only)
--------------------------------------------------- */
-router.delete("/:id", checkJwt, async (req, res) => {
+// ✅ Get all products added by a specific user (requires auth)
+router.get("/my-products/:userId", async (req, res) => {
+  const { userId } = req.params;
   try {
-    const product = await Product.findById(req.params.id);
-
-    if (!product)
-      return res.status(404).json({ message: "Product not found" });
-
-    if (product.user_id !== req.auth.payload.sub) {
-      return res.status(403).json({ message: "Unauthorized" });
-    }
-
-    await product.deleteOne();
-
-    res.json({ message: "Product deleted successfully" });
-  } catch (error) {
-    res.status(500).json({ message: "Server error" });
+    const { rows } = await pool.query("SELECT * FROM products WHERE user_id = $1 ORDER BY id DESC", [userId]);
+    res.json(rows);
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ success: false, message: "Failed to fetch user products" });
   }
 });
 
