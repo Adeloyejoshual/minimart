@@ -5,6 +5,7 @@ import Login from "./pages/Login";
 import Register from "./pages/Register";
 import Homepage from "./pages/Homepage";
 import AddProduct from "./pages/AddProduct";
+import VerifyEmail from "./pages/VerifyEmail";   // ✅ add this import
 import PrivateRoute from "./components/PrivateRoute";
 
 function App() {
@@ -12,8 +13,14 @@ function App() {
     <Router>
       <Routes>
         <Route path="/" element={<Homepage />} />
+
         <Route path="/login" element={<Login />} />
         <Route path="/register" element={<Register />} />
+
+        {/* Email verification */}
+        <Route path="/verify-email/:token" element={<VerifyEmail />} />
+
+        {/* Protected route */}
         <Route
           path="/add-product"
           element={
@@ -22,6 +29,8 @@ function App() {
             </PrivateRoute>
           }
         />
+
+        {/* fallback */}
         <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>
     </Router>
