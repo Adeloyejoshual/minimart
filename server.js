@@ -1,4 +1,3 @@
-// server.js
 import express from "express";
 import cors from "cors";
 import dotenv from "dotenv";
@@ -6,14 +5,11 @@ import path from "path";
 import { fileURLToPath } from "url";
 
 import marketplaceRouter from "./routes/marketplace.js";
-import authRouter from "./routes/auth.js";
 import prisma from "./prisma.js";
 
 dotenv.config();
 
 const app = express();
-
-// Fix __dirname in ES modules
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
@@ -22,11 +18,10 @@ app.use(cors());
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
-// API Routes
+// Routes
 app.use("/api/marketplace", marketplaceRouter);
-app.use("/api/auth", authRouter);
 
-// Health Check
+// Health check
 app.get("/api/health", async (req, res) => {
   try {
     await prisma.$queryRaw`SELECT 1`;
@@ -36,17 +31,13 @@ app.get("/api/health", async (req, res) => {
   }
 });
 
-// Serve React SPA
+// Serve React build (optional)
 const buildPath = path.join(__dirname, "dist");
 app.use(express.static(buildPath));
-
-// Fallback: serve index.html for React Router
 app.get("*", (req, res) => {
   res.sendFile(path.join(buildPath, "index.html"));
 });
 
-// Start Server
+// Start server
 const PORT = process.env.PORT || 5000;
 app.listen(PORT, () => console.log(`🚀 Server running on port ${PORT}`));
-
-export default app;
