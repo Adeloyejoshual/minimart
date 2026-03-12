@@ -59,11 +59,12 @@ router.get("/", async (req, res) => {
     const whereClause = filters.length ? `WHERE ${filters.join(" AND ")}` : "";
 
     // Sorting
-    let orderBy = "created_at DESC";
+    let orderBy = "created_at DESC"; // default
     if (sort === "price_asc") orderBy = "price ASC";
     else if (sort === "price_desc") orderBy = "price DESC";
     else if (sort === "oldest") orderBy = "created_at ASC";
 
+    // Pagination
     const offset = (page - 1) * limit;
     values.push(limit, offset);
 
@@ -78,7 +79,12 @@ router.get("/", async (req, res) => {
     `;
 
     const { rows } = await pool.query(query, values);
-    res.json({ success: true, data: rows, page: Number(page), limit: Number(limit) });
+    res.json({
+      success: true,
+      data: rows,
+      page: Number(page),
+      limit: Number(limit),
+    });
   } catch (err) {
     console.error("GET /api/marketplace error:", err);
     res.status(500).json({ success: false, message: "Failed to fetch products" });
@@ -86,7 +92,7 @@ router.get("/", async (req, res) => {
 });
 
 // ---------------- POST New Product ----------------
-// Uses auth middleware to get seller info and optional geo middleware
+// Protected route: requires auth & optional geo data
 router.post("/", auth, autoGeo, upload.single("file"), async (req, res) => {
   try {
     const { title, description, price, category_id } = req.body;
