@@ -17,22 +17,16 @@ const app = express();
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
-// -------------------
 // Middlewares
-// -------------------
 app.use(cors());
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
-// -------------------
 // API Routes
-// -------------------
 app.use("/api/marketplace", marketplaceRouter);
 app.use("/api/auth", authRouter);
 
-// -------------------
 // Health Check
-// -------------------
 app.get("/api/health", async (req, res) => {
   try {
     await prisma.$queryRaw`SELECT 1`;
@@ -42,20 +36,16 @@ app.get("/api/health", async (req, res) => {
   }
 });
 
-// -------------------
 // Serve React SPA
-// -------------------
 const buildPath = path.join(__dirname, "dist");
 app.use(express.static(buildPath));
 
-// Fallback: serve index.html for any unmatched route
+// Fallback: serve index.html for React Router
 app.get("*", (req, res) => {
   res.sendFile(path.join(buildPath, "index.html"));
 });
 
-// -------------------
 // Start Server
-// -------------------
 const PORT = process.env.PORT || 5000;
 app.listen(PORT, () => console.log(`🚀 Server running on port ${PORT}`));
 
