@@ -1,92 +1,82 @@
-import { useEffect, useState } from "react";
+import React, { useState } from "react";
 import axios from "axios";
-import { Link } from "react-router-dom";
 
 export default function Home() {
-  const [products, setProducts] = useState([]);
-  const [loading, setLoading] = useState(true);
+  const [user, setUser] = useState(null);
+  const [isRegister, setIsRegister] = useState(false); // toggle form
+  const [name, setName] = useState("");
+  const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
   const [error, setError] = useState("");
 
-  useEffect(() => {
-    fetchProducts();
-  }, []);
-
-  const fetchProducts = async () => {
+  const login = async () => {
     try {
-      const res = await axios.get("/api/marketplace");
-      setProducts(res.data);
-      setLoading(false);
+      const { data } = await axios.post("/api/auth/login", { email, password });
+      setUser(data.user);
+      setError("");
+      setName(""); setEmail(""); setPassword("");
     } catch (err) {
-      setError("Failed to load products");
-      setLoading(false);
+      setError(err.response?.data?.message || "Login failed");
     }
   };
 
-  if (loading) return <h2 style={{ textAlign: "center" }}>Loading products...</h2>;
-  if (error) return <h2 style={{ textAlign: "center" }}>{error}</h2>;
+  const register = async () => {
+    try {
+      const { data } = await axios.post("/api/auth/signup", { name, email, password });
+      setUser(data.user);
+      setError("");
+      setName(""); setEmail(""); setPassword("");
+      setIsRegister(false);
+    } catch (err) {
+      setError(err.response?.data?.message || "Registration failed");
+    }
+  };
+
+  const logout = () => setUser(null);
 
   return (
-    <div style={{ padding: "20px" }}>
-      <h1 style={{ marginBottom: "20px" }}>MiniMart Marketplace</h1>
+    <div style={{ maxWidth: 400, margin: "auto", padding: 20 }}>
+      <h1>MiniMart</h1>
 
-      <div
-        style={{
-          display: "grid",
-          gridTemplateColumns: "repeat(auto-fill, minmax(220px, 1fr))",
-          gap: "20px"
-        }}
-      >
-        {products.map((product) => (
-          <Link
-            key={product.id}
-            to={`/product/${product.id}`}
-            style={{
-              textDecoration: "none",
-              color: "inherit",
-              border: "1px solid #eee",
-              borderRadius: "10px",
-              overflow: "hidden",
-              background: "#fff"
-            }}
-          >
-            <div>
-              {product.image_url ? (
-                <img
-                  src={product.image_url}
-                  alt={product.title}
-                  style={{
-                    width: "100%",
-                    height: "180px",
-                    objectFit: "cover"
-                  }}
-                />
-              ) : (
-                <div
-                  style={{
-                    height: "180px",
-                    background: "#f5f5f5",
-                    display: "flex",
-                    alignItems: "center",
-                    justifyContent: "center"
-                  }}
-                >
-                  No Image
-                </div>
-              )}
-            </div>
+      {!user ? (
+        <div>
+          {isRegister && (
+            <input
+              type="text"
+              placeholder="Name"
+              value={name}
+              onChange={(e) => setName(e.target.value)}
+            />
+          )}
+          <input
+            type="email"
+            placeholder="Email"
+            value={email}
+            onChange={(e) => setEmail(e.target.value)}
+          />
+          <input
+            type="password"
+            placeholder="Password"
+            value={password}
+            onChange={(e) => setPassword(e.target.value)}
+          />
 
-            <div style={{ padding: "10px" }}>
-              <h3 style={{ fontSize: "16px", marginBottom: "5px" }}>
-                {product.title}
-              </h3>
+          <button onClick={isRegister ? register : login}>
+            {isRegister ? "Register" : "Login"}
+          </button>
 
-              <p style={{ color: "#777", fontSize: "14px" }}>
-                ₦{product.price}
-              </p>
-            </div>
-          </Link>
-        ))}
-      </div>
+          <p style={{ color: "blue", cursor: "pointer" }} onClick={() => setIsRegister(!isRegister)}>
+            {isRegister ? "Already have an account? Login" : "Don't have an account? Register"}
+          </p>
+
+          {error && <p style={{ color: "red" }}>{error}</p>}
+        </div>
+      ) : (
+        <div>
+          <p>Welcome, {user.name}!</p>
+          <button onClick={logout}>Logout</button>
+        </div>
+      )}
     </div>
   );
 }
