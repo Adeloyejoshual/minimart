@@ -3,6 +3,7 @@ import express from "express";
 import { Pool } from "pg";
 import upload from "../middleware/s3Upload.js";
 import auth from "../middleware/authMiddleware.js";
+import { autoGeo } from "../middleware/geo.js"; // optional geo middleware
 
 const router = express.Router();
 
@@ -58,12 +59,11 @@ router.get("/", async (req, res) => {
     const whereClause = filters.length ? `WHERE ${filters.join(" AND ")}` : "";
 
     // Sorting
-    let orderBy = "created_at DESC"; // default
+    let orderBy = "created_at DESC";
     if (sort === "price_asc") orderBy = "price ASC";
     else if (sort === "price_desc") orderBy = "price DESC";
     else if (sort === "oldest") orderBy = "created_at ASC";
 
-    // Pagination
     const offset = (page - 1) * limit;
     values.push(limit, offset);
 
@@ -86,11 +86,15 @@ router.get("/", async (req, res) => {
 });
 
 // ---------------- POST New Product ----------------
-router.post("/", auth, upload.single("file"), async (req, res) => {
+// Uses auth middleware to get seller info and optional geo middleware
+router.post("/", auth, autoGeo, upload.single("file"), async (req, res) => {
   try {
     const { title, description, price, category_id } = req.body;
     const image_url = req.file?.location || null;
-    const seller_id = req.user.id; // from auth middleware
+
+    const seller_id = req.user.id;          // from auth middleware
+    const seller_name = req.user.name;      // attach seller name
+    const { country, city, state } = req.geo || {}; // from geo middleware
 
     if (!title || !price) {
       return res.status(400).json({ success: false, message: "Title and price are required" });
@@ -102,9 +106,10 @@ router.post("/", auth, upload.single("file"), async (req, res) => {
     }
 
     const query = `
-      INSERT INTO minimart_products (title, description, price, image_url, category_id, seller_id)
-      VALUES ($1, $2, $3, $4, $5, $6)
-      RETURNING id, title, description, price, image_url, created_at
+      INSERT INTO minimart_products 
+        (title, description, price, image_url, category_id, seller_id, seller_name, country, city, state)
+      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+      RETURNING id, title, description, price, image_url, created_at, seller_name, country, city, state
     `;
 
     const { rows } = await pool.query(query, [
@@ -114,6 +119,10 @@ router.post("/", auth, upload.single("file"), async (req, res) => {
       image_url,
       category_id || null,
       seller_id,
+      seller_name,
+      country || null,
+      city || null,
+      state || null,
     ]);
 
     res.status(201).json({ success: true, data: rows[0] });
