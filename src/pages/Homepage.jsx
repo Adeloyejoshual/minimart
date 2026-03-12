@@ -1,63 +1,57 @@
-// src/pages/Homepage.jsx
 import React, { useEffect, useState } from "react";
 import axios from "axios";
+import { Link } from "react-router-dom";
 
 const Homepage = () => {
   const [products, setProducts] = useState([]);
-  const [loading, setLoading] = useState(true); // show loading
-  const [error, setError] = useState("");
 
   useEffect(() => {
-    const fetchProducts = async () => {
-      try {
-        const res = await axios.get("/api/marketplace");
-        if (res.data && res.data.data) {
-          setProducts(res.data.data);
-        } else {
-          setError("No products found");
-        }
-      } catch (err) {
-        console.error(err);
-        setError("Failed to fetch products");
-      } finally {
-        setLoading(false);
-      }
-    };
-
-    fetchProducts();
+    axios
+      .get("/api/marketplace")
+      .then((res) => setProducts(res.data.data))
+      .catch((err) => console.error("Failed to fetch products:", err));
   }, []);
 
-  if (loading) return <p style={{ padding: "20px" }}>Loading products...</p>;
-  if (error) return <p style={{ padding: "20px", color: "red" }}>{error}</p>;
-
   return (
-    <div className="container" style={{ padding: "20px" }}>
+    <div className="container">
       <header style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-        <h1>MiniMart Marketplace</h1>
+        <h2>MiniMart Marketplace</h2>
+        <nav>
+          <Link to="/login" style={{ marginRight: "10px" }}>Login</Link>
+        </nav>
       </header>
 
       <section style={{ marginTop: "20px" }}>
-        {products.length === 0 ? (
-          <p>No products available.</p>
-        ) : (
-          <div className="products" style={{ display: "flex", flexWrap: "wrap", gap: "20px" }}>
-            {products.map((product) => (
+        <Link to="/add-product" style={{ display: "inline-block", marginBottom: "20px" }}>
+          Add New Product
+        </Link>
+
+        <div style={{ display: "flex", flexWrap: "wrap", gap: "20px" }}>
+          {products.length > 0 ? (
+            products.map((p) => (
               <div
-                key={product.id}
-                className="product-card"
-                style={{ border: "1px solid #ccc", padding: "10px", width: "200px" }}
+                key={p.id}
+                style={{
+                  border: "1px solid #ccc",
+                  padding: "10px",
+                  width: "200px",
+                  borderRadius: "8px",
+                }}
               >
                 <img
-                  src={product.image_url || "/placeholder.png"}
-                  alt={product.title}
+                  src={p.image_url || "/placeholder.png"}
+                  alt={p.title}
                   style={{ width: "100%", height: "150px", objectFit: "cover" }}
                 />
-                <h3>{product.title}</h3>
-                <p>₦{product.price}</p>
+                <h3>{p.title || "No title"}</h3>
+                <p>₦{p.price ?? "0.00"}</p>
+                <p>{p.description || "No description"}</p>
               </div>
-            ))}
-          </div>
-        )}
+            ))
+          ) : (
+            <p>No products available.</p>
+          )}
+        </div>
       </section>
     </div>
   );
