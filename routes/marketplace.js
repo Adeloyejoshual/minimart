@@ -1,20 +1,15 @@
+
 import express from "express";
-import prisma from "../prisma.js"; // Prisma client instance
+import prisma from "../prisma.js";
 
 const router = express.Router();
 
-// GET all products for marketplace
+// GET all products
 router.get("/", async (req, res) => {
   try {
     const products = await prisma.product.findMany({
-      select: {
-        id: true,
-        title: true,
-        price: true,
-        image_url: true,
-      },
+      select: { id: true, title: true, price: true, image_url: true },
     });
-
     res.json(products);
   } catch (err) {
     console.error("Error fetching products:", err);
