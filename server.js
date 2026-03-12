@@ -3,20 +3,19 @@ import express from "express";
 import cors from "cors";
 import path from "path";
 import { fileURLToPath } from "url";
-import dotenv from "dotenv";
 import { Pool } from "pg";
+import dotenv from "dotenv";
 
 import marketplaceRouter from "./routes/marketplace.js";
-import usersRouter from "./routes/users.js";
+import userRouter from "./routes/users.js"; // User auth routes
 
 dotenv.config();
 
 const app = express();
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = path.dirname(__filename);
+const PORT = process.env.PORT || 5000;
 
 // -------------------
-// CockroachDB / PostgreSQL
+// CockroachDB Pool
 // -------------------
 export const pool = new Pool({
   connectionString: process.env.COCKROACH_URI,
@@ -30,37 +29,27 @@ pool.connect()
 // -------------------
 // Middlewares
 // -------------------
-app.use(cors({ origin: process.env.FRONTEND_URL || "http://localhost:5173" }));
-app.use(express.json({ limit: "50mb" }));
-app.use(express.urlencoded({ extended: true, limit: "50mb" }));
+app.use(cors());
+app.use(express.json());
+app.use(express.urlencoded({ extended: true }));
 
 // -------------------
 // API Routes
 // -------------------
 app.use("/api/marketplace", marketplaceRouter);
-app.use("/api/users", usersRouter);
+app.use("/api/users", userRouter);
 
 // -------------------
-// Root & Health Check
+// Serve Vite React Build in Production
 // -------------------
-app.get("/", (req, res) => res.send("MiniMart API running 🚀"));
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
 
-app.get("/api/health", async (req, res) => {
-  try {
-    const { rows } = await pool.query("SELECT 1 as status");
-    res.json({ success: true, db: rows[0].status === 1, timestamp: new Date().toISOString() });
-  } catch (err) {
-    res.status(500).json({ success: false, error: err.message });
-  }
-});
-
-// -------------------
-// Serve Vite Frontend in Production
-// -------------------
 if (process.env.NODE_ENV === "production") {
   app.use(express.static(path.join(__dirname, "dist")));
 
   app.get("*", (req, res) => {
+    // Avoid catching API requests
     if (req.path.startsWith("/api/")) {
       return res.status(404).json({ success: false, message: "API endpoint not found" });
     }
@@ -69,29 +58,22 @@ if (process.env.NODE_ENV === "production") {
 }
 
 // -------------------
-// 404 Handler
+// Root / Health
 // -------------------
-app.use("*", (req, res) => {
-  res.status(404).json({ success: false, message: `Route ${req.method} ${req.originalUrl} not found` });
-});
-
-// -------------------
-// Error Handler
-// -------------------
-app.use((err, req, res, next) => {
-  console.error("🚨 ERROR:", { url: req.originalUrl, method: req.method, error: err.message });
-  res.status(500).json({ success: false, message: "Internal server error" });
+app.get("/api/health", async (req, res) => {
+  try {
+    const { rows } = await pool.query("SELECT 1 as status");
+    res.json({ success: true, db: rows[0].status === 1 });
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message });
+  }
 });
 
 // -------------------
 // Start Server
 // -------------------
-const PORT = process.env.PORT || 5000;
-app.listen(PORT, "0.0.0.0", () => {
+app.listen(PORT, () => {
   console.log(`🚀 Server running on port ${PORT}`);
-  console.log(`📊 Health: http://localhost:${PORT}/api/health`);
-  console.log(`🛒 Products API: POST /api/marketplace/products`);
-  console.log(`👤 Users API: POST /api/users/register, POST /api/users/login`);
 });
 
 export default app;
