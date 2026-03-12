@@ -13,15 +13,13 @@ const app = express();
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
-// Middlewares
 app.use(cors());
 app.use(express.json());
-app.use(express.urlencoded({ extended: true }));
 
-// Routes
+// Marketplace route
 app.use("/api/marketplace", marketplaceRouter);
 
-// Health check
+// Health check route
 app.get("/api/health", async (req, res) => {
   try {
     await prisma.$queryRaw`SELECT 1`;
@@ -31,13 +29,19 @@ app.get("/api/health", async (req, res) => {
   }
 });
 
-// Serve React build (optional)
-const buildPath = path.join(__dirname, "dist");
-app.use(express.static(buildPath));
-app.get("*", (req, res) => {
-  res.sendFile(path.join(buildPath, "index.html"));
-});
+// Function to test CockroachDB connection on server start
+async function checkDBConnection() {
+  try {
+    await prisma.$queryRaw`SELECT 1`;
+    console.log("✅ CockroachDB connected");
+  } catch (err) {
+    console.error("❌ Failed to connect to CockroachDB:", err.message);
+  }
+}
 
 // Start server
 const PORT = process.env.PORT || 5000;
-app.listen(PORT, () => console.log(`🚀 Server running on port ${PORT}`));
+app.listen(PORT, async () => {
+  console.log(`🚀 Server running on port ${PORT}`);
+  await checkDBConnection(); // Check DB when server starts
+});
