@@ -1,63 +1,109 @@
+// server.js
 import express from "express";
 import cors from "cors";
+import { Pool } from "pg";
 import dotenv from "dotenv";
-import path from "path";
-import { fileURLToPath } from "url";
-
-import marketplaceRouter from "./routes/marketplace.js";
-import prisma from "./prisma.js";
+import crypto from "crypto";
+import nodemailer from "nodemailer";
 
 dotenv.config();
 
 const app = express();
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = path.dirname(__filename);
 
+// -------------------
+// CockroachDB / PostgreSQL
+// -------------------
+export const pool = new Pool({
+  connectionString: process.env.COCKROACH_URI,
+  ssl: { rejectUnauthorized: false },
+});
+
+pool.connect()
+  .then(() => console.log("✅ Connected to CockroachDB"))
+  .catch(err => console.error("❌ CockroachDB connection error:", err.message));
+
+// -------------------
 // Middlewares
+// -------------------
 app.use(cors());
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
-// API Routes
-app.use("/api/marketplace", marketplaceRouter);
+// -------------------
+// Nodemailer setup
+// -------------------
+const transporter = nodemailer.createTransport({
+  service: "gmail",
+  auth: {
+    user: process.env.GMAIL_USER,        // Gmail email
+    pass: process.env.GMAIL_PASSWORD,    // Gmail App Password
+  },
+});
 
-// Health check route
+// Utility to send verification email
+const sendVerificationEmail = async (to, code) => {
+  const html = `<p>Your MiniMart verification code is: <b>${code}</b></p>`;
+  return transporter.sendMail({
+    from: `"MiniMart" <${process.env.GMAIL_USER}>`,
+    to,
+    subject: "MiniMart Verification Code",
+    text: `Your code is: ${code}`,
+    html,
+  });
+};
+
+// -------------------
+// Routes
+// -------------------
+
+// Root / health
+app.get("/", (req, res) => {
+  res.send("MiniMart API running 🚀");
+});
+
 app.get("/api/health", async (req, res) => {
   try {
-    await prisma.$queryRaw`SELECT 1`;
-    res.json({ success: true, db: true });
+    const { rows } = await pool.query("SELECT 1 as status");
+    res.json({ success: true, db: rows[0].status === 1 });
   } catch (err) {
-    res.status(500).json({ success: false, db: false, error: err.message });
+    res.status(500).json({ success: false, error: err.message });
   }
 });
 
-// Function to test CockroachDB connection
-async function checkDBConnection() {
+// Send verification code
+app.post("/api/send-code", async (req, res) => {
+  const { email } = req.body;
+  if (!email) return res.status(400).json({ message: "Email is required" });
+
+  const code = Math.floor(100000 + Math.random() * 900000).toString();
+
   try {
-    await prisma.$queryRaw`SELECT 1`;
-    console.log("✅ CockroachDB connected");
+    await sendVerificationEmail(email, code);
+
+    // TODO: save code in DB or cache (Redis) for verification later
+    res.json({ message: "Verification code sent", code }); // Remove code from response in production
   } catch (err) {
-    console.error("❌ Failed to connect to CockroachDB:", err.message);
+    console.error("Email send error:", err);
+    res.status(500).json({ message: "Failed to send verification code" });
   }
-}
-
-// Serve React build (production)
-const buildPath = path.join(__dirname, "build"); // Change to "dist" if your React build folder is named that
-app.use(express.static(buildPath));
-
-// Root route (optional for dev)
-app.get("/", (req, res) => {
-  res.sendFile(path.join(buildPath, "index.html"));
 });
 
-// Fallback for React Router (so all frontend routes work)
-app.get("*", (req, res) => {
-  res.sendFile(path.join(buildPath, "index.html"));
+// Example: get users (for testing)
+app.get("/api/users", async (req, res) => {
+  try {
+    const { rows } = await pool.query("SELECT id, name, email, role FROM users ORDER BY created_at DESC");
+    res.json(rows);
+  } catch (err) {
+    res.status(500).json({ message: "Failed to fetch users" });
+  }
 });
 
+// -------------------
 // Start server
+// -------------------
 const PORT = process.env.PORT || 5000;
-app.listen(PORT, async () => {
+app.listen(PORT, () => {
   console.log(`🚀 Server running on port ${PORT}`);
-  await checkDBConnection(); // Check DB on startup
 });
+
+export default app;
