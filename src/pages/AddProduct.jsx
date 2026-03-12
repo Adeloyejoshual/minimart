@@ -10,12 +10,16 @@ const AddProduct = () => {
   const [file, setFile] = useState(null);
   const [error, setError] = useState("");
   const [success, setSuccess] = useState("");
+
   const navigate = useNavigate();
 
   const handleSubmit = async (e) => {
     e.preventDefault();
-    setError("");
-    setSuccess("");
+
+    if (!title || !price) {
+      setError("Title and price are required");
+      return;
+    }
 
     const formData = new FormData();
     formData.append("title", title);
@@ -24,30 +28,33 @@ const AddProduct = () => {
     if (file) formData.append("file", file);
 
     try {
-      const token = localStorage.getItem("token"); // JWT from login
+      setError("");
+      setSuccess("");
+      const token = localStorage.getItem("token"); // make sure user is logged in
+
       const res = await axios.post("/api/marketplace", formData, {
         headers: {
-          Authorization: `Bearer ${token}`,
+          "Authorization": `Bearer ${token}`,
           "Content-Type": "multipart/form-data",
         },
       });
 
       setSuccess("Product added successfully!");
-      // redirect to homepage after 2s
-      setTimeout(() => navigate("/"), 2000);
+      // Redirect to homepage after short delay
+      setTimeout(() => navigate("/"), 1500);
     } catch (err) {
       setError(err.response?.data?.message || "Failed to add product");
     }
   };
 
   return (
-    <div className="container">
+    <div className="container" style={{ maxWidth: "500px", margin: "20px auto" }}>
       <h2>Add New Product</h2>
 
       {error && <p style={{ color: "red" }}>{error}</p>}
       {success && <p style={{ color: "green" }}>{success}</p>}
 
-      <form onSubmit={handleSubmit}>
+      <form onSubmit={handleSubmit} style={{ display: "flex", flexDirection: "column", gap: "10px" }}>
         <input
           type="text"
           placeholder="Title"
@@ -55,13 +62,11 @@ const AddProduct = () => {
           onChange={(e) => setTitle(e.target.value)}
           required
         />
-
         <textarea
           placeholder="Description"
           value={description}
           onChange={(e) => setDescription(e.target.value)}
         />
-
         <input
           type="number"
           placeholder="Price"
@@ -69,9 +74,10 @@ const AddProduct = () => {
           onChange={(e) => setPrice(e.target.value)}
           required
         />
-
-        <input type="file" onChange={(e) => setFile(e.target.files[0])} />
-
+        <input
+          type="file"
+          onChange={(e) => setFile(e.target.files[0])}
+        />
         <button type="submit">Add Product</button>
       </form>
     </div>
