@@ -1,6 +1,6 @@
 // middleware/authMiddleware.js
 import jwt from "jsonwebtoken";
-import { pool } from "../server.js"; // your pg pool
+import prisma from "../prisma.js";
 import dotenv from "dotenv";
 
 dotenv.config();
@@ -18,24 +18,22 @@ const auth = async (req, res, next) => {
       return res.status(401).json({ success: false, message: "No token provided" });
     }
 
-    // Verify JWT
     const decoded = jwt.verify(token, JWT_SECRET);
     if (!decoded || !decoded.id) {
       return res.status(401).json({ success: false, message: "Invalid token" });
     }
 
-    // Fetch user from DB
-    const { rows } = await pool.query(
-      "SELECT id, name, email, email_verified FROM public.users WHERE id=$1",
-      [decoded.id]
-    );
+    // Fetch user using Prisma
+    const user = await prisma.users.findUnique({
+      where: { id: decoded.id },
+      select: { id: true, name: true, email: true, email_verified: true, role: true },
+    });
 
-    if (!rows[0]) {
+    if (!user) {
       return res.status(401).json({ success: false, message: "User not found" });
     }
 
-    // Attach user to request
-    req.user = rows[0];
+    req.user = user;
     next();
   } catch (error) {
     if (error.name === "TokenExpiredError") {
