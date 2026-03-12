@@ -13,10 +13,12 @@ const app = express();
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
+// Middlewares
 app.use(cors());
 app.use(express.json());
+app.use(express.urlencoded({ extended: true }));
 
-// Marketplace route
+// API Routes
 app.use("/api/marketplace", marketplaceRouter);
 
 // Health check route
@@ -29,7 +31,7 @@ app.get("/api/health", async (req, res) => {
   }
 });
 
-// Function to test CockroachDB connection on server start
+// Function to test CockroachDB connection
 async function checkDBConnection() {
   try {
     await prisma.$queryRaw`SELECT 1`;
@@ -39,9 +41,23 @@ async function checkDBConnection() {
   }
 }
 
+// Serve React build (production)
+const buildPath = path.join(__dirname, "build"); // Change to "dist" if your React build folder is named that
+app.use(express.static(buildPath));
+
+// Root route (optional for dev)
+app.get("/", (req, res) => {
+  res.sendFile(path.join(buildPath, "index.html"));
+});
+
+// Fallback for React Router (so all frontend routes work)
+app.get("*", (req, res) => {
+  res.sendFile(path.join(buildPath, "index.html"));
+});
+
 // Start server
 const PORT = process.env.PORT || 5000;
 app.listen(PORT, async () => {
   console.log(`🚀 Server running on port ${PORT}`);
-  await checkDBConnection(); // Check DB when server starts
+  await checkDBConnection(); // Check DB on startup
 });
