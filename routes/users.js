@@ -1,50 +1,46 @@
-// src/routes/users.js
+// routes/users.js
 import express from "express";
-import { pool } from "../server.js";
 import bcrypt from "bcrypt";
 import jwt from "jsonwebtoken";
+import { pool } from "../server.js";
 
 const router = express.Router();
-const SALT_ROUNDS = 10;
 
 // -------------------
 // Register new user
 // -------------------
 router.post("/register", async (req, res) => {
-  const { name, email, password } = req.body;
-
-  if (!name || !email || !password)
-    return res.status(400).json({ message: "All fields are required" });
-
   try {
-    // Check if email exists
-    const { rows } = await pool.query(
-      "SELECT id FROM users WHERE email = $1",
-      [email]
-    );
+    const { name, email, password, role } = req.body;
 
-    if (rows.length > 0)
-      return res.status(400).json({ message: "Email already registered" });
+    if (!name || !email || !password) {
+      return res.status(400).json({ message: "Name, email, and password are required" });
+    }
+
+    // Check if user already exists
+    const { rows: existing } = await pool.query(
+      "SELECT id FROM users WHERE email = $1",
+      [email.toLowerCase()]
+    );
+    if (existing.length > 0) {
+      return res.status(409).json({ message: "Email already registered" });
+    }
 
     // Hash password
-    const hashedPassword = await bcrypt.hash(password, SALT_ROUNDS);
+    const password_hash = await bcrypt.hash(password, 10);
 
     // Insert user
-    const insertQuery = `
-      INSERT INTO users (name, email, password_hash)
-      VALUES ($1, $2, $3)
-      RETURNING id, name, email, role, created_at
-    `;
-    const { rows: newUser } = await pool.query(insertQuery, [
-      name,
-      email,
-      hashedPassword,
-    ]);
+    const { rows } = await pool.query(
+      `INSERT INTO users (name, email, password_hash, role)
+       VALUES ($1, $2, $3, $4)
+       RETURNING id, name, email, role, created_at`,
+      [name, email.toLowerCase(), password_hash, role || "buyer"]
+    );
 
-    res.status(201).json({ success: true, user: newUser[0] });
+    res.status(201).json({ success: true, user: rows[0] });
   } catch (err) {
     console.error("Register error:", err);
-    res.status(500).json({ success: false, message: "Server error" });
+    res.status(500).json({ success: false, message: "Registration failed" });
   }
 });
 
@@ -52,37 +48,42 @@ router.post("/register", async (req, res) => {
 // Login user
 // -------------------
 router.post("/login", async (req, res) => {
-  const { email, password } = req.body;
-
-  if (!email || !password)
-    return res.status(400).json({ message: "Email and password required" });
-
   try {
+    const { email, password } = req.body;
+
+    if (!email || !password)
+      return res.status(400).json({ message: "Email and password are required" });
+
+    // Find user
     const { rows } = await pool.query(
       "SELECT id, name, email, password_hash, role FROM users WHERE email = $1",
-      [email]
+      [email.toLowerCase()]
     );
 
     if (rows.length === 0)
-      return res.status(400).json({ message: "Invalid email or password" });
+      return res.status(401).json({ message: "Invalid email or password" });
 
     const user = rows[0];
 
     // Compare password
-    const match = await bcrypt.compare(password, user.password_hash);
-    if (!match) return res.status(400).json({ message: "Invalid email or password" });
+    const isMatch = await bcrypt.compare(password, user.password_hash);
+    if (!isMatch) return res.status(401).json({ message: "Invalid email or password" });
 
-    // Sign JWT token
+    // Create JWT
     const token = jwt.sign(
-      { id: user.id, name: user.name, email: user.email, role: user.role },
+      { id: user.id, email: user.email, role: user.role },
       process.env.JWT_SECRET,
       { expiresIn: "7d" }
     );
 
-    res.json({ success: true, token, user: { id: user.id, name: user.name, email: user.email, role: user.role } });
+    res.json({
+      success: true,
+      user: { id: user.id, name: user.name, email: user.email, role: user.role },
+      token,
+    });
   } catch (err) {
     console.error("Login error:", err);
-    res.status(500).json({ success: false, message: "Server error" });
+    res.status(500).json({ success: false, message: "Login failed" });
   }
 });
 
