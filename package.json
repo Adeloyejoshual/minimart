@@ -7,11 +7,11 @@
     "node": "20.x"
   },
   "scripts": {
-    "dev": "concurrently \"vite\" \"nodemon --watch server.ts --exec ts-node server.ts\"",
+    "dev": "concurrently \"vite\" \"nodemon server.js\"",
     "build": "vite build",
     "preview": "vite preview",
-    "start": "node dist/server.js",
-    "serve": "nodemon dist/server.js",
+    "start": "node server.js",
+    "serve": "nodemon server.js",
     "lint": "eslint . --ext .js,.jsx,.ts,.tsx",
     "format": "prettier --write .",
     "prisma:generate": "prisma generate",
@@ -49,7 +49,6 @@
     "@vitejs/plugin-react": "^4.3.1",
     "vite": "^5.4.2",
     "@prisma/client": "^5.7.0",
-    "ts-node": "^11.9.1",
     "concurrently": "^8.2.0"
   },
   "devDependencies": {
