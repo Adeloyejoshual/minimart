@@ -1,40 +1,16 @@
+// src/App.jsx
 import React from "react";
-import { BrowserRouter as Router, Routes, Route, Navigate } from "react-router-dom";
 
-import Login from "./pages/Login";
-import Register from "./pages/Register";
-import Homepage from "./pages/Homepage";
-import AddProduct from "./pages/AddProduct";
-import VerifyEmail from "./pages/VerifyEmail";   // ✅ add this import
-import PrivateRoute from "./components/PrivateRoute";
-
-function App() {
+const App = () => {
   return (
-    <Router>
-      <Routes>
-        <Route path="/" element={<Homepage />} />
-
-        <Route path="/login" element={<Login />} />
-        <Route path="/register" element={<Register />} />
-
-        {/* Email verification */}
-        <Route path="/verify-email/:token" element={<VerifyEmail />} />
-
-        {/* Protected route */}
-        <Route
-          path="/add-product"
-          element={
-            <PrivateRoute>
-              <AddProduct />
-            </PrivateRoute>
-          }
-        />
-
-        {/* fallback */}
-        <Route path="*" element={<Navigate to="/" replace />} />
-      </Routes>
-    </Router>
+    <div style={{ padding: "20px", fontFamily: "sans-serif" }}>
+      <h1>MiniMart Marketplace</h1>
+      <p>Login Page</p>
+      <p>Register Page</p>
+      <p>Homepage</p>
+      <p>Add Product Page</p>
+    </div>
   );
-}
+};
 
 export default App;
