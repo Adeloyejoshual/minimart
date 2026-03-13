@@ -1,42 +1,49 @@
-import express from "express";
+import jwt from "jsonwebtoken";
 import bcrypt from "bcrypt";
 import { pool } from "../server.js";
-import { sendMail } from "../utils/sendMail.js";
 
-const router = express.Router();
+router.post("/login", async (req, res) => {
 
-router.post("/register", async (req, res) => {
-  const { name, email, password } = req.body;
+  const { email, password } = req.body;
 
-  try {
-    const hashedPassword = await bcrypt.hash(password, 10);
+  const { rows } = await pool.query(
+    `SELECT * FROM users WHERE email=$1`,
+    [email]
+  );
 
-    const code = Math.floor(100000 + Math.random() * 900000).toString();
+  if (!rows.length) {
+    return res.status(400).json({ message: "Invalid credentials" });
+  }
 
-    await pool.query(
-      `INSERT INTO users (name,email,password_hash,role,verification_code)
-       VALUES ($1,$2,$3,$4,$5)`,
-      [name, email, hashedPassword, "buyer", code]
-    );
+  const user = rows[0];
 
-    await sendMail(
-      email,
-      "MiniMart Email Verification",
-      `Your verification code is: ${code}`
-    );
-
-    res.json({
-      success: true,
-      message: "Verification code sent to email"
-    });
-
-  } catch (err) {
-    console.error(err);
-    res.status(500).json({
-      success: false,
-      message: "Registration failed"
+  if (!user.email_verified) {
+    return res.status(403).json({
+      message: "Verify your email first"
     });
   }
-});
 
-export default router;
+  const valid = await bcrypt.compare(password, user.password_hash);
+
+  if (!valid) {
+    return res.status(400).json({
+      message: "Invalid credentials"
+    });
+  }
+
+  const token = jwt.sign(
+    {
+      id: user.id,
+      role: user.role,
+      email: user.email
+    },
+    process.env.JWT_SECRET,
+    { expiresIn: "7d" }
+  );
+
+  res.json({
+    success: true,
+    token
+  });
+
+});
