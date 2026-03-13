@@ -1,88 +1,61 @@
 // routes/marketplace.js
 import express from "express";
-import { pool } from "../server.js";
-import { upload } from "../middleware/s3Upload.js"; // multer-s3
+import multer from "multer";
+import { S3Client, PutObjectCommand } from "@aws-sdk/client-s3";
+import dotenv from "dotenv";
+import { v4 as uuidv4 } from "uuid";
+import path from "path";
+
+dotenv.config();
 
 const router = express.Router();
 
-// -------------------
-// GET all products with images
-// -------------------
-router.get("/products", async (req, res) => {
-  try {
-    const { rows } = await pool.query(`
-      SELECT p.id, p.title, p.description, p.price, p.stock, 
-             pi.image_url
-      FROM products p
-      LEFT JOIN product_images pi ON pi.product_id = p.id
-      ORDER BY p.created_at DESC, pi.position ASC;
-    `);
-    res.json(rows);
-  } catch (err) {
-    console.error("GET /products error:", err);
-    res.status(500).json({ message: "Failed to fetch products" });
-  }
+// Configure multer storage (in memory)
+const storage = multer.memoryStorage();
+const upload = multer({ storage });
+
+// AWS S3 client
+const s3 = new S3Client({
+  region: process.env.AWS_REGION,
+  credentials: {
+    accessKeyId: process.env.AWS_ACCESS_KEY_ID,
+    secretAccessKey: process.env.AWS_SECRET_ACCESS_KEY,
+  },
 });
 
-// -------------------
-// POST new product with multiple images
-// -------------------
-router.post(
-  "/products",
-  upload.array("images", 5), // max 5 images per product
-  async (req, res) => {
-    try {
-      const { title, description, price, stock } = req.body;
-
-      if (!title || !price) {
-        return res
-          .status(400)
-          .json({ message: "Title and price are required" });
-      }
-
-      const numericPrice = parseFloat(price);
-      const numericStock = parseInt(stock, 10) || 0;
-
-      // 1️⃣ Insert product first
-      const productQuery = `
-        INSERT INTO products (title, description, price, stock)
-        VALUES ($1, $2, $3, $4)
-        RETURNING id, title, description, price, stock;
-      `;
-      const { rows } = await pool.query(productQuery, [
-        title,
-        description || null,
-        numericPrice,
-        numericStock,
-      ]);
-
-      const product = rows[0];
-
-      // 2️⃣ Insert each uploaded image into product_images table
-      if (req.files && req.files.length > 0) {
-        const insertImagePromises = req.files.map((file, index) => {
-          return pool.query(
-            `
-            INSERT INTO product_images (product_id, image_url, position)
-            VALUES ($1, $2, $3)
-            RETURNING id, image_url;
-          `,
-            [product.id, file.location, index]
-          );
-        });
-
-        const images = await Promise.all(insertImagePromises);
-        product.images = images.map((img) => img.rows[0]);
-      } else {
-        product.images = [];
-      }
-
-      res.status(201).json({ success: true, product });
-    } catch (err) {
-      console.error("POST /products error:", err);
-      res.status(500).json({ message: "Failed to add product" });
+// Route: AddProduct (image only)
+router.post("/add-product", upload.single("image"), async (req, res) => {
+  try {
+    if (!req.file) {
+      return res.status(400).json({ error: "No image file uploaded" });
     }
+
+    // Generate unique filename
+    const fileExtension = path.extname(req.file.originalname);
+    const key = `products/${uuidv4()}${fileExtension}`;
+
+    // Upload to S3
+    const uploadParams = {
+      Bucket: process.env.AWS_BUCKET_NAME,
+      Key: key,
+      Body: req.file.buffer,
+      ContentType: req.file.mimetype,
+      ACL: "public-read", // so users can access the image
+    };
+
+    await s3.send(new PutObjectCommand(uploadParams));
+
+    // Return the public URL
+    const imageUrl = `https://${process.env.AWS_BUCKET_NAME}.s3.${process.env.AWS_REGION}.amazonaws.com/${key}`;
+
+    return res.status(200).json({
+      message: "Product image uploaded successfully",
+      imageUrl,
+    });
+  } catch (error) {
+    console.error("S3 Upload Error:", error);
+    return res.status(500).json({ error: "Failed to upload image" });
   }
-);
+});
 
 export default router;
