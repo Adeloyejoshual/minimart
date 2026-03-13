@@ -7,10 +7,8 @@ import { v4 as uuidv4 } from "uuid";
 import path from "path";
 
 dotenv.config();
-
 const router = express.Router();
 
-// Configure multer storage (in memory)
 const storage = multer.memoryStorage();
 const upload = multer({ storage });
 
@@ -23,38 +21,36 @@ const s3 = new S3Client({
   },
 });
 
-// Route: AddProduct (image only)
+// Add Product Image
 router.post("/add-product", upload.single("image"), async (req, res) => {
   try {
     if (!req.file) {
       return res.status(400).json({ error: "No image file uploaded" });
     }
 
-    // Generate unique filename
     const fileExtension = path.extname(req.file.originalname);
     const key = `products/${uuidv4()}${fileExtension}`;
 
-    // Upload to S3
-    const uploadParams = {
+    const params = {
       Bucket: process.env.AWS_BUCKET_NAME,
       Key: key,
       Body: req.file.buffer,
       ContentType: req.file.mimetype,
-      ACL: "public-read", // so users can access the image
+      ACL: "public-read",
     };
 
-    await s3.send(new PutObjectCommand(uploadParams));
+    await s3.send(new PutObjectCommand(params));
 
-    // Return the public URL
     const imageUrl = `https://${process.env.AWS_BUCKET_NAME}.s3.${process.env.AWS_REGION}.amazonaws.com/${key}`;
+    console.log("✅ Image uploaded:", imageUrl);
 
-    return res.status(200).json({
+    res.status(200).json({
       message: "Product image uploaded successfully",
       imageUrl,
     });
   } catch (error) {
     console.error("S3 Upload Error:", error);
-    return res.status(500).json({ error: "Failed to upload image" });
+    res.status(500).json({ error: "Failed to upload image", details: error.message });
   }
 });
 
