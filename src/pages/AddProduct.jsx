@@ -1,86 +1,128 @@
-import React, { useState } from "react";
+// src/pages/AddProduct.jsx
+import React, { useState, useEffect } from "react";
 import axios from "axios";
+import { useNavigate } from "react-router-dom";
 
 export default function AddProduct() {
-  const [title, setTitle] = useState("");
-  const [description, setDescription] = useState("");
-  const [price, setPrice] = useState("");
-  const [image, setImage] = useState(null);
+  const navigate = useNavigate();
+
+  const [form, setForm] = useState({
+    title: "",
+    description: "",
+    price: "",
+    image: "",
+    stock: 0,
+  });
+
   const [message, setMessage] = useState("");
 
-  // Get logged-in user from localStorage
-  const user = JSON.parse(localStorage.getItem("user"));
+  const API = "https://minimart-ivrm.onrender.com/api";
 
-  const handleFileChange = (e) => {
-    setImage(e.target.files[0]);
+  // -------------------
+  // Check login
+  // -------------------
+  useEffect(() => {
+    const token = localStorage.getItem("token");
+    if (!token) {
+      navigate("/"); // redirect if not logged in
+    }
+  }, [navigate]);
+
+  // -------------------
+  // Handle form input
+  // -------------------
+  const handleChange = (e) => {
+    setForm({
+      ...form,
+      [e.target.name]: e.target.value,
+    });
   };
 
+  // -------------------
+  // Submit product
+  // -------------------
   const handleSubmit = async (e) => {
     e.preventDefault();
-    if (!title || !price) {
-      setMessage("Title and price are required");
-      return;
-    }
 
     try {
-      const formData = new FormData();
-      formData.append("title", title);
-      formData.append("description", description);
-      formData.append("price", price);
-      formData.append("seller_id", user?.id); // use logged-in user's ID
-      if (image) formData.append("image", image);
+      const token = localStorage.getItem("token");
 
-      const response = await axios.post("/api/marketplace", formData, {
-        headers: { "Content-Type": "multipart/form-data" },
+      const res = await axios.post(
+        `${API}/marketplace/products`,
+        form,
+        {
+          headers: {
+            Authorization: `Bearer ${token}`,
+          },
+        }
+      );
+
+      setMessage("✅ Product added successfully");
+
+      setForm({
+        title: "",
+        description: "",
+        price: "",
+        image: "",
+        stock: 0,
       });
 
-      setMessage("Product added successfully!");
-      setTitle("");
-      setDescription("");
-      setPrice("");
-      setImage(null);
     } catch (err) {
       console.error(err);
-      setMessage("Failed to add product");
+      setMessage("❌ Failed to add product");
     }
   };
 
   return (
-    <div style={{ maxWidth: "600px", margin: "2rem auto" }}>
-      <h2>Add Product</h2>
-      {message && <p>{message}</p>}
-      <form onSubmit={handleSubmit} encType="multipart/form-data">
-        <div>
-          <label>Title:</label>
-          <input
-            type="text"
-            value={title}
-            onChange={(e) => setTitle(e.target.value)}
-            required
-          />
-        </div>
-        <div>
-          <label>Description:</label>
-          <textarea
-            value={description}
-            onChange={(e) => setDescription(e.target.value)}
-          />
-        </div>
-        <div>
-          <label>Price:</label>
-          <input
-            type="number"
-            value={price}
-            onChange={(e) => setPrice(e.target.value)}
-            required
-          />
-        </div>
-        <div>
-          <label>Image:</label>
-          <input type="file" accept="image/*" onChange={handleFileChange} />
-        </div>
+    <div style={{ maxWidth: 600, margin: "auto", padding: 20 }}>
+      <h1>Add Product</h1>
+
+      <form onSubmit={handleSubmit} style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+        <input
+          type="text"
+          name="title"
+          placeholder="Product title"
+          value={form.title}
+          onChange={handleChange}
+          required
+        />
+
+        <textarea
+          name="description"
+          placeholder="Product description"
+          value={form.description}
+          onChange={handleChange}
+        />
+
+        <input
+          type="number"
+          name="price"
+          placeholder="Price"
+          value={form.price}
+          onChange={handleChange}
+          required
+        />
+
+        <input
+          type="number"
+          name="stock"
+          placeholder="Stock"
+          value={form.stock}
+          onChange={handleChange}
+        />
+
+        <input
+          type="text"
+          name="image"
+          placeholder="Image URL"
+          value={form.image}
+          onChange={handleChange}
+        />
+
         <button type="submit">Add Product</button>
       </form>
+
+      {message && <p style={{ marginTop: 10 }}>{message}</p>}
     </div>
   );
 }
