@@ -1,6 +1,5 @@
 import express from "express";
 import bcrypt from "bcrypt";
-import jwt from "jsonwebtoken";
 import { pool } from "../server.js";
 
 const router = express.Router();
@@ -9,71 +8,36 @@ const router = express.Router();
 router.post("/register", async (req, res) => {
   const { name, email, password } = req.body;
 
-  try {
-    const hash = await bcrypt.hash(password, 10);
-
-    await pool.query(
-      `INSERT INTO users (name,email,password_hash,role)
-       VALUES ($1,$2,$3,$4)`,
-      [name, email, hash, "buyer"]
-    );
-
-    res.json({ message: "Registration successful" });
-
-  } catch (err) {
-
-    console.error(err);
-
-    res.status(500).json({
-      message: "Registration failed"
-    });
-
+  if (!name || !email || !password) {
+    return res.status(400).json({ message: "Name, email, and password are required" });
   }
-});
-
-// LOGIN
-router.post("/login", async (req, res) => {
-
-  const { email, password } = req.body;
 
   try {
-
-    const { rows } = await pool.query(
-      `SELECT * FROM users WHERE email=$1`,
+    // Check if user already exists
+    const { rows: existing } = await pool.query(
+      "SELECT id FROM users WHERE email=$1",
       [email]
     );
+    if (existing.length) {
+      return res.status(400).json({ message: "Email already registered" });
+    }
 
-    if (!rows.length)
-      return res.status(400).json({ message: "Invalid credentials" });
+    // Hash password
+    const hash = await bcrypt.hash(password, 10);
 
-    const user = rows[0];
-
-    const valid = await bcrypt.compare(
-      password,
-      user.password_hash
+    // Insert user with default role "user"
+    const { rows } = await pool.query(
+      `INSERT INTO users (name, email, password_hash, role)
+       VALUES ($1, $2, $3, $4)
+       RETURNING id, name, email, role`,
+      [name.trim(), email.trim(), hash, "user"] // always "user" here
     );
 
-    if (!valid)
-      return res.status(400).json({ message: "Invalid credentials" });
-
-    const token = jwt.sign(
-      { id: user.id, role: user.role },
-      process.env.JWT_SECRET,
-      { expiresIn: "7d" }
-    );
-
-    res.json({ token });
-
+    res.status(201).json({ message: "Registration successful", user: rows[0] });
   } catch (err) {
-
-    console.error(err);
-
-    res.status(500).json({
-      message: "Login failed"
-    });
-
+    console.error("Register error:", err);
+    res.status(500).json({ message: "Registration failed" });
   }
-
 });
 
 export default router;
