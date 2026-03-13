@@ -34,13 +34,9 @@ const AddProduct = () => {
         "https://minimart-ivrm.onrender.com/api/marketplace/add-product",
         formData,
         {
-          headers: {
-            "Content-Type": "multipart/form-data",
-          },
-          onUploadProgress: (progressEvent) => {
-            const percent = Math.round(
-              (progressEvent.loaded * 100) / progressEvent.total
-            );
+          headers: { "Content-Type": "multipart/form-data" },
+          onUploadProgress: (event) => {
+            const percent = Math.round((event.loaded * 100) / event.total);
             setProgress(percent);
           },
         }
@@ -49,10 +45,16 @@ const AddProduct = () => {
       setImageUrl(res.data.imageUrl);
     } catch (err) {
       console.error("Upload Error:", err.response || err.message);
-      const msg =
+
+      // Display detailed AWS or server error in UI
+      const awsError =
+        err.response?.data?.details ||
         err.response?.data?.error ||
-        "Failed to upload image. Check server logs or AWS credentials.";
-      setError(msg);
+        err.message;
+
+      setError(
+        `Upload failed. Check AWS credentials, bucket policy, and CORS. Details: ${awsError}`
+      );
     } finally {
       setUploading(false);
     }
@@ -77,11 +79,9 @@ const AddProduct = () => {
         {uploading ? `Uploading ${progress}%` : "Upload Image"}
       </button>
 
-      {progress > 0 && uploading && (
-        <p className="mb-2">Progress: {progress}%</p>
-      )}
+      {uploading && progress > 0 && <p>Progress: {progress}%</p>}
 
-      {error && <p className="text-red-500">{error}</p>}
+      {error && <p className="text-red-500 mt-2">{error}</p>}
 
       {imageUrl && (
         <div className="mt-4">
