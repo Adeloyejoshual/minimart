@@ -1,156 +1,74 @@
 // src/pages/Homepage.jsx
 import React, { useState, useEffect } from "react";
+import { Link, useNavigate } from "react-router-dom";
 import axios from "axios";
 
 export default function Homepage() {
-  const [loginData, setLoginData] = useState({ email: "", password: "" });
-  const [registerData, setRegisterData] = useState({ name: "", email: "", password: "" });
-  const [user, setUser] = useState(null);
   const [products, setProducts] = useState([]);
-  const [message, setMessage] = useState("");
+  const [user, setUser] = useState(null); // store logged-in user
+  const navigate = useNavigate();
 
-  const API = process.env.REACT_APP_API_URL || "https://minimart-ivrm.onrender.com/api";
-
-  // -------------------
-  // Login
-  // -------------------
-  const handleLogin = async (e) => {
-    e.preventDefault();
-    try {
-      const res = await axios.post(`${API}/users/login`, loginData);
-      setUser(res.data.user);
-      localStorage.setItem("token", res.data.token);
-      setMessage("Login successful!");
-    } catch (err) {
-      setMessage(err.response?.data?.message || "Login failed");
-    }
-  };
-
-  // -------------------
-  // Register
-  // -------------------
-  const handleRegister = async (e) => {
-    e.preventDefault();
-    try {
-      const res = await axios.post(`${API}/users/register`, registerData);
-      setUser(res.data.user);
-      localStorage.setItem("token", res.data.token);
-      setMessage("Registration successful!");
-    } catch (err) {
-      setMessage(err.response?.data?.message || "Registration failed");
-    }
-  };
-
-  // -------------------
-  // Fetch products after login/register
-  // -------------------
+  // Fetch products from API
   useEffect(() => {
-    if (!user) return;
+    axios.get("/api/products") // assumes your API route for products
+      .then(res => setProducts(res.data))
+      .catch(err => console.error(err));
+  }, []);
 
-    const fetchProducts = async () => {
-      try {
-        const res = await axios.get(`${API}/marketplace/products`);
-        setProducts(res.data);
-      } catch (err) {
-        console.error("Failed to load products", err);
-      }
-    };
+  // Check if user is logged in via localStorage token
+  useEffect(() => {
+    const storedUser = localStorage.getItem("user");
+    if (storedUser) setUser(JSON.parse(storedUser));
+  }, []);
 
-    fetchProducts();
-  }, [user]);
-
-  // -------------------
-  // Logout
-  // -------------------
   const handleLogout = () => {
+    localStorage.removeItem("user");
     setUser(null);
-    localStorage.removeItem("token");
-    setProducts([]);
-    setMessage("Logged out");
+    navigate("/");
   };
 
   return (
-    <div style={{ maxWidth: 800, margin: "auto", padding: 20 }}>
-      <h1>MiniMart</h1>
-
-      {!user ? (
-        <div style={{ display: "flex", gap: "50px" }}>
-          {/* Login Form */}
-          <div>
-            <h2>Login</h2>
-            <form onSubmit={handleLogin}>
-              <input
-                type="email"
-                placeholder="Email"
-                value={loginData.email}
-                onChange={(e) => setLoginData({ ...loginData, email: e.target.value })}
-                required
-              />
-              <input
-                type="password"
-                placeholder="Password"
-                value={loginData.password}
-                onChange={(e) => setLoginData({ ...loginData, password: e.target.value })}
-                required
-              />
-              <button type="submit">Login</button>
-            </form>
-          </div>
-
-          {/* Register Form */}
-          <div>
-            <h2>Register</h2>
-            <form onSubmit={handleRegister}>
-              <input
-                type="text"
-                placeholder="Name"
-                value={registerData.name}
-                onChange={(e) => setRegisterData({ ...registerData, name: e.target.value })}
-                required
-              />
-              <input
-                type="email"
-                placeholder="Email"
-                value={registerData.email}
-                onChange={(e) => setRegisterData({ ...registerData, email: e.target.value })}
-                required
-              />
-              <input
-                type="password"
-                placeholder="Password"
-                value={registerData.password}
-                onChange={(e) => setRegisterData({ ...registerData, password: e.target.value })}
-                required
-              />
-              <button type="submit">Register</button>
-            </form>
-          </div>
-        </div>
-      ) : (
+    <div style={{ padding: "20px" }}>
+      <header style={{ display: "flex", justifyContent: "space-between" }}>
+        <h1>MiniMart</h1>
         <div>
-          <h2>Welcome, {user.name}!</h2>
-          <button onClick={handleLogout}>Logout</button>
-
-          <h3>All Products</h3>
-          {products.length === 0 ? (
-            <p>No products available.</p>
+          {!user ? (
+            <>
+              <Link to="/login" style={{ marginRight: "10px" }}>Login</Link>
+              <Link to="/register">Register</Link>
+            </>
           ) : (
-            <ul>
-              {products.map((p) => (
-                <li key={p.id} style={{ marginBottom: 15, borderBottom: "1px solid #ccc", paddingBottom: 10 }}>
-                  <h4>{p.title}</h4>
-                  <p>{p.description}</p>
-                  <p>Price: ₦{p.price}</p>
-                  {p.image && <img src={p.image} alt={p.title} style={{ maxWidth: 200 }} />}
-                  <p>Stock: {p.stock}</p>
-                </li>
-              ))}
-            </ul>
+            <>
+              <span style={{ marginRight: "10px" }}>Hello, {user.name}</span>
+              <button onClick={handleLogout}>Logout</button>
+            </>
           )}
+        </div>
+      </header>
+
+      {user && (
+        <div style={{ margin: "20px 0" }}>
+          <Link to="/minimart/add">
+            <button>Add New Product</button>
+          </Link>
         </div>
       )}
 
-      {message && <p>{message}</p>}
+      <h2>Products</h2>
+      {products.length === 0 ? (
+        <p>No products found.</p>
+      ) : (
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill,minmax(200px,1fr))", gap: "20px" }}>
+          {products.map((p) => (
+            <div key={p.id} style={{ border: "1px solid #ccc", padding: "10px" }}>
+              <h3>{p.title}</h3>
+              <p>{p.description}</p>
+              <p><strong>₦{p.price}</strong></p>
+              {p.image && <img src={p.image} alt={p.title} style={{ width: "100%", height: "150px", objectFit: "cover" }} />}
+            </div>
+          ))}
+        </div>
+      )}
     </div>
   );
 }
