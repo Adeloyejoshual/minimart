@@ -2,138 +2,155 @@ import React, { useState } from "react";
 import axios from "axios";
 
 export default function Homepage() {
-  const [registerData, setRegisterData] = useState({
-    name: "",
-    email: "",
-    password: "",
-  });
-  const [loginData, setLoginData] = useState({
-    email: "",
-    password: "",
-  });
+  const [mode, setMode] = useState("login"); // "login" | "register" | "verify"
+  const [form, setForm] = useState({ name: "", email: "", password: "", code: "" });
   const [message, setMessage] = useState("");
 
-  const API_BASE = "/api/users"; // make sure server.js uses this route
+  const handleChange = (e) => setForm({ ...form, [e.target.name]: e.target.value });
 
   // -------------------
-  // Handle Registration
+  // Register
   // -------------------
   const handleRegister = async (e) => {
     e.preventDefault();
-    setMessage("");
-
     try {
-      const res = await axios.post(`${API_BASE}/register`, registerData);
+      const res = await axios.post("/api/users/register", {
+        name: form.name,
+        email: form.email,
+        password: form.password,
+      });
       setMessage(res.data.message);
-      setRegisterData({ name: "", email: "", password: "" });
+      setMode("verify");
     } catch (err) {
-      setMessage(
-        err.response?.data?.message || "Registration failed. Try again."
-      );
+      setMessage(err.response?.data?.message || "Registration failed");
     }
   };
 
   // -------------------
-  // Handle Login
+  // Verify email
+  // -------------------
+  const handleVerify = async (e) => {
+    e.preventDefault();
+    try {
+      const res = await axios.post("/api/users/verify", {
+        email: form.email,
+        code: form.code,
+      });
+      setMessage(res.data.message);
+      setMode("login");
+      setForm({ ...form, code: "" });
+    } catch (err) {
+      setMessage(err.response?.data?.message || "Verification failed");
+    }
+  };
+
+  // -------------------
+  // Login
   // -------------------
   const handleLogin = async (e) => {
     e.preventDefault();
-    setMessage("");
-
     try {
-      const res = await axios.post(`${API_BASE}/login`, loginData);
-      setMessage(res.data.message);
-      setLoginData({ email: "", password: "" });
-      // You can store user info in localStorage or context here
-      localStorage.setItem("user", JSON.stringify(res.data.user));
+      const res = await axios.post("/api/users/login", {
+        email: form.email,
+        password: form.password,
+      });
+      setMessage(res.data.message + " Welcome " + res.data.user.name);
+      setForm({ name: "", email: "", password: "", code: "" });
     } catch (err) {
-      setMessage(err.response?.data?.message || "Login failed. Try again.");
+      setMessage(err.response?.data?.message || "Login failed");
     }
   };
 
   return (
-    <div style={{ maxWidth: "500px", margin: "auto", padding: "20px" }}>
-      <h1>MiniMart</h1>
+    <div style={{ maxWidth: 400, margin: "50px auto", padding: 20, border: "1px solid #ddd", borderRadius: 8 }}>
+      <h2 style={{ textAlign: "center" }}>
+        {mode === "login" && "Login"}
+        {mode === "register" && "Register"}
+        {mode === "verify" && "Verify Email"}
+      </h2>
 
-      {message && (
-        <div
-          style={{
-            marginBottom: "20px",
-            padding: "10px",
-            border: "1px solid #ccc",
-            borderRadius: "5px",
-            backgroundColor: "#f8f8f8",
-          }}
-        >
-          {message}
-        </div>
+      {message && <p style={{ color: "green", textAlign: "center" }}>{message}</p>}
+
+      {mode === "register" && (
+        <form onSubmit={handleRegister}>
+          <input
+            type="text"
+            name="name"
+            placeholder="Full Name"
+            value={form.name}
+            onChange={handleChange}
+            required
+            style={{ width: "100%", padding: 8, margin: "8px 0" }}
+          />
+          <input
+            type="email"
+            name="email"
+            placeholder="Email"
+            value={form.email}
+            onChange={handleChange}
+            required
+            style={{ width: "100%", padding: 8, margin: "8px 0" }}
+          />
+          <input
+            type="password"
+            name="password"
+            placeholder="Password"
+            value={form.password}
+            onChange={handleChange}
+            required
+            style={{ width: "100%", padding: 8, margin: "8px 0" }}
+          />
+          <button type="submit" style={{ width: "100%", padding: 10, marginTop: 10 }}>Register</button>
+          <p style={{ textAlign: "center", marginTop: 10 }}>
+            Already have an account? <span style={{ color: "blue", cursor: "pointer" }} onClick={() => setMode("login")}>Login</span>
+          </p>
+        </form>
       )}
 
-      {/* ---------------- Register ---------------- */}
-      <form onSubmit={handleRegister} style={{ marginBottom: "40px" }}>
-        <h2>Register</h2>
-        <input
-          type="text"
-          placeholder="Name"
-          value={registerData.name}
-          onChange={(e) =>
-            setRegisterData({ ...registerData, name: e.target.value })
-          }
-          required
-          style={{ width: "100%", padding: "8px", marginBottom: "10px" }}
-        />
-        <input
-          type="email"
-          placeholder="Email"
-          value={registerData.email}
-          onChange={(e) =>
-            setRegisterData({ ...registerData, email: e.target.value })
-          }
-          required
-          style={{ width: "100%", padding: "8px", marginBottom: "10px" }}
-        />
-        <input
-          type="password"
-          placeholder="Password"
-          value={registerData.password}
-          onChange={(e) =>
-            setRegisterData({ ...registerData, password: e.target.value })
-          }
-          required
-          style={{ width: "100%", padding: "8px", marginBottom: "10px" }}
-        />
-        <button type="submit" style={{ padding: "10px 20px" }}>
-          Register
-        </button>
-      </form>
+      {mode === "verify" && (
+        <form onSubmit={handleVerify}>
+          <input
+            type="text"
+            name="code"
+            placeholder="Enter verification code"
+            value={form.code}
+            onChange={handleChange}
+            required
+            style={{ width: "100%", padding: 8, margin: "8px 0" }}
+          />
+          <button type="submit" style={{ width: "100%", padding: 10, marginTop: 10 }}>Verify</button>
+          <p style={{ textAlign: "center", marginTop: 10 }}>
+            Didn't receive code? <span style={{ color: "blue", cursor: "pointer" }} onClick={() => setMode("register")}>Resend</span>
+          </p>
+        </form>
+      )}
 
-      {/* ---------------- Login ---------------- */}
-      <form onSubmit={handleLogin}>
-        <h2>Login</h2>
-        <input
-          type="email"
-          placeholder="Email"
-          value={loginData.email}
-          onChange={(e) =>
-            setLoginData({ ...loginData, email: e.target.value })
-          }
-          required
-          style={{ width: "100%", padding: "8px", marginBottom: "10px" }}
-        />
-        <input
-          type="password"
-          placeholder="Password"
-          value={loginData.password}
-          onChange={(e) =>
-            setLoginData({ ...loginData, password: e.target.value })
-          }
-          required
-          style={{ width: "100%", padding: "8px", marginBottom: "10px" }}
-        />
-        <button type="submit" style={{ padding: "10px 20px" }}>
-          Login
-        </button>
-      </form>
+      {mode === "login" && (
+        <form onSubmit={handleLogin}>
+          <input
+            type="email"
+            name="email"
+            placeholder="Email"
+            value={form.email}
+            onChange={handleChange}
+            required
+            style={{ width: "100%", padding: 8, margin: "8px 0" }}
+          />
+          <input
+            type="password"
+            name="password"
+            placeholder="Password"
+            value={form.password}
+            onChange={handleChange}
+            required
+            style={{ width: "100%", padding: 8, margin: "8px 0" }}
+          />
+          <button type="submit" style={{ width: "100%", padding: 10, marginTop: 10 }}>Login</button>
+          <p style={{ textAlign: "center", marginTop: 10 }}>
+            Don't have an account? <span style={{ color: "blue", cursor: "pointer" }} onClick={() => setMode("register")}>Register</span>
+          </p>
+        </form>
+      )}
     </div>
   );
 }
