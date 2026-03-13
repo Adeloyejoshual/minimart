@@ -5,13 +5,15 @@ import axios from "axios";
 const AddProduct = () => {
   const [image, setImage] = useState(null);
   const [uploading, setUploading] = useState(false);
+  const [progress, setProgress] = useState(0);
   const [imageUrl, setImageUrl] = useState("");
   const [error, setError] = useState("");
 
   const handleFileChange = (e) => {
     setImage(e.target.files[0]);
-    setImageUrl(""); // reset previous upload
+    setImageUrl("");
     setError("");
+    setProgress(0);
   };
 
   const handleUpload = async () => {
@@ -25,21 +27,32 @@ const AddProduct = () => {
 
     try {
       setUploading(true);
+      setError("");
+      setProgress(0);
+
       const res = await axios.post(
-        "http://localhost:10000/marketplace/add-product",
+        "https://minimart-ivrm.onrender.com/api/marketplace/add-product",
         formData,
         {
           headers: {
             "Content-Type": "multipart/form-data",
           },
+          onUploadProgress: (progressEvent) => {
+            const percent = Math.round(
+              (progressEvent.loaded * 100) / progressEvent.total
+            );
+            setProgress(percent);
+          },
         }
       );
 
       setImageUrl(res.data.imageUrl);
-      setError("");
     } catch (err) {
-      console.error(err);
-      setError("Failed to upload image");
+      console.error("Upload Error:", err.response || err.message);
+      const msg =
+        err.response?.data?.error ||
+        "Failed to upload image. Check server logs or AWS credentials.";
+      setError(msg);
     } finally {
       setUploading(false);
     }
@@ -61,8 +74,12 @@ const AddProduct = () => {
         disabled={uploading}
         className="bg-blue-500 text-white px-4 py-2 rounded mb-4"
       >
-        {uploading ? "Uploading..." : "Upload Image"}
+        {uploading ? `Uploading ${progress}%` : "Upload Image"}
       </button>
+
+      {progress > 0 && uploading && (
+        <p className="mb-2">Progress: {progress}%</p>
+      )}
 
       {error && <p className="text-red-500">{error}</p>}
 
