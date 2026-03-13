@@ -1,14 +1,19 @@
 // routes/marketplace.js
 import express from "express";
 import { pool } from "../server.js";
+import { upload } from "../middleware/s3Upload.js"; // multer-s3 upload
 
 const router = express.Router();
 
+// -------------------
 // GET all products
+// -------------------
 router.get("/products", async (req, res) => {
   try {
     const { rows } = await pool.query(
-      "SELECT id, title, description, price, stock, created_at FROM products ORDER BY created_at DESC"
+      `SELECT id, title, description, price, stock, image, created_at 
+       FROM products 
+       ORDER BY created_at DESC`
     );
     res.json(rows);
   } catch (err) {
@@ -17,8 +22,10 @@ router.get("/products", async (req, res) => {
   }
 });
 
-// POST a new product (no image)
-router.post("/products", async (req, res) => {
+// -------------------
+// POST a new product (with optional image)
+// -------------------
+router.post("/products", upload.single("image"), async (req, res) => {
   try {
     const { title, description, price, stock } = req.body;
 
@@ -29,9 +36,12 @@ router.post("/products", async (req, res) => {
     const numericPrice = parseFloat(price);
     const numericStock = parseInt(stock, 10) || 0;
 
+    // If an image was uploaded, store the S3 URL
+    const imageUrl = req.file ? req.file.location : null;
+
     const query = `
-      INSERT INTO products (title, description, price, stock)
-      VALUES ($1, $2, $3, $4)
+      INSERT INTO products (title, description, price, stock, image)
+      VALUES ($1, $2, $3, $4, $5)
       RETURNING *;
     `;
 
@@ -40,6 +50,7 @@ router.post("/products", async (req, res) => {
       description || null,
       numericPrice,
       numericStock,
+      imageUrl,
     ]);
 
     res.status(201).json(rows[0]);
