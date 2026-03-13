@@ -1,156 +1,80 @@
-// src/pages/AddProduct.jsx
-import React, { useState, useEffect } from "react";
+// AddProduct.jsx
+import React, { useState } from "react";
 import axios from "axios";
-import { useNavigate } from "react-router-dom";
 
-export default function AddProduct() {
-  const navigate = useNavigate();
+const AddProduct = () => {
+  const [image, setImage] = useState(null);
+  const [uploading, setUploading] = useState(false);
+  const [imageUrl, setImageUrl] = useState("");
+  const [error, setError] = useState("");
 
-  const [form, setForm] = useState({
-    title: "",
-    description: "",
-    price: "",
-    stock: 0,
-  });
+  const handleFileChange = (e) => {
+    setImage(e.target.files[0]);
+    setImageUrl(""); // reset previous upload
+    setError("");
+  };
 
-  const [images, setImages] = useState([]); // store File objects
-  const [previewUrls, setPreviewUrls] = useState([]); // preview URLs
-  const [message, setMessage] = useState("");
-
-  const API = "https://minimart-ivrm.onrender.com/api";
-
-  // -------------------
-  // Redirect if not logged in
-  // -------------------
-  useEffect(() => {
-    const token = localStorage.getItem("token");
-    if (!token) {
-      navigate("/"); // redirect to home/login
+  const handleUpload = async () => {
+    if (!image) {
+      setError("Please select an image first");
+      return;
     }
-  }, [navigate]);
 
-  // -------------------
-  // Handle form change
-  // -------------------
-  const handleChange = (e) => {
-    setForm({
-      ...form,
-      [e.target.name]: e.target.value,
-    });
-  };
+    const formData = new FormData();
+    formData.append("image", image);
 
-  // -------------------
-  // Handle file selection
-  // -------------------
-  const handleFilesChange = (e) => {
-    const files = Array.from(e.target.files);
-    setImages(files);
-
-    // create preview URLs
-    const urls = files.map((file) => URL.createObjectURL(file));
-    setPreviewUrls(urls);
-  };
-
-  // -------------------
-  // Submit form
-  // -------------------
-  const handleSubmit = async (e) => {
-    e.preventDefault();
     try {
-      const token = localStorage.getItem("token");
+      setUploading(true);
+      const res = await axios.post(
+        "http://localhost:10000/marketplace/add-product",
+        formData,
+        {
+          headers: {
+            "Content-Type": "multipart/form-data",
+          },
+        }
+      );
 
-      const formData = new FormData();
-      formData.append("title", form.title);
-      formData.append("description", form.description);
-      formData.append("price", form.price);
-      formData.append("stock", form.stock);
-
-      images.forEach((file) => {
-        formData.append("images", file); // match multer field name
-      });
-
-      const res = await axios.post(`${API}/marketplace/products`, formData, {
-        headers: {
-          Authorization: `Bearer ${token}`,
-          "Content-Type": "multipart/form-data",
-        },
-      });
-
-      setMessage("✅ Product added successfully");
-      setForm({ title: "", description: "", price: "", stock: 0 });
-      setImages([]);
-      setPreviewUrls([]);
-
+      setImageUrl(res.data.imageUrl);
+      setError("");
     } catch (err) {
       console.error(err);
-      setMessage("❌ Failed to add product");
+      setError("Failed to upload image");
+    } finally {
+      setUploading(false);
     }
   };
 
   return (
-    <div style={{ maxWidth: 600, margin: "auto", padding: 20 }}>
-      <h1>Add Product</h1>
+    <div className="max-w-md mx-auto p-4 border rounded shadow">
+      <h2 className="text-xl font-semibold mb-4">Add Product Image</h2>
 
-      <form
-        onSubmit={handleSubmit}
-        style={{ display: "flex", flexDirection: "column", gap: 10 }}
+      <input
+        type="file"
+        accept="image/*"
+        onChange={handleFileChange}
+        className="mb-4"
+      />
+
+      <button
+        onClick={handleUpload}
+        disabled={uploading}
+        className="bg-blue-500 text-white px-4 py-2 rounded mb-4"
       >
-        <input
-          type="text"
-          name="title"
-          placeholder="Product title"
-          value={form.title}
-          onChange={handleChange}
-          required
-        />
+        {uploading ? "Uploading..." : "Upload Image"}
+      </button>
 
-        <textarea
-          name="description"
-          placeholder="Product description"
-          value={form.description}
-          onChange={handleChange}
-        />
+      {error && <p className="text-red-500">{error}</p>}
 
-        <input
-          type="number"
-          name="price"
-          placeholder="Price"
-          value={form.price}
-          onChange={handleChange}
-          required
-        />
-
-        <input
-          type="number"
-          name="stock"
-          placeholder="Stock"
-          value={form.stock}
-          onChange={handleChange}
-        />
-
-        <input
-          type="file"
-          multiple
-          accept="image/*"
-          onChange={handleFilesChange}
-        />
-
-        {/* Preview selected images */}
-        <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
-          {previewUrls.map((url, idx) => (
-            <img
-              key={idx}
-              src={url}
-              alt={`preview-${idx}`}
-              style={{ width: 100, height: 100, objectFit: "cover", borderRadius: 8 }}
-            />
-          ))}
+      {imageUrl && (
+        <div className="mt-4">
+          <p className="text-green-600 mb-2">Image uploaded successfully!</p>
+          <img src={imageUrl} alt="Uploaded" className="w-full rounded" />
+          <p className="text-sm mt-2 break-all">{imageUrl}</p>
         </div>
-
-        <button type="submit">Add Product</button>
-      </form>
-
-      {message && <p style={{ marginTop: 10 }}>{message}</p>}
+      )}
     </div>
   );
-}
+};
+
+export default AddProduct;
