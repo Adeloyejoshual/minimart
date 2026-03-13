@@ -12,28 +12,31 @@ export default function AddProduct() {
     price: "",
     stock: 0,
   });
-  const [imageFile, setImageFile] = useState(null);
+
+  const [images, setImages] = useState([]);
   const [message, setMessage] = useState("");
 
   const API = "https://minimart-ivrm.onrender.com/api";
 
   // -------------------
-  // Redirect if not logged in
+  // Check login
   // -------------------
   useEffect(() => {
     const token = localStorage.getItem("token");
-    if (!token) navigate("/login");
+    if (!token) {
+      navigate("/"); // redirect if not logged in
+    }
   }, [navigate]);
 
   // -------------------
-  // Handle input change
+  // Handle form input
   // -------------------
   const handleChange = (e) => {
     setForm({ ...form, [e.target.name]: e.target.value });
   };
 
   const handleFileChange = (e) => {
-    setImageFile(e.target.files[0]);
+    setImages(Array.from(e.target.files)); // store selected files
   };
 
   // -------------------
@@ -41,31 +44,41 @@ export default function AddProduct() {
   // -------------------
   const handleSubmit = async (e) => {
     e.preventDefault();
-    setMessage("");
+
+    if (!form.title || !form.price) {
+      setMessage("❌ Title and price are required");
+      return;
+    }
 
     try {
       const token = localStorage.getItem("token");
-
       const formData = new FormData();
+
       formData.append("title", form.title);
-      formData.append("description", form.description || "");
+      formData.append("description", form.description);
       formData.append("price", form.price);
       formData.append("stock", form.stock);
-      if (imageFile) formData.append("image", imageFile);
+
+      images.forEach((file) => {
+        formData.append("images", file);
+      });
 
       const res = await axios.post(`${API}/marketplace/products`, formData, {
         headers: {
-          Authorization: `Bearer ${token}`,
           "Content-Type": "multipart/form-data",
+          Authorization: `Bearer ${token}`,
         },
       });
 
-      setMessage("✅ Product added successfully!");
+      setMessage("✅ Product and images added successfully");
+
+      // Reset form
       setForm({ title: "", description: "", price: "", stock: 0 });
-      setImageFile(null);
+      setImages([]);
+
     } catch (err) {
       console.error(err);
-      setMessage("❌ Failed to add product: " + (err.response?.data?.message || err.message));
+      setMessage("❌ Failed to add product");
     }
   };
 
@@ -109,6 +122,7 @@ export default function AddProduct() {
 
         <input
           type="file"
+          multiple
           accept="image/*"
           onChange={handleFileChange}
         />
