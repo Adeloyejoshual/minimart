@@ -1,7 +1,7 @@
 // routes/marketplace.js
 import express from "express";
 import { pool } from "../server.js";
-import { upload } from "../middleware/s3Upload.js"; // multer-s3 upload
+import { upload } from "../middleware/s3Upload.js"; // multer-s3
 
 const router = express.Router();
 
@@ -11,14 +11,14 @@ const router = express.Router();
 router.get("/products", async (req, res) => {
   try {
     const { rows } = await pool.query(
-      `SELECT id, title, description, price, stock, image, created_at 
-       FROM products 
+      `SELECT id, title, description, price, stock, image, created_at
+       FROM products
        ORDER BY created_at DESC`
     );
     res.json(rows);
   } catch (err) {
     console.error("GET /products error:", err);
-    res.status(500).json({ message: "Failed to fetch products" });
+    res.status(500).json({ message: "Failed to fetch products", error: err.message });
   }
 });
 
@@ -53,10 +53,10 @@ router.post("/products", upload.single("image"), async (req, res) => {
       imageUrl,
     ]);
 
-    res.status(201).json(rows[0]);
+    res.status(201).json({ success: true, product: rows[0] });
   } catch (err) {
     console.error("POST /products error:", err);
-    res.status(500).json({ message: "Failed to add product" });
+    res.status(500).json({ message: "Failed to add product", error: err.message });
   }
 });
 
