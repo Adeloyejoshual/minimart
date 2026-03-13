@@ -5,16 +5,15 @@ import { useNavigate } from "react-router-dom";
 
 export default function AddProduct() {
   const navigate = useNavigate();
-
   const [form, setForm] = useState({
     title: "",
     description: "",
     price: "",
-    image: "",
     stock: 0,
   });
-
+  const [imageFile, setImageFile] = useState(null);
   const [message, setMessage] = useState("");
+  const [loading, setLoading] = useState(false);
 
   const API = "https://minimart-ivrm.onrender.com/api";
 
@@ -23,19 +22,18 @@ export default function AddProduct() {
   // -------------------
   useEffect(() => {
     const token = localStorage.getItem("token");
-    if (!token) {
-      navigate("/"); // redirect if not logged in
-    }
+    if (!token) navigate("/"); // redirect if not logged in
   }, [navigate]);
 
   // -------------------
-  // Handle form input
+  // Handle input changes
   // -------------------
   const handleChange = (e) => {
-    setForm({
-      ...form,
-      [e.target.name]: e.target.value,
-    });
+    setForm({ ...form, [e.target.name]: e.target.value });
+  };
+
+  const handleFileChange = (e) => {
+    setImageFile(e.target.files[0]);
   };
 
   // -------------------
@@ -43,41 +41,45 @@ export default function AddProduct() {
   // -------------------
   const handleSubmit = async (e) => {
     e.preventDefault();
+    setLoading(true);
 
     try {
       const token = localStorage.getItem("token");
 
-      const res = await axios.post(
-        `${API}/marketplace/products`,
-        form,
-        {
-          headers: {
-            Authorization: `Bearer ${token}`,
-          },
-        }
-      );
+      // Prepare form data for S3 upload
+      const data = new FormData();
+      data.append("title", form.title.trim());
+      data.append("description", form.description?.trim() || "");
+      data.append("price", parseFloat(form.price));
+      data.append("stock", parseInt(form.stock, 10));
+      if (imageFile) data.append("image", imageFile);
 
-      setMessage("✅ Product added successfully");
-
-      setForm({
-        title: "",
-        description: "",
-        price: "",
-        image: "",
-        stock: 0,
+      const res = await axios.post(`${API}/marketplace/products`, data, {
+        headers: {
+          Authorization: `Bearer ${token}`,
+          "Content-Type": "multipart/form-data",
+        },
       });
 
+      setMessage("✅ Product added successfully!");
+      setForm({ title: "", description: "", price: "", stock: 0 });
+      setImageFile(null);
     } catch (err) {
       console.error(err);
-      setMessage("❌ Failed to add product");
+      setMessage(err.response?.data?.message || "❌ Failed to add product");
     }
+
+    setLoading(false);
   };
 
   return (
     <div style={{ maxWidth: 600, margin: "auto", padding: 20 }}>
       <h1>Add Product</h1>
 
-      <form onSubmit={handleSubmit} style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+      <form
+        onSubmit={handleSubmit}
+        style={{ display: "flex", flexDirection: "column", gap: 10 }}
+      >
         <input
           type="text"
           name="title"
@@ -111,15 +113,11 @@ export default function AddProduct() {
           onChange={handleChange}
         />
 
-        <input
-          type="text"
-          name="image"
-          placeholder="Image URL"
-          value={form.image}
-          onChange={handleChange}
-        />
+        <input type="file" accept="image/*" onChange={handleFileChange} />
 
-        <button type="submit">Add Product</button>
+        <button type="submit" disabled={loading}>
+          {loading ? "Adding..." : "Add Product"}
+        </button>
       </form>
 
       {message && <p style={{ marginTop: 10 }}>{message}</p>}
