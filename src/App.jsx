@@ -3,6 +3,7 @@ import React, { useState } from "react";
 import Home from "./pages/Homepage";
 import Login from "./pages/Login";
 import Register from "./pages/Register";
+import AddProduct from "./pages/AddProduct"; // import AddProduct
 
 export default function App() {
   const [user, setUser] = useState(null); // Logged-in user
@@ -26,7 +27,12 @@ export default function App() {
         return <Register switchToLogin={() => setPage("login")} />;
       case "home":
       default:
-        return <Home user={user} onLogout={handleLogout} />;
+        return (
+          <div>
+            <Home user={user} />
+            {user && <AddProduct user={user} />} {/* Show AddProduct only if logged in */}
+          </div>
+        );
     }
   };
 
