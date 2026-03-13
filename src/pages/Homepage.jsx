@@ -1,62 +1,78 @@
-// src/pages/Homepage.jsx
-import React, { useState, useEffect } from "react";
+import React, { useEffect, useState } from "react";
 import axios from "axios";
-import AddProduct from "./AddProduct";
+import { Link } from "react-router-dom";
 
-export default function Homepage({ user }) {
+export default function Homepage() {
   const [products, setProducts] = useState([]);
-  const [message, setMessage] = useState("");
-  const API = process.env.REACT_APP_API_URL || "https://minimart-ivrm.onrender.com/api";
-
-  // -------------------
-  // Fetch all products
-  // -------------------
-  const fetchProducts = async () => {
-    try {
-      const res = await axios.get(`${API}/marketplace/products`);
-      setProducts(res.data);
-    } catch (err) {
-      console.error("Failed to load products:", err);
-      setMessage("Failed to load products");
-    }
-  };
+  const [loading, setLoading] = useState(true);
+  const user = JSON.parse(localStorage.getItem("user"));
 
   useEffect(() => {
+    const fetchProducts = async () => {
+      try {
+        const res = await axios.get("/api/marketplace");
+        setProducts(res.data);
+      } catch (err) {
+        console.error("Failed to fetch products:", err);
+      } finally {
+        setLoading(false);
+      }
+    };
     fetchProducts();
   }, []);
 
+  if (loading) return <p>Loading products...</p>;
+
   return (
-    <div style={{ maxWidth: 800, margin: "auto", padding: 20 }}>
-      <h1>MiniMart</h1>
+    <div style={{ maxWidth: "1000px", margin: "2rem auto" }}>
+      <h1>MiniMart Products</h1>
 
       {user && (
-        <div style={{ marginBottom: 20 }}>
-          <h2>Add New Product</h2>
-          <AddProduct user={user} onAdded={fetchProducts} />
+        <div style={{ margin: "1rem 0" }}>
+          <Link to="/add-product">
+            <button>Add Product</button>
+          </Link>
         </div>
       )}
 
-      <h3>All Products</h3>
       {products.length === 0 ? (
-        <p>No products available.</p>
+        <p>No products available</p>
       ) : (
-        <ul>
+        <div
+          style={{
+            display: "grid",
+            gridTemplateColumns: "repeat(auto-fill, minmax(220px, 1fr))",
+            gap: "1rem",
+          }}
+        >
           {products.map((p) => (
-            <li
+            <div
               key={p.id}
-              style={{ marginBottom: 15, borderBottom: "1px solid #ccc", paddingBottom: 10 }}
+              style={{
+                border: "1px solid #ddd",
+                padding: "1rem",
+                borderRadius: "8px",
+              }}
             >
-              <h4>{p.title}</h4>
-              <p>{p.description}</p>
-              <p>Price: ₦{p.price}</p>
-              {p.image && <img src={p.image} alt={p.title} style={{ maxWidth: 200 }} />}
-              <p>Stock: {p.stock}</p>
-            </li>
+              {p.image && (
+                <img
+                  src={p.image}
+                  alt={p.title}
+                  style={{ width: "100%", height: "150px", objectFit: "cover" }}
+                />
+              )}
+              <h3>{p.title}</h3>
+              {p.description && <p>{p.description}</p>}
+              <p>
+                <strong>Price:</strong> ${p.price}
+              </p>
+              <p>
+                <strong>Stock:</strong> {p.stock}
+              </p>
+            </div>
           ))}
-        </ul>
+        </div>
       )}
-
-      {message && <p>{message}</p>}
     </div>
   );
 }
