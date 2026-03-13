@@ -1,144 +1,105 @@
 // src/pages/Homepage.jsx
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
 import axios from "axios";
 
 export default function Homepage() {
-  const [form, setForm] = useState("login"); // "login", "register", "verify"
-  const [name, setName] = useState("");
-  const [email, setEmail] = useState("");
-  const [password, setPassword] = useState("");
-  const [code, setCode] = useState("");
+  const [loginData, setLoginData] = useState({ email: "", password: "" });
+  const [user, setUser] = useState(null);
+  const [products, setProducts] = useState([]);
   const [message, setMessage] = useState("");
-  const [userEmailForVerify, setUserEmailForVerify] = useState("");
 
-  const API = process.env.REACT_APP_API_URL || "/api/users";
+  const API = process.env.REACT_APP_API_URL || "https://minimart-ivrm.onrender.com/api";
 
-  // ----------------
-  // Register
-  // ----------------
-  const handleRegister = async (e) => {
-    e.preventDefault();
-    try {
-      const { data } = await axios.post(`${API}/register`, { name, email, password });
-      setMessage(data.message);
-      setUserEmailForVerify(email);
-      setForm("verify"); // Switch to verification form
-    } catch (err) {
-      setMessage(err.response?.data?.message || "Registration failed");
-    }
-  };
-
-  // ----------------
-  // Verify Email
-  // ----------------
-  const handleVerify = async (e) => {
-    e.preventDefault();
-    try {
-      const { data } = await axios.post(`${API}/verify`, { email: userEmailForVerify, code });
-      setMessage(data.message);
-      setForm("login");
-    } catch (err) {
-      setMessage(err.response?.data?.message || "Verification failed");
-    }
-  };
-
-  // ----------------
+  // -------------------
   // Login
-  // ----------------
+  // -------------------
   const handleLogin = async (e) => {
     e.preventDefault();
     try {
-      const { data } = await axios.post(`${API}/login`, { email, password });
-      setMessage(data.message + ` Welcome, ${data.user.name}!`);
+      const res = await axios.post(`${API}/users/login`, loginData);
+      setUser(res.data.user);
+      localStorage.setItem("token", res.data.token);
+      setMessage("Login successful!");
     } catch (err) {
       setMessage(err.response?.data?.message || "Login failed");
     }
   };
 
+  // -------------------
+  // Fetch products after login
+  // -------------------
+  useEffect(() => {
+    if (!user) return;
+
+    const fetchProducts = async () => {
+      try {
+        const res = await axios.get(`${API}/marketplace/products`);
+        setProducts(res.data);
+      } catch (err) {
+        console.error("Failed to load products", err);
+      }
+    };
+
+    fetchProducts();
+  }, [user]);
+
+  const handleLogout = () => {
+    setUser(null);
+    localStorage.removeItem("token");
+    setProducts([]);
+    setMessage("Logged out");
+  };
+
   return (
-    <div style={{ maxWidth: 400, margin: "50px auto", padding: 20, border: "1px solid #ccc", borderRadius: 8 }}>
-      <h2 style={{ textAlign: "center" }}>
-        {form === "login" && "Login"}
-        {form === "register" && "Register"}
-        {form === "verify" && "Verify Email"}
-      </h2>
+    <div style={{ maxWidth: 800, margin: "auto", padding: 20 }}>
+      <h1>MiniMart</h1>
 
-      {message && <p style={{ color: "green", textAlign: "center" }}>{message}</p>}
+      {user ? (
+        <div>
+          <h2>Welcome, {user.name}!</h2>
+          <button onClick={handleLogout}>Logout</button>
 
-      {form === "register" && (
-        <form onSubmit={handleRegister}>
-          <input
-            type="text"
-            placeholder="Full Name"
-            value={name}
-            onChange={(e) => setName(e.target.value)}
-            required
-            style={{ width: "100%", margin: "8px 0", padding: 8 }}
-          />
-          <input
-            type="email"
-            placeholder="Email"
-            value={email}
-            onChange={(e) => setEmail(e.target.value)}
-            required
-            style={{ width: "100%", margin: "8px 0", padding: 8 }}
-          />
-          <input
-            type="password"
-            placeholder="Password"
-            value={password}
-            onChange={(e) => setPassword(e.target.value)}
-            required
-            style={{ width: "100%", margin: "8px 0", padding: 8 }}
-          />
-          <button type="submit" style={{ width: "100%", padding: 10, marginTop: 10 }}>Register</button>
-          <p style={{ textAlign: "center", marginTop: 8 }}>
-            Already have an account?{" "}
-            <span style={{ color: "blue", cursor: "pointer" }} onClick={() => setForm("login")}>Login</span>
-          </p>
-        </form>
+          <h3>All Products</h3>
+          {products.length === 0 ? (
+            <p>No products available.</p>
+          ) : (
+            <ul>
+              {products.map((p) => (
+                <li key={p.id} style={{ marginBottom: 15, borderBottom: "1px solid #ccc", paddingBottom: 10 }}>
+                  <h4>{p.title}</h4>
+                  <p>{p.description}</p>
+                  <p>Price: ₦{p.price}</p>
+                  {p.image && <img src={p.image} alt={p.title} style={{ maxWidth: 200 }} />}
+                  <p>Stock: {p.stock}</p>
+                </li>
+              ))}
+            </ul>
+          )}
+        </div>
+      ) : (
+        <>
+          <h2>Login</h2>
+          <form onSubmit={handleLogin}>
+            <input
+              type="email"
+              placeholder="Email"
+              value={loginData.email}
+              onChange={(e) => setLoginData({ ...loginData, email: e.target.value })}
+              required
+            />
+            <input
+              type="password"
+              placeholder="Password"
+              value={loginData.password}
+              onChange={(e) => setLoginData({ ...loginData, password: e.target.value })}
+              required
+            />
+            <button type="submit">Login</button>
+          </form>
+        </>
       )}
 
-      {form === "verify" && (
-        <form onSubmit={handleVerify}>
-          <p>We sent a 6-digit code to {userEmailForVerify}</p>
-          <input
-            type="text"
-            placeholder="Enter verification code"
-            value={code}
-            onChange={(e) => setCode(e.target.value)}
-            required
-            style={{ width: "100%", margin: "8px 0", padding: 8 }}
-          />
-          <button type="submit" style={{ width: "100%", padding: 10, marginTop: 10 }}>Verify Email</button>
-        </form>
-      )}
-
-      {form === "login" && (
-        <form onSubmit={handleLogin}>
-          <input
-            type="email"
-            placeholder="Email"
-            value={email}
-            onChange={(e) => setEmail(e.target.value)}
-            required
-            style={{ width: "100%", margin: "8px 0", padding: 8 }}
-          />
-          <input
-            type="password"
-            placeholder="Password"
-            value={password}
-            onChange={(e) => setPassword(e.target.value)}
-            required
-            style={{ width: "100%", margin: "8px 0", padding: 8 }}
-          />
-          <button type="submit" style={{ width: "100%", padding: 10, marginTop: 10 }}>Login</button>
-          <p style={{ textAlign: "center", marginTop: 8 }}>
-            Don't have an account?{" "}
-            <span style={{ color: "blue", cursor: "pointer" }} onClick={() => setForm("register")}>Register</span>
-          </p>
-        </form>
-      )}
+      {message && <p>{message}</p>}
     </div>
   );
 }
