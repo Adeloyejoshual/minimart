@@ -1,81 +1,169 @@
-// src/pages/HomePage.jsx
-import React, { useEffect, useState } from "react";
+import React, { useState } from "react";
 import axios from "axios";
 
-export default function HomePage() {
-  const [products, setProducts] = useState([]);
-  const [user, setUser] = useState(null); // store logged-in user info
-  const [loading, setLoading] = useState(true);
+export default function Homepage() {
 
-  // Fetch products
-  useEffect(() => {
-    const fetchProducts = async () => {
-      try {
-        const res = await axios.get("/api/marketplace");
-        setProducts(res.data);
-      } catch (err) {
-        console.error("Failed to fetch products:", err);
-      } finally {
-        setLoading(false);
-      }
-    };
-    fetchProducts();
-  }, []);
+  const [mode, setMode] = useState("login");
 
-  // Check if user is logged in (JWT stored in localStorage)
-  useEffect(() => {
-    const token = localStorage.getItem("token");
-    if (token) {
-      try {
-        const payload = JSON.parse(atob(token.split(".")[1]));
-        setUser({ id: payload.id, name: payload.name, email: payload.email, role: payload.role });
-      } catch {
-        setUser(null);
-      }
+  const [name,setName] = useState("");
+  const [email,setEmail] = useState("");
+  const [password,setPassword] = useState("");
+  const [code,setCode] = useState("");
+
+  const register = async () => {
+
+    try{
+
+      const res = await axios.post("/api/users/register",{
+        name,
+        email,
+        password
+      });
+
+      alert(res.data.message);
+
+      setMode("verify");
+
+    }catch(err){
+
+      alert(err.response?.data?.message || "Registration failed");
+
     }
-  }, []);
 
-  const handleLogout = () => {
-    localStorage.removeItem("token");
-    setUser(null);
+  };
+
+  const login = async () => {
+
+    try{
+
+      const res = await axios.post("/api/users/login",{
+        email,
+        password
+      });
+
+      localStorage.setItem("token",res.data.token);
+
+      alert("Login successful");
+
+    }catch(err){
+
+      alert(err.response?.data?.message || "Login failed");
+
+    }
+
+  };
+
+  const verify = async () => {
+
+    try{
+
+      const res = await axios.post("/api/users/verify-email",{
+        email,
+        code
+      });
+
+      alert(res.data.message);
+
+      setMode("login");
+
+    }catch{
+
+      alert("Verification failed");
+
+    }
+
   };
 
   return (
-    <div style={{ padding: "20px" }}>
-      <header style={{ display: "flex", justifyContent: "space-between", marginBottom: "20px" }}>
-        <h1>MiniMart</h1>
-        <div>
-          {!user ? (
-            <>
-              <button onClick={() => window.location.href = "/register"}>Register</button>
-              <button onClick={() => window.location.href = "/login"} style={{ marginLeft: 10 }}>Login</button>
-            </>
-          ) : (
-            <>
-              <span>Hi, {user.name}</span>
-              <button onClick={handleLogout} style={{ marginLeft: 10 }}>Logout</button>
-            </>
-          )}
-        </div>
-      </header>
 
-      {loading ? (
-        <p>Loading products...</p>
-      ) : (
-        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(220px, 1fr))", gap: "20px" }}>
-          {products.length === 0 ? (
-            <p>No products found.</p>
-          ) : (
-            products.map(p => (
-              <div key={p.id} style={{ border: "1px solid #ccc", padding: "10px", borderRadius: "8px" }}>
-                <img src={p.image_url || "/placeholder.png"} alt={p.title} style={{ width: "100%", height: "150px", objectFit: "cover" }} />
-                <h3>{p.title}</h3>
-                <p>₦{p.price}</p>
-              </div>
-            ))
-          )}
-        </div>
+    <div style={{maxWidth:"400px",margin:"40px auto"}}>
+
+      <h1>MiniMart</h1>
+
+      {mode === "login" && (
+
+        <>
+          <h2>Login</h2>
+
+          <input
+            placeholder="Email"
+            onChange={(e)=>setEmail(e.target.value)}
+          />
+
+          <input
+            placeholder="Password"
+            type="password"
+            onChange={(e)=>setPassword(e.target.value)}
+          />
+
+          <button onClick={login}>
+            Login
+          </button>
+
+          <p>
+            No account?
+            <button onClick={()=>setMode("register")}>
+              Register
+            </button>
+          </p>
+        </>
+
       )}
+
+      {mode === "register" && (
+
+        <>
+          <h2>Register</h2>
+
+          <input
+            placeholder="Name"
+            onChange={(e)=>setName(e.target.value)}
+          />
+
+          <input
+            placeholder="Email"
+            onChange={(e)=>setEmail(e.target.value)}
+          />
+
+          <input
+            placeholder="Password"
+            type="password"
+            onChange={(e)=>setPassword(e.target.value)}
+          />
+
+          <button onClick={register}>
+            Register
+          </button>
+
+          <p>
+            Already have account?
+            <button onClick={()=>setMode("login")}>
+              Login
+            </button>
+          </p>
+        </>
+
+      )}
+
+      {mode === "verify" && (
+
+        <>
+          <h2>Email Verification</h2>
+
+          <input
+            placeholder="Verification Code"
+            onChange={(e)=>setCode(e.target.value)}
+          />
+
+          <button onClick={verify}>
+            Verify Email
+          </button>
+
+        </>
+
+      )}
+
     </div>
+
   );
 }
