@@ -13,68 +13,73 @@ export default function AddProduct() {
     stock: 0,
   });
 
-  const [images, setImages] = useState([]);
+  const [images, setImages] = useState([]); // store File objects
+  const [previewUrls, setPreviewUrls] = useState([]); // preview URLs
   const [message, setMessage] = useState("");
 
   const API = "https://minimart-ivrm.onrender.com/api";
 
   // -------------------
-  // Check login
+  // Redirect if not logged in
   // -------------------
   useEffect(() => {
     const token = localStorage.getItem("token");
     if (!token) {
-      navigate("/"); // redirect if not logged in
+      navigate("/"); // redirect to home/login
     }
   }, [navigate]);
 
   // -------------------
-  // Handle form input
+  // Handle form change
   // -------------------
   const handleChange = (e) => {
-    setForm({ ...form, [e.target.name]: e.target.value });
-  };
-
-  const handleFileChange = (e) => {
-    setImages(Array.from(e.target.files)); // store selected files
+    setForm({
+      ...form,
+      [e.target.name]: e.target.value,
+    });
   };
 
   // -------------------
-  // Submit product
+  // Handle file selection
+  // -------------------
+  const handleFilesChange = (e) => {
+    const files = Array.from(e.target.files);
+    setImages(files);
+
+    // create preview URLs
+    const urls = files.map((file) => URL.createObjectURL(file));
+    setPreviewUrls(urls);
+  };
+
+  // -------------------
+  // Submit form
   // -------------------
   const handleSubmit = async (e) => {
     e.preventDefault();
-
-    if (!form.title || !form.price) {
-      setMessage("❌ Title and price are required");
-      return;
-    }
-
     try {
       const token = localStorage.getItem("token");
-      const formData = new FormData();
 
+      const formData = new FormData();
       formData.append("title", form.title);
       formData.append("description", form.description);
       formData.append("price", form.price);
       formData.append("stock", form.stock);
 
       images.forEach((file) => {
-        formData.append("images", file);
+        formData.append("images", file); // match multer field name
       });
 
       const res = await axios.post(`${API}/marketplace/products`, formData, {
         headers: {
-          "Content-Type": "multipart/form-data",
           Authorization: `Bearer ${token}`,
+          "Content-Type": "multipart/form-data",
         },
       });
 
-      setMessage("✅ Product and images added successfully");
-
-      // Reset form
+      setMessage("✅ Product added successfully");
       setForm({ title: "", description: "", price: "", stock: 0 });
       setImages([]);
+      setPreviewUrls([]);
 
     } catch (err) {
       console.error(err);
@@ -86,7 +91,10 @@ export default function AddProduct() {
     <div style={{ maxWidth: 600, margin: "auto", padding: 20 }}>
       <h1>Add Product</h1>
 
-      <form onSubmit={handleSubmit} style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+      <form
+        onSubmit={handleSubmit}
+        style={{ display: "flex", flexDirection: "column", gap: 10 }}
+      >
         <input
           type="text"
           name="title"
@@ -124,8 +132,20 @@ export default function AddProduct() {
           type="file"
           multiple
           accept="image/*"
-          onChange={handleFileChange}
+          onChange={handleFilesChange}
         />
+
+        {/* Preview selected images */}
+        <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
+          {previewUrls.map((url, idx) => (
+            <img
+              key={idx}
+              src={url}
+              alt={`preview-${idx}`}
+              style={{ width: 100, height: 100, objectFit: "cover", borderRadius: 8 }}
+            />
+          ))}
+        </div>
 
         <button type="submit">Add Product</button>
       </form>
