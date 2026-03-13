@@ -6,39 +6,34 @@ import { useNavigate } from "react-router-dom";
 export default function AddProduct() {
   const navigate = useNavigate();
 
-  // Form state
   const [form, setForm] = useState({
     title: "",
     description: "",
     price: "",
     stock: 0,
-    image: null, // store File object
   });
-
+  const [imageFile, setImageFile] = useState(null);
   const [message, setMessage] = useState("");
 
   const API = "https://minimart-ivrm.onrender.com/api";
 
   // -------------------
-  // Check login
+  // Redirect if not logged in
   // -------------------
   useEffect(() => {
     const token = localStorage.getItem("token");
-    if (!token) {
-      navigate("/"); // redirect if not logged in
-    }
+    if (!token) navigate("/login");
   }, [navigate]);
 
   // -------------------
-  // Handle form input
+  // Handle input change
   // -------------------
   const handleChange = (e) => {
-    const { name, value, files } = e.target;
-    if (name === "image") {
-      setForm({ ...form, image: files[0] }); // store File object
-    } else {
-      setForm({ ...form, [name]: value });
-    }
+    setForm({ ...form, [e.target.name]: e.target.value });
+  };
+
+  const handleFileChange = (e) => {
+    setImageFile(e.target.files[0]);
   };
 
   // -------------------
@@ -53,10 +48,10 @@ export default function AddProduct() {
 
       const formData = new FormData();
       formData.append("title", form.title);
-      formData.append("description", form.description);
+      formData.append("description", form.description || "");
       formData.append("price", form.price);
       formData.append("stock", form.stock);
-      if (form.image) formData.append("image", form.image);
+      if (imageFile) formData.append("image", imageFile);
 
       const res = await axios.post(`${API}/marketplace/products`, formData, {
         headers: {
@@ -66,18 +61,11 @@ export default function AddProduct() {
       });
 
       setMessage("✅ Product added successfully!");
-
-      // Reset form
-      setForm({
-        title: "",
-        description: "",
-        price: "",
-        stock: 0,
-        image: null,
-      });
+      setForm({ title: "", description: "", price: "", stock: 0 });
+      setImageFile(null);
     } catch (err) {
       console.error(err);
-      setMessage("❌ Failed to add product");
+      setMessage("❌ Failed to add product: " + (err.response?.data?.message || err.message));
     }
   };
 
@@ -85,10 +73,7 @@ export default function AddProduct() {
     <div style={{ maxWidth: 600, margin: "auto", padding: 20 }}>
       <h1>Add Product</h1>
 
-      <form
-        onSubmit={handleSubmit}
-        style={{ display: "flex", flexDirection: "column", gap: 10 }}
-      >
+      <form onSubmit={handleSubmit} style={{ display: "flex", flexDirection: "column", gap: 10 }}>
         <input
           type="text"
           name="title"
@@ -124,9 +109,8 @@ export default function AddProduct() {
 
         <input
           type="file"
-          name="image"
           accept="image/*"
-          onChange={handleChange}
+          onChange={handleFileChange}
         />
 
         <button type="submit">Add Product</button>
