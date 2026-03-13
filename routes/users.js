@@ -1,127 +1,64 @@
 // routes/users.js
 import express from "express";
 import bcrypt from "bcrypt";
+import jwt from "jsonwebtoken";
 import { pool } from "../server.js";
-import { sendMail } from "../utils/email.js";
 
 const router = express.Router();
+const SALT_ROUNDS = 10;
+const JWT_SECRET = process.env.JWT_SECRET || "supersecretkey";
 
 // -------------------
-// REGISTER
+// Register
 // -------------------
 router.post("/register", async (req, res) => {
+  const { name, email, password } = req.body;
+
+  if (!name || !email || !password) {
+    return res.status(400).json({ message: "Name, email, and password are required" });
+  }
+
   try {
-    const { name, email, password } = req.body;
-    if (!name || !email || !password) {
-      return res.status(400).json({ message: "Name, email, and password are required" });
-    }
+    const hashedPassword = await bcrypt.hash(password, SALT_ROUNDS);
 
-    // Check existing email
-    const { rows: existing } = await pool.query(
-      "SELECT id FROM users WHERE lower(email) = $1",
-      [email.toLowerCase()]
-    );
-
-    if (existing.length > 0) {
-      return res.status(400).json({ message: "Email already registered" });
-    }
-
-    // Hash password
-    const password_hash = await bcrypt.hash(password, 10);
-
-    // Generate 6-digit verification code
-    const verification_code = Math.floor(100000 + Math.random() * 900000).toString();
-
-    // Insert user
     const query = `
-      INSERT INTO users (name, email, password_hash, role, email_verified, verification_code)
-      VALUES ($1, $2, $3, 'user', false, $4)
-      RETURNING id, name, email, email_verified
+      INSERT INTO public.users (name, email, password_hash)
+      VALUES ($1, $2, $3)
+      RETURNING id, name, email
     `;
-    const { rows } = await pool.query(query, [
-      name.trim(),
-      email.toLowerCase(),
-      password_hash,
-      verification_code
-    ]);
 
-    // Send verification email
-    const html = `
-      <h2>Welcome to MiniMart, ${name}!</h2>
-      <p>Your verification code is: <strong>${verification_code}</strong></p>
-      <p>Enter this code in the app to verify your email.</p>
-    `;
-    await sendMail(email, "MiniMart Email Verification", html);
-
-    res.status(201).json({
-      message: "Registration successful! Verification code sent to email.",
-      user: rows[0]
-    });
+    const { rows } = await pool.query(query, [name, email, hashedPassword]);
+    res.status(201).json({ user: rows[0] });
   } catch (err) {
-    console.error("REGISTRATION ERROR:", err);
+    if (err.code === "23505") { // duplicate email
+      return res.status(409).json({ message: "Email already registered" });
+    }
+    console.error("Register error:", err);
     res.status(500).json({ message: "Registration failed" });
   }
 });
 
 // -------------------
-// VERIFY EMAIL
-// -------------------
-router.post("/verify", async (req, res) => {
-  try {
-    const { email, code } = req.body;
-    if (!email || !code) return res.status(400).json({ message: "Email and code required" });
-
-    const { rows } = await pool.query(
-      "SELECT id, verification_code, email_verified FROM users WHERE lower(email) = $1",
-      [email.toLowerCase()]
-    );
-
-    if (rows.length === 0) return res.status(404).json({ message: "User not found" });
-
-    const user = rows[0];
-    if (user.email_verified) return res.status(400).json({ message: "Email already verified" });
-
-    if (user.verification_code !== code) return res.status(400).json({ message: "Invalid code" });
-
-    await pool.query(
-      "UPDATE users SET email_verified = true, verification_code = NULL, updated_at = now() WHERE id = $1",
-      [user.id]
-    );
-
-    res.json({ message: "Email verified successfully" });
-  } catch (err) {
-    console.error("VERIFY EMAIL ERROR:", err);
-    res.status(500).json({ message: "Verification failed" });
-  }
-});
-
-// -------------------
-// LOGIN
+// Login
 // -------------------
 router.post("/login", async (req, res) => {
+  const { email, password } = req.body;
+
+  if (!email || !password) return res.status(400).json({ message: "Email and password required" });
+
   try {
-    const { email, password } = req.body;
-    if (!email || !password) return res.status(400).json({ message: "Email and password required" });
-
-    const { rows } = await pool.query(
-      "SELECT id, name, email, password_hash, email_verified FROM users WHERE lower(email) = $1",
-      [email.toLowerCase()]
-    );
-
-    if (rows.length === 0) return res.status(404).json({ message: "User not found" });
-
+    const { rows } = await pool.query("SELECT id, name, email, password_hash FROM public.users WHERE email = $1", [email]);
     const user = rows[0];
-    if (!user.email_verified) return res.status(403).json({ message: "Email not verified" });
 
-    const passwordMatch = await bcrypt.compare(password, user.password_hash);
-    if (!passwordMatch) return res.status(401).json({ message: "Invalid password" });
+    if (!user) return res.status(401).json({ message: "Invalid credentials" });
 
-    res.json({
-      message: "Login successful",
-      user: { id: user.id, name: user.name, email: user.email }
-    });
+    const match = await bcrypt.compare(password, user.password_hash);
+    if (!match) return res.status(401).json({ message: "Invalid credentials" });
+
+    const token = jwt.sign({ id: user.id, name: user.name, email: user.email }, JWT_SECRET, { expiresIn: "7d" });
+    res.json({ token, user: { id: user.id, name: user.name, email: user.email } });
   } catch (err) {
-    console.error("LOGIN ERROR:", err);
+    console.error("Login error:", err);
     res.status(500).json({ message: "Login failed" });
   }
 });
