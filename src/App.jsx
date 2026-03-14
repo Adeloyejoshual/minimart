@@ -5,10 +5,10 @@ import { BrowserRouter as Router, Routes, Route, Navigate } from "react-router-d
 import Homepage from "./pages/Homepage";
 import AddProduct from "./pages/AddProduct";
 import ProductDetail from "./pages/ProductDetail";
+import Profile from "./pages/Profile";          // General profile page
 import Conversations from "./pages/Conversations";
-import Chat from "./pages/Chat";
-import Profile from "./pages/Profile";           // General logged-in user profile
-import SellerProfile from "./pages/SellerProfile"; // Other sellers
+import Chat from "./pages/Chat";               // Chat page
+import SellerProfile from "./pages/SellerProfile";
 
 export default function App() {
   const [user, setUser] = useState(null);
@@ -17,15 +17,14 @@ export default function App() {
   useEffect(() => {
     const token = localStorage.getItem("token");
     if (token) {
-      // Optionally fetch user profile from API
-      // For now, placeholder user
-      setUser({ id: "user-id", name: "User" });
+      // Optional: fetch full user profile from API
+      setUser({ id: "user-id", name: "User" }); // Placeholder
     }
   }, []);
 
   // Protected route wrapper
   const ProtectedRoute = ({ children }) => {
-    if (!user) return <Navigate to="/" />;
+    if (!user) return <Navigate to="/" replace />;
     return children;
   };
 
@@ -37,34 +36,44 @@ export default function App() {
         <Route path="/product/:id" element={<ProductDetail user={user} />} />
         <Route path="/seller/:id" element={<SellerProfile user={user} />} />
 
-        {/* General Profile (logged-in user) */}
-        <Route path="/profile" element={
-          <ProtectedRoute>
-            <Profile user={user} />
-          </ProtectedRoute>
-        } />
-
-        {/* Seller Pages */}
-        <Route path="/minimart/add" element={
-          <ProtectedRoute>
-            <AddProduct user={user} />
-          </ProtectedRoute>
-        } />
+        {/* Logged-in User Pages */}
+        <Route
+          path="/profile"
+          element={
+            <ProtectedRoute>
+              <Profile user={user} />
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="/minimart/add"
+          element={
+            <ProtectedRoute>
+              <AddProduct user={user} />
+            </ProtectedRoute>
+          }
+        />
 
         {/* Messaging Pages */}
-        <Route path="/conversations" element={
-          <ProtectedRoute>
-            <Conversations user={user} />
-          </ProtectedRoute>
-        } />
-        <Route path="/chat/:productId" element={
-          <ProtectedRoute>
-            <Chat user={user} />
-          </ProtectedRoute>
-        } />
+        <Route
+          path="/conversations"
+          element={
+            <ProtectedRoute>
+              <Conversations user={user} />
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="/chat/:productId"
+          element={
+            <ProtectedRoute>
+              <Chat user={user} />
+            </ProtectedRoute>
+          }
+        />
 
-        {/* Catch-all redirect */}
-        <Route path="*" element={<Navigate to="/" />} />
+        {/* Fallback for undefined routes */}
+        <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>
     </Router>
   );
