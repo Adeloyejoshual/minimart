@@ -1,4 +1,3 @@
-// src/pages/Homepage.jsx
 import React, { useState, useEffect } from "react";
 import axios from "axios";
 import { useNavigate } from "react-router-dom";
@@ -24,17 +23,17 @@ export default function Homepage() {
 
   useEffect(() => {
     const token = localStorage.getItem("token");
-    if (token) fetchUserAndProducts(token);
+    if (token) fetchUser(token);
+    fetchTrending();
+    fetchProducts({ reset: true });
   }, []);
 
-  const fetchUserAndProducts = async (token) => {
+  const fetchUser = async (token) => {
     try {
-      const userRes = await axios.get(`${API}/users/profile`, {
+      const res = await axios.get(`${API}/users/profile`, {
         headers: { Authorization: `Bearer ${token}` },
       });
-      setUser(userRes.data);
-      fetchTrending();
-      fetchProducts({ reset: true });
+      setUser(res.data);
     } catch {
       localStorage.removeItem("token");
     }
@@ -82,8 +81,6 @@ export default function Homepage() {
   const handleLogout = () => {
     setUser(null);
     localStorage.removeItem("token");
-    setProducts([]);
-    setTrending([]);
   };
 
   const SkeletonCard = () => (
@@ -169,83 +166,54 @@ export default function Homepage() {
         </div>
       </header>
 
-      {user ? (
-        <>
-          <section className="py-8 bg-white">
-            <div className="max-w-6xl mx-auto px-4">
-              <h2 className="text-2xl font-bold mb-6">🔥 Trending Products</h2>
-              <Swiper
-                spaceBetween={16}
-                slidesPerView={3}
-                autoplay={{ delay: 2500, disableOnInteraction: false }}
-              >
-                {trending.map((product) => (
-                  <SwiperSlide key={product.id}>
-                    <TrendingCard product={product} />
-                  </SwiperSlide>
-                ))}
-              </Swiper>
-            </div>
-          </section>
+      <section className="py-8 bg-white">
+        <div className="max-w-6xl mx-auto px-4">
+          <h2 className="text-2xl font-bold mb-6">🔥 Trending Products</h2>
+          <Swiper
+            spaceBetween={16}
+            slidesPerView={3}
+            autoplay={{ delay: 2500, disableOnInteraction: false }}
+          >
+            {trending.map((product) => (
+              <SwiperSlide key={product.id}>
+                <TrendingCard product={product} />
+              </SwiperSlide>
+            ))}
+          </Swiper>
+        </div>
+      </section>
 
-          <section className="py-8 px-4">
-            <div className="max-w-6xl mx-auto">
-              <InfiniteScroll
-                dataLength={products.length}
-                next={() => fetchProducts()}
-                hasMore={hasMore}
-                loader={[...Array(4)].map((_, i) => (
-                  <SkeletonCard key={i} />
-                ))}
-              >
-                <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-6">
-                  {products.map((product) => (
-                    <ProductCard key={product.id} product={product} />
-                  ))}
-                  {loading &&
-                    [...Array(4)].map((_, i) => <SkeletonCard key={`loading-${i}`} />)}
-                </div>
-              </InfiniteScroll>
-              {products.length === 0 && !loading && (
-                <p className="col-span-full text-center py-12 text-gray-500">
-                  No products available.
-                </p>
-              )}
+      <section className="py-8 px-4">
+        <div className="max-w-6xl mx-auto">
+          <InfiniteScroll
+            dataLength={products.length}
+            next={() => fetchProducts()}
+            hasMore={hasMore}
+            loader={[...Array(4)].map((_, i) => <SkeletonCard key={i} />)}
+          >
+            <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-6">
+              {products.map((product) => (
+                <ProductCard key={product.id} product={product} />
+              ))}
+              {loading && [...Array(4)].map((_, i) => <SkeletonCard key={`loading-${i}`} />)}
             </div>
-          </section>
+          </InfiniteScroll>
+          {products.length === 0 && !loading && (
+            <p className="col-span-full text-center py-12 text-gray-500">
+              No products available.
+            </p>
+          )}
+        </div>
+      </section>
 
-          <nav className="md:hidden fixed bottom-0 left-0 right-0 bg-white border-t border-gray-200 shadow-lg z-40">
-            <div className="flex justify-around py-2">
-              <button className="flex flex-col items-center py-2 px-4 text-blue-600">
-                <Home className="w-6 h-6" />
-                <span className="text-xs">Home</span>
-              </button>
-              <button className="flex flex-col items-center py-2 px-4 text-gray-600">
-                <List className="w-6 h-6" />
-                <span className="text-xs">Categories</span>
-              </button>
-              <button className="flex flex-col items-center py-2 px-4 text-gray-600">
-                <MessageCircle className="w-6 h-6" />
-                <span className="text-xs">Messages</span>
-              </button>
-              <button
-                className="flex flex-col items-center py-2 px-4 text-gray-600"
-                onClick={() => navigate("/profile")}
-              >
-                <User className="w-6 h-6" />
-                <span className="text-xs">Profile</span>
-              </button>
-            </div>
-          </nav>
-        </>
-      ) : (
+      {!user && (
         <div className="max-w-md mx-auto py-12 px-4" id="login-form">
           <div className="bg-white rounded-2xl shadow-xl p-8">
             <h1 className="text-3xl font-bold text-center mb-8 text-gray-800">
               Welcome to MiniMart
             </h1>
             <p className="text-center text-gray-500 mb-4">
-              Please log in to view products and chat.
+              Please log in to access cart, profile, and chat features.
             </p>
           </div>
         </div>
