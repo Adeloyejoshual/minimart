@@ -1,40 +1,56 @@
+// routes/marketplace.js
 import express from "express";
 import multer from "multer";
-import { v2 as cloudinary } from "cloudinary";
-import { CloudinaryStorage } from "multer-storage-cloudinary";
+import { S3Client, PutObjectCommand } from "@aws-sdk/client-s3";
+import dotenv from "dotenv";
+import { v4 as uuidv4 } from "uuid";
+import path from "path";
 
+dotenv.config();
 const router = express.Router();
 
-// Configure Cloudinary
-cloudinary.config({
-  cloud_name: process.env.CLOUDINARY_CLOUD_NAME,
-  api_key: process.env.CLOUDINARY_API_KEY,
-  api_secret: process.env.CLOUDINARY_API_SECRET,
-});
+const storage = multer.memoryStorage();
+const upload = multer({ storage });
 
-// Configure Multer storage with Cloudinary
-const storage = new CloudinaryStorage({
-  cloudinary: cloudinary,
-  params: {
-    folder: "marketplace-products", // optional folder
-    allowed_formats: ["jpg", "jpeg", "png", "webp"],
+// AWS S3 client
+const s3 = new S3Client({
+  region: process.env.AWS_REGION,
+  credentials: {
+    accessKeyId: process.env.AWS_ACCESS_KEY_ID,
+    secretAccessKey: process.env.AWS_SECRET_ACCESS_KEY,
   },
 });
 
-const parser = multer({ storage });
-
-// Route to upload product image
-router.post("/add-product", parser.single("image"), async (req, res) => {
+// Add Product Image
+router.post("/add-product", upload.single("image"), async (req, res) => {
   try {
-    if (!req.file || !req.file.path) {
-      return res.status(400).json({ success: false, error: "No file uploaded" });
+    if (!req.file) {
+      return res.status(400).json({ error: "No image file uploaded" });
     }
 
-    // req.file.path contains the Cloudinary URL
-    res.json({ success: true, imageUrl: req.file.path });
-  } catch (err) {
-    console.error("Cloudinary Upload Error:", err);
-    res.status(500).json({ success: false, error: err.message });
+    const fileExtension = path.extname(req.file.originalname);
+    const key = `products/${uuidv4()}${fileExtension}`;
+
+    const params = {
+      Bucket: process.env.AWS_BUCKET_NAME,
+      Key: key,
+      Body: req.file.buffer,
+      ContentType: req.file.mimetype,
+      ACL: "public-read",
+    };
+
+    await s3.send(new PutObjectCommand(params));
+
+    const imageUrl = `https://${process.env.AWS_BUCKET_NAME}.s3.${process.env.AWS_REGION}.amazonaws.com/${key}`;
+    console.log("✅ Image uploaded:", imageUrl);
+
+    res.status(200).json({
+      message: "Product image uploaded successfully",
+      imageUrl,
+    });
+  } catch (error) {
+    console.error("S3 Upload Error:", error);
+    res.status(500).json({ error: "Failed to upload image", details: error.message });
   }
 });
 
