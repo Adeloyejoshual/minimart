@@ -1,5 +1,5 @@
 // src/pages/Homepage.jsx
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useCallback } from "react";
 import axios from "axios";
 import { useNavigate } from "react-router-dom";
 import InfiniteScroll from "react-infinite-scroll-component";
@@ -19,18 +19,18 @@ export default function Homepage() {
   const [skip, setSkip] = useState(0);
   const [hasMore, setHasMore] = useState(true);
   const [loading, setLoading] = useState(false);
-  const [message, setMessage] = useState("");
 
-  // Check token
+  // Check token on mount
   useEffect(() => {
     const token = localStorage.getItem("token");
     if (token) fetchUserAndProducts(token);
   }, []);
 
-  // Fetch user + initial products
   const fetchUserAndProducts = async (token) => {
     try {
-      const userRes = await axios.get(`${API}/users/profile`, { headers: { Authorization: `Bearer ${token}` } });
+      const userRes = await axios.get(`${API}/users/profile`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
       setUser(userRes.data);
       fetchTrending();
       fetchProducts({ reset: true });
@@ -39,27 +39,41 @@ export default function Homepage() {
     }
   };
 
-  // Fetch products (paginated)
-  const fetchProducts = async ({ reset = false, search = searchQuery } = {}) => {
-    if (reset) {
-      setProducts([]);
-      setSkip(0);
-      setHasMore(true);
-    }
-    try {
-      setLoading(true);
-      const res = await axios.get(`${API}/marketplace/products?skip=${reset ? 0 : skip}&limit=20&search=${search}`);
-      const data = res.data;
-      if (reset) setProducts(data);
-      else setProducts(prev => [...prev, ...data]);
-      setSkip(prev => prev + data.length);
-      if (data.length < 20) setHasMore(false);
-    } catch (err) {
-      console.error("Failed to load products", err);
-    } finally {
-      setLoading(false);
-    }
-  };
+  // Fetch products with optional reset (for search)
+  const fetchProducts = useCallback(
+    async ({ reset = false } = {}) => {
+      if (loading) return;
+      if (reset) {
+        setProducts([]);
+        setSkip(0);
+        setHasMore(true);
+      }
+      try {
+        setLoading(true);
+        const res = await axios.get(
+          `${API}/marketplace/products?skip=${reset ? 0 : skip}&limit=20&search=${searchQuery}`
+        );
+        const data = res.data;
+        if (reset) setProducts(data);
+        else setProducts(prev => [...prev, ...data]);
+        setSkip(prev => prev + data.length);
+        if (data.length < 20) setHasMore(false);
+      } catch (err) {
+        console.error("Failed to load products", err);
+      } finally {
+        setLoading(false);
+      }
+    },
+    [skip, searchQuery, loading]
+  );
+
+  // Debounced search
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      fetchProducts({ reset: true });
+    }, 300);
+    return () => clearTimeout(timer);
+  }, [searchQuery, fetchProducts]);
 
   // Fetch trending products
   const fetchTrending = async () => {
@@ -71,15 +85,7 @@ export default function Homepage() {
     }
   };
 
-  // Debounced search
-  useEffect(() => {
-    const timer = setTimeout(() => {
-      fetchProducts({ reset: true, search: searchQuery });
-    }, 300);
-    return () => clearTimeout(timer);
-  }, [searchQuery]);
-
-  // Login / logout placeholders (can expand)
+  // Logout
   const handleLogout = () => {
     setUser(null);
     localStorage.removeItem("token");
@@ -103,7 +109,13 @@ export default function Homepage() {
   // Product card
   const ProductCard = ({ product }) => (
     <div className="bg-white rounded-lg shadow-md p-4 hover:shadow-lg transition-shadow">
-      {product.image && <img src={product.image} alt={product.title} className="w-full h-48 object-cover rounded-md mb-3" />}
+      {product.image && (
+        <img
+          src={product.image}
+          alt={product.title}
+          className="w-full h-48 object-cover rounded-md mb-3"
+        />
+      )}
       <h4 className="font-semibold text-lg mb-1 truncate">{product.title}</h4>
       <p className="text-gray-600 text-sm mb-2 line-clamp-2">{product.description}</p>
       <div className="flex justify-between items-center">
@@ -117,7 +129,13 @@ export default function Homepage() {
   const TrendingCard = ({ product }) => (
     <div className="w-48 flex-shrink-0">
       <div className="bg-white rounded-xl shadow-lg p-3 hover:shadow-xl transition-all">
-        {product.image && <img src={product.image} alt={product.title} className="w-full h-32 object-cover rounded-lg mb-2" />}
+        {product.image && (
+          <img
+            src={product.image}
+            alt={product.title}
+            className="w-full h-32 object-cover rounded-lg mb-2"
+          />
+        )}
         <h4 className="font-medium text-sm truncate">{product.title}</h4>
         <p className="text-green-600 font-bold text-lg">₦{product.price}</p>
       </div>
@@ -165,7 +183,7 @@ export default function Homepage() {
                 modules={[Autoplay]}
                 autoplay={{ delay: 2500 }}
               >
-                {trending.map(product => (
+                {trending.map((product) => (
                   <SwiperSlide key={product.id}>
                     <TrendingCard product={product} />
                   </SwiperSlide>
@@ -174,7 +192,7 @@ export default function Homepage() {
             </div>
           </section>
 
-          {/* Product Grid */}
+          {/* Infinite Scroll Products */}
           <section className="py-8 px-4">
             <div className="max-w-6xl mx-auto">
               <InfiniteScroll
@@ -182,13 +200,13 @@ export default function Homepage() {
                 next={() => fetchProducts()}
                 hasMore={hasMore}
                 loader={[...Array(4)].map((_, i) => <SkeletonCard key={i} />)}
+                scrollThreshold={0.9}
               >
                 <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-6">
-                  {products.map(product => <ProductCard key={product.id} product={product} />)}
-                  {loading && [...Array(4)].map((_, i) => <SkeletonCard key={`loading-${i}`} />)}
+                  {products.map((product) => <ProductCard key={product.id} product={product} />)}
                 </div>
               </InfiniteScroll>
-              {products.length === 0 && !loading && (
+              {!loading && products.length === 0 && (
                 <p className="col-span-full text-center py-12 text-gray-500">No products available.</p>
               )}
             </div>
