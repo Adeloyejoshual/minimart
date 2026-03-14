@@ -1,56 +1,33 @@
 import express from "express";
-import multer from "multer";
-import { S3Client, PutObjectCommand } from "@aws-sdk/client-s3";
-import crypto from "crypto";
-import dotenv from "dotenv";
+import { parser } from "../middleware/cloudinary.js";
+import { pool } from "../server.js";
 
-dotenv.config();
 const router = express.Router();
 
-// -------------------
-// S3 Client
-// -------------------
-const s3 = new S3Client({
-  region: process.env.AWS_REGION, // eu-north-1
-  credentials: {
-    accessKeyId: process.env.AWS_ACCESS_KEY_ID,
-    secretAccessKey: process.env.AWS_SECRET_ACCESS_KEY,
-  },
-});
-
-// -------------------
-// Multer setup (in-memory)
-// -------------------
-const storage = multer.memoryStorage();
-const upload = multer({ storage });
-
-// -------------------
-// Add Product Image Route
-// -------------------
-router.post("/add-product-image", upload.single("image"), async (req, res) => {
+// Upload product with image
+router.post("/products", parser.single("image"), async (req, res) => {
   try {
-    if (!req.file) return res.status(400).json({ success: false, message: "No file uploaded" });
+    const { title, description, price, stock } = req.body;
+    const image = req.file?.path || null; // Cloudinary URL
 
-    // Generate unique filename
-    const fileExtension = req.file.originalname.split(".").pop();
-    const fileName = `products/${crypto.randomBytes(16).toString("hex")}.${fileExtension}`;
+    const query = `
+      INSERT INTO products (title, description, price, stock, image)
+      VALUES ($1, $2, $3, $4, $5)
+      RETURNING *
+    `;
 
-    const command = new PutObjectCommand({
-      Bucket: process.env.AWS_BUCKET_NAME,
-      Key: fileName,
-      Body: req.file.buffer,
-      ContentType: req.file.mimetype,
-      ACL: "public-read", // So you can access it via URL
-    });
+    const { rows } = await pool.query(query, [
+      title,
+      description || null,
+      price,
+      stock || 0,
+      image,
+    ]);
 
-    await s3.send(command);
-
-    const fileUrl = `https://${process.env.AWS_BUCKET_NAME}.s3.${process.env.AWS_REGION}.amazonaws.com/${fileName}`;
-
-    res.json({ success: true, url: fileUrl });
+    res.status(201).json(rows[0]);
   } catch (err) {
-    console.error("S3 Upload Error:", err);
-    res.status(500).json({ success: false, message: err.message });
+    console.error("Failed to add product:", err);
+    res.status(500).json({ message: "Failed to add product" });
   }
 });
 
