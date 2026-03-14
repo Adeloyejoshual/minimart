@@ -28,15 +28,13 @@ const upload = multer({ storage: multer.memoryStorage() });
 const authMiddleware = (req, res, next) => {
   const token = req.headers.authorization?.split(" ")[1];
 
-  if (!token) {
-    return res.status(401).json({ message: "Unauthorized" });
-  }
+  if (!token) return res.status(401).json({ message: "Unauthorized" });
 
   try {
     req.user = jwt.verify(token, process.env.JWT_SECRET);
     next();
   } catch {
-    return res.status(401).json({ message: "Invalid token" });
+    res.status(401).json({ message: "Invalid token" });
   }
 };
 
@@ -49,48 +47,41 @@ router.get("/products", async (req, res) => {
     const search = req.query.search ? xss(req.query.search) : null;
 
     const params = [];
-    let whereClause = "";
+    let where = "";
 
     if (search) {
       params.push(`%${search}%`);
-      whereClause = `
-        WHERE title ILIKE $${params.length}
-        OR description ILIKE $${params.length}
+      where = `
+        WHERE title ILIKE $1
+        OR description ILIKE $1
       `;
     }
 
-    params.push(skip, limit);
-
     const query = `
-      SELECT id,title,description,price,stock,image,views,created_at
+      SELECT id,title,price,image,stock,views,created_at
       FROM products
-      ${whereClause}
+      ${where}
       ORDER BY created_at DESC
-      OFFSET $${params.length - 1}
-      LIMIT $${params.length}
+      OFFSET $${params.length + 1}
+      LIMIT $${params.length + 2}
     `;
+
+    params.push(skip, limit);
 
     const { rows } = await pool.query(query, params);
 
-    if (rows.length > 0) {
-      const ids = rows.map((p) => p.id);
-
-      await pool.query(
-        `UPDATE products
-         SET views = COALESCE(views,0)+1
-         WHERE id = ANY($1::uuid[])`,
-        [ids]
-      );
-    }
-
-    res.json(rows);
+    res.json({
+      products: rows,
+      skip,
+      limit,
+    });
   } catch (err) {
-    console.error("GET /products error:", err);
+    console.error(err);
     res.status(500).json({ message: "Failed to fetch products" });
   }
 });
 
-/* ---------------- GET PRODUCT DETAIL ---------------- */
+/* ---------------- PRODUCT DETAIL ---------------- */
 
 router.get("/products/:id", async (req, res) => {
   try {
@@ -99,19 +90,20 @@ router.get("/products/:id", async (req, res) => {
     const { rows } = await pool.query(
       `
       SELECT
-        p.id,
-        p.title,
-        p.description,
-        p.price,
-        p.stock,
-        p.image,
-        p.brand,
-        p.model,
-        p.color,
-        p.weight,
-        p.warranty,
-        p.created_at,
-        u.name AS seller_name
+      p.id,
+      p.title,
+      p.description,
+      p.price,
+      p.stock,
+      p.image,
+      p.brand,
+      p.model,
+      p.color,
+      p.weight,
+      p.warranty,
+      p.created_at,
+      p.seller_id,
+      u.name AS seller_name
       FROM products p
       LEFT JOIN users u
       ON p.seller_id = u.id
@@ -120,18 +112,56 @@ router.get("/products/:id", async (req, res) => {
       [id]
     );
 
-    if (!rows.length) {
+    if (!rows.length)
       return res.status(404).json({ message: "Product not found" });
-    }
+
+    await pool.query(
+      `UPDATE products SET views = COALESCE(views,0)+1 WHERE id=$1`,
+      [id]
+    );
 
     res.json(rows[0]);
   } catch (err) {
-    console.error("GET /products/:id error:", err);
+    console.error(err);
     res.status(500).json({ message: "Failed to fetch product" });
   }
 });
 
-/* ---------------- TRENDING PRODUCTS ---------------- */
+/* ---------------- SELLER PROFILE ---------------- */
+
+router.get("/seller/:id", async (req, res) => {
+  try {
+    const { id } = req.params;
+
+    const seller = await pool.query(
+      `SELECT id,name,created_at FROM users WHERE id=$1`,
+      [id]
+    );
+
+    if (!seller.rows.length)
+      return res.status(404).json({ message: "Seller not found" });
+
+    const products = await pool.query(
+      `
+      SELECT id,title,price,image,stock
+      FROM products
+      WHERE seller_id=$1
+      ORDER BY created_at DESC
+      `,
+      [id]
+    );
+
+    res.json({
+      seller: seller.rows[0],
+      products: products.rows,
+    });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ message: "Failed to load seller" });
+  }
+});
+
+/* ---------------- TRENDING ---------------- */
 
 router.get("/trending", async (req, res) => {
   try {
@@ -139,9 +169,9 @@ router.get("/trending", async (req, res) => {
 
     const { rows } = await pool.query(
       `
-      SELECT id,title,description,price,stock,image,views
+      SELECT id,title,price,image,views
       FROM products
-      ORDER BY COALESCE(views,0) DESC, created_at DESC
+      ORDER BY views DESC, created_at DESC
       LIMIT $1
       `,
       [limit]
@@ -149,8 +179,8 @@ router.get("/trending", async (req, res) => {
 
     res.json(rows);
   } catch (err) {
-    console.error("GET /trending error:", err);
-    res.status(500).json({ message: "Failed to fetch trending products" });
+    console.error(err);
+    res.status(500).json({ message: "Failed to fetch trending" });
   }
 });
 
@@ -170,11 +200,8 @@ router.post(
       const price = parseFloat(req.body.price);
       const stock = parseInt(req.body.stock) || 0;
 
-      if (!title || isNaN(price) || price <= 0) {
-        return res
-          .status(400)
-          .json({ message: "Title and valid price required" });
-      }
+      if (!title || !price)
+        return res.status(400).json({ message: "Invalid product data" });
 
       let imageUrl = null;
 
@@ -184,7 +211,6 @@ router.post(
             { folder: "minimart_products" },
             (error, result) => (error ? reject(error) : resolve(result))
           );
-
           stream.end(req.file.buffer);
         });
 
@@ -204,14 +230,14 @@ router.post(
           price,
           stock,
           imageUrl,
-          req.user.id
+          req.user.id,
         ]
       );
 
       res.status(201).json(rows[0]);
     } catch (err) {
-      console.error("POST /products error:", err);
-      res.status(500).json({ message: "Failed to add product" });
+      console.error(err);
+      res.status(500).json({ message: "Failed to create product" });
     }
   }
 );
@@ -226,16 +252,18 @@ router.put(
     try {
       const { id } = req.params;
 
-      const { rows: existing } = await pool.query(
-        "SELECT * FROM products WHERE id=$1",
+      const existing = await pool.query(
+        `SELECT * FROM products WHERE id=$1`,
         [id]
       );
 
-      if (!existing.length) {
+      if (!existing.rows.length)
         return res.status(404).json({ message: "Product not found" });
-      }
 
-      const product = existing[0];
+      const product = existing.rows[0];
+
+      if (product.seller_id !== req.user.id)
+        return res.status(403).json({ message: "Not allowed" });
 
       const title = req.body.title
         ? xss(req.body.title)
@@ -261,7 +289,6 @@ router.put(
             { folder: "minimart_products" },
             (error, result) => (error ? reject(error) : resolve(result))
           );
-
           stream.end(req.file.buffer);
         });
 
@@ -272,11 +299,11 @@ router.put(
         `
         UPDATE products
         SET title=$1,
-            description=$2,
-            price=$3,
-            stock=$4,
-            image=$5,
-            updated_at=NOW()
+        description=$2,
+        price=$3,
+        stock=$4,
+        image=$5,
+        updated_at=NOW()
         WHERE id=$6
         RETURNING *
         `,
@@ -285,7 +312,7 @@ router.put(
 
       res.json(rows[0]);
     } catch (err) {
-      console.error("PUT /products error:", err);
+      console.error(err);
       res.status(500).json({ message: "Failed to update product" });
     }
   }
@@ -297,21 +324,22 @@ router.delete("/products/:id", authMiddleware, async (req, res) => {
   try {
     const { id } = req.params;
 
-    const { rows } = await pool.query(
-      `DELETE FROM products WHERE id=$1 RETURNING *`,
+    const existing = await pool.query(
+      `SELECT seller_id FROM products WHERE id=$1`,
       [id]
     );
 
-    if (!rows.length) {
+    if (!existing.rows.length)
       return res.status(404).json({ message: "Product not found" });
-    }
 
-    res.json({
-      message: "Product deleted successfully",
-      product: rows[0],
-    });
+    if (existing.rows[0].seller_id !== req.user.id)
+      return res.status(403).json({ message: "Not allowed" });
+
+    await pool.query(`DELETE FROM products WHERE id=$1`, [id]);
+
+    res.json({ message: "Product deleted" });
   } catch (err) {
-    console.error("DELETE /products error:", err);
+    console.error(err);
     res.status(500).json({ message: "Failed to delete product" });
   }
 });
