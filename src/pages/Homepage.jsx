@@ -3,29 +3,28 @@ import axios from "axios";
 import { useNavigate } from "react-router-dom";
 import InfiniteScroll from "react-infinite-scroll-component";
 import { Swiper, SwiperSlide } from "swiper/react";
-import SwiperCore, { Autoplay } from "swiper";
+import { Autoplay } from "swiper";
 import "swiper/css";
-import { Search, User, ShoppingCart, Home, List, MessageCircle } from "lucide-react";
-
-SwiperCore.use([Autoplay]);
 
 export default function Homepage() {
   const navigate = useNavigate();
   const API = "https://minimart-ivrm.onrender.com/api";
 
+  const [loginData, setLoginData] = useState({ email: "", password: "" });
   const [user, setUser] = useState(null);
   const [products, setProducts] = useState([]);
   const [trending, setTrending] = useState([]);
-  const [searchQuery, setSearchQuery] = useState("");
+  const [message, setMessage] = useState("");
+  const [loading, setLoading] = useState(true);
   const [skip, setSkip] = useState(0);
   const [hasMore, setHasMore] = useState(true);
-  const [loading, setLoading] = useState(false);
 
   useEffect(() => {
+    fetchProducts({ reset: true });
+    fetchTrending();
+
     const token = localStorage.getItem("token");
     if (token) fetchUser(token);
-    fetchTrending();
-    fetchProducts({ reset: true });
   }, []);
 
   const fetchUser = async (token) => {
@@ -39,7 +38,30 @@ export default function Homepage() {
     }
   };
 
-  const fetchProducts = async ({ reset = false, search = searchQuery } = {}) => {
+  const handleLogin = async (e) => {
+    e.preventDefault();
+    try {
+      const res = await axios.post(`${API}/users/login`, loginData);
+      setUser(res.data.user);
+      localStorage.setItem("token", res.data.token);
+      setMessage("Login successful!");
+    } catch (err) {
+      setMessage(err.response?.data?.message || "Login failed");
+    }
+  };
+
+  const handleLogout = () => {
+    setUser(null);
+    localStorage.removeItem("token");
+    setMessage("Logged out");
+  };
+
+  const goToAddProduct = () => {
+    if (!user) return setMessage("Please login first to add products");
+    navigate("/minimart/add");
+  };
+
+  const fetchProducts = async ({ reset = false } = {}) => {
     if (reset) {
       setProducts([]);
       setSkip(0);
@@ -48,7 +70,7 @@ export default function Homepage() {
     try {
       setLoading(true);
       const res = await axios.get(
-        `${API}/marketplace/products?skip=${reset ? 0 : skip}&limit=20&search=${search}`
+        `${API}/marketplace/products?skip=${reset ? 0 : skip}&limit=20`
       );
       const data = res.data;
       if (reset) setProducts(data);
@@ -56,7 +78,8 @@ export default function Homepage() {
       setSkip((prev) => prev + data.length);
       if (data.length < 20) setHasMore(false);
     } catch (err) {
-      console.error("Failed to load products", err);
+      console.error("Failed to fetch products", err);
+      setMessage("Failed to load products");
     } finally {
       setLoading(false);
     }
@@ -67,20 +90,8 @@ export default function Homepage() {
       const res = await axios.get(`${API}/marketplace/trending?limit=6`);
       setTrending(res.data);
     } catch (err) {
-      console.error("Failed to load trending", err);
+      console.error("Failed to fetch trending", err);
     }
-  };
-
-  useEffect(() => {
-    const timer = setTimeout(() => {
-      fetchProducts({ reset: true, search: searchQuery });
-    }, 300);
-    return () => clearTimeout(timer);
-  }, [searchQuery]);
-
-  const handleLogout = () => {
-    setUser(null);
-    localStorage.removeItem("token");
   };
 
   const SkeletonCard = () => (
@@ -130,94 +141,86 @@ export default function Homepage() {
   );
 
   return (
-    <div className="min-h-screen bg-gray-50">
-      <header className="bg-white shadow-sm sticky top-0 z-50">
+    <div className="min-h-screen bg-gray-50 p-4">
+      <header className="bg-white shadow-sm sticky top-0 z-50 mb-4">
         <div className="max-w-6xl mx-auto px-4 py-3 flex items-center justify-between">
           <div className="text-2xl font-bold text-gray-800">MiniMart</div>
-          <div className="flex-1 max-w-md mx-8 relative">
-            <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 w-5 h-5" />
-            <input
-              type="text"
-              placeholder="Search products..."
-              className="w-full pl-10 pr-4 py-2 border border-gray-200 rounded-full focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-              value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
-            />
-          </div>
-          <div className="flex items-center space-x-4">
-            <ShoppingCart className="w-6 h-6 text-gray-600" />
+          <div className="flex items-center gap-4">
             {user ? (
-              <User
-                className="w-6 h-6 text-gray-600 cursor-pointer"
-                onClick={() => navigate("/profile")}
-              />
+              <>
+                <span>Welcome, {user.name}</span>
+                <button onClick={handleLogout}>Logout</button>
+                <button onClick={goToAddProduct}>➕ Add Product</button>
+              </>
             ) : (
-              <button
-                onClick={() =>
-                  document
-                    .getElementById("login-form")
-                    ?.scrollIntoView({ behavior: "smooth" })
-                }
-              >
-                Login
-              </button>
+              <form className="flex gap-2" onSubmit={handleLogin}>
+                <input
+                  type="email"
+                  placeholder="Email"
+                  value={loginData.email}
+                  onChange={(e) =>
+                    setLoginData({ ...loginData, email: e.target.value })
+                  }
+                  required
+                  className="border rounded px-2 py-1"
+                />
+                <input
+                  type="password"
+                  placeholder="Password"
+                  value={loginData.password}
+                  onChange={(e) =>
+                    setLoginData({ ...loginData, password: e.target.value })
+                  }
+                  required
+                  className="border rounded px-2 py-1"
+                />
+                <button type="submit" className="bg-blue-500 text-white px-3 rounded">
+                  Login
+                </button>
+              </form>
             )}
           </div>
         </div>
       </header>
 
-      <section className="py-8 bg-white">
-        <div className="max-w-6xl mx-auto px-4">
-          <h2 className="text-2xl font-bold mb-6">🔥 Trending Products</h2>
+      {trending.length > 0 && (
+        <section className="mb-6">
+          <h2 className="text-xl font-bold mb-2">🔥 Trending Products</h2>
           <Swiper
             spaceBetween={16}
             slidesPerView={3}
             autoplay={{ delay: 2500, disableOnInteraction: false }}
           >
-            {trending.map((product) => (
-              <SwiperSlide key={product.id}>
-                <TrendingCard product={product} />
+            {trending.map((p) => (
+              <SwiperSlide key={p.id}>
+                <TrendingCard product={p} />
               </SwiperSlide>
             ))}
           </Swiper>
-        </div>
-      </section>
-
-      <section className="py-8 px-4">
-        <div className="max-w-6xl mx-auto">
-          <InfiniteScroll
-            dataLength={products.length}
-            next={() => fetchProducts()}
-            hasMore={hasMore}
-            loader={[...Array(4)].map((_, i) => <SkeletonCard key={i} />)}
-          >
-            <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-6">
-              {products.map((product) => (
-                <ProductCard key={product.id} product={product} />
-              ))}
-              {loading && [...Array(4)].map((_, i) => <SkeletonCard key={`loading-${i}`} />)}
-            </div>
-          </InfiniteScroll>
-          {products.length === 0 && !loading && (
-            <p className="col-span-full text-center py-12 text-gray-500">
-              No products available.
-            </p>
-          )}
-        </div>
-      </section>
-
-      {!user && (
-        <div className="max-w-md mx-auto py-12 px-4" id="login-form">
-          <div className="bg-white rounded-2xl shadow-xl p-8">
-            <h1 className="text-3xl font-bold text-center mb-8 text-gray-800">
-              Welcome to MiniMart
-            </h1>
-            <p className="text-center text-gray-500 mb-4">
-              Please log in to access cart, profile, and chat features.
-            </p>
-          </div>
-        </div>
+        </section>
       )}
+
+      <section>
+        <h2 className="text-xl font-bold mb-2">All Products</h2>
+        {loading && <p>Loading products...</p>}
+        <InfiniteScroll
+          dataLength={products.length}
+          next={() => fetchProducts()}
+          hasMore={hasMore}
+          loader={[...Array(4)].map((_, i) => <SkeletonCard key={i} />)}
+        >
+          <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-6">
+            {products.map((p) => (
+              <ProductCard key={p.id} product={p} />
+            ))}
+          </div>
+        </InfiniteScroll>
+        {!loading && products.length === 0 && (
+          <p className="text-center py-12 text-gray-500">No products available.</p>
+        )}
+      </section>
+
+      {message && <p className="text-green-600 mt-4">{message}</p>}
     </div>
   );
 }
