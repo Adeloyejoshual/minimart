@@ -1,31 +1,42 @@
+// src/pages/Homepage.jsx
 import React, { useState, useEffect } from "react";
 import axios from "axios";
 import { useNavigate } from "react-router-dom";
 import InfiniteScroll from "react-infinite-scroll-component";
 import { Swiper, SwiperSlide } from "swiper/react";
-import { Autoplay } from "swiper";
+import SwiperCore, { Autoplay } from "swiper";
 import "swiper/css";
+import { Search, User, ShoppingCart, Home, List, MessageCircle } from "lucide-react";
+
+SwiperCore.use([Autoplay]);
 
 export default function Homepage() {
   const navigate = useNavigate();
   const API = "https://minimart-ivrm.onrender.com/api";
 
-  const [loginData, setLoginData] = useState({ email: "", password: "" });
   const [user, setUser] = useState(null);
+  const [loginData, setLoginData] = useState({ email: "", password: "" });
   const [products, setProducts] = useState([]);
   const [trending, setTrending] = useState([]);
-  const [message, setMessage] = useState("");
-  const [loading, setLoading] = useState(true);
+  const [searchQuery, setSearchQuery] = useState("");
   const [skip, setSkip] = useState(0);
   const [hasMore, setHasMore] = useState(true);
+  const [loading, setLoading] = useState(false);
+  const [message, setMessage] = useState("");
 
   useEffect(() => {
-    fetchProducts({ reset: true });
-    fetchTrending();
-
     const token = localStorage.getItem("token");
     if (token) fetchUser(token);
+    fetchTrending();
+    fetchProducts({ reset: true });
   }, []);
+
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      fetchProducts({ reset: true });
+    }, 300);
+    return () => clearTimeout(timer);
+  }, [searchQuery]);
 
   const fetchUser = async (token) => {
     try {
@@ -56,11 +67,6 @@ export default function Homepage() {
     setMessage("Logged out");
   };
 
-  const goToAddProduct = () => {
-    if (!user) return setMessage("Please login first to add products");
-    navigate("/minimart/add");
-  };
-
   const fetchProducts = async ({ reset = false } = {}) => {
     if (reset) {
       setProducts([]);
@@ -70,7 +76,7 @@ export default function Homepage() {
     try {
       setLoading(true);
       const res = await axios.get(
-        `${API}/marketplace/products?skip=${reset ? 0 : skip}&limit=20`
+        `${API}/marketplace/products?skip=${reset ? 0 : skip}&limit=20&search=${searchQuery}`
       );
       const data = res.data;
       if (reset) setProducts(data);
@@ -93,6 +99,8 @@ export default function Homepage() {
       console.error("Failed to fetch trending", err);
     }
   };
+
+  const goToAddProduct = () => navigate("/minimart/add");
 
   const SkeletonCard = () => (
     <div className="animate-pulse bg-white rounded-lg shadow-md p-4">
@@ -141,86 +149,132 @@ export default function Homepage() {
   );
 
   return (
-    <div className="min-h-screen bg-gray-50 p-4">
-      <header className="bg-white shadow-sm sticky top-0 z-50 mb-4">
+    <div className="min-h-screen bg-gray-50">
+      <header className="bg-white shadow-sm sticky top-0 z-50">
         <div className="max-w-6xl mx-auto px-4 py-3 flex items-center justify-between">
           <div className="text-2xl font-bold text-gray-800">MiniMart</div>
-          <div className="flex items-center gap-4">
+          <div className="flex-1 max-w-md mx-8 relative">
+            <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 w-5 h-5" />
+            <input
+              type="text"
+              placeholder="Search products..."
+              className="w-full pl-10 pr-4 py-2 border border-gray-200 rounded-full focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+            />
+          </div>
+          <div className="flex items-center space-x-4">
+            <ShoppingCart className="w-6 h-6 text-gray-600" />
             {user ? (
-              <>
-                <span>Welcome, {user.name}</span>
-                <button onClick={handleLogout}>Logout</button>
-                <button onClick={goToAddProduct}>➕ Add Product</button>
-              </>
+              <User
+                className="w-6 h-6 text-gray-600 cursor-pointer"
+                onClick={() => navigate("/profile")}
+              />
             ) : (
-              <form className="flex gap-2" onSubmit={handleLogin}>
-                <input
-                  type="email"
-                  placeholder="Email"
-                  value={loginData.email}
-                  onChange={(e) =>
-                    setLoginData({ ...loginData, email: e.target.value })
-                  }
-                  required
-                  className="border rounded px-2 py-1"
-                />
-                <input
-                  type="password"
-                  placeholder="Password"
-                  value={loginData.password}
-                  onChange={(e) =>
-                    setLoginData({ ...loginData, password: e.target.value })
-                  }
-                  required
-                  className="border rounded px-2 py-1"
-                />
-                <button type="submit" className="bg-blue-500 text-white px-3 rounded">
-                  Login
-                </button>
-              </form>
+              <button
+                onClick={() =>
+                  document
+                    .getElementById("login-form")
+                    ?.scrollIntoView({ behavior: "smooth" })
+                }
+              >
+                Login
+              </button>
             )}
           </div>
         </div>
       </header>
 
-      {trending.length > 0 && (
-        <section className="mb-6">
-          <h2 className="text-xl font-bold mb-2">🔥 Trending Products</h2>
-          <Swiper
-            spaceBetween={16}
-            slidesPerView={3}
-            autoplay={{ delay: 2500, disableOnInteraction: false }}
-          >
-            {trending.map((p) => (
-              <SwiperSlide key={p.id}>
-                <TrendingCard product={p} />
-              </SwiperSlide>
-            ))}
-          </Swiper>
-        </section>
-      )}
-
-      <section>
-        <h2 className="text-xl font-bold mb-2">All Products</h2>
-        {loading && <p>Loading products...</p>}
-        <InfiniteScroll
-          dataLength={products.length}
-          next={() => fetchProducts()}
-          hasMore={hasMore}
-          loader={[...Array(4)].map((_, i) => <SkeletonCard key={i} />)}
-        >
-          <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-6">
-            {products.map((p) => (
-              <ProductCard key={p.id} product={p} />
-            ))}
+      {user ? (
+        <div className="max-w-6xl mx-auto px-4 py-8">
+          <div className="flex justify-between items-center mb-6">
+            <h2 className="text-2xl font-bold">Welcome, {user.name}</h2>
+            <div>
+              <button
+                onClick={handleLogout}
+                className="px-4 py-2 bg-red-500 text-white rounded mr-2"
+              >
+                Logout
+              </button>
+              <button
+                onClick={goToAddProduct}
+                className="px-4 py-2 bg-blue-500 text-white rounded"
+              >
+                ➕ Add Product
+              </button>
+            </div>
           </div>
-        </InfiniteScroll>
-        {!loading && products.length === 0 && (
-          <p className="text-center py-12 text-gray-500">No products available.</p>
-        )}
-      </section>
-
-      {message && <p className="text-green-600 mt-4">{message}</p>}
+          <section className="mb-8">
+            <h3 className="text-xl font-semibold mb-4">🔥 Trending Products</h3>
+            <Swiper spaceBetween={16} slidesPerView={3} autoplay={{ delay: 2500 }}>
+              {trending.map((product) => (
+                <SwiperSlide key={product.id}>
+                  <TrendingCard product={product} />
+                </SwiperSlide>
+              ))}
+            </Swiper>
+          </section>
+          <section>
+            <h3 className="text-xl font-semibold mb-4">All Products</h3>
+            <InfiniteScroll
+              dataLength={products.length}
+              next={() => fetchProducts()}
+              hasMore={hasMore}
+              loader={[...Array(4)].map((_, i) => <SkeletonCard key={i} />)}
+            >
+              <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-6">
+                {products.map((product) => (
+                  <ProductCard key={product.id} product={product} />
+                ))}
+                {loading &&
+                  [...Array(4)].map((_, i) => <SkeletonCard key={`loading-${i}`} />)}
+              </div>
+            </InfiniteScroll>
+            {products.length === 0 && !loading && (
+              <p className="col-span-full text-center py-12 text-gray-500">
+                No products available.
+              </p>
+            )}
+          </section>
+        </div>
+      ) : (
+        <div className="max-w-md mx-auto py-12 px-4" id="login-form">
+          <div className="bg-white rounded-2xl shadow-xl p-8">
+            <h1 className="text-3xl font-bold text-center mb-8 text-gray-800">
+              Welcome to MiniMart
+            </h1>
+            <form onSubmit={handleLogin} className="space-y-4">
+              <input
+                type="email"
+                placeholder="Email"
+                value={loginData.email}
+                onChange={(e) =>
+                  setLoginData({ ...loginData, email: e.target.value })
+                }
+                required
+                className="w-full px-4 py-2 border rounded"
+              />
+              <input
+                type="password"
+                placeholder="Password"
+                value={loginData.password}
+                onChange={(e) =>
+                  setLoginData({ ...loginData, password: e.target.value })
+                }
+                required
+                className="w-full px-4 py-2 border rounded"
+              />
+              <button
+                type="submit"
+                className="w-full bg-blue-500 text-white py-2 rounded"
+              >
+                Login
+              </button>
+            </form>
+            {message && <p className="text-center mt-4 text-red-500">{message}</p>}
+          </div>
+        </div>
+      )}
     </div>
   );
 }
