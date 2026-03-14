@@ -1,9 +1,10 @@
-// routes/marketplace.js
 import express from "express";
 import { Pool } from "pg";
 import multer from "multer";
 import { v2 as cloudinary } from "cloudinary";
 import dotenv from "dotenv";
+import jwt from "jsonwebtoken";
+import xss from "xss";
 
 dotenv.config();
 
@@ -13,22 +14,38 @@ const pool = new Pool({
   ssl: { rejectUnauthorized: false },
 });
 
-// Configure Cloudinary
+// Cloudinary setup
 cloudinary.config({
   cloud_name: process.env.CLOUDINARY_CLOUD_NAME,
   api_key: process.env.CLOUDINARY_API_KEY,
   api_secret: process.env.CLOUDINARY_API_SECRET,
 });
 
-// Multer setup to store file in memory
+// Multer for memory storage
 const upload = multer({ storage: multer.memoryStorage() });
 
 // -------------------
-// GET products (with optional search & pagination, increment views)
+// Auth middleware
+// -------------------
+const authMiddleware = (req, res, next) => {
+  const token = req.headers.authorization?.split(" ")[1];
+  if (!token) return res.status(401).json({ message: "Unauthorized" });
+  try {
+    req.user = jwt.verify(token, process.env.JWT_SECRET);
+    next();
+  } catch {
+    return res.status(401).json({ message: "Invalid token" });
+  }
+};
+
+// -------------------
+// GET all products (search + pagination, increment views)
 // -------------------
 router.get("/products", async (req, res) => {
   try {
-    const { skip = 0, limit = 20, search } = req.query;
+    const skip = parseInt(req.query.skip) || 0;
+    const limit = parseInt(req.query.limit) || 20;
+    const search = req.query.search ? xss(req.query.search) : null;
 
     const params = [];
     let whereClause = "";
@@ -37,12 +54,10 @@ router.get("/products", async (req, res) => {
       whereClause = `WHERE title ILIKE $${params.length}`;
     }
 
-    params.push(skip);
-    params.push(limit);
+    params.push(skip, limit);
 
-    // Fetch products
     const query = `
-      SELECT id, title, description, price, stock, image
+      SELECT id, title, description, price, stock, image, views, created_at
       FROM products
       ${whereClause}
       ORDER BY created_at DESC
@@ -51,12 +66,10 @@ router.get("/products", async (req, res) => {
     `;
     const { rows } = await pool.query(query, params);
 
-    // Increment views for fetched products
-    for (const product of rows) {
-      await pool.query(
-        "UPDATE products SET views = COALESCE(views,0)+1 WHERE id = $1",
-        [product.id]
-      );
+    // Bulk increment views
+    if (rows.length > 0) {
+      const ids = rows.map((p) => p.id);
+      await pool.query(`UPDATE products SET views = COALESCE(views,0)+1 WHERE id = ANY($1::uuid[])`, [ids]);
     }
 
     res.json(rows);
@@ -67,13 +80,37 @@ router.get("/products", async (req, res) => {
 });
 
 // -------------------
-// POST a new product
+// GET trending products
 // -------------------
-router.post("/products", upload.single("image"), async (req, res) => {
+router.get("/trending", async (req, res) => {
   try {
-    const { title, description, price, stock } = req.body;
-    if (!title || !price) {
-      return res.status(400).json({ message: "Title and price are required" });
+    const limit = parseInt(req.query.limit) || 6;
+    const { rows } = await pool.query(
+      `SELECT id, title, description, price, stock, image, views
+       FROM products
+       ORDER BY COALESCE(views,0) DESC, created_at DESC
+       LIMIT $1`,
+      [limit]
+    );
+    res.json(rows);
+  } catch (err) {
+    console.error("GET /trending error:", err);
+    res.status(500).json({ message: "Failed to fetch trending products" });
+  }
+});
+
+// -------------------
+// POST new product (protected)
+// -------------------
+router.post("/products", authMiddleware, upload.single("image"), async (req, res) => {
+  try {
+    const title = xss(req.body.title);
+    const description = req.body.description ? xss(req.body.description) : null;
+    const price = parseFloat(req.body.price);
+    const stock = parseInt(req.body.stock) || 0;
+
+    if (!title || isNaN(price) || price <= 0) {
+      return res.status(400).json({ message: "Title and valid price are required" });
     }
 
     let imageUrl = null;
@@ -88,18 +125,11 @@ router.post("/products", upload.single("image"), async (req, res) => {
       imageUrl = result.secure_url;
     }
 
-    const query = `
-      INSERT INTO products (title, description, price, stock, image, views)
-      VALUES ($1, $2, $3, $4, $5, 0)
-      RETURNING *
-    `;
-    const { rows } = await pool.query(query, [
-      title,
-      description || null,
-      parseFloat(price),
-      parseInt(stock) || 0,
-      imageUrl,
-    ]);
+    const { rows } = await pool.query(
+      `INSERT INTO products (title, description, price, stock, image, views)
+       VALUES ($1,$2,$3,$4,$5,0) RETURNING *`,
+      [title, description, price, stock, imageUrl]
+    );
 
     res.status(201).json(rows[0]);
   } catch (err) {
@@ -109,16 +139,18 @@ router.post("/products", upload.single("image"), async (req, res) => {
 });
 
 // -------------------
-// PUT / UPDATE a product
+// UPDATE product (protected)
 // -------------------
-router.put("/products/:id", upload.single("image"), async (req, res) => {
+router.put("/products/:id", authMiddleware, upload.single("image"), async (req, res) => {
   try {
     const { id } = req.params;
-    const { title, description, price, stock } = req.body;
-
     const { rows: existing } = await pool.query("SELECT * FROM products WHERE id = $1", [id]);
     if (!existing.length) return res.status(404).json({ message: "Product not found" });
 
+    const title = req.body.title ? xss(req.body.title) : existing[0].title;
+    const description = req.body.description ? xss(req.body.description) : existing[0].description;
+    const price = req.body.price ? parseFloat(req.body.price) : existing[0].price;
+    const stock = req.body.stock ? parseInt(req.body.stock) : existing[0].stock;
     let imageUrl = existing[0].image;
 
     if (req.file) {
@@ -132,25 +164,13 @@ router.put("/products/:id", upload.single("image"), async (req, res) => {
       imageUrl = result.secure_url;
     }
 
-    const query = `
-      UPDATE products
-      SET title = $1,
-          description = $2,
-          price = $3,
-          stock = $4,
-          image = $5,
-          updated_at = NOW()
-      WHERE id = $6
-      RETURNING *
-    `;
-    const { rows } = await pool.query(query, [
-      title || existing[0].title,
-      description || existing[0].description,
-      price ? parseFloat(price) : existing[0].price,
-      stock ? parseInt(stock) : existing[0].stock,
-      imageUrl,
-      id,
-    ]);
+    const { rows } = await pool.query(
+      `UPDATE products
+       SET title=$1, description=$2, price=$3, stock=$4, image=$5, updated_at=NOW()
+       WHERE id=$6
+       RETURNING *`,
+      [title, description, price, stock, imageUrl, id]
+    );
 
     res.json(rows[0]);
   } catch (err) {
@@ -160,39 +180,17 @@ router.put("/products/:id", upload.single("image"), async (req, res) => {
 });
 
 // -------------------
-// DELETE a product
+// DELETE product (protected)
 // -------------------
-router.delete("/products/:id", async (req, res) => {
+router.delete("/products/:id", authMiddleware, async (req, res) => {
   try {
     const { id } = req.params;
-    const { rows } = await pool.query("DELETE FROM products WHERE id = $1 RETURNING *", [id]);
-
+    const { rows } = await pool.query("DELETE FROM products WHERE id=$1 RETURNING *", [id]);
     if (!rows.length) return res.status(404).json({ message: "Product not found" });
     res.json({ message: "Product deleted successfully", product: rows[0] });
   } catch (err) {
     console.error("DELETE /products/:id error:", err);
     res.status(500).json({ message: "Failed to delete product" });
-  }
-});
-
-// -------------------
-// GET trending products (top 6 by views)
-// -------------------
-router.get("/trending", async (req, res) => {
-  try {
-    const limit = parseInt(req.query.limit) || 6;
-    const { rows } = await pool.query(
-      `SELECT id, title, description, price, stock, image
-       FROM products
-       ORDER BY COALESCE(views, 0) DESC, created_at DESC
-       LIMIT $1`,
-      [limit]
-    );
-
-    res.json(rows);
-  } catch (err) {
-    console.error("GET /trending error:", err);
-    res.status(500).json({ message: "Failed to fetch trending products" });
   }
 });
 
