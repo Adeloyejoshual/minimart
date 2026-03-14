@@ -7,7 +7,8 @@ import AddProduct from "./pages/AddProduct";
 import ProductDetail from "./pages/ProductDetail";
 import Conversations from "./pages/Conversations";
 import Chat from "./pages/Chat";
-import SellerProfile from "./pages/SellerProfile";
+import Profile from "./pages/Profile";           // General logged-in user profile
+import SellerProfile from "./pages/SellerProfile"; // Other sellers
 
 export default function App() {
   const [user, setUser] = useState(null);
@@ -16,8 +17,9 @@ export default function App() {
   useEffect(() => {
     const token = localStorage.getItem("token");
     if (token) {
-      // optional: fetch user profile from API if needed
-      setUser({ id: "user-id", name: "User" }); // placeholder
+      // Optionally fetch user profile from API
+      // For now, placeholder user
+      setUser({ id: "user-id", name: "User" });
     }
   }, []);
 
@@ -34,6 +36,13 @@ export default function App() {
         <Route path="/" element={<Homepage user={user} />} />
         <Route path="/product/:id" element={<ProductDetail user={user} />} />
         <Route path="/seller/:id" element={<SellerProfile user={user} />} />
+
+        {/* General Profile (logged-in user) */}
+        <Route path="/profile" element={
+          <ProtectedRoute>
+            <Profile user={user} />
+          </ProtectedRoute>
+        } />
 
         {/* Seller Pages */}
         <Route path="/minimart/add" element={
@@ -53,6 +62,9 @@ export default function App() {
             <Chat user={user} />
           </ProtectedRoute>
         } />
+
+        {/* Catch-all redirect */}
+        <Route path="*" element={<Navigate to="/" />} />
       </Routes>
     </Router>
   );
