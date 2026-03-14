@@ -3,11 +3,12 @@ import axios from "axios";
 import InfiniteScroll from "react-infinite-scroll-component";
 import { Swiper, SwiperSlide } from "swiper/react";
 import "swiper/css";
+import { useNavigate } from "react-router-dom"; // <-- import navigate
 
 const API = "https://minimart-ivrm.onrender.com/api/marketplace";
 
 export default function Homepage() {
-
+  const navigate = useNavigate(); // <-- initialize navigate
   const [products, setProducts] = useState([]);
   const [trending, setTrending] = useState([]);
   const [search, setSearch] = useState("");
@@ -26,21 +27,16 @@ export default function Homepage() {
     const timer = setTimeout(() => {
       loadProducts(true);
     }, 400);
-
     return () => clearTimeout(timer);
   }, [search]);
 
   const loadProducts = async (reset = false) => {
     try {
-
       setLoading(true);
-
       const currentSkip = reset ? 0 : skip;
-
       const res = await axios.get(
         `${API}/products?skip=${currentSkip}&limit=${limit}&search=${search}`
       );
-
       const data = res.data;
 
       if (reset) {
@@ -52,7 +48,6 @@ export default function Homepage() {
       }
 
       if (data.length < limit) setHasMore(false);
-
     } catch (err) {
       console.error("Product load error", err);
     } finally {
@@ -69,9 +64,13 @@ export default function Homepage() {
     }
   };
 
+  // Navigate to product detail
+  const goToProduct = (id) => {
+    navigate(`/product/${id}`);
+  };
+
   return (
     <div style={{ maxWidth: 1200, margin: "auto", padding: 20 }}>
-
       <h1>MiniMart Marketplace</h1>
 
       <input
@@ -81,7 +80,7 @@ export default function Homepage() {
         style={{
           padding: 10,
           width: "100%",
-          marginBottom: 20
+          marginBottom: 20,
         }}
       />
 
@@ -90,10 +89,11 @@ export default function Homepage() {
       <Swiper slidesPerView={3} spaceBetween={10}>
         {trending.map((p) => (
           <SwiperSlide key={p.id}>
-            <div style={{ border: "1px solid #ddd", padding: 10 }}>
-              {p.image && (
-                <img src={p.image} alt={p.title} width="100%" />
-              )}
+            <div
+              style={{ border: "1px solid #ddd", padding: 10, cursor: "pointer" }}
+              onClick={() => goToProduct(p.id)} // <-- clickable
+            >
+              {p.image && <img src={p.image} alt={p.title} width="100%" />}
               <h4>{p.title}</h4>
               <p>₦{p.price}</p>
             </div>
@@ -109,24 +109,23 @@ export default function Homepage() {
         hasMore={hasMore}
         loader={<p>Loading...</p>}
       >
-
         <div
           style={{
             display: "grid",
             gridTemplateColumns: "repeat(auto-fill,minmax(220px,1fr))",
-            gap: 20
+            gap: 20,
           }}
         >
-
           {products.map((p) => (
             <div
               key={p.id}
               style={{
                 border: "1px solid #ddd",
-                padding: 15
+                padding: 15,
+                cursor: "pointer", // <-- make clickable
               }}
+              onClick={() => goToProduct(p.id)} // <-- navigate on click
             >
-
               {p.image && (
                 <img
                   src={p.image}
@@ -134,7 +133,7 @@ export default function Homepage() {
                   style={{
                     width: "100%",
                     height: 160,
-                    objectFit: "cover"
+                    objectFit: "cover",
                   }}
                 />
               )}
@@ -146,18 +145,12 @@ export default function Homepage() {
               <strong>₦{p.price}</strong>
 
               <p>Stock: {p.stock}</p>
-
             </div>
           ))}
-
         </div>
-
       </InfiniteScroll>
 
-      {!loading && products.length === 0 && (
-        <p>No products available.</p>
-      )}
-
+      {!loading && products.length === 0 && <p>No products available.</p>}
     </div>
   );
 }
