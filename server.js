@@ -5,14 +5,21 @@ import path from "path";
 import { fileURLToPath } from "url";
 import { Pool } from "pg";
 import dotenv from "dotenv";
+import http from "http";
 
 import marketplaceRouter from "./routes/marketplace.js";
-import userRouter from "./routes/users.js"; // User auth routes
+import userRouter from "./routes/users.js";
+import messagesRouter from "./routes/messages.js"; // new messages router
 
 dotenv.config();
 
 const app = express();
 const PORT = process.env.PORT || 5000;
+
+// -------------------
+// HTTP Server (for Socket.io)
+// -------------------
+const server = http.createServer(app);
 
 // -------------------
 // CockroachDB Pool
@@ -38,6 +45,7 @@ app.use(express.urlencoded({ extended: true }));
 // -------------------
 app.use("/api/marketplace", marketplaceRouter);
 app.use("/api/users", userRouter);
+app.use("/api/messages", messagesRouter);
 
 // -------------------
 // Serve Vite React Build in Production
@@ -49,7 +57,6 @@ if (process.env.NODE_ENV === "production") {
   app.use(express.static(path.join(__dirname, "dist")));
 
   app.get("*", (req, res) => {
-    // Avoid catching API requests
     if (req.path.startsWith("/api/")) {
       return res.status(404).json({ success: false, message: "API endpoint not found" });
     }
@@ -70,9 +77,46 @@ app.get("/api/health", async (req, res) => {
 });
 
 // -------------------
+// Socket.io Setup (Optional Real-time Chat)
+// -------------------
+import { Server as SocketIOServer } from "socket.io";
+const io = new SocketIOServer(server, {
+  cors: { origin: "*" },
+});
+
+io.on("connection", (socket) => {
+  console.log("🔌 Socket connected:", socket.id);
+
+  socket.on("joinRoom", ({ senderId, receiverId, productId }) => {
+    const room = `${productId}_${[senderId, receiverId].sort().join("_")}`;
+    socket.join(room);
+    console.log(`👥 User ${senderId} joined room ${room}`);
+  });
+
+  socket.on("sendMessage", async ({ senderId, receiverId, productId, message }) => {
+    const room = `${productId}_${[senderId, receiverId].sort().join("_")}`;
+    try {
+      const { rows } = await pool.query(
+        `INSERT INTO public.messages (sender_id, receiver_id, product_id, message, created_at)
+         VALUES ($1, $2, $3, $4, NOW()) RETURNING *`,
+        [senderId, receiverId, productId, message]
+      );
+      const savedMessage = rows[0];
+      io.to(room).emit("receiveMessage", savedMessage);
+    } catch (err) {
+      console.error("Socket sendMessage error:", err);
+    }
+  });
+
+  socket.on("disconnect", () => {
+    console.log("❌ Socket disconnected:", socket.id);
+  });
+});
+
+// -------------------
 // Start Server
 // -------------------
-app.listen(PORT, () => {
+server.listen(PORT, () => {
   console.log(`🚀 Server running on port ${PORT}`);
 });
 
