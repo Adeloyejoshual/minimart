@@ -1,6 +1,6 @@
 {
   "name": "minimart-marketplace",
-  "version": "1.4.6",
+  "version": "1.4.7",
   "private": true,
   "type": "module",
   "engines": {
@@ -52,6 +52,7 @@
     "lucide-react": "^0.264.0",
     "swiper": "^10.0.0",
     "socket.io": "^4.7.5",
+    "socket.io-client": "^4.7.5",
     "vite": "^5.4.2",
     "xss": "^1.0.14"
   },
