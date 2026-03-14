@@ -1,23 +1,19 @@
 // routes/messages.js
 import express from "express";
-import { Pool } from "pg";
-import dotenv from "dotenv";
+import { pool } from "../server.js";
 
-dotenv.config();
 const router = express.Router();
-const pool = new Pool({
-  connectionString: process.env.COCKROACH_URI,
-  ssl: { rejectUnauthorized: false },
-});
 
 // -------------------
 // GET all conversations for a user
 // -------------------
 router.get("/conversations", async (req, res) => {
   const { userId } = req.query;
+  if (!userId) return res.status(400).json({ message: "userId is required" });
+
   try {
     const query = `
-      SELECT DISTINCT ON (product_id, other_user_id) 
+      SELECT DISTINCT ON (product_id, other_user_id)
         product_id,
         CASE WHEN sender_id = $1 THEN receiver_id ELSE sender_id END AS other_user_id,
         MAX(message) AS last_message,
@@ -29,7 +25,7 @@ router.get("/conversations", async (req, res) => {
     `;
     const { rows } = await pool.query(query, [userId]);
 
-    // Optional: fetch other user name
+    // Fetch other user names
     for (const row of rows) {
       const userRes = await pool.query("SELECT name FROM users WHERE id=$1", [row.other_user_id]);
       row.other_user_name = userRes.rows[0]?.name || "Unknown";
@@ -37,31 +33,33 @@ router.get("/conversations", async (req, res) => {
 
     res.json(rows);
   } catch (err) {
-    console.error(err);
+    console.error("GET /conversations error:", err);
     res.status(500).json({ message: "Failed to fetch conversations" });
   }
 });
 
 // -------------------
-// GET messages between two users for a product
+// GET all messages for a conversation
 // -------------------
 router.get("/", async (req, res) => {
   const { senderId, receiverId, productId } = req.query;
+  if (!senderId || !receiverId || !productId) {
+    return res.status(400).json({ message: "senderId, receiverId, productId required" });
+  }
+
   try {
-    const { rows } = await pool.query(
-      `
-      SELECT * 
-      FROM public.messages 
-      WHERE product_id=$1 AND
-            ((sender_id=$2 AND receiver_id=$3) OR
-             (sender_id=$3 AND receiver_id=$2))
+    const query = `
+      SELECT id, sender_id, receiver_id, product_id, message, created_at
+      FROM public.messages
+      WHERE product_id = $1
+        AND ((sender_id = $2 AND receiver_id = $3)
+          OR (sender_id = $3 AND receiver_id = $2))
       ORDER BY created_at ASC
-      `,
-      [productId, senderId, receiverId]
-    );
+    `;
+    const { rows } = await pool.query(query, [productId, senderId, receiverId]);
     res.json(rows);
   } catch (err) {
-    console.error(err);
+    console.error("GET /messages error:", err);
     res.status(500).json({ message: "Failed to fetch messages" });
   }
 });
@@ -71,18 +69,20 @@ router.get("/", async (req, res) => {
 // -------------------
 router.post("/", async (req, res) => {
   const { senderId, receiverId, productId, message } = req.body;
+  if (!senderId || !receiverId || !productId || !message) {
+    return res.status(400).json({ message: "All fields are required" });
+  }
+
   try {
-    const { rows } = await pool.query(
-      `
+    const query = `
       INSERT INTO public.messages (sender_id, receiver_id, product_id, message, created_at)
       VALUES ($1, $2, $3, $4, NOW())
       RETURNING *
-      `,
-      [senderId, receiverId, productId, message]
-    );
+    `;
+    const { rows } = await pool.query(query, [senderId, receiverId, productId, message]);
     res.status(201).json(rows[0]);
   } catch (err) {
-    console.error(err);
+    console.error("POST /messages error:", err);
     res.status(500).json({ message: "Failed to send message" });
   }
 });
