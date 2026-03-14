@@ -1,9 +1,6 @@
 import { v2 as cloudinary } from "cloudinary";
 import { CloudinaryStorage } from "multer-storage-cloudinary";
 import multer from "multer";
-import dotenv from "dotenv";
-
-dotenv.config();
 
 cloudinary.config({
   cloud_name: process.env.CLOUDINARY_CLOUD_NAME,
@@ -14,11 +11,9 @@ cloudinary.config({
 const storage = new CloudinaryStorage({
   cloudinary,
   params: {
-    folder: "minimart_products", // Folder in your Cloudinary account
-    allowed_formats: ["jpg", "jpeg", "png", "webp"],
-    transformation: [{ width: 800, height: 800, crop: "limit" }],
+    folder: "minimart/products", // optional folder
+    allowed_formats: ["jpg", "jpeg", "png"],
   },
 });
 
-export const upload = multer({ storage });
-export default cloudinary;
+export const parser = multer({ storage });
