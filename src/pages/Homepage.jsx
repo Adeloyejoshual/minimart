@@ -1,10 +1,9 @@
-// src/pages/Homepage.jsx
-import React, { useState, useEffect, useCallback } from "react";
+import React, { useState, useEffect } from "react";
 import axios from "axios";
 import { useNavigate } from "react-router-dom";
 import InfiniteScroll from "react-infinite-scroll-component";
 import { Swiper, SwiperSlide } from "swiper/react";
-import { Autoplay } from "swiper";
+import { Autoplay } from "swiper/modules/autoplay/autoplay.mjs";
 import 'swiper/css';
 import { Search, User, ShoppingCart, Home, List, MessageCircle } from 'lucide-react';
 
@@ -20,7 +19,6 @@ export default function Homepage() {
   const [hasMore, setHasMore] = useState(true);
   const [loading, setLoading] = useState(false);
 
-  // Check token on mount
   useEffect(() => {
     const token = localStorage.getItem("token");
     if (token) fetchUserAndProducts(token);
@@ -29,7 +27,7 @@ export default function Homepage() {
   const fetchUserAndProducts = async (token) => {
     try {
       const userRes = await axios.get(`${API}/users/profile`, {
-        headers: { Authorization: `Bearer ${token}` },
+        headers: { Authorization: `Bearer ${token}` }
       });
       setUser(userRes.data);
       fetchTrending();
@@ -39,43 +37,29 @@ export default function Homepage() {
     }
   };
 
-  // Fetch products with optional reset (for search)
-  const fetchProducts = useCallback(
-    async ({ reset = false } = {}) => {
-      if (loading) return;
-      if (reset) {
-        setProducts([]);
-        setSkip(0);
-        setHasMore(true);
-      }
-      try {
-        setLoading(true);
-        const res = await axios.get(
-          `${API}/marketplace/products?skip=${reset ? 0 : skip}&limit=20&search=${searchQuery}`
-        );
-        const data = res.data;
-        if (reset) setProducts(data);
-        else setProducts(prev => [...prev, ...data]);
-        setSkip(prev => prev + data.length);
-        if (data.length < 20) setHasMore(false);
-      } catch (err) {
-        console.error("Failed to load products", err);
-      } finally {
-        setLoading(false);
-      }
-    },
-    [skip, searchQuery, loading]
-  );
+  const fetchProducts = async ({ reset = false, search = searchQuery } = {}) => {
+    if (reset) {
+      setProducts([]);
+      setSkip(0);
+      setHasMore(true);
+    }
+    try {
+      setLoading(true);
+      const res = await axios.get(
+        `${API}/marketplace/products?skip=${reset ? 0 : skip}&limit=20&search=${search}`
+      );
+      const data = res.data;
+      if (reset) setProducts(data);
+      else setProducts(prev => [...prev, ...data]);
+      setSkip(prev => prev + data.length);
+      if (data.length < 20) setHasMore(false);
+    } catch (err) {
+      console.error("Failed to load products", err);
+    } finally {
+      setLoading(false);
+    }
+  };
 
-  // Debounced search
-  useEffect(() => {
-    const timer = setTimeout(() => {
-      fetchProducts({ reset: true });
-    }, 300);
-    return () => clearTimeout(timer);
-  }, [searchQuery, fetchProducts]);
-
-  // Fetch trending products
   const fetchTrending = async () => {
     try {
       const res = await axios.get(`${API}/marketplace/trending?limit=6`);
@@ -85,7 +69,13 @@ export default function Homepage() {
     }
   };
 
-  // Logout
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      fetchProducts({ reset: true, search: searchQuery });
+    }, 300);
+    return () => clearTimeout(timer);
+  }, [searchQuery]);
+
   const handleLogout = () => {
     setUser(null);
     localStorage.removeItem("token");
@@ -93,7 +83,6 @@ export default function Homepage() {
     setTrending([]);
   };
 
-  // Skeleton loader
   const SkeletonCard = () => (
     <div className="animate-pulse bg-white rounded-lg shadow-md p-4">
       <div className="w-full h-48 bg-gray-200 rounded-md mb-3"></div>
@@ -106,7 +95,6 @@ export default function Homepage() {
     </div>
   );
 
-  // Product card
   const ProductCard = ({ product }) => (
     <div className="bg-white rounded-lg shadow-md p-4 hover:shadow-lg transition-shadow">
       {product.image && (
@@ -125,7 +113,6 @@ export default function Homepage() {
     </div>
   );
 
-  // Trending card
   const TrendingCard = ({ product }) => (
     <div className="w-48 flex-shrink-0">
       <div className="bg-white rounded-xl shadow-lg p-3 hover:shadow-xl transition-all">
@@ -144,7 +131,6 @@ export default function Homepage() {
 
   return (
     <div className="min-h-screen bg-gray-50">
-      {/* Header */}
       <header className="bg-white shadow-sm sticky top-0 z-50">
         <div className="max-w-6xl mx-auto px-4 py-3 flex items-center justify-between">
           <div className="text-2xl font-bold text-gray-800">MiniMart</div>
@@ -161,7 +147,10 @@ export default function Homepage() {
           <div className="flex items-center space-x-4">
             <ShoppingCart className="w-6 h-6 text-gray-600" />
             {user ? (
-              <User className="w-6 h-6 text-gray-600 cursor-pointer" onClick={() => navigate('/profile')} />
+              <User
+                className="w-6 h-6 text-gray-600 cursor-pointer"
+                onClick={() => navigate('/profile')}
+              />
             ) : (
               <button onClick={() => document.getElementById('login-form')?.scrollIntoView({ behavior: 'smooth' })}>
                 Login
@@ -173,7 +162,6 @@ export default function Homepage() {
 
       {user ? (
         <>
-          {/* Trending */}
           <section className="py-8 bg-white">
             <div className="max-w-6xl mx-auto px-4">
               <h2 className="text-2xl font-bold mb-6">🔥 Trending Products</h2>
@@ -181,7 +169,7 @@ export default function Homepage() {
                 spaceBetween={16}
                 slidesPerView={3}
                 modules={[Autoplay]}
-                autoplay={{ delay: 2500 }}
+                autoplay={{ delay: 2500, disableOnInteraction: false }}
               >
                 {trending.map((product) => (
                   <SwiperSlide key={product.id}>
@@ -192,7 +180,6 @@ export default function Homepage() {
             </div>
           </section>
 
-          {/* Infinite Scroll Products */}
           <section className="py-8 px-4">
             <div className="max-w-6xl mx-auto">
               <InfiniteScroll
@@ -200,19 +187,20 @@ export default function Homepage() {
                 next={() => fetchProducts()}
                 hasMore={hasMore}
                 loader={[...Array(4)].map((_, i) => <SkeletonCard key={i} />)}
-                scrollThreshold={0.9}
               >
                 <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-6">
-                  {products.map((product) => <ProductCard key={product.id} product={product} />)}
+                  {products.map((product) => (
+                    <ProductCard key={product.id} product={product} />
+                  ))}
+                  {loading && [...Array(4)].map((_, i) => <SkeletonCard key={`loading-${i}`} />)}
                 </div>
               </InfiniteScroll>
-              {!loading && products.length === 0 && (
+              {products.length === 0 && !loading && (
                 <p className="col-span-full text-center py-12 text-gray-500">No products available.</p>
               )}
             </div>
           </section>
 
-          {/* Bottom Navigation */}
           <nav className="md:hidden fixed bottom-0 left-0 right-0 bg-white border-t border-gray-200 shadow-lg z-40">
             <div className="flex justify-around py-2">
               <button className="flex flex-col items-center py-2 px-4 text-blue-600">
