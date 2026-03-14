@@ -1,132 +1,136 @@
-import React, { useState, useEffect, useRef } from "react";
+// src/pages/Chat.jsx
+import React, { useEffect, useState, useRef } from "react";
 import { useParams, useSearchParams } from "react-router-dom";
 import { io } from "socket.io-client";
 import axios from "axios";
 
-const API = "https://minimart-ivrm.onrender.com/api";
+const SOCKET_URL = "http://localhost:5000"; // <-- replace with your backend URL
+const API = "https://minimart-ivrm.onrender.com/api/messages";
 
 export default function Chat({ user }) {
-  const { id: productId } = useParams(); // Product ID
+  const { productId } = useParams();
   const [searchParams] = useSearchParams();
-  const receiverId = searchParams.get("receiver"); // Seller or buyer
+  const receiverId = searchParams.get("receiver");
 
   const [messages, setMessages] = useState([]);
   const [newMsg, setNewMsg] = useState("");
-  const [product, setProduct] = useState(null);
-  const [receiverName, setReceiverName] = useState("");
-
   const messagesEndRef = useRef(null);
 
-  const socket = useRef(null);
-
-  // Scroll to bottom when new message arrives
-  const scrollToBottom = () => {
-    messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
-  };
+  // Initialize socket
+  const socketRef = useRef();
 
   useEffect(() => {
-    // Initialize Socket.io
-    socket.current = io("https://minimart-ivrm.onrender.com"); // replace with backend URL
+    if (!user) return;
 
-    // Join room for this product and users
-    socket.current.emit("joinRoom", { senderId: user.id, receiverId, productId });
+    // Connect to socket server
+    socketRef.current = io(SOCKET_URL, {
+      transports: ["websocket"],
+    });
 
-    // Listen for incoming messages
-    socket.current.on("receiveMessage", (msg) => {
+    // Join a room for this product & user pair
+    socketRef.current.emit("joinRoom", {
+      senderId: user.id,
+      receiverId,
+      productId,
+    });
+
+    // Receive messages
+    socketRef.current.on("receiveMessage", (msg) => {
       setMessages((prev) => [...prev, msg]);
     });
 
+    // Cleanup on unmount
     return () => {
-      socket.current.disconnect();
+      socketRef.current.disconnect();
     };
-  }, [user.id, receiverId, productId]);
+  }, [user, receiverId, productId]);
 
-  // Fetch product details and receiver info
-  useEffect(() => {
-    const fetchData = async () => {
-      try {
-        const [prodRes, userRes] = await Promise.all([
-          axios.get(`${API}/products/${productId}`),
-          axios.get(`${API.replace("/marketplace", "/users")}/${receiverId}`)
-        ]);
-        setProduct(prodRes.data);
-        setReceiverName(userRes.data.name);
-      } catch (err) {
-        console.error(err);
-      }
-    };
-    fetchData();
-  }, [productId, receiverId]);
-
-  // Fetch existing messages
+  // Fetch initial messages
   useEffect(() => {
     const fetchMessages = async () => {
+      if (!user) return;
       try {
-        const res = await axios.get(`${API.replace("/marketplace", "/messages")}`, {
-          params: { senderId: user.id, receiverId, productId }
+        const res = await axios.get(API, {
+          params: { senderId: user.id, receiverId, productId },
         });
         setMessages(res.data);
-        scrollToBottom();
       } catch (err) {
-        console.error(err);
+        console.error("Failed to fetch messages", err);
       }
     };
     fetchMessages();
-  }, [user.id, receiverId, productId]);
+  }, [user, receiverId, productId]);
+
+  // Scroll to bottom
+  useEffect(() => {
+    messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
+  }, [messages]);
 
   const sendMessage = () => {
-    if (!newMsg) return;
+    if (!newMsg.trim()) return;
     const msgObj = {
-      sender_id: user.id,
-      receiver_id: receiverId,
-      product_id: productId,
+      senderId: user.id,
+      receiverId,
+      productId,
       message: newMsg,
-      created_at: new Date(),
     };
-    socket.current.emit("sendMessage", msgObj);
-    setMessages((prev) => [...prev, msgObj]);
+    socketRef.current.emit("sendMessage", msgObj);
+    setMessages((prev) => [...prev, { ...msgObj, id: Date.now() }]);
     setNewMsg("");
-    scrollToBottom();
   };
 
-  if (!product) return <p>Loading chat...</p>;
-
   return (
-    <div style={{ maxWidth: 600, margin: "auto", padding: 20 }}>
-      <h2>Chat about: {product.title}</h2>
-      <h3>With: {receiverName}</h3>
-
+    <div style={{ maxWidth: 700, margin: "auto", padding: 20 }}>
+      <h2>Chat</h2>
       <div
         style={{
           border: "1px solid #ccc",
           height: 400,
-          overflowY: "scroll",
+          overflowY: "auto",
           padding: 10,
-          marginBottom: 10,
+          display: "flex",
+          flexDirection: "column",
+          gap: 8,
         }}
       >
-        {messages.map((m, idx) => (
-          <p
-            key={idx}
-            style={{ textAlign: m.sender_id === user.id ? "right" : "left" }}
+        {messages.map((m) => (
+          <div
+            key={m.id}
+            style={{
+              alignSelf: m.senderId === user.id ? "flex-end" : "flex-start",
+              background: m.senderId === user.id ? "#000" : "#eee",
+              color: m.senderId === user.id ? "#fff" : "#000",
+              padding: 8,
+              borderRadius: 8,
+              maxWidth: "70%",
+              wordBreak: "break-word",
+            }}
           >
-            <strong>{m.sender_id === user.id ? "You" : receiverName}:</strong>{" "}
             {m.message}
-          </p>
+          </div>
         ))}
-        <div ref={messagesEndRef} />
+        <div ref={messagesEndRef}></div>
       </div>
 
-      <div style={{ display: "flex" }}>
+      <div style={{ display: "flex", marginTop: 10 }}>
         <input
+          type="text"
           value={newMsg}
           onChange={(e) => setNewMsg(e.target.value)}
-          style={{ flex: 1, padding: 8 }}
           placeholder="Type a message..."
+          style={{ flex: 1, padding: 10, borderRadius: 6, border: "1px solid #ccc" }}
         />
         <button
           onClick={sendMessage}
-          style={{ marginLeft: 10, padding: "8px 12px" }}
+          style={{
+            marginLeft: 10,
+            padding: "10px 20px",
+            borderRadius: 6,
+            background: "black",
+            color: "white",
+            border: "none",
+            cursor: "pointer",
+          }}
         >
           Send
         </button>
