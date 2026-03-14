@@ -3,12 +3,13 @@ import axios from "axios";
 import InfiniteScroll from "react-infinite-scroll-component";
 import { Swiper, SwiperSlide } from "swiper/react";
 import "swiper/css";
-import { useNavigate } from "react-router-dom"; // <-- import navigate
+import { useNavigate } from "react-router-dom";
+import BottomNav from "../components/BottomNav"; // <-- import BottomNav
 
 const API = "https://minimart-ivrm.onrender.com/api/marketplace";
 
 export default function Homepage() {
-  const navigate = useNavigate(); // <-- initialize navigate
+  const navigate = useNavigate();
   const [products, setProducts] = useState([]);
   const [trending, setTrending] = useState([]);
   const [search, setSearch] = useState("");
@@ -64,13 +65,10 @@ export default function Homepage() {
     }
   };
 
-  // Navigate to product detail
-  const goToProduct = (id) => {
-    navigate(`/product/${id}`);
-  };
+  const goToProduct = (id) => navigate(`/product/${id}`);
 
   return (
-    <div style={{ maxWidth: 1200, margin: "auto", padding: 20 }}>
+    <div style={{ maxWidth: 1200, margin: "auto", padding: 20, paddingBottom: 80 }}>
       <h1>MiniMart Marketplace</h1>
 
       <input
@@ -85,13 +83,12 @@ export default function Homepage() {
       />
 
       <h2>Trending Products</h2>
-
       <Swiper slidesPerView={3} spaceBetween={10}>
         {trending.map((p) => (
           <SwiperSlide key={p.id}>
             <div
               style={{ border: "1px solid #ddd", padding: 10, cursor: "pointer" }}
-              onClick={() => goToProduct(p.id)} // <-- clickable
+              onClick={() => goToProduct(p.id)}
             >
               {p.image && <img src={p.image} alt={p.title} width="100%" />}
               <h4>{p.title}</h4>
@@ -102,7 +99,6 @@ export default function Homepage() {
       </Swiper>
 
       <h2 style={{ marginTop: 40 }}>All Products</h2>
-
       <InfiniteScroll
         dataLength={products.length}
         next={() => loadProducts(false)}
@@ -122,28 +118,20 @@ export default function Homepage() {
               style={{
                 border: "1px solid #ddd",
                 padding: 15,
-                cursor: "pointer", // <-- make clickable
+                cursor: "pointer",
               }}
-              onClick={() => goToProduct(p.id)} // <-- navigate on click
+              onClick={() => goToProduct(p.id)}
             >
               {p.image && (
                 <img
                   src={p.image}
                   alt={p.title}
-                  style={{
-                    width: "100%",
-                    height: 160,
-                    objectFit: "cover",
-                  }}
+                  style={{ width: "100%", height: 160, objectFit: "cover" }}
                 />
               )}
-
               <h3>{p.title}</h3>
-
               <p>{p.description}</p>
-
               <strong>₦{p.price}</strong>
-
               <p>Stock: {p.stock}</p>
             </div>
           ))}
@@ -151,6 +139,9 @@ export default function Homepage() {
       </InfiniteScroll>
 
       {!loading && products.length === 0 && <p>No products available.</p>}
+
+      {/* Bottom Navigation */}
+      <BottomNav />
     </div>
   );
 }
