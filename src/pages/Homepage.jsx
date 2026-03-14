@@ -1,11 +1,14 @@
+// src/pages/Homepage.jsx
 import React, { useState, useEffect } from "react";
 import axios from "axios";
 import { useNavigate } from "react-router-dom";
 import InfiniteScroll from "react-infinite-scroll-component";
 import { Swiper, SwiperSlide } from "swiper/react";
-import { Autoplay } from "swiper/modules/autoplay/autoplay.mjs";
-import 'swiper/css';
-import { Search, User, ShoppingCart, Home, List, MessageCircle } from 'lucide-react';
+import SwiperCore, { Autoplay } from "swiper";
+import "swiper/css";
+import { Search, User, ShoppingCart, Home, List, MessageCircle } from "lucide-react";
+
+SwiperCore.use([Autoplay]);
 
 export default function Homepage() {
   const navigate = useNavigate();
@@ -27,7 +30,7 @@ export default function Homepage() {
   const fetchUserAndProducts = async (token) => {
     try {
       const userRes = await axios.get(`${API}/users/profile`, {
-        headers: { Authorization: `Bearer ${token}` }
+        headers: { Authorization: `Bearer ${token}` },
       });
       setUser(userRes.data);
       fetchTrending();
@@ -50,8 +53,8 @@ export default function Homepage() {
       );
       const data = res.data;
       if (reset) setProducts(data);
-      else setProducts(prev => [...prev, ...data]);
-      setSkip(prev => prev + data.length);
+      else setProducts((prev) => [...prev, ...data]);
+      setSkip((prev) => prev + data.length);
       if (data.length < 20) setHasMore(false);
     } catch (err) {
       console.error("Failed to load products", err);
@@ -149,10 +152,16 @@ export default function Homepage() {
             {user ? (
               <User
                 className="w-6 h-6 text-gray-600 cursor-pointer"
-                onClick={() => navigate('/profile')}
+                onClick={() => navigate("/profile")}
               />
             ) : (
-              <button onClick={() => document.getElementById('login-form')?.scrollIntoView({ behavior: 'smooth' })}>
+              <button
+                onClick={() =>
+                  document
+                    .getElementById("login-form")
+                    ?.scrollIntoView({ behavior: "smooth" })
+                }
+              >
                 Login
               </button>
             )}
@@ -168,7 +177,6 @@ export default function Homepage() {
               <Swiper
                 spaceBetween={16}
                 slidesPerView={3}
-                modules={[Autoplay]}
                 autoplay={{ delay: 2500, disableOnInteraction: false }}
               >
                 {trending.map((product) => (
@@ -186,17 +194,22 @@ export default function Homepage() {
                 dataLength={products.length}
                 next={() => fetchProducts()}
                 hasMore={hasMore}
-                loader={[...Array(4)].map((_, i) => <SkeletonCard key={i} />)}
+                loader={[...Array(4)].map((_, i) => (
+                  <SkeletonCard key={i} />
+                ))}
               >
                 <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-6">
                   {products.map((product) => (
                     <ProductCard key={product.id} product={product} />
                   ))}
-                  {loading && [...Array(4)].map((_, i) => <SkeletonCard key={`loading-${i}`} />)}
+                  {loading &&
+                    [...Array(4)].map((_, i) => <SkeletonCard key={`loading-${i}`} />)}
                 </div>
               </InfiniteScroll>
               {products.length === 0 && !loading && (
-                <p className="col-span-full text-center py-12 text-gray-500">No products available.</p>
+                <p className="col-span-full text-center py-12 text-gray-500">
+                  No products available.
+                </p>
               )}
             </div>
           </section>
@@ -215,7 +228,10 @@ export default function Homepage() {
                 <MessageCircle className="w-6 h-6" />
                 <span className="text-xs">Messages</span>
               </button>
-              <button className="flex flex-col items-center py-2 px-4 text-gray-600" onClick={() => navigate('/profile')}>
+              <button
+                className="flex flex-col items-center py-2 px-4 text-gray-600"
+                onClick={() => navigate("/profile")}
+              >
                 <User className="w-6 h-6" />
                 <span className="text-xs">Profile</span>
               </button>
@@ -225,8 +241,12 @@ export default function Homepage() {
       ) : (
         <div className="max-w-md mx-auto py-12 px-4" id="login-form">
           <div className="bg-white rounded-2xl shadow-xl p-8">
-            <h1 className="text-3xl font-bold text-center mb-8 text-gray-800">Welcome to MiniMart</h1>
-            <p className="text-center text-gray-500 mb-4">Please log in to view products and chat.</p>
+            <h1 className="text-3xl font-bold text-center mb-8 text-gray-800">
+              Welcome to MiniMart
+            </h1>
+            <p className="text-center text-gray-500 mb-4">
+              Please log in to view products and chat.
+            </p>
           </div>
         </div>
       )}
