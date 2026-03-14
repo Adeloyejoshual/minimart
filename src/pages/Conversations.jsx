@@ -1,6 +1,8 @@
+// src/pages/ConversationsPage.jsx
 import React, { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import axios from "axios";
+import BottomNav from "../components/BottomNav"; // <-- import bottom nav
 
 export default function ConversationsPage() {
   const navigate = useNavigate();
@@ -29,12 +31,13 @@ export default function ConversationsPage() {
   };
 
   return (
-    <div style={{ maxWidth: 800, margin: "auto", padding: 20 }}>
+    <div style={{ maxWidth: 800, margin: "auto", padding: 20, paddingBottom: 80 }}>
       <h1>Conversations</h1>
+
       {conversations.length === 0 ? (
         <p>No conversations yet.</p>
       ) : (
-        <ul>
+        <ul style={{ listStyle: "none", padding: 0 }}>
           {conversations.map((conv) => (
             <li
               key={conv.product_id + conv.other_user_id}
@@ -52,6 +55,9 @@ export default function ConversationsPage() {
           ))}
         </ul>
       )}
+
+      {/* Bottom Navigation */}
+      <BottomNav />
     </div>
   );
 }
