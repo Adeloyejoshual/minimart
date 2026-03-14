@@ -1,97 +1,60 @@
-// AddProduct.jsx
 import React, { useState } from "react";
 import axios from "axios";
 
-const AddProduct = () => {
+export default function AddProduct() {
   const [image, setImage] = useState(null);
+  const [preview, setPreview] = useState("");
   const [uploading, setUploading] = useState(false);
-  const [progress, setProgress] = useState(0);
-  const [imageUrl, setImageUrl] = useState("");
-  const [error, setError] = useState("");
+  const [url, setUrl] = useState("");
 
   const handleFileChange = (e) => {
-    setImage(e.target.files[0]);
-    setImageUrl("");
-    setError("");
-    setProgress(0);
+    const file = e.target.files[0];
+    setImage(file);
+    setPreview(URL.createObjectURL(file));
   };
 
   const handleUpload = async () => {
-    if (!image) {
-      setError("Please select an image first");
-      return;
-    }
-
+    if (!image) return alert("Select an image first!");
+    setUploading(true);
     const formData = new FormData();
     formData.append("image", image);
 
     try {
-      setUploading(true);
-      setError("");
-      setProgress(0);
-
-      const res = await axios.post(
-        "https://minimart-ivrm.onrender.com/api/marketplace/add-product",
+      const { data } = await axios.post(
+        "https://minimart-ivrm.onrender.com/api/marketplace/add-product-image",
         formData,
-        {
-          headers: { "Content-Type": "multipart/form-data" },
-          onUploadProgress: (event) => {
-            const percent = Math.round((event.loaded * 100) / event.total);
-            setProgress(percent);
-          },
-        }
+        { headers: { "Content-Type": "multipart/form-data" } }
       );
-
-      setImageUrl(res.data.imageUrl);
+      setUrl(data.url);
+      alert("Upload successful!");
     } catch (err) {
-      console.error("Upload Error:", err.response || err.message);
-
-      // Display detailed AWS or server error in UI
-      const awsError =
-        err.response?.data?.details ||
-        err.response?.data?.error ||
-        err.message;
-
-      setError(
-        `Upload failed. Check AWS credentials, bucket policy, and CORS. Details: ${awsError}`
-      );
+      console.error(err);
+      alert("Upload failed. Check server logs.");
     } finally {
       setUploading(false);
     }
   };
 
   return (
-    <div className="max-w-md mx-auto p-4 border rounded shadow">
-      <h2 className="text-xl font-semibold mb-4">Add Product Image</h2>
-
-      <input
-        type="file"
-        accept="image/*"
-        onChange={handleFileChange}
-        className="mb-4"
-      />
-
+    <div className="p-4">
+      <h2>Add Product Image</h2>
+      <input type="file" accept="image/*" onChange={handleFileChange} />
+      {preview && <img src={preview} alt="Preview" className="mt-2 w-48 h-48 object-cover" />}
       <button
         onClick={handleUpload}
         disabled={uploading}
-        className="bg-blue-500 text-white px-4 py-2 rounded mb-4"
+        className="mt-2 bg-blue-500 text-white px-4 py-2 rounded"
       >
-        {uploading ? `Uploading ${progress}%` : "Upload Image"}
+        {uploading ? "Uploading..." : "Upload Image"}
       </button>
-
-      {uploading && progress > 0 && <p>Progress: {progress}%</p>}
-
-      {error && <p className="text-red-500 mt-2">{error}</p>}
-
-      {imageUrl && (
-        <div className="mt-4">
-          <p className="text-green-600 mb-2">Image uploaded successfully!</p>
-          <img src={imageUrl} alt="Uploaded" className="w-full rounded" />
-          <p className="text-sm mt-2 break-all">{imageUrl}</p>
+      {url && (
+        <div className="mt-2">
+          <p>Image URL:</p>
+          <a href={url} target="_blank" rel="noopener noreferrer" className="text-blue-700">
+            {url}
+          </a>
         </div>
       )}
     </div>
   );
-};
-
-export default AddProduct;
+}
