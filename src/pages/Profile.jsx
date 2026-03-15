@@ -1,5 +1,4 @@
-// src/pages/Profile.jsx
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useState, useCallback } from "react";
 import axios from "axios";
 
 const API = "https://minimart-ivrm.onrender.com/api";
@@ -9,6 +8,7 @@ export default function Profile({ user }) {
   const [products, setProducts] = useState([]);
   const [loadingProfile, setLoadingProfile] = useState(true);
   const [loadingProducts, setLoadingProducts] = useState(true);
+  const [refreshProducts, setRefreshProducts] = useState(false); // new state
 
   useEffect(() => {
     if (user) {
@@ -16,6 +16,11 @@ export default function Profile({ user }) {
       fetchProducts();
     }
   }, [user]);
+
+  // Re-fetch products whenever refreshProducts toggles
+  useEffect(() => {
+    if (user) fetchProducts();
+  }, [refreshProducts]);
 
   const fetchProfile = async () => {
     try {
@@ -34,14 +39,21 @@ export default function Profile({ user }) {
   const fetchProducts = async () => {
     try {
       setLoadingProducts(true);
-      const res = await axios.get(`${API}/products?sellerId=${user.id}`);
-      setProducts(res.data.products || res.data); // handle API shape
+      const res = await axios.get(`${API}/products?sellerId=${user.id}`, {
+        headers: { Authorization: `Bearer ${localStorage.getItem("token")}` },
+      });
+      setProducts(res.data.products || res.data);
     } catch (err) {
       console.error("Failed to fetch user products", err);
     } finally {
       setLoadingProducts(false);
     }
   };
+
+  // Callback to trigger products refresh from child components
+  const triggerProductsRefresh = useCallback(() => {
+    setRefreshProducts((prev) => !prev);
+  }, []);
 
   if (loadingProfile) return <p>Loading profile...</p>;
 
@@ -98,6 +110,9 @@ export default function Profile({ user }) {
       ) : (
         <p>You haven’t added any products yet.</p>
       )}
+
+      {/* Pass triggerProductsRefresh to child components like AddProduct */}
+      {/* Example: <AddProduct user={user} onProductAdded={triggerProductsRefresh} /> */}
     </div>
   );
 }
