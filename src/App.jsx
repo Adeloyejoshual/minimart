@@ -5,10 +5,11 @@ import { BrowserRouter as Router, Routes, Route, Navigate } from "react-router-d
 import Homepage from "./pages/Homepage";
 import AddProduct from "./pages/AddProduct";
 import ProductDetail from "./pages/ProductDetail";
-import Profile from "./pages/Profile";          // General profile page
+import Profile from "./pages/Profile";
 import Conversations from "./pages/Conversations";
-import Chat from "./pages/Chat";               // Chat page
+import Chat from "./pages/Chat";
 import SellerProfile from "./pages/SellerProfile";
+import AuthPage from "./pages/AuthPage"; // Login/Register page
 
 export default function App() {
   const [user, setUser] = useState(null);
@@ -17,14 +18,14 @@ export default function App() {
   useEffect(() => {
     const token = localStorage.getItem("token");
     if (token) {
-      // Optional: fetch full user profile from API
+      // Optionally fetch user profile from API
       setUser({ id: "user-id", name: "User" }); // Placeholder
     }
   }, []);
 
   // Protected route wrapper
   const ProtectedRoute = ({ children }) => {
-    if (!user) return <Navigate to="/" replace />;
+    if (!user) return <Navigate to="/auth" replace />; // Redirect to login/register
     return children;
   };
 
@@ -33,6 +34,7 @@ export default function App() {
       <Routes>
         {/* Public Pages */}
         <Route path="/" element={<Homepage user={user} />} />
+        <Route path="/auth" element={<AuthPage />} />
         <Route path="/product/:id" element={<ProductDetail user={user} />} />
         <Route path="/seller/:id" element={<SellerProfile user={user} />} />
 
