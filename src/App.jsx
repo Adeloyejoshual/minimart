@@ -9,23 +9,37 @@ import Profile from "./pages/Profile";
 import Conversations from "./pages/Conversations";
 import Chat from "./pages/Chat";
 import SellerProfile from "./pages/SellerProfile";
-import AuthPage from "./pages/AuthPage"; // Login/Register page
+import AuthPage from "./pages/AuthPage";
+import axios from "axios";
 
 export default function App() {
   const [user, setUser] = useState(null);
+  const API = "https://minimart-ivrm.onrender.com/api/users";
 
   // Load logged-in user from localStorage
   useEffect(() => {
     const token = localStorage.getItem("token");
     if (token) {
-      // Optionally fetch user profile from API
-      setUser({ id: "user-id", name: "User" }); // Placeholder
+      // Fetch actual user profile
+      const fetchUser = async () => {
+        try {
+          const { data } = await axios.get(`${API}/me`, {
+            headers: { Authorization: `Bearer ${token}` },
+          });
+          setUser(data);
+        } catch (err) {
+          console.error("Failed to fetch user:", err);
+          localStorage.removeItem("token");
+          setUser(null);
+        }
+      };
+      fetchUser();
     }
   }, []);
 
   // Protected route wrapper
   const ProtectedRoute = ({ children }) => {
-    if (!user) return <Navigate to="/auth" replace />; // Redirect to login/register
+    if (!user) return <Navigate to="/auth" replace />;
     return children;
   };
 
@@ -34,7 +48,7 @@ export default function App() {
       <Routes>
         {/* Public Pages */}
         <Route path="/" element={<Homepage user={user} />} />
-        <Route path="/auth" element={<AuthPage />} />
+        <Route path="/auth" element={<AuthPage setUser={setUser} />} />
         <Route path="/product/:id" element={<ProductDetail user={user} />} />
         <Route path="/seller/:id" element={<SellerProfile user={user} />} />
 
@@ -74,7 +88,7 @@ export default function App() {
           }
         />
 
-        {/* Fallback for undefined routes */}
+        {/* Fallback */}
         <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>
     </Router>
