@@ -1,5 +1,5 @@
-// src/pages/Homepage.jsx - ENTERPRISE GRADE MARKETPLACE
-import React, { useEffect, useState, useCallback, useMemo } from "react";
+// src/pages/Homepage.jsx - ENTERPRISE GRADE MARKETPLACE WITH STATE PERSISTENCE
+import React, { useEffect, useState, useCallback, useMemo, useRef } from "react";
 import axios from "axios";
 import InfiniteScroll from "react-infinite-scroll-component";
 import { Swiper, SwiperSlide } from "swiper/react";
@@ -13,9 +13,19 @@ import BottomNav from "../components/BottomNav";
 import "../styles/Homepage.css";
 
 const API_BASE = "https://minimart-ivrm.onrender.com/api/marketplace";
+const LIMIT = 20;
 
 export default function Homepage({ user }) {
   const navigate = useNavigate();
+  
+  const cachedState = useRef({
+    products: [],
+    trending: [],
+    search: "",
+    skip: 0,
+    scrollY: 0,
+  });
+
   const [products, setProducts] = useState([]);
   const [trending, setTrending] = useState([]);
   const [search, setSearch] = useState("");
@@ -24,24 +34,23 @@ export default function Homepage({ user }) {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
 
-  const LIMIT = 20;
-
   // Memoized API endpoints
   const endpoints = useMemo(() => ({
     products: `${API_BASE}/products`,
-    trending: `${API_BASE}/trending`
+    trending: `${API_BASE}/trending`,
   }), []);
 
+  // ------------------ Load Products ------------------
   const loadProducts = useCallback(async (reset = false) => {
     try {
       setLoading(true);
       setError(null);
       const currentSkip = reset ? 0 : skip;
-      
+
       const params = new URLSearchParams({
         skip: currentSkip.toString(),
         limit: LIMIT.toString(),
-        ...(search && { search })
+        ...(search && { search }),
       });
 
       const { data } = await axios.get(`${endpoints.products}?${params}`);
@@ -65,6 +74,7 @@ export default function Homepage({ user }) {
     }
   }, [skip, search, endpoints.products]);
 
+  // ------------------ Load Trending ------------------
   const loadTrending = useCallback(async () => {
     try {
       const { data } = await axios.get(endpoints.trending);
@@ -74,29 +84,49 @@ export default function Homepage({ user }) {
     }
   }, [endpoints.trending]);
 
-  // Effects
+  // ------------------ Restore cached state ------------------
   useEffect(() => {
-    loadProducts(true);
-    loadTrending();
-  }, []);
+    if (cachedState.current.products.length) {
+      setProducts(cachedState.current.products);
+      setTrending(cachedState.current.trending);
+      setSearch(cachedState.current.search);
+      setSkip(cachedState.current.skip);
+      window.scrollTo(0, cachedState.current.scrollY);
+    } else {
+      loadProducts(true);
+      loadTrending();
+    }
 
+    const handleScroll = () => {
+      cachedState.current.scrollY = window.scrollY;
+    };
+    window.addEventListener("scroll", handleScroll);
+
+    return () => window.removeEventListener("scroll", handleScroll);
+  }, [loadProducts, loadTrending]);
+
+  // ------------------ Persist state when updated ------------------
+  useEffect(() => { cachedState.current.products = products; }, [products]);
+  useEffect(() => { cachedState.current.trending = trending; }, [trending]);
+  useEffect(() => { cachedState.current.search = search; }, [search]);
+  useEffect(() => { cachedState.current.skip = skip; }, [skip]);
+
+  // ------------------ Re-fetch on search ------------------
   useEffect(() => {
     const timer = setTimeout(() => loadProducts(true), 350);
     return () => clearTimeout(timer);
   }, [search, loadProducts]);
 
-  const handleProductClick = useCallback((id) => {
-    navigate(`/product/${id}`);
-  }, [navigate]);
+  const handleProductClick = useCallback((id) => navigate(`/product/${id}`), [navigate]);
 
   const productCount = products.length;
-  const isEmpty = !loading && products.length === 0;
+  const isEmpty = !loading && productCount === 0;
 
   return (
     <div className="enterprise-homepage">
       <TopNav user={user} />
-      
-      {/* Enterprise Hero */}
+
+      {/* Hero & Search */}
       <header className="enterprise-hero">
         <div className="hero-content">
           <h1 className="hero-title">Enterprise Marketplace</h1>
@@ -131,17 +161,11 @@ export default function Homepage({ user }) {
               1367: { slidesPerView: 5, spaceBetween: 24 },
               1681: { slidesPerView: 6, spaceBetween: 28 },
               1921: { slidesPerView: 7, spaceBetween: 30 },
-              2561: { slidesPerView: 8, spaceBetween: 32 },
-              3841: { slidesPerView: 10, spaceBetween: 40 }
             }}
           >
-            {trending.map((product) => (
+            {trending.map(product => (
               <SwiperSlide key={product.id}>
-                <ProductCardEnterprise 
-                  product={product} 
-                  onClick={() => handleProductClick(product.id)}
-                  variant="trending"
-                />
+                <ProductCard product={product} onClick={() => handleProductClick(product.id)} variant="trending" />
               </SwiperSlide>
             ))}
           </Swiper>
@@ -151,23 +175,14 @@ export default function Homepage({ user }) {
       {/* Products Grid */}
       <section className="products-section">
         <div className="section-header">
-          <div className="section-info">
-            <h2 className="section-title">All Products ({productCount})</h2>
-            <span className="product-stats">
-              {hasMore ? 'Loading more...' : `${productCount} loaded`}
-            </span>
-          </div>
-          <button className="enterprise-filter-btn" aria-label="Open filters">
-            Filters
-          </button>
+          <h2 className="section-title">All Products ({productCount})</h2>
+          <button className="enterprise-filter-btn" aria-label="Open filters">Filters</button>
         </div>
 
         {error && (
           <div className="error-banner">
             <span>{error}</span>
-            <button onClick={() => loadProducts(true)} className="retry-btn">
-              Retry
-            </button>
+            <button onClick={() => loadProducts(true)} className="retry-btn">Retry</button>
           </div>
         )}
 
@@ -179,13 +194,8 @@ export default function Homepage({ user }) {
           className="infinite-scroll-container"
         >
           <div className="enterprise-grid">
-            {products.map((product) => (
-              <ProductCardEnterprise 
-                key={product.id}
-                product={product}
-                onClick={() => handleProductClick(product.id)}
-                variant="standard"
-              />
+            {products.map(product => (
+              <ProductCard product={product} key={product.id} product={product} onClick={() => handleProductClick(product.id)} variant="standard" />
             ))}
           </div>
         </InfiniteScroll>
@@ -204,43 +214,25 @@ export default function Homepage({ user }) {
   );
 }
 
-// Enterprise Product Card Component
-function ProductCardEnterprise({ product, onClick, variant = "standard" }) {
+// ------------------ Product Card ------------------
+function ProductCard({ product, onClick, variant = "standard" }) {
   return (
     <article className={`enterprise-card ${variant}`} onClick={onClick}>
       <div className="card-image-container">
         {product.image ? (
-          <img 
-            src={product.image} 
-            alt={product.title}
-            className="card-image"
-            loading="lazy"
-          />
+          <img src={product.image} alt={product.title} className="card-image" loading="lazy" />
         ) : (
-          <div className="image-placeholder">
-            <span>📷</span>
-          </div>
+          <div className="image-placeholder">📷</div>
         )}
-        {variant === "trending" && (
-          <div className="trending-badge">TRENDING</div>
-        )}
+        {variant === "trending" && <div className="trending-badge">TRENDING</div>}
       </div>
-      
+
       <div className="card-content">
         <h3 className="card-title">{product.title}</h3>
-        {variant === "standard" && (
-          <p className="card-description">{product.description}</p>
-        )}
+        {variant === "standard" && <p className="card-description">{product.description}</p>}
         <div className="card-footer">
-          <div className="price-stock">
-            <span className="price">₦{product.price?.toLocaleString()}</span>
-            {product.stock !== undefined && (
-              <span className="stock">{product.stock} in stock</span>
-            )}
-          </div>
-          <button className="add-to-cart-btn" aria-label="Add to cart">
-            🛒
-          </button>
+          <span className="price">₦{product.price?.toLocaleString()}</span>
+          <button className="add-to-cart-btn" aria-label="Add to cart">🛒</button>
         </div>
       </div>
     </article>
