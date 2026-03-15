@@ -13,17 +13,13 @@
   border: 1px solid #f3f4f6;
   box-shadow: 0 10px 25px rgba(0, 0, 0, 0.05);
   border-radius: 2rem;
-  padding: 2.5rem;
+  padding: 2rem;
   display: flex;
-  flex-direction: column;
+  flex-direction: row;
   gap: 2rem;
-}
-
-@media (min-width: 768px) {
-  .profile-card {
-    flex-direction: row;
-    align-items: center;
-  }
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 2rem;
 }
 
 /* Avatar */
@@ -45,7 +41,7 @@
   display: grid;
   grid-template-columns: repeat(2, 1fr);
   gap: 1.5rem;
-  margin-bottom: 2.5rem;
+  margin-bottom: 2rem;
 }
 
 @media (min-width: 768px) {
@@ -75,33 +71,140 @@
   font-size: 2rem;
 }
 
-/* Profile Info Card */
+/* Dashboard Action Row */
+.dashboard-grid {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 1.5rem;
+  margin-bottom: 2rem;
+}
+
+@media (min-width: 768px) {
+  .dashboard-grid {
+    grid-template-columns: repeat(4, 1fr);
+  }
+}
+
+.dashboard-card {
+  background: linear-gradient(to bottom right, #4f46e5, #6366f1);
+  color: white;
+  padding: 2rem;
+  border-radius: 2rem;
+  text-align: center;
+  box-shadow: 0 5px 20px rgba(0,0,0,0.08);
+  transition: transform 0.3s, box-shadow 0.3s;
+  cursor: pointer;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+}
+
+.dashboard-card:hover {
+  transform: translateY(-5px) scale(1.03);
+  box-shadow: 0 10px 25px rgba(0,0,0,0.12);
+}
+
+.dashboard-icon {
+  font-size: 2.5rem;
+  margin-bottom: 0.75rem;
+}
+
+.dashboard-label {
+  font-weight: 600;
+  font-size: 1rem;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+/* Extra Actions (Leaderboard / Coupons) */
+.extra-actions-grid {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 1.5rem;
+  margin-bottom: 2rem;
+}
+
+@media (min-width: 768px) {
+  .extra-actions-grid {
+    grid-template-columns: repeat(4, 1fr);
+  }
+}
+
+.extra-card {
+  background: linear-gradient(to bottom right, #f97316, #fb923c);
+  color: white;
+  padding: 2rem;
+  border-radius: 2rem;
+  text-align: center;
+  box-shadow: 0 5px 20px rgba(0,0,0,0.08);
+  transition: transform 0.3s, box-shadow 0.3s;
+  cursor: pointer;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+}
+
+.extra-card:hover {
+  transform: translateY(-5px) scale(1.03);
+  box-shadow: 0 10px 25px rgba(0,0,0,0.12);
+}
+
+.extra-icon {
+  font-size: 2.5rem;
+  margin-bottom: 0.75rem;
+}
+
+.extra-label {
+  font-weight: 600;
+  font-size: 1rem;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+/* Tabs Navigation */
+.tabs-nav {
+  display: flex;
+  gap: 1rem;
+  border-bottom: 2px solid #e5e7eb;
+  margin-bottom: 2rem;
+  overflow-x: auto;
+}
+
+.tab-button {
+  padding: 0.75rem 1.5rem;
+  font-weight: 600;
+  color: #6b7280;
+  border-radius: 9999px 9999px 0 0;
+  cursor: pointer;
+  transition: all 0.3s;
+  white-space: nowrap;
+}
+
+.tab-button.active {
+  background: linear-gradient(to right, #6366f1, #818cf8);
+  color: white;
+  box-shadow: 0 4px 10px rgba(0,0,0,0.1);
+}
+
+/* Tab Content */
+.tab-content {
+  display: none;
+}
+
+.tab-content.active {
+  display: block;
+}
+
+/* Info Card */
 .info-card {
   background: #ffffff;
   border: 1px solid #f3f4f6;
   border-radius: 2rem;
   padding: 2rem;
-  margin-bottom: 2.5rem;
+  margin-bottom: 2rem;
   box-shadow: 0 10px 25px rgba(0,0,0,0.05);
-}
-
-.info-header {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  margin-bottom: 1.5rem;
-}
-
-.info-grid {
-  display: grid;
-  grid-template-columns: 1fr;
-  gap: 1rem;
-}
-
-@media (min-width: 768px) {
-  .info-grid {
-    grid-template-columns: repeat(3, 1fr);
-  }
 }
 
 /* Support Button */
