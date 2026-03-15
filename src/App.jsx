@@ -8,7 +8,7 @@ import toast, { Toaster } from "react-hot-toast";
 import Homepage from "./pages/Homepage";
 import AddProduct from "./pages/AddProduct";
 import ProductDetail from "./pages/ProductDetail";
-import Profile from "./pages/Profile/Profile";           // Profile main page
+import Profile from "./pages/Profile";           // Profile main page
 
 // Profile sub-pages
 import Coupons from "./pages/Profile/Coupons";
