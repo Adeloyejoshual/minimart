@@ -38,7 +38,7 @@ export default function TopNav({ user }) {
         {!user ? (
           <>
             <button
-              onClick={() => navigate("/login")}
+              onClick={() => navigate("/auth")}
               style={{
                 padding: "6px 12px",
                 borderRadius: 4,
@@ -51,7 +51,7 @@ export default function TopNav({ user }) {
               Login
             </button>
             <button
-              onClick={() => navigate("/register")}
+              onClick={() => navigate("/auth")}
               style={{
                 padding: "6px 12px",
                 borderRadius: 4,
