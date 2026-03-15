@@ -1,5 +1,5 @@
-// src/pages/Homepage.jsx - ENTERPRISE GRADE MARKETPLACE WITH STATE PERSISTENCE
-import React, { useEffect, useState, useCallback, useMemo, useRef } from "react";
+// src/pages/Homepage.jsx - Enterprise Marketplace
+import React, { useEffect, useState, useCallback, useMemo } from "react";
 import axios from "axios";
 import InfiniteScroll from "react-infinite-scroll-component";
 import { Swiper, SwiperSlide } from "swiper/react";
@@ -13,18 +13,9 @@ import BottomNav from "../components/BottomNav";
 import "../styles/Homepage.css";
 
 const API_BASE = "https://minimart-ivrm.onrender.com/api/marketplace";
-const LIMIT = 20;
 
 export default function Homepage({ user }) {
   const navigate = useNavigate();
-  
-  const cachedState = useRef({
-    products: [],
-    trending: [],
-    search: "",
-    skip: 0,
-    scrollY: 0,
-  });
 
   const [products, setProducts] = useState([]);
   const [trending, setTrending] = useState([]);
@@ -34,13 +25,14 @@ export default function Homepage({ user }) {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
 
-  // Memoized API endpoints
+  const LIMIT = 20;
+
   const endpoints = useMemo(() => ({
     products: `${API_BASE}/products`,
     trending: `${API_BASE}/trending`,
   }), []);
 
-  // ------------------ Load Products ------------------
+  // Load Products
   const loadProducts = useCallback(async (reset = false) => {
     try {
       setLoading(true);
@@ -50,11 +42,14 @@ export default function Homepage({ user }) {
       const params = new URLSearchParams({
         skip: currentSkip.toString(),
         limit: LIMIT.toString(),
-        ...(search && { search }),
+        ...(search && { search })
       });
 
       const { data } = await axios.get(`${endpoints.products}?${params}`);
       const productData = data.products || data;
+
+      // Mix products randomly for recommendations
+      productData.sort(() => Math.random() - 0.5);
 
       if (reset) {
         setProducts(productData);
@@ -74,7 +69,7 @@ export default function Homepage({ user }) {
     }
   }, [skip, search, endpoints.products]);
 
-  // ------------------ Load Trending ------------------
+  // Load Trending
   const loadTrending = useCallback(async () => {
     try {
       const { data } = await axios.get(endpoints.trending);
@@ -84,38 +79,17 @@ export default function Homepage({ user }) {
     }
   }, [endpoints.trending]);
 
-  // ------------------ Restore cached state ------------------
+  // Initial load
   useEffect(() => {
-    if (cachedState.current.products.length) {
-      setProducts(cachedState.current.products);
-      setTrending(cachedState.current.trending);
-      setSearch(cachedState.current.search);
-      setSkip(cachedState.current.skip);
-      window.scrollTo(0, cachedState.current.scrollY);
-    } else {
-      loadProducts(true);
-      loadTrending();
-    }
+    loadProducts(true);
+    loadTrending();
+  }, []);
 
-    const handleScroll = () => {
-      cachedState.current.scrollY = window.scrollY;
-    };
-    window.addEventListener("scroll", handleScroll);
-
-    return () => window.removeEventListener("scroll", handleScroll);
-  }, [loadProducts, loadTrending]);
-
-  // ------------------ Persist state when updated ------------------
-  useEffect(() => { cachedState.current.products = products; }, [products]);
-  useEffect(() => { cachedState.current.trending = trending; }, [trending]);
-  useEffect(() => { cachedState.current.search = search; }, [search]);
-  useEffect(() => { cachedState.current.skip = skip; }, [skip]);
-
-  // ------------------ Re-fetch on search ------------------
+  // Search effect with debounce
   useEffect(() => {
     const timer = setTimeout(() => loadProducts(true), 350);
     return () => clearTimeout(timer);
-  }, [search, loadProducts]);
+  }, [search]);
 
   const handleProductClick = useCallback((id) => navigate(`/product/${id}`), [navigate]);
 
@@ -126,7 +100,7 @@ export default function Homepage({ user }) {
     <div className="enterprise-homepage">
       <TopNav user={user} />
 
-      {/* Hero & Search */}
+      {/* Hero + Search */}
       <header className="enterprise-hero">
         <div className="hero-content">
           <h1 className="hero-title">Enterprise Marketplace</h1>
@@ -142,30 +116,32 @@ export default function Homepage({ user }) {
         </div>
       </header>
 
-      {/* Trending Products */}
+      {/* Trending */}
       {trending.length > 0 && (
         <section className="trending-section">
           <h2 className="section-title">🔥 Top Trending</h2>
           <Swiper
             modules={[Navigation, Pagination, Autoplay]}
-            slidesPerView={2}
-            spaceBetween={16}
+            slidesPerView={3} // 3-slide view
+            spaceBetween={20}
             autoplay={{ delay: 4000, disableOnInteraction: false }}
             pagination={{ clickable: true }}
             navigation
             className="enterprise-swiper"
             breakpoints={{
               360: { slidesPerView: 2, spaceBetween: 12 },
-              769: { slidesPerView: 3, spaceBetween: 20 },
-              1025: { slidesPerView: 4, spaceBetween: 24 },
+              769: { slidesPerView: 3, spaceBetween: 16 },
+              1025: { slidesPerView: 4, spaceBetween: 20 },
               1367: { slidesPerView: 5, spaceBetween: 24 },
-              1681: { slidesPerView: 6, spaceBetween: 28 },
-              1921: { slidesPerView: 7, spaceBetween: 30 },
             }}
           >
             {trending.map(product => (
               <SwiperSlide key={product.id}>
-                <ProductCard product={product} onClick={() => handleProductClick(product.id)} variant="trending" />
+                <ProductCardEnterprise
+                  product={product}
+                  onClick={() => handleProductClick(product.id)}
+                  variant="trending"
+                />
               </SwiperSlide>
             ))}
           </Swiper>
@@ -176,7 +152,7 @@ export default function Homepage({ user }) {
       <section className="products-section">
         <div className="section-header">
           <h2 className="section-title">All Products ({productCount})</h2>
-          <button className="enterprise-filter-btn" aria-label="Open filters">Filters</button>
+          <span className="product-stats">{hasMore ? 'Loading more...' : `${productCount} loaded`}</span>
         </div>
 
         {error && (
@@ -195,7 +171,12 @@ export default function Homepage({ user }) {
         >
           <div className="enterprise-grid">
             {products.map(product => (
-              <ProductCard product={product} key={product.id} product={product} onClick={() => handleProductClick(product.id)} variant="standard" />
+              <ProductCardEnterprise
+                key={product.id}
+                product={product}
+                onClick={() => handleProductClick(product.id)}
+                variant="standard"
+              />
             ))}
           </div>
         </InfiniteScroll>
@@ -214,15 +195,15 @@ export default function Homepage({ user }) {
   );
 }
 
-// ------------------ Product Card ------------------
-function ProductCard({ product, onClick, variant = "standard" }) {
+// Product Card Component
+function ProductCardEnterprise({ product, onClick, variant = "standard" }) {
   return (
     <article className={`enterprise-card ${variant}`} onClick={onClick}>
       <div className="card-image-container">
         {product.image ? (
           <img src={product.image} alt={product.title} className="card-image" loading="lazy" />
         ) : (
-          <div className="image-placeholder">📷</div>
+          <div className="image-placeholder"><span>📷</span></div>
         )}
         {variant === "trending" && <div className="trending-badge">TRENDING</div>}
       </div>
