@@ -1,7 +1,7 @@
 // Page/Profile/Verification.jsx
 import React, { useEffect, useState } from "react";
 import axios from "axios";
-import '../style/Profile.css';
+import '../../style/Profile.css';
 import { FiCheckCircle, FiAlertCircle, FiUpload } from "react-icons/fi";
 
 const Verification = () => {
