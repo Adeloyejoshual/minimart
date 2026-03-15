@@ -1,81 +1,95 @@
-// routes/marketplace.js
 import express from "express";
-import { Pool } from "pg";
-import multer from "multer";
-import { v2 as cloudinary } from "cloudinary";
-import { CloudinaryStorage } from "multer-storage-cloudinary";
-import dotenv from "dotenv";
-
-dotenv.config();
-
+import { pool } from "../server.js"; // CockroachDB pool
 const router = express.Router();
-const pool = new Pool({
-  connectionString: process.env.COCKROACH_URI,
-  ssl: { rejectUnauthorized: false },
-});
 
 // -------------------
-// Configure Cloudinary
+// GET all messages for a conversation
 // -------------------
-cloudinary.config({
-  cloud_name: process.env.CLOUDINARY_CLOUD_NAME,
-  api_key: process.env.CLOUDINARY_API_KEY,
-  api_secret: process.env.CLOUDINARY_API_SECRET,
-});
+// GET /messages?senderId=...&receiverId=...&productId=...
+router.get("/", async (req, res) => {
+  const { senderId, receiverId, productId } = req.query;
 
-const storage = new CloudinaryStorage({
-  cloudinary,
-  params: {
-    folder: "minimart_products",
-    allowed_formats: ["jpg", "png", "jpeg", "webp"],
-  },
-});
+  if (!senderId || !receiverId || !productId) {
+    return res.status(400).json({ message: "Missing required query params" });
+  }
 
-const upload = multer({ storage });
-
-// -------------------
-// GET all products
-// -------------------
-router.get("/products", async (req, res) => {
   try {
     const { rows } = await pool.query(
-      "SELECT * FROM products ORDER BY created_at DESC"
+      `SELECT *
+       FROM messages
+       WHERE product_id=$1
+         AND ((sender_id=$2 AND receiver_id=$3) OR (sender_id=$3 AND receiver_id=$2))
+       ORDER BY created_at ASC`,
+      [productId, senderId, receiverId]
     );
     res.json(rows);
   } catch (err) {
-    console.error(err);
-    res.status(500).json({ message: "Failed to fetch products" });
+    console.error("GET /messages error:", err);
+    res.status(500).json({ message: "Failed to fetch messages" });
   }
 });
 
 // -------------------
-// POST a product with image
+// GET all conversations for a user
 // -------------------
-router.post("/products", upload.single("image"), async (req, res) => {
+// GET /messages/conversations?userId=...
+router.get("/conversations", async (req, res) => {
+  const { userId } = req.query;
+  if (!userId) return res.status(400).json({ message: "Missing userId" });
+
   try {
-    const { title, description, price, stock } = req.body;
-    const imageUrl = req.file?.path || null;
-
-    if (!title || !price) {
-      return res.status(400).json({ message: "Title and price are required" });
-    }
-
-    const numericPrice = parseFloat(price);
-    if (isNaN(numericPrice)) {
-      return res.status(400).json({ message: "Price must be a valid number" });
-    }
-
     const { rows } = await pool.query(
-      `INSERT INTO products (title, description, price, stock, image)
-       VALUES ($1, $2, $3, $4, $5)
+      `
+      SELECT DISTINCT ON (product_id, other_user_id) 
+        product_id,
+        CASE WHEN sender_id=$1 THEN receiver_id ELSE sender_id END AS other_user_id,
+        MAX(message) AS last_message,
+        MAX(created_at) AS last_message_at
+      FROM messages
+      WHERE sender_id=$1 OR receiver_id=$1
+      GROUP BY product_id, other_user_id
+      ORDER BY product_id, other_user_id, last_message_at DESC
+      `,
+      [userId]
+    );
+
+    // Fetch names of other users
+    for (const row of rows) {
+      const userRes = await pool.query("SELECT name FROM users WHERE id=$1", [
+        row.other_user_id,
+      ]);
+      row.other_user_name = userRes.rows[0]?.name || "Unknown";
+    }
+
+    res.json(rows);
+  } catch (err) {
+    console.error("GET /messages/conversations error:", err);
+    res.status(500).json({ message: "Failed to fetch conversations" });
+  }
+});
+
+// -------------------
+// POST a new message
+// -------------------
+// POST /messages
+router.post("/", async (req, res) => {
+  const { senderId, receiverId, productId, message } = req.body;
+  if (!senderId || !receiverId || !productId || !message) {
+    return res.status(400).json({ message: "Missing required fields" });
+  }
+
+  try {
+    const { rows } = await pool.query(
+      `INSERT INTO messages (sender_id, receiver_id, product_id, message)
+       VALUES ($1, $2, $3, $4)
        RETURNING *`,
-      [title.trim(), description?.trim() || null, numericPrice, stock || 0, imageUrl]
+      [senderId, receiverId, productId, message]
     );
 
     res.status(201).json(rows[0]);
   } catch (err) {
-    console.error(err);
-    res.status(500).json({ message: "Failed to add product" });
+    console.error("POST /messages error:", err);
+    res.status(500).json({ message: "Failed to send message" });
   }
 });
 
