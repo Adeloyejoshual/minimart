@@ -1,4 +1,4 @@
-// src/pages/Homepage.jsx
+// src/pages/Homepage.jsx - COMPLETE REWRITTEN VERSION
 import React, { useEffect, useState } from "react";
 import axios from "axios";
 import InfiniteScroll from "react-infinite-scroll-component";
@@ -10,7 +10,7 @@ import "swiper/css/pagination";
 import { useNavigate } from "react-router-dom";
 import TopNav from "../components/TopNav";
 import BottomNav from "../components/BottomNav";
-import "../styles/Homepage.css"; // New CSS file for styles
+import "../styles/Homepage.css";
 
 const API = "https://minimart-ivrm.onrender.com/api/marketplace";
 
@@ -73,64 +73,56 @@ export default function Homepage({ user }) {
   const goToProduct = (id) => navigate(`/product/${id}`);
 
   return (
-    <div className="homepage-container">
-      {/* Top Navigation */}
+    <div className="homepage-wrapper">
       <TopNav user={user} />
-
-      {/* Hero Section */}
+      
+      {/* Hero & Search */}
       <section className="hero-section">
         <div className="hero-content">
-          <h1 className="hero-title">MiniMart Marketplace</h1>
-          <p className="hero-subtitle">Discover amazing deals near you</p>
+          <h1 className="main-title">MiniMart Marketplace</h1>
+          <p className="hero-text">Find the best deals in your area</p>
         </div>
-        
-        {/* Search Bar */}
-        <div className="search-container">
+        <div className="search-wrapper">
           <input
-            className="search-input"
-            placeholder="Search products, categories, brands..."
+            className="search-field"
+            placeholder="🔍 Search products..."
             value={search}
             onChange={(e) => setSearch(e.target.value)}
           />
-          <button className="search-btn">
-            <svg width="20" height="20" viewBox="0 0 24 24" fill="none">
-              <path d="M21 21L15.0001 15M17 10C17 13.866 13.866 17 10 17C6.13401 6.13401 10 10 10 10C13.866 13.866 17 10 17 10Z" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
-            </svg>
-          </button>
         </div>
       </section>
 
-      {/* Trending Products */}
-      <section className="trending-section">
-        <h2 className="section-title">🔥 Trending Products</h2>
+      {/* Trending Slider */}
+      <section className="trending-area">
+        <h2 className="section-heading">🔥 Trending Now</h2>
         <Swiper
           modules={[Navigation, Pagination, Autoplay]}
           slidesPerView={1}
-          spaceBetween={16}
-          autoplay={{ delay: 3000 }}
+          spaceBetween={12}
+          autoplay={{ delay: 3500, disableOnInteraction: false }}
           pagination={{ clickable: true }}
+          navigation
           breakpoints={{
-            640: { slidesPerView: 2 },
-            768: { slidesPerView: 3 },
-            1024: { slidesPerView: 4 },
-            1200: { slidesPerView: 5 }
+            481: { slidesPerView: 2, spaceBetween: 16 },
+            769: { slidesPerView: 3, spaceBetween: 20 },
+            1025: { slidesPerView: 4, spaceBetween: 24 },
+            1441: { slidesPerView: 5, spaceBetween: 24 },
+            1681: { slidesPerView: 6, spaceBetween: 30 }
           }}
-          className="trending-swiper"
+          className="trending-slider"
         >
-          {trending.map((p) => (
-            <SwiperSlide key={p.id}>
-              <div className="product-card trending-card" onClick={() => goToProduct(p.id)}>
-                {p.image && (
-                  <div className="product-image trending-image">
-                    <img src={p.image} alt={p.title} loading="lazy" />
-                    <div className="trending-badge">Trending</div>
+          {trending.map((product) => (
+            <SwiperSlide key={product.id}>
+              <div className="trending-item" onClick={() => goToProduct(product.id)}>
+                {product.image && (
+                  <div className="trending-image">
+                    <img src={product.image} alt={product.title} loading="lazy" />
+                    <span className="hot-badge">HOT</span>
                   </div>
                 )}
-                <div className="product-info">
-                  <h4 className="product-title truncate">{p.title}</h4>
-                  <div className="price-section">
-                    <span className="current-price">₦{p.price}</span>
-                  </div>
+                <div className="item-details">
+                  <h3 className="item-name">{product.title}</h3>
+                  <div className="price-display">₦{product.price}</div>
                 </div>
               </div>
             </SwiperSlide>
@@ -138,56 +130,52 @@ export default function Homepage({ user }) {
         </Swiper>
       </section>
 
-      {/* All Products */}
-      <section className="products-section">
-        <div className="section-header">
-          <h2 className="section-title">All Products</h2>
-          <button className="filter-btn">Filters</button>
+      {/* Products Grid */}
+      <section className="products-area">
+        <div className="section-top">
+          <h2 className="section-heading">All Products</h2>
+          <button className="sort-btn">Sort & Filter</button>
         </div>
         
         <InfiniteScroll
           dataLength={products.length}
           next={() => loadProducts(false)}
           hasMore={hasMore}
-          loader={<div className="loader">Loading more products...</div>}
-          className="products-grid"
+          loader={<div className="loading-more">Loading products...</div>}
         >
-          <div className="products-grid-inner">
-            {products.map((p) => (
-              <div key={p.id} className="product-card" onClick={() => goToProduct(p.id)}>
-                {p.image && (
-                  <div className="product-image">
-                    <img src={p.image} alt={p.title} loading="lazy" />
+          <div className="products-container">
+            {products.map((product) => (
+              <article key={product.id} className="product-item" onClick={() => goToProduct(product.id)}>
+                {product.image && (
+                  <div className="product-thumb">
+                    <img src={product.image} alt={product.title} loading="lazy" />
                   </div>
                 )}
-                <div className="product-info">
-                  <h3 className="product-title truncate">{p.title}</h3>
-                  <p className="product-description truncate-2">{p.description}</p>
-                  <div className="product-footer">
+                <div className="product-content">
+                  <h3 className="product-name">{product.title}</h3>
+                  <p className="product-desc">{product.description}</p>
+                  <footer className="product-footer">
                     <div className="price-stock">
-                      <strong className="current-price">₦{p.price}</strong>
-                      <span className="stock">Stock: {p.stock}</span>
+                      <span className="price">₦{product.price}</span>
+                      <span className="stock-info">{product.stock} in stock</span>
                     </div>
-                    <button className="add-cart-btn" aria-label="Add to cart">
-                      🛒
-                    </button>
-                  </div>
+                    <button className="cart-btn" aria-label="Add to cart">🛒</button>
+                  </footer>
                 </div>
-              </div>
+              </article>
             ))}
           </div>
         </InfiniteScroll>
 
         {!loading && products.length === 0 && (
-          <div className="empty-state">
-            <div className="empty-icon">📦</div>
-            <h3>No products found</h3>
-            <p>Try adjusting your search or filters</p>
+          <div className="no-products">
+            <div className="empty-box">📦</div>
+            <h3>No Products Found</h3>
+            <p>Try different search terms or check back later</p>
           </div>
         )}
       </section>
 
-      {/* Bottom Navigation */}
       <BottomNav />
     </div>
   );
