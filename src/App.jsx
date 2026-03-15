@@ -1,8 +1,8 @@
 // src/App.jsx
 import React, { useState, useEffect } from "react";
-import { BrowserRouter as Router, Routes, Route } from "react-router-dom";
+import { BrowserRouter as Router, Routes, Route, Navigate, useNavigate } from "react-router-dom";
 import axios from "axios";
-import { Toaster } from "react-hot-toast";
+import toast, { Toaster } from "react-hot-toast";
 
 import Homepage from "./pages/Homepage";
 import AddProduct from "./pages/AddProduct";
@@ -13,47 +13,111 @@ import Chat from "./pages/Chat";
 import SellerProfile from "./pages/SellerProfile";
 import AuthPage from "./pages/AuthPage";
 
-const API = "https://minimart-ivrm.onrender.com/api/users";
-
 export default function App() {
   const [user, setUser] = useState(null);
+  const API = "https://minimart-ivrm.onrender.com/api/users";
 
-  // load logged in user
+  // -------------------
+  // Load logged-in user from localStorage
+  // -------------------
   useEffect(() => {
     const token = localStorage.getItem("token");
-    if (!token) return;
-
-    axios
-      .get(`${API}/me`, {
-        headers: { Authorization: `Bearer ${token}` },
-      })
-      .then((res) => setUser(res.data))
-      .catch(() => {
-        localStorage.removeItem("token");
-        setUser(null);
-      });
+    if (token) {
+      const fetchUser = async () => {
+        try {
+          const { data } = await axios.get(`${API}/me`, {
+            headers: { Authorization: `Bearer ${token}` },
+          });
+          setUser(data);
+        } catch (err) {
+          console.error("Failed to fetch user:", err);
+          localStorage.removeItem("token");
+          setUser(null);
+        }
+      };
+      fetchUser();
+    }
   }, []);
+
+  // -------------------
+  // Protected route wrapper
+  // -------------------
+  const ProtectedRoute = ({ children }) => {
+    if (!user) return <Navigate to="/auth" replace />;
+    return children;
+  };
+
+  // -------------------
+  // Handle login/register success globally
+  // -------------------
+  const handleAuthSuccess = (userData, token) => {
+    localStorage.setItem("token", token);
+    setUser(userData);
+    toast.success(`Welcome back, ${userData.name}!`);
+  };
 
   return (
     <Router>
-      <Toaster position="top-right" />
+      {/* Global Toaster */}
+      <Toaster
+        position="top-right"
+        reverseOrder={false}
+        toastOptions={{
+          duration: 4000,
+          style: { padding: "10px 14px", borderRadius: 8, color: "#fff" },
+          success: { style: { background: "#28a745" } },
+          error: { style: { background: "#dc3545" } },
+        }}
+      />
 
       <Routes>
+        {/* Public Pages */}
         <Route path="/" element={<Homepage user={user} />} />
-
-        <Route path="/auth" element={<AuthPage setUser={setUser} />} />
-
-        <Route path="/profile" element={<Profile user={user} />} />
-
+        <Route
+          path="/auth"
+          element={<AuthPage setUser={handleAuthSuccess} />}
+        />
         <Route path="/product/:id" element={<ProductDetail user={user} />} />
-
         <Route path="/seller/:id" element={<SellerProfile user={user} />} />
 
-        <Route path="/minimart/add" element={<AddProduct user={user} />} />
+        {/* Logged-in User Pages */}
+        <Route
+          path="/profile"
+          element={
+            <ProtectedRoute>
+              <Profile user={user} />
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="/minimart/add"
+          element={
+            <ProtectedRoute>
+              <AddProduct user={user} />
+            </ProtectedRoute>
+          }
+        />
 
-        <Route path="/conversations" element={<Conversations user={user} />} />
+        {/* Messaging Pages */}
+        <Route
+          path="/conversations"
+          element={
+            <ProtectedRoute>
+              <Conversations user={user} />
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="/chat/:productId"
+          element={
+            <ProtectedRoute>
+              <Chat user={user} />
+            </ProtectedRoute>
+          }
+        />
 
-        <Route path="/chat/:productId" element={<Chat user={user} />} />
+        {/* Fallback */}
+        <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>
     </Router>
   );
