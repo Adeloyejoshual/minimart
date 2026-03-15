@@ -8,20 +8,22 @@ import toast, { Toaster } from "react-hot-toast";
 import Homepage from "./pages/Homepage";
 import AddProduct from "./pages/AddProduct";
 import ProductDetail from "./pages/ProductDetail";
-import Profile from "./pages/Profile";
-import Coupons from "./pages/Coupons";
-import Dashboard from "./pages/Dashboard";
-import Leaderboard from "./pages/Leaderboard";
-import Verification from "./pages/Verification";
-import Wallet from "./pages/Wallet";
+import Profile from "./pages/Profile/Profile";           // Profile main page
 
-import SettingsPage from "./pages/SettingsPage"; // Settings
+// Profile sub-pages
+import Coupons from "./pages/Profile/Coupons";
+import Dashboard from "./pages/Profile/Dashboard";
+import Leaderboard from "./pages/Profile/Leaderboard";
+import Verification from "./pages/Profile/Verification";
+import Wallet from "./pages/Profile/Wallet";
+
+import SettingsPage from "./pages/SettingsPage";        // Settings
 import Conversations from "./pages/Conversations";
 import Chat from "./pages/Chat";
 import SellerProfile from "./pages/SellerProfile";
 import AuthPage from "./pages/AuthPage";
 
-// New pages
+// New feature pages
 import BecomeSeller from "./pages/BecomeSeller";
 import FAQ from "./pages/FAQ";
 import Complain from "./pages/Complain";
@@ -101,7 +103,7 @@ export default function App() {
         <Route path="/conversations" element={<ProtectedRoute><Conversations user={user} /></ProtectedRoute>} />
         <Route path="/chat/:productId" element={<ProtectedRoute><Chat user={user} /></ProtectedRoute>} />
 
-        {/* Profile-related pages */}
+        {/* Profile sub-pages */}
         <Route path="/coupons" element={<ProtectedRoute><Coupons user={user} /></ProtectedRoute>} />
         <Route path="/dashboard" element={<ProtectedRoute><Dashboard user={user} /></ProtectedRoute>} />
         <Route path="/leaderboard" element={<ProtectedRoute><Leaderboard user={user} /></ProtectedRoute>} />
