@@ -3,6 +3,10 @@ import jwt from "jsonwebtoken";
 
 const JWT_SECRET = process.env.JWT_SECRET || "supersecretkey";
 
+/**
+ * Middleware to authenticate requests using JWT.
+ * Attaches decoded user info to req.user
+ */
 export const authenticate = (req, res, next) => {
   try {
     const authHeader = req.headers.authorization;
@@ -13,11 +17,17 @@ export const authenticate = (req, res, next) => {
 
     const token = authHeader.split(" ")[1];
 
+    // Verify token
     const decoded = jwt.verify(token, JWT_SECRET);
-    req.user = decoded; // { id, name, email }
+
+    // Attach user info to request
+    req.user = decoded; // decoded usually contains { id, email, name }
+
     next();
   } catch (err) {
     console.error("Authentication error:", err.message);
     return res.status(401).json({ message: "Invalid or expired token" });
   }
 };
+
+export default authenticate;
