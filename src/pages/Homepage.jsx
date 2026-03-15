@@ -5,11 +5,12 @@ import InfiniteScroll from "react-infinite-scroll-component";
 import { Swiper, SwiperSlide } from "swiper/react";
 import "swiper/css";
 import { useNavigate } from "react-router-dom";
-import BottomNav from "../components/BottomNav"; // your nav bar
+import TopNav from "../components/TopNav";
+import BottomNav from "../components/BottomNav";
 
 const API = "https://minimart-ivrm.onrender.com/api/marketplace";
 
-export default function Homepage() {
+export default function Homepage({ user }) {
   const navigate = useNavigate();
   const [products, setProducts] = useState([]);
   const [trending, setTrending] = useState([]);
@@ -28,7 +29,7 @@ export default function Homepage() {
   useEffect(() => {
     const timer = setTimeout(() => {
       loadProducts(true);
-    }, 300);
+    }, 400);
     return () => clearTimeout(timer);
   }, [search]);
 
@@ -39,7 +40,7 @@ export default function Homepage() {
       const res = await axios.get(
         `${API}/products?skip=${currentSkip}&limit=${limit}&search=${search}`
       );
-      const data = res.data.products || res.data; // handle your API response
+      const data = res.data.products || res.data; // handle API shape
 
       if (reset) {
         setProducts(data);
@@ -51,7 +52,7 @@ export default function Homepage() {
 
       if (data.length < limit) setHasMore(false);
     } catch (err) {
-      console.error("Failed to load products:", err);
+      console.error("Product load error", err);
     } finally {
       setLoading(false);
     }
@@ -62,7 +63,7 @@ export default function Homepage() {
       const res = await axios.get(`${API}/trending`);
       setTrending(res.data);
     } catch (err) {
-      console.error("Failed to load trending products:", err);
+      console.error("Trending error", err);
     }
   };
 
@@ -70,13 +71,20 @@ export default function Homepage() {
 
   return (
     <div style={{ maxWidth: 1200, margin: "auto", padding: 20, paddingBottom: 80 }}>
+      {/* Top Navigation */}
+      <TopNav user={user} />
+
       <h1>MiniMart Marketplace</h1>
 
       <input
         placeholder="Search products..."
         value={search}
         onChange={(e) => setSearch(e.target.value)}
-        style={{ padding: 10, width: "100%", marginBottom: 20 }}
+        style={{
+          padding: 10,
+          width: "100%",
+          marginBottom: 20,
+        }}
       />
 
       <h2>Trending Products</h2>
@@ -112,7 +120,11 @@ export default function Homepage() {
           {products.map((p) => (
             <div
               key={p.id}
-              style={{ border: "1px solid #ddd", padding: 15, cursor: "pointer" }}
+              style={{
+                border: "1px solid #ddd",
+                padding: 15,
+                cursor: "pointer",
+              }}
               onClick={() => goToProduct(p.id)}
             >
               {p.image && (
