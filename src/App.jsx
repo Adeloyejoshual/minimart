@@ -1,6 +1,6 @@
 // src/App.jsx
 import React, { useState, useEffect } from "react";
-import { BrowserRouter as Router, Routes, Route, Navigate, useNavigate } from "react-router-dom";
+import { BrowserRouter as Router, Routes, Route, Navigate } from "react-router-dom";
 import axios from "axios";
 import toast, { Toaster } from "react-hot-toast";
 
@@ -15,6 +15,7 @@ import AuthPage from "./pages/AuthPage";
 
 export default function App() {
   const [user, setUser] = useState(null);
+  const [loadingUser, setLoadingUser] = useState(true);
   const API = "https://minimart-ivrm.onrender.com/api/users";
 
   // -------------------
@@ -22,33 +23,39 @@ export default function App() {
   // -------------------
   useEffect(() => {
     const token = localStorage.getItem("token");
-    if (token) {
-      const fetchUser = async () => {
-        try {
-          const { data } = await axios.get(`${API}/me`, {
-            headers: { Authorization: `Bearer ${token}` },
-          });
-          setUser(data);
-        } catch (err) {
-          console.error("Failed to fetch user:", err);
-          localStorage.removeItem("token");
-          setUser(null);
-        }
-      };
-      fetchUser();
+    if (!token) {
+      setLoadingUser(false);
+      return;
     }
+
+    const fetchUser = async () => {
+      try {
+        const { data } = await axios.get(`${API}/me`, {
+          headers: { Authorization: `Bearer ${token}` },
+        });
+        setUser(data);
+      } catch (err) {
+        console.error("Failed to fetch user:", err);
+        localStorage.removeItem("token");
+        setUser(null);
+      } finally {
+        setLoadingUser(false);
+      }
+    };
+    fetchUser();
   }, []);
 
   // -------------------
   // Protected route wrapper
   // -------------------
   const ProtectedRoute = ({ children }) => {
+    if (loadingUser) return <p>Loading user data...</p>;
     if (!user) return <Navigate to="/auth" replace />;
     return children;
   };
 
   // -------------------
-  // Handle login/register success globally
+  // Handle login/register success
   // -------------------
   const handleAuthSuccess = (userData, token) => {
     localStorage.setItem("token", token);
@@ -75,12 +82,12 @@ export default function App() {
         <Route path="/" element={<Homepage user={user} />} />
         <Route
           path="/auth"
-          element={<AuthPage setUser={handleAuthSuccess} />}
+          element={<AuthPage onAuthSuccess={handleAuthSuccess} />}
         />
         <Route path="/product/:id" element={<ProductDetail user={user} />} />
         <Route path="/seller/:id" element={<SellerProfile user={user} />} />
 
-        {/* Logged-in User Pages */}
+        {/* Protected Pages */}
         <Route
           path="/profile"
           element={
