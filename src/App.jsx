@@ -1,18 +1,32 @@
-// src/App.jsx - Updated with SettingsPage
+// src/App.jsx
 import React, { useState, useEffect } from "react";
 import { BrowserRouter as Router, Routes, Route, Navigate } from "react-router-dom";
 import axios from "axios";
 import toast, { Toaster } from "react-hot-toast";
 
+// Pages
 import Homepage from "./pages/Homepage";
 import AddProduct from "./pages/AddProduct";
 import ProductDetail from "./pages/ProductDetail";
 import Profile from "./pages/Profile";
-import SettingsPage from "./pages/SettingsPage";  // 👈 NEW
+import Coupons from "./pages/Coupons";
+import Dashboard from "./pages/Dashboard";
+import Leaderboard from "./pages/Leaderboard";
+import Verification from "./pages/Verification";
+import Wallet from "./pages/Wallet";
+
+import SettingsPage from "./pages/SettingsPage"; // Settings
 import Conversations from "./pages/Conversations";
 import Chat from "./pages/Chat";
 import SellerProfile from "./pages/SellerProfile";
 import AuthPage from "./pages/AuthPage";
+
+// New pages
+import BecomeSeller from "./pages/BecomeSeller";
+import FAQ from "./pages/FAQ";
+import Complain from "./pages/Complain";
+import Support from "./pages/Support";
+import Invitation from "./pages/Invitation";
 
 export default function App() {
   const [user, setUser] = useState(null);
@@ -81,46 +95,25 @@ export default function App() {
         <Route path="/auth" element={<AuthPage setUser={handleAuthSuccess} />} />
 
         {/* Protected Pages */}
-        <Route
-          path="/profile"
-          element={
-            <ProtectedRoute>
-              <Profile user={user} />
-            </ProtectedRoute>
-          }
-        />
-        <Route
-          path="/settings"  // 👈 NEW SETTINGS ROUTE
-          element={
-            <ProtectedRoute>
-              <SettingsPage user={user} />
-            </ProtectedRoute>
-          }
-        />
-        <Route
-          path="/minimart/add"
-          element={
-            <ProtectedRoute>
-              <AddProduct user={user} />
-            </ProtectedRoute>
-          }
-        />
-        <Route
-          path="/conversations"
-          element={
-            <ProtectedRoute>
-              <Conversations user={user} />
-            </ProtectedRoute>
-          }
-        />
-        <Route
-          path="/chat/:productId"
-          element={
-            <ProtectedRoute>
-              <Chat user={user} />
-            </ProtectedRoute>
-          }
-        />
+        <Route path="/profile" element={<ProtectedRoute><Profile user={user} /></ProtectedRoute>} />
+        <Route path="/settings" element={<ProtectedRoute><SettingsPage user={user} /></ProtectedRoute>} />
+        <Route path="/minimart/add" element={<ProtectedRoute><AddProduct user={user} /></ProtectedRoute>} />
+        <Route path="/conversations" element={<ProtectedRoute><Conversations user={user} /></ProtectedRoute>} />
+        <Route path="/chat/:productId" element={<ProtectedRoute><Chat user={user} /></ProtectedRoute>} />
+
+        {/* Profile-related pages */}
+        <Route path="/coupons" element={<ProtectedRoute><Coupons user={user} /></ProtectedRoute>} />
+        <Route path="/dashboard" element={<ProtectedRoute><Dashboard user={user} /></ProtectedRoute>} />
+        <Route path="/leaderboard" element={<ProtectedRoute><Leaderboard user={user} /></ProtectedRoute>} />
+        <Route path="/verification" element={<ProtectedRoute><Verification user={user} /></ProtectedRoute>} />
+        <Route path="/wallet" element={<ProtectedRoute><Wallet user={user} /></ProtectedRoute>} />
+
+        {/* New Feature Pages */}
+        <Route path="/become-seller" element={<ProtectedRoute><BecomeSeller user={user} /></ProtectedRoute>} />
+        <Route path="/faq" element={<ProtectedRoute><FAQ user={user} /></ProtectedRoute>} />
+        <Route path="/complain" element={<ProtectedRoute><Complain user={user} /></ProtectedRoute>} />
+        <Route path="/support" element={<ProtectedRoute><Support user={user} /></ProtectedRoute>} />
+        <Route path="/invitation" element={<ProtectedRoute><Invitation user={user} /></ProtectedRoute>} />
 
         {/* Fallback */}
         <Route path="*" element={<Navigate to="/" replace />} />
