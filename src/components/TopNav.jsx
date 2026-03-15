@@ -2,12 +2,13 @@
 import React from "react";
 import { useNavigate } from "react-router-dom";
 
-export default function TopNav({ user }) {
+export default function TopNav({ user, setUser }) {
   const navigate = useNavigate();
 
   const handleLogout = () => {
     localStorage.removeItem("token");
-    window.location.reload(); // refresh to update user state
+    setUser(null); // update App state immediately
+    navigate("/auth"); // redirect to AuthPage
   };
 
   return (
@@ -66,6 +67,7 @@ export default function TopNav({ user }) {
           </>
         ) : (
           <>
+            <span style={{ marginRight: 10 }}>Hi, {user.name}</span>
             <button
               onClick={() => navigate("/profile")}
               style={{
