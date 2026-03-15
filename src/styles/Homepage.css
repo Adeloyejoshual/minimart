@@ -1,16 +1,14 @@
-/* src/styles/Homepage.css - ENTERPRISE GRADE DESIGN SYSTEM */
+/* src/styles/Homepage.css - ENTERPRISE GRADE DESIGN SYSTEM UPGRADE */
 @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap');
 
 :root {
-  /* Enterprise Color System */
   --primary: #1e40af;
   --primary-dark: #1e3a8a;
   --secondary: #7c3aed;
   --accent: #f59e0b;
   --success: #059669;
   --danger: #dc2626;
-  
-  /* Enterprise Gray Scale */
+
   --gray-900: #111827;
   --gray-800: #1f2937;
   --gray-700: #374151;
@@ -21,16 +19,14 @@
   --gray-200: #e5e7eb;
   --gray-100: #f3f4f6;
   --gray-50: #f9fafb;
-  
-  /* Enterprise Spacing */
+
   --space-xs: 0.25rem;
   --space-sm: 0.5rem;
   --space-md: 1rem;
   --space-lg: 1.5rem;
   --space-xl: 2rem;
   --space-2xl: 3rem;
-  
-  /* Enterprise Sizing */
+
   --radius-sm: 8px;
   --radius-md: 12px;
   --radius-lg: 16px;
@@ -39,8 +35,7 @@
   --shadow-md: 0 4px 6px -1px rgb(0 0 0 / 0.1), 0 2px 4px -2px rgb(0 0 0 / 0.1);
   --shadow-lg: 0 10px 15px -3px rgb(0 0 0 / 0.1), 0 4px 6px -4px rgb(0 0 0 / 0.1);
   --shadow-xl: 0 20px 25px -5px rgb(0 0 0 / 0.1), 0 8px 10px -6px rgb(0 0 0 / 0.1);
-  
-  /* Responsive Columns */
+
   --cols-mobile: 2;
   --cols-tablet: 4;
   --cols-laptop: 4;
@@ -56,7 +51,7 @@
   box-sizing: border-box;
 }
 
-.enterprise-homepage {
+body, .enterprise-homepage {
   font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
   background: var(--gray-50);
   min-height: 100vh;
@@ -64,7 +59,7 @@
   margin: 0 auto;
 }
 
-/* Enterprise Hero */
+/* HERO */
 .enterprise-hero {
   background: linear-gradient(135deg, var(--primary) 0%, var(--secondary) 100%);
   padding: clamp(var(--space-xl), 5vw, var(--space-2xl)) clamp(var(--space-lg), 3vw, var(--space-xl));
@@ -110,7 +105,7 @@
   backdrop-filter: blur(20px);
   box-shadow: var(--shadow-xl);
   outline: none;
-  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+  transition: all 0.3s ease-in-out;
 }
 
 .search-input:focus {
@@ -118,7 +113,7 @@
   transform: translateY(-2px);
 }
 
-/* Sections */
+/* SECTIONS */
 .trending-section,
 .products-section {
   padding: clamp(var(--space-lg), 3vw, var(--space-2xl)) 0;
@@ -169,54 +164,30 @@
   transform: translateY(-1px);
 }
 
-/* ENTERPRISE GRID SYSTEM */
+/* GRID */
 .enterprise-grid {
   display: grid;
   gap: clamp(1rem, 2.5vw, 2rem);
   grid-template-columns: repeat(var(--cols-mobile), 1fr);
 }
 
-/* MOBILE: 2 COLUMNS (MANDATORY) */
 @media (max-width: 768px) {
-  .enterprise-grid {
-    grid-template-columns: repeat(var(--cols-mobile), 1fr) !important;
-    gap: clamp(0.875rem, 4vw, 1.25rem);
-  }
+  .enterprise-grid { grid-template-columns: repeat(var(--cols-mobile), 1fr) !important; }
 }
+@media (min-width: 769px) and (max-width: 1024px) { .enterprise-grid { grid-template-columns: repeat(var(--cols-tablet), 1fr); } }
+@media (min-width: 1025px) and (max-width: 1366px) { .enterprise-grid { grid-template-columns: repeat(var(--cols-laptop), 1fr); } }
+@media (min-width: 1367px) and (max-width: 1680px) { .enterprise-grid { grid-template-columns: repeat(var(--cols-desktop), 1fr); } }
+@media (min-width: 1681px) and (max-width: 1920px) { .enterprise-grid { grid-template-columns: repeat(var(--cols-wide), 1fr); } }
+@media (min-width: 1921px) and (max-width: 2560px) { .enterprise-grid { grid-template-columns: repeat(var(--cols-ultrawide), 1fr); } }
+@media (min-width: 2561px) { .enterprise-grid { grid-template-columns: repeat(var(--cols-4k), 1fr); } }
 
-/* TABLET: 4 COLUMNS */
-@media (min-width: 769px) and (max-width: 1024px) {
-  .enterprise-grid { grid-template-columns: repeat(var(--cols-tablet), 1fr); }
-}
-
-/* LAPTOP: 4 COLUMNS */
-@media (min-width: 1025px) and (max-width: 1366px) {
-  .enterprise-grid { grid-template-columns: repeat(var(--cols-laptop), 1fr); }
-}
-
-/* DESKTOP: 5 COLUMNS */
-@media (min-width: 1367px) and (max-width: 1680px) {
-  .enterprise-grid { grid-template-columns: repeat(var(--cols-desktop), 1fr); }
-}
-
-/* FUTURE-PROOF */
-@media (min-width: 1681px) and (max-width: 1920px) {
-  .enterprise-grid { grid-template-columns: repeat(var(--cols-wide), 1fr); }
-}
-@media (min-width: 1921px) and (max-width: 2560px) {
-  .enterprise-grid { grid-template-columns: repeat(var(--cols-ultrawide), 1fr); }
-}
-@media (min-width: 2561px) {
-  .enterprise-grid { grid-template-columns: repeat(var(--cols-4k), 1fr); }
-}
-
-/* ENTERPRISE PRODUCT CARD */
+/* PRODUCT CARD */
 .enterprise-card {
   background: white;
   border-radius: var(--radius-lg);
   overflow: hidden;
   box-shadow: var(--shadow-md);
-  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+  transition: all 0.3s ease-in-out;
   cursor: pointer;
   height: 100%;
   display: flex;
@@ -226,11 +197,6 @@
 .enterprise-card:hover {
   transform: translateY(-8px);
   box-shadow: var(--shadow-xl);
-}
-
-.enterprise-card.trending {
-  max-width: 300px;
-  margin: 0 auto;
 }
 
 .card-image-container {
@@ -313,11 +279,6 @@
   color: var(--primary);
 }
 
-.stock {
-  font-size: 0.8125rem;
-  color: var(--gray-500);
-}
-
 .add-to-cart-btn {
   width: 44px;
   height: 44px;
@@ -336,7 +297,7 @@
   transform: scale(1.05);
 }
 
-/* Utility States */
+/* ERROR & EMPTY STATES */
 .error-banner {
   display: flex;
   align-items: center;
@@ -367,19 +328,8 @@
   font-size: 1.5rem;
 }
 
-/* Swiper */
-.enterprise-swiper {
-  padding-bottom: 3rem;
-}
-
-.enterprise-swiper .swiper-pagination-bullet {
-  background: rgba(255,255,255,0.6);
-}
-
-.enterprise-swiper .swiper-pagination-bullet-active {
-  background: white;
-}
-
-.infinite-scroll-container {
-  overflow: hidden;
-}
+/* SWIPER */
+.enterprise-swiper { padding-bottom: 3rem; }
+.enterprise-swiper .swiper-pagination-bullet { background: rgba(255,255,255,0.6); }
+.enterprise-swiper .swiper-pagination-bullet-active { background: white; }
+.infinite-scroll-container { overflow: hidden; }
