@@ -1,10 +1,11 @@
 /* style/Profile.css */
 
-/* Page Background */
+/* Page background */
 .profile-page {
   background: linear-gradient(to bottom right, #f8fafc, #e0f2fe, #e0e7ff);
   min-height: 100vh;
   font-family: 'Inter', sans-serif;
+  padding-bottom: 6rem; /* leave space for bottom nav */
 }
 
 /* Profile Card */
@@ -34,6 +35,41 @@
   color: white;
   font-size: 2rem;
   box-shadow: 0 8px 20px rgba(0,0,0,0.1);
+}
+
+/* Tabs Navigation */
+.tabs-nav {
+  display: flex;
+  gap: 1rem;
+  border-bottom: 2px solid #e5e7eb;
+  margin-bottom: 2rem;
+  overflow-x: auto;
+  padding-bottom: 0.25rem;
+}
+
+.tab-button {
+  padding: 0.75rem 1.5rem;
+  font-weight: 600;
+  color: #6b7280;
+  border-radius: 9999px 9999px 0 0;
+  cursor: pointer;
+  transition: all 0.3s;
+  white-space: nowrap;
+}
+
+.tab-button.active {
+  background: linear-gradient(to right, #6366f1, #818cf8);
+  color: white;
+  box-shadow: 0 4px 10px rgba(0,0,0,0.1);
+}
+
+/* Tab Content */
+.tab-content {
+  display: none;
+}
+
+.tab-content.active {
+  display: block;
 }
 
 /* Stats Grid */
@@ -71,7 +107,7 @@
   font-size: 2rem;
 }
 
-/* Dashboard Action Row */
+/* Dashboard Grid */
 .dashboard-grid {
   display: grid;
   grid-template-columns: repeat(2, 1fr);
@@ -117,7 +153,7 @@
   letter-spacing: 0.05em;
 }
 
-/* Extra Actions (Leaderboard / Coupons) */
+/* Extra Cards: Leaderboard & Coupons */
 .extra-actions-grid {
   display: grid;
   grid-template-columns: repeat(2, 1fr);
@@ -163,40 +199,6 @@
   letter-spacing: 0.05em;
 }
 
-/* Tabs Navigation */
-.tabs-nav {
-  display: flex;
-  gap: 1rem;
-  border-bottom: 2px solid #e5e7eb;
-  margin-bottom: 2rem;
-  overflow-x: auto;
-}
-
-.tab-button {
-  padding: 0.75rem 1.5rem;
-  font-weight: 600;
-  color: #6b7280;
-  border-radius: 9999px 9999px 0 0;
-  cursor: pointer;
-  transition: all 0.3s;
-  white-space: nowrap;
-}
-
-.tab-button.active {
-  background: linear-gradient(to right, #6366f1, #818cf8);
-  color: white;
-  box-shadow: 0 4px 10px rgba(0,0,0,0.1);
-}
-
-/* Tab Content */
-.tab-content {
-  display: none;
-}
-
-.tab-content.active {
-  display: block;
-}
-
 /* Info Card */
 .info-card {
   background: #ffffff;
@@ -207,7 +209,7 @@
   box-shadow: 0 10px 25px rgba(0,0,0,0.05);
 }
 
-/* Support Button */
+/* Floating Support Button */
 .support-btn {
   position: fixed;
   bottom: 6rem;
