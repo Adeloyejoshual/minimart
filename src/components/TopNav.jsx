@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef } from "react";
 import { useNavigate } from "react-router-dom";
 import axios from "axios";
-import "../style/TopNav.css";
+import "../styles/TopNav.css";
 
 export default function TopNav({ user, setUser }) {
   const navigate = useNavigate();
