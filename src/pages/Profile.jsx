@@ -2,6 +2,7 @@
 import React, { useEffect, useState, useCallback } from "react";
 import axios from "axios";
 import toast from "react-hot-toast";
+import { useNavigate } from "react-router-dom";
 
 const API = "https://minimart-ivrm.onrender.com/api";
 
@@ -12,7 +13,13 @@ export default function Profile({ user }) {
   const [loadingProducts, setLoadingProducts] = useState(true);
   const [refreshProducts, setRefreshProducts] = useState(false);
 
+  const navigate = useNavigate();
   const token = localStorage.getItem("token");
+
+  // Redirect if no user or token
+  useEffect(() => {
+    if (!user || !token) navigate("/auth", { replace: true });
+  }, [user, token, navigate]);
 
   // Fetch profile
   const fetchProfile = async () => {
@@ -25,6 +32,10 @@ export default function Profile({ user }) {
     } catch (err) {
       console.error("Failed to fetch profile", err);
       toast.error("Failed to load profile.");
+      if (err.response?.status === 401) {
+        localStorage.removeItem("token");
+        navigate("/auth", { replace: true });
+      }
     } finally {
       setLoadingProfile(false);
     }
@@ -38,32 +49,36 @@ export default function Profile({ user }) {
         headers: { Authorization: `Bearer ${token}` },
       });
       setProducts(res.data.products || res.data);
-      toast.success("Products refreshed!");
+      toast.success("Products loaded successfully!");
     } catch (err) {
       console.error("Failed to fetch products", err);
       toast.error("Failed to load products.");
+      if (err.response?.status === 401) {
+        localStorage.removeItem("token");
+        navigate("/auth", { replace: true });
+      }
     } finally {
       setLoadingProducts(false);
     }
   };
 
-  // Trigger refresh toggle
+  // Refresh products
   const triggerProductsRefresh = useCallback(() => {
     setRefreshProducts((prev) => !prev);
   }, []);
 
   // Initial fetch
   useEffect(() => {
-    if (user) {
+    if (user && token) {
       fetchProfile();
       fetchProducts();
     }
-  }, [user]);
+  }, [user, token]);
 
-  // Re-fetch products on toggle
+  // Re-fetch products when refresh toggled
   useEffect(() => {
-    if (user) fetchProducts();
-  }, [refreshProducts]);
+    if (user && token) fetchProducts();
+  }, [refreshProducts, user, token]);
 
   if (loadingProfile) return <p>Loading profile...</p>;
 
@@ -98,7 +113,7 @@ export default function Profile({ user }) {
         </div>
       </div>
 
-      {/* User Products */}
+      {/* Products Section */}
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
         <h2>Your Products</h2>
         <button
