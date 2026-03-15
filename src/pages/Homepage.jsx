@@ -27,9 +27,7 @@ export default function Homepage({ user }) {
   }, []);
 
   useEffect(() => {
-    const timer = setTimeout(() => {
-      loadProducts(true);
-    }, 400);
+    const timer = setTimeout(() => loadProducts(true), 400);
     return () => clearTimeout(timer);
   }, [search]);
 
@@ -40,11 +38,12 @@ export default function Homepage({ user }) {
       const res = await axios.get(
         `${API}/products?skip=${currentSkip}&limit=${limit}&search=${search}`
       );
-      const data = res.data.products || res.data; // handle API shape
+      const data = res.data.products || res.data;
 
       if (reset) {
         setProducts(data);
         setSkip(data.length);
+        setHasMore(true);
       } else {
         setProducts((prev) => [...prev, ...data]);
         setSkip((prev) => prev + data.length);
@@ -80,11 +79,7 @@ export default function Homepage({ user }) {
         placeholder="Search products..."
         value={search}
         onChange={(e) => setSearch(e.target.value)}
-        style={{
-          padding: 10,
-          width: "100%",
-          marginBottom: 20,
-        }}
+        style={{ padding: 10, width: "100%", marginBottom: 20 }}
       />
 
       <h2>Trending Products</h2>
