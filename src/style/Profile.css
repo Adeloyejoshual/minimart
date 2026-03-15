@@ -1,0 +1,121 @@
+/* style/Profile.css */
+
+/* General page background */
+.profile-page {
+  background: linear-gradient(to bottom right, #f8fafc, #e0f2fe, #e0e7ff);
+  min-height: 100vh;
+}
+
+/* Profile Card */
+.profile-card {
+  background: #ffffff;
+  border: 1px solid #f3f4f6;
+  box-shadow: 0 10px 25px rgba(0, 0, 0, 0.05);
+  border-radius: 2rem;
+  padding: 2.5rem;
+  display: flex;
+  flex-direction: column;
+  gap: 2rem;
+}
+
+@media (min-width: 768px) {
+  .profile-card {
+    flex-direction: row;
+    align-items: center;
+  }
+}
+
+/* Avatar */
+.profile-avatar {
+  width: 7rem;
+  height: 7rem;
+  border-radius: 50%;
+  background-color: #6366f1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: white;
+  font-size: 2rem;
+  box-shadow: 0 8px 20px rgba(0,0,0,0.1);
+}
+
+/* Stats Cards */
+.stats-grid {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 1.5rem;
+  margin-bottom: 2.5rem;
+}
+
+@media (min-width: 768px) {
+  .stats-grid {
+    grid-template-columns: repeat(4, 1fr);
+  }
+}
+
+.stats-card {
+  background: #fff;
+  border: 1px solid #e5e7eb;
+  border-radius: 1.5rem;
+  padding: 1.5rem;
+  text-align: center;
+  box-shadow: 0 5px 15px rgba(0,0,0,0.05);
+  transition: transform 0.3s, box-shadow 0.3s;
+}
+
+.stats-card:hover {
+  transform: translateY(-5px);
+  box-shadow: 0 10px 25px rgba(0,0,0,0.1);
+}
+
+.stats-icon {
+  margin-bottom: 0.75rem;
+  font-size: 2rem;
+}
+
+/* Profile Info Card */
+.info-card {
+  background: #ffffff;
+  border: 1px solid #f3f4f6;
+  border-radius: 2rem;
+  padding: 2rem;
+  margin-bottom: 2.5rem;
+  box-shadow: 0 10px 25px rgba(0,0,0,0.05);
+}
+
+.info-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 1.5rem;
+}
+
+.info-grid {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 1rem;
+}
+
+@media (min-width: 768px) {
+  .info-grid {
+    grid-template-columns: repeat(3, 1fr);
+  }
+}
+
+/* Support Button */
+.support-btn {
+  position: fixed;
+  bottom: 6rem;
+  right: 1.5rem;
+  background-color: #22c55e;
+  color: white;
+  padding: 1.25rem;
+  border-radius: 9999px;
+  box-shadow: 0 10px 25px rgba(0,0,0,0.1);
+  transition: all 0.3s;
+}
+
+.support-btn:hover {
+  background-color: #16a34a;
+  transform: translateY(-3px);
+}
