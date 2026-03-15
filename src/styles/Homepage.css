@@ -189,7 +189,6 @@ body, .enterprise-homepage {
   box-shadow: var(--shadow-md);
   transition: all 0.3s ease-in-out;
   cursor: pointer;
-  height: 100%;
   display: flex;
   flex-direction: column;
 }
@@ -200,7 +199,7 @@ body, .enterprise-homepage {
 }
 
 .card-image-container {
-  height: clamp(160px, 25vw, 220px);
+  height: clamp(200px, 25vw, 260px);
   position: relative;
   overflow: hidden;
   background: var(--gray-100);
@@ -209,8 +208,9 @@ body, .enterprise-homepage {
 .card-image {
   width: 100%;
   height: 100%;
-  object-fit: cover;
+  object-fit: cover;  /* Full image coverage */
   transition: transform 0.4s ease;
+  border-radius: var(--radius-lg);
 }
 
 .enterprise-card:hover .card-image {
@@ -268,9 +268,10 @@ body, .enterprise-homepage {
 
 .card-footer {
   display: flex;
-  justify-content: space-between;
+  justify-content: flex-start;  /* left-align price */
   align-items: center;
   padding-top: 1rem;
+  gap: 1rem;
 }
 
 .price {
@@ -279,22 +280,9 @@ body, .enterprise-homepage {
   color: var(--primary);
 }
 
+/* Remove add-to-cart button */
 .add-to-cart-btn {
-  width: 44px;
-  height: 44px;
-  border: none;
-  background: var(--primary);
-  color: white;
-  border-radius: 50%;
-  cursor: pointer;
-  font-size: 1.1rem;
-  transition: all 0.2s ease;
-  flex-shrink: 0;
-}
-
-.add-to-cart-btn:hover {
-  background: var(--primary-dark);
-  transform: scale(1.05);
+  display: none;
 }
 
 /* ERROR & EMPTY STATES */
