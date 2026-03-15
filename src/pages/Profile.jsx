@@ -1,4 +1,4 @@
-// components/Profile.jsx
+// src/pages/Profile.jsx
 import React, { useState, useEffect } from 'react';
 import axios from 'axios';
 import { useNavigate } from 'react-router-dom';
@@ -21,7 +21,6 @@ const Profile = () => {
   const [error, setError] = useState('');
   const navigate = useNavigate();
 
-  // Get token from localStorage (assuming you store it there after login/register)
   const token = localStorage.getItem('token');
 
   useEffect(() => {
@@ -29,7 +28,6 @@ const Profile = () => {
       navigate('/login');
       return;
     }
-
     fetchUser();
   }, [token, navigate]);
 
@@ -71,8 +69,7 @@ const Profile = () => {
   const handleImageChange = (e, field) => {
     const file = e.target.files[0];
     if (file) {
-      // Here you might want to upload to Cloudinary first and get URL
-      setFormData(prev => ({ ...prev, [field]: file.name })); // Placeholder
+      setFormData(prev => ({ ...prev, [field]: file.name }));
     }
   };
 
@@ -85,7 +82,6 @@ const Profile = () => {
       const response = await axios.put('/api/users/me', formData, {
         headers: { Authorization: `Bearer ${token}` }
       });
-      
       setUser(response.data);
       alert('Profile updated successfully!');
     } catch (err) {
@@ -112,7 +108,6 @@ const Profile = () => {
   return (
     <div className="min-h-screen bg-gray-50 py-8 px-4 sm:px-6 lg:px-8">
       <div className="max-w-4xl mx-auto">
-        {/* Header */}
         <div className="text-center mb-12">
           <h1 className="text-4xl font-bold text-gray-900 mb-4">My Profile</h1>
           <div className="flex justify-center space-x-4">
@@ -142,7 +137,6 @@ const Profile = () => {
           {/* Profile Display */}
           <div className="bg-white rounded-2xl shadow-xl p-8">
             <h2 className="text-2xl font-bold text-gray-900 mb-6">Profile Info</h2>
-            
             <div className="space-y-4">
               <div>
                 <span className="text-sm font-medium text-gray-500 block mb-1">Email</span>
@@ -156,7 +150,8 @@ const Profile = () => {
                 <span className="text-sm font-medium text-gray-500 block mb-1">Phone</span>
                 <span className="text-lg font-semibold text-gray-900">{user?.phone_number || 'Not set'}</span>
               </div>
-              <div className="text-sm font-medium text-gray-500 block mb-1">Location</span>
+              <div>
+                <span className="text-sm font-medium text-gray-500 block mb-1">Location</span>
                 <span className="text-lg font-semibold text-gray-900">
                   {user?.city}, {user?.state}, {user?.country}
                 </span>
@@ -187,9 +182,7 @@ const Profile = () => {
           {/* Edit Form */}
           <div className="bg-white rounded-2xl shadow-xl p-8">
             <h2 className="text-2xl font-bold text-gray-900 mb-6">Edit Profile</h2>
-            
             <form onSubmit={handleUpdateProfile} className="space-y-6">
-              {/* Basic Info */}
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-2">Name</label>
@@ -214,7 +207,6 @@ const Profile = () => {
                 </div>
               </div>
 
-              {/* Location */}
               <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-2">Country</label>
@@ -248,7 +240,6 @@ const Profile = () => {
                 </div>
               </div>
 
-              {/* Store Info */}
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-2">Store Name</label>
                 <input
@@ -270,7 +261,6 @@ const Profile = () => {
                 />
               </div>
 
-              {/* Images - Placeholder for Cloudinary integration */}
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-2">Profile Image</label>
