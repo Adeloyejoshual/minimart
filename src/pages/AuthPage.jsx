@@ -1,17 +1,15 @@
 // src/pages/AuthPage.jsx
-import React, { useState, useEffect } from "react";
-import axios from "axios";
+import React, { useState } from "react";
 import { useNavigate } from "react-router-dom";
+import axios from "axios";
+import toast from "react-hot-toast";
 
 const API = "https://minimart-ivrm.onrender.com/api/users";
 
 export default function AuthPage({ setUser }) {
   const navigate = useNavigate();
 
-  // Toggle between login and register
-  const [isLogin, setIsLogin] = useState(true);
-
-  // Form state
+  const [mode, setMode] = useState("login"); // 'login' or 'register'
   const [form, setForm] = useState({
     name: "",
     email: "",
@@ -21,7 +19,9 @@ export default function AuthPage({ setUser }) {
     state: "",
     city: "",
   });
+  const [loading, setLoading] = useState(false);
 
+  // Handle input changes
   const handleChange = (e) => {
     setForm({ ...form, [e.target.name]: e.target.value });
   };
@@ -30,24 +30,22 @@ export default function AuthPage({ setUser }) {
   // Login
   // -------------------
   const handleLogin = async () => {
+    setLoading(true);
     try {
       const res = await axios.post(`${API}/login`, {
         email: form.email,
         password: form.password,
       });
-      const { token, user } = res.data;
+      const { user, token } = res.data;
 
-      // Store token in localStorage (keeps user logged in)
-      localStorage.setItem("token", token);
-
-      // Update parent App state
-      setUser(user);
-
-      // Redirect to homepage
-      navigate("/");
+      setUser(user, token); // Set user in App state + toast
+      toast.success("Login successful!");
+      navigate("/"); // redirect to homepage
     } catch (err) {
-      console.error("Login failed:", err.response?.data || err.message);
-      alert(err.response?.data?.message || "Login failed");
+      console.error("Login error:", err);
+      toast.error(err.response?.data?.message || "Login failed");
+    } finally {
+      setLoading(false);
     }
   };
 
@@ -55,125 +53,125 @@ export default function AuthPage({ setUser }) {
   // Register
   // -------------------
   const handleRegister = async () => {
-    const { name, email, password, phone_number, country, state, city } = form;
-    if (!name || !email || !password || !phone_number || !country || !state || !city) {
-      alert("All fields are required");
-      return;
-    }
-
+    setLoading(true);
     try {
       const res = await axios.post(`${API}/register`, {
-        name, email, password, phone_number, country, state, city
+        name: form.name,
+        email: form.email,
+        password: form.password,
+        phone_number: form.phone_number,
+        country: form.country,
+        state: form.state,
+        city: form.city,
       });
 
-      const user = res.data.user;
+      const { user } = res.data;
 
       // Optionally auto-login after register
       const loginRes = await axios.post(`${API}/login`, {
-        email,
-        password,
+        email: form.email,
+        password: form.password,
       });
       const { token } = loginRes.data;
-      localStorage.setItem("token", token);
-      setUser(user);
 
-      // Redirect to homepage
-      navigate("/");
-
+      setUser(user, token);
+      toast.success("Registration successful!");
+      navigate("/"); // redirect to homepage
     } catch (err) {
-      console.error("Register failed:", err.response?.data || err.message);
-      alert(err.response?.data?.message || "Registration failed");
+      console.error("Register error:", err);
+      toast.error(err.response?.data?.message || "Registration failed");
+    } finally {
+      setLoading(false);
     }
   };
 
   return (
     <div style={{ maxWidth: 400, margin: "auto", padding: 20 }}>
-      <h1>{isLogin ? "Login" : "Register"}</h1>
+      <h2>{mode === "login" ? "Login" : "Register"}</h2>
 
-      {!isLogin && (
-        <input
-          type="text"
-          name="name"
-          placeholder="Full Name"
-          value={form.name}
-          onChange={handleChange}
-          style={{ width: "100%", padding: 10, marginBottom: 10 }}
-        />
-      )}
-
-      <input
-        type="email"
-        name="email"
-        placeholder="Email"
-        value={form.email}
-        onChange={handleChange}
-        style={{ width: "100%", padding: 10, marginBottom: 10 }}
-      />
-
-      <input
-        type="password"
-        name="password"
-        placeholder="Password"
-        value={form.password}
-        onChange={handleChange}
-        style={{ width: "100%", padding: 10, marginBottom: 10 }}
-      />
-
-      {!isLogin && (
+      {mode === "register" && (
         <>
           <input
-            type="text"
+            name="name"
+            value={form.name}
+            onChange={handleChange}
+            placeholder="Full Name"
+            style={{ width: "100%", padding: 10, marginBottom: 10 }}
+          />
+          <input
             name="phone_number"
-            placeholder="Phone Number"
             value={form.phone_number}
             onChange={handleChange}
+            placeholder="Phone Number"
             style={{ width: "100%", padding: 10, marginBottom: 10 }}
           />
           <input
-            type="text"
             name="country"
-            placeholder="Country"
             value={form.country}
             onChange={handleChange}
+            placeholder="Country"
             style={{ width: "100%", padding: 10, marginBottom: 10 }}
           />
           <input
-            type="text"
             name="state"
-            placeholder="State"
             value={form.state}
             onChange={handleChange}
+            placeholder="State"
             style={{ width: "100%", padding: 10, marginBottom: 10 }}
           />
           <input
-            type="text"
             name="city"
-            placeholder="City"
             value={form.city}
             onChange={handleChange}
+            placeholder="City"
             style={{ width: "100%", padding: 10, marginBottom: 10 }}
           />
         </>
       )}
 
+      <input
+        name="email"
+        value={form.email}
+        onChange={handleChange}
+        placeholder="Email"
+        style={{ width: "100%", padding: 10, marginBottom: 10 }}
+      />
+      <input
+        type="password"
+        name="password"
+        value={form.password}
+        onChange={handleChange}
+        placeholder="Password"
+        style={{ width: "100%", padding: 10, marginBottom: 10 }}
+      />
+
       <button
-        onClick={isLogin ? handleLogin : handleRegister}
+        onClick={mode === "login" ? handleLogin : handleRegister}
+        disabled={loading}
         style={{
           width: "100%",
           padding: 10,
           background: "#007bff",
           color: "#fff",
           border: "none",
-          borderRadius: 5,
-          marginBottom: 10,
+          borderRadius: 4,
           cursor: "pointer",
+          marginBottom: 10,
         }}
       >
-        {isLogin ? "Login" : "Register"}
+        {loading ? "Please wait..." : mode === "login" ? "Login" : "Register"}
       </button>
 
-      <p style={{ textAlign: "center", cursor: "pointer" }} onClick={() => setIsLogin(!isLogin)}>
-        {isLogin ? "Don't have an account? Register" : "Already have an account? Login"}
+      <p style={{ textAlign: "center" }}>
+        {mode === "login"
+          ? "Don't have an account? "
+          : "Already have an account? "}
+        <span
+          style={{ color: "#007bff", cursor: "pointer" }}
+          onClick={() => setMode(mode === "login" ? "register" : "login")}
+        >
+          {mode === "login" ? "Register" : "Login"}
+        </span>
       </p>
     </div>
   );
