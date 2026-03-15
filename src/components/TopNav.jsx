@@ -13,10 +13,11 @@ export default function TopNav({ user }) {
   const [search, setSearch] = useState("");
   const [results, setResults] = useState([]);
   const [showSearchPanel, setShowSearchPanel] = useState(false);
+  const [slideIndex, setSlideIndex] = useState(0); // 0: Search, 1: Category, 2: Price
   const searchRef = useRef(null);
   const timeoutRef = useRef(null);
 
-  // Fetch live search
+  // Live search (title + description)
   const fetchSearchResults = async (query) => {
     if (!query || query.length < 2) return setResults([]);
     try {
@@ -30,7 +31,9 @@ export default function TopNav({ user }) {
   const handleInputChange = (e) => {
     const value = e.target.value;
     setSearch(value);
+    setSlideIndex(0);
     setShowSearchPanel(true);
+
     if (timeoutRef.current) clearTimeout(timeoutRef.current);
     timeoutRef.current = setTimeout(() => fetchSearchResults(value), 300);
   };
@@ -53,7 +56,7 @@ export default function TopNav({ user }) {
 
   return (
     <>
-      <header className="top-nav fixed top-0 left-0 right-0 z-50">
+      <header className="top-nav">
         <div className="nav-container">
           {/* Brand */}
           <div className="nav-brand" onClick={() => navigate("/")}>
@@ -66,16 +69,13 @@ export default function TopNav({ user }) {
             <Swiper
               modules={[Navigation]}
               slidesPerView={3}
-              spaceBetween={20}
+              spaceBetween={16}
               navigation
               className="menu-swiper"
             >
               {menuSlides.map((slide, idx) => (
                 <SwiperSlide key={idx}>
-                  <button
-                    className="menu-slide-btn"
-                    onClick={slide.onClick}
-                  >
+                  <button className="menu-slide-btn" onClick={slide.onClick}>
                     {slide.label}
                   </button>
                 </SwiperSlide>
@@ -95,29 +95,66 @@ export default function TopNav({ user }) {
           onFocus={() => search.length >= 2 && setShowSearchPanel(true)}
           className="search-input"
         />
+
         {showSearchPanel && (
           <div className="search-panel">
-            {results.length === 0 ? (
-              <div className="search-empty">No results found</div>
-            ) : (
-              results.map(p => (
-                <div
-                  key={p.id}
-                  className="search-item"
-                  onClick={() => {
-                    navigate(`/product/${p.id}`);
-                    setSearch("");
-                    setShowSearchPanel(false);
-                  }}
-                >
-                  <img src={p.image || "/placeholder.png"} alt={p.title} className="search-item-img"/>
-                  <div className="search-item-info">
-                    <p className="search-item-title">{p.title}</p>
-                    <span className="search-item-price">₦{p.price?.toLocaleString()}</span>
-                  </div>
+            <div className="search-slider" style={{ transform: `translateX(-${slideIndex * 100}%)` }}>
+              
+              {/* Slide 1: Search Results */}
+              <div className="search-slide">
+                {results.length === 0 ? (
+                  <div className="search-empty">No results found</div>
+                ) : (
+                  results.map(p => (
+                    <div
+                      key={p.id}
+                      className="search-item"
+                      onClick={() => {
+                        navigate(`/product/${p.id}`);
+                        setSearch("");
+                        setShowSearchPanel(false);
+                      }}
+                    >
+                      <img src={p.image || "/placeholder.png"} alt={p.title} className="search-item-img"/>
+                      <div className="search-item-info">
+                        <p className="search-item-title">{p.title}</p>
+                        <span className="search-item-price">₦{p.price?.toLocaleString()}</span>
+                      </div>
+                    </div>
+                  ))
+                )}
+              </div>
+
+              {/* Slide 2: Category Filter */}
+              <div className="search-slide">
+                <h3>Filter by Category</h3>
+                <ul className="category-list">
+                  {/* Categories can be dynamically loaded */}
+                  <li onClick={() => console.log("Category clicked")}>Electronics</li>
+                  <li onClick={() => console.log("Category clicked")}>Clothing</li>
+                  <li onClick={() => console.log("Category clicked")}>Home</li>
+                </ul>
+                <div className="slide-nav-buttons">
+                  <button onClick={() => setSlideIndex(0)}>Back</button>
+                  <button onClick={() => setSlideIndex(2)}>Next: Price</button>
                 </div>
-              ))
-            )}
+              </div>
+
+              {/* Slide 3: Price Filter */}
+              <div className="search-slide">
+                <h3>Filter by Price</h3>
+                <div className="price-range">
+                  <input type="number" placeholder="Min" />
+                  <span> - </span>
+                  <input type="number" placeholder="Max" />
+                </div>
+                <div className="slide-nav-buttons">
+                  <button onClick={() => setSlideIndex(1)}>Back: Category</button>
+                  <button onClick={() => setSlideIndex(0)}>Apply & Search</button>
+                </div>
+              </div>
+
+            </div>
           </div>
         )}
       </div>
