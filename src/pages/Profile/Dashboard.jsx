@@ -3,7 +3,7 @@ import React, { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 import { FiPlus, FiUsers, FiMessageSquare, FiStar, FiSettings } from "react-icons/fi";
 import axios from "axios";
-import '../style/Profile.css';
+import '../../style/Profile.css';
 
 const Dashboard = () => {
   const [stats, setStats] = useState({
