@@ -1,6 +1,6 @@
-// src/App.jsx
+// src/App.jsx - Updated with SettingsPage
 import React, { useState, useEffect } from "react";
-import { BrowserRouter as Router, Routes, Route, Navigate, useNavigate } from "react-router-dom";
+import { BrowserRouter as Router, Routes, Route, Navigate } from "react-router-dom";
 import axios from "axios";
 import toast, { Toaster } from "react-hot-toast";
 
@@ -8,6 +8,7 @@ import Homepage from "./pages/Homepage";
 import AddProduct from "./pages/AddProduct";
 import ProductDetail from "./pages/ProductDetail";
 import Profile from "./pages/Profile";
+import SettingsPage from "./pages/SettingsPage";  // 👈 NEW
 import Conversations from "./pages/Conversations";
 import Chat from "./pages/Chat";
 import SellerProfile from "./pages/SellerProfile";
@@ -73,19 +74,26 @@ export default function App() {
       <Routes>
         {/* Public Pages */}
         <Route path="/" element={<Homepage user={user} />} />
-        <Route
-          path="/auth"
-          element={<AuthPage setUser={handleAuthSuccess} />}
-        />
         <Route path="/product/:id" element={<ProductDetail user={user} />} />
         <Route path="/seller/:id" element={<SellerProfile user={user} />} />
 
-        {/* Logged-in User Pages */}
+        {/* Auth Page */}
+        <Route path="/auth" element={<AuthPage setUser={handleAuthSuccess} />} />
+
+        {/* Protected Pages */}
         <Route
           path="/profile"
           element={
             <ProtectedRoute>
               <Profile user={user} />
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="/settings"  // 👈 NEW SETTINGS ROUTE
+          element={
+            <ProtectedRoute>
+              <SettingsPage user={user} />
             </ProtectedRoute>
           }
         />
@@ -97,8 +105,6 @@ export default function App() {
             </ProtectedRoute>
           }
         />
-
-        {/* Messaging Pages */}
         <Route
           path="/conversations"
           element={
