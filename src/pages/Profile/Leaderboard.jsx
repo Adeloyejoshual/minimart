@@ -1,7 +1,7 @@
 // Page/Profile/Leaderboard.jsx
 import React, { useEffect, useState } from "react";
 import axios from "axios";
-import '../style/Profile.css';
+import '../../style/Profile.css';
 
 const Leaderboard = () => {
   const [leaders, setLeaders] = useState([]);
