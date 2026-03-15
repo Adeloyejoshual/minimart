@@ -1,7 +1,9 @@
 import { useState } from "react";
+import { useNavigate } from "react-router-dom";
 
 export default function Settings() {
   const [active, setActive] = useState("profile");
+  const navigate = useNavigate();
 
   const renderContent = () => {
     switch (active) {
@@ -11,25 +13,10 @@ export default function Settings() {
           <div>
             <h2 className="text-xl font-semibold mb-4">Profile Information</h2>
 
-            <input
-              className="border p-2 w-full mb-2 rounded"
-              placeholder="Full Name"
-            />
-
-            <input
-              className="border p-2 w-full mb-2 rounded"
-              placeholder="Email"
-            />
-
-            <input
-              className="border p-2 w-full mb-2 rounded"
-              placeholder="Phone Number"
-            />
-
-            <input
-              className="border p-2 w-full mb-2 rounded"
-              placeholder="Location"
-            />
+            <input className="border p-2 w-full mb-2 rounded" placeholder="Full Name" />
+            <input className="border p-2 w-full mb-2 rounded" placeholder="Email" />
+            <input className="border p-2 w-full mb-2 rounded" placeholder="Phone Number" />
+            <input className="border p-2 w-full mb-2 rounded" placeholder="Location" />
 
             <button className="bg-green-600 text-white px-4 py-2 rounded">
               Save Profile
@@ -42,17 +29,8 @@ export default function Settings() {
           <div>
             <h2 className="text-xl font-semibold mb-4">Security</h2>
 
-            <input
-              type="password"
-              className="border p-2 w-full mb-2 rounded"
-              placeholder="Current Password"
-            />
-
-            <input
-              type="password"
-              className="border p-2 w-full mb-2 rounded"
-              placeholder="New Password"
-            />
+            <input type="password" className="border p-2 w-full mb-2 rounded" placeholder="Current Password" />
+            <input type="password" className="border p-2 w-full mb-2 rounded" placeholder="New Password" />
 
             <button className="bg-green-600 text-white px-4 py-2 rounded">
               Update Password
@@ -87,20 +65,9 @@ export default function Settings() {
           <div>
             <h2 className="text-xl font-semibold mb-4">Address</h2>
 
-            <input
-              className="border p-2 w-full mb-2 rounded"
-              placeholder="Street Address"
-            />
-
-            <input
-              className="border p-2 w-full mb-2 rounded"
-              placeholder="City"
-            />
-
-            <input
-              className="border p-2 w-full mb-2 rounded"
-              placeholder="State"
-            />
+            <input className="border p-2 w-full mb-2 rounded" placeholder="Street Address" />
+            <input className="border p-2 w-full mb-2 rounded" placeholder="City" />
+            <input className="border p-2 w-full mb-2 rounded" placeholder="State" />
 
             <button className="bg-green-600 text-white px-4 py-2 rounded">
               Save Address
@@ -128,9 +95,7 @@ export default function Settings() {
       case "danger":
         return (
           <div>
-            <h2 className="text-xl font-semibold mb-4 text-red-600">
-              Danger Zone
-            </h2>
+            <h2 className="text-xl font-semibold mb-4 text-red-600">Danger Zone</h2>
 
             <button className="bg-red-600 text-white px-4 py-2 rounded">
               Delete Account
@@ -150,74 +115,53 @@ export default function Settings() {
 
       <div className="w-64 bg-white shadow p-6">
 
-        <h1 className="text-2xl font-bold mb-6">Settings</h1>
+        <h1 className="text-xl font-bold mb-6">Settings</h1>
 
         <ul className="space-y-3">
 
-          <li>
-            <button
-              onClick={() => setActive("profile")}
-              className="w-full text-left"
-            >
-              Profile
-            </button>
-          </li>
+          <li><button onClick={() => setActive("profile")} className="w-full text-left">Profile</button></li>
 
-          <li>
-            <button
-              onClick={() => setActive("security")}
-              className="w-full text-left"
-            >
-              Security
-            </button>
-          </li>
+          <li><button onClick={() => setActive("security")} className="w-full text-left">Security</button></li>
 
-          <li>
-            <button
-              onClick={() => setActive("notifications")}
-              className="w-full text-left"
-            >
-              Notifications
-            </button>
-          </li>
+          <li><button onClick={() => setActive("notifications")} className="w-full text-left">Notifications</button></li>
 
-          <li>
-            <button
-              onClick={() => setActive("address")}
-              className="w-full text-left"
-            >
-              Address
-            </button>
-          </li>
+          <li><button onClick={() => setActive("address")} className="w-full text-left">Address</button></li>
 
-          <li>
-            <button
-              onClick={() => setActive("verification")}
-              className="w-full text-left"
-            >
-              Seller Verification
-            </button>
-          </li>
+          <li><button onClick={() => setActive("verification")} className="w-full text-left">Seller Verification</button></li>
 
-          <li>
-            <button
-              onClick={() => setActive("danger")}
-              className="w-full text-left text-red-600"
-            >
-              Danger Zone
-            </button>
-          </li>
+          <li><button onClick={() => setActive("danger")} className="w-full text-left text-red-600">Danger Zone</button></li>
 
         </ul>
 
       </div>
 
-      {/* Content */}
+      {/* Main Content */}
 
-      <div className="flex-1 p-10">
+      <div className="flex-1">
 
-        <div className="bg-white p-6 rounded shadow max-w-xl">
-          {renderContent()}
+        {/* Header with back arrow */}
+
+        <div className="bg-white shadow px-6 py-4 flex items-center gap-4">
+
+          <button
+            onClick={() => navigate(-1)}
+            className="text-xl font-bold"
+          >
+            ←
+          </button>
+
+          <h1 className="text-xl font-semibold">
+            Settings
+          </h1>
+
+        </div>
+
+        <div className="p-8">
+
+          <div className="bg-white p-6 rounded shadow max-w-xl">
+            {renderContent()}
+          </div>
+
         </div>
 
       </div>
