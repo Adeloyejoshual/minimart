@@ -8,7 +8,7 @@ import toast, { Toaster } from "react-hot-toast";
 import Homepage from "./pages/Homepage";
 import AddProduct from "./pages/AddProduct";
 import ProductDetail from "./pages/ProductDetail";
-import Profile from "./pages/Profile";           // Profile main page
+import Profile from "./pages/Profile";
 
 // Profile sub-pages
 import Coupons from "./pages/Profile/Coupons";
@@ -17,13 +17,12 @@ import Leaderboard from "./pages/Profile/Leaderboard";
 import Verification from "./pages/Profile/Verification";
 import Wallet from "./pages/Profile/Wallet";
 
-import SettingsPage from "./pages/SettingsPage";        // Settings
+// Other Pages
+import SettingsPage from "./pages/SettingsPage";
 import Conversations from "./pages/Conversations";
 import Chat from "./pages/Chat";
 import SellerProfile from "./pages/SellerProfile";
 import AuthPage from "./pages/AuthPage";
-
-// New feature pages
 import BecomeSeller from "./pages/BecomeSeller";
 import FAQ from "./pages/FAQ";
 import Complain from "./pages/Complain";
@@ -32,41 +31,34 @@ import Invitation from "./pages/Invitation";
 
 export default function App() {
   const [user, setUser] = useState(null);
+  const [loadingUser, setLoadingUser] = useState(true); // <-- Loading state
   const API = "https://minimart-ivrm.onrender.com/api/users";
 
-  // -------------------
-  // Load logged-in user from localStorage
-  // -------------------
+  // Load user from localStorage and server
   useEffect(() => {
     const token = localStorage.getItem("token");
     if (token) {
-      const fetchUser = async () => {
-        try {
-          const { data } = await axios.get(`${API}/me`, {
-            headers: { Authorization: `Bearer ${token}` },
-          });
-          setUser(data);
-        } catch (err) {
-          console.error("Failed to fetch user:", err);
+      axios
+        .get(`${API}/me`, { headers: { Authorization: `Bearer ${token}` } })
+        .then(res => setUser(res.data))
+        .catch(() => {
           localStorage.removeItem("token");
           setUser(null);
-        }
-      };
-      fetchUser();
+        })
+        .finally(() => setLoadingUser(false));
+    } else {
+      setLoadingUser(false);
     }
   }, []);
 
-  // -------------------
   // Protected route wrapper
-  // -------------------
   const ProtectedRoute = ({ children }) => {
+    if (loadingUser) return <div style={{ textAlign: "center", marginTop: "20vh" }}>Loading...</div>;
     if (!user) return <Navigate to="/auth" replace />;
     return children;
   };
 
-  // -------------------
-  // Handle login/register success globally
-  // -------------------
+  // Global login/register success handler
   const handleAuthSuccess = (userData, token) => {
     localStorage.setItem("token", token);
     setUser(userData);
