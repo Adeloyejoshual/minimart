@@ -4,7 +4,7 @@ import { useNavigate, Link } from "react-router-dom";
 import axios from "axios";
 import { 
   FiUser, FiPlus, FiUsers, FiMessageSquare, FiStar, FiHeadphones, 
-  FiSettings, FiGift, FiCreditCard, FiCheckCircle, FiFileText 
+  FiSettings, FiGift, FiCreditCard, FiCheckCircle, FiFileText, FiGift as FiCoupon 
 } from "react-icons/fi";
 import ProHeader from "../components/ProHeader";
 import BottomNav from "../components/BottomNav";
@@ -17,20 +17,18 @@ const Profile = () => {
   const token = localStorage.getItem("token");
 
   useEffect(() => {
-    if (!token) return navigate("/login");
+    if (!token) return navigate("/auth");
     fetchUser();
   }, [token]);
 
   const fetchUser = async () => {
     try {
       setLoading(true);
-      const res = await axios.get("/api/users/me", { 
-        headers: { Authorization: `Bearer ${token}` } 
-      });
+      const res = await axios.get("/api/users/me", { headers: { Authorization: `Bearer ${token}` } });
       setUser(res.data);
     } catch {
       localStorage.removeItem("token");
-      navigate("/login");
+      navigate("/auth");
     } finally {
       setLoading(false);
     }
@@ -43,7 +41,7 @@ const Profile = () => {
   );
 
   return (
-    <div className="profile-page min-h-screen bg-gray-50 pb-24">
+    <div className="profile-page min-h-screen bg-gray-50 pb-28">
       {/* Header */}
       <ProHeader title="Profile" showBack={true} />
 
@@ -64,7 +62,7 @@ const Profile = () => {
       </div>
 
       {/* Menu List */}
-      <div className="menu-list mt-8 mx-4 grid gap-4">
+      <div className="menu-list mt-8 mx-4 grid gap-3">
         <Link to="/dashboard" className="menu-item hover:bg-indigo-50"><FiUsers className="menu-icon"/> Dashboard</Link>
         <Link to="/leaderboard" className="menu-item hover:bg-indigo-50"><FiStar className="menu-icon"/> Leaderboard</Link>
         <Link to="/coupons" className="menu-item hover:bg-indigo-50"><FiGift className="menu-icon"/> Coupons</Link>
@@ -72,6 +70,7 @@ const Profile = () => {
         <Link to="/wallet" className="menu-item hover:bg-indigo-50"><FiCreditCard className="menu-icon"/> Wallet</Link>
         <Link to="/verification" className="menu-item hover:bg-indigo-50"><FiCheckCircle className="menu-icon"/> Verification</Link>
         <Link to="/become-seller" className="menu-item hover:bg-indigo-50"><FiUser className="menu-icon"/> Become Seller</Link>
+        <Link to="/invitation" className="menu-item hover:bg-indigo-50"><FiGift className="menu-icon"/> Invitation</Link>
         <Link to="/faq" className="menu-item hover:bg-indigo-50"><FiFileText className="menu-icon"/> FAQ</Link>
         <Link to="/complain" className="menu-item hover:bg-indigo-50"><FiMessageSquare className="menu-icon"/> Complain</Link>
       </div>
