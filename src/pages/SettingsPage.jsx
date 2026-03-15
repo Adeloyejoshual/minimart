@@ -1,95 +1,111 @@
 import { useState } from "react";
-import axios from "axios";
-
-const API = "https://minimart-ivrm.onrender.com/api/users";
 
 export default function Settings() {
-  const [name, setName] = useState("");
-  const [email, setEmail] = useState("");
-  const [password, setPassword] = useState("");
-  const [notifications, setNotifications] = useState(true);
+  const [active, setActive] = useState("profile");
 
-  const token = localStorage.getItem("token");
+  const renderContent = () => {
+    switch (active) {
+      case "profile":
+        return (
+          <>
+            <h2 className="text-xl font-semibold mb-4">Profile</h2>
+            <input className="border p-2 w-full mb-2 rounded" placeholder="Full Name" />
+            <input className="border p-2 w-full mb-2 rounded" placeholder="Email" />
+            <button className="bg-green-600 text-white px-4 py-2 rounded">
+              Save Changes
+            </button>
+          </>
+        );
 
-  const updateProfile = async () => {
-    try {
-      const res = await axios.put(
-        `${API}/update`,
-        { name, email },
-        { headers: { Authorization: `Bearer ${token}` } }
-      );
+      case "security":
+        return (
+          <>
+            <h2 className="text-xl font-semibold mb-4">Security</h2>
+            <input type="password" className="border p-2 w-full mb-2 rounded" placeholder="New Password" />
+            <button className="bg-green-600 text-white px-4 py-2 rounded">
+              Update Password
+            </button>
+          </>
+        );
 
-      alert("Profile updated");
-    } catch (err) {
-      alert("Error updating profile");
+      case "notifications":
+        return (
+          <>
+            <h2 className="text-xl font-semibold mb-4">Notifications</h2>
+            <label className="flex items-center gap-2">
+              <input type="checkbox" />
+              Email notifications
+            </label>
+            <label className="flex items-center gap-2 mt-2">
+              <input type="checkbox" />
+              SMS notifications
+            </label>
+          </>
+        );
+
+      case "bank":
+        return (
+          <>
+            <h2 className="text-xl font-semibold mb-4">Bank Details</h2>
+            <input className="border p-2 w-full mb-2 rounded" placeholder="Bank Name" />
+            <input className="border p-2 w-full mb-2 rounded" placeholder="Account Number" />
+            <button className="bg-green-600 text-white px-4 py-2 rounded">
+              Save Bank
+            </button>
+          </>
+        );
+
+      default:
+        return null;
     }
-  };
-
-  const changePassword = async () => {
-    try {
-      await axios.put(
-        `${API}/change-password`,
-        { password },
-        { headers: { Authorization: `Bearer ${token}` } }
-      );
-
-      alert("Password changed");
-    } catch {
-      alert("Error changing password");
-    }
-  };
-
-  const logout = () => {
-    localStorage.removeItem("token");
-    window.location.href = "/login";
   };
 
   return (
-    <div style={{ maxWidth: "500px", margin: "auto", padding: "20px" }}>
-      <h2>Settings</h2>
+    <div className="flex min-h-screen bg-gray-100">
 
-      <h3>Profile</h3>
-      <input
-        placeholder="Name"
-        value={name}
-        onChange={(e) => setName(e.target.value)}
-      />
+      {/* Sidebar */}
+      <div className="w-64 bg-white shadow p-4">
 
-      <input
-        placeholder="Email"
-        value={email}
-        onChange={(e) => setEmail(e.target.value)}
-      />
+        <h1 className="text-xl font-bold mb-6">Settings</h1>
 
-      <button onClick={updateProfile}>Update Profile</button>
+        <ul className="space-y-3">
 
-      <h3>Change Password</h3>
-      <input
-        type="password"
-        placeholder="New password"
-        value={password}
-        onChange={(e) => setPassword(e.target.value)}
-      />
+          <li>
+            <button onClick={() => setActive("profile")} className="w-full text-left">
+              Profile
+            </button>
+          </li>
 
-      <button onClick={changePassword}>Change Password</button>
+          <li>
+            <button onClick={() => setActive("security")} className="w-full text-left">
+              Security
+            </button>
+          </li>
 
-      <h3>Notifications</h3>
+          <li>
+            <button onClick={() => setActive("notifications")} className="w-full text-left">
+              Notifications
+            </button>
+          </li>
 
-      <label>
-        <input
-          type="checkbox"
-          checked={notifications}
-          onChange={() => setNotifications(!notifications)}
-        />
-        Enable Notifications
-      </label>
+          <li>
+            <button onClick={() => setActive("bank")} className="w-full text-left">
+              Bank Details
+            </button>
+          </li>
 
-      <br />
-      <br />
+        </ul>
+      </div>
 
-      <button onClick={logout} style={{ background: "red", color: "white" }}>
-        Logout
-      </button>
+      {/* Content */}
+      <div className="flex-1 p-8">
+
+        <div className="bg-white p-6 rounded shadow max-w-xl">
+          {renderContent()}
+        </div>
+
+      </div>
+
     </div>
   );
 }
