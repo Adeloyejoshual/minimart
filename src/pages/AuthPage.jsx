@@ -1,13 +1,13 @@
-// src/pages/Auth.jsx
-import React, { useState, useEffect } from "react";
+// src/pages/AuthPage.jsx
+import React, { useState } from "react";
 import axios from "axios";
 import { useNavigate } from "react-router-dom";
 
 const API = "https://minimart-ivrm.onrender.com/api/users";
 
-export default function Auth({ setUser }) {
+export default function AuthPage({ setUser }) {
   const navigate = useNavigate();
-  const [isRegister, setIsRegister] = useState(false);
+  const [isLogin, setIsLogin] = useState(true);
   const [form, setForm] = useState({
     name: "",
     email: "",
@@ -17,16 +17,8 @@ export default function Auth({ setUser }) {
     state: "",
     city: "",
   });
-  const [message, setMessage] = useState("");
-
-  // Auto-login if token exists
-  useEffect(() => {
-    const token = localStorage.getItem("token");
-    if (token) {
-      // Optional: fetch user info from API here
-      navigate("/"); // redirect to homepage
-    }
-  }, [navigate]);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState("");
 
   const handleChange = (e) => {
     setForm({ ...form, [e.target.name]: e.target.value });
@@ -34,52 +26,153 @@ export default function Auth({ setUser }) {
 
   const handleSubmit = async (e) => {
     e.preventDefault();
-    setMessage("");
+    setError("");
+    setLoading(true);
 
     try {
-      const endpoint = isRegister ? "/register" : "/login";
-      const { data } = await axios.post(API + endpoint, form);
-
-      // Save token and set user
-      localStorage.setItem("token", data.token);
-      setUser(data.user);
-      navigate("/"); // redirect to homepage
+      if (isLogin) {
+        // Login
+        const res = await axios.post(`${API}/login`, {
+          email: form.email,
+          password: form.password,
+        });
+        const { token, user } = res.data;
+        localStorage.setItem("token", token);
+        setUser(user);
+        navigate("/");
+      } else {
+        // Register
+        const res = await axios.post(`${API}/register`, {
+          name: form.name,
+          email: form.email,
+          password: form.password,
+          phone_number: form.phone_number,
+          country: form.country,
+          state: form.state,
+          city: form.city,
+        });
+        const { user } = res.data;
+        // Auto-login after register
+        const loginRes = await axios.post(`${API}/login`, {
+          email: form.email,
+          password: form.password,
+        });
+        const { token } = loginRes.data;
+        localStorage.setItem("token", token);
+        setUser(user);
+        navigate("/");
+      }
     } catch (err) {
       console.error(err);
-      setMessage(err.response?.data?.message || "Something went wrong");
+      if (err.response?.data?.message) setError(err.response.data.message);
+      else setError("Something went wrong");
+    } finally {
+      setLoading(false);
     }
   };
 
   return (
-    <div style={{ maxWidth: 500, margin: "auto", padding: 20 }}>
-      <h1>{isRegister ? "Register" : "Login"}</h1>
-      <form onSubmit={handleSubmit} style={{ display: "flex", flexDirection: "column", gap: 10 }}>
-        {isRegister && (
+    <div
+      style={{
+        maxWidth: 500,
+        margin: "50px auto",
+        padding: 20,
+        border: "1px solid #ddd",
+        borderRadius: 6,
+      }}
+    >
+      <h2 style={{ textAlign: "center", marginBottom: 20 }}>
+        {isLogin ? "Login" : "Register"}
+      </h2>
+
+      {error && <p style={{ color: "red" }}>{error}</p>}
+
+      <form onSubmit={handleSubmit} style={{ display: "flex", flexDirection: "column", gap: 15 }}>
+        {!isLogin && (
           <>
-            <input type="text" name="name" placeholder="Full Name" value={form.name} onChange={handleChange} required />
-            <input type="text" name="phone_number" placeholder="Phone Number" value={form.phone_number} onChange={handleChange} required />
-            <input type="text" name="country" placeholder="Country" value={form.country} onChange={handleChange} required />
-            <input type="text" name="state" placeholder="State" value={form.state} onChange={handleChange} required />
-            <input type="text" name="city" placeholder="City" value={form.city} onChange={handleChange} required />
+            <input
+              type="text"
+              name="name"
+              placeholder="Full Name"
+              value={form.name}
+              onChange={handleChange}
+              required
+            />
+            <input
+              type="text"
+              name="phone_number"
+              placeholder="Phone Number"
+              value={form.phone_number}
+              onChange={handleChange}
+              required
+            />
+            <input
+              type="text"
+              name="country"
+              placeholder="Country"
+              value={form.country}
+              onChange={handleChange}
+              required
+            />
+            <input
+              type="text"
+              name="state"
+              placeholder="State"
+              value={form.state}
+              onChange={handleChange}
+              required
+            />
+            <input
+              type="text"
+              name="city"
+              placeholder="City"
+              value={form.city}
+              onChange={handleChange}
+              required
+            />
           </>
         )}
-        <input type="email" name="email" placeholder="Email" value={form.email} onChange={handleChange} required />
-        <input type="password" name="password" placeholder="Password" value={form.password} onChange={handleChange} required />
-        <button type="submit">{isRegister ? "Register" : "Login"}</button>
-      </form>
 
-      {message && <p style={{ marginTop: 10, color: "red" }}>{message}</p>}
+        <input
+          type="email"
+          name="email"
+          placeholder="Email"
+          value={form.email}
+          onChange={handleChange}
+          required
+        />
+        <input
+          type="password"
+          name="password"
+          placeholder="Password"
+          value={form.password}
+          onChange={handleChange}
+          required
+        />
 
-      <p style={{ marginTop: 20 }}>
-        {isRegister ? "Already have an account?" : "Don't have an account?"}{" "}
-        <span
-          style={{ color: "blue", cursor: "pointer" }}
-          onClick={() => {
-            setIsRegister(!isRegister);
-            setMessage("");
+        <button
+          type="submit"
+          disabled={loading}
+          style={{
+            padding: "10px 15px",
+            background: "#007bff",
+            color: "#fff",
+            border: "none",
+            borderRadius: 4,
+            cursor: "pointer",
           }}
         >
-          {isRegister ? "Login here" : "Register here"}
+          {loading ? "Please wait..." : isLogin ? "Login" : "Register"}
+        </button>
+      </form>
+
+      <p style={{ textAlign: "center", marginTop: 15 }}>
+        {isLogin ? "Don't have an account?" : "Already have an account?"}{" "}
+        <span
+          onClick={() => setIsLogin(!isLogin)}
+          style={{ color: "#007bff", cursor: "pointer" }}
+        >
+          {isLogin ? "Register" : "Login"}
         </span>
       </p>
     </div>
