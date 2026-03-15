@@ -1,7 +1,7 @@
 // Page/Profile/Coupons.jsx
 import React, { useEffect, useState } from "react";
 import axios from "axios";
-import '../style/Profile.css';
+import '../../style/Profile.css';
 import { FiGift } from "react-icons/fi";
 
 const Coupons = () => {
