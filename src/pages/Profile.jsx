@@ -5,7 +5,7 @@ import axios from "axios";
 import { FiUser, FiPlus, FiUsers, FiMessageSquare, FiStar, FiHeadphones, FiEdit3, FiSettings } from "react-icons/fi";
 import ProHeader from "../components/ProHeader";
 import BottomNav from "../components/BottomNav";
-import '../style/Profile.css'; // import the enterprise styles
+import '../style/Profile.css';
 
 const Profile = () => {
   const [user, setUser] = useState(null);
@@ -29,11 +29,9 @@ const Profile = () => {
       const res = await axios.get("/api/users/me", { headers: { Authorization: `Bearer ${token}` } });
       setUser(res.data);
       setFormData(res.data);
-    } catch (err) {
-      if (err.response?.status === 401) {
-        localStorage.removeItem("token");
-        navigate("/login");
-      }
+    } catch {
+      localStorage.removeItem("token");
+      navigate("/login");
       setError("Failed to load profile");
     } finally {
       setLoading(false);
@@ -60,9 +58,7 @@ const Profile = () => {
 
   return (
     <div className="profile-page">
-      {/* Header */}
       <ProHeader title="Profile" showBack={true} />
-
       <div className="max-w-6xl mx-auto px-4 py-8">
 
         {/* Profile Card */}
@@ -77,96 +73,46 @@ const Profile = () => {
               <p className="text-blue-600 text-sm">{user?.email}</p>
             </div>
           </div>
-
           <Link to="/settings" className="ml-auto bg-gray-900 text-white px-6 py-3 rounded-xl shadow hover:bg-black flex items-center gap-2">
-            <FiSettings className="w-5 h-5" />
-            Settings
+            <FiSettings className="w-5 h-5" /> Settings
           </Link>
         </div>
 
-        {/* Stats Cards */}
+        {/* Stats */}
         <div className="stats-grid">
-          <div className="stats-card">
-            <FiPlus className="stats-icon text-indigo-600"/>
-            <div className="text-2xl font-bold">{stats.products}</div>
-            <div className="text-gray-500 text-sm">Products</div>
-          </div>
-
-          <div className="stats-card">
-            <FiUsers className="stats-icon text-green-600"/>
-            <div className="text-2xl font-bold">{stats.followers}</div>
-            <div className="text-gray-500 text-sm">Followers</div>
-          </div>
-
-          <Link to="/conversations" className="stats-card hover:shadow-md transition">
-            <FiMessageSquare className="stats-icon text-purple-600"/>
-            <div className="text-2xl font-bold">24</div>
-            <div className="text-gray-500 text-sm">Messages</div>
-          </Link>
-
-          <div className="stats-card">
-            <FiStar className="stats-icon text-yellow-500"/>
-            <div className="text-2xl font-bold">{stats.feedback}</div>
-            <div className="text-gray-500 text-sm">Rating</div>
-          </div>
+          <div className="stats-card"><FiPlus className="stats-icon text-indigo-600"/><div className="text-2xl font-bold">{stats.products}</div><div className="text-gray-500 text-sm">Products</div></div>
+          <div className="stats-card"><FiUsers className="stats-icon text-green-600"/><div className="text-2xl font-bold">{stats.followers}</div><div className="text-gray-500 text-sm">Followers</div></div>
+          <Link to="/conversations" className="stats-card hover:shadow-md transition"><FiMessageSquare className="stats-icon text-purple-600"/><div className="text-2xl font-bold">24</div><div className="text-gray-500 text-sm">Messages</div></Link>
+          <div className="stats-card"><FiStar className="stats-icon text-yellow-500"/><div className="text-2xl font-bold">{stats.feedback}</div><div className="text-gray-500 text-sm">Rating</div></div>
         </div>
 
         {/* Profile Info */}
         <div className="info-card">
           <div className="info-header">
-            <h2 className="text-2xl font-bold text-gray-900 flex items-center gap-2">
-              <FiEdit3 /> Profile Information
-            </h2>
+            <h2 className="text-2xl font-bold text-gray-900 flex items-center gap-2"><FiEdit3/> Profile Information</h2>
             <button onClick={() => setIsEditing(!isEditing)} className="bg-indigo-600 text-white px-5 py-2 rounded-xl">{isEditing ? "Cancel" : "Edit"}</button>
           </div>
-
           {error && <div className="text-red-600 mb-4">{error}</div>}
-
           {isEditing ? (
             <form onSubmit={handleSubmit} className="info-grid">
-              <input
-                name="store_name"
-                value={formData.store_name || ""}
-                onChange={handleInputChange}
-                placeholder="Store name"
-                className="border p-3 rounded-xl"
-              />
-              <input
-                name="phone_number"
-                value={formData.phone_number || ""}
-                onChange={handleInputChange}
-                placeholder="Phone number"
-                className="border p-3 rounded-xl"
-              />
+              <input name="store_name" value={formData.store_name || ""} onChange={handleInputChange} placeholder="Store name" className="border p-3 rounded-xl"/>
+              <input name="phone_number" value={formData.phone_number || ""} onChange={handleInputChange} placeholder="Phone number" className="border p-3 rounded-xl"/>
               <button type="submit" className="md:col-span-3 bg-green-600 text-white py-3 rounded-xl">Save Changes</button>
             </form>
           ) : (
             <div className="info-grid text-center">
-              <div className="border rounded-xl p-5">
-                <div className="text-sm text-gray-500">Phone</div>
-                <div className="text-lg font-semibold">{user?.phone_number || "Not set"}</div>
-              </div>
-              <div className="border rounded-xl p-5">
-                <div className="text-sm text-gray-500">Country</div>
-                <div className="text-lg font-semibold">{user?.country || "Not set"}</div>
-              </div>
-              <div className="border rounded-xl p-5">
-                <div className="text-sm text-gray-500">Balance</div>
-                <div className="text-lg font-semibold">{user?.balance || 0} NGN</div>
-              </div>
+              <div className="border rounded-xl p-5"><div className="text-sm text-gray-500">Phone</div><div className="text-lg font-semibold">{user?.phone_number || "Not set"}</div></div>
+              <div className="border rounded-xl p-5"><div className="text-sm text-gray-500">Country</div><div className="text-lg font-semibold">{user?.country || "Not set"}</div></div>
+              <div className="border rounded-xl p-5"><div className="text-sm text-gray-500">Balance</div><div className="text-lg font-semibold">{user?.balance || 0} NGN</div></div>
             </div>
           )}
         </div>
 
         {/* Support Button */}
-        <Link to="/support" className="support-btn">
-          <FiHeadphones className="w-6 h-6"/>
-        </Link>
+        <Link to="/support" className="support-btn"><FiHeadphones className="w-6 h-6"/></Link>
 
       </div>
-
-      {/* Bottom Navigation */}
-      <BottomNav />
+      <BottomNav/>
     </div>
   );
 };
