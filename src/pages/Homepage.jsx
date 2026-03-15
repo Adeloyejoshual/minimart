@@ -16,7 +16,6 @@ const API_BASE = "https://minimart-ivrm.onrender.com/api/marketplace";
 
 export default function Homepage({ user }) {
   const navigate = useNavigate();
-
   const [products, setProducts] = useState([]);
   const [trending, setTrending] = useState([]);
   const [search, setSearch] = useState("");
@@ -24,7 +23,6 @@ export default function Homepage({ user }) {
   const [hasMore, setHasMore] = useState(true);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
-
   const LIMIT = 20;
 
   const endpoints = useMemo(() => ({
@@ -32,7 +30,6 @@ export default function Homepage({ user }) {
     trending: `${API_BASE}/trending`,
   }), []);
 
-  // Load Products
   const loadProducts = useCallback(async (reset = false) => {
     try {
       setLoading(true);
@@ -46,9 +43,9 @@ export default function Homepage({ user }) {
       });
 
       const { data } = await axios.get(`${endpoints.products}?${params}`);
-      const productData = data.products || data;
+      let productData = data.products || data;
 
-      // Mix products randomly for recommendations
+      // Shuffle for recommendations
       productData.sort(() => Math.random() - 0.5);
 
       if (reset) {
@@ -69,7 +66,6 @@ export default function Homepage({ user }) {
     }
   }, [skip, search, endpoints.products]);
 
-  // Load Trending
   const loadTrending = useCallback(async () => {
     try {
       const { data } = await axios.get(endpoints.trending);
@@ -79,13 +75,11 @@ export default function Homepage({ user }) {
     }
   }, [endpoints.trending]);
 
-  // Initial load
   useEffect(() => {
     loadProducts(true);
     loadTrending();
   }, []);
 
-  // Search effect with debounce
   useEffect(() => {
     const timer = setTimeout(() => loadProducts(true), 350);
     return () => clearTimeout(timer);
@@ -122,7 +116,7 @@ export default function Homepage({ user }) {
           <h2 className="section-title">🔥 Top Trending</h2>
           <Swiper
             modules={[Navigation, Pagination, Autoplay]}
-            slidesPerView={3} // 3-slide view
+            slidesPerView={3}
             spaceBetween={20}
             autoplay={{ delay: 4000, disableOnInteraction: false }}
             pagination={{ clickable: true }}
@@ -201,7 +195,12 @@ function ProductCardEnterprise({ product, onClick, variant = "standard" }) {
     <article className={`enterprise-card ${variant}`} onClick={onClick}>
       <div className="card-image-container">
         {product.image ? (
-          <img src={product.image} alt={product.title} className="card-image" loading="lazy" />
+          <img
+            src={product.image}
+            alt={product.title}
+            className="card-image full-image"
+            loading="lazy"
+          />
         ) : (
           <div className="image-placeholder"><span>📷</span></div>
         )}
@@ -213,7 +212,6 @@ function ProductCardEnterprise({ product, onClick, variant = "standard" }) {
         {variant === "standard" && <p className="card-description">{product.description}</p>}
         <div className="card-footer">
           <span className="price">₦{product.price?.toLocaleString()}</span>
-          <button className="add-to-cart-btn" aria-label="Add to cart">🛒</button>
         </div>
       </div>
     </article>
