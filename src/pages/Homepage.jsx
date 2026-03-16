@@ -1,7 +1,7 @@
-// pages/index.tsx
+// pages/Homepage 
 import { GetServerSideProps } from "next";
 import { useState } from "react";
-import { useInfiniteQuery, useQuery, QueryClient } from "@tanstack/react-query";
+import { useInfiniteQuery, useQuery } from "@tanstack/react-query";
 import InfiniteScroll from "react-infinite-scroll-component";
 import TopNav from "../components/TopNav";
 import BottomNav from "../components/BottomNav";
@@ -9,6 +9,7 @@ import ProductCardEnterprise from "../components/ProductCardEnterprise";
 import TrendingCarousel from "../components/TrendingCarousel";
 import { fetchProducts, fetchTrending } from "../services/api";
 import useDebounce from "../hooks/useDebounce";
+import "../styles/Homepage.css"; // Import the CSS
 
 interface HomepageProps {
   initialTrending: any[];
@@ -55,7 +56,7 @@ export default function Homepage({ initialTrending, initialProducts }: HomepageP
         </div>
       </header>
 
-      {/* Trending Products Carousel */}
+      {/* Trending Carousel */}
       <TrendingCarousel
         trending={trendingQuery.data || []}
         onProductClick={handleProductClick}
@@ -80,7 +81,9 @@ export default function Homepage({ initialTrending, initialProducts }: HomepageP
         {productsQuery.isError && (
           <div className="error-banner">
             <span>Failed to load products.</span>
-            <button onClick={() => productsQuery.refetch()}>Retry</button>
+            <button onClick={() => productsQuery.refetch()} className="retry-btn">
+              Retry
+            </button>
           </div>
         )}
 
@@ -110,6 +113,7 @@ export default function Homepage({ initialTrending, initialProducts }: HomepageP
         )}
       </section>
 
+      {/* Bottom Navigation */}
       <BottomNav />
     </div>
   );
