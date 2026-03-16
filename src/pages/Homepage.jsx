@@ -1,7 +1,5 @@
-// pages/Homepage 
-import { GetServerSideProps } from "next";
-import { useState } from "react";
-import { useInfiniteQuery, useQuery } from "@tanstack/react-query";
+// src/pages/Homepage.jsx
+import React, { useState, useEffect } from "react";
 import InfiniteScroll from "react-infinite-scroll-component";
 import TopNav from "../components/TopNav";
 import BottomNav from "../components/BottomNav";
@@ -9,46 +7,74 @@ import ProductCardEnterprise from "../components/ProductCardEnterprise";
 import TrendingCarousel from "../components/TrendingCarousel";
 import { fetchProducts, fetchTrending } from "../services/api";
 import useDebounce from "../hooks/useDebounce";
-import "../styles/Homepage.css"; // Import the CSS
+import "../styles/Homepage.css";
 
-interface HomepageProps {
-  initialTrending: any[];
-  initialProducts: any[];
-}
-
-export default function Homepage({ initialTrending, initialProducts }: HomepageProps) {
+export default function Homepage({ initialTrending, initialProducts }) {
   const [searchQuery, setSearchQuery] = useState("");
   const debouncedSearch = useDebounce(searchQuery, 500);
+  const [trending, setTrending] = useState(initialTrending || []);
+  const [products, setProducts] = useState(initialProducts || []);
+  const [skip, setSkip] = useState(products.length);
+  const [hasMore, setHasMore] = useState(true);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState(null);
 
-  // Trending Products
-  const trendingQuery = useQuery(["trending"], fetchTrending, {
-    initialData: initialTrending,
-  });
+  const LIMIT = 20;
 
-  // Infinite Products
-  const productsQuery = useInfiniteQuery(
-    ["products", debouncedSearch],
-    ({ pageParam = 0 }) => fetchProducts({ skip: pageParam, search: debouncedSearch }),
-    {
-      getNextPageParam: (lastPage, allPages) =>
-        lastPage.length === 20 ? allPages.flat().length : undefined,
-      initialData: { pages: [initialProducts], pageParams: [0] },
-      keepPreviousData: true,
+  // Load products
+  const loadProducts = async (reset = false) => {
+    try {
+      setLoading(true);
+      setError(null);
+      const currentSkip = reset ? 0 : skip;
+      const data = await fetchProducts({ skip: currentSkip, search: debouncedSearch });
+      if (reset) {
+        setProducts(data);
+        setSkip(data.length);
+        setHasMore(true);
+      } else {
+        setProducts((prev) => [...prev, ...data]);
+        setSkip((prev) => prev + data.length);
+      }
+      setHasMore(data.length === LIMIT);
+    } catch (err) {
+      console.error(err);
+      setError("Failed to load products.");
+    } finally {
+      setLoading(false);
     }
-  );
+  };
 
-  const products = productsQuery.data?.pages.flat() || [];
+  // Load trending
+  const loadTrending = async () => {
+    try {
+      const data = await fetchTrending();
+      setTrending(data);
+    } catch (err) {
+      console.error(err);
+    }
+  };
 
-  const handleProductClick = (id: string) => {
+  useEffect(() => {
+    loadProducts(true);
+    loadTrending();
+  }, []);
+
+  useEffect(() => {
+    const timer = setTimeout(() => loadProducts(true), 300);
+    return () => clearTimeout(timer);
+  }, [debouncedSearch]);
+
+  const handleProductClick = (id) => {
     window.location.href = `/product/${id}`;
   };
 
+  const isEmpty = !loading && products.length === 0;
+
   return (
     <div className="enterprise-homepage">
-      {/* Top Navigation */}
       <TopNav user={null} setUser={() => {}} />
 
-      {/* Hero Section */}
       <header className="enterprise-hero">
         <div className="hero-content">
           <h1>Enterprise Marketplace</h1>
@@ -56,13 +82,8 @@ export default function Homepage({ initialTrending, initialProducts }: HomepageP
         </div>
       </header>
 
-      {/* Trending Carousel */}
-      <TrendingCarousel
-        trending={trendingQuery.data || []}
-        onProductClick={handleProductClick}
-      />
+      <TrendingCarousel trending={trending} onProductClick={handleProductClick} />
 
-      {/* Search Bar */}
       <div className="search-container">
         <input
           type="text"
@@ -72,16 +93,15 @@ export default function Homepage({ initialTrending, initialProducts }: HomepageP
         />
       </div>
 
-      {/* Products Infinite Scroll */}
       <section className="products-section">
         <div className="section-header">
           <h2>All Products ({products.length})</h2>
         </div>
 
-        {productsQuery.isError && (
+        {error && (
           <div className="error-banner">
-            <span>Failed to load products.</span>
-            <button onClick={() => productsQuery.refetch()} className="retry-btn">
+            <span>{error}</span>
+            <button onClick={() => loadProducts(true)} className="retry-btn">
               Retry
             </button>
           </div>
@@ -89,8 +109,8 @@ export default function Homepage({ initialTrending, initialProducts }: HomepageP
 
         <InfiniteScroll
           dataLength={products.length}
-          next={productsQuery.fetchNextPage}
-          hasMore={!!productsQuery.hasNextPage}
+          next={loadProducts}
+          hasMore={hasMore && !loading}
           loader={<div className="enterprise-loader">Loading products...</div>}
         >
           <div className="enterprise-grid">
@@ -104,7 +124,7 @@ export default function Homepage({ initialTrending, initialProducts }: HomepageP
           </div>
         </InfiniteScroll>
 
-        {products.length === 0 && !productsQuery.isFetching && (
+        {isEmpty && (
           <div className="enterprise-empty-state">
             <div className="empty-icon">📦</div>
             <h3>No Products Available</h3>
@@ -113,21 +133,7 @@ export default function Homepage({ initialTrending, initialProducts }: HomepageP
         )}
       </section>
 
-      {/* Bottom Navigation */}
       <BottomNav />
     </div>
   );
 }
-
-// SSR: Preload trending and first page of products
-export const getServerSideProps: GetServerSideProps = async () => {
-  const initialTrending = await fetchTrending();
-  const initialProducts = await fetchProducts({ skip: 0, limit: 20 });
-
-  return {
-    props: {
-      initialTrending,
-      initialProducts,
-    },
-  };
-};
