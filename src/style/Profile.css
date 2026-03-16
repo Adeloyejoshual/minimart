@@ -1,6 +1,6 @@
 /* Page background */
 .profile-page {
-  background: linear-gradient(to bottom right, #f8fafc, #e0f2fe, #e0e7ff);
+  background: linear-gradient(to bottom right, var(--gray-50), var(--gray-100), var(--gray-100));
   min-height: 100vh;
   font-family: 'Inter', sans-serif;
   padding-bottom: 6rem; /* space for bottom nav */
@@ -8,8 +8,8 @@
 
 /* Profile Card */
 .profile-card {
-  background: #ffffff;
-  border: 1px solid #f3f4f6;
+  background: #fff;
+  border: 1px solid var(--gray-100);
   border-radius: 2rem;
   padding: 2rem;
   display: flex;
@@ -25,18 +25,18 @@
   width: 7rem;
   height: 7rem;
   border-radius: 50%;
-  background-color: #6366f1;
+  background-color: var(--primary);
   display: flex;
   align-items: center;
   justify-content: center;
-  color: white;
+  color: #fff;
   font-size: 2rem;
   box-shadow: 0 8px 20px rgba(0,0,0,0.1);
 }
 
 /* Menu List */
 .menu-list {
-  background: #ffffff;
+  background: #fff;
   border-radius: 2rem;
   box-shadow: 0 10px 25px rgba(0,0,0,0.05);
   overflow: hidden;
@@ -48,16 +48,16 @@
   padding: 1.5rem 2rem;
   font-size: 1.1rem;
   font-weight: 600;
-  color: #374151;
-  border-bottom: 1px solid #e5e7eb;
+  color: var(--gray-900);
+  border-bottom: 1px solid var(--gray-100);
   transition: all 0.3s;
 }
 
 .menu-item:last-child { border-bottom: none; }
 
 .menu-item:hover {
-  background: linear-gradient(to right, #6366f1, #818cf8);
-  color: white;
+  background: linear-gradient(to right, var(--primary), var(--primary-dark));
+  color: #fff;
 }
 
 .menu-icon {
@@ -70,8 +70,8 @@
   position: fixed;
   bottom: 6rem;
   right: 1.5rem;
-  background-color: #22c55e;
-  color: white;
+  background-color: var(--success);
+  color: #fff;
   padding: 1.25rem;
   border-radius: 9999px;
   box-shadow: 0 10px 25px rgba(0,0,0,0.1);
@@ -82,6 +82,6 @@
 }
 
 .support-btn:hover {
-  background-color: #16a34a;
+  background-color: #047857; /* darker green for hover */
   transform: translateY(-3px);
 }
