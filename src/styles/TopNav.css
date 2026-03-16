@@ -1,4 +1,7 @@
+/* ===================== TOP NAV ===================== */
 .top-nav {
+  position: sticky;
+  top: 0;
   background: white;
   box-shadow: 0 4px 12px rgba(0,0,0,0.1);
   padding: 0.5rem 1rem;
@@ -14,6 +17,47 @@
   gap: 1rem;
 }
 
+/* ===================== BRAND ===================== */
+.nav-brand {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  cursor: pointer;
+}
+
+.nav-brand .logo-icon {
+  font-size: 1.75rem;
+}
+
+.nav-brand .brand-name {
+  font-weight: 700;
+  font-size: 1.25rem;
+}
+
+/* ===================== MENU SLIDER ===================== */
+.top-nav-swiper {
+  flex: 1;
+  margin-left: 1rem;
+}
+
+.menu-swiper .menu-slide-btn {
+  padding: 0.5rem 0.75rem;
+  border-radius: 0.75rem;
+  border: none;
+  background: #f3f4f6;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.menu-swiper .menu-slide-btn:hover,
+.menu-swiper .menu-slide-btn:focus-visible {
+  background: #4f46e5;
+  color: white;
+  outline: none;
+}
+
+/* ===================== SEARCH ===================== */
 .search-container {
   position: relative;
   flex: 1;
@@ -25,8 +69,16 @@
   border-radius: 1rem;
   border: 1px solid #ddd;
   font-size: 1rem;
+  outline: none;
+  transition: border 0.2s, box-shadow 0.2s;
 }
 
+.search-input:focus {
+  border-color: #4f46e5;
+  box-shadow: 0 0 0 2px rgba(79,70,229,0.3);
+}
+
+/* ===================== SEARCH PANEL ===================== */
 .search-panel {
   position: absolute;
   top: 110%;
@@ -34,10 +86,18 @@
   right: 0;
   background: white;
   border-radius: 1rem;
-  max-height: 400px;
+  max-height: 60vh;
   overflow: hidden;
   box-shadow: 0 6px 16px rgba(0,0,0,0.15);
   z-index: 100;
+  opacity: 0;
+  transform: translateY(-10px);
+  transition: opacity 0.2s ease, transform 0.2s ease;
+}
+
+.search-panel.show {
+  opacity: 1;
+  transform: translateY(0);
 }
 
 .search-slider {
@@ -50,8 +110,10 @@
   width: 100%;
   padding: 1rem;
   overflow-y: auto;
+  scroll-behavior: smooth;
 }
 
+/* ===================== SEARCH ITEMS ===================== */
 .search-item {
   display: flex;
   gap: 1rem;
@@ -60,8 +122,11 @@
   cursor: pointer;
   transition: background 0.2s;
 }
-.search-item:hover {
+
+.search-item:hover,
+.search-item:focus-visible {
   background: #f3f4f6;
+  outline: 2px solid #4f46e5;
 }
 
 .search-item-img {
@@ -77,26 +142,105 @@
   justify-content: center;
 }
 
+/* ===================== CATEGORY LIST ===================== */
 .category-list li {
   cursor: pointer;
   padding: 0.5rem 0.75rem;
   border-radius: 0.5rem;
   margin-bottom: 0.5rem;
   background: #f3f4f6;
+  transition: background 0.2s;
 }
+
+.category-list li:hover,
+.category-list li:focus-visible {
+  background: #e0e7ff;
+  outline: none;
+}
+
 .category-list li.selected {
   background: #4f46e5;
   color: white;
 }
 
+/* ===================== PRICE RANGE ===================== */
+.price-range {
+  display: flex;
+  justify-content: space-between;
+  gap: 0.5rem;
+}
+
 .price-range input {
   width: 45%;
   padding: 0.5rem;
-  margin: 0 0.5rem;
+  border: 1px solid #ddd;
+  border-radius: 0.5rem;
+  font-size: 1rem;
 }
 
+/* ===================== SLIDE NAV BUTTONS ===================== */
 .slide-nav-buttons {
   display: flex;
   justify-content: space-between;
   margin-top: 1rem;
+}
+
+.slide-nav-buttons button {
+  padding: 0.5rem 1rem;
+  border-radius: 0.75rem;
+  border: none;
+  background: #4f46e5;
+  color: white;
+  cursor: pointer;
+  transition: background 0.2s;
+}
+
+.slide-nav-buttons button:hover,
+.slide-nav-buttons button:focus-visible {
+  background: #4338ca;
+  outline: 2px solid #4f46e5;
+}
+
+/* ===================== RESPONSIVE ===================== */
+@media (max-width: 1024px) {
+  .nav-container {
+    flex-direction: column;
+    gap: 0.5rem;
+  }
+
+  .top-nav-swiper {
+    width: 100%;
+  }
+}
+
+@media (max-width: 768px) {
+  .search-panel {
+    max-height: 50vh;
+    left: 0.5rem;
+    right: 0.5rem;
+  }
+
+  .search-item-img {
+    width: 40px;
+    height: 40px;
+  }
+
+  .price-range input {
+    width: 48%;
+  }
+}
+
+/* ===================== ACCESSIBILITY ===================== */
+* {
+  scroll-behavior: smooth;
+}
+
+*:focus {
+  outline-offset: 2px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    transition: none !important;
+  }
 }
