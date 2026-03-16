@@ -1,4 +1,4 @@
-// src/pages/Homepage.jsx - ENTERPRISE PRODUCTION v2.2 (FINAL AUDIT)
+// src/pages/Homepage.jsx - ENTERPRISE PRODUCTION v2.3 (ROUTE FIXED)
 import React, { useEffect, useState, useCallback, useMemo, useRef, useLayoutEffect } from "react";
 import axios from "axios";
 import InfiniteScroll from "react-infinite-scroll-component";
@@ -25,7 +25,7 @@ axios.defaults.timeout = REQUEST_TIMEOUT;
 export default function Homepage({ user }) {
   const navigate = useNavigate();
   const abortControllerRef = useRef(null);
-  const skipRef = useRef(0); // ✅ FIX: Skip state consistency
+  const skipRef = useRef(0);
   
   const [products, setProducts] = useState([]);
   const [trending, setTrending] = useState([]);
@@ -43,12 +43,20 @@ export default function Homepage({ user }) {
 
   const getProductId = useCallback((product) => product.id || product._id, []);
 
+  // ✅ FIXED: Proper slug generation (matches ProductDetail route expectation)
   const getProductSlug = useCallback((product) => {
-    return product.slug ||
-           (product.title?.toLowerCase()
-             ?.replace(/[^a-z0-9]+/g, '-')
-             ?.replace(/^-|-$/g, '') || '') ||
-           getProductId(product);
+    if (product.slug) return product.slug;
+    
+    const title = product.title || '';
+    return title
+      .toString()
+      .toLowerCase()
+      .trim()
+      .normalize('NFD').replace(/[̀-ͯ]/g, '') // Remove diacritics
+      .replace(/[^ws-]/g, '') // Remove special chars
+      .replace(/s+/g, '-') // Replace spaces with hyphens
+      .replace(/-+/g, '-') // Collapse dashes
+      .replace(/^-|-$/g, '') || getProductId(product); // Clean + fallback
   }, [getProductId]);
 
   const abortPreviousRequest = useCallback(() => {
@@ -58,7 +66,6 @@ export default function Homepage({ user }) {
   }, []);
 
   const loadProducts = useCallback(async (reset = false) => {
-    // ✅ RACE CONDITION GUARD
     if (loading) return;
     
     abortPreviousRequest();
@@ -92,9 +99,7 @@ export default function Homepage({ user }) {
 
       setHasMore(productData.length === LIMIT);
     } catch (err) {
-      // ✅ FIXED: Modern Axios cancel detection
       if (err.name === 'CanceledError' || err.code === 'ERR_CANCELED') return;
-      
       console.error("Products load failed:", err);
       setError("Failed to load products");
     } finally {
@@ -111,33 +116,30 @@ export default function Homepage({ user }) {
     }
   }, [endpoints.trending]);
 
-  // Sync skipRef with state
   useLayoutEffect(() => {
     skipRef.current = 0;
   }, [search]);
 
-  // Initial load
   useEffect(() => {
     loadProducts(true);
     loadTrending();
   }, []);
 
-  // Cleanup on unmount
   useEffect(() => {
     return () => abortPreviousRequest();
   }, [abortPreviousRequest]);
 
-  // Debounced search
   useEffect(() => {
     const timer = setTimeout(() => loadProducts(true), SEARCH_DEBOUNCE);
     return () => clearTimeout(timer);
   }, [search, loadProducts]);
 
+  // ✅ ROUTE COMPATIBLE: /product/:id format for ProductDetail
   const handleProductClick = useCallback((product) => {
-    const id = getProductId(product);
-    const slug = getProductSlug(product);
-    navigate(`/product/${slug}/${id}`);
-  }, [navigate, getProductId, getProductSlug]);
+    const productId = getProductId(product);
+    // Uses /product/:id route - matches your Router definition
+    navigate(`/product/${productId}`);
+  }, [navigate, getProductId]);
 
   const productCount = products.length;
   const isEmpty = !loading && productCount === 0;
@@ -196,7 +198,7 @@ export default function Homepage({ user }) {
             autoplay={{ delay: 4000, disableOnInteraction: false }}
             pagination={{ clickable: true }}
             navigation
-            watchSlidesProgress={true} // ✅ SWIPER PERF
+            watchSlidesProgress={true}
             className="enterprise-swiper"
             breakpoints={{
               360: { slidesPerView: 2 },
@@ -276,7 +278,7 @@ export default function Homepage({ user }) {
   );
 }
 
-// ✅ ENTERPRISE PRODUCTION READY
+// ✅ ROUTE-COMPATIBLE ProductCard
 function ProductCardProduction({ product, onClick, variant = "standard", formatCurrency }) {
   const safeImage = product.image || '/placeholder-product.png';
   const safePrice = product.price || 0;
