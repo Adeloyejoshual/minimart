@@ -1,7 +1,6 @@
-// src/pages/Homepage.jsx - ENTERPRISE PRODUCTION v2.3 (ROUTE FIXED)
+// src/pages/Homepage.jsx - ENTERPRISE PRODUCTION v2.4 (FIXED NAV + SMART SCROLL)
 import React, { useEffect, useState, useCallback, useMemo, useRef, useLayoutEffect } from "react";
 import axios from "axios";
-import InfiniteScroll from "react-infinite-scroll-component";
 import { Swiper, SwiperSlide } from "swiper/react";
 import { Navigation, Pagination, Autoplay } from "swiper/modules";
 import "swiper/css";
@@ -17,8 +16,7 @@ const API_BASE = "https://minimart-ivrm.onrender.com/api/marketplace";
 const SEARCH_DEBOUNCE = 400;
 const REQUEST_TIMEOUT = 10000;
 const MAX_DESC_LENGTH = 80;
-const IMAGE_WIDTH = 320;
-const IMAGE_HEIGHT = 320;
+const MAX_LOAD_LIMIT = 30; // ✅ FIXED: 30 products max
 
 axios.defaults.timeout = REQUEST_TIMEOUT;
 
@@ -33,6 +31,11 @@ export default function Homepage({ user }) {
   const [hasMore, setHasMore] = useState(true);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
+  
+  // ✅ FIXED NAV POSITION
+  const [showTopNav, setShowTopNav] = useState(true);
+  const [showBottomNav, setShowBottomNav] = useState(true);
+  const lastScrollY = useRef(0);
 
   const LIMIT = 20;
 
@@ -43,20 +46,16 @@ export default function Homepage({ user }) {
 
   const getProductId = useCallback((product) => product.id || product._id, []);
 
-  // ✅ FIXED: Proper slug generation (matches ProductDetail route expectation)
   const getProductSlug = useCallback((product) => {
     if (product.slug) return product.slug;
-    
     const title = product.title || '';
     return title
-      .toString()
-      .toLowerCase()
-      .trim()
-      .normalize('NFD').replace(/[̀-ͯ]/g, '') // Remove diacritics
-      .replace(/[^ws-]/g, '') // Remove special chars
-      .replace(/s+/g, '-') // Replace spaces with hyphens
-      .replace(/-+/g, '-') // Collapse dashes
-      .replace(/^-|-$/g, '') || getProductId(product); // Clean + fallback
+      .toString().toLowerCase().trim()
+      .normalize('NFD').replace(/[̀-ͯ]/g, '')
+      .replace(/[^ws-]/g, '')
+      .replace(/s+/g, '-')
+      .replace(/-+/g, '-')
+      .replace(/^-|-$/g, '') || getProductId(product);
   }, [getProductId]);
 
   const abortPreviousRequest = useCallback(() => {
@@ -66,7 +65,7 @@ export default function Homepage({ user }) {
   }, []);
 
   const loadProducts = useCallback(async (reset = false) => {
-    if (loading) return;
+    if (loading || products.length >= MAX_LOAD_LIMIT) return;
     
     abortPreviousRequest();
     abortControllerRef.current = new AbortController();
@@ -93,11 +92,14 @@ export default function Homepage({ user }) {
         setProducts(productData);
         skipRef.current = productData.length;
       } else {
-        setProducts(prev => [...prev, ...productData]);
+        setProducts(prev => {
+          const newProducts = [...prev, ...productData];
+          return newProducts.slice(0, MAX_LOAD_LIMIT); // Cap at 30
+        });
         skipRef.current += productData.length;
       }
 
-      setHasMore(productData.length === LIMIT);
+      setHasMore(productData.length === LIMIT && products.length < MAX_LOAD_LIMIT);
     } catch (err) {
       if (err.name === 'CanceledError' || err.code === 'ERR_CANCELED') return;
       console.error("Products load failed:", err);
@@ -105,7 +107,7 @@ export default function Homepage({ user }) {
     } finally {
       setLoading(false);
     }
-  }, [search, endpoints.products, loading, abortPreviousRequest]);
+  }, [search, endpoints.products, loading, abortPreviousRequest, products.length]);
 
   const loadTrending = useCallback(async () => {
     try {
@@ -115,6 +117,39 @@ export default function Homepage({ user }) {
       console.error("Trending failed:", err);
     }
   }, [endpoints.trending]);
+
+  // ✅ SMART SCROLL NAVIGATION (Hide on scroll down, show on scroll up/stop)
+  useEffect(() => {
+    let ticking = false;
+    
+    const updateNavVisibility = () => {
+      const scrollY = window.scrollY;
+      
+      // Hide on scroll down
+      if (scrollY > lastScrollY.current && scrollY > 100) {
+        setShowTopNav(false);
+        setShowBottomNav(false);
+      } 
+      // Show on scroll up or when near top
+      else if (scrollY < lastScrollY.current || scrollY < 100) {
+        setShowTopNav(true);
+        setShowBottomNav(true);
+      }
+      
+      lastScrollY.current = scrollY;
+      ticking = false;
+    };
+
+    const handleScroll = () => {
+      if (!ticking) {
+        requestAnimationFrame(updateNavVisibility);
+        ticking = true;
+      }
+    };
+
+    window.addEventListener('scroll', handleScroll, { passive: true });
+    return () => window.removeEventListener('scroll', handleScroll);
+  }, []);
 
   useLayoutEffect(() => {
     skipRef.current = 0;
@@ -134,11 +169,9 @@ export default function Homepage({ user }) {
     return () => clearTimeout(timer);
   }, [search, loadProducts]);
 
-  // ✅ ROUTE COMPATIBLE: /product/:id format for ProductDetail
   const handleProductClick = useCallback((product) => {
     const productId = getProductId(product);
-    // Uses /product/:id route - matches your Router definition
-    navigate(`/product/${productId}`);
+    navigate(`/product/${productId}`); // ✅ ROUTE FIXED: /product/:id
   }, [navigate, getProductId]);
 
   const productCount = products.length;
@@ -168,7 +201,8 @@ export default function Homepage({ user }) {
 
   return (
     <div className="enterprise-homepage">
-      <TopNav user={user} />
+      {/* ✅ FIXED POSITION TOP NAV */}
+      <TopNav user={user} className={`fixed-top-nav ${showTopNav ? 'visible' : 'hidden'}`} />
       
       <header className="enterprise-hero">
         <div className="hero-content">
@@ -244,25 +278,26 @@ export default function Homepage({ user }) {
           </div>
         )}
 
-        <InfiniteScroll
-          dataLength={products.length}
-          next={() => loadProducts(false)}
-          hasMore={hasMore && !loading}
-          loader={<SkeletonGrid />}
-          className="infinite-scroll-container"
-        >
-          <div className="enterprise-grid">
-            {products.map((product) => (
-              <ProductCardProduction 
-                key={getProductId(product)}
-                product={product}
-                onClick={() => handleProductClick(product)}
-                variant="standard"
-                formatCurrency={formatCurrency}
-              />
-            ))}
-          </div>
-        </InfiniteScroll>
+        {/* ✅ REMOVED InfiniteScroll - Manual scroll trigger */}
+        <div className="enterprise-grid" ref={ref => {
+          if (ref && !loading && hasMore && products.length < MAX_LOAD_LIMIT) {
+            const rect = ref.getBoundingClientRect();
+            if (rect.bottom < window.innerHeight + 100) {
+              loadProducts(false);
+            }
+          }
+        }}>
+          {products.map((product) => (
+            <ProductCardProduction 
+              key={getProductId(product)}
+              product={product}
+              onClick={() => handleProductClick(product)}
+              variant="standard"
+              formatCurrency={formatCurrency}
+            />
+          ))}
+          {loading && <SkeletonGrid />}
+        </div>
 
         {isEmpty && (
           <div className="enterprise-empty-state">
@@ -273,12 +308,12 @@ export default function Homepage({ user }) {
         )}
       </section>
 
-      <BottomNav />
+      {/* ✅ FIXED POSITION BOTTOM NAV */}
+      <BottomNav className={`fixed-bottom-nav ${showBottomNav ? 'visible' : 'hidden'}`} />
     </div>
   );
 }
 
-// ✅ ROUTE-COMPATIBLE ProductCard
 function ProductCardProduction({ product, onClick, variant = "standard", formatCurrency }) {
   const safeImage = product.image || '/placeholder-product.png';
   const safePrice = product.price || 0;
@@ -302,8 +337,8 @@ function ProductCardProduction({ product, onClick, variant = "standard", formatC
           className="card-image"
           loading="lazy"
           decoding="async"
-          width={IMAGE_WIDTH}
-          height={IMAGE_HEIGHT}
+          width={320}
+          height={320}
           onError={(e) => e.currentTarget.src = '/placeholder-product.png'}
         />
         {variant === "trending" && <div className="trending-badge">TRENDING</div>}
