@@ -5,7 +5,7 @@ import categories from "../config/categories";
 import { categoryFields } from "../config/categoryFields";
 import { uploadToCloudinary } from "../cloudinary";
 import Toast from "../components/Toast";
-import "./AddProduct.css";
+import "../styles/AddProduct.css";
 
 export default function AddProduct() {
   const navigate = useNavigate();
