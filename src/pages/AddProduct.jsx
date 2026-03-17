@@ -1,194 +1,157 @@
 // src/pages/AddProduct.jsx
-import { useState, useEffect, useRef } from "react";
-import { uploadToCloudinary } from "../cloudinary";
-import "./../styles/AddProduct.css";
+import React, { useState, useEffect } from "react";
+import axios from "axios";
+import { useNavigate } from "react-router-dom";
 
 export default function AddProduct() {
-  const [categories, setCategories] = useState([]);
-  const [loadingCategories, setLoadingCategories] = useState(true);
-  const [subcategories, setSubcategories] = useState([]);
-
+  const navigate = useNavigate();
   const [form, setForm] = useState({
     title: "",
     description: "",
     price: "",
-    phone: "",
-    categoryId: "",
-    subcategoryId: "",
+    stock: 0,
+    category_id: "",
+    subcategory_id: "",
     dynamicFields: {},
-    images: [],
-    previews: [],
-    isPromoted: false,
   });
+  const [images, setImages] = useState([]);
+  const [imagePreviews, setImagePreviews] = useState([]);
+  const [categories, setCategories] = useState([]);
+  const [subcategories, setSubcategories] = useState([]);
+  const [message, setMessage] = useState("");
 
-  const scrollPos = useRef(0);
+  const API = "https://minimart-ivrm.onrender.com/api";
 
-  // ---------------- Fetch categories ----------------
+  // Redirect if not logged in
+  useEffect(() => {
+    const token = localStorage.getItem("token");
+    if (!token) navigate("/");
+  }, [navigate]);
+
+  // Fetch categories
   useEffect(() => {
     const fetchCategories = async () => {
       try {
-        const res = await fetch("/api/marketplace/categories");
-        const data = await res.json();
-        setCategories(data);
+        const res = await axios.get(`${API}/marketplace/categories`);
+        setCategories(res.data);
       } catch (err) {
-        console.error("Failed to fetch categories:", err);
-      } finally {
-        setLoadingCategories(false);
+        console.error("Failed to fetch categories", err);
       }
     };
     fetchCategories();
   }, []);
 
-  // ---------------- Helpers ----------------
-  const updateField = (key, value) => {
-    setForm(prev => ({ ...prev, [key]: value }));
+  // Update subcategories when category changes
+  useEffect(() => {
+    const selected = categories.find(cat => cat.id === form.category_id);
+    setSubcategories(selected?.children || []);
+    setForm(prev => ({ ...prev, subcategory_id: "", dynamicFields: {} }));
+  }, [form.category_id, categories]);
+
+  const handleChange = (e) => {
+    setForm({ ...form, [e.target.name]: e.target.value });
   };
 
-  const handleCategoryChange = catId => {
-    updateField("categoryId", catId);
-    updateField("subcategoryId", "");
-    const selected = categories.find(c => c.id === catId);
-    setSubcategories(selected?.subcategories || []);
+  const handleDynamicFieldChange = (field, value) => {
+    setForm(prev => ({
+      ...prev,
+      dynamicFields: { ...prev.dynamicFields, [field]: value }
+    }));
   };
 
-  const handleImageChange = files => {
-    const list = Array.from(files);
-    updateField("images", [...form.images, ...list]);
-    updateField("previews", [...form.previews, ...list.map(f => URL.createObjectURL(f))]);
+  const handleImageChange = (e) => {
+    const files = Array.from(e.target.files);
+    setImages(prev => [...prev, ...files]);
+    const previews = files.map(file => URL.createObjectURL(file));
+    setImagePreviews(prev => [...prev, ...previews]);
   };
 
-  const removeImage = index => {
-    updateField("images", form.images.filter((_, i) => i !== index));
-    updateField("previews", form.previews.filter((_, i) => i !== index));
+  const removeImage = (index) => {
+    setImages(prev => prev.filter((_, i) => i !== index));
+    setImagePreviews(prev => prev.filter((_, i) => i !== index));
   };
 
-  // ---------------- Submit ----------------
-  const handleSubmit = async () => {
-    if (!form.title || !form.price || !form.categoryId) {
-      return alert("Title, price, and category are required");
-    }
+  const handleSubmit = async (e) => {
+    e.preventDefault();
 
     try {
-      // Upload images to Cloudinary
-      const uploadedUrls = [];
-      for (const file of form.images) {
-        const url = await uploadToCloudinary(file);
-        uploadedUrls.push(url);
-      }
+      const token = localStorage.getItem("token");
+      const formData = new FormData();
 
-      const payload = {
-        ...form,
-        images: uploadedUrls,
-      };
+      formData.append("title", form.title);
+      formData.append("description", form.description);
+      formData.append("price", form.price);
+      formData.append("stock", form.stock);
+      formData.append("category_id", form.category_id);
+      formData.append("subcategory_id", form.subcategory_id || "");
+      formData.append("dynamicFields", JSON.stringify(form.dynamicFields));
 
-      const res = await fetch("/api/marketplace/products", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(payload),
+      images.forEach(img => formData.append("images", img));
+
+      const res = await axios.post(`${API}/marketplace/products`, formData, {
+        headers: {
+          "Content-Type": "multipart/form-data",
+          Authorization: `Bearer ${token}`,
+        },
       });
 
-      if (!res.ok) throw new Error("Failed to submit product");
-
-      alert("Product published successfully!");
-      // Reset form
-      setForm({
-        title: "",
-        description: "",
-        price: "",
-        phone: "",
-        categoryId: "",
-        subcategoryId: "",
-        dynamicFields: {},
-        images: [],
-        previews: [],
-        isPromoted: false,
-      });
+      setMessage("✅ Product added successfully");
+      setForm({ title: "", description: "", price: "", stock: 0, category_id: "", subcategory_id: "", dynamicFields: {} });
+      setImages([]);
+      setImagePreviews([]);
     } catch (err) {
       console.error(err);
-      alert(err.message);
+      setMessage("❌ Failed to add product");
     }
   };
 
-  if (loadingCategories) return <div>Loading categories...</div>;
-
   return (
-    <div className="add-product-container">
-      <h2>Add Product</h2>
+    <div style={{ maxWidth: 600, margin: "auto", padding: 20 }}>
+      <h1>Add Product</h1>
+      <form onSubmit={handleSubmit} style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+        <input type="text" name="title" placeholder="Product title" value={form.title} onChange={handleChange} required />
+        <textarea name="description" placeholder="Product description" value={form.description} onChange={handleChange} />
 
-      <div className="field">
-        <label>Title</label>
-        <input value={form.title} onChange={e => updateField("title", e.target.value)} placeholder="Product title" />
-      </div>
+        <input type="number" name="price" placeholder="Price" value={form.price} onChange={handleChange} required />
+        <input type="number" name="stock" placeholder="Stock" value={form.stock} onChange={handleChange} />
 
-      <div className="field">
-        <label>Category</label>
-        <select value={form.categoryId} onChange={e => handleCategoryChange(e.target.value)}>
+        {/* Category */}
+        <select name="category_id" value={form.category_id} onChange={handleChange} required>
           <option value="">Select Category</option>
           {categories.map(cat => (
             <option key={cat.id} value={cat.id}>{cat.name}</option>
           ))}
         </select>
-      </div>
 
-      {subcategories.length > 0 && (
-        <div className="field">
-          <label>Subcategory</label>
-          <select value={form.subcategoryId} onChange={e => updateField("subcategoryId", e.target.value)}>
+        {/* Subcategory */}
+        {subcategories.length > 0 && (
+          <select name="subcategory_id" value={form.subcategory_id} onChange={handleChange}>
             <option value="">Select Subcategory</option>
             {subcategories.map(sub => (
               <option key={sub.id} value={sub.id}>{sub.name}</option>
             ))}
           </select>
-        </div>
-      )}
+        )}
 
-      {form.categoryId && (
-        <>
-          {categories
-            .find(c => c.id === form.categoryId)
-            ?.fields?.map(field => (
-              <div className="field" key={field}>
-                <label>{field}</label>
-                <input
-                  value={form.dynamicFields[field] || ""}
-                  onChange={e => updateField("dynamicFields", { ...form.dynamicFields, [field]: e.target.value })}
-                  placeholder={field}
-                />
-              </div>
-            ))}
-        </>
-      )}
+        {/* Dynamic fields */}
+        {Object.entries(form.dynamicFields).map(([field, value]) => (
+          <input key={field} type="text" placeholder={field} value={value} onChange={e => handleDynamicFieldChange(field, e.target.value)} />
+        ))}
 
-      <div className="field">
-        <label>Price</label>
-        <input value={form.price} onChange={e => updateField("price", e.target.value)} placeholder="₦ 0" />
-      </div>
-
-      <div className="field">
-        <label>Phone</label>
-        <input value={form.phone} onChange={e => updateField("phone", e.target.value)} placeholder="08012345678" />
-      </div>
-
-      <div className="field">
-        <label>Images</label>
-        <input type="file" multiple onChange={e => handleImageChange(e.target.files)} />
-        <div className="previews">
-          {form.previews.map((p, i) => (
-            <div key={i} className="preview">
-              <img src={p} alt={`preview-${i}`} />
-              <button type="button" onClick={() => removeImage(i)}>×</button>
+        {/* Image Upload */}
+        <input type="file" accept="image/*" multiple onChange={handleImageChange} />
+        <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
+          {imagePreviews.map((p, i) => (
+            <div key={i} style={{ position: "relative" }}>
+              <img src={p} alt={`preview-${i}`} width={100} height={100} style={{ objectFit: "cover" }} />
+              <button type="button" onClick={() => removeImage(i)} style={{ position: "absolute", top: 0, right: 0 }}>×</button>
             </div>
           ))}
         </div>
-      </div>
 
-      <div className="field">
-        <label>
-          <input type="checkbox" checked={form.isPromoted} onChange={e => updateField("isPromoted", e.target.checked)} /> Promote Product
-        </label>
-      </div>
-
-      <button onClick={handleSubmit}>Publish</button>
+        <button type="submit">Add Product</button>
+      </form>
+      {message && <p style={{ marginTop: 10 }}>{message}</p>}
     </div>
   );
 }
