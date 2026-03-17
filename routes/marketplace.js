@@ -8,35 +8,29 @@ import dotenv from "dotenv";
 dotenv.config();
 
 const router = express.Router();
-
-// --------------------
-// PostgreSQL Pool
-// --------------------
 const pool = new Pool({
   connectionString: process.env.COCKROACH_URI,
   ssl: { rejectUnauthorized: false },
 });
 
-// --------------------
-// Cloudinary Config
-// --------------------
+// Configure Cloudinary
 cloudinary.config({
   cloud_name: process.env.CLOUDINARY_CLOUD_NAME,
   api_key: process.env.CLOUDINARY_API_KEY,
   api_secret: process.env.CLOUDINARY_API_SECRET,
 });
 
-// --------------------
-// Multer Memory Storage
-// --------------------
+// Multer setup to store files in memory
 const upload = multer({ storage: multer.memoryStorage() });
 
-// --------------------
-// GET All Products
-// --------------------
+// -------------------
+// GET all products
+// -------------------
 router.get("/products", async (req, res) => {
   try {
-    const { rows } = await pool.query("SELECT * FROM products ORDER BY created_at DESC");
+    const { rows } = await pool.query(
+      "SELECT * FROM products ORDER BY created_at DESC"
+    );
     res.json(rows);
   } catch (err) {
     console.error("GET /products error:", err);
@@ -44,16 +38,16 @@ router.get("/products", async (req, res) => {
   }
 });
 
-// --------------------
-// POST a New Product
-// --------------------
+// -------------------
+// POST a new product (support multiple images & dynamic fields)
+// -------------------
 router.post("/products", upload.array("images"), async (req, res) => {
   try {
     const {
       title,
       description,
       price,
-      phone,
+      stock,
       category_id,
       subcategory_id,
       dynamicFields,
@@ -82,10 +76,9 @@ router.post("/products", upload.array("images"), async (req, res) => {
       }
     }
 
-    // Insert product into database
     const query = `
       INSERT INTO products (
-        title, description, price, phone, category_id, subcategory_id,
+        title, description, price, stock, category_id, subcategory_id,
         images, dynamic_fields, is_promoted, created_at
       )
       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9, now())
@@ -95,7 +88,7 @@ router.post("/products", upload.array("images"), async (req, res) => {
       title,
       description || null,
       parseFloat(price),
-      phone || null,
+      parseInt(stock) || 0,
       category_id,
       subcategory_id || null,
       uploadedImages.length ? JSON.stringify(uploadedImages) : null,
