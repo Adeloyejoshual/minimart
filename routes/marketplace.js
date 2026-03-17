@@ -13,14 +13,14 @@ const pool = new Pool({
   ssl: { rejectUnauthorized: false },
 });
 
-// Configure Cloudinary
+// Cloudinary config
 cloudinary.config({
   cloud_name: process.env.CLOUDINARY_CLOUD_NAME,
   api_key: process.env.CLOUDINARY_API_KEY,
   api_secret: process.env.CLOUDINARY_API_SECRET,
 });
 
-// Multer setup to store file in memory
+// Multer memory storage (support multiple images)
 const upload = multer({ storage: multer.memoryStorage() });
 
 // -------------------
@@ -41,40 +41,59 @@ router.get("/products", async (req, res) => {
 // -------------------
 // POST a new product
 // -------------------
-router.post("/products", upload.single("image"), async (req, res) => {
+router.post("/products", upload.array("images"), async (req, res) => {
   try {
-    const { title, description, price, stock } = req.body;
-    if (!title || !price) {
-      return res.status(400).json({ message: "Title and price are required" });
+    const {
+      title,
+      description,
+      price,
+      phone,
+      category_id,
+      subcategory_id,
+      dynamicFields,
+      isPromoted,
+    } = req.body;
+
+    if (!title || !price || !category_id) {
+      return res.status(400).json({ message: "Title, price, and category are required" });
     }
 
-    // Upload image to Cloudinary if provided
-    let imageUrl = null;
-    if (req.file) {
-      const result = await new Promise((resolve, reject) => {
-        const stream = cloudinary.uploader.upload_stream(
-          { folder: "minimart_products" },
-          (error, result) => {
-            if (error) reject(error);
-            else resolve(result);
-          }
-        );
-        stream.end(req.file.buffer);
-      });
-      imageUrl = result.secure_url;
+    // Parse dynamicFields JSON if sent as string
+    const parsedFields = typeof dynamicFields === "string" ? JSON.parse(dynamicFields) : dynamicFields || {};
+
+    // Upload multiple images to Cloudinary
+    const uploadedImages = [];
+    if (req.files && req.files.length) {
+      for (const file of req.files) {
+        const result = await new Promise((resolve, reject) => {
+          const stream = cloudinary.uploader.upload_stream(
+            { folder: "minimart_products" },
+            (err, result) => (err ? reject(err) : resolve(result))
+          );
+          stream.end(file.buffer);
+        });
+        uploadedImages.push(result.secure_url);
+      }
     }
 
     const query = `
-      INSERT INTO products (title, description, price, stock, image)
-      VALUES ($1, $2, $3, $4, $5)
+      INSERT INTO products (
+        title, description, price, phone, category_id, subcategory_id,
+        images, dynamic_fields, is_promoted, created_at
+      )
+      VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9, now())
       RETURNING *
     `;
     const { rows } = await pool.query(query, [
       title,
       description || null,
       parseFloat(price),
-      parseInt(stock) || 0,
-      imageUrl,
+      phone || null,
+      category_id,
+      subcategory_id || null,
+      uploadedImages.length ? JSON.stringify(uploadedImages) : null,
+      Object.keys(parsedFields).length ? parsedFields : null,
+      isPromoted === "true" || isPromoted === true,
     ]);
 
     res.status(201).json(rows[0]);
