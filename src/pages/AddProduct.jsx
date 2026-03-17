@@ -2,7 +2,6 @@
 import React, { useState, useEffect } from "react";
 import axios from "axios";
 import { useNavigate } from "react-router-dom";
-import { categoryFields } from "../config/categoryFields";
 
 export default function AddProduct() {
   const navigate = useNavigate();
@@ -14,10 +13,10 @@ export default function AddProduct() {
     category_id: "",
     subcategory_id: "",
   });
-  const [images, setImages] = useState([]);
+  const [images, setImages] = useState([]); // Array of files
+  const [imagePreviews, setImagePreviews] = useState([]); // For previews
   const [categories, setCategories] = useState([]);
   const [subcategories, setSubcategories] = useState([]);
-  const [dynamicFields, setDynamicFields] = useState({});
   const [message, setMessage] = useState("");
 
   const API = "https://minimart-ivrm.onrender.com/api";
@@ -41,30 +40,31 @@ export default function AddProduct() {
     fetchCategories();
   }, []);
 
-  // Update subcategories and reset dynamic fields when category changes
+  // Update subcategories when category changes
   useEffect(() => {
     const selectedCategory = categories.find(c => c.id === form.category_id);
     setSubcategories(selectedCategory?.subcategories || []);
-    setForm(prev => ({ ...prev, subcategory_id: "" }));
-    setDynamicFields({});
+    setForm(prev => ({ ...prev, subcategory_id: "" })); // reset subcategory
   }, [form.category_id, categories]);
 
   const handleChange = (e) => {
     setForm({ ...form, [e.target.name]: e.target.value });
   };
 
-  const handleDynamicFieldChange = (e) => {
-    setDynamicFields({ ...dynamicFields, [e.target.name]: e.target.value });
-  };
+  const handleImagesChange = (e) => {
+    const files = Array.from(e.target.files);
+    setImages(files);
 
-  const handleImageChange = (e) => {
-    setImages([...e.target.files]);
+    // Generate previews
+    const previews = files.map(file => URL.createObjectURL(file));
+    setImagePreviews(previews);
   };
 
   const handleSubmit = async (e) => {
     e.preventDefault();
     try {
       const token = localStorage.getItem("token");
+
       const formData = new FormData();
       formData.append("title", form.title);
       formData.append("description", form.description);
@@ -72,12 +72,7 @@ export default function AddProduct() {
       formData.append("stock", form.stock);
       formData.append("category_id", form.category_id);
       if (form.subcategory_id) formData.append("subcategory_id", form.subcategory_id);
-      if (images.length) {
-        images.forEach(img => formData.append("images", img));
-      }
-      if (Object.keys(dynamicFields).length) {
-        formData.append("dynamicFields", JSON.stringify(dynamicFields));
-      }
+      images.forEach(img => formData.append("images", img)); // multiple images
 
       const res = await axios.post(`${API}/marketplace/products`, formData, {
         headers: {
@@ -87,18 +82,21 @@ export default function AddProduct() {
       });
 
       setMessage("✅ Product added successfully");
-      setForm({ title: "", description: "", price: "", stock: 0, category_id: "", subcategory_id: "" });
+      setForm({
+        title: "",
+        description: "",
+        price: "",
+        stock: 0,
+        category_id: "",
+        subcategory_id: "",
+      });
       setImages([]);
-      setDynamicFields({});
+      setImagePreviews([]);
     } catch (err) {
-      console.error(err.response || err);
+      console.error(err);
       setMessage("❌ Failed to add product");
     }
   };
-
-  // Get dynamic field names for selected category
-  const currentCategoryName = categories.find(c => c.id === form.category_id)?.name;
-  const currentFields = categoryFields[currentCategoryName] || [];
 
   return (
     <div style={{ maxWidth: 600, margin: "auto", padding: 20 }}>
@@ -135,7 +133,12 @@ export default function AddProduct() {
         />
 
         {/* Category dropdown */}
-        <select name="category_id" value={form.category_id} onChange={handleChange} required>
+        <select
+          name="category_id"
+          value={form.category_id}
+          onChange={handleChange}
+          required
+        >
           <option value="">Select Category</option>
           {categories.map(cat => (
             <option key={cat.id} value={cat.id}>{cat.name}</option>
@@ -144,7 +147,11 @@ export default function AddProduct() {
 
         {/* Subcategory dropdown */}
         {subcategories.length > 0 && (
-          <select name="subcategory_id" value={form.subcategory_id} onChange={handleChange}>
+          <select
+            name="subcategory_id"
+            value={form.subcategory_id}
+            onChange={handleChange}
+          >
             <option value="">Select Subcategory</option>
             {subcategories.map(sub => (
               <option key={sub.id} value={sub.id}>{sub.name}</option>
@@ -152,22 +159,20 @@ export default function AddProduct() {
           </select>
         )}
 
-        {/* Dynamic fields */}
-        {currentFields.map(field => (
-          <input
-            key={field}
-            type="text"
-            name={field}
-            placeholder={field}
-            value={dynamicFields[field] || ""}
-            onChange={handleDynamicFieldChange}
-          />
-        ))}
+        {/* Multiple images */}
+        <input type="file" accept="image/*" multiple onChange={handleImagesChange} />
 
-        <input type="file" accept="image/*" multiple onChange={handleImageChange} />
+        {/* Image previews */}
+        {imagePreviews.length > 0 && (
+          <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
+            {imagePreviews.map((src, idx) => (
+              <img key={idx} src={src} alt={`Preview ${idx}`} style={{ width: 80, height: 80, objectFit: "cover" }} />
+            ))}
+          </div>
+        )}
+
         <button type="submit">Add Product</button>
       </form>
-
       {message && <p style={{ marginTop: 10 }}>{message}</p>}
     </div>
   );
