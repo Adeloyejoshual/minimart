@@ -8,29 +8,35 @@ import dotenv from "dotenv";
 dotenv.config();
 
 const router = express.Router();
+
+// --------------------
+// PostgreSQL Pool
+// --------------------
 const pool = new Pool({
   connectionString: process.env.COCKROACH_URI,
   ssl: { rejectUnauthorized: false },
 });
 
-// Cloudinary config
+// --------------------
+// Cloudinary Config
+// --------------------
 cloudinary.config({
   cloud_name: process.env.CLOUDINARY_CLOUD_NAME,
   api_key: process.env.CLOUDINARY_API_KEY,
   api_secret: process.env.CLOUDINARY_API_SECRET,
 });
 
-// Multer memory storage (support multiple images)
+// --------------------
+// Multer Memory Storage
+// --------------------
 const upload = multer({ storage: multer.memoryStorage() });
 
-// -------------------
-// GET all products
-// -------------------
+// --------------------
+// GET All Products
+// --------------------
 router.get("/products", async (req, res) => {
   try {
-    const { rows } = await pool.query(
-      "SELECT * FROM products ORDER BY created_at DESC"
-    );
+    const { rows } = await pool.query("SELECT * FROM products ORDER BY created_at DESC");
     res.json(rows);
   } catch (err) {
     console.error("GET /products error:", err);
@@ -38,9 +44,9 @@ router.get("/products", async (req, res) => {
   }
 });
 
-// -------------------
-// POST a new product
-// -------------------
+// --------------------
+// POST a New Product
+// --------------------
 router.post("/products", upload.array("images"), async (req, res) => {
   try {
     const {
@@ -58,7 +64,7 @@ router.post("/products", upload.array("images"), async (req, res) => {
       return res.status(400).json({ message: "Title, price, and category are required" });
     }
 
-    // Parse dynamicFields JSON if sent as string
+    // Parse dynamicFields if sent as string
     const parsedFields = typeof dynamicFields === "string" ? JSON.parse(dynamicFields) : dynamicFields || {};
 
     // Upload multiple images to Cloudinary
@@ -76,6 +82,7 @@ router.post("/products", upload.array("images"), async (req, res) => {
       }
     }
 
+    // Insert product into database
     const query = `
       INSERT INTO products (
         title, description, price, phone, category_id, subcategory_id,
