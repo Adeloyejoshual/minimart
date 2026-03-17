@@ -103,4 +103,51 @@ router.post("/products", upload.array("images"), async (req, res) => {
   }
 });
 
+// -------------------
+// GET all categories (with parent/child structure)
+// -------------------
+router.get("/categories", async (req, res) => {
+  try {
+    const { rows } = await pool.query(`
+      SELECT
+        c.id,
+        c.name,
+        c.parent_id,
+        p.name AS parent_name,
+        c.slug,
+        c.icon,
+        c.image_url,
+        c.fields,
+        c.filters,
+        c.is_active,
+        c.visible_on_home
+      FROM categories c
+      LEFT JOIN categories p ON c.parent_id = p.id
+      ORDER BY c.sort_order ASC, c.name ASC
+    `);
+
+    // Nest subcategories under their parent
+    const categoryMap = {};
+    const structured = [];
+
+    rows.forEach(cat => {
+      if (!cat.parent_id) {
+        categoryMap[cat.id] = { ...cat, subcategories: [] };
+        structured.push(categoryMap[cat.id]);
+      }
+    });
+
+    rows.forEach(cat => {
+      if (cat.parent_id && categoryMap[cat.parent_id]) {
+        categoryMap[cat.parent_id].subcategories.push(cat);
+      }
+    });
+
+    res.json(structured);
+  } catch (err) {
+    console.error("GET /categories error:", err);
+    res.status(500).json({ message: "Failed to fetch categories" });
+  }
+});
+
 export default router;
