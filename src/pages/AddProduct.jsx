@@ -2,10 +2,10 @@
 import { useEffect, useState, useRef } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import categories from "../config/categories";
-import categoryFields from "../config/categoryFields";
+import { categoryFields } from "../config/categoryFields";
+import { uploadToCloudinary } from "../cloudinary";
 import Toast from "../components/Toast";
-
-const API_URL = import.meta.env.VITE_API_URL; // e.g. https://your-backend.com
+import "./AddProduct.css";
 
 export default function AddProduct() {
   const navigate = useNavigate();
@@ -15,6 +15,8 @@ export default function AddProduct() {
   const scrollPos = useRef(0);
   const [loading, setLoading] = useState(false);
   const [toast, setToast] = useState({ visible: false, message: "", icon: "⚡" });
+  const [selectionStep, setSelectionStep] = useState(null);
+  const [backStep, setBackStep] = useState(null);
 
   const [form, setForm] = useState({
     title: "",
@@ -23,26 +25,14 @@ export default function AddProduct() {
     phone: "",
     mainCategory: "",
     subCategory: "",
+    dynamicFields: {},
     images: [],
     previews: [],
-    dynamicFields: {},
     isPromoted: false,
   });
 
   // ---------------- Helpers ----------------
-  const showToast = (message, icon = "⚡") => {
-    setToast({ visible: true, message, icon });
-    setTimeout(() => setToast(prev => ({ ...prev, visible: false })), 3000);
-  };
-
   const update = (key, value) => setForm(prev => ({ ...prev, [key]: value }));
-
-  const handlePriceChange = e => {
-    const raw = e.target.value.replace(/,/g, "");
-    if (!isNaN(raw) || raw === "") {
-      update("price", raw.replace(/\B(?=(\d{3})+(?!\d))/g, ","));
-    }
-  };
 
   const handleImages = files => {
     const list = Array.from(files);
@@ -55,113 +45,152 @@ export default function AddProduct() {
     update("previews", form.previews.filter((_, i) => i !== index));
   };
 
-  const handleDynamicFieldChange = (field, value) => {
-    update("dynamicFields", { ...form.dynamicFields, [field]: value });
+  const showToast = (message, icon = "⚡", duration = 3000) => {
+    setToast({ visible: true, message, icon });
+    setTimeout(() => setToast(prev => ({ ...prev, visible: false })), duration);
+  };
+
+  // ---------------- Validation ----------------
+  const validate = () => {
+    if (!form.title || !form.price) return "Title and price are required";
+    if (!form.mainCategory) return "Select a category";
+    return null;
   };
 
   // ---------------- Submit ----------------
   const handleSubmit = async () => {
-    if (!form.title || !form.price || !form.mainCategory) {
-      return showToast("Title, price, and category are required", "⚠️");
-    }
+    const error = validate();
+    if (error) return showToast(error, "⚠️");
 
     try {
       setLoading(true);
 
-      const data = new FormData();
-      data.append("title", form.title);
-      data.append("description", form.description);
-      data.append("price", form.price.replace(/,/g, ""));
-      data.append("phone", form.phone || "");
-      data.append("category_id", form.mainCategory);
-      data.append("subcategory_id", form.subCategory || "");
-      data.append("dynamicFields", JSON.stringify(form.dynamicFields));
-      data.append("isPromoted", form.isPromoted);
-
-      form.images.forEach(file => data.append("images", file));
-
-      const res = await fetch(`${API_URL}/products`, {
-        method: "POST",
-        body: data,
-      });
-
-      if (!res.ok) {
-        const errorData = await res.json();
-        throw new Error(errorData.message || "Failed to add product");
+      // Upload images
+      const uploadedImages = [];
+      for (const img of form.images) {
+        const url = await uploadToCloudinary(img);
+        uploadedImages.push(url);
       }
 
-      const product = await res.json();
-      showToast("Product added successfully! ✅");
+      // Prepare dynamic fields
+      const dynamicFields = form.dynamicFields;
+
+      const body = {
+        title: form.title,
+        description: form.description,
+        price: form.price,
+        phone: form.phone,
+        category_id: form.mainCategory,
+        subcategory_id: form.subCategory,
+        dynamicFields,
+        images: uploadedImages,
+        isPromoted: form.isPromoted,
+      };
+
+      const res = await fetch("/api/products", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+      });
+
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.message || "Failed to post product");
+
+      showToast("Product posted successfully!", "✅");
       navigate(`/${marketType}`);
     } catch (err) {
-      console.error("AddProduct error:", err);
       showToast(err.message, "❌");
     } finally {
       setLoading(false);
     }
   };
 
-  // ---------------- Category/Subcategory ----------------
-  const mainCategories = categories;
-  const subCategories = form.mainCategory
-    ? categories.find(c => c.id === form.mainCategory)?.subcategories || []
-    : [];
+  // ---------------- Dynamic Fields ----------------
+  const renderDynamicFields = () => {
+    if (!form.mainCategory) return null;
+    const fields = categoryFields[form.mainCategory] || [];
+    return fields.map(f => (
+      <Field key={f} label={f.replace("_", " ")}>
+        <input
+          value={form.dynamicFields[f] || ""}
+          onChange={e =>
+            setForm(prev => ({
+              ...prev,
+              dynamicFields: { ...prev.dynamicFields, [f]: e.target.value },
+            }))
+          }
+        />
+      </Field>
+    ));
+  };
 
-  const dynamicFieldKeys = form.mainCategory
-    ? categoryFields[categories.find(c => c.id === form.mainCategory)?.name] || []
-    : [];
+  // ---------------- Category Select ----------------
+  const handleCategoryChange = category => {
+    update("mainCategory", category);
+    update("subCategory", "");
+    update("dynamicFields", {});
+  };
+
+  const getSubcategories = () => categories.find(c => c.name === form.mainCategory)?.subcategories || [];
 
   return (
     <div className="add-product-container">
-      <h2>Add Product</h2>
+      <div className="add-product-header">
+        <button className="back-btn" onClick={() => navigate(`/${marketType}`)}>←</button>
+        <span className="page-title">Add Product</span>
+      </div>
 
       <Field label="Title">
-        <input value={form.title} onChange={e => update("title", e.target.value)} placeholder="e.g iPhone 11 Pro Max" />
+        <input value={form.title} onChange={e => update("title", e.target.value)} placeholder="Product title" />
+      </Field>
+
+      <Field label="Description">
+        <textarea value={form.description} onChange={e => update("description", e.target.value)} placeholder="Product description" />
+      </Field>
+
+      <Field label="Price">
+        <input value={form.price} onChange={e => update("price", e.target.value)} placeholder="₦ 0" />
+      </Field>
+
+      <Field label="Phone">
+        <input value={form.phone} onChange={e => update("phone", e.target.value)} placeholder="08012345678" />
       </Field>
 
       <Field label="Category">
-        <select value={form.mainCategory} onChange={e => update("mainCategory", e.target.value)}>
-          <option value="">Select Category</option>
-          {mainCategories.map(cat => (
-            <option key={cat.id} value={cat.id}>{cat.name}</option>
+        <div className="category-scroll">
+          {categories.map(cat => (
+            <div
+              key={cat.id}
+              className={`category-item ${form.mainCategory === cat.id ? "active" : ""}`}
+              onClick={() => handleCategoryChange(cat.id)}
+            >
+              {cat.name}
+            </div>
           ))}
-        </select>
+        </div>
       </Field>
 
-      {subCategories.length > 0 && (
+      {form.mainCategory && getSubcategories().length > 0 && (
         <Field label="Subcategory">
           <select value={form.subCategory} onChange={e => update("subCategory", e.target.value)}>
-            <option value="">Select Subcategory</option>
-            {subCategories.map(sub => (
-              <option key={sub.id} value={sub.id}>{sub.name}</option>
+            <option value="">Select subcategory</option>
+            {getSubcategories().map(s => (
+              <option key={s.id} value={s.id}>{s.name}</option>
             ))}
           </select>
         </Field>
       )}
 
-      {dynamicFieldKeys.map(field => (
-        <Field key={field} label={field}>
-          <input
-            value={form.dynamicFields[field] || ""}
-            onChange={e => handleDynamicFieldChange(field, e.target.value)}
-            placeholder={`Enter ${field}`}
-          />
-        </Field>
-      ))}
-
-      <Field label="Price (₦)">
-        <input value={form.price} onChange={handlePriceChange} placeholder="₦ 0" />
-      </Field>
-
-      <Field label="Phone">
-        <input type="tel" value={form.phone} onChange={e => update("phone", e.target.value)} placeholder="08012345678" />
-      </Field>
+      {renderDynamicFields()}
 
       <Field label="Images">
-        <input type="file" multiple onChange={e => handleImages(e.target.files)} />
-        <div className="previews">
+        <label className="image-upload">
+          <input type="file" multiple onChange={e => handleImages(e.target.files)} hidden />
+          + Add Images
+        </label>
+        <div className="images">
           {form.previews.map((p, i) => (
-            <div key={i} className="preview-wrap">
+            <div key={i} className="img-wrap">
               <img src={p} alt={`preview-${i}`} />
               <button type="button" onClick={() => removeImage(i)}>×</button>
             </div>
@@ -169,15 +198,13 @@ export default function AddProduct() {
         </div>
       </Field>
 
-      <Field label="Promote Product">
-        <input
-          type="checkbox"
-          checked={form.isPromoted}
-          onChange={e => update("isPromoted", e.target.checked)}
-        />
+      <Field label="Promotion">
+        <label>
+          <input type="checkbox" checked={form.isPromoted} onChange={e => update("isPromoted", e.target.checked)} /> Promote this product
+        </label>
       </Field>
 
-      <button type="button" onClick={handleSubmit} disabled={loading}>
+      <button className="btn" onClick={handleSubmit} disabled={loading}>
         {loading ? "Uploading..." : "Publish"}
       </button>
 
