@@ -12,10 +12,8 @@ export default function AddProduct() {
     stock: 0,
     category_id: "",
     subcategory_id: "",
-    dynamicFields: {},
   });
-  const [images, setImages] = useState([]);
-  const [imagePreviews, setImagePreviews] = useState([]);
+  const [image, setImage] = useState(null);
   const [categories, setCategories] = useState([]);
   const [subcategories, setSubcategories] = useState([]);
   const [message, setMessage] = useState("");
@@ -43,50 +41,32 @@ export default function AddProduct() {
 
   // Update subcategories when category changes
   useEffect(() => {
-    const selected = categories.find(cat => cat.id === form.category_id);
-    setSubcategories(selected?.children || []);
-    setForm(prev => ({ ...prev, subcategory_id: "", dynamicFields: {} }));
+    const selectedCategory = categories.find(c => c.id === form.category_id);
+    setSubcategories(selectedCategory?.subcategories || []);
+    setForm(prev => ({ ...prev, subcategory_id: "" })); // reset subcategory
   }, [form.category_id, categories]);
 
   const handleChange = (e) => {
     setForm({ ...form, [e.target.name]: e.target.value });
   };
 
-  const handleDynamicFieldChange = (field, value) => {
-    setForm(prev => ({
-      ...prev,
-      dynamicFields: { ...prev.dynamicFields, [field]: value }
-    }));
-  };
-
   const handleImageChange = (e) => {
-    const files = Array.from(e.target.files);
-    setImages(prev => [...prev, ...files]);
-    const previews = files.map(file => URL.createObjectURL(file));
-    setImagePreviews(prev => [...prev, ...previews]);
-  };
-
-  const removeImage = (index) => {
-    setImages(prev => prev.filter((_, i) => i !== index));
-    setImagePreviews(prev => prev.filter((_, i) => i !== index));
+    setImage(e.target.files[0]);
   };
 
   const handleSubmit = async (e) => {
     e.preventDefault();
-
     try {
       const token = localStorage.getItem("token");
-      const formData = new FormData();
 
+      const formData = new FormData();
       formData.append("title", form.title);
       formData.append("description", form.description);
       formData.append("price", form.price);
       formData.append("stock", form.stock);
       formData.append("category_id", form.category_id);
-      formData.append("subcategory_id", form.subcategory_id || "");
-      formData.append("dynamicFields", JSON.stringify(form.dynamicFields));
-
-      images.forEach(img => formData.append("images", img));
+      if (form.subcategory_id) formData.append("subcategory_id", form.subcategory_id);
+      if (image) formData.append("images", image);
 
       const res = await axios.post(`${API}/marketplace/products`, formData, {
         headers: {
@@ -96,9 +76,15 @@ export default function AddProduct() {
       });
 
       setMessage("✅ Product added successfully");
-      setForm({ title: "", description: "", price: "", stock: 0, category_id: "", subcategory_id: "", dynamicFields: {} });
-      setImages([]);
-      setImagePreviews([]);
+      setForm({
+        title: "",
+        description: "",
+        price: "",
+        stock: 0,
+        category_id: "",
+        subcategory_id: "",
+      });
+      setImage(null);
     } catch (err) {
       console.error(err);
       setMessage("❌ Failed to add product");
@@ -109,23 +95,56 @@ export default function AddProduct() {
     <div style={{ maxWidth: 600, margin: "auto", padding: 20 }}>
       <h1>Add Product</h1>
       <form onSubmit={handleSubmit} style={{ display: "flex", flexDirection: "column", gap: 10 }}>
-        <input type="text" name="title" placeholder="Product title" value={form.title} onChange={handleChange} required />
-        <textarea name="description" placeholder="Product description" value={form.description} onChange={handleChange} />
+        <input
+          type="text"
+          name="title"
+          placeholder="Product title"
+          value={form.title}
+          onChange={handleChange}
+          required
+        />
+        <textarea
+          name="description"
+          placeholder="Product description"
+          value={form.description}
+          onChange={handleChange}
+        />
+        <input
+          type="number"
+          name="price"
+          placeholder="Price"
+          value={form.price}
+          onChange={handleChange}
+          required
+        />
+        <input
+          type="number"
+          name="stock"
+          placeholder="Stock"
+          value={form.stock}
+          onChange={handleChange}
+        />
 
-        <input type="number" name="price" placeholder="Price" value={form.price} onChange={handleChange} required />
-        <input type="number" name="stock" placeholder="Stock" value={form.stock} onChange={handleChange} />
-
-        {/* Category */}
-        <select name="category_id" value={form.category_id} onChange={handleChange} required>
+        {/* Category dropdown */}
+        <select
+          name="category_id"
+          value={form.category_id}
+          onChange={handleChange}
+          required
+        >
           <option value="">Select Category</option>
           {categories.map(cat => (
             <option key={cat.id} value={cat.id}>{cat.name}</option>
           ))}
         </select>
 
-        {/* Subcategory */}
+        {/* Subcategory dropdown */}
         {subcategories.length > 0 && (
-          <select name="subcategory_id" value={form.subcategory_id} onChange={handleChange}>
+          <select
+            name="subcategory_id"
+            value={form.subcategory_id}
+            onChange={handleChange}
+          >
             <option value="">Select Subcategory</option>
             {subcategories.map(sub => (
               <option key={sub.id} value={sub.id}>{sub.name}</option>
@@ -133,22 +152,7 @@ export default function AddProduct() {
           </select>
         )}
 
-        {/* Dynamic fields */}
-        {Object.entries(form.dynamicFields).map(([field, value]) => (
-          <input key={field} type="text" placeholder={field} value={value} onChange={e => handleDynamicFieldChange(field, e.target.value)} />
-        ))}
-
-        {/* Image Upload */}
-        <input type="file" accept="image/*" multiple onChange={handleImageChange} />
-        <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
-          {imagePreviews.map((p, i) => (
-            <div key={i} style={{ position: "relative" }}>
-              <img src={p} alt={`preview-${i}`} width={100} height={100} style={{ objectFit: "cover" }} />
-              <button type="button" onClick={() => removeImage(i)} style={{ position: "absolute", top: 0, right: 0 }}>×</button>
-            </div>
-          ))}
-        </div>
-
+        <input type="file" accept="image/*" onChange={handleImageChange} />
         <button type="submit">Add Product</button>
       </form>
       {message && <p style={{ marginTop: 10 }}>{message}</p>}
