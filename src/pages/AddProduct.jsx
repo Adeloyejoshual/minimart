@@ -12,7 +12,7 @@ import { featuresByCategory } from "../config/featuresByCategory";
 import { fuelTypes } from "../config/fuelTypes";
 import { models } from "../config/models";
 import { ramOptions } from "../config/ramOptions";
-import { sims } from "../config/sim";
+import { sims } from "../config/sims";
 import { storageOptions } from "../config/storageOptions";
 import { years } from "../config/years";
 import { locationsByState } from "../config/locationsByState";
