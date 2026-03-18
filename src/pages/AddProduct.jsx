@@ -1,204 +1,163 @@
 // src/components/AddProduct.jsx
 import React, { useState, useEffect } from "react";
 import axios from "axios";
-
-import { categoryFields } from "../config/categoryFields";
-import { brands } from "../config/brands";
-import { colors } from "../config/colors";
-import { conditions, usedDetails } from "../config/conditions";
-import { engines } from "../config/engines";
-import { fuelTypes } from "../config/fuelTypes";
-import { models } from "../config/models";
-import { ramOptions } from "../config/ramOptions";
-import { sims } from "../config/sims";
-import { storageOptions } from "../config/storageOptions";
-import { years } from "../config/years";
-import { locationsByState } from "../config/locationsByState";
-
-const API = "https://minimart-ivrm.onrender.com/api";
+import { categoryFields } from "../../config/categoryFields";
 
 const AddProduct = () => {
-  const [title, setTitle] = useState("");
-  const [description, setDescription] = useState("");
-  const [price, setPrice] = useState("");
-  const [stock, setStock] = useState(0);
+  const [categories, setCategories] = useState([]);
   const [categoryId, setCategoryId] = useState("");
   const [subcategoryId, setSubcategoryId] = useState("");
-  const [categories, setCategories] = useState([]);
+  const [title, setTitle] = useState("");
+  const [price, setPrice] = useState("");
+  const [stock, setStock] = useState(0);
   const [dynamicFields, setDynamicFields] = useState({});
-  const [loading, setLoading] = useState(false);
 
-  // Fetch categories from API
+  // Fetch categories
   useEffect(() => {
-    axios.get(`${API}/categories`)
-      .then(res => setCategories(res.data))
-      .catch(err => console.error("Failed to load categories", err));
+    const fetchCategories = async () => {
+      try {
+        const { data } = await axios.get(
+          "https://minimart-ivrm.onrender.com/api/categories"
+        );
+        setCategories(data);
+      } catch (err) {
+        console.error("Failed to fetch categories:", err);
+      }
+    };
+    fetchCategories();
   }, []);
 
-  const selectedCategory = categories.find(c => c.id === categoryId);
-  const selectedFields = selectedCategory ? categoryFields[selectedCategory.name] || [] : [];
-
-  const handleDynamicFieldChange = (field, value) => {
-    setDynamicFields(prev => ({ ...prev, [field]: value }));
+  // Handle dynamic field change
+  const handleFieldChange = (field, value) => {
+    setDynamicFields((prev) => ({ ...prev, [field]: value }));
   };
 
   const handleSubmit = async (e) => {
     e.preventDefault();
+
     if (!title || !price || !categoryId) {
       alert("Title, price, and category are required");
       return;
     }
 
     try {
-      setLoading(true);
-      const { data } = await axios.post(`${API}/products`, {
-        title,
-        description,
-        price: parseFloat(price),
-        stock: parseInt(stock),
-        category_id: categoryId,
-        subcategory_id: subcategoryId || null,
-        dynamicFields
-      });
-      alert(`Product "${data.title}" added successfully!`);
+      const { data } = await axios.post(
+        "https://minimart-ivrm.onrender.com/api/products",
+        {
+          title,
+          price,
+          stock,
+          category_id: categoryId,
+          subcategory_id: subcategoryId || null,
+          dynamicFields,
+        }
+      );
+      console.log("Product added:", data);
+      alert("Product added successfully!");
       // Reset form
       setTitle("");
-      setDescription("");
       setPrice("");
       setStock(0);
       setCategoryId("");
       setSubcategoryId("");
       setDynamicFields({});
     } catch (err) {
-      console.error(err);
+      console.error("Failed to add product:", err);
       alert("Failed to add product");
-    } finally {
-      setLoading(false);
     }
   };
 
-  const renderFieldInput = (field) => {
-    switch (field) {
-      case "brand":
-        return (
-          <select key={field} value={dynamicFields[field] || ""} onChange={e => handleDynamicFieldChange(field, e.target.value)}>
-            <option value="">Select Brand</option>
-            {brands.map(b => <option key={b} value={b}>{b}</option>)}
-          </select>
-        );
-      case "model":
-        return (
-          <select key={field} value={dynamicFields[field] || ""} onChange={e => handleDynamicFieldChange(field, e.target.value)}>
-            <option value="">Select Model</option>
-            {models.map(m => <option key={m} value={m}>{m}</option>)}
-          </select>
-        );
-      case "color":
-        return (
-          <select key={field} value={dynamicFields[field] || ""} onChange={e => handleDynamicFieldChange(field, e.target.value)}>
-            <option value="">Select Color</option>
-            {colors.map(c => <option key={c} value={c}>{c}</option>)}
-          </select>
-        );
-      case "condition":
-        return (
-          <select key={field} value={dynamicFields[field] || ""} onChange={e => handleDynamicFieldChange(field, e.target.value)}>
-            <option value="">Select Condition</option>
-            {conditions.map(c => <option key={c} value={c}>{c}</option>)}
-          </select>
-        );
-      case "used_detail":
-        return (
-          <select key={field} value={dynamicFields[field] || ""} onChange={e => handleDynamicFieldChange(field, e.target.value)}>
-            <option value="">Select Usage</option>
-            {usedDetails.map(u => <option key={u} value={u}>{u}</option>)}
-          </select>
-        );
-      case "ram":
-        return (
-          <select key={field} value={dynamicFields[field] || ""} onChange={e => handleDynamicFieldChange(field, e.target.value)}>
-            <option value="">Select RAM</option>
-            {ramOptions.map(r => <option key={r} value={r}>{r}</option>)}
-          </select>
-        );
-      case "storage":
-        return (
-          <select key={field} value={dynamicFields[field] || ""} onChange={e => handleDynamicFieldChange(field, e.target.value)}>
-            <option value="">Select Storage</option>
-            {storageOptions.map(s => <option key={s} value={s}>{s}</option>)}
-          </select>
-        );
-      case "engine":
-        return (
-          <select key={field} value={dynamicFields[field] || ""} onChange={e => handleDynamicFieldChange(field, e.target.value)}>
-            <option value="">Select Engine</option>
-            {engines.map(e => <option key={e} value={e}>{e}</option>)}
-          </select>
-        );
-      case "sim":
-        return (
-          <select key={field} value={dynamicFields[field] || ""} onChange={e => handleDynamicFieldChange(field, e.target.value)}>
-            <option value="">Select SIM</option>
-            {sims.map(s => <option key={s} value={s}>{s}</option>)}
-          </select>
-        );
-      case "year":
-        return (
-          <select key={field} value={dynamicFields[field] || ""} onChange={e => handleDynamicFieldChange(field, e.target.value)}>
-            <option value="">Select Year</option>
-            {years.map(y => <option key={y} value={y}>{y}</option>)}
-          </select>
-        );
-      case "fuel_type":
-        return (
-          <select key={field} value={dynamicFields[field] || ""} onChange={e => handleDynamicFieldChange(field, e.target.value)}>
-            <option value="">Select Fuel Type</option>
-            {fuelTypes.map(f => <option key={f} value={f}>{f}</option>)}
-          </select>
-        );
-      default:
-        return (
-          <input
-            key={field}
-            type="text"
-            placeholder={field}
-            value={dynamicFields[field] || ""}
-            onChange={e => handleDynamicFieldChange(field, e.target.value)}
-          />
-        );
-    }
-  };
+  // Get subcategories for selected category
+  const subcategories =
+    categories.find((c) => c.id === categoryId)?.subcategories || [];
+
+  // Get dynamic fields for selected category
+  const currentFields = categoryFields[categoryId] || [];
 
   return (
-    <div className="add-product-form">
-      <h2>Add Product</h2>
-      <form onSubmit={handleSubmit}>
-        <input type="text" placeholder="Title" value={title} onChange={e => setTitle(e.target.value)} required />
-        <textarea placeholder="Description" value={description} onChange={e => setDescription(e.target.value)} />
-        <input type="number" placeholder="Price" value={price} onChange={e => setPrice(e.target.value)} required />
-        <input type="number" placeholder="Stock" value={stock} onChange={e => setStock(e.target.value)} />
+    <form onSubmit={handleSubmit}>
+      <div>
+        <label>Title:</label>
+        <input
+          type="text"
+          value={title}
+          onChange={(e) => setTitle(e.target.value)}
+        />
+      </div>
 
-        <select value={categoryId} onChange={e => { setCategoryId(e.target.value); setSubcategoryId(""); }} required>
+      <div>
+        <label>Price:</label>
+        <input
+          type="number"
+          step="0.01"
+          value={price}
+          onChange={(e) => setPrice(e.target.value)}
+        />
+      </div>
+
+      <div>
+        <label>Stock:</label>
+        <input
+          type="number"
+          value={stock}
+          onChange={(e) => setStock(e.target.value)}
+        />
+      </div>
+
+      <div>
+        <label>Category:</label>
+        <select
+          value={categoryId}
+          onChange={(e) => {
+            setCategoryId(e.target.value);
+            setSubcategoryId(""); // reset subcategory
+            setDynamicFields({}); // reset dynamic fields
+          }}
+        >
           <option value="">Select Category</option>
-          {categories.map(cat => (
-            <option key={cat.id} value={cat.id}>{cat.name}</option>
+          {categories.map((cat) => (
+            <option key={cat.id} value={cat.id}>
+              {cat.name}
+            </option>
           ))}
         </select>
+      </div>
 
-        {selectedCategory?.subcategories?.length > 0 && (
-          <select value={subcategoryId} onChange={e => setSubcategoryId(e.target.value)}>
+      {subcategories.length > 0 && (
+        <div>
+          <label>Subcategory:</label>
+          <select
+            value={subcategoryId}
+            onChange={(e) => setSubcategoryId(e.target.value)}
+          >
             <option value="">Select Subcategory</option>
-            {selectedCategory.subcategories.map(sub => (
-              <option key={sub.id} value={sub.id}>{sub.name}</option>
+            {subcategories.map((sub) => (
+              <option key={sub.id} value={sub.id}>
+                {sub.name}
+              </option>
             ))}
           </select>
-        )}
+        </div>
+      )}
 
-        {selectedFields.map(field => renderFieldInput(field))}
+      {currentFields.length > 0 && (
+        <div>
+          <h4>Additional Details:</h4>
+          {currentFields.map((field) => (
+            <div key={field}>
+              <label>{field.replace("_", " ").toUpperCase()}:</label>
+              <input
+                type="text"
+                value={dynamicFields[field] || ""}
+                onChange={(e) => handleFieldChange(field, e.target.value)}
+              />
+            </div>
+          ))}
+        </div>
+      )}
 
-        <button type="submit" disabled={loading}>{loading ? "Adding..." : "Add Product"}</button>
-      </form>
-    </div>
+      <button type="submit">Add Product</button>
+    </form>
   );
 };
 
