@@ -39,7 +39,7 @@ router.get("/products", async (req, res) => {
 });
 
 // -------------------
-// POST a new product (support multiple images & dynamic fields)
+// POST a new product (improved with category validation)
 // -------------------
 router.post("/products", upload.array("images"), async (req, res) => {
   try {
@@ -54,14 +54,30 @@ router.post("/products", upload.array("images"), async (req, res) => {
       isPromoted,
     } = req.body;
 
+    // 1️⃣ Validate required fields
     if (!title || !price || !category_id) {
-      return res.status(400).json({ message: "Title, price, and category are required" });
+      return res
+        .status(400)
+        .json({ message: "Title, price, and category are required" });
     }
 
-    // Parse dynamicFields if sent as string
-    const parsedFields = typeof dynamicFields === "string" ? JSON.parse(dynamicFields) : dynamicFields || {};
+    // 2️⃣ Check if category_id exists
+    const { rows: categoryRows } = await pool.query(
+      "SELECT name FROM categories WHERE id = $1",
+      [category_id]
+    );
+    if (categoryRows.length === 0) {
+      return res.status(400).json({ message: "Invalid category_id" });
+    }
+    const category_name = categoryRows[0].name;
 
-    // Upload multiple images to Cloudinary
+    // 3️⃣ Parse dynamicFields if sent as string
+    const parsedFields =
+      typeof dynamicFields === "string"
+        ? JSON.parse(dynamicFields)
+        : dynamicFields || {};
+
+    // 4️⃣ Upload multiple images to Cloudinary
     const uploadedImages = [];
     if (req.files && req.files.length) {
       for (const file of req.files) {
@@ -76,6 +92,7 @@ router.post("/products", upload.array("images"), async (req, res) => {
       }
     }
 
+    // 5️⃣ Insert product into DB
     const query = `
       INSERT INTO products (
         title, description, price, stock, category_id, subcategory_id,
@@ -96,7 +113,11 @@ router.post("/products", upload.array("images"), async (req, res) => {
       isPromoted === "true" || isPromoted === true,
     ]);
 
-    res.status(201).json(rows[0]);
+    // 6️⃣ Attach category name to response
+    const product = rows[0];
+    product.category_name = category_name;
+
+    res.status(201).json(product);
   } catch (err) {
     console.error("POST /products error:", err);
     res.status(500).json({ message: "Failed to add product" });
@@ -104,7 +125,7 @@ router.post("/products", upload.array("images"), async (req, res) => {
 });
 
 // -------------------
-// GET all categories (with parent/child structure)
+// GET all categories (nested structure)
 // -------------------
 router.get("/categories", async (req, res) => {
   try {
