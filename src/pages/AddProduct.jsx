@@ -3,20 +3,20 @@ import React, { useState, useEffect } from "react";
 import axios from "axios";
 
 // Config imports
-import { categoryFields } from "../config/categoryFields";
-import { brands } from "../config/brands";
-import { colors } from "../config/colors";
-import { conditions, usedDetails } from "../config/conditions";
-import { engines } from "../config/engines";
-import { featuresByCategory } from "../config/featuresByCategory";
-import { fuelTypes } from "../config/fuelTypes";
-import { models } from "../config/models";
-import { ramOptions } from "../config/ramOptions";
-import { sims } from "../config/sims";
-import { storageOptions } from "../config/storageOptions";
-import { years } from "../config/years";
-import { locationsByState } from "../config/locationsByState";
-import { fieldOptions } from "../config/fieldOptions";
+import { categoryFields } from "../../config/categoryFields";
+import { brands } from "../../config/brands";
+import { colors } from "../../config/colors";
+import { conditions, usedDetails } from "../../config/conditions";
+import { engines } from "../../config/engines";
+import { featuresByCategory } from "../../config/featuresByCategory";
+import { fuelTypes } from "../../config/fuelTypes";
+import { models } from "../../config/models";
+import { ramOptions } from "../../config/ramOptions";
+import { sims } from "../../config/sim";
+import { storageOptions } from "../../config/storageOptions";
+import { years } from "../../config/years";
+import { locationsByState } from "../../config/locationsByState";
+import { fieldOptions } from "../../config/fieldOptions";
 
 const API = "https://minimart-ivrm.onrender.com/api";
 
@@ -28,20 +28,16 @@ const AddProduct = () => {
   const [categoryId, setCategoryId] = useState("");
   const [subcategoryId, setSubcategoryId] = useState("");
   const [categories, setCategories] = useState([]);
-  const [images, setImages] = useState([]);
   const [dynamicFields, setDynamicFields] = useState({});
-  const [isPromoted, setIsPromoted] = useState(false);
   const [loading, setLoading] = useState(false);
 
-  // Fetch categories from backend
+  // Fetch categories
   useEffect(() => {
     axios
       .get(`${API}/categories`)
       .then((res) => setCategories(res.data))
       .catch((err) => console.error("Failed to load categories", err));
   }, []);
-
-  const handleImageChange = (e) => setImages([...e.target.files]);
 
   const handleDynamicFieldChange = (field, value) => {
     setDynamicFields((prev) => ({ ...prev, [field]: value }));
@@ -54,22 +50,16 @@ const AddProduct = () => {
       return;
     }
 
-    const formData = new FormData();
-    formData.append("title", title);
-    formData.append("description", description);
-    formData.append("price", price);
-    formData.append("stock", stock);
-    formData.append("category_id", categoryId);
-    if (subcategoryId) formData.append("subcategory_id", subcategoryId);
-    formData.append("isPromoted", isPromoted);
-    formData.append("dynamicFields", JSON.stringify(dynamicFields));
-
-    images.forEach((img) => formData.append("images", img));
-
     try {
       setLoading(true);
-      const { data } = await axios.post(`${API}/products`, formData, {
-        headers: { "Content-Type": "multipart/form-data" },
+      const { data } = await axios.post(`${API}/products`, {
+        title,
+        description,
+        price: parseFloat(price),
+        stock: parseInt(stock),
+        category_id: categoryId,
+        subcategory_id: subcategoryId || null,
+        dynamicFields,
       });
       alert(`Product "${data.title}" added successfully!`);
 
@@ -80,9 +70,7 @@ const AddProduct = () => {
       setStock(0);
       setCategoryId("");
       setSubcategoryId("");
-      setImages([]);
       setDynamicFields({});
-      setIsPromoted(false);
     } catch (err) {
       console.error(err);
       alert("Failed to add product");
@@ -221,15 +209,8 @@ const AddProduct = () => {
           ))}
         </select>
 
-        <input type="file" multiple onChange={handleImageChange} />
-
         {/* Dynamic Fields */}
         {selectedFields.map((field) => renderFieldInput(field))}
-
-        <label>
-          <input type="checkbox" checked={isPromoted} onChange={(e) => setIsPromoted(e.target.checked)} />
-          Promote Product
-        </label>
 
         <button type="submit" disabled={loading}>{loading ? "Adding..." : "Add Product"}</button>
       </form>
