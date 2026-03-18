@@ -1,123 +1,30 @@
 // src/config/categories.js
 const categories = [
-  {
-    id: "1",
-    name: "Phones & Tablets",
-    icon: "📱",
-    subcategories: [
-      { id: "1-1", name: "Smartphones" },
-      { id: "1-2", name: "Feature Phones" },
-      { id: "1-3", name: "Tablets" },
-    ],
-  },
-  {
-    id: "2",
-    name: "Vehicles",
-    icon: "🚗",
-    subcategories: [
-      { id: "2-1", name: "Cars" },
-      { id: "2-2", name: "Motorcycles" },
-      { id: "2-3", name: "Trucks" },
-    ],
-  },
-  {
-    id: "3",
-    name: "Babies & Kids",
-    icon: "👶",
-    subcategories: [
-      { id: "3-1", name: "Toys" },
-      { id: "3-2", name: "Clothing" },
-      { id: "3-3", name: "Gear & Accessories" },
-    ],
-  },
-  {
-    id: "4",
-    name: "Property",
-    icon: "🏠",
-    subcategories: [
-      { id: "4-1", name: "Houses" },
-      { id: "4-2", name: "Apartments" },
-      { id: "4-3", name: "Land" },
-    ],
-  },
-  {
-    id: "5",
-    name: "Electronics",
-    icon: "💻",
-    subcategories: [
-      { id: "5-1", name: "TV & Audio" },
-      { id: "5-2", name: "Cameras" },
-      { id: "5-3", name: "Computers" },
-    ],
-  },
-  {
-    id: "6",
-    name: "Fashion",
-    icon: "👗",
-    subcategories: [
-      { id: "6-1", name: "Men" },
-      { id: "6-2", name: "Women" },
-      { id: "6-3", name: "Kids" },
-    ],
-  },
-  {
-    id: "7",
-    name: "Home, Furniture & Appliances",
-    icon: "🛋️",
-    subcategories: [
-      { id: "7-1", name: "Furniture" },
-      { id: "7-2", name: "Appliances" },
-      { id: "7-3", name: "Decor" },
-    ],
-  },
-  {
-    id: "8",
-    name: "Beauty & Personal Care",
-    icon: "💄",
-    subcategories: [
-      { id: "8-1", name: "Makeup" },
-      { id: "8-2", name: "Skincare" },
-      { id: "8-3", name: "Hair Care" },
-    ],
-  },
-  {
-    id: "9",
-    name: "Vehicles Parts & Accessories",
-    icon: "🛠️",
-    subcategories: [
-      { id: "9-1", name: "Car Parts" },
-      { id: "9-2", name: "Motorcycle Parts" },
-    ],
-  },
-  {
-    id: "10",
-    name: "Jobs",
-    icon: "💼",
-    subcategories: [
-      { id: "10-1", name: "Full-time" },
-      { id: "10-2", name: "Part-time" },
-      { id: "10-3", name: "Internships" },
-    ],
-  },
-  {
-    id: "11",
-    name: "Services",
-    icon: "🛎️",
-    subcategories: [
-      { id: "11-1", name: "Home Services" },
-      { id: "11-2", name: "Event Services" },
-    ],
-  },
-  {
-    id: "12",
-    name: "Gaming",
-    icon: "🎮",
-    subcategories: [
-      { id: "12-1", name: "Consoles" },
-      { id: "12-2", name: "Games" },
-      { id: "12-3", name: "Accessories" },
-    ],
-  },
+  { id: "102055d1-180a-4b8f-a39b-3b20a4838e90", name: "Phones & Tablets", icon: "📱" },
+  { id: "20371324-5130-4952-91ed-29cf67c93f72", name: "Services", icon: "🛠️" },
+  { id: "3079d791-8695-47ef-aaa1-78b9eabb32fe", name: "Jobs", icon: "💼" },
+  { id: "39dc4492-0754-4826-816b-bc32f31081d0", name: "Commercial Equipment & Tools", icon: "🛠️" },
+  { id: "3c93ad90-2b69-4072-b2cb-748384f44d3f", name: "Sports & Outdoors", icon: "⚽" },
+  { id: "46f8dcab-69d0-4fa0-aead-f9ab6c64c139", name: "Repair & Construction", icon: "🔧" },
+  { id: "4aba6a69-2b1c-4b19-9ca0-3b2630ef6fdb", name: "Beauty & Personal Care", icon: "💄" },
+  { id: "4bb82894-f6aa-478a-8541-da3305d5a293", name: "Home, Furniture & Appliances", icon: "🏠" },
+  { id: "4d13f1aa-bd53-49a1-9e86-cf33ece1b254", name: "Leisure & Activities", icon: "🎯" },
+  { id: "6609d41f-7fd5-469d-8155-9a7c0a7d05f3", name: "Health & Fitness", icon: "🏋️" },
+  { id: "754e63f4-7e20-483c-a9c2-6782e615bd2d", name: "Babies & Kids", icon: "👶" },
+  { id: "85d13ecd-a84a-4c39-8358-db890206e280", name: "Art & Collectibles", icon: "🎨" },
+  { id: "8ba64fb7-33a6-415a-a895-38d778a49075", name: "Fashion", icon: "👗" },
+  { id: "947ce100-d961-4455-bfbf-c1d33537f11b", name: "Books & Stationery", icon: "📚" },
+  { id: "b2345835-2bf3-4749-a1e9-760e8159ecc6", name: "Vehicles", icon: "🚗" },
+  { id: "b236303d-3ccf-4169-8321-81243d796481", name: "Gaming", icon: "🎮" },
+  { id: "bba9b3e7-4118-42c4-9ea9-4aa2afd445dc", name: "Electronics", icon: "💻" },
+  { id: "c96bba5b-a9f8-43ed-8dbb-3326f34e07c0", name: "Property", icon: "🏡" },
+  { id: "cb32087f-c235-466e-9e75-6fbee393903b", name: "Vehicles Parts & Accessories", icon: "⚙️" },
+  { id: "cf185f2a-d291-40cc-8694-67291f1a6a26", name: "Food, Agriculture & Farming", icon: "🌾" },
+  { id: "d30edb05-1f94-41e6-9400-6f8d8252a29b", name: "Toys & Games", icon: "🧸" },
+  { id: "d6b767d7-1f3b-46cc-9e67-00b699e4ec04", name: "Seeking Work CVs", icon: "📄" },
+  { id: "e6d02486-ce55-4718-a096-6af8001d4a2c", name: "Musical Instruments", icon: "🎹" },
+  { id: "e70d46b2-9450-42ee-a938-4235c319b8b3", name: "Pets", icon: "🐶" },
+  { id: "fc1acba9-a5ca-4a82-8305-81586ecb75e1", name: "Computers & Laptops", icon: "💻" },
 ];
 
 export default categories;
