@@ -3,20 +3,20 @@ import React, { useState, useEffect } from "react";
 import axios from "axios";
 
 // Config imports
-import { categoryFields } from "../../config/categoryFields";
-import { brands } from "../../config/brands";
-import { colors } from "../../config/colors";
-import { conditions, usedDetails } from "../../config/conditions";
-import { engines } from "../../config/engines";
-import { featuresByCategory } from "../../config/featuresByCategory";
-import { fuelTypes } from "../../config/fuelTypes";
-import { models } from "../../config/models";
-import { ramOptions } from "../../config/ramOptions";
-import { sims } from "../../config/sim";
-import { storageOptions } from "../../config/storageOptions";
-import { years } from "../../config/years";
-import { locationsByState } from "../../config/locationsByState";
-import { fieldOptions } from "../../config/fieldOptions";
+import { categoryFields } from "../config/categoryFields";
+import { brands } from "../config/brands";
+import { colors } from "../config/colors";
+import { conditions, usedDetails } from "../config/conditions";
+import { engines } from "../config/engines";
+import { featuresByCategory } from "../config/featuresByCategory";
+import { fuelTypes } from "../config/fuelTypes";
+import { models } from "../config/models";
+import { ramOptions } from "../config/ramOptions";
+import { sims } from "../config/sims";
+import { storageOptions } from "../config/storageOptions";
+import { years } from "../config/years";
+import { locationsByState } from "../config/locationsByState";
+import { fieldOptions } from "../config/fieldOptions";
 
 const API = "https://minimart-ivrm.onrender.com/api";
 
