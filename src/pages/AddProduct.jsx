@@ -1,7 +1,7 @@
 // src/components/AddProduct.jsx
 import React, { useState, useEffect } from "react";
 import axios from "axios";
-import { categoryFields } from "../../config/categoryFields";
+import { categoryFields } from "../config/categoryFields";
 
 const AddProduct = () => {
   const [categories, setCategories] = useState([]);
