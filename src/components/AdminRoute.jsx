@@ -1,9 +1,8 @@
-// src/components/AdminRoute.jsx
 import { Navigate } from "react-router-dom";
-import { getAdminToken } from "../utils/adminAuth";
+import { getToken } from "../utils/adminAuth";
 
 export default function AdminRoute({ children }) {
-  const token = getAdminToken();
+  const token = getToken();
 
   if (!token) {
     return <Navigate to="/admin" replace />;
