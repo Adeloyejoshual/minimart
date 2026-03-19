@@ -29,8 +29,13 @@ import AdminLogin from "./pages/admin/AdminLogin";
 import AdminDashboard from "./pages/admin/AdminDashboard";
 
 export default function App() {
+  // ---------------- USER STATE ----------------
   const [user, setUser] = useState(null);
   const [loadingUser, setLoadingUser] = useState(true);
+
+  // ---------------- ADMIN STATE ----------------
+  const [admin, setAdmin] = useState(null);
+  const [loadingAdmin, setLoadingAdmin] = useState(true);
 
   const API = "https://minimart-ivrm.onrender.com/api/users";
 
@@ -55,23 +60,40 @@ export default function App() {
       .finally(() => setLoadingUser(false));
   }, []);
 
-  // ---------------- USER PROTECTED ROUTE ----------------
-  const ProtectedRoute = ({ children }) => {
-    if (loadingUser) {
-      return (
-        <div style={{ textAlign: "center", marginTop: "20vh" }}>
-          Loading...
-        </div>
-      );
+  // ---------------- LOAD ADMIN ----------------
+  useEffect(() => {
+    const token = localStorage.getItem("admin_token");
+    const storedAdmin = localStorage.getItem("admin");
+
+    if (!token || !storedAdmin) {
+      setLoadingAdmin(false);
+      return;
     }
 
+    try {
+      setAdmin(JSON.parse(storedAdmin));
+    } catch {
+      localStorage.removeItem("admin");
+      localStorage.removeItem("admin_token");
+    } finally {
+      setLoadingAdmin(false);
+    }
+  }, []);
+
+  // ---------------- USER PROTECTED ----------------
+  const ProtectedRoute = ({ children }) => {
+    if (loadingUser) {
+      return <div style={{ textAlign: "center", marginTop: "20vh" }}>Loading...</div>;
+    }
     return user ? children : <Navigate to="/auth" replace />;
   };
 
-  // ---------------- ADMIN PROTECTED ROUTE ----------------
+  // ---------------- ADMIN PROTECTED ----------------
   const AdminProtectedRoute = ({ children }) => {
-    const token = localStorage.getItem("admin_token");
-    return token ? children : <Navigate to="/admin/login" replace />;
+    if (loadingAdmin) {
+      return <div style={{ textAlign: "center", marginTop: "20vh" }}>Loading admin...</div>;
+    }
+    return admin ? children : <Navigate to="/admin/login" replace />;
   };
 
   // ---------------- AUTH SUCCESS ----------------
@@ -83,7 +105,7 @@ export default function App() {
 
   return (
     <Router>
-      {/* Global Toaster */}
+      {/* Toast */}
       <Toaster
         position="top-right"
         toastOptions={{
@@ -105,7 +127,7 @@ export default function App() {
         <Route path="/seller/:id" element={<SellerProfile user={user} />} />
         <Route path="/auth" element={<AuthPage setUser={handleAuthSuccess} />} />
 
-        {/* ---------------- USER PROTECTED ---------------- */}
+        {/* ---------------- USER ---------------- */}
         <Route path="/profile" element={<ProtectedRoute><Profile user={user} /></ProtectedRoute>} />
         <Route path="/settings" element={<ProtectedRoute><SettingsPage user={user} /></ProtectedRoute>} />
         <Route path="/minimart/add" element={<ProtectedRoute><AddProduct user={user} /></ProtectedRoute>} />
@@ -126,17 +148,21 @@ export default function App() {
 
         {/* ---------------- ADMIN ---------------- */}
 
-        {/* Auto redirect */}
+        {/* Smart redirect */}
         <Route
           path="/admin"
           element={
-            localStorage.getItem("admin_token")
-              ? <Navigate to="/admin/dashboard" replace />
-              : <Navigate to="/admin/login" replace />
+            loadingAdmin ? (
+              <div style={{ textAlign: "center", marginTop: "20vh" }}>Loading...</div>
+            ) : admin ? (
+              <Navigate to="/admin/dashboard" replace />
+            ) : (
+              <Navigate to="/admin/login" replace />
+            )
           }
         />
 
-        <Route path="/admin/login" element={<AdminLogin />} />
+        <Route path="/admin/login" element={<AdminLogin setAdmin={setAdmin} />} />
 
         <Route
           path="/admin/dashboard"
