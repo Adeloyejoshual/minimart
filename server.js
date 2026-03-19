@@ -10,7 +10,7 @@ import http from "http";
 import marketplaceRouter from "./routes/marketplace.js";
 import userRouter from "./routes/users.js";
 import messagesRouter from "./routes/messages.js";
-import adminRouter from "./routes/admin.js"; // ✅ Admin panel router
+import adminRouter from "./routes/admin.js"; // ✅ Admin API router
 
 dotenv.config();
 
@@ -47,17 +47,22 @@ app.use(express.urlencoded({ extended: true }));
 app.use("/api/marketplace", marketplaceRouter);
 app.use("/api/users", userRouter);
 app.use("/api/messages", messagesRouter);
-app.use("/api/admin", adminRouter); // ✅ Admin categories
+app.use("/api/admin", adminRouter); // ✅ Admin API routes
 
 // -------------------
-// Serve Vite React Build in Production
+// Serve React Build in Production
 // -------------------
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
 if (process.env.NODE_ENV === "production") {
+  // Main marketplace frontend
   app.use(express.static(path.join(__dirname, "dist")));
 
+  // Optional: separate admin frontend
+  // app.use("/admin", express.static(path.join(__dirname, "admin_dist")));
+
+  // Catch-all for SPA routing
   app.get("*", (req, res) => {
     if (req.path.startsWith("/api/")) {
       return res.status(404).json({ success: false, message: "API endpoint not found" });
@@ -67,7 +72,7 @@ if (process.env.NODE_ENV === "production") {
 }
 
 // -------------------
-// Root / Health
+// Root / Health Check
 // -------------------
 app.get("/api/health", async (req, res) => {
   try {
@@ -79,12 +84,10 @@ app.get("/api/health", async (req, res) => {
 });
 
 // -------------------
-// Socket.io Setup (Optional Real-time Chat)
+// Socket.io Setup
 // -------------------
 import { Server as SocketIOServer } from "socket.io";
-const io = new SocketIOServer(server, {
-  cors: { origin: "*" },
-});
+const io = new SocketIOServer(server, { cors: { origin: "*" } });
 
 io.on("connection", (socket) => {
   console.log("🔌 Socket connected:", socket.id);
@@ -103,23 +106,18 @@ io.on("connection", (socket) => {
          VALUES ($1, $2, $3, $4, NOW()) RETURNING *`,
         [senderId, receiverId, productId, message]
       );
-      const savedMessage = rows[0];
-      io.to(room).emit("receiveMessage", savedMessage);
+      io.to(room).emit("receiveMessage", rows[0]);
     } catch (err) {
       console.error("Socket sendMessage error:", err);
     }
   });
 
-  socket.on("disconnect", () => {
-    console.log("❌ Socket disconnected:", socket.id);
-  });
+  socket.on("disconnect", () => console.log("❌ Socket disconnected:", socket.id));
 });
 
 // -------------------
 // Start Server
 // -------------------
-server.listen(PORT, () => {
-  console.log(`🚀 Server running on port ${PORT}`);
-});
+server.listen(PORT, () => console.log(`🚀 Server running on port ${PORT}`));
 
 export default app;
