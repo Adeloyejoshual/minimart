@@ -1,11 +1,15 @@
-// src/utils/adminAuth.js
 export const getAdmin = () => {
-  const admin = localStorage.getItem("admin");
-  return admin ? JSON.parse(admin) : null;
+  const data = localStorage.getItem("admin");
+  return data ? JSON.parse(data) : null;
 };
 
-export const getAdminToken = () => {
+export const getToken = () => {
   return localStorage.getItem("admin_token");
+};
+
+export const saveAdmin = (admin, token) => {
+  localStorage.setItem("admin", JSON.stringify(admin));
+  localStorage.setItem("admin_token", token);
 };
 
 export const logoutAdmin = () => {
