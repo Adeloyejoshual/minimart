@@ -1,74 +1,97 @@
 // src/pages/admin/AdminDashboard.jsx
-import React, { useEffect, useState } from "react";
-import { Navigate, useNavigate } from "react-router-dom";
+import React, { useState, useEffect } from "react";
 import axios from "axios";
 import toast from "react-hot-toast";
 
 export default function AdminDashboard() {
-  const [admin, setAdmin] = useState(null);
-  const [permissions, setPermissions] = useState([]);
-  const [loading, setLoading] = useState(true);
-  const navigate = useNavigate();
+  const [roles, setRoles] = useState([]);
+  const [roleName, setRoleName] = useState("");
+  const [description, setDescription] = useState("");
+  const [loading, setLoading] = useState(false);
 
-  useEffect(() => {
-    const token = localStorage.getItem("admin_token");
-    const storedAdmin = localStorage.getItem("admin_info");
-    const storedPermissions = localStorage.getItem("admin_permissions");
+  const API = "https://minimart-ivrm.onrender.com/api/admin";
 
-    if (!token || !storedAdmin) {
-      return navigate("/admin/login");
+  // Load roles
+  const fetchRoles = async () => {
+    try {
+      const token = localStorage.getItem("admin_token");
+      const res = await axios.get(`${API}/roles`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      setRoles(res.data);
+    } catch (err) {
+      console.error(err);
+      toast.error("Failed to load roles");
     }
-
-    setAdmin(JSON.parse(storedAdmin));
-    setPermissions(JSON.parse(storedPermissions || "[]"));
-    setLoading(false);
-  }, [navigate]);
-
-  const handleLogout = () => {
-    localStorage.removeItem("admin_token");
-    localStorage.removeItem("admin_info");
-    localStorage.removeItem("admin_permissions");
-    toast.success("Logged out successfully!");
-    navigate("/admin/login");
   };
 
-  if (loading) return <div style={{ textAlign: "center", marginTop: "20vh" }}>Loading Dashboard...</div>;
-  if (!admin) return <Navigate to="/admin/login" replace />;
+  useEffect(() => {
+    fetchRoles();
+  }, []);
+
+  // Create new role
+  const handleCreateRole = async (e) => {
+    e.preventDefault();
+    if (!roleName) return toast.error("Role name is required");
+
+    setLoading(true);
+    try {
+      const token = localStorage.getItem("admin_token");
+      const res = await axios.post(
+        `${API}/roles`,
+        { role_name: roleName, description },
+        { headers: { Authorization: `Bearer ${token}` } }
+      );
+
+      setRoles([res.data.role, ...roles]);
+      setRoleName("");
+      setDescription("");
+      toast.success("Role created successfully!");
+    } catch (err) {
+      console.error(err);
+      toast.error(err.response?.data?.error || "Failed to create role");
+    } finally {
+      setLoading(false);
+    }
+  };
 
   return (
-    <div style={{ display: "flex", minHeight: "100vh" }}>
-      {/* Sidebar */}
-      <aside style={{ width: "250px", background: "#1f2937", color: "#fff", padding: "20px" }}>
-        <h2>Admin Panel</h2>
-        <p>{admin.name}</p>
-        <p style={{ fontStyle: "italic" }}>{admin.role}</p>
-        <hr style={{ margin: "20px 0" }} />
-        <ul style={{ listStyle: "none", padding: 0 }}>
-          {permissions.includes("manage_users") && <li onClick={() => navigate("/admin/users")}>Users</li>}
-          {permissions.includes("manage_products") && <li onClick={() => navigate("/admin/products")}>Products</li>}
-          {permissions.includes("review_content") && <li onClick={() => navigate("/admin/content")}>Content</li>}
-          {permissions.includes("view_reports") && <li onClick={() => navigate("/admin/reports")}>Reports</li>}
-          {permissions.includes("support_users") && <li onClick={() => navigate("/admin/support")}>Support</li>}
-        </ul>
-        <button onClick={handleLogout} style={{ marginTop: "20px", padding: "8px 12px" }}>
-          Logout
-        </button>
-      </aside>
+    <div style={{ padding: 20 }}>
+      <h1>Admin Dashboard</h1>
 
-      {/* Main Content */}
-      <main style={{ flex: 1, padding: "20px" }}>
-        <h1>Welcome, {admin.name}</h1>
-        <p>Role: {admin.role}</p>
-        <div style={{ marginTop: "40px" }}>
-          {/* You can insert dynamic widgets here */}
-          <h3>Dashboard Widgets</h3>
-          <ul>
-            {permissions.includes("manage_users") && <li>Total Users: --</li>}
-            {permissions.includes("manage_products") && <li>Total Products: --</li>}
-            {permissions.includes("view_reports") && <li>Sales Reports: --</li>}
-          </ul>
-        </div>
-      </main>
+      <div style={{ marginTop: 30 }}>
+        <h2>Create New Role</h2>
+        <form onSubmit={handleCreateRole} style={{ marginTop: 10 }}>
+          <input
+            type="text"
+            placeholder="Role Name"
+            value={roleName}
+            onChange={(e) => setRoleName(e.target.value)}
+            style={{ padding: 8, marginRight: 10 }}
+          />
+          <input
+            type="text"
+            placeholder="Description (optional)"
+            value={description}
+            onChange={(e) => setDescription(e.target.value)}
+            style={{ padding: 8, marginRight: 10 }}
+          />
+          <button type="submit" disabled={loading} style={{ padding: 8 }}>
+            {loading ? "Creating..." : "Create Role"}
+          </button>
+        </form>
+      </div>
+
+      <div style={{ marginTop: 40 }}>
+        <h2>Existing Roles</h2>
+        <ul>
+          {roles.map((r) => (
+            <li key={r.id}>
+              <strong>{r.role_name}</strong> - {r.description}
+            </li>
+          ))}
+        </ul>
+      </div>
     </div>
   );
 }
