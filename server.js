@@ -9,7 +9,8 @@ import http from "http";
 
 import marketplaceRouter from "./routes/marketplace.js";
 import userRouter from "./routes/users.js";
-import messagesRouter from "./routes/messages.js"; // new messages router
+import messagesRouter from "./routes/messages.js";
+import adminRouter from "./routes/admin.js"; // ✅ Admin panel router
 
 dotenv.config();
 
@@ -46,6 +47,7 @@ app.use(express.urlencoded({ extended: true }));
 app.use("/api/marketplace", marketplaceRouter);
 app.use("/api/users", userRouter);
 app.use("/api/messages", messagesRouter);
+app.use("/api/admin", adminRouter); // ✅ Admin categories
 
 // -------------------
 // Serve Vite React Build in Production
