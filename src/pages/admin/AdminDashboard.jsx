@@ -1,39 +1,51 @@
-// src/pages/AdminDashboard.jsx
 import { useEffect, useState } from "react";
+import axios from "axios";
 import { useNavigate } from "react-router-dom";
 
 export default function AdminDashboard() {
+  const [admins, setAdmins] = useState([]);
   const navigate = useNavigate();
-  const [adminName, setAdminName] = useState("");
+
+  const token = localStorage.getItem("admin_token");
+  const API = "https://minimart-ivrm.onrender.com/api/admin";
 
   useEffect(() => {
-    const token = localStorage.getItem("admin_token");
-    const name = localStorage.getItem("admin_name");
-
     if (!token) {
-      navigate("/admin/login");
-    } else {
-      setAdminName(name);
+      navigate("/admin");
+      return;
     }
-  }, [navigate]);
 
-  const handleLogout = () => {
+    axios
+      .get(API, {
+        headers: { Authorization: `Bearer ${token}` },
+      })
+      .then((res) => setAdmins(res.data))
+      .catch(() => {
+        localStorage.removeItem("admin_token");
+        navigate("/admin");
+      });
+  }, []);
+
+  const logout = () => {
     localStorage.removeItem("admin_token");
-    localStorage.removeItem("admin_name");
-    navigate("/admin/login");
+    localStorage.removeItem("admin_data");
+    navigate("/admin");
   };
 
   return (
-    <div className="admin-dashboard-container">
-      <h1>Welcome, {adminName}</h1>
-      <p>This is your admin dashboard.</p>
+    <div style={{ padding: 20 }}>
+      <h2>Admin Dashboard</h2>
 
-      {/* Example admin controls */}
-      <div className="admin-actions">
-        <button onClick={() => navigate("/admin/users")}>Manage Users</button>
-        <button onClick={() => navigate("/admin/products")}>Manage Products</button>
-        <button onClick={handleLogout}>Logout</button>
-      </div>
+      <button onClick={logout}>Logout</button>
+
+      <h3>Admins</h3>
+      <ul>
+        {admins.map((a) => (
+          <li key={a.id}>
+            {a.name} ({a.email}) - {a.role}
+          </li>
+        ))}
+      </ul>
     </div>
   );
 }
