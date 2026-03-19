@@ -1,78 +1,49 @@
 import express from "express";
-import { Pool } from "pg";
+import { pool } from "../server.js";
+import bcrypt from "bcryptjs";
+import jwt from "jsonwebtoken";
+import dotenv from "dotenv";
 
+dotenv.config();
 const router = express.Router();
 
-const pool = new Pool({
-  connectionString: process.env.COCKROACH_URI,
-  ssl: { rejectUnauthorized: false },
-});
+// ----------------- Login Admin -----------------
+router.post("/login", async (req, res) => {
+  const { email, password } = req.body;
 
+  if (!email || !password) {
+    return res.status(400).json({ success: false, message: "Email and password required" });
+  }
 
-// ---------------- GET ALL CATEGORIES ----------------
-router.get("/categories", async (req, res) => {
   try {
     const { rows } = await pool.query(
-      "SELECT * FROM categories ORDER BY name ASC"
-    );
-    res.json(rows);
-  } catch (err) {
-    console.error(err);
-    res.status(500).json({ message: "Failed to fetch categories" });
-  }
-});
-
-
-// ---------------- CREATE CATEGORY ----------------
-router.post("/categories", async (req, res) => {
-  try {
-    const { name, fields } = req.body;
-
-    const { rows } = await pool.query(
-      `INSERT INTO categories (name, fields)
-       VALUES ($1, $2)
-       RETURNING *`,
-      [name, JSON.stringify(fields)]
+      `SELECT id, name, email, password_hash, role FROM public.admins WHERE email = $1`,
+      [email]
     );
 
-    res.json(rows[0]);
-  } catch (err) {
-    console.error(err);
-    res.status(500).json({ message: "Failed to create category" });
-  }
-});
+    if (rows.length === 0) {
+      return res.status(401).json({ success: false, message: "Invalid email or password" });
+    }
 
+    const admin = rows[0];
 
-// ---------------- UPDATE CATEGORY ----------------
-router.put("/categories/:id", async (req, res) => {
-  try {
-    const { id } = req.params;
-    const { name, fields } = req.body;
+    // Verify password using bcryptjs
+    const isValid = await bcrypt.compare(password, admin.password_hash);
+    if (!isValid) {
+      return res.status(401).json({ success: false, message: "Invalid email or password" });
+    }
 
-    const { rows } = await pool.query(
-      `UPDATE categories
-       SET name = $1, fields = $2
-       WHERE id = $3
-       RETURNING *`,
-      [name, JSON.stringify(fields), id]
+    // Generate JWT token
+    const token = jwt.sign(
+      { id: admin.id, name: admin.name, email: admin.email, role: admin.role },
+      process.env.JWT_SECRET,
+      { expiresIn: "12h" }
     );
 
-    res.json(rows[0]);
+    res.json({ success: true, token, admin: { id: admin.id, name: admin.name, email: admin.email, role: admin.role } });
   } catch (err) {
-    console.error(err);
-    res.status(500).json({ message: "Failed to update category" });
-  }
-});
-
-
-// ---------------- DELETE CATEGORY ----------------
-router.delete("/categories/:id", async (req, res) => {
-  try {
-    await pool.query("DELETE FROM categories WHERE id = $1", [req.params.id]);
-    res.json({ message: "Deleted" });
-  } catch (err) {
-    console.error(err);
-    res.status(500).json({ message: "Failed to delete category" });
+    console.error("Admin login error:", err);
+    res.status(500).json({ success: false, message: "Server error" });
   }
 });
 
