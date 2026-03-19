@@ -109,4 +109,40 @@ router.get("/", verifyAdmin, async (req, res) => {
   }
 });
 
+// ------------------ Admin Roles ------------------
+
+// Create a new role (super_admin only)
+router.post("/roles", verifyAdmin, async (req, res) => {
+  if (req.admin.role !== "super_admin") return res.status(403).json({ error: "Forbidden" });
+
+  const { role_name, description } = req.body;
+  if (!role_name) return res.status(400).json({ error: "Role name required" });
+
+  try {
+    const { rows } = await pool.query(
+      `INSERT INTO public.admin_roles (role_name, description)
+       VALUES ($1, $2)
+       RETURNING id, role_name, description, created_at`,
+      [role_name, description || ""]
+    );
+    res.json({ role: rows[0] });
+  } catch (err) {
+    console.error("Create role error:", err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// List all roles
+router.get("/roles", verifyAdmin, async (req, res) => {
+  try {
+    const { rows } = await pool.query(
+      `SELECT id, role_name, description, created_at FROM public.admin_roles ORDER BY created_at DESC`
+    );
+    res.json(rows);
+  } catch (err) {
+    console.error("Get roles error:", err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
 export default router;
