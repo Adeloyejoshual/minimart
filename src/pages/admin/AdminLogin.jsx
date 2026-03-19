@@ -1,55 +1,101 @@
-import { useState } from "react";
+// src/pages/admin/AdminLogin.jsx
+import React, { useState } from "react";
 import axios from "axios";
-import { saveAdmin } from "../../utils/adminAuth";
+import { useNavigate } from "react-router-dom";
+import toast from "react-hot-toast";
 
 export default function AdminLogin() {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [loading, setLoading] = useState(false);
+  const navigate = useNavigate();
 
-  const handleLogin = async () => {
+  const API = "https://minimart-ivrm.onrender.com/api/admin";
+
+  const handleLogin = async (e) => {
+    e.preventDefault();
+    setLoading(true);
+
+    if (!email || !password) {
+      toast.error("Please enter email and password");
+      setLoading(false);
+      return;
+    }
+
     try {
-      setLoading(true);
+      const res = await axios.post(`${API}/login`, { email, password });
+      const { admin, token } = res.data;
 
-      const res = await axios.post(
-        "https://minimart-ivrm.onrender.com/api/admin/login",
-        { email, password }
-      );
+      // Store token
+      localStorage.setItem("admin_token", token);
 
-      console.log("LOGIN RESPONSE:", res.data);
+      // Store admin info
+      localStorage.setItem("admin_info", JSON.stringify({
+        id: admin.id,
+        name: admin.name,
+        email: admin.email,
+        role: admin.role,
+      }));
 
-      saveAdmin(res.data.admin, res.data.token);
+      // Set permissions dynamically based on role
+      let perms = [];
+      switch (admin.role) {
+        case "super_admin":
+          perms = ["manage_users", "manage_products", "review_content", "view_reports", "support_users"];
+          break;
+        case "manager":
+          perms = ["manage_products", "review_content", "view_reports"];
+          break;
+        case "moderator":
+          perms = ["review_content"];
+          break;
+        case "finance":
+          perms = ["view_reports"];
+          break;
+        case "support":
+          perms = ["support_users"];
+          break;
+        default:
+          perms = [];
+      }
+      localStorage.setItem("admin_permissions", JSON.stringify(perms));
 
-      // ✅ redirect
-      window.location.href = "/admin/dashboard";
-
+      toast.success(`Welcome, ${admin.name}`);
+      navigate("/admin/dashboard");
     } catch (err) {
-      alert(err.response?.data?.error || "Login failed");
+      console.error("Admin login error:", err);
+      toast.error(err.response?.data?.error || "Login failed");
     } finally {
       setLoading(false);
     }
   };
 
   return (
-    <div style={{ padding: 20 }}>
-      <h2>Admin Login</h2>
-
-      <input
-        placeholder="Email"
-        value={email}
-        onChange={e => setEmail(e.target.value)}
-      /><br /><br />
-
-      <input
-        type="password"
-        placeholder="Password"
-        value={password}
-        onChange={e => setPassword(e.target.value)}
-      /><br /><br />
-
-      <button onClick={handleLogin} disabled={loading}>
-        {loading ? "Logging in..." : "Login"}
-      </button>
+    <div style={{ maxWidth: 400, margin: "10vh auto", padding: 20, border: "1px solid #ccc", borderRadius: 8 }}>
+      <h2 style={{ marginBottom: 20 }}>Admin Login</h2>
+      <form onSubmit={handleLogin}>
+        <label>Email</label>
+        <input
+          type="email"
+          value={email}
+          onChange={e => setEmail(e.target.value)}
+          style={{ width: "100%", padding: 8, marginBottom: 12 }}
+        />
+        <label>Password</label>
+        <input
+          type="password"
+          value={password}
+          onChange={e => setPassword(e.target.value)}
+          style={{ width: "100%", padding: 8, marginBottom: 20 }}
+        />
+        <button
+          type="submit"
+          disabled={loading}
+          style={{ width: "100%", padding: 10, background: "#1f2937", color: "#fff", border: "none", borderRadius: 4 }}
+        >
+          {loading ? "Logging in..." : "Login"}
+        </button>
+      </form>
     </div>
   );
 }
