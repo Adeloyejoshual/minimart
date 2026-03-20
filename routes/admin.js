@@ -1,4 +1,3 @@
-// src/routes/admin.js
 import express from "express";
 import { pool } from "../server.js";
 import bcrypt from "bcrypt";
@@ -6,80 +5,111 @@ import jwt from "jsonwebtoken";
 
 const router = express.Router();
 
-// JWT secret from environment
+// ------------------ CONFIG ------------------
 const JWT_SECRET = process.env.JWT_SECRET || "supersecret";
 
-// ------------------ Helpers ------------------
+// ------------------ HELPERS ------------------
 const generateToken = (admin) => {
   return jwt.sign(
-    { id: admin.id, email: admin.email, role: admin.role },
+    {
+      id: admin.id,
+      email: admin.email,
+      role: admin.role_name,
+    },
     JWT_SECRET,
     { expiresIn: "7d" }
   );
 };
 
-// Middleware to verify token
-export const verifyAdmin = async (req, res, next) => {
+// ------------------ MIDDLEWARE ------------------
+export const verifyAdmin = (req, res, next) => {
   const authHeader = req.headers.authorization;
-  if (!authHeader?.startsWith("Bearer "))
+
+  if (!authHeader?.startsWith("Bearer ")) {
     return res.status(401).json({ error: "Unauthorized" });
+  }
 
   const token = authHeader.split(" ")[1];
+
   try {
     const decoded = jwt.verify(token, JWT_SECRET);
     req.admin = decoded;
     next();
   } catch {
-    res.status(401).json({ error: "Invalid token" });
+    return res.status(401).json({ error: "Invalid token" });
   }
 };
 
-// ------------------ Routes ------------------
+// ------------------ AUTH ------------------
 
-// Admin login
+// ✅ LOGIN (with role JOIN)
 router.post("/login", async (req, res) => {
   const { email, password } = req.body;
+
   if (!email || !password)
     return res.status(400).json({ error: "Email and password required" });
 
   try {
     const { rows } = await pool.query(
-      `SELECT * FROM public.admins WHERE email = $1`,
+      `SELECT a.id, a.name, a.email, a.password_hash, r.role_name
+       FROM public.admins a
+       JOIN public.admin_roles r ON a.role_id = r.id
+       WHERE a.email = $1`,
       [email]
     );
+
     const admin = rows[0];
-    if (!admin) return res.status(404).json({ error: "Admin not found" });
+
+    if (!admin)
+      return res.status(404).json({ error: "Admin not found" });
 
     const match = await bcrypt.compare(password, admin.password_hash);
-    if (!match) return res.status(401).json({ error: "Invalid credentials" });
+
+    if (!match)
+      return res.status(401).json({ error: "Invalid credentials" });
 
     const token = generateToken(admin);
-    res.json({ admin, token });
+
+    res.json({
+      admin: {
+        id: admin.id,
+        name: admin.name,
+        email: admin.email,
+        role: admin.role_name,
+      },
+      token,
+    });
   } catch (err) {
     console.error("Admin login error:", err);
     res.status(500).json({ error: err.message });
   }
 });
 
-// Register a new admin (super_admin only)
+// ------------------ ADMINS ------------------
+
+// ✅ CREATE ADMIN (super_admin only)
 router.post("/register", verifyAdmin, async (req, res) => {
   if (req.admin.role !== "super_admin")
     return res.status(403).json({ error: "Forbidden" });
 
-  const { name, email, password, role } = req.body;
-  if (!name || !email || !password || !role)
+  const { name, email, password, role_id } = req.body;
+
+  if (!name || !email || !password || !role_id)
     return res.status(400).json({ error: "All fields are required" });
 
   try {
     const hash = await bcrypt.hash(password, 10);
+
     const { rows } = await pool.query(
-      `INSERT INTO public.admins (name, email, password_hash, role)
-       VALUES ($1, $2, $3, $4) RETURNING id, name, email, role, created_at`,
-      [name, email, hash, role]
+      `INSERT INTO public.admins (name, email, password_hash, role_id)
+       VALUES ($1, $2, $3, $4)
+       RETURNING id, name, email, role_id, created_at`,
+      [name, email, hash, role_id]
     );
+
     const newAdmin = rows[0];
 
-    // Log creation
+    // ✅ Log action
     await pool.query(
       `INSERT INTO public.admin_logs (admin_id, action, target_table, target_id, details)
        VALUES ($1, 'create', 'admins', $2, $3)`,
@@ -93,15 +123,19 @@ router.post("/register", verifyAdmin, async (req, res) => {
   }
 });
 
-// Get all admins (super_admin only)
+// ✅ GET ALL ADMINS
 router.get("/", verifyAdmin, async (req, res) => {
   if (req.admin.role !== "super_admin")
     return res.status(403).json({ error: "Forbidden" });
 
   try {
     const { rows } = await pool.query(
-      `SELECT id, name, email, role, created_at FROM public.admins ORDER BY created_at DESC`
+      `SELECT a.id, a.name, a.email, r.role_name, a.created_at
+       FROM public.admins a
+       JOIN public.admin_roles r ON a.role_id = r.id
+       ORDER BY a.created_at DESC`
     );
+
     res.json(rows);
   } catch (err) {
     console.error("Get admins error:", err);
@@ -109,14 +143,17 @@ router.get("/", verifyAdmin, async (req, res) => {
   }
 });
 
-// ------------------ Admin Roles ------------------
+// ------------------ ROLES ------------------
 
-// Create a new role (super_admin only)
+// ✅ CREATE ROLE (super_admin only)
 router.post("/roles", verifyAdmin, async (req, res) => {
-  if (req.admin.role !== "super_admin") return res.status(403).json({ error: "Forbidden" });
+  if (req.admin.role !== "super_admin")
+    return res.status(403).json({ error: "Forbidden" });
 
   const { role_name, description } = req.body;
-  if (!role_name) return res.status(400).json({ error: "Role name required" });
+
+  if (!role_name)
+    return res.status(400).json({ error: "Role name required" });
 
   try {
     const { rows } = await pool.query(
@@ -125,6 +162,7 @@ router.post("/roles", verifyAdmin, async (req, res) => {
        RETURNING id, role_name, description, created_at`,
       [role_name, description || ""]
     );
+
     res.json({ role: rows[0] });
   } catch (err) {
     console.error("Create role error:", err);
@@ -132,12 +170,15 @@ router.post("/roles", verifyAdmin, async (req, res) => {
   }
 });
 
-// List all roles
+// ✅ GET ALL ROLES
 router.get("/roles", verifyAdmin, async (req, res) => {
   try {
     const { rows } = await pool.query(
-      `SELECT id, role_name, description, created_at FROM public.admin_roles ORDER BY created_at DESC`
+      `SELECT id, role_name, description
+       FROM public.admin_roles
+       ORDER BY role_name ASC`
     );
+
     res.json(rows);
   } catch (err) {
     console.error("Get roles error:", err);
@@ -145,4 +186,5 @@ router.get("/roles", verifyAdmin, async (req, res) => {
   }
 });
 
+// ------------------ EXPORT ------------------
 export default router;
