@@ -12,7 +12,7 @@ import {
 
 import AdminLayout from "./AdminLayout";
 
-// Register chart
+// Register chart components
 ChartJS.register(BarElement, CategoryScale, LinearScale, Tooltip, Legend);
 
 const API = "https://minimart-ivrm.onrender.com/api/admin";
@@ -41,7 +41,6 @@ export default function AdminDashboard() {
   const loadAdmin = async () => {
     try {
       const res = await axios.get(`${API}/me`, { headers });
-
       setAdmin(res.data.admin);
       setPermissions(res.data.permissions || []);
     } catch (err) {
@@ -96,6 +95,7 @@ export default function AdminDashboard() {
     loadProducts();
     loadLogs();
 
+    // refresh logs every 5s
     const interval = setInterval(loadLogs, 5000);
     return () => clearInterval(interval);
   }, []);
@@ -122,7 +122,8 @@ export default function AdminDashboard() {
     datasets: [
       {
         label: "Daily Sales",
-        data: stats.dailySales.map((d) => d.amount)
+        data: stats.dailySales.map((d) => d.amount),
+        backgroundColor: "rgba(54, 162, 235, 0.5)"
       }
     ]
   };
@@ -143,7 +144,7 @@ export default function AdminDashboard() {
         <StatCard title="Revenue" value={`₦${stats.revenue}`} />
       </div>
 
-      {/* ---------------- CHART ---------------- */}
+      {/* ---------------- SALES CHART ---------------- */}
       {permissions.includes("analytics") && (
         <div style={{ marginBottom: 40 }}>
           <h3>Sales Chart</h3>
@@ -151,11 +152,11 @@ export default function AdminDashboard() {
         </div>
       )}
 
-      {/* ---------------- USERS ---------------- */}
+      {/* ---------------- USER MANAGEMENT ---------------- */}
       {permissions.includes("user_support") && (
         <div style={{ marginBottom: 40 }}>
           <h3>User Management</h3>
-          <table>
+          <table style={{ width: "100%", borderCollapse: "collapse" }}>
             <thead>
               <tr>
                 <th>Name</th><th>Email</th><th>Status</th><th>Action</th>
@@ -177,11 +178,11 @@ export default function AdminDashboard() {
         </div>
       )}
 
-      {/* ---------------- PRODUCTS ---------------- */}
+      {/* ---------------- PRODUCT MODERATION ---------------- */}
       {permissions.includes("content_moderation") && (
         <div style={{ marginBottom: 40 }}>
           <h3>Product Moderation</h3>
-          <table>
+          <table style={{ width: "100%", borderCollapse: "collapse" }}>
             <thead>
               <tr>
                 <th>Product</th><th>Seller</th><th>Action</th>
@@ -203,14 +204,14 @@ export default function AdminDashboard() {
         </div>
       )}
 
-      {/* ---------------- LOGS ---------------- */}
+      {/* ---------------- ACTIVITY LOGS ---------------- */}
       {permissions.includes("manage_site") && (
         <div>
           <h3>Activity Logs (Real-Time)</h3>
           <ul>
             {logs.map((log) => (
               <li key={log.id}>
-                {log.created_at} → {log.details}
+                {log.created_at} → {log.details} by {log.admin_name}
               </li>
             ))}
           </ul>
@@ -220,10 +221,10 @@ export default function AdminDashboard() {
   );
 }
 
-// ---------------- STAT CARD ----------------
+// ---------------- STAT CARD COMPONENT ----------------
 function StatCard({ title, value }) {
   return (
-    <div style={{ flex: 1, padding: 20, borderRadius: 10, background: "#fff" }}>
+    <div style={{ flex: 1, padding: 20, borderRadius: 10, background: "#fff", boxShadow: "0 2px 5px rgba(0,0,0,0.1)" }}>
       <h4>{title}</h4>
       <p style={{ fontSize: 20, fontWeight: "bold" }}>{value}</p>
     </div>
