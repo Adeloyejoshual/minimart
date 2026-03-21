@@ -16,13 +16,14 @@ const generateToken = (admin) => {
   );
 };
 
-// Middleware to verify token
+// ------------------ Middleware ------------------
 export const verifyAdmin = async (req, res, next) => {
   const authHeader = req.headers.authorization;
   if (!authHeader?.startsWith("Bearer "))
     return res.status(401).json({ error: "Unauthorized" });
 
   const token = authHeader.split(" ")[1];
+
   try {
     const decoded = jwt.verify(token, JWT_SECRET);
     req.admin = decoded;
@@ -32,19 +33,18 @@ export const verifyAdmin = async (req, res, next) => {
   }
 };
 
-// ------------------ Admin Auth ------------------
+// ------------------ AUTH ------------------
 
 // Login
 router.post("/login", async (req, res) => {
   const { email, password } = req.body;
-  if (!email || !password)
-    return res.status(400).json({ error: "Email and password required" });
 
   try {
     const { rows } = await pool.query(
-      `SELECT * FROM public.admins WHERE email = $1`,
+      `SELECT * FROM admins WHERE email = $1`,
       [email]
     );
+
     const admin = rows[0];
     if (!admin) return res.status(404).json({ error: "Admin not found" });
 
@@ -53,9 +53,25 @@ router.post("/login", async (req, res) => {
 
     const token = generateToken(admin);
 
-    // Fetch admin permissions dynamically
+    res.json({ admin, token });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// GET CURRENT ADMIN + PERMISSIONS (🔥 IMPORTANT FIX)
+router.get("/me", verifyAdmin, async (req, res) => {
+  try {
+    const { rows } = await pool.query(
+      `SELECT id, name, email, role FROM admins WHERE id = $1`,
+      [req.admin.id]
+    );
+
+    const admin = rows[0];
+
+    // Get permissions
     const { rows: perms } = await pool.query(`
-      SELECT p.name
+      SELECT DISTINCT p.name
       FROM role_permissions rp
       JOIN permissions p ON rp.permission_id = p.id
       JOIN admin_roles ar ON rp.role_id = ar.id
@@ -67,130 +83,144 @@ router.post("/login", async (req, res) => {
       WHERE ap.admin_id = $2
     `, [admin.role, admin.id]);
 
-    res.json({ admin, token, permissions: perms.map(p => p.name) });
+    res.json({
+      admin,
+      permissions: perms.map(p => p.name),
+    });
   } catch (err) {
-    console.error("Admin login error:", err);
     res.status(500).json({ error: err.message });
   }
 });
 
-// ------------------ Admin CRUD ------------------
 
-// Create admin (super_admin only)
+// ------------------ ADMINS ------------------
+
+// Create admin
 router.post("/register", verifyAdmin, async (req, res) => {
   if (req.admin.role !== "super_admin")
     return res.status(403).json({ error: "Forbidden" });
 
   const { name, email, password, role } = req.body;
-  if (!name || !email || !password || !role)
-    return res.status(400).json({ error: "All fields are required" });
 
   try {
     const hash = await bcrypt.hash(password, 10);
+
     const { rows } = await pool.query(
-      `INSERT INTO public.admins (name, email, password_hash, role)
-       VALUES ($1, $2, $3, $4) RETURNING id, name, email, role, created_at`,
+      `INSERT INTO admins (name, email, password_hash, role)
+       VALUES ($1, $2, $3, $4)
+       RETURNING id, name, email, role`,
       [name, email, hash, role]
     );
-    const newAdmin = rows[0];
 
-    await pool.query(
-      `INSERT INTO public.admin_logs (admin_id, action, target_table, target_id, details)
-       VALUES ($1, 'create', 'admins', $2, $3)`,
-      [req.admin.id, newAdmin.id, `Created admin ${newAdmin.name}`]
-    );
-
-    res.json({ admin: newAdmin });
+    res.json(rows[0]);
   } catch (err) {
-    console.error("Admin register error:", err);
     res.status(500).json({ error: err.message });
   }
 });
 
-// List all admins (super_admin only)
-router.get("/", verifyAdmin, async (req, res) => {
+// Assign role to admin
+router.post("/assign-role", verifyAdmin, async (req, res) => {
   if (req.admin.role !== "super_admin")
     return res.status(403).json({ error: "Forbidden" });
 
+  const { admin_id, role } = req.body;
+
   try {
-    const { rows } = await pool.query(
-      `SELECT id, name, email, role, created_at FROM public.admins ORDER BY created_at DESC`
+    await pool.query(
+      `UPDATE admins SET role = $1 WHERE id = $2`,
+      [role, admin_id]
     );
-    res.json(rows);
+
+    res.json({ success: true });
   } catch (err) {
-    console.error("Get admins error:", err);
     res.status(500).json({ error: err.message });
   }
 });
 
-// ------------------ Roles & Permissions ------------------
+// ------------------ ROLES ------------------
 
 // Create role
 router.post("/roles", verifyAdmin, async (req, res) => {
-  if (req.admin.role !== "super_admin") return res.status(403).json({ error: "Forbidden" });
-
   const { role_name, description } = req.body;
-  if (!role_name) return res.status(400).json({ error: "Role name required" });
 
   try {
     const { rows } = await pool.query(
-      `INSERT INTO public.admin_roles (role_name, description)
+      `INSERT INTO admin_roles (role_name, description)
        VALUES ($1, $2)
-       RETURNING id, role_name, description, created_at`,
-      [role_name, description || ""]
+       RETURNING *`,
+      [role_name, description]
     );
-    res.json({ role: rows[0] });
+
+    res.json(rows[0]);
   } catch (err) {
-    console.error("Create role error:", err);
     res.status(500).json({ error: err.message });
   }
 });
 
-// List roles
+// Get roles
 router.get("/roles", verifyAdmin, async (req, res) => {
-  try {
-    const { rows } = await pool.query(
-      `SELECT id, role_name, description, created_at FROM public.admin_roles ORDER BY created_at DESC`
-    );
-    res.json(rows);
-  } catch (err) {
-    console.error("Get roles error:", err);
-    res.status(500).json({ error: err.message });
-  }
+  const { rows } = await pool.query(`SELECT * FROM admin_roles`);
+  res.json(rows);
 });
+
+// ------------------ PERMISSIONS ------------------
 
 // Create permission
 router.post("/permissions", verifyAdmin, async (req, res) => {
-  if (req.admin.role !== "super_admin") return res.status(403).json({ error: "Forbidden" });
-
   const { name, description } = req.body;
-  if (!name) return res.status(400).json({ error: "Permission name required" });
 
   try {
     const { rows } = await pool.query(
-      `INSERT INTO public.permissions (name, description)
+      `INSERT INTO permissions (name, description)
        VALUES ($1, $2)
-       RETURNING id, name, description, created_at`,
-      [name, description || ""]
+       RETURNING *`,
+      [name, description]
     );
-    res.json({ permission: rows[0] });
+
+    res.json(rows[0]);
   } catch (err) {
-    console.error("Create permission error:", err);
     res.status(500).json({ error: err.message });
   }
 });
 
-// List permissions
+// Get permissions
 router.get("/permissions", verifyAdmin, async (req, res) => {
+  const { rows } = await pool.query(`SELECT * FROM permissions`);
+  res.json(rows);
+});
+
+// ------------------ ROLE PERMISSIONS ------------------
+
+// Assign permission to role
+router.post("/roles/assign-permission", verifyAdmin, async (req, res) => {
+  const { role_id, permission_id } = req.body;
+
   try {
-    const { rows } = await pool.query(
-      `SELECT id, name, description, created_at FROM public.permissions ORDER BY created_at DESC`
+    await pool.query(
+      `INSERT INTO role_permissions (role_id, permission_id)
+       VALUES ($1, $2)
+       ON CONFLICT DO NOTHING`,
+      [role_id, permission_id]
     );
-    res.json(rows);
+
+    res.json({ success: true });
   } catch (err) {
-    console.error("Get permissions error:", err);
     res.status(500).json({ error: err.message });
   }
+});
+
+// Get role permissions
+router.get("/roles/:id/permissions", verifyAdmin, async (req, res) => {
+  const { id } = req.params;
+
+  const { rows } = await pool.query(`
+    SELECT p.id, p.name
+    FROM role_permissions rp
+    JOIN permissions p ON rp.permission_id = p.id
+    WHERE rp.role_id = $1
+  `, [id]);
+
+  res.json(rows);
 });
 
 export default router;
