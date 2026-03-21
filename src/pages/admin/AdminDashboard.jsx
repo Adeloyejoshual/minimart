@@ -1,56 +1,31 @@
 import React, { useEffect, useState } from "react";
-import axios from "axios";
-import { Bar } from "react-chartjs-2";
-import {
-  Chart as ChartJS,
-  BarElement,
-  CategoryScale,
-  LinearScale,
-  Tooltip,
-  Legend
-} from "chart.js";
-
 import AdminLayout from "./AdminLayout";
-
-// Register chart components
-ChartJS.register(BarElement, CategoryScale, LinearScale, Tooltip, Legend);
+import axios from "axios";
 
 const API = "https://minimart-ivrm.onrender.com/api/admin";
 
 export default function AdminDashboard() {
-  const token = localStorage.getItem("admin_token");
-
-  // ---------------- STATE ----------------
   const [admin, setAdmin] = useState(null);
   const [permissions, setPermissions] = useState([]);
+  const [stats, setStats] = useState({ users: 0, orders: 0, revenue: 0 });
 
-  const [stats, setStats] = useState({
-    users: 0,
-    orders: 0,
-    revenue: 0,
-    dailySales: []
-  });
-
-  const [users, setUsers] = useState([]);
-  const [products, setProducts] = useState([]);
-  const [logs, setLogs] = useState([]);
-
+  const token = localStorage.getItem("admin_token");
   const headers = { Authorization: `Bearer ${token}` };
 
-  // ---------------- LOAD ADMIN ----------------
+  // Load admin info
   const loadAdmin = async () => {
     try {
       const res = await axios.get(`${API}/me`, { headers });
       setAdmin(res.data.admin);
       setPermissions(res.data.permissions || []);
     } catch (err) {
-      console.error("Admin load error:", err);
+      console.error(err);
       localStorage.removeItem("admin_token");
       window.location.href = "/admin/login";
     }
   };
 
-  // ---------------- LOAD DATA ----------------
+  // Load stats
   const loadStats = async () => {
     try {
       const res = await axios.get(`${API}/stats`, { headers });
@@ -60,171 +35,33 @@ export default function AdminDashboard() {
     }
   };
 
-  const loadUsers = async () => {
-    try {
-      const res = await axios.get(`${API}/users`, { headers });
-      setUsers(res.data);
-    } catch (err) {
-      console.error(err);
-    }
-  };
-
-  const loadProducts = async () => {
-    try {
-      const res = await axios.get(`${API}/products/pending`, { headers });
-      setProducts(res.data);
-    } catch (err) {
-      console.error(err);
-    }
-  };
-
-  const loadLogs = async () => {
-    try {
-      const res = await axios.get(`${API}/logs`, { headers });
-      setLogs(res.data);
-    } catch (err) {
-      console.error(err);
-    }
-  };
-
-  // ---------------- INITIAL LOAD ----------------
   useEffect(() => {
     loadAdmin();
     loadStats();
-    loadUsers();
-    loadProducts();
-    loadLogs();
-
-    // refresh logs every 5s
-    const interval = setInterval(loadLogs, 5000);
-    return () => clearInterval(interval);
   }, []);
 
-  // ---------------- ACTIONS ----------------
-  const banUser = async (id) => {
-    await axios.post(`${API}/users/${id}/ban`, {}, { headers });
-    loadUsers();
-  };
-
-  const approveProduct = async (id) => {
-    await axios.post(`${API}/products/${id}/approve`, {}, { headers });
-    loadProducts();
-  };
-
-  const rejectProduct = async (id) => {
-    await axios.post(`${API}/products/${id}/reject`, {}, { headers });
-    loadProducts();
-  };
-
-  // ---------------- CHART DATA ----------------
-  const salesData = {
-    labels: stats.dailySales.map((d) => d.date),
-    datasets: [
-      {
-        label: "Daily Sales",
-        data: stats.dailySales.map((d) => d.amount),
-        backgroundColor: "rgba(54, 162, 235, 0.5)"
-      }
-    ]
-  };
-
-  // ---------------- LOADING ----------------
-  if (!admin) {
-    return <div style={{ textAlign: "center", marginTop: "20vh" }}>Loading dashboard...</div>;
-  }
+  if (!admin) return <div>Loading dashboard...</div>;
 
   return (
     <AdminLayout admin={admin} permissions={permissions}>
-      <h2>Dashboard</h2>
+      <h2>Welcome, {admin.name}!</h2>
 
-      {/* ---------------- STATS ---------------- */}
-      <div style={{ display: "flex", gap: 20, marginBottom: 30 }}>
+      <div style={{ display: "flex", gap: 20, marginTop: 20 }}>
         <StatCard title="Users" value={stats.users} />
         <StatCard title="Orders" value={stats.orders} />
         <StatCard title="Revenue" value={`₦${stats.revenue}`} />
       </div>
 
-      {/* ---------------- SALES CHART ---------------- */}
-      {permissions.includes("analytics") && (
-        <div style={{ marginBottom: 40 }}>
-          <h3>Sales Chart</h3>
-          <Bar data={salesData} />
-        </div>
-      )}
-
-      {/* ---------------- USER MANAGEMENT ---------------- */}
-      {permissions.includes("user_support") && (
-        <div style={{ marginBottom: 40 }}>
-          <h3>User Management</h3>
-          <table style={{ width: "100%", borderCollapse: "collapse" }}>
-            <thead>
-              <tr>
-                <th>Name</th><th>Email</th><th>Status</th><th>Action</th>
-              </tr>
-            </thead>
-            <tbody>
-              {users.map((u) => (
-                <tr key={u.id}>
-                  <td>{u.name}</td>
-                  <td>{u.email}</td>
-                  <td>{u.status}</td>
-                  <td>
-                    <button onClick={() => banUser(u.id)}>Ban</button>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      )}
-
-      {/* ---------------- PRODUCT MODERATION ---------------- */}
-      {permissions.includes("content_moderation") && (
-        <div style={{ marginBottom: 40 }}>
-          <h3>Product Moderation</h3>
-          <table style={{ width: "100%", borderCollapse: "collapse" }}>
-            <thead>
-              <tr>
-                <th>Product</th><th>Seller</th><th>Action</th>
-              </tr>
-            </thead>
-            <tbody>
-              {products.map((p) => (
-                <tr key={p.id}>
-                  <td>{p.name}</td>
-                  <td>{p.seller_name}</td>
-                  <td>
-                    <button onClick={() => approveProduct(p.id)}>Approve</button>
-                    <button onClick={() => rejectProduct(p.id)}>Reject</button>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      )}
-
-      {/* ---------------- ACTIVITY LOGS ---------------- */}
-      {permissions.includes("manage_site") && (
-        <div>
-          <h3>Activity Logs (Real-Time)</h3>
-          <ul>
-            {logs.map((log) => (
-              <li key={log.id}>
-                {log.created_at} → {log.details} by {log.admin_name}
-              </li>
-            ))}
-          </ul>
-        </div>
-      )}
+      <p style={{ marginTop: 40 }}>
+        This is a simple test dashboard. Add charts, tables, and logs later.
+      </p>
     </AdminLayout>
   );
 }
 
-// ---------------- STAT CARD COMPONENT ----------------
 function StatCard({ title, value }) {
   return (
-    <div style={{ flex: 1, padding: 20, borderRadius: 10, background: "#fff", boxShadow: "0 2px 5px rgba(0,0,0,0.1)" }}>
+    <div style={{ flex: 1, padding: 20, background: "#fff", borderRadius: 10 }}>
       <h4>{title}</h4>
       <p style={{ fontSize: 20, fontWeight: "bold" }}>{value}</p>
     </div>
