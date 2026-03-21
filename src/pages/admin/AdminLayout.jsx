@@ -1,6 +1,6 @@
 import React, { useState } from "react";
 
-// Styles (inline for simplicity, can move to CSS)
+// ---------------- STYLES ----------------
 const sidebarStyle = {
   width: 250,
   minHeight: "100vh",
@@ -26,41 +26,91 @@ const linkStyle = {
   borderRadius: 6,
   marginBottom: 5,
   cursor: "pointer",
-  color: "#fff",
-  textDecoration: "none"
+  color: "#fff"
 };
 
 const activeLinkStyle = {
   background: "#2563eb"
 };
 
-export default function AdminLayout({ children, permissions }) {
+// ---------------- COMPONENT ----------------
+export default function AdminLayout({ children, admin, permissions = [] }) {
   const [active, setActive] = useState("Dashboard");
 
-  const menu = [
-    { name: "Dashboard", permission: null },
-    { name: "Users", permission: "user_support" },
-    { name: "Orders", permission: "manage_site" },
-    { name: "Reports", permission: "analytics" },
-    { name: "Site Management", permission: "manage_site" },
-    { name: "Content Review", permission: "content_moderation" },
-    { name: "Payments & Finance", permission: "payments" },
-    { name: "Trust & Safety", permission: "fraud_and_abuse" },
-    { name: "Marketing & Growth", permission: "marketing" }
-  ];
+  // ---------------- ROLE-BASED MENU ----------------
+  const roleMenus = {
+    super_admin: [
+      { name: "Dashboard" },
+      { name: "Manager" },
+      { name: "Moderator" },
+      { name: "Support" },
+      { name: "Finance" },
+      { name: "Trust & Safety" },
+      { name: "Marketing" },
+      { name: "Analytics" }
+    ],
+
+    manager: [
+      { name: "Dashboard" },
+      { name: "Users", permission: "user_support" },
+      { name: "Orders", permission: "manage_site" },
+      { name: "Reports", permission: "analytics" }
+    ],
+
+    moderator: [
+      { name: "Dashboard" },
+      { name: "Content Review", permission: "content_moderation" },
+      { name: "Reports" }
+    ],
+
+    support: [
+      { name: "Dashboard" },
+      { name: "User Support", permission: "user_support" }
+    ],
+
+    finance: [
+      { name: "Dashboard" },
+      { name: "Payments", permission: "payments" },
+      { name: "Transactions" }
+    ],
+
+    trust_safety: [
+      { name: "Dashboard" },
+      { name: "Fraud & Abuse", permission: "fraud_and_abuse" }
+    ],
+
+    marketing: [
+      { name: "Dashboard" },
+      { name: "Campaigns", permission: "marketing" }
+    ],
+
+    analytics: [
+      { name: "Dashboard" },
+      { name: "Reports", permission: "analytics" }
+    ]
+  };
+
+  const menu = roleMenus[admin?.role] || [];
 
   return (
     <div style={{ display: "flex" }}>
-      {/* Sidebar */}
+      
+      {/* ---------------- SIDEBAR ---------------- */}
       <div style={sidebarStyle}>
         <h2 style={{ marginBottom: 30 }}>Admin Panel</h2>
+
         <ul style={{ listStyle: "none", padding: 0 }}>
           {menu.map((item) => {
+            // permission check (optional layer)
             if (item.permission && !permissions.includes(item.permission)) return null;
+
             return (
               <li
                 key={item.name}
-                style={{ ...linkStyle, ...(active === item.name ? activeLinkStyle : {}) }}
+                style={{
+                  ...linkStyle,
+                  ...(active === item.name ? activeLinkStyle : {})
+                }}
                 onClick={() => setActive(item.name)}
               >
                 {item.name}
@@ -70,13 +120,22 @@ export default function AdminLayout({ children, permissions }) {
         </ul>
       </div>
 
-      {/* Main Content */}
+      {/* ---------------- MAIN CONTENT ---------------- */}
       <div style={contentStyle}>
+        
         {/* Topbar */}
-        <div style={{ marginBottom: 20, display: "flex", justifyContent: "space-between" }}>
+        <div
+          style={{
+            marginBottom: 20,
+            display: "flex",
+            justifyContent: "space-between"
+          }}
+        >
           <h1>{active}</h1>
+
           <div>
-            <span>Logged in as Admin</span>
+            <span>{admin?.email || "Admin"}</span>
+
             <button
               style={{
                 marginLeft: 20,
@@ -89,7 +148,7 @@ export default function AdminLayout({ children, permissions }) {
               }}
               onClick={() => {
                 localStorage.removeItem("admin_token");
-                window.location.reload();
+                window.location.href = "/admin/login";
               }}
             >
               Logout
