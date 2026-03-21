@@ -1,71 +1,106 @@
 import React, { useEffect, useState } from "react";
 import axios from "axios";
-import { Bar, Line } from "react-chartjs-2";
+import { Bar } from "react-chartjs-2";
+import {
+  Chart as ChartJS,
+  BarElement,
+  CategoryScale,
+  LinearScale,
+  Tooltip,
+  Legend
+} from "chart.js";
+
 import AdminLayout from "./AdminLayout";
+
+// Register chart
+ChartJS.register(BarElement, CategoryScale, LinearScale, Tooltip, Legend);
 
 const API = "https://minimart-ivrm.onrender.com/api/admin";
 
 export default function AdminDashboard() {
   const token = localStorage.getItem("admin_token");
-  
-  // --- STATE ---
-  const [stats, setStats] = useState({ users: 0, orders: 0, revenue: 0, dailySales: [] });
+
+  // ---------------- STATE ----------------
+  const [admin, setAdmin] = useState(null);
+  const [permissions, setPermissions] = useState([]);
+
+  const [stats, setStats] = useState({
+    users: 0,
+    orders: 0,
+    revenue: 0,
+    dailySales: []
+  });
+
   const [users, setUsers] = useState([]);
   const [products, setProducts] = useState([]);
   const [logs, setLogs] = useState([]);
-  const [permissions, setPermissions] = useState([]);
 
   const headers = { Authorization: `Bearer ${token}` };
 
-  // --- LOAD DATA ---
+  // ---------------- LOAD ADMIN ----------------
+  const loadAdmin = async () => {
+    try {
+      const res = await axios.get(`${API}/me`, { headers });
+
+      setAdmin(res.data.admin);
+      setPermissions(res.data.permissions || []);
+    } catch (err) {
+      console.error("Admin load error:", err);
+      localStorage.removeItem("admin_token");
+      window.location.href = "/admin/login";
+    }
+  };
+
+  // ---------------- LOAD DATA ----------------
   const loadStats = async () => {
     try {
       const res = await axios.get(`${API}/stats`, { headers });
       setStats(res.data);
-    } catch (err) { console.error(err); }
+    } catch (err) {
+      console.error(err);
+    }
   };
 
   const loadUsers = async () => {
     try {
       const res = await axios.get(`${API}/users`, { headers });
       setUsers(res.data);
-    } catch (err) { console.error(err); }
+    } catch (err) {
+      console.error(err);
+    }
   };
 
   const loadProducts = async () => {
     try {
       const res = await axios.get(`${API}/products/pending`, { headers });
       setProducts(res.data);
-    } catch (err) { console.error(err); }
+    } catch (err) {
+      console.error(err);
+    }
   };
 
   const loadLogs = async () => {
     try {
       const res = await axios.get(`${API}/logs`, { headers });
       setLogs(res.data);
-    } catch (err) { console.error(err); }
+    } catch (err) {
+      console.error(err);
+    }
   };
 
-  const loadPermissions = async () => {
-    try {
-      const res = await axios.get(`${API}/me`, { headers });
-      setPermissions(res.data.permissions || []);
-    } catch (err) { console.error(err); }
-  };
-
+  // ---------------- INITIAL LOAD ----------------
   useEffect(() => {
+    loadAdmin();
     loadStats();
     loadUsers();
     loadProducts();
     loadLogs();
-    loadPermissions();
 
-    // auto-refresh logs every 5 seconds
     const interval = setInterval(loadLogs, 5000);
     return () => clearInterval(interval);
   }, []);
 
-  // --- USER ACTIONS ---
+  // ---------------- ACTIONS ----------------
   const banUser = async (id) => {
     await axios.post(`${API}/users/${id}/ban`, {}, { headers });
     loadUsers();
@@ -81,30 +116,34 @@ export default function AdminDashboard() {
     loadProducts();
   };
 
-  // --- CHART DATA ---
+  // ---------------- CHART DATA ----------------
   const salesData = {
-    labels: stats.dailySales.map(d => d.date),
+    labels: stats.dailySales.map((d) => d.date),
     datasets: [
       {
         label: "Daily Sales",
-        data: stats.dailySales.map(d => d.amount),
-        backgroundColor: "rgba(54, 162, 235, 0.5)"
+        data: stats.dailySales.map((d) => d.amount)
       }
     ]
   };
 
+  // ---------------- LOADING ----------------
+  if (!admin) {
+    return <div style={{ textAlign: "center", marginTop: "20vh" }}>Loading dashboard...</div>;
+  }
+
   return (
-    <AdminLayout permissions={permissions}>
+    <AdminLayout admin={admin} permissions={permissions}>
       <h2>Dashboard</h2>
 
-      {/* --- Stats Cards --- */}
+      {/* ---------------- STATS ---------------- */}
       <div style={{ display: "flex", gap: 20, marginBottom: 30 }}>
         <StatCard title="Users" value={stats.users} />
         <StatCard title="Orders" value={stats.orders} />
         <StatCard title="Revenue" value={`₦${stats.revenue}`} />
       </div>
 
-      {/* --- Sales Chart --- */}
+      {/* ---------------- CHART ---------------- */}
       {permissions.includes("analytics") && (
         <div style={{ marginBottom: 40 }}>
           <h3>Sales Chart</h3>
@@ -112,16 +151,18 @@ export default function AdminDashboard() {
         </div>
       )}
 
-      {/* --- User Management --- */}
+      {/* ---------------- USERS ---------------- */}
       {permissions.includes("user_support") && (
         <div style={{ marginBottom: 40 }}>
           <h3>User Management</h3>
           <table>
             <thead>
-              <tr><th>Name</th><th>Email</th><th>Status</th><th>Action</th></tr>
+              <tr>
+                <th>Name</th><th>Email</th><th>Status</th><th>Action</th>
+              </tr>
             </thead>
             <tbody>
-              {users.map(u => (
+              {users.map((u) => (
                 <tr key={u.id}>
                   <td>{u.name}</td>
                   <td>{u.email}</td>
@@ -136,16 +177,18 @@ export default function AdminDashboard() {
         </div>
       )}
 
-      {/* --- Product Moderation --- */}
+      {/* ---------------- PRODUCTS ---------------- */}
       {permissions.includes("content_moderation") && (
         <div style={{ marginBottom: 40 }}>
           <h3>Product Moderation</h3>
           <table>
             <thead>
-              <tr><th>Product</th><th>Seller</th><th>Action</th></tr>
+              <tr>
+                <th>Product</th><th>Seller</th><th>Action</th>
+              </tr>
             </thead>
             <tbody>
-              {products.map(p => (
+              {products.map((p) => (
                 <tr key={p.id}>
                   <td>{p.name}</td>
                   <td>{p.seller_name}</td>
@@ -160,14 +203,14 @@ export default function AdminDashboard() {
         </div>
       )}
 
-      {/* --- Activity Logs --- */}
+      {/* ---------------- LOGS ---------------- */}
       {permissions.includes("manage_site") && (
         <div>
           <h3>Activity Logs (Real-Time)</h3>
           <ul>
-            {logs.map(log => (
+            {logs.map((log) => (
               <li key={log.id}>
-                {log.created_at}: {log.details} by {log.admin_name}
+                {log.created_at} → {log.details}
               </li>
             ))}
           </ul>
@@ -177,12 +220,12 @@ export default function AdminDashboard() {
   );
 }
 
-// --- Small reusable stat card ---
+// ---------------- STAT CARD ----------------
 function StatCard({ title, value }) {
   return (
-    <div style={{ flex: 1, padding: 20, borderRadius: 10, background: "#f4f4f4" }}>
+    <div style={{ flex: 1, padding: 20, borderRadius: 10, background: "#fff" }}>
       <h4>{title}</h4>
-      <p>{value}</p>
+      <p style={{ fontSize: 20, fontWeight: "bold" }}>{value}</p>
     </div>
   );
 }
