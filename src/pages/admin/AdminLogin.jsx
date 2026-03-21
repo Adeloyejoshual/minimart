@@ -1,148 +1,114 @@
 import React, { useState } from "react";
-import axios from "axios";
-import { useNavigate } from "react-router-dom";
-import toast from "react-hot-toast";
 
-const API = "https://minimart-ivrm.onrender.com/api/admin";
+// --- Sidebar styles ---
+const sidebarStyle = {
+  width: 250,
+  minHeight: "100vh",
+  background: "#1e293b",
+  color: "#fff",
+  padding: 20,
+  position: "fixed",
+  top: 0,
+  left: 0,
+  overflowY: "auto",
+};
 
-export default function AdminLogin() {
-  const navigate = useNavigate();
+const contentStyle = {
+  marginLeft: 260,
+  padding: 20,
+  minHeight: "100vh",
+  background: "#f1f5f9",
+};
 
-  const [email, setEmail] = useState("");
-  const [password, setPassword] = useState("");
-  const [loading, setLoading] = useState(false);
+const linkStyle = {
+  display: "block",
+  padding: "10px 15px",
+  borderRadius: 6,
+  marginBottom: 5,
+  cursor: "pointer",
+  color: "#fff",
+  textDecoration: "none",
+};
 
-  // ---------------- HANDLE LOGIN ----------------
-  const handleSubmit = async (e) => {
-    e.preventDefault();
+const activeLinkStyle = {
+  background: "#2563eb",
+};
 
-    if (!email || !password) {
-      return toast.error("All fields are required");
-    }
+export default function AdminLayout({ children, admin, permissions }) {
+  const [active, setActive] = useState("Dashboard");
 
-    try {
-      setLoading(true);
+  const menu = [
+    { name: "Dashboard", permission: null },
+    { name: "Users", permission: "user_support" },
+    { name: "Orders", permission: "manage_site" },
+    { name: "Reports", permission: "analytics" },
+    { name: "Site Management", permission: "manage_site" },
+    { name: "Content Review", permission: "content_moderation" },
+    { name: "Payments & Finance", permission: "payments" },
+    { name: "Trust & Safety", permission: "fraud_and_abuse" },
+    { name: "Marketing & Growth", permission: "marketing" },
+  ];
 
-      const res = await axios.post(`${API}/login`, {
-        email,
-        password,
-      });
-
-      // ✅ SAVE AUTH DATA
-      localStorage.setItem("admin_token", res.data.token);
-      localStorage.setItem(
-        "admin_permissions",
-        JSON.stringify(res.data.permissions || [])
-      );
-      localStorage.setItem(
-        "admin_info",
-        JSON.stringify(res.data.admin)
-      );
-
-      toast.success(`Welcome back, ${res.data.admin.name}`);
-
-      // ✅ REDIRECT
-      navigate("/admin/dashboard");
-
-    } catch (err) {
-      console.error(err);
-      toast.error(err.response?.data?.error || "Login failed");
-    } finally {
-      setLoading(false);
-    }
+  const handleLogout = () => {
+    localStorage.removeItem("admin_token");
+    window.location.href = "/admin/login";
   };
 
-  // ---------------- UI ----------------
   return (
-    <div style={styles.container}>
-      <div style={styles.card}>
-        <h2 style={styles.title}>Admin Login</h2>
+    <div style={{ display: "flex" }}>
+      {/* Sidebar */}
+      <div style={sidebarStyle}>
+        <h2 style={{ marginBottom: 30 }}>Admin Panel</h2>
+        <ul style={{ listStyle: "none", padding: 0 }}>
+          {menu.map((item) => {
+            if (item.permission && !permissions.includes(item.permission)) return null;
+            return (
+              <li
+                key={item.name}
+                style={{ ...linkStyle, ...(active === item.name ? activeLinkStyle : {}) }}
+                onClick={() => setActive(item.name)}
+              >
+                {item.name}
+              </li>
+            );
+          })}
+        </ul>
+      </div>
 
-        <form onSubmit={handleSubmit} style={styles.form}>
-          {/* EMAIL */}
-          <input
-            type="email"
-            placeholder="Admin Email"
-            value={email}
-            onChange={(e) => setEmail(e.target.value)}
-            style={styles.input}
-          />
+      {/* Main Content */}
+      <div style={contentStyle}>
+        {/* Topbar */}
+        <div
+          style={{
+            marginBottom: 20,
+            display: "flex",
+            justifyContent: "space-between",
+            alignItems: "center",
+          }}
+        >
+          <h1>{active}</h1>
+          <div>
+            <span>Logged in as: {admin.name}</span>
+            <button
+              onClick={handleLogout}
+              style={{
+                marginLeft: 20,
+                padding: "5px 10px",
+                borderRadius: 5,
+                background: "#dc2626",
+                color: "#fff",
+                border: "none",
+                cursor: "pointer",
+              }}
+            >
+              Logout
+            </button>
+          </div>
+        </div>
 
-          {/* PASSWORD */}
-          <input
-            type="password"
-            placeholder="Password"
-            value={password}
-            onChange={(e) => setPassword(e.target.value)}
-            style={styles.input}
-          />
-
-          {/* BUTTON */}
-          <button type="submit" style={styles.button} disabled={loading}>
-            {loading ? "Logging in..." : "Login"}
-          </button>
-        </form>
-
-        {/* FOOTER */}
-        <p style={styles.footer}>
-          Secure Admin Access • Minimart
-        </p>
+        {/* Page content */}
+        {children}
       </div>
     </div>
   );
 }
-
-// ---------------- STYLES ----------------
-const styles = {
-  container: {
-    minHeight: "100vh",
-    background: "linear-gradient(135deg, #1e293b, #0f172a)",
-    display: "flex",
-    justifyContent: "center",
-    alignItems: "center",
-  },
-
-  card: {
-    background: "#fff",
-    padding: "2rem",
-    borderRadius: 12,
-    width: "100%",
-    maxWidth: 400,
-    boxShadow: "0 10px 30px rgba(0,0,0,0.2)",
-    textAlign: "center",
-  },
-
-  title: {
-    marginBottom: 20,
-    color: "#1e293b",
-  },
-
-  form: {
-    display: "flex",
-    flexDirection: "column",
-    gap: 12,
-  },
-
-  input: {
-    padding: "12px",
-    borderRadius: 8,
-    border: "1px solid #ccc",
-    fontSize: 14,
-  },
-
-  button: {
-    padding: "12px",
-    borderRadius: 8,
-    border: "none",
-    background: "#2563eb",
-    color: "#fff",
-    fontWeight: "bold",
-    cursor: "pointer",
-  },
-
-  footer: {
-    marginTop: 15,
-    fontSize: 12,
-    color: "#64748b",
-  },
-};
