@@ -52,17 +52,14 @@ export default function AddProduct() {
   const updateDynamic = (key, value) => {
     setForm((prev) => ({
       ...prev,
-      dynamic: {
-        ...prev.dynamic,
-        [key]: value,
-      },
+      dynamic: { ...prev.dynamic, [key]: value },
     }));
   };
 
   // ---------------- SUBMIT ----------------
   const handleSubmit = async () => {
     if (!form.title || !form.price || !form.mainCategory) {
-      return alert("Title, price and category required");
+      return alert("Title, price, and category are required");
     }
 
     try {
@@ -83,7 +80,6 @@ export default function AddProduct() {
       );
 
       const data = await res.json();
-
       console.log("Saved:", data);
       alert("Product added successfully!");
 
@@ -113,7 +109,7 @@ export default function AddProduct() {
         <input
           value={form.title}
           onChange={(e) => update("title", e.target.value)}
-          placeholder="e.g iPhone 11"
+          placeholder="e.g iPhone 14"
         />
       </div>
 
@@ -139,7 +135,7 @@ export default function AddProduct() {
 
         return (
           <div className="field" key={field.name}>
-            <label>{field.name}</label>
+            <label>{field.name.replace("_", " ").toUpperCase()}</label>
 
             {/* TEXT */}
             {field.type === "text" && (
