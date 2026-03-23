@@ -5,12 +5,13 @@ export default function AddProduct() {
   const [categories, setCategories] = useState([]);
   const [loading, setLoading] = useState(false);
   const [images, setImages] = useState([]);
+  const [previewUrls, setPreviewUrls] = useState([]);
 
   const [form, setForm] = useState({
     title: "",
     price: "",
-    mainCategory: "", // UUID of category
-    dynamic: {},      // Dynamic fields like brand, model, features
+    mainCategory: "",
+    dynamic: {},
   });
 
   // ---------------- FETCH CATEGORIES ----------------
@@ -21,9 +22,7 @@ export default function AddProduct() {
       .catch(console.error);
   }, []);
 
-  // ---------------- SELECTED CATEGORY ----------------
   const selectedCategory = categories.find(c => c.id === form.mainCategory);
-
   const dynamicFields = selectedCategory?.dynamicOptions?.fields || [];
 
   // ---------------- OPTIONS MAP ----------------
@@ -38,24 +37,31 @@ export default function AddProduct() {
     sim: selectedCategory?.dynamicOptions?.sims || [],
     features: selectedCategory?.dynamicOptions?.features || [],
     year: selectedCategory?.dynamicOptions?.years || [],
+    engine: selectedCategory?.dynamicOptions?.engine || [],
+    fuel_type: selectedCategory?.dynamicOptions?.fuel_type || [],
+    location: selectedCategory?.dynamicOptions?.location || [],
   };
 
   // ---------------- FORM UPDATES ----------------
   const update = (key, value) => setForm(prev => ({ ...prev, [key]: value }));
-
   const updateDynamic = (key, value) =>
     setForm(prev => ({ ...prev, dynamic: { ...prev.dynamic, [key]: value } }));
 
-  // ---------------- RESET DYNAMIC FIELDS WHEN CATEGORY CHANGES ----------------
+  // ---------------- RESET DYNAMIC FIELDS ----------------
   useEffect(() => {
     if (!selectedCategory) return;
-
     const initialDynamic = Object.fromEntries(
-      dynamicFields.map(f => [f, f === "features" ? [] : ""])
+      dynamicFields.map(f => [f, f === "features" || f === "location" ? [] : ""])
     );
-
     setForm(prev => ({ ...prev, dynamic: initialDynamic }));
   }, [selectedCategory]);
+
+  // ---------------- HANDLE IMAGE SELECTION ----------------
+  const handleImages = (files) => {
+    setImages([...files]);
+    const urls = [...files].map(file => URL.createObjectURL(file));
+    setPreviewUrls(urls);
+  };
 
   // ---------------- SUBMIT PRODUCT ----------------
   const handleSubmit = async () => {
@@ -65,7 +71,6 @@ export default function AddProduct() {
 
     try {
       setLoading(true);
-
       const formData = new FormData();
       formData.append("title", form.title);
       formData.append("price", form.price);
@@ -84,6 +89,7 @@ export default function AddProduct() {
       alert("Product added successfully!");
       setForm({ title: "", price: "", mainCategory: "", dynamic: {} });
       setImages([]);
+      setPreviewUrls([]);
     } catch (err) {
       console.error(err);
       alert("Failed to add product");
@@ -123,39 +129,18 @@ export default function AddProduct() {
       {/* DYNAMIC FIELDS */}
       {dynamicFields.map(field => {
         const value = form.dynamic[field];
-
-        // hide used_detail unless condition is Used
         if (field === "used_detail" && form.dynamic.condition !== "Used") return null;
+        const isArrayField = field === "features" || field === "location";
 
         return (
           <div className="field" key={field}>
             <label>{field.replace(/_/g, " ").toUpperCase()}</label>
 
-            {/* TEXT INPUT */}
-            {!optionsMap[field] && (
-              <input
-                value={value || ""}
-                onChange={e => updateDynamic(field, e.target.value)}
-              />
-            )}
-
-            {/* SELECT */}
-            {optionsMap[field] && field !== "features" && (
-              <select
-                value={value || ""}
-                onChange={e => updateDynamic(field, e.target.value)}
-              >
-                <option value="">Select {field}</option>
-                {optionsMap[field].map(opt => (
-                  <option key={opt} value={opt}>{opt}</option>
-                ))}
-              </select>
-            )}
-
-            {/* MULTISELECT FEATURES */}
-            {field === "features" && (
+            {!optionsMap[field] || optionsMap[field].length === 0 ? (
+              <input value={value || ""} onChange={e => updateDynamic(field, e.target.value)} />
+            ) : isArrayField ? (
               <div className="multi-select">
-                {optionsMap.features.map(opt => {
+                {optionsMap[field].map(opt => {
                   const current = Array.isArray(value) ? value : [];
                   return (
                     <label key={opt}>
@@ -175,6 +160,11 @@ export default function AddProduct() {
                   );
                 })}
               </div>
+            ) : (
+              <select value={value || ""} onChange={e => updateDynamic(field, e.target.value)}>
+                <option value="">Select {field}</option>
+                {optionsMap[field].map(opt => <option key={opt} value={opt}>{opt}</option>)}
+              </select>
             )}
           </div>
         );
@@ -183,17 +173,18 @@ export default function AddProduct() {
       {/* PRICE */}
       <div className="field">
         <label>Price (₦)</label>
-        <input
-          type="number"
-          value={form.price}
-          onChange={e => update("price", e.target.value)}
-        />
+        <input type="number" value={form.price} onChange={e => update("price", e.target.value)} />
       </div>
 
       {/* IMAGES */}
       <div className="field">
         <label>Images</label>
-        <input type="file" multiple onChange={e => setImages([...e.target.files])} />
+        <input type="file" multiple onChange={e => handleImages([...e.target.files])} />
+        <div className="image-preview">
+          {previewUrls.map((url, i) => (
+            <img key={i} src={url} alt={`preview ${i}`} />
+          ))}
+        </div>
       </div>
 
       {/* SUBMIT */}
