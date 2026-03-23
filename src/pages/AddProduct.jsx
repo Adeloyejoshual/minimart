@@ -35,16 +35,7 @@ export default function AddProduct() {
     (c) => c.id === form.mainCategory
   );
 
-  const parseFields = (fields) => {
-    try {
-      if (!fields) return [];
-      return typeof fields === "string" ? JSON.parse(fields) : fields;
-    } catch {
-      return [];
-    }
-  };
-
-  const dynamicFields = parseFields(selectedCategory?.fields);
+  const dynamicFields = selectedCategory?.dynamicOptions?.fields || [];
 
   const update = (key, value) => {
     setForm((prev) => ({ ...prev, [key]: value }));
@@ -119,6 +110,7 @@ export default function AddProduct() {
     }
   };
 
+  // ---------------- RENDER ----------------
   return (
     <div className="add-product-container">
       <h2>Add Product</h2>
@@ -153,6 +145,7 @@ export default function AddProduct() {
       {dynamicFields.map((field) => {
         const value = form.dynamic[field.name];
 
+        // Conditional: show "used_detail" only if condition is "Used"
         if (field.name === "used_detail" && form.dynamic.condition !== "Used") {
           return null;
         }
@@ -162,23 +155,17 @@ export default function AddProduct() {
             <label>{field.name.replace(/_/g, " ").toUpperCase()}</label>
 
             {field.type === "text" && (
-              <>
-                <input
-                  value={value || ""}
-                  onChange={(e) =>
-                    updateDynamic(field.name, e.target.value)
-                  }
-                  placeholder={`Enter ${field.name.replace("_", " ")}`}
-                />
-              </>
+              <input
+                value={value || ""}
+                onChange={(e) => updateDynamic(field.name, e.target.value)}
+                placeholder={`Enter ${field.name.replace("_", " ")}`}
+              />
             )}
 
             {field.type === "select" && (
               <select
                 value={value || ""}
-                onChange={(e) =>
-                  updateDynamic(field.name, e.target.value)
-                }
+                onChange={(e) => updateDynamic(field.name, e.target.value)}
               >
                 <option value="">Select {field.name}</option>
                 {field.options?.map((opt) => (
