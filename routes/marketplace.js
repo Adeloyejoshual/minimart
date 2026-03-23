@@ -24,25 +24,23 @@ const pool = new Pool({
   ssl: { rejectUnauthorized: false },
 });
 
-// Cloudinary config
+// ---------------- CLOUDINARY ----------------
 cloudinary.config({
   cloud_name: process.env.CLOUDINARY_CLOUD_NAME,
   api_key: process.env.CLOUDINARY_API_KEY,
   api_secret: process.env.CLOUDINARY_API_SECRET,
 });
 
-// Multer memory storage
+// ---------------- MULTER ----------------
 const upload = multer({ storage: multer.memoryStorage() });
 
 // ---------------- GET PRODUCTS ----------------
 router.get("/products", async (req, res) => {
   try {
-    const { rows } = await pool.query(
-      "SELECT * FROM products ORDER BY created_at DESC"
-    );
+    const { rows } = await pool.query("SELECT * FROM products ORDER BY created_at DESC");
     res.json(rows);
   } catch (err) {
-    console.error(err);
+    console.error("GET /products error:", err);
     res.status(500).json({ message: "Failed to fetch products" });
   }
 });
@@ -56,7 +54,7 @@ router.post("/products", upload.array("images"), async (req, res) => {
       return res.status(400).json({ message: "Title, price, and category required" });
     }
 
-    // Fetch category and fields_key
+    // ---------------- FETCH CATEGORY ----------------
     const { rows: categoryRows } = await pool.query(
       "SELECT id, name, fields_key FROM categories WHERE id = $1",
       [category_id]
@@ -66,16 +64,23 @@ router.post("/products", upload.array("images"), async (req, res) => {
     }
     const category = categoryRows[0];
 
-    // Map fields from config using fields_key
-    const key = category.fields_key; // e.g., "phones_tablets"
-    const allowedKeys = categoryFields[key] || [];
+    // ---------------- PARSE DYNAMIC FIELDS ----------------
+    let parsedFields = {};
+    try {
+      parsedFields = typeof dynamicFields === "string" ? JSON.parse(dynamicFields) : dynamicFields || {};
+    } catch (err) {
+      console.warn("Invalid dynamicFields JSON:", err);
+      return res.status(400).json({ message: "Invalid dynamicFields format" });
+    }
 
-    const parsedFields = typeof dynamicFields === "string" ? JSON.parse(dynamicFields) : dynamicFields || {};
+    // ---------------- CLEAN DYNAMIC FIELDS ----------------
+    const key = category.fields_key;
+    const allowedKeys = categoryFields[key] || [];
     const cleanedFields = Object.fromEntries(
       Object.entries(parsedFields).filter(([k]) => allowedKeys.includes(k))
     );
 
-    // Upload images
+    // ---------------- UPLOAD IMAGES ----------------
     const uploadedImages = await Promise.all(
       (req.files || []).map(file =>
         new Promise((resolve, reject) => {
@@ -88,7 +93,7 @@ router.post("/products", upload.array("images"), async (req, res) => {
       )
     );
 
-    // Insert into DB
+    // ---------------- INSERT PRODUCT ----------------
     const query = `
       INSERT INTO products
       (title, description, price, category_id, subcategory_id, images, dynamic_fields, created_at)
@@ -110,7 +115,7 @@ router.post("/products", upload.array("images"), async (req, res) => {
 
     res.status(201).json(product);
   } catch (err) {
-    console.error(err);
+    console.error("POST /products error:", err);
     res.status(500).json({ message: "Failed to add product" });
   }
 });
@@ -124,12 +129,12 @@ router.get("/categories", async (req, res) => {
       ORDER BY sort_order ASC, name ASC
     `);
 
-    // Build category map with subcategories
+    // ---------------- BUILD CATEGORY MAP ----------------
     const categoryMap = {};
     const structured = [];
 
     rows.forEach(cat => {
-      const configKey = cat.fields_key;
+      const configKey = cat.fields_key || "";
       categoryMap[cat.id] = {
         ...cat,
         dynamicOptions: {
@@ -142,14 +147,15 @@ router.get("/categories", async (req, res) => {
           ram: ramOptions,
           storage: storageOptions,
           sims,
-          features: featuresByCategory[configKey] || []
+          features: featuresByCategory[configKey] || [],
+          years: years,
         },
         subcategories: []
       };
       if (!cat.parent_id) structured.push(categoryMap[cat.id]);
     });
 
-    // Attach subcategories
+    // ---------------- ATTACH SUBCATEGORIES ----------------
     rows.forEach(cat => {
       if (cat.parent_id && categoryMap[cat.parent_id]) {
         categoryMap[cat.parent_id].subcategories.push(categoryMap[cat.id]);
@@ -158,7 +164,7 @@ router.get("/categories", async (req, res) => {
 
     res.json(structured);
   } catch (err) {
-    console.error(err);
+    console.error("GET /categories error:", err);
     res.status(500).json({ message: "Failed to fetch categories" });
   }
 });
