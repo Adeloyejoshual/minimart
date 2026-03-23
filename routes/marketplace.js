@@ -4,18 +4,17 @@ import multer from "multer";
 import { v2 as cloudinary } from "cloudinary";
 import dotenv from "dotenv";
 
-import {
-  categoryFields,
-  brands,
-  models,
-  colors,
-  conditions,
-  usedDetails,
-  ramOptions,
-  storageOptions,
-  sims,
-  featuresByCategory,
-} from "../config"; // adjust path as needed
+// ---------------- CONFIG IMPORTS ----------------
+import { brands } from "../src/config/brands.js";
+import { colors } from "../src/config/colors.js";
+import { categoryFields } from "../src/config/categoryFields.js";
+import { conditions, usedDetails } from "../src/config/conditions.js";
+import { featuresByCategory } from "../src/config/featuresByCategory.js";
+import { models } from "../src/config/models.js";
+import { ramOptions } from "../src/config/ramOptions.js";
+import { sims } from "../src/config/sim.js";
+import { storageOptions } from "../src/config/storageOptions.js";
+import { years } from "../src/config/years.js";
 
 dotenv.config();
 
