@@ -25,6 +25,11 @@ export default function AddProduct() {
   const selectedCategory = categories.find(c => c.id === form.mainCategory);
   const dynamicFields = selectedCategory?.dynamicOptions?.fields || [];
 
+  // ✅ LOCATION STRUCTURE (STATE → CITY)
+  const locations = selectedCategory?.dynamicOptions?.location || {};
+  const selectedState = form.dynamic.state;
+  const cities = selectedState ? locations[selectedState] || [] : [];
+
   // ---------------- OPTIONS MAP ----------------
   const optionsMap = {
     brand: selectedCategory?.dynamicOptions?.brands || [],
@@ -39,30 +44,40 @@ export default function AddProduct() {
     year: selectedCategory?.dynamicOptions?.years || [],
     engine: selectedCategory?.dynamicOptions?.engine || [],
     fuel_type: selectedCategory?.dynamicOptions?.fuel_type || [],
-    location: selectedCategory?.dynamicOptions?.location || [],
   };
 
   // ---------------- FORM UPDATES ----------------
-  const update = (key, value) => setForm(prev => ({ ...prev, [key]: value }));
+  const update = (key, value) =>
+    setForm(prev => ({ ...prev, [key]: value }));
+
   const updateDynamic = (key, value) =>
-    setForm(prev => ({ ...prev, dynamic: { ...prev.dynamic, [key]: value } }));
+    setForm(prev => ({
+      ...prev,
+      dynamic: { ...prev.dynamic, [key]: value },
+    }));
 
   // ---------------- RESET DYNAMIC FIELDS ----------------
   useEffect(() => {
     if (!selectedCategory) return;
-    const initialDynamic = Object.fromEntries(
-      dynamicFields.map(f => [f, ["features", "location"].includes(f) ? [] : ""])
-    );
+
+    const initialDynamic = {
+      ...Object.fromEntries(
+        dynamicFields.map(f => [f, f === "features" ? [] : ""])
+      ),
+      state: "",
+      city: "",
+    };
+
     setForm(prev => ({ ...prev, dynamic: initialDynamic }));
   }, [selectedCategory]);
 
-  // ---------------- HANDLE IMAGE SELECTION ----------------
+  // ---------------- HANDLE IMAGES ----------------
   const handleImages = files => {
     setImages([...files]);
     setPreviewUrls([...files].map(f => URL.createObjectURL(f)));
   };
 
-  // ---------------- SUBMIT PRODUCT ----------------
+  // ---------------- SUBMIT ----------------
   const handleSubmit = async () => {
     if (!form.title || !form.price || !form.mainCategory) {
       return alert("Title, price, and category are required");
@@ -76,6 +91,7 @@ export default function AddProduct() {
       formData.append("price", form.price);
       formData.append("category_id", form.mainCategory);
       formData.append("dynamicFields", JSON.stringify(form.dynamic));
+
       images.forEach(img => formData.append("images", img));
 
       const res = await fetch(
@@ -87,7 +103,14 @@ export default function AddProduct() {
       console.log("Added product:", data);
 
       alert("Product added successfully!");
-      setForm({ title: "", price: "", mainCategory: "", dynamic: {} });
+
+      setForm({
+        title: "",
+        price: "",
+        mainCategory: "",
+        dynamic: {},
+      });
+
       setImages([]);
       setPreviewUrls([]);
     } catch (err) {
@@ -121,7 +144,45 @@ export default function AddProduct() {
         >
           <option value="">Select category</option>
           {categories.map(cat => (
-            <option key={cat.id} value={cat.id}>{cat.name}</option>
+            <option key={cat.id} value={cat.id}>
+              {cat.name}
+            </option>
+          ))}
+        </select>
+      </div>
+
+      {/* ✅ STATE */}
+      <div className="field">
+        <label>State</label>
+        <select
+          value={form.dynamic.state || ""}
+          onChange={(e) => {
+            updateDynamic("state", e.target.value);
+            updateDynamic("city", "");
+          }}
+        >
+          <option value="">Select state</option>
+          {Object.keys(locations).map(state => (
+            <option key={state} value={state}>
+              {state}
+            </option>
+          ))}
+        </select>
+      </div>
+
+      {/* ✅ CITY */}
+      <div className="field">
+        <label>City</label>
+        <select
+          value={form.dynamic.city || ""}
+          onChange={(e) => updateDynamic("city", e.target.value)}
+          disabled={!form.dynamic.state}
+        >
+          <option value="">Select city</option>
+          {cities.map(city => (
+            <option key={city} value={city}>
+              {city}
+            </option>
           ))}
         </select>
       </div>
@@ -129,14 +190,16 @@ export default function AddProduct() {
       {/* DYNAMIC FIELDS */}
       {dynamicFields.map(field => {
         const value = form.dynamic[field];
+
         if (field === "used_detail" && form.dynamic.condition !== "Used") return null;
-        const isArrayField = ["features", "location"].includes(field);
+
+        const isArrayField = field === "features";
 
         return (
           <div className="field" key={field}>
             <label>{field.replace(/_/g, " ").toUpperCase()}</label>
 
-            {/* TEXT INPUT */}
+            {/* TEXT */}
             {(!optionsMap[field] || optionsMap[field].length === 0) && !isArrayField && (
               <input
                 value={value || ""}
@@ -146,25 +209,36 @@ export default function AddProduct() {
 
             {/* SELECT */}
             {optionsMap[field] && optionsMap[field].length > 0 && !isArrayField && (
-              <select value={value || ""} onChange={e => updateDynamic(field, e.target.value)}>
+              <select
+                value={value || ""}
+                onChange={e => updateDynamic(field, e.target.value)}
+              >
                 <option value="">Select {field}</option>
-                {optionsMap[field].map(opt => <option key={opt} value={opt}>{opt}</option>)}
+                {optionsMap[field].map(opt => (
+                  <option key={opt} value={opt}>{opt}</option>
+                ))}
               </select>
             )}
 
-            {/* MULTISELECT */}
+            {/* FEATURES MULTISELECT */}
             {isArrayField && (
               <div className="multi-select">
-                {optionsMap[field].map(opt => {
+                {optionsMap.features.map(opt => {
                   const current = Array.isArray(value) ? value : [];
                   const selected = current.includes(opt);
+
                   return (
                     <label key={opt}>
                       <input
                         type="checkbox"
                         checked={selected}
                         onChange={() =>
-                          updateDynamic(field, selected ? current.filter(v => v !== opt) : [...current, opt])
+                          updateDynamic(
+                            field,
+                            selected
+                              ? current.filter(v => v !== opt)
+                              : [...current, opt]
+                          )
                         }
                       />
                       {opt}
@@ -190,9 +264,15 @@ export default function AddProduct() {
       {/* IMAGES */}
       <div className="field">
         <label>Images</label>
-        <input type="file" multiple onChange={e => handleImages([...e.target.files])} />
+        <input
+          type="file"
+          multiple
+          onChange={e => handleImages([...e.target.files])}
+        />
         <div className="image-preview">
-          {previewUrls.map((url, i) => <img key={i} src={url} alt={`preview ${i}`} />)}
+          {previewUrls.map((url, i) => (
+            <img key={i} src={url} alt={`preview ${i}`} />
+          ))}
         </div>
       </div>
 
