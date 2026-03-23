@@ -1,25 +1,18 @@
-/* AddProduct.css */
-
-/* ---------- CONTAINER ---------- */
 .add-product-container {
   max-width: 700px;
   margin: 2rem auto;
-  padding: 2rem;
+  padding: 1.5rem;
   background: #fff;
-  border-radius: 12px;
-  box-shadow: 0 4px 20px rgba(0,0,0,0.1);
+  border-radius: 10px;
+  box-shadow: 0 4px 20px rgba(0,0,0,0.05);
   font-family: 'Inter', sans-serif;
 }
 
-/* ---------- HEADINGS ---------- */
-.add-product-container h2 {
-  text-align: center;
-  margin-bottom: 1.5rem;
-  font-size: 1.8rem;
-  color: #1e3a8a;
+h2 {
+  margin-bottom: 1rem;
+  color: #1e40af;
 }
 
-/* ---------- FORM FIELD ---------- */
 .field {
   display: flex;
   flex-direction: column;
@@ -28,28 +21,24 @@
 
 .field label {
   font-weight: 600;
-  margin-bottom: 0.4rem;
+  margin-bottom: 0.3rem;
   color: #374151;
 }
 
-.field input[type="text"],
-.field input[type="number"],
+.field input,
 .field select {
-  padding: 0.6rem 0.8rem;
+  padding: 0.5rem 0.7rem;
   border: 1px solid #d1d5db;
-  border-radius: 8px;
-  font-size: 1rem;
+  border-radius: 6px;
+  font-size: 0.95rem;
   outline: none;
-  transition: 0.2s border-color;
 }
 
-.field input[type="text"]:focus,
-.field input[type="number"]:focus,
+.field input:focus,
 .field select:focus {
-  border-color: #1e3a8a;
+  border-color: #1e40af;
 }
 
-/* ---------- MULTI-SELECT ---------- */
 .multi-select {
   display: flex;
   flex-wrap: wrap;
@@ -57,84 +46,41 @@
 }
 
 .multi-select label {
-  display: flex;
-  align-items: center;
-  gap: 0.3rem;
-  padding: 0.3rem 0.5rem;
-  border: 1px solid #d1d5db;
-  border-radius: 6px;
-  cursor: pointer;
-  font-size: 0.95rem;
-  transition: 0.2s all;
-}
-
-.multi-select input[type="checkbox"] {
-  accent-color: #1e3a8a;
-}
-
-.multi-select label:hover {
   background: #f3f4f6;
-  border-color: #1e3a8a;
+  padding: 0.4rem 0.6rem;
+  border-radius: 5px;
+  font-size: 0.9rem;
+  cursor: pointer;
 }
 
-/* ---------- DROPDOWN COMPONENT (optional wrapper) ---------- */
-.dropdown-container {
-  display: flex;
-  flex-direction: column;
-  margin-bottom: 1rem;
+.multi-select input {
+  margin-right: 0.3rem;
 }
 
-.dropdown-container label {
-  font-weight: 600;
-  margin-bottom: 0.4rem;
-  color: #374151;
-}
-
-.dropdown-container select {
-  padding: 0.6rem 0.8rem;
-  border: 1px solid #d1d5db;
-  border-radius: 8px;
-  font-size: 1rem;
-  outline: none;
-  transition: 0.2s border-color;
-}
-
-.dropdown-container select:focus {
-  border-color: #1e3a8a;
-}
-
-/* ---------- IMAGE PREVIEW ---------- */
 .image-preview {
   display: flex;
-  flex-wrap: wrap;
   gap: 0.5rem;
   margin-top: 0.5rem;
+  flex-wrap: wrap;
 }
 
 .image-preview img {
-  width: 100px;
-  height: 100px;
+  width: 80px;
+  height: 80px;
   object-fit: cover;
-  border-radius: 8px;
+  border-radius: 6px;
   border: 1px solid #d1d5db;
 }
 
-/* ---------- SUBMIT BUTTON ---------- */
 button {
-  width: 100%;
-  padding: 0.7rem;
-  background: #1e3a8a;
+  padding: 0.6rem 1.2rem;
+  background: #1e40af;
   color: #fff;
   font-weight: 600;
   border: none;
-  border-radius: 10px;
-  font-size: 1rem;
+  border-radius: 6px;
   cursor: pointer;
-  transition: 0.2s background;
-}
-
-button:hover {
-  background: #1e40af;
+  font-size: 0.95rem;
 }
 
 button:disabled {
