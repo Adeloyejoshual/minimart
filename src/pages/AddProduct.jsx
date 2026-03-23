@@ -1,6 +1,6 @@
 import { useEffect, useState, useCallback } from "react";
-import { models, getModelsByCategoryBrand } from "../../config/models";
-import { brands } from "../../config/brands";
+import { models, getModelsByCategoryBrand } from "../config/models";
+import { brands } from "../config/brands";
 import "./AddProduct.css";
 
 export default function AddProduct() {
