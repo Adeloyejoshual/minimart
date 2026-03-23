@@ -56,6 +56,23 @@ export default function AddProduct() {
     }));
   };
 
+  // ---------------- RESET DYNAMIC FIELDS ON CATEGORY CHANGE ----------------
+  useEffect(() => {
+    if (!selectedCategory) return;
+
+    const initialDynamic = Object.fromEntries(
+      dynamicFields.map((field) => {
+        if (field.type === "multiselect") return [field.name, []];
+        return [field.name, ""];
+      })
+    );
+
+    setForm((prev) => ({
+      ...prev,
+      dynamic: initialDynamic,
+    }));
+  }, [selectedCategory]);
+
   // ---------------- SUBMIT ----------------
   const handleSubmit = async () => {
     if (!form.title || !form.price || !form.mainCategory) {
@@ -109,7 +126,7 @@ export default function AddProduct() {
         <input
           value={form.title}
           onChange={(e) => update("title", e.target.value)}
-          placeholder="e.g iPhone 14"
+          placeholder="e.g iPhone 11, Samsung Galaxy S21"
         />
       </div>
 
@@ -133,19 +150,34 @@ export default function AddProduct() {
       {dynamicFields.map((field) => {
         const value = form.dynamic[field.name];
 
+        // Hide used_detail unless condition = Used
+        if (
+          field.name === "used_detail" &&
+          form.dynamic.condition !== "Used"
+        ) {
+          return null;
+        }
+
         return (
           <div className="field" key={field.name}>
-            <label>{field.name.replace("_", " ").toUpperCase()}</label>
+            <label>{field.name.replace(/_/g, " ").toUpperCase()}</label>
 
             {/* TEXT */}
             {field.type === "text" && (
-              <input
-                value={value || ""}
-                onChange={(e) =>
-                  updateDynamic(field.name, e.target.value)
-                }
-                placeholder={`Enter ${field.name}`}
-              />
+              <>
+                <input
+                  value={value || ""}
+                  onChange={(e) =>
+                    updateDynamic(field.name, e.target.value)
+                  }
+                  placeholder={`Enter ${field.name.replace("_", " ")}`}
+                />
+                {field.name === "used_detail" && (
+                  <small>
+                    Describe condition if item is used (scratches, battery, etc.)
+                  </small>
+                )}
+              </>
             )}
 
             {/* SELECT */}
@@ -168,26 +200,28 @@ export default function AddProduct() {
             {/* MULTISELECT */}
             {field.type === "multiselect" && (
               <div className="multi-select">
-                {field.options?.map((opt) => (
-                  <label key={opt}>
-                    <input
-                      type="checkbox"
-                      checked={value?.includes(opt) || false}
-                      onChange={() => {
-                        const current = value || [];
-                        if (current.includes(opt)) {
-                          updateDynamic(
-                            field.name,
-                            current.filter((v) => v !== opt)
-                          );
-                        } else {
-                          updateDynamic(field.name, [...current, opt]);
-                        }
-                      }}
-                    />
-                    {opt}
-                  </label>
-                ))}
+                {field.options?.map((opt) => {
+                  const current = Array.isArray(value) ? value : [];
+                  return (
+                    <label key={opt}>
+                      <input
+                        type="checkbox"
+                        checked={current.includes(opt)}
+                        onChange={() => {
+                          if (current.includes(opt)) {
+                            updateDynamic(
+                              field.name,
+                              current.filter((v) => v !== opt)
+                            );
+                          } else {
+                            updateDynamic(field.name, [...current, opt]);
+                          }
+                        }}
+                      />
+                      {opt}
+                    </label>
+                  );
+                })}
               </div>
             )}
           </div>
