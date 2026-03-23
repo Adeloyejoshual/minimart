@@ -15,28 +15,37 @@ export default function AddProduct() {
 
   // ---------------- FETCH CATEGORIES ----------------
   useEffect(() => {
-    const fetchCategories = async () => {
-      try {
-        const res = await fetch(
-          "https://minimart-ivrm.onrender.com/api/marketplace/categories"
-        );
-        const data = await res.json();
-        setCategories(data || []);
-      } catch (err) {
-        console.error("Failed to fetch categories", err);
-      }
-    };
-
-    fetchCategories();
+    fetch("https://minimart-ivrm.onrender.com/api/marketplace/categories")
+      .then((res) => res.json())
+      .then(setCategories)
+      .catch(console.error);
   }, []);
 
-  // ---------------- HELPERS ----------------
+  // ---------------- SELECTED CATEGORY ----------------
   const selectedCategory = categories.find(
     (c) => c.id === form.mainCategory
   );
 
   const dynamicFields = selectedCategory?.dynamicOptions?.fields || [];
 
+  // ---------------- OPTIONS MAP ----------------
+  const optionsMap = {
+    brand: selectedCategory?.dynamicOptions?.brands || [],
+    model:
+      selectedCategory?.dynamicOptions?.models?.[
+        form.dynamic.brand
+      ] || [],
+    color: selectedCategory?.dynamicOptions?.colors || [],
+    condition: selectedCategory?.dynamicOptions?.conditions || [],
+    used_detail: selectedCategory?.dynamicOptions?.usedDetails || [],
+    ram: selectedCategory?.dynamicOptions?.ram || [],
+    storage: selectedCategory?.dynamicOptions?.storage || [],
+    sim: selectedCategory?.dynamicOptions?.sims || [],
+    features: selectedCategory?.dynamicOptions?.features || [],
+    year: selectedCategory?.dynamicOptions?.years || [],
+  };
+
+  // ---------------- UPDATE FORM ----------------
   const update = (key, value) => {
     setForm((prev) => ({ ...prev, [key]: value }));
   };
@@ -48,15 +57,15 @@ export default function AddProduct() {
     }));
   };
 
-  // ---------------- RESET DYNAMIC FIELDS ON CATEGORY CHANGE ----------------
+  // ---------------- RESET DYNAMIC FIELDS ----------------
   useEffect(() => {
     if (!selectedCategory) return;
 
     const initialDynamic = Object.fromEntries(
-      dynamicFields.map((field) => {
-        if (field.type === "multiselect") return [field.name, []];
-        return [field.name, ""];
-      })
+      dynamicFields.map((field) => [
+        field,
+        field === "features" ? [] : "",
+      ])
     );
 
     setForm((prev) => ({
@@ -74,7 +83,6 @@ export default function AddProduct() {
     try {
       setLoading(true);
 
-      // Prepare FormData for image upload
       const formData = new FormData();
       formData.append("title", form.title);
       formData.append("price", form.price);
@@ -92,7 +100,8 @@ export default function AddProduct() {
       );
 
       const data = await res.json();
-      console.log("Saved:", data);
+      console.log(data);
+
       alert("Product added successfully!");
 
       setForm({
@@ -110,7 +119,6 @@ export default function AddProduct() {
     }
   };
 
-  // ---------------- RENDER ----------------
   return (
     <div className="add-product-container">
       <h2>Add Product</h2>
@@ -121,7 +129,7 @@ export default function AddProduct() {
         <input
           value={form.title}
           onChange={(e) => update("title", e.target.value)}
-          placeholder="e.g iPhone 13, Samsung Galaxy S21"
+          placeholder="e.g iPhone 13"
         />
       </div>
 
@@ -143,32 +151,33 @@ export default function AddProduct() {
 
       {/* DYNAMIC FIELDS */}
       {dynamicFields.map((field) => {
-        const value = form.dynamic[field.name];
+        const value = form.dynamic[field];
 
-        // Conditional: show "used_detail" only if condition is "Used"
-        if (field.name === "used_detail" && form.dynamic.condition !== "Used") {
+        // hide used_detail unless condition is Used
+        if (field === "used_detail" && form.dynamic.condition !== "Used") {
           return null;
         }
 
         return (
-          <div className="field" key={field.name}>
-            <label>{field.name.replace(/_/g, " ").toUpperCase()}</label>
+          <div className="field" key={field}>
+            <label>{field.replace(/_/g, " ").toUpperCase()}</label>
 
-            {field.type === "text" && (
+            {/* TEXT INPUT */}
+            {!optionsMap[field] && (
               <input
                 value={value || ""}
-                onChange={(e) => updateDynamic(field.name, e.target.value)}
-                placeholder={`Enter ${field.name.replace("_", " ")}`}
+                onChange={(e) => updateDynamic(field, e.target.value)}
               />
             )}
 
-            {field.type === "select" && (
+            {/* SELECT */}
+            {optionsMap[field] && field !== "features" && (
               <select
                 value={value || ""}
-                onChange={(e) => updateDynamic(field.name, e.target.value)}
+                onChange={(e) => updateDynamic(field, e.target.value)}
               >
-                <option value="">Select {field.name}</option>
-                {field.options?.map((opt) => (
+                <option value="">Select {field}</option>
+                {optionsMap[field].map((opt) => (
                   <option key={opt} value={opt}>
                     {opt}
                   </option>
@@ -176,10 +185,12 @@ export default function AddProduct() {
               </select>
             )}
 
-            {field.type === "multiselect" && (
+            {/* MULTISELECT */}
+            {field === "features" && (
               <div className="multi-select">
-                {field.options?.map((opt) => {
+                {optionsMap.features.map((opt) => {
                   const current = Array.isArray(value) ? value : [];
+
                   return (
                     <label key={opt}>
                       <input
@@ -188,11 +199,11 @@ export default function AddProduct() {
                         onChange={() => {
                           if (current.includes(opt)) {
                             updateDynamic(
-                              field.name,
+                              field,
                               current.filter((v) => v !== opt)
                             );
                           } else {
-                            updateDynamic(field.name, [...current, opt]);
+                            updateDynamic(field, [...current, opt]);
                           }
                         }}
                       />
@@ -222,7 +233,6 @@ export default function AddProduct() {
         <input
           type="file"
           multiple
-          accept="image/*"
           onChange={(e) => setImages([...e.target.files])}
         />
       </div>
