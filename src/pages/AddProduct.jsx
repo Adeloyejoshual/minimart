@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import "./AddProduct.css";
 
-export default function AddProduct({ locationsByState }) {
+export default function AddProduct() {
   const [categories, setCategories] = useState([]);
   const [loading, setLoading] = useState(false);
   const [images, setImages] = useState([]);
@@ -10,10 +10,8 @@ export default function AddProduct({ locationsByState }) {
   const [form, setForm] = useState({
     title: "",
     price: "",
-    mainCategory: "",
-    dynamic: {},
-    state: "",    // permanent
-    city: "",     // dependent
+    mainCategory: "", // UUID
+    dynamic: {},      // Dynamic fields like brand, model, features
   });
 
   // ---------------- FETCH CATEGORIES ----------------
@@ -41,6 +39,7 @@ export default function AddProduct({ locationsByState }) {
     year: selectedCategory?.dynamicOptions?.years || [],
     engine: selectedCategory?.dynamicOptions?.engine || [],
     fuel_type: selectedCategory?.dynamicOptions?.fuel_type || [],
+    location: selectedCategory?.dynamicOptions?.location || [], // always available
   };
 
   // ---------------- FORM UPDATES ----------------
@@ -52,7 +51,7 @@ export default function AddProduct({ locationsByState }) {
   useEffect(() => {
     if (!selectedCategory) return;
     const initialDynamic = Object.fromEntries(
-      dynamicFields.map(f => [f, ["features"].includes(f) ? [] : ""])
+      dynamicFields.map(f => [f, f === "features" || f === "location" ? [] : ""])
     );
     setForm(prev => ({ ...prev, dynamic: initialDynamic }));
   }, [selectedCategory]);
@@ -60,16 +59,13 @@ export default function AddProduct({ locationsByState }) {
   // ---------------- HANDLE IMAGE SELECTION ----------------
   const handleImages = files => {
     setImages([...files]);
-    setPreviewUrls([...files].map(f => URL.createObjectURL(f)));
+    setPreviewUrls([...files].map(file => URL.createObjectURL(file)));
   };
 
   // ---------------- SUBMIT PRODUCT ----------------
   const handleSubmit = async () => {
     if (!form.title || !form.price || !form.mainCategory) {
       return alert("Title, price, and category are required");
-    }
-    if (!form.state || !form.city) {
-      return alert("State and City are required");
     }
 
     try {
@@ -80,8 +76,6 @@ export default function AddProduct({ locationsByState }) {
       formData.append("price", form.price);
       formData.append("category_id", form.mainCategory);
       formData.append("dynamicFields", JSON.stringify(form.dynamic));
-      formData.append("state", form.state);
-      formData.append("city", form.city);
       images.forEach(img => formData.append("images", img));
 
       const res = await fetch(
@@ -93,7 +87,7 @@ export default function AddProduct({ locationsByState }) {
       console.log("Added product:", data);
 
       alert("Product added successfully!");
-      setForm({ title: "", price: "", mainCategory: "", dynamic: {}, state: "", city: "" });
+      setForm({ title: "", price: "", mainCategory: "", dynamic: {} });
       setImages([]);
       setPreviewUrls([]);
     } catch (err) {
@@ -136,7 +130,7 @@ export default function AddProduct({ locationsByState }) {
       {dynamicFields.map(field => {
         const value = form.dynamic[field];
         if (field === "used_detail" && form.dynamic.condition !== "Used") return null;
-        const isArrayField = ["features"].includes(field);
+        const isArrayField = field === "features" || field === "location";
 
         return (
           <div className="field" key={field}>
@@ -148,14 +142,15 @@ export default function AddProduct({ locationsByState }) {
               <div className="multi-select">
                 {optionsMap[field].map(opt => {
                   const current = Array.isArray(value) ? value : [];
-                  const selected = current.includes(opt);
                   return (
                     <label key={opt}>
                       <input
                         type="checkbox"
-                        checked={selected}
+                        checked={current.includes(opt)}
                         onChange={() =>
-                          updateDynamic(field, selected ? current.filter(v => v !== opt) : [...current, opt])
+                          current.includes(opt)
+                            ? updateDynamic(field, current.filter(v => v !== opt))
+                            : updateDynamic(field, [...current, opt])
                         }
                       />
                       {opt}
@@ -166,7 +161,9 @@ export default function AddProduct({ locationsByState }) {
             ) : (
               <select value={value || ""} onChange={e => updateDynamic(field, e.target.value)}>
                 <option value="">Select {field}</option>
-                {optionsMap[field].map(opt => <option key={opt} value={opt}>{opt}</option>)}
+                {optionsMap[field].map(opt => (
+                  <option key={opt} value={opt}>{opt}</option>
+                ))}
               </select>
             )}
           </div>
@@ -176,11 +173,7 @@ export default function AddProduct({ locationsByState }) {
       {/* PRICE */}
       <div className="field">
         <label>Price (₦)</label>
-        <input
-          type="number"
-          value={form.price}
-          onChange={e => update("price", e.target.value)}
-        />
+        <input type="number" value={form.price} onChange={e => update("price", e.target.value)} />
       </div>
 
       {/* IMAGES */}
@@ -188,39 +181,10 @@ export default function AddProduct({ locationsByState }) {
         <label>Images</label>
         <input type="file" multiple onChange={e => handleImages([...e.target.files])} />
         <div className="image-preview">
-          {previewUrls.map((url, i) => <img key={i} src={url} alt={`preview ${i}`} />)}
+          {previewUrls.map((url, i) => (
+            <img key={i} src={url} alt={`preview ${i}`} />
+          ))}
         </div>
-      </div>
-
-      {/* STATE & CITY - ALWAYS AT BOTTOM */}
-      <div className="field">
-        <label>State</label>
-        <select
-          value={form.state}
-          onChange={e => {
-            update("state", e.target.value);
-            update("city", ""); // reset city when state changes
-          }}
-        >
-          <option value="">Select State</option>
-          {Object.keys(locationsByState).map(state => (
-            <option key={state} value={state}>{state}</option>
-          ))}
-        </select>
-      </div>
-
-      <div className="field">
-        <label>City</label>
-        <select
-          value={form.city}
-          onChange={e => update("city", e.target.value)}
-          disabled={!form.state}
-        >
-          <option value="">Select City</option>
-          {form.state && locationsByState[form.state].map(city => (
-            <option key={city} value={city}>{city}</option>
-          ))}
-        </select>
       </div>
 
       {/* SUBMIT */}
