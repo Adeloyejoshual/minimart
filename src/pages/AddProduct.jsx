@@ -17,7 +17,7 @@ export default function AddProduct() {
   // ---------------- FETCH CATEGORIES ----------------
   useEffect(() => {
     fetch("https://minimart-ivrm.onrender.com/api/marketplace/categories")
-      .then((res) => res.json())
+      .then(res => res.json())
       .then(setCategories)
       .catch(console.error);
   }, []);
@@ -51,16 +51,15 @@ export default function AddProduct() {
   useEffect(() => {
     if (!selectedCategory) return;
     const initialDynamic = Object.fromEntries(
-      dynamicFields.map(f => [f, f === "features" || f === "location" ? [] : ""])
+      dynamicFields.map(f => [f, ["features", "location"].includes(f) ? [] : ""])
     );
     setForm(prev => ({ ...prev, dynamic: initialDynamic }));
   }, [selectedCategory]);
 
   // ---------------- HANDLE IMAGE SELECTION ----------------
-  const handleImages = (files) => {
+  const handleImages = files => {
     setImages([...files]);
-    const urls = [...files].map(file => URL.createObjectURL(file));
-    setPreviewUrls(urls);
+    setPreviewUrls([...files].map(f => URL.createObjectURL(f)));
   };
 
   // ---------------- SUBMIT PRODUCT ----------------
@@ -71,6 +70,7 @@ export default function AddProduct() {
 
     try {
       setLoading(true);
+
       const formData = new FormData();
       formData.append("title", form.title);
       formData.append("price", form.price);
@@ -130,41 +130,48 @@ export default function AddProduct() {
       {dynamicFields.map(field => {
         const value = form.dynamic[field];
         if (field === "used_detail" && form.dynamic.condition !== "Used") return null;
-        const isArrayField = field === "features" || field === "location";
+        const isArrayField = ["features", "location"].includes(field);
 
         return (
           <div className="field" key={field}>
             <label>{field.replace(/_/g, " ").toUpperCase()}</label>
 
-            {!optionsMap[field] || optionsMap[field].length === 0 ? (
-              <input value={value || ""} onChange={e => updateDynamic(field, e.target.value)} />
-            ) : isArrayField ? (
+            {/* TEXT INPUT */}
+            {(!optionsMap[field] || optionsMap[field].length === 0) && !isArrayField && (
+              <input
+                value={value || ""}
+                onChange={e => updateDynamic(field, e.target.value)}
+              />
+            )}
+
+            {/* SELECT */}
+            {optionsMap[field] && optionsMap[field].length > 0 && !isArrayField && (
+              <select value={value || ""} onChange={e => updateDynamic(field, e.target.value)}>
+                <option value="">Select {field}</option>
+                {optionsMap[field].map(opt => <option key={opt} value={opt}>{opt}</option>)}
+              </select>
+            )}
+
+            {/* MULTISELECT */}
+            {isArrayField && (
               <div className="multi-select">
                 {optionsMap[field].map(opt => {
                   const current = Array.isArray(value) ? value : [];
+                  const selected = current.includes(opt);
                   return (
                     <label key={opt}>
                       <input
                         type="checkbox"
-                        checked={current.includes(opt)}
-                        onChange={() => {
-                          if (current.includes(opt)) {
-                            updateDynamic(field, current.filter(v => v !== opt));
-                          } else {
-                            updateDynamic(field, [...current, opt]);
-                          }
-                        }}
+                        checked={selected}
+                        onChange={() =>
+                          updateDynamic(field, selected ? current.filter(v => v !== opt) : [...current, opt])
+                        }
                       />
                       {opt}
                     </label>
                   );
                 })}
               </div>
-            ) : (
-              <select value={value || ""} onChange={e => updateDynamic(field, e.target.value)}>
-                <option value="">Select {field}</option>
-                {optionsMap[field].map(opt => <option key={opt} value={opt}>{opt}</option>)}
-              </select>
             )}
           </div>
         );
@@ -173,7 +180,11 @@ export default function AddProduct() {
       {/* PRICE */}
       <div className="field">
         <label>Price (₦)</label>
-        <input type="number" value={form.price} onChange={e => update("price", e.target.value)} />
+        <input
+          type="number"
+          value={form.price}
+          onChange={e => update("price", e.target.value)}
+        />
       </div>
 
       {/* IMAGES */}
@@ -181,9 +192,7 @@ export default function AddProduct() {
         <label>Images</label>
         <input type="file" multiple onChange={e => handleImages([...e.target.files])} />
         <div className="image-preview">
-          {previewUrls.map((url, i) => (
-            <img key={i} src={url} alt={`preview ${i}`} />
-          ))}
+          {previewUrls.map((url, i) => <img key={i} src={url} alt={`preview ${i}`} />)}
         </div>
       </div>
 
