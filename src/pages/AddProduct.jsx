@@ -10,22 +10,28 @@ export default function AddProduct() {
   const [form, setForm] = useState({
     title: "",
     price: "",
-    mainCategory: "", // UUID
-    dynamic: {},      // Dynamic fields like brand, model, features
+    mainCategory: "",
+    dynamic: {},
   });
 
   // ---------------- FETCH CATEGORIES ----------------
   useEffect(() => {
     fetch("https://minimart-ivrm.onrender.com/api/marketplace/categories")
-      .then(res => res.json())
+      .then((res) => res.json())
       .then(setCategories)
       .catch(console.error);
   }, []);
 
   const selectedCategory = categories.find(c => c.id === form.mainCategory);
+
+  // Dynamic fields for selected category
   const dynamicFields = selectedCategory?.dynamicOptions?.fields || [];
 
-  // ---------------- OPTIONS MAP ----------------
+  // Always include location field
+  const allDynamicFields = [...dynamicFields];
+  if (!allDynamicFields.includes("location")) allDynamicFields.push("location");
+
+  // Options map
   const optionsMap = {
     brand: selectedCategory?.dynamicOptions?.brands || [],
     model: selectedCategory?.dynamicOptions?.models?.[form.dynamic.brand] || [],
@@ -39,7 +45,7 @@ export default function AddProduct() {
     year: selectedCategory?.dynamicOptions?.years || [],
     engine: selectedCategory?.dynamicOptions?.engine || [],
     fuel_type: selectedCategory?.dynamicOptions?.fuel_type || [],
-    location: selectedCategory?.dynamicOptions?.location || [], // always available
+    location: selectedCategory?.dynamicOptions?.location || [],
   };
 
   // ---------------- FORM UPDATES ----------------
@@ -49,15 +55,14 @@ export default function AddProduct() {
 
   // ---------------- RESET DYNAMIC FIELDS ----------------
   useEffect(() => {
-    if (!selectedCategory) return;
     const initialDynamic = Object.fromEntries(
-      dynamicFields.map(f => [f, f === "features" || f === "location" ? [] : ""])
+      allDynamicFields.map(f => [f, f === "features" || f === "location" ? [] : ""])
     );
     setForm(prev => ({ ...prev, dynamic: initialDynamic }));
   }, [selectedCategory]);
 
   // ---------------- HANDLE IMAGE SELECTION ----------------
-  const handleImages = files => {
+  const handleImages = (files) => {
     setImages([...files]);
     setPreviewUrls([...files].map(file => URL.createObjectURL(file)));
   };
@@ -70,7 +75,6 @@ export default function AddProduct() {
 
     try {
       setLoading(true);
-
       const formData = new FormData();
       formData.append("title", form.title);
       formData.append("price", form.price);
@@ -127,7 +131,7 @@ export default function AddProduct() {
       </div>
 
       {/* DYNAMIC FIELDS */}
-      {dynamicFields.map(field => {
+      {allDynamicFields.map(field => {
         const value = form.dynamic[field];
         if (field === "used_detail" && form.dynamic.condition !== "Used") return null;
         const isArrayField = field === "features" || field === "location";
@@ -136,6 +140,7 @@ export default function AddProduct() {
           <div className="field" key={field}>
             <label>{field.replace(/_/g, " ").toUpperCase()}</label>
 
+            {/* Text Input */}
             {!optionsMap[field] || optionsMap[field].length === 0 ? (
               <input value={value || ""} onChange={e => updateDynamic(field, e.target.value)} />
             ) : isArrayField ? (
@@ -147,11 +152,13 @@ export default function AddProduct() {
                       <input
                         type="checkbox"
                         checked={current.includes(opt)}
-                        onChange={() =>
-                          current.includes(opt)
-                            ? updateDynamic(field, current.filter(v => v !== opt))
-                            : updateDynamic(field, [...current, opt])
-                        }
+                        onChange={() => {
+                          if (current.includes(opt)) {
+                            updateDynamic(field, current.filter(v => v !== opt));
+                          } else {
+                            updateDynamic(field, [...current, opt]);
+                          }
+                        }}
                       />
                       {opt}
                     </label>
@@ -161,9 +168,7 @@ export default function AddProduct() {
             ) : (
               <select value={value || ""} onChange={e => updateDynamic(field, e.target.value)}>
                 <option value="">Select {field}</option>
-                {optionsMap[field].map(opt => (
-                  <option key={opt} value={opt}>{opt}</option>
-                ))}
+                {optionsMap[field].map(opt => <option key={opt} value={opt}>{opt}</option>)}
               </select>
             )}
           </div>
@@ -181,9 +186,7 @@ export default function AddProduct() {
         <label>Images</label>
         <input type="file" multiple onChange={e => handleImages([...e.target.files])} />
         <div className="image-preview">
-          {previewUrls.map((url, i) => (
-            <img key={i} src={url} alt={`preview ${i}`} />
-          ))}
+          {previewUrls.map((url, i) => <img key={i} src={url} alt={`preview ${i}`} />)}
         </div>
       </div>
 
