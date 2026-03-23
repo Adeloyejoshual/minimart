@@ -1,45 +1,55 @@
+/* AddProduct.css */
+
+/* ---------- CONTAINER ---------- */
 .add-product-container {
-  max-width: 600px;
+  max-width: 700px;
   margin: 2rem auto;
-  padding: 1.5rem;
+  padding: 2rem;
   background: #fff;
   border-radius: 12px;
-  box-shadow: 0 4px 15px rgba(0,0,0,0.1);
+  box-shadow: 0 4px 20px rgba(0,0,0,0.1);
   font-family: 'Inter', sans-serif;
 }
 
+/* ---------- HEADINGS ---------- */
 .add-product-container h2 {
   text-align: center;
-  margin-bottom: 1rem;
-  color: #1e40af;
+  margin-bottom: 1.5rem;
+  font-size: 1.8rem;
+  color: #1e3a8a;
 }
 
+/* ---------- FORM FIELD ---------- */
 .field {
-  margin-bottom: 1rem;
   display: flex;
   flex-direction: column;
+  margin-bottom: 1rem;
 }
 
 .field label {
-  margin-bottom: 0.3rem;
   font-weight: 600;
+  margin-bottom: 0.4rem;
   color: #374151;
 }
 
-.field input,
+.field input[type="text"],
+.field input[type="number"],
 .field select {
-  padding: 0.5rem 0.7rem;
+  padding: 0.6rem 0.8rem;
   border: 1px solid #d1d5db;
-  border-radius: 6px;
-  font-size: 0.95rem;
+  border-radius: 8px;
+  font-size: 1rem;
   outline: none;
+  transition: 0.2s border-color;
 }
 
-.field input:focus,
+.field input[type="text"]:focus,
+.field input[type="number"]:focus,
 .field select:focus {
-  border-color: #1e40af;
+  border-color: #1e3a8a;
 }
 
+/* ---------- MULTI-SELECT ---------- */
 .multi-select {
   display: flex;
   flex-wrap: wrap;
@@ -50,44 +60,84 @@
   display: flex;
   align-items: center;
   gap: 0.3rem;
-  background: #f3f4f6;
   padding: 0.3rem 0.5rem;
+  border: 1px solid #d1d5db;
   border-radius: 6px;
   cursor: pointer;
+  font-size: 0.95rem;
+  transition: 0.2s all;
 }
 
+.multi-select input[type="checkbox"] {
+  accent-color: #1e3a8a;
+}
+
+.multi-select label:hover {
+  background: #f3f4f6;
+  border-color: #1e3a8a;
+}
+
+/* ---------- DROPDOWN COMPONENT (optional wrapper) ---------- */
+.dropdown-container {
+  display: flex;
+  flex-direction: column;
+  margin-bottom: 1rem;
+}
+
+.dropdown-container label {
+  font-weight: 600;
+  margin-bottom: 0.4rem;
+  color: #374151;
+}
+
+.dropdown-container select {
+  padding: 0.6rem 0.8rem;
+  border: 1px solid #d1d5db;
+  border-radius: 8px;
+  font-size: 1rem;
+  outline: none;
+  transition: 0.2s border-color;
+}
+
+.dropdown-container select:focus {
+  border-color: #1e3a8a;
+}
+
+/* ---------- IMAGE PREVIEW ---------- */
+.image-preview {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  margin-top: 0.5rem;
+}
+
+.image-preview img {
+  width: 100px;
+  height: 100px;
+  object-fit: cover;
+  border-radius: 8px;
+  border: 1px solid #d1d5db;
+}
+
+/* ---------- SUBMIT BUTTON ---------- */
 button {
   width: 100%;
   padding: 0.7rem;
-  background: #1e40af;
-  color: white;
+  background: #1e3a8a;
+  color: #fff;
   font-weight: 600;
   border: none;
-  border-radius: 6px;
+  border-radius: 10px;
+  font-size: 1rem;
   cursor: pointer;
-  transition: background 0.3s;
+  transition: 0.2s background;
+}
+
+button:hover {
+  background: #1e40af;
 }
 
 button:disabled {
   background: #9ca3af;
   cursor: not-allowed;
-}
-
-button:hover:not(:disabled) {
-  background: #1e3a8a;
-}
-
-.image-preview {
-  margin-top: 0.5rem;
-  display: flex;
-  flex-wrap: wrap;
-  gap: 0.5rem;
-}
-
-.image-preview img {
-  width: 80px;
-  height: 80px;
-  object-fit: cover;
-  border-radius: 6px;
-  border: 1px solid #d1d5db;
 }
