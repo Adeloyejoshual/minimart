@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import Dropdown from "../components/Dropdown";
 import "./AddProduct.css";
 
 export default function AddProduct() {
@@ -59,8 +60,7 @@ export default function AddProduct() {
   // ---------------- HANDLE IMAGE SELECTION ----------------
   const handleImages = (files) => {
     setImages([...files]);
-    const urls = [...files].map(file => URL.createObjectURL(file));
-    setPreviewUrls(urls);
+    setPreviewUrls([...files].map(file => URL.createObjectURL(file)));
   };
 
   // ---------------- SUBMIT PRODUCT ----------------
@@ -115,15 +115,12 @@ export default function AddProduct() {
       {/* CATEGORY */}
       <div className="field">
         <label>Category</label>
-        <select
+        <Dropdown
+          label="Category"
           value={form.mainCategory}
-          onChange={e => update("mainCategory", e.target.value)}
-        >
-          <option value="">Select category</option>
-          {categories.map(cat => (
-            <option key={cat.id} value={cat.id}>{cat.name}</option>
-          ))}
-        </select>
+          onChange={(val) => update("mainCategory", val)}
+          options={categories.map(c => c.name)}
+        />
       </div>
 
       {/* DYNAMIC FIELDS */}
@@ -132,13 +129,11 @@ export default function AddProduct() {
         if (field === "used_detail" && form.dynamic.condition !== "Used") return null;
         const isArrayField = field === "features" || field === "location";
 
-        return (
-          <div className="field" key={field}>
-            <label>{field.replace(/_/g, " ").toUpperCase()}</label>
-
-            {!optionsMap[field] || optionsMap[field].length === 0 ? (
-              <input value={value || ""} onChange={e => updateDynamic(field, e.target.value)} />
-            ) : isArrayField ? (
+        // ---------------- MULTI-SELECT ----------------
+        if (isArrayField) {
+          return (
+            <div className="field" key={field}>
+              <label>{field.replace(/_/g, " ").toUpperCase()}</label>
               <div className="multi-select">
                 {optionsMap[field].map(opt => {
                   const current = Array.isArray(value) ? value : [];
@@ -160,20 +155,30 @@ export default function AddProduct() {
                   );
                 })}
               </div>
-            ) : (
-              <select value={value || ""} onChange={e => updateDynamic(field, e.target.value)}>
-                <option value="">Select {field}</option>
-                {optionsMap[field].map(opt => <option key={opt} value={opt}>{opt}</option>)}
-              </select>
-            )}
-          </div>
+            </div>
+          );
+        }
+
+        // ---------------- SINGLE SELECT USING DROPDOWN ----------------
+        return (
+          <Dropdown
+            key={field}
+            label={field.replace(/_/g, " ").toUpperCase()}
+            value={value || ""}
+            onChange={(val) => updateDynamic(field, val)}
+            options={optionsMap[field]}
+          />
         );
       })}
 
       {/* PRICE */}
       <div className="field">
         <label>Price (₦)</label>
-        <input type="number" value={form.price} onChange={e => update("price", e.target.value)} />
+        <input
+          type="number"
+          value={form.price}
+          onChange={e => update("price", e.target.value)}
+        />
       </div>
 
       {/* IMAGES */}
