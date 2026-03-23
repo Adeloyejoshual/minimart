@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import "./AddProduct.css";
 
-export default function AddProduct() {
+export default function AddProduct({ locationsByState }) {
   const [categories, setCategories] = useState([]);
   const [loading, setLoading] = useState(false);
   const [images, setImages] = useState([]);
@@ -12,6 +12,8 @@ export default function AddProduct() {
     price: "",
     mainCategory: "",
     dynamic: {},
+    state: "",    // permanent
+    city: "",     // dependent
   });
 
   // ---------------- FETCH CATEGORIES ----------------
@@ -39,7 +41,6 @@ export default function AddProduct() {
     year: selectedCategory?.dynamicOptions?.years || [],
     engine: selectedCategory?.dynamicOptions?.engine || [],
     fuel_type: selectedCategory?.dynamicOptions?.fuel_type || [],
-    location: selectedCategory?.dynamicOptions?.location || [], // full locations object
   };
 
   // ---------------- FORM UPDATES ----------------
@@ -51,13 +52,9 @@ export default function AddProduct() {
   useEffect(() => {
     if (!selectedCategory) return;
     const initialDynamic = Object.fromEntries(
-      dynamicFields.map(f => ["features"].includes(f) ? [] : "")
+      dynamicFields.map(f => [f, ["features"].includes(f) ? [] : ""])
     );
-    // keep state and city if already set
-    setForm(prev => ({
-      ...prev,
-      dynamic: { ...initialDynamic, state: prev.dynamic.state || "", city: prev.dynamic.city || "" },
-    }));
+    setForm(prev => ({ ...prev, dynamic: initialDynamic }));
   }, [selectedCategory]);
 
   // ---------------- HANDLE IMAGE SELECTION ----------------
@@ -71,6 +68,9 @@ export default function AddProduct() {
     if (!form.title || !form.price || !form.mainCategory) {
       return alert("Title, price, and category are required");
     }
+    if (!form.state || !form.city) {
+      return alert("State and City are required");
+    }
 
     try {
       setLoading(true);
@@ -80,6 +80,8 @@ export default function AddProduct() {
       formData.append("price", form.price);
       formData.append("category_id", form.mainCategory);
       formData.append("dynamicFields", JSON.stringify(form.dynamic));
+      formData.append("state", form.state);
+      formData.append("city", form.city);
       images.forEach(img => formData.append("images", img));
 
       const res = await fetch(
@@ -91,7 +93,7 @@ export default function AddProduct() {
       console.log("Added product:", data);
 
       alert("Product added successfully!");
-      setForm({ title: "", price: "", mainCategory: "", dynamic: {} });
+      setForm({ title: "", price: "", mainCategory: "", dynamic: {}, state: "", city: "" });
       setImages([]);
       setPreviewUrls([]);
     } catch (err) {
@@ -101,10 +103,6 @@ export default function AddProduct() {
       setLoading(false);
     }
   };
-
-  // ---------------- STATE & CITY ----------------
-  const stateList = Object.keys(optionsMap.location || {});
-  const cityList = form.dynamic.state ? optionsMap.location[form.dynamic.state] || [] : [];
 
   return (
     <div className="add-product-container">
@@ -144,24 +142,9 @@ export default function AddProduct() {
           <div className="field" key={field}>
             <label>{field.replace(/_/g, " ").toUpperCase()}</label>
 
-            {/* TEXT INPUT */}
-            {(!optionsMap[field] || optionsMap[field].length === 0) && !isArrayField && (
-              <input
-                value={value || ""}
-                onChange={e => updateDynamic(field, e.target.value)}
-              />
-            )}
-
-            {/* SELECT */}
-            {optionsMap[field] && optionsMap[field].length > 0 && !isArrayField && (
-              <select value={value || ""} onChange={e => updateDynamic(field, e.target.value)}>
-                <option value="">Select {field}</option>
-                {optionsMap[field].map(opt => <option key={opt} value={opt}>{opt}</option>)}
-              </select>
-            )}
-
-            {/* MULTISELECT */}
-            {isArrayField && (
+            {!optionsMap[field] || optionsMap[field].length === 0 ? (
+              <input value={value || ""} onChange={e => updateDynamic(field, e.target.value)} />
+            ) : isArrayField ? (
               <div className="multi-select">
                 {optionsMap[field].map(opt => {
                   const current = Array.isArray(value) ? value : [];
@@ -180,6 +163,11 @@ export default function AddProduct() {
                   );
                 })}
               </div>
+            ) : (
+              <select value={value || ""} onChange={e => updateDynamic(field, e.target.value)}>
+                <option value="">Select {field}</option>
+                {optionsMap[field].map(opt => <option key={opt} value={opt}>{opt}</option>)}
+              </select>
             )}
           </div>
         );
@@ -204,33 +192,32 @@ export default function AddProduct() {
         </div>
       </div>
 
-      {/* STATE */}
+      {/* STATE & CITY - ALWAYS AT BOTTOM */}
       <div className="field">
         <label>State</label>
         <select
-          value={form.dynamic.state || ""}
+          value={form.state}
           onChange={e => {
-            updateDynamic("state", e.target.value);
-            updateDynamic("city", ""); // reset city
+            update("state", e.target.value);
+            update("city", ""); // reset city when state changes
           }}
         >
-          <option value="">Select state</option>
-          {stateList.map(state => (
+          <option value="">Select State</option>
+          {Object.keys(locationsByState).map(state => (
             <option key={state} value={state}>{state}</option>
           ))}
         </select>
       </div>
 
-      {/* CITY */}
       <div className="field">
         <label>City</label>
         <select
-          value={form.dynamic.city || ""}
-          onChange={e => updateDynamic("city", e.target.value)}
-          disabled={!form.dynamic.state}
+          value={form.city}
+          onChange={e => update("city", e.target.value)}
+          disabled={!form.state}
         >
-          <option value="">Select city</option>
-          {cityList.map(city => (
+          <option value="">Select City</option>
+          {form.state && locationsByState[form.state].map(city => (
             <option key={city} value={city}>{city}</option>
           ))}
         </select>
