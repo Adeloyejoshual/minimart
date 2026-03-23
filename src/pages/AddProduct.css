@@ -1,24 +1,93 @@
 .add-product-container {
-  max-width: 500px;
-  margin: auto;
-  padding: 20px;
+  max-width: 600px;
+  margin: 2rem auto;
+  padding: 1.5rem;
+  background: #fff;
+  border-radius: 12px;
+  box-shadow: 0 4px 15px rgba(0,0,0,0.1);
+  font-family: 'Inter', sans-serif;
+}
+
+.add-product-container h2 {
+  text-align: center;
+  margin-bottom: 1rem;
+  color: #1e40af;
 }
 
 .field {
-  margin-bottom: 15px;
+  margin-bottom: 1rem;
+  display: flex;
+  flex-direction: column;
 }
 
 .field label {
-  display: block;
-  font-weight: bold;
-  margin-bottom: 5px;
+  margin-bottom: 0.3rem;
+  font-weight: 600;
+  color: #374151;
 }
 
-input, select {
-  width: 100%;
-  padding: 10px;
+.field input,
+.field select {
+  padding: 0.5rem 0.7rem;
+  border: 1px solid #d1d5db;
+  border-radius: 6px;
+  font-size: 0.95rem;
+  outline: none;
+}
+
+.field input:focus,
+.field select:focus {
+  border-color: #1e40af;
+}
+
+.multi-select {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
 }
 
 .multi-select label {
-  display: block;
+  display: flex;
+  align-items: center;
+  gap: 0.3rem;
+  background: #f3f4f6;
+  padding: 0.3rem 0.5rem;
+  border-radius: 6px;
+  cursor: pointer;
+}
+
+button {
+  width: 100%;
+  padding: 0.7rem;
+  background: #1e40af;
+  color: white;
+  font-weight: 600;
+  border: none;
+  border-radius: 6px;
+  cursor: pointer;
+  transition: background 0.3s;
+}
+
+button:disabled {
+  background: #9ca3af;
+  cursor: not-allowed;
+}
+
+button:hover:not(:disabled) {
+  background: #1e3a8a;
+}
+
+.image-preview {
+  margin-top: 0.5rem;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+}
+
+.image-preview img {
+  width: 80px;
+  height: 80px;
+  object-fit: cover;
+  border-radius: 6px;
+  border: 1px solid #d1d5db;
 }
