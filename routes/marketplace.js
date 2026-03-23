@@ -15,11 +15,13 @@ import { ramOptions } from "../src/config/ramOptions.js";
 import { sims } from "../src/config/sims.js";
 import { storageOptions } from "../src/config/storageOptions.js";
 import { years } from "../src/config/years.js";
+import { engines } from "../src/config/engines.js";
+import { fuelTypes } from "../src/config/fuelTypes.js";
+import { locationsByState } from "../src/config/locationsByState.js";
 
 dotenv.config();
 
 const router = express.Router();
-
 const pool = new Pool({
   connectionString: process.env.COCKROACH_URI,
   ssl: { rejectUnauthorized: false },
@@ -55,92 +57,62 @@ router.get("/products", async (req, res) => {
 ========================================================= */
 router.post("/products", upload.array("images"), async (req, res) => {
   try {
-    const {
-      title,
-      description,
-      price,
-      category_id,
-      subcategory_id,
-      dynamicFields,
-    } = req.body;
+    const { title, description, price, category_id, subcategory_id, dynamicFields } = req.body;
 
-    // ---------------- VALIDATION ----------------
     if (!title || !price || !category_id) {
-      return res
-        .status(400)
-        .json({ message: "Title, price, and category required" });
+      return res.status(400).json({ message: "Title, price, and category required" });
     }
 
-    // ---------------- FETCH CATEGORY ----------------
     const { rows: categoryRows } = await pool.query(
       "SELECT id, name, fields_key FROM categories WHERE id = $1",
       [category_id]
     );
 
-    if (!categoryRows.length) {
-      return res.status(400).json({ message: "Invalid category_id" });
-    }
-
+    if (!categoryRows.length) return res.status(400).json({ message: "Invalid category_id" });
     const category = categoryRows[0];
 
-    // ---------------- PARSE DYNAMIC FIELDS ----------------
     let parsedFields = {};
     try {
-      parsedFields =
-        typeof dynamicFields === "string"
-          ? JSON.parse(dynamicFields)
-          : dynamicFields || {};
+      parsedFields = typeof dynamicFields === "string" ? JSON.parse(dynamicFields) : dynamicFields || {};
     } catch (err) {
       return res.status(400).json({ message: "Invalid dynamicFields format" });
     }
 
-    // ---------------- CLEAN FIELDS ----------------
     const key = category.fields_key;
     const allowedKeys = categoryFields[key] || [];
-
     const cleanedFields = Object.fromEntries(
-      Object.entries(parsedFields).filter(([k]) =>
-        allowedKeys.includes(k)
-      )
+      Object.entries(parsedFields).filter(([k]) => allowedKeys.includes(k))
     );
 
-    // ---------------- UPLOAD IMAGES ----------------
-    let uploadedImages = [];
-
-    if (req.files && req.files.length > 0) {
-      uploadedImages = await Promise.all(
-        req.files.map((file) =>
-          new Promise((resolve, reject) => {
-            const stream = cloudinary.uploader.upload_stream(
-              { folder: "minimart_products" },
-              (err, result) => {
-                if (err) reject(err);
-                else resolve(result.secure_url);
-              }
-            );
-            stream.end(file.buffer);
-          })
+    // Upload images
+    const uploadedImages = req.files?.length
+      ? await Promise.all(
+          req.files.map(
+            (file) =>
+              new Promise((resolve, reject) => {
+                const stream = cloudinary.uploader.upload_stream(
+                  { folder: "minimart_products" },
+                  (err, result) => (err ? reject(err) : resolve(result.secure_url))
+                );
+                stream.end(file.buffer);
+              })
+          )
         )
-      );
-    }
+      : [];
 
-    // ---------------- INSERT PRODUCT ----------------
     const query = `
       INSERT INTO products
       (title, description, price, category_id, image, attributes, created_at)
       VALUES ($1,$2,$3,$4,$5,$6, now())
       RETURNING *
     `;
-
     const { rows } = await pool.query(query, [
       title,
       description || null,
       parseFloat(price),
       category_id,
-      uploadedImages[0] || null, // single image
-      Object.keys(cleanedFields).length
-        ? JSON.stringify(cleanedFields)
-        : null,
+      uploadedImages[0] || null,
+      Object.keys(cleanedFields).length ? JSON.stringify(cleanedFields) : null,
     ]);
 
     const product = rows[0];
@@ -167,39 +139,38 @@ router.get("/categories", async (req, res) => {
     const categoryMap = {};
     const structured = [];
 
-    // Build categories
     rows.forEach((cat) => {
       const key = cat.fields_key || "";
 
-      categoryMap[cat.id] = {
-        ...cat,
-        dynamicOptions: {
-          fields: categoryFields[key] || [],
-          brands: brands[key] || [],
-          models: models[key] || {},
-          colors: colors[key] || [],
-          conditions,
-          usedDetails,
-          ram: ramOptions,
-          storage: storageOptions,
-          sims,
-          features: featuresByCategory[key] || [],
-          years,
-        },
-        subcategories: [],
+      let dynamicOptions = {
+        fields: categoryFields[key] || [],
+        brands: brands[key] || [],
+        models: models[key] || {},
+        colors: colors[key] || [],
+        conditions,
+        usedDetails,
+        ram: ramOptions,
+        storage: storageOptions,
+        sims,
+        features: featuresByCategory[key] || [],
+        years,
       };
 
-      if (!cat.parent_id) {
-        structured.push(categoryMap[cat.id]);
+      // Add engines, fuel types, locations for Vehicles
+      if (key === "Vehicles") {
+        dynamicOptions.engine = engines;
+        dynamicOptions.fuel_type = fuelTypes;
+        dynamicOptions.location = Object.keys(locationsByState);
       }
+
+      categoryMap[cat.id] = { ...cat, dynamicOptions, subcategories: [] };
+      if (!cat.parent_id) structured.push(categoryMap[cat.id]);
     });
 
     // Attach subcategories
     rows.forEach((cat) => {
       if (cat.parent_id && categoryMap[cat.parent_id]) {
-        categoryMap[cat.parent_id].subcategories.push(
-          categoryMap[cat.id]
-        );
+        categoryMap[cat.parent_id].subcategories.push(categoryMap[cat.id]);
       }
     });
 
