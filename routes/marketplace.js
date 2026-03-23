@@ -4,6 +4,19 @@ import multer from "multer";
 import { v2 as cloudinary } from "cloudinary";
 import dotenv from "dotenv";
 
+import {
+  categoryFields,
+  brands,
+  models,
+  colors,
+  conditions,
+  usedDetails,
+  ramOptions,
+  storageOptions,
+  sims,
+  featuresByCategory,
+} from "../config"; // adjust path as needed
+
 dotenv.config();
 
 const router = express.Router();
@@ -44,22 +57,23 @@ router.post("/products", upload.array("images"), async (req, res) => {
       return res.status(400).json({ message: "Title, price, and category required" });
     }
 
-    // Check category exists
+    // Fetch category and fields_key
     const { rows: categoryRows } = await pool.query(
-      "SELECT name, fields FROM categories WHERE id = $1",
+      "SELECT id, name, fields_key FROM categories WHERE id = $1",
       [category_id]
     );
     if (!categoryRows.length) {
       return res.status(400).json({ message: "Invalid category_id" });
     }
-
     const category = categoryRows[0];
 
-    // Parse dynamic fields safely
+    // Map fields from config using fields_key
+    const key = category.fields_key; // e.g., "phones_tablets"
+    const allowedKeys = categoryFields[key] || [];
+
     const parsedFields = typeof dynamicFields === "string" ? JSON.parse(dynamicFields) : dynamicFields || {};
-    const allowedKeys = JSON.parse(category.fields || "[]").map(f => f.name);
     const cleanedFields = Object.fromEntries(
-      Object.entries(parsedFields).filter(([key]) => allowedKeys.includes(key))
+      Object.entries(parsedFields).filter(([k]) => allowedKeys.includes(k))
     );
 
     // Upload images
@@ -102,29 +116,44 @@ router.post("/products", upload.array("images"), async (req, res) => {
   }
 });
 
-// ---------------- GET CATEGORIES ----------------
+// ---------------- GET CATEGORIES WITH CONFIG ----------------
 router.get("/categories", async (req, res) => {
   try {
     const { rows } = await pool.query(`
-      SELECT c.id, c.name, c.parent_id, p.name AS parent_name, c.slug, c.icon, c.image_url, c.fields, c.filters, c.is_active, c.visible_on_home
-      FROM categories c
-      LEFT JOIN categories p ON c.parent_id = p.id
-      ORDER BY c.sort_order ASC, c.name ASC
+      SELECT id, name, parent_id, slug, icon, image_url, filters, is_active, visible_on_home, fields_key
+      FROM categories
+      ORDER BY sort_order ASC, name ASC
     `);
 
+    // Build category map with subcategories
     const categoryMap = {};
     const structured = [];
 
     rows.forEach(cat => {
-      if (!cat.parent_id) {
-        categoryMap[cat.id] = { ...cat, subcategories: [] };
-        structured.push(categoryMap[cat.id]);
-      }
+      const configKey = cat.fields_key;
+      categoryMap[cat.id] = {
+        ...cat,
+        dynamicOptions: {
+          fields: categoryFields[configKey] || [],
+          brands: brands[configKey] || [],
+          models: models[configKey] || {},
+          colors: colors[configKey] || [],
+          conditions,
+          usedDetails,
+          ram: ramOptions,
+          storage: storageOptions,
+          sims,
+          features: featuresByCategory[configKey] || []
+        },
+        subcategories: []
+      };
+      if (!cat.parent_id) structured.push(categoryMap[cat.id]);
     });
 
+    // Attach subcategories
     rows.forEach(cat => {
       if (cat.parent_id && categoryMap[cat.parent_id]) {
-        categoryMap[cat.parent_id].subcategories.push(cat);
+        categoryMap[cat.parent_id].subcategories.push(categoryMap[cat.id]);
       }
     });
 
