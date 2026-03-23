@@ -19,6 +19,7 @@ import { years } from "../src/config/years.js";
 dotenv.config();
 
 const router = express.Router();
+
 const pool = new Pool({
   connectionString: process.env.COCKROACH_URI,
   ssl: { rejectUnauthorized: false },
@@ -34,10 +35,14 @@ cloudinary.config({
 // ---------------- MULTER ----------------
 const upload = multer({ storage: multer.memoryStorage() });
 
-// ---------------- GET PRODUCTS ----------------
+/* =========================================================
+   GET PRODUCTS
+========================================================= */
 router.get("/products", async (req, res) => {
   try {
-    const { rows } = await pool.query("SELECT * FROM products ORDER BY created_at DESC");
+    const { rows } = await pool.query(
+      "SELECT * FROM products ORDER BY created_at DESC"
+    );
     res.json(rows);
   } catch (err) {
     console.error("GET /products error:", err);
@@ -45,13 +50,25 @@ router.get("/products", async (req, res) => {
   }
 });
 
-// ---------------- POST PRODUCT ----------------
+/* =========================================================
+   POST PRODUCT
+========================================================= */
 router.post("/products", upload.array("images"), async (req, res) => {
   try {
-    const { title, description, price, category_id, subcategory_id, dynamicFields } = req.body;
+    const {
+      title,
+      description,
+      price,
+      category_id,
+      subcategory_id,
+      dynamicFields,
+    } = req.body;
 
+    // ---------------- VALIDATION ----------------
     if (!title || !price || !category_id) {
-      return res.status(400).json({ message: "Title, price, and category required" });
+      return res
+        .status(400)
+        .json({ message: "Title, price, and category required" });
     }
 
     // ---------------- FETCH CATEGORY ----------------
@@ -59,55 +76,71 @@ router.post("/products", upload.array("images"), async (req, res) => {
       "SELECT id, name, fields_key FROM categories WHERE id = $1",
       [category_id]
     );
+
     if (!categoryRows.length) {
       return res.status(400).json({ message: "Invalid category_id" });
     }
+
     const category = categoryRows[0];
 
     // ---------------- PARSE DYNAMIC FIELDS ----------------
     let parsedFields = {};
     try {
-      parsedFields = typeof dynamicFields === "string" ? JSON.parse(dynamicFields) : dynamicFields || {};
+      parsedFields =
+        typeof dynamicFields === "string"
+          ? JSON.parse(dynamicFields)
+          : dynamicFields || {};
     } catch (err) {
-      console.warn("Invalid dynamicFields JSON:", err);
       return res.status(400).json({ message: "Invalid dynamicFields format" });
     }
 
-    // ---------------- CLEAN DYNAMIC FIELDS ----------------
+    // ---------------- CLEAN FIELDS ----------------
     const key = category.fields_key;
     const allowedKeys = categoryFields[key] || [];
+
     const cleanedFields = Object.fromEntries(
-      Object.entries(parsedFields).filter(([k]) => allowedKeys.includes(k))
+      Object.entries(parsedFields).filter(([k]) =>
+        allowedKeys.includes(k)
+      )
     );
 
     // ---------------- UPLOAD IMAGES ----------------
-    const uploadedImages = await Promise.all(
-      (req.files || []).map(file =>
-        new Promise((resolve, reject) => {
-          const stream = cloudinary.uploader.upload_stream(
-            { folder: "minimart_products" },
-            (err, result) => (err ? reject(err) : resolve(result.secure_url))
-          );
-          stream.end(file.buffer);
-        })
-      )
-    );
+    let uploadedImages = [];
+
+    if (req.files && req.files.length > 0) {
+      uploadedImages = await Promise.all(
+        req.files.map((file) =>
+          new Promise((resolve, reject) => {
+            const stream = cloudinary.uploader.upload_stream(
+              { folder: "minimart_products" },
+              (err, result) => {
+                if (err) reject(err);
+                else resolve(result.secure_url);
+              }
+            );
+            stream.end(file.buffer);
+          })
+        )
+      );
+    }
 
     // ---------------- INSERT PRODUCT ----------------
     const query = `
       INSERT INTO products
-      (title, description, price, category_id, subcategory_id, images, dynamic_fields, created_at)
-      VALUES ($1,$2,$3,$4,$5,$6,$7, now())
+      (title, description, price, category_id, image, attributes, created_at)
+      VALUES ($1,$2,$3,$4,$5,$6, now())
       RETURNING *
     `;
+
     const { rows } = await pool.query(query, [
       title,
       description || null,
       parseFloat(price),
       category_id,
-      subcategory_id || null,
-      uploadedImages.length ? JSON.stringify(uploadedImages) : null,
-      Object.keys(cleanedFields).length ? cleanedFields : null,
+      uploadedImages[0] || null, // single image
+      Object.keys(cleanedFields).length
+        ? JSON.stringify(cleanedFields)
+        : null,
     ]);
 
     const product = rows[0];
@@ -120,7 +153,9 @@ router.post("/products", upload.array("images"), async (req, res) => {
   }
 });
 
-// ---------------- GET CATEGORIES WITH CONFIG ----------------
+/* =========================================================
+   GET CATEGORIES (WITH CONFIG)
+========================================================= */
 router.get("/categories", async (req, res) => {
   try {
     const { rows } = await pool.query(`
@@ -129,36 +164,42 @@ router.get("/categories", async (req, res) => {
       ORDER BY sort_order ASC, name ASC
     `);
 
-    // ---------------- BUILD CATEGORY MAP ----------------
     const categoryMap = {};
     const structured = [];
 
-    rows.forEach(cat => {
-      const configKey = cat.fields_key || "";
+    // Build categories
+    rows.forEach((cat) => {
+      const key = cat.fields_key || "";
+
       categoryMap[cat.id] = {
         ...cat,
         dynamicOptions: {
-          fields: categoryFields[configKey] || [],
-          brands: brands[configKey] || [],
-          models: models[configKey] || {},
-          colors: colors[configKey] || [],
+          fields: categoryFields[key] || [],
+          brands: brands[key] || [],
+          models: models[key] || {},
+          colors: colors[key] || [],
           conditions,
           usedDetails,
           ram: ramOptions,
           storage: storageOptions,
           sims,
-          features: featuresByCategory[configKey] || [],
-          years: years,
+          features: featuresByCategory[key] || [],
+          years,
         },
-        subcategories: []
+        subcategories: [],
       };
-      if (!cat.parent_id) structured.push(categoryMap[cat.id]);
+
+      if (!cat.parent_id) {
+        structured.push(categoryMap[cat.id]);
+      }
     });
 
-    // ---------------- ATTACH SUBCATEGORIES ----------------
-    rows.forEach(cat => {
+    // Attach subcategories
+    rows.forEach((cat) => {
       if (cat.parent_id && categoryMap[cat.parent_id]) {
-        categoryMap[cat.parent_id].subcategories.push(categoryMap[cat.id]);
+        categoryMap[cat.parent_id].subcategories.push(
+          categoryMap[cat.id]
+        );
       }
     });
 
