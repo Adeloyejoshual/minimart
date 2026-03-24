@@ -74,11 +74,9 @@ export default function AddProductPage() {
   // ---------------- RESET DYNAMIC FIELDS ON CATEGORY CHANGE ----------------
   useEffect(() => {
     if (!selectedCategory) return;
-
     const initialDynamic = Object.fromEntries(
       dynamicFields.map(f => [f, f === "features" ? [] : ""])
     );
-
     setForm(prev => ({ ...prev, dynamic: initialDynamic, subCategory: "" }));
   }, [selectedCategory]);
 
@@ -103,7 +101,6 @@ export default function AddProductPage() {
 
   // ---------------- HANDLE PRICE INPUT WITH COMMAS ----------------
   const handlePriceChange = value => {
-    // Remove non-numeric characters except dot
     const numeric = value.replace(/[^0-9.]/g, "");
     update("price", numeric);
   };
@@ -226,12 +223,8 @@ export default function AddProductPage() {
         return (
           <div className="field" key={field}>
             <label>{field.replace(/_/g, " ").toUpperCase()}</label>
-
             {!optionsMap[field] || optionsMap[field].length === 0 ? (
-              <input
-                value={value || ""}
-                onChange={e => updateDynamic(field, e.target.value)}
-              />
+              <input value={value || ""} onChange={e => updateDynamic(field, e.target.value)} />
             ) : isArray ? (
               <div className="multi-select">
                 {optionsMap[field].map(opt => {
@@ -242,12 +235,7 @@ export default function AddProductPage() {
                         type="checkbox"
                         checked={current.includes(opt)}
                         onChange={() =>
-                          updateDynamic(
-                            field,
-                            current.includes(opt)
-                              ? current.filter(v => v !== opt)
-                              : [...current, opt]
-                          )
+                          updateDynamic(field, current.includes(opt) ? current.filter(v => v !== opt) : [...current, opt])
                         }
                       />
                       {opt}
@@ -256,10 +244,7 @@ export default function AddProductPage() {
                 })}
               </div>
             ) : (
-              <select
-                value={value || ""}
-                onChange={e => updateDynamic(field, e.target.value)}
-              >
+              <select value={value || ""} onChange={e => updateDynamic(field, e.target.value)}>
                 <option value="">Select</option>
                 {optionsMap[field].map(opt => (
                   <option key={opt} value={opt}>{opt}</option>
@@ -293,20 +278,13 @@ export default function AddProductPage() {
       {/* PRICE */}
       <div className="field">
         <label>Price (₦)</label>
-        <input
-          type="text"
-          value={formatPrice(form.price)}
-          onChange={e => handlePriceChange(e.target.value)}
-        />
+        <input type="text" value={formatPrice(form.price)} onChange={e => handlePriceChange(e.target.value)} />
       </div>
 
       {/* PROMOTION */}
       <div className="field">
         <label>Promotion</label>
-        <select
-          value={form.promotionId || ""}
-          onChange={e => update("promotionId", e.target.value)}
-        >
+        <select value={form.promotionId || ""} onChange={e => update("promotionId", e.target.value)}>
           <option value="">Select promotion</option>
           {promotionPlans.map(plan => {
             const discountPercent = getDiscountPercent(plan.originalPrice, plan.discount);
@@ -318,6 +296,26 @@ export default function AddProductPage() {
             );
           })}
         </select>
+
+        {/* PROMOTION SUMMARY */}
+        {form.promotionId && (() => {
+          const selectedPlan = promotionPlans.find(p => p.id === form.promotionId);
+          if (!selectedPlan) return null;
+          const discountPercent = getDiscountPercent(selectedPlan.originalPrice, selectedPlan.discount);
+          const activePrice = getActivePrice(selectedPlan.price, selectedPlan.discount);
+          return (
+            <div className="promotion-summary">
+              <p><strong>{selectedPlan.name}</strong></p>
+              <p>Price: ₦{activePrice.toLocaleString()}</p>
+              <p>Discount: {discountPercent}% off</p>
+              {selectedPlan.features?.length > 0 && (
+                <ul>
+                  {selectedPlan.features.map((f, idx) => <li key={idx}>{f}</li>)}
+                </ul>
+              )}
+            </div>
+          );
+        })()}
       </div>
 
       {/* IMAGES */}
@@ -325,16 +323,12 @@ export default function AddProductPage() {
         <label>Images</label>
         <input type="file" multiple onChange={e => handleImages(e.target.files)} />
         <div className="image-preview">
-          {previewUrls.map((url, i) => (
-            <img key={i} src={url} alt={`preview ${i}`} />
-          ))}
+          {previewUrls.map((url, i) => <img key={i} src={url} alt={`preview ${i}`} />)}
         </div>
       </div>
 
       {/* SUBMIT */}
-      <button onClick={handleSubmit} disabled={loading}>
-        {loading ? "Saving..." : "Add Product"}
-      </button>
+      <button onClick={handleSubmit} disabled={loading}>{loading ? "Saving..." : "Add Product"}</button>
     </div>
   );
 }
