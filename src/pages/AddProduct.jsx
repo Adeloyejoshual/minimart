@@ -22,6 +22,13 @@ export default function AddProduct({ selectedCategory, locationsByState }) {
   const states = Object.keys(locationsByState || []);
   const cities = selectedState ? locationsByState[selectedState] : [];
 
+  // Debug: only in dev
+  useEffect(() => {
+    console.log("AddProduct → locationsByState:", locationsByState);
+    console.log("AddProduct → states:", states);
+    console.log("AddProduct → selectedState:", selectedState);
+  }, [locationsByState, states, selectedState]);
+
   // ---------------- FETCH CATEGORIES ----------------
   useEffect(() => {
     fetch("https://minimart-ivrm.onrender.com/api/marketplace/categories")
@@ -30,7 +37,7 @@ export default function AddProduct({ selectedCategory, locationsByState }) {
       .catch(console.error);
   }, []);
 
-  // Use passed selectedCategory if present, otherwise fallback lookup
+  // Use passed selectedCategory if present, otherwise fallback
   const usingCategory = selectedCategory || categories.find((c) => c.id === form.mainCategory);
   const dynamicFields = usingCategory?.dynamicOptions?.fields || [];
 
@@ -82,12 +89,12 @@ export default function AddProduct({ selectedCategory, locationsByState }) {
   const handleStateChange = (state) => {
     setSelectedState(state);
     setSelectedCity("");
-    updateDynamic("location", ""); // reset city in dynamic
+    updateDynamic("location", ""); // reset city
   };
 
   const handleCityChange = (city) => {
     setSelectedCity(city);
-    updateDynamic("location", city); // store city in dynamic
+    updateDynamic("location", city);
   };
 
   // ---------------- SUBMIT PRODUCT ----------------
