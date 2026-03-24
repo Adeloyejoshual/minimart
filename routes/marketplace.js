@@ -101,7 +101,6 @@ router.post("/products", upload.array("images"), async (req, res) => {
         )
       : [];
 
-    // Begin transaction
     await client.query("BEGIN");
 
     // Insert product
@@ -115,7 +114,7 @@ router.post("/products", upload.array("images"), async (req, res) => {
         description || null,
         parseFloat(price),
         category_id,
-        uploadedImages[0] || null, // first image as main
+        uploadedImages[0] || null,
         Object.keys(cleanedFields).length ? JSON.stringify(cleanedFields) : null
       ]
     );
@@ -150,7 +149,7 @@ router.post("/products", upload.array("images"), async (req, res) => {
 });
 
 /* =========================================================
-   GET CATEGORIES WITH DYNAMIC OPTIONS
+   GET CATEGORIES WITH DYNAMIC OPTIONS (STATE/CITY INCLUDED)
 ========================================================= */
 router.get("/categories", async (req, res) => {
   try {
@@ -166,6 +165,7 @@ router.get("/categories", async (req, res) => {
     rows.forEach(cat => {
       const key = cat.fields_key || "";
 
+      // ---------------- DYNAMIC OPTIONS ----------------
       let dynamicOptions = {
         fields: categoryFields[key] || [],
         brands: brands[key] || [],
@@ -178,13 +178,15 @@ router.get("/categories", async (req, res) => {
         sims,
         features: featuresByCategory[key] || [],
         years,
+        // Always include state/city for vehicles
+        state: Object.keys(locationsByState),
+        cityMap: locationsByState,
       };
 
-      // Vehicles-specific fields
+      // Vehicles-specific options
       if (key === "Vehicles") {
         dynamicOptions.engine = engines;
         dynamicOptions.fuel_type = fuelTypes;
-        dynamicOptions.location = Object.keys(locationsByState);
       }
 
       categoryMap[cat.id] = { ...cat, dynamicOptions, subcategories: [] };
