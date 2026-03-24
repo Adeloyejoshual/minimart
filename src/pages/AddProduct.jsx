@@ -17,7 +17,7 @@ export default function AddProduct() {
   // ---------------- FETCH CATEGORIES ----------------
   useEffect(() => {
     fetch("https://minimart-ivrm.onrender.com/api/marketplace/categories")
-      .then((res) => res.json())
+      .then(res => res.json())
       .then(setCategories)
       .catch(console.error);
   }, []);
@@ -25,7 +25,6 @@ export default function AddProduct() {
   const selectedCategory = categories.find(c => c.id === form.mainCategory);
   const dynamicFields = selectedCategory?.dynamicOptions?.fields || [];
 
-  // ---------------- OPTIONS MAP ----------------
   const optionsMap = {
     brand: selectedCategory?.dynamicOptions?.brands || [],
     model: selectedCategory?.dynamicOptions?.models?.[form.dynamic.brand] || [],
@@ -39,31 +38,28 @@ export default function AddProduct() {
     year: selectedCategory?.dynamicOptions?.years || [],
     engine: selectedCategory?.dynamicOptions?.engine || [],
     fuel_type: selectedCategory?.dynamicOptions?.fuel_type || [],
-    location: selectedCategory?.dynamicOptions?.location || [],
+    states: selectedCategory?.dynamicOptions?.states || [],
   };
 
-  // ---------------- FORM UPDATES ----------------
   const update = (key, value) => setForm(prev => ({ ...prev, [key]: value }));
   const updateDynamic = (key, value) =>
     setForm(prev => ({ ...prev, dynamic: { ...prev.dynamic, [key]: value } }));
 
-  // ---------------- RESET DYNAMIC FIELDS ----------------
+  // Reset dynamic fields when category changes
   useEffect(() => {
     if (!selectedCategory) return;
     const initialDynamic = Object.fromEntries(
-      dynamicFields.map(f => [f, f === "features" || f === "location" ? [] : ""])
+      dynamicFields.map(f => [f, ""])
     );
     setForm(prev => ({ ...prev, dynamic: initialDynamic }));
   }, [selectedCategory]);
 
-  // ---------------- HANDLE IMAGE SELECTION ----------------
   const handleImages = (files) => {
     setImages([...files]);
     const urls = [...files].map(file => URL.createObjectURL(file));
     setPreviewUrls(urls);
   };
 
-  // ---------------- SUBMIT PRODUCT ----------------
   const handleSubmit = async () => {
     if (!form.title || !form.price || !form.mainCategory) {
       return alert("Title, price, and category are required");
@@ -85,8 +81,8 @@ export default function AddProduct() {
 
       const data = await res.json();
       console.log("Added product:", data);
-
       alert("Product added successfully!");
+
       setForm({ title: "", price: "", mainCategory: "", dynamic: {} });
       setImages([]);
       setPreviewUrls([]);
@@ -130,7 +126,6 @@ export default function AddProduct() {
       {dynamicFields.map(field => {
         const value = form.dynamic[field];
         if (field === "used_detail" && form.dynamic.condition !== "Used") return null;
-        const isArrayField = field === "features" || field === "location";
 
         return (
           <div className="field" key={field}>
@@ -138,28 +133,6 @@ export default function AddProduct() {
 
             {!optionsMap[field] || optionsMap[field].length === 0 ? (
               <input value={value || ""} onChange={e => updateDynamic(field, e.target.value)} />
-            ) : isArrayField ? (
-              <div className="multi-select">
-                {optionsMap[field].map(opt => {
-                  const current = Array.isArray(value) ? value : [];
-                  return (
-                    <label key={opt}>
-                      <input
-                        type="checkbox"
-                        checked={current.includes(opt)}
-                        onChange={() => {
-                          if (current.includes(opt)) {
-                            updateDynamic(field, current.filter(v => v !== opt));
-                          } else {
-                            updateDynamic(field, [...current, opt]);
-                          }
-                        }}
-                      />
-                      {opt}
-                    </label>
-                  );
-                })}
-              </div>
             ) : (
               <select value={value || ""} onChange={e => updateDynamic(field, e.target.value)}>
                 <option value="">Select {field}</option>
