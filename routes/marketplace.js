@@ -42,9 +42,12 @@ const upload = multer({ storage: multer.memoryStorage() });
 ========================================================= */
 router.get("/products", async (req, res) => {
   try {
-    const { rows } = await pool.query(
-      "SELECT * FROM products ORDER BY created_at DESC"
-    );
+    const { rows } = await pool.query(`
+      SELECT p.*, c.name AS category_name
+      FROM products p
+      LEFT JOIN categories c ON p.category_id = c.id
+      ORDER BY p.created_at DESC
+    `);
     res.json(rows);
   } catch (err) {
     console.error("GET /products error:", err);
@@ -53,22 +56,22 @@ router.get("/products", async (req, res) => {
 });
 
 /* =========================================================
-   POST PRODUCT
+   POST PRODUCT WITH MULTIPLE IMAGES
 ========================================================= */
 router.post("/products", upload.array("images"), async (req, res) => {
+  const client = await pool.connect();
   try {
-    const { title, description, price, category_id, subcategory_id, dynamicFields } = req.body;
+    const { title, description, price, category_id, dynamicFields } = req.body;
 
     if (!title || !price || !category_id) {
       return res.status(400).json({ message: "Title, price, and category required" });
     }
 
     // Fetch category
-    const { rows: categoryRows } = await pool.query(
+    const { rows: categoryRows } = await client.query(
       "SELECT id, name, fields_key FROM categories WHERE id = $1",
       [category_id]
     );
-
     if (!categoryRows.length) return res.status(400).json({ message: "Invalid category_id" });
     const category = categoryRows[0];
 
@@ -80,9 +83,7 @@ router.post("/products", upload.array("images"), async (req, res) => {
       return res.status(400).json({ message: "Invalid dynamicFields format" });
     }
 
-    // Clean dynamic fields
-    const key = category.fields_key;
-    const allowedKeys = categoryFields[key] || [];
+    const allowedKeys = categoryFields[category.fields_key] || [];
     const cleanedFields = Object.fromEntries(
       Object.entries(parsedFields).filter(([k]) => allowedKeys.includes(k))
     );
@@ -90,48 +91,66 @@ router.post("/products", upload.array("images"), async (req, res) => {
     // Upload images to Cloudinary
     const uploadedImages = req.files?.length
       ? await Promise.all(
-          req.files.map(
-            (file) =>
-              new Promise((resolve, reject) => {
-                const stream = cloudinary.uploader.upload_stream(
-                  { folder: "minimart_products" },
-                  (err, result) => (err ? reject(err) : resolve(result.secure_url))
-                );
-                stream.end(file.buffer);
-              })
-          )
+          req.files.map(file => new Promise((resolve, reject) => {
+            const stream = cloudinary.uploader.upload_stream(
+              { folder: "minimart_products" },
+              (err, result) => (err ? reject(err) : resolve(result.secure_url))
+            );
+            stream.end(file.buffer);
+          }))
         )
       : [];
 
-    // Insert product
-    const query = `
-      INSERT INTO products
-      (title, description, price, category_id, image, attributes, created_at)
-      VALUES ($1,$2,$3,$4,$5,$6, now())
-      RETURNING *
-    `;
+    // Begin transaction
+    await client.query("BEGIN");
 
-    const { rows } = await pool.query(query, [
-      title,
-      description || null,
-      parseFloat(price),
-      category_id,
-      uploadedImages[0] || null, // first image
-      Object.keys(cleanedFields).length ? JSON.stringify(cleanedFields) : null,
-    ]);
+    // Insert product
+    const { rows } = await client.query(
+      `INSERT INTO products
+        (title, description, price, category_id, image, attributes, created_at)
+        VALUES ($1,$2,$3,$4,$5,$6, now())
+        RETURNING *`,
+      [
+        title,
+        description || null,
+        parseFloat(price),
+        category_id,
+        uploadedImages[0] || null, // first image as main
+        Object.keys(cleanedFields).length ? JSON.stringify(cleanedFields) : null
+      ]
+    );
 
     const product = rows[0];
+
+    // Insert images into product_images table
+    if (uploadedImages.length > 0) {
+      const imageInsertPromises = uploadedImages.map((url, index) =>
+        client.query(
+          `INSERT INTO product_images (product_id, image_url, position) VALUES ($1, $2, $3)`,
+          [product.id, url, index]
+        )
+      );
+      await Promise.all(imageInsertPromises);
+    }
+
+    await client.query("COMMIT");
+
     product.category_name = category.name;
+    product.images = uploadedImages;
 
     res.status(201).json(product);
+
   } catch (err) {
+    await client.query("ROLLBACK");
     console.error("POST /products error:", err);
     res.status(500).json({ message: "Failed to add product" });
+  } finally {
+    client.release();
   }
 });
 
 /* =========================================================
-   GET CATEGORIES (WITH CONFIG)
+   GET CATEGORIES WITH DYNAMIC OPTIONS
 ========================================================= */
 router.get("/categories", async (req, res) => {
   try {
@@ -147,8 +166,7 @@ router.get("/categories", async (req, res) => {
     rows.forEach(cat => {
       const key = cat.fields_key || "";
 
-      // Dynamic options for all categories
-      const dynamicOptions = {
+      let dynamicOptions = {
         fields: categoryFields[key] || [],
         brands: brands[key] || [],
         models: models[key] || {},
@@ -160,9 +178,14 @@ router.get("/categories", async (req, res) => {
         sims,
         features: featuresByCategory[key] || [],
         years,
-        location: Object.keys(locationsByState), // Always available
-        ...(key === "Vehicles" ? { engine: engines, fuel_type: fuelTypes } : {}), // Only vehicles
       };
+
+      // Vehicles-specific fields
+      if (key === "Vehicles") {
+        dynamicOptions.engine = engines;
+        dynamicOptions.fuel_type = fuelTypes;
+        dynamicOptions.location = Object.keys(locationsByState);
+      }
 
       categoryMap[cat.id] = { ...cat, dynamicOptions, subcategories: [] };
       if (!cat.parent_id) structured.push(categoryMap[cat.id]);
@@ -176,6 +199,7 @@ router.get("/categories", async (req, res) => {
     });
 
     res.json(structured);
+
   } catch (err) {
     console.error("GET /categories error:", err);
     res.status(500).json({ message: "Failed to fetch categories" });
