@@ -1,24 +1,8 @@
-// routes/marketplace.js (or similar)
 import express from "express";
 import { Pool } from "pg";
 import multer from "multer";
 import { v2 as cloudinary } from "cloudinary";
 import dotenv from "dotenv";
-
-// ---------------- CONFIG IMPORTS ----------------
-import { brands } from "../src/config/brands.js";
-import { colors } from "../src/config/colors.js";
-import { categoryFields } from "../src/config/categoryFields.js";
-import { conditions, usedDetails } from "../src/config/conditions.js";
-import { featuresByCategory } from "../src/config/featuresByCategory.js";
-import { models } from "../src/config/models.js";
-import { ramOptions } from "../src/config/ramOptions.js";
-import { sims } from "../src/config/sims.js";
-import { storageOptions } from "../src/config/storageOptions.js";
-import { years } from "../src/config/years.js";
-import { engines } from "../src/config/engines.js";
-import { fuelTypes } from "../src/config/fuelTypes.js";
-import { locationsByState } from "../src/config/locationsByState.js";
 
 dotenv.config();
 
@@ -28,19 +12,17 @@ const pool = new Pool({
   ssl: { rejectUnauthorized: false },
 });
 
-// ---------------- CLOUDINARY ----------------
+// Cloudinary config
 cloudinary.config({
   cloud_name: process.env.CLOUDINARY_CLOUD_NAME,
   api_key: process.env.CLOUDINARY_API_KEY,
   api_secret: process.env.CLOUDINARY_API_SECRET,
 });
 
-// ---------------- MULTER ----------------
+// Multer memory storage
 const upload = multer({ storage: multer.memoryStorage() });
 
-/* =========================================================
-   GET PRODUCTS
-========================================================= */
+// ---------------- GET PRODUCTS ----------------
 router.get("/products", async (req, res) => {
   try {
     const { rows } = await pool.query(
@@ -48,14 +30,12 @@ router.get("/products", async (req, res) => {
     );
     res.json(rows);
   } catch (err) {
-    console.error("GET /products error:", err);
+    console.error(err);
     res.status(500).json({ message: "Failed to fetch products" });
   }
 });
 
-/* =========================================================
-   POST PRODUCT
-========================================================= */
+// ---------------- POST PRODUCT ----------------
 router.post("/products", upload.array("images"), async (req, res) => {
   try {
     const { title, description, price, category_id, subcategory_id, dynamicFields } = req.body;
@@ -64,68 +44,52 @@ router.post("/products", upload.array("images"), async (req, res) => {
       return res.status(400).json({ message: "Title, price, and category required" });
     }
 
-    // Fetch category
+    // Check category exists
     const { rows: categoryRows } = await pool.query(
-      "SELECT id, name, fields_key FROM categories WHERE id = $1",
+      "SELECT name, fields FROM categories WHERE id = $1",
       [category_id]
     );
-
     if (!categoryRows.length) {
       return res.status(400).json({ message: "Invalid category_id" });
     }
+
     const category = categoryRows[0];
 
-    // Parse dynamic fields
-    let parsedFields = {};
-    try {
-      parsedFields =
-        typeof dynamicFields === "string" ? JSON.parse(dynamicFields) : dynamicFields || {};
-    } catch (parseErr) {
-      console.error("dynamicFields parse error:", parseErr);
-      return res.status(400).json({ message: "Invalid dynamicFields format" });
-    }
-
-    // Clean dynamic fields
-    const key = category.fields_key;
-    const allowedKeys = categoryFields[key] || [];
+    // Parse dynamic fields safely
+    const parsedFields = typeof dynamicFields === "string" ? JSON.parse(dynamicFields) : dynamicFields || {};
+    const allowedKeys = JSON.parse(category.fields || "[]").map(f => f.name);
     const cleanedFields = Object.fromEntries(
-      Object.entries(parsedFields).filter(([k]) => allowedKeys.includes(k))
+      Object.entries(parsedFields).filter(([key]) => allowedKeys.includes(key))
     );
 
-    // Upload images to Cloudinary
-    const uploadedImages =
-      req.files?.length
-        ? await Promise.all(
-            req.files.map(
-              (file) =>
-                new Promise((resolve, reject) => {
-                  const stream = cloudinary.uploader.upload_stream(
-                    { folder: "minimart_products" },
-                    (err, result) => {
-                      err ? reject(err) : resolve(result.secure_url);
-                    }
-                  );
-                  stream.end(file.buffer);
-                })
-            )
-          )
-        : [];
+    // Upload images
+    const uploadedImages = await Promise.all(
+      (req.files || []).map(file =>
+        new Promise((resolve, reject) => {
+          const stream = cloudinary.uploader.upload_stream(
+            { folder: "minimart_products" },
+            (err, result) => (err ? reject(err) : resolve(result.secure_url))
+          );
+          stream.end(file.buffer);
+        })
+      )
+    );
 
-    // Insert product
+    // Insert into DB
     const query = `
       INSERT INTO products
-      (title, description, price, category_id, image, attributes, created_at)
-      VALUES ($1, $2, $3, $4, $5, $6, now())
+      (title, description, price, category_id, subcategory_id, images, dynamic_fields, created_at)
+      VALUES ($1,$2,$3,$4,$5,$6,$7, now())
       RETURNING *
     `;
-
     const { rows } = await pool.query(query, [
       title,
       description || null,
       parseFloat(price),
       category_id,
-      uploadedImages[0] || null, // first image
-      Object.keys(cleanedFields).length ? JSON.stringify(cleanedFields) : null,
+      subcategory_id || null,
+      uploadedImages.length ? JSON.stringify(uploadedImages) : null,
+      Object.keys(cleanedFields).length ? cleanedFields : null,
     ]);
 
     const product = rows[0];
@@ -133,63 +97,40 @@ router.post("/products", upload.array("images"), async (req, res) => {
 
     res.status(201).json(product);
   } catch (err) {
-    console.error("POST /products error:", err);
+    console.error(err);
     res.status(500).json({ message: "Failed to add product" });
   }
 });
 
-/* =========================================================
-   GET CATEGORIES (WITH CONFIG)
-========================================================= */
+// ---------------- GET CATEGORIES ----------------
 router.get("/categories", async (req, res) => {
   try {
     const { rows } = await pool.query(`
-      SELECT id, name, parent_id, slug, icon, image_url, filters, is_active, visible_on_home, fields_key
-      FROM categories
-      ORDER BY sort_order ASC, name ASC
+      SELECT c.id, c.name, c.parent_id, p.name AS parent_name, c.slug, c.icon, c.image_url, c.fields, c.filters, c.is_active, c.visible_on_home
+      FROM categories c
+      LEFT JOIN categories p ON c.parent_id = p.id
+      ORDER BY c.sort_order ASC, c.name ASC
     `);
 
     const categoryMap = {};
     const structured = [];
 
-    rows.forEach((cat) => {
-      const key = cat.fields_key || "";
-
-      // Dynamic options for all categories
-      const dynamicOptions = {
-        fields: categoryFields[key] || [],
-        brands: brands[key] || [],
-        models: models[key] || {},
-        colors: colors[key] || [],
-        conditions,
-        usedDetails,
-        ram: ramOptions,
-        storage: storageOptions,
-        sims,
-        features: featuresByCategory[key] || [],
-        years,
-        location: Object.keys(locationsByState), // state list for the frontend
-        ...(key === "Vehicles"
-          ? { engine: engines, fuel_type: fuelTypes }
-          : {}), // vehicles only
-      };
-
-      categoryMap[cat.id] = { ...cat, dynamicOptions, subcategories: [] };
+    rows.forEach(cat => {
       if (!cat.parent_id) {
+        categoryMap[cat.id] = { ...cat, subcategories: [] };
         structured.push(categoryMap[cat.id]);
       }
     });
 
-    // Attach subcategories
-    rows.forEach((cat) => {
+    rows.forEach(cat => {
       if (cat.parent_id && categoryMap[cat.parent_id]) {
-        categoryMap[cat.parent_id].subcategories.push(categoryMap[cat.id]);
+        categoryMap[cat.parent_id].subcategories.push(cat);
       }
     });
 
     res.json(structured);
   } catch (err) {
-    console.error("GET /categories error:", err);
+    console.error(err);
     res.status(500).json({ message: "Failed to fetch categories" });
   }
 });
