@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import "./AddProduct.css";
 
-export default function AddProduct({ locationsByState = {} }) {
+export default function AddProduct({ locationsByState }) {
   const [categories, setCategories] = useState([]);
   const [loading, setLoading] = useState(false);
   const [images, setImages] = useState([]);
@@ -11,14 +11,14 @@ export default function AddProduct({ locationsByState = {} }) {
     title: "",
     price: "",
     mainCategory: "",
-    dynamic: { location: "" }, // add location here
+    dynamic: {},
   });
 
   // ---------------- STATE & CITY ----------------
   const [selectedState, setSelectedState] = useState("");
   const [selectedCity, setSelectedCity] = useState("");
 
-  const states = Object.keys(locationsByState);
+  const states = Object.keys(locationsByState || []);
   const cities = selectedState ? locationsByState[selectedState] : [];
 
   // ---------------- FETCH CATEGORIES ----------------
@@ -47,7 +47,6 @@ export default function AddProduct({ locationsByState = {} }) {
     year: selectedCategory?.dynamicOptions?.years || [],
     engine: selectedCategory?.dynamicOptions?.engine || [],
     fuel_type: selectedCategory?.dynamicOptions?.fuel_type || [],
-    location: cities, // <-- populate city dropdown dynamically
   };
 
   // ---------------- FORM UPDATES ----------------
@@ -61,8 +60,6 @@ export default function AddProduct({ locationsByState = {} }) {
     const initialDynamic = Object.fromEntries(
       dynamicFields.map(f => [f, f === "features" ? [] : ""])
     );
-    // preserve location field
-    initialDynamic.location = form.dynamic.location || "";
     setForm(prev => ({ ...prev, dynamic: initialDynamic }));
   }, [selectedCategory]);
 
@@ -77,12 +74,12 @@ export default function AddProduct({ locationsByState = {} }) {
   const handleStateChange = (state) => {
     setSelectedState(state);
     setSelectedCity("");
-    updateDynamic("location", ""); // reset city
+    updateDynamic("location", ""); // reset city in dynamic fields
   };
 
   const handleCityChange = (city) => {
     setSelectedCity(city);
-    updateDynamic("location", city);
+    updateDynamic("location", city); // store city in dynamic
   };
 
   // ---------------- SUBMIT PRODUCT ----------------
@@ -109,7 +106,7 @@ export default function AddProduct({ locationsByState = {} }) {
       console.log("Added product:", data);
 
       alert("Product added successfully!");
-      setForm({ title: "", price: "", mainCategory: "", dynamic: { location: "" } });
+      setForm({ title: "", price: "", mainCategory: "", dynamic: {} });
       setImages([]);
       setPreviewUrls([]);
       setSelectedState("");
@@ -203,7 +200,7 @@ export default function AddProduct({ locationsByState = {} }) {
         </select>
       </div>
 
-      {selectedState && cities.length > 0 && (
+      {selectedState && (
         <div className="field">
           <label>City</label>
           <select value={selectedCity} onChange={e => handleCityChange(e.target.value)}>
