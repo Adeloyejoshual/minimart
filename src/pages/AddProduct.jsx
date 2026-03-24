@@ -1,7 +1,7 @@
 // src/pages/AddProductPage.jsx
 import { useEffect, useState } from "react";
 import { locationsByState } from "../config/locationsByState.js"; // ✅ import here
-import "./AddProduct.css"; // or your CSS file
+import "./AddProduct.css";
 
 export default function AddProductPage() {
   const [categories, setCategories] = useState([]);
@@ -20,18 +20,10 @@ export default function AddProductPage() {
   const [selectedState, setSelectedState] = useState("");
   const [selectedCity, setSelectedCity] = useState("");
 
-  const states = Object.keys(locationsByState || []);
+  const states = Object.keys(locationsByState || []);             // ← all states
   const cities = selectedState ? locationsByState[selectedState] : [];
 
-  // ---------------- FETCH CATEGORIES ----------------
-  useEffect(() => {
-    fetch("https://minimart-ivrm.onrender.com/api/marketplace/categories")
-      .then((res) => res.json())
-      .then((data) => setCategories(data))
-      .catch(console.error);
-  }, []);
-
-  // Selected category for dynamic fields
+  // ---------------- SELECTED CATEGORY ----------------
   const selectedCategory = categories.find((c) => c.id === form.mainCategory);
   const dynamicFields = selectedCategory?.dynamicOptions?.fields || [];
 
@@ -88,7 +80,7 @@ export default function AddProductPage() {
 
   const handleCityChange = (city) => {
     setSelectedCity(city);
-    updateDynamic("location", city);
+    updateDynamic("location", city); // store city in dynamic
   };
 
   // ---------------- SUBMIT PRODUCT ----------------
@@ -243,7 +235,7 @@ export default function AddProductPage() {
           <label>City</label>
           <select
             value={selectedCity}
-            onChange={(e) => handleCity_shortcode(e.target.value)}
+            onChange={(e) => handleCityChange(e.target.value)}
           >
             <option value="">Select city</option>
             {cities.map((city) => (
