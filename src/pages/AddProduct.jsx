@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import "./AddProduct.css";
 
-export default function AddProduct() {
+export default function AddProduct({ locationsByState }) {
   const [categories, setCategories] = useState([]);
   const [loading, setLoading] = useState(false);
   const [images, setImages] = useState([]);
@@ -14,6 +14,13 @@ export default function AddProduct() {
     dynamic: {},
   });
 
+  // ---------------- STATE & CITY ----------------
+  const [selectedState, setSelectedState] = useState("");
+  const [selectedCity, setSelectedCity] = useState("");
+
+  const states = Object.keys(locationsByState || []);
+  const cities = selectedState ? locationsByState[selectedState] : [];
+
   // ---------------- FETCH CATEGORIES ----------------
   useEffect(() => {
     fetch("https://minimart-ivrm.onrender.com/api/marketplace/categories")
@@ -22,16 +29,11 @@ export default function AddProduct() {
       .catch(console.error);
   }, []);
 
+  // ---------------- SELECTED CATEGORY ----------------
   const selectedCategory = categories.find(c => c.id === form.mainCategory);
-
-  // Dynamic fields for selected category
   const dynamicFields = selectedCategory?.dynamicOptions?.fields || [];
 
-  // Always include location field
-  const allDynamicFields = [...dynamicFields];
-  if (!allDynamicFields.includes("location")) allDynamicFields.push("location");
-
-  // Options map
+  // ---------------- OPTIONS MAP ----------------
   const optionsMap = {
     brand: selectedCategory?.dynamicOptions?.brands || [],
     model: selectedCategory?.dynamicOptions?.models?.[form.dynamic.brand] || [],
@@ -45,7 +47,6 @@ export default function AddProduct() {
     year: selectedCategory?.dynamicOptions?.years || [],
     engine: selectedCategory?.dynamicOptions?.engine || [],
     fuel_type: selectedCategory?.dynamicOptions?.fuel_type || [],
-    location: selectedCategory?.dynamicOptions?.location || [],
   };
 
   // ---------------- FORM UPDATES ----------------
@@ -55,8 +56,9 @@ export default function AddProduct() {
 
   // ---------------- RESET DYNAMIC FIELDS ----------------
   useEffect(() => {
+    if (!selectedCategory) return;
     const initialDynamic = Object.fromEntries(
-      allDynamicFields.map(f => [f, f === "features" || f === "location" ? [] : ""])
+      dynamicFields.map(f => [f, f === "features" ? [] : ""])
     );
     setForm(prev => ({ ...prev, dynamic: initialDynamic }));
   }, [selectedCategory]);
@@ -64,7 +66,20 @@ export default function AddProduct() {
   // ---------------- HANDLE IMAGE SELECTION ----------------
   const handleImages = (files) => {
     setImages([...files]);
-    setPreviewUrls([...files].map(file => URL.createObjectURL(file)));
+    const urls = [...files].map(file => URL.createObjectURL(file));
+    setPreviewUrls(urls);
+  };
+
+  // ---------------- STATE & CITY HANDLERS ----------------
+  const handleStateChange = (state) => {
+    setSelectedState(state);
+    setSelectedCity("");
+    updateDynamic("location", ""); // reset city in dynamic fields
+  };
+
+  const handleCityChange = (city) => {
+    setSelectedCity(city);
+    updateDynamic("location", city);
   };
 
   // ---------------- SUBMIT PRODUCT ----------------
@@ -94,6 +109,8 @@ export default function AddProduct() {
       setForm({ title: "", price: "", mainCategory: "", dynamic: {} });
       setImages([]);
       setPreviewUrls([]);
+      setSelectedState("");
+      setSelectedCity("");
     } catch (err) {
       console.error(err);
       alert("Failed to add product");
@@ -131,16 +148,15 @@ export default function AddProduct() {
       </div>
 
       {/* DYNAMIC FIELDS */}
-      {allDynamicFields.map(field => {
+      {dynamicFields.map(field => {
         const value = form.dynamic[field];
         if (field === "used_detail" && form.dynamic.condition !== "Used") return null;
-        const isArrayField = field === "features" || field === "location";
+        const isArrayField = field === "features";
 
         return (
           <div className="field" key={field}>
             <label>{field.replace(/_/g, " ").toUpperCase()}</label>
 
-            {/* Text Input */}
             {!optionsMap[field] || optionsMap[field].length === 0 ? (
               <input value={value || ""} onChange={e => updateDynamic(field, e.target.value)} />
             ) : isArrayField ? (
@@ -174,6 +190,25 @@ export default function AddProduct() {
           </div>
         );
       })}
+
+      {/* STATE & CITY */}
+      <div className="field">
+        <label>State</label>
+        <select value={selectedState} onChange={e => handleStateChange(e.target.value)}>
+          <option value="">Select state</option>
+          {states.map(state => <option key={state} value={state}>{state}</option>)}
+        </select>
+      </div>
+
+      {selectedState && (
+        <div className="field">
+          <label>City</label>
+          <select value={selectedCity} onChange={e => handleCityChange(e.target.value)}>
+            <option value="">Select city</option>
+            {cities.map(city => <option key={city} value={city}>{city}</option>)}
+          </select>
+        </div>
+      )}
 
       {/* PRICE */}
       <div className="field">
