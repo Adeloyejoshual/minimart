@@ -1,12 +1,10 @@
 // src/pages/AddProductPage.jsx
 import { useEffect, useState } from "react";
-import { useNavigate } from "react-router-dom";
 import { locationsByState } from "../config/locationsByState.js";
 import { promotionPlans, getActivePrice, getDiscountPercent } from "../config/promotions.js";
 import "./AddProduct.css";
 
 export default function AddProductPage() {
-  const navigate = useNavigate();
   const [categories, setCategories] = useState([]);
   const [loading, setLoading] = useState(false);
   const [images, setImages] = useState([]);
@@ -32,9 +30,7 @@ export default function AddProductPage() {
   useEffect(() => {
     async function fetchCategories() {
       try {
-        const res = await fetch(
-          "https://minimart-ivrm.onrender.com/api/marketplace/categories"
-        );
+        const res = await fetch("https://minimart-ivrm.onrender.com/api/marketplace/categories");
         const data = await res.json();
         setCategories(data || []);
       } catch (err) {
@@ -64,18 +60,13 @@ export default function AddProductPage() {
     fuel_type: options.fuel_type || [],
   };
 
-  const update = (key, value) =>
-    setForm(prev => ({ ...prev, [key]: value }));
-
-  const updateDynamic = (key, value) =>
-    setForm(prev => ({ ...prev, dynamic: { ...prev.dynamic, [key]: value } }));
+  const update = (key, value) => setForm(prev => ({ ...prev, [key]: value }));
+  const updateDynamic = (key, value) => setForm(prev => ({ ...prev, dynamic: { ...prev.dynamic, [key]: value } }));
 
   // ---------------- RESET DYNAMIC FIELDS ON CATEGORY CHANGE ----------------
   useEffect(() => {
     if (!selectedCategory) return;
-    const initialDynamic = Object.fromEntries(
-      dynamicFields.map(f => [f, f === "features" ? [] : ""])
-    );
+    const initialDynamic = Object.fromEntries(dynamicFields.map(f => [f, f === "features" ? [] : ""]));
     setForm(prev => ({ ...prev, dynamic: initialDynamic, subCategory: "" }));
   }, [selectedCategory]);
 
@@ -110,65 +101,42 @@ export default function AddProductPage() {
     return integer.replace(/\B(?=(\d{3})+(?!\d))/g, ",") + (decimal ? "." + decimal : "");
   };
 
-  // ---------------- SUBMIT WITH PAYSTACK ----------------
+  // ---------------- SUBMIT ----------------
   const handleSubmit = async () => {
     if (!form.title || !form.price || !form.mainCategory) {
       return alert("Title, price, and category are required");
     }
-    if (images.length === 0) {
-      return alert("Please upload at least one image");
-    }
+    if (images.length === 0) return alert("Please upload at least one image");
 
     const cleanedDynamic = Object.fromEntries(
-      Object.entries(form.dynamic).filter(
-        ([_, v]) => v !== "" && v !== null && !(Array.isArray(v) && v.length === 0)
-      )
+      Object.entries(form.dynamic).filter(([_, v]) => v !== "" && v !== null && !(Array.isArray(v) && v.length === 0))
     );
 
     try {
       setLoading(true);
 
-      // Prepare metadata for Paystack
-      const metadata = {
-        title: form.title,
-        description: form.description,
-        price: parseFloat(form.price),
-        category_id: form.mainCategory,
-        subcategory_id: form.subCategory || null,
-        dynamicFields: cleanedDynamic,
-        promotion_id: form.promotionId || null,
-        images: await Promise.all(images.map(file => fileToBase64(file))),
-      };
-
-      // If a promotion is selected, initialize Paystack
+      // If promotion is selected, initialize Paystack first
+      let promotionData = null;
       if (form.promotionId) {
-        const selectedPlan = promotionPlans.find(p => p.id === form.promotionId);
-        if (!selectedPlan) throw new Error("Invalid promotion plan");
+        const selectedPlan = promotionPlans.find(p => p.id == form.promotionId);
+        if (!selectedPlan) return alert("Invalid promotion plan");
 
-        const activePrice = getActivePrice(parseFloat(form.price), selectedPlan.discount);
+        const amountToPay = getActivePrice(Number(form.price), selectedPlan.discount);
+        const initRes = await fetch(`https://minimart-ivrm.onrender.com/api/promote/init`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ amount: amountToPay }),
+        });
+        const initData = await initRes.json();
+        if (!initRes.ok) throw new Error(initData.message || "Failed to initialize payment");
 
-        const res = await fetch(
-          "https://minimart-ivrm.onrender.com/api/promote/initiate",
-          {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({
-              email: "user@example.com", // replace with logged-in user email
-              amount: activePrice,
-              metadata,
-            }),
-          }
-        );
-
-        const data = await res.json();
-        if (!data.success) throw new Error(data.message || "Payment initialization failed");
-
-        // Redirect to Paystack payment page
-        window.location.href = data.payment.data.authorization_url;
-        return; // stop further execution
+        promotionData = initData.data; // paystack transaction details
+        // Redirect user to Paystack
+        window.location.href = promotionData.authorization_url;
+        return; // stop submission until payment completes
       }
 
-      // No promotion selected → normal product creation
+      // ---------- NORMAL PRODUCT CREATION ----------
       const formData = new FormData();
       formData.append("title", form.title);
       formData.append("description", form.description);
@@ -178,17 +146,16 @@ export default function AddProductPage() {
       formData.append("dynamicFields", JSON.stringify(cleanedDynamic));
       images.forEach(img => formData.append("images", img));
 
-      const normalRes = await fetch(
-        "https://minimart-ivrm.onrender.com/api/marketplace/products",
-        { method: "POST", body: formData }
-      );
-
-      const normalData = await normalRes.json();
-      if (!normalRes.ok) throw new Error(normalData.message || "Upload failed");
+      const res = await fetch("https://minimart-ivrm.onrender.com/api/marketplace/products", { method: "POST", body: formData });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.message || "Upload failed");
 
       alert("Product added successfully!");
-      resetForm();
-
+      setForm({ title: "", description: "", price: "", mainCategory: "", subCategory: "", dynamic: {}, promotionId: "" });
+      setImages([]);
+      setPreviewUrls([]);
+      setSelectedState("");
+      setSelectedCity("");
     } catch (err) {
       console.error(err);
       alert(err.message);
@@ -197,29 +164,9 @@ export default function AddProductPage() {
     }
   };
 
-  // ---------------- HELPER: FILE → BASE64 ----------------
-  const fileToBase64 = file =>
-    new Promise((resolve, reject) => {
-      const reader = new FileReader();
-      reader.readAsDataURL(file);
-      reader.onload = () => resolve(reader.result);
-      reader.onerror = err => reject(err);
-    });
-
-  // ---------------- RESET FORM ----------------
-  const resetForm = () => {
-    setForm({ title: "", description: "", price: "", mainCategory: "", subCategory: "", dynamic: {}, promotionId: "" });
-    setImages([]);
-    setPreviewUrls([]);
-    setSelectedState("");
-    setSelectedCity("");
-  };
-
   return (
     <div className="add-product-container">
-      {/* BACK ARROW */}
-      <div className="back-arrow" onClick={() => navigate(-1)}>&larr; Back</div>
-
+      <button onClick={() => window.history.back()} className="back-button">← Back</button>
       <h2>Add Product</h2>
 
       {/* TITLE */}
@@ -259,7 +206,6 @@ export default function AddProductPage() {
         const value = form.dynamic[field];
         if (field === "used_detail" && form.dynamic.condition !== "Used") return null;
         const isArray = field === "features";
-
         return (
           <div className="field" key={field}>
             <label>{field.replace(/_/g, " ").toUpperCase()}</label>
@@ -271,11 +217,7 @@ export default function AddProductPage() {
                   const current = Array.isArray(value) ? value : [];
                   return (
                     <label key={opt}>
-                      <input type="checkbox" checked={current.includes(opt)}
-                        onChange={() =>
-                          updateDynamic(field, current.includes(opt) ? current.filter(v => v !== opt) : [...current, opt])
-                        }
-                      />
+                      <input type="checkbox" checked={current.includes(opt)} onChange={() => updateDynamic(field, current.includes(opt) ? current.filter(v => v !== opt) : [...current, opt])} />
                       {opt}
                     </label>
                   );
@@ -291,7 +233,7 @@ export default function AddProductPage() {
         );
       })}
 
-      {/* STATE & CITY */}
+      {/* STATE */}
       <div className="field">
         <label>State</label>
         <select value={selectedState} onChange={e => handleStateChange(e.target.value)}>
@@ -299,6 +241,8 @@ export default function AddProductPage() {
           {states.map(s => <option key={s}>{s}</option>)}
         </select>
       </div>
+
+      {/* CITY */}
       {selectedState && (
         <div className="field">
           <label>City</label>
@@ -323,11 +267,7 @@ export default function AddProductPage() {
           {promotionPlans.map(plan => {
             const discountPercent = getDiscountPercent(plan.originalPrice, plan.discount);
             const activePrice = getActivePrice(plan.price, plan.discount);
-            return (
-              <option key={plan.id} value={plan.id}>
-                {plan.name} - ₦{activePrice.toLocaleString()} ({discountPercent}% off)
-              </option>
-            );
+            return <option key={plan.id} value={plan.id}>{plan.name} - ₦{activePrice.toLocaleString()} ({discountPercent}% off)</option>;
           })}
         </select>
       </div>
@@ -342,9 +282,7 @@ export default function AddProductPage() {
       </div>
 
       {/* SUBMIT */}
-      <button onClick={handleSubmit} disabled={loading}>
-        {loading ? "Processing..." : "Add Product"}
-      </button>
+      <button onClick={handleSubmit} disabled={loading}>{loading ? "Saving..." : "Add Product"}</button>
     </div>
   );
 }
