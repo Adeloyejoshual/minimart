@@ -19,6 +19,7 @@ import { years } from "../src/config/years.js";
 import { engines } from "../src/config/engines.js";
 import { fuelTypes } from "../src/config/fuelTypes.js";
 import { locationsByState } from "../src/config/locationsByState.js";
+import { promotionPlans } from "../src/config/promotions.js";
 
 dotenv.config();
 
@@ -43,9 +44,7 @@ const upload = multer({ storage: multer.memoryStorage() });
 ========================================================= */
 router.get("/products", async (req, res) => {
   try {
-    const { rows } = await pool.query(
-      "SELECT * FROM products ORDER BY created_at DESC"
-    );
+    const { rows } = await pool.query("SELECT * FROM products ORDER BY created_at DESC");
     res.json(rows);
   } catch (err) {
     console.error("GET /products error:", err);
@@ -55,10 +54,14 @@ router.get("/products", async (req, res) => {
 
 /* =========================================================
    POST PRODUCT
+   - Handles: title, description, price, category_id, subcategory_id
+   - Dynamic fields JSON
+   - Images upload
+   - Optional promotion_id
 ========================================================= */
 router.post("/products", upload.array("images"), async (req, res) => {
   try {
-    const { title, description, price, category_id, subcategory_id, dynamicFields } = req.body;
+    const { title, description, price, category_id, subcategory_id, dynamicFields, promotion_id } = req.body;
 
     // ---------- VALIDATION ----------
     if (!title || !price || !category_id) {
@@ -73,18 +76,15 @@ router.post("/products", upload.array("images"), async (req, res) => {
       "SELECT id, name, fields_key FROM categories WHERE id = $1",
       [category_id]
     );
-    if (!categoryRows.length) {
-      return res.status(400).json({ message: "Invalid category_id" });
-    }
+    if (!categoryRows.length) return res.status(400).json({ message: "Invalid category_id" });
     const category = categoryRows[0];
 
     // ---------- CLEAN DYNAMIC FIELDS ----------
     let parsedFields = {};
     try {
-      parsedFields =
-        typeof dynamicFields === "string" ? JSON.parse(dynamicFields) : dynamicFields || {};
-    } catch (parseErr) {
-      console.error("dynamicFields parse error:", parseErr);
+      parsedFields = typeof dynamicFields === "string" ? JSON.parse(dynamicFields) : dynamicFields || {};
+    } catch (err) {
+      console.error("dynamicFields parse error:", err);
       return res.status(400).json({ message: "Invalid dynamicFields format" });
     }
     const allowedKeys = categoryFields[category.fields_key] || [];
@@ -111,8 +111,8 @@ router.post("/products", upload.array("images"), async (req, res) => {
     // ---------- INSERT PRODUCT ----------
     const query = `
       INSERT INTO products
-      (title, description, price, category_id, subcategory_id, images, dynamic_fields, created_at)
-      VALUES ($1,$2,$3,$4,$5,$6,$7, now())
+      (title, description, price, category_id, subcategory_id, images, dynamic_fields, promotion_id, created_at)
+      VALUES ($1,$2,$3,$4,$5,$6,$7,$8, now())
       RETURNING *
     `;
     const { rows } = await pool.query(query, [
@@ -123,10 +123,15 @@ router.post("/products", upload.array("images"), async (req, res) => {
       subcategory_id || null,
       uploadedImages.length ? JSON.stringify(uploadedImages) : null,
       Object.keys(cleanedFields).length ? JSON.stringify(cleanedFields) : null,
+      promotion_id || null,
     ]);
 
     const product = rows[0];
     product.category_name = category.name;
+    if (promotion_id) {
+      const plan = promotionPlans.find((p) => p.id == promotion_id);
+      product.promotion = plan || null;
+    }
 
     res.status(201).json(product);
   } catch (err) {
@@ -136,7 +141,7 @@ router.post("/products", upload.array("images"), async (req, res) => {
 });
 
 /* =========================================================
-   GET CATEGORIES (WITH DYNAMIC OPTIONS)
+   GET CATEGORIES WITH DYNAMIC OPTIONS
 ========================================================= */
 router.get("/categories", async (req, res) => {
   try {
