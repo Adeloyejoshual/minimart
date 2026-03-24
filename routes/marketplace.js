@@ -1,4 +1,4 @@
-// routes/marketplace.js (or similar)
+// routes/marketplace.js
 import express from "express";
 import { Pool } from "pg";
 import multer from "multer";
@@ -60,22 +60,25 @@ router.post("/products", upload.array("images"), async (req, res) => {
   try {
     const { title, description, price, category_id, subcategory_id, dynamicFields } = req.body;
 
+    // ---------- VALIDATION ----------
     if (!title || !price || !category_id) {
-      return res.status(400).json({ message: "Title, price, and category required" });
+      return res.status(400).json({ message: "Title, price, and category are required" });
     }
 
-    // Fetch category
+    const priceNum = parseFloat(price);
+    if (isNaN(priceNum)) return res.status(400).json({ message: "Invalid price" });
+
+    // ---------- FETCH CATEGORY ----------
     const { rows: categoryRows } = await pool.query(
       "SELECT id, name, fields_key FROM categories WHERE id = $1",
       [category_id]
     );
-
     if (!categoryRows.length) {
       return res.status(400).json({ message: "Invalid category_id" });
     }
     const category = categoryRows[0];
 
-    // Parse dynamic fields
+    // ---------- CLEAN DYNAMIC FIELDS ----------
     let parsedFields = {};
     try {
       parsedFields =
@@ -84,47 +87,41 @@ router.post("/products", upload.array("images"), async (req, res) => {
       console.error("dynamicFields parse error:", parseErr);
       return res.status(400).json({ message: "Invalid dynamicFields format" });
     }
-
-    // Clean dynamic fields
-    const key = category.fields_key;
-    const allowedKeys = categoryFields[key] || [];
+    const allowedKeys = categoryFields[category.fields_key] || [];
     const cleanedFields = Object.fromEntries(
       Object.entries(parsedFields).filter(([k]) => allowedKeys.includes(k))
     );
 
-    // Upload images to Cloudinary
-    const uploadedImages =
-      req.files?.length
-        ? await Promise.all(
-            req.files.map(
-              (file) =>
-                new Promise((resolve, reject) => {
-                  const stream = cloudinary.uploader.upload_stream(
-                    { folder: "minimart_products" },
-                    (err, result) => {
-                      err ? reject(err) : resolve(result.secure_url);
-                    }
-                  );
-                  stream.end(file.buffer);
-                })
-            )
+    // ---------- UPLOAD IMAGES ----------
+    const uploadedImages = req.files?.length
+      ? await Promise.all(
+          req.files.map(
+            (file) =>
+              new Promise((resolve, reject) => {
+                const stream = cloudinary.uploader.upload_stream(
+                  { folder: "minimart_products" },
+                  (err, result) => (err ? reject(err) : resolve(result.secure_url))
+                );
+                stream.end(file.buffer);
+              })
           )
-        : [];
+        )
+      : [];
 
-    // Insert product
+    // ---------- INSERT PRODUCT ----------
     const query = `
       INSERT INTO products
-      (title, description, price, category_id, image, attributes, created_at)
-      VALUES ($1, $2, $3, $4, $5, $6, now())
+      (title, description, price, category_id, subcategory_id, images, dynamic_fields, created_at)
+      VALUES ($1,$2,$3,$4,$5,$6,$7, now())
       RETURNING *
     `;
-
     const { rows } = await pool.query(query, [
       title,
       description || null,
-      parseFloat(price),
+      priceNum,
       category_id,
-      uploadedImages[0] || null, // first image
+      subcategory_id || null,
+      uploadedImages.length ? JSON.stringify(uploadedImages) : null,
       Object.keys(cleanedFields).length ? JSON.stringify(cleanedFields) : null,
     ]);
 
@@ -139,7 +136,7 @@ router.post("/products", upload.array("images"), async (req, res) => {
 });
 
 /* =========================================================
-   GET CATEGORIES (WITH CONFIG)
+   GET CATEGORIES (WITH DYNAMIC OPTIONS)
 ========================================================= */
 router.get("/categories", async (req, res) => {
   try {
@@ -154,8 +151,6 @@ router.get("/categories", async (req, res) => {
 
     rows.forEach((cat) => {
       const key = cat.fields_key || "";
-
-      // Dynamic options for all categories
       const dynamicOptions = {
         fields: categoryFields[key] || [],
         brands: brands[key] || [],
@@ -168,16 +163,11 @@ router.get("/categories", async (req, res) => {
         sims,
         features: featuresByCategory[key] || [],
         years,
-        location: Object.keys(locationsByState), // state list for the frontend
-        ...(key === "Vehicles"
-          ? { engine: engines, fuel_type: fuelTypes }
-          : {}), // vehicles only
+        location: Object.keys(locationsByState),
+        ...(key === "Vehicles" ? { engine: engines, fuel_type: fuelTypes } : {}),
       };
-
       categoryMap[cat.id] = { ...cat, dynamicOptions, subcategories: [] };
-      if (!cat.parent_id) {
-        structured.push(categoryMap[cat.id]);
-      }
+      if (!cat.parent_id) structured.push(categoryMap[cat.id]);
     });
 
     // Attach subcategories
