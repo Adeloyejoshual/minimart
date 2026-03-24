@@ -1,6 +1,6 @@
 // src/pages/AddProductPage.jsx
 import { useEffect, useState } from "react";
-import { locationsByState } from "../config/locationsByState.js";
+import { locationsByState } from "../src/config/locationsByState.js";
 import "./AddProduct.css";
 
 export default function AddProductPage() {
@@ -11,6 +11,7 @@ export default function AddProductPage() {
 
   const [form, setForm] = useState({
     title: "",
+    description: "",  // <-- Added description
     price: "",
     mainCategory: "",
     subCategory: "",
@@ -117,7 +118,7 @@ export default function AddProductPage() {
       setLoading(true);
       const formData = new FormData();
       formData.append("title", form.title);
-      formData.append("description", "");
+      formData.append("description", form.description);  // <-- include description
       formData.append("price", form.price);
       formData.append("category_id", form.mainCategory);
       if (form.subCategory) formData.append("subcategory_id", form.subCategory);
@@ -133,7 +134,7 @@ export default function AddProductPage() {
       if (!res.ok) throw new Error(data.message || "Upload failed");
 
       alert("Product added successfully!");
-      setForm({ title: "", price: "", mainCategory: "", subCategory: "", dynamic: {} });
+      setForm({ title: "", description: "", price: "", mainCategory: "", subCategory: "", dynamic: {} });
       setImages([]);
       setPreviewUrls([]);
       setSelectedState("");
@@ -160,6 +161,16 @@ export default function AddProductPage() {
         />
       </div>
 
+      {/* DESCRIPTION */}
+      <div className="field">
+        <label>Description</label>
+        <textarea
+          value={form.description}
+          onChange={e => update("description", e.target.value)}
+          placeholder="Write product details here..."
+        />
+      </div>
+
       {/* CATEGORY */}
       <div className="field">
         <label>Category</label>
@@ -169,9 +180,7 @@ export default function AddProductPage() {
         >
           <option value="">Select category</option>
           {categories.map(c => (
-            <option key={c.id} value={c.id}>
-              {c.name}
-            </option>
+            <option key={c.id} value={c.id}>{c.name}</option>
           ))}
         </select>
       </div>
@@ -186,9 +195,7 @@ export default function AddProductPage() {
           >
             <option value="">Select subcategory</option>
             {subcategories.map(s => (
-              <option key={s.id} value={s.id}>
-                {s.name}
-              </option>
+              <option key={s.id} value={s.id}>{s.name}</option>
             ))}
           </select>
         </div>
@@ -239,9 +246,7 @@ export default function AddProductPage() {
               >
                 <option value="">Select</option>
                 {optionsMap[field].map(opt => (
-                  <option key={opt} value={opt}>
-                    {opt}
-                  </option>
+                  <option key={opt} value={opt}>{opt}</option>
                 ))}
               </select>
             )}
@@ -254,9 +259,7 @@ export default function AddProductPage() {
         <label>State</label>
         <select value={selectedState} onChange={e => handleStateChange(e.target.value)}>
           <option value="">Select state</option>
-          {states.map(s => (
-            <option key={s}>{s}</option>
-          ))}
+          {states.map(s => <option key={s}>{s}</option>)}
         </select>
       </div>
 
@@ -266,9 +269,7 @@ export default function AddProductPage() {
           <label>City</label>
           <select value={selectedCity} onChange={e => handleCityChange(e.target.value)}>
             <option value="">Select city</option>
-            {cities.map(c => (
-              <option key={c}>{c}</option>
-            ))}
+            {cities.map(c => <option key={c}>{c}</option>)}
           </select>
         </div>
       )}
