@@ -20,6 +20,8 @@ import { engines } from "../src/config/engines.js";
 import { fuelTypes } from "../src/config/fuelTypes.js";
 import { locationsByState } from "../src/config/locationsByState.js";
 import { promotionPlans, getActivePrice } from "../src/config/promotions.js";
+import auth from "../middleware/authMiddleware.js";
+import { initializePaystackTransaction } from "../services/paystack.js";
 
 dotenv.config();
 
@@ -53,13 +55,11 @@ router.get("/products", async (req, res) => {
 });
 
 /* =========================================================
-   POST PRODUCT
-   - Handles: title, description, price, category_id, subcategory_id
-   - Dynamic fields JSON
-   - Images upload
-   - Optional promotion_id (calculates discounted price)
+   POST INITIATE PROMOTION / PRODUCT
+   - For promoted products: initializes Paystack payment
+   - For normal products: inserts immediately
 ========================================================= */
-router.post("/products", upload.array("images"), async (req, res) => {
+router.post("/products/initiate", auth, upload.array("images"), async (req, res) => {
   try {
     const { title, description, price, category_id, subcategory_id, dynamicFields, promotion_id } = req.body;
 
@@ -92,7 +92,36 @@ router.post("/products", upload.array("images"), async (req, res) => {
       Object.entries(parsedFields).filter(([k]) => allowedKeys.includes(k))
     );
 
-    // ---------- UPLOAD IMAGES ----------
+    // ---------- HANDLE PROMOTION ----------
+    if (promotion_id) {
+      const promotionPlan = promotionPlans.find(p => p.id == promotion_id);
+      if (!promotionPlan) return res.status(400).json({ message: "Invalid promotion plan" });
+
+      const activePrice = getActivePrice(priceNum, promotionPlan.discount);
+
+      // Initialize Paystack transaction
+      const metadata = {
+        user_id: req.user.id,
+        title,
+        description,
+        category_id,
+        subcategory_id,
+        dynamicFields: cleanedFields,
+        images: [], // images will be uploaded after payment verification
+        price: activePrice,
+        promotion_id
+      };
+
+      const payment = await initializePaystackTransaction(req.user.email, activePrice, metadata);
+
+      return res.json({
+        success: true,
+        message: "Paystack transaction initialized",
+        payment: payment.data
+      });
+    }
+
+    // ---------- NORMAL PRODUCT INSERT ----------
     const uploadedImages = req.files?.length
       ? await Promise.all(
           req.files.map(
@@ -108,40 +137,29 @@ router.post("/products", upload.array("images"), async (req, res) => {
         )
       : [];
 
-    // ---------- CALCULATE PROMOTION PRICE ----------
-    let activePrice = priceNum;
-    let promotionPlan = null;
-    if (promotion_id) {
-      promotionPlan = promotionPlans.find(p => p.id == promotion_id) || null;
-      if (promotionPlan) activePrice = getActivePrice(priceNum, promotionPlan.discount);
-    }
-
-    // ---------- INSERT PRODUCT ----------
     const query = `
       INSERT INTO products
-      (title, description, price, category_id, subcategory_id, images, dynamic_fields, promotion_id, created_at)
-      VALUES ($1,$2,$3,$4,$5,$6,$7,$8, now())
+      (title, description, price, category_id, subcategory_id, images, dynamic_fields, created_at)
+      VALUES ($1,$2,$3,$4,$5,$6,$7, now())
       RETURNING *
     `;
     const { rows } = await pool.query(query, [
       title,
       description || null,
-      activePrice,
+      priceNum,
       category_id,
       subcategory_id || null,
       uploadedImages.length ? JSON.stringify(uploadedImages) : null,
-      Object.keys(cleanedFields).length ? JSON.stringify(cleanedFields) : null,
-      promotion_id || null,
+      Object.keys(cleanedFields).length ? JSON.stringify(cleanedFields) : null
     ]);
 
     const product = rows[0];
     product.category_name = category.name;
-    if (promotionPlan) product.promotion = promotionPlan;
 
-    res.status(201).json(product);
+    res.status(201).json({ success: true, product });
   } catch (err) {
-    console.error("POST /products error:", err);
-    res.status(500).json({ message: "Failed to add product" });
+    console.error("POST /products/initiate error:", err);
+    res.status(500).json({ message: "Failed to initiate product" });
   }
 });
 
@@ -174,14 +192,13 @@ router.get("/categories", async (req, res) => {
         features: featuresByCategory[key] || [],
         years,
         location: Object.keys(locationsByState),
-        promotionPlans, // <-- Add promotions here
+        promotionPlans,
         ...(key === "Vehicles" ? { engine: engines, fuel_type: fuelTypes } : {}),
       };
       categoryMap[cat.id] = { ...cat, dynamicOptions, subcategories: [] };
       if (!cat.parent_id) structured.push(categoryMap[cat.id]);
     });
 
-    // Attach subcategories
     rows.forEach((cat) => {
       if (cat.parent_id && categoryMap[cat.parent_id]) {
         categoryMap[cat.parent_id].subcategories.push(categoryMap[cat.id]);
