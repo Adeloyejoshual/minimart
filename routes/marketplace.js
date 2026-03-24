@@ -1,8 +1,11 @@
+// ---------------- ENV & MODULE IMPORTS ----------------
+import dotenv from "dotenv";
+dotenv.config();
+
 import express from "express";
 import { Pool } from "pg";
 import multer from "multer";
 import { v2 as cloudinary } from "cloudinary";
-import dotenv from "dotenv";
 
 // ---------------- CONFIG IMPORTS ----------------
 import { brands } from "../src/config/brands.js";
@@ -19,31 +22,26 @@ import { engines } from "../src/config/engines.js";
 import { fuelTypes } from "../src/config/fuelTypes.js";
 import { locationsByState } from "../src/config/locationsByState.js";
 
-// ---------------- MODULE IMPORTS ----------------
-import express from "express";
-import { Pool } from "pg";
-import multer from "multer";
-import { v2 as cloudinary } from "cloudinary";
-import dotenv from "dotenv";
-
-dotenv.config();
-
 // ---------------- INITIALIZATION ----------------
 const router = express.Router();
+
 const pool = new Pool({
   connectionString: process.env.COCKROACH_URI,
   ssl: { rejectUnauthorized: false },
 });
 
-// ---------------- CLOUDINARY CONFIG ----------------
 cloudinary.config({
   cloud_name: process.env.CLOUDINARY_CLOUD_NAME,
   api_key: process.env.CLOUDINARY_API_KEY,
   api_secret: process.env.CLOUDINARY_API_SECRET,
 });
 
-// ---------------- MULTER CONFIG ----------------
 const upload = multer({ storage: multer.memoryStorage() });
+
+// ---------------- LOGGING ----------------
+const logError = (context, err) => {
+  console.error(`[${new Date().toISOString()}] ERROR [${context}]:`, err);
+};
 
 // ---------------- ROUTES ----------------
 
@@ -55,7 +53,7 @@ router.get("/products", async (req, res) => {
     );
     res.json(rows);
   } catch (err) {
-    console.error(err);
+    logError("GET /products", err);
     res.status(500).json({ message: "Failed to fetch products" });
   }
 });
@@ -74,19 +72,22 @@ router.post("/products", upload.array("images"), async (req, res) => {
       "SELECT name, fields FROM categories WHERE id = $1",
       [category_id]
     );
+
     if (!categoryRows.length) {
       return res.status(400).json({ message: "Invalid category_id" });
     }
+
     const category = categoryRows[0];
 
     // Parse dynamic fields safely
-    const parsedFields = typeof dynamicFields === "string" ? JSON.parse(dynamicFields) : dynamicFields || {};
+    const parsedFields =
+      typeof dynamicFields === "string" ? JSON.parse(dynamicFields) : dynamicFields || {};
     const allowedKeys = JSON.parse(category.fields || "[]").map(f => f.name);
     const cleanedFields = Object.fromEntries(
       Object.entries(parsedFields).filter(([key]) => allowedKeys.includes(key))
     );
 
-    // Upload images to Cloudinary
+    // Upload images
     const uploadedImages = await Promise.all(
       (req.files || []).map(file =>
         new Promise((resolve, reject) => {
@@ -121,7 +122,7 @@ router.post("/products", upload.array("images"), async (req, res) => {
 
     res.status(201).json(product);
   } catch (err) {
-    console.error(err);
+    logError("POST /products", err);
     res.status(500).json({ message: "Failed to add product" });
   }
 });
@@ -154,9 +155,10 @@ router.get("/categories", async (req, res) => {
 
     res.json(structured);
   } catch (err) {
-    console.error(err);
+    logError("GET /categories", err);
     res.status(500).json({ message: "Failed to fetch categories" });
   }
 });
 
+// ---------------- EXPORT ROUTER ----------------
 export default router;
