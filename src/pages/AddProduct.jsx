@@ -1,6 +1,6 @@
 // src/pages/AddProductPage.jsx
 import { useEffect, useState } from "react";
-import { locationsByState } from "../config/locationsByState.js"; // ✅ correct path
+import { locationsByState } from "../src/config/locationsByState.js"; // ✅ import here
 import "./AddProduct.css";
 
 export default function AddProductPage() {
@@ -11,7 +11,6 @@ export default function AddProductPage() {
 
   const [form, setForm] = useState({
     title: "",
-    description: "",
     price: "",
     mainCategory: "",
     dynamic: {},
@@ -21,7 +20,7 @@ export default function AddProductPage() {
   const [selectedState, setSelectedState] = useState("");
   const [selectedCity, setSelectedCity] = useState("");
 
-  const states = Object.keys(locationsByState || []); // all states
+  const states = Object.keys(locationsByState || []);             // ← all states
   const cities = selectedState ? locationsByState[selectedState] : [];
 
   // ---------------- SELECTED CATEGORY ----------------
@@ -42,17 +41,6 @@ export default function AddProductPage() {
     year: selectedCategory?.dynamicOptions?.years || [],
     engine: selectedCategory?.dynamicOptions?.engine || [],
     fuel_type: selectedCategory?.dynamicOptions?.fuel_type || [],
-
-    // ✅ GLOBAL FIELDS (from routes/marketplace.js > dynamicOptions)
-    screen_size: selectedCategory?.dynamicOptions?.screen_size || [],
-    mileage: selectedCategory?.dynamicOptions?.mileage || [],
-    transmission: selectedCategory?.dynamicOptions?.transmission || [],
-    age_range: selectedCategory?.dynamicOptions?.age_range || [],
-    bedrooms: selectedCategory?.dynamicOptions?.bedrooms || [],
-    bathrooms: selectedCategory?.dynamicOptions?.bathrooms || [],
-    furnished: selectedCategory?.dynamicOptions?.furnished || [],
-    experience_level: selectedCategory?.dynamicOptions?.experience_level || [],
-    skills: selectedCategory?.dynamicOptions?.skills || [],
   };
 
   // ---------------- FORM UPDATES ----------------
@@ -105,7 +93,7 @@ export default function AddProductPage() {
       setLoading(true);
       const formData = new FormData();
       formData.append("title", form.title);
-      formData.append("description", form.description || "");
+      formData.append("description", "");
       formData.append("price", form.price);
       formData.append("category_id", form.mainCategory);
       formData.append("dynamicFields", JSON.stringify(form.dynamic));
@@ -123,7 +111,7 @@ export default function AddProductPage() {
       console.log("Added product:", data);
 
       alert("Product added successfully!");
-      setForm({ title: "", description: "", price: "", mainCategory: "", dynamic: {} });
+      setForm({ title: "", price: "", mainCategory: "", dynamic: {} });
       setImages([]);
       setPreviewUrls([]);
       setSelectedState("");
@@ -139,17 +127,6 @@ export default function AddProductPage() {
   return (
     <div className="add-product-container">
       <h2>Add Product</h2>
-
-      {/* DESCRIPTION */}
-      <div className="field">
-        <label>Description</label>
-        <textarea
-          value={form.description}
-          onChange={(e) => update("description", e.target.value)}
-          rows={4}
-          placeholder="Describe the product in detail..."
-        />
-      </div>
 
       {/* TITLE */}
       <div className="field">
