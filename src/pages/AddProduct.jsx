@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import "./AddProduct.css";
 
-export default function AddProduct({ locationsByState }) {
+export default function AddProduct({ locationsByState = {} }) {
   const [categories, setCategories] = useState([]);
   const [loading, setLoading] = useState(false);
   const [images, setImages] = useState([]);
@@ -18,8 +18,8 @@ export default function AddProduct({ locationsByState }) {
   const [selectedState, setSelectedState] = useState("");
   const [selectedCity, setSelectedCity] = useState("");
 
-  const states = Object.keys(locationsByState || []);
-  const cities = selectedState ? locationsByState[selectedState] : [];
+  const states = Object.keys(locationsByState); // always object
+  const cities = selectedState && locationsByState[selectedState] ? locationsByState[selectedState] : [];
 
   // ---------------- FETCH CATEGORIES ----------------
   useEffect(() => {
@@ -200,7 +200,7 @@ export default function AddProduct({ locationsByState }) {
         </select>
       </div>
 
-      {selectedState && (
+      {selectedState && cities.length > 0 && (
         <div className="field">
           <label>City</label>
           <select value={selectedCity} onChange={e => handleCityChange(e.target.value)}>
