@@ -1,8 +1,9 @@
-// src/components/AddProduct.jsx
+// src/pages/AddProductPage.jsx
 import { useEffect, useState } from "react";
-import "./AddProduct.css";
+import { locationsByState } from "../src/config/locationsByState.js"; // ✅ import here
+import "./AddProductPage.css"; // or your CSS file
 
-export default function AddProduct({ selectedCategory, locationsByState }) {
+export default function AddProductPage() {
   const [categories, setCategories] = useState([]);
   const [loading, setLoading] = useState(false);
   const [images, setImages] = useState([]);
@@ -30,24 +31,24 @@ export default function AddProduct({ selectedCategory, locationsByState }) {
       .catch(console.error);
   }, []);
 
-  // Prefer incoming selectedCategory if passed, else lookup from categories
-  const usingCategory = selectedCategory || categories.find((c) => c.id === form.mainCategory);
-  const dynamicFields = usingCategory?.dynamicOptions?.fields || [];
+  // Selected category for dynamic fields
+  const selectedCategory = categories.find((c) => c.id === form.mainCategory);
+  const dynamicFields = selectedCategory?.dynamicOptions?.fields || [];
 
   // ---------------- OPTIONS MAP ----------------
   const optionsMap = {
-    brand: usingCategory?.dynamicOptions?.brands || [],
-    model: usingCategory?.dynamicOptions?.models?.[form.dynamic.brand] || [],
-    color: usingCategory?.dynamicOptions?.colors || [],
-    condition: usingCategory?.dynamicOptions?.conditions || [],
-    used_detail: usingCategory?.dynamicOptions?.usedDetails || [],
-    ram: usingCategory?.dynamicOptions?.ram || [],
-    storage: usingCategory?.dynamicOptions?.storage || [],
-    sim: usingCategory?.dynamicOptions?.sims || [],
-    features: usingCategory?.dynamicOptions?.features || [],
-    year: usingCategory?.dynamicOptions?.years || [],
-    engine: usingCategory?.dynamicOptions?.engine || [],
-    fuel_type: usingCategory?.dynamicOptions?.fuel_type || [],
+    brand: selectedCategory?.dynamicOptions?.brands || [],
+    model: selectedCategory?.dynamicOptions?.models?.[form.dynamic.brand] || [],
+    color: selectedCategory?.dynamicOptions?.colors || [],
+    condition: selectedCategory?.dynamicOptions?.conditions || [],
+    used_detail: selectedCategory?.dynamicOptions?.usedDetails || [],
+    ram: selectedCategory?.dynamicOptions?.ram || [],
+    storage: selectedCategory?.dynamicOptions?.storage || [],
+    sim: selectedCategory?.dynamicOptions?.sims || [],
+    features: selectedCategory?.dynamicOptions?.features || [],
+    year: selectedCategory?.dynamicOptions?.years || [],
+    engine: selectedCategory?.dynamicOptions?.engine || [],
+    fuel_type: selectedCategory?.dynamicOptions?.fuel_type || [],
   };
 
   // ---------------- FORM UPDATES ----------------
@@ -62,14 +63,14 @@ export default function AddProduct({ selectedCategory, locationsByState }) {
 
   // ---------------- RESET DYNAMIC FIELDS ON CATEGORY CHANGE ----------------
   useEffect(() => {
-    if (!usingCategory) return;
+    if (!selectedCategory) return;
 
     const initialDynamic = Object.fromEntries(
       dynamicFields.map((f) => [f, f === "features" ? [] : ""])
     );
 
     setForm((prev) => ({ ...prev, dynamic: initialDynamic }));
-  }, [usingCategory]);
+  }, [selectedCategory]);
 
   // ---------------- HANDLE IMAGE SELECTION ----------------
   const handleImages = (files) => {
@@ -87,7 +88,7 @@ export default function AddProduct({ selectedCategory, locationsByState }) {
 
   const handleCityChange = (city) => {
     setSelectedCity(city);
-    updateDynamic("location", city); // store city in dynamic
+    updateDynamic("location", city);
   };
 
   // ---------------- SUBMIT PRODUCT ----------------
@@ -242,7 +243,7 @@ export default function AddProduct({ selectedCategory, locationsByState }) {
           <label>City</label>
           <select
             value={selectedCity}
-            onChange={(e) => handleCityChange(e.target.value)}
+            onChange={(e) => handleCity_shortcode(e.target.value)}
           >
             <option value="">Select city</option>
             {cities.map((city) => (
