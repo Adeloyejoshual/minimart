@@ -19,7 +19,7 @@ import { years } from "../src/config/years.js";
 import { engines } from "../src/config/engines.js";
 import { fuelTypes } from "../src/config/fuelTypes.js";
 import { locationsByState } from "../src/config/locationsByState.js";
-import { promotionPlans } from "../src/config/promotions.js";
+import { promotionPlans, getActivePrice } from "../src/config/promotions.js";
 
 dotenv.config();
 
@@ -57,7 +57,7 @@ router.get("/products", async (req, res) => {
    - Handles: title, description, price, category_id, subcategory_id
    - Dynamic fields JSON
    - Images upload
-   - Optional promotion_id
+   - Optional promotion_id (calculates discounted price)
 ========================================================= */
 router.post("/products", upload.array("images"), async (req, res) => {
   try {
@@ -108,6 +108,14 @@ router.post("/products", upload.array("images"), async (req, res) => {
         )
       : [];
 
+    // ---------- CALCULATE PROMOTION PRICE ----------
+    let activePrice = priceNum;
+    let promotionPlan = null;
+    if (promotion_id) {
+      promotionPlan = promotionPlans.find(p => p.id == promotion_id) || null;
+      if (promotionPlan) activePrice = getActivePrice(priceNum, promotionPlan.discount);
+    }
+
     // ---------- INSERT PRODUCT ----------
     const query = `
       INSERT INTO products
@@ -118,7 +126,7 @@ router.post("/products", upload.array("images"), async (req, res) => {
     const { rows } = await pool.query(query, [
       title,
       description || null,
-      priceNum,
+      activePrice,
       category_id,
       subcategory_id || null,
       uploadedImages.length ? JSON.stringify(uploadedImages) : null,
@@ -128,10 +136,7 @@ router.post("/products", upload.array("images"), async (req, res) => {
 
     const product = rows[0];
     product.category_name = category.name;
-    if (promotion_id) {
-      const plan = promotionPlans.find((p) => p.id == promotion_id);
-      product.promotion = plan || null;
-    }
+    if (promotionPlan) product.promotion = promotionPlan;
 
     res.status(201).json(product);
   } catch (err) {
@@ -169,6 +174,7 @@ router.get("/categories", async (req, res) => {
         features: featuresByCategory[key] || [],
         years,
         location: Object.keys(locationsByState),
+        promotionPlans, // <-- Add promotions here
         ...(key === "Vehicles" ? { engine: engines, fuel_type: fuelTypes } : {}),
       };
       categoryMap[cat.id] = { ...cat, dynamicOptions, subcategories: [] };
