@@ -1,8 +1,9 @@
-// src/components/AddProduct.jsx
+// src/pages/AddProductPage.jsx
 import { useEffect, useState } from "react";
-import "./AddProduct.css";
+import { locationsByState } from "../src/config/locationsByState.js"; // 👈 ADD this
+import "./AddProduct.css"; // or your global styles
 
-export default function AddProduct({ locationsByState }) {
+export default function AddProductPage() {
   const [categories, setCategories] = useState([]);
   const [form, setForm] = useState({
     title: "",
@@ -12,7 +13,6 @@ export default function AddProduct({ locationsByState }) {
 
   const states = Object.keys(locationsByState || []);
 
-  // Fetch categories
   useEffect(() => {
     fetch("https://minimart-ivrm.onrender.com/api/marketplace/categories")
       .then((res) => res.json())
@@ -22,7 +22,7 @@ export default function AddProduct({ locationsByState }) {
 
   return (
     <div className="add-product-container">
-      <h2>Add Product (TEST)</h2>
+      <h2>Add Product</h2>
 
       {/* CATEGORY */}
       <div className="field">
@@ -42,10 +42,13 @@ export default function AddProduct({ locationsByState }) {
         </select>
       </div>
 
-      {/* STATE (TEST ONLY) */}
+      {/* STATE */}
       <div className="field">
         <label>State</label>
-        <select>
+        <select
+          value=""
+          onChange={() => {}}
+        >
           <option value="">Select state</option>
           {states.map((state) => (
             <option key={state} value={state}>
@@ -54,13 +57,13 @@ export default function AddProduct({ locationsByState }) {
           ))}
         </select>
 
-        {/* Simple test message */}
+        {/* Simple test */}
         <div style={{ color: "red", marginTop: 6 }}>
           States loaded: {states.length === 0 ? "❌ NO" : "✅ YES, count = " + states.length}
         </div>
       </div>
 
-      {/* TITLE & PRICE (minimal) */}
+      {/* TITLE & PRICE */}
       <div className="field">
         <label>Title</label>
         <input
@@ -68,9 +71,10 @@ export default function AddProduct({ locationsByState }) {
           onChange={(e) =>
             setForm((prev) => ({ ...prev, title: e.target.value }))
           }
-          placeholder="Test product"
+          placeholder="Title"
         />
       </div>
+
       <div className="field">
         <label>Price (₦)</label>
         <input
