@@ -3,18 +3,14 @@ export const categoryFields = {
   // 📱 Phones & Tablets
   "Phones & Tablets": [
     "brand",
-    "model", 
+    "model",
     "condition",
     "used_detail",
     "ram",
     "storage",
-    "color",
     "sim",
-    "screen_size",
     "year",
-    "features",
-    "camera",
-    "battery"
+    "features"
   ],
 
   // 🚗 Vehicles
@@ -24,17 +20,13 @@ export const categoryFields = {
     "condition",
     "used_detail",
     "engine",
-    "mileage",
     "year",
     "fuel_type",
-    "transmission",
-    "color",
     "features"
   ],
 
   // 👶 Babies & Kids
   "Babies & Kids": [
-    "age_range",
     "condition",
     "used_detail",
     "features"
@@ -42,10 +34,6 @@ export const categoryFields = {
 
   // 🏠 Property
   "Property": [
-    "bedrooms",
-    "bathrooms", 
-    "size",
-    "furnished",
     "features"
   ],
 
@@ -83,9 +71,7 @@ export const categoryFields = {
   // 👗 Fashion
   "Fashion": [
     "brand",
-    "features",
-    "size",
-    "color"
+    "features"
   ],
 
   // 🌾 Food, Agriculture & Farming
@@ -102,7 +88,6 @@ export const categoryFields = {
 
   // 🐶 Pets
   "Pets": [
-    "age_range",
     "breed",
     "features",
     "condition"
@@ -110,8 +95,6 @@ export const categoryFields = {
 
   // 💼 Jobs
   "Jobs": [
-    "experience_level",
-    "skills",
     "education"
   ],
 
@@ -125,8 +108,6 @@ export const categoryFields = {
 
   // 📄 Seeking Work CVs
   "Seeking Work CVs": [
-    "experience_level",
-    "skills",
     "education"
   ],
 
@@ -205,7 +186,6 @@ export const categoryFields = {
   // 🧸 Toys & Games
   "Toys & Games": [
     "brand",
-    "age_range",
     "condition",
     "used_detail",
     "features"
