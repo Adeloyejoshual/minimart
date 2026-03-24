@@ -1,6 +1,8 @@
 // src/pages/AddProductPage.jsx
 import { useEffect, useState } from "react";
 import { locationsByState } from "../config/locationsByState.js";
+import { categoryRules } from "../config/categoryRules.js";
+import { promotionPlans, getActivePrice } from "../config/promotions.js";
 import "./AddProduct.css";
 
 export default function AddProductPage() {
@@ -8,10 +10,11 @@ export default function AddProductPage() {
   const [loading, setLoading] = useState(false);
   const [images, setImages] = useState([]);
   const [previewUrls, setPreviewUrls] = useState([]);
+  const [selectedPromotion, setSelectedPromotion] = useState(null);
 
   const [form, setForm] = useState({
     title: "",
-    description: "",  // <-- Added description
+    description: "",
     price: "",
     mainCategory: "",
     subCategory: "",
@@ -99,15 +102,43 @@ export default function AddProductPage() {
     updateDynamic("location", city);
   };
 
+  // ---------------- VALIDATION AGAINST CATEGORY RULES ----------------
+  const validateRules = () => {
+    if (!form.mainCategory) return "Category is required";
+
+    const categoryName = selectedCategory?.name;
+    const rules = categoryRules[categoryName];
+    if (!rules) return null;
+
+    // Required fields
+    for (const field of rules.requiredFields) {
+      if (!form.dynamic[field] || (Array.isArray(form.dynamic[field]) && form.dynamic[field].length === 0)) {
+        return `${field.replace(/_/g, " ")} is required for ${categoryName}`;
+      }
+    }
+
+    // Max images
+    if (rules.maxImages && images.length > rules.maxImages) {
+      return `Maximum ${rules.maxImages} images allowed for ${categoryName}`;
+    }
+
+    return null;
+  };
+
   // ---------------- SUBMIT ----------------
   const handleSubmit = async () => {
+    // Basic required checks
     if (!form.title || !form.price || !form.mainCategory) {
       return alert("Title, price, and category are required");
     }
-    if (images.length === 0) {
-      return alert("Please upload at least one image");
-    }
 
+    if (images.length === 0) return alert("Please upload at least one image");
+
+    // Category rules validation
+    const error = validateRules();
+    if (error) return alert(error);
+
+    // Clean dynamic fields
     const cleanedDynamic = Object.fromEntries(
       Object.entries(form.dynamic).filter(
         ([_, v]) => v !== "" && v !== null && !(Array.isArray(v) && v.length === 0)
@@ -118,11 +149,12 @@ export default function AddProductPage() {
       setLoading(true);
       const formData = new FormData();
       formData.append("title", form.title);
-      formData.append("description", form.description);  // <-- include description
+      formData.append("description", form.description);
       formData.append("price", form.price);
       formData.append("category_id", form.mainCategory);
       if (form.subCategory) formData.append("subcategory_id", form.subCategory);
       formData.append("dynamicFields", JSON.stringify(cleanedDynamic));
+      if (selectedPromotion) formData.append("promotion_id", selectedPromotion.id);
       images.forEach(img => formData.append("images", img));
 
       const res = await fetch(
@@ -139,6 +171,7 @@ export default function AddProductPage() {
       setPreviewUrls([]);
       setSelectedState("");
       setSelectedCity("");
+      setSelectedPromotion(null);
     } catch (err) {
       console.error(err);
       alert(err.message);
@@ -179,9 +212,7 @@ export default function AddProductPage() {
           onChange={e => update("mainCategory", e.target.value)}
         >
           <option value="">Select category</option>
-          {categories.map(c => (
-            <option key={c.id} value={c.id}>{c.name}</option>
-          ))}
+          {categories.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
         </select>
       </div>
 
@@ -194,9 +225,7 @@ export default function AddProductPage() {
             onChange={e => update("subCategory", e.target.value)}
           >
             <option value="">Select subcategory</option>
-            {subcategories.map(s => (
-              <option key={s.id} value={s.id}>{s.name}</option>
-            ))}
+            {subcategories.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
           </select>
         </div>
       )}
@@ -210,12 +239,8 @@ export default function AddProductPage() {
         return (
           <div className="field" key={field}>
             <label>{field.replace(/_/g, " ").toUpperCase()}</label>
-
             {!optionsMap[field] || optionsMap[field].length === 0 ? (
-              <input
-                value={value || ""}
-                onChange={e => updateDynamic(field, e.target.value)}
-              />
+              <input value={value || ""} onChange={e => updateDynamic(field, e.target.value)} />
             ) : isArray ? (
               <div className="multi-select">
                 {optionsMap[field].map(opt => {
@@ -240,14 +265,9 @@ export default function AddProductPage() {
                 })}
               </div>
             ) : (
-              <select
-                value={value || ""}
-                onChange={e => updateDynamic(field, e.target.value)}
-              >
+              <select value={value || ""} onChange={e => updateDynamic(field, e.target.value)}>
                 <option value="">Select</option>
-                {optionsMap[field].map(opt => (
-                  <option key={opt} value={opt}>{opt}</option>
-                ))}
+                {optionsMap[field].map(opt => <option key={opt} value={opt}>{opt}</option>)}
               </select>
             )}
           </div>
@@ -277,17 +297,41 @@ export default function AddProductPage() {
       {/* PRICE */}
       <div className="field">
         <label>Price (₦)</label>
-        <input type="number" value={form.price} onChange={e => update("price", e.target.value)} />
+        <input
+          type="text"
+          value={form.price.toString().replace(/\B(?=(\d{3})+(?!\d))/g, ",")}
+          onChange={e => {
+            const value = e.target.value.replace(/,/g, "");
+            if (!isNaN(value)) update("price", value);
+          }}
+          placeholder="e.g 50,000"
+        />
       </div>
+
+      {/* PROMOTION */}
+      {selectedCategory && categoryRules[selectedCategory.name]?.allowPromotions && (
+        <div className="field">
+          <label>Promotion</label>
+          <select value={selectedPromotion?.id || ""} onChange={e => {
+            const plan = promotionPlans.find(p => p.id.toString() === e.target.value);
+            setSelectedPromotion(plan || null);
+          }}>
+            <option value="">No promotion</option>
+            {promotionPlans.map(p => (
+              <option key={p.id} value={p.id}>
+                {p.name} - ₦{getActivePrice(p.price, p.discount)}
+              </option>
+            ))}
+          </select>
+        </div>
+      )}
 
       {/* IMAGES */}
       <div className="field">
         <label>Images</label>
         <input type="file" multiple onChange={e => handleImages(e.target.files)} />
         <div className="image-preview">
-          {previewUrls.map((url, i) => (
-            <img key={i} src={url} alt={`preview ${i}`} />
-          ))}
+          {previewUrls.map((url, i) => <img key={i} src={url} alt={`preview ${i}`} />)}
         </div>
       </div>
 
