@@ -6,48 +6,32 @@ import { initializePaystackTransaction } from "../services/paystack.js";
 const router = express.Router();
 
 /* =========================================================
-   POST /promote
-   Initialize promotion payment BEFORE product creation
+   POST /promote/init
+   - Initialize Paystack payment for product promotion
+   - Expects { amount }
+   - Returns authorization_url for frontend redirect
 ========================================================= */
-router.post("/", auth, async (req, res) => {
+router.post("/init", auth, async (req, res) => {
   try {
-    const { amount, planId } = req.body;
-
-    if (!amount || isNaN(Number(amount))) {
-      return res.status(400).json({
-        success: false,
-        message: "Invalid promotion amount",
-      });
-    }
-
-    if (!planId) {
-      return res.status(400).json({
-        success: false,
-        message: "Promotion plan is required",
-      });
+    const { amount } = req.body;
+    if (!amount || isNaN(Number(amount)) || Number(amount) <= 0) {
+      return res.status(400).json({ success: false, message: "Invalid promotion amount" });
     }
 
     // Initialize Paystack transaction
-    const payment = await initializePaystackTransaction(
-      req.user.email,
-      Number(amount),
-      {
-        action: "promote",
-        plan_id: planId,
-      }
-    );
+    const payment = await initializePaystackTransaction(req.user.email, Number(amount), {
+      action: "promote",
+      user_id: req.user.id,
+    });
 
     res.json({
       success: true,
       message: "Payment initialized",
-      payment,
+      data: payment.data, // includes authorization_url
     });
-  } catch (error) {
-    console.error("Promotion init error:", error.message);
-    res.status(500).json({
-      success: false,
-      message: "Failed to initialize promotion",
-    });
+  } catch (err) {
+    console.error("Promotion init error:", err);
+    res.status(500).json({ success: false, message: "Failed to initialize payment" });
   }
 });
 
