@@ -1,6 +1,6 @@
 // src/pages/AddProductPage.jsx
 import { useEffect, useState } from "react";
-import { locationsByState } from "../src/config/locationsByState.js"; // 👈 ADD this
+import { locationsByState } from "../config/locationsByState.js"; // 👈 ADD this
 import "./AddProduct.css"; // or your global styles
 
 export default function AddProductPage() {
