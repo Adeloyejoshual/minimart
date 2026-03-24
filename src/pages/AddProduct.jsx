@@ -1,7 +1,7 @@
 // src/pages/AddProductPage.jsx
 import { useEffect, useState } from "react";
 import { locationsByState } from "../config/locationsByState.js"; // ✅ import here
-import "./AddProductPage.css"; // or your CSS file
+import "./AddProduct.css"; // or your CSS file
 
 export default function AddProductPage() {
   const [categories, setCategories] = useState([]);
