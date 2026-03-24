@@ -1,7 +1,5 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useState } from "react";
 import "./AddProduct.css";
-
-const API = "https://minimart-ivrm.onrender.com/api/marketplace";
 
 export default function AddProduct() {
   const [categories, setCategories] = useState([]);
@@ -10,40 +8,44 @@ export default function AddProduct() {
 
   const [form, setForm] = useState({
     title: "",
-    description: "",
     price: "",
     mainCategory: "",
-    subcategory: "",
     dynamic: {},
   });
 
   // ---------------- FETCH CATEGORIES ----------------
   useEffect(() => {
-    fetch(`${API}/categories`)
-      .then((res) => res.json())
-      .then(setCategories)
-      .catch((err) => console.error("Categories error:", err));
+    const fetchCategories = async () => {
+      try {
+        const res = await fetch(
+          "https://minimart-ivrm.onrender.com/api/marketplace/categories"
+        );
+        const data = await res.json();
+        setCategories(data || []);
+      } catch (err) {
+        console.error("Failed to fetch categories", err);
+      }
+    };
+
+    fetchCategories();
   }, []);
 
-  // ---------------- SELECTED CATEGORY ----------------
-  const selectedCategory = useMemo(
-    () => categories.find((c) => c.id === form.mainCategory),
-    [categories, form.mainCategory]
-  );
-
-  const subcategories = selectedCategory?.subcategories || [];
-
-  const selectedSubcategory = useMemo(
-    () => subcategories.find((s) => s.id === form.subcategory),
-    [subcategories, form.subcategory]
-  );
-
-  // Prefer subcategory fields if available
-  const dynamicFields = useMemo(() => {
-    return selectedSubcategory?.fields || selectedCategory?.fields || [];
-  }, [selectedCategory, selectedSubcategory]);
-
   // ---------------- HELPERS ----------------
+  const selectedCategory = categories.find(
+    (c) => c.id === form.mainCategory
+  );
+
+  const parseFields = (fields) => {
+    try {
+      if (!fields) return [];
+      return typeof fields === "string" ? JSON.parse(fields) : fields;
+    } catch {
+      return [];
+    }
+  };
+
+  const dynamicFields = parseFields(selectedCategory?.fields);
+
   const update = (key, value) => {
     setForm((prev) => ({ ...prev, [key]: value }));
   };
@@ -55,74 +57,68 @@ export default function AddProduct() {
     }));
   };
 
-  // ---------------- RESET DYNAMIC FIELDS ----------------
+  // ---------------- RESET DYNAMIC FIELDS ON CATEGORY CHANGE ----------------
   useEffect(() => {
-    if (!dynamicFields.length) return;
+    if (!selectedCategory) return;
 
-    const initial = Object.fromEntries(
-      dynamicFields.map((f) => [
-        f.name,
-        f.type === "multiselect" ? [] : "",
-      ])
+    const initialDynamic = Object.fromEntries(
+      dynamicFields.map((field) => {
+        if (field.type === "multiselect") return [field.name, []];
+        return [field.name, ""];
+      })
     );
 
-    setForm((prev) => ({ ...prev, dynamic: initial }));
-  }, [dynamicFields]);
+    setForm((prev) => ({
+      ...prev,
+      dynamic: initialDynamic,
+    }));
+  }, [selectedCategory]);
 
   // ---------------- SUBMIT ----------------
   const handleSubmit = async () => {
     if (!form.title || !form.price || !form.mainCategory) {
-      return alert("Title, price, and category required");
+      return alert("Title, price, and category are required");
     }
 
     try {
       setLoading(true);
 
+      // Prepare FormData for image upload
       const formData = new FormData();
       formData.append("title", form.title);
-      formData.append("description", form.description);
       formData.append("price", form.price);
       formData.append("category_id", form.mainCategory);
-      formData.append("subcategory_id", form.subcategory || "");
-      formData.append(
-        "dynamicFields",
-        JSON.stringify(form.dynamic || {})
-      );
+      formData.append("dynamicFields", JSON.stringify(form.dynamic));
 
       images.forEach((img) => formData.append("images", img));
 
-      const res = await fetch(`${API}/products`, {
-        method: "POST",
-        body: formData,
-      });
+      const res = await fetch(
+        "https://minimart-ivrm.onrender.com/api/marketplace/products",
+        {
+          method: "POST",
+          body: formData,
+        }
+      );
 
       const data = await res.json();
+      console.log("Saved:", data);
+      alert("Product added successfully!");
 
-      if (!res.ok) {
-        throw new Error(data.message || "Failed");
-      }
-
-      alert("✅ Product added!");
-
-      // RESET
       setForm({
         title: "",
-        description: "",
         price: "",
         mainCategory: "",
-        subcategory: "",
         dynamic: {},
       });
       setImages([]);
     } catch (err) {
       console.error(err);
-      alert(err.message);
+      alert("Failed to add product");
     } finally {
       setLoading(false);
     }
   };
 
-  // ---------------- UI ----------------
   return (
     <div className="add-product-container">
       <h2>Add Product</h2>
@@ -133,15 +129,7 @@ export default function AddProduct() {
         <input
           value={form.title}
           onChange={(e) => update("title", e.target.value)}
-        />
-      </div>
-
-      {/* DESCRIPTION */}
-      <div className="field">
-        <label>Description</label>
-        <textarea
-          value={form.description}
-          onChange={(e) => update("description", e.target.value)}
+          placeholder="e.g iPhone 13, Samsung Galaxy S21"
         />
       </div>
 
@@ -150,10 +138,7 @@ export default function AddProduct() {
         <label>Category</label>
         <select
           value={form.mainCategory}
-          onChange={(e) => {
-            update("mainCategory", e.target.value);
-            update("subcategory", "");
-          }}
+          onChange={(e) => update("mainCategory", e.target.value)}
         >
           <option value="">Select category</option>
           {categories.map((cat) => (
@@ -164,47 +149,28 @@ export default function AddProduct() {
         </select>
       </div>
 
-      {/* SUBCATEGORY */}
-      {subcategories.length > 0 && (
-        <div className="field">
-          <label>Subcategory</label>
-          <select
-            value={form.subcategory}
-            onChange={(e) => update("subcategory", e.target.value)}
-          >
-            <option value="">Select subcategory</option>
-            {subcategories.map((sub) => (
-              <option key={sub.id} value={sub.id}>
-                {sub.name}
-              </option>
-            ))}
-          </select>
-        </div>
-      )}
-
       {/* DYNAMIC FIELDS */}
       {dynamicFields.map((field) => {
         const value = form.dynamic[field.name];
 
-        // conditional logic example
-        if (
-          field.name === "used_detail" &&
-          form.dynamic.condition !== "Used"
-        ) {
+        if (field.name === "used_detail" && form.dynamic.condition !== "Used") {
           return null;
         }
 
         return (
           <div className="field" key={field.name}>
-            <label>{field.name.replace(/_/g, " ")}</label>
+            <label>{field.name.replace(/_/g, " ").toUpperCase()}</label>
 
             {field.type === "text" && (
-              <input
-                value={value || ""}
-                onChange={(e) =>
-                  updateDynamic(field.name, e.target.value)
-                }
-              />
+              <>
+                <input
+                  value={value || ""}
+                  onChange={(e) =>
+                    updateDynamic(field.name, e.target.value)
+                  }
+                  placeholder={`Enter ${field.name.replace("_", " ")}`}
+                />
+              </>
             )}
 
             {field.type === "select" && (
@@ -214,7 +180,7 @@ export default function AddProduct() {
                   updateDynamic(field.name, e.target.value)
                 }
               >
-                <option value="">Select</option>
+                <option value="">Select {field.name}</option>
                 {field.options?.map((opt) => (
                   <option key={opt} value={opt}>
                     {opt}
@@ -226,19 +192,21 @@ export default function AddProduct() {
             {field.type === "multiselect" && (
               <div className="multi-select">
                 {field.options?.map((opt) => {
-                  const arr = Array.isArray(value) ? value : [];
+                  const current = Array.isArray(value) ? value : [];
                   return (
                     <label key={opt}>
                       <input
                         type="checkbox"
-                        checked={arr.includes(opt)}
+                        checked={current.includes(opt)}
                         onChange={() => {
-                          updateDynamic(
-                            field.name,
-                            arr.includes(opt)
-                              ? arr.filter((v) => v !== opt)
-                              : [...arr, opt]
-                          );
+                          if (current.includes(opt)) {
+                            updateDynamic(
+                              field.name,
+                              current.filter((v) => v !== opt)
+                            );
+                          } else {
+                            updateDynamic(field.name, [...current, opt]);
+                          }
                         }}
                       />
                       {opt}
@@ -268,10 +236,7 @@ export default function AddProduct() {
           type="file"
           multiple
           accept="image/*"
-          onChange={(e) => {
-            const files = Array.from(e.target.files || []);
-            setImages(files);
-          }}
+          onChange={(e) => setImages([...e.target.files])}
         />
       </div>
 
