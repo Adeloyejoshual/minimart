@@ -1,4 +1,4 @@
-// src/config/locationsByState.js - FIXED & COMPLETE
+// src/config/locationsByState.js
 export const locationsByState = {
   Abia: ["Aba", "Umuahia", "Ohafia", "Bende", "Isuikwuato", "Arochukwu", "Ugwunagbo"],
   Adamawa: ["Yola", "Mubi", "Numan", "Ganye", "Demsa", "Maiha", "Hong"],
@@ -36,5 +36,5 @@ export const locationsByState = {
   Taraba: ["Jalingo", "Wukari", "Lau", "Sardauna", "Takum", "Gashaka", "Yorro"],
   Yobe: ["Damaturu", "Gashua", "Potiskum", "Bade", "Fika", "Gujba", "Nguru"],
   Zamfara: ["Gusau", "Talata Mafara", "Bungudu", "Anka", "Maru", "Bakura", "Kaura Namoda"],
-  FCT: ["Abuja", "Gwagwalada", "Kubwa", "Garki", "Maitama", "Asokoro", "Bwari"]
+  FCT: ["Abuja", "Gwagwalada", "Kubwa", "Garki", "Maitama", "Asokoro", "Bwari"],
 };
