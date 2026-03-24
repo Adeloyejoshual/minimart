@@ -1,18 +1,18 @@
 import { useEffect, useState } from "react";
 import "./AddProduct.css";
-import { locationsByState } from "../config/locationsByState.js"; // adjust import path
 
 export default function AddProduct() {
   const [categories, setCategories] = useState([]);
   const [loading, setLoading] = useState(false);
   const [images, setImages] = useState([]);
   const [previewUrls, setPreviewUrls] = useState([]);
+  const [locations, setLocations] = useState({}); // State → Cities map
 
   const [form, setForm] = useState({
     title: "",
     price: "",
     mainCategory: "", // UUID
-    dynamic: {},      // dynamic fields like brand, model, engine, state, city, etc.
+    dynamic: {},      // Dynamic fields like brand, model, state, city, features, etc.
   });
 
   // ---------------- FETCH CATEGORIES ----------------
@@ -20,6 +20,14 @@ export default function AddProduct() {
     fetch("https://minimart-ivrm.onrender.com/api/marketplace/categories")
       .then(res => res.json())
       .then(setCategories)
+      .catch(console.error);
+  }, []);
+
+  // ---------------- FETCH LOCATIONS ----------------
+  useEffect(() => {
+    fetch("https://minimart-ivrm.onrender.com/api/marketplace/locations")
+      .then(res => res.json())
+      .then(setLocations)
       .catch(console.error);
   }, []);
 
@@ -40,7 +48,8 @@ export default function AddProduct() {
     year: selectedCategory?.dynamicOptions?.years || [],
     engine: selectedCategory?.dynamicOptions?.engine || [],
     fuel_type: selectedCategory?.dynamicOptions?.fuel_type || [],
-    state: selectedCategory?.dynamicOptions?.state || [],
+    state: Object.keys(locations),
+    city: form.dynamic.state ? locations[form.dynamic.state] || [] : [],
   };
 
   // ---------------- FORM UPDATES ----------------
@@ -133,7 +142,7 @@ export default function AddProduct() {
         const value = form.dynamic[field];
         if (field === "used_detail" && form.dynamic.condition !== "Used") return null;
 
-        // ---------------- STATE → CITY DEPENDENT ----------------
+        // ---------------- STATE ----------------
         if (field === "state") {
           return (
             <div className="field" key={field}>
@@ -146,27 +155,26 @@ export default function AddProduct() {
                 }}
               >
                 <option value="">Select state</option>
-                {optionsMap.state.map(opt => (
-                  <option key={opt} value={opt}>{opt}</option>
+                {optionsMap.state.map(s => (
+                  <option key={s} value={s}>{s}</option>
                 ))}
               </select>
             </div>
           );
         }
 
+        // ---------------- CITY ----------------
         if (field === "city") {
-          const state = form.dynamic.state;
-          const cities = state ? locationsByState[state] : [];
           return (
             <div className="field" key={field}>
               <label>City</label>
               <select
                 value={value || ""}
                 onChange={e => updateDynamic("city", e.target.value)}
-                disabled={!state}
+                disabled={!form.dynamic.state}
               >
                 <option value="">Select city</option>
-                {cities.map(c => (
+                {optionsMap.city.map(c => (
                   <option key={c} value={c}>{c}</option>
                 ))}
               </select>
