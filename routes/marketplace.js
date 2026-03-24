@@ -1,4 +1,4 @@
-// routes/marketplace.js
+// routes/marketplace.js (or similar)
 import express from "express";
 import { Pool } from "pg";
 import multer from "multer";
@@ -19,7 +19,6 @@ import { years } from "../src/config/years.js";
 import { engines } from "../src/config/engines.js";
 import { fuelTypes } from "../src/config/fuelTypes.js";
 import { locationsByState } from "../src/config/locationsByState.js";
-import { fieldOptions } from "../src/config/fieldOptions.js"; // ✅
 
 dotenv.config();
 
@@ -31,7 +30,7 @@ const pool = new Pool({
 
 // ---------------- CLOUDINARY ----------------
 cloudinary.config({
-  cloud_name: process.env.COCKINARY_CLOUD_NAME,
+  cloud_name: process.env.CLOUDINARY_CLOUD_NAME,
   api_key: process.env.CLOUDINARY_API_KEY,
   api_secret: process.env.CLOUDINARY_API_SECRET,
 });
@@ -125,7 +124,7 @@ router.post("/products", upload.array("images"), async (req, res) => {
       description || null,
       parseFloat(price),
       category_id,
-      uploadedImages[0] || null,
+      uploadedImages[0] || null, // first image
       Object.keys(cleanedFields).length ? JSON.stringify(cleanedFields) : null,
     ]);
 
@@ -161,7 +160,7 @@ router.get("/categories", async (req, res) => {
         fields: categoryFields[key] || [],
         brands: brands[key] || [],
         models: models[key] || {},
-        colors: colors[key] || [],        // ✅ from src/config/colors.js
+        colors: colors[key] || [],
         conditions,
         usedDetails,
         ram: ramOptions,
@@ -169,23 +168,10 @@ router.get("/categories", async (req, res) => {
         sims,
         features: featuresByCategory[key] || [],
         years,
-
-        // ◀◄ GLOBAL FIELDS FROM fieldOptions
-        color: fieldOptions.color,
-        screen_size: fieldOptions.screen_size,
-        mileage: fieldOptions.mileage,
-        transmission: fieldOptions.transmission,
-        age_range: fieldOptions.age_range,
-        bedrooms: fieldOptions.bedrooms,
-        bathrooms: fieldOptions.bathrooms,
-        furnished: fieldOptions.furnished,
-        experience_level: fieldOptions.experience_level,
-        skills: fieldOptions.skills,
-
-        location: Object.keys(locationsByState), // state list
+        location: Object.keys(locationsByState), // state list for the frontend
         ...(key === "Vehicles"
           ? { engine: engines, fuel_type: fuelTypes }
-          : {}),
+          : {}), // vehicles only
       };
 
       categoryMap[cat.id] = { ...cat, dynamicOptions, subcategories: [] };
