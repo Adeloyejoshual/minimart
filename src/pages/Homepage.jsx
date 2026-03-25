@@ -1,4 +1,4 @@
-// src/pages/Homepage.jsx - ENTERPRISE PRODUCTION v2.5 (SIMPLIFIED)
+// src/pages/Homepage.jsx - ENTERPRISE PRODUCTION v3.0
 import React, { useEffect, useState, useCallback, useMemo, useRef } from "react";
 import axios from "axios";
 import { Swiper, SwiperSlide } from "swiper/react";
@@ -31,31 +31,31 @@ export default function Homepage({ user }) {
 
   const endpoints = useMemo(() => ({
     products: `${API_BASE}/products`,
-    trending: `${API_BASE}/trending`
+    trending: `${API_BASE}/trending`,
   }), []);
 
   const getProductId = useCallback((product) => product.id || product._id, []);
 
+  // ---------------- LOAD PRODUCTS ----------------
   const loadProducts = useCallback(async (reset = false) => {
     if (loading || products.length >= MAX_LOAD_LIMIT) return;
 
     try {
       setLoading(true);
-      
       const currentSkip = reset ? 0 : skipRef.current;
       const { data } = await axios.get(endpoints.products, {
-        params: { skip: currentSkip, limit: LIMIT }
+        params: { skip: currentSkip, limit: LIMIT },
       });
-      
-      const productData = data.products || data || [];
+
+      const productData = Array.isArray(data) ? data : data.products || [];
 
       if (reset) {
         setProducts(productData);
         skipRef.current = productData.length;
       } else {
         setProducts(prev => {
-          const newProducts = [...prev, ...productData];
-          return newProducts.slice(0, MAX_LOAD_LIMIT);
+          const combined = [...prev, ...productData];
+          return combined.slice(0, MAX_LOAD_LIMIT);
         });
         skipRef.current += productData.length;
       }
@@ -66,22 +66,23 @@ export default function Homepage({ user }) {
     }
   }, [endpoints.products, loading, products.length]);
 
+  // ---------------- LOAD TRENDING ----------------
   const loadTrending = useCallback(async () => {
     try {
       const { data } = await axios.get(endpoints.trending);
-      setTrending(data.products || data || []);
+      const trendingData = Array.isArray(data) ? data : data.products || [];
+      setTrending(trendingData);
     } catch (err) {
-      console.error("Trending failed:", err);
+      console.error("Trending load failed:", err);
     }
   }, [endpoints.trending]);
 
-  // Smart scroll navigation
+  // ---------------- SMART NAV VISIBILITY ----------------
   useEffect(() => {
     let ticking = false;
-    
+
     const updateNavVisibility = () => {
       const scrollY = window.scrollY;
-      
       if (scrollY > lastScrollY.current && scrollY > 100) {
         setShowTopNav(false);
         setShowBottomNav(false);
@@ -89,7 +90,6 @@ export default function Homepage({ user }) {
         setShowTopNav(true);
         setShowBottomNav(true);
       }
-      
       lastScrollY.current = scrollY;
       ticking = false;
     };
@@ -101,52 +101,49 @@ export default function Homepage({ user }) {
       }
     };
 
-    window.addEventListener('scroll', handleScroll, { passive: true });
-    return () => window.removeEventListener('scroll', handleScroll);
+    window.addEventListener("scroll", handleScroll, { passive: true });
+    return () => window.removeEventListener("scroll", handleScroll);
   }, []);
 
-  // Initial load
+  // ---------------- INITIAL LOAD ----------------
   useEffect(() => {
     loadProducts(true);
     loadTrending();
   }, [loadProducts, loadTrending]);
 
-  // Manual scroll loading
+  // ---------------- INFINITE SCROLL ----------------
   useEffect(() => {
     const handleScrollLoad = () => {
       if (!loading && products.length < MAX_LOAD_LIMIT) {
         const scrollY = window.scrollY;
         const windowHeight = window.innerHeight;
         const documentHeight = document.documentElement.scrollHeight;
-        
         if (scrollY + windowHeight >= documentHeight - 100) {
           loadProducts(false);
         }
       }
     };
 
-    window.addEventListener('scroll', handleScrollLoad, { passive: true });
-    return () => window.removeEventListener('scroll', handleScrollLoad);
+    window.addEventListener("scroll", handleScrollLoad, { passive: true });
+    return () => window.removeEventListener("scroll", handleScrollLoad);
   }, [loading, products.length, loadProducts]);
 
+  // ---------------- NAVIGATION ----------------
   const handleProductClick = useCallback((product) => {
     const productId = getProductId(product);
-    // ✅ PERFECT ROUTE: Goes directly to ProductDetail via /product/:id
     navigate(`/product/${productId}`);
   }, [navigate, getProductId]);
 
+  // ---------------- CURRENCY FORMAT ----------------
   const formatCurrency = useCallback((amount) => {
-    return new Intl.NumberFormat("en-NG", {
-      style: "currency",
-      currency: "NGN",
-      minimumFractionDigits: 0
-    }).format(amount);
+    return new Intl.NumberFormat("en-NG", { style: "currency", currency: "NGN", minimumFractionDigits: 0 }).format(amount || 0);
   }, []);
 
+  // ---------------- SKELETON ----------------
   const SkeletonGrid = () => (
     <div className="skeleton-grid">
       {[...Array(8)].map((_, i) => (
-        <div key={`skeleton-${i}`} className="skeleton-card">
+        <div key={i} className="skeleton-card">
           <div className="skeleton-image"></div>
           <div className="skeleton-content">
             <div className="skeleton-title"></div>
@@ -160,8 +157,8 @@ export default function Homepage({ user }) {
   return (
     <div className="enterprise-homepage">
       <TopNav user={user} className={`fixed-top-nav ${showTopNav ? 'visible' : 'hidden'}`} />
-      
-      {/* ✅ SEARCH BAR REMOVED */}
+
+      {/* HERO */}
       <header className="enterprise-hero">
         <div className="hero-content">
           <h1 className="hero-title">MiniMart Marketplace</h1>
@@ -169,6 +166,7 @@ export default function Homepage({ user }) {
         </div>
       </header>
 
+      {/* TRENDING */}
       {trending.length > 0 && (
         <section className="trending-section">
           <h2 className="section-title">🔥 Trending Products</h2>
@@ -187,10 +185,10 @@ export default function Homepage({ user }) {
               1367: { slidesPerView: 5 }
             }}
           >
-            {trending.map((product) => (
+            {trending.map(product => (
               <SwiperSlide key={getProductId(product)}>
-                <ProductCardProduction 
-                  product={product} 
+                <ProductCardProduction
+                  product={product}
                   onClick={() => handleProductClick(product)}
                   variant="trending"
                   formatCurrency={formatCurrency}
@@ -201,14 +199,14 @@ export default function Homepage({ user }) {
         </section>
       )}
 
+      {/* ALL PRODUCTS */}
       <section className="products-section">
         <div className="section-header">
           <h2 className="section-title">All Products</h2>
         </div>
-
         <div className="enterprise-grid">
-          {products.map((product) => (
-            <ProductCardProduction 
+          {products.map(product => (
+            <ProductCardProduction
               key={getProductId(product)}
               product={product}
               onClick={() => handleProductClick(product)}
@@ -225,32 +223,34 @@ export default function Homepage({ user }) {
   );
 }
 
+// ---------------- PRODUCT CARD ----------------
 function ProductCardProduction({ product, onClick, variant = "standard", formatCurrency }) {
-  const safeImage = product.image || '/placeholder-product.png';
+  // Use first image if images array exists
+  const safeImage = (product.images && product.images.length ? product.images[0] : null) || '/placeholder-product.png';
   const safePrice = product.price || 0;
   const safeTitle = product.title || 'Untitled';
 
   return (
-    <article 
+    <article
       className={`enterprise-card ${variant}`}
       onClick={onClick}
       role="button"
       tabIndex={0}
-      onKeyDown={(e) => e.key === 'Enter' && onClick()}
+      onKeyDown={e => e.key === 'Enter' && onClick()}
     >
       <div className="card-image-container">
-        <img 
+        <img
           src={safeImage}
           alt={safeTitle}
           className="card-image"
           loading="lazy"
           width={320}
           height={240}
-          onError={(e) => e.currentTarget.src = '/placeholder-product.png'}
+          onError={e => e.currentTarget.src = '/placeholder-product.png'}
         />
         {variant === "trending" && <div className="trending-badge">TRENDING</div>}
       </div>
-      
+
       <div className="card-content">
         <h3 className="card-title">{safeTitle}</h3>
         <div className="card-footer">
