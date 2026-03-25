@@ -1,7 +1,7 @@
+// src/pages/Homepage.jsx
 import { useEffect, useState } from "react";
 import TopNav from "../components/TopNav";
 import BottomNav from "../components/BottomNav";
-import DropdownModal from "../components/DropdownModal";
 import { locationsByState } from "../config/locationsByState";
 import "../styles/Homepage.css";
 
@@ -10,12 +10,11 @@ export default function Homepage() {
   const [categories, setCategories] = useState([]);
   const [loading, setLoading] = useState(true);
 
-  // Filter states
   const [selectedState, setSelectedState] = useState("");
   const [selectedCity, setSelectedCity] = useState("");
   const [selectedCategory, setSelectedCategory] = useState("");
 
-  const states = Object.keys(locationsByState || {});
+  const states = Object.keys(locationsByState || []);
   const cities = selectedState ? locationsByState[selectedState] : [];
 
   // ---------------- FETCH PRODUCTS ----------------
@@ -42,65 +41,60 @@ export default function Homepage() {
         const data = await res.json();
         setCategories(data || []);
       } catch (err) {
-        console.error("Failed to load categories", err);
+        console.error("Failed to fetch categories:", err);
       }
     }
     fetchCategories();
   }, []);
 
-  // ---------------- FILTERED PRODUCTS ----------------
-  const filteredProducts = products.filter((p) => {
-    const productCategory = p.category_id;
-    const productState = p.dynamic?.location?.state || "";
-    const productCity = p.dynamic?.location?.city || "";
+  // ---------------- FILTER PRODUCTS ----------------
+  const filteredProducts = products.filter(product => {
+    const location = product.dynamic?.location || {};
+    const countryState = location.state || "";
+    const city = location.city || "";
+    const categoryMatch = selectedCategory ? product.category_id === selectedCategory : true;
+    const stateMatch = selectedState ? countryState === selectedState : true;
+    const cityMatch = selectedCity ? city === selectedCity : true;
 
-    if (selectedCategory && selectedCategory !== productCategory) return false;
-    if (selectedState && selectedState !== productState) return false;
-    if (selectedCity && selectedCity !== productCity) return false;
-
-    return true;
+    return stateMatch && cityMatch && categoryMatch;
   });
 
   return (
     <>
       <TopNav />
 
-      {/* ===== SEARCH/FILTER BAR ===== */}
+      {/* ================= FILTER BAR ================= */}
       <div className="filter-bar">
-        <DropdownModal
-          label="State"
-          value={selectedState}
-          onChange={(val) => {
-            setSelectedState(val);
-            setSelectedCity("");
-          }}
-          options={states}
-        />
-        {selectedState && (
-          <DropdownModal
-            label="City"
-            value={selectedCity}
-            onChange={setSelectedCity}
-            options={cities}
-          />
-        )}
-        <DropdownModal
-          label="Category"
-          value={selectedCategory}
-          onChange={setSelectedCategory}
-          options={categories.map((c) => ({ id: c.id, name: c.name }))}
-        />
+        <select value={selectedState} onChange={e => { setSelectedState(e.target.value); setSelectedCity(""); }}>
+          <option value="">Select State</option>
+          {states.map(state => (
+            <option key={state} value={state}>{state}</option>
+          ))}
+        </select>
+
+        <select value={selectedCity} onChange={e => setSelectedCity(e.target.value)} disabled={!selectedState}>
+          <option value="">Select City</option>
+          {cities.map(city => (
+            <option key={city} value={city}>{city}</option>
+          ))}
+        </select>
+
+        <select value={selectedCategory} onChange={e => setSelectedCategory(e.target.value)}>
+          <option value="">Select Category</option>
+          {categories.map(c => (
+            <option key={c.id} value={c.id}>{c.name}</option>
+          ))}
+        </select>
       </div>
 
-      {/* ===== PRODUCTS GRID ===== */}
       <div className="homepage-container">
         {loading ? (
           <p>Loading products...</p>
         ) : filteredProducts.length === 0 ? (
-          <p>No products found for selected filters.</p>
+          <p>No products match your selection</p>
         ) : (
           <div className="product-grid">
-            {filteredProducts.map((product) => {
+            {filteredProducts.map(product => {
               const { id, title, price, description, images, dynamic } = product;
               const mainImage = images?.[0] || "/placeholder.png";
               const location = dynamic?.location?.city || dynamic?.location?.state || "";
