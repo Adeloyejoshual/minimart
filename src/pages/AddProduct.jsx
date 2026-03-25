@@ -75,7 +75,7 @@ export default function AddProductPage() {
 
   const options = selectedCategory?.dynamicOptions || {};
 
-  // ✅ HYBRID OPTIONS (backend first, fallback to local)
+  // ✅ Hybrid options
   const optionsMap = {
     brand: options.brands?.length ? options.brands : brands,
 
@@ -111,7 +111,7 @@ export default function AddProductPage() {
       : fuelTypes,
   };
 
-  // ---------------- UPDATE HANDLERS ----------------
+  // ---------------- UPDATE ----------------
   const update = (key, value) =>
     setForm((prev) => ({ ...prev, [key]: value }));
 
@@ -200,8 +200,11 @@ export default function AddProductPage() {
           (p) => p.id == form.promotionId
         );
 
+        if (!plan) return alert("Invalid promotion plan");
+
+        // ✅ FIXED: use plan price
         const amount = getActivePrice(
-          Number(form.price),
+          plan.price,
           plan.discount
         );
 
@@ -218,26 +221,36 @@ export default function AddProductPage() {
 
         if (!res.ok) throw new Error(data.message);
 
+        // redirect to paystack
         window.location.href = data.data.authorization_url;
         return;
       }
 
-      // ---------- NORMAL UPLOAD ----------
+      // ---------- NORMAL PRODUCT ----------
       const formData = new FormData();
 
       formData.append("title", form.title);
       formData.append("description", form.description);
       formData.append("price", form.price);
       formData.append("category_id", form.mainCategory);
-      if (form.subCategory)
+
+      if (form.subCategory) {
         formData.append("subcategory_id", form.subCategory);
+      }
 
       formData.append(
         "dynamicFields",
         JSON.stringify(cleanedDynamic)
       );
 
-      images.forEach((img) => formData.append("images", img));
+      // ✅ location included
+      if (selectedCity) {
+        formData.append("location", selectedCity);
+      }
+
+      images.forEach((img) =>
+        formData.append("images", img)
+      );
 
       const res = await fetch(
         "https://minimart-ivrm.onrender.com/api/marketplace/products",
@@ -285,18 +298,21 @@ export default function AddProductPage() {
 
       <h2>Add Product</h2>
 
+      {/* TITLE */}
       <input
         placeholder="Title"
         value={form.title}
         onChange={(e) => update("title", e.target.value)}
       />
 
+      {/* DESCRIPTION */}
       <textarea
         placeholder="Description"
         value={form.description}
         onChange={(e) => update("description", e.target.value)}
       />
 
+      {/* CATEGORY */}
       <select
         value={form.mainCategory}
         onChange={(e) => update("mainCategory", e.target.value)}
@@ -309,6 +325,7 @@ export default function AddProductPage() {
         ))}
       </select>
 
+      {/* SUBCATEGORY */}
       {subcategories.length > 0 && (
         <select
           value={form.subCategory}
@@ -323,7 +340,7 @@ export default function AddProductPage() {
         </select>
       )}
 
-      {/* Dynamic fields */}
+      {/* DYNAMIC FIELDS */}
       {dynamicFields.map((field) => {
         const value = form.dynamic[field];
         const isArray = field === "features";
@@ -380,6 +397,31 @@ export default function AddProductPage() {
         );
       })}
 
+      {/* STATE */}
+      <select
+        value={selectedState}
+        onChange={(e) => handleStateChange(e.target.value)}
+      >
+        <option value="">Select state</option>
+        {states.map((s) => (
+          <option key={s}>{s}</option>
+        ))}
+      </select>
+
+      {/* CITY */}
+      {selectedState && (
+        <select
+          value={selectedCity}
+          onChange={(e) => handleCityChange(e.target.value)}
+        >
+          <option value="">Select city</option>
+          {cities.map((c) => (
+            <option key={c}>{c}</option>
+          ))}
+        </select>
+      )}
+
+      {/* PRICE */}
       <input
         value={formatPrice(form.price)}
         onChange={(e) =>
@@ -388,12 +430,45 @@ export default function AddProductPage() {
         placeholder="Price"
       />
 
+      {/* PROMOTION */}
+      <select
+        value={form.promotionId || ""}
+        onChange={(e) => update("promotionId", e.target.value)}
+      >
+        <option value="">Promotion</option>
+        {promotionPlans.map((plan) => {
+          const discountPercent = getDiscountPercent(
+            plan.originalPrice,
+            plan.discount
+          );
+          const activePrice = getActivePrice(
+            plan.price,
+            plan.discount
+          );
+
+          return (
+            <option key={plan.id} value={plan.id}>
+              {plan.name} - ₦{activePrice.toLocaleString()} (
+              {discountPercent}% off)
+            </option>
+          );
+        })}
+      </select>
+
+      {/* IMAGES */}
       <input
         type="file"
         multiple
         onChange={(e) => handleImages(e.target.files)}
       />
 
+      <div className="image-preview">
+        {previewUrls.map((url, i) => (
+          <img key={i} src={url} alt="preview" />
+        ))}
+      </div>
+
+      {/* SUBMIT */}
       <button onClick={handleSubmit} disabled={loading}>
         {loading ? "Saving..." : "Add Product"}
       </button>
