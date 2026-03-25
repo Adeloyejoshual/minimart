@@ -1,6 +1,6 @@
 // src/pages/AddProductPage.jsx
-import { useEffect, useState } from "react";
-import Dropdown from "../components/Dropdown.jsx";
+import React, { useEffect, useState } from "react";
+import DropdownModal from "../components/DropdownModal.jsx";
 import { locationsByState } from "../config/locationsByState.js";
 import { promotionPlans, getActivePrice, getDiscountPercent } from "../config/promotions.js";
 import "./AddProduct.css";
@@ -27,13 +27,11 @@ export default function AddProductPage() {
   const states = Object.keys(locationsByState || {});
   const cities = selectedState ? locationsByState[selectedState] : [];
 
-  // ---------------- FETCH CATEGORIES ----------------
+  // Fetch categories from API
   useEffect(() => {
     async function fetchCategories() {
       try {
-        const res = await fetch(
-          "https://minimart-ivrm.onrender.com/api/marketplace/categories"
-        );
+        const res = await fetch("https://minimart-ivrm.onrender.com/api/marketplace/categories");
         const data = await res.json();
         setCategories(data || []);
       } catch (err) {
@@ -43,7 +41,7 @@ export default function AddProductPage() {
     fetchCategories();
   }, []);
 
-  const selectedCategory = categories.find((c) => c.id === form.mainCategory);
+  const selectedCategory = categories.find(c => c.id === form.mainCategory);
   const subcategories = selectedCategory?.subcategories || [];
   const dynamicFields = selectedCategory?.dynamicOptions?.fields || [];
   const options = selectedCategory?.dynamicOptions || {};
@@ -63,67 +61,56 @@ export default function AddProductPage() {
     fuel_type: options.fuel_type || [],
   };
 
-  const update = (key, value) =>
-    setForm((prev) => ({ ...prev, [key]: value }));
-  const updateDynamic = (key, value) =>
-    setForm((prev) => ({ ...prev, dynamic: { ...prev.dynamic, [key]: value } }));
+  const update = (key, value) => setForm(prev => ({ ...prev, [key]: value }));
+  const updateDynamic = (key, value) => setForm(prev => ({ ...prev, dynamic: { ...prev.dynamic, [key]: value } }));
 
-  // ---------------- RESET DYNAMIC FIELDS ON CATEGORY CHANGE ----------------
+  // Reset dynamic fields on category change
   useEffect(() => {
     if (!selectedCategory) return;
-    const initialDynamic = Object.fromEntries(
-      dynamicFields.map((f) => [f, f === "features" ? [] : ""])
-    );
-    setForm((prev) => ({ ...prev, dynamic: initialDynamic, subCategory: "" }));
+    const initialDynamic = Object.fromEntries(dynamicFields.map(f => [f, f === "features" ? [] : ""]));
+    setForm(prev => ({ ...prev, dynamic: initialDynamic, subCategory: "" }));
   }, [selectedCategory]);
 
-  // ---------------- HANDLE IMAGES ----------------
-  const handleImages = (files) => {
+  // Handle images
+  const handleImages = files => {
     const arr = Array.from(files);
     setImages(arr);
-    setPreviewUrls(arr.map((f) => URL.createObjectURL(f)));
+    setPreviewUrls(arr.map(f => URL.createObjectURL(f)));
   };
 
-  // ---------------- HANDLE STATE & CITY ----------------
+  // Handle state & city
   const handleStateChange = (state) => {
     setSelectedState(state);
     setSelectedCity("");
     updateDynamic("location", "");
   };
-
   const handleCityChange = (city) => {
     setSelectedCity(city);
     updateDynamic("location", city);
   };
 
-  // ---------------- HANDLE PRICE INPUT ----------------
-  const handlePriceChange = (value) => {
+  // Price formatting
+  const handlePriceChange = value => {
     const numeric = value.replace(/[^0-9.]/g, "");
     update("price", numeric);
   };
-
-  const formatPrice = (price) => {
+  const formatPrice = price => {
     if (!price) return "";
     const [integer, decimal] = price.toString().split(".");
     return integer.replace(/\B(?=(\d{3})+(?!\d))/g, ",") + (decimal ? "." + decimal : "");
   };
 
-  // ---------------- SUBMIT ----------------
+  // Submit
   const handleSubmit = async () => {
-    if (!form.title || !form.price || !form.mainCategory) {
-      return alert("Title, price, and category are required");
-    }
+    if (!form.title || !form.price || !form.mainCategory) return alert("Title, price, and category are required");
     if (images.length === 0) return alert("Please upload at least one image");
 
     const cleanedDynamic = Object.fromEntries(
-      Object.entries(form.dynamic).filter(
-        ([_, v]) => v !== "" && v !== null && !(Array.isArray(v) && v.length === 0)
-      )
+      Object.entries(form.dynamic).filter(([_, v]) => v !== "" && v !== null && !(Array.isArray(v) && v.length === 0))
     );
 
     try {
       setLoading(true);
-
       const formData = new FormData();
       formData.append("title", form.title);
       formData.append("description", form.description);
@@ -132,13 +119,9 @@ export default function AddProductPage() {
       if (form.subCategory) formData.append("subcategory_id", form.subCategory);
       formData.append("dynamicFields", JSON.stringify(cleanedDynamic));
       if (form.promotionId) formData.append("promotionId", form.promotionId);
-      images.forEach((img) => formData.append("images", img));
+      images.forEach(img => formData.append("images", img));
 
-      const res = await fetch(
-        "https://minimart-ivrm.onrender.com/api/marketplace/products",
-        { method: "POST", body: formData }
-      );
-
+      const res = await fetch("https://minimart-ivrm.onrender.com/api/marketplace/products", { method: "POST", body: formData });
       const data = await res.json();
       if (!res.ok) throw new Error(data.message || "Upload failed");
 
@@ -158,30 +141,39 @@ export default function AddProductPage() {
 
   return (
     <div className="add-product-container">
+      <button onClick={() => window.history.back()} className="back-button">← Back</button>
       <h2>Add Product</h2>
 
       {/* TITLE */}
       <div className="field">
         <label>Title</label>
-        <input value={form.title} onChange={(e) => update("title", e.target.value)} placeholder="e.g iPhone 13" />
+        <input value={form.title} onChange={e => update("title", e.target.value)} placeholder="e.g iPhone 13" />
       </div>
 
       {/* DESCRIPTION */}
       <div className="field">
         <label>Description</label>
-        <textarea value={form.description} onChange={(e) => update("description", e.target.value)} placeholder="Write product details here..." />
+        <textarea value={form.description} onChange={e => update("description", e.target.value)} placeholder="Write product details here..." />
       </div>
 
-      {/* CATEGORY */}
-      <Dropdown label="Category" value={form.mainCategory} onChange={(val) => update("mainCategory", val)} options={categories.map(c => c.name)} />
-
-      {/* SUBCATEGORY */}
+      {/* CATEGORY & SUBCATEGORY using DropdownModal */}
+      <DropdownModal
+        label="Category"
+        value={form.mainCategory}
+        onChange={val => update("mainCategory", val)}
+        options={categories.map(c => c.name)}
+      />
       {subcategories.length > 0 && (
-        <Dropdown label="Subcategory" value={form.subCategory} onChange={(val) => update("subCategory", val)} options={subcategories.map(s => s.name)} />
+        <DropdownModal
+          label="Subcategory"
+          value={form.subCategory}
+          onChange={val => update("subCategory", val)}
+          options={subcategories.map(s => s.name)}
+        />
       )}
 
-      {/* DYNAMIC FIELDS */}
-      {dynamicFields.map((field) => {
+      {/* Dynamic fields */}
+      {dynamicFields.map(field => {
         const value = form.dynamic[field];
         if (field === "used_detail" && form.dynamic.condition !== "Used") return null;
         const isArray = field === "features";
@@ -190,76 +182,55 @@ export default function AddProductPage() {
           <div className="field" key={field}>
             <label>{field.replace(/_/g, " ").toUpperCase()}</label>
             {!optionsMap[field] || optionsMap[field].length === 0 ? (
-              <input value={value || ""} onChange={(e) => updateDynamic(field, e.target.value)} />
+              <input value={value || ""} onChange={e => updateDynamic(field, e.target.value)} />
             ) : isArray ? (
               <div className="multi-select">
-                {optionsMap[field].map((opt) => {
+                {optionsMap[field].map(opt => {
                   const current = Array.isArray(value) ? value : [];
                   return (
                     <label key={opt}>
-                      <input
-                        type="checkbox"
-                        checked={current.includes(opt)}
-                        onChange={() =>
-                          updateDynamic(
-                            field,
-                            current.includes(opt)
-                              ? current.filter((v) => v !== opt)
-                              : [...current, opt]
-                          )
-                        }
-                      />
+                      <input type="checkbox" checked={current.includes(opt)} onChange={() => updateDynamic(field, current.includes(opt) ? current.filter(v => v !== opt) : [...current, opt])} />
                       {opt}
                     </label>
                   );
                 })}
               </div>
             ) : (
-              <Dropdown label={field.replace(/_/g, " ").toUpperCase()} value={value || ""} onChange={(val) => updateDynamic(field, val)} options={optionsMap[field]} />
+              <DropdownModal label={field.replace(/_/g, " ")} value={value || ""} onChange={val => updateDynamic(field, val)} options={optionsMap[field]} />
             )}
           </div>
         );
       })}
 
-      {/* STATE */}
-      <Dropdown label="State" value={selectedState} onChange={handleStateChange} options={states} />
-
-      {/* CITY */}
-      {selectedState && <Dropdown label="City" value={selectedCity} onChange={handleCityChange} options={cities} />}
+      {/* STATE & CITY */}
+      <DropdownModal label="State" value={selectedState} onChange={handleStateChange} options={states} />
+      {selectedState && <DropdownModal label="City" value={selectedCity} onChange={handleCityChange} options={cities} />}
 
       {/* PRICE */}
       <div className="field">
         <label>Price (₦)</label>
-        <input type="text" value={formatPrice(form.price)} onChange={(e) => handlePriceChange(e.target.value)} />
+        <input type="text" value={formatPrice(form.price)} onChange={e => handlePriceChange(e.target.value)} />
       </div>
 
       {/* PROMOTION */}
-      <Dropdown
+      <DropdownModal
         label="Promotion"
         value={form.promotionId}
-        onChange={(val) => update("promotionId", val)}
-        options={promotionPlans.map((plan) => {
-          const discountPercent = getDiscountPercent(plan.originalPrice, plan.discount);
-          const activePrice = getActivePrice(plan.price, plan.discount);
-          return `${plan.name} - ₦${activePrice.toLocaleString()} (${discountPercent}% off)`;
-        })}
+        onChange={val => update("promotionId", val)}
+        options={promotionPlans.map(p => `${p.name} - ₦${getActivePrice(p.price, p.discount).toLocaleString()} (${getDiscountPercent(p.originalPrice, p.discount)}% off)`)}
       />
 
       {/* IMAGES */}
       <div className="field">
         <label>Images</label>
-        <input type="file" multiple onChange={(e) => handleImages(e.target.files)} />
+        <input type="file" multiple onChange={e => handleImages(e.target.files)} />
         <div className="image-preview">
-          {previewUrls.map((url, i) => (
-            <img key={i} src={url} alt={`preview ${i}`} />
-          ))}
+          {previewUrls.map((url, i) => <img key={i} src={url} alt={`preview ${i}`} />)}
         </div>
       </div>
 
       {/* SUBMIT */}
-      <button onClick={handleSubmit} disabled={loading}>
-        {loading ? "Saving..." : "Add Product"}
-      </button>
+      <button onClick={handleSubmit} disabled={loading}>{loading ? "Saving..." : "Add Product"}</button>
     </div>
   );
 }
