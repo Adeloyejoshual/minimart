@@ -31,12 +31,24 @@ export default function Homepage() {
         {products.map((p) => (
           <div key={p.id} className="card">
             <div className="card-image">
-              <img src={p.images?.[0] || "/placeholder.png"} alt={p.title} />
+              <img
+                src={p.images?.[0] || "/placeholder.png"}
+                alt={p.title}
+                onError={(e) => { e.target.src = "/placeholder.png"; }}
+              />
             </div>
             <div className="card-body">
               <div className="price">₦{Number(p.price).toLocaleString()}</div>
-              <div className="title">{p.title}</div>
-              <div className="desc">{p.description?.slice(0, 50)}{p.description?.length > 50 ? "..." : ""}</div>
+              <div className="title" title={p.title}>
+                {p.title.length > 30 ? p.title.slice(0, 30) + "..." : p.title}
+              </div>
+              <div className="desc">
+                {p.description
+                  ? p.description.length > 50
+                    ? p.description.slice(0, 50) + "..."
+                    : p.description
+                  : "No description"}
+              </div>
               <div className="location">{p.dynamic_fields?.location || "No location"}</div>
             </div>
           </div>
