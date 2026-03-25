@@ -7,10 +7,14 @@ import { Pool } from "pg";
 import dotenv from "dotenv";
 import http from "http";
 
+// -------------------
+// Routes
+// -------------------
 import marketplaceRouter from "./routes/marketplace.js";
 import userRouter from "./routes/users.js";
 import messagesRouter from "./routes/messages.js";
-import adminRouter from "./routes/admin.js"; // ✅ Admin API router
+import adminRouter from "./routes/admin.js";
+import testPromoteRouter from "./routes/testPromote.js";
 
 dotenv.config();
 
@@ -44,10 +48,23 @@ app.use(express.urlencoded({ extended: true }));
 // -------------------
 // API Routes
 // -------------------
+app.use("/api/test-promote", testPromoteRouter); // << test promotion routes
 app.use("/api/marketplace", marketplaceRouter);
 app.use("/api/users", userRouter);
 app.use("/api/messages", messagesRouter);
-app.use("/api/admin", adminRouter); // ✅ Admin API routes
+app.use("/api/admin", adminRouter);
+
+// -------------------
+// Health Check
+// -------------------
+app.get("/api/health", async (req, res) => {
+  try {
+    const { rows } = await pool.query("SELECT 1 as status");
+    res.json({ success: true, db: rows[0].status === 1 });
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
 
 // -------------------
 // Serve React Build in Production
@@ -59,10 +76,10 @@ if (process.env.NODE_ENV === "production") {
   // Main marketplace frontend
   app.use(express.static(path.join(__dirname, "dist")));
 
-  // Optional: separate admin frontend
+  // Optional: admin frontend
   // app.use("/admin", express.static(path.join(__dirname, "admin_dist")));
 
-  // Catch-all for SPA routing
+  // SPA catch-all (ignore /api/*)
   app.get("*", (req, res) => {
     if (req.path.startsWith("/api/")) {
       return res.status(404).json({ success: false, message: "API endpoint not found" });
@@ -70,18 +87,6 @@ if (process.env.NODE_ENV === "production") {
     res.sendFile(path.join(__dirname, "dist", "index.html"));
   });
 }
-
-// -------------------
-// Root / Health Check
-// -------------------
-app.get("/api/health", async (req, res) => {
-  try {
-    const { rows } = await pool.query("SELECT 1 as status");
-    res.json({ success: true, db: rows[0].status === 1 });
-  } catch (err) {
-    res.status(500).json({ success: false, error: err.message });
-  }
-});
 
 // -------------------
 // Socket.io Setup
