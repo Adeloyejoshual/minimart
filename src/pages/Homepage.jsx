@@ -10,8 +10,9 @@ export default function Homepage() {
   const [skip, setSkip] = useState(0);
 
   const observerRef = useRef();
+  const trendingRef = useRef();
 
-  // ---------------- FETCH PRODUCTS ----------------
+  // ---------------- FETCH ----------------
   const fetchProducts = async () => {
     try {
       setLoading(true);
@@ -19,20 +20,16 @@ export default function Homepage() {
       const res = await fetch(
         `https://minimart-ivrm.onrender.com/api/marketplace/products?skip=${skip}&limit=20`
       );
-
       const data = await res.json();
 
-      console.log("API RESPONSE:", data); // 🔥 DEBUG
-
-      // IMPORTANT: handle structure correctly
       if (skip === 0) {
-        setTrending(data.trending || []);
+        // ✅ Only 3 trending
+        setTrending((data.trending || []).slice(0, 3));
       }
 
       setProducts((prev) => [...prev, ...(data.products || [])]);
-
     } catch (err) {
-      console.error("Fetch error:", err);
+      console.error(err);
     } finally {
       setLoading(false);
     }
@@ -54,37 +51,41 @@ export default function Homepage() {
     );
 
     if (observerRef.current) observer.observe(observerRef.current);
-
     return () => observer.disconnect();
   }, [loading]);
 
   // ---------------- HELPERS ----------------
   const getImage = (p) => {
-    if (Array.isArray(p.images) && p.images.length > 0) {
-      return p.images[0];
-    }
+    if (Array.isArray(p.images) && p.images.length > 0) return p.images[0];
     if (p.image) return p.image;
-
-    return "https://via.placeholder.com/300x200?text=No+Image";
+    return "https://via.placeholder.com/300x200";
   };
 
-  const truncate = (text, len = 40) => {
-    if (!text) return "";
-    return text.length > len ? text.slice(0, len) + "..." : text;
-  };
+  const truncate = (text, len = 40) =>
+    text?.length > len ? text.slice(0, len) + "..." : text;
 
+  // ✅ FIXED: STATE FIRST THEN CITY
   const getLocation = (p) => {
-    if (p.location?.city && p.location?.state) {
-      return `${p.location.city}, ${p.location.state}`;
+    if (p.location?.state && p.location?.city) {
+      return `${p.location.state}, ${p.location.city}`;
     }
     if (p.location_state || p.location_city) {
-      return `${p.location_city || ""} ${p.location_state || ""}`;
+      return `${p.location_state || ""}, ${p.location_city || ""}`;
     }
     return "Nigeria";
   };
 
-  // ---------------- RENDER CARD ----------------
-  const renderCard = (p) => (
+  // ---------------- TRENDING SCROLL ----------------
+  const scrollLeft = () => {
+    trendingRef.current.scrollBy({ left: -300, behavior: "smooth" });
+  };
+
+  const scrollRight = () => {
+    trendingRef.current.scrollBy({ left: 300, behavior: "smooth" });
+  };
+
+  // ---------------- CARD ----------------
+  const renderCard = (p, isTrending = false) => (
     <div key={p.id} className="card">
       <div className="card-image">
         <img src={getImage(p)} alt={p.title} loading="lazy" />
@@ -95,13 +96,13 @@ export default function Homepage() {
 
         <div className="title">{truncate(p.title, 35)}</div>
 
-        <div className="desc">
-          {truncate(p.description, 50)}
-        </div>
-
-        <div className="location">
-          {getLocation(p)}
-        </div>
+        {/* ❌ REMOVE DESCRIPTION + LOCATION IN TRENDING */}
+        {!isTrending && (
+          <>
+            <div className="desc">{truncate(p.description, 50)}</div>
+            <div className="location">{getLocation(p)}</div>
+          </>
+        )}
       </div>
     </div>
   );
@@ -116,31 +117,37 @@ export default function Homepage() {
         <div className="section">
           <h2>🔥 Trending</h2>
 
-          <div className="trending-scroll">
-            {trending.length > 0 ? (
-              trending.map(renderCard)
-            ) : (
-              <p>No trending products</p>
-            )}
+          <div className="trending-wrapper">
+            {/* LEFT ARROW */}
+            <button className="scroll-btn left" onClick={scrollLeft}>
+              ◀
+            </button>
+
+            <div className="trending-scroll" ref={trendingRef}>
+              {trending.length > 0 ? (
+                trending.map((p) => renderCard(p, true))
+              ) : (
+                <p>No trending</p>
+              )}
+            </div>
+
+            {/* RIGHT ARROW */}
+            <button className="scroll-btn right" onClick={scrollRight}>
+              ▶
+            </button>
           </div>
         </div>
 
-        {/* ---------------- ALL PRODUCTS ---------------- */}
+        {/* ---------------- PRODUCTS ---------------- */}
         <div className="section">
           <h2>🛒 Products</h2>
 
           <div className="products-grid">
-            {products.length > 0 ? (
-              products.map(renderCard)
-            ) : (
-              <p>No products found</p>
-            )}
+            {products.map((p) => renderCard(p))}
           </div>
 
-          {/* LOAD MORE TRIGGER */}
           <div ref={observerRef} style={{ height: "40px" }} />
 
-          {/* LOADING */}
           {loading && <p style={{ textAlign: "center" }}>Loading...</p>}
         </div>
       </div>
