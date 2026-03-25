@@ -6,15 +6,16 @@ import { fileURLToPath } from "url";
 import { Pool } from "pg";
 import dotenv from "dotenv";
 import http from "http";
+import { Server as SocketIOServer } from "socket.io";
 
 // -------------------
-// Routes
+// Routers
 // -------------------
 import marketplaceRouter from "./routes/marketplace.js";
 import userRouter from "./routes/users.js";
 import messagesRouter from "./routes/messages.js";
 import adminRouter from "./routes/admin.js";
-import testPromoteRouter from "./routes/testPromote.js";
+import promoteRouter from "./routes/promote.js";
 
 dotenv.config();
 
@@ -36,7 +37,7 @@ export const pool = new Pool({
 
 pool.connect()
   .then(() => console.log("✅ Connected to CockroachDB"))
-  .catch((err) => console.error("❌ CockroachDB connection error:", err.message));
+  .catch(err => console.error("❌ CockroachDB connection error:", err.message));
 
 // -------------------
 // Middlewares
@@ -48,11 +49,33 @@ app.use(express.urlencoded({ extended: true }));
 // -------------------
 // API Routes
 // -------------------
-app.use("/api/test-promote", testPromoteRouter); // << test promotion routes
 app.use("/api/marketplace", marketplaceRouter);
 app.use("/api/users", userRouter);
 app.use("/api/messages", messagesRouter);
 app.use("/api/admin", adminRouter);
+app.use("/api/promote", promoteRouter);
+
+// -------------------
+// Serve React SPA in Production
+// -------------------
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
+
+if (process.env.NODE_ENV === "production") {
+  // Main marketplace frontend
+  app.use(express.static(path.join(__dirname, "dist")));
+
+  // Optional: Admin frontend
+  // app.use("/admin", express.static(path.join(__dirname, "admin_dist")));
+
+  // Catch-all for SPA routing
+  app.get("*", (req, res) => {
+    if (req.path.startsWith("/api/")) {
+      return res.status(404).json({ success: false, message: "API endpoint not found" });
+    }
+    res.sendFile(path.join(__dirname, "dist", "index.html"));
+  });
+}
 
 // -------------------
 // Health Check
@@ -67,34 +90,11 @@ app.get("/api/health", async (req, res) => {
 });
 
 // -------------------
-// Serve React Build in Production
-// -------------------
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = path.dirname(__filename);
-
-if (process.env.NODE_ENV === "production") {
-  // Main marketplace frontend
-  app.use(express.static(path.join(__dirname, "dist")));
-
-  // Optional: admin frontend
-  // app.use("/admin", express.static(path.join(__dirname, "admin_dist")));
-
-  // SPA catch-all (ignore /api/*)
-  app.get("*", (req, res) => {
-    if (req.path.startsWith("/api/")) {
-      return res.status(404).json({ success: false, message: "API endpoint not found" });
-    }
-    res.sendFile(path.join(__dirname, "dist", "index.html"));
-  });
-}
-
-// -------------------
 // Socket.io Setup
 // -------------------
-import { Server as SocketIOServer } from "socket.io";
 const io = new SocketIOServer(server, { cors: { origin: "*" } });
 
-io.on("connection", (socket) => {
+io.on("connection", socket => {
   console.log("🔌 Socket connected:", socket.id);
 
   socket.on("joinRoom", ({ senderId, receiverId, productId }) => {
@@ -107,7 +107,7 @@ io.on("connection", (socket) => {
     const room = `${productId}_${[senderId, receiverId].sort().join("_")}`;
     try {
       const { rows } = await pool.query(
-        `INSERT INTO public.messages (sender_id, receiver_id, product_id, message, created_at)
+        `INSERT INTO messages (sender_id, receiver_id, product_id, message, created_at)
          VALUES ($1, $2, $3, $4, NOW()) RETURNING *`,
         [senderId, receiverId, productId, message]
       );
