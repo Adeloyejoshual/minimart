@@ -1,204 +1,79 @@
-// src/pages/Homepage.jsx - ENTERPRISE GRID v4.0
-import React, { useEffect, useState, useCallback, useMemo, useRef } from "react";
+// src/pages/Homepage.jsx
+import React, { useState, useEffect, useCallback } from "react";
 import axios from "axios";
-import { useNavigate } from "react-router-dom";
-import TopNav from "../components/TopNav";
-import BottomNav from "../components/BottomNav";
-import "../styles/Homepage.css";
+import "./Homepage.css";
 
 const API_BASE = "https://minimart-ivrm.onrender.com/api/marketplace";
-const LIMIT = 20;
-const MAX_LOAD = 60;
 
-export default function Homepage({ user }) {
-  const navigate = useNavigate();
-
+export default function Homepage() {
   const [products, setProducts] = useState([]);
+  const [userLocation, setUserLocation] = useState(null);
   const [loading, setLoading] = useState(false);
 
-  const skipRef = useRef(0);
-  const lastScrollY = useRef(0);
-
-  const [showTopNav, setShowTopNav] = useState(true);
-  const [showBottomNav, setShowBottomNav] = useState(true);
-
-  const endpoint = useMemo(() => `${API_BASE}/products`, []);
-
-  const getId = (p) => p.id || p._id;
-
-  // ================= LOAD PRODUCTS =================
-  const loadProducts = useCallback(async (reset = false) => {
-    if (loading || products.length >= MAX_LOAD) return;
-
-    try {
-      setLoading(true);
-
-      const skip = reset ? 0 : skipRef.current;
-
-      const { data } = await axios.get(endpoint, {
-        params: { skip, limit: LIMIT },
-      });
-
-      const list = Array.isArray(data) ? data : data.products || [];
-
-      if (reset) {
-        setProducts(list);
-        skipRef.current = list.length;
-      } else {
-        setProducts(prev => [...prev, ...list].slice(0, MAX_LOAD));
-        skipRef.current += list.length;
-      }
-    } catch (err) {
-      console.error("Load error:", err);
-    } finally {
-      setLoading(false);
-    }
-  }, [endpoint, loading, products.length]);
-
+  // ---------------- DETECT USER LOCATION ----------------
   useEffect(() => {
-    loadProducts(true);
-  }, [loadProducts]);
-
-  // ================= NAV SCROLL =================
-  useEffect(() => {
-    const onScroll = () => {
-      const y = window.scrollY;
-
-      if (y > lastScrollY.current && y > 100) {
-        setShowTopNav(false);
-        setShowBottomNav(false);
-      } else {
-        setShowTopNav(true);
-        setShowBottomNav(true);
-      }
-
-      lastScrollY.current = y;
-    };
-
-    window.addEventListener("scroll", onScroll);
-    return () => window.removeEventListener("scroll", onScroll);
+    navigator.geolocation.getCurrentPosition(async (pos) => {
+      const { latitude, longitude } = pos.coords;
+      try {
+        const res = await fetch(
+          `https://nominatim.openstreetmap.org/reverse?format=json&lat=${latitude}&lon=${longitude}`
+        );
+        const data = await res.json();
+        const state = data.address.state;
+        const city = data.address.city || data.address.town;
+        setUserLocation({ state, city });
+      } catch (err) { console.error(err); }
+    });
   }, []);
 
-  // ================= INFINITE SCROLL =================
-  useEffect(() => {
-    const handleLoad = () => {
-      if (loading || products.length >= MAX_LOAD) return;
-
-      const scrollBottom =
-        window.innerHeight + window.scrollY >=
-        document.documentElement.scrollHeight - 120;
-
-      if (scrollBottom) loadProducts(false);
-    };
-
-    window.addEventListener("scroll", handleLoad);
-    return () => window.removeEventListener("scroll", handleLoad);
-  }, [loading, products.length, loadProducts]);
-
-  // ================= NAVIGATE =================
-  const openProduct = (product) => {
-    navigate(`/product/${getId(product)}`);
-  };
-
-  const formatCurrency = (amount) =>
-    new Intl.NumberFormat("en-NG", {
-      style: "currency",
-      currency: "NGN",
-      minimumFractionDigits: 0,
-    }).format(amount || 0);
-
-  return (
-    <div className="homepage">
-      <TopNav className={showTopNav ? "show" : "hide"} user={user} />
-
-      <header className="hero">
-        <h1>MiniMart</h1>
-        <p>Discover amazing products</p>
-      </header>
-
-      {/* ================= GRID ================= */}
-      <section className="products-grid">
-        {products.map((p) => (
-          <ProductCard
-            key={getId(p)}
-            product={p}
-            onClick={() => openProduct(p)}
-            formatCurrency={formatCurrency}
-          />
-        ))}
-
-        {loading && <SkeletonCards />}
-      </section>
-
-      <BottomNav className={showBottomNav ? "show" : "hide"} />
-    </div>
-  );
-}
-
-// ================= PRODUCT CARD =================
-function ProductCard({ product, onClick, formatCurrency }) {
-  let images = product.images;
-
-  // FIX: parse if stored as string
-  if (typeof images === "string") {
+  // ---------------- LOAD PRODUCTS ----------------
+  const loadProducts = useCallback(async () => {
+    setLoading(true);
     try {
-      images = JSON.parse(images);
-    } catch {
-      images = [];
-    }
-  }
+      let url = `${API_BASE}/products`;
+      if (userLocation?.state) url += `?state=${userLocation.state}&city=${userLocation.city}`;
+      const res = await axios.get(url);
+      setProducts(res.data.products || []);
+    } catch (err) { console.error(err); }
+    finally { setLoading(false); }
+  }, [userLocation]);
 
-  const image =
-    (images && images.length ? images[0] : null) ||
-    "/placeholder-product.png";
+  useEffect(() => { loadProducts(); }, [loadProducts]);
+
+  const formatPrice = (amount) =>
+    new Intl.NumberFormat("en-NG", { style: "currency", currency: "NGN", minimumFractionDigits: 0 }).format(amount);
 
   return (
-    <article className="card" onClick={onClick}>
-      {/* IMAGE */}
-      <div className="card-image">
-        <img src={image} alt={product.title || "Product"} />
-      </div>
-
-      {/* CONTENT */}
-      <div className="card-body">
-        <p className="price">
-          {formatCurrency(product.price)}
-        </p>
-
-        <h3 className="title">
-          {product.title || "Untitled"}
-        </h3>
-
-        <div className="meta">
-          <p className="desc">
-            {product.description?.slice(0, 40) || ""}
-          </p>
-
-          {product.dynamic_fields?.location && (
-            <span className="location">
-              📍 {product.dynamic_fields.location}
-            </span>
-          )}
+    <div className="homepage-container">
+      {userLocation && (
+        <div className="location-banner">
+          📍 Showing products in {userLocation.city}, {userLocation.state}
         </div>
-      </div>
-    </article>
-  );
-}
+      )}
 
-// ================= SKELETON =================
-function SkeletonCards() {
-  return (
-    <>
-      {[...Array(8)].map((_, i) => (
-        <div key={i} className="card skeleton">
-          <div className="card-image"></div>
-          <div className="card-body">
-            <div className="line short"></div>
-            <div className="line"></div>
-            <div className="line small"></div>
+      <div className="products-grid">
+        {loading ? (
+          <p>Loading products...</p>
+        ) : products.length === 0 ? (
+          <p>No products found in your area.</p>
+        ) : products.map(p => (
+          <div key={p.id} className="product-card">
+            <img
+              src={p.images?.[0] || "/placeholder-product.png"}
+              alt={p.title}
+              className="product-image"
+            />
+            <div className="product-info">
+              <div className="price">{formatPrice(p.price)}</div>
+              <h3 className="title">{p.title}</h3>
+              <p className="description">{p.description?.slice(0, 60)}</p>
+              {p.location && (
+                <p className="location">{p.location.city}, {p.location.state}</p>
+              )}
+            </div>
           </div>
-        </div>
-      ))}
-    </>
+        ))}
+      </div>
+    </div>
   );
 }
