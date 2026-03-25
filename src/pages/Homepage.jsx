@@ -1,79 +1,48 @@
-// src/pages/Homepage.jsx
-import React, { useState, useEffect, useCallback } from "react";
-import axios from "axios";
-import "./Homepage.css";
-
-const API_BASE = "https://minimart-ivrm.onrender.com/api/marketplace";
+import { useEffect, useState } from "react";
+import TopNav from "../components/TopNav";
+import BottomNav from "../components/BottomNav";
+import "../styles/Homepage.css";
 
 export default function Homepage() {
   const [products, setProducts] = useState([]);
-  const [userLocation, setUserLocation] = useState(null);
-  const [loading, setLoading] = useState(false);
+  const [loading, setLoading] = useState(true);
 
-  // ---------------- DETECT USER LOCATION ----------------
   useEffect(() => {
-    navigator.geolocation.getCurrentPosition(async (pos) => {
-      const { latitude, longitude } = pos.coords;
+    async function fetchProducts() {
       try {
-        const res = await fetch(
-          `https://nominatim.openstreetmap.org/reverse?format=json&lat=${latitude}&lon=${longitude}`
-        );
+        const res = await fetch("https://minimart-ivrm.onrender.com/api/marketplace/products");
         const data = await res.json();
-        const state = data.address.state;
-        const city = data.address.city || data.address.town;
-        setUserLocation({ state, city });
-      } catch (err) { console.error(err); }
-    });
+        setProducts(data.products || []);
+      } catch (err) {
+        console.error("Failed to fetch products", err);
+      } finally {
+        setLoading(false);
+      }
+    }
+    fetchProducts();
   }, []);
 
-  // ---------------- LOAD PRODUCTS ----------------
-  const loadProducts = useCallback(async () => {
-    setLoading(true);
-    try {
-      let url = `${API_BASE}/products`;
-      if (userLocation?.state) url += `?state=${userLocation.state}&city=${userLocation.city}`;
-      const res = await axios.get(url);
-      setProducts(res.data.products || []);
-    } catch (err) { console.error(err); }
-    finally { setLoading(false); }
-  }, [userLocation]);
-
-  useEffect(() => { loadProducts(); }, [loadProducts]);
-
-  const formatPrice = (amount) =>
-    new Intl.NumberFormat("en-NG", { style: "currency", currency: "NGN", minimumFractionDigits: 0 }).format(amount);
+  if (loading) return <div className="skeleton-container">Loading products...</div>;
 
   return (
-    <div className="homepage-container">
-      {userLocation && (
-        <div className="location-banner">
-          📍 Showing products in {userLocation.city}, {userLocation.state}
-        </div>
-      )}
-
+    <>
+      <TopNav />
       <div className="products-grid">
-        {loading ? (
-          <p>Loading products...</p>
-        ) : products.length === 0 ? (
-          <p>No products found in your area.</p>
-        ) : products.map(p => (
-          <div key={p.id} className="product-card">
-            <img
-              src={p.images?.[0] || "/placeholder-product.png"}
-              alt={p.title}
-              className="product-image"
-            />
-            <div className="product-info">
-              <div className="price">{formatPrice(p.price)}</div>
-              <h3 className="title">{p.title}</h3>
-              <p className="description">{p.description?.slice(0, 60)}</p>
-              {p.location && (
-                <p className="location">{p.location.city}, {p.location.state}</p>
-              )}
+        {products.map((p) => (
+          <div key={p.id} className="card">
+            <div className="card-image">
+              <img src={p.images?.[0] || "/placeholder.png"} alt={p.title} />
+            </div>
+            <div className="card-body">
+              <div className="price">₦{Number(p.price).toLocaleString()}</div>
+              <div className="title">{p.title}</div>
+              <div className="desc">{p.description?.slice(0, 50)}{p.description?.length > 50 ? "..." : ""}</div>
+              <div className="location">{p.dynamic_fields?.location || "No location"}</div>
             </div>
           </div>
         ))}
       </div>
-    </div>
+      <BottomNav />
+    </>
   );
 }
