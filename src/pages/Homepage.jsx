@@ -1,82 +1,79 @@
 // src/pages/Homepage.jsx
-import { useEffect, useState } from "react";
-import TopNav from "../components/TopNav";
-import BottomNav from "../components/BottomNav";
-import "../styles/Homepage.css";
+import React, { useState, useEffect, useCallback } from "react";
+import axios from "axios";
+import "./Homepage.css";
+
+const API_BASE = "https://minimart-ivrm.onrender.com/api/marketplace";
 
 export default function Homepage() {
   const [products, setProducts] = useState([]);
+  const [userLocation, setUserLocation] = useState(null);
   const [loading, setLoading] = useState(false);
 
+  // ---------------- DETECT USER LOCATION ----------------
   useEffect(() => {
-    async function fetchProducts() {
+    navigator.geolocation.getCurrentPosition(async (pos) => {
+      const { latitude, longitude } = pos.coords;
       try {
-        setLoading(true);
-        const res = await fetch("https://minimart-ivrm.onrender.com/api/marketplace/products");
+        const res = await fetch(
+          `https://nominatim.openstreetmap.org/reverse?format=json&lat=${latitude}&lon=${longitude}`
+        );
         const data = await res.json();
-
-        // Shuffle and mix trending products
-        const trending = data.filter(p => p.promotion);
-        const regular = data.filter(p => !p.promotion);
-        const mixed = [...trending, ...regular].sort(() => Math.random() - 0.5);
-
-        setProducts(mixed);
-      } catch (err) {
-        console.error("Failed to load products:", err);
-      } finally {
-        setLoading(false);
-      }
-    }
-    fetchProducts();
+        const state = data.address.state;
+        const city = data.address.city || data.address.town;
+        setUserLocation({ state, city });
+      } catch (err) { console.error(err); }
+    });
   }, []);
 
-  const formatPrice = price => {
-    if (!price) return "";
-    const [integer, decimal] = price.toString().split(".");
-    return integer.replace(/\B(?=(\d{3})+(?!\d))/g, ",") + (decimal ? "." + decimal : "");
-  };
+  // ---------------- LOAD PRODUCTS ----------------
+  const loadProducts = useCallback(async () => {
+    setLoading(true);
+    try {
+      let url = `${API_BASE}/products`;
+      if (userLocation?.state) url += `?state=${userLocation.state}&city=${userLocation.city}`;
+      const res = await axios.get(url);
+      setProducts(res.data.products || []);
+    } catch (err) { console.error(err); }
+    finally { setLoading(false); }
+  }, [userLocation]);
+
+  useEffect(() => { loadProducts(); }, [loadProducts]);
+
+  const formatPrice = (amount) =>
+    new Intl.NumberFormat("en-NG", { style: "currency", currency: "NGN", minimumFractionDigits: 0 }).format(amount);
 
   return (
-    <>
-      <TopNav />
-      <div className="homepage-container">
+    <div className="homepage-container">
+      {userLocation && (
+        <div className="location-banner">
+          📍 Showing products in {userLocation.city}, {userLocation.state}
+        </div>
+      )}
+
+      <div className="products-grid">
         {loading ? (
-          <div className="products-grid">
-            {Array.from({ length: 12 }).map((_, i) => (
-              <div key={i} className="card skeleton">
-                <div className="card-image" />
-                <div className="card-body">
-                  <div className="line short" />
-                  <div className="line small" />
-                  <div className="line" />
-                </div>
-              </div>
-            ))}
+          <p>Loading products...</p>
+        ) : products.length === 0 ? (
+          <p>No products found in your area.</p>
+        ) : products.map(p => (
+          <div key={p.id} className="product-card">
+            <img
+              src={p.images?.[0] || "/placeholder-product.png"}
+              alt={p.title}
+              className="product-image"
+            />
+            <div className="product-info">
+              <div className="price">{formatPrice(p.price)}</div>
+              <h3 className="title">{p.title}</h3>
+              <p className="description">{p.description?.slice(0, 60)}</p>
+              {p.location && (
+                <p className="location">{p.location.city}, {p.location.state}</p>
+              )}
+            </div>
           </div>
-        ) : (
-          <div className="products-grid">
-            {products.map(product => {
-              const image = product.images ? JSON.parse(product.images)[0] : "";
-              const description = product.description ? product.description.slice(0, 50) + "..." : "";
-              const location = product.dynamic_fields ? JSON.parse(product.dynamic_fields)?.location : "";
-              return (
-                <div key={product.id} className="card">
-                  <div className="card-image">
-                    {image && <img src={image} alt={product.title} />}
-                  </div>
-                  <div className="card-body">
-                    <div className="price">₦{formatPrice(product.price)}</div>
-                    <div className="title">{product.title}</div>
-                    <div className="desc">{description}</div>
-                    {location && <div className="location">{location}</div>}
-                  </div>
-                </div>
-              );
-            })}
-          </div>
-        )}
+        ))}
       </div>
-      <BottomNav />
-    </>
+    </div>
   );
 }
