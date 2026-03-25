@@ -2,27 +2,22 @@
 import { useEffect, useState } from "react";
 import TopNav from "../components/TopNav";
 import BottomNav from "../components/BottomNav";
+import DropdownModal from "../components/DropdownModal";
+import { locationsByState } from "../config/locationsByState";
 import "../styles/Homepage.css";
 
 export default function Homepage() {
   const [products, setProducts] = useState([]);
-  const [country, setCountry] = useState(""); // Detected country
+  const [categories, setCategories] = useState([]);
   const [loading, setLoading] = useState(true);
 
-  // ---------------- FETCH COUNTRY BY IP ----------------
-  useEffect(() => {
-    async function fetchCountry() {
-      try {
-        const res = await fetch("https://ipapi.co/json/");
-        const data = await res.json();
-        setCountry(data.country_name || "");
-      } catch (err) {
-        console.error("Failed to get country:", err);
-        setCountry("");
-      }
-    }
-    fetchCountry();
-  }, []);
+  // Filter states
+  const [selectedState, setSelectedState] = useState("");
+  const [selectedCity, setSelectedCity] = useState("");
+  const [selectedCategory, setSelectedCategory] = useState("");
+
+  const states = Object.keys(locationsByState);
+  const cities = selectedState ? locationsByState[selectedState] : [];
 
   // ---------------- FETCH PRODUCTS ----------------
   useEffect(() => {
@@ -40,19 +35,66 @@ export default function Homepage() {
     fetchProducts();
   }, []);
 
-  // ---------------- FILTER BY COUNTRY ----------------
-  const filteredProducts = products.filter(
-    p => p.dynamic?.location?.country === country || country === ""
-  );
+  // ---------------- FETCH CATEGORIES ----------------
+  useEffect(() => {
+    async function fetchCategories() {
+      try {
+        const res = await fetch("https://minimart-ivrm.onrender.com/api/marketplace/categories");
+        const data = await res.json();
+        setCategories(data || []);
+      } catch (err) {
+        console.error("Failed to fetch categories:", err);
+      }
+    }
+    fetchCategories();
+  }, []);
+
+  // ---------------- FILTER PRODUCTS ----------------
+  const filteredProducts = products.filter((p) => {
+    const productCategory = p.category_id;
+    const productCity = p.dynamic?.location?.city || "";
+    const productState = p.dynamic?.location?.state || "";
+
+    const matchCategory = selectedCategory ? productCategory === selectedCategory : true;
+    const matchState = selectedState ? productState === selectedState : true;
+    const matchCity = selectedCity ? productCity === selectedCity : true;
+
+    return matchCategory && matchState && matchCity;
+  });
 
   return (
     <>
       <TopNav />
       <div className="homepage-container">
+        {/* ================= FILTER BAR ================= */}
+        <div className="filter-bar">
+          <DropdownModal
+            label="State"
+            value={selectedState}
+            onChange={(val) => { setSelectedState(val); setSelectedCity(""); }}
+            options={states}
+          />
+          {selectedState && (
+            <DropdownModal
+              label="City"
+              value={selectedCity}
+              onChange={setSelectedCity}
+              options={cities}
+            />
+          )}
+          <DropdownModal
+            label="Category"
+            value={selectedCategory}
+            onChange={setSelectedCategory}
+            options={categories.map(c => ({ id: c.id, name: c.name }))}
+          />
+        </div>
+
+        {/* ================= PRODUCT GRID ================= */}
         {loading ? (
           <p>Loading products...</p>
         ) : filteredProducts.length === 0 ? (
-          <p>No products available in {country}</p>
+          <p>No products found</p>
         ) : (
           <div className="product-grid">
             {filteredProducts.map(product => {
