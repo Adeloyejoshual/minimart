@@ -30,9 +30,7 @@ export default function AddProductPage() {
   useEffect(() => {
     async function fetchCategories() {
       try {
-        const res = await fetch(
-          "https://minimart-ivrm.onrender.com/api/marketplace/categories"
-        );
+        const res = await fetch("https://minimart-ivrm.onrender.com/api/marketplace/categories");
         const data = await res.json();
         setCategories(data || []);
       } catch (err) {
@@ -66,24 +64,21 @@ export default function AddProductPage() {
   const updateDynamic = (key, value) =>
     setForm(prev => ({ ...prev, dynamic: { ...prev.dynamic, [key]: value } }));
 
-  // ---------------- RESET DYNAMIC FIELDS ON CATEGORY ----------------
+  // ---------------- RESET DYNAMIC FIELDS ON CATEGORY CHANGE ----------------
   useEffect(() => {
     if (!selectedCategory) return;
-
-    const currentDynamic = { ...form.dynamic }; // preserve existing fields
+    const currentDynamic = { ...form.dynamic };
     dynamicFields.forEach(f => {
       if (!(f in currentDynamic)) currentDynamic[f] = f === "features" ? [] : "";
     });
-
     currentDynamic.location = {
       state: selectedState || currentDynamic.location?.state || "",
       city: selectedCity || currentDynamic.location?.city || "",
     };
-
     setForm(prev => ({ ...prev, dynamic: currentDynamic, subCategory: "" }));
   }, [selectedCategory]);
 
-  // ---------------- IMAGE PREVIEWS ----------------
+  // ---------------- IMAGE HANDLING ----------------
   const handleImages = files => {
     const arr = [...images, ...Array.from(files)].slice(0, 8); // max 8
     setImages(arr);
@@ -101,6 +96,7 @@ export default function AddProductPage() {
     setSelectedCity("");
     updateDynamic("location", { ...form.dynamic.location, state, city: "" });
   };
+
   const handleCityChange = city => {
     setSelectedCity(city);
     updateDynamic("location", { ...form.dynamic.location, city });
@@ -111,6 +107,7 @@ export default function AddProductPage() {
     const numeric = value.replace(/[^0-9.]/g, "");
     update("price", numeric);
   };
+
   const formatPrice = price => {
     if (!price) return "";
     const [integer, decimal] = price.toString().split(".");
@@ -130,66 +127,34 @@ export default function AddProductPage() {
 
     try {
       setLoading(true);
+      const fd = new FormData();
+      fd.append("title", form.title);
+      fd.append("description", form.description);
+      fd.append("price", parseFloat(form.price));
+      fd.append("category_id", form.mainCategory);
+      fd.append("subcategory_id", form.subCategory || "");
+      fd.append("promotion_id", form.promotionId || "");
+      fd.append("dynamicFields", JSON.stringify(cleanedDynamic));
+      images.forEach(img => fd.append("images", img));
 
-      // 1️⃣ Create product
-      const productRes = await fetch(
-        "https://minimart-ivrm.onrender.com/api/marketplace/products",
-        {
-          method: "POST",
-          body: JSON.stringify({
-            title: form.title,
-            description: form.description,
-            price: parseFloat(form.price),
-            category_id: form.mainCategory,
-            subcategory_id: form.subCategory || null,
-            dynamicFields: cleanedDynamic,
-            promotion_id: form.promotionId || null,
-          }),
-          headers: { "Content-Type": "application/json" },
-        }
-      );
-
-      const productData = await productRes.json();
-      if (!productRes.ok) throw new Error(productData.message || "Failed to add product");
-
-      const productId = productData.id;
-
-      // 2️⃣ Upload images
-      if (images.length) {
-        const formDataArr = images.map(img => {
-          const fd = new FormData();
-          fd.append("images", img);
-          return fd;
-        });
-
-        await Promise.all(
-          formDataArr.map(fd =>
-            fetch(`https://minimart-ivrm.onrender.com/api/marketplace/products/${productId}/images`, {
-              method: "POST",
-              body: fd,
-            })
-          )
-        );
-      }
-
-      // ✅ Success
-      alert("Product added successfully!");
-      setForm({
-        title: "",
-        description: "",
-        price: "",
-        mainCategory: "",
-        subCategory: "",
-        dynamic: {},
-        promotionId: "",
+      const res = await fetch("https://minimart-ivrm.onrender.com/api/marketplace/products", {
+        method: "POST",
+        body: fd,
       });
+
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.message || "Failed to add product");
+
+      alert("Product added successfully!");
+      // Reset
+      setForm({ title: "", description: "", price: "", mainCategory: "", subCategory: "", dynamic: {}, promotionId: "" });
       setImages([]);
       setPreviewUrls([]);
       setSelectedState("");
       setSelectedCity("");
     } catch (err) {
       console.error(err);
-      alert(err.message); // shows real backend error
+      alert(err.message);
     } finally {
       setLoading(false);
     }
@@ -247,9 +212,7 @@ export default function AddProductPage() {
                     onChange={() =>
                       updateDynamic(
                         field,
-                        current.includes(opt)
-                          ? current.filter(v => v !== opt)
-                          : [...current, opt]
+                        current.includes(opt) ? current.filter(v => v !== opt) : [...current, opt]
                       )
                     }
                   />
@@ -311,9 +274,7 @@ export default function AddProductPage() {
       </div>
 
       {/* SUBMIT */}
-      <button onClick={handleSubmit} disabled={loading}>
-        {loading ? "Saving..." : "Add Product"}
-      </button>
+      <button onClick={handleSubmit} disabled={loading}>{loading ? "Saving..." : "Add Product"}</button>
     </div>
   );
 }
