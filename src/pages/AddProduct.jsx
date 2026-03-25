@@ -66,38 +66,30 @@ export default function AddProductPage() {
   const updateDynamic = (key, value) =>
     setForm(prev => ({ ...prev, dynamic: { ...prev.dynamic, [key]: value } }));
 
-  // ---------------- RESET DYNAMIC FIELDS (Preserve existing) ----------------
+  // ---------------- RESET DYNAMIC FIELDS ON CATEGORY ----------------
   useEffect(() => {
     if (!selectedCategory) return;
 
-    setForm(prev => {
-      const updatedDynamic = { ...prev.dynamic };
-
-      // Initialize missing dynamic fields only
-      dynamicFields.forEach(f => {
-        if (f === "features") {
-          if (!Array.isArray(updatedDynamic[f])) updatedDynamic[f] = [];
-        } else if (!(f in updatedDynamic)) {
-          updatedDynamic[f] = "";
-        }
-      });
-
-      // Always update location
-      updatedDynamic.location = { state: selectedState || "", city: selectedCity || "" };
-
-      return { ...prev, dynamic: updatedDynamic };
+    const currentDynamic = { ...form.dynamic }; // preserve existing fields
+    dynamicFields.forEach(f => {
+      if (!(f in currentDynamic)) currentDynamic[f] = f === "features" ? [] : "";
     });
 
-    // Reset subcategory only when mainCategory changes
-    setForm(prev => ({ ...prev, subCategory: "" }));
-  }, [selectedCategory, dynamicFields, selectedState, selectedCity]);
+    currentDynamic.location = {
+      state: selectedState || currentDynamic.location?.state || "",
+      city: selectedCity || currentDynamic.location?.city || "",
+    };
+
+    setForm(prev => ({ ...prev, dynamic: currentDynamic, subCategory: "" }));
+  }, [selectedCategory]);
 
   // ---------------- IMAGE PREVIEWS ----------------
   const handleImages = files => {
-    const arr = Array.from(files).slice(0, 8 - images.length); // max 8 images
-    setImages(prev => [...prev, ...arr]);
-    setPreviewUrls(prev => [...prev, ...arr.map(f => URL.createObjectURL(f))]);
+    const arr = [...images, ...Array.from(files)].slice(0, 8); // max 8
+    setImages(arr);
+    setPreviewUrls(arr.map(f => URL.createObjectURL(f)));
   };
+
   const removeImage = index => {
     setImages(prev => prev.filter((_, i) => i !== index));
     setPreviewUrls(prev => prev.filter((_, i) => i !== index));
@@ -107,11 +99,11 @@ export default function AddProductPage() {
   const handleStateChange = state => {
     setSelectedState(state);
     setSelectedCity("");
-    updateDynamic("location", { state, city: "" });
+    updateDynamic("location", { ...form.dynamic.location, state, city: "" });
   };
   const handleCityChange = city => {
     setSelectedCity(city);
-    updateDynamic("location", { state: selectedState, city });
+    updateDynamic("location", { ...form.dynamic.location, city });
   };
 
   // ---------------- PRICE ----------------
@@ -127,8 +119,7 @@ export default function AddProductPage() {
 
   // ---------------- SUBMIT ----------------
   const handleSubmit = async () => {
-    if (!form.title || !form.price || !form.mainCategory)
-      return alert("Title, price, and category are required");
+    if (!form.title || !form.price || !form.mainCategory) return alert("Title, price, and category are required");
     if (!images.length) return alert("Please upload at least one image");
 
     const cleanedDynamic = Object.fromEntries(
@@ -140,7 +131,7 @@ export default function AddProductPage() {
     try {
       setLoading(true);
 
-      // 1️⃣ Create product first (without images)
+      // 1️⃣ Create product
       const productRes = await fetch(
         "https://minimart-ivrm.onrender.com/api/marketplace/products",
         {
@@ -157,29 +148,29 @@ export default function AddProductPage() {
           headers: { "Content-Type": "application/json" },
         }
       );
+
       const productData = await productRes.json();
-      if (!productRes.ok) throw new Error(productData.message || "Failed to create product");
+      if (!productRes.ok) throw new Error(productData.message || "Failed to add product");
 
       const productId = productData.id;
 
-      // 2️⃣ Upload all images in parallel
-      await Promise.all(
-        images.map(async (img, index) => {
+      // 2️⃣ Upload images
+      if (images.length) {
+        const formDataArr = images.map(img => {
           const fd = new FormData();
-          fd.append("product_id", productId);
           fd.append("images", img);
+          return fd;
+        });
 
-          const res = await fetch(
-            `https://minimart-ivrm.onrender.com/api/marketplace/products/${productId}/images`,
-            { method: "POST", body: fd }
-          );
-
-          if (!res.ok) {
-            const errData = await res.json();
-            throw new Error(errData.message || `Failed to upload image #${index + 1}`);
-          }
-        })
-      );
+        await Promise.all(
+          formDataArr.map(fd =>
+            fetch(`https://minimart-ivrm.onrender.com/api/marketplace/products/${productId}/images`, {
+              method: "POST",
+              body: fd,
+            })
+          )
+        );
+      }
 
       // ✅ Success
       alert("Product added successfully!");
@@ -198,7 +189,7 @@ export default function AddProductPage() {
       setSelectedCity("");
     } catch (err) {
       console.error(err);
-      alert(err.message);
+      alert(err.message); // shows real backend error
     } finally {
       setLoading(false);
     }
@@ -211,30 +202,24 @@ export default function AddProductPage() {
       {/* TITLE */}
       <div className="field">
         <label>Title</label>
-        <input
-          value={form.title}
-          onChange={e => update("title", e.target.value)}
-          placeholder="e.g iPhone 13"
-        />
+        <input value={form.title} onChange={e => update("title", e.target.value)} placeholder="e.g iPhone 13" />
       </div>
 
       {/* DESCRIPTION */}
       <div className="field">
         <label>Description</label>
-        <textarea
-          value={form.description}
-          onChange={e => update("description", e.target.value)}
-          placeholder="Write product details here..."
-        />
+        <textarea value={form.description} onChange={e => update("description", e.target.value)} placeholder="Write product details here..." />
       </div>
 
-      {/* CATEGORY & SUBCATEGORY */}
+      {/* CATEGORY */}
       <DropdownModal
         label="Category"
         value={form.mainCategory}
         onChange={val => update("mainCategory", val)}
         options={categories.map(c => ({ id: c.id, name: c.name }))}
       />
+
+      {/* SUBCATEGORY */}
       {subcategories.length > 0 && (
         <DropdownModal
           label="Subcategory"
@@ -287,29 +272,13 @@ export default function AddProductPage() {
       })}
 
       {/* STATE & CITY */}
-      <DropdownModal
-        label="State"
-        value={selectedState}
-        onChange={handleStateChange}
-        options={states}
-      />
-      {selectedState && (
-        <DropdownModal
-          label="City"
-          value={selectedCity}
-          onChange={handleCityChange}
-          options={cities}
-        />
-      )}
+      <DropdownModal label="State" value={selectedState} onChange={handleStateChange} options={states} />
+      {selectedState && <DropdownModal label="City" value={selectedCity} onChange={handleCityChange} options={cities} />}
 
       {/* PRICE */}
       <div className="field">
         <label>Price (₦)</label>
-        <input
-          type="text"
-          value={formatPrice(form.price)}
-          onChange={e => handlePriceChange(e.target.value)}
-        />
+        <input type="text" value={formatPrice(form.price)} onChange={e => handlePriceChange(e.target.value)} />
       </div>
 
       {/* PROMOTION */}
@@ -320,40 +289,24 @@ export default function AddProductPage() {
         options={promotionPlans.map(plan => {
           const activePrice = getActivePrice(plan.price, plan.discount);
           const discountPercent = getDiscountPercent(plan.originalPrice, plan.discount);
-          return {
-            id: plan.id,
-            name: `${plan.name} - ₦${activePrice.toLocaleString()} (${discountPercent}% off)`,
-          };
+          return { id: plan.id, name: `${plan.name} - ₦${activePrice.toLocaleString()} (${discountPercent}% off)` };
         })}
       />
 
       {/* IMAGES */}
       <div className="field">
         <label>Images (max 8)</label>
-        <div className="image-grid">
+        <div className="image-input-wrapper">
+          <input type="file" accept="image/*" multiple onChange={e => handleImages(e.target.files)} />
+          {images.length < 8 && <button type="button" onClick={() => document.querySelector('input[type="file"]').click()}>+</button>}
+        </div>
+        <div className="image-preview">
           {previewUrls.map((url, i) => (
             <div key={i} className="preview-wrapper">
               <img src={url} alt={`preview ${i}`} />
-              <button type="button" className="remove-btn" onClick={() => removeImage(i)}>
-                ✕
-              </button>
+              <button type="button" onClick={() => removeImage(i)}>Remove</button>
             </div>
           ))}
-
-          {/* + Add More Button */}
-          {images.length + previewUrls.length < 8 && (
-            <div className="add-more-wrapper">
-              <label htmlFor="add-more-input" className="add-more-btn">＋</label>
-              <input
-                id="add-more-input"
-                type="file"
-                multiple
-                accept="image/*"
-                style={{ display: "none" }}
-                onChange={e => handleImages(e.target.files)}
-              />
-            </div>
-          )}
         </div>
       </div>
 
