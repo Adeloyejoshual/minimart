@@ -1,4 +1,3 @@
-// src/pages/Homepage.jsx
 import { useEffect, useState } from "react";
 import TopNav from "../components/TopNav";
 import BottomNav from "../components/BottomNav";
@@ -16,7 +15,7 @@ export default function Homepage() {
   const [selectedCity, setSelectedCity] = useState("");
   const [selectedCategory, setSelectedCategory] = useState("");
 
-  const states = Object.keys(locationsByState);
+  const states = Object.keys(locationsByState || {});
   const cities = selectedState ? locationsByState[selectedState] : [];
 
   // ---------------- FETCH PRODUCTS ----------------
@@ -43,61 +42,65 @@ export default function Homepage() {
         const data = await res.json();
         setCategories(data || []);
       } catch (err) {
-        console.error("Failed to fetch categories:", err);
+        console.error("Failed to load categories", err);
       }
     }
     fetchCategories();
   }, []);
 
-  // ---------------- FILTER PRODUCTS ----------------
+  // ---------------- FILTERED PRODUCTS ----------------
   const filteredProducts = products.filter((p) => {
     const productCategory = p.category_id;
-    const productCity = p.dynamic?.location?.city || "";
     const productState = p.dynamic?.location?.state || "";
+    const productCity = p.dynamic?.location?.city || "";
 
-    const matchCategory = selectedCategory ? productCategory === selectedCategory : true;
-    const matchState = selectedState ? productState === selectedState : true;
-    const matchCity = selectedCity ? productCity === selectedCity : true;
+    if (selectedCategory && selectedCategory !== productCategory) return false;
+    if (selectedState && selectedState !== productState) return false;
+    if (selectedCity && selectedCity !== productCity) return false;
 
-    return matchCategory && matchState && matchCity;
+    return true;
   });
 
   return (
     <>
       <TopNav />
-      <div className="homepage-container">
-        {/* ================= FILTER BAR ================= */}
-        <div className="filter-bar">
-          <DropdownModal
-            label="State"
-            value={selectedState}
-            onChange={(val) => { setSelectedState(val); setSelectedCity(""); }}
-            options={states}
-          />
-          {selectedState && (
-            <DropdownModal
-              label="City"
-              value={selectedCity}
-              onChange={setSelectedCity}
-              options={cities}
-            />
-          )}
-          <DropdownModal
-            label="Category"
-            value={selectedCategory}
-            onChange={setSelectedCategory}
-            options={categories.map(c => ({ id: c.id, name: c.name }))}
-          />
-        </div>
 
-        {/* ================= PRODUCT GRID ================= */}
+      {/* ===== SEARCH/FILTER BAR ===== */}
+      <div className="filter-bar">
+        <DropdownModal
+          label="State"
+          value={selectedState}
+          onChange={(val) => {
+            setSelectedState(val);
+            setSelectedCity("");
+          }}
+          options={states}
+        />
+        {selectedState && (
+          <DropdownModal
+            label="City"
+            value={selectedCity}
+            onChange={setSelectedCity}
+            options={cities}
+          />
+        )}
+        <DropdownModal
+          label="Category"
+          value={selectedCategory}
+          onChange={setSelectedCategory}
+          options={categories.map((c) => ({ id: c.id, name: c.name }))}
+        />
+      </div>
+
+      {/* ===== PRODUCTS GRID ===== */}
+      <div className="homepage-container">
         {loading ? (
           <p>Loading products...</p>
         ) : filteredProducts.length === 0 ? (
-          <p>No products found</p>
+          <p>No products found for selected filters.</p>
         ) : (
           <div className="product-grid">
-            {filteredProducts.map(product => {
+            {filteredProducts.map((product) => {
               const { id, title, price, description, images, dynamic } = product;
               const mainImage = images?.[0] || "/placeholder.png";
               const location = dynamic?.location?.city || dynamic?.location?.state || "";
@@ -117,6 +120,7 @@ export default function Homepage() {
           </div>
         )}
       </div>
+
       <BottomNav />
     </>
   );
