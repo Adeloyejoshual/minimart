@@ -1,7 +1,26 @@
 // src/pages/AddProductPage.jsx
 import { useEffect, useState } from "react";
+
+// ✅ LOCAL CONFIG (fallback)
+import { brands } from "../config/brands.js";
+import { colors } from "../config/colors.js";
+import { categoryFields } from "../config/categoryFields.js";
+import { conditions, usedDetails } from "../config/conditions.js";
+import { featuresByCategory } from "../config/featuresByCategory.js";
+import { models } from "../config/models.js";
+import { ramOptions } from "../config/ramOptions.js";
+import { sims } from "../config/sims.js";
+import { storageOptions } from "../config/storageOptions.js";
+import { years } from "../config/years.js";
+import { engines } from "../config/engines.js";
+import { fuelTypes } from "../config/fuelTypes.js";
 import { locationsByState } from "../config/locationsByState.js";
-import { promotionPlans, getActivePrice, getDiscountPercent } from "../config/promotions.js";
+import {
+  promotionPlans,
+  getActivePrice,
+  getDiscountPercent,
+} from "../config/promotions.js";
+
 import "./AddProduct.css";
 
 export default function AddProductPage() {
@@ -30,7 +49,9 @@ export default function AddProductPage() {
   useEffect(() => {
     async function fetchCategories() {
       try {
-        const res = await fetch("https://minimart-ivrm.onrender.com/api/marketplace/categories");
+        const res = await fetch(
+          "https://minimart-ivrm.onrender.com/api/marketplace/categories"
+        );
         const data = await res.json();
         setCategories(data || []);
       } catch (err) {
@@ -40,65 +61,115 @@ export default function AddProductPage() {
     fetchCategories();
   }, []);
 
-  const selectedCategory = categories.find(c => c.id === form.mainCategory);
+  const selectedCategory = categories.find(
+    (c) => c.id === form.mainCategory
+  );
+
   const subcategories = selectedCategory?.subcategories || [];
-  const dynamicFields = selectedCategory?.dynamicOptions?.fields || [];
+
+  // ✅ Dynamic fields fallback
+  const dynamicFields =
+    selectedCategory?.dynamicOptions?.fields ||
+    categoryFields[form.mainCategory] ||
+    [];
+
   const options = selectedCategory?.dynamicOptions || {};
 
+  // ✅ HYBRID OPTIONS (backend first, fallback to local)
   const optionsMap = {
-    brand: options.brands || [],
-    model: options.models?.[form.dynamic.brand] || [],
-    color: options.colors || [],
-    condition: options.conditions || [],
-    used_detail: options.usedDetails || [],
-    ram: options.ram || [],
-    storage: options.storage || [],
-    sim: options.sims || [],
-    features: options.features || [],
-    year: options.years || [],
-    engine: options.engine || [],
-    fuel_type: options.fuel_type || [],
+    brand: options.brands?.length ? options.brands : brands,
+
+    model: options.models?.[form.dynamic.brand]?.length
+      ? options.models[form.dynamic.brand]
+      : models[form.dynamic.brand] || [],
+
+    color: options.colors?.length ? options.colors : colors,
+
+    condition: options.conditions?.length
+      ? options.conditions
+      : conditions,
+
+    used_detail: options.usedDetails?.length
+      ? options.usedDetails
+      : usedDetails,
+
+    ram: options.ram?.length ? options.ram : ramOptions,
+    storage: options.storage?.length
+      ? options.storage
+      : storageOptions,
+
+    sim: options.sims?.length ? options.sims : sims,
+
+    features: options.features?.length
+      ? options.features
+      : featuresByCategory[form.mainCategory] || [],
+
+    year: options.years?.length ? options.years : years,
+    engine: options.engine?.length ? options.engine : engines,
+    fuel_type: options.fuel_type?.length
+      ? options.fuel_type
+      : fuelTypes,
   };
 
-  const update = (key, value) => setForm(prev => ({ ...prev, [key]: value }));
-  const updateDynamic = (key, value) => setForm(prev => ({ ...prev, dynamic: { ...prev.dynamic, [key]: value } }));
+  // ---------------- UPDATE HANDLERS ----------------
+  const update = (key, value) =>
+    setForm((prev) => ({ ...prev, [key]: value }));
 
-  // ---------------- RESET DYNAMIC FIELDS ON CATEGORY CHANGE ----------------
+  const updateDynamic = (key, value) =>
+    setForm((prev) => ({
+      ...prev,
+      dynamic: { ...prev.dynamic, [key]: value },
+    }));
+
+  // ---------------- RESET DYNAMIC ----------------
   useEffect(() => {
-    if (!selectedCategory) return;
-    const initialDynamic = Object.fromEntries(dynamicFields.map(f => [f, f === "features" ? [] : ""]));
-    setForm(prev => ({ ...prev, dynamic: initialDynamic, subCategory: "" }));
+    if (!dynamicFields.length) return;
+
+    const initial = Object.fromEntries(
+      dynamicFields.map((f) => [f, f === "features" ? [] : ""])
+    );
+
+    setForm((prev) => ({
+      ...prev,
+      dynamic: initial,
+      subCategory: "",
+    }));
   }, [selectedCategory]);
 
-  // ---------------- HANDLE IMAGES ----------------
-  const handleImages = files => {
+  // ✅ Reset model when brand changes
+  useEffect(() => {
+    updateDynamic("model", "");
+  }, [form.dynamic.brand]);
+
+  // ---------------- IMAGES ----------------
+  const handleImages = (files) => {
     const arr = Array.from(files);
     setImages(arr);
-    setPreviewUrls(arr.map(f => URL.createObjectURL(f)));
+    setPreviewUrls(arr.map((f) => URL.createObjectURL(f)));
   };
 
-  // ---------------- HANDLE STATE & CITY ----------------
-  const handleStateChange = state => {
+  // ---------------- LOCATION ----------------
+  const handleStateChange = (state) => {
     setSelectedState(state);
     setSelectedCity("");
     updateDynamic("location", "");
   };
 
-  const handleCityChange = city => {
+  const handleCityChange = (city) => {
     setSelectedCity(city);
     updateDynamic("location", city);
   };
 
-  // ---------------- HANDLE PRICE INPUT ----------------
-  const handlePriceChange = value => {
+  // ---------------- PRICE ----------------
+  const handlePriceChange = (value) => {
     const numeric = value.replace(/[^0-9.]/g, "");
     update("price", numeric);
   };
 
-  const formatPrice = price => {
+  const formatPrice = (price) => {
     if (!price) return "";
-    const [integer, decimal] = price.toString().split(".");
-    return integer.replace(/\B(?=(\d{3})+(?!\d))/g, ",") + (decimal ? "." + decimal : "");
+    const [int, dec] = price.toString().split(".");
+    return int.replace(/\B(?=(\d{3})+(?!\d))/g, ",") + (dec ? "." + dec : "");
   };
 
   // ---------------- SUBMIT ----------------
@@ -106,52 +177,93 @@ export default function AddProductPage() {
     if (!form.title || !form.price || !form.mainCategory) {
       return alert("Title, price, and category are required");
     }
-    if (images.length === 0) return alert("Please upload at least one image");
+
+    if (!images.length) {
+      return alert("Upload at least one image");
+    }
 
     const cleanedDynamic = Object.fromEntries(
-      Object.entries(form.dynamic).filter(([_, v]) => v !== "" && v !== null && !(Array.isArray(v) && v.length === 0))
+      Object.entries(form.dynamic).filter(
+        ([_, v]) =>
+          v !== "" &&
+          v !== null &&
+          !(Array.isArray(v) && v.length === 0)
+      )
     );
 
     try {
       setLoading(true);
 
-      // If promotion is selected, initialize Paystack first
-      let promotionData = null;
+      // ---------- PROMOTION ----------
       if (form.promotionId) {
-        const selectedPlan = promotionPlans.find(p => p.id == form.promotionId);
-        if (!selectedPlan) return alert("Invalid promotion plan");
+        const plan = promotionPlans.find(
+          (p) => p.id == form.promotionId
+        );
 
-        const amountToPay = getActivePrice(Number(form.price), selectedPlan.discount);
-        const initRes = await fetch(`https://minimart-ivrm.onrender.com/api/promote/init`, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ amount: amountToPay }),
-        });
-        const initData = await initRes.json();
-        if (!initRes.ok) throw new Error(initData.message || "Failed to initialize payment");
+        const amount = getActivePrice(
+          Number(form.price),
+          plan.discount
+        );
 
-        promotionData = initData.data; // paystack transaction details
-        // Redirect user to Paystack
-        window.location.href = promotionData.authorization_url;
-        return; // stop submission until payment completes
+        const res = await fetch(
+          "https://minimart-ivrm.onrender.com/api/promote/init",
+          {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ amount }),
+          }
+        );
+
+        const data = await res.json();
+
+        if (!res.ok) throw new Error(data.message);
+
+        window.location.href = data.data.authorization_url;
+        return;
       }
 
-      // ---------- NORMAL PRODUCT CREATION ----------
+      // ---------- NORMAL UPLOAD ----------
       const formData = new FormData();
+
       formData.append("title", form.title);
       formData.append("description", form.description);
       formData.append("price", form.price);
       formData.append("category_id", form.mainCategory);
-      if (form.subCategory) formData.append("subcategory_id", form.subCategory);
-      formData.append("dynamicFields", JSON.stringify(cleanedDynamic));
-      images.forEach(img => formData.append("images", img));
+      if (form.subCategory)
+        formData.append("subcategory_id", form.subCategory);
 
-      const res = await fetch("https://minimart-ivrm.onrender.com/api/marketplace/products", { method: "POST", body: formData });
+      formData.append(
+        "dynamicFields",
+        JSON.stringify(cleanedDynamic)
+      );
+
+      images.forEach((img) => formData.append("images", img));
+
+      const res = await fetch(
+        "https://minimart-ivrm.onrender.com/api/marketplace/products",
+        {
+          method: "POST",
+          body: formData,
+        }
+      );
+
       const data = await res.json();
-      if (!res.ok) throw new Error(data.message || "Upload failed");
+
+      if (!res.ok) throw new Error(data.message);
 
       alert("Product added successfully!");
-      setForm({ title: "", description: "", price: "", mainCategory: "", subCategory: "", dynamic: {}, promotionId: "" });
+
+      // RESET
+      setForm({
+        title: "",
+        description: "",
+        price: "",
+        mainCategory: "",
+        subCategory: "",
+        dynamic: {},
+        promotionId: "",
+      });
+
       setImages([]);
       setPreviewUrls([]);
       setSelectedState("");
@@ -164,125 +276,127 @@ export default function AddProductPage() {
     }
   };
 
+  // ---------------- UI ----------------
   return (
     <div className="add-product-container">
-      <button onClick={() => window.history.back()} className="back-button">← Back</button>
+      <button onClick={() => window.history.back()}>
+        ← Back
+      </button>
+
       <h2>Add Product</h2>
 
-      {/* TITLE */}
-      <div className="field">
-        <label>Title</label>
-        <input value={form.title} onChange={e => update("title", e.target.value)} placeholder="e.g iPhone 13" />
-      </div>
+      <input
+        placeholder="Title"
+        value={form.title}
+        onChange={(e) => update("title", e.target.value)}
+      />
 
-      {/* DESCRIPTION */}
-      <div className="field">
-        <label>Description</label>
-        <textarea value={form.description} onChange={e => update("description", e.target.value)} placeholder="Write product details here..." />
-      </div>
+      <textarea
+        placeholder="Description"
+        value={form.description}
+        onChange={(e) => update("description", e.target.value)}
+      />
 
-      {/* CATEGORY */}
-      <div className="field">
-        <label>Category</label>
-        <select value={form.mainCategory} onChange={e => update("mainCategory", e.target.value)}>
-          <option value="">Select category</option>
-          {categories.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
-        </select>
-      </div>
+      <select
+        value={form.mainCategory}
+        onChange={(e) => update("mainCategory", e.target.value)}
+      >
+        <option value="">Category</option>
+        {categories.map((c) => (
+          <option key={c.id} value={c.id}>
+            {c.name}
+          </option>
+        ))}
+      </select>
 
-      {/* SUBCATEGORY */}
       {subcategories.length > 0 && (
-        <div className="field">
-          <label>Subcategory</label>
-          <select value={form.subCategory} onChange={e => update("subCategory", e.target.value)}>
-            <option value="">Select subcategory</option>
-            {subcategories.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
-          </select>
-        </div>
+        <select
+          value={form.subCategory}
+          onChange={(e) => update("subCategory", e.target.value)}
+        >
+          <option value="">Subcategory</option>
+          {subcategories.map((s) => (
+            <option key={s.id} value={s.id}>
+              {s.name}
+            </option>
+          ))}
+        </select>
       )}
 
-      {/* DYNAMIC FIELDS */}
-      {dynamicFields.map(field => {
+      {/* Dynamic fields */}
+      {dynamicFields.map((field) => {
         const value = form.dynamic[field];
-        if (field === "used_detail" && form.dynamic.condition !== "Used") return null;
         const isArray = field === "features";
+
+        if (
+          field === "used_detail" &&
+          form.dynamic.condition !== "Used"
+        )
+          return null;
+
         return (
-          <div className="field" key={field}>
-            <label>{field.replace(/_/g, " ").toUpperCase()}</label>
-            {!optionsMap[field] || optionsMap[field].length === 0 ? (
-              <input value={value || ""} onChange={e => updateDynamic(field, e.target.value)} />
+          <div key={field}>
+            <label>{field}</label>
+
+            {!optionsMap[field]?.length ? (
+              <input
+                value={value || ""}
+                onChange={(e) =>
+                  updateDynamic(field, e.target.value)
+                }
+              />
             ) : isArray ? (
-              <div className="multi-select">
-                {optionsMap[field].map(opt => {
-                  const current = Array.isArray(value) ? value : [];
-                  return (
-                    <label key={opt}>
-                      <input type="checkbox" checked={current.includes(opt)} onChange={() => updateDynamic(field, current.includes(opt) ? current.filter(v => v !== opt) : [...current, opt])} />
-                      {opt}
-                    </label>
-                  );
-                })}
-              </div>
+              optionsMap[field].map((opt) => (
+                <label key={opt}>
+                  <input
+                    type="checkbox"
+                    checked={value?.includes(opt)}
+                    onChange={() =>
+                      updateDynamic(
+                        field,
+                        value?.includes(opt)
+                          ? value.filter((v) => v !== opt)
+                          : [...(value || []), opt]
+                      )
+                    }
+                  />
+                  {opt}
+                </label>
+              ))
             ) : (
-              <select value={value || ""} onChange={e => updateDynamic(field, e.target.value)}>
+              <select
+                value={value || ""}
+                onChange={(e) =>
+                  updateDynamic(field, e.target.value)
+                }
+              >
                 <option value="">Select</option>
-                {optionsMap[field].map(opt => <option key={opt} value={opt}>{opt}</option>)}
+                {optionsMap[field].map((opt) => (
+                  <option key={opt}>{opt}</option>
+                ))}
               </select>
             )}
           </div>
         );
       })}
 
-      {/* STATE */}
-      <div className="field">
-        <label>State</label>
-        <select value={selectedState} onChange={e => handleStateChange(e.target.value)}>
-          <option value="">Select state</option>
-          {states.map(s => <option key={s}>{s}</option>)}
-        </select>
-      </div>
+      <input
+        value={formatPrice(form.price)}
+        onChange={(e) =>
+          handlePriceChange(e.target.value)
+        }
+        placeholder="Price"
+      />
 
-      {/* CITY */}
-      {selectedState && (
-        <div className="field">
-          <label>City</label>
-          <select value={selectedCity} onChange={e => handleCityChange(e.target.value)}>
-            <option value="">Select city</option>
-            {cities.map(c => <option key={c}>{c}</option>)}
-          </select>
-        </div>
-      )}
+      <input
+        type="file"
+        multiple
+        onChange={(e) => handleImages(e.target.files)}
+      />
 
-      {/* PRICE */}
-      <div className="field">
-        <label>Price (₦)</label>
-        <input type="text" value={formatPrice(form.price)} onChange={e => handlePriceChange(e.target.value)} />
-      </div>
-
-      {/* PROMOTION */}
-      <div className="field">
-        <label>Promotion</label>
-        <select value={form.promotionId || ""} onChange={e => update("promotionId", e.target.value)}>
-          <option value="">Select promotion</option>
-          {promotionPlans.map(plan => {
-            const discountPercent = getDiscountPercent(plan.originalPrice, plan.discount);
-            const activePrice = getActivePrice(plan.price, plan.discount);
-            return <option key={plan.id} value={plan.id}>{plan.name} - ₦{activePrice.toLocaleString()} ({discountPercent}% off)</option>;
-          })}
-        </select>
-      </div>
-
-      {/* IMAGES */}
-      <div className="field">
-        <label>Images</label>
-        <input type="file" multiple onChange={e => handleImages(e.target.files)} />
-        <div className="image-preview">
-          {previewUrls.map((url, i) => <img key={i} src={url} alt={`preview ${i}`} />)}
-        </div>
-      </div>
-
-      {/* SUBMIT */}
-      <button onClick={handleSubmit} disabled={loading}>{loading ? "Saving..." : "Add Product"}</button>
+      <button onClick={handleSubmit} disabled={loading}>
+        {loading ? "Saving..." : "Add Product"}
+      </button>
     </div>
   );
 }
