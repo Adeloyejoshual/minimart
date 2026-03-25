@@ -50,38 +50,39 @@ router.get("/products", async (req, res) => {
 
     // 1️⃣ Trending (top 6 by views)
     const { rows: trendingRows } = await pool.query(`
-      SELECT * FROM products
-      WHERE is_active = true
-      ORDER BY views DESC
+      SELECT p.*, COALESCE(json_agg(pi.image_url) FILTER (WHERE pi.image_url IS NOT NULL), '[]') AS images
+      FROM products p
+      LEFT JOIN product_images pi ON p.id = pi.product_id
+      WHERE p.is_active = true
+      GROUP BY p.id
+      ORDER BY p.views DESC
       LIMIT 6
     `);
 
     // 2️⃣ Recommendations / main products (recently added)
     const { rows: mainRows } = await pool.query(`
-      SELECT * FROM products
-      WHERE is_active = true
-      ORDER BY created_at DESC
+      SELECT p.*, COALESCE(json_agg(pi.image_url) FILTER (WHERE pi.image_url IS NOT NULL), '[]') AS images
+      FROM products p
+      LEFT JOIN product_images pi ON p.id = pi.product_id
+      WHERE p.is_active = true
+      GROUP BY p.id
+      ORDER BY p.created_at DESC
       OFFSET $1
       LIMIT $2
     `, [skip, limit]);
 
-    // 3️⃣ Normalize product data
-    const normalize = (p) => {
-      let dynamic = {}, images = [];
-      try { dynamic = p.dynamic_fields ? JSON.parse(p.dynamic_fields) : {}; } catch {}
-      try { images = p.images ? JSON.parse(p.images) : []; } catch {}
-      return {
-        ...p,
-        dynamic_fields: dynamic,
-        images,
-        location: { state: p.location_state, city: p.location_city },
-      };
-    };
+    // Normalize data
+    const normalize = (p) => ({
+      ...p,
+      images: Array.isArray(p.images) ? p.images : [],
+      dynamic_fields: p.dynamic_fields ? JSON.parse(p.dynamic_fields) : {},
+      location: { state: p.location_state, city: p.location_city },
+    });
 
     const trendingProducts = trendingRows.map(normalize);
     const mainProducts = mainRows.map(normalize);
 
-    // 4️⃣ Combine products, trending first, avoid duplicates
+    // Combine products, trending first, avoid duplicates
     const trendingIds = trendingProducts.map(p => p.id);
     const products = [
       ...trendingProducts,
@@ -97,17 +98,23 @@ router.get("/products", async (req, res) => {
 
 /* =========================================================
    GET SINGLE PRODUCT
-   (needed for ProductDetail page)
 ========================================================= */
 router.get("/products/:id", async (req, res) => {
   try {
     const { id } = req.params;
-    const { rows } = await pool.query("SELECT * FROM products WHERE id = $1", [id]);
+    const { rows } = await pool.query(`
+      SELECT p.*, COALESCE(json_agg(pi.image_url) FILTER (WHERE pi.image_url IS NOT NULL), '[]') AS images
+      FROM products p
+      LEFT JOIN product_images pi ON p.id = pi.product_id
+      WHERE p.id = $1
+      GROUP BY p.id
+    `, [id]);
+
     if (!rows.length) return res.status(404).json({ message: "Product not found" });
 
-    let product = rows[0];
-    try { product.images = product.images ? JSON.parse(product.images) : []; } catch {}
-    try { product.dynamic_fields = product.dynamic_fields ? JSON.parse(product.dynamic_fields) : {}; } catch {}
+    const product = rows[0];
+    product.dynamic_fields = product.dynamic_fields ? JSON.parse(product.dynamic_fields) : {};
+    product.location = { state: product.location_state, city: product.location_city };
 
     // Increment views
     await pool.query("UPDATE products SET views = COALESCE(views, 0) + 1 WHERE id = $1", [id]);
@@ -147,7 +154,7 @@ router.post("/products", upload.array("images"), async (req, res) => {
       Object.entries(parsedFields).filter(([k]) => allowedKeys.includes(k))
     );
 
-    // Upload images
+    // Upload images to Cloudinary
     const uploadedImages = req.files?.length
       ? await Promise.all(req.files.map(file =>
           new Promise((resolve, reject) => {
@@ -160,24 +167,37 @@ router.post("/products", upload.array("images"), async (req, res) => {
         ))
       : [];
 
-    const query = `
+    // Insert product
+    const { rows } = await pool.query(`
       INSERT INTO products
-      (title, description, price, category_id, subcategory_id, images, dynamic_fields, promotion_id, created_at)
-      VALUES ($1,$2,$3,$4,$5,$6,$7,$8, now())
+      (title, description, price, category_id, subcategory_id, dynamic_fields, promotion_id, created_at)
+      VALUES ($1,$2,$3,$4,$5,$6,$7,$8)
       RETURNING *
-    `;
-    const { rows } = await pool.query(query, [
+    `, [
       title,
       description || null,
       priceNum,
       category_id,
       subcategory_id || null,
-      uploadedImages.length ? JSON.stringify(uploadedImages) : null,
       Object.keys(cleanedFields).length ? JSON.stringify(cleanedFields) : null,
-      promotion_id || null
+      promotion_id || null,
+      new Date()
     ]);
 
     const product = rows[0];
+
+    // Save images into product_images table
+    if (uploadedImages.length) {
+      await Promise.all(
+        uploadedImages.map((url, index) =>
+          pool.query(
+            `INSERT INTO product_images (product_id, image_url, position) VALUES ($1,$2,$3)`,
+            [product.id, url, index]
+          )
+        )
+      );
+    }
+
     product.category_name = category.name;
     if (promotion_id) product.promotion = promotionPlans.find(p => p.id == promotion_id) || null;
 
