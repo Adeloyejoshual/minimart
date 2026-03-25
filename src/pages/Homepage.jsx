@@ -1,6 +1,4 @@
-// src/page/Homepage.jsx
-import React, { useEffect, useState, useRef, useCallback } from "react";
-import axios from "axios";
+import { useEffect, useState, useRef } from "react";
 import TopNav from "../components/TopNav";
 import BottomNav from "../components/BottomNav";
 import "../styles/Homepage.css";
@@ -8,147 +6,146 @@ import "../styles/Homepage.css";
 export default function Homepage() {
   const [products, setProducts] = useState([]);
   const [trending, setTrending] = useState([]);
-  const [skip, setSkip] = useState(0);
   const [loading, setLoading] = useState(false);
-  const [hasMore, setHasMore] = useState(true);
-  const limit = 12; // first load and subsequent loads
+  const [skip, setSkip] = useState(0);
 
-  const observer = useRef();
+  const observerRef = useRef();
 
-  // Fetch products
-  const fetchProducts = useCallback(async () => {
-    if (loading || !hasMore) return;
-    setLoading(true);
+  // ---------------- FETCH PRODUCTS ----------------
+  const fetchProducts = async () => {
     try {
-      const res = await axios.get("/api/products", { params: { skip, limit } });
-      const fetched = res.data.products || [];
+      setLoading(true);
 
-      // separate trending & main
+      const res = await fetch(
+        `https://minimart-ivrm.onrender.com/api/marketplace/products?skip=${skip}&limit=20`
+      );
+
+      const data = await res.json();
+
+      console.log("API RESPONSE:", data); // 🔥 DEBUG
+
+      // IMPORTANT: handle structure correctly
       if (skip === 0) {
-        const trendingFetched = fetched.slice(0, 6);
-        setTrending(trendingFetched);
-        const mainFetched = fetched.filter(p => !trendingFetched.map(t => t.id).includes(p.id));
-        setProducts(mainFetched);
-      } else {
-        setProducts(prev => [...prev, ...fetched]);
+        setTrending(data.trending || []);
       }
 
-      if (fetched.length < limit) setHasMore(false);
-      setSkip(prev => prev + limit);
+      setProducts((prev) => [...prev, ...(data.products || [])]);
+
     } catch (err) {
-      console.error("Fetch products error:", err);
+      console.error("Fetch error:", err);
+    } finally {
+      setLoading(false);
     }
-    setLoading(false);
-  }, [skip, loading, hasMore]);
+  };
 
   useEffect(() => {
     fetchProducts();
-  }, []);
+  }, [skip]);
 
-  // Infinite scroll observer
-  const lastProductRef = useCallback(node => {
-    if (loading) return;
-    if (observer.current) observer.current.disconnect();
+  // ---------------- INFINITE SCROLL ----------------
+  useEffect(() => {
+    const observer = new IntersectionObserver(
+      (entries) => {
+        if (entries[0].isIntersecting && !loading) {
+          setSkip((prev) => prev + 20);
+        }
+      },
+      { threshold: 1 }
+    );
 
-    observer.current = new IntersectionObserver(entries => {
-      if (entries[0].isIntersecting && hasMore) {
-        fetchProducts();
-      }
-    });
+    if (observerRef.current) observer.observe(observerRef.current);
 
-    if (node) observer.current.observe(node);
-  }, [loading, hasMore, fetchProducts]);
+    return () => observer.disconnect();
+  }, [loading]);
 
-  return (
-    <div>
-      <TopNav />
-      <div className="homepage-container">
-        {/* ---------------- TRENDING ---------------- */}
-        {trending.length > 0 && (
-          <div className="section">
-            <h2>Trending</h2>
-            <div className="trending-scroll">
-              {trending.map((p) => (
-                <div key={p.id} className="card">
-                  <div className="card-image">
-                    {p.images?.[0] ? (
-                      <img src={p.images[0]} alt={p.title} loading="lazy" />
-                    ) : (
-                      <div className="skeleton" style={{ height: "100%" }}></div>
-                    )}
-                  </div>
-                  {p.is_promoted && <div className="promotion-badge">Promo</div>}
-                  <div className="card-body">
-                    <p className="title">{p.title}</p>
-                    <p className="desc">{p.description}</p>
-                    <p className="price">${p.price}</p>
-                    <p className="location">{p.location?.city}, {p.location?.state}</p>
-                  </div>
-                </div>
-              ))}
-            </div>
-          </div>
-        )}
+  // ---------------- HELPERS ----------------
+  const getImage = (p) => {
+    if (Array.isArray(p.images) && p.images.length > 0) {
+      return p.images[0];
+    }
+    if (p.image) return p.image;
 
-        {/* ---------------- PRODUCTS ---------------- */}
-        <div className="section">
-          <h2>Products</h2>
-          <div className="products-grid">
-            {products.map((p, idx) => {
-              if (products.length === idx + 1) {
-                return (
-                  <div key={p.id} ref={lastProductRef} className="card">
-                    <div className="card-image">
-                      {p.images?.[0] ? (
-                        <img src={p.images[0]} alt={p.title} loading="lazy" />
-                      ) : (
-                        <div className="skeleton" style={{ height: "100%" }}></div>
-                      )}
-                    </div>
-                    {p.is_promoted && <div className="promotion-badge">Promo</div>}
-                    <div className="card-body">
-                      <p className="title">{p.title}</p>
-                      <p className="desc">{p.description}</p>
-                      <p className="price">${p.price}</p>
-                      <p className="location">{p.location?.city}, {p.location?.state}</p>
-                    </div>
-                  </div>
-                );
-              } else {
-                return (
-                  <div key={p.id} className="card">
-                    <div className="card-image">
-                      {p.images?.[0] ? (
-                        <img src={p.images[0]} alt={p.title} loading="lazy" />
-                      ) : (
-                        <div className="skeleton" style={{ height: "100%" }}></div>
-                      )}
-                    </div>
-                    {p.is_promoted && <div className="promotion-badge">Promo</div>}
-                    <div className="card-body">
-                      <p className="title">{p.title}</p>
-                      <p className="desc">{p.description}</p>
-                      <p className="price">${p.price}</p>
-                      <p className="location">{p.location?.city}, {p.location?.state}</p>
-                    </div>
-                  </div>
-                );
-              }
-            })}
-            {loading && Array.from({ length: 6 }).map((_, i) => (
-              <div key={i} className="card">
-                <div className="card-image skeleton"></div>
-                <div className="card-body">
-                  <div className="line short skeleton"></div>
-                  <div className="line small skeleton"></div>
-                  <div className="line skeleton"></div>
-                </div>
-              </div>
-            ))}
-          </div>
+    return "https://via.placeholder.com/300x200?text=No+Image";
+  };
+
+  const truncate = (text, len = 40) => {
+    if (!text) return "";
+    return text.length > len ? text.slice(0, len) + "..." : text;
+  };
+
+  const getLocation = (p) => {
+    if (p.location?.city && p.location?.state) {
+      return `${p.location.city}, ${p.location.state}`;
+    }
+    if (p.location_state || p.location_city) {
+      return `${p.location_city || ""} ${p.location_state || ""}`;
+    }
+    return "Nigeria";
+  };
+
+  // ---------------- RENDER CARD ----------------
+  const renderCard = (p) => (
+    <div key={p.id} className="card">
+      <div className="card-image">
+        <img src={getImage(p)} alt={p.title} loading="lazy" />
+      </div>
+
+      <div className="card-body">
+        <div className="price">₦{Number(p.price).toLocaleString()}</div>
+
+        <div className="title">{truncate(p.title, 35)}</div>
+
+        <div className="desc">
+          {truncate(p.description, 50)}
+        </div>
+
+        <div className="location">
+          {getLocation(p)}
         </div>
       </div>
-      <BottomNav />
     </div>
+  );
+
+  return (
+    <>
+      <TopNav />
+
+      <div className="homepage-container">
+
+        {/* ---------------- TRENDING ---------------- */}
+        <div className="section">
+          <h2>🔥 Trending</h2>
+
+          <div className="trending-scroll">
+            {trending.length > 0 ? (
+              trending.map(renderCard)
+            ) : (
+              <p>No trending products</p>
+            )}
+          </div>
+        </div>
+
+        {/* ---------------- ALL PRODUCTS ---------------- */}
+        <div className="section">
+          <h2>🛒 Products</h2>
+
+          <div className="products-grid">
+            {products.length > 0 ? (
+              products.map(renderCard)
+            ) : (
+              <p>No products found</p>
+            )}
+          </div>
+
+          {/* LOAD MORE TRIGGER */}
+          <div ref={observerRef} style={{ height: "40px" }} />
+
+          {/* LOADING */}
+          {loading && <p style={{ textAlign: "center" }}>Loading...</p>}
+        </div>
+      </div>
+
+      <BottomNav />
+    </>
   );
 }
