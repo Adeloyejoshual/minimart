@@ -1,4 +1,4 @@
-// src/pages/Homepage.jsx - ENTERPRISE SPLIT-CARD v1.0
+// src/pages/Homepage.jsx - ENTERPRISE GRID v4.0
 import React, { useEffect, useState, useCallback, useMemo, useRef } from "react";
 import axios from "axios";
 import { useNavigate } from "react-router-dom";
@@ -7,145 +7,198 @@ import BottomNav from "../components/BottomNav";
 import "../styles/Homepage.css";
 
 const API_BASE = "https://minimart-ivrm.onrender.com/api/marketplace";
-const REQUEST_TIMEOUT = 10000;
-const MAX_LOAD_LIMIT = 50;
-
-axios.defaults.timeout = REQUEST_TIMEOUT;
+const LIMIT = 20;
+const MAX_LOAD = 60;
 
 export default function Homepage({ user }) {
   const navigate = useNavigate();
+
   const [products, setProducts] = useState([]);
   const [loading, setLoading] = useState(false);
-  const lastScrollY = useRef(0);
+
   const skipRef = useRef(0);
+  const lastScrollY = useRef(0);
+
   const [showTopNav, setShowTopNav] = useState(true);
   const [showBottomNav, setShowBottomNav] = useState(true);
 
-  const LIMIT = 20;
-  const endpoints = useMemo(() => ({ products: `${API_BASE}/products` }), []);
+  const endpoint = useMemo(() => `${API_BASE}/products`, []);
 
-  const getProductId = useCallback((product) => product.id || product._id, []);
+  const getId = (p) => p.id || p._id;
 
-  // ---------------- LOAD PRODUCTS ----------------
+  // ================= LOAD PRODUCTS =================
   const loadProducts = useCallback(async (reset = false) => {
-    if (loading || products.length >= MAX_LOAD_LIMIT) return;
+    if (loading || products.length >= MAX_LOAD) return;
+
     try {
       setLoading(true);
+
       const skip = reset ? 0 : skipRef.current;
-      const { data } = await axios.get(endpoints.products, { params: { skip, limit: LIMIT } });
-      const productData = Array.isArray(data) ? data : data.products || [];
+
+      const { data } = await axios.get(endpoint, {
+        params: { skip, limit: LIMIT },
+      });
+
+      const list = Array.isArray(data) ? data : data.products || [];
 
       if (reset) {
-        setProducts(productData);
-        skipRef.current = productData.length;
+        setProducts(list);
+        skipRef.current = list.length;
       } else {
-        setProducts(prev => [...prev, ...productData].slice(0, MAX_LOAD_LIMIT));
-        skipRef.current += productData.length;
+        setProducts(prev => [...prev, ...list].slice(0, MAX_LOAD));
+        skipRef.current += list.length;
       }
     } catch (err) {
-      console.error("Load products error:", err);
+      console.error("Load error:", err);
     } finally {
       setLoading(false);
     }
-  }, [endpoints.products, loading, products.length]);
+  }, [endpoint, loading, products.length]);
 
-  useEffect(() => { loadProducts(true); }, [loadProducts]);
-
-  // ---------------- SCROLL NAV ----------------
   useEffect(() => {
-    const handleScrollNav = () => {
-      const scrollY = window.scrollY;
-      if (scrollY > lastScrollY.current && scrollY > 100) {
+    loadProducts(true);
+  }, [loadProducts]);
+
+  // ================= NAV SCROLL =================
+  useEffect(() => {
+    const onScroll = () => {
+      const y = window.scrollY;
+
+      if (y > lastScrollY.current && y > 100) {
         setShowTopNav(false);
         setShowBottomNav(false);
       } else {
         setShowTopNav(true);
         setShowBottomNav(true);
       }
-      lastScrollY.current = scrollY;
+
+      lastScrollY.current = y;
     };
-    window.addEventListener("scroll", handleScrollNav);
-    return () => window.removeEventListener("scroll", handleScrollNav);
+
+    window.addEventListener("scroll", onScroll);
+    return () => window.removeEventListener("scroll", onScroll);
   }, []);
 
-  // ---------------- INFINITE SCROLL ----------------
+  // ================= INFINITE SCROLL =================
   useEffect(() => {
-    const handleScrollLoad = () => {
-      if (!loading && products.length < MAX_LOAD_LIMIT) {
-        const scrollY = window.scrollY;
-        const windowHeight = window.innerHeight;
-        const documentHeight = document.documentElement.scrollHeight;
-        if (scrollY + windowHeight >= documentHeight - 150) loadProducts(false);
-      }
+    const handleLoad = () => {
+      if (loading || products.length >= MAX_LOAD) return;
+
+      const scrollBottom =
+        window.innerHeight + window.scrollY >=
+        document.documentElement.scrollHeight - 120;
+
+      if (scrollBottom) loadProducts(false);
     };
-    window.addEventListener("scroll", handleScrollLoad);
-    return () => window.removeEventListener("scroll", handleScrollLoad);
+
+    window.addEventListener("scroll", handleLoad);
+    return () => window.removeEventListener("scroll", handleLoad);
   }, [loading, products.length, loadProducts]);
 
-  const handleProductClick = useCallback((product) => {
-    const id = getProductId(product);
-    navigate(`/product/${id}`);
-  }, [navigate, getProductId]);
+  // ================= NAVIGATE =================
+  const openProduct = (product) => {
+    navigate(`/product/${getId(product)}`);
+  };
 
-  const formatCurrency = useCallback((amount) => {
-    return new Intl.NumberFormat("en-NG", { style: "currency", currency: "NGN", minimumFractionDigits: 0 }).format(amount || 0);
-  }, []);
+  const formatCurrency = (amount) =>
+    new Intl.NumberFormat("en-NG", {
+      style: "currency",
+      currency: "NGN",
+      minimumFractionDigits: 0,
+    }).format(amount || 0);
 
   return (
-    <div className="homepage-container">
-      <TopNav user={user} className={`fixed-top-nav ${showTopNav ? 'visible' : 'hidden'}`} />
+    <div className="homepage">
+      <TopNav className={showTopNav ? "show" : "hide"} user={user} />
 
-      <header className="hero-section">
-        <h1>MiniMart Marketplace</h1>
-        <p>Discover Amazing Products</p>
+      <header className="hero">
+        <h1>MiniMart</h1>
+        <p>Discover amazing products</p>
       </header>
 
-      <main className="products-grid split-card-grid">
-        {products.map(product => (
-          <SplitProductCard
-            key={getProductId(product)}
-            product={product}
-            onClick={() => handleProductClick(product)}
+      {/* ================= GRID ================= */}
+      <section className="products-grid">
+        {products.map((p) => (
+          <ProductCard
+            key={getId(p)}
+            product={p}
+            onClick={() => openProduct(p)}
             formatCurrency={formatCurrency}
           />
         ))}
-        {loading && [...Array(6)].map((_, i) => <SkeletonSplitCard key={i} />)}
-      </main>
 
-      <BottomNav className={`fixed-bottom-nav ${showBottomNav ? 'visible' : 'hidden'}`} />
+        {loading && <SkeletonCards />}
+      </section>
+
+      <BottomNav className={showBottomNav ? "show" : "hide"} />
     </div>
   );
 }
 
-// ---------------- SPLIT PRODUCT CARD ----------------
-function SplitProductCard({ product, onClick, formatCurrency }) {
-  const image = (product.images && product.images.length ? product.images[0] : null) || '/placeholder-product.png';
+// ================= PRODUCT CARD =================
+function ProductCard({ product, onClick, formatCurrency }) {
+  let images = product.images;
+
+  // FIX: parse if stored as string
+  if (typeof images === "string") {
+    try {
+      images = JSON.parse(images);
+    } catch {
+      images = [];
+    }
+  }
+
+  const image =
+    (images && images.length ? images[0] : null) ||
+    "/placeholder-product.png";
+
   return (
-    <article className="split-card" onClick={onClick} role="button" tabIndex={0}>
-      <div className="split-info">
-        <h3>{product.title || "Untitled"}</h3>
-        <p className="description">{product.description || ""}</p>
-        {product.dynamic_fields?.location && <p className="location">{product.dynamic_fields.location}</p>}
-        <p className="price">{formatCurrency(product.price)}</p>
+    <article className="card" onClick={onClick}>
+      {/* IMAGE */}
+      <div className="card-image">
+        <img src={image} alt={product.title || "Product"} />
       </div>
-      <div className="split-image">
-        <img src={image} alt={product.title || "Product"} loading="lazy" />
+
+      {/* CONTENT */}
+      <div className="card-body">
+        <p className="price">
+          {formatCurrency(product.price)}
+        </p>
+
+        <h3 className="title">
+          {product.title || "Untitled"}
+        </h3>
+
+        <div className="meta">
+          <p className="desc">
+            {product.description?.slice(0, 40) || ""}
+          </p>
+
+          {product.dynamic_fields?.location && (
+            <span className="location">
+              📍 {product.dynamic_fields.location}
+            </span>
+          )}
+        </div>
       </div>
     </article>
   );
 }
 
-// ---------------- SKELETON ----------------
-function SkeletonSplitCard() {
+// ================= SKELETON =================
+function SkeletonCards() {
   return (
-    <div className="split-card skeleton">
-      <div className="split-info">
-        <div className="title" />
-        <div className="description" />
-        <div className="location" />
-        <div className="price" />
-      </div>
-      <div className="split-image" />
-    </div>
+    <>
+      {[...Array(8)].map((_, i) => (
+        <div key={i} className="card skeleton">
+          <div className="card-image"></div>
+          <div className="card-body">
+            <div className="line short"></div>
+            <div className="line"></div>
+            <div className="line small"></div>
+          </div>
+        </div>
+      ))}
+    </>
   );
 }
