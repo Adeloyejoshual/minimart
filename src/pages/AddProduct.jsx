@@ -1,4 +1,3 @@
-// src/pages/AddProductPage.jsx
 import React, { useEffect, useState } from "react";
 import DropdownModal from "../components/DropdownModal.jsx";
 import { locationsByState } from "../config/locationsByState.js";
@@ -27,7 +26,7 @@ export default function AddProductPage() {
   const states = Object.keys(locationsByState || {});
   const cities = selectedState ? locationsByState[selectedState] : [];
 
-  // Fetch categories from API
+  // Fetch categories
   useEffect(() => {
     async function fetchCategories() {
       try {
@@ -48,7 +47,7 @@ export default function AddProductPage() {
 
   const optionsMap = {
     brand: options.brands || [],
-    model: options.models?.[form.dynamic.brand] || [],
+    model: form.dynamic.brand ? options.models?.[form.dynamic.brand] || [] : [],
     color: options.colors || [],
     condition: options.conditions || [],
     used_detail: options.usedDetails || [],
@@ -64,21 +63,18 @@ export default function AddProductPage() {
   const update = (key, value) => setForm(prev => ({ ...prev, [key]: value }));
   const updateDynamic = (key, value) => setForm(prev => ({ ...prev, dynamic: { ...prev.dynamic, [key]: value } }));
 
-  // Reset dynamic fields on category change
   useEffect(() => {
     if (!selectedCategory) return;
     const initialDynamic = Object.fromEntries(dynamicFields.map(f => [f, f === "features" ? [] : ""]));
     setForm(prev => ({ ...prev, dynamic: initialDynamic, subCategory: "" }));
   }, [selectedCategory]);
 
-  // Handle images
   const handleImages = files => {
     const arr = Array.from(files);
     setImages(arr);
     setPreviewUrls(arr.map(f => URL.createObjectURL(f)));
   };
 
-  // Handle state & city
   const handleStateChange = (state) => {
     setSelectedState(state);
     setSelectedCity("");
@@ -89,7 +85,6 @@ export default function AddProductPage() {
     updateDynamic("location", city);
   };
 
-  // Price formatting
   const handlePriceChange = value => {
     const numeric = value.replace(/[^0-9.]/g, "");
     update("price", numeric);
@@ -100,7 +95,6 @@ export default function AddProductPage() {
     return integer.replace(/\B(?=(\d{3})+(?!\d))/g, ",") + (decimal ? "." + decimal : "");
   };
 
-  // Submit
   const handleSubmit = async () => {
     if (!form.title || !form.price || !form.mainCategory) return alert("Title, price, and category are required");
     if (images.length === 0) return alert("Please upload at least one image");
@@ -141,38 +135,35 @@ export default function AddProductPage() {
 
   return (
     <div className="add-product-container">
-      <button onClick={() => window.history.back()} className="back-button">← Back</button>
       <h2>Add Product</h2>
 
-      {/* TITLE */}
       <div className="field">
         <label>Title</label>
         <input value={form.title} onChange={e => update("title", e.target.value)} placeholder="e.g iPhone 13" />
       </div>
 
-      {/* DESCRIPTION */}
       <div className="field">
         <label>Description</label>
         <textarea value={form.description} onChange={e => update("description", e.target.value)} placeholder="Write product details here..." />
       </div>
 
-      {/* CATEGORY & SUBCATEGORY using DropdownModal */}
+      {/* CATEGORY & SUBCATEGORY */}
       <DropdownModal
         label="Category"
         value={form.mainCategory}
         onChange={val => update("mainCategory", val)}
-        options={categories.map(c => c.name)}
+        options={categories}
       />
       {subcategories.length > 0 && (
         <DropdownModal
           label="Subcategory"
           value={form.subCategory}
           onChange={val => update("subCategory", val)}
-          options={subcategories.map(s => s.name)}
+          options={subcategories}
         />
       )}
 
-      {/* Dynamic fields */}
+      {/* Dynamic fields like brand, model */}
       {dynamicFields.map(field => {
         const value = form.dynamic[field];
         if (field === "used_detail" && form.dynamic.condition !== "Used") return null;
@@ -188,9 +179,9 @@ export default function AddProductPage() {
                 {optionsMap[field].map(opt => {
                   const current = Array.isArray(value) ? value : [];
                   return (
-                    <label key={opt}>
-                      <input type="checkbox" checked={current.includes(opt)} onChange={() => updateDynamic(field, current.includes(opt) ? current.filter(v => v !== opt) : [...current, opt])} />
-                      {opt}
+                    <label key={opt.id || opt}>
+                      <input type="checkbox" checked={current.includes(opt.id || opt)} onChange={() => updateDynamic(field, current.includes(opt.id || opt) ? current.filter(v => v !== (opt.id || opt)) : [...current, opt.id || opt])} />
+                      {opt.name || opt}
                     </label>
                   );
                 })}
@@ -217,19 +208,16 @@ export default function AddProductPage() {
         label="Promotion"
         value={form.promotionId}
         onChange={val => update("promotionId", val)}
-        options={promotionPlans.map(p => `${p.name} - ₦${getActivePrice(p.price, p.discount).toLocaleString()} (${getDiscountPercent(p.originalPrice, p.discount)}% off)`)}
+        options={promotionPlans.map(p => ({ id: p.id, name: `${p.name} - ₦${getActivePrice(p.price, p.discount).toLocaleString()} (${getDiscountPercent(p.originalPrice, p.discount)}% off)` }))}
       />
 
       {/* IMAGES */}
       <div className="field">
         <label>Images</label>
         <input type="file" multiple onChange={e => handleImages(e.target.files)} />
-        <div className="image-preview">
-          {previewUrls.map((url, i) => <img key={i} src={url} alt={`preview ${i}`} />)}
-        </div>
+        <div className="image-preview">{previewUrls.map((url, i) => <img key={i} src={url} alt={`preview ${i}`} />)}</div>
       </div>
 
-      {/* SUBMIT */}
       <button onClick={handleSubmit} disabled={loading}>{loading ? "Saving..." : "Add Product"}</button>
     </div>
   );
