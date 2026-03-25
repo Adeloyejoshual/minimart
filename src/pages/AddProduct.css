@@ -1,89 +1,163 @@
+/* src/pages/AddProduct.css */
+
+/* ----------------- CONTAINER ----------------- */
 .add-product-container {
-  max-width: 700px;
+  max-width: 800px;
   margin: 2rem auto;
   padding: 1.5rem;
   background: #fff;
-  border-radius: 10px;
-  box-shadow: 0 4px 20px rgba(0,0,0,0.05);
-  font-family: 'Inter', sans-serif;
+  border-radius: 12px;
+  box-shadow: 0 4px 16px rgba(0,0,0,0.08);
+  font-family: 'Segoe UI', sans-serif;
 }
 
-h2 {
-  margin-bottom: 1rem;
-  color: #1e40af;
+.add-product-container h2 {
+  text-align: center;
+  margin-bottom: 1.5rem;
+  color: #333;
 }
 
+/* ----------------- FORM FIELDS ----------------- */
 .field {
-  display: flex;
-  flex-direction: column;
-  margin-bottom: 1rem;
+  margin-bottom: 1.2rem;
 }
 
 .field label {
+  display: block;
   font-weight: 600;
-  margin-bottom: 0.3rem;
-  color: #374151;
+  margin-bottom: 0.5rem;
+  color: #555;
 }
 
-.field input,
-.field select {
-  padding: 0.5rem 0.7rem;
-  border: 1px solid #d1d5db;
-  border-radius: 6px;
-  font-size: 0.95rem;
-  outline: none;
+.field input[type="text"],
+.field input[type="file"],
+.field textarea {
+  width: 100%;
+  padding: 0.6rem 0.8rem;
+  border: 1px solid #ccc;
+  border-radius: 8px;
+  font-size: 1rem;
 }
 
-.field input:focus,
-.field select:focus {
-  border-color: #1e40af;
+.field textarea {
+  min-height: 80px;
+  resize: vertical;
 }
 
-.multi-select {
+/* ----------------- IMAGE GRID ----------------- */
+.image-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(100px, 1fr));
+  gap: 0.8rem;
+  margin-top: 0.5rem;
+}
+
+.preview-wrapper {
+  position: relative;
+  border: 1px solid #ddd;
+  border-radius: 8px;
+  overflow: hidden;
+  width: 100%;
+  padding-top: 100%; /* square aspect ratio */
+  background: #f9f9f9;
+}
+
+.preview-wrapper img {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+/* ----------------- REMOVE BUTTON ----------------- */
+.remove-btn {
+  position: absolute;
+  top: 4px;
+  right: 4px;
+  background: rgba(255, 0, 0, 0.8);
+  color: #fff;
+  border: none;
+  border-radius: 50%;
+  width: 22px;
+  height: 22px;
+  font-weight: bold;
+  cursor: pointer;
   display: flex;
-  flex-wrap: wrap;
-  gap: 0.5rem;
+  align-items: center;
+  justify-content: center;
+}
+
+.remove-btn:hover {
+  background: rgba(255, 0, 0, 1);
+}
+
+/* ----------------- ADD MORE BUTTON ----------------- */
+.add-more-wrapper {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: 2px dashed #aaa;
+  border-radius: 8px;
+  cursor: pointer;
+  padding: 0.5rem;
+  font-size: 2rem;
+  color: #aaa;
+  transition: all 0.2s;
+  aspect-ratio: 1 / 1;
+}
+
+.add-more-wrapper:hover {
+  border-color: #555;
+  color: #555;
+}
+
+.add-more-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+  height: 100%;
+}
+
+/* ----------------- MULTI-SELECT CHECKBOXES ----------------- */
+.multi-select {
+  margin-bottom: 1rem;
 }
 
 .multi-select label {
-  background: #f3f4f6;
-  padding: 0.4rem 0.6rem;
-  border-radius: 5px;
-  font-size: 0.9rem;
-  cursor: pointer;
-}
-
-.multi-select input {
-  margin-right: 0.3rem;
-}
-
-.image-preview {
   display: flex;
-  gap: 0.5rem;
-  margin-top: 0.5rem;
-  flex-wrap: wrap;
-}
-
-.image-preview img {
-  width: 80px;
-  height: 80px;
-  object-fit: cover;
-  border-radius: 6px;
-  border: 1px solid #d1d5db;
-}
-
-button {
-  padding: 0.6rem 1.2rem;
-  background: #1e40af;
-  color: #fff;
-  font-weight: 600;
-  border: none;
-  border-radius: 6px;
+  align-items: center;
+  margin-right: 1rem;
+  font-weight: 500;
   cursor: pointer;
-  font-size: 0.95rem;
+}
+
+.multi-select input[type="checkbox"] {
+  margin-right: 0.4rem;
+}
+
+/* ----------------- SUBMIT BUTTON ----------------- */
+button {
+  display: block;
+  width: 100%;
+  padding: 0.7rem;
+  background-color: #0077ff;
+  color: #fff;
+  font-size: 1rem;
+  border: none;
+  border-radius: 8px;
+  cursor: pointer;
+  font-weight: 600;
+  transition: background 0.2s;
 }
 
 button:disabled {
-  background: #9ca3af;
+  background-color: #aaa;
   cursor: not-allowed;
+}
+
+button:hover:not(:disabled) {
+  background-color: #005ecc;
 }
