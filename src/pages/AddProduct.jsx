@@ -71,8 +71,10 @@ export default function AddProductPage() {
     const initialDynamic = Object.fromEntries(
       dynamicFields.map(f => [f, f === "features" ? [] : ""])
     );
+    // Include empty location object
+    initialDynamic.location = { state: selectedState || "", city: selectedCity || "" };
     setForm(prev => ({ ...prev, dynamic: initialDynamic, subCategory: "" }));
-  }, [selectedCategory]);
+  }, [selectedCategory, selectedState, selectedCity]);
 
   // ---------------- HANDLE IMAGE PREVIEWS ----------------
   const handleImages = files => {
@@ -90,12 +92,12 @@ export default function AddProductPage() {
   const handleStateChange = state => {
     setSelectedState(state);
     setSelectedCity("");
-    updateDynamic("location", "");
+    updateDynamic("location", { state, city: "" });
   };
 
   const handleCityChange = city => {
     setSelectedCity(city);
-    updateDynamic("location", city);
+    updateDynamic("location", { state: selectedState, city });
   };
 
   // ---------------- HANDLE PRICE INPUT ----------------
@@ -131,7 +133,7 @@ export default function AddProductPage() {
       formData.append("category_id", form.mainCategory);
       if (form.subCategory) formData.append("subcategory_id", form.subCategory);
       formData.append("dynamicFields", JSON.stringify(cleanedDynamic));
-      if (form.promotionId) formData.append("promotionId", form.promotionId);
+      if (form.promotionId) formData.append("promotion_id", form.promotionId);
 
       images.forEach(img => formData.append("images", img));
 
