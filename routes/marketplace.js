@@ -40,32 +40,55 @@ cloudinary.config({
 const upload = multer({ storage: multer.memoryStorage() });
 
 /* =========================================================
-   GET PRODUCTS WITH OPTIONAL STATE/CITY FILTER
+   GET PRODUCTS WITH TRENDING & RECOMMENDATIONS
 ========================================================= */
 router.get("/products", async (req, res) => {
   try {
-    let { skip = 0, limit = 20, state, city } = req.query;
+    let { skip = 0, limit = 20 } = req.query;
     skip = parseInt(skip);
     limit = Math.min(parseInt(limit), 50);
 
-    const { rows } = await pool.query(
-      `SELECT * FROM products ORDER BY created_at DESC OFFSET $1 LIMIT $2`,
-      [skip, limit]
-    );
+    // 1️⃣ Trending (top 6 by views)
+    const { rows: trendingRows } = await pool.query(`
+      SELECT * FROM products
+      WHERE is_active = true
+      ORDER BY views DESC
+      LIMIT 6
+    `);
 
-    const products = rows.map((p) => {
-      let dynamic = {};
-      let images = [];
-      try { dynamic = p.dynamic_fields ? JSON.parse(p.dynamic_fields) : {}; } catch {}
-      try { images = p.images ? JSON.parse(p.images) : []; } catch {}
-      return { ...p, dynamic_fields: dynamic, images, location: dynamic?.location || null };
-    });
+    // 2️⃣ Main products (recent)
+    const { rows: mainRows } = await pool.query(`
+      SELECT * FROM products
+      WHERE is_active = true
+      ORDER BY created_at DESC
+      OFFSET $1
+      LIMIT $2
+    `, [skip, limit]);
 
-    let filtered = products;
-    if (state) filtered = filtered.filter(p => p.location?.state?.toLowerCase() === state.toLowerCase());
-    if (city) filtered = filtered.filter(p => p.location?.city?.toLowerCase() === city.toLowerCase());
+    // 3️⃣ Normalize products
+    const formatProduct = (p) => {
+      let dynamic = {}, images = [];
+      try { dynamic = p.dynamic_fields || {}; } catch {}
+      try { images = p.images || []; } catch {}
+      return {
+        ...p,
+        dynamic_fields: dynamic,
+        images,
+        location: { state: p.location_state, city: p.location_city },
+      };
+    };
 
-    res.json({ products: filtered });
+    const trendingProducts = trendingRows.map(formatProduct);
+    const mainProducts = mainRows.map(formatProduct);
+
+    // 4️⃣ Combine without duplicates
+    const trendingIds = trendingProducts.map(p => p.id);
+    const products = [
+      ...trendingProducts,
+      ...mainProducts.filter(p => !trendingIds.includes(p.id))
+    ];
+
+    res.json({ products });
   } catch (err) {
     console.error("GET /products error:", err);
     res.status(500).json({ message: "Failed to fetch products" });
@@ -74,16 +97,14 @@ router.get("/products", async (req, res) => {
 
 /* =========================================================
    POST PRODUCT
-   - Handles title, description, price, category/subcategory
-   - Handles dynamic fields including location
-   - Image upload
-   - Optional promotion_id
 ========================================================= */
 router.post("/products", upload.array("images"), async (req, res) => {
   try {
     const { title, description, price, category_id, subcategory_id, dynamicFields, promotion_id } = req.body;
 
-    if (!title || !price || !category_id) return res.status(400).json({ message: "Title, price, and category are required" });
+    if (!title || !price || !category_id)
+      return res.status(400).json({ message: "Title, price, and category are required" });
+
     const priceNum = parseFloat(price);
     if (isNaN(priceNum)) return res.status(400).json({ message: "Invalid price" });
 
@@ -102,16 +123,17 @@ router.post("/products", upload.array("images"), async (req, res) => {
       Object.entries(parsedFields).filter(([k]) => allowedKeys.includes(k))
     );
 
+    // Upload images to Cloudinary
     const uploadedImages = req.files?.length
-      ? await Promise.all(
-          req.files.map(file => new Promise((resolve, reject) => {
+      ? await Promise.all(req.files.map(file =>
+          new Promise((resolve, reject) => {
             const stream = cloudinary.uploader.upload_stream(
               { folder: "minimart_products" },
               (err, result) => err ? reject(err) : resolve(result.secure_url)
             );
             stream.end(file.buffer);
-          }))
-        )
+          })
+        ))
       : [];
 
     const query = `
@@ -143,7 +165,7 @@ router.post("/products", upload.array("images"), async (req, res) => {
 });
 
 /* =========================================================
-   GET CATEGORIES WITH DYNAMIC OPTIONS
+   GET CATEGORIES
 ========================================================= */
 router.get("/categories", async (req, res) => {
   try {
@@ -177,7 +199,7 @@ router.get("/categories", async (req, res) => {
       if (!cat.parent_id) structured.push(categoryMap[cat.id]);
     });
 
-    // attach subcategories
+    // Attach subcategories
     rows.forEach(cat => {
       if (cat.parent_id && categoryMap[cat.parent_id]) {
         categoryMap[cat.parent_id].subcategories.push(categoryMap[cat.id]);
