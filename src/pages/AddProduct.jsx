@@ -9,30 +9,58 @@ export default function TestPromotionPage() {
 
   const formatPrice = p => p.replace(/\B(?=(\d{3})+(?!\d))/g, ",");
 
+  // Auto verify payment if redirected back from Paystack
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const reference = params.get("reference");
+    if (!reference) return;
+
+    async function verifyPayment() {
+      setLoading(true);
+      try {
+        const res = await fetch("https://minimart-ivrm.onrender.com/api/test-promote/verify", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: `Bearer ${localStorage.getItem("token")}`
+          },
+          body: JSON.stringify({ reference })
+        });
+        const data = await res.json();
+        if (res.ok) alert("✅ Payment verified successfully!");
+        else alert("❌ Payment verification failed: " + data.message);
+        window.history.replaceState(null, "", window.location.pathname);
+      } catch (err) {
+        console.error(err);
+        alert("Payment verification error");
+      } finally { setLoading(false); }
+    }
+
+    verifyPayment();
+  }, []);
+
   const handleSubmit = async () => {
     if (!price || !promotionId) return alert("Enter price and select promotion");
 
     setLoading(true);
     try {
-      const res = await fetch("https://minimart-ivrm.onrender.com/api/marketplace/products/initiate", {
+      const formData = new FormData();
+      formData.append("title", "Test Product");
+      formData.append("price", price);
+      formData.append("promotion_id", promotionId);
+
+      const res = await fetch("https://minimart-ivrm.onrender.com/api/test-promote/init", {
         method: "POST",
         headers: {
-          Authorization: `Bearer ${localStorage.getItem("token")}`,
+          Authorization: `Bearer ${localStorage.getItem("token")}`
         },
-        body: new FormData(Object.entries({
-          title: "Test Product",
-          price,
-          category_id: "test-category",
-          promotion_id: promotionId,
-          dynamicFields: JSON.stringify({}),
-          images: "", // dummy for test
-        }))
+        body: formData
       });
 
       const data = await res.json();
       if (!res.ok) throw new Error(data.message);
 
-      // redirect to Paystack
+      // Redirect to Paystack checkout
       window.location.href = data.payment.authorization_url;
 
     } catch (err) {
