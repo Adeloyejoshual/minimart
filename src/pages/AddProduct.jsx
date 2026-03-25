@@ -28,7 +28,6 @@ export default function AddProductPage() {
   const update = (key, value) => setForm(prev => ({ ...prev, [key]: value }));
   const updateDynamic = (key, value) => setForm(prev => ({ ...prev, dynamic: { ...prev.dynamic, [key]: value } }));
 
-  // ---------------- FETCH CATEGORIES ----------------
   useEffect(() => {
     async function fetchCategories() {
       try {
@@ -62,21 +61,18 @@ export default function AddProductPage() {
     fuel_type: options.fuel_type || [],
   };
 
-  // Reset dynamic fields when category changes
   useEffect(() => {
     if (!selectedCategory) return;
     const initialDynamic = Object.fromEntries(dynamicFields.map(f => [f, f === "features" ? [] : ""]));
     setForm(prev => ({ ...prev, dynamic: initialDynamic, subCategory: "" }));
   }, [selectedCategory]);
 
-  // Handle images
   const handleImages = files => {
     const arr = Array.from(files);
     setImages(arr);
     setPreviewUrls(arr.map(f => URL.createObjectURL(f)));
   };
 
-  // Handle price
   const handlePriceChange = value => {
     const numeric = value.replace(/[^0-9.]/g, "");
     update("price", numeric);
@@ -87,7 +83,6 @@ export default function AddProductPage() {
     return integer.replace(/\B(?=(\d{3})+(?!\d))/g, ",") + (decimal ? "." + decimal : "");
   };
 
-  // Submit
   const handleSubmit = async () => {
     if (!form.title || !form.price || !form.mainCategory) return alert("Title, price, and category are required");
     if (images.length === 0) return alert("Please upload at least one image");
@@ -98,7 +93,6 @@ export default function AddProductPage() {
 
     try {
       setLoading(true);
-
       const formData = new FormData();
       formData.append("title", form.title);
       formData.append("description", form.description);
@@ -129,80 +123,63 @@ export default function AddProductPage() {
     <div className="add-product-container">
       <h2>Add Product</h2>
 
-      {/* TITLE */}
+      {/* Title & Description */}
       <div className="field">
         <label>Title</label>
         <input value={form.title} onChange={e => update("title", e.target.value)} placeholder="e.g iPhone 13" />
       </div>
-
-      {/* DESCRIPTION */}
       <div className="field">
         <label>Description</label>
         <textarea value={form.description} onChange={e => update("description", e.target.value)} placeholder="Write product details here..." />
       </div>
 
-      {/* CATEGORY */}
-      <DropdownModal label="Category" value={form.mainCategory} onChange={val => update("mainCategory", val)} options={categories.map(c => ({ label: c.name, value: c.id }))} />
+      {/* Category & Subcategory */}
+      <DropdownModal label="Category" value={form.mainCategory} onChange={val => update("mainCategory", val)} options={categories.map(c => c.name)} />
+      {subcategories.length > 0 && <DropdownModal label="Subcategory" value={form.subCategory} onChange={val => update("subCategory", val)} options={subcategories.map(s => s.name)} />}
 
-      {/* SUBCATEGORY */}
-      {subcategories.length > 0 && (
-        <DropdownModal label="Subcategory" value={form.subCategory} onChange={val => update("subCategory", val)} options={subcategories.map(s => ({ label: s.name, value: s.id }))} />
-      )}
-
-      {/* DYNAMIC FIELDS */}
+      {/* Dynamic Fields */}
       {dynamicFields.map(field => {
         const value = form.dynamic[field];
         if (field === "used_detail" && form.dynamic.condition !== "Used") return null;
         const isArray = field === "features";
 
-        return (
-          <div className="field" key={field}>
-            <label>{field.replace(/_/g, " ").toUpperCase()}</label>
-            {!optionsMap[field] || optionsMap[field].length === 0 ? (
-              <input value={value || ""} onChange={e => updateDynamic(field, e.target.value)} />
-            ) : isArray ? (
-              <div className="multi-select">
-                {optionsMap[field].map(opt => {
-                  const current = Array.isArray(value) ? value : [];
-                  return (
-                    <label key={opt}>
-                      <input type="checkbox" checked={current.includes(opt)} onChange={() => updateDynamic(field, current.includes(opt) ? current.filter(v => v !== opt) : [...current, opt])} />
-                      {opt}
-                    </label>
-                  );
-                })}
-              </div>
-            ) : (
-              <DropdownModal label={field.replace(/_/g, " ")} value={value || ""} onChange={val => updateDynamic(field, val)} options={optionsMap[field]} />
-            )}
-          </div>
-        );
+        if (isArray) {
+          const current = Array.isArray(value) ? value : [];
+          return (
+            <div className="multi-select" key={field}>
+              <label>{field.replace(/_/g, " ").toUpperCase()}</label>
+              {optionsMap[field].map(opt => (
+                <label key={opt}>
+                  <input type="checkbox" checked={current.includes(opt)} onChange={() => updateDynamic(field, current.includes(opt) ? current.filter(v => v !== opt) : [...current, opt])} />
+                  {opt}
+                </label>
+              ))}
+            </div>
+          );
+        }
+
+        return <DropdownModal key={field} label={field.replace(/_/g, " ")} value={value || ""} onChange={val => updateDynamic(field, val)} options={optionsMap[field]} />;
       })}
 
-      {/* STATE */}
+      {/* State & City */}
       <DropdownModal label="State" value={form.state} onChange={val => update("state", val)} options={states} />
-
-      {/* CITY */}
       {form.state && <DropdownModal label="City" value={form.city} onChange={val => update("city", val)} options={cities} />}
 
-      {/* PRICE */}
+      {/* Price */}
       <div className="field">
         <label>Price (₦)</label>
         <input type="text" value={formatPrice(form.price)} onChange={e => handlePriceChange(e.target.value)} />
       </div>
 
-      {/* PROMOTION */}
+      {/* Promotion */}
       <DropdownModal
         label="Promotion"
         value={form.promotionId}
         onChange={val => update("promotionId", val)}
-        options={promotionPlans.map(plan => ({
-          label: `${plan.name} - ₦${getActivePrice(plan.price, plan.discount).toLocaleString()} (${getDiscountPercent(plan.originalPrice, plan.discount)}% off)`,
-          value: plan.id
-        }))}
+        options={promotionPlans.map(plan => `${plan.name} - ₦${getActivePrice(plan.price, plan.discount)} (${getDiscountPercent(plan.originalPrice, plan.discount)}% off)`)}
       />
 
-      {/* IMAGES */}
+      {/* Images */}
       <div className="field">
         <label>Images</label>
         <input type="file" multiple onChange={e => handleImages(e.target.files)} />
@@ -211,7 +188,7 @@ export default function AddProductPage() {
         </div>
       </div>
 
-      {/* SUBMIT */}
+      {/* Submit */}
       <button onClick={handleSubmit} disabled={loading}>{loading ? "Saving..." : "Add Product"}</button>
     </div>
   );
