@@ -6,25 +6,23 @@ import "../styles/Homepage.css";
 
 export default function Homepage() {
   const [products, setProducts] = useState([]);
-  const [loading, setLoading] = useState(true);
+  const [loading, setLoading] = useState(false);
 
-  // ---------------- FETCH PRODUCTS ----------------
   useEffect(() => {
     async function fetchProducts() {
       try {
+        setLoading(true);
         const res = await fetch("https://minimart-ivrm.onrender.com/api/marketplace/products");
         const data = await res.json();
-        if (Array.isArray(data)) {
-          // sort: promoted first, then newest
-          const sorted = data.sort((a, b) => {
-            if (a.promotion && !b.promotion) return -1;
-            if (!a.promotion && b.promotion) return 1;
-            return new Date(b.created_at) - new Date(a.created_at);
-          });
-          setProducts(sorted);
-        }
+
+        // Shuffle and mix trending products
+        const trending = data.filter(p => p.promotion);
+        const regular = data.filter(p => !p.promotion);
+        const mixed = [...trending, ...regular].sort(() => Math.random() - 0.5);
+
+        setProducts(mixed);
       } catch (err) {
-        console.error("Failed to fetch products:", err);
+        console.error("Failed to load products:", err);
       } finally {
         setLoading(false);
       }
@@ -32,30 +30,45 @@ export default function Homepage() {
     fetchProducts();
   }, []);
 
+  const formatPrice = price => {
+    if (!price) return "";
+    const [integer, decimal] = price.toString().split(".");
+    return integer.replace(/\B(?=(\d{3})+(?!\d))/g, ",") + (decimal ? "." + decimal : "");
+  };
+
   return (
     <>
       <TopNav />
       <div className="homepage-container">
         {loading ? (
-          <p>Loading products...</p>
-        ) : products.length === 0 ? (
-          <p>No products available</p>
+          <div className="products-grid">
+            {Array.from({ length: 12 }).map((_, i) => (
+              <div key={i} className="card skeleton">
+                <div className="card-image" />
+                <div className="card-body">
+                  <div className="line short" />
+                  <div className="line small" />
+                  <div className="line" />
+                </div>
+              </div>
+            ))}
+          </div>
         ) : (
-          <div className="product-grid">
+          <div className="products-grid">
             {products.map(product => {
-              const { id, title, price, description, images, dynamic, promotion } = product;
-              const mainImage = images?.[0] || "/placeholder.png";
-              const location = dynamic?.location || "";
-
+              const image = product.images ? JSON.parse(product.images)[0] : "";
+              const description = product.description ? product.description.slice(0, 50) + "..." : "";
+              const location = product.dynamic_fields ? JSON.parse(product.dynamic_fields)?.location : "";
               return (
-                <div key={id} className={`product-card ${promotion ? "trending" : ""}`}>
-                  <img src={mainImage} alt={title} className="product-image" />
-                  <div className="product-details">
-                    {promotion && <span className="trending-badge">Trending</span>}
-                    <p className="product-price">₦{Number(price).toLocaleString()}</p>
-                    <h3 className="product-title">{title}</h3>
-                    <p className="product-description">{description?.slice(0, 80)}...</p>
-                    {location && <p className="product-location">{location}</p>}
+                <div key={product.id} className="card">
+                  <div className="card-image">
+                    {image && <img src={image} alt={product.title} />}
+                  </div>
+                  <div className="card-body">
+                    <div className="price">₦{formatPrice(product.price)}</div>
+                    <div className="title">{product.title}</div>
+                    <div className="desc">{description}</div>
+                    {location && <div className="location">{location}</div>}
                   </div>
                 </div>
               );
