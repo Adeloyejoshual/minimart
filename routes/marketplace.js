@@ -4,10 +4,8 @@ import { Pool } from "pg";
 import multer from "multer";
 import { v2 as cloudinary } from "cloudinary";
 import dotenv from "dotenv";
-import { initializePaystackTransaction } from "../services/paystack.js";
-import auth from "../middleware/authMiddleware.js";
 
-// Config imports
+// ---------------- CONFIG IMPORTS ----------------
 import { brands } from "../src/config/brands.js";
 import { colors } from "../src/config/colors.js";
 import { categoryFields } from "../src/config/categoryFields.js";
@@ -21,49 +19,72 @@ import { years } from "../src/config/years.js";
 import { engines } from "../src/config/engines.js";
 import { fuelTypes } from "../src/config/fuelTypes.js";
 import { locationsByState } from "../src/config/locationsByState.js";
-import { promotionPlans, getActivePrice } from "../src/config/promotions.js";
+import { promotionPlans } from "../src/config/promotions.js";
 
 dotenv.config();
+
 const router = express.Router();
 const pool = new Pool({
   connectionString: process.env.COCKROACH_URI,
   ssl: { rejectUnauthorized: false },
 });
 
-// Cloudinary
+// ---------------- CLOUDINARY ----------------
 cloudinary.config({
   cloud_name: process.env.CLOUDINARY_CLOUD_NAME,
   api_key: process.env.CLOUDINARY_API_KEY,
   api_secret: process.env.CLOUDINARY_API_SECRET,
 });
 
-// Multer
+// ---------------- MULTER ----------------
 const upload = multer({ storage: multer.memoryStorage() });
 
 /* =========================================================
-   INITIATE PRODUCT PROMOTION PAYMENT
-   (Step 1: Before product creation)
+   GET PRODUCTS
 ========================================================= */
-router.post("/products/initiate", auth, upload.array("images"), async (req, res) => {
+router.get("/products", async (req, res) => {
+  try {
+    const { rows } = await pool.query("SELECT * FROM products ORDER BY created_at DESC");
+    res.json(rows);
+  } catch (err) {
+    console.error("GET /products error:", err);
+    res.status(500).json({ message: "Failed to fetch products" });
+  }
+});
+
+/* =========================================================
+   POST PRODUCT
+   - Handles: title, description, price, category_id, subcategory_id
+   - Dynamic fields JSON
+   - Images upload
+   - Optional promotion_id
+========================================================= */
+router.post("/products", upload.array("images"), async (req, res) => {
   try {
     const { title, description, price, category_id, subcategory_id, dynamicFields, promotion_id } = req.body;
 
-    // Validation
-    if (!title || !price || !category_id) return res.status(400).json({ message: "Title, price, and category are required" });
+    // ---------- VALIDATION ----------
+    if (!title || !price || !category_id) {
+      return res.status(400).json({ message: "Title, price, and category are required" });
+    }
 
     const priceNum = parseFloat(price);
     if (isNaN(priceNum)) return res.status(400).json({ message: "Invalid price" });
 
-    // Fetch category
-    const { rows: categoryRows } = await pool.query("SELECT id, name, fields_key FROM categories WHERE id = $1", [category_id]);
+    // ---------- FETCH CATEGORY ----------
+    const { rows: categoryRows } = await pool.query(
+      "SELECT id, name, fields_key FROM categories WHERE id = $1",
+      [category_id]
+    );
     if (!categoryRows.length) return res.status(400).json({ message: "Invalid category_id" });
     const category = categoryRows[0];
 
-    // Clean dynamic fields
+    // ---------- CLEAN DYNAMIC FIELDS ----------
     let parsedFields = {};
     try {
       parsedFields = typeof dynamicFields === "string" ? JSON.parse(dynamicFields) : dynamicFields || {};
-    } catch {
+    } catch (err) {
+      console.error("dynamicFields parse error:", err);
       return res.status(400).json({ message: "Invalid dynamicFields format" });
     }
     const allowedKeys = categoryFields[category.fields_key] || [];
@@ -71,46 +92,100 @@ router.post("/products/initiate", auth, upload.array("images"), async (req, res)
       Object.entries(parsedFields).filter(([k]) => allowedKeys.includes(k))
     );
 
-    // Upload images to Cloudinary immediately
+    // ---------- UPLOAD IMAGES ----------
     const uploadedImages = req.files?.length
       ? await Promise.all(
-          req.files.map(file =>
-            new Promise((resolve, reject) => {
-              const stream = cloudinary.uploader.upload_stream({ folder: "minimart_temp" }, (err, result) => err ? reject(err) : resolve(result.secure_url));
-              stream.end(file.buffer);
-            })
+          req.files.map(
+            (file) =>
+              new Promise((resolve, reject) => {
+                const stream = cloudinary.uploader.upload_stream(
+                  { folder: "minimart_products" },
+                  (err, result) => (err ? reject(err) : resolve(result.secure_url))
+                );
+                stream.end(file.buffer);
+              })
           )
         )
       : [];
 
-    // Determine promotion price
-    let activePrice = priceNum;
-    let promotionPlan = null;
+    // ---------- INSERT PRODUCT ----------
+    const query = `
+      INSERT INTO products
+      (title, description, price, category_id, subcategory_id, images, dynamic_fields, promotion_id, created_at)
+      VALUES ($1,$2,$3,$4,$5,$6,$7,$8, now())
+      RETURNING *
+    `;
+    const { rows } = await pool.query(query, [
+      title,
+      description || null,
+      priceNum,
+      category_id,
+      subcategory_id || null,
+      uploadedImages.length ? JSON.stringify(uploadedImages) : null,
+      Object.keys(cleanedFields).length ? JSON.stringify(cleanedFields) : null,
+      promotion_id || null,
+    ]);
+
+    const product = rows[0];
+    product.category_name = category.name;
     if (promotion_id) {
-      promotionPlan = promotionPlans.find(p => p.id == promotion_id) || null;
-      if (promotionPlan) activePrice = getActivePrice(priceNum, promotionPlan.discount);
+      const plan = promotionPlans.find((p) => p.id == promotion_id);
+      product.promotion = plan || null;
     }
 
-    // Initialize Paystack transaction
-    const payment = await initializePaystackTransaction(req.user.email, activePrice, {
-      action: "create_product",
-      user_id: req.user.id,
-      product_data: {
-        title,
-        description,
-        price: activePrice,
-        category_id,
-        subcategory_id,
-        dynamicFields: cleanedFields,
-        images: uploadedImages,
-        promotion_id: promotion_id || null,
-      },
+    res.status(201).json(product);
+  } catch (err) {
+    console.error("POST /products error:", err);
+    res.status(500).json({ message: "Failed to add product" });
+  }
+});
+
+/* =========================================================
+   GET CATEGORIES WITH DYNAMIC OPTIONS
+========================================================= */
+router.get("/categories", async (req, res) => {
+  try {
+    const { rows } = await pool.query(`
+      SELECT id, name, parent_id, slug, icon, image_url, filters, is_active, visible_on_home, fields_key
+      FROM categories
+      ORDER BY sort_order ASC, name ASC
+    `);
+
+    const categoryMap = {};
+    const structured = [];
+
+    rows.forEach((cat) => {
+      const key = cat.fields_key || "";
+      const dynamicOptions = {
+        fields: categoryFields[key] || [],
+        brands: brands[key] || [],
+        models: models[key] || {},
+        colors: colors[key] || [],
+        conditions,
+        usedDetails,
+        ram: ramOptions,
+        storage: storageOptions,
+        sims,
+        features: featuresByCategory[key] || [],
+        years,
+        location: Object.keys(locationsByState),
+        ...(key === "Vehicles" ? { engine: engines, fuel_type: fuelTypes } : {}),
+      };
+      categoryMap[cat.id] = { ...cat, dynamicOptions, subcategories: [] };
+      if (!cat.parent_id) structured.push(categoryMap[cat.id]);
     });
 
-    res.json({ success: true, payment });
+    // Attach subcategories
+    rows.forEach((cat) => {
+      if (cat.parent_id && categoryMap[cat.parent_id]) {
+        categoryMap[cat.parent_id].subcategories.push(categoryMap[cat.id]);
+      }
+    });
+
+    res.json(structured);
   } catch (err) {
-    console.error("Initiate product promotion payment error:", err);
-    res.status(500).json({ message: "Failed to initialize promotion payment" });
+    console.error("GET /categories error:", err);
+    res.status(500).json({ message: "Failed to fetch categories" });
   }
 });
 
