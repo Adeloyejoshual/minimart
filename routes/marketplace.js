@@ -37,10 +37,17 @@ cloudinary.config({
 });
 
 // ---------------- MULTER ----------------
-const upload = multer({ storage: multer.memoryStorage() });
+const upload = multer({
+  storage: multer.memoryStorage(),
+  limits: { fileSize: 5 * 1024 * 1024 }, // max 5MB per image
+  fileFilter: (req, file, cb) => {
+    if (!file.mimetype.startsWith("image/")) return cb(new Error("Only images are allowed"), false);
+    cb(null, true);
+  },
+});
 
 /* =========================================================
-   GET PRODUCTS WITH TRENDING & RECOMMENDATIONS
+   GET PRODUCTS (TRENDING + RECENT)
 ========================================================= */
 router.get("/products", async (req, res) => {
   try {
@@ -48,7 +55,8 @@ router.get("/products", async (req, res) => {
     skip = parseInt(skip);
     limit = Math.min(parseInt(limit), 50);
 
-    const trendingQuery = `
+    // Trending (top 6 by views)
+    const { rows: trendingRows } = await pool.query(`
       SELECT p.*, COALESCE(json_agg(pi.image_url) FILTER (WHERE pi.image_url IS NOT NULL), '[]') AS images
       FROM products p
       LEFT JOIN product_images pi ON p.id = pi.product_id
@@ -56,8 +64,10 @@ router.get("/products", async (req, res) => {
       GROUP BY p.id
       ORDER BY p.views DESC
       LIMIT 6
-    `;
-    const mainQuery = `
+    `);
+
+    // Recent products
+    const { rows: mainRows } = await pool.query(`
       SELECT p.*, COALESCE(json_agg(pi.image_url) FILTER (WHERE pi.image_url IS NOT NULL), '[]') AS images
       FROM products p
       LEFT JOIN product_images pi ON p.id = pi.product_id
@@ -66,10 +76,7 @@ router.get("/products", async (req, res) => {
       ORDER BY p.created_at DESC
       OFFSET $1
       LIMIT $2
-    `;
-
-    const { rows: trendingRows } = await pool.query(trendingQuery);
-    const { rows: mainRows } = await pool.query(mainQuery, [skip, limit]);
+    `, [skip, limit]);
 
     const normalize = (p) => ({
       ...p,
@@ -111,7 +118,7 @@ router.get("/products/:id", async (req, res) => {
     product.dynamic_fields = product.dynamic_fields ? JSON.parse(product.dynamic_fields) : {};
     product.location = { state: product.location_state, city: product.location_city };
 
-    // Increment views (non-blocking)
+    // Increment views asynchronously
     pool.query("UPDATE products SET views = COALESCE(views,0)+1 WHERE id = $1", [id]).catch(console.error);
 
     res.json(product);
@@ -136,12 +143,13 @@ router.post("/products", upload.array("images"), async (req, res) => {
     const priceNum = parseFloat(price);
     if (isNaN(priceNum) || priceNum <= 0) return res.status(400).json({ message: "Invalid price" });
 
-    const { rows: categoryRows } = await pool.query(
+    const { rows: categoryRows } = await client.query(
       "SELECT id, name, fields_key FROM categories WHERE id = $1", [category_id]
     );
     if (!categoryRows.length) return res.status(400).json({ message: "Invalid category_id" });
     const category = categoryRows[0];
 
+    // Parse dynamic fields
     let parsedFields = {};
     try { parsedFields = typeof dynamicFields === "string" ? JSON.parse(dynamicFields) : dynamicFields || {}; } 
     catch { return res.status(400).json({ message: "Invalid dynamicFields format" }); }
@@ -151,7 +159,8 @@ router.post("/products", upload.array("images"), async (req, res) => {
       Object.entries(parsedFields).filter(([k]) => allowedKeys.includes(k))
     );
 
-    // ------------------ START TRANSACTION ------------------
+    console.log("Received files:", req.files?.map(f => f.originalname));
+
     await client.query("BEGIN");
 
     // Insert product
