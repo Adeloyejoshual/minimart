@@ -1,79 +1,81 @@
 // src/pages/Homepage.jsx
-import React, { useState, useEffect, useCallback } from "react";
-import axios from "axios";
-import "./Homepage.css";
-
-const API_BASE = "https://minimart-ivrm.onrender.com/api/marketplace";
+import { useEffect, useState } from "react";
+import TopNav from "../components/TopNav";
+import BottomNav from "../components/BottomNav";
+import "../styles/Homepage.css";
 
 export default function Homepage() {
   const [products, setProducts] = useState([]);
-  const [userLocation, setUserLocation] = useState(null);
-  const [loading, setLoading] = useState(false);
+  const [country, setCountry] = useState(""); // Detected country
+  const [loading, setLoading] = useState(true);
 
-  // ---------------- DETECT USER LOCATION ----------------
+  // ---------------- FETCH COUNTRY BY IP ----------------
   useEffect(() => {
-    navigator.geolocation.getCurrentPosition(async (pos) => {
-      const { latitude, longitude } = pos.coords;
+    async function fetchCountry() {
       try {
-        const res = await fetch(
-          `https://nominatim.openstreetmap.org/reverse?format=json&lat=${latitude}&lon=${longitude}`
-        );
+        const res = await fetch("https://ipapi.co/json/");
         const data = await res.json();
-        const state = data.address.state;
-        const city = data.address.city || data.address.town;
-        setUserLocation({ state, city });
-      } catch (err) { console.error(err); }
-    });
+        setCountry(data.country_name || "");
+      } catch (err) {
+        console.error("Failed to get country:", err);
+        setCountry("");
+      }
+    }
+    fetchCountry();
   }, []);
 
-  // ---------------- LOAD PRODUCTS ----------------
-  const loadProducts = useCallback(async () => {
-    setLoading(true);
-    try {
-      let url = `${API_BASE}/products`;
-      if (userLocation?.state) url += `?state=${userLocation.state}&city=${userLocation.city}`;
-      const res = await axios.get(url);
-      setProducts(res.data.products || []);
-    } catch (err) { console.error(err); }
-    finally { setLoading(false); }
-  }, [userLocation]);
+  // ---------------- FETCH PRODUCTS ----------------
+  useEffect(() => {
+    async function fetchProducts() {
+      try {
+        const res = await fetch("https://minimart-ivrm.onrender.com/api/marketplace/products");
+        const data = await res.json();
+        setProducts(data || []);
+      } catch (err) {
+        console.error("Failed to fetch products:", err);
+      } finally {
+        setLoading(false);
+      }
+    }
+    fetchProducts();
+  }, []);
 
-  useEffect(() => { loadProducts(); }, [loadProducts]);
-
-  const formatPrice = (amount) =>
-    new Intl.NumberFormat("en-NG", { style: "currency", currency: "NGN", minimumFractionDigits: 0 }).format(amount);
+  // ---------------- FILTER BY COUNTRY ----------------
+  const filteredProducts = products.filter(
+    p => p.dynamic?.location?.country === country || country === ""
+  );
 
   return (
-    <div className="homepage-container">
-      {userLocation && (
-        <div className="location-banner">
-          📍 Showing products in {userLocation.city}, {userLocation.state}
-        </div>
-      )}
-
-      <div className="products-grid">
+    <>
+      <TopNav />
+      <div className="homepage-container">
         {loading ? (
           <p>Loading products...</p>
-        ) : products.length === 0 ? (
-          <p>No products found in your area.</p>
-        ) : products.map(p => (
-          <div key={p.id} className="product-card">
-            <img
-              src={p.images?.[0] || "/placeholder-product.png"}
-              alt={p.title}
-              className="product-image"
-            />
-            <div className="product-info">
-              <div className="price">{formatPrice(p.price)}</div>
-              <h3 className="title">{p.title}</h3>
-              <p className="description">{p.description?.slice(0, 60)}</p>
-              {p.location && (
-                <p className="location">{p.location.city}, {p.location.state}</p>
-              )}
-            </div>
+        ) : filteredProducts.length === 0 ? (
+          <p>No products available in {country}</p>
+        ) : (
+          <div className="product-grid">
+            {filteredProducts.map(product => {
+              const { id, title, price, description, images, dynamic } = product;
+              const mainImage = images?.[0] || "/placeholder.png";
+              const location = dynamic?.location?.city || dynamic?.location?.state || "";
+
+              return (
+                <div key={id} className="product-card">
+                  <img src={mainImage} alt={title} className="product-image" />
+                  <div className="product-details">
+                    <p className="product-price">₦{Number(price).toLocaleString()}</p>
+                    <h3 className="product-title">{title}</h3>
+                    <p className="product-description">{description?.slice(0, 80)}...</p>
+                    <p className="product-location">{location}</p>
+                  </div>
+                </div>
+              );
+            })}
           </div>
-        ))}
+        )}
       </div>
-    </div>
+      <BottomNav />
+    </>
   );
 }
