@@ -48,8 +48,7 @@ router.get("/products", async (req, res) => {
     skip = parseInt(skip);
     limit = Math.min(parseInt(limit), 50);
 
-    // 1️⃣ Trending (top 6 by views)
-    const { rows: trendingRows } = await pool.query(`
+    const trendingQuery = `
       SELECT p.*, COALESCE(json_agg(pi.image_url) FILTER (WHERE pi.image_url IS NOT NULL), '[]') AS images
       FROM products p
       LEFT JOIN product_images pi ON p.id = pi.product_id
@@ -57,10 +56,8 @@ router.get("/products", async (req, res) => {
       GROUP BY p.id
       ORDER BY p.views DESC
       LIMIT 6
-    `);
-
-    // 2️⃣ Recommendations / main products (recently added)
-    const { rows: mainRows } = await pool.query(`
+    `;
+    const mainQuery = `
       SELECT p.*, COALESCE(json_agg(pi.image_url) FILTER (WHERE pi.image_url IS NOT NULL), '[]') AS images
       FROM products p
       LEFT JOIN product_images pi ON p.id = pi.product_id
@@ -69,9 +66,11 @@ router.get("/products", async (req, res) => {
       ORDER BY p.created_at DESC
       OFFSET $1
       LIMIT $2
-    `, [skip, limit]);
+    `;
 
-    // Normalize data
+    const { rows: trendingRows } = await pool.query(trendingQuery);
+    const { rows: mainRows } = await pool.query(mainQuery, [skip, limit]);
+
     const normalize = (p) => ({
       ...p,
       images: Array.isArray(p.images) ? p.images : [],
@@ -82,12 +81,8 @@ router.get("/products", async (req, res) => {
     const trendingProducts = trendingRows.map(normalize);
     const mainProducts = mainRows.map(normalize);
 
-    // Combine products, trending first, avoid duplicates
     const trendingIds = trendingProducts.map(p => p.id);
-    const products = [
-      ...trendingProducts,
-      ...mainProducts.filter(p => !trendingIds.includes(p.id))
-    ];
+    const products = [...trendingProducts, ...mainProducts.filter(p => !trendingIds.includes(p.id))];
 
     res.json({ products, trending: trendingProducts });
   } catch (err) {
@@ -116,8 +111,8 @@ router.get("/products/:id", async (req, res) => {
     product.dynamic_fields = product.dynamic_fields ? JSON.parse(product.dynamic_fields) : {};
     product.location = { state: product.location_state, city: product.location_city };
 
-    // Increment views
-    await pool.query("UPDATE products SET views = COALESCE(views, 0) + 1 WHERE id = $1", [id]);
+    // Increment views (non-blocking)
+    pool.query("UPDATE products SET views = COALESCE(views,0)+1 WHERE id = $1", [id]).catch(console.error);
 
     res.json(product);
   } catch (err) {
@@ -127,48 +122,40 @@ router.get("/products/:id", async (req, res) => {
 });
 
 /* =========================================================
-   POST PRODUCT
+   POST PRODUCT WITH IMAGES
 ========================================================= */
 router.post("/products", upload.array("images"), async (req, res) => {
+  const client = await pool.connect();
   try {
     const { title, description, price, category_id, subcategory_id, dynamicFields, promotion_id } = req.body;
 
-    if (!title || !price || !category_id)
+    if (!title || !price || !category_id) {
       return res.status(400).json({ message: "Title, price, and category are required" });
+    }
 
     const priceNum = parseFloat(price);
-    if (isNaN(priceNum)) return res.status(400).json({ message: "Invalid price" });
+    if (isNaN(priceNum) || priceNum <= 0) return res.status(400).json({ message: "Invalid price" });
 
     const { rows: categoryRows } = await pool.query(
-      "SELECT id, name, fields_key FROM categories WHERE id = $1",
-      [category_id]
+      "SELECT id, name, fields_key FROM categories WHERE id = $1", [category_id]
     );
     if (!categoryRows.length) return res.status(400).json({ message: "Invalid category_id" });
     const category = categoryRows[0];
 
     let parsedFields = {};
-    try { parsedFields = typeof dynamicFields === "string" ? JSON.parse(dynamicFields) : dynamicFields || {}; } catch { return res.status(400).json({ message: "Invalid dynamicFields format" }); }
+    try { parsedFields = typeof dynamicFields === "string" ? JSON.parse(dynamicFields) : dynamicFields || {}; } 
+    catch { return res.status(400).json({ message: "Invalid dynamicFields format" }); }
 
     const allowedKeys = categoryFields[category.fields_key] || [];
     const cleanedFields = Object.fromEntries(
       Object.entries(parsedFields).filter(([k]) => allowedKeys.includes(k))
     );
 
-    // Upload images to Cloudinary
-    const uploadedImages = req.files?.length
-      ? await Promise.all(req.files.map(file =>
-          new Promise((resolve, reject) => {
-            const stream = cloudinary.uploader.upload_stream(
-              { folder: "minimart_products" },
-              (err, result) => err ? reject(err) : resolve(result.secure_url)
-            );
-            stream.end(file.buffer);
-          })
-        ))
-      : [];
+    // ------------------ START TRANSACTION ------------------
+    await client.query("BEGIN");
 
     // Insert product
-    const { rows } = await pool.query(`
+    const { rows } = await client.query(`
       INSERT INTO products
       (title, description, price, category_id, subcategory_id, dynamic_fields, promotion_id, created_at)
       VALUES ($1,$2,$3,$4,$5,$6,$7,$8)
@@ -183,28 +170,42 @@ router.post("/products", upload.array("images"), async (req, res) => {
       promotion_id || null,
       new Date()
     ]);
-
     const product = rows[0];
 
-    // Save images into product_images table
-    if (uploadedImages.length) {
+    // Upload images to Cloudinary and insert into product_images
+    if (req.files?.length) {
+      const uploadedUrls = await Promise.all(req.files.map(file =>
+        new Promise((resolve, reject) => {
+          const stream = cloudinary.uploader.upload_stream(
+            { folder: "minimart_products" },
+            (err, result) => err ? reject(err) : resolve(result.secure_url)
+          );
+          stream.end(file.buffer);
+        })
+      ));
+
       await Promise.all(
-        uploadedImages.map((url, index) =>
-          pool.query(
-            `INSERT INTO product_images (product_id, image_url, position) VALUES ($1,$2,$3)`,
+        uploadedUrls.map((url, index) =>
+          client.query(
+            "INSERT INTO product_images (product_id, image_url, position) VALUES ($1,$2,$3)",
             [product.id, url, index]
           )
         )
       );
     }
 
+    await client.query("COMMIT");
+
     product.category_name = category.name;
-    if (promotion_id) product.promotion = promotionPlans.find(p => p.id == promotion_id) || null;
+    product.promotion = promotionPlans.find(p => p.id == promotion_id) || null;
 
     res.status(201).json(product);
   } catch (err) {
+    await client.query("ROLLBACK");
     console.error("POST /products error:", err);
     res.status(500).json({ message: "Failed to add product" });
+  } finally {
+    client.release();
   }
 });
 
@@ -243,7 +244,6 @@ router.get("/categories", async (req, res) => {
       if (!cat.parent_id) structured.push(categoryMap[cat.id]);
     });
 
-    // Attach subcategories
     rows.forEach(cat => {
       if (cat.parent_id && categoryMap[cat.parent_id]) {
         categoryMap[cat.parent_id].subcategories.push(categoryMap[cat.id]);
