@@ -66,21 +66,37 @@ export default function AddProductPage() {
   const updateDynamic = (key, value) =>
     setForm(prev => ({ ...prev, dynamic: { ...prev.dynamic, [key]: value } }));
 
-  // ---------------- RESET DYNAMIC FIELDS ----------------
+  // ---------------- RESET DYNAMIC FIELDS (Preserve existing) ----------------
   useEffect(() => {
     if (!selectedCategory) return;
-    const initialDynamic = Object.fromEntries(
-      dynamicFields.map(f => [f, f === "features" ? [] : ""])
-    );
-    initialDynamic.location = { state: selectedState || "", city: selectedCity || "" };
-    setForm(prev => ({ ...prev, dynamic: initialDynamic, subCategory: "" }));
-  }, [selectedCategory, selectedState, selectedCity]);
+
+    setForm(prev => {
+      const updatedDynamic = { ...prev.dynamic };
+
+      // Initialize missing dynamic fields only
+      dynamicFields.forEach(f => {
+        if (f === "features") {
+          if (!Array.isArray(updatedDynamic[f])) updatedDynamic[f] = [];
+        } else if (!(f in updatedDynamic)) {
+          updatedDynamic[f] = "";
+        }
+      });
+
+      // Always update location
+      updatedDynamic.location = { state: selectedState || "", city: selectedCity || "" };
+
+      return { ...prev, dynamic: updatedDynamic };
+    });
+
+    // Reset subcategory only when mainCategory changes
+    setForm(prev => ({ ...prev, subCategory: "" }));
+  }, [selectedCategory, dynamicFields, selectedState, selectedCity]);
 
   // ---------------- IMAGE PREVIEWS ----------------
   const handleImages = files => {
-    const arr = Array.from(files).slice(0, 8); // max 8 images
-    setImages(arr);
-    setPreviewUrls(arr.map(f => URL.createObjectURL(f)));
+    const arr = Array.from(files).slice(0, 8 - images.length); // max 8 images
+    setImages(prev => [...prev, ...arr]);
+    setPreviewUrls(prev => [...prev, ...arr.map(f => URL.createObjectURL(f))]);
   };
   const removeImage = index => {
     setImages(prev => prev.filter((_, i) => i !== index));
@@ -146,24 +162,24 @@ export default function AddProductPage() {
 
       const productId = productData.id;
 
-      // 2️⃣ Upload multiple images in parallel to product_images
-      if (images.length) {
-        const formDataArr = images.map(img => {
+      // 2️⃣ Upload all images in parallel
+      await Promise.all(
+        images.map(async (img, index) => {
           const fd = new FormData();
           fd.append("product_id", productId);
           fd.append("images", img);
-          return fd;
-        });
 
-        await Promise.all(
-          formDataArr.map(fd =>
-            fetch(
-              `https://minimart-ivrm.onrender.com/api/marketplace/products/${productId}/images`,
-              { method: "POST", body: fd }
-            )
-          )
-        );
-      }
+          const res = await fetch(
+            `https://minimart-ivrm.onrender.com/api/marketplace/products/${productId}/images`,
+            { method: "POST", body: fd }
+          );
+
+          if (!res.ok) {
+            const errData = await res.json();
+            throw new Error(errData.message || `Failed to upload image #${index + 1}`);
+          }
+        })
+      );
 
       // ✅ Success
       alert("Product added successfully!");
@@ -314,19 +330,30 @@ export default function AddProductPage() {
       {/* IMAGES */}
       <div className="field">
         <label>Images (max 8)</label>
-        <input
-          type="file"
-          multiple
-          accept="image/*"
-          onChange={e => handleImages(e.target.files)}
-        />
-        <div className="image-preview">
+        <div className="image-grid">
           {previewUrls.map((url, i) => (
             <div key={i} className="preview-wrapper">
               <img src={url} alt={`preview ${i}`} />
-              <button type="button" onClick={() => removeImage(i)}>Remove</button>
+              <button type="button" className="remove-btn" onClick={() => removeImage(i)}>
+                ✕
+              </button>
             </div>
           ))}
+
+          {/* + Add More Button */}
+          {images.length + previewUrls.length < 8 && (
+            <div className="add-more-wrapper">
+              <label htmlFor="add-more-input" className="add-more-btn">＋</label>
+              <input
+                id="add-more-input"
+                type="file"
+                multiple
+                accept="image/*"
+                style={{ display: "none" }}
+                onChange={e => handleImages(e.target.files)}
+              />
+            </div>
+          )}
         </div>
       </div>
 
