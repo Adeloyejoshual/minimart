@@ -1,4 +1,4 @@
-// src/pages/AddProductPage.jsx
+// src/pages/AddProductPage.jsx - PRODUCTION READY
 import { useEffect, useState } from "react";
 import DropdownModal from "../components/DropdownModal.jsx";
 import { locationsByState } from "../config/locationsByState.js";
@@ -68,15 +68,22 @@ export default function AddProductPage() {
   // ---------------- RESET DYNAMIC FIELDS ON CATEGORY CHANGE ----------------
   useEffect(() => {
     if (!selectedCategory) return;
-    const initialDynamic = Object.fromEntries(dynamicFields.map(f => [f, f === "features" ? [] : ""]));
+    const initialDynamic = Object.fromEntries(
+      dynamicFields.map(f => [f, f === "features" ? [] : ""])
+    );
     setForm(prev => ({ ...prev, dynamic: initialDynamic, subCategory: "" }));
   }, [selectedCategory]);
 
-  // ---------------- HANDLE IMAGES ----------------
+  // ---------------- HANDLE IMAGE PREVIEWS ----------------
   const handleImages = files => {
     const arr = Array.from(files);
     setImages(arr);
     setPreviewUrls(arr.map(f => URL.createObjectURL(f)));
+  };
+
+  const removeImage = index => {
+    setImages(prev => prev.filter((_, i) => i !== index));
+    setPreviewUrls(prev => prev.filter((_, i) => i !== index));
   };
 
   // ---------------- HANDLE STATE & CITY ----------------
@@ -105,11 +112,14 @@ export default function AddProductPage() {
 
   // ---------------- SUBMIT ----------------
   const handleSubmit = async () => {
-    if (!form.title || !form.price || !form.mainCategory) return alert("Title, price, and category are required");
+    if (!form.title || !form.price || !form.mainCategory)
+      return alert("Title, price, and category are required");
     if (images.length === 0) return alert("Please upload at least one image");
 
     const cleanedDynamic = Object.fromEntries(
-      Object.entries(form.dynamic).filter(([_, v]) => v !== "" && v !== null && !(Array.isArray(v) && v.length === 0))
+      Object.entries(form.dynamic).filter(
+        ([_, v]) => v !== "" && v !== null && !(Array.isArray(v) && v.length === 0)
+      )
     );
 
     try {
@@ -122,9 +132,13 @@ export default function AddProductPage() {
       if (form.subCategory) formData.append("subcategory_id", form.subCategory);
       formData.append("dynamicFields", JSON.stringify(cleanedDynamic));
       if (form.promotionId) formData.append("promotionId", form.promotionId);
+
       images.forEach(img => formData.append("images", img));
 
-      const res = await fetch("https://minimart-ivrm.onrender.com/api/marketplace/products", { method: "POST", body: formData });
+      const res = await fetch(
+        "https://minimart-ivrm.onrender.com/api/marketplace/products",
+        { method: "POST", body: formData }
+      );
       const data = await res.json();
       if (!res.ok) throw new Error(data.message || "Upload failed");
 
@@ -149,13 +163,21 @@ export default function AddProductPage() {
       {/* TITLE */}
       <div className="field">
         <label>Title</label>
-        <input value={form.title} onChange={e => update("title", e.target.value)} placeholder="e.g iPhone 13" />
+        <input
+          value={form.title}
+          onChange={e => update("title", e.target.value)}
+          placeholder="e.g iPhone 13"
+        />
       </div>
 
       {/* DESCRIPTION */}
       <div className="field">
         <label>Description</label>
-        <textarea value={form.description} onChange={e => update("description", e.target.value)} placeholder="Write product details here..." />
+        <textarea
+          value={form.description}
+          onChange={e => update("description", e.target.value)}
+          placeholder="Write product details here..."
+        />
       </div>
 
       {/* CATEGORY */}
@@ -194,7 +216,14 @@ export default function AddProductPage() {
                       <input
                         type="checkbox"
                         checked={current.includes(opt)}
-                        onChange={() => updateDynamic(field, current.includes(opt) ? current.filter(v => v !== opt) : [...current, opt])}
+                        onChange={() =>
+                          updateDynamic(
+                            field,
+                            current.includes(opt)
+                              ? current.filter(v => v !== opt)
+                              : [...current, opt]
+                          )
+                        }
                       />
                       {opt}
                     </label>
@@ -238,14 +267,21 @@ export default function AddProductPage() {
       {/* IMAGES */}
       <div className="field">
         <label>Images</label>
-        <input type="file" multiple onChange={e => handleImages(e.target.files)} />
+        <input type="file" multiple accept="image/*" onChange={e => handleImages(e.target.files)} />
         <div className="image-preview">
-          {previewUrls.map((url, i) => <img key={i} src={url} alt={`preview ${i}`} />)}
+          {previewUrls.map((url, i) => (
+            <div key={i} className="preview-wrapper">
+              <img src={url} alt={`preview ${i}`} />
+              <button type="button" onClick={() => removeImage(i)}>Remove</button>
+            </div>
+          ))}
         </div>
       </div>
 
       {/* SUBMIT */}
-      <button onClick={handleSubmit} disabled={loading}>{loading ? "Saving..." : "Add Product"}</button>
+      <button onClick={handleSubmit} disabled={loading}>
+        {loading ? "Saving..." : "Add Product"}
+      </button>
     </div>
   );
 }
