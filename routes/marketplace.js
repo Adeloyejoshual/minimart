@@ -56,7 +56,7 @@ router.get("/products", async (req, res) => {
       LIMIT 6
     `);
 
-    // 2️⃣ Main products (recent)
+    // 2️⃣ Recommendations / main products (recently added)
     const { rows: mainRows } = await pool.query(`
       SELECT * FROM products
       WHERE is_active = true
@@ -65,11 +65,11 @@ router.get("/products", async (req, res) => {
       LIMIT $2
     `, [skip, limit]);
 
-    // 3️⃣ Normalize products
-    const formatProduct = (p) => {
+    // 3️⃣ Normalize product data
+    const normalize = (p) => {
       let dynamic = {}, images = [];
-      try { dynamic = p.dynamic_fields || {}; } catch {}
-      try { images = p.images || []; } catch {}
+      try { dynamic = p.dynamic_fields ? JSON.parse(p.dynamic_fields) : {}; } catch {}
+      try { images = p.images ? JSON.parse(p.images) : []; } catch {}
       return {
         ...p,
         dynamic_fields: dynamic,
@@ -78,20 +78,44 @@ router.get("/products", async (req, res) => {
       };
     };
 
-    const trendingProducts = trendingRows.map(formatProduct);
-    const mainProducts = mainRows.map(formatProduct);
+    const trendingProducts = trendingRows.map(normalize);
+    const mainProducts = mainRows.map(normalize);
 
-    // 4️⃣ Combine without duplicates
+    // 4️⃣ Combine products, trending first, avoid duplicates
     const trendingIds = trendingProducts.map(p => p.id);
     const products = [
       ...trendingProducts,
       ...mainProducts.filter(p => !trendingIds.includes(p.id))
     ];
 
-    res.json({ products });
+    res.json({ products, trending: trendingProducts });
   } catch (err) {
     console.error("GET /products error:", err);
     res.status(500).json({ message: "Failed to fetch products" });
+  }
+});
+
+/* =========================================================
+   GET SINGLE PRODUCT
+   (needed for ProductDetail page)
+========================================================= */
+router.get("/products/:id", async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { rows } = await pool.query("SELECT * FROM products WHERE id = $1", [id]);
+    if (!rows.length) return res.status(404).json({ message: "Product not found" });
+
+    let product = rows[0];
+    try { product.images = product.images ? JSON.parse(product.images) : []; } catch {}
+    try { product.dynamic_fields = product.dynamic_fields ? JSON.parse(product.dynamic_fields) : {}; } catch {}
+
+    // Increment views
+    await pool.query("UPDATE products SET views = COALESCE(views, 0) + 1 WHERE id = $1", [id]);
+
+    res.json(product);
+  } catch (err) {
+    console.error("GET /products/:id error:", err);
+    res.status(500).json({ message: "Failed to fetch product" });
   }
 });
 
@@ -123,7 +147,7 @@ router.post("/products", upload.array("images"), async (req, res) => {
       Object.entries(parsedFields).filter(([k]) => allowedKeys.includes(k))
     );
 
-    // Upload images to Cloudinary
+    // Upload images
     const uploadedImages = req.files?.length
       ? await Promise.all(req.files.map(file =>
           new Promise((resolve, reject) => {
