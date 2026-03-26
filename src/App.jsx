@@ -1,3 +1,4 @@
+// src/App.jsx
 import React, { useState, useEffect } from "react";
 import { BrowserRouter as Router, Routes, Route, Navigate } from "react-router-dom";
 import axios from "axios";
@@ -5,7 +6,7 @@ import toast, { Toaster } from "react-hot-toast";
 
 // ---------------- USER PAGES ----------------
 import Homepage from "./pages/Homepage";
-import AddProduct from "./pages/AddProduct";
+import AddProduct from "./pages/AddProductPage";
 import ProductDetail from "./pages/ProductDetail";
 import Profile from "./pages/Profile";
 import Coupons from "./pages/Profile/Coupons";
@@ -23,6 +24,7 @@ import FAQ from "./pages/FAQ";
 import Complain from "./pages/Complain";
 import Support from "./pages/Support";
 import Invitation from "./pages/Invitation";
+import TermsAndConditions from "./pages/TermsAndConditions";
 
 // ---------------- ADMIN PAGES ----------------
 import AdminLogin from "./pages/admin/AdminLogin";
@@ -49,9 +51,7 @@ export default function App() {
     }
 
     axios
-      .get(`${API}/me`, {
-        headers: { Authorization: `Bearer ${token}` },
-      })
+      .get(`${API}/me`, { headers: { Authorization: `Bearer ${token}` } })
       .then((res) => setUser(res.data))
       .catch(() => {
         localStorage.removeItem("token");
@@ -82,17 +82,13 @@ export default function App() {
 
   // ---------------- USER PROTECTED ----------------
   const ProtectedRoute = ({ children }) => {
-    if (loadingUser) {
-      return <div style={{ textAlign: "center", marginTop: "20vh" }}>Loading...</div>;
-    }
+    if (loadingUser) return <div style={{ textAlign: "center", marginTop: "20vh" }}>Loading...</div>;
     return user ? children : <Navigate to="/auth" replace />;
   };
 
   // ---------------- ADMIN PROTECTED ----------------
   const AdminProtectedRoute = ({ children }) => {
-    if (loadingAdmin) {
-      return <div style={{ textAlign: "center", marginTop: "20vh" }}>Loading admin...</div>;
-    }
+    if (loadingAdmin) return <div style={{ textAlign: "center", marginTop: "20vh" }}>Loading admin...</div>;
     return admin ? children : <Navigate to="/admin/login" replace />;
   };
 
@@ -110,11 +106,7 @@ export default function App() {
         position="top-right"
         toastOptions={{
           duration: 4000,
-          style: {
-            padding: "10px 14px",
-            borderRadius: 8,
-            color: "#fff",
-          },
+          style: { padding: "10px 14px", borderRadius: 8, color: "#fff" },
           success: { style: { background: "#28a745" } },
           error: { style: { background: "#dc3545" } },
         }}
@@ -126,6 +118,7 @@ export default function App() {
         <Route path="/product/:id" element={<ProductDetail user={user} />} />
         <Route path="/seller/:id" element={<SellerProfile user={user} />} />
         <Route path="/auth" element={<AuthPage setUser={handleAuthSuccess} />} />
+        <Route path="/terms" element={<TermsAndConditions />} />
 
         {/* ---------------- USER ---------------- */}
         <Route path="/profile" element={<ProtectedRoute><Profile user={user} /></ProtectedRoute>} />
@@ -133,13 +126,11 @@ export default function App() {
         <Route path="/minimart/add" element={<ProtectedRoute><AddProduct user={user} /></ProtectedRoute>} />
         <Route path="/conversations" element={<ProtectedRoute><Conversations user={user} /></ProtectedRoute>} />
         <Route path="/chat/:productId" element={<ProtectedRoute><Chat user={user} /></ProtectedRoute>} />
-
         <Route path="/coupons" element={<ProtectedRoute><Coupons user={user} /></ProtectedRoute>} />
         <Route path="/dashboard" element={<ProtectedRoute><Dashboard user={user} /></ProtectedRoute>} />
         <Route path="/leaderboard" element={<ProtectedRoute><Leaderboard user={user} /></ProtectedRoute>} />
         <Route path="/verification" element={<ProtectedRoute><Verification user={user} /></ProtectedRoute>} />
         <Route path="/wallet" element={<ProtectedRoute><Wallet user={user} /></ProtectedRoute>} />
-
         <Route path="/become-seller" element={<ProtectedRoute><BecomeSeller user={user} /></ProtectedRoute>} />
         <Route path="/faq" element={<ProtectedRoute><FAQ user={user} /></ProtectedRoute>} />
         <Route path="/complain" element={<ProtectedRoute><Complain user={user} /></ProtectedRoute>} />
@@ -147,8 +138,6 @@ export default function App() {
         <Route path="/invitation" element={<ProtectedRoute><Invitation user={user} /></ProtectedRoute>} />
 
         {/* ---------------- ADMIN ---------------- */}
-
-        {/* Smart redirect */}
         <Route
           path="/admin"
           element={
@@ -161,17 +150,8 @@ export default function App() {
             )
           }
         />
-
         <Route path="/admin/login" element={<AdminLogin setAdmin={setAdmin} />} />
-
-        <Route
-          path="/admin/dashboard"
-          element={
-            <AdminProtectedRoute>
-              <AdminDashboard />
-            </AdminProtectedRoute>
-          }
-        />
+        <Route path="/admin/dashboard" element={<AdminProtectedRoute><AdminDashboard /></AdminProtectedRoute>} />
 
         {/* ---------------- FALLBACK ---------------- */}
         <Route path="*" element={<Navigate to="/" replace />} />
