@@ -1,15 +1,21 @@
-// src/pages/AddProductPage.jsx
 import { useEffect, useState } from "react";
 import DropdownModal from "../components/DropdownModal.jsx";
 import { locationsByState } from "../config/locationsByState.js";
-import { promotionPlans, getActivePrice, getDiscountPercent } from "../config/promotions.js";
+import { promotionPlans, getActivePrice } from "../config/promotions.js";
+import imageCompression from "browser-image-compression";
 import "./AddProduct.css";
 
 export default function AddProductPage() {
   const [categories, setCategories] = useState([]);
   const [loading, setLoading] = useState(false);
+  const [progress, setProgress] = useState(0);
+
   const [images, setImages] = useState([]);
   const [previewUrls, setPreviewUrls] = useState([]);
+
+  const [dragging, setDragging] = useState(false);
+  const [dragIndex, setDragIndex] = useState(null);
+
   const [selectedState, setSelectedState] = useState("");
   const [selectedCity, setSelectedCity] = useState("");
 
@@ -21,27 +27,39 @@ export default function AddProductPage() {
     subCategory: "",
     dynamic: {},
     promotionId: "",
+    negotiable: "unknown",
   });
 
   const states = Object.keys(locationsByState || {});
   const cities = selectedState ? locationsByState[selectedState] : [];
 
-  // ---------------- FETCH CATEGORIES ----------------
+  /* ================= FETCH ================= */
   useEffect(() => {
-    async function fetchCategories() {
-      try {
-        const res = await fetch(
-          "https://minimart-ivrm.onrender.com/api/marketplace/categories"
-        );
-        const data = await res.json();
-        setCategories(data || []);
-      } catch (err) {
-        console.error("Failed to load categories", err);
-      }
-    }
-    fetchCategories();
+    fetch("https://minimart-ivrm.onrender.com/api/marketplace/categories")
+      .then(res => res.json())
+      .then(setCategories)
+      .catch(console.error);
   }, []);
 
+  /* ================= AUTOSAVE ================= */
+  useEffect(() => {
+    localStorage.setItem(
+      "product_draft",
+      JSON.stringify({ form, selectedState, selectedCity })
+    );
+  }, [form, selectedState, selectedCity]);
+
+  useEffect(() => {
+    const saved = localStorage.getItem("product_draft");
+    if (saved) {
+      const d = JSON.parse(saved);
+      setForm(d.form || {});
+      setSelectedState(d.selectedState || "");
+      setSelectedCity(d.selectedCity || "");
+    }
+  }, []);
+
+  /* ================= CATEGORY ================= */
   const selectedCategory = categories.find(c => c.id === form.mainCategory);
   const subcategories = selectedCategory?.subcategories || [];
   const dynamicFields = selectedCategory?.dynamicOptions?.fields || [];
@@ -52,121 +70,121 @@ export default function AddProductPage() {
     model: options.models?.[form.dynamic.brand] || [],
     color: options.colors || [],
     condition: options.conditions || [],
-    used_detail: options.usedDetails || [],
     ram: options.ram || [],
     storage: options.storage || [],
-    sim: options.sims || [],
-    features: options.features || [],
-    year: options.years || [],
-    engine: options.engine || [],
-    fuel_type: options.fuel_type || [],
   };
 
-  const update = (key, value) => setForm(prev => ({ ...prev, [key]: value }));
-  const updateDynamic = (key, value) =>
-    setForm(prev => ({ ...prev, dynamic: { ...prev.dynamic, [key]: value } }));
+  const update = (k, v) => setForm(p => ({ ...p, [k]: v }));
+  const updateDynamic = (k, v) =>
+    setForm(p => ({ ...p, dynamic: { ...p.dynamic, [k]: v } }));
 
-  // ---------------- RESET DYNAMIC FIELDS ----------------
   useEffect(() => {
     if (!selectedCategory) return;
-    const initialDynamic = Object.fromEntries(
-      dynamicFields.map(f => [f, f === "features" ? [] : ""])
+    const init = Object.fromEntries(
+      dynamicFields.map(f => [f, ""])
     );
-    initialDynamic.location = { state: selectedState || "", city: selectedCity || "" };
-    setForm(prev => ({ ...prev, dynamic: initialDynamic, subCategory: "" }));
-  }, [selectedCategory, selectedState, selectedCity]);
+    setForm(p => ({ ...p, dynamic: init }));
+  }, [selectedCategory]);
 
-  // ---------------- IMAGE PREVIEWS ----------------
-  const handleImages = files => {
-    const arr = Array.from(files).slice(0, 8); // max 8 images
-    setImages(arr);
-    setPreviewUrls(arr.map(f => URL.createObjectURL(f)));
-  };
-  const removeImage = index => {
-    setImages(prev => prev.filter((_, i) => i !== index));
-    setPreviewUrls(prev => prev.filter((_, i) => i !== index));
-  };
+  /* ================= IMAGE COMPRESSION ================= */
+  const compressImage = async file =>
+    await imageCompression(file, {
+      maxSizeMB: 1,
+      maxWidthOrHeight: 1280,
+      useWebWorker: true,
+    });
 
-  // ---------------- STATE & CITY ----------------
-  const handleStateChange = state => {
-    setSelectedState(state);
-    setSelectedCity("");
-    updateDynamic("location", { state, city: "" });
-  };
-  const handleCityChange = city => {
-    setSelectedCity(city);
-    updateDynamic("location", { state: selectedState, city });
+  const processImages = async files => {
+    const arr = files.slice(0, 8);
+    const compressed = await Promise.all(arr.map(compressImage));
+
+    setImages(compressed);
+    setPreviewUrls(compressed.map(f => URL.createObjectURL(f)));
   };
 
-  // ---------------- PRICE ----------------
-  const handlePriceChange = value => {
-    const numeric = value.replace(/[^0-9.]/g, "");
-    update("price", numeric);
-  };
-  const formatPrice = price => {
-    if (!price) return "";
-    const [integer, decimal] = price.toString().split(".");
-    return integer.replace(/\B(?=(\d{3})+(?!\d))/g, ",") + (decimal ? "." + decimal : "");
+  /* ================= DRAG DROP ================= */
+  const handleDrop = e => {
+    e.preventDefault();
+    setDragging(false);
+    processImages(Array.from(e.dataTransfer.files));
   };
 
-  // ---------------- SUBMIT ----------------
+  /* ================= REORDER ================= */
+  const handleDragStart = i => setDragIndex(i);
+
+  const handleDragEnter = i => {
+    if (dragIndex === null || dragIndex === i) return;
+
+    const newImgs = [...images];
+    const moved = newImgs.splice(dragIndex, 1)[0];
+    newImgs.splice(i, 0, moved);
+
+    setImages(newImgs);
+    setPreviewUrls(newImgs.map(f => URL.createObjectURL(f)));
+    setDragIndex(i);
+  };
+
+  const removeImage = i => {
+    setImages(p => p.filter((_, x) => x !== i));
+    setPreviewUrls(p => p.filter((_, x) => x !== i));
+  };
+
+  /* ================= SUBMIT ================= */
+  const uploadWithProgress = fd =>
+    new Promise((resolve, reject) => {
+      const xhr = new XMLHttpRequest();
+
+      xhr.open("POST", "https://minimart-ivrm.onrender.com/api/marketplace/products");
+
+      xhr.upload.onprogress = e => {
+        if (e.lengthComputable) {
+          setProgress(Math.round((e.loaded / e.total) * 100));
+        }
+      };
+
+      xhr.onload = () => {
+        const data = JSON.parse(xhr.responseText);
+        xhr.status >= 200 && xhr.status < 300
+          ? resolve(data)
+          : reject(data);
+      };
+
+      xhr.onerror = () => reject({ message: "Upload failed" });
+
+      xhr.send(fd);
+    });
+
   const handleSubmit = async () => {
     if (!form.title || !form.price || !form.mainCategory)
-      return alert("Title, price, and category are required");
-    if (!images.length) return alert("Please upload at least one image");
+      return alert("Required fields missing");
 
-    const cleanedDynamic = Object.fromEntries(
-      Object.entries(form.dynamic).filter(
-        ([_, v]) => v !== "" && v !== null && !(Array.isArray(v) && !v.length)
-      )
-    );
+    if (!images.length) return alert("Add at least one image");
 
     try {
       setLoading(true);
+      setProgress(0);
 
-      // 1️⃣ Create product first (without images)
-      const productRes = await fetch(
-        "https://minimart-ivrm.onrender.com/api/marketplace/products",
-        {
-          method: "POST",
-          body: JSON.stringify({
-            title: form.title,
-            description: form.description,
-            price: parseFloat(form.price),
-            category_id: form.mainCategory,
-            subcategory_id: form.subCategory || null,
-            dynamicFields: cleanedDynamic,
-            promotion_id: form.promotionId || null,
-          }),
-          headers: { "Content-Type": "application/json" },
-        }
-      );
-      const productData = await productRes.json();
-      if (!productRes.ok) throw new Error(productData.message || "Failed to create product");
+      const fd = new FormData();
 
-      const productId = productData.id;
+      fd.append("title", form.title);
+      fd.append("description", form.description);
+      fd.append("price", form.price);
+      fd.append("category_id", form.mainCategory);
+      fd.append("subcategory_id", form.subCategory || "");
+      fd.append("promotion_id", form.promotionId || "");
+      fd.append("negotiable", form.negotiable);
+      fd.append("location_state", selectedState);
+      fd.append("location_city", selectedCity);
+      fd.append("dynamicFields", JSON.stringify(form.dynamic));
 
-      // 2️⃣ Upload multiple images in parallel to product_images
-      if (images.length) {
-        const formDataArr = images.map(img => {
-          const fd = new FormData();
-          fd.append("product_id", productId);
-          fd.append("images", img);
-          return fd;
-        });
+      images.forEach(img => fd.append("images", img));
 
-        await Promise.all(
-          formDataArr.map(fd =>
-            fetch(
-              `https://minimart-ivrm.onrender.com/api/marketplace/products/${productId}/images`,
-              { method: "POST", body: fd }
-            )
-          )
-        );
-      }
+      await uploadWithProgress(fd);
 
-      // ✅ Success
-      alert("Product added successfully!");
+      alert("✅ Product added!");
+      localStorage.removeItem("product_draft");
+
+      // RESET
       setForm({
         title: "",
         description: "",
@@ -175,164 +193,94 @@ export default function AddProductPage() {
         subCategory: "",
         dynamic: {},
         promotionId: "",
+        negotiable: "unknown",
       });
       setImages([]);
       setPreviewUrls([]);
       setSelectedState("");
       setSelectedCity("");
+
     } catch (err) {
-      console.error(err);
-      alert(err.message);
+      alert(err.message || "Failed");
     } finally {
       setLoading(false);
     }
   };
 
+  /* ================= UI ================= */
   return (
     <div className="add-product-container">
       <h2>Add Product</h2>
 
-      {/* TITLE */}
-      <div className="field">
-        <label>Title</label>
-        <input
-          value={form.title}
-          onChange={e => update("title", e.target.value)}
-          placeholder="e.g iPhone 13"
-        />
-      </div>
+      <input placeholder="Title" value={form.title} onChange={e => update("title", e.target.value)} />
+      <textarea placeholder="Description" value={form.description} onChange={e => update("description", e.target.value)} />
 
-      {/* DESCRIPTION */}
-      <div className="field">
-        <label>Description</label>
-        <textarea
-          value={form.description}
-          onChange={e => update("description", e.target.value)}
-          placeholder="Write product details here..."
-        />
-      </div>
+      <DropdownModal label="Category" value={form.mainCategory} onChange={v => update("mainCategory", v)}
+        options={categories.map(c => ({ id: c.id, name: c.name }))} />
 
-      {/* CATEGORY & SUBCATEGORY */}
-      <DropdownModal
-        label="Category"
-        value={form.mainCategory}
-        onChange={val => update("mainCategory", val)}
-        options={categories.map(c => ({ id: c.id, name: c.name }))}
-      />
       {subcategories.length > 0 && (
-        <DropdownModal
-          label="Subcategory"
-          value={form.subCategory}
-          onChange={val => update("subCategory", val)}
-          options={subcategories.map(s => ({ id: s.id, name: s.name }))}
-        />
+        <DropdownModal label="Subcategory" value={form.subCategory}
+          onChange={v => update("subCategory", v)}
+          options={subcategories.map(s => ({ id: s.id, name: s.name }))} />
       )}
 
-      {/* DYNAMIC FIELDS */}
-      {dynamicFields.map(field => {
-        const value = form.dynamic[field];
-        if (field === "used_detail" && form.dynamic.condition !== "Used") return null;
-
-        if (field === "features") {
-          const current = Array.isArray(value) ? value : [];
-          return (
-            <div key={field} className="multi-select">
-              <label>{field.replace(/_/g, " ").toUpperCase()}</label>
-              {optionsMap[field].map(opt => (
-                <label key={opt}>
-                  <input
-                    type="checkbox"
-                    checked={current.includes(opt)}
-                    onChange={() =>
-                      updateDynamic(
-                        field,
-                        current.includes(opt)
-                          ? current.filter(v => v !== opt)
-                          : [...current, opt]
-                      )
-                    }
-                  />
-                  {opt}
-                </label>
-              ))}
-            </div>
-          );
-        }
-
-        return (
-          <DropdownModal
-            key={field}
-            label={field.replace(/_/g, " ").toUpperCase()}
-            value={value || ""}
-            onChange={val => updateDynamic(field, val)}
-            options={optionsMap[field]}
-          />
-        );
-      })}
-
-      {/* STATE & CITY */}
-      <DropdownModal
-        label="State"
-        value={selectedState}
-        onChange={handleStateChange}
-        options={states}
-      />
-      {selectedState && (
-        <DropdownModal
-          label="City"
-          value={selectedCity}
-          onChange={handleCityChange}
-          options={cities}
+      {dynamicFields.map(f => (
+        <DropdownModal key={f} label={f}
+          value={form.dynamic[f] || ""}
+          onChange={v => updateDynamic(f, v)}
+          options={optionsMap[f] || []}
         />
-      )}
+      ))}
 
-      {/* PRICE */}
-      <div className="field">
-        <label>Price (₦)</label>
-        <input
-          type="text"
-          value={formatPrice(form.price)}
-          onChange={e => handlePriceChange(e.target.value)}
-        />
+      <DropdownModal label="State" value={selectedState} onChange={setSelectedState} options={states} />
+      {selectedState && <DropdownModal label="City" value={selectedCity} onChange={setSelectedCity} options={cities} />}
+
+      <input placeholder="Price" value={form.price} onChange={e => update("price", e.target.value)} />
+
+      <DropdownModal label="Promotion" value={form.promotionId}
+        onChange={v => update("promotionId", v)}
+        options={promotionPlans.map(p => ({
+          id: p.id,
+          name: `${p.name} - ₦${getActivePrice(p.price, p.discount)}`
+        }))} />
+
+      {/* DROP ZONE */}
+      <div
+        className={`drop-zone ${dragging ? "dragging" : ""}`}
+        onDrop={handleDrop}
+        onDragOver={e => { e.preventDefault(); setDragging(true); }}
+        onDragLeave={() => setDragging(false)}
+      >
+        Drag & drop or click
+        <input type="file" multiple onChange={e => processImages(Array.from(e.target.files))} />
       </div>
 
-      {/* PROMOTION */}
-      <DropdownModal
-        label="Promotion"
-        value={form.promotionId}
-        onChange={val => update("promotionId", val)}
-        options={promotionPlans.map(plan => {
-          const activePrice = getActivePrice(plan.price, plan.discount);
-          const discountPercent = getDiscountPercent(plan.originalPrice, plan.discount);
-          return {
-            id: plan.id,
-            name: `${plan.name} - ₦${activePrice.toLocaleString()} (${discountPercent}% off)`,
-          };
-        })}
-      />
+      {/* PREVIEW */}
+      <div className="image-preview">
+        {previewUrls.map((url, i) => (
+          <div key={i}
+            draggable
+            onDragStart={() => handleDragStart(i)}
+            onDragEnter={() => handleDragEnter(i)}
+            className={i === 0 ? "main" : ""}
+          >
+            <img src={url} alt="" />
+            {i === 0 && <span>Main</span>}
+            <button onClick={() => removeImage(i)}>X</button>
+          </div>
+        ))}
+      </div>
 
-      {/* IMAGES */}
-      <div className="field">
-        <label>Images (max 8)</label>
-        <input
-          type="file"
-          multiple
-          accept="image/*"
-          onChange={e => handleImages(e.target.files)}
-        />
-        <div className="image-preview">
-          {previewUrls.map((url, i) => (
-            <div key={i} className="preview-wrapper">
-              <img src={url} alt={`preview ${i}`} />
-              <button type="button" onClick={() => removeImage(i)}>Remove</button>
-            </div>
-          ))}
+      {/* PROGRESS */}
+      {loading && (
+        <div className="progress-bar">
+          <div style={{ width: `${progress}%` }} />
+          <span>{progress}%</span>
         </div>
-      </div>
+      )}
 
-      {/* SUBMIT */}
       <button onClick={handleSubmit} disabled={loading}>
-        {loading ? "Saving..." : "Add Product"}
+        {loading ? "Uploading..." : "Add Product"}
       </button>
     </div>
   );
