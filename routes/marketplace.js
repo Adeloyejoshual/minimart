@@ -29,14 +29,14 @@ const pool = new Pool({
   ssl: { rejectUnauthorized: false },
 });
 
-// ---------------- CLOUDINARY ----------------
+// ---------------- CLOUDINARY CONFIG ----------------
 cloudinary.config({
   cloud_name: process.env.CLOUDINARY_CLOUD_NAME,
   api_key: process.env.CLOUDINARY_API_KEY,
   api_secret: process.env.CLOUDINARY_API_SECRET,
 });
 
-// ---------------- MULTER ----------------
+// ---------------- MULTER CONFIG ----------------
 const upload = multer({
   storage: multer.memoryStorage(),
   limits: { fileSize: 5 * 1024 * 1024 }, // max 5MB per image
@@ -55,7 +55,7 @@ router.get("/products", async (req, res) => {
     skip = parseInt(skip);
     limit = Math.min(parseInt(limit), 50);
 
-    // Trending (top 6 by views)
+    // Trending products
     const { rows: trendingRows } = await pool.query(`
       SELECT p.*, COALESCE(json_agg(pi.image_url) FILTER (WHERE pi.image_url IS NOT NULL), '[]') AS images
       FROM products p
@@ -66,7 +66,7 @@ router.get("/products", async (req, res) => {
       LIMIT 6
     `);
 
-    // Recent products
+    // Main products (recent)
     const { rows: mainRows } = await pool.query(`
       SELECT p.*, COALESCE(json_agg(pi.image_url) FILTER (WHERE pi.image_url IS NOT NULL), '[]') AS images
       FROM products p
@@ -83,6 +83,7 @@ router.get("/products", async (req, res) => {
       images: Array.isArray(p.images) ? p.images : [],
       dynamic_fields: p.dynamic_fields ? JSON.parse(p.dynamic_fields) : {},
       location: { state: p.location_state, city: p.location_city },
+      promotion: promotionPlans.find(plan => plan.id == p.promotion_id) || null,
     });
 
     const trendingProducts = trendingRows.map(normalize);
@@ -117,6 +118,7 @@ router.get("/products/:id", async (req, res) => {
     const product = rows[0];
     product.dynamic_fields = product.dynamic_fields ? JSON.parse(product.dynamic_fields) : {};
     product.location = { state: product.location_state, city: product.location_city };
+    product.promotion = promotionPlans.find(plan => plan.id == product.promotion_id) || null;
 
     // Increment views asynchronously
     pool.query("UPDATE products SET views = COALESCE(views,0)+1 WHERE id = $1", [id]).catch(console.error);
@@ -129,9 +131,9 @@ router.get("/products/:id", async (req, res) => {
 });
 
 /* =========================================================
-   POST PRODUCT WITH IMAGES
+   POST PRODUCT WITH IMAGES + PROMOTION
 ========================================================= */
-router.post("/products", upload.array("images"), async (req, res) => {
+router.post("/products", upload.array("images", 8), async (req, res) => {
   const client = await pool.connect();
   try {
     const { title, description, price, category_id, subcategory_id, dynamicFields, promotion_id } = req.body;
@@ -159,8 +161,6 @@ router.post("/products", upload.array("images"), async (req, res) => {
       Object.entries(parsedFields).filter(([k]) => allowedKeys.includes(k))
     );
 
-    console.log("Received files:", req.files?.map(f => f.originalname));
-
     await client.query("BEGIN");
 
     // Insert product
@@ -181,7 +181,7 @@ router.post("/products", upload.array("images"), async (req, res) => {
     ]);
     const product = rows[0];
 
-    // Upload images to Cloudinary and insert into product_images
+    // Upload images to Cloudinary & save in product_images
     if (req.files?.length) {
       const uploadedUrls = await Promise.all(req.files.map(file =>
         new Promise((resolve, reject) => {
