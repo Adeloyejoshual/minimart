@@ -1,350 +1,308 @@
-import React, { useEffect, useMemo, useState } from "react";
-import axios from "axios";
+import { useEffect, useState } from "react";
+import DropdownModal from "../components/DropdownModal.jsx";
+import { locationsByState } from "../config/locationsByState.js";
+import { promotionPlans, getActivePrice, getDiscountPercent } from "../config/promotions.js";
+import imageCompression from "browser-image-compression";
 
-/* ================= CONFIG (ASSUMED FROM YOUR SYSTEM) ================= */
-import { brands } from "../config/brands";
-import { colors } from "../config/colors";
-import { conditions } from "../config/conditions";
-import { models } from "../config/models";
-import { ramOptions } from "../config/ramOptions";
-import { storageOptions } from "../config/storageOptions";
-import { sims } from "../config/sims";
-import { years } from "../config/years";
-
-/* ================= IMAGE COMPRESSION ================= */
-const compressImage = (file, quality = 0.7, maxWidth = 1024) => {
-  return new Promise((resolve) => {
-    const reader = new FileReader();
-
-    reader.readAsDataURL(file);
-    reader.onload = (event) => {
-      const img = new Image();
-      img.src = event.target.result;
-
-      img.onload = () => {
-        const canvas = document.createElement("canvas");
-
-        const scale = maxWidth / img.width;
-        canvas.width = maxWidth;
-        canvas.height = img.height * scale;
-
-        const ctx = canvas.getContext("2d");
-        ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
-
-        canvas.toBlob(
-          (blob) => {
-            const compressedFile = new File([blob], file.name, {
-              type: "image/jpeg",
-              lastModified: Date.now(),
-            });
-            resolve(compressedFile);
-          },
-          "image/jpeg",
-          quality
-        );
-      };
-    };
-  });
-};
-
-/* ================= COMPONENT ================= */
 export default function AddProduct() {
   const [categories, setCategories] = useState([]);
+  const [loading, setLoading] = useState(false);
+  const [progress, setProgress] = useState(0);
+
+  const [images, setImages] = useState([]);
+  const [previews, setPreviews] = useState([]);
+
+  const [state, setState] = useState("");
+  const [city, setCity] = useState("");
+
   const [form, setForm] = useState({
     title: "",
     description: "",
     price: "",
     category_id: "",
     subcategory_id: "",
-    brand: "",
-    model: "",
-    color: "",
-    condition: "",
-    year: "",
-    ram: "",
-    storage: "",
-    sim: "",
-    location_state: "",
-    location_city: "",
-    contact_phone: "",
-    negotiable: "",
+    promotion_id: "",
+
+    attributes: {},
+
+    delivery: {
+      available: true,
+      type: "fixed",
+      note: ""
+    },
+
+    contact: {
+      phone: "",
+      whatsapp: "",
+      preferred: "chat"
+    },
+
+    negotiable: false,
   });
 
-  const [images, setImages] = useState([]);
-  const [uploadProgress, setUploadProgress] = useState(0);
-  const [loading, setLoading] = useState(false);
+  const states = Object.keys(locationsByState || []);
+  const cities = state ? locationsByState[state] : [];
 
-  /* ================= LOAD CATEGORIES ================= */
+  // ---------------- LOAD CATEGORIES ----------------
   useEffect(() => {
-    axios.get("/api/categories").then((res) => {
-      setCategories(res.data);
-    });
+    (async () => {
+      const res = await fetch("https://minimart-ivrm.onrender.com/api/marketplace/categories");
+      const data = await res.json();
+      setCategories(data || []);
+    })();
   }, []);
 
-  /* ================= HANDLE INPUT ================= */
-  const handleChange = (e) => {
-    setForm({ ...form, [e.target.name]: e.target.value });
+  const selectedCategory = categories.find(c => c.id === form.category_id);
+  const dynamicFields = selectedCategory?.dynamicOptions?.fields || [];
+  const options = selectedCategory?.dynamicOptions || {};
+
+  const optionsMap = {
+    brand: options.brands || [],
+    model: options.models?.[form.attributes?.brand] || [],
+    color: options.colors || [],
+    condition: options.conditions || [],
+    used_detail: options.usedDetails || [],
+    ram: options.ram || [],
+    storage: options.storage || [],
+    sim: options.sims || [],
+    features: options.features || [],
+    year: options.years || [],
+    engine: options.engines || [],
+    fuel_type: options.fuel_types || [],
   };
 
-  /* ================= IMAGE SELECT ================= */
-  const handleImages = async (e) => {
-    const files = Array.from(e.target.files);
+  const update = (k, v) => setForm(p => ({ ...p, [k]: v }));
+  const updateAttr = (k, v) =>
+    setForm(p => ({ ...p, attributes: { ...p.attributes, [k]: v } }));
 
-    const compressed = await Promise.all(
-      files.map((file) => compressImage(file))
+  // ---------------- LOCATION ----------------
+  const handleState = (s) => {
+    setState(s);
+    setCity("");
+  };
+
+  const handleCity = (c) => setCity(c);
+
+  // ---------------- IMAGE COMPRESSION ----------------
+  const compress = async (files) => {
+    const opts = {
+      maxSizeMB: 0.5,
+      maxWidthOrHeight: 1920,
+      useWebWorker: true
+    };
+
+    return Promise.all(
+      Array.from(files).map(f => imageCompression(f, opts))
     );
-
-    const preview = compressed.map((file) => ({
-      file,
-      url: URL.createObjectURL(file),
-    }));
-
-    setImages((prev) => [...prev, ...preview]);
   };
 
-  const removeImage = (index) => {
-    setImages((prev) => prev.filter((_, i) => i !== index));
+  const handleImages = async (files) => {
+    const compressed = await compress(files);
+    setImages(compressed);
+    setPreviews(compressed.map(f => URL.createObjectURL(f)));
   };
 
-  /* ================= SUBMIT ================= */
-  const handleSubmit = async (e) => {
-    e.preventDefault();
-    setLoading(true);
-    setUploadProgress(0);
+  const removeImage = (i) => {
+    setImages(p => p.filter((_, idx) => idx !== i));
+    setPreviews(p => p.filter((_, idx) => idx !== i));
+  };
+
+  // ---------------- SUBMIT ----------------
+  const handleSubmit = async () => {
+    if (!form.title || !form.price || !form.category_id)
+      return alert("Missing required fields");
+
+    const fd = new FormData();
+
+    fd.append("title", form.title);
+    fd.append("description", form.description);
+    fd.append("price", form.price);
+    fd.append("category_id", form.category_id);
+
+    if (form.subcategory_id)
+      fd.append("subcategory_id", form.subcategory_id);
+
+    if (form.promotion_id)
+      fd.append("promotion_id", form.promotion_id);
+
+    fd.append("attributes", JSON.stringify(form.attributes));
+    fd.append("delivery", JSON.stringify(form.delivery));
+    fd.append("contact", JSON.stringify(form.contact));
+
+    fd.append("location_state", state);
+    fd.append("location_city", city);
+
+    images.forEach(img => fd.append("images", img));
 
     try {
-      const formData = new FormData();
+      setLoading(true);
+      setProgress(0);
 
-      /* ===== BASIC ===== */
-      formData.append("title", form.title);
-      formData.append("description", form.description);
-      formData.append("price", form.price);
-      formData.append("category_id", form.category_id);
-      formData.append("subcategory_id", form.subcategory_id);
+      const xhr = new XMLHttpRequest();
+      xhr.open("POST", "https://minimart-ivrm.onrender.com/api/marketplace/products");
 
-      /* ===== ATTRIBUTES ===== */
-      formData.append("brand", form.brand);
-      formData.append("model", form.model);
-      formData.append("color", form.color);
-      formData.append("condition", form.condition);
-      formData.append("year", form.year);
-      formData.append("ram", form.ram);
-      formData.append("storage", form.storage);
-      formData.append("sim", form.sim);
+      xhr.upload.onprogress = (e) => {
+        if (e.lengthComputable) {
+          setProgress(Math.round((e.loaded / e.total) * 100));
+        }
+      };
 
-      /* ===== LOCATION ===== */
-      formData.append("location_state", form.location_state);
-      formData.append("location_city", form.location_city);
+      xhr.onload = () => {
+        setLoading(false);
 
-      /* ===== CONTACT ===== */
-      formData.append(
-        "contact",
-        JSON.stringify({
-          phone: form.contact_phone,
-        })
-      );
+        if (xhr.status >= 200 && xhr.status < 300) {
+          alert("Product created!");
 
-      /* ===== DELIVERY ===== */
-      formData.append(
-        "delivery",
-        JSON.stringify({
-          negotiable: form.negotiable,
-        })
-      );
+          setForm({
+            title: "",
+            description: "",
+            price: "",
+            category_id: "",
+            subcategory_id: "",
+            promotion_id: "",
+            attributes: {},
+            delivery: { available: true, type: "fixed", note: "" },
+            contact: { phone: "", whatsapp: "", preferred: "chat" },
+            negotiable: false,
+          });
 
-      /* ===== IMAGES ===== */
-      images.forEach((img) => {
-        formData.append("images", img.file);
-      });
+          setImages([]);
+          setPreviews([]);
+          setState("");
+          setCity("");
+          setProgress(0);
+        } else {
+          alert("Upload failed");
+        }
+      };
 
-      await axios.post("/api/products", formData, {
-        headers: { "Content-Type": "multipart/form-data" },
-        onUploadProgress: (progressEvent) => {
-          const percent = Math.round(
-            (progressEvent.loaded * 100) / progressEvent.total
-          );
-          setUploadProgress(percent);
-        },
-      });
+      xhr.onerror = () => {
+        setLoading(false);
+        alert("Network error");
+      };
 
-      alert("Product created successfully");
-
-      /* RESET */
-      setForm({
-        title: "",
-        description: "",
-        price: "",
-        category_id: "",
-        subcategory_id: "",
-        brand: "",
-        model: "",
-        color: "",
-        condition: "",
-        year: "",
-        ram: "",
-        storage: "",
-        sim: "",
-        location_state: "",
-        location_city: "",
-        contact_phone: "",
-        negotiable: "",
-      });
-
-      setImages([]);
-      setUploadProgress(0);
-    } catch (err) {
-      console.error(err);
-      alert("Failed to create product");
-    } finally {
+      xhr.send(fd);
+    } catch (e) {
       setLoading(false);
+      console.error(e);
     }
   };
 
-  /* ================= FILTER OPTIONS ================= */
-  const brandOptions = useMemo(() => {
-    return brands["default"] || [];
-  }, []);
-
+  // ---------------- UI (MINIMAL CLEAN) ----------------
   return (
-    <div style={{ maxWidth: 700, margin: "0 auto" }}>
-      <h2>Create Product</h2>
+    <div className="add-product">
 
-      <form onSubmit={handleSubmit}>
-        {/* TITLE */}
-        <input
-          name="title"
-          placeholder="Title"
-          value={form.title}
-          onChange={handleChange}
-          required
-        />
+      <h2>Add Product</h2>
 
-        {/* PRICE */}
-        <input
-          name="price"
-          placeholder="Price"
-          type="number"
-          value={form.price}
-          onChange={handleChange}
-          required
-        />
-
-        {/* DESCRIPTION */}
-        <textarea
-          name="description"
-          placeholder="Description"
-          value={form.description}
-          onChange={handleChange}
-        />
-
-        {/* CATEGORY */}
-        <select
-          name="category_id"
-          value={form.category_id}
-          onChange={handleChange}
-          required
-        >
-          <option value="">Select Category</option>
-          {categories.map((c) => (
-            <option key={c.id} value={c.id}>
-              {c.name}
-            </option>
-          ))}
-        </select>
-
-        {/* BRAND */}
-        <select name="brand" value={form.brand} onChange={handleChange}>
-          <option value="">Brand</option>
-          {brandOptions.map((b) => (
-            <option key={b} value={b}>
-              {b}
-            </option>
-          ))}
-        </select>
-
-        {/* CONDITION */}
-        <select
-          name="condition"
-          value={form.condition}
-          onChange={handleChange}
-        >
-          <option value="">Condition</option>
-          {conditions.map((c) => (
-            <option key={c} value={c}>
-              {c}
-            </option>
-          ))}
-        </select>
-
-        {/* LOCATION */}
-        <input
-          name="location_state"
-          placeholder="State"
-          value={form.location_state}
-          onChange={handleChange}
-        />
-
-        <input
-          name="location_city"
-          placeholder="City"
-          value={form.location_city}
-          onChange={handleChange}
-        />
-
-        {/* CONTACT */}
-        <input
-          name="contact_phone"
-          placeholder="Phone"
-          value={form.contact_phone}
-          onChange={handleChange}
-        />
-
-        {/* IMAGES */}
-        <input type="file" multiple accept="image/*" onChange={handleImages} />
-
-        <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
-          {images.map((img, i) => (
-            <div key={i}>
-              <img
-                src={img.url}
-                alt=""
-                width={80}
-                height={80}
-                style={{ objectFit: "cover" }}
-              />
-              <button type="button" onClick={() => removeImage(i)}>
-                X
-              </button>
-            </div>
-          ))}
+      {loading && (
+        <div className="progress">
+          <div style={{ width: `${progress}%` }} />
+          <span>{progress}%</span>
         </div>
+      )}
 
-        {/* UPLOAD PROGRESS */}
-        {uploadProgress > 0 && (
-          <div style={{ marginTop: 10 }}>
-            <div>Uploading: {uploadProgress}%</div>
-            <div
-              style={{
-                height: 6,
-                background: "#eee",
-                borderRadius: 4,
-              }}
-            >
-              <div
-                style={{
-                  width: `${uploadProgress}%`,
-                  height: "100%",
-                  background: "green",
-                }}
-              />
-            </div>
+      <input placeholder="Title"
+        value={form.title}
+        onChange={e => update("title", e.target.value)}
+      />
+
+      <textarea placeholder="Description"
+        value={form.description}
+        onChange={e => update("description", e.target.value)}
+      />
+
+      <input placeholder="Price"
+        value={form.price}
+        onChange={e => update("price", e.target.value)}
+      />
+
+      {/* CATEGORY */}
+      <DropdownModal
+        label="Category"
+        value={form.category_id}
+        onChange={v => update("category_id", v)}
+        options={categories.map(c => ({ id: c.id, name: c.name }))}
+      />
+
+      {/* SUBCATEGORY */}
+      {selectedCategory?.subcategories?.length > 0 && (
+        <DropdownModal
+          label="Subcategory"
+          value={form.subcategory_id}
+          onChange={v => update("subcategory_id", v)}
+          options={selectedCategory.subcategories.map(s => ({
+            id: s.id,
+            name: s.name
+          }))}
+        />
+      )}
+
+      {/* ATTRIBUTES */}
+      {dynamicFields.map(field => (
+        <DropdownModal
+          key={field}
+          label={field}
+          value={form.attributes[field] || ""}
+          onChange={v => updateAttr(field, v)}
+          options={optionsMap[field] || []}
+        />
+      ))}
+
+      {/* LOCATION */}
+      <DropdownModal
+        label="State"
+        value={state}
+        onChange={handleState}
+        options={states}
+      />
+
+      {state && (
+        <DropdownModal
+          label="City"
+          value={city}
+          onChange={handleCity}
+          options={cities}
+        />
+      )}
+
+      {/* CONTACT */}
+      <input
+        placeholder="Phone"
+        value={form.contact.phone}
+        onChange={e =>
+          setForm(p => ({
+            ...p,
+            contact: { ...p.contact, phone: e.target.value }
+          }))
+        }
+      />
+
+      <input
+        placeholder="WhatsApp"
+        value={form.contact.whatsapp}
+        onChange={e =>
+          setForm(p => ({
+            ...p,
+            contact: { ...p.contact, whatsapp: e.target.value }
+          }))
+        }
+      />
+
+      {/* IMAGES */}
+      <input type="file" multiple onChange={e => handleImages(e.target.files)} />
+
+      <div className="preview">
+        {previews.map((p, i) => (
+          <div key={i}>
+            <img src={p} />
+            <button onClick={() => removeImage(i)}>X</button>
           </div>
-        )}
+        ))}
+      </div>
 
-        <button disabled={loading} type="submit">
-          {loading ? "Uploading..." : "Create Product"}
-        </button>
-      </form>
+      <button onClick={handleSubmit} disabled={loading}>
+        {loading ? "Uploading..." : "Create Product"}
+      </button>
     </div>
   );
 }
