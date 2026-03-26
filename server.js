@@ -15,7 +15,6 @@ import marketplaceRouter from "./routes/marketplace.js";
 import userRouter from "./routes/users.js";
 import messagesRouter from "./routes/messages.js";
 import adminRouter from "./routes/admin.js";
-import promoteRouter from "./routes/promote.js";
 
 dotenv.config();
 
@@ -53,7 +52,6 @@ app.use("/api/marketplace", marketplaceRouter);
 app.use("/api/users", userRouter);
 app.use("/api/messages", messagesRouter);
 app.use("/api/admin", adminRouter);
-app.use("/api/promote", promoteRouter);
 
 // -------------------
 // Serve React SPA in Production
