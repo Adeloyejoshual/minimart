@@ -5,7 +5,7 @@ import multer from "multer";
 import { v2 as cloudinary } from "cloudinary";
 import dotenv from "dotenv";
 
-// ---------------- CONFIG IMPORTS ----------------
+// CONFIG IMPORTS
 import { brands } from "../src/config/brands.js";
 import { colors } from "../src/config/colors.js";
 import { categoryFields } from "../src/config/categoryFields.js";
@@ -25,44 +25,28 @@ dotenv.config();
 
 const router = express.Router();
 
-/* ================= DB ================= */
 const pool = new Pool({
   connectionString: process.env.COCKROACH_URI,
   ssl: { rejectUnauthorized: false },
 });
 
-/* ================= CLOUDINARY ================= */
+// CLOUDINARY
 cloudinary.config({
   cloud_name: process.env.CLOUDINARY_CLOUD_NAME,
   api_key: process.env.CLOUDINARY_API_KEY,
   api_secret: process.env.CLOUDINARY_API_SECRET,
 });
 
-/* ================= MULTER ================= */
+// MULTER
 const upload = multer({
   storage: multer.memoryStorage(),
   limits: { fileSize: 5 * 1024 * 1024 },
-});
-
-/* ================= HELPERS ================= */
-const parseJSONSafe = (val, fallback = {}) => {
-  try {
-    return typeof val === "string" ? JSON.parse(val) : val || fallback;
-  } catch {
-    return fallback;
-  }
-};
-
-const normalizeProduct = (p) => ({
-  ...p,
-  images: Array.isArray(p.images) ? p.images : [],
-  dynamic_fields: parseJSONSafe(p.dynamic_fields, {}),
-  location: {
-    state: p.location_state,
-    city: p.location_city,
+  fileFilter: (req, file, cb) => {
+    if (!file.mimetype.startsWith("image/")) {
+      return cb(new Error("Only images allowed"), false);
+    }
+    cb(null, true);
   },
-  promotion:
-    promotionPlans.find((plan) => plan.id == p.promotion_id) || null,
 });
 
 /* =========================================================
@@ -75,34 +59,55 @@ router.get("/products", async (req, res) => {
     limit = Math.min(parseInt(limit), 50);
 
     const baseQuery = `
-      SELECT p.*,
-      COALESCE(json_agg(pi.image_url) FILTER (WHERE pi.image_url IS NOT NULL), '[]') AS images
+      SELECT 
+        p.*,
+        COALESCE(json_agg(pi.image_url) FILTER (WHERE pi.image_url IS NOT NULL), '[]') AS images
       FROM products p
       LEFT JOIN product_images pi ON p.id = pi.product_id
       WHERE p.is_active = true
       GROUP BY p.id
     `;
 
-    const trendingQuery = `${baseQuery} ORDER BY p.views DESC LIMIT 6`;
-    const mainQuery = `${baseQuery} ORDER BY p.created_at DESC OFFSET $1 LIMIT $2`;
+    const trending = await pool.query(`
+      ${baseQuery}
+      ORDER BY p.views DESC
+      LIMIT 6
+    `);
 
-    const { rows: trending } = await pool.query(trendingQuery);
-    const { rows: main } = await pool.query(mainQuery, [skip, limit]);
+    const main = await pool.query(`
+      ${baseQuery}
+      ORDER BY p.created_at DESC
+      OFFSET $1 LIMIT $2
+    `, [skip, limit]);
 
-    const trendingProducts = trending.map(normalizeProduct);
-    const mainProducts = main.map(normalizeProduct);
+    const normalize = (p) => ({
+      ...p,
+      images: Array.isArray(p.images) ? p.images : [],
+      dynamic_fields: p.dynamic_fields || {},
+      delivery: p.delivery || {},
+      location: {
+        state: p.location_state,
+        city: p.location_city,
+      },
+      promotion: promotionPlans.find(x => x.id == p.promotion_id) || null,
+    });
 
-    const trendingIds = new Set(trendingProducts.map(p => p.id));
+    const trendingProducts = trending.rows.map(normalize);
+    const mainProducts = main.rows.map(normalize);
 
-    const products = [
-      ...trendingProducts,
-      ...mainProducts.filter(p => !trendingIds.has(p.id)),
-    ];
+    const trendingIds = trendingProducts.map(p => p.id);
 
-    res.json({ products, trending: trendingProducts });
+    res.json({
+      trending: trendingProducts,
+      products: [
+        ...trendingProducts,
+        ...mainProducts.filter(p => !trendingIds.includes(p.id)),
+      ],
+    });
+
   } catch (err) {
     console.error(err);
-    res.status(500).json({ message: err.message });
+    res.status(500).json({ message: "Failed to fetch products" });
   }
 });
 
@@ -113,33 +118,43 @@ router.get("/products/:id", async (req, res) => {
   try {
     const { id } = req.params;
 
-    const { rows } = await pool.query(
-      `
-      SELECT p.*,
-      COALESCE(json_agg(pi.image_url) FILTER (WHERE pi.image_url IS NOT NULL), '[]') AS images
+    const { rows } = await pool.query(`
+      SELECT 
+        p.*,
+        COALESCE(json_agg(pi.image_url) FILTER (WHERE pi.image_url IS NOT NULL), '[]') AS images
       FROM products p
       LEFT JOIN product_images pi ON p.id = pi.product_id
       WHERE p.id = $1
       GROUP BY p.id
-    `,
+    `, [id]);
+
+    if (!rows.length) return res.status(404).json({ message: "Not found" });
+
+    const product = rows[0];
+
+    product.dynamic_fields = product.dynamic_fields || {};
+    product.delivery = product.delivery || {};
+    product.location = {
+      state: product.location_state,
+      city: product.location_city,
+    };
+    product.promotion = promotionPlans.find(x => x.id == product.promotion_id) || null;
+
+    pool.query(
+      "UPDATE products SET views = COALESCE(views,0)+1 WHERE id=$1",
       [id]
-    );
-
-    if (!rows.length) return res.status(404).json({ message: "Product not found" });
-
-    const product = normalizeProduct(rows[0]);
-
-    pool.query("UPDATE products SET views = COALESCE(views,0)+1 WHERE id = $1", [id]).catch(console.error);
+    ).catch(console.error);
 
     res.json(product);
+
   } catch (err) {
     console.error(err);
-    res.status(500).json({ message: err.message });
+    res.status(500).json({ message: "Failed to fetch product" });
   }
 });
 
 /* =========================================================
-   POST PRODUCT (FIXED IMAGES)
+   POST PRODUCT (FULL UPGRADE)
 ========================================================= */
 router.post("/products", upload.array("images", 8), async (req, res) => {
   const client = await pool.connect();
@@ -153,94 +168,153 @@ router.post("/products", upload.array("images", 8), async (req, res) => {
       subcategory_id,
       dynamicFields,
       promotion_id,
+
+      // NEW FIELDS
+      phone,
+      negotiation,
+      delivery,
       location_state,
       location_city,
     } = req.body;
 
+    // ---------------- VALIDATION ----------------
     if (!title || !price || !category_id) {
-      return res.status(400).json({ message: "Title, price, and category are required" });
+      return res.status(400).json({ message: "Missing required fields" });
+    }
+
+    if (!phone) {
+      return res.status(400).json({ message: "Phone number is required" });
     }
 
     const priceNum = parseFloat(price);
-    if (isNaN(priceNum)) return res.status(400).json({ message: "Invalid price" });
+    if (isNaN(priceNum)) {
+      return res.status(400).json({ message: "Invalid price" });
+    }
 
+    // ---------------- CATEGORY ----------------
     const { rows: catRows } = await client.query(
-      "SELECT fields_key FROM categories WHERE id = $1",
+      "SELECT id, name, fields_key FROM categories WHERE id=$1",
       [category_id]
     );
 
-    if (!catRows.length) return res.status(400).json({ message: "Invalid category" });
+    if (!catRows.length) {
+      return res.status(400).json({ message: "Invalid category" });
+    }
 
-    const parsedFields = parseJSONSafe(dynamicFields);
-    const allowed = categoryFields[catRows[0].fields_key] || [];
+    const category = catRows[0];
 
+    // ---------------- DYNAMIC ----------------
+    let parsedFields = {};
+    try {
+      parsedFields =
+        typeof dynamicFields === "string"
+          ? JSON.parse(dynamicFields)
+          : dynamicFields || {};
+    } catch {
+      return res.status(400).json({ message: "Invalid dynamic fields" });
+    }
+
+    const allowedKeys = categoryFields[category.fields_key] || [];
     const cleanedFields = Object.fromEntries(
-      Object.entries(parsedFields).filter(([k]) => allowed.includes(k))
+      Object.entries(parsedFields).filter(([k]) => allowedKeys.includes(k))
     );
 
+    // ---------------- DELIVERY ----------------
+    let parsedDelivery = {};
+    try {
+      parsedDelivery =
+        typeof delivery === "string"
+          ? JSON.parse(delivery)
+          : delivery || {};
+    } catch {
+      parsedDelivery = {};
+    }
+
+    // ---------------- START TRANSACTION ----------------
     await client.query("BEGIN");
 
-    const { rows } = await client.query(
-      `
-      INSERT INTO products
-      (title, description, price, category_id, subcategory_id, dynamic_fields, promotion_id, location_state, location_city)
-      VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)
-      RETURNING *
-    `,
-      [
+    // INSERT PRODUCT
+    const { rows } = await client.query(`
+      INSERT INTO products (
         title,
-        description || null,
-        priceNum,
+        description,
+        price,
         category_id,
-        subcategory_id || null,
-        JSON.stringify(cleanedFields),
-        promotion_id || null,
-        location_state || null,
-        location_city || null,
-      ]
-    );
+        subcategory_id,
+        dynamic_fields,
+        promotion_id,
+        location_state,
+        location_city,
+        phone,
+        negotiation,
+        delivery,
+        created_at
+      )
+      VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13)
+      RETURNING *
+    `, [
+      title,
+      description || "",
+      priceNum,
+      category_id,
+      subcategory_id || null,
+      cleanedFields,
+      promotion_id || null,
+      location_state || null,
+      location_city || null,
+      phone,
+      negotiation || "not_sure",
+      parsedDelivery,
+      new Date(),
+    ]);
 
     const product = rows[0];
 
-    /* -------- IMAGE UPLOAD -------- */
+    // ---------------- IMAGES ----------------
     if (req.files?.length) {
-      for (let i = 0; i < req.files.length; i++) {
-        const file = req.files[i];
+      const uploaded = await Promise.all(
+        req.files.map(file =>
+          new Promise((resolve, reject) => {
+            const stream = cloudinary.uploader.upload_stream(
+              { folder: "minimart_products" },
+              (err, result) => {
+                if (err) reject(err);
+                else resolve(result.secure_url);
+              }
+            );
+            stream.end(file.buffer);
+          })
+        )
+      );
 
-        const url = await new Promise((resolve, reject) => {
-          const stream = cloudinary.uploader.upload_stream(
-            { folder: "minimart_products" },
-            (err, result) => err ? reject(err) : resolve(result.secure_url)
-          );
-          stream.end(file.buffer);
-        });
-
-        await client.query(
-          "INSERT INTO product_images (product_id, image_url, position) VALUES ($1,$2,$3)",
-          [product.id, url, i]
-        );
-      }
+      await Promise.all(
+        uploaded.map((url, index) =>
+          client.query(
+            `INSERT INTO product_images (product_id, image_url, position)
+             VALUES ($1,$2,$3)`,
+            [product.id, url, index]
+          )
+        )
+      );
     }
 
     await client.query("COMMIT");
 
-    res.status(201).json({
-      ...product,
-      images: [],
-      promotion: promotionPlans.find(p => p.id == promotion_id) || null,
-    });
+    product.promotion = promotionPlans.find(x => x.id == promotion_id) || null;
+
+    res.status(201).json(product);
 
   } catch (err) {
     await client.query("ROLLBACK");
     console.error(err);
-    res.status(500).json({ message: err.message });
+    res.status(500).json({ message: "Failed to add product" });
   } finally {
     client.release();
   }
 });
 
 /* =========================================================
-   GET CATEGORIES (DYNAMIC OPTIONS BACK ✅)
+   GET CATEGORIES
 ========================================================= */
 router.get("/categories", async (req, res) => {
   try {
@@ -251,36 +325,34 @@ router.get("/categories", async (req, res) => {
     `);
 
     const map = {};
-    const result = [];
+    const tree = [];
 
     rows.forEach(cat => {
       const key = cat.fields_key || "";
 
-      const dynamicOptions = {
-        fields: categoryFields[key] || [],
-        brands: brands[key] || [],
-        models: models[key] || {},
-        colors: colors[key] || [],
-        conditions,
-        usedDetails,
-        ram: ramOptions,
-        storage: storageOptions,
-        sims,
-        features: featuresByCategory[key] || [],
-        years,
-        location: Object.keys(locationsByState),
-        ...(key === "Vehicles"
-          ? { engine: engines, fuel_type: fuelTypes }
-          : {}),
-      };
-
       map[cat.id] = {
         ...cat,
-        dynamicOptions,
+        dynamicOptions: {
+          fields: categoryFields[key] || [],
+          brands: brands[key] || [],
+          models: models[key] || {},
+          colors: colors[key] || [],
+          conditions,
+          usedDetails,
+          ram: ramOptions,
+          storage: storageOptions,
+          sims,
+          features: featuresByCategory[key] || [],
+          years,
+          location: Object.keys(locationsByState),
+          ...(key === "Vehicles"
+            ? { engine: engines, fuel_type: fuelTypes }
+            : {}),
+        },
         subcategories: [],
       };
 
-      if (!cat.parent_id) result.push(map[cat.id]);
+      if (!cat.parent_id) tree.push(map[cat.id]);
     });
 
     rows.forEach(cat => {
@@ -289,10 +361,11 @@ router.get("/categories", async (req, res) => {
       }
     });
 
-    res.json(result);
+    res.json(tree);
+
   } catch (err) {
     console.error(err);
-    res.status(500).json({ message: err.message });
+    res.status(500).json({ message: "Failed to fetch categories" });
   }
 });
 
