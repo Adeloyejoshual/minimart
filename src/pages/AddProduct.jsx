@@ -3,7 +3,6 @@ import { useEffect, useState } from "react";
 import DropdownModal from "../components/DropdownModal.jsx";
 import { locationsByState } from "../config/locationsByState.js";
 import { promotionPlans, getActivePrice, getDiscountPercent } from "../config/promotions.js";
-import { initializePaystackTransaction } from "../../services/paystack.js";
 import "./AddProduct.css";
 
 export default function AddProductPage() {
@@ -13,7 +12,6 @@ export default function AddProductPage() {
   const [previewUrls, setPreviewUrls] = useState([]);
   const [selectedState, setSelectedState] = useState("");
   const [selectedCity, setSelectedCity] = useState("");
-  const [selectedPromotion, setSelectedPromotion] = useState(null);
 
   const [form, setForm] = useState({
     title: "",
@@ -22,18 +20,25 @@ export default function AddProductPage() {
     mainCategory: "",
     subCategory: "",
     dynamic: {},
+    promotionId: "",
+    negotiation: "Not sure",
+    phone: "",
+    deliveryName: "",
+    deliveryRegion: "",
+    deliveryDaysFrom: "",
+    deliveryDaysTo: "",
+    deliveryFee: "No",
+    videoLink: "",
   });
 
   const states = Object.keys(locationsByState || {});
   const cities = selectedState ? locationsByState[selectedState] : [];
 
-  // Fetch categories
+  // ---------------- FETCH CATEGORIES ----------------
   useEffect(() => {
     async function fetchCategories() {
       try {
-        const res = await fetch(
-          "https://minimart-ivrm.onrender.com/api/marketplace/categories"
-        );
+        const res = await fetch("https://minimart-ivrm.onrender.com/api/marketplace/categories");
         const data = await res.json();
         setCategories(data || []);
       } catch (err) {
@@ -67,7 +72,6 @@ export default function AddProductPage() {
   const updateDynamic = (key, value) =>
     setForm(prev => ({ ...prev, dynamic: { ...prev.dynamic, [key]: value } }));
 
-  // Reset dynamic fields when category changes
   useEffect(() => {
     if (!selectedCategory) return;
 
@@ -84,18 +88,19 @@ export default function AddProductPage() {
     setForm(prev => ({ ...prev, dynamic: currentDynamic, subCategory: "" }));
   }, [selectedCategory]);
 
-  // Handle image uploads and previews
+  // ---------------- IMAGE HANDLING ----------------
   const handleImages = files => {
     const arr = [...images, ...Array.from(files)].slice(0, 8);
     setImages(arr);
     setPreviewUrls(arr.map(f => URL.createObjectURL(f)));
   };
+
   const removeImage = index => {
     setImages(prev => prev.filter((_, i) => i !== index));
     setPreviewUrls(prev => prev.filter((_, i) => i !== index));
   };
 
-  // State & city
+  // ---------------- STATE & CITY ----------------
   const handleStateChange = state => {
     setSelectedState(state);
     setSelectedCity("");
@@ -106,7 +111,6 @@ export default function AddProductPage() {
     updateDynamic("location", { ...form.dynamic.location, city });
   };
 
-  // Price formatting
   const handlePriceChange = value => {
     const numeric = value.replace(/[^0-9.]/g, "");
     update("price", numeric);
@@ -119,56 +123,59 @@ export default function AddProductPage() {
 
   // ---------------- SUBMIT ----------------
   const handleSubmit = async () => {
-    if (!form.title || !form.price || !form.mainCategory)
-      return alert("Title, price, and category are required");
-    if (!images.length) return alert("Please upload at least one image");
+    if (!form.title || !form.price || !form.mainCategory) return alert("Title, price, and category are required");
+    if (!images.length) return alert("Add at least 1 photo");
 
     const cleanedDynamic = Object.fromEntries(
-      Object.entries(form.dynamic).filter(
-        ([_, v]) => v !== "" && v !== null && !(Array.isArray(v) && !v.length)
-      )
+      Object.entries(form.dynamic).filter(([_, v]) => v !== "" && v !== null && !(Array.isArray(v) && !v.length))
     );
-
-    // Convert images to base64
-    const base64Images = await Promise.all(
-      images.map(f => f.arrayBuffer().then(buf => Buffer.from(buf).toString("base64")))
-    );
-
-    const payload = {
-      title: form.title,
-      description: form.description,
-      price: parseFloat(form.price),
-      category_id: form.mainCategory,
-      subcategory_id: form.subCategory || null,
-      dynamicFields: cleanedDynamic,
-      images: base64Images,
-      promotion_id: selectedPromotion || null,
-    };
 
     try {
       setLoading(true);
-
-      // If promotion requires payment
-      const promoPlan = promotionPlans.find(p => p.id === selectedPromotion);
-      if (promoPlan && promoPlan.price > 0) {
-        const email = prompt("Enter your email for payment");
-        if (!email) return alert("Email is required for payment");
-
-        const paystackRes = await initializePaystackTransaction(email, promoPlan.price, payload);
-        window.open(paystackRes.data.authorization_url, "_blank");
-        alert("Complete payment in the new window. After success, verify in admin panel.");
-        return;
-      }
-
-      // Free promotion: save directly
-      const res = await fetch("https://minimart-ivrm.onrender.com/api/promote/verify", {
+      const productRes = await fetch("https://minimart-ivrm.onrender.com/api/marketplace/products", {
         method: "POST",
-        body: JSON.stringify({ reference: "FREE_" + Date.now(), ...payload }),
+        body: JSON.stringify({
+          title: form.title,
+          description: form.description,
+          price: parseFloat(form.price),
+          category_id: form.mainCategory,
+          subcategory_id: form.subCategory || null,
+          dynamicFields: cleanedDynamic,
+          promotion_id: form.promotionId || null,
+          negotiation: form.negotiation,
+          phone: form.phone,
+          delivery_name: form.deliveryName,
+          delivery_region: form.deliveryRegion,
+          delivery_days_from: form.deliveryDaysFrom,
+          delivery_days_to: form.deliveryDaysTo,
+          delivery_fee: form.deliveryFee,
+          video_link: form.videoLink,
+        }),
         headers: { "Content-Type": "application/json" },
       });
 
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.message || "Failed to add product");
+      const productData = await productRes.json();
+      if (!productRes.ok) throw new Error(productData.message || "Failed to add product");
+
+      const productId = productData.id;
+
+      // Upload images
+      if (images.length) {
+        const formDataArr = images.map(img => {
+          const fd = new FormData();
+          fd.append("images", img);
+          return fd;
+        });
+
+        await Promise.all(
+          formDataArr.map(fd =>
+            fetch(`https://minimart-ivrm.onrender.com/api/marketplace/products/${productId}/images`, {
+              method: "POST",
+              body: fd,
+            })
+          )
+        );
+      }
 
       alert("Product added successfully!");
       setForm({
@@ -178,12 +185,20 @@ export default function AddProductPage() {
         mainCategory: "",
         subCategory: "",
         dynamic: {},
+        promotionId: "",
+        negotiation: "Not sure",
+        phone: "",
+        deliveryName: "",
+        deliveryRegion: "",
+        deliveryDaysFrom: "",
+        deliveryDaysTo: "",
+        deliveryFee: "No",
+        videoLink: "",
       });
       setImages([]);
       setPreviewUrls([]);
       setSelectedState("");
       setSelectedCity("");
-      setSelectedPromotion(null);
     } catch (err) {
       console.error(err);
       alert(err.message);
@@ -192,58 +207,126 @@ export default function AddProductPage() {
     }
   };
 
-  // ---------------- RENDER ----------------
   return (
     <div className="add-product-container">
-      <h2>Add Product</h2>
+      {/* ---------------- HEADER ---------------- */}
+      <div className="header">
+        <button onClick={() => window.history.back()} className="back-btn">← Back</button>
+        <h2>Add Product</h2>
+      </div>
 
-      {/* TITLE */}
-      <div className="field">
+      {/* ---------------- TITLE ---------------- */}
+      <div className="field rounded">
         <label>Title</label>
         <input value={form.title} onChange={e => update("title", e.target.value)} placeholder="e.g iPhone 13" />
       </div>
 
-      {/* DESCRIPTION */}
-      <div className="field">
+      {/* ---------------- DESCRIPTION ---------------- */}
+      <div className="field rounded">
         <label>Description</label>
         <textarea value={form.description} onChange={e => update("description", e.target.value)} placeholder="Write product details here..." />
       </div>
 
-      {/* CATEGORY */}
-      <DropdownModal
-        label="Category"
-        value={form.mainCategory}
-        onChange={val => update("mainCategory", val)}
-        options={categories.map(c => ({ id: c.id, name: c.name }))}
-      />
-
-      {/* SUBCATEGORY */}
+      {/* ---------------- CATEGORY ---------------- */}
+      <DropdownModal label="Category" value={form.mainCategory} onChange={val => update("mainCategory", val)} options={categories.map(c => ({ id: c.id, name: c.name }))} />
       {subcategories.length > 0 && (
-        <DropdownModal
-          label="Subcategory"
-          value={form.subCategory}
-          onChange={val => update("subCategory", val)}
-          options={subcategories.map(s => ({ id: s.id, name: s.name }))}
-        />
+        <DropdownModal label="Subcategory" value={form.subCategory} onChange={val => update("subCategory", val)} options={subcategories.map(s => ({ id: s.id, name: s.name }))} />
       )}
 
-      {/* STATE & CITY */}
+      {/* ---------------- DYNAMIC FIELDS ---------------- */}
+      {dynamicFields.map(field => {
+        const value = form.dynamic[field];
+        if (field === "used_detail" && form.dynamic.condition !== "Used") return null;
+
+        if (field === "features") {
+          const current = Array.isArray(value) ? value : [];
+          return (
+            <div key={field} className="multi-select">
+              <label>{field.replace(/_/g, " ").toUpperCase()}</label>
+              {optionsMap[field].map(opt => (
+                <label key={opt}>
+                  <input
+                    type="checkbox"
+                    checked={current.includes(opt)}
+                    onChange={() =>
+                      updateDynamic(
+                        field,
+                        current.includes(opt) ? current.filter(v => v !== opt) : [...current, opt]
+                      )
+                    }
+                  />
+                  {opt}
+                </label>
+              ))}
+            </div>
+          );
+        }
+
+        return (
+          <DropdownModal key={field} label={field.replace(/_/g, " ").toUpperCase()} value={value || ""} onChange={val => updateDynamic(field, val)} options={optionsMap[field]} />
+        );
+      })}
+
+      {/* ---------------- STATE & CITY ---------------- */}
       <DropdownModal label="State" value={selectedState} onChange={handleStateChange} options={states} />
       {selectedState && <DropdownModal label="City" value={selectedCity} onChange={handleCityChange} options={cities} />}
 
-      {/* PRICE */}
-      <div className="field">
+      {/* ---------------- PRICE ---------------- */}
+      <div className="field rounded">
         <label>Price (₦)</label>
         <input type="text" value={formatPrice(form.price)} onChange={e => handlePriceChange(e.target.value)} />
       </div>
 
-      {/* IMAGES */}
+      {/* ---------------- NEGOTIATION ---------------- */}
+      <div className="field">
+        <label>Are you open to negotiation?</label>
+        <div className="radio-group">
+          {["Yes", "No", "Not sure"].map(opt => (
+            <label key={opt}>
+              <input type="radio" name="negotiation" value={opt} checked={form.negotiation === opt} onChange={() => update("negotiation", opt)} />
+              {opt}
+            </label>
+          ))}
+        </div>
+      </div>
+
+      {/* ---------------- DELIVERY ---------------- */}
+      <div className="field">
+        <label>Phone Number</label>
+        <input value={form.phone} onChange={e => update("phone", e.target.value)} placeholder="Enter phone number" />
+      </div>
+      <div className="field">
+        <label>Delivery Name</label>
+        <input value={form.deliveryName} onChange={e => update("deliveryName", e.target.value)} placeholder="Name this delivery" />
+      </div>
+      <DropdownModal label="Region" value={form.deliveryRegion} onChange={val => update("deliveryRegion", val)} options={states} />
+      <div className="delivery-days">
+        <label>How many days it takes to deliver?</label>
+        <input type="number" placeholder="From" value={form.deliveryDaysFrom} onChange={e => update("deliveryDaysFrom", e.target.value)} />
+        <input type="number" placeholder="To" value={form.deliveryDaysTo} onChange={e => update("deliveryDaysTo", e.target.value)} />
+      </div>
+      <div className="field">
+        <label>Do you charge fee for delivery?</label>
+        <select value={form.deliveryFee} onChange={e => update("deliveryFee", e.target.value)}>
+          <option>No</option>
+          <option>Yes</option>
+        </select>
+      </div>
+
+      {/* ---------------- VIDEO LINK ---------------- */}
+      <div className="field">
+        <label>Link to Youtube or Facebook video</label>
+        <input value={form.videoLink} onChange={e => update("videoLink", e.target.value)} placeholder="https://..." />
+      </div>
+
+      {/* ---------------- IMAGES ---------------- */}
       <div className="field">
         <label>Images (max 8)</label>
         <div className="image-input-wrapper">
           <input type="file" accept="image/*" multiple onChange={e => handleImages(e.target.files)} />
           {images.length < 8 && <button type="button" onClick={() => document.querySelector('input[type="file"]').click()}>+</button>}
         </div>
+        <small>First picture is the title picture. Supported formats: *.jpg, *.png</small>
         <div className="image-preview">
           {previewUrls.map((url, i) => (
             <div key={i} className="preview-wrapper">
@@ -254,30 +337,16 @@ export default function AddProductPage() {
         </div>
       </div>
 
-      {/* PROMOTION PLANS */}
-      <div className="promotion-section">
-        <h3>Select Promotion Plan</h3>
-        <div className="promotion-list">
-          {promotionPlans.map(plan => (
-            <div
-              key={plan.id}
-              className={`promotion-card ${selectedPromotion === plan.id ? "selected" : ""}`}
-              onClick={() => setSelectedPromotion(plan.id)}
-            >
-              <plan.icon size={20} />
-              <strong>{plan.name}</strong>
-              <p>{plan.description}</p>
-              <p>Price: ₦{getActivePrice(plan.price, plan.discount).toLocaleString()}</p>
-              {plan.discount > 0 && <small>Save {getDiscountPercent(plan.price, plan.discount)}%</small>}
-            </div>
-          ))}
-        </div>
-      </div>
+      {/* ---------------- TERMS & CONDITIONS ---------------- */}
+      <p className="terms-text">
+        By clicking on Post Ad, you accept the <a href="/terms" target="_blank">Terms of Use</a>, confirm that you will abide by the Safety Tips, and declare that this posting does not include any Prohibited Items.
+      </p>
 
-      {/* SUBMIT */}
-      <button onClick={handleSubmit} disabled={loading}>
-        {loading ? "Saving..." : "Add Product"}
-      </button>
+      {/* ---------------- SUBMIT ---------------- */}
+      <div className="buttons">
+        <button onClick={handleSubmit} disabled={loading}>{loading ? "Saving..." : "Post Ad"}</button>
+        <button onClick={() => window.history.back()} className="cancel-btn">Cancel</button>
+      </div>
     </div>
   );
 }
