@@ -43,8 +43,8 @@ pool.connect()
 // Middlewares
 // -------------------
 app.use(cors());
-app.use(express.json());
-app.use(express.urlencoded({ extended: true }));
+app.use(express.json({ limit: "10mb" }));
+app.use(express.urlencoded({ extended: true, limit: "10mb" }));
 
 // -------------------
 // API Routes
@@ -62,17 +62,11 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
 if (process.env.NODE_ENV === "production") {
-  // Main marketplace frontend
   app.use(express.static(path.join(__dirname, "dist")));
 
-  // Optional: Admin frontend
-  // app.use("/admin", express.static(path.join(__dirname, "admin_dist")));
-
-  // Catch-all for SPA routing
+  // SPA fallback for React Router
   app.get("*", (req, res) => {
-    if (req.path.startsWith("/api/")) {
-      return res.status(404).json({ success: false, message: "API endpoint not found" });
-    }
+    if (req.path.startsWith("/api/")) return res.status(404).json({ success: false, message: "API endpoint not found" });
     res.sendFile(path.join(__dirname, "dist", "index.html"));
   });
 }
@@ -97,12 +91,14 @@ const io = new SocketIOServer(server, { cors: { origin: "*" } });
 io.on("connection", socket => {
   console.log("🔌 Socket connected:", socket.id);
 
+  // Join chat room
   socket.on("joinRoom", ({ senderId, receiverId, productId }) => {
     const room = `${productId}_${[senderId, receiverId].sort().join("_")}`;
     socket.join(room);
     console.log(`👥 User ${senderId} joined room ${room}`);
   });
 
+  // Send message
   socket.on("sendMessage", async ({ senderId, receiverId, productId, message }) => {
     const room = `${productId}_${[senderId, receiverId].sort().join("_")}`;
     try {
