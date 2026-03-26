@@ -2,8 +2,8 @@
 import { useEffect, useState } from "react";
 import DropdownModal from "../components/DropdownModal.jsx";
 import { locationsByState } from "../config/locationsByState.js";
-import { promotionPlans, getActivePrice, getDiscountPercent } from "../src/config/promotions.js";
-import { initializePaystackTransaction } from "../services/paystack.js";
+import { promotionPlans, getActivePrice, getDiscountPercent } from "../config/promotions.js";
+import { initializePaystackTransaction } from "../../services/paystack.js";
 import "./AddProduct.css";
 
 export default function AddProductPage() {
