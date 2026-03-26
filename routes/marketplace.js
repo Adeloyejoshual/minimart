@@ -4,22 +4,6 @@ import multer from "multer";
 import { v2 as cloudinary } from "cloudinary";
 import dotenv from "dotenv";
 
-// CONFIGS (UI ONLY)
-import { brands } from "../src/config/brands.js";
-import { colors } from "../src/config/colors.js";
-import { categoryFields } from "../src/config/categoryFields.js";
-import { conditions, usedDetails } from "../src/config/conditions.js";
-import { featuresByCategory } from "../src/config/featuresByCategory.js";
-import { models } from "../src/config/models.js";
-import { ramOptions } from "../src/config/ramOptions.js";
-import { sims } from "../src/config/sims.js";
-import { storageOptions } from "../src/config/storageOptions.js";
-import { years } from "../src/config/years.js";
-import { engines } from "../src/config/engines.js";
-import { fuelTypes } from "../src/config/fuelTypes.js";
-import { locationsByState } from "../src/config/locationsByState.js";
-import { promotionPlans } from "../src/config/promotions.js";
-
 dotenv.config();
 
 const router = express.Router();
@@ -50,21 +34,14 @@ const upload = multer({
 });
 
 /* ================= HELPERS ================= */
-
 const normalizeProduct = (p) => ({
   ...p,
-  images: Array.isArray(p.images) ? p.images : [],
+  images: p.media?.images || [],
   attributes: p.attributes || {},
-  location: {
-    state: p.location_state,
-    city: p.location_city,
-  },
-  promotion:
-    promotionPlans.find((x) => x.id == p.promotion_id) || null,
 });
 
 /* =========================================================
-   GET PRODUCTS
+   GET PRODUCTS (FAST FEED)
 ========================================================= */
 router.get("/products", async (req, res) => {
   try {
@@ -74,44 +51,36 @@ router.get("/products", async (req, res) => {
     limit = Math.min(parseInt(limit) || 20, 50);
 
     const baseQuery = `
-      SELECT 
-        p.*,
-        COALESCE(
-          json_agg(pi.image_url)
-          FILTER (WHERE pi.image_url IS NOT NULL),
-          '[]'
-        ) AS images
-      FROM products p
-      LEFT JOIN product_images pi ON p.id = pi.product_id
-      WHERE p.is_active = true
-      GROUP BY p.id
+      SELECT *
+      FROM products
+      WHERE is_active = true
     `;
 
-    const trendingRes = await pool.query(`
+    const trending = await pool.query(`
       ${baseQuery}
-      ORDER BY p.views DESC NULLS LAST
+      ORDER BY views DESC NULLS LAST
       LIMIT 6
     `);
 
-    const productsRes = await pool.query(
+    const products = await pool.query(
       `
       ${baseQuery}
-      ORDER BY p.created_at DESC
+      ORDER BY created_at DESC
       OFFSET $1 LIMIT $2
       `,
       [skip, limit]
     );
 
-    const trending = trendingRes.rows.map(normalizeProduct);
-    const products = productsRes.rows.map(normalizeProduct);
+    const trendingData = trending.rows.map(normalizeProduct);
+    const productData = products.rows.map(normalizeProduct);
 
-    const trendingIds = new Set(trending.map((p) => p.id));
+    const trendingIds = new Set(trendingData.map((p) => p.id));
 
     res.json({
-      trending,
+      trending: trendingData,
       products: [
-        ...trending,
-        ...products.filter((p) => !trendingIds.has(p.id)),
+        ...trendingData,
+        ...productData.filter((p) => !trendingIds.has(p.id)),
       ],
     });
   } catch (err) {
@@ -128,19 +97,7 @@ router.get("/products/:id", async (req, res) => {
     const { id } = req.params;
 
     const { rows } = await pool.query(
-      `
-      SELECT 
-        p.*,
-        COALESCE(
-          json_agg(pi.image_url)
-          FILTER (WHERE pi.image_url IS NOT NULL),
-          '[]'
-        ) AS images
-      FROM products p
-      LEFT JOIN product_images pi ON p.id = pi.product_id
-      WHERE p.id = $1
-      GROUP BY p.id
-      `,
+      `SELECT * FROM products WHERE id = $1`,
       [id]
     );
 
@@ -150,6 +107,7 @@ router.get("/products/:id", async (req, res) => {
 
     const product = normalizeProduct(rows[0]);
 
+    // async view increment
     pool
       .query(
         "UPDATE products SET views = COALESCE(views,0)+1 WHERE id=$1",
@@ -165,7 +123,7 @@ router.get("/products/:id", async (req, res) => {
 });
 
 /* =========================================================
-   CREATE PRODUCT (STRICT + CLEAN)
+   CREATE PRODUCT
 ========================================================= */
 router.post("/products", upload.array("images", 8), async (req, res) => {
   const client = await pool.connect();
@@ -173,7 +131,6 @@ router.post("/products", upload.array("images", 8), async (req, res) => {
   try {
     await client.query("BEGIN");
 
-    /* ================= REQUIRED FIELDS ================= */
     const title = req.body.title;
     const price = Number(req.body.price);
     const category_id = req.body.category_id;
@@ -182,48 +139,18 @@ router.post("/products", upload.array("images", 8), async (req, res) => {
       return res.status(400).json({ message: "Missing required fields" });
     }
 
-    if (isNaN(price) || price <= 0) {
-      return res.status(400).json({ message: "Invalid price" });
-    }
+    const attributes = req.body.attributes
+      ? JSON.parse(req.body.attributes)
+      : {};
 
-    /* ================= CATEGORY CHECK ================= */
-    const { rows: catRows } = await client.query(
-      `SELECT id, fields_key FROM categories WHERE id=$1`,
-      [category_id]
-    );
+    const media = { images: [] };
+    const contact = req.body.contact
+      ? JSON.parse(req.body.contact)
+      : {};
+    const delivery = req.body.delivery
+      ? JSON.parse(req.body.delivery)
+      : {};
 
-    if (!catRows.length) {
-      return res.status(400).json({ message: "Invalid category" });
-    }
-
-    /* ================= FIXED ATTRIBUTES ================= */
-    const attributes = {
-      brand: req.body.brand || null,
-      model: req.body.model || null,
-      color: req.body.color || null,
-      condition: req.body.condition || null,
-      used_detail: req.body.used_detail || null,
-      engine: req.body.engine || null,
-      year: req.body.year || null,
-      fuel_type: req.body.fuel_type || null,
-      features: req.body.features || null,
-      ram: req.body.ram || null,
-      storage: req.body.storage || null,
-      sim: req.body.sim || null,
-    };
-
-    /* ================= EXTRA FIELDS ================= */
-    const contact_phone = req.body.contact_phone || null;
-    const video_link = req.body.video_link || null;
-    const negotiable = req.body.negotiable || "Not sure";
-
-    const location_state = req.body.location_state || null;
-    const location_city = req.body.location_city || null;
-
-    const promotion_id = req.body.promotion_id || null;
-    const subcategory_id = req.body.subcategory_id || null;
-
-    /* ================= INSERT PRODUCT ================= */
     const { rows } = await client.query(
       `
       INSERT INTO products (
@@ -233,12 +160,12 @@ router.post("/products", upload.array("images", 8), async (req, res) => {
         category_id,
         subcategory_id,
         attributes,
-        promotion_id,
+        media,
+        contact,
+        delivery,
         location_state,
         location_city,
-        contact_phone,
-        video_link,
-        negotiable,
+        promotion_id,
         created_at,
         updated_at
       )
@@ -250,20 +177,20 @@ router.post("/products", upload.array("images", 8), async (req, res) => {
         req.body.description || "",
         price,
         category_id,
-        subcategory_id,
+        req.body.subcategory_id || null,
         attributes,
-        promotion_id,
-        location_state,
-        location_city,
-        contact_phone,
-        video_link,
-        negotiable,
+        media,
+        contact,
+        delivery,
+        req.body.location_state || null,
+        req.body.location_city || null,
+        req.body.promotion_id || null,
       ]
     );
 
     const product = rows[0];
 
-    /* ================= IMAGE UPLOAD ================= */
+    /* ================= UPLOAD IMAGES ================= */
     if (req.files?.length) {
       const uploads = await Promise.all(
         req.files.map(
@@ -291,13 +218,29 @@ router.post("/products", upload.array("images", 8), async (req, res) => {
         )
       );
 
+      const imageUrls = [];
+
       for (const img of uploads) {
+        imageUrls.push(img.url);
+
         await client.query(
-          `INSERT INTO product_images (product_id, image_url, position)
-           VALUES ($1,$2,$3)`,
+          `
+          INSERT INTO product_images (product_id, image_url, position)
+          VALUES ($1,$2,$3)
+          `,
           [product.id, img.url, img.position]
         );
       }
+
+      // sync cache to products.media
+      await client.query(
+        `
+        UPDATE products
+        SET media = jsonb_build_object('images', $1::jsonb)
+        WHERE id = $2
+        `,
+        [JSON.stringify(imageUrls), product.id]
+      );
     }
 
     await client.query("COMMIT");
@@ -313,7 +256,45 @@ router.post("/products", upload.array("images", 8), async (req, res) => {
 });
 
 /* =========================================================
-   GET CATEGORIES (FULL UI OPTIONS)
+   UPDATE IMAGE (EDIT)
+========================================================= */
+router.put("/products/images/:imageId", async (req, res) => {
+  try {
+    const { imageId } = req.params;
+    const { image_url } = req.body;
+
+    await pool.query(
+      `UPDATE product_images SET image_url=$1 WHERE id=$2`,
+      [image_url, imageId]
+    );
+
+    res.json({ success: true });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ message: "Failed to update image" });
+  }
+});
+
+/* =========================================================
+   DELETE IMAGE
+========================================================= */
+router.delete("/products/images/:imageId", async (req, res) => {
+  try {
+    const { imageId } = req.params;
+
+    await pool.query(`DELETE FROM product_images WHERE id=$1`, [
+      imageId,
+    ]);
+
+    res.json({ success: true });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ message: "Failed to delete image" });
+  }
+});
+
+/* =========================================================
+   GET CATEGORIES (UNCHANGED LOGIC)
 ========================================================= */
 router.get("/categories", async (req, res) => {
   try {
@@ -327,26 +308,8 @@ router.get("/categories", async (req, res) => {
     const tree = [];
 
     rows.forEach((cat) => {
-      const key = cat.fields_key || "";
-
       map[cat.id] = {
         ...cat,
-        dynamicOptions: {
-          fields: categoryFields[key] || [],
-          brands: brands[key] || [],
-          models: models[key] || {},
-          colors: colors[key] || [],
-          conditions,
-          usedDetails,
-          ram: ramOptions,
-          storage: storageOptions,
-          sims,
-          features: featuresByCategory[key] || [],
-          years,
-          engines,
-          fuel_types: fuelTypes,
-          location: Object.keys(locationsByState),
-        },
         subcategories: [],
       };
 
