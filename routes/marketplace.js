@@ -61,7 +61,9 @@ router.get("/products", async (req, res) => {
     const baseQuery = `
       SELECT 
         p.*,
-        COALESCE(json_agg(pi.image_url) FILTER (WHERE pi.image_url IS NOT NULL), '[]') AS images
+        COALESCE(json_agg(pi.image_url) 
+          FILTER (WHERE pi.image_url IS NOT NULL), '[]'
+        ) AS images
       FROM products p
       LEFT JOIN product_images pi ON p.id = pi.product_id
       WHERE p.is_active = true
@@ -70,7 +72,7 @@ router.get("/products", async (req, res) => {
 
     const trending = await pool.query(`
       ${baseQuery}
-      ORDER BY p.views DESC
+      ORDER BY p.views DESC NULLS LAST
       LIMIT 6
     `);
 
@@ -84,7 +86,6 @@ router.get("/products", async (req, res) => {
       ...p,
       images: Array.isArray(p.images) ? p.images : [],
       dynamic_fields: p.dynamic_fields || {},
-      delivery: p.delivery || {},
       location: {
         state: p.location_state,
         city: p.location_city,
@@ -95,13 +96,13 @@ router.get("/products", async (req, res) => {
     const trendingProducts = trending.rows.map(normalize);
     const mainProducts = main.rows.map(normalize);
 
-    const trendingIds = trendingProducts.map(p => p.id);
+    const trendingIds = new Set(trendingProducts.map(p => p.id));
 
     res.json({
       trending: trendingProducts,
       products: [
         ...trendingProducts,
-        ...mainProducts.filter(p => !trendingIds.includes(p.id)),
+        ...mainProducts.filter(p => !trendingIds.has(p.id)),
       ],
     });
 
@@ -121,27 +122,33 @@ router.get("/products/:id", async (req, res) => {
     const { rows } = await pool.query(`
       SELECT 
         p.*,
-        COALESCE(json_agg(pi.image_url) FILTER (WHERE pi.image_url IS NOT NULL), '[]') AS images
+        COALESCE(json_agg(pi.image_url) 
+          FILTER (WHERE pi.image_url IS NOT NULL), '[]'
+        ) AS images
       FROM products p
       LEFT JOIN product_images pi ON p.id = pi.product_id
       WHERE p.id = $1
       GROUP BY p.id
     `, [id]);
 
-    if (!rows.length) return res.status(404).json({ message: "Not found" });
+    if (!rows.length) {
+      return res.status(404).json({ message: "Not found" });
+    }
 
     const product = rows[0];
 
+    product.images = Array.isArray(product.images) ? product.images : [];
     product.dynamic_fields = product.dynamic_fields || {};
-    product.delivery = product.delivery || {};
     product.location = {
       state: product.location_state,
       city: product.location_city,
     };
-    product.promotion = promotionPlans.find(x => x.id == product.promotion_id) || null;
+    product.promotion =
+      promotionPlans.find(x => x.id == product.promotion_id) || null;
 
+    // async view increment (non-blocking)
     pool.query(
-      "UPDATE products SET views = COALESCE(views,0)+1 WHERE id=$1",
+      "UPDATE products SET views = COALESCE(views,0) + 1 WHERE id=$1",
       [id]
     ).catch(console.error);
 
@@ -154,7 +161,7 @@ router.get("/products/:id", async (req, res) => {
 });
 
 /* =========================================================
-   POST PRODUCT (FULL UPGRADE)
+   POST PRODUCT (FIXED + DB-CORRECT)
 ========================================================= */
 router.post("/products", upload.array("images", 8), async (req, res) => {
   const client = await pool.connect();
@@ -168,22 +175,15 @@ router.post("/products", upload.array("images", 8), async (req, res) => {
       subcategory_id,
       dynamicFields,
       promotion_id,
-
-      // NEW FIELDS
-      phone,
-      negotiation,
-      delivery,
+      contact_phone,
+      negotiable,
       location_state,
       location_city,
     } = req.body;
 
-    // ---------------- VALIDATION ----------------
+    // VALIDATION
     if (!title || !price || !category_id) {
       return res.status(400).json({ message: "Missing required fields" });
-    }
-
-    if (!phone) {
-      return res.status(400).json({ message: "Phone number is required" });
     }
 
     const priceNum = parseFloat(price);
@@ -191,9 +191,9 @@ router.post("/products", upload.array("images", 8), async (req, res) => {
       return res.status(400).json({ message: "Invalid price" });
     }
 
-    // ---------------- CATEGORY ----------------
+    // CATEGORY CHECK
     const { rows: catRows } = await client.query(
-      "SELECT id, name, fields_key FROM categories WHERE id=$1",
+      "SELECT id, fields_key FROM categories WHERE id=$1",
       [category_id]
     );
 
@@ -203,7 +203,7 @@ router.post("/products", upload.array("images", 8), async (req, res) => {
 
     const category = catRows[0];
 
-    // ---------------- DYNAMIC ----------------
+    // DYNAMIC FIELDS
     let parsedFields = {};
     try {
       parsedFields =
@@ -216,25 +216,17 @@ router.post("/products", upload.array("images", 8), async (req, res) => {
 
     const allowedKeys = categoryFields[category.fields_key] || [];
     const cleanedFields = Object.fromEntries(
-      Object.entries(parsedFields).filter(([k]) => allowedKeys.includes(k))
+      Object.entries(parsedFields).filter(([k]) =>
+        allowedKeys.includes(k)
+      )
     );
 
-    // ---------------- DELIVERY ----------------
-    let parsedDelivery = {};
-    try {
-      parsedDelivery =
-        typeof delivery === "string"
-          ? JSON.parse(delivery)
-          : delivery || {};
-    } catch {
-      parsedDelivery = {};
-    }
-
-    // ---------------- START TRANSACTION ----------------
+    // TRANSACTION START
     await client.query("BEGIN");
 
-    // INSERT PRODUCT
-    const { rows } = await client.query(`
+    // INSERT PRODUCT (FIXED SCHEMA MATCH)
+    const { rows } = await client.query(
+      `
       INSERT INTO products (
         title,
         description,
@@ -245,54 +237,53 @@ router.post("/products", upload.array("images", 8), async (req, res) => {
         promotion_id,
         location_state,
         location_city,
-        phone,
-        negotiation,
-        delivery,
-        created_at
+        contact_phone,
+        negotiable
       )
-      VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13)
+      VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)
       RETURNING *
-    `, [
-      title,
-      description || "",
-      priceNum,
-      category_id,
-      subcategory_id || null,
-      cleanedFields,
-      promotion_id || null,
-      location_state || null,
-      location_city || null,
-      phone,
-      negotiation || "not_sure",
-      parsedDelivery,
-      new Date(),
-    ]);
+      `,
+      [
+        title,
+        description || "",
+        priceNum,
+        category_id,
+        subcategory_id || null,
+        cleanedFields,
+        promotion_id || null,
+        location_state || null,
+        location_city || null,
+        contact_phone || null,
+        negotiable || "Not sure",
+      ]
+    );
 
     const product = rows[0];
 
-    // ---------------- IMAGES ----------------
+    /* ---------------- IMAGES UPLOAD ---------------- */
     if (req.files?.length) {
-      const uploaded = await Promise.all(
-        req.files.map(file =>
-          new Promise((resolve, reject) => {
-            const stream = cloudinary.uploader.upload_stream(
-              { folder: "minimart_products" },
-              (err, result) => {
-                if (err) reject(err);
-                else resolve(result.secure_url);
-              }
-            );
-            stream.end(file.buffer);
-          })
+      const uploadedUrls = await Promise.all(
+        req.files.map(
+          (file) =>
+            new Promise((resolve, reject) => {
+              const stream = cloudinary.uploader.upload_stream(
+                { folder: "minimart_products" },
+                (err, result) => {
+                  if (err) reject(err);
+                  else resolve(result.secure_url);
+                }
+              );
+              stream.end(file.buffer);
+            })
         )
       );
 
       await Promise.all(
-        uploaded.map((url, index) =>
+        uploadedUrls.map((url, i) =>
           client.query(
             `INSERT INTO product_images (product_id, image_url, position)
              VALUES ($1,$2,$3)`,
-            [product.id, url, index]
+            [product.id, url, i]
           )
         )
       );
@@ -300,7 +291,8 @@ router.post("/products", upload.array("images", 8), async (req, res) => {
 
     await client.query("COMMIT");
 
-    product.promotion = promotionPlans.find(x => x.id == promotion_id) || null;
+    product.promotion =
+      promotionPlans.find(x => x.id == promotion_id) || null;
 
     res.status(201).json(product);
 
@@ -314,7 +306,7 @@ router.post("/products", upload.array("images", 8), async (req, res) => {
 });
 
 /* =========================================================
-   GET CATEGORIES
+   GET CATEGORIES (UNCHANGED LOGIC)
 ========================================================= */
 router.get("/categories", async (req, res) => {
   try {
