@@ -4,12 +4,24 @@ import multer from "multer";
 import { v2 as cloudinary } from "cloudinary";
 import dotenv from "dotenv";
 
-// CONFIGS
+// CONFIGS (UI ONLY)
+import { brands } from "../src/config/brands.js";
+import { colors } from "../src/config/colors.js";
 import { categoryFields } from "../src/config/categoryFields.js";
-import { promotionPlans } from "../src/config/promotions.js";
+import { conditions, usedDetails } from "../src/config/conditions.js";
+import { featuresByCategory } from "../src/config/featuresByCategory.js";
+import { models } from "../src/config/models.js";
+import { ramOptions } from "../src/config/ramOptions.js";
+import { sims } from "../src/config/sims.js";
+import { storageOptions } from "../src/config/storageOptions.js";
+import { years } from "../src/config/years.js";
+import { engines } from "../src/config/engines.js";
+import { fuelTypes } from "../src/config/fuelTypes.js";
 import { locationsByState } from "../src/config/locationsByState.js";
+import { promotionPlans } from "../src/config/promotions.js";
 
 dotenv.config();
+
 const router = express.Router();
 
 /* ================= DB ================= */
@@ -37,15 +49,12 @@ const upload = multer({
   },
 });
 
-/* =========================================================
-   HELPERS
-========================================================= */
+/* ================= HELPERS ================= */
 
-// normalize DB product → API shape
 const normalizeProduct = (p) => ({
   ...p,
   images: Array.isArray(p.images) ? p.images : [],
-  dynamic_fields: p.dynamic_fields || {},
+  attributes: p.attributes || {},
   location: {
     state: p.location_state,
     city: p.location_city,
@@ -54,15 +63,8 @@ const normalizeProduct = (p) => ({
     promotionPlans.find((x) => x.id == p.promotion_id) || null,
 });
 
-// safe negotiable
-const normalizeNegotiable = (val) => {
-  if (val === "yes") return "yes";
-  if (val === "no") return "no";
-  return "unknown";
-};
-
 /* =========================================================
-   GET PRODUCTS (SINGLE QUERY OPTIMIZED)
+   GET PRODUCTS
 ========================================================= */
 router.get("/products", async (req, res) => {
   try {
@@ -71,29 +73,46 @@ router.get("/products", async (req, res) => {
     skip = Math.max(parseInt(skip) || 0, 0);
     limit = Math.min(parseInt(limit) || 20, 50);
 
-    const { rows } = await pool.query(
-      `
+    const baseQuery = `
       SELECT 
         p.*,
-        COALESCE(json_agg(pi.image_url)
-          FILTER (WHERE pi.image_url IS NOT NULL), '[]'
+        COALESCE(
+          json_agg(pi.image_url)
+          FILTER (WHERE pi.image_url IS NOT NULL),
+          '[]'
         ) AS images
       FROM products p
       LEFT JOIN product_images pi ON p.id = pi.product_id
       WHERE p.is_active = true
       GROUP BY p.id
-      ORDER BY p.views DESC NULLS LAST, p.created_at DESC
+    `;
+
+    const trendingRes = await pool.query(`
+      ${baseQuery}
+      ORDER BY p.views DESC NULLS LAST
+      LIMIT 6
+    `);
+
+    const productsRes = await pool.query(
+      `
+      ${baseQuery}
+      ORDER BY p.created_at DESC
       OFFSET $1 LIMIT $2
-    `,
+      `,
       [skip, limit]
     );
 
-    const products = rows.map(normalizeProduct);
-    const trending = products.slice(0, 6);
+    const trending = trendingRes.rows.map(normalizeProduct);
+    const products = productsRes.rows.map(normalizeProduct);
+
+    const trendingIds = new Set(trending.map((p) => p.id));
 
     res.json({
       trending,
-      products,
+      products: [
+        ...trending,
+        ...products.filter((p) => !trendingIds.has(p.id)),
+      ],
     });
   } catch (err) {
     console.error(err);
@@ -112,14 +131,16 @@ router.get("/products/:id", async (req, res) => {
       `
       SELECT 
         p.*,
-        COALESCE(json_agg(pi.image_url)
-          FILTER (WHERE pi.image_url IS NOT NULL), '[]'
+        COALESCE(
+          json_agg(pi.image_url)
+          FILTER (WHERE pi.image_url IS NOT NULL),
+          '[]'
         ) AS images
       FROM products p
       LEFT JOIN product_images pi ON p.id = pi.product_id
       WHERE p.id = $1
       GROUP BY p.id
-    `,
+      `,
       [id]
     );
 
@@ -129,11 +150,12 @@ router.get("/products/:id", async (req, res) => {
 
     const product = normalizeProduct(rows[0]);
 
-    // async view increment
-    pool.query(
-      "UPDATE products SET views = COALESCE(views,0)+1 WHERE id=$1",
-      [id]
-    ).catch(() => {});
+    pool
+      .query(
+        "UPDATE products SET views = COALESCE(views,0)+1 WHERE id=$1",
+        [id]
+      )
+      .catch(() => {});
 
     res.json(product);
   } catch (err) {
@@ -143,37 +165,28 @@ router.get("/products/:id", async (req, res) => {
 });
 
 /* =========================================================
-   CREATE PRODUCT (FAST + SAFE)
+   CREATE PRODUCT (STRICT + CLEAN)
 ========================================================= */
 router.post("/products", upload.array("images", 8), async (req, res) => {
   const client = await pool.connect();
 
   try {
-    const {
-      title,
-      description,
-      price,
-      category_id,
-      subcategory_id,
-      dynamicFields,
-      promotion_id,
-      contact_phone,
-      negotiable,
-      location_state,
-      location_city,
-    } = req.body;
+    await client.query("BEGIN");
 
-    /* ---------- VALIDATION ---------- */
+    /* ================= REQUIRED FIELDS ================= */
+    const title = req.body.title;
+    const price = Number(req.body.price);
+    const category_id = req.body.category_id;
+
     if (!title || !price || !category_id) {
       return res.status(400).json({ message: "Missing required fields" });
     }
 
-    const priceNum = Number(price);
-    if (!priceNum || priceNum < 0) {
+    if (isNaN(price) || price <= 0) {
       return res.status(400).json({ message: "Invalid price" });
     }
 
-    /* ---------- CATEGORY ---------- */
+    /* ================= CATEGORY CHECK ================= */
     const { rows: catRows } = await client.query(
       `SELECT id, fields_key FROM categories WHERE id=$1`,
       [category_id]
@@ -183,125 +196,124 @@ router.post("/products", upload.array("images", 8), async (req, res) => {
       return res.status(400).json({ message: "Invalid category" });
     }
 
-    const category = catRows[0];
+    /* ================= FIXED ATTRIBUTES ================= */
+    const attributes = {
+      brand: req.body.brand || null,
+      model: req.body.model || null,
+      color: req.body.color || null,
+      condition: req.body.condition || null,
+      used_detail: req.body.used_detail || null,
+      engine: req.body.engine || null,
+      year: req.body.year || null,
+      fuel_type: req.body.fuel_type || null,
+      features: req.body.features || null,
+      ram: req.body.ram || null,
+      storage: req.body.storage || null,
+      sim: req.body.sim || null,
+    };
 
-    /* ---------- DYNAMIC FIELDS ---------- */
-    let parsedFields = {};
-    try {
-      parsedFields =
-        typeof dynamicFields === "string"
-          ? JSON.parse(dynamicFields)
-          : dynamicFields || {};
-    } catch {
-      return res.status(400).json({ message: "Invalid dynamic fields" });
-    }
+    /* ================= EXTRA FIELDS ================= */
+    const contact_phone = req.body.contact_phone || null;
+    const video_link = req.body.video_link || null;
+    const negotiable = req.body.negotiable || "Not sure";
 
-    const allowed = categoryFields[category.fields_key] || {};
-    const cleanedFields = {};
+    const location_state = req.body.location_state || null;
+    const location_city = req.body.location_city || null;
 
-    Object.keys(allowed).forEach((key) => {
-      if (parsedFields[key] !== undefined) {
-        cleanedFields[key] = parsedFields[key];
-      }
-    });
+    const promotion_id = req.body.promotion_id || null;
+    const subcategory_id = req.body.subcategory_id || null;
 
-    /* ---------- NEGOTIABLE ---------- */
-    const negotiableValue = normalizeNegotiable(negotiable);
-
-    await client.query("BEGIN");
-
-    /* ---------- INSERT PRODUCT ---------- */
+    /* ================= INSERT PRODUCT ================= */
     const { rows } = await client.query(
       `
       INSERT INTO products (
-        title, description, price,
-        category_id, subcategory_id,
-        dynamic_fields,
+        title,
+        description,
+        price,
+        category_id,
+        subcategory_id,
+        attributes,
         promotion_id,
-        location_state, location_city,
+        location_state,
+        location_city,
         contact_phone,
+        video_link,
         negotiable,
-        created_at, updated_at
+        created_at,
+        updated_at
       )
-      VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,now(),now())
-      RETURNING id
+      VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,now(),now())
+      RETURNING *
       `,
       [
         title,
-        description || "",
-        priceNum,
+        req.body.description || "",
+        price,
         category_id,
-        subcategory_id || null,
-        cleanedFields,
-        promotion_id || null,
-        location_state || null,
-        location_city || null,
-        contact_phone || null,
-        negotiableValue,
+        subcategory_id,
+        attributes,
+        promotion_id,
+        location_state,
+        location_city,
+        contact_phone,
+        video_link,
+        negotiable,
       ]
     );
 
-    const productId = rows[0].id;
+    const product = rows[0];
 
-    /* ---------- IMAGE UPLOAD ---------- */
+    /* ================= IMAGE UPLOAD ================= */
     if (req.files?.length) {
-      const uploads = req.files.map((file, index) => {
-        return new Promise((resolve, reject) => {
-          const stream = cloudinary.uploader.upload_stream(
-            {
-              folder: "minimart_products",
-              transformation: [
-                { width: 800, height: 800, crop: "limit" },
-                { quality: "auto" },
-                { fetch_format: "auto" },
-              ],
-            },
-            (err, result) => {
-              if (err) return reject(err);
-              resolve({
-                url: result.secure_url,
-                position: index,
-              });
-            }
-          );
-          stream.end(file.buffer);
-        });
-      });
+      const uploads = await Promise.all(
+        req.files.map(
+          (file, index) =>
+            new Promise((resolve, reject) => {
+              const stream = cloudinary.uploader.upload_stream(
+                {
+                  folder: "products",
+                  transformation: [
+                    { width: 800, height: 800, crop: "limit" },
+                    { quality: "auto" },
+                    { fetch_format: "auto" },
+                  ],
+                },
+                (err, result) => {
+                  if (err) return reject(err);
+                  resolve({
+                    url: result.secure_url,
+                    position: index,
+                  });
+                }
+              );
+              stream.end(file.buffer);
+            })
+        )
+      );
 
-      const uploaded = await Promise.all(uploads);
-
-      const query = `
-        INSERT INTO product_images (product_id, image_url, position)
-        VALUES ${uploaded
-          .map((_, i) => `($1,$${i * 2 + 2},$${i * 2 + 3})`)
-          .join(",")}
-      `;
-
-      const values = [
-        productId,
-        ...uploaded.flatMap((i) => [i.url, i.position]),
-      ];
-
-      await client.query(query, values);
+      for (const img of uploads) {
+        await client.query(
+          `INSERT INTO product_images (product_id, image_url, position)
+           VALUES ($1,$2,$3)`,
+          [product.id, img.url, img.position]
+        );
+      }
     }
 
     await client.query("COMMIT");
 
-    res.status(201).json({
-      id: productId,
-      message: "Product added successfully",
-    });
+    res.status(201).json(normalizeProduct(product));
   } catch (err) {
     await client.query("ROLLBACK");
     console.error(err);
-    res.status(500).json({ message: "Failed to add product" });
+    res.status(500).json({ message: "Failed to create product" });
   } finally {
     client.release();
   }
 });
 
 /* =========================================================
-   GET CATEGORIES (CLEAN TREE)
+   GET CATEGORIES (FULL UI OPTIONS)
 ========================================================= */
 router.get("/categories", async (req, res) => {
   try {
@@ -321,6 +333,18 @@ router.get("/categories", async (req, res) => {
         ...cat,
         dynamicOptions: {
           fields: categoryFields[key] || [],
+          brands: brands[key] || [],
+          models: models[key] || {},
+          colors: colors[key] || [],
+          conditions,
+          usedDetails,
+          ram: ramOptions,
+          storage: storageOptions,
+          sims,
+          features: featuresByCategory[key] || [],
+          years,
+          engines,
+          fuel_types: fuelTypes,
           location: Object.keys(locationsByState),
         },
         subcategories: [],
