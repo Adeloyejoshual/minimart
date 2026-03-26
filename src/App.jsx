@@ -6,7 +6,7 @@ import toast, { Toaster } from "react-hot-toast";
 
 // ---------------- USER PAGES ----------------
 import Homepage from "./pages/Homepage";
-import AddProduct from "./pages/AddProductPage";
+import AddProduct from "./pages/AddProduct";
 import ProductDetail from "./pages/ProductDetail";
 import Profile from "./pages/Profile";
 import Coupons from "./pages/Profile/Coupons";
