@@ -3,6 +3,7 @@ import { useEffect, useState } from "react";
 import DropdownModal from "../components/DropdownModal.jsx";
 import { locationsByState } from "../config/locationsByState.js";
 import { promotionPlans, getActivePrice, getDiscountPercent } from "../config/promotions.js";
+import { initializePaystackTransaction } from "../../services/paystack.js";
 import "./AddProduct.css";
 
 export default function AddProductPage() {
@@ -26,11 +27,13 @@ export default function AddProductPage() {
   const states = Object.keys(locationsByState || {});
   const cities = selectedState ? locationsByState[selectedState] : [];
 
-  // ---------------- FETCH CATEGORIES ----------------
+  // Fetch categories
   useEffect(() => {
     async function fetchCategories() {
       try {
-        const res = await fetch("/api/marketplace/categories");
+        const res = await fetch(
+          "https://minimart-ivrm.onrender.com/api/marketplace/categories"
+        );
         const data = await res.json();
         setCategories(data || []);
       } catch (err) {
@@ -64,7 +67,7 @@ export default function AddProductPage() {
   const updateDynamic = (key, value) =>
     setForm(prev => ({ ...prev, dynamic: { ...prev.dynamic, [key]: value } }));
 
-  // ---------------- RESET DYNAMIC FIELDS ON CATEGORY ----------------
+  // Reset dynamic fields when category changes
   useEffect(() => {
     if (!selectedCategory) return;
 
@@ -81,7 +84,7 @@ export default function AddProductPage() {
     setForm(prev => ({ ...prev, dynamic: currentDynamic, subCategory: "" }));
   }, [selectedCategory]);
 
-  // ---------------- IMAGE PREVIEWS ----------------
+  // Handle image uploads and previews
   const handleImages = files => {
     const arr = [...images, ...Array.from(files)].slice(0, 8);
     setImages(arr);
@@ -92,7 +95,7 @@ export default function AddProductPage() {
     setPreviewUrls(prev => prev.filter((_, i) => i !== index));
   };
 
-  // ---------------- STATE & CITY ----------------
+  // State & city
   const handleStateChange = state => {
     setSelectedState(state);
     setSelectedCity("");
@@ -103,7 +106,7 @@ export default function AddProductPage() {
     updateDynamic("location", { ...form.dynamic.location, city });
   };
 
-  // ---------------- PRICE ----------------
+  // Price formatting
   const handlePriceChange = value => {
     const numeric = value.replace(/[^0-9.]/g, "");
     update("price", numeric);
@@ -112,33 +115,6 @@ export default function AddProductPage() {
     if (!price) return "";
     const [integer, decimal] = price.toString().split(".");
     return integer.replace(/\B(?=(\d{3})+(?!\d))/g, ",") + (decimal ? "." + decimal : "");
-  };
-
-  // ---------------- PAYSTACK PAYMENT ----------------
-  const handlePaystackPayment = async payload => {
-    const email = prompt("Enter your email for payment");
-    if (!email) return alert("Email is required for payment");
-
-    try {
-      const res = await fetch("/api/paystack", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          email,
-          amount: promotionPlans.find(p => p.id === selectedPromotion)?.price,
-          productPayload: payload,
-        }),
-      });
-
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.error || "Payment initialization failed");
-
-      window.open(data.data.authorization_url, "_blank");
-      alert("Complete payment in the new window. After success, verify in admin panel.");
-    } catch (err) {
-      console.error(err);
-      alert(err.message);
-    }
   };
 
   // ---------------- SUBMIT ----------------
@@ -153,6 +129,11 @@ export default function AddProductPage() {
       )
     );
 
+    // Convert images to base64
+    const base64Images = await Promise.all(
+      images.map(f => f.arrayBuffer().then(buf => Buffer.from(buf).toString("base64")))
+    );
+
     const payload = {
       title: form.title,
       description: form.description,
@@ -160,31 +141,44 @@ export default function AddProductPage() {
       category_id: form.mainCategory,
       subcategory_id: form.subCategory || null,
       dynamicFields: cleanedDynamic,
-      images: await Promise.all(images.map(f => f.arrayBuffer().then(buf => Buffer.from(buf).toString("base64")))),
+      images: base64Images,
       promotion_id: selectedPromotion || null,
     };
 
     try {
       setLoading(true);
 
-      // PAYSTACK FOR PAID PROMOTION
+      // If promotion requires payment
       const promoPlan = promotionPlans.find(p => p.id === selectedPromotion);
       if (promoPlan && promoPlan.price > 0) {
-        await handlePaystackPayment(payload);
+        const email = prompt("Enter your email for payment");
+        if (!email) return alert("Email is required for payment");
+
+        const paystackRes = await initializePaystackTransaction(email, promoPlan.price, payload);
+        window.open(paystackRes.data.authorization_url, "_blank");
+        alert("Complete payment in the new window. After success, verify in admin panel.");
         return;
       }
 
-      // OTHERWISE SAVE DIRECTLY
-      const res = await fetch("/api/marketplace/products", {
+      // Free promotion: save directly
+      const res = await fetch("https://minimart-ivrm.onrender.com/api/promote/verify", {
         method: "POST",
+        body: JSON.stringify({ reference: "FREE_" + Date.now(), ...payload }),
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(payload),
       });
+
       const data = await res.json();
       if (!res.ok) throw new Error(data.message || "Failed to add product");
 
       alert("Product added successfully!");
-      setForm({ title: "", description: "", price: "", mainCategory: "", subCategory: "", dynamic: {} });
+      setForm({
+        title: "",
+        description: "",
+        price: "",
+        mainCategory: "",
+        subCategory: "",
+        dynamic: {},
+      });
       setImages([]);
       setPreviewUrls([]);
       setSelectedState("");
@@ -198,6 +192,7 @@ export default function AddProductPage() {
     }
   };
 
+  // ---------------- RENDER ----------------
   return (
     <div className="add-product-container">
       <h2>Add Product</h2>
@@ -211,35 +206,26 @@ export default function AddProductPage() {
       {/* DESCRIPTION */}
       <div className="field">
         <label>Description</label>
-        <textarea value={form.description} onChange={e => update("description", e.target.value)} placeholder="Write product details..." />
+        <textarea value={form.description} onChange={e => update("description", e.target.value)} placeholder="Write product details here..." />
       </div>
 
       {/* CATEGORY */}
-      <DropdownModal label="Category" value={form.mainCategory} onChange={val => update("mainCategory", val)} options={categories.map(c => ({ id: c.id, name: c.name }))} />
-      {subcategories.length > 0 && <DropdownModal label="Subcategory" value={form.subCategory} onChange={val => update("subCategory", val)} options={subcategories.map(s => ({ id: s.id, name: s.name }))} />}
+      <DropdownModal
+        label="Category"
+        value={form.mainCategory}
+        onChange={val => update("mainCategory", val)}
+        options={categories.map(c => ({ id: c.id, name: c.name }))}
+      />
 
-      {/* DYNAMIC FIELDS */}
-      {dynamicFields.map(field => {
-        const value = form.dynamic[field];
-        if (field === "used_detail" && form.dynamic.condition !== "Used") return null;
-        if (field === "features") {
-          const current = Array.isArray(value) ? value : [];
-          return (
-            <div key={field} className="multi-select">
-              <label>{field.replace(/_/g, " ").toUpperCase()}</label>
-              {optionsMap[field].map(opt => (
-                <label key={opt}>
-                  <input type="checkbox" checked={current.includes(opt)} onChange={() =>
-                    updateDynamic(field, current.includes(opt) ? current.filter(v => v !== opt) : [...current, opt])
-                  } />
-                  {opt}
-                </label>
-              ))}
-            </div>
-          );
-        }
-        return <DropdownModal key={field} label={field.replace(/_/g, " ").toUpperCase()} value={value || ""} onChange={val => updateDynamic(field, val)} options={optionsMap[field]} />;
-      })}
+      {/* SUBCATEGORY */}
+      {subcategories.length > 0 && (
+        <DropdownModal
+          label="Subcategory"
+          value={form.subCategory}
+          onChange={val => update("subCategory", val)}
+          options={subcategories.map(s => ({ id: s.id, name: s.name }))}
+        />
+      )}
 
       {/* STATE & CITY */}
       <DropdownModal label="State" value={selectedState} onChange={handleStateChange} options={states} />
@@ -249,22 +235,6 @@ export default function AddProductPage() {
       <div className="field">
         <label>Price (₦)</label>
         <input type="text" value={formatPrice(form.price)} onChange={e => handlePriceChange(e.target.value)} />
-      </div>
-
-      {/* PROMOTION PLANS */}
-      <div className="promotion-section">
-        <h3>Select Promotion Plan</h3>
-        <div className="promotion-list">
-          {promotionPlans.map(plan => (
-            <div key={plan.id} className={`promotion-card ${selectedPromotion === plan.id ? "selected" : ""}`} onClick={() => setSelectedPromotion(plan.id)}>
-              <plan.icon size={20} />
-              <strong>{plan.name}</strong>
-              <p>{plan.description}</p>
-              <p>Price: ₦{getActivePrice(plan.price, plan.discount).toLocaleString()}</p>
-              {plan.discount > 0 && <small>Save {getDiscountPercent(plan.price, plan.discount)}%</small>}
-            </div>
-          ))}
-        </div>
       </div>
 
       {/* IMAGES */}
@@ -284,8 +254,30 @@ export default function AddProductPage() {
         </div>
       </div>
 
+      {/* PROMOTION PLANS */}
+      <div className="promotion-section">
+        <h3>Select Promotion Plan</h3>
+        <div className="promotion-list">
+          {promotionPlans.map(plan => (
+            <div
+              key={plan.id}
+              className={`promotion-card ${selectedPromotion === plan.id ? "selected" : ""}`}
+              onClick={() => setSelectedPromotion(plan.id)}
+            >
+              <plan.icon size={20} />
+              <strong>{plan.name}</strong>
+              <p>{plan.description}</p>
+              <p>Price: ₦{getActivePrice(plan.price, plan.discount).toLocaleString()}</p>
+              {plan.discount > 0 && <small>Save {getDiscountPercent(plan.price, plan.discount)}%</small>}
+            </div>
+          ))}
+        </div>
+      </div>
+
       {/* SUBMIT */}
-      <button onClick={handleSubmit} disabled={loading}>{loading ? "Saving..." : "Add Product"}</button>
+      <button onClick={handleSubmit} disabled={loading}>
+        {loading ? "Saving..." : "Add Product"}
+      </button>
     </div>
   );
 }
