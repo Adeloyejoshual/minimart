@@ -1,441 +1,350 @@
-import { useEffect, useState } from "react";
-import DropdownModal from "../components/DropdownModal.jsx";
-import { locationsByState } from "../config/locationsByState.js";
-import { promotionPlans, getActivePrice } from "../config/promotions.js";
-import imageCompression from "browser-image-compression";
-import "./AddProduct.css";
+import React, { useEffect, useMemo, useState } from "react";
+import axios from "axios";
 
-export default function AddProductPage() {
+/* ================= CONFIG (ASSUMED FROM YOUR SYSTEM) ================= */
+import { brands } from "../config/brands";
+import { colors } from "../config/colors";
+import { conditions } from "../config/conditions";
+import { models } from "../config/models";
+import { ramOptions } from "../config/ramOptions";
+import { storageOptions } from "../config/storageOptions";
+import { sims } from "../config/sims";
+import { years } from "../config/years";
+
+/* ================= IMAGE COMPRESSION ================= */
+const compressImage = (file, quality = 0.7, maxWidth = 1024) => {
+  return new Promise((resolve) => {
+    const reader = new FileReader();
+
+    reader.readAsDataURL(file);
+    reader.onload = (event) => {
+      const img = new Image();
+      img.src = event.target.result;
+
+      img.onload = () => {
+        const canvas = document.createElement("canvas");
+
+        const scale = maxWidth / img.width;
+        canvas.width = maxWidth;
+        canvas.height = img.height * scale;
+
+        const ctx = canvas.getContext("2d");
+        ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+
+        canvas.toBlob(
+          (blob) => {
+            const compressedFile = new File([blob], file.name, {
+              type: "image/jpeg",
+              lastModified: Date.now(),
+            });
+            resolve(compressedFile);
+          },
+          "image/jpeg",
+          quality
+        );
+      };
+    };
+  });
+};
+
+/* ================= COMPONENT ================= */
+export default function AddProduct() {
   const [categories, setCategories] = useState([]);
-  const [loading, setLoading] = useState(false);
-  const [progress, setProgress] = useState(0);
-
-  const [images, setImages] = useState([]);
-  const [previewUrls, setPreviewUrls] = useState([]);
-
-  const [dragging, setDragging] = useState(false);
-  const [dragIndex, setDragIndex] = useState(null);
-
-  const [selectedState, setSelectedState] = useState("");
-  const [selectedCity, setSelectedCity] = useState("");
-
   const [form, setForm] = useState({
     title: "",
     description: "",
     price: "",
-    mainCategory: "",
-    subCategory: "",
-    dynamic: {},
-    promotionId: "",
-    negotiable: "Not sure",
-
-    // ✅ NEW FIELDS
+    category_id: "",
+    subcategory_id: "",
+    brand: "",
+    model: "",
+    color: "",
+    condition: "",
+    year: "",
+    ram: "",
+    storage: "",
+    sim: "",
+    location_state: "",
+    location_city: "",
     contact_phone: "",
-    video_link: "",
-    delivery_name: "",
-    delivery_region: "",
-    delivery_days_from: "",
-    delivery_days_to: "",
-    delivery_fee: false,
+    negotiable: "",
   });
 
-  const states = Object.keys(locationsByState || {});
-  const cities = selectedState ? locationsByState[selectedState] : [];
+  const [images, setImages] = useState([]);
+  const [uploadProgress, setUploadProgress] = useState(0);
+  const [loading, setLoading] = useState(false);
 
-  /* ================= FETCH CATEGORIES ================= */
+  /* ================= LOAD CATEGORIES ================= */
   useEffect(() => {
-    fetch("https://minimart-ivrm.onrender.com/api/marketplace/categories")
-      .then(res => res.json())
-      .then(setCategories)
-      .catch(console.error);
+    axios.get("/api/categories").then((res) => {
+      setCategories(res.data);
+    });
   }, []);
 
-  /* ================= AUTOSAVE DRAFT ================= */
-  useEffect(() => {
-    localStorage.setItem(
-      "product_draft",
-      JSON.stringify({ form, selectedState, selectedCity })
-    );
-  }, [form, selectedState, selectedCity]);
-
-  useEffect(() => {
-    const saved = localStorage.getItem("product_draft");
-    if (!saved) return;
-
-    const d = JSON.parse(saved);
-    setForm(d.form || form);
-    setSelectedState(d.selectedState || "");
-    setSelectedCity(d.selectedCity || "");
-  }, []);
-
-  /* ================= CATEGORY LOGIC ================= */
-  const selectedCategory = categories.find(c => c.id === form.mainCategory);
-  const subcategories = selectedCategory?.subcategories || [];
-  const dynamicFields = selectedCategory?.dynamicOptions?.fields || [];
-  const options = selectedCategory?.dynamicOptions || {};
-
-  const optionsMap = {
-    brand: options.brands || [],
-    model: form.dynamic.brand
-      ? options.models?.[form.dynamic.brand] || []
-      : [],
-    color: options.colors || [],
-    condition: options.conditions || [],
-    ram: options.ram || [],
-    storage: options.storage || [],
+  /* ================= HANDLE INPUT ================= */
+  const handleChange = (e) => {
+    setForm({ ...form, [e.target.name]: e.target.value });
   };
 
-  const update = (k, v) =>
-    setForm(prev => ({ ...prev, [k]: v }));
+  /* ================= IMAGE SELECT ================= */
+  const handleImages = async (e) => {
+    const files = Array.from(e.target.files);
 
-  const updateDynamic = (k, v) =>
-    setForm(prev => ({
-      ...prev,
-      dynamic: { ...prev.dynamic, [k]: v },
+    const compressed = await Promise.all(
+      files.map((file) => compressImage(file))
+    );
+
+    const preview = compressed.map((file) => ({
+      file,
+      url: URL.createObjectURL(file),
     }));
 
-  /* ================= RESET DYNAMIC FIELDS ================= */
-  useEffect(() => {
-    if (!selectedCategory) return;
-
-    setForm(prev => {
-      if (Object.keys(prev.dynamic || {}).length > 0) return prev;
-
-      return {
-        ...prev,
-        dynamic: Object.fromEntries(dynamicFields.map(f => [f, ""])),
-      };
-    });
-  }, [selectedCategory]);
-
-  /* ================= RESET CITY ON STATE CHANGE ================= */
-  useEffect(() => {
-    setSelectedCity("");
-  }, [selectedState]);
-
-  /* ================= IMAGE COMPRESSION ================= */
-  const compressImage = async file =>
-    await imageCompression(file, {
-      maxSizeMB: 1,
-      maxWidthOrHeight: 1280,
-      useWebWorker: true,
-    });
-
-  const createPreviews = files => {
-    previewUrls.forEach(url => URL.revokeObjectURL(url));
-
-    const urls = files.map(f => URL.createObjectURL(f));
-    setPreviewUrls(urls);
+    setImages((prev) => [...prev, ...preview]);
   };
 
-  const processImages = async files => {
-    const limited = files.slice(0, 8);
-    const compressed = await Promise.all(limited.map(compressImage));
-
-    setImages(compressed);
-    createPreviews(compressed);
+  const removeImage = (index) => {
+    setImages((prev) => prev.filter((_, i) => i !== index));
   };
-
-  /* ================= DRAG & DROP ================= */
-  const handleDrop = e => {
-    e.preventDefault();
-    setDragging(false);
-    processImages(Array.from(e.dataTransfer.files));
-  };
-
-  const handleDragStart = i => setDragIndex(i);
-
-  const handleDragEnter = i => {
-    if (dragIndex === null || dragIndex === i) return;
-
-    const newImgs = [...images];
-    const moved = newImgs.splice(dragIndex, 1)[0];
-    newImgs.splice(i, 0, moved);
-
-    setImages(newImgs);
-    createPreviews(newImgs);
-    setDragIndex(i);
-  };
-
-  const removeImage = i => {
-    const newImgs = images.filter((_, x) => x !== i);
-    setImages(newImgs);
-    createPreviews(newImgs);
-  };
-
-  /* ================= UPLOAD ================= */
-  const uploadWithProgress = fd =>
-    new Promise((resolve, reject) => {
-      const xhr = new XMLHttpRequest();
-
-      xhr.open(
-        "POST",
-        "https://minimart-ivrm.onrender.com/api/marketplace/products"
-      );
-
-      xhr.upload.onprogress = e => {
-        if (e.lengthComputable) {
-          setProgress(Math.round((e.loaded / e.total) * 100));
-        }
-      };
-
-      xhr.onload = () => {
-        const data = JSON.parse(xhr.responseText);
-        xhr.status >= 200 && xhr.status < 300
-          ? resolve(data)
-          : reject(data);
-      };
-
-      xhr.onerror = () => reject({ message: "Upload failed" });
-
-      xhr.send(fd);
-    });
 
   /* ================= SUBMIT ================= */
-  const handleSubmit = async () => {
-    if (!form.title || !form.price || !form.mainCategory)
-      return alert("Required fields missing");
-
-    if (!images.length)
-      return alert("Add at least one image");
+  const handleSubmit = async (e) => {
+    e.preventDefault();
+    setLoading(true);
+    setUploadProgress(0);
 
     try {
-      setLoading(true);
-      setProgress(0);
+      const formData = new FormData();
 
-      const fd = new FormData();
+      /* ===== BASIC ===== */
+      formData.append("title", form.title);
+      formData.append("description", form.description);
+      formData.append("price", form.price);
+      formData.append("category_id", form.category_id);
+      formData.append("subcategory_id", form.subcategory_id);
 
-      fd.append("title", form.title);
-      fd.append("description", form.description);
-      fd.append("price", form.price);
-      fd.append("category_id", form.mainCategory);
+      /* ===== ATTRIBUTES ===== */
+      formData.append("brand", form.brand);
+      formData.append("model", form.model);
+      formData.append("color", form.color);
+      formData.append("condition", form.condition);
+      formData.append("year", form.year);
+      formData.append("ram", form.ram);
+      formData.append("storage", form.storage);
+      formData.append("sim", form.sim);
 
-      if (form.subCategory)
-        fd.append("subcategory_id", form.subCategory);
+      /* ===== LOCATION ===== */
+      formData.append("location_state", form.location_state);
+      formData.append("location_city", form.location_city);
 
-      fd.append("promotion_id", form.promotionId);
-      fd.append("negotiable", form.negotiable);
+      /* ===== CONTACT ===== */
+      formData.append(
+        "contact",
+        JSON.stringify({
+          phone: form.contact_phone,
+        })
+      );
 
-      fd.append("location_state", selectedState);
-      fd.append("location_city", selectedCity);
+      /* ===== DELIVERY ===== */
+      formData.append(
+        "delivery",
+        JSON.stringify({
+          negotiable: form.negotiable,
+        })
+      );
 
-      // dynamic fields
-      fd.append("attributes", JSON.stringify(form.dynamic));
+      /* ===== IMAGES ===== */
+      images.forEach((img) => {
+        formData.append("images", img.file);
+      });
 
-      // delivery + contact
-      fd.append("contact_phone", form.contact_phone);
-      fd.append("video_link", form.video_link);
-      fd.append("delivery_name", form.delivery_name);
-      fd.append("delivery_region", form.delivery_region);
-      fd.append("delivery_days_from", form.delivery_days_from);
-      fd.append("delivery_days_to", form.delivery_days_to);
-      fd.append("delivery_fee", form.delivery_fee);
+      await axios.post("/api/products", formData, {
+        headers: { "Content-Type": "multipart/form-data" },
+        onUploadProgress: (progressEvent) => {
+          const percent = Math.round(
+            (progressEvent.loaded * 100) / progressEvent.total
+          );
+          setUploadProgress(percent);
+        },
+      });
 
-      images.forEach(img => fd.append("images", img));
+      alert("Product created successfully");
 
-      await uploadWithProgress(fd);
-
-      alert("✅ Product added successfully!");
-      localStorage.removeItem("product_draft");
-
-      // RESET
+      /* RESET */
       setForm({
         title: "",
         description: "",
         price: "",
-        mainCategory: "",
-        subCategory: "",
-        dynamic: {},
-        promotionId: "",
-        negotiable: "Not sure",
+        category_id: "",
+        subcategory_id: "",
+        brand: "",
+        model: "",
+        color: "",
+        condition: "",
+        year: "",
+        ram: "",
+        storage: "",
+        sim: "",
+        location_state: "",
+        location_city: "",
         contact_phone: "",
-        video_link: "",
-        delivery_name: "",
-        delivery_region: "",
-        delivery_days_from: "",
-        delivery_days_to: "",
-        delivery_fee: false,
+        negotiable: "",
       });
 
       setImages([]);
-      setPreviewUrls([]);
-      setSelectedState("");
-      setSelectedCity("");
-
+      setUploadProgress(0);
     } catch (err) {
-      alert(err.message || "Upload failed");
+      console.error(err);
+      alert("Failed to create product");
     } finally {
       setLoading(false);
     }
   };
 
-  /* ================= UI ================= */
+  /* ================= FILTER OPTIONS ================= */
+  const brandOptions = useMemo(() => {
+    return brands["default"] || [];
+  }, []);
+
   return (
-    <div className="add-product-container">
-      <h2>Add Product</h2>
+    <div style={{ maxWidth: 700, margin: "0 auto" }}>
+      <h2>Create Product</h2>
 
-      <input
-        placeholder="Title"
-        value={form.title}
-        onChange={e => update("title", e.target.value)}
-      />
-
-      <textarea
-        placeholder="Description"
-        value={form.description}
-        onChange={e => update("description", e.target.value)}
-      />
-
-      {/* CATEGORY */}
-      <DropdownModal
-        label="Category"
-        value={form.mainCategory}
-        onChange={v => update("mainCategory", v)}
-        options={categories.map(c => ({ id: c.id, name: c.name }))}
-      />
-
-      {/* SUBCATEGORY */}
-      {subcategories.length > 0 && (
-        <DropdownModal
-          label="Subcategory"
-          value={form.subCategory}
-          onChange={v => update("subCategory", v)}
-          options={subcategories.map(s => ({ id: s.id, name: s.name }))}
-        />
-      )}
-
-      {/* DYNAMIC FIELDS */}
-      {dynamicFields.map(f => (
-        <DropdownModal
-          key={f}
-          label={f}
-          value={form.dynamic[f] || ""}
-          onChange={v => updateDynamic(f, v)}
-          options={optionsMap[f] || []}
-        />
-      ))}
-
-      {/* LOCATION */}
-      <DropdownModal
-        label="State"
-        value={selectedState}
-        onChange={setSelectedState}
-        options={states}
-      />
-
-      {selectedState && (
-        <DropdownModal
-          label="City"
-          value={selectedCity}
-          onChange={setSelectedCity}
-          options={cities}
-        />
-      )}
-
-      <input
-        placeholder="Price"
-        value={form.price}
-        onChange={e => update("price", e.target.value)}
-      />
-
-      {/* PHONE */}
-      <input
-        placeholder="Phone number"
-        value={form.contact_phone}
-        onChange={e => update("contact_phone", e.target.value)}
-      />
-
-      {/* VIDEO */}
-      <input
-        placeholder="Video link"
-        value={form.video_link}
-        onChange={e => update("video_link", e.target.value)}
-      />
-
-      {/* DELIVERY */}
-      <input
-        placeholder="Delivery name"
-        value={form.delivery_name}
-        onChange={e => update("delivery_name", e.target.value)}
-      />
-
-      <input
-        placeholder="Delivery region"
-        value={form.delivery_region}
-        onChange={e => update("delivery_region", e.target.value)}
-      />
-
-      <div style={{ display: "flex", gap: 10 }}>
+      <form onSubmit={handleSubmit}>
+        {/* TITLE */}
         <input
+          name="title"
+          placeholder="Title"
+          value={form.title}
+          onChange={handleChange}
+          required
+        />
+
+        {/* PRICE */}
+        <input
+          name="price"
+          placeholder="Price"
           type="number"
-          placeholder="From days"
-          value={form.delivery_days_from}
-          onChange={e => update("delivery_days_from", e.target.value)}
+          value={form.price}
+          onChange={handleChange}
+          required
+        />
+
+        {/* DESCRIPTION */}
+        <textarea
+          name="description"
+          placeholder="Description"
+          value={form.description}
+          onChange={handleChange}
+        />
+
+        {/* CATEGORY */}
+        <select
+          name="category_id"
+          value={form.category_id}
+          onChange={handleChange}
+          required
+        >
+          <option value="">Select Category</option>
+          {categories.map((c) => (
+            <option key={c.id} value={c.id}>
+              {c.name}
+            </option>
+          ))}
+        </select>
+
+        {/* BRAND */}
+        <select name="brand" value={form.brand} onChange={handleChange}>
+          <option value="">Brand</option>
+          {brandOptions.map((b) => (
+            <option key={b} value={b}>
+              {b}
+            </option>
+          ))}
+        </select>
+
+        {/* CONDITION */}
+        <select
+          name="condition"
+          value={form.condition}
+          onChange={handleChange}
+        >
+          <option value="">Condition</option>
+          {conditions.map((c) => (
+            <option key={c} value={c}>
+              {c}
+            </option>
+          ))}
+        </select>
+
+        {/* LOCATION */}
+        <input
+          name="location_state"
+          placeholder="State"
+          value={form.location_state}
+          onChange={handleChange}
         />
 
         <input
-          type="number"
-          placeholder="To days"
-          value={form.delivery_days_to}
-          onChange={e => update("delivery_days_to", e.target.value)}
+          name="location_city"
+          placeholder="City"
+          value={form.location_city}
+          onChange={handleChange}
         />
-      </div>
 
-      <label>
+        {/* CONTACT */}
         <input
-          type="checkbox"
-          checked={form.delivery_fee}
-          onChange={e => update("delivery_fee", e.target.checked)}
+          name="contact_phone"
+          placeholder="Phone"
+          value={form.contact_phone}
+          onChange={handleChange}
         />
-        Delivery fee available
-      </label>
 
-      {/* DROP ZONE */}
-      <div
-        className={`drop-zone ${dragging ? "dragging" : ""}`}
-        onDrop={handleDrop}
-        onDragOver={e => {
-          e.preventDefault();
-          setDragging(true);
-        }}
-        onDragLeave={() => setDragging(false)}
-      >
-        Drag & drop or click
-        <input
-          type="file"
-          multiple
-          onChange={e => processImages(Array.from(e.target.files))}
-        />
-      </div>
+        {/* IMAGES */}
+        <input type="file" multiple accept="image/*" onChange={handleImages} />
 
-      {/* PREVIEW */}
-      <div className="image-preview">
-        {previewUrls.map((url, i) => (
-          <div
-            key={i}
-            draggable
-            onDragStart={() => handleDragStart(i)}
-            onDragEnter={() => handleDragEnter(i)}
-            className={i === 0 ? "main" : ""}
-          >
-            <img src={url} alt="" />
-            {i === 0 && <span>Main</span>}
-            <button onClick={() => removeImage(i)}>X</button>
-          </div>
-        ))}
-      </div>
-
-      {/* PROGRESS */}
-      {loading && (
-        <div className="progress-bar">
-          <div style={{ width: `${progress}%` }} />
-          <span>{progress}%</span>
+        <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
+          {images.map((img, i) => (
+            <div key={i}>
+              <img
+                src={img.url}
+                alt=""
+                width={80}
+                height={80}
+                style={{ objectFit: "cover" }}
+              />
+              <button type="button" onClick={() => removeImage(i)}>
+                X
+              </button>
+            </div>
+          ))}
         </div>
-      )}
 
-      <button onClick={handleSubmit} disabled={loading}>
-        {loading ? "Uploading..." : "Add Product"}
-      </button>
+        {/* UPLOAD PROGRESS */}
+        {uploadProgress > 0 && (
+          <div style={{ marginTop: 10 }}>
+            <div>Uploading: {uploadProgress}%</div>
+            <div
+              style={{
+                height: 6,
+                background: "#eee",
+                borderRadius: 4,
+              }}
+            >
+              <div
+                style={{
+                  width: `${uploadProgress}%`,
+                  height: "100%",
+                  background: "green",
+                }}
+              />
+            </div>
+          </div>
+        )}
+
+        <button disabled={loading} type="submit">
+          {loading ? "Uploading..." : "Create Product"}
+        </button>
+      </form>
     </div>
   );
 }
