@@ -7,23 +7,26 @@ export default function TermsAndConditions() {
 
   return (
     <div className="terms-container">
-      {/* HEADER */}
+      {/* ---------------- HEADER ---------------- */}
       <div className="terms-header">
         <button className="back-btn" onClick={() => navigate(-1)}>← Back</button>
-        <h2>Terms and Conditions</h2>
+        <h2>Terms & Conditions</h2>
       </div>
 
-      {/* CONTENT */}
+      {/* ---------------- CONTENT ---------------- */}
       <div className="terms-content">
-        <p>Welcome to MiniMart. By using our platform, posting, or interacting with products, you agree to the following:</p>
+        <p>Welcome to MiniMart. By using our platform, posting, or interacting with products, you agree to the following terms:</p>
 
         <h3>1. Acceptance of Terms</h3>
-        <p>By clicking Post Ad, you accept these Terms of Use, agree to abide by the Safety Tips, and confirm that your listing does not include prohibited items.</p>
+        <p>
+          By clicking "Post Ad", you accept these Terms of Use, confirm that you will follow our Safety Tips, 
+          and declare that your listing does not include any prohibited items.
+        </p>
 
         <h3>2. Posting Guidelines</h3>
         <ul>
           <li>No illegal, stolen, or counterfeit items.</li>
-          <li>Ensure accurate descriptions, pricing, and delivery information.</li>
+          <li>Provide accurate descriptions, pricing, and delivery information.</li>
           <li>Respect other users and avoid spam or misleading content.</li>
         </ul>
 
@@ -31,19 +34,32 @@ export default function TermsAndConditions() {
         <ul>
           <li>Meet in public places when exchanging items.</li>
           <li>Verify buyer or seller information before transactions.</li>
-          <li>Never share sensitive personal information unnecessarily.</li>
+          <li>Do not share sensitive personal information unnecessarily.</li>
         </ul>
 
         <h3>4. Delivery & Payment</h3>
-        <p>Users are responsible for delivery details they provide. Any delivery fees or estimated days must be accurate.</p>
+        <p>
+          Users are responsible for delivery details. Any delivery fees, estimated days, and payment information must be accurate.
+        </p>
 
         <h3>5. Liability</h3>
-        <p>MiniMart is not responsible for any disputes, damages, or losses between users. All listings are made by the users themselves.</p>
+        <p>
+          MiniMart is not responsible for disputes, damages, or losses between users. All listings are created and managed by the users themselves.
+        </p>
 
         <h3>6. Changes to Terms</h3>
-        <p>We may update these terms at any time. Continued use of the platform constitutes acceptance of updated terms.</p>
+        <p>
+          We may update these terms at any time. Continued use of the platform constitutes acceptance of any updated terms.
+        </p>
 
-        <p className="note">By posting an ad, you confirm that you have read and understood these terms and agree to comply.</p>
+        <p className="note">
+          By posting an ad, you confirm that you have read, understood, and agree to comply with these terms.
+        </p>
+      </div>
+
+      {/* ---------------- FOOTER LINK ---------------- */}
+      <div className="terms-footer">
+        <button className="back-btn" onClick={() => navigate(-1)}>← Back to Add Product</button>
       </div>
     </div>
   );
