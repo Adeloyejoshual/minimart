@@ -1,7 +1,7 @@
+// routes/promote.js
 import express from "express";
 import { Pool } from "pg";
 import dotenv from "dotenv";
-import cloudinary from "cloudinary";
 import auth from "../middleware/authMiddleware.js";
 import { verifyPaystackTransaction } from "../services/paystack.js";
 
@@ -13,16 +13,10 @@ const pool = new Pool({
   ssl: { rejectUnauthorized: false },
 });
 
-// ---------------- CLOUDINARY CONFIG ----------------
-cloudinary.config({
-  cloud_name: process.env.CLOUDINARY_CLOUD_NAME,
-  api_key: process.env.CLOUDINARY_API_KEY,
-  api_secret: process.env.CLOUDINARY_API_SECRET,
-});
-
 // POST /api/promote/verify
 router.post("/verify", auth, async (req, res) => {
   const client = await pool.connect();
+
   try {
     const { reference } = req.body;
     if (!reference) return res.status(400).json({ message: "Reference required" });
@@ -51,12 +45,12 @@ router.post("/verify", auth, async (req, res) => {
 
     await client.query("BEGIN");
 
-    // 1️⃣ Insert product
+    // Insert product
     const { rows } = await client.query(
       `
       INSERT INTO products
-      (title, description, price, category_id, subcategory_id, dynamic_fields, promotion_id, created_at)
-      VALUES ($1,$2,$3,$4,$5,$6,$7, now())
+      (title, description, price, category_id, subcategory_id, dynamic_fields, promotion_id, images, created_at)
+      VALUES ($1,$2,$3,$4,$5,$6,$7,$8, NOW())
       RETURNING *
       `,
       [
@@ -67,34 +61,11 @@ router.post("/verify", auth, async (req, res) => {
         subcategory_id || null,
         Object.keys(dynamicFields || {}).length ? JSON.stringify(dynamicFields) : null,
         promotion_id || null,
+        images.length ? JSON.stringify(images) : null, // Save base64 images directly
       ]
     );
 
     const product = rows[0];
-
-    // 2️⃣ Upload images to Cloudinary & save in product_images
-    if (images.length) {
-      const uploadedUrls = await Promise.all(
-        images.map((img) => 
-          new Promise((resolve, reject) => {
-            const stream = cloudinary.uploader.upload_stream(
-              { folder: "minimart_products" },
-              (err, result) => (err ? reject(err) : resolve(result.secure_url))
-            );
-            stream.end(Buffer.from(img, "base64"));
-          })
-        )
-      );
-
-      await Promise.all(
-        uploadedUrls.map((url, index) =>
-          client.query(
-            "INSERT INTO product_images (product_id, image_url, position) VALUES ($1,$2,$3)",
-            [product.id, url, index]
-          )
-        )
-      );
-    }
 
     await client.query("COMMIT");
 
