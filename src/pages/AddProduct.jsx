@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import DropdownModal from "../components/DropdownModal.jsx";
 import { locationsByState } from "../config/locationsByState.js";
 import imageCompression from "browser-image-compression";
+import "./AddProduct.css";
 
 const INITIAL_FORM = {
   title: "",
@@ -38,21 +39,12 @@ export default function AddProduct() {
   const [loading, setLoading] = useState(false);
   const [progress, setProgress] = useState(0);
 
-  /* ================= FETCH CATEGORIES ================= */
+  /* ================= CATEGORIES ================= */
   useEffect(() => {
-    const load = async () => {
-      try {
-        const res = await fetch(
-          "https://minimart-ivrm.onrender.com/api/marketplace/categories"
-        );
-        const data = await res.json();
-        setCategories(data || []);
-      } catch (err) {
-        console.error("Category load failed:", err);
-      }
-    };
-
-    load();
+    fetch("https://minimart-ivrm.onrender.com/api/marketplace/categories")
+      .then((r) => r.json())
+      .then((d) => setCategories(d || []))
+      .catch(console.error);
   }, []);
 
   const selectedCategory = useMemo(
@@ -60,13 +52,8 @@ export default function AddProduct() {
     [categories, form.category_id]
   );
 
-  const dynamicFields = useMemo(
-    () => selectedCategory?.dynamicOptions?.fields || [],
-    [selectedCategory]
-  );
-
+  const dynamicFields = selectedCategory?.dynamicOptions?.fields || [];
   const options = selectedCategory?.dynamicOptions || {};
-
   const brand = form.attributes?.brand;
 
   const optionsMap = useMemo(
@@ -74,88 +61,65 @@ export default function AddProduct() {
       brand: options.brands || [],
       model: options.models?.[brand] || [],
       color: options.colors || [],
-      condition: options.conditions || [],
-      used_detail: options.usedDetails || [],
-      ram: options.ram || [],
-      storage: options.storage || [],
-      sim: options.sims || [],
-      features: options.features || [],
-      year: options.years || [],
-      engine: options.engines || [],
-      fuel_type: options.fuel_types || [],
+      condition: ["new", "used"],
+      used_detail: ["like new", "excellent", "good", "fair", "repair needed"],
     }),
     [options, brand]
   );
 
-  /* ================= HELPERS ================= */
-  const updateForm = (key, value) =>
-    setForm((p) => ({ ...p, [key]: value }));
-
-  const updateAttr = (key, value) =>
+  const updateForm = (k, v) => setForm((p) => ({ ...p, [k]: v }));
+  const updateAttr = (k, v) =>
     setForm((p) => ({
       ...p,
-      attributes: { ...p.attributes, [key]: value },
+      attributes: { ...p.attributes, [k]: v },
     }));
 
-  const updateDelivery = (key, value) =>
-    setForm((p) => ({
-      ...p,
-      delivery: { ...p.delivery, [key]: value },
-    }));
-
-  const states = Object.keys(locationsByState || {});
-  const cities = state ? locationsByState[state] || [] : [];
-
-  /* ================= IMAGE HANDLING ================= */
-
-  const compressImages = async (files) => {
-    const config = {
-      maxSizeMB: 0.6,
-      maxWidthOrHeight: 1920,
-      useWebWorker: true,
-    };
-
-    const list = Array.from(files).slice(0, 8);
-    const result = [];
-
-    for (const file of list) {
-      await new Promise((r) => setTimeout(r, 0)); // keep UI responsive
-      result.push(await imageCompression(file, config));
-    }
-
-    return result;
+  /* ================= FORMATTERS ================= */
+  const formatPrice = (value) => {
+    const num = value.replace(/,/g, "").replace(/[^\d]/g, "");
+    return num.replace(/\B(?=(\d{3})+(?!\d))/g, ",");
   };
 
-  const handleImages = async (files) => {
-    const rawFiles = Array.from(files).slice(0, 8);
+  const onlyNumbers = (value) => value.replace(/[^\d]/g, "");
 
-    // ⚡ instant preview (no waiting)
-    const previewUrls = rawFiles.map((file) =>
-      URL.createObjectURL(file)
-    );
-
-    setPreviews(previewUrls);
-
-    // compress in background
-    const compressed = await compressImages(rawFiles);
-    setImages(compressed);
-  };
-
-  const removeImage = (index) => {
-    setImages((p) => p.filter((_, i) => i !== index));
-
-    setPreviews((p) => {
-      URL.revokeObjectURL(p[index]);
-      return p.filter((_, i) => i !== index);
-    });
-  };
+  const formatLabel = (t) =>
+    t.replace(/_/g, " ").replace(/\b\w/g, (l) => l.toUpperCase());
 
   /* ================= VALIDATION ================= */
   const validate = () => {
-    if (!form.title.trim()) return "Title is required";
+    if (form.title.trim().length < 15)
+      return "Title must be at least 15 characters";
+
+    if (form.description.trim().length < 30)
+      return "Description must be at least 30 characters";
+
     if (!form.price) return "Price is required";
     if (!form.category_id) return "Category is required";
+
+    const phone = form.contact.phone;
+    if (!phone || phone.length < 10)
+      return "Valid phone number required";
+
+    if (!form.attributes.condition)
+      return "Select product condition";
+
     return null;
+  };
+
+  /* ================= IMAGES ================= */
+  const handleImages = (files) => {
+    const raw = Array.from(files).slice(0, 8);
+
+    setPreviews(raw.map((f) => URL.createObjectURL(f)));
+    setImages(raw);
+  };
+
+  const removeImage = (i) => {
+    setImages((p) => p.filter((_, x) => x !== i));
+    setPreviews((p) => {
+      URL.revokeObjectURL(p[i]);
+      return p.filter((_, x) => x !== i);
+    });
   };
 
   /* ================= SUBMIT ================= */
@@ -166,11 +130,7 @@ export default function AddProduct() {
     const fd = new FormData();
 
     const payload = {
-      title: form.title,
-      description: form.description,
-      price: form.price,
-      category_id: form.category_id,
-      subcategory_id: form.subcategory_id,
+      ...form,
       attributes: JSON.stringify(form.attributes),
       delivery: JSON.stringify(form.delivery),
       contact: JSON.stringify(form.contact),
@@ -179,53 +139,49 @@ export default function AddProduct() {
     };
 
     Object.entries(payload).forEach(([k, v]) => fd.append(k, v));
-
     images.forEach((img) => fd.append("images", img));
 
-    try {
-      setLoading(true);
-      setProgress(0);
+    setLoading(true);
+    setProgress(0);
 
-      const xhr = new XMLHttpRequest();
-      xhr.open(
-        "POST",
-        "https://minimart-ivrm.onrender.com/api/marketplace/products"
-      );
+    const xhr = new XMLHttpRequest();
+    xhr.open(
+      "POST",
+      "https://minimart-ivrm.onrender.com/api/marketplace/products"
+    );
 
-      xhr.upload.onprogress = (e) => {
-        if (e.lengthComputable) {
-          setProgress(Math.round((e.loaded / e.total) * 100));
-        }
-      };
+    xhr.upload.onprogress = (e) => {
+      if (e.lengthComputable) {
+        setProgress(Math.round((e.loaded / e.total) * 100));
+      }
+    };
 
-      xhr.onload = () => {
-        setLoading(false);
-
-        if (xhr.status >= 200 && xhr.status < 300) {
-          setForm(INITIAL_FORM);
-          setImages([]);
-          setPreviews([]);
-          setState("");
-          setCity("");
-          setProgress(0);
-
-          alert("Product created 🚀");
-        } else {
-          alert("Upload failed");
-        }
-      };
-
-      xhr.onerror = () => {
-        setLoading(false);
-        alert("Network error");
-      };
-
-      xhr.send(fd);
-    } catch (err) {
+    xhr.onload = () => {
       setLoading(false);
-      console.error(err);
-    }
+
+      if (xhr.status >= 200 && xhr.status < 300) {
+        setForm(INITIAL_FORM);
+        setImages([]);
+        setPreviews([]);
+        setState("");
+        setCity("");
+        setProgress(0);
+        alert("Product created 🚀");
+      } else {
+        alert("Upload failed");
+      }
+    };
+
+    xhr.onerror = () => {
+      setLoading(false);
+      alert("Network error");
+    };
+
+    xhr.send(fd);
   };
+
+  const states = Object.keys(locationsByState || {});
+  const cities = state ? locationsByState[state] || [] : [];
 
   /* ================= UI ================= */
   return (
@@ -235,28 +191,33 @@ export default function AddProduct() {
       {loading && (
         <div className="progress">
           <div style={{ width: `${progress}%` }} />
-          <span>{progress}%</span>
         </div>
       )}
 
+      {/* TITLE */}
       <input
-        placeholder="Title"
+        placeholder="Title (min 15 characters)"
         value={form.title}
         onChange={(e) => updateForm("title", e.target.value)}
       />
 
+      {/* DESCRIPTION */}
       <textarea
-        placeholder="Description"
+        placeholder="Description (min 30 characters)"
         value={form.description}
         onChange={(e) => updateForm("description", e.target.value)}
       />
 
+      {/* PRICE */}
       <input
         placeholder="Price"
         value={form.price}
-        onChange={(e) => updateForm("price", e.target.value)}
+        onChange={(e) =>
+          updateForm("price", formatPrice(e.target.value))
+        }
       />
 
+      {/* CATEGORY */}
       <DropdownModal
         label="Category"
         value={form.category_id}
@@ -267,16 +228,36 @@ export default function AddProduct() {
         }))}
       />
 
+      {/* CONDITION */}
+      <DropdownModal
+        label="Condition"
+        value={form.attributes.condition || ""}
+        onChange={(v) => updateAttr("condition", v)}
+        options={["new", "used"]}
+      />
+
+      {/* USED DETAIL */}
+      {form.attributes.condition === "used" && (
+        <DropdownModal
+          label="Used Detail"
+          value={form.attributes.used_detail || ""}
+          onChange={(v) => updateAttr("used_detail", v)}
+          options={optionsMap.used_detail}
+        />
+      )}
+
+      {/* DYNAMIC FIELDS */}
       {dynamicFields.map((field) => (
         <DropdownModal
           key={field}
-          label={field}
+          label={formatLabel(field)}
           value={form.attributes[field] || ""}
           onChange={(v) => updateAttr(field, v)}
           options={optionsMap[field] || []}
         />
       ))}
 
+      {/* LOCATION */}
       <DropdownModal
         label="State"
         value={state}
@@ -293,81 +274,43 @@ export default function AddProduct() {
         />
       )}
 
-      <h3>Delivery</h3>
-
-      <label>
-        <input
-          type="checkbox"
-          checked={form.delivery.available}
-          onChange={(e) =>
-            updateDelivery("available", e.target.checked)
-          }
-        />
-        Available
-      </label>
-
-      {form.delivery.available && (
-        <>
-          <DropdownModal
-            label="Type"
-            value={form.delivery.type}
-            onChange={(v) => updateDelivery("type", v)}
-            options={["fixed", "free", "negotiable"]}
-          />
-
-          {form.delivery.type === "fixed" && (
-            <input
-              placeholder="Fee"
-              value={form.delivery.fee}
-              onChange={(e) =>
-                updateDelivery("fee", e.target.value)
-              }
-            />
-          )}
-
-          <input
-            placeholder="Radius km"
-            value={form.delivery.radius_km}
-            onChange={(e) =>
-              updateDelivery("radius_km", e.target.value)
-            }
-          />
-        </>
-      )}
-
+      {/* CONTACT */}
       <input
-        placeholder="Phone"
+        placeholder="Phone number"
         value={form.contact.phone}
         onChange={(e) =>
           setForm((p) => ({
             ...p,
-            contact: { ...p.contact, phone: e.target.value },
+            contact: {
+              ...p.contact,
+              phone: onlyNumbers(e.target.value),
+            },
           }))
         }
       />
 
       <input
-        placeholder="WhatsApp"
+        placeholder="WhatsApp number"
         value={form.contact.whatsapp}
         onChange={(e) =>
           setForm((p) => ({
             ...p,
-            contact: { ...p.contact, whatsapp: e.target.value },
+            contact: {
+              ...p.contact,
+              whatsapp: onlyNumbers(e.target.value),
+            },
           }))
         }
       />
 
-      <input
-        type="file"
-        multiple
-        onChange={(e) => handleImages(e.target.files)}
-      />
+      {/* IMAGES */}
+      <input type="file" multiple onChange={(e) => handleImages(e.target.files)} />
 
-      <div className="preview">
+      <div className="preview-grid">
         {previews.map((src, i) => (
-          <div key={i}>
-            <img src={src} alt="" />
-            <button onClick={() => removeImage(i)}>X</button>
+          <div key={i} className="preview-item">
+            <img src={src} alt="preview" />
+            <button onClick={() => removeImage(i)}>✕</button>
           </div>
         ))}
       </div>
