@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useState, useRef } from "react";
 import { useSearchParams, useNavigate } from "react-router-dom";
 
 export default function SearchPage() {
@@ -19,7 +19,9 @@ export default function SearchPage() {
   const [page, setPage] = useState(1);
   const [hasMore, setHasMore] = useState(true);
 
-  /* ================= SAFE FETCH ================= */
+  const firstLoad = useRef(true);
+
+  /* ================= FETCH ================= */
   const fetchSearch = async (reset = false) => {
     if (!query) return;
 
@@ -30,21 +32,17 @@ export default function SearchPage() {
         `/api/search?q=${query}&page=${reset ? 1 : page}&brand=${filters.brand}&minPrice=${filters.minPrice}&maxPrice=${filters.maxPrice}`
       );
 
-      if (!res.ok) throw new Error("Search request failed");
-
       const data = await res.json();
 
-      const safeProducts = Array.isArray(data?.products)
-        ? data.products
-        : [];
+      const safe = Array.isArray(data?.products) ? data.products : [];
 
       setProducts((prev) =>
-        reset ? safeProducts : [...prev, ...safeProducts]
+        reset ? safe : [...prev, ...safe]
       );
 
-      setHasMore(safeProducts.length > 0);
+      setHasMore(safe.length > 0);
     } catch (err) {
-      console.error("Search error:", err);
+      console.error(err);
       setProducts([]);
       setHasMore(false);
     } finally {
@@ -52,16 +50,36 @@ export default function SearchPage() {
     }
   };
 
-  /* ================= INITIAL LOAD ================= */
+  /* ================= RESET SEARCH ONLY WHEN QUERY CHANGES ================= */
   useEffect(() => {
     setProducts([]);
     setPage(1);
+
+    // prevent double call on first mount + filters rerender
+    if (firstLoad.current) {
+      firstLoad.current = false;
+      fetchSearch(true);
+      return;
+    }
+
     fetchSearch(true);
-  }, [query, filters]);
+  }, [query]);
+
+  /* ================= FILTERS (DEBOUNCED EFFECT) ================= */
+  useEffect(() => {
+    const delay = setTimeout(() => {
+      setProducts([]);
+      setPage(1);
+      fetchSearch(true);
+    }, 400);
+
+    return () => clearTimeout(delay);
+  }, [filters.brand, filters.minPrice, filters.maxPrice]);
 
   /* ================= PAGINATION ================= */
   useEffect(() => {
-    if (page > 1) fetchSearch();
+    if (page === 1) return;
+    fetchSearch(false);
   }, [page]);
 
   /* ================= INFINITE SCROLL ================= */
@@ -81,12 +99,12 @@ export default function SearchPage() {
     return () => window.removeEventListener("scroll", onScroll);
   }, [loading, hasMore]);
 
-  /* ================= PRODUCT CLICK ================= */
-  const handleClick = (product) => {
-    navigate(`/product/${product.id}`);
+  /* ================= CLICK ================= */
+  const handleClick = (p) => {
+    navigate(`/product/${p.id}`);
   };
 
-  /* ================= EMPTY STATE ================= */
+  /* ================= EMPTY ================= */
   if (!query) {
     return (
       <div className="p-6 text-gray-600">
@@ -98,7 +116,7 @@ export default function SearchPage() {
   return (
     <div className="flex gap-6 p-4">
 
-      {/* ================= FILTERS ================= */}
+      {/* FILTERS */}
       <aside className="w-64 border-r pr-4 space-y-3">
         <h2 className="font-bold text-lg">Filters</h2>
 
@@ -129,14 +147,12 @@ export default function SearchPage() {
         />
       </aside>
 
-      {/* ================= RESULTS ================= */}
+      {/* RESULTS */}
       <main className="flex-1">
-
         <h1 className="text-xl font-bold mb-4">
           Results for "{query}"
         </h1>
 
-        {/* PRODUCTS */}
         <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
           {products.map((p) => (
             <div
@@ -147,7 +163,6 @@ export default function SearchPage() {
               <img
                 src={p.images?.[0] || "/placeholder.png"}
                 className="h-32 w-full object-cover"
-                alt=""
               />
 
               <p className="font-semibold mt-2 line-clamp-2">
@@ -161,20 +176,17 @@ export default function SearchPage() {
           ))}
         </div>
 
-        {/* LOADING */}
         {loading && (
           <div className="text-center py-4 text-gray-500">
             Loading...
           </div>
         )}
 
-        {/* EMPTY STATE */}
         {!loading && products.length === 0 && (
           <div className="text-center py-10 text-gray-500">
             No products found
           </div>
         )}
-
       </main>
     </div>
   );
