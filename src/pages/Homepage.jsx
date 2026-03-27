@@ -14,64 +14,70 @@ export default function Homepage() {
   const [hasMore, setHasMore] = useState(true);
 
   const observerRef = useRef(null);
-  const trendingRef = useRef(null);
+  const isFetchingRef = useRef(false);
 
-  /* ================= FETCH ================= */
-  const fetchProducts = useCallback(async () => {
-    if (loading || !hasMore) return;
+  const fetchProducts = useCallback(async (currentSkip) => {
+    if (isFetchingRef.current || !hasMore) return;
 
     try {
+      isFetchingRef.current = true;
       setLoading(true);
 
       const res = await fetch(
-        `https://minimart-ivrm.onrender.com/api/marketplace/products?skip=${skip}&limit=${LIMIT}`
+        `https://minimart-ivrm.onrender.com/api/marketplace/products?skip=${currentSkip}&limit=${LIMIT}`
       );
 
       const data = await res.json();
 
-      if (skip === 0) {
+      if (currentSkip === 0) {
         setTrending((data.trending || []).slice(0, 6));
       }
 
       const incoming = data.products || [];
 
+      setProducts((prev) => {
+        const ids = new Set(prev.map((p) => p.id));
+        const filtered = incoming.filter((p) => !ids.has(p.id));
+        return [...prev, ...filtered];
+      });
+
       if (incoming.length < LIMIT) {
         setHasMore(false);
       }
 
-      setProducts((prev) => {
-        const ids = new Set(prev.map((p) => p.id));
-        return [...prev, ...incoming.filter((p) => !ids.has(p.id))];
-      });
     } catch (err) {
       console.error(err);
     } finally {
       setLoading(false);
+      isFetchingRef.current = false;
     }
-  }, [skip, loading, hasMore]);
+  }, [hasMore]);
 
+  /* FETCH ON SKIP CHANGE */
   useEffect(() => {
-    fetchProducts();
-  }, [fetchProducts]);
+    fetchProducts(skip);
+  }, [skip, fetchProducts]);
 
-  /* ================= INFINITE SCROLL ================= */
+  /* INFINITE SCROLL */
   useEffect(() => {
     const observer = new IntersectionObserver(
       (entries) => {
-        if (entries[0].isIntersecting && hasMore) {
+        if (entries[0].isIntersecting && hasMore && !isFetchingRef.current) {
           setSkip((prev) => prev + LIMIT);
         }
       },
-      { rootMargin: "100px" }
+      { rootMargin: "150px" }
     );
 
     const el = observerRef.current;
     if (el) observer.observe(el);
 
-    return () => el && observer.unobserve(el);
+    return () => {
+      if (el) observer.unobserve(el);
+      observer.disconnect();
+    };
   }, [hasMore]);
 
-  /* ================= HELPERS ================= */
   const getImage = (p) =>
     p.images?.[0] ||
     "https://via.placeholder.com/300x200?text=No+Image";
@@ -83,20 +89,15 @@ export default function Homepage() {
     return p.location?.state || "Nigeria";
   };
 
-  /* ================= CARD ================= */
   const Card = ({ p, trendingMode = false }) => (
     <Link to={`/product/${p.id}`} className="card-link">
       <div className="card">
-
         <div className="card-image">
           <img src={getImage(p)} alt={p.title} loading="lazy" />
         </div>
 
         <div className="card-body">
-          <div className="price">
-            ₦{Number(p.price).toLocaleString()}
-          </div>
-
+          <div className="price">₦{Number(p.price).toLocaleString()}</div>
           <div className="title">{p.title}</div>
 
           {!trendingMode && (
@@ -106,7 +107,6 @@ export default function Homepage() {
             </>
           )}
         </div>
-
       </div>
     </Link>
   );
@@ -116,19 +116,16 @@ export default function Homepage() {
       <TopNav />
 
       <div className="homepage-container">
-
-        {/* TRENDING */}
         <div className="section">
           <h2>🔥 Trending</h2>
 
-          <div className="trending-scroll" ref={trendingRef}>
+          <div className="trending-scroll">
             {trending.map((p) => (
               <Card key={p.id} p={p} trendingMode />
             ))}
           </div>
         </div>
 
-        {/* PRODUCTS */}
         <div className="section">
           <h2>🛒 Products</h2>
 
@@ -140,15 +137,9 @@ export default function Homepage() {
 
           <div ref={observerRef} style={{ height: 40 }} />
 
-          {loading && (
-            <p className="loading-text">Loading...</p>
-          )}
-
-          {!hasMore && (
-            <p className="loading-text">No more products</p>
-          )}
+          {loading && <p className="loading-text">Loading...</p>}
+          {!hasMore && <p className="loading-text">No more products</p>}
         </div>
-
       </div>
 
       <BottomNav />
