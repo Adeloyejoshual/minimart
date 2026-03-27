@@ -60,13 +60,19 @@ export default function AddProduct() {
     [categories, form.category_id]
   );
 
-  const dynamicFields = selectedCategory?.dynamicOptions?.fields || [];
+  const dynamicFields = useMemo(
+    () => selectedCategory?.dynamicOptions?.fields || [],
+    [selectedCategory]
+  );
+
   const options = selectedCategory?.dynamicOptions || {};
+
+  const brand = form.attributes?.brand;
 
   const optionsMap = useMemo(
     () => ({
       brand: options.brands || [],
-      model: options.models?.[form.attributes?.brand] || [],
+      model: options.models?.[brand] || [],
       color: options.colors || [],
       condition: options.conditions || [],
       used_detail: options.usedDetails || [],
@@ -78,7 +84,7 @@ export default function AddProduct() {
       engine: options.engines || [],
       fuel_type: options.fuel_types || [],
     }),
-    [options, form.attributes?.brand]
+    [options, brand]
   );
 
   /* ================= HELPERS ================= */
@@ -101,6 +107,7 @@ export default function AddProduct() {
   const cities = state ? locationsByState[state] || [] : [];
 
   /* ================= IMAGE HANDLING ================= */
+
   const compressImages = async (files) => {
     const config = {
       maxSizeMB: 0.6,
@@ -108,20 +115,30 @@ export default function AddProduct() {
       useWebWorker: true,
     };
 
-    return Promise.all(
-      Array.from(files).slice(0, 8).map((file) =>
-        imageCompression(file, config)
-      )
-    );
+    const list = Array.from(files).slice(0, 8);
+    const result = [];
+
+    for (const file of list) {
+      await new Promise((r) => setTimeout(r, 0)); // keep UI responsive
+      result.push(await imageCompression(file, config));
+    }
+
+    return result;
   };
 
   const handleImages = async (files) => {
-    const compressed = await compressImages(files);
+    const rawFiles = Array.from(files).slice(0, 8);
 
+    // ⚡ instant preview (no waiting)
+    const previewUrls = rawFiles.map((file) =>
+      URL.createObjectURL(file)
+    );
+
+    setPreviews(previewUrls);
+
+    // compress in background
+    const compressed = await compressImages(rawFiles);
     setImages(compressed);
-
-    const urls = compressed.map((file) => URL.createObjectURL(file));
-    setPreviews(urls);
   };
 
   const removeImage = (index) => {
@@ -148,20 +165,20 @@ export default function AddProduct() {
 
     const fd = new FormData();
 
-    fd.append("title", form.title);
-    fd.append("description", form.description);
-    fd.append("price", form.price);
-    fd.append("category_id", form.category_id);
+    const payload = {
+      title: form.title,
+      description: form.description,
+      price: form.price,
+      category_id: form.category_id,
+      subcategory_id: form.subcategory_id,
+      attributes: JSON.stringify(form.attributes),
+      delivery: JSON.stringify(form.delivery),
+      contact: JSON.stringify(form.contact),
+      location_state: state,
+      location_city: city,
+    };
 
-    if (form.subcategory_id)
-      fd.append("subcategory_id", form.subcategory_id);
-
-    fd.append("attributes", JSON.stringify(form.attributes));
-    fd.append("delivery", JSON.stringify(form.delivery));
-    fd.append("contact", JSON.stringify(form.contact));
-
-    fd.append("location_state", state);
-    fd.append("location_city", city);
+    Object.entries(payload).forEach(([k, v]) => fd.append(k, v));
 
     images.forEach((img) => fd.append("images", img));
 
@@ -185,14 +202,14 @@ export default function AddProduct() {
         setLoading(false);
 
         if (xhr.status >= 200 && xhr.status < 300) {
-          alert("Product created 🚀");
-
           setForm(INITIAL_FORM);
           setImages([]);
           setPreviews([]);
           setState("");
           setCity("");
           setProgress(0);
+
+          alert("Product created 🚀");
         } else {
           alert("Upload failed");
         }
@@ -240,7 +257,6 @@ export default function AddProduct() {
         onChange={(e) => updateForm("price", e.target.value)}
       />
 
-      {/* CATEGORY */}
       <DropdownModal
         label="Category"
         value={form.category_id}
@@ -251,7 +267,6 @@ export default function AddProduct() {
         }))}
       />
 
-      {/* DYNAMIC ATTRIBUTES */}
       {dynamicFields.map((field) => (
         <DropdownModal
           key={field}
@@ -262,7 +277,6 @@ export default function AddProduct() {
         />
       ))}
 
-      {/* LOCATION */}
       <DropdownModal
         label="State"
         value={state}
@@ -279,7 +293,6 @@ export default function AddProduct() {
         />
       )}
 
-      {/* DELIVERY */}
       <h3>Delivery</h3>
 
       <label>
@@ -322,7 +335,6 @@ export default function AddProduct() {
         </>
       )}
 
-      {/* CONTACT */}
       <input
         placeholder="Phone"
         value={form.contact.phone}
@@ -345,7 +357,6 @@ export default function AddProduct() {
         }
       />
 
-      {/* IMAGES */}
       <input
         type="file"
         multiple
