@@ -6,7 +6,7 @@
   font-family: 'Inter', sans-serif;
 }
 
-/* ---------------- SECTION HEADINGS ---------------- */
+/* ---------------- SECTION ---------------- */
 .section {
   margin-bottom: 20px;
 }
@@ -18,29 +18,11 @@
   color: #1e40af;
 }
 
-/* ---------------- GRID ---------------- */
+/* ---------------- GRID (AUTO MOBILE) ---------------- */
 .products-grid {
   display: grid;
   gap: 12px;
-  grid-template-columns: repeat(2, 1fr);
-}
-
-@media (min-width: 768px) {
-  .products-grid {
-    grid-template-columns: repeat(4, 1fr);
-  }
-}
-
-@media (min-width: 1200px) {
-  .products-grid {
-    grid-template-columns: repeat(6, 1fr);
-  }
-}
-
-@media (min-width: 1600px) {
-  .products-grid {
-    grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
-  }
+  grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
 }
 
 /* ---------------- TRENDING ---------------- */
@@ -52,24 +34,20 @@
   display: flex;
   overflow-x: auto;
   gap: 12px;
-  padding-bottom: 8px;
+  padding: 0 10px;
+  scroll-snap-type: x mandatory;
   scroll-behavior: smooth;
 }
 
-/* IMPORTANT: fixed card width for smooth horizontal scroll */
-.trending-scroll .card {
-  min-width: 160px;
-  max-width: 180px;
-  flex-shrink: 0;
+/* 🔥 1.4 CARD VIEW */
+.trending-scroll .card-link {
+  flex: 0 0 70%;
+  scroll-snap-align: start;
 }
 
-/* Scrollbar */
+/* Hide scrollbar (clean UI) */
 .trending-scroll::-webkit-scrollbar {
-  height: 6px;
-}
-.trending-scroll::-webkit-scrollbar-thumb {
-  background: #ccc;
-  border-radius: 3px;
+  display: none;
 }
 
 /* ---------------- SCROLL BUTTONS ---------------- */
@@ -122,8 +100,10 @@
 .card-image {
   width: 100%;
   height: 180px;
-  overflow: hidden;
   background: #f3f4f6;
+  display: flex;
+  align-items: center;
+  justify-content: center;
   position: relative;
 }
 
@@ -142,22 +122,23 @@
   animation: shimmer 1.2s infinite;
 }
 
+/* 🔥 FULL IMAGE (NO CROP) */
 .card-image img {
   width: 100%;
   height: 100%;
-  object-fit: cover;
+  object-fit: contain;
   position: relative;
   z-index: 1;
 }
 
-/* remove shimmer after load */
+/* stop shimmer when image loads */
 .card-image img[src] {
   animation: none;
 }
 
-/* zoom effect */
+/* subtle zoom */
 .card:hover .card-image img {
-  transform: scale(1.05);
+  transform: scale(1.03);
 }
 
 /* ---------------- BODY ---------------- */
@@ -175,26 +156,19 @@
   color: #1e40af;
 }
 
-/* ---------------- TITLE ---------------- */
+/* ---------------- TITLE (NO TRUNCATE) ---------------- */
 .title {
   font-size: 0.85rem;
   font-weight: 600;
   color: #333;
   line-height: 1.2;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
 }
 
-/* ---------------- DESCRIPTION ---------------- */
+/* ---------------- DESCRIPTION (NO TRUNCATE) ---------------- */
 .desc {
   font-size: 0.75rem;
   color: #555;
   line-height: 1.2;
-  display: -webkit-box;
-  -webkit-line-clamp: 2;
-  -webkit-box-orient: vertical;
-  overflow: hidden;
 }
 
 /* ---------------- LOCATION ---------------- */
@@ -217,7 +191,28 @@
   border-radius: 4px;
 }
 
-/* ---------------- LOADING TEXT ---------------- */
+/* ---------------- DOTS ---------------- */
+.dots {
+  display: flex;
+  justify-content: center;
+  gap: 6px;
+  margin-top: 10px;
+}
+
+.dot {
+  width: 6px;
+  height: 6px;
+  background: #ccc;
+  border-radius: 50%;
+  transition: 0.3s;
+}
+
+.dot.active {
+  width: 14px;
+  background: #000;
+}
+
+/* ---------------- LOADING ---------------- */
 .loading-text {
   text-align: center;
   font-size: 0.85rem;
@@ -225,7 +220,7 @@
   margin: 10px 0;
 }
 
-/* ---------------- ANIMATIONS ---------------- */
+/* ---------------- ANIMATION ---------------- */
 @keyframes shimmer {
   0% {
     background-position: -200% 0;
