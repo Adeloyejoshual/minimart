@@ -2,176 +2,144 @@ import { useEffect, useState } from "react";
 import { useParams, useNavigate } from "react-router-dom";
 import TopNav from "../components/TopNav";
 import BottomNav from "../components/BottomNav";
-import "../styles/ProductDetail.css";
 
 export default function ProductDetail() {
   const { id } = useParams();
   const navigate = useNavigate();
 
   const [data, setData] = useState(null);
+  const [loading, setLoading] = useState(true);
   const [activeImage, setActiveImage] = useState("");
-  const [viewerOpen, setViewerOpen] = useState(false);
-  const [zoom, setZoom] = useState(1);
 
   /* ================= FETCH ================= */
   useEffect(() => {
-    fetch(`/api/product/${id}`)
-      .then((res) => res.json())
-      .then((res) => {
-        setData(res);
-        setActiveImage(res.product?.images?.[0] || "");
-      });
+    async function load() {
+      try {
+        const res = await fetch(`/api/product/${id}`);
+        const json = await res.json();
+
+        console.log("PRODUCT DATA:", json); // 🔥 DEBUG
+
+        if (!json?.product) {
+          throw new Error("Invalid response");
+        }
+
+        setData(json);
+        setActiveImage(json.product.images?.[0] || "");
+      } catch (err) {
+        console.error("ERROR:", err);
+        setData(null);
+      } finally {
+        setLoading(false);
+      }
+    }
+
+    load();
   }, [id]);
 
-  if (!data) {
-    return (
-      <>
-        <TopNav />
-        <div className="p-6 text-center">Loading...</div>
-        <BottomNav />
-      </>
-    );
+  /* ================= STATES ================= */
+  if (loading) {
+    return <div style={{ padding: 20 }}>Loading product...</div>;
   }
 
-  const { product, related, sellerProducts, rating, seller } = data;
+  if (!data || !data.product) {
+    return <div style={{ padding: 20 }}>Product not found</div>;
+  }
+
+  const product = data.product;
+  const related = data.related || [];
+  const sellerProducts = data.sellerProducts || [];
+  const rating = data.rating || { avg: 0, total: 0 };
+  const seller = data.seller || {};
 
   const images = product.images || [];
-
-  /* ================= FOLLOW ================= */
-  const [following, setFollowing] = useState(false);
-
-  const toggleFollow = async () => {
-    const method = following ? "DELETE" : "POST";
-
-    await fetch(`/api/product/seller/${seller.id}/follow`, {
-      method,
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ user_id: "demo-user" }), // replace with real user
-    });
-
-    setFollowing(!following);
-  };
-
-  /* ================= IMAGE ZOOM ================= */
-  const handleZoom = () => {
-    setZoom((z) => (z === 1 ? 2 : 1));
-  };
 
   return (
     <>
       <TopNav />
 
-      <div className="product-page">
+      <div style={{ padding: 16 }}>
 
-        {/* ================= IMAGE SECTION ================= */}
-        <div className="image-section">
+        {/* ================= IMAGE ================= */}
+        <div>
+          <img
+            src={activeImage || "/placeholder.png"}
+            style={{ width: "100%", maxHeight: 300, objectFit: "cover" }}
+          />
+        </div>
 
-          <div
-            className="main-image"
-            onClick={() => setViewerOpen(true)}
-            onDoubleClick={handleZoom}
-          >
+        <div style={{ display: "flex", gap: 6, marginTop: 10 }}>
+          {images.map((img, i) => (
             <img
-              src={activeImage}
-              style={{ transform: `scale(${zoom})` }}
-              alt=""
+              key={i}
+              src={img}
+              onClick={() => setActiveImage(img)}
+              style={{
+                width: 60,
+                height: 60,
+                objectFit: "cover",
+                cursor: "pointer",
+                border: activeImage === img ? "2px solid black" : "none",
+              }}
             />
-          </div>
-
-          {/* THUMBNAILS */}
-          <div className="thumb-row">
-            {images.map((img, i) => (
-              <img
-                key={i}
-                src={img}
-                onClick={() => setActiveImage(img)}
-                className={activeImage === img ? "active" : ""}
-              />
-            ))}
-          </div>
+          ))}
         </div>
 
         {/* ================= DETAILS ================= */}
-        <div className="details">
+        <h2>{product.title}</h2>
 
-          <h1>{product.title}</h1>
+        <h3>₦{Number(product.price || 0).toLocaleString()}</h3>
 
-          <div className="price">
-            ₦{Number(product.price).toLocaleString()}
-          </div>
+        <p>⭐ {rating.avg} ({rating.total} reviews)</p>
 
-          {/* ⭐ RATING */}
-          <div className="rating">
-            ⭐ {rating?.avg || 0} ({rating?.total || 0} reviews)
-          </div>
+        <p>{product.description || "No description"}</p>
 
-          <p className="desc">{product.description}</p>
-
-          {/* ================= SELLER ================= */}
-          <div className="seller-box">
-            <div className="seller-info">
-              <img
-                src={seller.avatar || "/avatar.png"}
-                className="seller-avatar"
-              />
-              <div>
-                <strong>{seller.name}</strong>
-                <p>{seller.followers} followers</p>
-              </div>
-            </div>
-
-            <button onClick={toggleFollow}>
-              {following ? "Following" : "Follow"}
-            </button>
-          </div>
-
+        {/* ================= SELLER ================= */}
+        <div style={{ marginTop: 20 }}>
+          <h4>Seller</h4>
+          <p>{seller.name || "Unknown"}</p>
+          <p>{seller.followers || 0} followers</p>
         </div>
-      </div>
 
-      {/* ================= RELATED ================= */}
-      <div className="section">
-        <h2>Related Products</h2>
+        {/* ================= RELATED ================= */}
+        <h3 style={{ marginTop: 30 }}>Related</h3>
 
-        <div className="horizontal-scroll">
+        <div style={{ display: "flex", overflowX: "auto", gap: 10 }}>
           {related.map((p) => (
             <div
               key={p.id}
               onClick={() => navigate(`/product/${p.id}`)}
-              className="card"
+              style={{ minWidth: 140, cursor: "pointer" }}
             >
-              <img src={p.images?.[0]} />
+              <img
+                src={p.images?.[0] || "/placeholder.png"}
+                style={{ width: "100%" }}
+              />
               <p>{p.title}</p>
-              <strong>₦{p.price}</strong>
             </div>
           ))}
         </div>
-      </div>
 
-      {/* ================= SELLER PRODUCTS ================= */}
-      <div className="section">
-        <h2>More from this seller</h2>
+        {/* ================= SELLER PRODUCTS ================= */}
+        <h3 style={{ marginTop: 30 }}>More from seller</h3>
 
-        <div className="horizontal-scroll">
+        <div style={{ display: "flex", overflowX: "auto", gap: 10 }}>
           {sellerProducts.map((p) => (
             <div
               key={p.id}
               onClick={() => navigate(`/product/${p.id}`)}
-              className="card"
+              style={{ minWidth: 140, cursor: "pointer" }}
             >
-              <img src={p.images?.[0]} />
+              <img
+                src={p.images?.[0] || "/placeholder.png"}
+                style={{ width: "100%" }}
+              />
               <p>{p.title}</p>
-              <strong>₦{p.price}</strong>
             </div>
           ))}
         </div>
-      </div>
 
-      {/* ================= FULLSCREEN VIEWER ================= */}
-      {viewerOpen && (
-        <div className="viewer" onClick={() => setViewerOpen(false)}>
-          <img src={activeImage} className="viewer-img" />
-        </div>
-      )}
+      </div>
 
       <BottomNav />
     </>
