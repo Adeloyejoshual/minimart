@@ -1,24 +1,37 @@
+/* ---------------- GLOBAL BACKGROUND ---------------- */
+body {
+  background: linear-gradient(135deg, #f5f9ff 0%, #eef6ff 45%, #f8fbff 100%);
+}
+
 /* ---------------- CONTAINER ---------------- */
 .homepage-container {
   max-width: 1400px;
   margin: 0 auto;
-  padding: 12px;
+  padding: 14px;
   font-family: 'Inter', sans-serif;
+
+  /* soft blue glow lighting */
+  background: radial-gradient(
+    circle at top,
+    rgba(59, 130, 246, 0.10),
+    transparent 45%
+  );
 }
 
 /* ---------------- SECTION ---------------- */
 .section {
-  margin-bottom: 20px;
+  margin-bottom: 26px;
+  padding: 10px 0;
 }
 
 .section h2 {
-  font-size: 1.2rem;
-  font-weight: 700;
+  font-size: 1.25rem;
+  font-weight: 800;
   margin-bottom: 12px;
-  color: #1e40af;
+  color: #1e3a8a;
 }
 
-/* ---------------- REMOVE LINK STYLE ---------------- */
+/* ---------------- LINKS ---------------- */
 .card-link {
   text-decoration: none;
   color: inherit;
@@ -27,7 +40,7 @@
 /* ---------------- GRID ---------------- */
 .products-grid {
   display: grid;
-  gap: 12px;
+  gap: 14px;
   grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
 }
 
@@ -38,9 +51,18 @@
   gap: 12px;
   padding: 0 10px;
   scroll-snap-type: x mandatory;
+
+  /* soft fade edges */
+  -webkit-mask-image: linear-gradient(
+    to right,
+    transparent,
+    black 10%,
+    black 90%,
+    transparent
+  );
 }
 
-/* 🔥 1.4 CARDS */
+/* trending card size */
 .trending-scroll .card-link {
   flex: 0 0 70%;
   scroll-snap-align: start;
@@ -48,17 +70,32 @@
 
 /* ---------------- CARD ---------------- */
 .card {
-  background: #fff;
-  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.88);
+  backdrop-filter: blur(10px);
+
+  border-radius: 20px;
   overflow: hidden;
+
   display: flex;
   flex-direction: column;
+
+  box-shadow: 0 6px 18px rgba(30, 64, 175, 0.10);
+  transition: transform 0.2s ease, box-shadow 0.2s ease;
 }
 
-/* ---------------- IMAGE (NATURAL) ---------------- */
+/* hover effect */
+.card:hover {
+  transform: translateY(-5px);
+  box-shadow: 0 12px 28px rgba(30, 64, 175, 0.18);
+}
+
+/* ---------------- IMAGE ---------------- */
 .card-image {
   width: 100%;
-  background: #f3f4f6;
+  background: #eef2ff;
+  overflow: hidden;
+  border-top-left-radius: 20px;
+  border-top-right-radius: 20px;
 }
 
 .card-image img {
@@ -69,20 +106,20 @@
 
 /* ---------------- BODY ---------------- */
 .card-body {
-  padding: 8px;
+  padding: 10px;
   display: flex;
   flex-direction: column;
-  gap: 4px;
+  gap: 5px;
 }
 
 /* ---------------- PRICE ---------------- */
 .price {
-  font-weight: 700;
+  font-weight: 800;
   font-size: 0.95rem;
-  color: #1e40af;
+  color: #2563eb;
 }
 
-/* ---------------- TITLE (1 LINE) ---------------- */
+/* ---------------- TITLE ---------------- */
 .title {
   font-size: 0.85rem;
   font-weight: 600;
@@ -93,7 +130,7 @@
   text-overflow: ellipsis;
 }
 
-/* ---------------- DESCRIPTION (2 LINES) ---------------- */
+/* ---------------- DESCRIPTION ---------------- */
 .desc {
   font-size: 0.75rem;
   color: #555;
