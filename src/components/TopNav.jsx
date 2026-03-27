@@ -1,4 +1,3 @@
-// src/components/TopNav.jsx
 import React, { useState, useEffect, useRef } from "react";
 import { useNavigate } from "react-router-dom";
 import axios from "axios";
@@ -8,153 +7,195 @@ import "swiper/css";
 import "swiper/css/navigation";
 import "../styles/TopNav.css";
 
-export default function TopNav({ user }) {
+export default function TopNav() {
   const navigate = useNavigate();
+
   const [search, setSearch] = useState("");
   const [results, setResults] = useState([]);
-  const [showSearchPanel, setShowSearchPanel] = useState(false);
-  const [slideIndex, setSlideIndex] = useState(0); // 0: Search, 1: Category, 2: Price
-  const searchRef = useRef(null);
-  const timeoutRef = useRef(null);
+  const [open, setOpen] = useState(false);
+  const [slide, setSlide] = useState(0);
+  const [recent, setRecent] = useState([]);
 
-  // Live search (title + description)
-  const fetchSearchResults = async (query) => {
-    if (!query || query.length < 2) return setResults([]);
+  const wrapperRef = useRef(null);
+
+  /* ================= LOAD RECENT ================= */
+  useEffect(() => {
+    const stored = JSON.parse(localStorage.getItem("recent_searches") || "[]");
+    setRecent(stored);
+  }, []);
+
+  const saveRecent = (query) => {
+    if (!query.trim()) return;
+
+    const updated = [query, ...recent.filter((r) => r !== query)].slice(0, 8);
+    setRecent(updated);
+    localStorage.setItem("recent_searches", JSON.stringify(updated));
+  };
+
+  /* ================= SEARCH ================= */
+  const fetchResults = async (q) => {
+    if (!q || q.trim().length < 1) {
+      setResults([]);
+      return;
+    }
+
     try {
-      const res = await axios.get(`/api/search/live?q=${encodeURIComponent(query)}`);
-      setResults(res.data);
-    } catch (err) {
-      console.error(err);
+      const res = await axios.get(
+        `/api/search/live?q=${encodeURIComponent(q)}`
+      );
+      setResults(Array.isArray(res.data) ? res.data : []);
+    } catch {
+      setResults([]);
     }
   };
 
-  const handleInputChange = (e) => {
-    const value = e.target.value;
-    setSearch(value);
-    setSlideIndex(0);
-    setShowSearchPanel(true);
-
-    if (timeoutRef.current) clearTimeout(timeoutRef.current);
-    timeoutRef.current = setTimeout(() => fetchSearchResults(value), 300);
-  };
-
+  /* ⚡ INSTANT SEARCH */
   useEffect(() => {
-    const handleClickOutside = (e) => {
-      if (searchRef.current && !searchRef.current.contains(e.target)) {
-        setShowSearchPanel(false);
+    const id = setTimeout(() => {
+      fetchResults(search);
+    }, 150); // fast response
+
+    return () => clearTimeout(id);
+  }, [search]);
+
+  /* ================= OUTSIDE CLICK ================= */
+  useEffect(() => {
+    const handleClick = (e) => {
+      if (wrapperRef.current && !wrapperRef.current.contains(e.target)) {
+        setOpen(false);
       }
     };
-    document.addEventListener("mousedown", handleClickOutside);
-    return () => document.removeEventListener("mousedown", handleClickOutside);
+
+    document.addEventListener("mousedown", handleClick);
+    return () => document.removeEventListener("mousedown", handleClick);
   }, []);
 
-  const menuSlides = [
-    { label: "Profile", onClick: () => navigate("/profile") },
-    { label: "Add Product", onClick: () => navigate("/minimart/add") },
-    { label: "Categories", onClick: () => navigate("/categories") },
-  ];
+  /* ================= HELPERS ================= */
+  const go = (path) => navigate(path);
+
+  const image = (p) =>
+    p.image || p.images?.[0] || "/placeholder.png";
+
+  const addToWishlist = (p) => {
+    const list = JSON.parse(localStorage.getItem("wishlist") || "[]");
+    const exists = list.find((x) => x.id === p.id);
+
+    const updated = exists
+      ? list
+      : [...list, p];
+
+    localStorage.setItem("wishlist", JSON.stringify(updated));
+  };
+
+  const selectRecent = (q) => {
+    setSearch(q);
+    setOpen(true);
+    fetchResults(q);
+  };
+
+  const saveAndOpen = (q) => {
+    saveRecent(q);
+    setSearch(q);
+    setOpen(true);
+  };
 
   return (
     <>
+      {/* ================= NAV ================= */}
       <header className="top-nav">
         <div className="nav-container">
-          {/* Brand */}
-          <div className="nav-brand" onClick={() => navigate("/")}>
+
+          <div className="nav-brand" onClick={() => go("/")}>
             <div className="logo-icon">🛒</div>
             <span className="brand-name">MiniMart</span>
           </div>
 
-          {/* 3-slide Menu */}
-          <div className="top-nav-swiper">
-            <Swiper
-              modules={[Navigation]}
-              slidesPerView={3}
-              spaceBetween={16}
-              navigation
-              className="menu-swiper"
-            >
-              {menuSlides.map((slide, idx) => (
-                <SwiperSlide key={idx}>
-                  <button className="menu-slide-btn" onClick={slide.onClick}>
-                    {slide.label}
-                  </button>
-                </SwiperSlide>
-              ))}
+          <div className="nav-menu">
+            <Swiper modules={[Navigation]} slidesPerView={3} navigation>
+              <SwiperSlide><button onClick={() => go("/profile")}>Profile</button></SwiperSlide>
+              <SwiperSlide><button onClick={() => go("/minimart/add")}>Add</button></SwiperSlide>
+              <SwiperSlide><button onClick={() => go("/categories")}>Categories</button></SwiperSlide>
             </Swiper>
           </div>
+
         </div>
       </header>
 
-      {/* Pinned Search Below Nav */}
-      <div className="search-container pinned-search" ref={searchRef}>
+      {/* ================= SEARCH ================= */}
+      <div className="search-wrapper" ref={wrapperRef}>
+
         <input
-          type="text"
-          placeholder="Search products..."
-          value={search}
-          onChange={handleInputChange}
-          onFocus={() => search.length >= 2 && setShowSearchPanel(true)}
           className="search-input"
+          value={search}
+          placeholder="Search products..."
+          onChange={(e) => {
+            setSearch(e.target.value);
+            setOpen(true);
+          }}
+          onFocus={() => setOpen(true)}
         />
 
-        {showSearchPanel && (
-          <div className="search-panel">
-            <div className="search-slider" style={{ transform: `translateX(-${slideIndex * 100}%)` }}>
-              
-              {/* Slide 1: Search Results */}
-              <div className="search-slide">
-                {results.length === 0 ? (
-                  <div className="search-empty">No results found</div>
-                ) : (
-                  results.map(p => (
-                    <div
-                      key={p.id}
-                      className="search-item"
-                      onClick={() => {
-                        navigate(`/product/${p.id}`);
-                        setSearch("");
-                        setShowSearchPanel(false);
-                      }}
-                    >
-                      <img src={p.image || "/placeholder.png"} alt={p.title} className="search-item-img"/>
-                      <div className="search-item-info">
-                        <p className="search-item-title">{p.title}</p>
-                        <span className="search-item-price">₦{p.price?.toLocaleString()}</span>
+        {open && (
+          <div className="search-panel full-screen-mobile">
+
+            {/* ================= RECENT ================= */}
+            {search.length === 0 && recent.length > 0 && (
+              <div className="recent-box">
+                <h4>Recent Searches</h4>
+                <div className="recent-list">
+                  {recent.map((r, i) => (
+                    <button key={i} onClick={() => selectRecent(r)}>
+                      {r}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {/* ================= RESULTS ================= */}
+            <div className="search-slide">
+
+              {results.length === 0 ? (
+                <div className="empty">No results</div>
+              ) : (
+                results.map((p) => (
+                  <div key={p.id} className="search-item">
+
+                    <img src={image(p)} className="search-img" />
+
+                    <div className="search-info">
+                      <div className="search-title">{p.title}</div>
+                      <div className="search-price">
+                        ₦{Number(p.price || 0).toLocaleString()}
                       </div>
                     </div>
-                  ))
-                )}
-              </div>
 
-              {/* Slide 2: Category Filter */}
-              <div className="search-slide">
-                <h3>Filter by Category</h3>
-                <ul className="category-list">
-                  {/* Categories can be dynamically loaded */}
-                  <li onClick={() => console.log("Category clicked")}>Electronics</li>
-                  <li onClick={() => console.log("Category clicked")}>Clothing</li>
-                  <li onClick={() => console.log("Category clicked")}>Home</li>
-                </ul>
-                <div className="slide-nav-buttons">
-                  <button onClick={() => setSlideIndex(0)}>Back</button>
-                  <button onClick={() => setSlideIndex(2)}>Next: Price</button>
-                </div>
-              </div>
+                    {/* ❤️ Wishlist */}
+                    <button
+                      className="wishlist-btn"
+                      onClick={() => addToWishlist(p)}
+                    >
+                      ❤️
+                    </button>
 
-              {/* Slide 3: Price Filter */}
-              <div className="search-slide">
-                <h3>Filter by Price</h3>
-                <div className="price-range">
-                  <input type="number" placeholder="Min" />
-                  <span> - </span>
-                  <input type="number" placeholder="Max" />
-                </div>
-                <div className="slide-nav-buttons">
-                  <button onClick={() => setSlideIndex(1)}>Back: Category</button>
-                  <button onClick={() => setSlideIndex(0)}>Apply & Search</button>
-                </div>
-              </div>
+                    <button
+                      className="open-btn"
+                      onClick={() => {
+                        saveRecent(search);
+                        go(`/product/${p.id}`);
+                        setOpen(false);
+                        setSearch("");
+                      }}
+                    >
+                      View
+                    </button>
+
+                  </div>
+                ))
+              )}
 
             </div>
+
           </div>
         )}
       </div>
