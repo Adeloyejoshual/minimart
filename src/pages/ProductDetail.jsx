@@ -1,91 +1,89 @@
 import { useEffect, useState } from "react";
-import { useParams } from "react-router-dom";
+import { useParams, useNavigate } from "react-router-dom";
 import TopNav from "../components/TopNav";
 import BottomNav from "../components/BottomNav";
 import "../styles/ProductDetail.css";
 
 export default function ProductDetail() {
   const { id } = useParams();
+  const navigate = useNavigate();
 
-  const [product, setProduct] = useState(null);
+  const [data, setData] = useState(null);
   const [activeImage, setActiveImage] = useState("");
-  const [loading, setLoading] = useState(true);
+  const [viewerOpen, setViewerOpen] = useState(false);
+  const [zoom, setZoom] = useState(1);
 
-  /* ================= FETCH PRODUCT ================= */
+  /* ================= FETCH ================= */
   useEffect(() => {
-    async function fetchProduct() {
-      try {
-        const res = await fetch(
-          `https://minimart-ivrm.onrender.com/api/marketplace/products/${id}`
-        );
-        const data = await res.json();
-
-        setProduct(data);
-
-        const imgs = data.images || [];
-        setActiveImage(imgs[0] || "");
-      } catch (err) {
-        console.error(err);
-      } finally {
-        setLoading(false);
-      }
-    }
-
-    fetchProduct();
+    fetch(`/api/product/${id}`)
+      .then((res) => res.json())
+      .then((res) => {
+        setData(res);
+        setActiveImage(res.product?.images?.[0] || "");
+      });
   }, [id]);
 
-  /* ================= HELPERS ================= */
-  const getLocation = () => {
-    if (product?.location?.state && product?.location?.city) {
-      return `${product.location.state}, ${product.location.city}`;
-    }
-    return "Nigeria";
-  };
-
-  const formatKey = (key) =>
-    key.replace(/_/g, " ").replace(/\b\w/g, (c) => c.toUpperCase());
-
-  /* ================= LOADING ================= */
-  if (loading) {
+  if (!data) {
     return (
       <>
         <TopNav />
-        <div className="product-detail">
-          <p>Loading product...</p>
-        </div>
+        <div className="p-6 text-center">Loading...</div>
         <BottomNav />
       </>
     );
   }
 
-  if (!product) return <p>Product not found</p>;
+  const { product, related, sellerProducts, rating, seller } = data;
 
   const images = product.images || [];
-  const attributes = product.attributes || {};
-  const delivery = product.delivery || {};
-  const contact = product.contact || {};
+
+  /* ================= FOLLOW ================= */
+  const [following, setFollowing] = useState(false);
+
+  const toggleFollow = async () => {
+    const method = following ? "DELETE" : "POST";
+
+    await fetch(`/api/product/seller/${seller.id}/follow`, {
+      method,
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ user_id: "demo-user" }), // replace with real user
+    });
+
+    setFollowing(!following);
+  };
+
+  /* ================= IMAGE ZOOM ================= */
+  const handleZoom = () => {
+    setZoom((z) => (z === 1 ? 2 : 1));
+  };
 
   return (
     <>
       <TopNav />
 
-      <div className="product-detail">
+      <div className="product-page">
 
-        {/* ================= IMAGES ================= */}
+        {/* ================= IMAGE SECTION ================= */}
         <div className="image-section">
-          <div className="main-image">
+
+          <div
+            className="main-image"
+            onClick={() => setViewerOpen(true)}
+            onDoubleClick={handleZoom}
+          >
             <img
-              src={activeImage || "https://via.placeholder.com/400"}
-              alt={product.title}
+              src={activeImage}
+              style={{ transform: `scale(${zoom})` }}
+              alt=""
             />
           </div>
 
-          <div className="thumbnails">
+          {/* THUMBNAILS */}
+          <div className="thumb-row">
             {images.map((img, i) => (
               <img
                 key={i}
                 src={img}
-                alt="thumb"
                 onClick={() => setActiveImage(img)}
                 className={activeImage === img ? "active" : ""}
               />
@@ -94,85 +92,86 @@ export default function ProductDetail() {
         </div>
 
         {/* ================= DETAILS ================= */}
-        <div className="details-section">
+        <div className="details">
 
-          <h1 className="title">{product.title}</h1>
+          <h1>{product.title}</h1>
 
           <div className="price">
             ₦{Number(product.price).toLocaleString()}
           </div>
 
-          <div className="location">
-            📍 {getLocation()}
+          {/* ⭐ RATING */}
+          <div className="rating">
+            ⭐ {rating?.avg || 0} ({rating?.total || 0} reviews)
           </div>
 
-          <div className="description">
-            {product.description || "No description available"}
-          </div>
+          <p className="desc">{product.description}</p>
 
-          {/* ================= ATTRIBUTES ================= */}
-          {Object.keys(attributes).length > 0 && (
-            <div className="attributes">
-              <h3>Product Details</h3>
-              <div className="attr-grid">
-                {Object.entries(attributes).map(([key, value]) => {
-                  if (!value) return null;
-
-                  return (
-                    <div key={key} className="attr-item">
-                      <span className="attr-key">{formatKey(key)}</span>
-                      <span className="attr-value">
-                        {Array.isArray(value) ? value.join(", ") : value}
-                      </span>
-                    </div>
-                  );
-                })}
+          {/* ================= SELLER ================= */}
+          <div className="seller-box">
+            <div className="seller-info">
+              <img
+                src={seller.avatar || "/avatar.png"}
+                className="seller-avatar"
+              />
+              <div>
+                <strong>{seller.name}</strong>
+                <p>{seller.followers} followers</p>
               </div>
             </div>
-          )}
 
-          {/* ================= DELIVERY ================= */}
-          {delivery?.available && (
-            <div className="delivery">
-              <h3>Delivery</h3>
-
-              <p><strong>Type:</strong> {delivery.type}</p>
-
-              {delivery.type === "fixed" && (
-                <p><strong>Fee:</strong> ₦{Number(delivery.fee || 0).toLocaleString()}</p>
-              )}
-
-              {delivery.radius_km > 0 && (
-                <p><strong>Coverage:</strong> {delivery.radius_km} km</p>
-              )}
-
-              {delivery.estimated_days && (
-                <p><strong>Delivery Time:</strong> {delivery.estimated_days} days</p>
-              )}
-
-              {delivery.note && (
-                <p><strong>Note:</strong> {delivery.note}</p>
-              )}
-            </div>
-          )}
-
-          {/* ================= CONTACT ================= */}
-          {(contact.phone || contact.whatsapp) && (
-            <div className="contact">
-              <h3>Seller Contact</h3>
-
-              {contact.phone && <p>📞 {contact.phone}</p>}
-              {contact.whatsapp && <p>💬 WhatsApp: {contact.whatsapp}</p>}
-            </div>
-          )}
-
-          {/* ================= ACTION ================= */}
-          <button className="contact-btn">
-            Contact Seller
-          </button>
+            <button onClick={toggleFollow}>
+              {following ? "Following" : "Follow"}
+            </button>
+          </div>
 
         </div>
       </div>
+
+      {/* ================= RELATED ================= */}
+      <div className="section">
+        <h2>Related Products</h2>
+
+        <div className="horizontal-scroll">
+          {related.map((p) => (
+            <div
+              key={p.id}
+              onClick={() => navigate(`/product/${p.id}`)}
+              className="card"
+            >
+              <img src={p.images?.[0]} />
+              <p>{p.title}</p>
+              <strong>₦{p.price}</strong>
+            </div>
+          ))}
+        </div>
+      </div>
+
+      {/* ================= SELLER PRODUCTS ================= */}
+      <div className="section">
+        <h2>More from this seller</h2>
+
+        <div className="horizontal-scroll">
+          {sellerProducts.map((p) => (
+            <div
+              key={p.id}
+              onClick={() => navigate(`/product/${p.id}`)}
+              className="card"
+            >
+              <img src={p.images?.[0]} />
+              <p>{p.title}</p>
+              <strong>₦{p.price}</strong>
+            </div>
+          ))}
+        </div>
+      </div>
+
+      {/* ================= FULLSCREEN VIEWER ================= */}
+      {viewerOpen && (
+        <div className="viewer" onClick={() => setViewerOpen(false)}>
+          <img src={activeImage} className="viewer-img" />
+        </div>
+      )}
 
       <BottomNav />
     </>
