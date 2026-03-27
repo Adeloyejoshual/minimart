@@ -1,144 +1,239 @@
 import { useEffect, useState } from "react";
-import { useParams, useNavigate } from "react-router-dom";
+import { useParams } from "react-router-dom";
 import TopNav from "../components/TopNav";
 import BottomNav from "../components/BottomNav";
+import "../styles/ProductDetail.css";
 
 export default function ProductDetail() {
   const { id } = useParams();
-  const navigate = useNavigate();
 
-  const [data, setData] = useState(null);
-  const [loading, setLoading] = useState(true);
+  const [product, setProduct] = useState(null);
   const [activeImage, setActiveImage] = useState("");
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState(null);
 
-  /* ================= FETCH ================= */
+  /* ================= FETCH PRODUCT ================= */
   useEffect(() => {
-    async function load() {
+    const controller = new AbortController();
+
+    async function fetchProduct() {
       try {
-        const res = await fetch(`/api/product/${id}`);
-        const json = await res.json();
+        setLoading(true);
+        setError(null);
 
-        console.log("PRODUCT DATA:", json); // 🔥 DEBUG
+        const res = await fetch(
+          `https://minimart-ivrm.onrender.com/api/marketplace/products/${id}`,
+          { signal: controller.signal }
+        );
 
-        if (!json?.product) {
-          throw new Error("Invalid response");
+        if (!res.ok) {
+          throw new Error("Failed to fetch product");
         }
 
-        setData(json);
-        setActiveImage(json.product.images?.[0] || "");
+        const data = await res.json();
+
+        setProduct(data);
+
+        const imgs = Array.isArray(data.images) ? data.images : [];
+        setActiveImage(imgs[0] || "");
       } catch (err) {
-        console.error("ERROR:", err);
-        setData(null);
+        if (err.name !== "AbortError") {
+          console.error(err);
+          setError("Unable to load product");
+        }
       } finally {
         setLoading(false);
       }
     }
 
-    load();
+    fetchProduct();
+
+    return () => controller.abort();
   }, [id]);
+
+  /* ================= HELPERS ================= */
+  const getLocation = () => {
+    if (product?.location?.state || product?.location?.city) {
+      return `${product.location.state || ""} ${product.location.city || ""}`.trim();
+    }
+    return "Nigeria";
+  };
+
+  const formatKey = (key) =>
+    key.replace(/_/g, " ").replace(/\b\w/g, (c) => c.toUpperCase());
+
+  const openContact = () => {
+    const contact = product?.contact || {};
+
+    if (contact.whatsapp) {
+      window.open(`https://wa.me/${contact.whatsapp}`, "_blank");
+    } else if (contact.phone) {
+      window.location.href = `tel:${contact.phone}`;
+    }
+  };
 
   /* ================= STATES ================= */
   if (loading) {
-    return <div style={{ padding: 20 }}>Loading product...</div>;
+    return (
+      <>
+        <TopNav />
+        <div className="product-detail">
+          <p>Loading product...</p>
+        </div>
+        <BottomNav />
+      </>
+    );
   }
 
-  if (!data || !data.product) {
-    return <div style={{ padding: 20 }}>Product not found</div>;
+  if (error) {
+    return (
+      <>
+        <TopNav />
+        <div className="product-detail">
+          <p>{error}</p>
+        </div>
+        <BottomNav />
+      </>
+    );
   }
 
-  const product = data.product;
-  const related = data.related || [];
-  const sellerProducts = data.sellerProducts || [];
-  const rating = data.rating || { avg: 0, total: 0 };
-  const seller = data.seller || {};
+  if (!product) {
+    return (
+      <>
+        <TopNav />
+        <div className="product-detail">
+          <p>Product not found</p>
+        </div>
+        <BottomNav />
+      </>
+    );
+  }
 
-  const images = product.images || [];
+  const images = Array.isArray(product.images) ? product.images : [];
+  const attributes = product.attributes || {};
+  const delivery = product.delivery || {};
+  const contact = product.contact || {};
 
   return (
     <>
       <TopNav />
 
-      <div style={{ padding: 16 }}>
+      <div className="product-detail">
 
-        {/* ================= IMAGE ================= */}
-        <div>
-          <img
-            src={activeImage || "/placeholder.png"}
-            style={{ width: "100%", maxHeight: 300, objectFit: "cover" }}
-          />
-        </div>
-
-        <div style={{ display: "flex", gap: 6, marginTop: 10 }}>
-          {images.map((img, i) => (
+        {/* ================= IMAGES ================= */}
+        <div className="image-section">
+          <div className="main-image">
             <img
-              key={i}
-              src={img}
-              onClick={() => setActiveImage(img)}
-              style={{
-                width: 60,
-                height: 60,
-                objectFit: "cover",
-                cursor: "pointer",
-                border: activeImage === img ? "2px solid black" : "none",
-              }}
+              src={activeImage || "https://via.placeholder.com/400"}
+              alt={product.title}
             />
-          ))}
+          </div>
+
+          <div className="thumbnails">
+            {images.map((img, i) => (
+              <img
+                key={i}
+                src={img}
+                alt="thumb"
+                onClick={() => setActiveImage(img)}
+                className={activeImage === img ? "active" : ""}
+              />
+            ))}
+          </div>
         </div>
 
         {/* ================= DETAILS ================= */}
-        <h2>{product.title}</h2>
+        <div className="details-section">
 
-        <h3>₦{Number(product.price || 0).toLocaleString()}</h3>
+          <h1 className="title">{product.title}</h1>
 
-        <p>⭐ {rating.avg} ({rating.total} reviews)</p>
+          <div className="price">
+            ₦{Number(product.price || 0).toLocaleString()}
+          </div>
 
-        <p>{product.description || "No description"}</p>
+          <div className="location">
+            📍 {getLocation()}
+          </div>
 
-        {/* ================= SELLER ================= */}
-        <div style={{ marginTop: 20 }}>
-          <h4>Seller</h4>
-          <p>{seller.name || "Unknown"}</p>
-          <p>{seller.followers || 0} followers</p>
-        </div>
+          <div className="description">
+            {product.description || "No description available"}
+          </div>
 
-        {/* ================= RELATED ================= */}
-        <h3 style={{ marginTop: 30 }}>Related</h3>
+          {/* ================= ATTRIBUTES ================= */}
+          {Object.keys(attributes).length > 0 && (
+            <div className="attributes">
+              <h3>Product Details</h3>
 
-        <div style={{ display: "flex", overflowX: "auto", gap: 10 }}>
-          {related.map((p) => (
-            <div
-              key={p.id}
-              onClick={() => navigate(`/product/${p.id}`)}
-              style={{ minWidth: 140, cursor: "pointer" }}
-            >
-              <img
-                src={p.images?.[0] || "/placeholder.png"}
-                style={{ width: "100%" }}
-              />
-              <p>{p.title}</p>
+              <div className="attr-grid">
+                {Object.entries(attributes).map(([key, value]) => {
+                  if (!value) return null;
+
+                  return (
+                    <div key={key} className="attr-item">
+                      <span className="attr-key">
+                        {formatKey(key)}
+                      </span>
+                      <span className="attr-value">
+                        {Array.isArray(value) ? value.join(", ") : value}
+                      </span>
+                    </div>
+                  );
+                })}
+              </div>
             </div>
-          ))}
-        </div>
+          )}
 
-        {/* ================= SELLER PRODUCTS ================= */}
-        <h3 style={{ marginTop: 30 }}>More from seller</h3>
+          {/* ================= DELIVERY ================= */}
+          {delivery?.available && (
+            <div className="delivery">
+              <h3>Delivery</h3>
 
-        <div style={{ display: "flex", overflowX: "auto", gap: 10 }}>
-          {sellerProducts.map((p) => (
-            <div
-              key={p.id}
-              onClick={() => navigate(`/product/${p.id}`)}
-              style={{ minWidth: 140, cursor: "pointer" }}
-            >
-              <img
-                src={p.images?.[0] || "/placeholder.png"}
-                style={{ width: "100%" }}
-              />
-              <p>{p.title}</p>
+              {delivery.type && (
+                <p><strong>Type:</strong> {delivery.type}</p>
+              )}
+
+              {delivery.type === "fixed" && (
+                <p>
+                  <strong>Fee:</strong> ₦{Number(delivery.fee || 0).toLocaleString()}
+                </p>
+              )}
+
+              {delivery.radius_km > 0 && (
+                <p>
+                  <strong>Coverage:</strong> {delivery.radius_km} km
+                </p>
+              )}
+
+              {delivery.estimated_days && (
+                <p>
+                  <strong>Delivery Time:</strong> {delivery.estimated_days} days
+                </p>
+              )}
+
+              {delivery.note && (
+                <p>
+                  <strong>Note:</strong> {delivery.note}
+                </p>
+              )}
             </div>
-          ))}
-        </div>
+          )}
 
+          {/* ================= CONTACT ================= */}
+          {(contact.phone || contact.whatsapp) && (
+            <div className="contact">
+              <h3>Seller Contact</h3>
+
+              {contact.phone && <p>📞 {contact.phone}</p>}
+              {contact.whatsapp && <p>💬 WhatsApp: {contact.whatsapp}</p>}
+            </div>
+          )}
+
+          {/* ================= ACTION ================= */}
+          <button className="contact-btn" onClick={openContact}>
+            Contact Seller
+          </button>
+
+        </div>
       </div>
 
       <BottomNav />
