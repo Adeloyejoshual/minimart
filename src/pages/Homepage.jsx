@@ -13,8 +13,11 @@ export default function Homepage() {
   const [skip, setSkip] = useState(0);
   const [hasMore, setHasMore] = useState(true);
 
+  const [activeIndex, setActiveIndex] = useState(0);
+
   const observerRef = useRef(null);
   const trendingRef = useRef(null);
+  const autoScrollRef = useRef(null);
 
   /* ================= FETCH ================= */
   const fetchProducts = useCallback(async () => {
@@ -29,24 +32,19 @@ export default function Homepage() {
 
       const data = await res.json();
 
-      // ✅ Set trending only once
       if (skip === 0) {
-        setTrending((data.trending || []).slice(0, 3));
+        setTrending((data.trending || []).slice(0, 6));
       }
 
       const incoming = data.products || [];
 
-      // ✅ Stop infinite loading when no more data
       if (incoming.length < LIMIT) {
         setHasMore(false);
       }
 
       setProducts((prev) => {
-        const existingIds = new Set(prev.map((p) => p.id));
-
-        const newItems = incoming.filter((p) => !existingIds.has(p.id));
-
-        return [...prev, ...newItems];
+        const ids = new Set(prev.map((p) => p.id));
+        return [...prev, ...incoming.filter((p) => !ids.has(p.id))];
       });
     } catch (err) {
       console.error("Fetch failed:", err);
@@ -61,32 +59,64 @@ export default function Homepage() {
 
   /* ================= INFINITE SCROLL ================= */
   useEffect(() => {
-    if (loading) return;
-
     const observer = new IntersectionObserver(
       (entries) => {
         if (entries[0].isIntersecting && hasMore) {
           setSkip((prev) => prev + LIMIT);
         }
       },
-      { rootMargin: "100px" } // 🔥 preload earlier
+      { rootMargin: "100px" }
     );
 
     const el = observerRef.current;
     if (el) observer.observe(el);
 
-    return () => {
-      if (el) observer.unobserve(el);
-    };
-  }, [loading, hasMore]);
+    return () => el && observer.unobserve(el);
+  }, [hasMore]);
+
+  /* ================= AUTO TRENDING ================= */
+  useEffect(() => {
+    if (!trending.length) return;
+
+    autoScrollRef.current = setInterval(() => {
+      setActiveIndex((prev) => {
+        const next = (prev + 1) % trending.length;
+
+        trendingRef.current?.scrollTo({
+          left: next * window.innerWidth * 0.7,
+          behavior: "smooth",
+        });
+
+        return next;
+      });
+    }, 3000);
+
+    return () => clearInterval(autoScrollRef.current);
+  }, [trending]);
+
+  const pauseAuto = () => clearInterval(autoScrollRef.current);
+
+  const resumeAuto = () => {
+    if (!trending.length) return;
+
+    autoScrollRef.current = setInterval(() => {
+      setActiveIndex((prev) => {
+        const next = (prev + 1) % trending.length;
+
+        trendingRef.current?.scrollTo({
+          left: next * window.innerWidth * 0.7,
+          behavior: "smooth",
+        });
+
+        return next;
+      });
+    }, 3000);
+  };
 
   /* ================= HELPERS ================= */
   const getImage = (p) =>
     p.images?.[0] ||
     "https://via.placeholder.com/300x200?text=No+Image";
-
-  const truncate = (text, len = 40) =>
-    text?.length > len ? text.slice(0, len) + "..." : text;
 
   const getLocation = (p) => {
     if (p.location?.state && p.location?.city) {
@@ -95,20 +125,13 @@ export default function Homepage() {
     return p.location?.state || "Nigeria";
   };
 
-  /* ================= TRENDING SCROLL ================= */
-  const scroll = (dir) => {
-    trendingRef.current?.scrollBy({
-      left: dir === "left" ? -320 : 320,
-      behavior: "smooth",
-    });
-  };
-
   /* ================= CARD ================= */
-  const Card = ({ p, trending = false }) => (
+  const Card = ({ p, trendingMode = false }) => (
     <Link to={`/product/${p.id}`} className="card-link">
       <div className="card">
+
         <div className="card-image">
-          <img src={getImage(p)} alt={p.title} loading="lazy" />
+          <img src={getImage(p)} alt={p.title} />
         </div>
 
         <div className="card-body">
@@ -116,22 +139,16 @@ export default function Homepage() {
             ₦{Number(p.price).toLocaleString()}
           </div>
 
-          <div className="title">
-            {truncate(p.title, 35)}
-          </div>
+          <div className="title">{p.title}</div>
 
-          {!trending && (
+          {!trendingMode && (
             <>
-              <div className="desc">
-                {truncate(p.description, 50)}
-              </div>
-
-              <div className="location">
-                📍 {getLocation(p)}
-              </div>
+              <div className="desc">{p.description}</div>
+              <div className="location">📍 {getLocation(p)}</div>
             </>
           )}
         </div>
+
       </div>
     </Link>
   );
@@ -146,30 +163,32 @@ export default function Homepage() {
         <div className="section">
           <h2>🔥 Trending</h2>
 
-          <div className="trending-wrapper">
-            <button
-              className="scroll-btn left"
-              onClick={() => scroll("left")}
-            >
-              ◀
-            </button>
+          <div
+            className="trending-scroll"
+            ref={trendingRef}
+            onTouchStart={pauseAuto}
+            onTouchEnd={resumeAuto}
+          >
+            {trending.map((p) => (
+              <Card key={p.id} p={p} trendingMode />
+            ))}
+          </div>
 
-            <div className="trending-scroll" ref={trendingRef}>
-              {trending.length ? (
-                trending.map((p) => (
-                  <Card key={p.id} p={p} trending />
-                ))
-              ) : (
-                <p>No trending</p>
-              )}
-            </div>
-
-            <button
-              className="scroll-btn right"
-              onClick={() => scroll("right")}
-            >
-              ▶
-            </button>
+          {/* DOTS */}
+          <div className="dots">
+            {trending.map((_, i) => (
+              <span
+                key={i}
+                className={i === activeIndex ? "dot active" : "dot"}
+                onClick={() => {
+                  setActiveIndex(i);
+                  trendingRef.current?.scrollTo({
+                    left: i * window.innerWidth * 0.7,
+                    behavior: "smooth",
+                  });
+                }}
+              />
+            ))}
           </div>
         </div>
 
@@ -183,18 +202,14 @@ export default function Homepage() {
             ))}
           </div>
 
-          {/* SCROLL TRIGGER */}
-          <div ref={observerRef} style={{ height: "40px" }} />
+          <div ref={observerRef} style={{ height: 40 }} />
 
-          {/* STATES */}
           {loading && (
-            <p style={{ textAlign: "center" }}>
-              Loading more products...
-            </p>
+            <p style={{ textAlign: "center" }}>Loading...</p>
           )}
 
           {!hasMore && (
-            <p style={{ textAlign: "center", opacity: 0.6 }}>
+            <p style={{ textAlign: "center" }}>
               No more products
             </p>
           )}
