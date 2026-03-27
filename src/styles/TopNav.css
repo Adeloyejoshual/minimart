@@ -1,3 +1,45 @@
+/* ===================== GLOBAL RESET ===================== */
+* {
+  box-sizing: border-box;
+  scroll-behavior: smooth;
+}
+
+a {
+  text-decoration: none;
+  color: inherit;
+}
+
+*:focus {
+  outline-offset: 2px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    transition: none !important;
+  }
+}
+
+/* ===================== TEXT UTILITIES ===================== */
+.truncate {
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.truncate-2 {
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+.truncate-3 {
+  display: -webkit-box;
+  -webkit-line-clamp: 3;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
 /* ===================== TOP NAV ===================== */
 .top-nav {
   position: sticky;
@@ -34,7 +76,7 @@
   font-size: 1.25rem;
 }
 
-/* ===================== MENU SLIDER ===================== */
+/* ===================== MENU ===================== */
 .top-nav-swiper {
   flex: 1;
   margin-left: 1rem;
@@ -47,14 +89,12 @@
   background: #f3f4f6;
   font-weight: 500;
   cursor: pointer;
-  transition: all 0.2s;
+  transition: 0.2s;
 }
 
-.menu-swiper .menu-slide-btn:hover,
-.menu-swiper .menu-slide-btn:focus-visible {
+.menu-swiper .menu-slide-btn:hover {
   background: #4f46e5;
   color: white;
-  outline: none;
 }
 
 /* ===================== SEARCH ===================== */
@@ -65,17 +105,16 @@
 
 .search-input {
   width: 100%;
-  padding: 0.5rem 1rem;
+  padding: 0.6rem 1rem;
   border-radius: 1rem;
   border: 1px solid #ddd;
   font-size: 1rem;
   outline: none;
-  transition: border 0.2s, box-shadow 0.2s;
 }
 
 .search-input:focus {
   border-color: #4f46e5;
-  box-shadow: 0 0 0 2px rgba(79,70,229,0.3);
+  box-shadow: 0 0 0 2px rgba(79,70,229,0.2);
 }
 
 /* ===================== SEARCH PANEL ===================== */
@@ -86,13 +125,13 @@
   right: 0;
   background: white;
   border-radius: 1rem;
-  max-height: 60vh;
+  max-height: 65vh;
   overflow: hidden;
-  box-shadow: 0 6px 16px rgba(0,0,0,0.15);
-  z-index: 100;
+  box-shadow: 0 10px 25px rgba(0,0,0,0.15);
   opacity: 0;
   transform: translateY(-10px);
-  transition: opacity 0.2s ease, transform 0.2s ease;
+  transition: 0.2s ease;
+  z-index: 1000;
 }
 
 .search-panel.show {
@@ -100,40 +139,52 @@
   transform: translateY(0);
 }
 
+/* FULLSCREEN MOBILE SEARCH */
+@media (max-width: 768px) {
+  .search-panel.fullscreen {
+    position: fixed;
+    inset: 0;
+    border-radius: 0;
+    max-height: 100vh;
+    z-index: 9999;
+    display: flex;
+    flex-direction: column;
+  }
+}
+
+/* ===================== SEARCH SLIDER ===================== */
 .search-slider {
   display: flex;
   width: 300%;
-  transition: transform 0.3s ease-in-out;
+  transition: transform 0.25s ease;
 }
 
 .search-slide {
   width: 100%;
   padding: 1rem;
   overflow-y: auto;
-  scroll-behavior: smooth;
 }
 
 /* ===================== SEARCH ITEMS ===================== */
 .search-item {
   display: flex;
-  gap: 1rem;
+  gap: 0.75rem;
   padding: 0.5rem;
   border-radius: 0.75rem;
   cursor: pointer;
-  transition: background 0.2s;
+  transition: 0.2s;
 }
 
-.search-item:hover,
-.search-item:focus-visible {
+.search-item:hover {
   background: #f3f4f6;
-  outline: 2px solid #4f46e5;
 }
 
 .search-item-img {
-  width: 50px;
-  height: 50px;
-  object-fit: cover;
+  width: 55px;
+  height: 55px;
+  object-fit: contain; /* SHOW FULL IMAGE */
   border-radius: 0.5rem;
+  background: #fff;
 }
 
 .search-item-info {
@@ -142,20 +193,38 @@
   justify-content: center;
 }
 
+/* ===================== RECENT SEARCH + WISHLIST ===================== */
+.recent-item,
+.wishlist-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0.5rem;
+  border-radius: 0.6rem;
+  background: #f9fafb;
+}
+
+.recent-item:hover,
+.wishlist-item:hover {
+  background: #eef2ff;
+}
+
+.heart-icon {
+  color: #ef4444;
+  cursor: pointer;
+}
+
 /* ===================== CATEGORY LIST ===================== */
 .category-list li {
-  cursor: pointer;
   padding: 0.5rem 0.75rem;
   border-radius: 0.5rem;
   margin-bottom: 0.5rem;
   background: #f3f4f6;
-  transition: background 0.2s;
+  cursor: pointer;
 }
 
-.category-list li:hover,
-.category-list li:focus-visible {
+.category-list li:hover {
   background: #e0e7ff;
-  outline: none;
 }
 
 .category-list li.selected {
@@ -166,19 +235,63 @@
 /* ===================== PRICE RANGE ===================== */
 .price-range {
   display: flex;
-  justify-content: space-between;
   gap: 0.5rem;
 }
 
 .price-range input {
-  width: 45%;
+  width: 50%;
   padding: 0.5rem;
-  border: 1px solid #ddd;
   border-radius: 0.5rem;
-  font-size: 1rem;
+  border: 1px solid #ddd;
 }
 
-/* ===================== SLIDE NAV BUTTONS ===================== */
+/* ===================== TRENDING GRID (14 COLUMNS) ===================== */
+.trending-grid {
+  display: grid;
+  grid-template-columns: repeat(14, 1fr);
+  gap: 0.5rem;
+}
+
+/* RESPONSIVE TRENDING */
+@media (max-width: 1200px) {
+  .trending-grid {
+    grid-template-columns: repeat(8, 1fr);
+  }
+}
+
+@media (max-width: 768px) {
+  .trending-grid {
+    grid-template-columns: repeat(4, 1fr);
+  }
+}
+
+@media (max-width: 480px) {
+  .trending-grid {
+    grid-template-columns: repeat(2, 1fr);
+  }
+}
+
+/* ===================== PRODUCT CARD ===================== */
+.product-card {
+  text-decoration: none;
+  background: white;
+  border-radius: 0.75rem;
+  overflow: hidden;
+  transition: 0.2s;
+}
+
+.product-card:hover {
+  transform: translateY(-2px);
+}
+
+.product-img {
+  width: 100%;
+  height: 160px;
+  object-fit: contain; /* FULL IMAGE */
+  background: #fff;
+}
+
+/* ===================== BUTTONS ===================== */
 .slide-nav-buttons {
   display: flex;
   justify-content: space-between;
@@ -192,20 +305,12 @@
   background: #4f46e5;
   color: white;
   cursor: pointer;
-  transition: background 0.2s;
 }
 
-.slide-nav-buttons button:hover,
-.slide-nav-buttons button:focus-visible {
-  background: #4338ca;
-  outline: 2px solid #4f46e5;
-}
-
-/* ===================== RESPONSIVE ===================== */
+/* ===================== RESPONSIVE NAV ===================== */
 @media (max-width: 1024px) {
   .nav-container {
     flex-direction: column;
-    gap: 0.5rem;
   }
 
   .top-nav-swiper {
@@ -215,32 +320,13 @@
 
 @media (max-width: 768px) {
   .search-panel {
-    max-height: 50vh;
+    max-height: 55vh;
     left: 0.5rem;
     right: 0.5rem;
   }
 
   .search-item-img {
-    width: 40px;
-    height: 40px;
-  }
-
-  .price-range input {
-    width: 48%;
-  }
-}
-
-/* ===================== ACCESSIBILITY ===================== */
-* {
-  scroll-behavior: smooth;
-}
-
-*:focus {
-  outline-offset: 2px;
-}
-
-@media (prefers-reduced-motion: reduce) {
-  *, *::before, *::after {
-    transition: none !important;
+    width: 45px;
+    height: 45px;
   }
 }
