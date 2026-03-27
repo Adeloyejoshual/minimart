@@ -1,4 +1,4 @@
-import { useEffect, useState, useRef, useCallback } from "react";
+import { useEffect, useState, useRef } from "react";
 import { Link } from "react-router-dom";
 import TopNav from "../components/TopNav";
 import BottomNav from "../components/BottomNav";
@@ -15,7 +15,7 @@ export default function Homepage() {
   const trendingRef = useRef(null);
 
   /* ================= FETCH ================= */
-  const fetchProducts = useCallback(async () => {
+  const fetchProducts = async () => {
     if (loading || !hasMore) return;
 
     try {
@@ -27,29 +27,22 @@ export default function Homepage() {
 
       const data = await res.json();
 
-      // 🔥 FIX: normalize API response
-      const productList =
-        data.products ||
-        data.rows ||
-        data.data ||
-        [];
+      // 🔥 FIX: backend-safe parsing
+      const trendingData = data.trending || [];
+      const productsData = data.products || [];
 
-      const trendingList =
-        data.trending ||
-        data.trendingProducts ||
-        [];
-
+      // first load trending
       if (skip === 0) {
-        setTrending(trendingList.slice(0, 5));
+        setTrending(trendingData.slice(0, 6));
       }
 
-      // prevent duplicates
       setProducts((prev) => {
         const existingIds = new Set(prev.map((p) => p.id));
 
-        const newItems = productList.filter((p) => !existingIds.has(p.id));
+        const newItems = productsData.filter(
+          (p) => !existingIds.has(p.id)
+        );
 
-        // stop if no more data
         if (newItems.length === 0) {
           setHasMore(false);
           return prev;
@@ -59,16 +52,15 @@ export default function Homepage() {
       });
 
     } catch (err) {
-      console.error("Fetch failed:", err);
-      setHasMore(false);
+      console.error("Homepage fetch error:", err);
     } finally {
       setLoading(false);
     }
-  }, [skip, loading, hasMore]);
+  };
 
   useEffect(() => {
     fetchProducts();
-  }, [fetchProducts]);
+  }, [skip]);
 
   /* ================= INFINITE SCROLL ================= */
   useEffect(() => {
@@ -92,23 +84,27 @@ export default function Homepage() {
 
   /* ================= HELPERS ================= */
   const getImage = (p) => {
-    if (Array.isArray(p.images) && p.images.length > 0) return p.images[0];
-    if (typeof p.image_url === "string") return p.image_url;
+    // NEW SYSTEM (backend fix)
+    if (p?.media?.images?.length) return p.media.images[0];
+
+    // fallback (older responses)
+    if (Array.isArray(p?.images) && p.images.length > 0)
+      return p.images[0];
+
     return "https://via.placeholder.com/300x200?text=No+Image";
   };
 
-  const truncate = (text, len = 40) =>
-    text?.length > len ? text.slice(0, len) + "..." : text;
+  const truncate = (text = "", len = 40) =>
+    text.length > len ? text.slice(0, len) + "..." : text;
 
   const getLocation = (p) => {
-    if (p.location?.state && p.location?.city) {
+    if (p?.location?.state && p?.location?.city) {
       return `${p.location.state}, ${p.location.city}`;
     }
-    if (p.location?.state) return p.location.state;
     return "Nigeria";
   };
 
-  /* ================= TRENDING SCROLL ================= */
+  /* ================= SCROLL TRENDING ================= */
   const scroll = (dir) => {
     if (!trendingRef.current) return;
 
@@ -124,7 +120,7 @@ export default function Homepage() {
       <div className="card">
 
         <div className="card-image">
-          <img src={getImage(p)} alt={p.title || "product"} loading="lazy" />
+          <img src={getImage(p)} alt={p.title || "product"} />
         </div>
 
         <div className="card-body">
@@ -133,13 +129,13 @@ export default function Homepage() {
           </div>
 
           <div className="title">
-            {truncate(p.title || "No title", 35)}
+            {truncate(p.title)}
           </div>
 
           {!isTrending && (
             <>
               <div className="desc">
-                {truncate(p.description || "", 50)}
+                {truncate(p.description, 50)}
               </div>
 
               <div className="location">
@@ -165,17 +161,17 @@ export default function Homepage() {
 
           <div className="trending-wrapper">
 
-            <button className="scroll-btn left" onClick={() => scroll("left")}>
+            <button onClick={() => scroll("left")} className="scroll-btn left">
               ◀
             </button>
 
             <div className="trending-scroll" ref={trendingRef}>
-              {trending.length
+              {trending.length > 0
                 ? trending.map((p) => renderCard(p, true))
                 : <p>No trending products</p>}
             </div>
 
-            <button className="scroll-btn right" onClick={() => scroll("right")}>
+            <button onClick={() => scroll("right")} className="scroll-btn right">
               ▶
             </button>
 
@@ -187,7 +183,7 @@ export default function Homepage() {
           <h2>🛒 Products</h2>
 
           <div className="products-grid">
-            {products.length
+            {products.length > 0
               ? products.map((p) => renderCard(p))
               : !loading && <p>No products found</p>}
           </div>
