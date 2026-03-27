@@ -20,17 +20,16 @@ export default function AddProduct() {
     price: "",
     category_id: "",
     subcategory_id: "",
-    promotion_id: "",
 
     attributes: {},
 
     delivery: {
       available: true,
-      type: "fixed",
+      type: "fixed", // fixed | free | negotiable
       fee: 0,
       radius_km: 0,
-      note: "",
       estimated_days: "1-3",
+      note: "",
     },
 
     contact: {
@@ -78,10 +77,17 @@ export default function AddProduct() {
   };
 
   const update = (k, v) => setForm((p) => ({ ...p, [k]: v }));
+
   const updateAttr = (k, v) =>
     setForm((p) => ({
       ...p,
       attributes: { ...p.attributes, [k]: v },
+    }));
+
+  const updateDelivery = (k, v) =>
+    setForm((p) => ({
+      ...p,
+      delivery: { ...p.delivery, [k]: v },
     }));
 
   /* ================= LOCATION ================= */
@@ -131,9 +137,6 @@ export default function AddProduct() {
     if (form.subcategory_id)
       fd.append("subcategory_id", form.subcategory_id);
 
-    if (form.promotion_id)
-      fd.append("promotion_id", form.promotion_id);
-
     fd.append("attributes", JSON.stringify(form.attributes));
     fd.append("delivery", JSON.stringify(form.delivery));
     fd.append("contact", JSON.stringify(form.contact));
@@ -163,7 +166,7 @@ export default function AddProduct() {
         setLoading(false);
 
         if (xhr.status >= 200 && xhr.status < 300) {
-          alert("Product created successfully 🚀");
+          alert("Product created 🚀");
 
           setForm({
             title: "",
@@ -171,15 +174,14 @@ export default function AddProduct() {
             price: "",
             category_id: "",
             subcategory_id: "",
-            promotion_id: "",
             attributes: {},
             delivery: {
               available: true,
               type: "fixed",
               fee: 0,
               radius_km: 0,
-              note: "",
               estimated_days: "1-3",
+              note: "",
             },
             contact: {
               phone: "",
@@ -194,7 +196,6 @@ export default function AddProduct() {
           setCity("");
           setProgress(0);
         } else {
-          console.error(xhr.responseText);
           alert("Upload failed");
         }
       };
@@ -252,20 +253,7 @@ export default function AddProduct() {
         }))}
       />
 
-      {/* SUBCATEGORY */}
-      {selectedCategory?.subcategories?.length > 0 && (
-        <DropdownModal
-          label="Subcategory"
-          value={form.subcategory_id}
-          onChange={(v) => update("subcategory_id", v)}
-          options={selectedCategory.subcategories.map((s) => ({
-            id: s.id,
-            name: s.name,
-          }))}
-        />
-      )}
-
-      {/* DYNAMIC ATTRIBUTES */}
+      {/* ATTRIBUTES */}
       {dynamicFields.map((field) => (
         <DropdownModal
           key={field}
@@ -277,20 +265,59 @@ export default function AddProduct() {
       ))}
 
       {/* LOCATION */}
-      <DropdownModal
-        label="State"
-        value={state}
-        onChange={setState}
-        options={states}
-      />
-
+      <DropdownModal label="State" value={state} onChange={setState} options={states} />
       {state && (
-        <DropdownModal
-          label="City"
-          value={city}
-          onChange={setCity}
-          options={cities}
+        <DropdownModal label="City" value={city} onChange={setCity} options={cities} />
+      )}
+
+      {/* ================= DELIVERY ================= */}
+      <h3>Delivery</h3>
+
+      <label>
+        <input
+          type="checkbox"
+          checked={form.delivery.available}
+          onChange={(e) => updateDelivery("available", e.target.checked)}
         />
+        Delivery Available
+      </label>
+
+      {form.delivery.available && (
+        <>
+          <DropdownModal
+            label="Delivery Type"
+            value={form.delivery.type}
+            onChange={(v) => updateDelivery("type", v)}
+            options={["fixed", "free", "negotiable"]}
+          />
+
+          {form.delivery.type === "fixed" && (
+            <input
+              placeholder="Delivery Fee (₦)"
+              value={form.delivery.fee}
+              onChange={(e) => updateDelivery("fee", e.target.value)}
+            />
+          )}
+
+          <input
+            placeholder="Delivery Radius (km)"
+            value={form.delivery.radius_km}
+            onChange={(e) => updateDelivery("radius_km", e.target.value)}
+          />
+
+          <DropdownModal
+            label="Estimated Delivery Time"
+            value={form.delivery.estimated_days}
+            onChange={(v) => updateDelivery("estimated_days", v)}
+            options={["Same day", "1-3", "3-5", "5-7"]}
+          />
+
+          <textarea
+            placeholder="Delivery Note"
+            value={form.delivery.note}
+            onChange={(e) => updateDelivery("note", e.target.value)}
+          />
+        </>
       )}
 
       {/* CONTACT */}
@@ -317,12 +344,7 @@ export default function AddProduct() {
       />
 
       {/* IMAGES */}
-      <input
-        type="file"
-        multiple
-        accept="image/*"
-        onChange={(e) => handleImages(e.target.files)}
-      />
+      <input type="file" multiple onChange={(e) => handleImages(e.target.files)} />
 
       <div className="preview">
         {previews.map((p, i) => (
