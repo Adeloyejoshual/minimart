@@ -8,12 +8,14 @@ export default function ProductDetail() {
   const { id } = useParams();
 
   const [product, setProduct] = useState(null);
+  const [similar, setSimilar] = useState([]);
   const [activeImage, setActiveImage] = useState("");
   const [loading, setLoading] = useState(true);
+  const [saved, setSaved] = useState(false);
 
-  /* ================= FETCH PRODUCT ================= */
+  /* ================= FETCH ================= */
   useEffect(() => {
-    async function fetchProduct() {
+    async function load() {
       try {
         const res = await fetch(
           `https://minimart-ivrm.onrender.com/api/marketplace/products/${id}`
@@ -21,9 +23,25 @@ export default function ProductDetail() {
         const data = await res.json();
 
         setProduct(data);
+        setActiveImage(data.images?.[0] || "");
 
-        const imgs = data.images || [];
-        setActiveImage(imgs[0] || "");
+        // CHECK WISHLIST
+        const wishlist =
+          JSON.parse(localStorage.getItem("wishlist") || "[]");
+        setSaved(wishlist.includes(data.id));
+
+        // FETCH SIMILAR
+        const res2 = await fetch(
+          "https://minimart-ivrm.onrender.com/api/marketplace/products"
+        );
+        const all = await res2.json();
+
+        const filtered =
+          all.products
+            ?.filter((p) => p.category_id === data.category_id && p.id !== data.id)
+            .slice(0, 6) || [];
+
+        setSimilar(filtered);
       } catch (err) {
         console.error(err);
       } finally {
@@ -31,10 +49,24 @@ export default function ProductDetail() {
       }
     }
 
-    fetchProduct();
+    load();
   }, [id]);
 
   /* ================= HELPERS ================= */
+  const toggleWishlist = () => {
+    let wishlist = JSON.parse(localStorage.getItem("wishlist") || "[]");
+
+    if (wishlist.includes(product.id)) {
+      wishlist = wishlist.filter((x) => x !== product.id);
+      setSaved(false);
+    } else {
+      wishlist.push(product.id);
+      setSaved(true);
+    }
+
+    localStorage.setItem("wishlist", JSON.stringify(wishlist));
+  };
+
   const getLocation = () => {
     if (product?.location?.state && product?.location?.city) {
       return `${product.location.state}, ${product.location.city}`;
@@ -42,25 +74,15 @@ export default function ProductDetail() {
     return "Nigeria";
   };
 
-  const formatKey = (key) =>
-    key.replace(/_/g, " ").replace(/\b\w/g, (c) => c.toUpperCase());
+  const formatKey = (k) =>
+    k.replace(/_/g, " ").replace(/\b\w/g, (c) => c.toUpperCase());
 
-  /* ================= LOADING ================= */
-  if (loading) {
-    return (
-      <>
-        <TopNav />
-        <div className="product-detail">
-          <p>Loading product...</p>
-        </div>
-        <BottomNav />
-      </>
-    );
-  }
+  const isTrending = (views) => views > 50;
 
-  if (!product) return <p>Product not found</p>;
+  /* ================= UI ================= */
+  if (loading) return <p>Loading...</p>;
+  if (!product) return <p>Not found</p>;
 
-  const images = product.images || [];
   const attributes = product.attributes || {};
   const delivery = product.delivery || {};
   const contact = product.contact || {};
@@ -71,107 +93,112 @@ export default function ProductDetail() {
 
       <div className="product-detail">
 
-        {/* ================= IMAGES ================= */}
-        <div className="image-section">
-          <div className="main-image">
-            <img
-              src={activeImage || "https://via.placeholder.com/400"}
-              alt={product.title}
-            />
-          </div>
+        {/* ❤️ SAVE */}
+        <button className="save-btn" onClick={toggleWishlist}>
+          {saved ? "❤️ Saved" : "🤍 Save"}
+        </button>
 
-          <div className="thumbnails">
-            {images.map((img, i) => (
+        {/* 🔥 TRENDING */}
+        {isTrending(product.views) && (
+          <div className="badge trending">🔥 Trending</div>
+        )}
+
+        {/* IMAGES */}
+        <div className="image-section">
+          <img src={activeImage} alt="" className="main-img" />
+
+          <div className="thumbs">
+            {product.images?.map((img, i) => (
               <img
                 key={i}
                 src={img}
-                alt="thumb"
                 onClick={() => setActiveImage(img)}
-                className={activeImage === img ? "active" : ""}
               />
             ))}
           </div>
         </div>
 
-        {/* ================= DETAILS ================= */}
-        <div className="details-section">
+        {/* DETAILS */}
+        <div className="details">
 
-          <h1 className="title">{product.title}</h1>
+          <h1>{product.title}</h1>
 
           <div className="price">
             ₦{Number(product.price).toLocaleString()}
+          </div>
+
+          {/* CATEGORY AS FEATURE */}
+          <div className="category-tag">
+            📦 {product.category_name || "Category"}
           </div>
 
           <div className="location">
             📍 {getLocation()}
           </div>
 
-          <div className="description">
-            {product.description || "No description available"}
+          {/* 📊 VIEWS */}
+          <div className="views">
+            👁 {product.views || 0} views
           </div>
 
-          {/* ================= ATTRIBUTES ================= */}
-          {Object.keys(attributes).length > 0 && (
-            <div className="attributes">
-              <h3>Product Details</h3>
-              <div className="attr-grid">
-                {Object.entries(attributes).map(([key, value]) => {
-                  if (!value) return null;
+          {/* ATTRIBUTES */}
+          <div className="attributes">
+            {Object.entries(attributes).map(([k, v]) => {
+              if (!v) return null;
+              return (
+                <div key={k}>
+                  <strong>{formatKey(k)}:</strong>{" "}
+                  {Array.isArray(v) ? v.join(", ") : v}
+                </div>
+              );
+            })}
+          </div>
 
-                  return (
-                    <div key={key} className="attr-item">
-                      <span className="attr-key">{formatKey(key)}</span>
-                      <span className="attr-value">
-                        {Array.isArray(value) ? value.join(", ") : value}
-                      </span>
-                    </div>
-                  );
-                })}
-              </div>
-            </div>
-          )}
+          {/* DESCRIPTION */}
+          <div className="description">
+            <h3>Description</h3>
+            <p>{product.description}</p>
+          </div>
 
-          {/* ================= DELIVERY ================= */}
-          {delivery?.available && (
+          {/* DELIVERY */}
+          {delivery.available && (
             <div className="delivery">
               <h3>Delivery</h3>
-
-              <p><strong>Type:</strong> {delivery.type}</p>
-
+              <p>Type: {delivery.type}</p>
               {delivery.type === "fixed" && (
-                <p><strong>Fee:</strong> ₦{Number(delivery.fee || 0).toLocaleString()}</p>
+                <p>Fee: ₦{delivery.fee}</p>
               )}
-
-              {delivery.radius_km > 0 && (
-                <p><strong>Coverage:</strong> {delivery.radius_km} km</p>
-              )}
-
-              {delivery.estimated_days && (
-                <p><strong>Delivery Time:</strong> {delivery.estimated_days} days</p>
-              )}
-
-              {delivery.note && (
-                <p><strong>Note:</strong> {delivery.note}</p>
-              )}
+              <p>Time: {delivery.estimated_days} days</p>
+              {delivery.note && <p>{delivery.note}</p>}
             </div>
           )}
 
-          {/* ================= CONTACT ================= */}
-          {(contact.phone || contact.whatsapp) && (
-            <div className="contact">
-              <h3>Seller Contact</h3>
-
-              {contact.phone && <p>📞 {contact.phone}</p>}
-              {contact.whatsapp && <p>💬 WhatsApp: {contact.whatsapp}</p>}
-            </div>
-          )}
-
-          {/* ================= ACTION ================= */}
-          <button className="contact-btn">
-            Contact Seller
-          </button>
+          {/* CONTACT */}
+          <div className="contact">
+            <h3>Contact</h3>
+            {contact.phone && <p>📞 {contact.phone}</p>}
+            {contact.whatsapp && <p>💬 {contact.whatsapp}</p>}
+          </div>
 
         </div>
+
+        {/* 🧠 SIMILAR */}
+        {similar.length > 0 && (
+          <div className="similar">
+            <h3>Similar Products</h3>
+
+            <div className="grid">
+              {similar.map((p) => (
+                <div key={p.id} className="card">
+                  <img src={p.images?.[0]} />
+                  <p>{p.title}</p>
+                  <span>₦{p.price}</span>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+
       </div>
 
       <BottomNav />
