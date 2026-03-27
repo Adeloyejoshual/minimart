@@ -1,238 +1,180 @@
-import React, { useEffect, useState } from "react";
-import { useParams, useNavigate } from "react-router-dom";
-import axios from "axios";
+import { useEffect, useState } from "react";
+import { useParams } from "react-router-dom";
+import TopNav from "../components/TopNav";
+import BottomNav from "../components/BottomNav";
+import "../styles/ProductDetail.css";
 
-export default function ProductDetail({ user }) {
+export default function ProductDetail() {
   const { id } = useParams();
-  const navigate = useNavigate();
 
   const [product, setProduct] = useState(null);
-  const [similar, setSimilar] = useState([]);
+  const [activeImage, setActiveImage] = useState("");
   const [loading, setLoading] = useState(true);
-  const [offerPrice, setOfferPrice] = useState("");
-
-  const [isWishlisted, setIsWishlisted] = useState(false);
 
   /* ================= FETCH PRODUCT ================= */
   useEffect(() => {
-    const fetchData = async () => {
+    async function fetchProduct() {
       try {
-        setLoading(true);
+        const res = await fetch(
+          `https://minimart-ivrm.onrender.com/api/marketplace/products/${id}`
+        );
+        const data = await res.json();
 
-        const [prodRes, simRes] = await Promise.all([
-          axios.get(`/api/products/${id}`),
-          axios.get(`/api/products/${id}/similar`),
-        ]);
+        setProduct(data);
 
-        setProduct(prodRes.data);
-        setSimilar(simRes.data);
+        const imgs = data.images || [];
+        setActiveImage(imgs[0] || "");
       } catch (err) {
         console.error(err);
       } finally {
         setLoading(false);
       }
-    };
+    }
 
-    fetchData();
+    fetchProduct();
   }, [id]);
 
-  /* ================= ACTIONS ================= */
-
-  const toggleWishlist = async () => {
-    try {
-      await axios.post(`/api/products/${id}/wishlist`);
-      setIsWishlisted(true);
-    } catch (err) {
-      console.error(err);
+  /* ================= HELPERS ================= */
+  const getLocation = () => {
+    if (product?.location?.state && product?.location?.city) {
+      return `${product.location.state}, ${product.location.city}`;
     }
+    return "Nigeria";
   };
 
-  const submitOffer = async () => {
-    if (!offerPrice) return;
-
-    try {
-      await axios.post(`/api/products/${id}/offers`, {
-        price: offerPrice,
-      });
-
-      alert("Offer submitted");
-      setOfferPrice("");
-    } catch (err) {
-      console.error(err);
-    }
-  };
-
-  const startChat = () => {
-    navigate(`/chat/${id}`);
-  };
-
-  const goSeller = () => {
-    if (!product?.user_id) return;
-    navigate(`/seller/${product.user_id}`);
-  };
+  const formatKey = (key) =>
+    key.replace(/_/g, " ").replace(/\b\w/g, (c) => c.toUpperCase());
 
   /* ================= LOADING ================= */
-  if (loading) return <div className="p-6">Loading...</div>;
-  if (!product) return <div className="p-6">Product not found</div>;
+  if (loading) {
+    return (
+      <>
+        <TopNav />
+        <div className="product-detail">
+          <p>Loading product...</p>
+        </div>
+        <BottomNav />
+      </>
+    );
+  }
+
+  if (!product) return <p>Product not found</p>;
+
+  const images = product.images || [];
+  const attributes = product.attributes || {};
+  const delivery = product.delivery || {};
+  const contact = product.contact || {};
 
   return (
-    <div className="max-w-6xl mx-auto p-4 grid grid-cols-1 md:grid-cols-3 gap-6">
+    <>
+      <TopNav />
 
-      {/* ================= LEFT: IMAGES ================= */}
-      <div className="md:col-span-2 space-y-4">
+      <div className="product-detail">
 
-        <div className="bg-white rounded-xl overflow-hidden shadow">
-          <img
-            src={product.images?.[0]}
-            className="w-full h-96 object-cover"
-          />
-        </div>
-
-        {/* thumbnails */}
-        <div className="flex gap-2 overflow-x-auto">
-          {product.images?.map((img, i) => (
+        {/* ================= IMAGES ================= */}
+        <div className="image-section">
+          <div className="main-image">
             <img
-              key={i}
-              src={img}
-              className="w-20 h-20 object-cover rounded"
+              src={activeImage || "https://via.placeholder.com/400"}
+              alt={product.title}
             />
-          ))}
-        </div>
-
-        {/* ================= DESCRIPTION ================= */}
-        <div className="bg-white p-4 rounded-xl shadow">
-          <h2 className="text-xl font-semibold">Description</h2>
-          <p className="mt-2 text-gray-600">{product.description}</p>
-        </div>
-
-        {/* ================= FEATURES ================= */}
-        <div className="bg-white p-4 rounded-xl shadow">
-          <h2 className="text-xl font-semibold">Details</h2>
-
-          <div className="grid grid-cols-2 gap-2 mt-2 text-sm">
-            <div>Brand: {product.attributes?.brand}</div>
-            <div>Model: {product.attributes?.model}</div>
-            <div>Condition: {product.attributes?.condition}</div>
-            <div>Year: {product.attributes?.year}</div>
-            <div>Storage: {product.attributes?.storage}</div>
-            <div>RAM: {product.attributes?.ram}</div>
           </div>
-        </div>
 
-        {/* ================= SIMILAR PRODUCTS ================= */}
-        <div className="bg-white p-4 rounded-xl shadow">
-          <h2 className="text-xl font-semibold mb-3">Similar Products</h2>
-
-          <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-            {similar.map((item) => (
-              <div
-                key={item.id}
-                onClick={() => navigate(`/products/${item.id}`)}
-                className="cursor-pointer border rounded p-2 hover:shadow"
-              >
-                <img
-                  src={item.images?.[0]}
-                  className="h-24 w-full object-cover rounded"
-                />
-                <div className="text-sm mt-1">{item.title}</div>
-                <div className="font-semibold">${item.price}</div>
-              </div>
+          <div className="thumbnails">
+            {images.map((img, i) => (
+              <img
+                key={i}
+                src={img}
+                alt="thumb"
+                onClick={() => setActiveImage(img)}
+                className={activeImage === img ? "active" : ""}
+              />
             ))}
           </div>
         </div>
-      </div>
 
-      {/* ================= RIGHT: BUY BOX ================= */}
-      <div className="space-y-4">
+        {/* ================= DETAILS ================= */}
+        <div className="details-section">
 
-        <div className="bg-white p-4 rounded-xl shadow">
-          <h1 className="text-2xl font-bold">{product.title}</h1>
+          <h1 className="title">{product.title}</h1>
 
-          <div className="text-xl font-semibold mt-2">
-            ${product.price}
+          <div className="price">
+            ₦{Number(product.price).toLocaleString()}
           </div>
 
-          {/* badges */}
-          <div className="flex gap-2 mt-2 flex-wrap">
-            {product.negotiable && (
-              <span className="px-2 py-1 bg-yellow-100 text-yellow-700 text-xs rounded">
-                Negotiable
-              </span>
-            )}
-
-            {product.delivery?.available && (
-              <span className="px-2 py-1 bg-green-100 text-green-700 text-xs rounded">
-                Delivery Available
-              </span>
-            )}
+          <div className="location">
+            📍 {getLocation()}
           </div>
 
-          <div className="text-sm text-gray-500 mt-2">
-            Views: {product.views}
+          <div className="description">
+            {product.description || "No description available"}
           </div>
 
-          {/* ================= ACTIONS ================= */}
-          <div className="mt-4 space-y-2">
+          {/* ================= ATTRIBUTES ================= */}
+          {Object.keys(attributes).length > 0 && (
+            <div className="attributes">
+              <h3>Product Details</h3>
+              <div className="attr-grid">
+                {Object.entries(attributes).map(([key, value]) => {
+                  if (!value) return null;
 
-            <button
-              onClick={toggleWishlist}
-              className="w-full border p-2 rounded"
-            >
-              {isWishlisted ? "♥ Saved" : "♡ Save"}
-            </button>
+                  return (
+                    <div key={key} className="attr-item">
+                      <span className="attr-key">{formatKey(key)}</span>
+                      <span className="attr-value">
+                        {Array.isArray(value) ? value.join(", ") : value}
+                      </span>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          )}
 
-            <button
-              onClick={startChat}
-              className="w-full bg-blue-600 text-white p-2 rounded"
-            >
-              Chat with seller
-            </button>
+          {/* ================= DELIVERY ================= */}
+          {delivery?.available && (
+            <div className="delivery">
+              <h3>Delivery</h3>
 
-            <button
-              onClick={goSeller}
-              className="w-full border p-2 rounded"
-            >
-              View Seller Profile
-            </button>
-          </div>
-        </div>
+              <p><strong>Type:</strong> {delivery.type}</p>
 
-        {/* ================= NEGOTIATION ================= */}
-        <div className="bg-white p-4 rounded-xl shadow">
-          <h2 className="font-semibold mb-2">Make an Offer</h2>
+              {delivery.type === "fixed" && (
+                <p><strong>Fee:</strong> ₦{Number(delivery.fee || 0).toLocaleString()}</p>
+              )}
 
-          <input
-            value={offerPrice}
-            onChange={(e) => setOfferPrice(e.target.value)}
-            placeholder="Enter your price"
-            className="w-full border p-2 rounded"
-          />
+              {delivery.radius_km > 0 && (
+                <p><strong>Coverage:</strong> {delivery.radius_km} km</p>
+              )}
 
-          <button
-            onClick={submitOffer}
-            className="w-full mt-2 bg-black text-white p-2 rounded"
-          >
-            Submit Offer
+              {delivery.estimated_days && (
+                <p><strong>Delivery Time:</strong> {delivery.estimated_days} days</p>
+              )}
+
+              {delivery.note && (
+                <p><strong>Note:</strong> {delivery.note}</p>
+              )}
+            </div>
+          )}
+
+          {/* ================= CONTACT ================= */}
+          {(contact.phone || contact.whatsapp) && (
+            <div className="contact">
+              <h3>Seller Contact</h3>
+
+              {contact.phone && <p>📞 {contact.phone}</p>}
+              {contact.whatsapp && <p>💬 WhatsApp: {contact.whatsapp}</p>}
+            </div>
+          )}
+
+          {/* ================= ACTION ================= */}
+          <button className="contact-btn">
+            Contact Seller
           </button>
-        </div>
 
-        {/* ================= CONTACT ================= */}
-        <div className="bg-white p-4 rounded-xl shadow text-sm">
-          <h2 className="font-semibold mb-2">Contact</h2>
-          <div>{product.contact?.phone}</div>
-          <div>{product.contact?.email}</div>
-        </div>
-
-        {/* ================= DELIVERY ================= */}
-        <div className="bg-white p-4 rounded-xl shadow text-sm">
-          <h2 className="font-semibold mb-2">Delivery</h2>
-          <div>
-            {product.delivery?.available
-              ? `Available (${product.delivery?.cost || 0})`
-              : "Not available"}
-          </div>
         </div>
       </div>
-    </div>
+
+      <BottomNav />
+    </>
   );
 }
