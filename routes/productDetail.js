@@ -9,34 +9,60 @@ const pool = new Pool({
   ssl: { rejectUnauthorized: false },
 });
 
+/* ================= SAFE JSON PARSER ================= */
+const safeJSON = (value, fallback) => {
+  if (!value) return fallback;
+  if (typeof value === "string") {
+    try {
+      return JSON.parse(value);
+    } catch {
+      return fallback;
+    }
+  }
+  return value;
+};
+
 /* ================= NORMALIZER ================= */
 const normalizeProduct = (p) => ({
   ...p,
-  images: p.images || [],
-  attributes: p.attributes || {},
-  delivery: p.delivery || {},
-  contact: p.contact || {},
+  images: Array.isArray(p.images) ? p.images : [],
+  attributes: safeJSON(p.attributes, {}),
+  delivery: safeJSON(p.delivery, {}),
+  contact: safeJSON(p.contact, {}),
   location: {
-    state: p.location_state,
-    city: p.location_city,
+    state: p.location_state ?? "",
+    city: p.location_city ?? "",
   },
 });
 
 /* =========================================================
-GET PRODUCT DETAIL (ULTRA VERSION)
+GET PRODUCT DETAIL
 GET /api/product/:id
 ========================================================= */
 router.get("/:id", async (req, res) => {
-  try {
-    const { id } = req.params;
+  const { id } = req.params;
 
+  try {
     /* ================= PRODUCT ================= */
     const productRes = await pool.query(
       `
       SELECT 
-        p.*,
-        c.name AS category_name,
+        p.id,
+        p.title,
+        p.price,
+        p.description,
+        p.category_id,
+        p.user_id,
+        p.location_state,
+        p.location_city,
+        p.attributes,
+        p.delivery,
+        p.contact,
+        p.views,
+        p.created_at,
+        p.is_active,
 
+        c.name AS category_name,
         u.id AS seller_id,
         u.name AS seller_name,
         u.avatar AS seller_avatar,
@@ -53,7 +79,8 @@ router.get("/:id", async (req, res) => {
       LEFT JOIN product_images pi ON p.id = pi.product_id
 
       WHERE p.id = $1 AND p.is_active = true
-      GROUP BY p.id, c.name, u.id
+      GROUP BY 
+        p.id, c.name, u.id, u.name, u.avatar
       `,
       [id]
     );
@@ -64,127 +91,69 @@ router.get("/:id", async (req, res) => {
 
     const product = normalizeProduct(productRes.rows[0]);
 
-    /* ================= INCREMENT VIEWS ================= */
+    /* ================= INCREMENT VIEWS (NON-BLOCKING) ================= */
     pool.query(
-      `UPDATE products SET views = COALESCE(views,0)+1 WHERE id=$1`,
+      `UPDATE products SET views = COALESCE(views,0) + 1 WHERE id = $1`,
       [id]
     ).catch(() => {});
 
-    /* ================= RATING SUMMARY ================= */
-    const ratingRes = await pool.query(
-      `
-      SELECT 
-        ROUND(AVG(rating),1) as avg,
-        COUNT(*) as total
-      FROM product_reviews
-      WHERE product_id = $1
-      `,
-      [id]
-    );
-
-    const rating = {
-      avg: Number(ratingRes.rows[0]?.avg || 0),
-      total: Number(ratingRes.rows[0]?.total || 0),
-    };
-
-    /* ================= SELLER STATS ================= */
-    const sellerStatsRes = await pool.query(
-      `
-      SELECT 
-        COUNT(DISTINCT p.id) as total_products,
-        COUNT(DISTINCT f.user_id) as followers
-      FROM users u
-      LEFT JOIN products p ON p.user_id = u.id
-      LEFT JOIN seller_followers f ON f.seller_id = u.id
-      WHERE u.id = $1
-      `,
-      [product.seller_id]
-    );
-
-    const sellerStats = {
-      total_products: Number(
-        sellerStatsRes.rows[0]?.total_products || 0
+    /* ================= RELATED + SELLER PRODUCTS (PARALLEL) ================= */
+    const [relatedRes, sellerProductsRes] = await Promise.all([
+      pool.query(
+        `
+        SELECT 
+          p.*,
+          COALESCE(
+            json_agg(pi.image_url ORDER BY pi.position)
+            FILTER (WHERE pi.image_url IS NOT NULL),
+            '[]'
+          ) AS images
+        FROM products p
+        LEFT JOIN product_images pi ON p.id = pi.product_id
+        WHERE p.category_id = $1
+          AND p.id != $2
+          AND p.is_active = true
+        GROUP BY p.id
+        ORDER BY p.views DESC NULLS LAST
+        LIMIT 8
+        `,
+        [product.category_id, id]
       ),
-      followers: Number(
-        sellerStatsRes.rows[0]?.followers || 0
+
+      pool.query(
+        `
+        SELECT 
+          p.*,
+          COALESCE(
+            json_agg(pi.image_url ORDER BY pi.position)
+            FILTER (WHERE pi.image_url IS NOT NULL),
+            '[]'
+          ) AS images
+        FROM products p
+        LEFT JOIN product_images pi ON p.id = pi.product_id
+        WHERE p.user_id = $1
+          AND p.id != $2
+          AND p.is_active = true
+        GROUP BY p.id
+        ORDER BY p.created_at DESC
+        LIMIT 6
+        `,
+        [product.user_id, id]
       ),
-    };
-
-    /* ================= SMART RELATED ================= */
-    const brand = product.attributes?.brand || null;
-    const model = product.attributes?.model || null;
-
-    const relatedRes = await pool.query(
-      `
-      SELECT 
-        p.*,
-        COALESCE(
-          json_agg(pi.image_url ORDER BY pi.position)
-          FILTER (WHERE pi.image_url IS NOT NULL),
-          '[]'
-        ) AS images
-      FROM products p
-      LEFT JOIN product_images pi ON p.id = pi.product_id
-      WHERE p.is_active = true
-        AND p.id != $1
-        AND (
-          p.category_id = $2
-          OR LOWER(p.attributes->>'brand') = LOWER($3)
-          OR LOWER(p.attributes->>'model') = LOWER($4)
-        )
-      GROUP BY p.id
-      ORDER BY 
-        p.views DESC NULLS LAST,
-        p.created_at DESC
-      LIMIT 8
-      `,
-      [id, product.category_id, brand, model]
-    );
+    ]);
 
     const related = relatedRes.rows.map(normalizeProduct);
-
-    /* ================= SAME SELLER ================= */
-    const sellerProductsRes = await pool.query(
-      `
-      SELECT 
-        p.*,
-        COALESCE(
-          json_agg(pi.image_url ORDER BY pi.position)
-          FILTER (WHERE pi.image_url IS NOT NULL),
-          '[]'
-        ) AS images
-      FROM products p
-      LEFT JOIN product_images pi ON p.id = pi.product_id
-      WHERE p.user_id = $1
-        AND p.id != $2
-        AND p.is_active = true
-      GROUP BY p.id
-      ORDER BY p.created_at DESC
-      LIMIT 6
-      `,
-      [product.seller_id, id]
-    );
-
     const sellerProducts = sellerProductsRes.rows.map(normalizeProduct);
 
     /* ================= RESPONSE ================= */
-    res.json({
+    return res.json({
       product,
-
-      rating, // ⭐ avg + total
-      seller: {
-        id: product.seller_id,
-        name: product.seller_name,
-        avatar: product.seller_avatar,
-        ...sellerStats,
-      },
-
       related,
       sellerProducts,
     });
   } catch (err) {
     console.error("PRODUCT DETAIL ERROR:", err);
-    res.status(500).json({ message: "Failed to load product" });
+    return res.status(500).json({ message: "Failed to load product" });
   }
 });
 
