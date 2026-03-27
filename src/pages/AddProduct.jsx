@@ -1,7 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import DropdownModal from "../components/DropdownModal.jsx";
 import { locationsByState } from "../config/locationsByState.js";
-import imageCompression from "browser-image-compression";
 import "./AddProduct.css";
 
 const INITIAL_FORM = {
@@ -39,7 +38,7 @@ export default function AddProduct() {
   const [loading, setLoading] = useState(false);
   const [progress, setProgress] = useState(0);
 
-  /* ================= CATEGORIES ================= */
+  /* ================= FETCH CATEGORIES ================= */
   useEffect(() => {
     fetch("https://minimart-ivrm.onrender.com/api/marketplace/categories")
       .then((r) => r.json())
@@ -47,6 +46,7 @@ export default function AddProduct() {
       .catch(console.error);
   }, []);
 
+  /* ================= CATEGORY ================= */
   const selectedCategory = useMemo(
     () => categories.find((c) => String(c.id) === String(form.category_id)),
     [categories, form.category_id]
@@ -54,33 +54,47 @@ export default function AddProduct() {
 
   const dynamicFields = selectedCategory?.dynamicOptions?.fields || [];
   const options = selectedCategory?.dynamicOptions || {};
+
   const brand = form.attributes?.brand;
 
-  const optionsMap = useMemo(
-    () => ({
+  /* ================= OPTIONS MAP ================= */
+  const optionsMap = useMemo(() => {
+    const base = {
       brand: options.brands || [],
       model: options.models?.[brand] || [],
       color: options.colors || [],
-      condition: ["new", "used"],
-      used_detail: ["like new", "excellent", "good", "fair", "repair needed"],
-    }),
-    [options, brand]
-  );
+      ram: options.ram || [],
+      storage: options.storage || [],
+      sim: options.sims || [],
+      features: options.features || [],
+      year: options.years || [],
+      engine: options.engines || [],
+      fuel_type: options.fuel_types || [],
+    };
 
-  const updateForm = (k, v) => setForm((p) => ({ ...p, [k]: v }));
+    return base;
+  }, [options, brand]);
+
+  /* ================= HELPERS ================= */
+  const updateForm = (k, v) =>
+    setForm((p) => ({ ...p, [k]: v }));
+
   const updateAttr = (k, v) =>
     setForm((p) => ({
       ...p,
-      attributes: { ...p.attributes, [k]: v },
+      attributes: {
+        ...p.attributes,
+        [k]: v,
+      },
     }));
 
-  /* ================= FORMATTERS ================= */
-  const formatPrice = (value) => {
-    const num = value.replace(/,/g, "").replace(/[^\d]/g, "");
-    return num.replace(/\B(?=(\d{3})+(?!\d))/g, ",");
-  };
+  const formatPrice = (value) =>
+    value
+      .replace(/,/g, "")
+      .replace(/[^\d]/g, "")
+      .replace(/\B(?=(\d{3})+(?!\d))/g, ",");
 
-  const onlyNumbers = (value) => value.replace(/[^\d]/g, "");
+  const onlyNumbers = (v) => v.replace(/[^\d]/g, "");
 
   const formatLabel = (t) =>
     t.replace(/_/g, " ").replace(/\b\w/g, (l) => l.toUpperCase());
@@ -96,22 +110,21 @@ export default function AddProduct() {
     if (!form.price) return "Price is required";
     if (!form.category_id) return "Category is required";
 
-    const phone = form.contact.phone;
-    if (!phone || phone.length < 10)
+    if (!form.contact.phone || form.contact.phone.length < 10)
       return "Valid phone number required";
 
     if (!form.attributes.condition)
-      return "Select product condition";
+      return "Select condition";
 
     return null;
   };
 
   /* ================= IMAGES ================= */
   const handleImages = (files) => {
-    const raw = Array.from(files).slice(0, 8);
+    const arr = Array.from(files).slice(0, 8);
 
-    setPreviews(raw.map((f) => URL.createObjectURL(f)));
-    setImages(raw);
+    setImages(arr);
+    setPreviews(arr.map((f) => URL.createObjectURL(f)));
   };
 
   const removeImage = (i) => {
@@ -124,8 +137,8 @@ export default function AddProduct() {
 
   /* ================= SUBMIT ================= */
   const handleSubmit = async () => {
-    const error = validate();
-    if (error) return alert(error);
+    const err = validate();
+    if (err) return alert(err);
 
     const fd = new FormData();
 
@@ -183,6 +196,14 @@ export default function AddProduct() {
   const states = Object.keys(locationsByState || {});
   const cities = state ? locationsByState[state] || [] : [];
 
+  /* ================= FIXED FIELD RENDER ================= */
+  const shouldShowField = (field) => {
+    if (field === "used_detail" && form.attributes.condition !== "used") {
+      return false;
+    }
+    return true;
+  };
+
   /* ================= UI ================= */
   return (
     <div className="add-product">
@@ -196,14 +217,14 @@ export default function AddProduct() {
 
       {/* TITLE */}
       <input
-        placeholder="Title (min 15 characters)"
+        placeholder="Title (min 15 chars)"
         value={form.title}
         onChange={(e) => updateForm("title", e.target.value)}
       />
 
       {/* DESCRIPTION */}
       <textarea
-        placeholder="Description (min 30 characters)"
+        placeholder="Description (min 30 chars)"
         value={form.description}
         onChange={(e) => updateForm("description", e.target.value)}
       />
@@ -212,9 +233,7 @@ export default function AddProduct() {
       <input
         placeholder="Price"
         value={form.price}
-        onChange={(e) =>
-          updateForm("price", formatPrice(e.target.value))
-        }
+        onChange={(e) => updateForm("price", formatPrice(e.target.value))}
       />
 
       {/* CATEGORY */}
@@ -228,7 +247,7 @@ export default function AddProduct() {
         }))}
       />
 
-      {/* CONDITION */}
+      {/* CONDITION (ONLY ONCE SOURCE) */}
       <DropdownModal
         label="Condition"
         value={form.attributes.condition || ""}
@@ -236,26 +255,35 @@ export default function AddProduct() {
         options={["new", "used"]}
       />
 
-      {/* USED DETAIL */}
+      {/* USED DETAIL (DEPENDENT) */}
       {form.attributes.condition === "used" && (
         <DropdownModal
           label="Used Detail"
           value={form.attributes.used_detail || ""}
           onChange={(v) => updateAttr("used_detail", v)}
-          options={optionsMap.used_detail}
+          options={[
+            "like new",
+            "excellent",
+            "good",
+            "fair",
+            "repair needed",
+          ]}
         />
       )}
 
       {/* DYNAMIC FIELDS */}
-      {dynamicFields.map((field) => (
-        <DropdownModal
-          key={field}
-          label={formatLabel(field)}
-          value={form.attributes[field] || ""}
-          onChange={(v) => updateAttr(field, v)}
-          options={optionsMap[field] || []}
-        />
-      ))}
+      {dynamicFields.map(
+        (field) =>
+          shouldShowField(field) && (
+            <DropdownModal
+              key={field}
+              label={formatLabel(field)}
+              value={form.attributes[field] || ""}
+              onChange={(v) => updateAttr(field, v)}
+              options={optionsMap[field] || []}
+            />
+          )
+      )}
 
       {/* LOCATION */}
       <DropdownModal
@@ -304,7 +332,11 @@ export default function AddProduct() {
       />
 
       {/* IMAGES */}
-      <input type="file" multiple onChange={(e) => handleImages(e.target.files)} />
+      <input
+        type="file"
+        multiple
+        onChange={(e) => handleImages(e.target.files)}
+      />
 
       <div className="preview-grid">
         {previews.map((src, i) => (
