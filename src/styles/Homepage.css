@@ -10,7 +10,6 @@ body {
   padding: 14px;
   font-family: 'Inter', sans-serif;
 
-  /* soft blue glow lighting */
   background: radial-gradient(
     circle at top,
     rgba(59, 130, 246, 0.10),
@@ -35,13 +34,37 @@ body {
 .card-link {
   text-decoration: none;
   color: inherit;
+
+  /* IMPORTANT for masonry */
+  display: inline-block;
+  width: 100%;
+  margin-bottom: 14px;
+  break-inside: avoid;
 }
 
-/* ---------------- GRID ---------------- */
+/* ---------------- MASONRY GRID (IMPORTANT CHANGE) ---------------- */
 .products-grid {
-  display: grid;
-  gap: 14px;
-  grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+  column-count: 4;
+  column-gap: 14px;
+}
+
+/* responsive masonry */
+@media (max-width: 1200px) {
+  .products-grid {
+    column-count: 3;
+  }
+}
+
+@media (max-width: 768px) {
+  .products-grid {
+    column-count: 2;
+  }
+}
+
+@media (max-width: 480px) {
+  .products-grid {
+    column-count: 1;
+  }
 }
 
 /* ---------------- TRENDING ---------------- */
@@ -52,7 +75,6 @@ body {
   padding: 0 10px;
   scroll-snap-type: x mandatory;
 
-  /* soft fade edges */
   -webkit-mask-image: linear-gradient(
     to right,
     transparent,
@@ -62,7 +84,6 @@ body {
   );
 }
 
-/* trending card size */
 .trending-scroll .card-link {
   flex: 0 0 70%;
   scroll-snap-align: start;
