@@ -13,11 +13,8 @@ export default function Homepage() {
   const [skip, setSkip] = useState(0);
   const [hasMore, setHasMore] = useState(true);
 
-  const [activeIndex, setActiveIndex] = useState(0);
-
   const observerRef = useRef(null);
   const trendingRef = useRef(null);
-  const autoScrollRef = useRef(null);
 
   /* ================= FETCH ================= */
   const fetchProducts = useCallback(async () => {
@@ -47,7 +44,7 @@ export default function Homepage() {
         return [...prev, ...incoming.filter((p) => !ids.has(p.id))];
       });
     } catch (err) {
-      console.error("Fetch failed:", err);
+      console.error(err);
     } finally {
       setLoading(false);
     }
@@ -74,45 +71,6 @@ export default function Homepage() {
     return () => el && observer.unobserve(el);
   }, [hasMore]);
 
-  /* ================= AUTO TRENDING ================= */
-  useEffect(() => {
-    if (!trending.length) return;
-
-    autoScrollRef.current = setInterval(() => {
-      setActiveIndex((prev) => {
-        const next = (prev + 1) % trending.length;
-
-        trendingRef.current?.scrollTo({
-          left: next * window.innerWidth * 0.7,
-          behavior: "smooth",
-        });
-
-        return next;
-      });
-    }, 3000);
-
-    return () => clearInterval(autoScrollRef.current);
-  }, [trending]);
-
-  const pauseAuto = () => clearInterval(autoScrollRef.current);
-
-  const resumeAuto = () => {
-    if (!trending.length) return;
-
-    autoScrollRef.current = setInterval(() => {
-      setActiveIndex((prev) => {
-        const next = (prev + 1) % trending.length;
-
-        trendingRef.current?.scrollTo({
-          left: next * window.innerWidth * 0.7,
-          behavior: "smooth",
-        });
-
-        return next;
-      });
-    }, 3000);
-  };
-
   /* ================= HELPERS ================= */
   const getImage = (p) =>
     p.images?.[0] ||
@@ -131,7 +89,7 @@ export default function Homepage() {
       <div className="card">
 
         <div className="card-image">
-          <img src={getImage(p)} alt={p.title} />
+          <img src={getImage(p)} alt={p.title} loading="lazy" />
         </div>
 
         <div className="card-body">
@@ -159,40 +117,18 @@ export default function Homepage() {
 
       <div className="homepage-container">
 
-        {/* ================= TRENDING ================= */}
+        {/* TRENDING */}
         <div className="section">
           <h2>🔥 Trending</h2>
 
-          <div
-            className="trending-scroll"
-            ref={trendingRef}
-            onTouchStart={pauseAuto}
-            onTouchEnd={resumeAuto}
-          >
+          <div className="trending-scroll" ref={trendingRef}>
             {trending.map((p) => (
               <Card key={p.id} p={p} trendingMode />
             ))}
           </div>
-
-          {/* DOTS */}
-          <div className="dots">
-            {trending.map((_, i) => (
-              <span
-                key={i}
-                className={i === activeIndex ? "dot active" : "dot"}
-                onClick={() => {
-                  setActiveIndex(i);
-                  trendingRef.current?.scrollTo({
-                    left: i * window.innerWidth * 0.7,
-                    behavior: "smooth",
-                  });
-                }}
-              />
-            ))}
-          </div>
         </div>
 
-        {/* ================= PRODUCTS ================= */}
+        {/* PRODUCTS */}
         <div className="section">
           <h2>🛒 Products</h2>
 
@@ -205,13 +141,11 @@ export default function Homepage() {
           <div ref={observerRef} style={{ height: 40 }} />
 
           {loading && (
-            <p style={{ textAlign: "center" }}>Loading...</p>
+            <p className="loading-text">Loading...</p>
           )}
 
           {!hasMore && (
-            <p style={{ textAlign: "center" }}>
-              No more products
-            </p>
+            <p className="loading-text">No more products</p>
           )}
         </div>
 
