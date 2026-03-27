@@ -1,7 +1,6 @@
 import { useEffect, useState } from "react";
 import DropdownModal from "../components/DropdownModal.jsx";
 import { locationsByState } from "../config/locationsByState.js";
-import { promotionPlans, getActivePrice, getDiscountPercent } from "../config/promotions.js";
 import imageCompression from "browser-image-compression";
 
 export default function AddProduct() {
@@ -28,31 +27,38 @@ export default function AddProduct() {
     delivery: {
       available: true,
       type: "fixed",
-      note: ""
+      fee: 0,
+      radius_km: 0,
+      note: "",
+      estimated_days: "1-3",
     },
 
     contact: {
       phone: "",
       whatsapp: "",
-      preferred: "chat"
+      preferred: "chat",
     },
-
-    negotiable: false,
   });
 
-  const states = Object.keys(locationsByState || []);
-  const cities = state ? locationsByState[state] : [];
-
-  // ---------------- LOAD CATEGORIES ----------------
+  /* ================= LOAD CATEGORIES ================= */
   useEffect(() => {
     (async () => {
-      const res = await fetch("https://minimart-ivrm.onrender.com/api/marketplace/categories");
-      const data = await res.json();
-      setCategories(data || []);
+      try {
+        const res = await fetch(
+          "https://minimart-ivrm.onrender.com/api/marketplace/categories"
+        );
+        const data = await res.json();
+        setCategories(data || []);
+      } catch (err) {
+        console.error("Category load failed", err);
+      }
     })();
   }, []);
 
-  const selectedCategory = categories.find(c => c.id === form.category_id);
+  const selectedCategory = categories.find(
+    (c) => String(c.id) === String(form.category_id)
+  );
+
   const dynamicFields = selectedCategory?.dynamicOptions?.fields || [];
   const options = selectedCategory?.dynamicOptions || {};
 
@@ -71,46 +77,49 @@ export default function AddProduct() {
     fuel_type: options.fuel_types || [],
   };
 
-  const update = (k, v) => setForm(p => ({ ...p, [k]: v }));
+  const update = (k, v) => setForm((p) => ({ ...p, [k]: v }));
   const updateAttr = (k, v) =>
-    setForm(p => ({ ...p, attributes: { ...p.attributes, [k]: v } }));
+    setForm((p) => ({
+      ...p,
+      attributes: { ...p.attributes, [k]: v },
+    }));
 
-  // ---------------- LOCATION ----------------
-  const handleState = (s) => {
-    setState(s);
-    setCity("");
-  };
+  /* ================= LOCATION ================= */
+  const states = Object.keys(locationsByState || {});
+  const cities = state ? locationsByState[state] || [] : [];
 
-  const handleCity = (c) => setCity(c);
-
-  // ---------------- IMAGE COMPRESSION ----------------
-  const compress = async (files) => {
+  /* ================= IMAGE COMPRESSION ================= */
+  const compressImages = async (files) => {
     const opts = {
-      maxSizeMB: 0.5,
+      maxSizeMB: 0.6,
       maxWidthOrHeight: 1920,
-      useWebWorker: true
+      useWebWorker: true,
     };
 
     return Promise.all(
-      Array.from(files).map(f => imageCompression(f, opts))
+      Array.from(files)
+        .slice(0, 10)
+        .map((f) => imageCompression(f, opts))
     );
   };
 
   const handleImages = async (files) => {
-    const compressed = await compress(files);
+    const compressed = await compressImages(files);
+
     setImages(compressed);
-    setPreviews(compressed.map(f => URL.createObjectURL(f)));
+    setPreviews(compressed.map((f) => URL.createObjectURL(f)));
   };
 
   const removeImage = (i) => {
-    setImages(p => p.filter((_, idx) => idx !== i));
-    setPreviews(p => p.filter((_, idx) => idx !== i));
+    setImages((p) => p.filter((_, idx) => idx !== i));
+    setPreviews((p) => p.filter((_, idx) => idx !== i));
   };
 
-  // ---------------- SUBMIT ----------------
+  /* ================= SUBMIT ================= */
   const handleSubmit = async () => {
-    if (!form.title || !form.price || !form.category_id)
-      return alert("Missing required fields");
+    if (!form.title || !form.price || !form.category_id) {
+      return alert("Title, price, and category are required");
+    }
 
     const fd = new FormData();
 
@@ -132,14 +141,17 @@ export default function AddProduct() {
     fd.append("location_state", state);
     fd.append("location_city", city);
 
-    images.forEach(img => fd.append("images", img));
+    images.forEach((img) => fd.append("images", img));
 
     try {
       setLoading(true);
       setProgress(0);
 
       const xhr = new XMLHttpRequest();
-      xhr.open("POST", "https://minimart-ivrm.onrender.com/api/marketplace/products");
+      xhr.open(
+        "POST",
+        "https://minimart-ivrm.onrender.com/api/marketplace/products"
+      );
 
       xhr.upload.onprogress = (e) => {
         if (e.lengthComputable) {
@@ -151,7 +163,7 @@ export default function AddProduct() {
         setLoading(false);
 
         if (xhr.status >= 200 && xhr.status < 300) {
-          alert("Product created!");
+          alert("Product created successfully 🚀");
 
           setForm({
             title: "",
@@ -161,9 +173,19 @@ export default function AddProduct() {
             subcategory_id: "",
             promotion_id: "",
             attributes: {},
-            delivery: { available: true, type: "fixed", note: "" },
-            contact: { phone: "", whatsapp: "", preferred: "chat" },
-            negotiable: false,
+            delivery: {
+              available: true,
+              type: "fixed",
+              fee: 0,
+              radius_km: 0,
+              note: "",
+              estimated_days: "1-3",
+            },
+            contact: {
+              phone: "",
+              whatsapp: "",
+              preferred: "chat",
+            },
           });
 
           setImages([]);
@@ -172,6 +194,7 @@ export default function AddProduct() {
           setCity("");
           setProgress(0);
         } else {
+          console.error(xhr.responseText);
           alert("Upload failed");
         }
       };
@@ -182,16 +205,15 @@ export default function AddProduct() {
       };
 
       xhr.send(fd);
-    } catch (e) {
+    } catch (err) {
       setLoading(false);
-      console.error(e);
+      console.error(err);
     }
   };
 
-  // ---------------- UI (MINIMAL CLEAN) ----------------
+  /* ================= UI ================= */
   return (
     <div className="add-product">
-
       <h2>Add Product</h2>
 
       {loading && (
@@ -201,27 +223,33 @@ export default function AddProduct() {
         </div>
       )}
 
-      <input placeholder="Title"
+      <input
+        placeholder="Title"
         value={form.title}
-        onChange={e => update("title", e.target.value)}
+        onChange={(e) => update("title", e.target.value)}
       />
 
-      <textarea placeholder="Description"
+      <textarea
+        placeholder="Description"
         value={form.description}
-        onChange={e => update("description", e.target.value)}
+        onChange={(e) => update("description", e.target.value)}
       />
 
-      <input placeholder="Price"
+      <input
+        placeholder="Price"
         value={form.price}
-        onChange={e => update("price", e.target.value)}
+        onChange={(e) => update("price", e.target.value)}
       />
 
       {/* CATEGORY */}
       <DropdownModal
         label="Category"
         value={form.category_id}
-        onChange={v => update("category_id", v)}
-        options={categories.map(c => ({ id: c.id, name: c.name }))}
+        onChange={(v) => update("category_id", v)}
+        options={categories.map((c) => ({
+          id: c.id,
+          name: c.name,
+        }))}
       />
 
       {/* SUBCATEGORY */}
@@ -229,21 +257,21 @@ export default function AddProduct() {
         <DropdownModal
           label="Subcategory"
           value={form.subcategory_id}
-          onChange={v => update("subcategory_id", v)}
-          options={selectedCategory.subcategories.map(s => ({
+          onChange={(v) => update("subcategory_id", v)}
+          options={selectedCategory.subcategories.map((s) => ({
             id: s.id,
-            name: s.name
+            name: s.name,
           }))}
         />
       )}
 
-      {/* ATTRIBUTES */}
-      {dynamicFields.map(field => (
+      {/* DYNAMIC ATTRIBUTES */}
+      {dynamicFields.map((field) => (
         <DropdownModal
           key={field}
           label={field}
           value={form.attributes[field] || ""}
-          onChange={v => updateAttr(field, v)}
+          onChange={(v) => updateAttr(field, v)}
           options={optionsMap[field] || []}
         />
       ))}
@@ -252,7 +280,7 @@ export default function AddProduct() {
       <DropdownModal
         label="State"
         value={state}
-        onChange={handleState}
+        onChange={setState}
         options={states}
       />
 
@@ -260,7 +288,7 @@ export default function AddProduct() {
         <DropdownModal
           label="City"
           value={city}
-          onChange={handleCity}
+          onChange={setCity}
           options={cities}
         />
       )}
@@ -269,10 +297,10 @@ export default function AddProduct() {
       <input
         placeholder="Phone"
         value={form.contact.phone}
-        onChange={e =>
-          setForm(p => ({
+        onChange={(e) =>
+          setForm((p) => ({
             ...p,
-            contact: { ...p.contact, phone: e.target.value }
+            contact: { ...p.contact, phone: e.target.value },
           }))
         }
       />
@@ -280,21 +308,26 @@ export default function AddProduct() {
       <input
         placeholder="WhatsApp"
         value={form.contact.whatsapp}
-        onChange={e =>
-          setForm(p => ({
+        onChange={(e) =>
+          setForm((p) => ({
             ...p,
-            contact: { ...p.contact, whatsapp: e.target.value }
+            contact: { ...p.contact, whatsapp: e.target.value },
           }))
         }
       />
 
       {/* IMAGES */}
-      <input type="file" multiple onChange={e => handleImages(e.target.files)} />
+      <input
+        type="file"
+        multiple
+        accept="image/*"
+        onChange={(e) => handleImages(e.target.files)}
+      />
 
       <div className="preview">
         {previews.map((p, i) => (
           <div key={i}>
-            <img src={p} />
+            <img src={p} alt="" />
             <button onClick={() => removeImage(i)}>X</button>
           </div>
         ))}
