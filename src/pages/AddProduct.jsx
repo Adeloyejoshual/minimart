@@ -1,47 +1,46 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import DropdownModal from "../components/DropdownModal.jsx";
 import { locationsByState } from "../config/locationsByState.js";
 import imageCompression from "browser-image-compression";
 
+const INITIAL_FORM = {
+  title: "",
+  description: "",
+  price: "",
+  category_id: "",
+  subcategory_id: "",
+  attributes: {},
+  delivery: {
+    available: true,
+    type: "fixed",
+    fee: 0,
+    radius_km: 0,
+    estimated_days: "1-3",
+    note: "",
+  },
+  contact: {
+    phone: "",
+    whatsapp: "",
+    preferred: "chat",
+  },
+};
+
 export default function AddProduct() {
   const [categories, setCategories] = useState([]);
-  const [loading, setLoading] = useState(false);
-  const [progress, setProgress] = useState(0);
-
-  const [images, setImages] = useState([]);
-  const [previews, setPreviews] = useState([]);
+  const [form, setForm] = useState(INITIAL_FORM);
 
   const [state, setState] = useState("");
   const [city, setCity] = useState("");
 
-  const [form, setForm] = useState({
-    title: "",
-    description: "",
-    price: "",
-    category_id: "",
-    subcategory_id: "",
+  const [images, setImages] = useState([]);
+  const [previews, setPreviews] = useState([]);
 
-    attributes: {},
+  const [loading, setLoading] = useState(false);
+  const [progress, setProgress] = useState(0);
 
-    delivery: {
-      available: true,
-      type: "fixed", // fixed | free | negotiable
-      fee: 0,
-      radius_km: 0,
-      estimated_days: "1-3",
-      note: "",
-    },
-
-    contact: {
-      phone: "",
-      whatsapp: "",
-      preferred: "chat",
-    },
-  });
-
-  /* ================= LOAD CATEGORIES ================= */
+  /* ================= FETCH CATEGORIES ================= */
   useEffect(() => {
-    (async () => {
+    const load = async () => {
       try {
         const res = await fetch(
           "https://minimart-ivrm.onrender.com/api/marketplace/categories"
@@ -49,63 +48,70 @@ export default function AddProduct() {
         const data = await res.json();
         setCategories(data || []);
       } catch (err) {
-        console.error("Category load failed", err);
+        console.error("Category load failed:", err);
       }
-    })();
+    };
+
+    load();
   }, []);
 
-  const selectedCategory = categories.find(
-    (c) => String(c.id) === String(form.category_id)
+  const selectedCategory = useMemo(
+    () => categories.find((c) => String(c.id) === String(form.category_id)),
+    [categories, form.category_id]
   );
 
   const dynamicFields = selectedCategory?.dynamicOptions?.fields || [];
   const options = selectedCategory?.dynamicOptions || {};
 
-  const optionsMap = {
-    brand: options.brands || [],
-    model: options.models?.[form.attributes?.brand] || [],
-    color: options.colors || [],
-    condition: options.conditions || [],
-    used_detail: options.usedDetails || [],
-    ram: options.ram || [],
-    storage: options.storage || [],
-    sim: options.sims || [],
-    features: options.features || [],
-    year: options.years || [],
-    engine: options.engines || [],
-    fuel_type: options.fuel_types || [],
-  };
+  const optionsMap = useMemo(
+    () => ({
+      brand: options.brands || [],
+      model: options.models?.[form.attributes?.brand] || [],
+      color: options.colors || [],
+      condition: options.conditions || [],
+      used_detail: options.usedDetails || [],
+      ram: options.ram || [],
+      storage: options.storage || [],
+      sim: options.sims || [],
+      features: options.features || [],
+      year: options.years || [],
+      engine: options.engines || [],
+      fuel_type: options.fuel_types || [],
+    }),
+    [options, form.attributes?.brand]
+  );
 
-  const update = (k, v) => setForm((p) => ({ ...p, [k]: v }));
+  /* ================= HELPERS ================= */
+  const updateForm = (key, value) =>
+    setForm((p) => ({ ...p, [key]: value }));
 
-  const updateAttr = (k, v) =>
+  const updateAttr = (key, value) =>
     setForm((p) => ({
       ...p,
-      attributes: { ...p.attributes, [k]: v },
+      attributes: { ...p.attributes, [key]: value },
     }));
 
-  const updateDelivery = (k, v) =>
+  const updateDelivery = (key, value) =>
     setForm((p) => ({
       ...p,
-      delivery: { ...p.delivery, [k]: v },
+      delivery: { ...p.delivery, [key]: value },
     }));
 
-  /* ================= LOCATION ================= */
   const states = Object.keys(locationsByState || {});
   const cities = state ? locationsByState[state] || [] : [];
 
-  /* ================= IMAGE COMPRESSION ================= */
+  /* ================= IMAGE HANDLING ================= */
   const compressImages = async (files) => {
-    const opts = {
+    const config = {
       maxSizeMB: 0.6,
       maxWidthOrHeight: 1920,
       useWebWorker: true,
     };
 
     return Promise.all(
-      Array.from(files)
-        .slice(0, 10)
-        .map((f) => imageCompression(f, opts))
+      Array.from(files).slice(0, 8).map((file) =>
+        imageCompression(file, config)
+      )
     );
   };
 
@@ -113,19 +119,32 @@ export default function AddProduct() {
     const compressed = await compressImages(files);
 
     setImages(compressed);
-    setPreviews(compressed.map((f) => URL.createObjectURL(f)));
+
+    const urls = compressed.map((file) => URL.createObjectURL(file));
+    setPreviews(urls);
   };
 
-  const removeImage = (i) => {
-    setImages((p) => p.filter((_, idx) => idx !== i));
-    setPreviews((p) => p.filter((_, idx) => idx !== i));
+  const removeImage = (index) => {
+    setImages((p) => p.filter((_, i) => i !== index));
+
+    setPreviews((p) => {
+      URL.revokeObjectURL(p[index]);
+      return p.filter((_, i) => i !== index);
+    });
+  };
+
+  /* ================= VALIDATION ================= */
+  const validate = () => {
+    if (!form.title.trim()) return "Title is required";
+    if (!form.price) return "Price is required";
+    if (!form.category_id) return "Category is required";
+    return null;
   };
 
   /* ================= SUBMIT ================= */
   const handleSubmit = async () => {
-    if (!form.title || !form.price || !form.category_id) {
-      return alert("Title, price, and category are required");
-    }
+    const error = validate();
+    if (error) return alert(error);
 
     const fd = new FormData();
 
@@ -168,28 +187,7 @@ export default function AddProduct() {
         if (xhr.status >= 200 && xhr.status < 300) {
           alert("Product created 🚀");
 
-          setForm({
-            title: "",
-            description: "",
-            price: "",
-            category_id: "",
-            subcategory_id: "",
-            attributes: {},
-            delivery: {
-              available: true,
-              type: "fixed",
-              fee: 0,
-              radius_km: 0,
-              estimated_days: "1-3",
-              note: "",
-            },
-            contact: {
-              phone: "",
-              whatsapp: "",
-              preferred: "chat",
-            },
-          });
-
+          setForm(INITIAL_FORM);
           setImages([]);
           setPreviews([]);
           setState("");
@@ -227,33 +225,33 @@ export default function AddProduct() {
       <input
         placeholder="Title"
         value={form.title}
-        onChange={(e) => update("title", e.target.value)}
+        onChange={(e) => updateForm("title", e.target.value)}
       />
 
       <textarea
         placeholder="Description"
         value={form.description}
-        onChange={(e) => update("description", e.target.value)}
+        onChange={(e) => updateForm("description", e.target.value)}
       />
 
       <input
         placeholder="Price"
         value={form.price}
-        onChange={(e) => update("price", e.target.value)}
+        onChange={(e) => updateForm("price", e.target.value)}
       />
 
       {/* CATEGORY */}
       <DropdownModal
         label="Category"
         value={form.category_id}
-        onChange={(v) => update("category_id", v)}
+        onChange={(v) => updateForm("category_id", v)}
         options={categories.map((c) => ({
           id: c.id,
           name: c.name,
         }))}
       />
 
-      {/* ATTRIBUTES */}
+      {/* DYNAMIC ATTRIBUTES */}
       {dynamicFields.map((field) => (
         <DropdownModal
           key={field}
@@ -265,27 +263,40 @@ export default function AddProduct() {
       ))}
 
       {/* LOCATION */}
-      <DropdownModal label="State" value={state} onChange={setState} options={states} />
+      <DropdownModal
+        label="State"
+        value={state}
+        onChange={setState}
+        options={states}
+      />
+
       {state && (
-        <DropdownModal label="City" value={city} onChange={setCity} options={cities} />
+        <DropdownModal
+          label="City"
+          value={city}
+          onChange={setCity}
+          options={cities}
+        />
       )}
 
-      {/* ================= DELIVERY ================= */}
+      {/* DELIVERY */}
       <h3>Delivery</h3>
 
       <label>
         <input
           type="checkbox"
           checked={form.delivery.available}
-          onChange={(e) => updateDelivery("available", e.target.checked)}
+          onChange={(e) =>
+            updateDelivery("available", e.target.checked)
+          }
         />
-        Delivery Available
+        Available
       </label>
 
       {form.delivery.available && (
         <>
           <DropdownModal
-            label="Delivery Type"
+            label="Type"
             value={form.delivery.type}
             onChange={(v) => updateDelivery("type", v)}
             options={["fixed", "free", "negotiable"]}
@@ -293,29 +304,20 @@ export default function AddProduct() {
 
           {form.delivery.type === "fixed" && (
             <input
-              placeholder="Delivery Fee (₦)"
+              placeholder="Fee"
               value={form.delivery.fee}
-              onChange={(e) => updateDelivery("fee", e.target.value)}
+              onChange={(e) =>
+                updateDelivery("fee", e.target.value)
+              }
             />
           )}
 
           <input
-            placeholder="Delivery Radius (km)"
+            placeholder="Radius km"
             value={form.delivery.radius_km}
-            onChange={(e) => updateDelivery("radius_km", e.target.value)}
-          />
-
-          <DropdownModal
-            label="Estimated Delivery Time"
-            value={form.delivery.estimated_days}
-            onChange={(v) => updateDelivery("estimated_days", v)}
-            options={["Same day", "1-3", "3-5", "5-7"]}
-          />
-
-          <textarea
-            placeholder="Delivery Note"
-            value={form.delivery.note}
-            onChange={(e) => updateDelivery("note", e.target.value)}
+            onChange={(e) =>
+              updateDelivery("radius_km", e.target.value)
+            }
           />
         </>
       )}
@@ -344,12 +346,16 @@ export default function AddProduct() {
       />
 
       {/* IMAGES */}
-      <input type="file" multiple onChange={(e) => handleImages(e.target.files)} />
+      <input
+        type="file"
+        multiple
+        onChange={(e) => handleImages(e.target.files)}
+      />
 
       <div className="preview">
-        {previews.map((p, i) => (
+        {previews.map((src, i) => (
           <div key={i}>
-            <img src={p} alt="" />
+            <img src={src} alt="" />
             <button onClick={() => removeImage(i)}>X</button>
           </div>
         ))}
