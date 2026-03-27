@@ -1,21 +1,22 @@
 import { useEffect, useState } from "react";
-import { useParams } from "react-router-dom";
+import { useParams, useNavigate } from "react-router-dom";
 import TopNav from "../components/TopNav";
 import BottomNav from "../components/BottomNav";
 import "../styles/ProductDetail.css";
 
 export default function ProductDetail() {
   const { id } = useParams();
+  const navigate = useNavigate();
 
   const [product, setProduct] = useState(null);
-  const [similar, setSimilar] = useState([]);
   const [activeImage, setActiveImage] = useState("");
   const [loading, setLoading] = useState(true);
+  const [similar, setSimilar] = useState([]);
   const [saved, setSaved] = useState(false);
 
-  /* ================= FETCH ================= */
+  // ---------------- FETCH PRODUCT ----------------
   useEffect(() => {
-    async function load() {
+    async function fetchProduct() {
       try {
         const res = await fetch(
           `https://minimart-ivrm.onrender.com/api/marketplace/products/${id}`
@@ -23,25 +24,19 @@ export default function ProductDetail() {
         const data = await res.json();
 
         setProduct(data);
-        setActiveImage(data.images?.[0] || "");
 
-        // CHECK WISHLIST
-        const wishlist =
-          JSON.parse(localStorage.getItem("wishlist") || "[]");
-        setSaved(wishlist.includes(data.id));
+        const imgs = data.images || [];
+        setActiveImage(imgs[0] || data.image || "");
 
-        // FETCH SIMILAR
-        const res2 = await fetch(
-          "https://minimart-ivrm.onrender.com/api/marketplace/products"
+        // increase view counter (backend should handle increment)
+        await fetch(
+          `https://minimart-ivrm.onrender.com/api/marketplace/products/${id}/view`,
+          { method: "POST" }
         );
-        const all = await res2.json();
 
-        const filtered =
-          all.products
-            ?.filter((p) => p.category_id === data.category_id && p.id !== data.id)
-            .slice(0, 6) || [];
+        // fetch similar products
+        fetchSimilar(data.category_id);
 
-        setSimilar(filtered);
       } catch (err) {
         console.error(err);
       } finally {
@@ -49,43 +44,56 @@ export default function ProductDetail() {
       }
     }
 
-    load();
+    fetchProduct();
   }, [id]);
 
-  /* ================= HELPERS ================= */
-  const toggleWishlist = () => {
-    let wishlist = JSON.parse(localStorage.getItem("wishlist") || "[]");
+  // ---------------- SIMILAR PRODUCTS ----------------
+  const fetchSimilar = async (categoryId) => {
+    try {
+      const res = await fetch(
+        `https://minimart-ivrm.onrender.com/api/marketplace/products?category=${categoryId}`
+      );
+      const data = await res.json();
 
-    if (wishlist.includes(product.id)) {
-      wishlist = wishlist.filter((x) => x !== product.id);
-      setSaved(false);
-    } else {
-      wishlist.push(product.id);
-      setSaved(true);
+      setSimilar(data.products?.filter(p => p.id !== id).slice(0, 4) || []);
+    } catch (err) {
+      console.error(err);
     }
-
-    localStorage.setItem("wishlist", JSON.stringify(wishlist));
   };
 
+  // ---------------- HELPERS ----------------
   const getLocation = () => {
-    if (product?.location?.state && product?.location?.city) {
-      return `${product.location.state}, ${product.location.city}`;
+    if (product?.location_state && product?.location_city) {
+      return `${product.location_state}, ${product.location_city}`;
     }
     return "Nigeria";
   };
 
-  const formatKey = (k) =>
-    k.replace(/_/g, " ").replace(/\b\w/g, (c) => c.toUpperCase());
+  const toggleSave = () => {
+    const newState = !saved;
+    setSaved(newState);
 
-  const isTrending = (views) => views > 50;
+    // optional backend call
+    fetch(`https://minimart-ivrm.onrender.com/api/wishlist/${id}`, {
+      method: newState ? "POST" : "DELETE",
+    });
+  };
 
-  /* ================= UI ================= */
-  if (loading) return <p>Loading...</p>;
-  if (!product) return <p>Not found</p>;
+  const goToSeller = () => {
+    navigate(`/seller/${product.seller_id}`);
+  };
 
-  const attributes = product.attributes || {};
-  const delivery = product.delivery || {};
-  const contact = product.contact || {};
+  const goToChat = () => {
+    navigate(`/chat/${product.id}`);
+  };
+
+  // ---------------- LOADING ----------------
+  if (loading) return <p>Loading product...</p>;
+  if (!product) return <p>Product not found</p>;
+
+  const images = product.images || [];
+
+  const isTrending = product.views > 50;
 
   return (
     <>
@@ -93,33 +101,37 @@ export default function ProductDetail() {
 
       <div className="product-detail">
 
-        {/* ❤️ SAVE */}
-        <button className="save-btn" onClick={toggleWishlist}>
-          {saved ? "❤️ Saved" : "🤍 Save"}
-        </button>
-
-        {/* 🔥 TRENDING */}
-        {isTrending(product.views) && (
-          <div className="badge trending">🔥 Trending</div>
-        )}
-
-        {/* IMAGES */}
+        {/* ================= IMAGES ================= */}
         <div className="image-section">
-          <img src={activeImage} alt="" className="main-img" />
+          <div className="main-image">
+            <img
+              src={activeImage || "https://via.placeholder.com/400"}
+              alt={product.title}
+            />
 
-          <div className="thumbs">
-            {product.images?.map((img, i) => (
+            {isTrending && (
+              <span className="badge trending">🔥 Trending</span>
+            )}
+
+            <button className="wishlist" onClick={toggleSave}>
+              {saved ? "💖 Saved" : "🤍 Save"}
+            </button>
+          </div>
+
+          <div className="thumbnails">
+            {images.map((img, i) => (
               <img
                 key={i}
                 src={img}
                 onClick={() => setActiveImage(img)}
+                className={activeImage === img ? "active" : ""}
               />
             ))}
           </div>
         </div>
 
-        {/* DETAILS */}
-        <div className="details">
+        {/* ================= DETAILS ================= */}
+        <div className="details-section">
 
           <h1>{product.title}</h1>
 
@@ -127,77 +139,80 @@ export default function ProductDetail() {
             ₦{Number(product.price).toLocaleString()}
           </div>
 
-          {/* CATEGORY AS FEATURE */}
-          <div className="category-tag">
-            📦 {product.category_name || "Category"}
+          {/* CATEGORY */}
+          <div className="category">
+            📦 {product.category_name || "General"}
           </div>
 
+          {/* LOCATION */}
           <div className="location">
             📍 {getLocation()}
           </div>
 
-          {/* 📊 VIEWS */}
+          {/* VIEWS */}
           <div className="views">
             👁 {product.views || 0} views
           </div>
 
-          {/* ATTRIBUTES */}
-          <div className="attributes">
-            {Object.entries(attributes).map(([k, v]) => {
-              if (!v) return null;
-              return (
-                <div key={k}>
-                  <strong>{formatKey(k)}:</strong>{" "}
-                  {Array.isArray(v) ? v.join(", ") : v}
-                </div>
-              );
-            })}
-          </div>
-
           {/* DESCRIPTION */}
-          <div className="description">
-            <h3>Description</h3>
-            <p>{product.description}</p>
+          <p className="description">
+            {product.description || "No description available"}
+          </p>
+
+          {/* DELIVERY + NEGOTIATION */}
+          <div className="extras">
+            <p>🚚 Delivery: {product.delivery || "Not specified"}</p>
+            <p>
+              💰 Negotiation:{" "}
+              {product.negotiable === true
+                ? "Yes"
+                : product.negotiable === false
+                ? "No"
+                : "Not sure"}
+            </p>
           </div>
 
-          {/* DELIVERY */}
-          {delivery.available && (
-            <div className="delivery">
-              <h3>Delivery</h3>
-              <p>Type: {delivery.type}</p>
-              {delivery.type === "fixed" && (
-                <p>Fee: ₦{delivery.fee}</p>
-              )}
-              <p>Time: {delivery.estimated_days} days</p>
-              {delivery.note && <p>{delivery.note}</p>}
-            </div>
-          )}
+          {/* ================= ACTIONS ================= */}
+          <div className="actions">
 
-          {/* CONTACT */}
-          <div className="contact">
-            <h3>Contact</h3>
-            {contact.phone && <p>📞 {contact.phone}</p>}
-            {contact.whatsapp && <p>💬 {contact.whatsapp}</p>}
+            <button onClick={goToSeller}>
+              👤 Seller Profile
+            </button>
+
+            <button onClick={goToChat}>
+              💬 Chat Seller
+            </button>
+
+            {product.contact?.whatsapp && (
+              <a
+                href={`https://wa.me/${product.contact.whatsapp}`}
+                target="_blank"
+                rel="noreferrer"
+              >
+                📲 WhatsApp
+              </a>
+            )}
+
           </div>
-
         </div>
 
-        {/* 🧠 SIMILAR */}
-        {similar.length > 0 && (
-          <div className="similar">
-            <h3>Similar Products</h3>
+        {/* ================= SIMILAR PRODUCTS ================= */}
+        <div className="similar">
+          <h3>Similar Products</h3>
 
-            <div className="grid">
-              {similar.map((p) => (
-                <div key={p.id} className="card">
-                  <img src={p.images?.[0]} />
-                  <p>{p.title}</p>
-                  <span>₦{p.price}</span>
-                </div>
-              ))}
-            </div>
+          <div className="similar-grid">
+            {similar.map((item) => (
+              <div
+                key={item.id}
+                onClick={() => navigate(`/product/${item.id}`)}
+              >
+                <img src={item.images?.[0]} />
+                <p>{item.title}</p>
+                <span>₦{item.price}</span>
+              </div>
+            ))}
           </div>
-        )}
+        </div>
 
       </div>
 
