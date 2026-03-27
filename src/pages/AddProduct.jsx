@@ -8,7 +8,6 @@ const INITIAL_FORM = {
   description: "",
   price: "",
   category_id: "",
-  subcategory_id: "",
   attributes: {},
   delivery: {
     available: true,
@@ -38,7 +37,7 @@ export default function AddProduct() {
   const [loading, setLoading] = useState(false);
   const [progress, setProgress] = useState(0);
 
-  /* ================= FETCH CATEGORIES ================= */
+  /* ================= FETCH ================= */
   useEffect(() => {
     fetch("https://minimart-ivrm.onrender.com/api/marketplace/categories")
       .then((r) => r.json())
@@ -52,14 +51,15 @@ export default function AddProduct() {
     [categories, form.category_id]
   );
 
-  const dynamicFields = selectedCategory?.dynamicOptions?.fields || [];
+  const dynamicFields =
+    selectedCategory?.dynamicOptions?.fields || [];
+
   const options = selectedCategory?.dynamicOptions || {};
 
   const brand = form.attributes?.brand;
 
-  /* ================= OPTIONS MAP ================= */
-  const optionsMap = useMemo(() => {
-    const base = {
+  const optionsMap = useMemo(
+    () => ({
       brand: options.brands || [],
       model: options.models?.[brand] || [],
       color: options.colors || [],
@@ -70,10 +70,17 @@ export default function AddProduct() {
       year: options.years || [],
       engine: options.engines || [],
       fuel_type: options.fuel_types || [],
-    };
-
-    return base;
-  }, [options, brand]);
+      condition: ["new", "used"],
+      used_detail: [
+        "like new",
+        "excellent",
+        "good",
+        "fair",
+        "repair needed",
+      ],
+    }),
+    [options, brand]
+  );
 
   /* ================= HELPERS ================= */
   const updateForm = (k, v) =>
@@ -82,14 +89,11 @@ export default function AddProduct() {
   const updateAttr = (k, v) =>
     setForm((p) => ({
       ...p,
-      attributes: {
-        ...p.attributes,
-        [k]: v,
-      },
+      attributes: { ...p.attributes, [k]: v },
     }));
 
-  const formatPrice = (value) =>
-    value
+  const formatPrice = (v) =>
+    v
       .replace(/,/g, "")
       .replace(/[^\d]/g, "")
       .replace(/\B(?=(\d{3})+(?!\d))/g, ",");
@@ -121,14 +125,17 @@ export default function AddProduct() {
 
   /* ================= IMAGES ================= */
   const handleImages = (files) => {
-    const arr = Array.from(files).slice(0, 8);
+    const list = Array.from(files).slice(0, 8);
 
-    setImages(arr);
-    setPreviews(arr.map((f) => URL.createObjectURL(f)));
+    setImages(list);
+
+    const urls = list.map((f) => URL.createObjectURL(f));
+    setPreviews(urls);
   };
 
   const removeImage = (i) => {
     setImages((p) => p.filter((_, x) => x !== i));
+
     setPreviews((p) => {
       URL.revokeObjectURL(p[i]);
       return p.filter((_, x) => x !== i);
@@ -196,18 +203,20 @@ export default function AddProduct() {
   const states = Object.keys(locationsByState || {});
   const cities = state ? locationsByState[state] || [] : [];
 
-  /* ================= FIXED FIELD RENDER ================= */
-  const shouldShowField = (field) => {
-    if (field === "used_detail" && form.attributes.condition !== "used") {
-      return false;
-    }
-    return true;
-  };
-
   /* ================= UI ================= */
   return (
     <div className="add-product">
-      <h2>Add Product</h2>
+
+      {/* HEADER */}
+      <div className="add-product-header">
+        <button
+          className="back-btn"
+          onClick={() => window.history.back()}
+        >
+          ←
+        </button>
+        <h2>Add Product</h2>
+      </div>
 
       {loading && (
         <div className="progress">
@@ -233,7 +242,9 @@ export default function AddProduct() {
       <input
         placeholder="Price"
         value={form.price}
-        onChange={(e) => updateForm("price", formatPrice(e.target.value))}
+        onChange={(e) =>
+          updateForm("price", formatPrice(e.target.value))
+        }
       />
 
       {/* CATEGORY */}
@@ -247,43 +258,34 @@ export default function AddProduct() {
         }))}
       />
 
-      {/* CONDITION (ONLY ONCE SOURCE) */}
+      {/* CONDITION */}
       <DropdownModal
         label="Condition"
         value={form.attributes.condition || ""}
         onChange={(v) => updateAttr("condition", v)}
-        options={["new", "used"]}
+        options={optionsMap.condition}
       />
 
-      {/* USED DETAIL (DEPENDENT) */}
+      {/* USED DETAIL */}
       {form.attributes.condition === "used" && (
         <DropdownModal
           label="Used Detail"
           value={form.attributes.used_detail || ""}
           onChange={(v) => updateAttr("used_detail", v)}
-          options={[
-            "like new",
-            "excellent",
-            "good",
-            "fair",
-            "repair needed",
-          ]}
+          options={optionsMap.used_detail}
         />
       )}
 
       {/* DYNAMIC FIELDS */}
-      {dynamicFields.map(
-        (field) =>
-          shouldShowField(field) && (
-            <DropdownModal
-              key={field}
-              label={formatLabel(field)}
-              value={form.attributes[field] || ""}
-              onChange={(v) => updateAttr(field, v)}
-              options={optionsMap[field] || []}
-            />
-          )
-      )}
+      {dynamicFields.map((field) => (
+        <DropdownModal
+          key={field}
+          label={formatLabel(field)}
+          value={form.attributes[field] || ""}
+          onChange={(v) => updateAttr(field, v)}
+          options={optionsMap[field] || []}
+        />
+      ))}
 
       {/* LOCATION */}
       <DropdownModal
@@ -332,17 +334,15 @@ export default function AddProduct() {
       />
 
       {/* IMAGES */}
-      <input
-        type="file"
-        multiple
-        onChange={(e) => handleImages(e.target.files)}
-      />
+      <input type="file" multiple onChange={(e) => handleImages(e.target.files)} />
 
       <div className="preview-grid">
         {previews.map((src, i) => (
           <div key={i} className="preview-item">
-            <img src={src} alt="preview" />
-            <button onClick={() => removeImage(i)}>✕</button>
+            <img src={src} alt="preview" className="preview-img" />
+            <button onClick={() => removeImage(i)} className="remove-btn">
+              ✕
+            </button>
           </div>
         ))}
       </div>
