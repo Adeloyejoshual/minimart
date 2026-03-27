@@ -5,207 +5,180 @@ import BottomNav from "../components/BottomNav";
 import "../styles/Homepage.css";
 
 export default function Homepage() {
-  const [products, setProducts] = useState([]);
-  const [trending, setTrending] = useState([]);
-  const [loading, setLoading] = useState(false);
-  const [skip, setSkip] = useState(0);
-  const [hasMore, setHasMore] = useState(true);
+const [products, setProducts] = useState([]);
+const [trending, setTrending] = useState([]);
+const [loading, setLoading] = useState(false);
+const [skip, setSkip] = useState(0);
 
-  const observerRef = useRef(null);
-  const trendingRef = useRef(null);
+const observerRef = useRef(null);
+const trendingRef = useRef(null);
 
-  /* ================= FETCH ================= */
-  const fetchProducts = async () => {
-    if (loading || !hasMore) return;
+/* ================= FETCH ================= */
+const fetchProducts = async () => {
+try {
+setLoading(true);
 
-    try {
-      setLoading(true);
+const res = await fetch(  
+    `https://minimart-ivrm.onrender.com/api/marketplace/products?skip=${skip}&limit=20`  
+  );  
+  const data = await res.json();  
 
-      const res = await fetch(
-        `https://minimart-ivrm.onrender.com/api/marketplace/products?skip=${skip}&limit=20`
-      );
+  if (skip === 0) {  
+    setTrending((data.trending || []).slice(0, 3));  
+  }  
 
-      const data = await res.json();
+  // ✅ Prevent duplicates  
+  setProducts((prev) => {  
+    const newItems = (data.products || []).filter(  
+      (p) => !prev.some((x) => x.id === p.id)  
+    );  
+    return [...prev, ...newItems];  
+  });  
 
-      // 🔥 FIX: backend-safe parsing
-      const trendingData = data.trending || [];
-      const productsData = data.products || [];
+} catch (err) {  
+  console.error("Fetch failed:", err);  
+} finally {  
+  setLoading(false);  
+}
 
-      // first load trending
-      if (skip === 0) {
-        setTrending(trendingData.slice(0, 6));
-      }
+};
 
-      setProducts((prev) => {
-        const existingIds = new Set(prev.map((p) => p.id));
+useEffect(() => {
+fetchProducts();
+}, [skip]);
 
-        const newItems = productsData.filter(
-          (p) => !existingIds.has(p.id)
-        );
+/* ================= INFINITE SCROLL ================= */
+useEffect(() => {
+const observer = new IntersectionObserver(
+(entries) => {
+if (entries[0].isIntersecting && !loading) {
+setSkip((prev) => prev + 20);
+}
+},
+{ threshold: 1 }
+);
 
-        if (newItems.length === 0) {
-          setHasMore(false);
-          return prev;
-        }
+if (observerRef.current) observer.observe(observerRef.current);  
 
-        return [...prev, ...newItems];
-      });
+return () => observer.disconnect();
 
-    } catch (err) {
-      console.error("Homepage fetch error:", err);
-    } finally {
-      setLoading(false);
-    }
-  };
+}, [loading]);
 
-  useEffect(() => {
-    fetchProducts();
-  }, [skip]);
+/* ================= HELPERS ================= */
+const getImage = (p) => {
+if (Array.isArray(p.images) && p.images.length > 0) return p.images[0];
+return "https://via.placeholder.com/300x200?text=No+Image";
+};
 
-  /* ================= INFINITE SCROLL ================= */
-  useEffect(() => {
-    const observer = new IntersectionObserver(
-      (entries) => {
-        if (entries[0].isIntersecting && !loading && hasMore) {
-          setSkip((prev) => prev + 20);
-        }
-      },
-      { threshold: 1 }
-    );
+const truncate = (text, len = 40) =>
+text?.length > len ? text.slice(0, len) + "..." : text;
 
-    const el = observerRef.current;
-    if (el) observer.observe(el);
+const getLocation = (p) => {
+if (p.location?.state && p.location?.city) {
+return ${p.location.state}, ${p.location.city};
+}
+if (p.location?.state) return p.location.state;
+return "Nigeria";
+};
 
-    return () => {
-      if (el) observer.unobserve(el);
-      observer.disconnect();
-    };
-  }, [loading, hasMore]);
+/* ================= TRENDING SCROLL ================= */
+const scroll = (dir) => {
+if (!trendingRef.current) return;
 
-  /* ================= HELPERS ================= */
-  const getImage = (p) => {
-    // NEW SYSTEM (backend fix)
-    if (p?.media?.images?.length) return p.media.images[0];
+trendingRef.current.scrollBy({  
+  left: dir === "left" ? -300 : 300,  
+  behavior: "smooth",  
+});
 
-    // fallback (older responses)
-    if (Array.isArray(p?.images) && p.images.length > 0)
-      return p.images[0];
+};
 
-    return "https://via.placeholder.com/300x200?text=No+Image";
-  };
+/* ================= CARD ================= */
+const renderCard = (p, isTrending = false) => (
+<Link key={p.id} to={/product/${p.id}} className="card-link">
+<div className="card">
 
-  const truncate = (text = "", len = 40) =>
-    text.length > len ? text.slice(0, len) + "..." : text;
+<div className="card-image">  
+      <img src={getImage(p)} alt={p.title} loading="lazy" />  
+    </div>  
 
-  const getLocation = (p) => {
-    if (p?.location?.state && p?.location?.city) {
-      return `${p.location.state}, ${p.location.city}`;
-    }
-    return "Nigeria";
-  };
+    <div className="card-body">  
+      <div className="price">  
+        ₦{Number(p.price).toLocaleString()}  
+      </div>  
 
-  /* ================= SCROLL TRENDING ================= */
-  const scroll = (dir) => {
-    if (!trendingRef.current) return;
+      <div className="title">  
+        {truncate(p.title, 35)}  
+      </div>  
 
-    trendingRef.current.scrollBy({
-      left: dir === "left" ? -300 : 300,
-      behavior: "smooth",
-    });
-  };
+      {!isTrending && (  
+        <>  
+          <div className="desc">  
+            {truncate(p.description, 50)}  
+          </div>  
 
-  /* ================= CARD ================= */
-  const renderCard = (p, isTrending = false) => (
-    <Link key={p.id} to={`/product/${p.id}`} className="card-link">
-      <div className="card">
+          <div className="location">  
+            📍 {getLocation(p)}  
+          </div>  
+        </>  
+      )}  
+    </div>  
 
-        <div className="card-image">
-          <img src={getImage(p)} alt={p.title || "product"} />
-        </div>
+  </div>  
+</Link>
 
-        <div className="card-body">
-          <div className="price">
-            ₦{Number(p.price || 0).toLocaleString()}
-          </div>
+);
 
-          <div className="title">
-            {truncate(p.title)}
-          </div>
+return (
+<>
+<TopNav />
 
-          {!isTrending && (
-            <>
-              <div className="desc">
-                {truncate(p.description, 50)}
-              </div>
+<div className="homepage-container">  
 
-              <div className="location">
-                📍 {getLocation(p)}
-              </div>
-            </>
-          )}
-        </div>
+    {/* ================= TRENDING ================= */}  
+    <div className="section">  
+      <h2>🔥 Trending</h2>  
 
-      </div>
-    </Link>
-  );
+      <div className="trending-wrapper">  
 
-  return (
-    <>
-      <TopNav />
+        <button className="scroll-btn left" onClick={() => scroll("left")}>  
+          ◀  
+        </button>  
 
-      <div className="homepage-container">
+        <div className="trending-scroll" ref={trendingRef}>  
+          {trending.length > 0  
+            ? trending.map((p) => renderCard(p, true))  
+            : <p>No trending</p>}  
+        </div>  
 
-        {/* ================= TRENDING ================= */}
-        <div className="section">
-          <h2>🔥 Trending</h2>
+        <button className="scroll-btn right" onClick={() => scroll("right")}>  
+          ▶  
+        </button>  
 
-          <div className="trending-wrapper">
+      </div>  
+    </div>  
 
-            <button onClick={() => scroll("left")} className="scroll-btn left">
-              ◀
-            </button>
+    {/* ================= PRODUCTS ================= */}  
+    <div className="section">  
+      <h2>🛒 Products</h2>  
 
-            <div className="trending-scroll" ref={trendingRef}>
-              {trending.length > 0
-                ? trending.map((p) => renderCard(p, true))
-                : <p>No trending products</p>}
-            </div>
+      <div className="products-grid">  
+        {products.map((p) => renderCard(p))}  
+      </div>  
 
-            <button onClick={() => scroll("right")} className="scroll-btn right">
-              ▶
-            </button>
+      {/* SCROLL TRIGGER */}  
+      <div ref={observerRef} style={{ height: "40px" }} />  
 
-          </div>
-        </div>
+      {loading && (  
+        <p style={{ textAlign: "center" }}>  
+          Loading more products...  
+        </p>  
+      )}  
+    </div>  
 
-        {/* ================= PRODUCTS ================= */}
-        <div className="section">
-          <h2>🛒 Products</h2>
+  </div>  
 
-          <div className="products-grid">
-            {products.length > 0
-              ? products.map((p) => renderCard(p))
-              : !loading && <p>No products found</p>}
-          </div>
+  <BottomNav />  
+</>
 
-          <div ref={observerRef} style={{ height: "40px" }} />
-
-          {loading && (
-            <p style={{ textAlign: "center" }}>
-              Loading more products...
-            </p>
-          )}
-
-          {!hasMore && (
-            <p style={{ textAlign: "center", opacity: 0.6 }}>
-              No more products
-            </p>
-          )}
-        </div>
-
-      </div>
-
-      <BottomNav />
-    </>
-  );
+);
 }
