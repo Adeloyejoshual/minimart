@@ -1,19 +1,16 @@
 // src/App.jsx
-import React, { useState, useEffect } from "react";
+import React, { useEffect, useState } from "react";
 import { BrowserRouter as Router, Routes, Route, Navigate } from "react-router-dom";
 import axios from "axios";
 import toast, { Toaster } from "react-hot-toast";
 
-// ---------------- USER PAGES ----------------
+/* ================= PAGES ================= */
+// User
 import Homepage from "./pages/Homepage";
+import SearchPage from "./pages/SearchPage";
 import AddProduct from "./pages/AddProduct";
 import ProductDetail from "./pages/ProductDetail";
 import Profile from "./pages/Profile";
-import Coupons from "./pages/Profile/Coupons";
-import Dashboard from "./pages/Profile/Dashboard";
-import Leaderboard from "./pages/Profile/Leaderboard";
-import Verification from "./pages/Profile/Verification";
-import Wallet from "./pages/Profile/Wallet";
 import SettingsPage from "./pages/SettingsPage";
 import Conversations from "./pages/Conversations";
 import Chat from "./pages/Chat";
@@ -26,22 +23,28 @@ import Support from "./pages/Support";
 import Invitation from "./pages/Invitation";
 import TermsAndConditions from "./pages/TermsAndConditions";
 
-// ---------------- ADMIN PAGES ----------------
+// Profile sub-pages
+import Coupons from "./pages/Profile/Coupons";
+import Dashboard from "./pages/Profile/Dashboard";
+import Leaderboard from "./pages/Profile/Leaderboard";
+import Verification from "./pages/Profile/Verification";
+import Wallet from "./pages/Profile/Wallet";
+
+// Admin
 import AdminLogin from "./pages/admin/AdminLogin";
 import AdminDashboard from "./pages/admin/AdminDashboard";
 
+/* ================= APP ================= */
 export default function App() {
-  // ---------------- USER STATE ----------------
   const [user, setUser] = useState(null);
-  const [loadingUser, setLoadingUser] = useState(true);
-
-  // ---------------- ADMIN STATE ----------------
   const [admin, setAdmin] = useState(null);
+
+  const [loadingUser, setLoadingUser] = useState(true);
   const [loadingAdmin, setLoadingAdmin] = useState(true);
 
   const API = "https://minimart-ivrm.onrender.com/api/users";
 
-  // ---------------- LOAD USER ----------------
+  /* ================= LOAD USER ================= */
   useEffect(() => {
     const token = localStorage.getItem("token");
 
@@ -51,7 +54,9 @@ export default function App() {
     }
 
     axios
-      .get(`${API}/me`, { headers: { Authorization: `Bearer ${token}` } })
+      .get(`${API}/me`, {
+        headers: { Authorization: `Bearer ${token}` },
+      })
       .then((res) => setUser(res.data))
       .catch(() => {
         localStorage.removeItem("token");
@@ -60,18 +65,18 @@ export default function App() {
       .finally(() => setLoadingUser(false));
   }, []);
 
-  // ---------------- LOAD ADMIN ----------------
+  /* ================= LOAD ADMIN ================= */
   useEffect(() => {
     const token = localStorage.getItem("admin_token");
-    const storedAdmin = localStorage.getItem("admin");
+    const stored = localStorage.getItem("admin");
 
-    if (!token || !storedAdmin) {
+    if (!token || !stored) {
       setLoadingAdmin(false);
       return;
     }
 
     try {
-      setAdmin(JSON.parse(storedAdmin));
+      setAdmin(JSON.parse(stored));
     } catch {
       localStorage.removeItem("admin");
       localStorage.removeItem("admin_token");
@@ -80,47 +85,57 @@ export default function App() {
     }
   }, []);
 
-  // ---------------- USER PROTECTED ----------------
+  /* ================= PROTECTED ROUTES ================= */
   const ProtectedRoute = ({ children }) => {
-    if (loadingUser) return <div style={{ textAlign: "center", marginTop: "20vh" }}>Loading...</div>;
+    if (loadingUser)
+      return <div className="loading">Loading...</div>;
+
     return user ? children : <Navigate to="/auth" replace />;
   };
 
-  // ---------------- ADMIN PROTECTED ----------------
   const AdminProtectedRoute = ({ children }) => {
-    if (loadingAdmin) return <div style={{ textAlign: "center", marginTop: "20vh" }}>Loading admin...</div>;
+    if (loadingAdmin)
+      return <div className="loading">Loading admin...</div>;
+
     return admin ? children : <Navigate to="/admin/login" replace />;
   };
 
-  // ---------------- AUTH SUCCESS ----------------
+  /* ================= AUTH HANDLER ================= */
   const handleAuthSuccess = (userData, token) => {
     localStorage.setItem("token", token);
     setUser(userData);
-    toast.success(`Welcome back, ${userData.name}!`);
+    toast.success(`Welcome back, ${userData.name}`);
   };
 
+  /* ================= ROUTES ================= */
   return (
     <Router>
-      {/* Toast */}
+      {/* Toast system */}
       <Toaster
         position="top-right"
         toastOptions={{
-          duration: 4000,
-          style: { padding: "10px 14px", borderRadius: 8, color: "#fff" },
-          success: { style: { background: "#28a745" } },
-          error: { style: { background: "#dc3545" } },
+          duration: 3500,
+          style: {
+            padding: "10px 14px",
+            borderRadius: 8,
+            color: "#fff",
+          },
+          success: { style: { background: "#16a34a" } },
+          error: { style: { background: "#dc2626" } },
         }}
       />
 
       <Routes>
-        {/* ---------------- PUBLIC ---------------- */}
+
+        {/* ================= PUBLIC ================= */}
         <Route path="/" element={<Homepage user={user} />} />
+        <Route path="/search" element={<SearchPage user={user} />} />
         <Route path="/product/:id" element={<ProductDetail user={user} />} />
         <Route path="/seller/:id" element={<SellerProfile user={user} />} />
         <Route path="/auth" element={<AuthPage setUser={handleAuthSuccess} />} />
         <Route path="/terms" element={<TermsAndConditions />} />
 
-        {/* ---------------- USER ---------------- */}
+        {/* ================= USER PROTECTED ================= */}
         <Route path="/profile" element={<ProtectedRoute><Profile user={user} /></ProtectedRoute>} />
         <Route path="/settings" element={<ProtectedRoute><SettingsPage user={user} /></ProtectedRoute>} />
         <Route path="/minimart/add" element={<ProtectedRoute><AddProduct user={user} /></ProtectedRoute>} />
@@ -137,12 +152,12 @@ export default function App() {
         <Route path="/support" element={<ProtectedRoute><Support user={user} /></ProtectedRoute>} />
         <Route path="/invitation" element={<ProtectedRoute><Invitation user={user} /></ProtectedRoute>} />
 
-        {/* ---------------- ADMIN ---------------- */}
+        {/* ================= ADMIN ================= */}
         <Route
           path="/admin"
           element={
             loadingAdmin ? (
-              <div style={{ textAlign: "center", marginTop: "20vh" }}>Loading...</div>
+              <div className="loading">Loading...</div>
             ) : admin ? (
               <Navigate to="/admin/dashboard" replace />
             ) : (
@@ -150,10 +165,14 @@ export default function App() {
             )
           }
         />
-        <Route path="/admin/login" element={<AdminLogin setAdmin={setAdmin} />} />
-        <Route path="/admin/dashboard" element={<AdminProtectedRoute><AdminDashboard /></AdminProtectedRoute>} />
 
-        {/* ---------------- FALLBACK ---------------- */}
+        <Route path="/admin/login" element={<AdminLogin setAdmin={setAdmin} />} />
+        <Route
+          path="/admin/dashboard"
+          element={<AdminProtectedRoute><AdminDashboard /></AdminProtectedRoute>}
+        />
+
+        {/* ================= FALLBACK ================= */}
         <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>
     </Router>
