@@ -23,7 +23,7 @@ const normalizeProduct = (p) => ({
 });
 
 /* =========================================================
-GET PRODUCT DETAIL
+GET PRODUCT DETAIL (ULTRA VERSION)
 GET /api/product/:id
 ========================================================= */
 router.get("/:id", async (req, res) => {
@@ -36,6 +36,7 @@ router.get("/:id", async (req, res) => {
       SELECT 
         p.*,
         c.name AS category_name,
+
         u.id AS seller_id,
         u.name AS seller_name,
         u.avatar AS seller_avatar,
@@ -69,7 +70,50 @@ router.get("/:id", async (req, res) => {
       [id]
     ).catch(() => {});
 
-    /* ================= RELATED PRODUCTS ================= */
+    /* ================= RATING SUMMARY ================= */
+    const ratingRes = await pool.query(
+      `
+      SELECT 
+        ROUND(AVG(rating),1) as avg,
+        COUNT(*) as total
+      FROM product_reviews
+      WHERE product_id = $1
+      `,
+      [id]
+    );
+
+    const rating = {
+      avg: Number(ratingRes.rows[0]?.avg || 0),
+      total: Number(ratingRes.rows[0]?.total || 0),
+    };
+
+    /* ================= SELLER STATS ================= */
+    const sellerStatsRes = await pool.query(
+      `
+      SELECT 
+        COUNT(DISTINCT p.id) as total_products,
+        COUNT(DISTINCT f.user_id) as followers
+      FROM users u
+      LEFT JOIN products p ON p.user_id = u.id
+      LEFT JOIN seller_followers f ON f.seller_id = u.id
+      WHERE u.id = $1
+      `,
+      [product.seller_id]
+    );
+
+    const sellerStats = {
+      total_products: Number(
+        sellerStatsRes.rows[0]?.total_products || 0
+      ),
+      followers: Number(
+        sellerStatsRes.rows[0]?.followers || 0
+      ),
+    };
+
+    /* ================= SMART RELATED ================= */
+    const brand = product.attributes?.brand || null;
+    const model = product.attributes?.model || null;
+
     const relatedRes = await pool.query(
       `
       SELECT 
@@ -81,14 +125,20 @@ router.get("/:id", async (req, res) => {
         ) AS images
       FROM products p
       LEFT JOIN product_images pi ON p.id = pi.product_id
-      WHERE p.category_id = $1
-        AND p.id != $2
-        AND p.is_active = true
+      WHERE p.is_active = true
+        AND p.id != $1
+        AND (
+          p.category_id = $2
+          OR LOWER(p.attributes->>'brand') = LOWER($3)
+          OR LOWER(p.attributes->>'model') = LOWER($4)
+        )
       GROUP BY p.id
-      ORDER BY p.views DESC NULLS LAST
+      ORDER BY 
+        p.views DESC NULLS LAST,
+        p.created_at DESC
       LIMIT 8
       `,
-      [product.category_id, id]
+      [id, product.category_id, brand, model]
     );
 
     const related = relatedRes.rows.map(normalizeProduct);
@@ -112,7 +162,7 @@ router.get("/:id", async (req, res) => {
       ORDER BY p.created_at DESC
       LIMIT 6
       `,
-      [product.user_id, id]
+      [product.seller_id, id]
     );
 
     const sellerProducts = sellerProductsRes.rows.map(normalizeProduct);
@@ -120,6 +170,15 @@ router.get("/:id", async (req, res) => {
     /* ================= RESPONSE ================= */
     res.json({
       product,
+
+      rating, // ⭐ avg + total
+      seller: {
+        id: product.seller_id,
+        name: product.seller_name,
+        avatar: product.seller_avatar,
+        ...sellerStats,
+      },
+
       related,
       sellerProducts,
     });
