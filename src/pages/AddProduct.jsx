@@ -10,7 +10,10 @@ const INITIAL_FORM = {
   description: "",
   price: "",
   category_id: "",
-  attributes: {},
+
+  attributes: {
+    features: [], // ✅ MULTI-SELECT SUPPORT
+  },
 
   delivery: {
     available: true,
@@ -54,7 +57,7 @@ export default function AddProduct() {
       .catch(console.error);
   }, []);
 
-  /* ================= CATEGORY RESOLUTION ================= */
+  /* ================= CATEGORY ================= */
   const selectedCategory = useMemo(() => {
     return categories.find(
       (c) => String(c.id) === String(form.category_id)
@@ -98,10 +101,28 @@ export default function AddProduct() {
       attributes: { ...p.attributes, [k]: v },
     }));
 
-  const formatLabel = (t) =>
-    t.replace(/_/g, " ").replace(/\b\w/g, (l) => l.toUpperCase());
+  const toggleFeature = (feature) => {
+    setForm((p) => {
+      const current = p.attributes.features || [];
+
+      const updated = current.includes(feature)
+        ? current.filter((f) => f !== feature)
+        : [...current, feature];
+
+      return {
+        ...p,
+        attributes: {
+          ...p.attributes,
+          features: updated,
+        },
+      };
+    });
+  };
 
   const onlyNumbers = (v) => v.replace(/[^\d]/g, "");
+
+  const formatLabel = (t) =>
+    t.replace(/_/g, " ").replace(/\b\w/g, (l) => l.toUpperCase());
 
   /* ================= VALIDATION ================= */
   const validate = () => {
@@ -209,20 +230,6 @@ export default function AddProduct() {
     xhr.send(fd);
   };
 
-  /* ================= SHARE ================= */
-  const productUrl = (id) =>
-    `${window.location.origin}/product/${id}`;
-
-  const shareWhatsApp = (p) => {
-    const msg =
-      `🔥 *New Product*\n\n${p.title}\n₦${p.price}\n` +
-      `${productUrl(p.id)}`;
-
-    window.open(
-      `https://wa.me/?text=${encodeURIComponent(msg)}`
-    );
-  };
-
   /* ================= LOCATION ================= */
   const states = Object.keys(locationsByState || {});
   const cities = state ? locationsByState[state] : [];
@@ -273,7 +280,7 @@ export default function AddProduct() {
           setForm((p) => ({
             ...p,
             category_id: v,
-            attributes: {},
+            attributes: { features: [] },
           }))
         }
         options={categories.map((c) => ({
@@ -282,7 +289,7 @@ export default function AddProduct() {
         }))}
       />
 
-      {/* FIELD ENGINE (UNIFIED DROPDOWNS) */}
+      {/* FIELD ENGINE */}
       {fields.map((f) => {
         const value = form.attributes?.[f] || "";
 
@@ -298,6 +305,28 @@ export default function AddProduct() {
           />
         );
       })}
+
+      {/* FEATURES (CHECKBOX ENGINE) */}
+      {options.features?.length > 0 && (
+        <div className="form-section">
+          <h3>Features</h3>
+
+          <div className="checkbox-grid">
+            {options.features.map((feature) => (
+              <label key={feature} className="checkbox-item">
+                <input
+                  type="checkbox"
+                  checked={
+                    form.attributes.features.includes(feature)
+                  }
+                  onChange={() => toggleFeature(feature)}
+                />
+                {feature}
+              </label>
+            ))}
+          </div>
+        </div>
+      )}
 
       {/* LOCATION */}
       <DropdownModal
@@ -340,11 +369,7 @@ export default function AddProduct() {
       />
 
       {/* IMAGES */}
-      <input
-        type="file"
-        multiple
-        onChange={(e) => handleImages(e.target.files)}
-      />
+      <input type="file" multiple onChange={(e) => handleImages(e.target.files)} />
 
       <div className="preview-grid">
         {previews.map((src, i) => (
@@ -365,25 +390,21 @@ export default function AddProduct() {
           <div className="share-modal">
             <h2>🎉 Product Live</h2>
 
-            <button onClick={() => shareWhatsApp(createdProduct)}>
+            <button onClick={() => window.open(`https://wa.me/?text=${encodeURIComponent(createdProduct.title)}`)}>
               Share WhatsApp
             </button>
 
             <button
               onClick={() =>
                 navigator.clipboard.writeText(
-                  productUrl(createdProduct.id)
+                  `${window.location.origin}/product/${createdProduct.id}`
                 )
               }
             >
               Copy Link
             </button>
 
-            <button
-              onClick={() =>
-                navigate(`/product/${createdProduct.id}`)
-              }
-            >
+            <button onClick={() => navigate(`/product/${createdProduct.id}`)}>
               View Product
             </button>
 
