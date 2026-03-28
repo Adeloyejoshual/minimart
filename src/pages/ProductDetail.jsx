@@ -48,12 +48,9 @@ export default function ProductDetail() {
   }, [id]);
 
   /* ================= HELPERS ================= */
-  const getLocation = () => {
-    return (
-      `${product?.location?.state || ""} ${product?.location?.city || ""}`.trim() ||
-      "Nigeria"
-    );
-  };
+  const getLocation = () =>
+    `${product?.location?.state || ""} ${product?.location?.city || ""}`.trim() ||
+    "Nigeria";
 
   const formatKey = (key) =>
     key.replace(/_/g, " ").replace(/\b\w/g, (c) => c.toUpperCase());
@@ -69,36 +66,57 @@ export default function ProductDetail() {
   };
 
   /* ================= STATES ================= */
-  if (loading) return (
-    <>
-      <TopNav />
-      <div className="product-detail">Loading product...</div>
-      <BottomNav />
-    </>
-  );
+  if (loading)
+    return (
+      <>
+        <TopNav />
+        <div className="product-detail">Loading product...</div>
+        <BottomNav />
+      </>
+    );
 
-  if (error) return (
-    <>
-      <TopNav />
-      <div className="product-detail">{error}</div>
-      <BottomNav />
-    </>
-  );
+  if (error)
+    return (
+      <>
+        <TopNav />
+        <div className="product-detail">{error}</div>
+        <BottomNav />
+      </>
+    );
 
-  if (!product) return (
-    <>
-      <TopNav />
-      <div className="product-detail">Product not found</div>
-      <BottomNav />
-    </>
-  );
+  if (!product)
+    return (
+      <>
+        <TopNav />
+        <div className="product-detail">Product not found</div>
+        <BottomNav />
+      </>
+    );
 
+  /* ================= DATA ================= */
   const images = Array.isArray(product.images) ? product.images : [];
   const attributes = product.attributes || {};
   const delivery = product.delivery || {};
   const contact = product.contact || {};
-  const category = product.category || {};
-  const dynamicFields = category.dynamicFields || [];
+
+  const category = {
+    name: product.category_name,
+    dynamicFields: product.category_fields || []
+  };
+
+  const dynamicFields = category.dynamicFields;
+
+  /* ================= FILTER ATTRIBUTES ================= */
+  const hasValue = (v) => {
+    if (v === null || v === undefined) return false;
+    if (typeof v === "string" && v.trim() === "") return false;
+    if (Array.isArray(v) && v.length === 0) return false;
+    return true;
+  };
+
+  const filteredAttributes = Object.entries(attributes).filter(([_, v]) =>
+    hasValue(v)
+  );
 
   /* ================= RENDER ================= */
   return (
@@ -136,7 +154,6 @@ export default function ProductDetail() {
 
           <p className="location">📍 {getLocation()}</p>
 
-          {/* ================= CATEGORY ================= */}
           {category.name && (
             <p className="category">
               Category: <strong>{category.name}</strong>
@@ -147,43 +164,24 @@ export default function ProductDetail() {
             {product.description || "No description available"}
           </p>
 
-          {/* ================= DYNAMIC FIELDS (CATEGORY-DRIVEN) ================= */}
-          {dynamicFields.length > 0 && (
+          {/* ================= SPECIFICATIONS (DYNAMIC + CLEAN) ================= */}
+          {filteredAttributes.length > 0 && (
             <div className="attributes">
               <h3>Specifications</h3>
 
               <div className="attr-grid">
-                {dynamicFields.map((field) => {
-                  const value = attributes?.[field];
-                  if (!value) return null;
+                {filteredAttributes.map(([key, value]) => {
+                  const displayValue = Array.isArray(value)
+                    ? value.join(", ")
+                    : value;
 
                   return (
-                    <div key={field} className="attr-item">
-                      <span className="attr-key">{formatKey(field)}</span>
-                      <span className="attr-value">
-                        {Array.isArray(value) ? value.join(", ") : value}
-                      </span>
+                    <div key={key} className="attr-item">
+                      <span className="attr-key">{formatKey(key)}</span>
+                      <span className="attr-value">{displayValue}</span>
                     </div>
                   );
                 })}
-              </div>
-            </div>
-          )}
-
-          {/* ================= FALLBACK ATTRIBUTES ================= */}
-          {Object.keys(attributes).length > 0 && (
-            <div className="attributes">
-              <h3>All Details</h3>
-
-              <div className="attr-grid">
-                {Object.entries(attributes).map(([key, value]) => (
-                  <div key={key} className="attr-item">
-                    <span className="attr-key">{formatKey(key)}</span>
-                    <span className="attr-value">
-                      {Array.isArray(value) ? value.join(", ") : value}
-                    </span>
-                  </div>
-                ))}
               </div>
             </div>
           )}
