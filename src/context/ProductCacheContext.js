@@ -1,53 +1,55 @@
-// src/context/ProductCacheContext.js
-import { createContext, useContext, useEffect, useState } from "react";
+import { createContext, useContext, useState, useRef } from "react";
 
 const ProductCacheContext = createContext();
-
-const STORAGE_KEY = "marketplace_cache_v1";
 
 export function ProductCacheProvider({ children }) {
   const [products, setProducts] = useState([]);
   const [trending, setTrending] = useState([]);
   const [loaded, setLoaded] = useState(false);
 
-  /* ================= LOAD FROM LOCALSTORAGE ================= */
-  useEffect(() => {
-    const saved = localStorage.getItem(STORAGE_KEY);
+  // prevents duplicate inserts across pages
+  const productIdsRef = useRef(new Set());
 
-    if (saved) {
-      try {
-        const parsed = JSON.parse(saved);
-        setProducts(parsed.products || []);
-        setTrending(parsed.trending || []);
-        setLoaded(true);
-      } catch (err) {
-        console.error("Cache parse error", err);
+  const addProducts = (newItems) => {
+    setProducts((prev) => {
+      const filtered = [];
+
+      for (const p of newItems) {
+        if (!productIdsRef.current.has(p.id)) {
+          productIdsRef.current.add(p.id);
+          filtered.push(p);
+        }
       }
-    }
-  }, []);
 
-  /* ================= SAVE TO LOCALSTORAGE ================= */
-  useEffect(() => {
-    if (!loaded) return;
+      return [...prev, ...filtered];
+    });
+  };
 
-    localStorage.setItem(
-      STORAGE_KEY,
-      JSON.stringify({
-        products,
-        trending,
-      })
-    );
-  }, [products, trending, loaded]);
+  const addSingleProduct = (product) => {
+    if (productIdsRef.current.has(product.id)) return;
+
+    productIdsRef.current.add(product.id);
+    setProducts((prev) => [product, ...prev]);
+  };
+
+  const resetCache = () => {
+    setProducts([]);
+    setTrending([]);
+    productIdsRef.current.clear();
+    setLoaded(false);
+  };
 
   return (
     <ProductCacheContext.Provider
       value={{
         products,
-        setProducts,
+        setProducts: addProducts,
+        addSingleProduct,
         trending,
         setTrending,
         loaded,
         setLoaded,
+        resetCache,
       }}
     >
       {children}
@@ -55,4 +57,6 @@ export function ProductCacheProvider({ children }) {
   );
 }
 
-export const useProductCache = () => useContext(ProductCacheContext);
+export function useProductCache() {
+  return useContext(ProductCacheContext);
+}
