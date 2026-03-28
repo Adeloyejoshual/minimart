@@ -2,13 +2,21 @@ import { useEffect, useState, useRef, useCallback } from "react";
 import { Link } from "react-router-dom";
 import TopNav from "../components/TopNav";
 import BottomNav from "../components/BottomNav";
+import { useProductCache } from "../context/ProductCacheContext";
 import "../styles/Homepage.css";
 
 const LIMIT = 20;
 
 export default function Homepage() {
-  const [products, setProducts] = useState([]);
-  const [trending, setTrending] = useState([]);
+  const {
+    products,
+    setProducts,
+    trending,
+    setTrending,
+    loaded,
+    setLoaded,
+  } = useProductCache();
+
   const [loading, setLoading] = useState(false);
   const [skip, setSkip] = useState(0);
   const [hasMore, setHasMore] = useState(true);
@@ -16,53 +24,72 @@ export default function Homepage() {
   const observerRef = useRef(null);
   const isFetchingRef = useRef(false);
 
-  const fetchProducts = useCallback(async (currentSkip) => {
-    if (isFetchingRef.current || !hasMore) return;
+  /* ================= FETCH ================= */
+  const fetchProducts = useCallback(
+    async (currentSkip) => {
+      if (isFetchingRef.current || !hasMore) return;
 
-    try {
-      isFetchingRef.current = true;
-      setLoading(true);
+      try {
+        isFetchingRef.current = true;
+        setLoading(true);
 
-      const res = await fetch(
-        `https://minimart-ivrm.onrender.com/api/marketplace/products?skip=${currentSkip}&limit=${LIMIT}`
-      );
+        const res = await fetch(
+          `https://minimart-ivrm.onrender.com/api/marketplace/products?skip=${currentSkip}&limit=${LIMIT}`
+        );
 
-      const data = await res.json();
+        const data = await res.json();
 
-      if (currentSkip === 0) {
-        setTrending((data.trending || []).slice(0, 6));
+        /* trending only first load */
+        if (currentSkip === 0 && !loaded) {
+          setTrending((data.trending || []).slice(0, 6));
+        }
+
+        const incoming = data.products || [];
+
+        /* merge via cache engine */
+        setProducts((prev) => {
+          const map = new Map(prev.map((p) => [p.id, p]));
+          incoming.forEach((p) => map.set(p.id, p));
+          return Array.from(map.values());
+        });
+
+        if (incoming.length < LIMIT) {
+          setHasMore(false);
+        }
+
+        setLoaded(true);
+      } catch (err) {
+        console.error("Fetch error:", err);
+      } finally {
+        setLoading(false);
+        isFetchingRef.current = false;
       }
+    },
+    [hasMore, loaded]
+  );
 
-      const incoming = data.products || [];
-
-      setProducts((prev) => {
-        const ids = new Set(prev.map((p) => p.id));
-        const filtered = incoming.filter((p) => !ids.has(p.id));
-        return [...prev, ...filtered];
-      });
-
-      if (incoming.length < LIMIT) {
-        setHasMore(false);
-      }
-
-    } catch (err) {
-      console.error(err);
-    } finally {
-      setLoading(false);
-      isFetchingRef.current = false;
-    }
-  }, [hasMore]);
-
-  /* FETCH ON SKIP CHANGE */
+  /* ================= INITIAL LOAD ================= */
   useEffect(() => {
+    if (!loaded) {
+      fetchProducts(0);
+    }
+  }, [loaded, fetchProducts]);
+
+  /* ================= PAGINATION ================= */
+  useEffect(() => {
+    if (skip === 0) return;
     fetchProducts(skip);
   }, [skip, fetchProducts]);
 
-  /* INFINITE SCROLL */
+  /* ================= INFINITE SCROLL ================= */
   useEffect(() => {
     const observer = new IntersectionObserver(
       (entries) => {
-        if (entries[0].isIntersecting && hasMore && !isFetchingRef.current) {
+        if (
+          entries[0].isIntersecting &&
+          hasMore &&
+          !isFetchingRef.current
+        ) {
           setSkip((prev) => prev + LIMIT);
         }
       },
@@ -78,6 +105,7 @@ export default function Homepage() {
     };
   }, [hasMore]);
 
+  /* ================= HELPERS ================= */
   const getImage = (p) =>
     p.images?.[0] ||
     "https://via.placeholder.com/300x200?text=No+Image";
@@ -89,6 +117,7 @@ export default function Homepage() {
     return p.location?.state || "Nigeria";
   };
 
+  /* ================= CARD ================= */
   const Card = ({ p, trendingMode = false }) => (
     <Link to={`/product/${p.id}`} className="card-link">
       <div className="card">
@@ -97,7 +126,10 @@ export default function Homepage() {
         </div>
 
         <div className="card-body">
-          <div className="price">₦{Number(p.price).toLocaleString()}</div>
+          <div className="price">
+            ₦{Number(p.price).toLocaleString()}
+          </div>
+
           <div className="title">{p.title}</div>
 
           {!trendingMode && (
@@ -116,6 +148,8 @@ export default function Homepage() {
       <TopNav />
 
       <div className="homepage-container">
+
+        {/* ================= TRENDING ================= */}
         <div className="section">
           <h2>🔥 Trending</h2>
 
@@ -126,6 +160,7 @@ export default function Homepage() {
           </div>
         </div>
 
+        {/* ================= PRODUCTS ================= */}
         <div className="section">
           <h2>🛒 Products</h2>
 
@@ -137,8 +172,13 @@ export default function Homepage() {
 
           <div ref={observerRef} style={{ height: 40 }} />
 
-          {loading && <p className="loading-text">Loading...</p>}
-          {!hasMore && <p className="loading-text">No more products</p>}
+          {loading && (
+            <p className="loading-text">Loading...</p>
+          )}
+
+          {!hasMore && (
+            <p className="loading-text">No more products</p>
+          )}
         </div>
       </div>
 
