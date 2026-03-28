@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import DropdownModal from "../components/DropdownModal.jsx";
+import AddProductHeader from "../components/AddProductHeader.jsx";
 import { locationsByState } from "../config/locationsByState.js";
 import "./AddProduct.css";
 
@@ -12,7 +13,7 @@ const INITIAL_FORM = {
   category_id: "",
 
   attributes: {
-    features: [], // ✅ MULTI-SELECT SUPPORT
+    features: [],
   },
 
   delivery: {
@@ -101,9 +102,10 @@ export default function AddProduct() {
       attributes: { ...p.attributes, [k]: v },
     }));
 
+  /* ✅ SAFE FEATURE TOGGLE (FIXED CRASH PROTECTION) */
   const toggleFeature = (feature) => {
     setForm((p) => {
-      const current = p.attributes.features || [];
+      const current = p.attributes?.features || [];
 
       const updated = current.includes(feature)
         ? current.filter((f) => f !== feature)
@@ -240,10 +242,8 @@ export default function AddProduct() {
   return (
     <div className="add-product-container">
 
-      <div className="glass-header">
-        <button onClick={() => navigate(-1)}>←</button>
-        <h2>Add Product</h2>
-      </div>
+      {/* ✅ NEW HEADER */}
+      <AddProductHeader title="Add Product" />
 
       {loading && (
         <div className="progress">
@@ -306,7 +306,7 @@ export default function AddProduct() {
         );
       })}
 
-      {/* FEATURES (CHECKBOX ENGINE) */}
+      {/* FEATURES */}
       {options.features?.length > 0 && (
         <div className="form-section">
           <h3>Features</h3>
@@ -317,7 +317,7 @@ export default function AddProduct() {
                 <input
                   type="checkbox"
                   checked={
-                    form.attributes.features.includes(feature)
+                    form.attributes?.features?.includes(feature) || false
                   }
                   onChange={() => toggleFeature(feature)}
                 />
@@ -384,36 +384,6 @@ export default function AddProduct() {
         {loading ? "Uploading..." : "Create Product"}
       </button>
 
-      {/* SHARE */}
-      {showShare && createdProduct && (
-        <div className="share-overlay">
-          <div className="share-modal">
-            <h2>🎉 Product Live</h2>
-
-            <button onClick={() => window.open(`https://wa.me/?text=${encodeURIComponent(createdProduct.title)}`)}>
-              Share WhatsApp
-            </button>
-
-            <button
-              onClick={() =>
-                navigator.clipboard.writeText(
-                  `${window.location.origin}/product/${createdProduct.id}`
-                )
-              }
-            >
-              Copy Link
-            </button>
-
-            <button onClick={() => navigate(`/product/${createdProduct.id}`)}>
-              View Product
-            </button>
-
-            <button onClick={() => setShowShare(false)}>
-              Done
-            </button>
-          </div>
-        </div>
-      )}
     </div>
   );
 }
