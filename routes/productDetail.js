@@ -13,6 +13,7 @@ const pool = new Pool({
 /* ================= SAFE JSON ================= */
 const safeJSON = (value, fallback = {}) => {
   if (!value) return fallback;
+
   if (typeof value === "string") {
     try {
       return JSON.parse(value);
@@ -20,13 +21,22 @@ const safeJSON = (value, fallback = {}) => {
       return fallback;
     }
   }
+
   return value;
 };
 
 /* ================= NORMALIZER ================= */
 const normalizeProduct = (p) => ({
-  ...p,
+  id: p.id,
+  title: p.title,
+  price: p.price,
+  description: p.description,
+  views: p.views,
+  created_at: p.created_at,
+  is_active: p.is_active,
+
   images: Array.isArray(p.images) ? p.images : [],
+
   attributes: safeJSON(p.attributes, {}),
   delivery: safeJSON(p.delivery, {}),
   contact: safeJSON(p.contact, {}),
@@ -37,27 +47,29 @@ const normalizeProduct = (p) => ({
   },
 
   seller: {
-    id: p.seller_id,
-    name: p.seller_name,
-    avatar: p.seller_avatar,
+    id: p.seller_id ?? null,
+    name: p.seller_name ?? "",
+    avatar: p.seller_avatar ?? "",
   },
 
   category: {
-    id: p.category_id,
-    name: p.category_name,
-    fieldsKey: p.fields_key || null,
-    dynamicFields: safeJSON(p.dynamic_fields, []),
+    id: p.category_id ?? null,
+    name: p.category_name ?? "",
+    fieldsKey: p.fields_key ?? null,
+    dynamicFields: Array.isArray(p.dynamic_fields)
+      ? p.dynamic_fields
+      : safeJSON(p.dynamic_fields, []),
   },
 });
 
 /* =========================================================
-GET PRODUCT DETAIL (FULL)
+GET PRODUCT DETAIL
 ========================================================= */
 router.get("/:id", async (req, res) => {
   const { id } = req.params;
 
   try {
-    /* ================= MAIN PRODUCT ================= */
+    /* ================= MAIN PRODUCT QUERY ================= */
     const productRes = await pool.query(
       `
       SELECT 
@@ -115,56 +127,61 @@ router.get("/:id", async (req, res) => {
 
     const product = normalizeProduct(productRes.rows[0]);
 
-    /* ================= INCREMENT VIEWS (NON-BLOCKING) ================= */
+    /* ================= INCREMENT VIEWS ================= */
     pool
-      .query(`UPDATE products SET views = COALESCE(views,0)+1 WHERE id=$1`, [
-        id,
-      ])
+      .query(
+        `UPDATE products SET views = COALESCE(views,0) + 1 WHERE id = $1`,
+        [id]
+      )
       .catch(() => {});
 
-    /* ================= RELATED + SELLER PRODUCTS ================= */
-    const [relatedRes, sellerRes] = await Promise.all([
-      pool.query(
-        `
-        SELECT 
-          p.*,
-          COALESCE(
-            json_agg(pi.image_url ORDER BY pi.position)
-            FILTER (WHERE pi.image_url IS NOT NULL),
-            '[]'
-          ) AS images
-        FROM products p
-        LEFT JOIN product_images pi ON p.id = pi.product_id
-        WHERE p.category_id = $1
-          AND p.id != $2
-          AND p.is_active = true
-        GROUP BY p.id
-        ORDER BY p.views DESC NULLS LAST
-        LIMIT 8
-        `,
-        [product.category.id, id]
-      ),
+    /* ================= RELATED PRODUCTS ================= */
+    const relatedPromise = pool.query(
+      `
+      SELECT 
+        p.*,
+        COALESCE(
+          json_agg(pi.image_url ORDER BY pi.position)
+          FILTER (WHERE pi.image_url IS NOT NULL),
+          '[]'
+        ) AS images
+      FROM products p
+      LEFT JOIN product_images pi ON p.id = pi.product_id
+      WHERE p.category_id = $1
+        AND p.id != $2
+        AND p.is_active = true
+      GROUP BY p.id
+      ORDER BY p.views DESC NULLS LAST
+      LIMIT 8
+      `,
+      [product.category.id, id]
+    );
 
-      pool.query(
-        `
-        SELECT 
-          p.*,
-          COALESCE(
-            json_agg(pi.image_url ORDER BY pi.position)
-            FILTER (WHERE pi.image_url IS NOT NULL),
-            '[]'
-          ) AS images
-        FROM products p
-        LEFT JOIN product_images pi ON p.id = pi.product_id
-        WHERE p.user_id = $1
-          AND p.id != $2
-          AND p.is_active = true
-        GROUP BY p.id
-        ORDER BY p.created_at DESC
-        LIMIT 6
-        `,
-        [product.seller.id, id]
-      ),
+    /* ================= SELLER PRODUCTS ================= */
+    const sellerPromise = pool.query(
+      `
+      SELECT 
+        p.*,
+        COALESCE(
+          json_agg(pi.image_url ORDER BY pi.position)
+          FILTER (WHERE pi.image_url IS NOT NULL),
+          '[]'
+        ) AS images
+      FROM products p
+      LEFT JOIN product_images pi ON p.id = pi.product_id
+      WHERE p.user_id = $1
+        AND p.id != $2
+        AND p.is_active = true
+      GROUP BY p.id
+      ORDER BY p.created_at DESC
+      LIMIT 6
+      `,
+      [product.seller.id, id]
+    );
+
+    const [relatedRes, sellerRes] = await Promise.all([
+      relatedPromise,
+      sellerPromise,
     ]);
 
     /* ================= RESPONSE ================= */
