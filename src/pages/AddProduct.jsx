@@ -13,10 +13,12 @@ const INITIAL_FORM = {
   subcategory_id: "",
   attributes: {},
 
-  /* ================= PROFESSIONAL DELIVERY TIERS ================= */
   delivery: {
     available: true,
-    tier: "0-7", // default fast delivery
+    from_days: "",
+    to_days: "",
+    fee_required: false,
+    fee: "",
     note: "",
   },
 
@@ -26,13 +28,6 @@ const INITIAL_FORM = {
     preferred: "chat",
   },
 };
-
-/* ================= DELIVERY OPTIONS ================= */
-const deliveryOptions = [
-  { id: "0-7", name: "0–7 Days (Fast Delivery)" },
-  { id: "7-14", name: "7–14 Days (Standard Delivery)" },
-  { id: "14-30", name: "14–30 Days (Extended Delivery)" },
-];
 
 export default function AddProduct() {
   const navigate = useNavigate();
@@ -52,7 +47,7 @@ export default function AddProduct() {
   const [createdProduct, setCreatedProduct] = useState(null);
   const [showShare, setShowShare] = useState(false);
 
-  /* ================= FETCH CATEGORIES ================= */
+  /* ================= FETCH ================= */
   useEffect(() => {
     fetch("https://minimart-ivrm.onrender.com/api/marketplace/categories")
       .then((r) => r.json())
@@ -60,36 +55,35 @@ export default function AddProduct() {
       .catch(console.error);
   }, []);
 
-  /* ================= SELECT CATEGORY ================= */
+  /* ================= CATEGORY ================= */
   const selectedCategory = useMemo(() => {
-    if (!form.category_id) return null;
-    return categories.find((c) => String(c.id) === String(form.category_id));
+    return categories.find(
+      (c) => String(c.id) === String(form.category_id)
+    );
   }, [categories, form.category_id]);
 
   const dynamicFields = selectedCategory?.dynamicOptions?.fields || [];
   const options = selectedCategory?.dynamicOptions || {};
   const brand = form.attributes?.brand;
 
-  const optionsMap = useMemo(() => {
-    return {
-      brand: options.brands || [],
-      model: options.models?.[brand] || [],
-      color: options.colors || [],
-      condition: options.conditions || [],
-      used_detail: options.used_details || [],
-    };
-  }, [options, brand]);
+  const optionsMap = useMemo(() => ({
+    brand: options.brands || [],
+    model: options.models?.[brand] || [],
+    color: options.colors || [],
+    condition: options.conditions || [],
+    used_detail: options.usedDetails || [],
+  }), [options, brand]);
 
   const isUsed = form.attributes?.condition === "used";
 
   /* ================= HELPERS ================= */
-  const updateForm = (key, value) =>
-    setForm((p) => ({ ...p, [key]: value }));
+  const updateForm = (k, v) =>
+    setForm((p) => ({ ...p, [k]: v }));
 
-  const updateAttr = (key, value) =>
+  const updateAttr = (k, v) =>
     setForm((p) => ({
       ...p,
-      attributes: { ...p.attributes, [key]: value },
+      attributes: { ...p.attributes, [k]: v },
     }));
 
   const onlyNumbers = (v) => v.replace(/[^\d]/g, "");
@@ -104,20 +98,27 @@ export default function AddProduct() {
 
   /* ================= VALIDATION ================= */
   const validate = () => {
-    if (form.title.trim().length < 15)
-      return "Title must be at least 15 characters";
-
-    if (form.description.trim().length < 30)
-      return "Description must be at least 30 characters";
-
-    if (!form.price) return "Price is required";
-    if (!form.category_id) return "Category is required";
+    if (form.title.trim().length < 15) return "Title too short";
+    if (form.description.trim().length < 30) return "Description too short";
+    if (!form.price) return "Price required";
+    if (!form.category_id) return "Select category";
 
     if (!form.contact.phone || form.contact.phone.length < 10)
-      return "Valid phone number required";
+      return "Valid phone required";
 
     if (!form.attributes.condition)
-      return "Select product condition";
+      return "Select condition";
+
+    if (form.delivery.available) {
+      if (!form.delivery.from_days || !form.delivery.to_days)
+        return "Enter delivery range";
+
+      if (+form.delivery.from_days > +form.delivery.to_days)
+        return "Invalid delivery range";
+
+      if (form.delivery.fee_required && !form.delivery.fee)
+        return "Enter delivery fee";
+    }
 
     return null;
   };
@@ -128,23 +129,21 @@ export default function AddProduct() {
 
     previews.forEach((p) => URL.revokeObjectURL(p));
 
-    const newPreviews = raw.map((f) => URL.createObjectURL(f));
-
     setImages(raw);
-    setPreviews(newPreviews);
+    setPreviews(raw.map((f) => URL.createObjectURL(f)));
   };
 
-  const removeImage = (index) => {
-    setImages((p) => p.filter((_, i) => i !== index));
+  const removeImage = (i) => {
+    setImages((p) => p.filter((_, x) => x !== i));
 
     setPreviews((p) => {
-      URL.revokeObjectURL(p[index]);
-      return p.filter((_, i) => i !== index);
+      URL.revokeObjectURL(p[i]);
+      return p.filter((_, x) => x !== i);
     });
   };
 
   /* ================= SUBMIT ================= */
-  const handleSubmit = async () => {
+  const handleSubmit = () => {
     const error = validate();
     if (error) return alert(error);
 
@@ -181,8 +180,7 @@ export default function AddProduct() {
       setLoading(false);
 
       if (xhr.status >= 200 && xhr.status < 300) {
-        const res = JSON.parse(xhr.response || "{}");
-        const product = res?.product;
+        const product = JSON.parse(xhr.response).product;
 
         setCreatedProduct(product);
         setShowShare(true);
@@ -192,7 +190,6 @@ export default function AddProduct() {
         setPreviews([]);
         setState("");
         setCity("");
-        setProgress(0);
       } else {
         alert("Upload failed");
       }
@@ -206,68 +203,52 @@ export default function AddProduct() {
     xhr.send(fd);
   };
 
-  /* ================= SHARE (WHATSAPP-FIRST + DELIVERY) ================= */
+  /* ================= SHARE ================= */
   const productUrl = (id) =>
     `${window.location.origin}/product/${id}`;
 
-  const shareWhatsApp = (product) => {
-    const url = productUrl(product.id);
+  const shareWhatsApp = (p) => {
+    const deliveryText = p.delivery?.available
+      ? `🚚 ${p.delivery.from_days}-${p.delivery.to_days} days` +
+        (p.delivery.fee_required
+          ? ` | Fee ₦${p.delivery.fee}`
+          : " | Free delivery")
+      : "No delivery";
 
-    const deliveryText =
-      product.delivery?.tier === "0-7"
-        ? "⚡ Fast Delivery (0–7 days)"
-        : product.delivery?.tier === "7-14"
-        ? "🚚 Standard Delivery (7–14 days)"
-        : "📦 Extended Delivery (14–30 days)";
+    const msg =
+      `🔥 *New Product*\n\n${p.title}\n₦${p.price}\n${deliveryText}\n\n${productUrl(p.id)}`;
 
-    const message =
-      `🔥 *New Listing*\n\n` +
-      `${product.title}\n` +
-      `₦${product.price}\n` +
-      `${deliveryText}\n\n` +
-      `${url}`;
-
-    window.open(
-      `https://wa.me/?text=${encodeURIComponent(message)}`,
-      "_blank"
-    );
-  };
-
-  const copyLink = async (product) => {
-    await navigator.clipboard.writeText(productUrl(product.id));
-    alert("Link copied!");
+    window.open(`https://wa.me/?text=${encodeURIComponent(msg)}`);
   };
 
   /* ================= LOCATION ================= */
   const states = Object.keys(locationsByState || {});
-  const cities = state ? locationsByState[state] || [] : [];
+  const cities = state ? locationsByState[state] : [];
 
   /* ================= UI ================= */
   return (
     <div className="add-product-container">
 
-      {/* HEADER */}
       <div className="glass-header">
-        <button onClick={() => navigate(-1)}>← Back</button>
+        <button onClick={() => navigate(-1)}>←</button>
         <h2>Add Product</h2>
       </div>
 
-      {/* PROGRESS */}
       {loading && (
         <div className="progress">
           <div style={{ width: `${progress}%` }} />
         </div>
       )}
 
-      {/* FORM */}
+      {/* BASIC */}
       <input
-        placeholder="Title (min 15 chars)"
+        placeholder="Title"
         value={form.title}
         onChange={(e) => updateForm("title", e.target.value)}
       />
 
       <textarea
-        placeholder="Description (min 30 chars)"
+        placeholder="Description"
         value={form.description}
         onChange={(e) => updateForm("description", e.target.value)}
       />
@@ -284,20 +265,20 @@ export default function AddProduct() {
       <DropdownModal
         label="Category"
         value={form.category_id}
-        onChange={(v) => {
+        onChange={(v) =>
           setForm((p) => ({
             ...p,
             category_id: v,
-            attributes: {}, // FIX: prevents dual-condition bug
-          }));
-        }}
+            attributes: {},
+          }))
+        }
         options={categories.map((c) => ({
           id: c.id,
           name: c.name,
         }))}
       />
 
-      {/* CONDITION */}
+      {/* ATTRIBUTES */}
       <DropdownModal
         label="Condition"
         value={form.attributes.condition || ""}
@@ -305,17 +286,15 @@ export default function AddProduct() {
         options={optionsMap.condition}
       />
 
-      {/* USED DETAIL */}
       {isUsed && (
         <DropdownModal
-          label="Used Condition Detail"
+          label="Used Detail"
           value={form.attributes.used_detail || ""}
           onChange={(v) => updateAttr("used_detail", v)}
           options={optionsMap.used_detail}
         />
       )}
 
-      {/* DYNAMIC FIELDS */}
       {dynamicFields.map((f) => (
         <DropdownModal
           key={f}
@@ -326,79 +305,114 @@ export default function AddProduct() {
         />
       ))}
 
-      {/* DELIVERY (PROFESSIONAL) */}
-      <DropdownModal
-        label="Delivery Time"
-        value={form.delivery.tier}
-        onChange={(v) =>
-          setForm((p) => ({
-            ...p,
-            delivery: {
-              ...p.delivery,
-              tier: v,
-            },
-          }))
-        }
-        options={deliveryOptions}
-      />
+      {/* DELIVERY */}
+      <div className="form-section">
+        <h3>Delivery</h3>
+
+        <label className="toggle-row">
+          <input
+            type="checkbox"
+            checked={form.delivery.available}
+            onChange={(e) =>
+              updateForm("delivery", {
+                ...form.delivery,
+                available: e.target.checked,
+              })
+            }
+          />
+          Available
+        </label>
+
+        {form.delivery.available && (
+          <>
+            <div className="delivery-row">
+              <input
+                placeholder="From days"
+                value={form.delivery.from_days}
+                onChange={(e) =>
+                  updateForm("delivery", {
+                    ...form.delivery,
+                    from_days: e.target.value,
+                  })
+                }
+              />
+              <input
+                placeholder="To days"
+                value={form.delivery.to_days}
+                onChange={(e) =>
+                  updateForm("delivery", {
+                    ...form.delivery,
+                    to_days: e.target.value,
+                  })
+                }
+              />
+            </div>
+
+            <label className="toggle-row">
+              <input
+                type="checkbox"
+                checked={form.delivery.fee_required}
+                onChange={(e) =>
+                  updateForm("delivery", {
+                    ...form.delivery,
+                    fee_required: e.target.checked,
+                  })
+                }
+              />
+              Delivery Fee Required
+            </label>
+
+            {form.delivery.fee_required && (
+              <input
+                placeholder="Fee ₦"
+                value={form.delivery.fee}
+                onChange={(e) =>
+                  updateForm("delivery", {
+                    ...form.delivery,
+                    fee: onlyNumbers(e.target.value),
+                  })
+                }
+              />
+            )}
+          </>
+        )}
+      </div>
 
       {/* LOCATION */}
-      <DropdownModal
-        label="State"
-        value={state}
-        onChange={setState}
-        options={states}
-      />
-
+      <DropdownModal label="State" value={state} onChange={setState} options={states} />
       {state && (
-        <DropdownModal
-          label="City"
-          value={city}
-          onChange={setCity}
-          options={cities}
-        />
+        <DropdownModal label="City" value={city} onChange={setCity} options={cities} />
       )}
 
       {/* CONTACT */}
       <input
-        placeholder="Phone number"
+        placeholder="Phone"
         value={form.contact.phone}
         onChange={(e) =>
-          setForm((p) => ({
-            ...p,
-            contact: {
-              ...p.contact,
-              phone: onlyNumbers(e.target.value),
-            },
-          }))
+          updateForm("contact", {
+            ...form.contact,
+            phone: onlyNumbers(e.target.value),
+          })
         }
       />
 
       <input
-        placeholder="WhatsApp number"
+        placeholder="WhatsApp"
         value={form.contact.whatsapp}
         onChange={(e) =>
-          setForm((p) => ({
-            ...p,
-            contact: {
-              ...p.contact,
-              whatsapp: onlyNumbers(e.target.value),
-            },
-          }))
+          updateForm("contact", {
+            ...form.contact,
+            whatsapp: onlyNumbers(e.target.value),
+          })
         }
       />
 
       {/* IMAGES */}
-      <input
-        type="file"
-        multiple
-        accept="image/*"
-        onChange={(e) => handleImages(e.target.files)}
-      />
+      <input type="file" multiple onChange={(e) => handleImages(e.target.files)} />
 
       <div className="preview-grid">
         {previews.map((src, i) => (
-          <div key={i}>
+          <div key={i} className="preview-item">
             <img src={src} alt="" />
             <button onClick={() => removeImage(i)}>×</button>
           </div>
@@ -409,33 +423,31 @@ export default function AddProduct() {
         {loading ? "Uploading..." : "Create Product"}
       </button>
 
-      {/* SHARE MODAL */}
+      {/* SHARE */}
       {showShare && createdProduct && (
         <div className="share-overlay">
           <div className="share-modal">
-
             <h2>🎉 Product Live</h2>
 
             <button onClick={() => shareWhatsApp(createdProduct)}>
-              📲 Share on WhatsApp
+              Share WhatsApp
             </button>
 
-            <button onClick={() => copyLink(createdProduct)}>
+            <button onClick={() =>
+              navigator.clipboard.writeText(productUrl(createdProduct.id))
+            }>
               Copy Link
             </button>
 
-            <button
-              onClick={() =>
-                navigate(`/product/${createdProduct.id}`)
-              }
-            >
+            <button onClick={() =>
+              navigate(`/product/${createdProduct.id}`)
+            }>
               View Product
             </button>
 
             <button onClick={() => setShowShare(false)}>
               Done
             </button>
-
           </div>
         </div>
       )}
