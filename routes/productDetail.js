@@ -1,6 +1,7 @@
 import express from "express";
 import { Pool } from "pg";
 
+/* ================= ROUTER ================= */
 const router = express.Router();
 
 /* ================= DB ================= */
@@ -9,8 +10,8 @@ const pool = new Pool({
   ssl: { rejectUnauthorized: false },
 });
 
-/* ================= SAFE JSON PARSER ================= */
-const safeJSON = (value, fallback) => {
+/* ================= SAFE JSON ================= */
+const safeJSON = (value, fallback = {}) => {
   if (!value) return fallback;
   if (typeof value === "string") {
     try {
@@ -29,21 +30,34 @@ const normalizeProduct = (p) => ({
   attributes: safeJSON(p.attributes, {}),
   delivery: safeJSON(p.delivery, {}),
   contact: safeJSON(p.contact, {}),
+
   location: {
     state: p.location_state ?? "",
     city: p.location_city ?? "",
   },
+
+  seller: {
+    id: p.seller_id,
+    name: p.seller_name,
+    avatar: p.seller_avatar,
+  },
+
+  category: {
+    id: p.category_id,
+    name: p.category_name,
+    fieldsKey: p.fields_key || null,
+    dynamicFields: safeJSON(p.dynamic_fields, []),
+  },
 });
 
 /* =========================================================
-GET PRODUCT DETAIL
-GET /api/product/:id
+GET PRODUCT DETAIL (FULL)
 ========================================================= */
 router.get("/:id", async (req, res) => {
   const { id } = req.params;
 
   try {
-    /* ================= PRODUCT ================= */
+    /* ================= MAIN PRODUCT ================= */
     const productRes = await pool.query(
       `
       SELECT 
@@ -63,6 +77,9 @@ router.get("/:id", async (req, res) => {
         p.is_active,
 
         c.name AS category_name,
+        c.fields AS dynamic_fields,
+        c.fields_key,
+
         u.id AS seller_id,
         u.name AS seller_name,
         u.avatar AS seller_avatar,
@@ -79,8 +96,15 @@ router.get("/:id", async (req, res) => {
       LEFT JOIN product_images pi ON p.id = pi.product_id
 
       WHERE p.id = $1 AND p.is_active = true
+
       GROUP BY 
-        p.id, c.name, u.id, u.name, u.avatar
+        p.id,
+        c.name,
+        c.fields,
+        c.fields_key,
+        u.id,
+        u.name,
+        u.avatar
       `,
       [id]
     );
@@ -92,13 +116,14 @@ router.get("/:id", async (req, res) => {
     const product = normalizeProduct(productRes.rows[0]);
 
     /* ================= INCREMENT VIEWS (NON-BLOCKING) ================= */
-    pool.query(
-      `UPDATE products SET views = COALESCE(views,0) + 1 WHERE id = $1`,
-      [id]
-    ).catch(() => {});
+    pool
+      .query(`UPDATE products SET views = COALESCE(views,0)+1 WHERE id=$1`, [
+        id,
+      ])
+      .catch(() => {});
 
-    /* ================= RELATED + SELLER PRODUCTS (PARALLEL) ================= */
-    const [relatedRes, sellerProductsRes] = await Promise.all([
+    /* ================= RELATED + SELLER PRODUCTS ================= */
+    const [relatedRes, sellerRes] = await Promise.all([
       pool.query(
         `
         SELECT 
@@ -117,7 +142,7 @@ router.get("/:id", async (req, res) => {
         ORDER BY p.views DESC NULLS LAST
         LIMIT 8
         `,
-        [product.category_id, id]
+        [product.category.id, id]
       ),
 
       pool.query(
@@ -138,18 +163,15 @@ router.get("/:id", async (req, res) => {
         ORDER BY p.created_at DESC
         LIMIT 6
         `,
-        [product.user_id, id]
+        [product.seller.id, id]
       ),
     ]);
-
-    const related = relatedRes.rows.map(normalizeProduct);
-    const sellerProducts = sellerProductsRes.rows.map(normalizeProduct);
 
     /* ================= RESPONSE ================= */
     return res.json({
       product,
-      related,
-      sellerProducts,
+      related: relatedRes.rows.map(normalizeProduct),
+      sellerProducts: sellerRes.rows.map(normalizeProduct),
     });
   } catch (err) {
     console.error("PRODUCT DETAIL ERROR:", err);
