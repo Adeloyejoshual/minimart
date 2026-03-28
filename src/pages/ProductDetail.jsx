@@ -12,7 +12,7 @@ export default function ProductDetail() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
 
-  /* ================= FETCH PRODUCT ================= */
+  /* ================= FETCH ================= */
   useEffect(() => {
     const controller = new AbortController();
 
@@ -26,9 +26,7 @@ export default function ProductDetail() {
           { signal: controller.signal }
         );
 
-        if (!res.ok) {
-          throw new Error("Failed to fetch product");
-        }
+        if (!res.ok) throw new Error("Failed to fetch product");
 
         const data = await res.json();
 
@@ -38,7 +36,6 @@ export default function ProductDetail() {
         setActiveImage(imgs[0] || "");
       } catch (err) {
         if (err.name !== "AbortError") {
-          console.error(err);
           setError("Unable to load product");
         }
       } finally {
@@ -47,16 +44,15 @@ export default function ProductDetail() {
     }
 
     fetchProduct();
-
     return () => controller.abort();
   }, [id]);
 
   /* ================= HELPERS ================= */
   const getLocation = () => {
-    if (product?.location?.state || product?.location?.city) {
-      return `${product.location.state || ""} ${product.location.city || ""}`.trim();
-    }
-    return "Nigeria";
+    return (
+      `${product?.location?.state || ""} ${product?.location?.city || ""}`.trim() ||
+      "Nigeria"
+    );
   };
 
   const formatKey = (key) =>
@@ -73,47 +69,38 @@ export default function ProductDetail() {
   };
 
   /* ================= STATES ================= */
-  if (loading) {
-    return (
-      <>
-        <TopNav />
-        <div className="product-detail">
-          <p>Loading product...</p>
-        </div>
-        <BottomNav />
-      </>
-    );
-  }
+  if (loading) return (
+    <>
+      <TopNav />
+      <div className="product-detail">Loading product...</div>
+      <BottomNav />
+    </>
+  );
 
-  if (error) {
-    return (
-      <>
-        <TopNav />
-        <div className="product-detail">
-          <p>{error}</p>
-        </div>
-        <BottomNav />
-      </>
-    );
-  }
+  if (error) return (
+    <>
+      <TopNav />
+      <div className="product-detail">{error}</div>
+      <BottomNav />
+    </>
+  );
 
-  if (!product) {
-    return (
-      <>
-        <TopNav />
-        <div className="product-detail">
-          <p>Product not found</p>
-        </div>
-        <BottomNav />
-      </>
-    );
-  }
+  if (!product) return (
+    <>
+      <TopNav />
+      <div className="product-detail">Product not found</div>
+      <BottomNav />
+    </>
+  );
 
   const images = Array.isArray(product.images) ? product.images : [];
   const attributes = product.attributes || {};
   const delivery = product.delivery || {};
   const contact = product.contact || {};
+  const category = product.category || {};
+  const dynamicFields = category.dynamicFields || [];
 
+  /* ================= RENDER ================= */
   return (
     <>
       <TopNav />
@@ -122,19 +109,17 @@ export default function ProductDetail() {
 
         {/* ================= IMAGES ================= */}
         <div className="image-section">
-          <div className="main-image">
-            <img
-              src={activeImage || "https://via.placeholder.com/400"}
-              alt={product.title}
-            />
-          </div>
+          <img
+            src={activeImage || "https://via.placeholder.com/400"}
+            alt={product.title}
+            className="main-img"
+          />
 
           <div className="thumbnails">
             {images.map((img, i) => (
               <img
                 key={i}
                 src={img}
-                alt="thumb"
                 onClick={() => setActiveImage(img)}
                 className={activeImage === img ? "active" : ""}
               />
@@ -145,34 +130,36 @@ export default function ProductDetail() {
         {/* ================= DETAILS ================= */}
         <div className="details-section">
 
-          <h1 className="title">{product.title}</h1>
+          <h1>{product.title}</h1>
 
-          <div className="price">
-            ₦{Number(product.price || 0).toLocaleString()}
-          </div>
+          <h2>₦{Number(product.price || 0).toLocaleString()}</h2>
 
-          <div className="location">
-            📍 {getLocation()}
-          </div>
+          <p className="location">📍 {getLocation()}</p>
 
-          <div className="description">
+          {/* ================= CATEGORY ================= */}
+          {category.name && (
+            <p className="category">
+              Category: <strong>{category.name}</strong>
+            </p>
+          )}
+
+          <p className="desc">
             {product.description || "No description available"}
-          </div>
+          </p>
 
-          {/* ================= ATTRIBUTES ================= */}
-          {Object.keys(attributes).length > 0 && (
+          {/* ================= DYNAMIC FIELDS (CATEGORY-DRIVEN) ================= */}
+          {dynamicFields.length > 0 && (
             <div className="attributes">
-              <h3>Product Details</h3>
+              <h3>Specifications</h3>
 
               <div className="attr-grid">
-                {Object.entries(attributes).map(([key, value]) => {
+                {dynamicFields.map((field) => {
+                  const value = attributes?.[field];
                   if (!value) return null;
 
                   return (
-                    <div key={key} className="attr-item">
-                      <span className="attr-key">
-                        {formatKey(key)}
-                      </span>
+                    <div key={field} className="attr-item">
+                      <span className="attr-key">{formatKey(field)}</span>
                       <span className="attr-value">
                         {Array.isArray(value) ? value.join(", ") : value}
                       </span>
@@ -183,14 +170,30 @@ export default function ProductDetail() {
             </div>
           )}
 
+          {/* ================= FALLBACK ATTRIBUTES ================= */}
+          {Object.keys(attributes).length > 0 && (
+            <div className="attributes">
+              <h3>All Details</h3>
+
+              <div className="attr-grid">
+                {Object.entries(attributes).map(([key, value]) => (
+                  <div key={key} className="attr-item">
+                    <span className="attr-key">{formatKey(key)}</span>
+                    <span className="attr-value">
+                      {Array.isArray(value) ? value.join(", ") : value}
+                    </span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
           {/* ================= DELIVERY ================= */}
           {delivery?.available && (
             <div className="delivery">
               <h3>Delivery</h3>
 
-              {delivery.type && (
-                <p><strong>Type:</strong> {delivery.type}</p>
-              )}
+              <p><strong>Type:</strong> {delivery.type}</p>
 
               {delivery.type === "fixed" && (
                 <p>
@@ -198,22 +201,8 @@ export default function ProductDetail() {
                 </p>
               )}
 
-              {delivery.radius_km > 0 && (
-                <p>
-                  <strong>Coverage:</strong> {delivery.radius_km} km
-                </p>
-              )}
-
-              {delivery.estimated_days && (
-                <p>
-                  <strong>Delivery Time:</strong> {delivery.estimated_days} days
-                </p>
-              )}
-
               {delivery.note && (
-                <p>
-                  <strong>Note:</strong> {delivery.note}
-                </p>
+                <p><strong>Note:</strong> {delivery.note}</p>
               )}
             </div>
           )}
@@ -224,11 +213,10 @@ export default function ProductDetail() {
               <h3>Seller Contact</h3>
 
               {contact.phone && <p>📞 {contact.phone}</p>}
-              {contact.whatsapp && <p>💬 WhatsApp: {contact.whatsapp}</p>}
+              {contact.whatsapp && <p>💬 {contact.whatsapp}</p>}
             </div>
           )}
 
-          {/* ================= ACTION ================= */}
           <button className="contact-btn" onClick={openContact}>
             Contact Seller
           </button>
