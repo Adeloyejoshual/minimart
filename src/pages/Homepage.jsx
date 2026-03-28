@@ -39,19 +39,15 @@ export default function Homepage() {
 
         const data = await res.json();
 
-        /* trending only first load */
+        const incoming = data.products || [];
+
+        // 🔥 Correct usage (NO function)
+        setProducts(incoming);
+
+        // trending only first load
         if (currentSkip === 0 && !loaded) {
           setTrending((data.trending || []).slice(0, 6));
         }
-
-        const incoming = data.products || [];
-
-        /* merge via cache engine */
-        setProducts((prev) => {
-          const map = new Map(prev.map((p) => [p.id, p]));
-          incoming.forEach((p) => map.set(p.id, p));
-          return Array.from(map.values());
-        });
 
         if (incoming.length < LIMIT) {
           setHasMore(false);
@@ -143,13 +139,14 @@ export default function Homepage() {
     </Link>
   );
 
+  /* ================= RENDER ================= */
   return (
     <>
       <TopNav />
 
       <div className="homepage-container">
 
-        {/* ================= TRENDING ================= */}
+        {/* TRENDING */}
         <div className="section">
           <h2>🔥 Trending</h2>
 
@@ -160,7 +157,7 @@ export default function Homepage() {
           </div>
         </div>
 
-        {/* ================= PRODUCTS ================= */}
+        {/* PRODUCTS */}
         <div className="section">
           <h2>🛒 Products</h2>
 
