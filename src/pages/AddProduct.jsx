@@ -4,6 +4,7 @@ import DropdownModal from "../components/DropdownModal.jsx";
 import { locationsByState } from "../config/locationsByState.js";
 import "./AddProduct.css";
 
+/* ================= INITIAL STATE ================= */
 const INITIAL_FORM = {
   title: "",
   description: "",
@@ -11,20 +12,27 @@ const INITIAL_FORM = {
   category_id: "",
   subcategory_id: "",
   attributes: {},
+
+  /* ================= PROFESSIONAL DELIVERY TIERS ================= */
   delivery: {
     available: true,
-    type: "fixed",
-    fee: 0,
-    radius_km: 0,
-    estimated_days: "1-3",
+    tier: "0-7", // default fast delivery
     note: "",
   },
+
   contact: {
     phone: "",
     whatsapp: "",
     preferred: "chat",
   },
 };
+
+/* ================= DELIVERY OPTIONS ================= */
+const deliveryOptions = [
+  { id: "0-7", name: "0–7 Days (Fast Delivery)" },
+  { id: "7-14", name: "7–14 Days (Standard Delivery)" },
+  { id: "14-30", name: "14–30 Days (Extended Delivery)" },
+];
 
 export default function AddProduct() {
   const navigate = useNavigate();
@@ -52,37 +60,27 @@ export default function AddProduct() {
       .catch(console.error);
   }, []);
 
-  const selectedCategory = useMemo(
-    () =>
-      categories.find(
-        (c) => String(c.id) === String(form.category_id)
-      ),
-    [categories, form.category_id]
-  );
+  /* ================= SELECT CATEGORY ================= */
+  const selectedCategory = useMemo(() => {
+    if (!form.category_id) return null;
+    return categories.find((c) => String(c.id) === String(form.category_id));
+  }, [categories, form.category_id]);
 
   const dynamicFields = selectedCategory?.dynamicOptions?.fields || [];
   const options = selectedCategory?.dynamicOptions || {};
   const brand = form.attributes?.brand;
 
-  /* ================= BACKEND-DRIVEN OPTIONS ================= */
-  const optionsMap = useMemo(
-    () => ({
+  const optionsMap = useMemo(() => {
+    return {
       brand: options.brands || [],
       model: options.models?.[brand] || [],
       color: options.colors || [],
+      condition: options.conditions || [],
+      used_detail: options.used_details || [],
+    };
+  }, [options, brand]);
 
-      // ✅ fully backend controlled (NO hardcoding)
-      condition: options.conditions || options.condition || [],
-
-      used_detail:
-        options.used_details ||
-        options.usedDetails ||
-        [],
-    }),
-    [options, brand]
-  );
-
-  const isUsed = form.attributes.condition === "used";
+  const isUsed = form.attributes?.condition === "used";
 
   /* ================= HELPERS ================= */
   const updateForm = (key, value) =>
@@ -113,7 +111,6 @@ export default function AddProduct() {
       return "Description must be at least 30 characters";
 
     if (!form.price) return "Price is required";
-
     if (!form.category_id) return "Category is required";
 
     if (!form.contact.phone || form.contact.phone.length < 10)
@@ -125,7 +122,7 @@ export default function AddProduct() {
     return null;
   };
 
-  /* ================= IMAGE HANDLING ================= */
+  /* ================= IMAGES ================= */
   const handleImages = (files) => {
     const raw = Array.from(files).slice(0, 8);
 
@@ -209,17 +206,25 @@ export default function AddProduct() {
     xhr.send(fd);
   };
 
-  /* ================= SHARE ================= */
+  /* ================= SHARE (WHATSAPP-FIRST + DELIVERY) ================= */
   const productUrl = (id) =>
     `${window.location.origin}/product/${id}`;
 
   const shareWhatsApp = (product) => {
     const url = productUrl(product.id);
 
+    const deliveryText =
+      product.delivery?.tier === "0-7"
+        ? "⚡ Fast Delivery (0–7 days)"
+        : product.delivery?.tier === "7-14"
+        ? "🚚 Standard Delivery (7–14 days)"
+        : "📦 Extended Delivery (14–30 days)";
+
     const message =
-      `🔥 New Product\n\n` +
+      `🔥 *New Listing*\n\n` +
       `${product.title}\n` +
-      `₦${product.price}\n\n` +
+      `₦${product.price}\n` +
+      `${deliveryText}\n\n` +
       `${url}`;
 
     window.open(
@@ -233,6 +238,7 @@ export default function AddProduct() {
     alert("Link copied!");
   };
 
+  /* ================= LOCATION ================= */
   const states = Object.keys(locationsByState || {});
   const cities = state ? locationsByState[state] || [] : [];
 
@@ -242,9 +248,7 @@ export default function AddProduct() {
 
       {/* HEADER */}
       <div className="glass-header">
-        <button className="glass-back-btn" onClick={() => navigate(-1)}>
-          ← Back
-        </button>
+        <button onClick={() => navigate(-1)}>← Back</button>
         <h2>Add Product</h2>
       </div>
 
@@ -276,10 +280,17 @@ export default function AddProduct() {
         }
       />
 
+      {/* CATEGORY */}
       <DropdownModal
         label="Category"
         value={form.category_id}
-        onChange={(v) => updateForm("category_id", v)}
+        onChange={(v) => {
+          setForm((p) => ({
+            ...p,
+            category_id: v,
+            attributes: {}, // FIX: prevents dual-condition bug
+          }));
+        }}
         options={categories.map((c) => ({
           id: c.id,
           name: c.name,
@@ -294,7 +305,7 @@ export default function AddProduct() {
         options={optionsMap.condition}
       />
 
-      {/* USED DETAIL ONLY IF USED */}
+      {/* USED DETAIL */}
       {isUsed && (
         <DropdownModal
           label="Used Condition Detail"
@@ -314,6 +325,22 @@ export default function AddProduct() {
           options={optionsMap[f] || []}
         />
       ))}
+
+      {/* DELIVERY (PROFESSIONAL) */}
+      <DropdownModal
+        label="Delivery Time"
+        value={form.delivery.tier}
+        onChange={(v) =>
+          setForm((p) => ({
+            ...p,
+            delivery: {
+              ...p.delivery,
+              tier: v,
+            },
+          }))
+        }
+        options={deliveryOptions}
+      />
 
       {/* LOCATION */}
       <DropdownModal
@@ -369,11 +396,10 @@ export default function AddProduct() {
         onChange={(e) => handleImages(e.target.files)}
       />
 
-      {/* PREVIEW */}
       <div className="preview-grid">
         {previews.map((src, i) => (
-          <div key={i} className="preview-item">
-            <img src={src} alt="preview" />
+          <div key={i}>
+            <img src={src} alt="" />
             <button onClick={() => removeImage(i)}>×</button>
           </div>
         ))}
@@ -388,15 +414,10 @@ export default function AddProduct() {
         <div className="share-overlay">
           <div className="share-modal">
 
-            <h2>🎉 Product Created</h2>
-
-            <div className="share-preview">
-              <h3>{createdProduct.title}</h3>
-              <p>₦{createdProduct.price}</p>
-            </div>
+            <h2>🎉 Product Live</h2>
 
             <button onClick={() => shareWhatsApp(createdProduct)}>
-              Share on WhatsApp
+              📲 Share on WhatsApp
             </button>
 
             <button onClick={() => copyLink(createdProduct)}>
@@ -405,17 +426,14 @@ export default function AddProduct() {
 
             <button
               onClick={() =>
-                (window.location.href = `/product/${createdProduct.id}`)
+                navigate(`/product/${createdProduct.id}`)
               }
             >
               View Product
             </button>
 
-            <button
-              className="cancel-btn"
-              onClick={() => setShowShare(false)}
-            >
-              Cancel
+            <button onClick={() => setShowShare(false)}>
+              Done
             </button>
 
           </div>
