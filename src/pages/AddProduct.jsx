@@ -56,23 +56,32 @@ export default function AddProduct() {
   }, []);
 
   /* ================= CATEGORY ================= */
-  const selectedCategory = useMemo(() => {
-    return categories.find(
-      (c) => String(c.id) === String(form.category_id)
-    );
-  }, [categories, form.category_id]);
+  const selectedCategory = useMemo(
+    () => categories.find((c) => String(c.id) === String(form.category_id)),
+    [categories, form.category_id]
+  );
 
   const dynamicFields = selectedCategory?.dynamicOptions?.fields || [];
   const options = selectedCategory?.dynamicOptions || {};
   const brand = form.attributes?.brand;
 
-  const optionsMap = useMemo(() => ({
-    brand: options.brands || [],
-    model: options.models?.[brand] || [],
-    color: options.colors || [],
-    condition: options.conditions || [],
-    used_detail: options.usedDetails || [],
-  }), [options, brand]);
+  const optionsMap = useMemo(
+    () => ({
+      brand: options.brands || [],
+      model: options.models?.[brand] || [],
+      color: options.colors || [],
+      condition: options.conditions || [],
+      used_detail: options.usedDetails || [],
+      ram: options.ram || [],
+      storage: options.storage || [],
+      sim: options.sims || [],
+      year: options.years || [],
+      engine: options.engines || [],
+      fuel_type: options.fuel_types || [],
+      features: options.features || [],
+    }),
+    [options, brand]
+  );
 
   const isUsed = form.attributes?.condition === "used";
 
@@ -85,6 +94,23 @@ export default function AddProduct() {
       ...p,
       attributes: { ...p.attributes, [k]: v },
     }));
+
+  const toggleFeature = (value) => {
+    setForm((p) => {
+      const current = p.attributes.features || [];
+      const updated = current.includes(value)
+        ? current.filter((v) => v !== value)
+        : [...current, value];
+
+      return {
+        ...p,
+        attributes: {
+          ...p.attributes,
+          features: updated,
+        },
+      };
+    });
+  };
 
   const onlyNumbers = (v) => v.replace(/[^\d]/g, "");
 
@@ -102,12 +128,9 @@ export default function AddProduct() {
     if (form.description.trim().length < 30) return "Description too short";
     if (!form.price) return "Price required";
     if (!form.category_id) return "Select category";
-
     if (!form.contact.phone || form.contact.phone.length < 10)
       return "Valid phone required";
-
-    if (!form.attributes.condition)
-      return "Select condition";
+    if (!form.attributes.condition) return "Select condition";
 
     if (form.delivery.available) {
       if (!form.delivery.from_days || !form.delivery.to_days)
@@ -208,17 +231,13 @@ export default function AddProduct() {
     `${window.location.origin}/product/${id}`;
 
   const shareWhatsApp = (p) => {
-    const deliveryText = p.delivery?.available
-      ? `🚚 ${p.delivery.from_days}-${p.delivery.to_days} days` +
-        (p.delivery.fee_required
-          ? ` | Fee ₦${p.delivery.fee}`
-          : " | Free delivery")
-      : "No delivery";
+    const msg = `🔥 *New Product*\n\n${p.title}\n₦${p.price}\n${productUrl(
+      p.id
+    )}`;
 
-    const msg =
-      `🔥 *New Product*\n\n${p.title}\n₦${p.price}\n${deliveryText}\n\n${productUrl(p.id)}`;
-
-    window.open(`https://wa.me/?text=${encodeURIComponent(msg)}`);
+    window.open(
+      `https://wa.me/?text=${encodeURIComponent(msg)}`
+    );
   };
 
   /* ================= LOCATION ================= */
@@ -278,7 +297,7 @@ export default function AddProduct() {
         }))}
       />
 
-      {/* ATTRIBUTES */}
+      {/* CONDITION */}
       <DropdownModal
         label="Condition"
         value={form.attributes.condition || ""}
@@ -286,6 +305,7 @@ export default function AddProduct() {
         options={optionsMap.condition}
       />
 
+      {/* USED DETAIL */}
       {isUsed && (
         <DropdownModal
           label="Used Detail"
@@ -295,93 +315,56 @@ export default function AddProduct() {
         />
       )}
 
-      {dynamicFields.map((f) => (
-        <DropdownModal
-          key={f}
-          label={formatLabel(f)}
-          value={form.attributes[f] || ""}
-          onChange={(v) => updateAttr(f, v)}
-          options={optionsMap[f] || []}
-        />
-      ))}
+      {/* DYNAMIC FIELDS */}
+      {dynamicFields.map((f) => {
+        if (f === "used_detail" && !isUsed) return null;
 
-      {/* DELIVERY */}
-      <div className="form-section">
-        <h3>Delivery</h3>
-
-        <label className="toggle-row">
-          <input
-            type="checkbox"
-            checked={form.delivery.available}
-            onChange={(e) =>
-              updateForm("delivery", {
-                ...form.delivery,
-                available: e.target.checked,
-              })
-            }
-          />
-          Available
-        </label>
-
-        {form.delivery.available && (
-          <>
-            <div className="delivery-row">
-              <input
-                placeholder="From days"
-                value={form.delivery.from_days}
-                onChange={(e) =>
-                  updateForm("delivery", {
-                    ...form.delivery,
-                    from_days: e.target.value,
-                  })
-                }
-              />
-              <input
-                placeholder="To days"
-                value={form.delivery.to_days}
-                onChange={(e) =>
-                  updateForm("delivery", {
-                    ...form.delivery,
-                    to_days: e.target.value,
-                  })
-                }
-              />
+        if (f === "features") {
+          return (
+            <div key="features" className="checkbox-group">
+              <label>Features</label>
+              {optionsMap.features.map((opt) => (
+                <label key={opt}>
+                  <input
+                    type="checkbox"
+                    checked={
+                      form.attributes.features?.includes(opt) || false
+                    }
+                    onChange={() => toggleFeature(opt)}
+                  />
+                  {opt}
+                </label>
+              ))}
             </div>
+          );
+        }
 
-            <label className="toggle-row">
-              <input
-                type="checkbox"
-                checked={form.delivery.fee_required}
-                onChange={(e) =>
-                  updateForm("delivery", {
-                    ...form.delivery,
-                    fee_required: e.target.checked,
-                  })
-                }
-              />
-              Delivery Fee Required
-            </label>
-
-            {form.delivery.fee_required && (
-              <input
-                placeholder="Fee ₦"
-                value={form.delivery.fee}
-                onChange={(e) =>
-                  updateForm("delivery", {
-                    ...form.delivery,
-                    fee: onlyNumbers(e.target.value),
-                  })
-                }
-              />
-            )}
-          </>
-        )}
-      </div>
+        return (
+          <DropdownModal
+            key={f}
+            label={formatLabel(f)}
+            value={form.attributes[f] || ""}
+            onChange={(v) => updateAttr(f, v)}
+            options={optionsMap[f] || []}
+          />
+        );
+      })}
 
       {/* LOCATION */}
-      <DropdownModal label="State" value={state} onChange={setState} options={states} />
+      <DropdownModal
+        label="State"
+        value={state}
+        onChange={setState}
+        options={states}
+      />
+
       {state && (
-        <DropdownModal label="City" value={city} onChange={setCity} options={cities} />
+        <DropdownModal
+          label="City"
+          value={city}
+          onChange={setCity}
+          options={cities}
+        />
       )}
 
       {/* CONTACT */}
@@ -408,11 +391,15 @@ export default function AddProduct() {
       />
 
       {/* IMAGES */}
-      <input type="file" multiple onChange={(e) => handleImages(e.target.files)} />
+      <input
+        type="file"
+        multiple
+        onChange={(e) => handleImages(e.target.files)}
+      />
 
       <div className="preview-grid">
         {previews.map((src, i) => (
-          <div key={i} className="preview-item">
+          <div key={i}>
             <img src={src} alt="" />
             <button onClick={() => removeImage(i)}>×</button>
           </div>
@@ -427,26 +414,32 @@ export default function AddProduct() {
       {showShare && createdProduct && (
         <div className="share-overlay">
           <div className="share-modal">
-            <h2>🎉 Product Live</h2>
+            <h2>Product Created</h2>
 
             <button onClick={() => shareWhatsApp(createdProduct)}>
-              Share WhatsApp
+              WhatsApp
             </button>
 
-            <button onClick={() =>
-              navigator.clipboard.writeText(productUrl(createdProduct.id))
-            }>
+            <button
+              onClick={() =>
+                navigator.clipboard.writeText(
+                  productUrl(createdProduct.id)
+                )
+              }
+            >
               Copy Link
             </button>
 
-            <button onClick={() =>
-              navigate(`/product/${createdProduct.id}`)
-            }>
-              View Product
+            <button
+              onClick={() =>
+                navigate(`/product/${createdProduct.id}`)
+              }
+            >
+              View
             </button>
 
             <button onClick={() => setShowShare(false)}>
-              Done
+              Close
             </button>
           </div>
         </div>
