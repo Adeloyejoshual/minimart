@@ -53,7 +53,10 @@ export default function AddProduct() {
   }, []);
 
   const selectedCategory = useMemo(
-    () => categories.find((c) => String(c.id) === String(form.category_id)),
+    () =>
+      categories.find(
+        (c) => String(c.id) === String(form.category_id)
+      ),
     [categories, form.category_id]
   );
 
@@ -61,16 +64,25 @@ export default function AddProduct() {
   const options = selectedCategory?.dynamicOptions || {};
   const brand = form.attributes?.brand;
 
+  /* ================= BACKEND-DRIVEN OPTIONS ================= */
   const optionsMap = useMemo(
     () => ({
       brand: options.brands || [],
       model: options.models?.[brand] || [],
       color: options.colors || [],
-      condition: ["new", "used"],
-      used_detail: ["like new", "excellent", "good", "fair", "repair needed"],
+
+      // ✅ fully backend controlled (NO hardcoding)
+      condition: options.conditions || options.condition || [],
+
+      used_detail:
+        options.used_details ||
+        options.usedDetails ||
+        [],
     }),
     [options, brand]
   );
+
+  const isUsed = form.attributes.condition === "used";
 
   /* ================= HELPERS ================= */
   const updateForm = (key, value) =>
@@ -197,7 +209,7 @@ export default function AddProduct() {
     xhr.send(fd);
   };
 
-  /* ================= SHARE ACTIONS ================= */
+  /* ================= SHARE ================= */
   const productUrl = (id) =>
     `${window.location.origin}/product/${id}`;
 
@@ -228,7 +240,7 @@ export default function AddProduct() {
   return (
     <div className="add-product-container">
 
-      {/* GLASS HEADER */}
+      {/* HEADER */}
       <div className="glass-header">
         <button className="glass-back-btn" onClick={() => navigate(-1)}>
           ← Back
@@ -274,6 +286,7 @@ export default function AddProduct() {
         }))}
       />
 
+      {/* CONDITION */}
       <DropdownModal
         label="Condition"
         value={form.attributes.condition || ""}
@@ -281,7 +294,8 @@ export default function AddProduct() {
         options={optionsMap.condition}
       />
 
-      {form.attributes.condition === "used" && (
+      {/* USED DETAIL ONLY IF USED */}
+      {isUsed && (
         <DropdownModal
           label="Used Condition Detail"
           value={form.attributes.used_detail || ""}
@@ -290,6 +304,7 @@ export default function AddProduct() {
         />
       )}
 
+      {/* DYNAMIC FIELDS */}
       {dynamicFields.map((f) => (
         <DropdownModal
           key={f}
@@ -300,6 +315,7 @@ export default function AddProduct() {
         />
       ))}
 
+      {/* LOCATION */}
       <DropdownModal
         label="State"
         value={state}
@@ -316,6 +332,7 @@ export default function AddProduct() {
         />
       )}
 
+      {/* CONTACT */}
       <input
         placeholder="Phone number"
         value={form.contact.phone}
