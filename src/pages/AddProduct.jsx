@@ -10,7 +10,6 @@ const INITIAL_FORM = {
   description: "",
   price: "",
   category_id: "",
-  subcategory_id: "",
   attributes: {},
 
   delivery: {
@@ -47,7 +46,7 @@ export default function AddProduct() {
   const [createdProduct, setCreatedProduct] = useState(null);
   const [showShare, setShowShare] = useState(false);
 
-  /* ================= FETCH ================= */
+  /* ================= FETCH CATEGORIES ================= */
   useEffect(() => {
     fetch("https://minimart-ivrm.onrender.com/api/marketplace/categories")
       .then((r) => r.json())
@@ -55,15 +54,21 @@ export default function AddProduct() {
       .catch(console.error);
   }, []);
 
-  /* ================= CATEGORY ================= */
-  const selectedCategory = useMemo(
-    () => categories.find((c) => String(c.id) === String(form.category_id)),
-    [categories, form.category_id]
-  );
+  /* ================= CATEGORY RESOLUTION ================= */
+  const selectedCategory = useMemo(() => {
+    return categories.find(
+      (c) => String(c.id) === String(form.category_id)
+    );
+  }, [categories, form.category_id]);
 
-  const dynamicFields = selectedCategory?.dynamicOptions?.fields || [];
   const options = selectedCategory?.dynamicOptions || {};
   const brand = form.attributes?.brand;
+
+  /* ================= FIELD ENGINE ================= */
+  const fields = useMemo(() => {
+    const dynamic = selectedCategory?.dynamicOptions?.fields || [];
+    return ["condition", ...dynamic];
+  }, [selectedCategory]);
 
   const optionsMap = useMemo(
     () => ({
@@ -83,8 +88,6 @@ export default function AddProduct() {
     [options, brand]
   );
 
-  const isUsed = form.attributes?.condition === "used";
-
   /* ================= HELPERS ================= */
   const updateForm = (k, v) =>
     setForm((p) => ({ ...p, [k]: v }));
@@ -95,32 +98,10 @@ export default function AddProduct() {
       attributes: { ...p.attributes, [k]: v },
     }));
 
-  const toggleFeature = (value) => {
-    setForm((p) => {
-      const current = p.attributes.features || [];
-      const updated = current.includes(value)
-        ? current.filter((v) => v !== value)
-        : [...current, value];
-
-      return {
-        ...p,
-        attributes: {
-          ...p.attributes,
-          features: updated,
-        },
-      };
-    });
-  };
-
-  const onlyNumbers = (v) => v.replace(/[^\d]/g, "");
-
-  const formatPrice = (v) => {
-    const n = v.replace(/,/g, "").replace(/[^\d]/g, "");
-    return n.replace(/\B(?=(\d{3})+(?!\d))/g, ",");
-  };
-
   const formatLabel = (t) =>
     t.replace(/_/g, " ").replace(/\b\w/g, (l) => l.toUpperCase());
+
+  const onlyNumbers = (v) => v.replace(/[^\d]/g, "");
 
   /* ================= VALIDATION ================= */
   const validate = () => {
@@ -130,7 +111,9 @@ export default function AddProduct() {
     if (!form.category_id) return "Select category";
     if (!form.contact.phone || form.contact.phone.length < 10)
       return "Valid phone required";
-    if (!form.attributes.condition) return "Select condition";
+
+    if (!form.attributes.condition)
+      return "Select condition";
 
     if (form.delivery.available) {
       if (!form.delivery.from_days || !form.delivery.to_days)
@@ -231,9 +214,9 @@ export default function AddProduct() {
     `${window.location.origin}/product/${id}`;
 
   const shareWhatsApp = (p) => {
-    const msg = `🔥 *New Product*\n\n${p.title}\n₦${p.price}\n${productUrl(
-      p.id
-    )}`;
+    const msg =
+      `🔥 *New Product*\n\n${p.title}\n₦${p.price}\n` +
+      `${productUrl(p.id)}`;
 
     window.open(
       `https://wa.me/?text=${encodeURIComponent(msg)}`
@@ -243,6 +226,8 @@ export default function AddProduct() {
   /* ================= LOCATION ================= */
   const states = Object.keys(locationsByState || {});
   const cities = state ? locationsByState[state] : [];
+
+  const isUsed = form.attributes?.condition === "used";
 
   /* ================= UI ================= */
   return (
@@ -276,7 +261,7 @@ export default function AddProduct() {
         placeholder="Price"
         value={form.price}
         onChange={(e) =>
-          updateForm("price", formatPrice(e.target.value))
+          updateForm("price", e.target.value.replace(/[^\d,]/g, ""))
         }
       />
 
@@ -297,53 +282,17 @@ export default function AddProduct() {
         }))}
       />
 
-      {/* CONDITION */}
-      <DropdownModal
-        label="Condition"
-        value={form.attributes.condition || ""}
-        onChange={(v) => updateAttr("condition", v)}
-        options={optionsMap.condition}
-      />
+      {/* FIELD ENGINE (UNIFIED DROPDOWNS) */}
+      {fields.map((f) => {
+        const value = form.attributes?.[f] || "";
 
-      {/* USED DETAIL */}
-      {isUsed && (
-        <DropdownModal
-          label="Used Detail"
-          value={form.attributes.used_detail || ""}
-          onChange={(v) => updateAttr("used_detail", v)}
-          options={optionsMap.used_detail}
-        />
-      )}
-
-      {/* DYNAMIC FIELDS */}
-      {dynamicFields.map((f) => {
         if (f === "used_detail" && !isUsed) return null;
-
-        if (f === "features") {
-          return (
-            <div key="features" className="checkbox-group">
-              <label>Features</label>
-              {optionsMap.features.map((opt) => (
-                <label key={opt}>
-                  <input
-                    type="checkbox"
-                    checked={
-                      form.attributes.features?.includes(opt) || false
-                    }
-                    onChange={() => toggleFeature(opt)}
-                  />
-                  {opt}
-                </label>
-              ))}
-            </div>
-          );
-        }
 
         return (
           <DropdownModal
             key={f}
             label={formatLabel(f)}
-            value={form.attributes[f] || ""}
+            value={value}
             onChange={(v) => updateAttr(f, v)}
             options={optionsMap[f] || []}
           />
@@ -399,7 +348,7 @@ export default function AddProduct() {
 
       <div className="preview-grid">
         {previews.map((src, i) => (
-          <div key={i}>
+          <div key={i} className="preview-item">
             <img src={src} alt="" />
             <button onClick={() => removeImage(i)}>×</button>
           </div>
@@ -414,10 +363,10 @@ export default function AddProduct() {
       {showShare && createdProduct && (
         <div className="share-overlay">
           <div className="share-modal">
-            <h2>Product Created</h2>
+            <h2>🎉 Product Live</h2>
 
             <button onClick={() => shareWhatsApp(createdProduct)}>
-              WhatsApp
+              Share WhatsApp
             </button>
 
             <button
@@ -435,11 +384,11 @@ export default function AddProduct() {
                 navigate(`/product/${createdProduct.id}`)
               }
             >
-              View
+              View Product
             </button>
 
             <button onClick={() => setShowShare(false)}>
-              Close
+              Done
             </button>
           </div>
         </div>
