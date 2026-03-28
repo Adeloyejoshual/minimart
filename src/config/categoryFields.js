@@ -9,7 +9,6 @@ export const categoryFields = {
     "ram",
     "storage",
     "sim",
-    "colors",
     "features"
   ],
 
