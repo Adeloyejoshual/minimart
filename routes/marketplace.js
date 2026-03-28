@@ -57,11 +57,25 @@ const safeJSON = (value, fallback = {}) => {
   }
 };
 
+/* ✅ DELIVERY NORMALIZER (NEW) */
+const normalizeDelivery = (d = {}) => {
+  return {
+    available: d?.available ?? false,
+    duration: {
+      from: Number(d?.duration?.from ?? 0),
+      to: Number(d?.duration?.to ?? 0),
+    },
+    fee: d?.fee ?? null, // optional
+    type: d?.type || "optional",
+    note: d?.note || "",
+  };
+};
+
 const normalizeProduct = (p) => ({
   ...p,
   images: p.images || [],
   attributes: p.attributes || {},
-  delivery: p.delivery || {},
+  delivery: normalizeDelivery(p.delivery),
   contact: p.contact || {},
   location: {
     state: p.location_state,
@@ -193,9 +207,22 @@ router.post("/products", upload.array("images", 10), async (req, res) => {
       return res.status(400).json({ message: "Missing required fields" });
     }
 
-    const attributes = {
-      ...safeJSON(req.body.attributes),
-    };
+    const attributes = safeJSON(req.body.attributes);
+
+    /* ✅ DELIVERY PARSE + VALIDATION */
+    const rawDelivery = safeJSON(req.body.delivery, {});
+
+    const delivery = normalizeDelivery(rawDelivery);
+
+    if (delivery.available) {
+      if (delivery.duration.from < 0) {
+        return res.status(400).json({ message: "Invalid delivery 'from'" });
+      }
+
+      if (delivery.duration.to <= delivery.duration.from) {
+        return res.status(400).json({ message: "'To' must be greater than 'From'" });
+      }
+    }
 
     const { rows } = await client.query(
       `
@@ -214,7 +241,7 @@ router.post("/products", upload.array("images", 10), async (req, res) => {
         category_id,
         req.body.subcategory_id || null,
         attributes,
-        safeJSON(req.body.delivery),
+        delivery,
         safeJSON(req.body.contact),
         req.body.promotion_id || null,
         req.body.location_state,
@@ -235,7 +262,10 @@ router.post("/products", upload.array("images", 10), async (req, res) => {
     }
 
     await client.query("COMMIT");
-    res.status(201).json({ product: normalizeProduct(product) });
+
+    res.status(201).json({
+      product: normalizeProduct(product),
+    });
   } catch (err) {
     await client.query("ROLLBACK");
     console.error(err);
@@ -262,7 +292,6 @@ router.get("/categories", async (req, res) => {
     rows.forEach((cat) => {
       const key = cat.fields_key || "";
 
-      /* 🔥 FIX: REMOVE condition duplication */
       const rawFields = categoryFields[key] || [];
       const filteredFields = rawFields.filter(
         (f) => f !== "condition" && f !== "used_detail"
@@ -273,13 +302,12 @@ router.get("/categories", async (req, res) => {
         dynamicOptions: {
           fields: filteredFields,
 
-          // DATA OPTIONS (NOT STRUCTURE)
           brands: brands[key] || [],
           models: models[key] || {},
           colors: colors[key] || [],
 
-          conditions,        // single source
-          usedDetails,       // single source
+          conditions,
+          usedDetails,
 
           ram: ramOptions,
           storage: storageOptions,
