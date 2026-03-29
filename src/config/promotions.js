@@ -1,5 +1,14 @@
 export const promotionPlans = [
   {
+    id: 0,
+    name: "Free Listing",
+    duration: "Always",
+    price: 0,
+    priority: 0,
+    features: ["Standard visibility", "Basic listing"],
+    description: "Free product listing with standard visibility",
+  },
+  {
     id: 1,
     name: "Basic Boost",
     duration: "7 days",
