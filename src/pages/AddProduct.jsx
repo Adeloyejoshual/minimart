@@ -54,48 +54,72 @@ export default function AddProduct() {
 
   /* ================= CATEGORY ================= */
   const selectedCategory = useMemo(
-    () => categories.find((c) => String(c.id) === String(form.category_id)),
+    () =>
+      categories.find((c) => String(c.id) === String(form.category_id)),
     [categories, form.category_id]
   );
 
   const options = selectedCategory?.dynamicOptions || {};
   const brand = form.attributes?.brand;
 
+  /* ================= SAFE NORMALIZER ================= */
+  const normalizeOptions = (list = []) =>
+    Array.isArray(list)
+      ? list.map((item) =>
+          typeof item === "string"
+            ? { id: item, name: item }
+            : item
+        )
+      : [];
+
+  /* ================= FIELDS ================= */
   const fields = useMemo(() => {
     const dynamic = selectedCategory?.dynamicOptions?.fields || [];
     return ["condition", ...dynamic];
   }, [selectedCategory]);
 
-  const optionsMap = useMemo(
-    () => ({
-      brand: options.brands || [],
-      model: options.models?.[brand] || [],
-      color: options.colors || [],
-      condition: options.conditions || [],
-      used_detail: options.usedDetails || [],
-      ram: options.ram || [],
-      storage: options.storage || [],
-      sim: options.sims || [],
-      year: options.years || [],
-      engine: options.engines || [],
-      fuel_type: options.fuel_types || [],
-      features: options.features || [],
-    }),
-    [options, brand]
-  );
+  /* ================= OPTIONS MAP (FIXED) ================= */
+  const optionsMap = useMemo(() => {
+    const modelsForBrand =
+      options.models?.[brand] || [];
+
+    return {
+      brand: normalizeOptions(options.brands),
+      model: normalizeOptions(modelsForBrand),
+      color: normalizeOptions(options.colors),
+      condition: normalizeOptions(options.conditions),
+      used_detail: normalizeOptions(options.usedDetails),
+      ram: normalizeOptions(options.ram),
+      storage: normalizeOptions(options.storage),
+      sim: normalizeOptions(options.sims),
+      year: normalizeOptions(options.years),
+      engine: normalizeOptions(options.engines),
+      fuel_type: normalizeOptions(options.fuel_types),
+      features: normalizeOptions(options.features),
+    };
+  }, [options, brand]);
 
   /* ================= HELPERS ================= */
   const update = (key, value) =>
     setForm((p) => ({ ...p, [key]: value }));
 
   const updateAttr = (key, value) =>
-    setForm((p) => ({
-      ...p,
-      attributes: {
+    setForm((p) => {
+      const updated = {
         ...p.attributes,
         [key]: value,
-      },
-    }));
+      };
+
+      /* RESET MODEL WHEN BRAND CHANGES */
+      if (key === "brand") {
+        updated.model = "";
+      }
+
+      return {
+        ...p,
+        attributes: updated,
+      };
+    });
 
   const onlyNumbers = (v) => v.replace(/[^\d]/g, "");
 
@@ -215,7 +239,7 @@ export default function AddProduct() {
     xhr.send(fd);
   };
 
-  const states = Object.keys(locationsByState || []);
+  const states = Object.keys(locationsByState || {});
   const cities = state ? locationsByState[state] : [];
 
   /* ================= UI ================= */
@@ -269,6 +293,7 @@ export default function AddProduct() {
       {/* DYNAMIC FIELDS */}
       {fields.map((f) => {
         const value = form.attributes?.[f] || "";
+
         if (f === "used_detail" && form.attributes.condition !== "used")
           return null;
 
@@ -360,34 +385,6 @@ export default function AddProduct() {
                 }))
               }
             />
-
-            <input
-              placeholder="Fee"
-              value={form.delivery.fee}
-              onChange={(e) =>
-                setForm((p) => ({
-                  ...p,
-                  delivery: {
-                    ...p.delivery,
-                    fee: e.target.value.replace(/[^\d]/g, ""),
-                  },
-                }))
-              }
-            />
-
-            <textarea
-              placeholder="Note"
-              value={form.delivery.note}
-              onChange={(e) =>
-                setForm((p) => ({
-                  ...p,
-                  delivery: {
-                    ...p.delivery,
-                    note: e.target.value,
-                  },
-                }))
-              }
-            />
           </>
         )}
       </div>
@@ -433,7 +430,11 @@ export default function AddProduct() {
       />
 
       {/* IMAGES */}
-      <input type="file" multiple onChange={(e) => handleImages(e.target.files)} />
+      <input
+        type="file"
+        multiple
+        onChange={(e) => handleImages(e.target.files)}
+      />
 
       <div className="preview-grid">
         {previews.map((src, i) => (
