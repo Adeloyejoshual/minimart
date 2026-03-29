@@ -7,16 +7,10 @@ import dotenv from "dotenv";
 import http from "http";
 import { Server as SocketIOServer } from "socket.io";
 
-/* ================= ROUTES ================= */
-import marketplaceRouter from "./routes/marketplace.js";
-import userRouter from "./routes/users.js";
-import messagesRouter from "./routes/messages.js";
-import adminRouter from "./routes/admin.js";
-import searchRouter from "./routes/search.js";
-import productDetailRouter from "./routes/productDetail.js"; // ✅ NEW
-
+/* ================= CONFIG ================= */
 dotenv.config();
 
+/* ================= APP ================= */
 const app = express();
 const PORT = process.env.PORT || 5000;
 
@@ -32,9 +26,15 @@ export const pool = new Pool({
   ssl: { rejectUnauthorized: false },
 });
 
-pool.connect()
-  .then(() => console.log("✅ CockroachDB connected"))
-  .catch((err) => console.error("❌ DB ERROR:", err.message));
+/* ================= DB CONNECT ================= */
+(async () => {
+  try {
+    await pool.connect();
+    console.log("✅ CockroachDB connected");
+  } catch (err) {
+    console.error("❌ DB ERROR:", err.message);
+  }
+})();
 
 /* ================= GLOBAL CACHE ================= */
 export const cache = new Map();
@@ -67,14 +67,14 @@ app.use((req, res, next) => {
   next();
 });
 
-/* ================= RATE LIMIT (IMPROVED) ================= */
+/* ================= RATE LIMIT ================= */
 const rateLimitMap = new Map();
 
 app.use((req, res, next) => {
   const ip = req.ip;
   const now = Date.now();
 
-  const windowMs = 2000; // 2 seconds window
+  const windowMs = 2000;
   const maxReq = 80;
 
   let record = rateLimitMap.get(ip);
@@ -97,12 +97,21 @@ app.use((req, res, next) => {
 });
 
 /* ================= ROUTES ================= */
+import marketplaceRouter from "./routes/marketplace.js";
+import userRouter from "./routes/users.js";
+import messagesRouter from "./routes/messages.js";
+import adminRouter from "./routes/admin.js";
+import searchRouter from "./routes/search.js";
+import productDetailRouter from "./routes/productDetail.js";
+import paymentRouter from "./routes/payment.js"; // ✅ NEW
+
 app.use("/api/marketplace", marketplaceRouter);
 app.use("/api/users", userRouter);
 app.use("/api/messages", messagesRouter);
 app.use("/api/admin", adminRouter);
 app.use("/api/search", searchRouter);
-app.use("/api/product", productDetailRouter); // ✅ NEW
+app.use("/api/product", productDetailRouter);
+app.use("/api/payment", paymentRouter); // ✅ PAYMENT
 
 /* ================= HEALTH ================= */
 app.get("/api/health", async (req, res) => {
@@ -164,7 +173,7 @@ io.on("connection", (socket) => {
   });
 });
 
-/* ================= SPA ================= */
+/* ================= STATIC (PRODUCTION) ================= */
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
