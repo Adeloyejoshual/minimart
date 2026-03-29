@@ -4,8 +4,9 @@ import multer from "multer";
 import { v2 as cloudinary } from "cloudinary";
 import dotenv from "dotenv";
 import axios from "axios";
+import crypto from "crypto";
 
-/* ================= CONFIG IMPORTS ================= */
+/* ================= CONFIG ================= */
 import { brands } from "../src/config/brands.js";
 import { colors } from "../src/config/colors.js";
 import { categoryFields } from "../src/config/categoryFields.js";
@@ -22,6 +23,7 @@ import { locationsByState } from "../src/config/locationsByState.js";
 import { promotionPlans } from "../src/config/promotions.js";
 
 dotenv.config();
+
 const router = express.Router();
 
 /* ================= DB ================= */
@@ -109,7 +111,7 @@ const uploadImages = async (files) => {
 };
 
 /* =========================================================
-🔐 PAYSTACK VERIFY ENDPOINT (CRITICAL SECURITY)
+PAYSTACK VERIFY (OPTIONAL UTILITY ENDPOINT)
 ========================================================= */
 router.get("/payment/verify/:reference", async (req, res) => {
   try {
@@ -140,8 +142,109 @@ router.get("/payment/verify/:reference", async (req, res) => {
       reference: data.reference,
     });
   } catch (err) {
-    console.error(err.response?.data || err.message);
     res.status(500).json({ message: "Verification failed" });
+  }
+});
+
+/* =========================================================
+INITIATE PAYMENT (NEW)
+========================================================= */
+router.post("/payments/initiate", async (req, res) => {
+  try {
+    const { plan_id, product_id, email } = req.body;
+
+    const plan = promotionPlans.find((p) => p.id === plan_id);
+    if (!plan) {
+      return res.status(400).json({ message: "Invalid plan" });
+    }
+
+    const reference = `PSK_${Date.now()}`;
+
+    await pool.query(
+      `INSERT INTO payments (reference, plan_id, product_id, status)
+       VALUES ($1,$2,$3,'pending')`,
+      [reference, plan_id, product_id]
+    );
+
+    const paystack = await axios.post(
+      "https://api.paystack.co/transaction/initialize",
+      {
+        email,
+        amount: plan.price * 100,
+        reference,
+      },
+      {
+        headers: {
+          Authorization: `Bearer ${process.env.PAYSTACK_SECRET_KEY}`,
+        },
+      }
+    );
+
+    res.json(paystack.data);
+  } catch (err) {
+    res.status(500).json({ message: "Payment init failed" });
+  }
+});
+
+/* =========================================================
+PAYSTACK WEBHOOK (SOURCE OF TRUTH)
+========================================================= */
+router.post("/webhooks/paystack", async (req, res) => {
+  try {
+    const hash = crypto
+      .createHmac("sha512", process.env.PAYSTACK_SECRET_KEY)
+      .update(JSON.stringify(req.body))
+      .digest("hex");
+
+    if (hash !== req.headers["x-paystack-signature"]) {
+      return res.sendStatus(401);
+    }
+
+    const event = req.body;
+
+    if (event.event !== "charge.success") {
+      return res.sendStatus(200);
+    }
+
+    const data = event.data;
+
+    const paymentRes = await pool.query(
+      "SELECT * FROM payments WHERE reference=$1",
+      [data.reference]
+    );
+
+    const payment = paymentRes.rows[0];
+    if (!payment) return res.sendStatus(200);
+
+    const plan = promotionPlans.find((p) => p.id === payment.plan_id);
+    if (!plan) return res.sendStatus(200);
+
+    const start = new Date();
+    const end = new Date();
+    end.setDate(end.getDate() + plan.durationDays);
+
+    await pool.query(
+      `
+      UPDATE products
+      SET
+        is_promoted = true,
+        promotion_type = $1,
+        promotion_priority = $2,
+        promotion_start = $3,
+        promotion_end = $4
+      WHERE id = $5
+      `,
+      [plan.id, plan.boostScore, start, end, payment.product_id]
+    );
+
+    await pool.query(
+      "UPDATE payments SET status='success' WHERE reference=$1",
+      [data.reference]
+    );
+
+    res.sendStatus(200);
+  } catch (err) {
+    res.sendStatus(500);
   }
 });
 
@@ -157,11 +260,8 @@ router.get("/products", async (req, res) => {
 
     const baseQuery = `
       SELECT p.*,
-      COALESCE(
-        json_agg(pi.image_url ORDER BY pi.position)
-        FILTER (WHERE pi.image_url IS NOT NULL),
-        '[]'
-      ) AS images
+      COALESCE(json_agg(pi.image_url ORDER BY pi.position)
+      FILTER (WHERE pi.image_url IS NOT NULL), '[]') AS images
       FROM products p
       LEFT JOIN product_images pi ON p.id = pi.product_id
       WHERE p.is_active = true
@@ -188,8 +288,7 @@ router.get("/products", async (req, res) => {
       .filter((p) => !trendingIds.has(p.id));
 
     res.json({ trending, products: [...trending, ...products] });
-  } catch (err) {
-    console.error(err);
+  } catch {
     res.status(500).json({ message: "Failed to fetch products" });
   }
 });
@@ -204,11 +303,8 @@ router.get("/products/:id", async (req, res) => {
     const { rows } = await pool.query(
       `
       SELECT p.*,
-      COALESCE(
-        json_agg(pi.image_url ORDER BY pi.position)
-        FILTER (WHERE pi.image_url IS NOT NULL),
-        '[]'
-      ) AS images
+      COALESCE(json_agg(pi.image_url ORDER BY pi.position)
+      FILTER (WHERE pi.image_url IS NOT NULL), '[]') AS images
       FROM products p
       LEFT JOIN product_images pi ON p.id = pi.product_id
       WHERE p.id = $1
@@ -217,8 +313,9 @@ router.get("/products/:id", async (req, res) => {
       [id]
     );
 
-    if (!rows.length)
+    if (!rows.length) {
       return res.status(404).json({ message: "Product not found" });
+    }
 
     pool.query(
       "UPDATE products SET views = COALESCE(views,0)+1 WHERE id=$1",
@@ -232,7 +329,7 @@ router.get("/products/:id", async (req, res) => {
 });
 
 /* =========================================================
-CREATE PRODUCT (NO TRUST ON FRONTEND PAYMENT)
+CREATE PRODUCT (CLEAN - NO PAYMENT LOGIC)
 ========================================================= */
 router.post("/products", upload.array("images", 10), async (req, res) => {
   const client = await pool.connect();
@@ -249,47 +346,6 @@ router.post("/products", upload.array("images", 10), async (req, res) => {
     const attributes = safeJSON(req.body.attributes);
     const delivery = normalizeDelivery(safeJSON(req.body.delivery, {}));
 
-    const promotion = safeJSON(req.body.promotion, {});
-
-    /* ⛔ DO NOT TRUST FRONTEND PAYMENT */
-    let isPromoted = false;
-    let promotionPriority = 0;
-    let promotionType = null;
-    let promotionStart = null;
-    let promotionEnd = null;
-
-    if (promotion.reference) {
-      // verify server-side
-      const verify = await axios.get(
-        `https://api.paystack.co/transaction/verify/${promotion.reference}`,
-        {
-          headers: {
-            Authorization: `Bearer ${process.env.PAYSTACK_SECRET_KEY}`,
-          },
-        }
-      );
-
-      const data = verify.data.data;
-
-      if (data.status === "success") {
-        const plan = promotionPlans.find(
-          (p) => p.id == promotion.plan_id
-        );
-
-        if (plan) {
-          isPromoted = true;
-          promotionType = plan.id;
-          promotionPriority = plan.price || 0;
-
-          promotionStart = new Date();
-          promotionEnd = new Date();
-          promotionEnd.setDate(
-            promotionEnd.getDate() + Number(promotion.duration || 0)
-          );
-        }
-      }
-    }
-
     const { rows } = await client.query(
       `
       INSERT INTO products (
@@ -304,7 +360,11 @@ router.post("/products", upload.array("images", 10), async (req, res) => {
         location_state, location_city,
         created_at, updated_at
       )
-      VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,now(),now())
+      VALUES (
+        $1,$2,$3,$4,$5,$6,$7,$8,
+        NULL,NULL,NULL,false,NULL,0,
+        $9,$10,now(),now()
+      )
       RETURNING *
       `,
       [
@@ -316,14 +376,6 @@ router.post("/products", upload.array("images", 10), async (req, res) => {
         attributes,
         delivery,
         safeJSON(req.body.contact),
-
-        promotion.plan_id || null,
-        promotionStart,
-        promotionEnd,
-        isPromoted,
-        promotionType,
-        promotionPriority,
-
         req.body.location_state,
         req.body.location_city,
       ]
@@ -346,7 +398,6 @@ router.post("/products", upload.array("images", 10), async (req, res) => {
     res.status(201).json({ product: normalizeProduct(product) });
   } catch (err) {
     await client.query("ROLLBACK");
-    console.error(err);
     res.status(500).json({ message: "Failed to create product" });
   } finally {
     client.release();
