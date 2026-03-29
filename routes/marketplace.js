@@ -43,7 +43,7 @@ cloudinary.config({
 const upload = multer({
   storage: multer.memoryStorage(),
   limits: { fileSize: 5 * 1024 * 1024, files: 10 },
-  fileFilter: (req, file, cb) => {
+  fileFilter: (_, file, cb) => {
     if (!file.mimetype.startsWith("image/")) {
       return cb(new Error("Only images allowed"));
     }
@@ -58,6 +58,23 @@ const safeJSON = (value, fallback = {}) => {
   } catch {
     return fallback;
   }
+};
+
+const parseDurationDays = (duration) => {
+  if (!duration) return 0;
+  const match = String(duration).match(/(\d+)/);
+  return match ? parseInt(match[1], 10) : 0;
+};
+
+const getPlan = (id) => {
+  const plan = promotionPlans.find((p) => p.id == id);
+  if (!plan) return null;
+
+  return {
+    ...plan,
+    durationDays: parseDurationDays(plan.duration),
+    boostScore: plan.priority ?? 0,
+  };
 };
 
 const normalizeDelivery = (d = {}) => ({
@@ -110,9 +127,7 @@ const uploadImages = async (files) => {
   );
 };
 
-/* =========================================================
-PAYSTACK VERIFY (OPTIONAL UTILITY ENDPOINT)
-========================================================= */
+/* ================= PAYSTACK VERIFY ================= */
 router.get("/payment/verify/:reference", async (req, res) => {
   try {
     const { reference } = req.params;
@@ -129,10 +144,7 @@ router.get("/payment/verify/:reference", async (req, res) => {
     const data = response.data.data;
 
     if (data.status !== "success") {
-      return res.status(400).json({
-        success: false,
-        message: "Payment not successful",
-      });
+      return res.status(400).json({ success: false });
     }
 
     res.json({
@@ -141,21 +153,33 @@ router.get("/payment/verify/:reference", async (req, res) => {
       customer: data.customer,
       reference: data.reference,
     });
-  } catch (err) {
+  } catch {
     res.status(500).json({ message: "Verification failed" });
   }
 });
 
-/* =========================================================
-INITIATE PAYMENT (NEW)
-========================================================= */
+/* ================= INIT PAYMENT ================= */
 router.post("/payments/initiate", async (req, res) => {
   try {
     const { plan_id, product_id, email } = req.body;
 
-    const plan = promotionPlans.find((p) => p.id === plan_id);
-    if (!plan) {
-      return res.status(400).json({ message: "Invalid plan" });
+    const plan = getPlan(plan_id);
+    if (!plan) return res.status(400).json({ message: "Invalid plan" });
+
+    /* FREE PLAN → skip Paystack */
+    if (plan.price === 0) {
+      await pool.query(
+        `UPDATE products
+         SET is_promoted = false,
+             promotion_priority = 0
+         WHERE id = $1`,
+        [product_id]
+      );
+
+      return res.json({
+        success: true,
+        message: "Free plan applied",
+      });
     }
 
     const reference = `PSK_${Date.now()}`;
@@ -181,14 +205,12 @@ router.post("/payments/initiate", async (req, res) => {
     );
 
     res.json(paystack.data);
-  } catch (err) {
+  } catch {
     res.status(500).json({ message: "Payment init failed" });
   }
 });
 
-/* =========================================================
-PAYSTACK WEBHOOK (SOURCE OF TRUTH)
-========================================================= */
+/* ================= PAYSTACK WEBHOOK ================= */
 router.post("/webhooks/paystack", async (req, res) => {
   try {
     const hash = crypto
@@ -202,9 +224,7 @@ router.post("/webhooks/paystack", async (req, res) => {
 
     const event = req.body;
 
-    if (event.event !== "charge.success") {
-      return res.sendStatus(200);
-    }
+    if (event.event !== "charge.success") return res.sendStatus(200);
 
     const data = event.data;
 
@@ -216,7 +236,7 @@ router.post("/webhooks/paystack", async (req, res) => {
     const payment = paymentRes.rows[0];
     if (!payment) return res.sendStatus(200);
 
-    const plan = promotionPlans.find((p) => p.id === payment.plan_id);
+    const plan = getPlan(payment.plan_id);
     if (!plan) return res.sendStatus(200);
 
     const start = new Date();
@@ -224,17 +244,20 @@ router.post("/webhooks/paystack", async (req, res) => {
     end.setDate(end.getDate() + plan.durationDays);
 
     await pool.query(
-      `
-      UPDATE products
-      SET
-        is_promoted = true,
-        promotion_type = $1,
-        promotion_priority = $2,
-        promotion_start = $3,
-        promotion_end = $4
-      WHERE id = $5
-      `,
-      [plan.id, plan.boostScore, start, end, payment.product_id]
+      `UPDATE products
+       SET is_promoted = true,
+           promotion_type = $1,
+           promotion_priority = $2,
+           promotion_start = $3,
+           promotion_end = $4
+       WHERE id = $5`,
+      [
+        plan.id,
+        plan.boostScore,
+        start,
+        end,
+        payment.product_id,
+      ]
     );
 
     await pool.query(
@@ -243,14 +266,12 @@ router.post("/webhooks/paystack", async (req, res) => {
     );
 
     res.sendStatus(200);
-  } catch (err) {
+  } catch {
     res.sendStatus(500);
   }
 });
 
-/* =========================================================
-GET PRODUCTS
-========================================================= */
+/* ================= PRODUCTS ================= */
 router.get("/products", async (req, res) => {
   try {
     let { skip = 0, limit = 20 } = req.query;
@@ -272,9 +293,10 @@ router.get("/products", async (req, res) => {
       pool.query(`${baseQuery} ORDER BY p.views DESC NULLS LAST LIMIT 6`),
       pool.query(
         `${baseQuery}
-         ORDER BY p.is_promoted DESC NULLS LAST,
-                  p.promotion_priority DESC NULLS LAST,
-                  p.created_at DESC
+         ORDER BY
+           p.is_promoted DESC,
+           COALESCE(p.promotion_priority, 0) DESC,
+           p.created_at DESC
          OFFSET $1 LIMIT $2`,
         [skip, limit]
       ),
@@ -293,9 +315,7 @@ router.get("/products", async (req, res) => {
   }
 });
 
-/* =========================================================
-GET SINGLE PRODUCT
-========================================================= */
+/* ================= SINGLE PRODUCT ================= */
 router.get("/products/:id", async (req, res) => {
   try {
     const { id } = req.params;
@@ -328,9 +348,7 @@ router.get("/products/:id", async (req, res) => {
   }
 });
 
-/* =========================================================
-CREATE PRODUCT (CLEAN - NO PAYMENT LOGIC)
-========================================================= */
+/* ================= CREATE PRODUCT ================= */
 router.post("/products", upload.array("images", 10), async (req, res) => {
   const client = await pool.connect();
 
@@ -340,7 +358,7 @@ router.post("/products", upload.array("images", 10), async (req, res) => {
     const { title, price, category_id } = req.body;
 
     if (!title || !price || !category_id) {
-      return res.status(400).json({ message: "Missing required fields" });
+      return res.status(400).json({ message: "Missing fields" });
     }
 
     const attributes = safeJSON(req.body.attributes);
@@ -396,7 +414,7 @@ router.post("/products", upload.array("images", 10), async (req, res) => {
     await client.query("COMMIT");
 
     res.status(201).json({ product: normalizeProduct(product) });
-  } catch (err) {
+  } catch {
     await client.query("ROLLBACK");
     res.status(500).json({ message: "Failed to create product" });
   } finally {
@@ -404,9 +422,7 @@ router.post("/products", upload.array("images", 10), async (req, res) => {
   }
 });
 
-/* =========================================================
-GET CATEGORIES
-========================================================= */
+/* ================= CATEGORIES ================= */
 router.get("/categories", async (req, res) => {
   try {
     const { rows } = await pool.query(`
