@@ -10,7 +10,7 @@ import { Server as SocketIOServer } from "socket.io";
 /* ================= CONFIG ================= */
 dotenv.config();
 
-/* ================= CRON JOB (AUTO-EXPIRE PROMOTIONS) ================= */
+/* ================= CRON JOB ================= */
 import "./jobs/expirePromotions.js";
 
 /* ================= APP ================= */
@@ -32,14 +32,15 @@ export const pool = new Pool({
 /* ================= DB CONNECT ================= */
 (async () => {
   try {
-    await pool.connect();
+    await pool.query("SELECT 1");
     console.log("✅ CockroachDB connected");
   } catch (err) {
     console.error("❌ DB ERROR:", err.message);
+    process.exit(1);
   }
 })();
 
-/* ================= GLOBAL CACHE ================= */
+/* ================= SIMPLE CACHE ================= */
 export const cache = new Map();
 const CACHE_TTL = 60 * 1000;
 
@@ -59,10 +60,34 @@ export const getCache = (key) => {
   return data.value;
 };
 
+/* Auto cleanup cache */
+setInterval(() => {
+  const now = Date.now();
+  for (const [key, val] of cache.entries()) {
+    if (now - val.time > CACHE_TTL) {
+      cache.delete(key);
+    }
+  }
+}, 60000);
+
 /* ================= MIDDLEWARE ================= */
 app.use(cors());
 app.use(express.json({ limit: "10mb" }));
-app.use(express.urlencoded({ extended: true, limit: "10mb" }));
+app.use(express.urlencoded({ extended: true }));
+
+/* 🔥 IMPORTANT: RAW BODY FOR PAYSTACK */
+app.use(
+  "/api/payment/webhooks/paystack",
+  express.raw({ type: "application/json" })
+);
+
+/* ================= SECURITY ================= */
+app.use((req, res, next) => {
+  res.setHeader("X-Content-Type-Options", "nosniff");
+  res.setHeader("X-Frame-Options", "DENY");
+  res.setHeader("X-XSS-Protection", "1; mode=block");
+  next();
+});
 
 /* ================= LOGGER ================= */
 app.use((req, res, next) => {
@@ -74,20 +99,18 @@ app.use((req, res, next) => {
 const rateLimitMap = new Map();
 
 app.use((req, res, next) => {
-  const ip = req.ip;
+  const ip = req.headers["x-forwarded-for"] || req.socket.remoteAddress;
   const now = Date.now();
 
   const windowMs = 2000;
-  const maxReq = 80;
+  const maxReq = 60;
 
   let record = rateLimitMap.get(ip);
 
-  if (!record) {
+  if (!record || now - record.time > windowMs) {
     record = { count: 1, time: now };
-  } else if (now - record.time < windowMs) {
-    record.count += 1;
   } else {
-    record = { count: 1, time: now };
+    record.count++;
   }
 
   rateLimitMap.set(ip, record);
@@ -107,6 +130,7 @@ import adminRouter from "./routes/admin.js";
 import searchRouter from "./routes/search.js";
 import productDetailRouter from "./routes/productDetail.js";
 import paymentRouter from "./routes/payment.js";
+import homepageRouter from "./routes/homepage.js";
 
 app.use("/api/marketplace", marketplaceRouter);
 app.use("/api/users", userRouter);
@@ -115,6 +139,7 @@ app.use("/api/admin", adminRouter);
 app.use("/api/search", searchRouter);
 app.use("/api/product", productDetailRouter);
 app.use("/api/payment", paymentRouter);
+app.use("/api", homepageRouter);
 
 /* ================= HEALTH ================= */
 app.get("/api/health", async (req, res) => {
@@ -137,7 +162,7 @@ app.get("/api/health", async (req, res) => {
 
 /* ================= SOCKET ================= */
 io.on("connection", (socket) => {
-  console.log("🔌 Socket connected:", socket.id);
+  console.log("🔌 Connected:", socket.id);
 
   socket.on("joinRoom", ({ senderId, receiverId, productId }) => {
     if (!senderId || !receiverId || !productId) return;
@@ -150,13 +175,13 @@ io.on("connection", (socket) => {
     try {
       const { senderId, receiverId, productId, message } = data;
 
-      if (!message) return;
+      if (!senderId || !receiverId || !productId || !message) return;
 
       const room = `${productId}_${[senderId, receiverId].sort().join("_")}`;
 
       const { rows } = await pool.query(
         `
-        INSERT INTO messages 
+        INSERT INTO messages
         (sender_id, receiver_id, product_id, message, created_at)
         VALUES ($1,$2,$3,$4,NOW())
         RETURNING *
@@ -171,11 +196,11 @@ io.on("connection", (socket) => {
   });
 
   socket.on("disconnect", () => {
-    console.log("❌ Socket disconnected:", socket.id);
+    console.log("❌ Disconnected:", socket.id);
   });
 });
 
-/* ================= STATIC (PRODUCTION) ================= */
+/* ================= STATIC ================= */
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
