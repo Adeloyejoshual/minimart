@@ -2,7 +2,14 @@
 body {
   margin: 0;
   padding: 0;
-  background: linear-gradient(135deg, #f5f9ff 0%, #eef6ff 45%, #f8fbff 100%);
+  font-family: 'Inter', sans-serif;
+
+  background: linear-gradient(
+    135deg,
+    #f5f9ff 0%,
+    #eef6ff 45%,
+    #f8fbff 100%
+  );
 }
 
 /* ---------------- MAIN CONTAINER ---------------- */
@@ -10,25 +17,28 @@ body {
   max-width: 1400px;
   margin: 0 auto;
   padding: 14px;
-  font-family: 'Inter', sans-serif;
 
   background: radial-gradient(
     circle at top,
     rgba(59, 130, 246, 0.10),
-    transparent 50%
+    transparent 55%
   );
 }
 
 /* ---------------- SECTION ---------------- */
 .section {
-  margin-bottom: 26px;
+  margin-bottom: 28px;
 }
 
 .section h2 {
-  font-size: 1.25rem;
+  font-size: 1.2rem;
   font-weight: 800;
   margin-bottom: 12px;
   color: #1e3a8a;
+
+  display: flex;
+  align-items: center;
+  gap: 6px;
 }
 
 /* ---------------- LINKS ---------------- */
@@ -38,44 +48,52 @@ body {
 }
 
 /* =======================================================
-   🔥 PINTEREST / JIJI STYLE MASONRY (CRITICAL PART)
+   🔥 MASONRY GRID (MAIN PRODUCTS)
 ======================================================= */
 
-/* Desktop default */
 .products-grid {
   column-count: 6;
   column-gap: 14px;
 }
 
-/* Tablet */
+@media (max-width: 1200px) {
+  .products-grid {
+    column-count: 5;
+  }
+}
+
 @media (max-width: 1024px) {
   .products-grid {
     column-count: 4;
   }
 }
 
-/* Mobile */
+@media (max-width: 768px) {
+  .products-grid {
+    column-count: 3;
+  }
+}
+
 @media (max-width: 600px) {
   .products-grid {
     column-count: 2;
   }
 }
 
-/* Each card wrapper MUST behave like masonry item */
+/* Masonry item */
 .card-link {
   display: inline-block;
   width: 100%;
   margin-bottom: 14px;
 
-  /* prevents breaking inside columns */
   break-inside: avoid;
   -webkit-column-break-inside: avoid;
 }
 
 /* ---------------- CARD ---------------- */
 .card {
-  background: rgba(255, 255, 255, 0.9);
-  backdrop-filter: blur(10px);
+  background: rgba(255, 255, 255, 0.92);
+  backdrop-filter: blur(12px);
 
   border-radius: 18px;
   overflow: hidden;
@@ -85,16 +103,16 @@ body {
 
   box-shadow: 0 6px 18px rgba(30, 64, 175, 0.10);
 
-  transition: transform 0.2s ease, box-shadow 0.2s ease;
+  transition: all 0.25s ease;
 }
 
-/* hover effect */
+/* hover */
 .card:hover {
-  transform: translateY(-5px);
-  box-shadow: 0 12px 28px rgba(30, 64, 175, 0.18);
+  transform: translateY(-6px) scale(1.01);
+  box-shadow: 0 14px 30px rgba(30, 64, 175, 0.18);
 }
 
-/* ---------------- IMAGE (IMPORTANT: NO FIXED HEIGHT) ---------------- */
+/* ---------------- IMAGE ---------------- */
 .card-image {
   width: 100%;
   background: #eef2ff;
@@ -103,7 +121,7 @@ body {
 
 .card-image img {
   width: 100%;
-  height: auto;   /* 🔥 key for Pinterest look */
+  height: auto;
   display: block;
 }
 
@@ -112,7 +130,7 @@ body {
   padding: 10px;
   display: flex;
   flex-direction: column;
-  gap: 5px;
+  gap: 6px;
 }
 
 /* ---------------- PRICE ---------------- */
@@ -150,33 +168,112 @@ body {
   color: #888;
 }
 
-/* ---------------- TRENDING ---------------- */
-.trending-scroll {
+/* =======================================================
+   🔥 HORIZONTAL SECTIONS (TRENDING / DISCOVER / DEALS)
+======================================================= */
+
+.horizontal-scroll {
   display: flex;
-  overflow-x: auto;
   gap: 12px;
-  padding: 0 10px;
+  overflow-x: auto;
+  padding: 4px 4px 10px;
 
   scroll-snap-type: x mandatory;
-
-  -webkit-mask-image: linear-gradient(
-    to right,
-    transparent,
-    black 10%,
-    black 90%,
-    transparent
-  );
+  scroll-behavior: smooth;
 }
 
-.trending-scroll .card-link {
-  flex: 0 0 70%;
+/* hide scrollbar */
+.horizontal-scroll::-webkit-scrollbar {
+  display: none;
+}
+
+/* cards inside horizontal scroll */
+.horizontal-scroll .card-link {
+  flex: 0 0 65%;
+  max-width: 200px;
   scroll-snap-align: start;
 }
 
-/* ---------------- LOADING ---------------- */
+/* compact cards */
+.card.compact .title {
+  font-size: 0.8rem;
+}
+
+.card.compact .price {
+  font-size: 0.9rem;
+}
+
+/* =======================================================
+   ✨ TRENDING (GRADIENT FADE EDGES)
+======================================================= */
+
+.trending-scroll {
+  position: relative;
+}
+
+/* fade edges */
+.trending-scroll::before,
+.trending-scroll::after {
+  content: "";
+  position: absolute;
+  top: 0;
+  width: 30px;
+  height: 100%;
+  z-index: 2;
+  pointer-events: none;
+}
+
+.trending-scroll::before {
+  left: 0;
+  background: linear-gradient(to right, #f5f9ff, transparent);
+}
+
+.trending-scroll::after {
+  right: 0;
+  background: linear-gradient(to left, #f5f9ff, transparent);
+}
+
+/* =======================================================
+   ⏳ LOADING / EMPTY
+======================================================= */
+
 .loading-text {
   text-align: center;
   font-size: 0.85rem;
   color: #777;
-  margin: 10px 0;
+  margin: 12px 0;
+}
+
+/* =======================================================
+   ⬆️ BACK TO TOP BUTTON
+======================================================= */
+
+.back-to-top {
+  position: fixed;
+  bottom: 80px;
+  right: 16px;
+
+  background: #2563eb;
+  color: white;
+  border: none;
+
+  padding: 10px 12px;
+  border-radius: 50%;
+
+  font-size: 16px;
+  cursor: pointer;
+
+  box-shadow: 0 6px 18px rgba(0,0,0,0.2);
+}
+
+.back-to-top:hover {
+  background: #1d4ed8;
+}
+
+/* =======================================================
+   🧠 SMOOTH SCROLL
+======================================================= */
+
+html {
+  scroll-behavior: smooth;
 }
