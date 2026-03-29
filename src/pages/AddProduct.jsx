@@ -26,133 +26,66 @@ const INITIAL_FORM = {
 };
 
 /* ================= HELPERS ================= */
-const onlyNumbers = (v) => v.replace(/[^d]/g, "");
-const formatPrice = (v) => {
-  const num = v.replace(/[^d]/g, "");
-  return num.replace(/B(?=(d{3})+(?!d))/g, ",");
-};
-
-const compressImage = (file) =>
-  new Promise((resolve) => {
-    const img = new Image();
-    const reader = new FileReader();
-
-    reader.onload = (e) => (img.src = e.target.result);
-    img.onload = () => {
-      const canvas = document.createElement("canvas");
-      const MAX = 1000;
-      let w = img.width;
-      let h = img.height;
-
-      if (w > h && w > MAX) {
-        h *= MAX / w;
-        w = MAX;
-      } else if (h > MAX) {
-        w *= MAX / h;
-        h = MAX;
-      }
-
-      canvas.width = w;
-      canvas.height = h;
-      const ctx = canvas.getContext("2d");
-      ctx.drawImage(img, 0, 0, w, h);
-
-      canvas.toBlob(
-        (blob) => resolve(new File([blob], file.name, { type: "image/jpeg" })),
-        "image/jpeg",
-        0.7
-      );
-    };
-    reader.readAsDataURL(file);
-  });
+const onlyNumbers = (v) => v.replace(/\D/g, "");
+const formatPrice = (v) =>
+  onlyNumbers(v).replace(/\B(?=(\d{3})+(?!\d))/g, ",");
 
 export default function AddProduct() {
   const navigate = useNavigate();
+
   const [form, setForm] = useState(INITIAL_FORM);
   const [images, setImages] = useState([]);
   const [previews, setPreviews] = useState([]);
-  const [loading, setLoading] = useState(false);
-  const [uploadingImages, setUploadingImages] = useState(false);
-  const [progress, setProgress] = useState(0);
-  const [error, setError] = useState(null);
-  const [isValid, setIsValid] = useState(false);
-  const [state, setState] = useState("");
-  const [city, setCity] = useState("");
   const [categories, setCategories] = useState([]);
 
-  /* ================= FETCH CATEGORIES ================= */
+  const [state, setState] = useState("");
+  const [city, setCity] = useState("");
+
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState(null);
+  const [isValid, setIsValid] = useState(false);
+
+  /* ================= PROMOTION STATE ================= */
+  const [showPromotion, setShowPromotion] = useState(false);
+  const [promotions, setPromotions] = useState([]);
+  const [selectedPlan, setSelectedPlan] = useState(null);
+  const [createdProductId, setCreatedProductId] = useState(null);
+
+  /* ================= FETCH DATA ================= */
   useEffect(() => {
     fetch(`${API_BASE}/categories`)
       .then((r) => r.json())
       .then(setCategories)
       .catch(() => setError("Failed to load categories"));
+
+    fetch(`${API_BASE}/promotions`)
+      .then((r) => r.json())
+      .then(setPromotions)
+      .catch(() => console.log("No promotions"));
   }, []);
 
+  /* ================= CATEGORY RULE ================= */
   const selectedCategory = useMemo(
     () => categories.find((c) => String(c.id) === String(form.category_id)),
     [categories, form.category_id]
   );
 
-  const activeRule = useMemo(() => {
-    const name = selectedCategory?.name;
-    return categoryRules[name] || categoryRules.default;
-  }, [selectedCategory]);
+  const activeRule =
+    categoryRules[selectedCategory?.name] || categoryRules.default;
 
-  const options = selectedCategory?.dynamicOptions || {};
-
-  /* ================= DRAFT SAVE ================= */
-  useEffect(() => {
-    const saved = localStorage.getItem("draft_product");
-    if (saved) setForm(JSON.parse(saved));
-  }, []);
-
-  useEffect(() => {
-    localStorage.setItem("draft_product", JSON.stringify(form));
-  }, [form]);
-
-  /* ================= IMAGE UPLOAD (SIGNED) ================= */
-  const uploadImageToCloudinary = useCallback(async (file) => {
-    // 1. Get signature
-    const sigRes = await fetch(`${API_BASE}/cloudinary-signature`);
-    const sig = await sigRes.json();
-
-    // 2. Upload direct to Cloudinary
-    const fd = new FormData();
-    fd.append("file", file);
-    fd.append("api_key", sig.api_key);
-    fd.append("timestamp", sig.timestamp);
-    fd.append("signature", sig.signature);
-    fd.append("folder", "products");
-
-    const res = await fetch(
-      `https://api.cloudinary.com/v1_1/${sig.cloud_name}/image/upload`,
-      { method: "POST", body: fd }
-    );
-
-    const data = await res.json();
-    if (data.secure_url) {
-      return { url: data.secure_url, position: Date.now() }; // temp position
-    }
-    throw new Error("Upload failed");
-  }, []);
-
+  /* ================= IMAGE ================= */
   const handleImages = async (files) => {
     const raw = Array.from(files);
-    if (images.length + raw.length > activeRule.maxImages)
-      return setError(`Max ${activeRule.maxImages} images`);
 
-    for (let f of raw) {
-      if (f.size > activeRule.maxImageSizeMB * 1024 * 1024)
-        return setError(`Image must be < ${activeRule.maxImageSizeMB}MB`);
+    if (images.length + raw.length > (activeRule.maxImages || 10)) {
+      return setError(`Max ${activeRule.maxImages} images`);
     }
 
-    const compressed = await Promise.all(raw.map(compressImage));
-    setImages((p) => [...p, ...compressed]);
+    setImages((p) => [...p, ...raw]);
     setPreviews((p) => [
       ...p,
-      ...compressed.map((f) => URL.createObjectURL(f)),
+      ...raw.map((f) => URL.createObjectURL(f)),
     ]);
-    setError(null);
   };
 
   const removeImage = (i) => {
@@ -160,330 +93,209 @@ export default function AddProduct() {
     setPreviews((p) => p.filter((_, x) => x !== i));
   };
 
-  /* ================= UPLOAD ALL IMAGES ================= */
-  const uploadAllImages = async () => {
-    setUploadingImages(true);
-    setProgress(0);
-    const imageUrls = [];
-
-    try {
-      for (let i = 0; i < images.length; i++) {
-        const result = await uploadImageToCloudinary(images[i]);
-        imageUrls.push(result);
-        setProgress(Math.round(((i + 1) / images.length) * 100));
-      }
-      return imageUrls;
-    } finally {
-      setUploadingImages(false);
-      setProgress(0);
-    }
-  };
-
   /* ================= VALIDATION ================= */
   const validate = useCallback(() => {
-    if (form.title.trim().length < activeRule.minTitle)
-      return `Title must be at least ${activeRule.minTitle} characters`;
-    if (form.description.trim().length < activeRule.minDescription)
-      return `Description must be at least ${activeRule.minDescription} characters`;
-    if (!form.price || !onlyNumbers(form.price)) return "Valid price required";
+    if (!form.title) return "Title required";
+    if (!form.description) return "Description required";
+    if (!form.price) return "Price required";
     if (!form.category_id) return "Select category";
-    if (!form.contact.phone || form.contact.phone.length < 10)
-      return "Valid phone required";
-    if (!form.attributes.condition) return "Select condition";
-    if (images.length < activeRule.minImages)
-      return `Upload at least ${activeRule.minImages} images`;
-    if (images.length > activeRule.maxImages)
-      return `Max ${activeRule.maxImages} images allowed`;
-
-    if (form.delivery.available) {
-      if (form.delivery.duration.from === 0 || form.delivery.duration.to === 0)
-        return "Enter delivery days";
-      if (form.delivery.duration.from > form.delivery.duration.to)
-        return "Invalid delivery range";
-    }
+    if (!form.contact.phone) return "Phone required";
+    if (!state || !city) return "Location required";
+    if (!images.length) return "Upload image";
 
     return null;
-  }, [form, images.length, activeRule]);
+  }, [form, images.length, state, city]);
 
   useEffect(() => {
-    const result = validate();
-    setError(result);
-    setIsValid(!result);
+    const err = validate();
+    setError(err);
+    setIsValid(!err);
   }, [validate]);
 
-  /* ================= SUBMIT ================= */
+  /* ================= CREATE PRODUCT ================= */
   const handleSubmit = async () => {
-    const validationError = validate();
-    if (validationError) return setError(validationError);
-
-    const hash = `${form.title}-${onlyNumbers(form.price)}-${form.category_id}`.toLowerCase();
-    if (localStorage.getItem("last_hash") === hash)
-      return setError("Duplicate listing detected");
+    const err = validate();
+    if (err) return setError(err);
 
     setLoading(true);
-    setError(null);
 
     try {
-      // 1. Upload images first
-      const imageUrls = await uploadAllImages();
-
-      // 2. Create product
       const res = await fetch(`${API_BASE}/products`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          title: form.title,
-          description: form.description,
+          ...form,
           price: onlyNumbers(form.price),
-          category_id: form.category_id,
-          subcategory_id: form.subcategory_id || null,
-          attributes: form.attributes,
-          delivery: form.delivery,
-          contact: form.contact,
-          promotion_id: form.promotion_id || null,
           location_state: state,
           location_city: city,
-          image_urls, // ✅ Backend expects this format
+          image_urls: images.map((_, i) => ({
+            url: previews[i],
+            position: i,
+          })),
         }),
       });
 
-      if (!res.ok) {
-        const err = await res.json();
-        throw new Error(err.message || "Failed to create product");
-      }
+      const data = await res.json();
 
-      localStorage.setItem("last_hash", hash);
-      localStorage.removeItem("draft_product");
-      alert("✅ Product created successfully!");
-      
-      // Reset form
-      setForm(INITIAL_FORM);
-      setImages([]);
-      setPreviews([]);
-      setState("");
-      setCity("");
-      navigate("/marketplace");
-    } catch (err) {
-      setError(err.message || "Upload failed");
+      if (!res.ok) throw new Error(data.message);
+
+      setCreatedProductId(data.id);
+
+      // 👉 Ask for promotion after success
+      setShowPromotion(true);
+    } catch (e) {
+      setError(e.message);
     } finally {
       setLoading(false);
     }
   };
 
-  /* ================= TOGGLE FEATURE ================= */
-  const toggleFeature = useCallback((f) => {
-    setForm((p) => {
-      const list = p.attributes.features || [];
-      return {
-        ...p,
-        attributes: {
-          ...p.attributes,
-          features: list.includes(f)
-            ? list.filter((x) => x !== f)
-            : [...list, f],
+  /* ================= PAYSTACK PROMOTION ================= */
+  const handlePromote = async () => {
+    try {
+      const res = await fetch(`${API_BASE}/promotions/pay`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
         },
-      };
-    });
-  }, []);
+        body: JSON.stringify({
+          product_id: createdProductId,
+          plan_id: selectedPlan.id,
+        }),
+      });
 
-  /* ================= JSX ================= */
+      const data = await res.json();
+
+      if (data.authorization_url) {
+        window.location.href = data.authorization_url;
+      }
+    } catch {
+      alert("Payment failed");
+    }
+  };
+
+  /* ================= UI ================= */
   return (
     <div className="add-product-container">
       <AddProductHeader title="Add Product" />
-      {loading && (
-        <div className="upload-overlay">
-          <div className="upload-box">
-            <h2>{uploadingImages ? "Uploading images..." : "Creating product..."}</h2>
-            <div className="progress-bar">
-              <div style={{ width: `${progress}%` }} />
+
+      <div className="form-grid">
+        <input
+          placeholder="Title"
+          value={form.title}
+          onChange={(e) =>
+            setForm({ ...form, title: e.target.value })
+          }
+        />
+
+        <textarea
+          placeholder="Description"
+          value={form.description}
+          onChange={(e) =>
+            setForm({ ...form, description: e.target.value })
+          }
+        />
+
+        <input
+          placeholder="Price"
+          value={form.price}
+          onChange={(e) =>
+            setForm({
+              ...form,
+              price: formatPrice(e.target.value),
+            })
+          }
+        />
+
+        {/* CATEGORY */}
+        <select
+          value={form.category_id}
+          onChange={(e) =>
+            setForm({ ...form, category_id: e.target.value })
+          }
+        >
+          <option value="">Category</option>
+          {categories.map((c) => (
+            <option key={c.id} value={c.id}>
+              {c.name}
+            </option>
+          ))}
+        </select>
+
+        {/* LOCATION */}
+        <select value={state} onChange={(e) => setState(e.target.value)}>
+          <option value="">State</option>
+          {Object.keys(locationsByState).map((s) => (
+            <option key={s}>{s}</option>
+          ))}
+        </select>
+
+        {state && (
+          <select value={city} onChange={(e) => setCity(e.target.value)}>
+            <option value="">City</option>
+            {locationsByState[state].map((c) => (
+              <option key={c}>{c}</option>
+            ))}
+          </select>
+        )}
+
+        {/* IMAGES */}
+        <input type="file" multiple onChange={(e) => handleImages(e.target.files)} />
+
+        <div className="preview-grid">
+          {previews.map((src, i) => (
+            <div key={i}>
+              <img src={src} alt="" />
+              <button onClick={() => removeImage(i)}>×</button>
+            </div>
+          ))}
+        </div>
+
+        {/* ERROR */}
+        {error && <div className="error-box">{error}</div>}
+
+        {/* SUBMIT */}
+        <button disabled={!isValid || loading} onClick={handleSubmit}>
+          {loading ? "Creating..." : "Create Product"}
+        </button>
+      </div>
+
+      {/* ================= PROMOTION MODAL ================= */}
+      {showPromotion && (
+        <div className="modal-overlay">
+          <div className="modal">
+            <h2>🚀 Boost Your Listing</h2>
+
+            <div className="plans-grid">
+              {promotions.map((plan) => (
+                <div
+                  key={plan.id}
+                  className={`plan-card ${
+                    selectedPlan?.id === plan.id ? "active" : ""
+                  }`}
+                  onClick={() => setSelectedPlan(plan)}
+                >
+                  <h3>{plan.name}</h3>
+                  <p>{plan.duration_days} days</p>
+                  <strong>₦{plan.price.toLocaleString()}</strong>
+                </div>
+              ))}
+            </div>
+
+            <div className="modal-actions">
+              <button onClick={() => navigate("/marketplace")}>
+                Skip
+              </button>
+
+              {selectedPlan && (
+                <button onClick={handlePromote}>
+                  Pay ₦{selectedPlan.price.toLocaleString()}
+                </button>
+              )}
             </div>
           </div>
         </div>
       )}
-
-      {/* FORM FIELDS */}
-      <input
-        placeholder="Product title *"
-        value={form.title}
-        onChange={(e) => setForm({ ...form, title: e.target.value })}
-      />
-      <textarea
-        placeholder="Description *"
-        value={form.description}
-        onChange={(e) => setForm({ ...form, description: e.target.value })}
-      />
-      <input
-        placeholder="Price (₦) *"
-        value={form.price}
-        onChange={(e) =>
-          setForm({ ...form, price: formatPrice(e.target.value) })
-        }
-      />
-
-      {/* CATEGORIES */}
-      <select
-        value={form.category_id}
-        onChange={(e) => setForm({ ...form, category_id: e.target.value })}
-      >
-        <option value="">Select Category *</option>
-        {categories.map((cat) => (
-          <option key={cat.id} value={cat.id}>
-            {cat.name}
-          </option>
-        ))}
-      </select>
-
-      {/* LOCATION */}
-      <select value={state} onChange={(e) => setState(e.target.value)}>
-        <option value="">Select State</option>
-        {Object.keys(locationsByState).map((s) => (
-          <option key={s} value={s}>
-            {s}
-          </option>
-        ))}
-      </select>
-      {state && (
-        <select
-          value={city}
-          onChange={(e) => setCity(e.target.value)}
-          disabled={!state}
-        >
-          <option value="">Select City</option>
-          {locationsByState[state]?.map((c) => (
-            <option key={c} value={c}>
-              {c}
-          </option>
-          ))}
-        </select>
-      )}
-
-      {/* FEATURES */}
-      {options.features?.length > 0 && (
-        <div className="form-section">
-          <h3>Features</h3>
-          <div className="checkbox-grid">
-            {options.features.map((f) => (
-              <label key={f}>
-                <input
-                  type="checkbox"
-                  checked={form.attributes.features.includes(f)}
-                  onChange={() => toggleFeature(f)}
-                />
-                {f}
-              </label>
-            ))}
-          </div>
-        </div>
-      )}
-
-      {/* DELIVERY */}
-      <div className="form-section">
-        <h3>Delivery</h3>
-        <label>
-          <input
-            type="checkbox"
-            checked={form.delivery.available}
-            onChange={(e) =>
-              setForm({
-                ...form,
-                delivery: { ...form.delivery, available: e.target.checked },
-              })
-            }
-          />
-          Offer delivery
-        </label>
-        {form.delivery.available && (
-          <>
-            <input
-              placeholder="From days"
-              type="number"
-              value={form.delivery.duration.from}
-              onChange={(e) =>
-                setForm({
-                  ...form,
-                  delivery: {
-                    ...form.delivery,
-                    duration: {
-                      ...form.delivery.duration,
-                      from: +e.target.value,
-                    },
-                  },
-                })
-              }
-              min="0"
-            />
-            <input
-              placeholder="To days"
-              type="number"
-              value={form.delivery.duration.to}
-              onChange={(e) =>
-                setForm({
-                  ...form,
-                  delivery: {
-                    ...form.delivery,
-                    duration: {
-                      ...form.delivery.duration,
-                      to: +e.target.value,
-                    },
-                  },
-                })
-              }
-              min="1"
-            />
-            <input
-              placeholder="Fee (₦)"
-              value={form.delivery.fee}
-              onChange={(e) =>
-                setForm({
-                  ...form,
-                  delivery: {
-                    ...form.delivery,
-                    fee: formatPrice(e.target.value),
-                  },
-                })
-              }
-            />
-          </>
-        )}
-      </div>
-
-      {/* IMAGES */}
-      <label className="add-image-btn">
-        + Add Images ({images.length}/{activeRule.maxImages})
-        <input
-          type="file"
-          multiple
-          accept="image/*"
-          hidden
-          onChange={(e) => handleImages(e.target.files)}
-          disabled={uploadingImages}
-        />
-      </label>
-
-      <div className="preview-grid">
-        {previews.map((src, i) => (
-          <div key={i} className="preview-item">
-            <img src={src} alt={`Preview ${i}`} />
-            <button onClick={() => removeImage(i)}>×</button>
-          </div>
-        ))}
-      </div>
-
-      {/* ERROR */}
-      {error && <div className="error-box">{error}</div>}
-
-      {/* SUBMIT */}
-      <button
-        onClick={handleSubmit}
-        disabled={!isValid || loading || uploadingImages}
-        className="submit-btn"
-      >
-        {loading
-          ? uploadingImages
-            ? "Uploading images..."
-            : "Creating product..."
-          : "Create Product"}
-      </button>
     </div>
   );
 }
