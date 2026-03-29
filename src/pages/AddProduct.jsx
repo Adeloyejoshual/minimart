@@ -56,38 +56,16 @@ export default function AddProduct() {
   const [categories, setCategories] = useState([]);
   const [state, setState] = useState("");
   const [city, setCity] = useState("");
-
-  const [selectedPlan, setSelectedPlan] = useState(null);
+  const [error, setError] = useState(null);
   const [loading, setLoading] = useState(false);
-  const [error, setError] = useState("");
 
-  /* ================= GLOBAL ERROR GUARD ================= */
-  useEffect(() => {
-    const handler = (event) => {
-      console.error("Global error:", event.error);
-      setError("Something went wrong. Please refresh.");
-    };
-
-    window.addEventListener("error", handler);
-    return () => window.removeEventListener("error", handler);
-  }, []);
-
-  /* ================= FETCH CATEGORIES ================= */
+  /* ================= FETCH ================= */
   useEffect(() => {
     fetch(`${API_BASE}/categories`)
       .then((r) => r.json())
-      .then((data) => setCategories(data || []))
+      .then(setCategories)
       .catch(() => setError("Failed to load categories"));
   }, []);
-
-  /* ================= CATEGORY ================= */
-  const selectedCategory = useMemo(() => {
-    return categories.find(
-      (c) => String(c.id) === String(form.category_id)
-    );
-  }, [categories, form.category_id]);
-
-  const options = selectedCategory?.dynamicOptions || {};
 
   /* ================= VALIDATION ================= */
   const validate = () => {
@@ -97,36 +75,73 @@ export default function AddProduct() {
     if (!form.contact.phone) return "Phone required";
     if (!state || !city) return "Location required";
 
+    if (form.delivery.available) {
+      if (form.delivery.from > form.delivery.to) {
+        return "Invalid delivery range";
+      }
+    }
+
     return null;
   };
 
-  /* ================= PAYSTACK INIT ================= */
-  const startPayment = async (plan) => {
+  /* ================= PAYSTACK ================= */
+  const startPayment = async () => {
+    const selectedPlan = promotionPlans.find(
+      (p) => p.id == form.promotion_id
+    );
+
+    if (!selectedPlan) return null;
+
     try {
-      const res = await fetch(
-        `${API_BASE}/payments/initiate`,
-        {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            plan_id: plan.id,
-            product_id: "TEMP",
-            email: form.contact.whatsapp || form.contact.phone,
-          }),
-        }
-      );
+      const res = await fetch(`${API_BASE}/payment/initialize`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          amount: selectedPlan.price,
+          email: "user@email.com", // replace with real user email
+        }),
+      });
 
       const data = await res.json();
 
-      const url = data?.data?.authorization_url;
-
-      if (!url) {
-        throw new Error("Payment link not received");
+      if (!data.authorization_url) {
+        throw new Error("Payment initialization failed");
       }
 
-      window.location.href = url;
+      // redirect to Paystack
+      window.location.href = data.authorization_url;
+
+      return new Promise((resolve) => {
+        const interval = setInterval(async () => {
+          if (window.location.href.includes("payment-success")) {
+            clearInterval(interval);
+
+            const ref = new URL(window.location.href).searchParams.get(
+              "reference"
+            );
+
+            const verifyRes = await fetch(
+              `${API_BASE}/payment/verify/${ref}`
+            );
+
+            const verifyData = await verifyRes.json();
+
+            if (verifyData.success) {
+              resolve({
+                reference: ref,
+                plan_id: selectedPlan.id,
+              });
+            } else {
+              resolve(null);
+            }
+          }
+        }, 2000);
+      });
     } catch (err) {
-      setError(err.message || "Payment failed");
+      setError(err.message);
+      return null;
     }
   };
 
@@ -136,31 +151,39 @@ export default function AddProduct() {
     if (err) return setError(err);
 
     setLoading(true);
+    setError(null);
 
     try {
-      // If promotion selected → start payment first
-      if (selectedPlan) {
-        await startPayment(selectedPlan);
-        return;
+      let promotionData = null;
+
+      /* 🔥 HANDLE PAYMENT IF PLAN SELECTED */
+      if (form.promotion_id) {
+        promotionData = await startPayment();
+
+        if (!promotionData) {
+          throw new Error("Payment not completed");
+        }
       }
 
-      // Normal product creation
       const payload = {
         ...form,
         price: onlyNumbers(form.price),
         location_state: state,
         location_city: city,
+        promotion: promotionData, // send to backend
       };
 
       const res = await fetch(`${API_BASE}/products`, {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: {
+          "Content-Type": "application/json",
+        },
         body: JSON.stringify(payload),
       });
 
       if (!res.ok) throw new Error("Failed to create product");
 
-      alert("Product created successfully");
+      alert("✅ Product created successfully");
       navigate("/marketplace");
     } catch (e) {
       setError(e.message);
@@ -172,12 +195,9 @@ export default function AddProduct() {
   /* ================= UI ================= */
   return (
     <div className="add-product-container">
-
       <AddProductHeader title="Add Product" />
 
       <div className="form-grid">
-
-        {/* TITLE */}
         <input
           placeholder="Title"
           value={form.title}
@@ -186,7 +206,6 @@ export default function AddProduct() {
           }
         />
 
-        {/* DESCRIPTION */}
         <textarea
           placeholder="Description"
           value={form.description}
@@ -195,12 +214,14 @@ export default function AddProduct() {
           }
         />
 
-        {/* PRICE */}
         <input
           placeholder="Price"
           value={form.price}
           onChange={(e) =>
-            setForm({ ...form, price: formatPrice(e.target.value) })
+            setForm({
+              ...form,
+              price: formatPrice(e.target.value),
+            })
           }
         />
 
@@ -219,47 +240,67 @@ export default function AddProduct() {
           ))}
         </select>
 
-        {/* PROMOTION */}
-        <div className="section">
-          <h3>Promotion (Optional)</h3>
-
-          {(promotionPlans || []).map((p) => (
-            <button
-              key={p.id}
-              type="button"
-              className={selectedPlan?.id === p.id ? "active" : ""}
-              onClick={() => setSelectedPlan(p)}
-            >
-              {p.name} - ₦{p.price}
-            </button>
+        {/* LOCATION */}
+        <select
+          value={state}
+          onChange={(e) => {
+            setState(e.target.value);
+            setCity("");
+          }}
+        >
+          <option value="">State</option>
+          {Object.keys(locationsByState).map((s) => (
+            <option key={s}>{s}</option>
           ))}
-        </div>
+        </select>
+
+        {state && (
+          <select
+            value={city}
+            onChange={(e) => setCity(e.target.value)}
+          >
+            <option value="">City</option>
+            {locationsByState[state].map((c) => (
+              <option key={c}>{c}</option>
+            ))}
+          </select>
+        )}
 
         {/* CONTACT */}
+        <input
+          placeholder="Phone"
+          value={form.contact.phone}
+          onChange={(e) =>
+            setForm({
+              ...form,
+              contact: {
+                ...form.contact,
+                phone: e.target.value,
+              },
+            })
+          }
+        />
+
+        {/* ================= PROMOTION ================= */}
         <div className="section">
-          <h3>Contact</h3>
+          <h3>Boost Listing</h3>
 
-          <input
-            placeholder="Phone"
-            value={form.contact.phone}
+          <select
+            value={form.promotion_id || ""}
             onChange={(e) =>
               setForm({
                 ...form,
-                contact: { ...form.contact, phone: e.target.value },
+                promotion_id: e.target.value || null,
               })
             }
-          />
-
-          <input
-            placeholder="WhatsApp"
-            value={form.contact.whatsapp}
-            onChange={(e) =>
-              setForm({
-                ...form,
-                contact: { ...form.contact, whatsapp: e.target.value },
-              })
-            }
-          />
+          >
+            <option value="">No Promotion</option>
+            {promotionPlans.map((p) => (
+              <option key={p.id} value={p.id}>
+                {p.name} - ₦{p.price}
+              </option>
+            ))}
+          </select>
         </div>
 
         {/* ERROR */}
@@ -267,13 +308,8 @@ export default function AddProduct() {
 
         {/* SUBMIT */}
         <button onClick={handleSubmit} disabled={loading}>
-          {loading
-            ? "Processing..."
-            : selectedPlan
-            ? "Pay & Publish"
-            : "Create Product"}
+          {loading ? "Processing..." : "Create Product"}
         </button>
-
       </div>
     </div>
   );
