@@ -5,6 +5,7 @@ import { locationsByState } from "../config/locationsByState.js";
 import { promotionPlans } from "../config/promotions.js";
 import "./AddProduct.css";
 
+/* ================= SAFE INITIAL FORM ================= */
 const INITIAL_FORM = {
   title: "",
   description: "",
@@ -12,6 +13,17 @@ const INITIAL_FORM = {
   category_id: "",
 
   attributes: {
+    brand: "",
+    model: "",
+    color: "",
+    condition: "",
+    used_detail: "",
+    ram: "",
+    storage: "",
+    sim: "",
+    year: "",
+    engine: "",
+    fuel_type: "",
     features: [],
   },
 
@@ -45,7 +57,6 @@ export default function AddProduct() {
   const [loading, setLoading] = useState(false);
   const [progress, setProgress] = useState(0);
 
-  // ✅ NEW: promotion plan state
   const [selectedPlan, setSelectedPlan] = useState(null);
 
   /* ================= FETCH CATEGORIES ================= */
@@ -58,15 +69,16 @@ export default function AddProduct() {
 
   /* ================= CATEGORY ================= */
   const selectedCategory = useMemo(
-    () =>
-      categories.find((c) => String(c.id) === String(form.category_id)),
+    () => categories.find((c) => String(c.id) === String(form.category_id)),
     [categories, form.category_id]
   );
 
   const options = selectedCategory?.dynamicOptions || {};
-  const brand = form.attributes?.brand;
 
-  /* ================= SAFE NORMALIZER ================= */
+  const attributes = form.attributes || {};
+  const brand = attributes.brand || "";
+
+  /* ================= NORMALIZER ================= */
   const normalizeOptions = (list = []) =>
     Array.isArray(list)
       ? list.map((item) =>
@@ -82,7 +94,8 @@ export default function AddProduct() {
 
   /* ================= OPTIONS MAP ================= */
   const optionsMap = useMemo(() => {
-    const modelsForBrand = options.models?.[brand] || [];
+    const modelsForBrand =
+      brand && options.models?.[brand] ? options.models[brand] : [];
 
     return {
       brand: normalizeOptions(options.brands),
@@ -106,22 +119,16 @@ export default function AddProduct() {
 
   const updateAttr = (key, value) =>
     setForm((p) => {
-      const updated = {
-        ...p.attributes,
-        [key]: value,
-      };
+      const updated = { ...p.attributes, [key]: value };
 
       if (key === "brand") {
         updated.model = "";
       }
 
-      return {
-        ...p,
-        attributes: updated,
-      };
+      return { ...p, attributes: updated };
     });
 
-  const onlyNumbers = (v) => v.replace(/[^\d]/g, "");
+  const onlyNumbers = (v = "") => v.replace(/[^\d]/g, "");
 
   const formatLabel = (t) =>
     t.replace(/_/g, " ").replace(/\b\w/g, (l) => l.toUpperCase());
@@ -143,7 +150,7 @@ export default function AddProduct() {
     });
   };
 
-  /* ================= VALIDATION ================= */
+  /* ================= VALIDATION (IMPROVED) ================= */
   const validate = () => {
     if (form.title.length < 10) return "Title too short";
     if (form.description.length < 20) return "Description too short";
@@ -159,6 +166,10 @@ export default function AddProduct() {
         return "Delivery range required";
 
       if (to < from) return "Invalid delivery range";
+
+      if (form.delivery.fee && Number.isNaN(Number(form.delivery.fee))) {
+        return "Invalid delivery fee";
+      }
     }
 
     return null;
@@ -202,8 +213,6 @@ export default function AddProduct() {
       contact: JSON.stringify(form.contact),
       location_state: state,
       location_city: city,
-
-      // ✅ NEW FIELD
       promotion_plan: selectedPlan,
     };
 
@@ -234,8 +243,6 @@ export default function AddProduct() {
         setState("");
         setCity("");
         setProgress(0);
-
-        // ✅ reset plan
         setSelectedPlan(null);
       } else {
         alert("Upload failed");
@@ -284,15 +291,14 @@ export default function AddProduct() {
         }
       />
 
-      {/* CATEGORY */}
+      {/* CATEGORY RESET FIXED */}
       <DropdownModal
         label="Category"
         value={form.category_id}
         onChange={(v) =>
           setForm((p) => ({
-            ...p,
+            ...INITIAL_FORM,
             category_id: v,
-            attributes: { features: [] },
           }))
         }
         options={categories.map((c) => ({
@@ -303,9 +309,9 @@ export default function AddProduct() {
 
       {/* DYNAMIC FIELDS */}
       {fields.map((f) => {
-        const value = form.attributes?.[f] || "";
+        const value = attributes?.[f] || "";
 
-        if (f === "used_detail" && form.attributes.condition !== "used")
+        if (f === "used_detail" && attributes.condition !== "used")
           return null;
 
         return (
@@ -328,7 +334,7 @@ export default function AddProduct() {
               <label key={f}>
                 <input
                   type="checkbox"
-                  checked={(form.attributes.features || []).includes(f)}
+                  checked={(attributes.features || []).includes(f)}
                   onChange={() => toggleFeature(f)}
                 />
                 {f}
@@ -337,56 +343,6 @@ export default function AddProduct() {
           </div>
         </div>
       )}
-
-      {/* ================= PROMOTION PLANS ================= */}
-      <div className="form-section">
-        <h3>Promotion Plans</h3>
-
-        <div className="checkbox-grid">
-          {promotionPlans.map((plan) => (
-            <div
-              key={plan.id}
-              onClick={() => setSelectedPlan(plan)}
-              style={{
-                border:
-                  selectedPlan?.id === plan.id
-                    ? "2px solid green"
-                    : "1px solid #ccc",
-                padding: "10px",
-                borderRadius: "8px",
-                cursor: "pointer",
-              }}
-            >
-              <strong>{plan.name}</strong>
-              <p>{plan.duration}</p>
-              <p>₦{plan.price}</p>
-              <small>{plan.description}</small>
-
-              {plan.features?.length > 0 && (
-                <div style={{ fontSize: "12px" }}>
-                  {plan.features.join(", ")}
-                </div>
-              )}
-            </div>
-          ))}
-        </div>
-
-        {/* FREE OPTION */}
-        <div
-          onClick={() => setSelectedPlan(null)}
-          style={{
-            marginTop: "10px",
-            padding: "10px",
-            border:
-              selectedPlan === null ? "2px solid blue" : "1px solid #ccc",
-            borderRadius: "8px",
-            cursor: "pointer",
-          }}
-        >
-          <strong>Free Listing</strong>
-          <p>No promotion</p>
-        </div>
-      </div>
 
       {/* DELIVERY */}
       <div className="form-section">
@@ -442,6 +398,21 @@ export default function AddProduct() {
                       ...p.delivery.duration,
                       to: e.target.value,
                     },
+                  },
+                }))
+              }
+            />
+
+            <input
+              type="number"
+              placeholder="Delivery fee"
+              value={form.delivery.fee}
+              onChange={(e) =>
+                setForm((p) => ({
+                  ...p,
+                  delivery: {
+                    ...p.delivery,
+                    fee: onlyNumbers(e.target.value),
                   },
                 }))
               }
@@ -502,6 +473,31 @@ export default function AddProduct() {
           <div key={i}>
             <img src={src} alt="" />
             <button onClick={() => removeImage(i)}>X</button>
+          </div>
+        ))}
+      </div>
+
+      {/* PROMOTION */}
+      <div className="form-section">
+        <h3>Promotion Plans</h3>
+
+        {promotionPlans.map((plan) => (
+          <div
+            key={plan.id}
+            onClick={() => setSelectedPlan(plan)}
+            style={{
+              border:
+                selectedPlan?.id === plan.id
+                  ? "2px solid green"
+                  : "1px solid #ccc",
+              padding: "10px",
+              borderRadius: "8px",
+              cursor: "pointer",
+            }}
+          >
+            <strong>{plan.name}</strong>
+            <p>{plan.duration}</p>
+            <p>₦{plan.price}</p>
           </div>
         ))}
       </div>
