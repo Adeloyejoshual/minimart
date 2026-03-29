@@ -23,7 +23,6 @@ import { locationsByState } from "../src/config/locationsByState.js";
 import { promotionPlans } from "../src/config/promotions.js";
 
 dotenv.config();
-
 const router = express.Router();
 
 /* ================= DB ================= */
@@ -60,9 +59,24 @@ const safeJSON = (value, fallback = {}) => {
   }
 };
 
+const normalizeKey = (key, fallback = "") =>
+  String(key || fallback)
+    .toLowerCase()
+    .trim()
+    .replace(/\s+/g, "_");
+
+const normalizeDelivery = (d = {}) => ({
+  available: d?.available ?? false,
+  duration: {
+    from: Number(d?.duration?.from ?? 0),
+    to: Number(d?.duration?.to ?? 0),
+  },
+  fee: d?.fee ?? null,
+  note: d?.note || "",
+});
+
 const parseDurationDays = (duration) => {
-  if (!duration) return 0;
-  const match = String(duration).match(/(\d+)/);
+  const match = String(duration || "").match(/(\d+)/);
   return match ? parseInt(match[1], 10) : 0;
 };
 
@@ -77,16 +91,6 @@ const getPlan = (id) => {
   };
 };
 
-const normalizeDelivery = (d = {}) => ({
-  available: d?.available ?? false,
-  duration: {
-    from: Number(d?.duration?.from ?? 0),
-    to: Number(d?.duration?.to ?? 0),
-  },
-  fee: d?.fee ?? null,
-  note: d?.note || "",
-});
-
 const normalizeProduct = (p) => ({
   ...p,
   images: p.images || [],
@@ -97,32 +101,34 @@ const normalizeProduct = (p) => ({
     state: p.location_state,
     city: p.location_city,
   },
-  promotion: promotionPlans.find((x) => x.id == p.promotion_id) || null,
+  promotion:
+    promotionPlans.find((x) => x.id == p.promotion_id) || null,
 });
 
-/* ================= CLOUDINARY UPLOAD ================= */
-const uploadImages = async (files) => {
-  if (!files?.length) return [];
+/* ================= IMAGE UPLOAD ================= */
+const uploadImages = async (files = []) => {
+  if (!files.length) return [];
 
   return Promise.all(
-    files.map((file, index) =>
-      new Promise((resolve, reject) => {
-        const stream = cloudinary.uploader.upload_stream(
-          {
-            folder: "products",
-            transformation: [
-              { width: 900, height: 900, crop: "limit" },
-              { quality: "auto" },
-              { fetch_format: "auto" },
-            ],
-          },
-          (err, result) => {
-            if (err) return reject(err);
-            resolve({ url: result.secure_url, position: index });
-          }
-        );
-        stream.end(file.buffer);
-      })
+    files.map(
+      (file, index) =>
+        new Promise((resolve, reject) => {
+          const stream = cloudinary.uploader.upload_stream(
+            {
+              folder: "products",
+              transformation: [
+                { width: 900, height: 900, crop: "limit" },
+                { quality: "auto" },
+                { fetch_format: "auto" },
+              ],
+            },
+            (err, result) => {
+              if (err) return reject(err);
+              resolve({ url: result.secure_url, position: index });
+            }
+          );
+          stream.end(file.buffer);
+        })
     )
   );
 };
@@ -130,10 +136,8 @@ const uploadImages = async (files) => {
 /* ================= PAYSTACK VERIFY ================= */
 router.get("/payment/verify/:reference", async (req, res) => {
   try {
-    const { reference } = req.params;
-
     const response = await axios.get(
-      `https://api.paystack.co/transaction/verify/${reference}`,
+      `https://api.paystack.co/transaction/verify/${req.params.reference}`,
       {
         headers: {
           Authorization: `Bearer ${process.env.PAYSTACK_SECRET_KEY}`,
@@ -147,12 +151,7 @@ router.get("/payment/verify/:reference", async (req, res) => {
       return res.status(400).json({ success: false });
     }
 
-    res.json({
-      success: true,
-      amount: data.amount,
-      customer: data.customer,
-      reference: data.reference,
-    });
+    res.json({ success: true, data });
   } catch {
     res.status(500).json({ message: "Verification failed" });
   }
@@ -166,20 +165,14 @@ router.post("/payments/initiate", async (req, res) => {
     const plan = getPlan(plan_id);
     if (!plan) return res.status(400).json({ message: "Invalid plan" });
 
-    /* FREE PLAN → skip Paystack */
+    /* FREE PLAN */
     if (plan.price === 0) {
       await pool.query(
-        `UPDATE products
-         SET is_promoted = false,
-             promotion_priority = 0
-         WHERE id = $1`,
+        `UPDATE products SET is_promoted=false WHERE id=$1`,
         [product_id]
       );
 
-      return res.json({
-        success: true,
-        message: "Free plan applied",
-      });
+      return res.json({ success: true });
     }
 
     const reference = `PSK_${Date.now()}`;
@@ -210,7 +203,7 @@ router.post("/payments/initiate", async (req, res) => {
   }
 });
 
-/* ================= PAYSTACK WEBHOOK ================= */
+/* ================= WEBHOOK ================= */
 router.post("/webhooks/paystack", async (req, res) => {
   try {
     const hash = crypto
@@ -218,25 +211,21 @@ router.post("/webhooks/paystack", async (req, res) => {
       .update(JSON.stringify(req.body))
       .digest("hex");
 
-    if (hash !== req.headers["x-paystack-signature"]) {
+    if (hash !== req.headers["x-paystack-signature"])
       return res.sendStatus(401);
-    }
 
-    const event = req.body;
+    if (req.body.event !== "charge.success")
+      return res.sendStatus(200);
 
-    if (event.event !== "charge.success") return res.sendStatus(200);
-
-    const data = event.data;
-
-    const paymentRes = await pool.query(
+    const payment = await pool.query(
       "SELECT * FROM payments WHERE reference=$1",
-      [data.reference]
+      [req.body.data.reference]
     );
 
-    const payment = paymentRes.rows[0];
-    if (!payment) return res.sendStatus(200);
+    const p = payment.rows[0];
+    if (!p) return res.sendStatus(200);
 
-    const plan = getPlan(payment.plan_id);
+    const plan = getPlan(p.plan_id);
     if (!plan) return res.sendStatus(200);
 
     const start = new Date();
@@ -244,25 +233,19 @@ router.post("/webhooks/paystack", async (req, res) => {
     end.setDate(end.getDate() + plan.durationDays);
 
     await pool.query(
-      `UPDATE products
-       SET is_promoted = true,
-           promotion_type = $1,
-           promotion_priority = $2,
-           promotion_start = $3,
-           promotion_end = $4
-       WHERE id = $5`,
-      [
-        plan.id,
-        plan.boostScore,
-        start,
-        end,
-        payment.product_id,
-      ]
+      `UPDATE products SET
+        is_promoted=true,
+        promotion_type=$1,
+        promotion_priority=$2,
+        promotion_start=$3,
+        promotion_end=$4
+       WHERE id=$5`,
+      [plan.id, plan.boostScore, start, end, p.product_id]
     );
 
     await pool.query(
       "UPDATE payments SET status='success' WHERE reference=$1",
-      [data.reference]
+      [p.reference]
     );
 
     res.sendStatus(200);
@@ -276,10 +259,8 @@ router.get("/products", async (req, res) => {
   try {
     let { skip = 0, limit = 20 } = req.query;
 
-    skip = Math.max(+skip || 0, 0);
-    limit = Math.min(+limit || 20, 50);
-
-    const baseQuery = `
+    const result = await pool.query(
+      `
       SELECT p.*,
       COALESCE(json_agg(pi.image_url ORDER BY pi.position)
       FILTER (WHERE pi.image_url IS NOT NULL), '[]') AS images
@@ -287,64 +268,15 @@ router.get("/products", async (req, res) => {
       LEFT JOIN product_images pi ON p.id = pi.product_id
       WHERE p.is_active = true
       GROUP BY p.id
-    `;
-
-    const [trendingRes, productsRes] = await Promise.all([
-      pool.query(`${baseQuery} ORDER BY p.views DESC NULLS LAST LIMIT 6`),
-      pool.query(
-        `${baseQuery}
-         ORDER BY
-           p.is_promoted DESC,
-           COALESCE(p.promotion_priority, 0) DESC,
-           p.created_at DESC
-         OFFSET $1 LIMIT $2`,
-        [skip, limit]
-      ),
-    ]);
-
-    const trending = trendingRes.rows.map(normalizeProduct);
-    const trendingIds = new Set(trending.map((p) => p.id));
-
-    const products = productsRes.rows
-      .map(normalizeProduct)
-      .filter((p) => !trendingIds.has(p.id));
-
-    res.json({ trending, products: [...trending, ...products] });
-  } catch {
-    res.status(500).json({ message: "Failed to fetch products" });
-  }
-});
-
-/* ================= SINGLE PRODUCT ================= */
-router.get("/products/:id", async (req, res) => {
-  try {
-    const { id } = req.params;
-
-    const { rows } = await pool.query(
-      `
-      SELECT p.*,
-      COALESCE(json_agg(pi.image_url ORDER BY pi.position)
-      FILTER (WHERE pi.image_url IS NOT NULL), '[]') AS images
-      FROM products p
-      LEFT JOIN product_images pi ON p.id = pi.product_id
-      WHERE p.id = $1
-      GROUP BY p.id
+      ORDER BY p.created_at DESC
+      OFFSET $1 LIMIT $2
       `,
-      [id]
+      [skip, limit]
     );
 
-    if (!rows.length) {
-      return res.status(404).json({ message: "Product not found" });
-    }
-
-    pool.query(
-      "UPDATE products SET views = COALESCE(views,0)+1 WHERE id=$1",
-      [id]
-    ).catch(() => {});
-
-    res.json(normalizeProduct(rows[0]));
+    res.json(result.rows.map(normalizeProduct));
   } catch {
-    res.status(500).json({ message: "Failed to fetch product" });
+    res.status(500).json({ message: "Failed to fetch products" });
   }
 });
 
@@ -362,27 +294,18 @@ router.post("/products", upload.array("images", 10), async (req, res) => {
     }
 
     const attributes = safeJSON(req.body.attributes);
-    const delivery = normalizeDelivery(safeJSON(req.body.delivery, {}));
+    const delivery = normalizeDelivery(safeJSON(req.body.delivery));
+    const contact = safeJSON(req.body.contact);
 
     const { rows } = await client.query(
       `
       INSERT INTO products (
-        title, description, price, category_id, subcategory_id,
+        title, description, price, category_id,
         attributes, delivery, contact,
-        promotion_id,
-        promotion_start,
-        promotion_end,
-        is_promoted,
-        promotion_type,
-        promotion_priority,
         location_state, location_city,
-        created_at, updated_at
+        created_at
       )
-      VALUES (
-        $1,$2,$3,$4,$5,$6,$7,$8,
-        NULL,NULL,NULL,false,NULL,0,
-        $9,$10,now(),now()
-      )
+      VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,now())
       RETURNING *
       `,
       [
@@ -390,10 +313,9 @@ router.post("/products", upload.array("images", 10), async (req, res) => {
         req.body.description || "",
         price,
         category_id,
-        req.body.subcategory_id || null,
         attributes,
         delivery,
-        safeJSON(req.body.contact),
+        contact,
         req.body.location_state,
         req.body.location_city,
       ]
@@ -401,9 +323,9 @@ router.post("/products", upload.array("images", 10), async (req, res) => {
 
     const product = rows[0];
 
-    const images = await uploadImages(req.files);
+    const uploaded = await uploadImages(req.files);
 
-    for (const img of images) {
+    for (const img of uploaded) {
       await client.query(
         `INSERT INTO product_images (product_id, image_url, position)
          VALUES ($1,$2,$3)`,
@@ -435,23 +357,31 @@ router.get("/categories", async (req, res) => {
     const tree = [];
 
     rows.forEach((cat) => {
-      const key = cat.fields_key || "";
+      const key = normalizeKey(cat.fields_key, cat.name);
 
       map[cat.id] = {
         ...cat,
         dynamicOptions: {
+          /* ✅ THIS FIXES YOUR FRONTEND */
+          fields: categoryFields[key] || [],
+
           brands: brands[key] || [],
           models: models[key] || {},
           colors: colors[key] || [],
+
           conditions,
           usedDetails,
+
           ram: ramOptions,
           storage: storageOptions,
           sims,
+
           features: featuresByCategory[key] || [],
+
           years,
           engines,
           fuel_types: fuelTypes,
+
           location: Object.keys(locationsByState),
         },
         subcategories: [],
