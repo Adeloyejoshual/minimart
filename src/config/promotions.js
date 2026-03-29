@@ -1,5 +1,4 @@
-export const promotionPlans = [
-  { id: 1, name: "Hot Deal", price: 500, duration_days: 3, priority: 100 },
-  { id: 2, name: "Premium", price: 1500, duration_days: 7, priority: 200 },
-  { id: 3, name: "Super Boost", price: 5000, duration_days: 30, priority: 500 }
-];
+INSERT INTO promotion_plans (id, name, duration, price, priority, features, description) VALUES
+(1, 'Hot Deal', '3 days', 500, 100, '["Top 10", "Badge"]', 'Get featured in top 10 listings'),
+(2, 'Premium', '7 days', 1500, 200, '["Top 3", "Gold Badge", "Push"]', 'Premium placement with gold badge'),
+(3, 'Super Boost', '30 days', 5000, 500, '["#1 Spot", "Platinum", "Push+"]', 'Dominate search results');
