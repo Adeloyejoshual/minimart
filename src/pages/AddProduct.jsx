@@ -1,482 +1,192 @@
-import { useEffect, useMemo, useState } from "react";
-import DropdownModal from "../components/DropdownModal.jsx";
-import AddProductHeader from "../components/AddProductHeader.jsx";
-import { locationsByState } from "../config/locationsByState.js";
-import { promotionPlans } from "../config/promotions.js";
-import "./AddProduct.css";
-
-/* ================= INITIAL FORM ================= */
-const INITIAL_FORM = {
-  title: "",
-  description: "",
-  price: "",
-  category_id: "",
-
-  attributes: {
-    brand: "",
-    model: "",
-    color: "",
-    condition: "",
-    used_detail: "",
-    ram: "",
-    storage: "",
-    sim: "",
-    year: "",
-    engine: "",
-    fuel_type: "",
-    features: [],
-  },
-
-  delivery: {
-    available: true,
-    duration: { from: "", to: "" },
-    fee: "",
-    note: "",
-  },
-
-  contact: {
-    phone: "",
-    whatsapp: "",
-    preferred: "chat",
-  },
-};
+import { useState } from "react";
+import { promotionPlans } from "../config/promotions";
 
 export default function AddProduct() {
-  const [form, setForm] = useState(INITIAL_FORM);
-  const [categories, setCategories] = useState([]);
+  const [form, setForm] = useState({
+    title: "",
+    price: "",
+    category_id: "",
+    description: "",
+    email: "",
+  });
 
-  const [state, setState] = useState("");
-  const [city, setCity] = useState("");
-
-  const [images, setImages] = useState([]);
-  const [previews, setPreviews] = useState([]);
-
+  const [promotionId, setPromotionId] = useState(0);
   const [loading, setLoading] = useState(false);
-  const [progress, setProgress] = useState(0);
 
-  const [selectedPlan, setSelectedPlan] = useState(null);
+  const selectedPlan = promotionPlans.find((p) => p.id === Number(promotionId));
 
-  /* ================= FETCH ================= */
-  useEffect(() => {
-    fetch("https://minimart-ivrm.onrender.com/api/marketplace/categories")
-      .then((r) => r.json())
-      .then(setCategories)
-      .catch(console.error);
-  }, []);
-
-  /* ================= CATEGORY ================= */
-  const selectedCategory = useMemo(
-    () => categories.find((c) => String(c.id) === String(form.category_id)),
-    [categories, form.category_id]
-  );
-
-  const options = selectedCategory?.dynamicOptions || {};
-  const attributes = form.attributes || {};
-  const brand = attributes.brand || "";
-
-  /* ================= NORMALIZE ================= */
-  const normalizeOptions = (list = []) =>
-    Array.isArray(list)
-      ? list.map((x) =>
-          typeof x === "string" ? { id: x, name: x } : x
-        )
-      : [];
-
-  /* ================= FIELDS (FIXED) ================= */
-  const fields = useMemo(() => {
-    const dynamic = selectedCategory?.dynamicOptions?.fields || [];
-
-    // prevent duplicate condition
-    return dynamic.includes("condition")
-      ? dynamic
-      : ["condition", ...dynamic];
-  }, [selectedCategory]);
-
-  /* ================= OPTIONS MAP ================= */
-  const optionsMap = useMemo(() => {
-    const modelsForBrand =
-      brand && options.models?.[brand] ? options.models[brand] : [];
-
-    return {
-      brand: normalizeOptions(options.brands),
-      model: normalizeOptions(modelsForBrand),
-      color: normalizeOptions(options.colors),
-      condition: normalizeOptions(options.conditions),
-      used_detail: normalizeOptions(options.usedDetails),
-      ram: normalizeOptions(options.ram),
-      storage: normalizeOptions(options.storage),
-      sim: normalizeOptions(options.sims),
-      year: normalizeOptions(options.years),
-      engine: normalizeOptions(options.engines),
-      fuel_type: normalizeOptions(options.fuel_types),
-      features: normalizeOptions(options.features),
-    };
-  }, [options, brand]);
-
-  /* ================= HELPERS ================= */
-  const update = (key, value) =>
-    setForm((p) => ({ ...p, [key]: value }));
-
-  const updateAttr = (key, value) =>
-    setForm((p) => {
-      const next = { ...p.attributes, [key]: value };
-
-      // reset dependent field
-      if (key === "brand") next.model = "";
-
-      return { ...p, attributes: next };
-    });
-
-  const updateDelivery = (key, value) =>
-    setForm((p) => ({
-      ...p,
-      delivery: { ...p.delivery, [key]: value },
-    }));
-
-  const updateDeliveryDuration = (key, value) =>
-    setForm((p) => ({
-      ...p,
-      delivery: {
-        ...p.delivery,
-        duration: { ...p.delivery.duration, [key]: value },
-      },
-    }));
-
-  const onlyNumbers = (v = "") => v.replace(/[^\d]/g, "");
-
-  const formatLabel = (t) =>
-    t.replace(/_/g, " ").replace(/\b\w/g, (l) => l.toUpperCase());
-
-  const toggleFeature = (f) => {
-    setForm((p) => {
-      const list = p.attributes.features || [];
-      const exists = list.includes(f);
-
-      return {
-        ...p,
-        attributes: {
-          ...p.attributes,
-          features: exists
-            ? list.filter((x) => x !== f)
-            : [...list, f],
-        },
-      };
-    });
+  const handleChange = (e) => {
+    setForm({ ...form, [e.target.name]: e.target.value });
   };
 
-  /* ================= VALIDATION ================= */
-  const validate = () => {
-    if (form.title.length < 10) return "Title too short";
-    if (form.description.length < 20) return "Description too short";
-    if (!form.price) return "Price required";
-    if (!form.category_id) return "Select category";
-    if (!form.contact.phone) return "Phone required";
-
-    if (form.delivery.available) {
-      const from = Number(form.delivery.duration.from);
-      const to = Number(form.delivery.duration.to);
-
-      if (Number.isNaN(from) || Number.isNaN(to))
-        return "Delivery range required";
-
-      if (to < from) return "Invalid delivery range";
-    }
-
-    return null;
-  };
-
-  /* ================= IMAGES ================= */
-  const handleImages = (files) => {
-    const list = Array.from(files).slice(0, 8);
-
-    previews.forEach(URL.revokeObjectURL);
-
-    setImages(list);
-    setPreviews(list.map((f) => URL.createObjectURL(f)));
-  };
-
-  const removeImage = (i) => {
-    setImages((p) => p.filter((_, x) => x !== i));
-    setPreviews((p) => {
-      URL.revokeObjectURL(p[i]);
-      return p.filter((_, x) => x !== i);
-    });
-  };
-
-  /* ================= SUBMIT ================= */
-  const handleSubmit = () => {
-    if (loading) return;
-
-    const err = validate();
-    if (err) return alert(err);
-
-    setLoading(true);
-    setProgress(0);
-
+  /* ================= CREATE PRODUCT ================= */
+  const createProduct = async () => {
     const fd = new FormData();
+    fd.append("title", form.title);
+    fd.append("price", form.price);
+    fd.append("category_id", form.category_id);
+    fd.append("description", form.description);
+    fd.append("promotion_id", promotionId);
 
-    const payload = {
-      ...form,
-      price: form.price.replace(/[^\d]/g, ""),
-      attributes: JSON.stringify(form.attributes),
-      delivery: JSON.stringify(form.delivery),
-      contact: JSON.stringify(form.contact),
-      location_state: state,
-      location_city: city,
-      promotion_plan: selectedPlan,
-    };
-
-    Object.entries(payload).forEach(([k, v]) => fd.append(k, v));
-    images.forEach((img) => fd.append("images", img));
-
-    const xhr = new XMLHttpRequest();
-    xhr.open(
-      "POST",
-      "https://minimart-ivrm.onrender.com/api/marketplace/products"
+    const res = await fetch(
+      "https://minimart-ivrm.onrender.com/api/products",
+      {
+        method: "POST",
+        body: fd,
+      }
     );
 
-    xhr.upload.onprogress = (e) => {
-      if (e.lengthComputable) {
-        setProgress(Math.round((e.loaded / e.total) * 100));
-      }
-    };
+    const data = await res.json();
 
-    xhr.onload = () => {
-      setLoading(false);
+    if (!res.ok) throw new Error(data.message || "Product creation failed");
 
-      if (xhr.status >= 200 && xhr.status < 300) {
-        alert("Product created successfully");
-
-        setForm(INITIAL_FORM);
-        setImages([]);
-        setPreviews([]);
-        setState("");
-        setCity("");
-        setSelectedPlan(null);
-      } else {
-        alert("Upload failed");
-      }
-    };
-
-    xhr.onerror = () => {
-      setLoading(false);
-      alert("Network error");
-    };
-
-    xhr.send(fd);
+    return data.product.id;
   };
 
-  const states = Object.keys(locationsByState || {});
-  const cities = state ? locationsByState[state] : [];
+  /* ================= INIT PAYMENT ================= */
+  const initPayment = async (productId) => {
+    const res = await fetch(
+      "https://minimart-ivrm.onrender.com/api/payment/initialize",
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          productId,
+          email: form.email,
+          amount: selectedPlan.price, // 👈 promotion price controls payment
+          promotionId,
+        }),
+      }
+    );
 
-  /* ================= UI ================= */
+    const data = await res.json();
+
+    if (!res.ok) throw new Error(data.error || "Payment init failed");
+
+    return data.authorization_url;
+  };
+
+  /* ================= SUBMIT FLOW ================= */
+  const handleSubmit = async (e) => {
+    e.preventDefault();
+    setLoading(true);
+
+    try {
+      const productId = await createProduct();
+      const url = await initPayment(productId);
+
+      window.location.href = url;
+    } catch (err) {
+      alert(err.message);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  /* ================= VERIFY PAYMENT ================= */
+  const handleVerify = async () => {
+    const reference = new URLSearchParams(window.location.search).get(
+      "reference"
+    );
+
+    if (!reference) return;
+
+    const res = await fetch(
+      "https://minimart-ivrm.onrender.com/api/paystack/verify",
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ reference }),
+      }
+    );
+
+    const data = await res.json();
+
+    if (data.success) {
+      alert("Payment successful + Product activated!");
+    } else {
+      alert("Verification failed");
+    }
+  };
+
   return (
-    <div className="add-product-container">
-      <AddProductHeader title="Add Product" />
+    <div style={{ padding: 20 }}>
+      <h2>Add Product (Paystack + Promotions)</h2>
 
-      {loading && (
-        <div className="progress">
-          <div style={{ width: `${progress}%` }} />
-        </div>
-      )}
-
-      <input
-        placeholder="Title"
-        value={form.title}
-        onChange={(e) => update("title", e.target.value)}
-      />
-
-      <textarea
-        placeholder="Description"
-        value={form.description}
-        onChange={(e) => update("description", e.target.value)}
-      />
-
-      <input
-        placeholder="Price"
-        value={form.price}
-        onChange={(e) => update("price", onlyNumbers(e.target.value))}
-      />
-
-      {/* CATEGORY */}
-      <DropdownModal
-        label="Category"
-        value={form.category_id}
-        onChange={(v) =>
-          setForm({
-            ...INITIAL_FORM,
-            category_id: v,
-          })
-        }
-        options={categories.map((c) => ({
-          id: c.id,
-          name: c.name,
-        }))}
-      />
-
-      {/* DYNAMIC FIELDS */}
-      {fields.map((f) => {
-        if (!optionsMap[f]) return null;
-
-        if (f === "used_detail" && attributes.condition !== "used")
-          return null;
-
-        return (
-          <DropdownModal
-            key={f}
-            label={formatLabel(f)}
-            value={attributes[f] || ""}
-            onChange={(v) => updateAttr(f, v)}
-            options={optionsMap[f]}
-          />
-        );
-      })}
-
-      {/* FEATURES */}
-      {options.features?.length > 0 && (
-        <div className="form-section">
-          <h3>Features</h3>
-          <div className="checkbox-grid">
-            {options.features.map((f) => (
-              <label key={f}>
-                <input
-                  type="checkbox"
-                  checked={(attributes.features || []).includes(f)}
-                  onChange={() => toggleFeature(f)}
-                />
-                {f}
-              </label>
-            ))}
-          </div>
-        </div>
-      )}
-
-      {/* DELIVERY */}
-      <div className="form-section">
-        <h3>Delivery</h3>
-
-        <label>
-          <input
-            type="checkbox"
-            checked={form.delivery.available}
-            onChange={(e) =>
-              updateDelivery("available", e.target.checked)
-            }
-          />
-          Available
-        </label>
-
-        {form.delivery.available && (
-          <>
-            <input
-              type="number"
-              placeholder="From days"
-              value={form.delivery.duration.from}
-              onChange={(e) =>
-                updateDeliveryDuration("from", e.target.value)
-              }
-            />
-
-            <input
-              type="number"
-              placeholder="To days"
-              value={form.delivery.duration.to}
-              onChange={(e) =>
-                updateDeliveryDuration("to", e.target.value)
-              }
-            />
-
-            <input
-              type="number"
-              placeholder="Delivery fee"
-              value={form.delivery.fee}
-              onChange={(e) =>
-                updateDelivery("fee", onlyNumbers(e.target.value))
-              }
-            />
-          </>
-        )}
-      </div>
-
-      {/* LOCATION */}
-      <DropdownModal
-        label="State"
-        value={state}
-        onChange={setState}
-        options={states}
-      />
-
-      {state && (
-        <DropdownModal
-          label="City"
-          value={city}
-          onChange={setCity}
-          options={cities}
+      {/* ========== PRODUCT FORM ========== */}
+      <form onSubmit={handleSubmit}>
+        <input
+          name="title"
+          placeholder="Title"
+          onChange={handleChange}
+          required
         />
-      )}
+        <br />
 
-      {/* CONTACT */}
-      <input
-        placeholder="Phone"
-        value={form.contact.phone}
-        onChange={(e) =>
-          update("contact", {
-            ...form.contact,
-            phone: onlyNumbers(e.target.value),
-          })
-        }
-      />
+        <input
+          name="price"
+          placeholder="Base Price"
+          type="number"
+          onChange={handleChange}
+          required
+        />
+        <br />
 
-      <input
-        placeholder="WhatsApp"
-        value={form.contact.whatsapp}
-        onChange={(e) =>
-          update("contact", {
-            ...form.contact,
-            whatsapp: onlyNumbers(e.target.value),
-          })
-        }
-      />
+        <input
+          name="category_id"
+          placeholder="Category ID"
+          onChange={handleChange}
+          required
+        />
+        <br />
 
-      {/* IMAGES */}
-      <input type="file" multiple onChange={(e) => handleImages(e.target.files)} />
+        <input
+          name="email"
+          placeholder="Email"
+          onChange={handleChange}
+          required
+        />
+        <br />
 
-      <div className="preview-grid">
-        {previews.map((src, i) => (
-          <div key={i}>
-            <img src={src} alt="" />
-            <button onClick={() => removeImage(i)}>X</button>
-          </div>
-        ))}
-      </div>
+        <textarea
+          name="description"
+          placeholder="Description"
+          onChange={handleChange}
+        />
+        <br />
 
-      {/* PROMOTION */}
-      <div className="form-section">
-        <h3>Promotion Plans</h3>
+        {/* ========== PROMOTION SELECT ========== */}
+        <h3>Select Promotion Plan</h3>
 
         {promotionPlans.map((plan) => (
-          <div
-            key={plan.id}
-            onClick={() => setSelectedPlan(plan)}
-            style={{
-              border:
-                selectedPlan?.id === plan.id
-                  ? "2px solid green"
-                  : "1px solid #ccc",
-              padding: "10px",
-              borderRadius: "8px",
-              cursor: "pointer",
-            }}
-          >
-            <strong>{plan.name}</strong>
-            <p>{plan.duration}</p>
-            <p>₦{plan.price}</p>
-          </div>
+          <label key={plan.id} style={{ display: "block", marginBottom: 10 }}>
+            <input
+              type="radio"
+              name="promotion"
+              value={plan.id}
+              checked={Number(promotionId) === plan.id}
+              onChange={() => setPromotionId(plan.id)}
+            />
+            <strong> {plan.name}</strong> — ₦{plan.price}
+            <br />
+            <small>{plan.description}</small>
+          </label>
         ))}
-      </div>
 
-      <button onClick={handleSubmit} disabled={loading}>
-        {loading ? "Uploading..." : "Create Product"}
+        <br />
+
+        <button disabled={loading}>
+          {loading
+            ? "Processing..."
+            : `Pay ₦${selectedPlan?.price || 0} & Publish`}
+        </button>
+      </form>
+
+      <hr />
+
+      {/* ========== VERIFY BUTTON (TEST ONLY) ========== */}
+      <button onClick={handleVerify}>
+        Verify Payment (after redirect)
       </button>
     </div>
   );
