@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import DropdownModal from "../components/DropdownModal.jsx";
 import AddProductHeader from "../components/AddProductHeader.jsx";
 import { locationsByState } from "../config/locationsByState.js";
+import { promotionPlans } from "../config/promotionPlans.js";
 import "./AddProduct.css";
 
 const INITIAL_FORM = {
@@ -44,6 +45,9 @@ export default function AddProduct() {
   const [loading, setLoading] = useState(false);
   const [progress, setProgress] = useState(0);
 
+  // ✅ NEW: promotion plan state
+  const [selectedPlan, setSelectedPlan] = useState(null);
+
   /* ================= FETCH CATEGORIES ================= */
   useEffect(() => {
     fetch("https://minimart-ivrm.onrender.com/api/marketplace/categories")
@@ -66,9 +70,7 @@ export default function AddProduct() {
   const normalizeOptions = (list = []) =>
     Array.isArray(list)
       ? list.map((item) =>
-          typeof item === "string"
-            ? { id: item, name: item }
-            : item
+          typeof item === "string" ? { id: item, name: item } : item
         )
       : [];
 
@@ -78,10 +80,9 @@ export default function AddProduct() {
     return ["condition", ...dynamic];
   }, [selectedCategory]);
 
-  /* ================= OPTIONS MAP (FIXED) ================= */
+  /* ================= OPTIONS MAP ================= */
   const optionsMap = useMemo(() => {
-    const modelsForBrand =
-      options.models?.[brand] || [];
+    const modelsForBrand = options.models?.[brand] || [];
 
     return {
       brand: normalizeOptions(options.brands),
@@ -110,7 +111,6 @@ export default function AddProduct() {
         [key]: value,
       };
 
-      /* RESET MODEL WHEN BRAND CHANGES */
       if (key === "brand") {
         updated.model = "";
       }
@@ -152,11 +152,13 @@ export default function AddProduct() {
     if (!form.contact.phone) return "Phone required";
 
     if (form.delivery.available) {
-      if (!form.delivery.duration.from || !form.delivery.duration.to)
+      const from = Number(form.delivery.duration.from);
+      const to = Number(form.delivery.duration.to);
+
+      if (Number.isNaN(from) || Number.isNaN(to))
         return "Delivery range required";
 
-      if (+form.delivery.duration.to < +form.delivery.duration.from)
-        return "Invalid delivery range";
+      if (to < from) return "Invalid delivery range";
     }
 
     return null;
@@ -182,6 +184,8 @@ export default function AddProduct() {
 
   /* ================= SUBMIT ================= */
   const handleSubmit = () => {
+    if (loading) return;
+
     const err = validate();
     if (err) return alert(err);
 
@@ -198,6 +202,9 @@ export default function AddProduct() {
       contact: JSON.stringify(form.contact),
       location_state: state,
       location_city: city,
+
+      // ✅ NEW FIELD
+      promotion_plan: selectedPlan,
     };
 
     Object.entries(payload).forEach(([k, v]) => fd.append(k, v));
@@ -220,12 +227,16 @@ export default function AddProduct() {
 
       if (xhr.status >= 200 && xhr.status < 300) {
         alert("Product created successfully");
+
         setForm(INITIAL_FORM);
         setImages([]);
         setPreviews([]);
         setState("");
         setCity("");
         setProgress(0);
+
+        // ✅ reset plan
+        setSelectedPlan(null);
       } else {
         alert("Upload failed");
       }
@@ -317,7 +328,7 @@ export default function AddProduct() {
               <label key={f}>
                 <input
                   type="checkbox"
-                  checked={form.attributes.features.includes(f)}
+                  checked={(form.attributes.features || []).includes(f)}
                   onChange={() => toggleFeature(f)}
                 />
                 {f}
@@ -326,6 +337,56 @@ export default function AddProduct() {
           </div>
         </div>
       )}
+
+      {/* ================= PROMOTION PLANS ================= */}
+      <div className="form-section">
+        <h3>Promotion Plans</h3>
+
+        <div className="checkbox-grid">
+          {promotionPlans.map((plan) => (
+            <div
+              key={plan.id}
+              onClick={() => setSelectedPlan(plan)}
+              style={{
+                border:
+                  selectedPlan?.id === plan.id
+                    ? "2px solid green"
+                    : "1px solid #ccc",
+                padding: "10px",
+                borderRadius: "8px",
+                cursor: "pointer",
+              }}
+            >
+              <strong>{plan.name}</strong>
+              <p>{plan.duration}</p>
+              <p>₦{plan.price}</p>
+              <small>{plan.description}</small>
+
+              {plan.features?.length > 0 && (
+                <div style={{ fontSize: "12px" }}>
+                  {plan.features.join(", ")}
+                </div>
+              )}
+            </div>
+          ))}
+        </div>
+
+        {/* FREE OPTION */}
+        <div
+          onClick={() => setSelectedPlan(null)}
+          style={{
+            marginTop: "10px",
+            padding: "10px",
+            border:
+              selectedPlan === null ? "2px solid blue" : "1px solid #ccc",
+            borderRadius: "8px",
+            cursor: "pointer",
+          }}
+        >
+          <strong>Free Listing</strong>
+          <p>No promotion</p>
+        </div>
+      </div>
 
       {/* DELIVERY */}
       <div className="form-section">
