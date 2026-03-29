@@ -1,11 +1,9 @@
-import { useEffect, useState, useRef, useCallback } from "react";
+import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 import TopNav from "../components/TopNav";
 import BottomNav from "../components/BottomNav";
 import { useProductCache } from "../context/ProductCacheContext";
 import "../styles/Homepage.css";
-
-const LIMIT = 20;
 
 export default function Homepage() {
   const {
@@ -18,88 +16,35 @@ export default function Homepage() {
   } = useProductCache();
 
   const [loading, setLoading] = useState(false);
-  const [skip, setSkip] = useState(0);
-  const [hasMore, setHasMore] = useState(true);
 
-  const observerRef = useRef(null);
-  const isFetchingRef = useRef(false);
+  /* ================= FETCH HOMEPAGE ================= */
+  useEffect(() => {
+    if (loaded) return;
 
-  /* ================= FETCH ================= */
-  const fetchProducts = useCallback(
-    async (currentSkip) => {
-      if (isFetchingRef.current || !hasMore) return;
-
+    const fetchHomepage = async () => {
       try {
-        isFetchingRef.current = true;
         setLoading(true);
 
         const res = await fetch(
-          `https://minimart-ivrm.onrender.com/api/marketplace/products?skip=${currentSkip}&limit=${LIMIT}`
+          "https://minimart-ivrm.onrender.com/api/homepage"
         );
 
         const data = await res.json();
 
-        const incoming = data.products || [];
-
-        // 🔥 Correct usage (NO function)
-        setProducts(incoming);
-
-        // trending only first load
-        if (currentSkip === 0 && !loaded) {
-          setTrending((data.trending || []).slice(0, 6));
-        }
-
-        if (incoming.length < LIMIT) {
-          setHasMore(false);
-        }
+        // ✅ Correct mapping from backend
+        setProducts(data.latest || []);
+        setTrending(data.promoted || []);
 
         setLoaded(true);
       } catch (err) {
-        console.error("Fetch error:", err);
+        console.error("Homepage fetch error:", err);
       } finally {
         setLoading(false);
-        isFetchingRef.current = false;
       }
-    },
-    [hasMore, loaded]
-  );
-
-  /* ================= INITIAL LOAD ================= */
-  useEffect(() => {
-    if (!loaded) {
-      fetchProducts(0);
-    }
-  }, [loaded, fetchProducts]);
-
-  /* ================= PAGINATION ================= */
-  useEffect(() => {
-    if (skip === 0) return;
-    fetchProducts(skip);
-  }, [skip, fetchProducts]);
-
-  /* ================= INFINITE SCROLL ================= */
-  useEffect(() => {
-    const observer = new IntersectionObserver(
-      (entries) => {
-        if (
-          entries[0].isIntersecting &&
-          hasMore &&
-          !isFetchingRef.current
-        ) {
-          setSkip((prev) => prev + LIMIT);
-        }
-      },
-      { rootMargin: "150px" }
-    );
-
-    const el = observerRef.current;
-    if (el) observer.observe(el);
-
-    return () => {
-      if (el) observer.unobserve(el);
-      observer.disconnect();
     };
-  }, [hasMore]);
+
+    fetchHomepage();
+  }, [loaded, setProducts, setTrending, setLoaded]);
 
   /* ================= HELPERS ================= */
   const getImage = (p) =>
@@ -145,7 +90,6 @@ export default function Homepage() {
       <TopNav />
 
       <div className="homepage-container">
-
         {/* TRENDING */}
         <div className="section">
           <h2>🔥 Trending</h2>
@@ -159,7 +103,7 @@ export default function Homepage() {
 
         {/* PRODUCTS */}
         <div className="section">
-          <h2>🛒 Products</h2>
+          <h2>🛒 Latest Products</h2>
 
           <div className="products-grid">
             {products.map((p) => (
@@ -167,14 +111,12 @@ export default function Homepage() {
             ))}
           </div>
 
-          <div ref={observerRef} style={{ height: 40 }} />
-
           {loading && (
             <p className="loading-text">Loading...</p>
           )}
 
-          {!hasMore && (
-            <p className="loading-text">No more products</p>
+          {!loading && products.length === 0 && (
+            <p className="loading-text">No products found</p>
           )}
         </div>
       </div>
