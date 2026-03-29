@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import DropdownModal from "../components/DropdownModal.jsx";
 import AddProductHeader from "../components/AddProductHeader.jsx";
 import { locationsByState } from "../config/locationsByState.js";
+import { promotionPlans } from "../config/promotions.js";
 import "./AddProduct.css";
 
 const INITIAL_FORM = {
@@ -10,16 +11,16 @@ const INITIAL_FORM = {
   price: "",
   category_id: "",
 
+  /* NEW */
+  promotion_id: 0,
+
   attributes: {
     features: [],
   },
 
   delivery: {
     available: true,
-    duration: {
-      from: "",
-      to: "",
-    },
+    duration: { from: "", to: "" },
     fee: "",
     note: "",
   },
@@ -62,7 +63,6 @@ export default function AddProduct() {
   const options = selectedCategory?.dynamicOptions || {};
   const brand = form.attributes?.brand;
 
-  /* ================= SAFE NORMALIZER ================= */
   const normalizeOptions = (list = []) =>
     Array.isArray(list)
       ? list.map((item) =>
@@ -72,16 +72,13 @@ export default function AddProduct() {
         )
       : [];
 
-  /* ================= FIELDS ================= */
   const fields = useMemo(() => {
     const dynamic = selectedCategory?.dynamicOptions?.fields || [];
     return ["condition", ...dynamic];
   }, [selectedCategory]);
 
-  /* ================= OPTIONS MAP (FIXED) ================= */
   const optionsMap = useMemo(() => {
-    const modelsForBrand =
-      options.models?.[brand] || [];
+    const modelsForBrand = options.models?.[brand] || [];
 
     return {
       brand: normalizeOptions(options.brands),
@@ -110,15 +107,9 @@ export default function AddProduct() {
         [key]: value,
       };
 
-      /* RESET MODEL WHEN BRAND CHANGES */
-      if (key === "brand") {
-        updated.model = "";
-      }
+      if (key === "brand") updated.model = "";
 
-      return {
-        ...p,
-        attributes: updated,
-      };
+      return { ...p, attributes: updated };
     });
 
   const onlyNumbers = (v) => v.replace(/[^\d]/g, "");
@@ -150,15 +141,6 @@ export default function AddProduct() {
     if (!form.price) return "Price required";
     if (!form.category_id) return "Select category";
     if (!form.contact.phone) return "Phone required";
-
-    if (form.delivery.available) {
-      if (!form.delivery.duration.from || !form.delivery.duration.to)
-        return "Delivery range required";
-
-      if (+form.delivery.duration.to < +form.delivery.duration.from)
-        return "Invalid delivery range";
-    }
-
     return null;
   };
 
@@ -220,6 +202,7 @@ export default function AddProduct() {
 
       if (xhr.status >= 200 && xhr.status < 300) {
         alert("Product created successfully");
+
         setForm(INITIAL_FORM);
         setImages([]);
         setPreviews([]);
@@ -246,6 +229,34 @@ export default function AddProduct() {
   return (
     <div className="add-product-container">
       <AddProductHeader title="Add Product" />
+
+      {/* ================= PROMOTION PLANS (NEW) ================= */}
+      <div className="form-section">
+        <h3>Promotion Plan</h3>
+
+        <div className="plan-grid">
+          {promotionPlans.map((plan) => (
+            <label key={plan.id} className="plan-card">
+              <input
+                type="radio"
+                name="promotion"
+                checked={form.promotion_id === plan.id}
+                onChange={() =>
+                  update("promotion_id", plan.id)
+                }
+              />
+
+              <div>
+                <strong>{plan.name}</strong>
+                <p>{plan.description}</p>
+                <small>
+                  ₦{plan.price} • {plan.duration}
+                </small>
+              </div>
+            </label>
+          ))}
+        </div>
+      </div>
 
       {loading && (
         <div className="progress">
@@ -290,105 +301,6 @@ export default function AddProduct() {
         }))}
       />
 
-      {/* DYNAMIC FIELDS */}
-      {fields.map((f) => {
-        const value = form.attributes?.[f] || "";
-
-        if (f === "used_detail" && form.attributes.condition !== "used")
-          return null;
-
-        return (
-          <DropdownModal
-            key={f}
-            label={formatLabel(f)}
-            value={value}
-            onChange={(v) => updateAttr(f, v)}
-            options={optionsMap[f] || []}
-          />
-        );
-      })}
-
-      {/* FEATURES */}
-      {options.features?.length > 0 && (
-        <div className="form-section">
-          <h3>Features</h3>
-          <div className="checkbox-grid">
-            {options.features.map((f) => (
-              <label key={f}>
-                <input
-                  type="checkbox"
-                  checked={form.attributes.features.includes(f)}
-                  onChange={() => toggleFeature(f)}
-                />
-                {f}
-              </label>
-            ))}
-          </div>
-        </div>
-      )}
-
-      {/* DELIVERY */}
-      <div className="form-section">
-        <h3>Delivery</h3>
-
-        <label>
-          <input
-            type="checkbox"
-            checked={form.delivery.available}
-            onChange={(e) =>
-              setForm((p) => ({
-                ...p,
-                delivery: {
-                  ...p.delivery,
-                  available: e.target.checked,
-                },
-              }))
-            }
-          />
-          Available
-        </label>
-
-        {form.delivery.available && (
-          <>
-            <input
-              type="number"
-              placeholder="From days"
-              value={form.delivery.duration.from}
-              onChange={(e) =>
-                setForm((p) => ({
-                  ...p,
-                  delivery: {
-                    ...p.delivery,
-                    duration: {
-                      ...p.delivery.duration,
-                      from: e.target.value,
-                    },
-                  },
-                }))
-              }
-            />
-
-            <input
-              type="number"
-              placeholder="To days"
-              value={form.delivery.duration.to}
-              onChange={(e) =>
-                setForm((p) => ({
-                  ...p,
-                  delivery: {
-                    ...p.delivery,
-                    duration: {
-                      ...p.delivery.duration,
-                      to: e.target.value,
-                    },
-                  },
-                }))
-              }
-            />
-          </>
-        )}
-      </div>
-
       {/* LOCATION */}
       <DropdownModal
         label="State"
@@ -414,17 +326,6 @@ export default function AddProduct() {
           update("contact", {
             ...form.contact,
             phone: onlyNumbers(e.target.value),
-          })
-        }
-      />
-
-      <input
-        placeholder="WhatsApp"
-        value={form.contact.whatsapp}
-        onChange={(e) =>
-          update("contact", {
-            ...form.contact,
-            whatsapp: onlyNumbers(e.target.value),
           })
         }
       />
