@@ -1,7 +1,9 @@
 import express from "express";
 import { Pool } from "pg";
+import multer from "multer";
 import { v2 as cloudinary } from "cloudinary";
 import dotenv from "dotenv";
+import axios from "axios";
 
 /* ================= CONFIG IMPORTS ================= */
 import { brands } from "../src/config/brands.js";
@@ -35,6 +37,18 @@ cloudinary.config({
   api_secret: process.env.CLOUDINARY_API_SECRET,
 });
 
+/* ================= MULTER ================= */
+const upload = multer({
+  storage: multer.memoryStorage(),
+  limits: { fileSize: 5 * 1024 * 1024, files: 10 },
+  fileFilter: (req, file, cb) => {
+    if (!file.mimetype.startsWith("image/")) {
+      return cb(new Error("Only images allowed"));
+    }
+    cb(null, true);
+  },
+});
+
 /* ================= HELPERS ================= */
 const safeJSON = (value, fallback = {}) => {
   try {
@@ -51,16 +65,15 @@ const normalizeDelivery = (d = {}) => ({
     to: Number(d?.duration?.to ?? 0),
   },
   fee: d?.fee ?? null,
-  type: d?.type || "optional",
   note: d?.note || "",
 });
 
 const normalizeProduct = (p) => ({
   ...p,
   images: p.images || [],
-  attributes: safeJSON(p.attributes),
-  delivery: normalizeDelivery(safeJSON(p.delivery)),
-  contact: safeJSON(p.contact),
+  attributes: p.attributes || {},
+  delivery: normalizeDelivery(p.delivery),
+  contact: p.contact || {},
   location: {
     state: p.location_state,
     city: p.location_city,
@@ -68,235 +81,272 @@ const normalizeProduct = (p) => ({
   promotion: promotionPlans.find((x) => x.id == p.promotion_id) || null,
 });
 
+/* ================= CLOUDINARY UPLOAD ================= */
+const uploadImages = async (files) => {
+  if (!files?.length) return [];
+
+  return Promise.all(
+    files.map((file, index) =>
+      new Promise((resolve, reject) => {
+        const stream = cloudinary.uploader.upload_stream(
+          {
+            folder: "products",
+            transformation: [
+              { width: 900, height: 900, crop: "limit" },
+              { quality: "auto" },
+              { fetch_format: "auto" },
+            ],
+          },
+          (err, result) => {
+            if (err) return reject(err);
+            resolve({ url: result.secure_url, position: index });
+          }
+        );
+        stream.end(file.buffer);
+      })
+    )
+  );
+};
+
 /* =========================================================
-CLOUDINARY SIGNATURE (SECURE DIRECT UPLOADS)
+🔐 PAYSTACK VERIFY ENDPOINT (CRITICAL SECURITY)
 ========================================================= */
-router.get("/cloudinary-signature", (req, res) => {
+router.get("/payment/verify/:reference", async (req, res) => {
   try {
-    const timestamp = Math.round(new Date().getTime() / 1000);
-    
-    const signature = cloudinary.v2.utils.api_sign_request(
-      { 
-        timestamp, 
-        folder: "products",
-        transformation: [
-          { width: 900, height: 900, crop: "limit" },
-          { quality: "auto" },
-          { fetch_format: "auto" }
-        ]
-      },
-      process.env.CLOUDINARY_API_SECRET
+    const { reference } = req.params;
+
+    const response = await axios.get(
+      `https://api.paystack.co/transaction/verify/${reference}`,
+      {
+        headers: {
+          Authorization: `Bearer ${process.env.PAYSTACK_SECRET_KEY}`,
+        },
+      }
     );
 
+    const data = response.data.data;
+
+    if (data.status !== "success") {
+      return res.status(400).json({
+        success: false,
+        message: "Payment not successful",
+      });
+    }
+
     res.json({
-      timestamp,
-      signature,
-      cloud_name: process.env.CLOUDINARY_CLOUD_NAME,
-      api_key: process.env.CLOUDINARY_API_KEY,
+      success: true,
+      amount: data.amount,
+      customer: data.customer,
+      reference: data.reference,
     });
   } catch (err) {
-    console.error("Signature error:", err);
-    res.status(500).json({ error: "Signature generation failed" });
+    console.error(err.response?.data || err.message);
+    res.status(500).json({ message: "Verification failed" });
   }
 });
 
 /* =========================================================
-GET PRODUCTS (Trending + Latest)
+GET PRODUCTS
 ========================================================= */
 router.get("/products", async (req, res) => {
   try {
-    const { skip = 0, limit = 20, state, category_id } = req.query;
-    const offset = Math.max(+skip || 0, 0);
-    const take = Math.min(+limit || 20, 50);
+    let { skip = 0, limit = 20 } = req.query;
 
-    const whereClause = [
-      "p.is_active = true",
-      "p.status = 'active'"
-    ];
-
-    const params = [];
-    let paramIndex = 1;
-
-    if (state) {
-      whereClause.push(`p.location_state = $${paramIndex}`);
-      params.push(state);
-      paramIndex++;
-    }
-
-    if (category_id) {
-      whereClause.push(`p.category_id = $${paramIndex}::UUID`);
-      params.push(category_id);
-      paramIndex++;
-    }
-
-    const whereStr = whereClause.length ? `WHERE ${whereClause.join(" AND ")}` : "";
+    skip = Math.max(+skip || 0, 0);
+    limit = Math.min(+limit || 20, 50);
 
     const baseQuery = `
-      SELECT p.*, 
-      COALESCE(json_agg(pi.image_url ORDER BY pi.position) FILTER (WHERE pi.image_url IS NOT NULL), '[]') AS images
+      SELECT p.*,
+      COALESCE(
+        json_agg(pi.image_url ORDER BY pi.position)
+        FILTER (WHERE pi.image_url IS NOT NULL),
+        '[]'
+      ) AS images
       FROM products p
       LEFT JOIN product_images pi ON p.id = pi.product_id
-      ${whereStr}
+      WHERE p.is_active = true
       GROUP BY p.id
     `;
 
     const [trendingRes, productsRes] = await Promise.all([
-      pool.query(`${baseQuery} ORDER BY p.views DESC NULLS LAST, p.promotion_priority DESC LIMIT 6`),
-      pool.query(`${baseQuery} ORDER BY p.created_at DESC OFFSET $${paramIndex} LIMIT $${paramIndex + 1}`, [...params, offset, take])
+      pool.query(`${baseQuery} ORDER BY p.views DESC NULLS LAST LIMIT 6`),
+      pool.query(
+        `${baseQuery}
+         ORDER BY p.is_promoted DESC NULLS LAST,
+                  p.promotion_priority DESC NULLS LAST,
+                  p.created_at DESC
+         OFFSET $1 LIMIT $2`,
+        [skip, limit]
+      ),
     ]);
 
     const trending = trendingRes.rows.map(normalizeProduct);
     const trendingIds = new Set(trending.map((p) => p.id));
-    
-    const products = trendingRes.rows
+
+    const products = productsRes.rows
       .map(normalizeProduct)
       .filter((p) => !trendingIds.has(p.id));
 
-    res.json({ 
-      trending, 
-      products: [...trending, ...products],
-      filters_applied: { state, category_id }
-    });
+    res.json({ trending, products: [...trending, ...products] });
   } catch (err) {
-    console.error("GET /products error:", err);
+    console.error(err);
     res.status(500).json({ message: "Failed to fetch products" });
   }
 });
 
 /* =========================================================
-GET SINGLE PRODUCT (+ VIEW INCREMENT)
+GET SINGLE PRODUCT
 ========================================================= */
 router.get("/products/:id", async (req, res) => {
   try {
     const { id } = req.params;
 
     const { rows } = await pool.query(
-      `SELECT p.*, 
-       COALESCE(json_agg(pi.image_url ORDER BY pi.position) FILTER (WHERE pi.image_url IS NOT NULL), '[]') AS images
-       FROM products p
-       LEFT JOIN product_images pi ON p.id = pi.product_id
-       WHERE p.id = $1 AND p.is_active = true AND p.status = 'active'
-       GROUP BY p.id`,
+      `
+      SELECT p.*,
+      COALESCE(
+        json_agg(pi.image_url ORDER BY pi.position)
+        FILTER (WHERE pi.image_url IS NOT NULL),
+        '[]'
+      ) AS images
+      FROM products p
+      LEFT JOIN product_images pi ON p.id = pi.product_id
+      WHERE p.id = $1
+      GROUP BY p.id
+      `,
       [id]
     );
 
-    if (!rows.length) {
+    if (!rows.length)
       return res.status(404).json({ message: "Product not found" });
-    }
 
-    const product = rows[0];
-    
-    // Fire-and-forget view increment
     pool.query(
-      "UPDATE products SET views = COALESCE(views, 0) + 1 WHERE id = $1", 
+      "UPDATE products SET views = COALESCE(views,0)+1 WHERE id=$1",
       [id]
-    ).catch(console.error);
+    ).catch(() => {});
 
-    res.json(normalizeProduct(product));
-  } catch (err) {
-    console.error("GET /products/:id error:", err);
+    res.json(normalizeProduct(rows[0]));
+  } catch {
     res.status(500).json({ message: "Failed to fetch product" });
   }
 });
 
 /* =========================================================
-CREATE PRODUCT (FULL SCHEMA COMPATIBLE)
+CREATE PRODUCT (NO TRUST ON FRONTEND PAYMENT)
 ========================================================= */
-router.post("/products", async (req, res) => {
+router.post("/products", upload.array("images", 10), async (req, res) => {
   const client = await pool.connect();
-  
+
   try {
     await client.query("BEGIN");
 
-    const { 
-      title, 
-      price, 
-      category_id, 
-      image_urls = [], 
-      ...rest 
-    } = req.body;
+    const { title, price, category_id } = req.body;
 
-    // Validation
-    if (!title?.trim()) return res.status(400).json({ message: "Title required" });
-    if (!price || isNaN(price)) return res.status(400).json({ message: "Valid price required" });
-    if (!category_id) return res.status(400).json({ message: "Category required" });
-    if (!image_urls?.length) return res.status(400).json({ message: "At least one image required" });
-
-    const attributes = safeJSON(rest.attributes);
-    const delivery = normalizeDelivery(safeJSON(rest.delivery));
-    const contact = safeJSON(rest.contact);
-
-    // Delivery validation
-    if (delivery.available && delivery.duration.from >= delivery.duration.to) {
-      return res.status(400).json({ message: "'To' days must be greater than 'From' days" });
+    if (!title || !price || !category_id) {
+      return res.status(400).json({ message: "Missing required fields" });
     }
 
-    // Insert product (leverages schema defaults)
-    const { rows: productRows } = await client.query(
-      `INSERT INTO products (
+    const attributes = safeJSON(req.body.attributes);
+    const delivery = normalizeDelivery(safeJSON(req.body.delivery, {}));
+
+    const promotion = safeJSON(req.body.promotion, {});
+
+    /* ⛔ DO NOT TRUST FRONTEND PAYMENT */
+    let isPromoted = false;
+    let promotionPriority = 0;
+    let promotionType = null;
+    let promotionStart = null;
+    let promotionEnd = null;
+
+    if (promotion.reference) {
+      // verify server-side
+      const verify = await axios.get(
+        `https://api.paystack.co/transaction/verify/${promotion.reference}`,
+        {
+          headers: {
+            Authorization: `Bearer ${process.env.PAYSTACK_SECRET_KEY}`,
+          },
+        }
+      );
+
+      const data = verify.data.data;
+
+      if (data.status === "success") {
+        const plan = promotionPlans.find(
+          (p) => p.id == promotion.plan_id
+        );
+
+        if (plan) {
+          isPromoted = true;
+          promotionType = plan.id;
+          promotionPriority = plan.price || 0;
+
+          promotionStart = new Date();
+          promotionEnd = new Date();
+          promotionEnd.setDate(
+            promotionEnd.getDate() + Number(promotion.duration || 0)
+          );
+        }
+      }
+    }
+
+    const { rows } = await client.query(
+      `
+      INSERT INTO products (
         title, description, price, category_id, subcategory_id,
-        attributes, delivery, contact, promotion_id,
-        location_state, location_city
-      ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
-      RETURNING id, title, description, price, category_id, subcategory_id,
-                attributes, delivery, contact, promotion_id, 
-                location_state, location_city, created_at, views, 
-                is_active, status`,
+        attributes, delivery, contact,
+        promotion_id,
+        promotion_start,
+        promotion_end,
+        is_promoted,
+        promotion_type,
+        promotion_priority,
+        location_state, location_city,
+        created_at, updated_at
+      )
+      VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,now(),now())
+      RETURNING *
+      `,
       [
-        title.trim(),
-        rest.description?.trim() || "",
-        parseFloat(price),
+        title,
+        req.body.description || "",
+        price,
         category_id,
-        rest.subcategory_id || null,
+        req.body.subcategory_id || null,
         attributes,
         delivery,
-        contact,
-        rest.promotion_id ? parseInt(rest.promotion_id) : null,
-        rest.location_state?.trim() || null,
-        rest.location_city?.trim() || null,
+        safeJSON(req.body.contact),
+
+        promotion.plan_id || null,
+        promotionStart,
+        promotionEnd,
+        isPromoted,
+        promotionType,
+        promotionPriority,
+
+        req.body.location_state,
+        req.body.location_city,
       ]
     );
 
-    const product = productRows[0];
+    const product = rows[0];
 
-    // Bulk insert images
-    const imagePromises = image_urls.map((img, index) =>
-      client.query(
+    const images = await uploadImages(req.files);
+
+    for (const img of images) {
+      await client.query(
         `INSERT INTO product_images (product_id, image_url, position)
-         VALUES ($1, $2, $3)`,
-        [product.id, img.url, img.position ?? index]
-      )
-    );
+         VALUES ($1,$2,$3)`,
+        [product.id, img.url, img.position]
+      );
+    }
 
-    await Promise.all(imagePromises);
     await client.query("COMMIT");
 
-    const fullProduct = await client.query(
-      `SELECT p.*, 
-       COALESCE(json_agg(pi.image_url ORDER BY pi.position) FILTER (WHERE pi.image_url IS NOT NULL), '[]') AS images
-       FROM products p
-       LEFT JOIN product_images pi ON p.id = pi.product_id
-       WHERE p.id = $1
-       GROUP BY p.id`,
-      [product.id]
-    );
-
-    res.status(201).json({
-      success: true,
-      product: normalizeProduct(fullProduct.rows[0])
-    });
-
+    res.status(201).json({ product: normalizeProduct(product) });
   } catch (err) {
     await client.query("ROLLBACK");
-    console.error("POST /products error:", err);
-    
-    if (err.code === '23503') {
-      return res.status(400).json({ message: "Invalid category or promotion" });
-    }
-    if (err.code === '23502') {
-      return res.status(400).json({ message: "Missing required fields" });
-    }
-    
+    console.error(err);
     res.status(500).json({ message: "Failed to create product" });
   } finally {
     client.release();
@@ -304,30 +354,25 @@ router.post("/products", async (req, res) => {
 });
 
 /* =========================================================
-GET CATEGORIES (TREE STRUCTURE + DYNAMIC OPTIONS)
+GET CATEGORIES
 ========================================================= */
 router.get("/categories", async (req, res) => {
   try {
-    const { rows } = await pool.query(
-      `SELECT id, name, parent_id, fields_key 
-       FROM categories 
-       WHERE active = true 
-       ORDER BY name ASC`
-    );
+    const { rows } = await pool.query(`
+      SELECT id, name, parent_id, fields_key
+      FROM categories
+      ORDER BY name ASC
+    `);
 
-    const categoryMap = {};
+    const map = {};
     const tree = [];
 
-    // Build category map with dynamic options
     rows.forEach((cat) => {
-      const key = cat.fields_key || "default";
-      const rawFields = categoryFields[key] || [];
-      const filteredFields = rawFields.filter(f => !["condition", "used_detail"].includes(f));
+      const key = cat.fields_key || "";
 
-      categoryMap[cat.id] = {
+      map[cat.id] = {
         ...cat,
         dynamicOptions: {
-          fields: filteredFields,
           brands: brands[key] || [],
           models: models[key] || {},
           colors: colors[key] || [],
@@ -340,26 +385,22 @@ router.get("/categories", async (req, res) => {
           years,
           engines,
           fuel_types: fuelTypes,
-          states: Object.keys(locationsByState),
+          location: Object.keys(locationsByState),
         },
         subcategories: [],
       };
 
-      if (!cat.parent_id) {
-        tree.push(categoryMap[cat.id]);
-      }
+      if (!cat.parent_id) tree.push(map[cat.id]);
     });
 
-    // Link subcategories
     rows.forEach((cat) => {
-      if (cat.parent_id && categoryMap[cat.parent_id]) {
-        categoryMap[cat.parent_id].subcategories.push(categoryMap[cat.id]);
+      if (cat.parent_id && map[cat.parent_id]) {
+        map[cat.parent_id].subcategories.push(map[cat.id]);
       }
     });
 
     res.json(tree);
-  } catch (err) {
-    console.error("GET /categories error:", err);
+  } catch {
     res.status(500).json({ message: "Failed to fetch categories" });
   }
 });
