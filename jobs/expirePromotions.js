@@ -17,26 +17,7 @@ const expirePromotions = async () => {
   try {
     await client.query("BEGIN");
 
-    const now = new Date().toISOString();
-
-    // OPTIONAL: fetch affected products first (for logs/debug)
-    const expiredProducts = await client.query(
-      `
-      SELECT id, title
-      FROM products
-      WHERE is_promoted = true
-        AND promotion_end IS NOT NULL
-        AND promotion_end <= $1
-      `,
-      [now]
-    );
-
-    if (expiredProducts.rows.length === 0) {
-      await client.query("COMMIT");
-      return;
-    }
-
-    // expire them
+    // 🔥 SINGLE QUERY APPROACH (more efficient)
     const result = await client.query(
       `
       UPDATE products
@@ -48,23 +29,26 @@ const expirePromotions = async () => {
         promotion_end = NULL
       WHERE is_promoted = true
         AND promotion_end IS NOT NULL
-        AND promotion_end <= $1
-      `,
-      [now]
+        AND promotion_end <= NOW()
+      RETURNING id, title;
+      `
     );
+
+    const expired = result.rows;
 
     await client.query("COMMIT");
 
-    console.log(
-      `[CRON] Expired ${result.rowCount} promotions`
-    );
+    if (expired.length === 0) {
+      console.log("[CRON] No promotions to expire");
+      return;
+    }
 
-    // optional debug log
+    console.log(`[CRON] Expired ${expired.length} promotions`);
+
     console.log(
       "[CRON] Expired IDs:",
-      expiredProducts.rows.map(p => p.id)
+      expired.map((p) => p.id)
     );
-
   } catch (err) {
     await client.query("ROLLBACK");
     console.error("[CRON] Promotion expiry failed:", err.message);
@@ -78,4 +62,4 @@ cron.schedule("*/10 * * * *", expirePromotions, {
   timezone: "Africa/Lagos",
 });
 
-console.log("[CRON] Promotion expiry job running...");
+console.log("[CRON] Promotion expiry job running every 10 minutes");
