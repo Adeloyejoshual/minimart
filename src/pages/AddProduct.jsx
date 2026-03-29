@@ -12,6 +12,17 @@ const INITIAL_FORM = {
   category_id: "",
 
   attributes: {
+    brand: "",
+    model: "",
+    color: "",
+    condition: "",
+    used_detail: "",
+    ram: "",
+    storage: "",
+    sim: "",
+    year: "",
+    engine: "",
+    fuel_type: "",
     features: [],
   },
 
@@ -45,7 +56,6 @@ export default function AddProduct() {
   const [loading, setLoading] = useState(false);
   const [progress, setProgress] = useState(0);
 
-  // ✅ NEW: promotion plan state
   const [selectedPlan, setSelectedPlan] = useState(null);
 
   /* ================= FETCH CATEGORIES ================= */
@@ -64,7 +74,9 @@ export default function AddProduct() {
   );
 
   const options = selectedCategory?.dynamicOptions || {};
-  const brand = form.attributes?.brand;
+
+  const attributes = form.attributes || {};
+  const brand = attributes.brand || "";
 
   /* ================= SAFE NORMALIZER ================= */
   const normalizeOptions = (list = []) =>
@@ -74,7 +86,7 @@ export default function AddProduct() {
         )
       : [];
 
-  /* ================= FIELDS ================= */
+  /* ================= FIELDS (FIXED) ================= */
   const fields = useMemo(() => {
     const dynamic = selectedCategory?.dynamicOptions?.fields || [];
     return ["condition", ...dynamic];
@@ -82,7 +94,10 @@ export default function AddProduct() {
 
   /* ================= OPTIONS MAP ================= */
   const optionsMap = useMemo(() => {
-    const modelsForBrand = options.models?.[brand] || [];
+    const modelsForBrand =
+      brand && options.models?.[brand]
+        ? options.models[brand]
+        : [];
 
     return {
       brand: normalizeOptions(options.brands),
@@ -202,8 +217,6 @@ export default function AddProduct() {
       contact: JSON.stringify(form.contact),
       location_state: state,
       location_city: city,
-
-      // ✅ NEW FIELD
       promotion_plan: selectedPlan,
     };
 
@@ -234,8 +247,6 @@ export default function AddProduct() {
         setState("");
         setCity("");
         setProgress(0);
-
-        // ✅ reset plan
         setSelectedPlan(null);
       } else {
         alert("Upload failed");
@@ -292,7 +303,7 @@ export default function AddProduct() {
           setForm((p) => ({
             ...p,
             category_id: v,
-            attributes: { features: [] },
+            attributes: INITIAL_FORM.attributes,
           }))
         }
         options={categories.map((c) => ({
@@ -302,22 +313,26 @@ export default function AddProduct() {
       />
 
       {/* DYNAMIC FIELDS */}
-      {fields.map((f) => {
-        const value = form.attributes?.[f] || "";
+      {selectedCategory &&
+        fields.map((f) => {
+          const value = form.attributes?.[f] || "";
 
-        if (f === "used_detail" && form.attributes.condition !== "used")
-          return null;
+          if (
+            f === "used_detail" &&
+            form.attributes.condition !== "used"
+          )
+            return null;
 
-        return (
-          <DropdownModal
-            key={f}
-            label={formatLabel(f)}
-            value={value}
-            onChange={(v) => updateAttr(f, v)}
-            options={optionsMap[f] || []}
-          />
-        );
-      })}
+          return (
+            <DropdownModal
+              key={f}
+              label={formatLabel(f)}
+              value={value}
+              onChange={(v) => updateAttr(f, v)}
+              options={optionsMap[f] || []}
+            />
+          );
+        })}
 
       {/* FEATURES */}
       {options.features?.length > 0 && (
@@ -338,7 +353,7 @@ export default function AddProduct() {
         </div>
       )}
 
-      {/* ================= PROMOTION PLANS ================= */}
+      {/* PROMOTION */}
       <div className="form-section">
         <h3>Promotion Plans</h3>
 
@@ -360,94 +375,9 @@ export default function AddProduct() {
               <strong>{plan.name}</strong>
               <p>{plan.duration}</p>
               <p>₦{plan.price}</p>
-              <small>{plan.description}</small>
-
-              {plan.features?.length > 0 && (
-                <div style={{ fontSize: "12px" }}>
-                  {plan.features.join(", ")}
-                </div>
-              )}
             </div>
           ))}
         </div>
-
-        {/* FREE OPTION */}
-        <div
-          onClick={() => setSelectedPlan(null)}
-          style={{
-            marginTop: "10px",
-            padding: "10px",
-            border:
-              selectedPlan === null ? "2px solid blue" : "1px solid #ccc",
-            borderRadius: "8px",
-            cursor: "pointer",
-          }}
-        >
-          <strong>Free Listing</strong>
-          <p>No promotion</p>
-        </div>
-      </div>
-
-      {/* DELIVERY */}
-      <div className="form-section">
-        <h3>Delivery</h3>
-
-        <label>
-          <input
-            type="checkbox"
-            checked={form.delivery.available}
-            onChange={(e) =>
-              setForm((p) => ({
-                ...p,
-                delivery: {
-                  ...p.delivery,
-                  available: e.target.checked,
-                },
-              }))
-            }
-          />
-          Available
-        </label>
-
-        {form.delivery.available && (
-          <>
-            <input
-              type="number"
-              placeholder="From days"
-              value={form.delivery.duration.from}
-              onChange={(e) =>
-                setForm((p) => ({
-                  ...p,
-                  delivery: {
-                    ...p.delivery,
-                    duration: {
-                      ...p.delivery.duration,
-                      from: e.target.value,
-                    },
-                  },
-                }))
-              }
-            />
-
-            <input
-              type="number"
-              placeholder="To days"
-              value={form.delivery.duration.to}
-              onChange={(e) =>
-                setForm((p) => ({
-                  ...p,
-                  delivery: {
-                    ...p.delivery,
-                    duration: {
-                      ...p.delivery.duration,
-                      to: e.target.value,
-                    },
-                  },
-                }))
-              }
-            />
-          </>
-        )}
       </div>
 
       {/* LOCATION */}
@@ -491,11 +421,7 @@ export default function AddProduct() {
       />
 
       {/* IMAGES */}
-      <input
-        type="file"
-        multiple
-        onChange={(e) => handleImages(e.target.files)}
-      />
+      <input type="file" multiple onChange={(e) => handleImages(e.target.files)} />
 
       <div className="preview-grid">
         {previews.map((src, i) => (
