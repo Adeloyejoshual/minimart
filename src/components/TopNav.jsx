@@ -13,6 +13,9 @@ export default function TopNav() {
   const [recent, setRecent] = useState([]);
   const [open, setOpen] = useState(false);
 
+  const [showNav, setShowNav] = useState(true);
+  const lastScroll = useRef(0);
+
   const wrapperRef = useRef(null);
 
   /* ================= LOAD RECENT ================= */
@@ -29,7 +32,7 @@ export default function TopNav() {
     localStorage.setItem("recent_searches", JSON.stringify(updated));
   };
 
-  /* ================= NAV SEARCH ================= */
+  /* ================= SEARCH ================= */
   const handleSearch = (q) => {
     if (!q.trim()) return;
 
@@ -37,11 +40,10 @@ export default function TopNav() {
     setSearch("");
     setOpen(false);
 
-    // 🔥 FULL SEARCH PAGE ROUTE
     navigate(`/search?q=${encodeURIComponent(q)}`);
   };
 
-  /* ================= OUTSIDE CLICK ================= */
+  /* ================= CLICK OUTSIDE ================= */
   useEffect(() => {
     const handleClick = (e) => {
       if (wrapperRef.current && !wrapperRef.current.contains(e.target)) {
@@ -53,13 +55,33 @@ export default function TopNav() {
     return () => document.removeEventListener("mousedown", handleClick);
   }, []);
 
+  /* ================= SCROLL BEHAVIOR ================= */
+  useEffect(() => {
+    const handleScroll = () => {
+      const current = window.scrollY;
+
+      if (current <= 0) {
+        setShowNav(true);
+      } else if (current > lastScroll.current) {
+        setShowNav(false); // scroll down
+      } else {
+        setShowNav(true); // scroll up
+      }
+
+      lastScroll.current = current;
+    };
+
+    window.addEventListener("scroll", handleScroll);
+    return () => window.removeEventListener("scroll", handleScroll);
+  }, []);
+
   /* ================= NAVIGATION ================= */
   const go = (path) => navigate(path);
 
   return (
     <>
-      {/* ================= TOP NAV ================= */}
-      <header className="top-nav">
+      {/* ================= HEADER ================= */}
+      <header className={`top-nav ${showNav ? "show" : "hide"}`}>
         <div className="nav-container">
 
           {/* BRAND */}
@@ -88,9 +110,8 @@ export default function TopNav() {
         </div>
       </header>
 
-      {/* ================= SEARCH BAR ================= */}
+      {/* ================= SEARCH ================= */}
       <div className="search-wrapper" ref={wrapperRef}>
-
         <input
           className="search-input"
           value={search}
@@ -101,27 +122,22 @@ export default function TopNav() {
           }}
           onFocus={() => setOpen(true)}
           onKeyDown={(e) => {
-            if (e.key === "Enter") {
-              handleSearch(search);
-            }
+            if (e.key === "Enter") handleSearch(search);
           }}
         />
 
         {/* ================= DROPDOWN ================= */}
         {open && (
-          <div className="search-panel full-screen-mobile">
+          <div className="search-panel">
 
-            {/* RECENT SEARCHES */}
+            {/* RECENT */}
             {search.length === 0 && recent.length > 0 && (
               <div className="recent-box">
                 <h4>Recent Searches</h4>
 
                 <div className="recent-list">
                   {recent.map((r, i) => (
-                    <button
-                      key={i}
-                      onClick={() => handleSearch(r)}
-                    >
+                    <button key={i} onClick={() => handleSearch(r)}>
                       {r}
                     </button>
                   ))}
@@ -129,7 +145,7 @@ export default function TopNav() {
               </div>
             )}
 
-            {/* QUICK ACTION */}
+            {/* QUICK SEARCH */}
             {search.length > 0 && (
               <div className="quick-search">
                 <button
@@ -140,7 +156,6 @@ export default function TopNav() {
                 </button>
               </div>
             )}
-
           </div>
         )}
       </div>
