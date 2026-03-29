@@ -1,55 +1,31 @@
 import express from "express";
 import axios from "axios";
-import { Pool } from "pg";
 
 const router = express.Router();
 
-const pool = new Pool({
-  connectionString: process.env.COCKROACH_URI,
-  ssl: { rejectUnauthorized: false },
-});
-
+/* ================= TEST PAYSTACK INIT ONLY ================= */
 router.post("/initialize", async (req, res) => {
-  const { productData, email, amount } = req.body;
+  const { email, amount } = req.body;
 
   try {
-    /* ================= VALIDATION ================= */
     if (!email || !email.includes("@")) {
       return res.status(400).json({ error: "Invalid email" });
     }
 
-    if (!amount || Number(amount) <= 0) {
-      return res.status(400).json({ error: "Invalid amount (must be > 0)" });
+    if (!amount || amount <= 0) {
+      return res.status(400).json({ error: "Invalid amount" });
     }
 
-    if (!productData?.name || !productData?.price) {
-      return res.status(400).json({ error: "Missing product data" });
-    }
+    const payload = {
+      email,
+      amount: Math.round(Number(amount) * 100),
+    };
 
-    /* ================= CREATE PRODUCT ================= */
-    const result = await pool.query(
-      `INSERT INTO products (name, price, description, status)
-       VALUES ($1, $2, $3, 'pending')
-       RETURNING id`,
-      [
-        productData.name,
-        productData.price,
-        productData.description || "",
-      ]
-    );
+    console.log("🔥 PAYSTACK REQUEST:", payload);
 
-    const productId = result.rows[0].id;
-
-    /* ================= PAYSTACK INIT ================= */
-    const paystackRes = await axios.post(
+    const response = await axios.post(
       "https://api.paystack.co/transaction/initialize",
-      {
-        email,
-        amount: Math.round(amount * 100),
-        metadata: {
-          productId,
-        },
-      },
+      payload,
       {
         headers: {
           Authorization: `Bearer ${process.env.PAYSTACK_SECRET_KEY}`,
@@ -60,18 +36,16 @@ router.post("/initialize", async (req, res) => {
 
     return res.json({
       success: true,
-      authorization_url: paystackRes.data.data.authorization_url,
-      reference: paystackRes.data.data.reference,
-      productId,
+      authorization_url: response.data.data.authorization_url,
+      reference: response.data.data.reference,
     });
 
   } catch (err) {
-    /* ================= REAL ERROR OUTPUT ================= */
     console.error("❌ PAYSTACK ERROR:");
     console.error(err.response?.data || err.message);
 
     return res.status(500).json({
-      error: "Payment init failed",
+      error: "Init failed",
       details: err.response?.data || err.message,
     });
   }
