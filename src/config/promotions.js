@@ -1,5 +1,3 @@
-m// src/config/promotions.js
-
 export const promotionPlans = [
   {
     id: 1,
