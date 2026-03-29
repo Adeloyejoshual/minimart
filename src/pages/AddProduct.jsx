@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import DropdownModal from "../components/DropdownModal.jsx";
 import AddProductHeader from "../components/AddProductHeader.jsx";
 import { locationsByState } from "../config/locationsByState.js";
-import { promotionPlans } from "../config/promotionPlans.js";
+import { promotionPlans } from "../config/promotions.js";
 import "./AddProduct.css";
 
 const INITIAL_FORM = {
