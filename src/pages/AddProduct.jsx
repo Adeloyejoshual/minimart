@@ -1,178 +1,79 @@
 import { useState } from "react";
-import { promotionPlans } from "../config/promotions";
+import { promotionPlans } from "../config/promotions.js";
 
 export default function AddProduct() {
-  const [form, setForm] = useState({
-    title: "",
-    price: "",
-    category_id: "",
-    description: "",
-    email: "",
-  });
-
+  const [email, setEmail] = useState("");
   const [selectedPlan, setSelectedPlan] = useState(promotionPlans[0]);
   const [loading, setLoading] = useState(false);
 
-  const handleChange = (e) => {
-    setForm({ ...form, [e.target.name]: e.target.value });
-  };
-
-  /* ================= CREATE PRODUCT (NO DB PAYSTACK FLOW ONLY TEST) ================= */
-  const createProductMock = async () => {
-    // TEMP: no DB dependency for test
-    return "test-product-id-123";
-  };
-
-  /* ================= INIT PAYMENT ================= */
-  const initPayment = async (productId) => {
-    const res = await fetch(
-      "https://minimart-ivrm.onrender.com/api/payment/initialize",
-      {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          productId,
-          email: form.email,
-          amount: Number(selectedPlan.price), // 🔥 promotion price
-          promotionId: selectedPlan.id,
-        }),
-      }
-    );
-
-    const data = await res.json();
-
-    if (!res.ok) throw new Error(data.error || "Payment init failed");
-
-    return data.authorization_url;
-  };
-
-  /* ================= SUBMIT ================= */
-  const handleSubmit = async (e) => {
-    e.preventDefault();
-    setLoading(true);
-
+  const handlePay = async () => {
     try {
-      const productId = await createProductMock();
-      const url = await initPayment(productId);
+      setLoading(true);
 
-      window.location.href = url;
+      const res = await fetch("/api/payment/initialize", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          email,
+          planId: selectedPlan.id,
+          amount: selectedPlan.price,
+        }),
+      });
+
+      const data = await res.json();
+
+      if (!data.success) {
+        alert(data.error || "Failed");
+        console.log(data);
+        return;
+      }
+
+      // FREE PLAN
+      if (data.free) {
+        alert("Free plan activated!");
+        return;
+      }
+
+      // PAYSTACK REDIRECT
+      window.location.href = data.authorization_url;
+
     } catch (err) {
-      alert(err.message);
+      console.error(err);
+      alert("Request failed");
     } finally {
       setLoading(false);
     }
   };
 
-  /* ================= VERIFY AFTER RETURN ================= */
-  const verifyPayment = async () => {
-    const reference = new URLSearchParams(window.location.search).get(
-      "reference"
-    );
-
-    if (!reference) return;
-
-    try {
-      const res = await fetch(
-        "https://minimart-ivrm.onrender.com/api/paystack/verify",
-        {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ reference }),
-        }
-      );
-
-      const data = await res.json();
-
-      if (data.success) {
-        alert("Payment successful & product activated!");
-      } else {
-        alert("Payment verification failed");
-      }
-    } catch {
-      alert("Verification error");
-    }
-  };
-
   return (
     <div style={{ padding: 20 }}>
-      <h2>Add Product (Paystack Test + Promotions)</h2>
+      <h2>Promotion Plans</h2>
 
-      {/* ================= FORM ================= */}
-      <form onSubmit={handleSubmit}>
-        <input
-          name="title"
-          placeholder="Title"
-          onChange={handleChange}
-          required
-        />
-        <br />
+      <input
+        placeholder="Email"
+        value={email}
+        onChange={(e) => setEmail(e.target.value)}
+      />
 
-        <input
-          name="price"
-          placeholder="Base Price"
-          type="number"
-          onChange={handleChange}
-          required
-        />
-        <br />
+      {promotionPlans.map((plan) => (
+        <div key={plan.id} style={{ margin: 10 }}>
+          <label>
+            <input
+              type="radio"
+              checked={selectedPlan.id === plan.id}
+              onChange={() => setSelectedPlan(plan)}
+            />
+            {plan.name} - ₦{plan.price}
+          </label>
 
-        <input
-          name="category_id"
-          placeholder="Category ID"
-          onChange={handleChange}
-          required
-        />
-        <br />
+          <p>{plan.description}</p>
+        </div>
+      ))}
 
-        <input
-          name="email"
-          placeholder="Email"
-          onChange={handleChange}
-          required
-        />
-        <br />
-
-        <textarea
-          name="description"
-          placeholder="Description"
-          onChange={handleChange}
-        />
-        <br />
-
-        {/* ================= PROMOTION SELECT ================= */}
-        <h3>Select Promotion Plan</h3>
-
-        {promotionPlans.map((plan) => (
-          <div
-            key={plan.id}
-            onClick={() => setSelectedPlan(plan)}
-            style={{
-              border:
-                selectedPlan.id === plan.id
-                  ? "2px solid green"
-                  : "1px solid gray",
-              padding: 10,
-              marginBottom: 10,
-              cursor: "pointer",
-            }}
-          >
-            <strong>{plan.name}</strong>
-            <p>{plan.description}</p>
-            <p>Price: ₦{plan.price}</p>
-            <p>Duration: {plan.duration}</p>
-          </div>
-        ))}
-
-        <button disabled={loading}>
-          {loading ? "Processing..." : "Pay & Publish"}
-        </button>
-      </form>
-
-      <hr />
-
-      {/* ================= VERIFY BUTTON ================= */}
-      <button onClick={verifyPayment}>
-        Verify Payment (after redirect)
+      <button onClick={handlePay} disabled={loading}>
+        {loading ? "Processing..." : "Continue"}
       </button>
     </div>
   );
