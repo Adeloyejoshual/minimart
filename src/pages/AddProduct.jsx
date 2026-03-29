@@ -10,37 +10,17 @@ export default function AddProduct() {
     email: "",
   });
 
-  const [promotionId, setPromotionId] = useState(0);
+  const [selectedPlan, setSelectedPlan] = useState(promotionPlans[0]);
   const [loading, setLoading] = useState(false);
-
-  const selectedPlan = promotionPlans.find((p) => p.id === Number(promotionId));
 
   const handleChange = (e) => {
     setForm({ ...form, [e.target.name]: e.target.value });
   };
 
-  /* ================= CREATE PRODUCT ================= */
-  const createProduct = async () => {
-    const fd = new FormData();
-    fd.append("title", form.title);
-    fd.append("price", form.price);
-    fd.append("category_id", form.category_id);
-    fd.append("description", form.description);
-    fd.append("promotion_id", promotionId);
-
-    const res = await fetch(
-      "https://minimart-ivrm.onrender.com/api/products",
-      {
-        method: "POST",
-        body: fd,
-      }
-    );
-
-    const data = await res.json();
-
-    if (!res.ok) throw new Error(data.message || "Product creation failed");
-
-    return data.product.id;
+  /* ================= CREATE PRODUCT (NO DB PAYSTACK FLOW ONLY TEST) ================= */
+  const createProductMock = async () => {
+    // TEMP: no DB dependency for test
+    return "test-product-id-123";
   };
 
   /* ================= INIT PAYMENT ================= */
@@ -53,8 +33,8 @@ export default function AddProduct() {
         body: JSON.stringify({
           productId,
           email: form.email,
-          amount: selectedPlan.price, // 👈 promotion price controls payment
-          promotionId,
+          amount: Number(selectedPlan.price), // 🔥 promotion price
+          promotionId: selectedPlan.id,
         }),
       }
     );
@@ -66,13 +46,13 @@ export default function AddProduct() {
     return data.authorization_url;
   };
 
-  /* ================= SUBMIT FLOW ================= */
+  /* ================= SUBMIT ================= */
   const handleSubmit = async (e) => {
     e.preventDefault();
     setLoading(true);
 
     try {
-      const productId = await createProduct();
+      const productId = await createProductMock();
       const url = await initPayment(productId);
 
       window.location.href = url;
@@ -83,37 +63,41 @@ export default function AddProduct() {
     }
   };
 
-  /* ================= VERIFY PAYMENT ================= */
-  const handleVerify = async () => {
+  /* ================= VERIFY AFTER RETURN ================= */
+  const verifyPayment = async () => {
     const reference = new URLSearchParams(window.location.search).get(
       "reference"
     );
 
     if (!reference) return;
 
-    const res = await fetch(
-      "https://minimart-ivrm.onrender.com/api/paystack/verify",
-      {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ reference }),
+    try {
+      const res = await fetch(
+        "https://minimart-ivrm.onrender.com/api/paystack/verify",
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ reference }),
+        }
+      );
+
+      const data = await res.json();
+
+      if (data.success) {
+        alert("Payment successful & product activated!");
+      } else {
+        alert("Payment verification failed");
       }
-    );
-
-    const data = await res.json();
-
-    if (data.success) {
-      alert("Payment successful + Product activated!");
-    } else {
-      alert("Verification failed");
+    } catch {
+      alert("Verification error");
     }
   };
 
   return (
     <div style={{ padding: 20 }}>
-      <h2>Add Product (Paystack + Promotions)</h2>
+      <h2>Add Product (Paystack Test + Promotions)</h2>
 
-      {/* ========== PRODUCT FORM ========== */}
+      {/* ================= FORM ================= */}
       <form onSubmit={handleSubmit}>
         <input
           name="title"
@@ -155,37 +139,39 @@ export default function AddProduct() {
         />
         <br />
 
-        {/* ========== PROMOTION SELECT ========== */}
+        {/* ================= PROMOTION SELECT ================= */}
         <h3>Select Promotion Plan</h3>
 
         {promotionPlans.map((plan) => (
-          <label key={plan.id} style={{ display: "block", marginBottom: 10 }}>
-            <input
-              type="radio"
-              name="promotion"
-              value={plan.id}
-              checked={Number(promotionId) === plan.id}
-              onChange={() => setPromotionId(plan.id)}
-            />
-            <strong> {plan.name}</strong> — ₦{plan.price}
-            <br />
-            <small>{plan.description}</small>
-          </label>
+          <div
+            key={plan.id}
+            onClick={() => setSelectedPlan(plan)}
+            style={{
+              border:
+                selectedPlan.id === plan.id
+                  ? "2px solid green"
+                  : "1px solid gray",
+              padding: 10,
+              marginBottom: 10,
+              cursor: "pointer",
+            }}
+          >
+            <strong>{plan.name}</strong>
+            <p>{plan.description}</p>
+            <p>Price: ₦{plan.price}</p>
+            <p>Duration: {plan.duration}</p>
+          </div>
         ))}
 
-        <br />
-
         <button disabled={loading}>
-          {loading
-            ? "Processing..."
-            : `Pay ₦${selectedPlan?.price || 0} & Publish`}
+          {loading ? "Processing..." : "Pay & Publish"}
         </button>
       </form>
 
       <hr />
 
-      {/* ========== VERIFY BUTTON (TEST ONLY) ========== */}
-      <button onClick={handleVerify}>
+      {/* ================= VERIFY BUTTON ================= */}
+      <button onClick={verifyPayment}>
         Verify Payment (after redirect)
       </button>
     </div>
