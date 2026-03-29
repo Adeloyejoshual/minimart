@@ -1,8 +1,8 @@
 import { useEffect, useMemo, useState, useCallback } from "react";
 import { useNavigate } from "react-router-dom";
 import AddProductHeader from "../components/AddProductHeader.jsx";
-import { categoryRules } from "../config/categoryRules.js";
 import { locationsByState } from "../config/locationsByState.js";
+import { promotionPlans } from "../config/promotions.js";
 import "./AddProduct.css";
 
 const API_BASE = "https://minimart-ivrm.onrender.com/api/marketplace";
@@ -42,6 +42,7 @@ const INITIAL_FORM = {
 
 /* ================= HELPERS ================= */
 const onlyNumbers = (v = "") => v.toString().replace(/\D/g, "");
+
 const formatPrice = (v = "") => {
   const num = onlyNumbers(v);
   return num.replace(/\B(?=(\d{3})+(?!\d))/g, ",");
@@ -52,48 +53,41 @@ export default function AddProduct() {
   const navigate = useNavigate();
 
   const [form, setForm] = useState(INITIAL_FORM);
-  const [images, setImages] = useState([]);
   const [categories, setCategories] = useState([]);
   const [state, setState] = useState("");
   const [city, setCity] = useState("");
 
-  const [error, setError] = useState(null);
-  const [loading, setLoading] = useState(false);
-
-  const [payLoading, setPayLoading] = useState(false);
   const [selectedPlan, setSelectedPlan] = useState(null);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState("");
+
+  /* ================= GLOBAL ERROR GUARD ================= */
+  useEffect(() => {
+    const handler = (event) => {
+      console.error("Global error:", event.error);
+      setError("Something went wrong. Please refresh.");
+    };
+
+    window.addEventListener("error", handler);
+    return () => window.removeEventListener("error", handler);
+  }, []);
 
   /* ================= FETCH CATEGORIES ================= */
   useEffect(() => {
     fetch(`${API_BASE}/categories`)
       .then((r) => r.json())
-      .then(setCategories)
+      .then((data) => setCategories(data || []))
       .catch(() => setError("Failed to load categories"));
   }, []);
 
   /* ================= CATEGORY ================= */
-  const selectedCategory = useMemo(
-    () => categories.find((c) => String(c.id) === String(form.category_id)),
-    [categories, form.category_id]
-  );
+  const selectedCategory = useMemo(() => {
+    return categories.find(
+      (c) => String(c.id) === String(form.category_id)
+    );
+  }, [categories, form.category_id]);
 
   const options = selectedCategory?.dynamicOptions || {};
-
-  const optionsMap = useMemo(
-    () => ({
-      brand: options.brands || [],
-      model: options.models?.[form.attributes.brand] || [],
-      color: options.colors || [],
-      condition: options.conditions || [],
-      ram: options.ram || [],
-      storage: options.storage || [],
-      sim: options.sims || [],
-      year: options.years || [],
-      engine: options.engines || [],
-      fuel_type: options.fuel_types || [],
-    }),
-    [options, form.attributes.brand]
-  );
 
   /* ================= VALIDATION ================= */
   const validate = () => {
@@ -102,14 +96,13 @@ export default function AddProduct() {
     if (!form.category_id) return "Category required";
     if (!form.contact.phone) return "Phone required";
     if (!state || !city) return "Location required";
+
     return null;
   };
 
   /* ================= PAYSTACK INIT ================= */
   const startPayment = async (plan) => {
     try {
-      setPayLoading(true);
-
       const res = await fetch(
         `${API_BASE}/payments/initiate`,
         {
@@ -125,46 +118,19 @@ export default function AddProduct() {
 
       const data = await res.json();
 
-      if (!data?.data?.authorization_url) {
-        throw new Error("Payment initialization failed");
+      const url = data?.data?.authorization_url;
+
+      if (!url) {
+        throw new Error("Payment link not received");
       }
 
-      // Store selected plan in memory
-      setSelectedPlan(plan);
-
-      // Redirect to Paystack
-      window.location.href = data.data.authorization_url;
+      window.location.href = url;
     } catch (err) {
-      setError(err.message);
-    } finally {
-      setPayLoading(false);
+      setError(err.message || "Payment failed");
     }
   };
 
-  /* ================= FINAL PRODUCT CREATE ================= */
-  const createProduct = async (promotionRef = null) => {
-    const payload = {
-      ...form,
-      price: onlyNumbers(form.price),
-      location_state: state,
-      location_city: city,
-      promotion: promotionRef
-        ? { reference: promotionRef, plan_id: selectedPlan?.id }
-        : null,
-    };
-
-    const res = await fetch(`${API_BASE}/products`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(payload),
-    });
-
-    if (!res.ok) throw new Error("Failed to create product");
-
-    return res.json();
-  };
-
-  /* ================= SUBMIT FLOW ================= */
+  /* ================= SUBMIT ================= */
   const handleSubmit = async () => {
     const err = validate();
     if (err) return setError(err);
@@ -172,14 +138,28 @@ export default function AddProduct() {
     setLoading(true);
 
     try {
-      // If user selected promotion → start payment first
+      // If promotion selected → start payment first
       if (selectedPlan) {
         await startPayment(selectedPlan);
         return;
       }
 
       // Normal product creation
-      await createProduct();
+      const payload = {
+        ...form,
+        price: onlyNumbers(form.price),
+        location_state: state,
+        location_city: city,
+      };
+
+      const res = await fetch(`${API_BASE}/products`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+      });
+
+      if (!res.ok) throw new Error("Failed to create product");
+
       alert("Product created successfully");
       navigate("/marketplace");
     } catch (e) {
@@ -239,16 +219,16 @@ export default function AddProduct() {
           ))}
         </select>
 
-        {/* ================= PROMOTION PLAN ================= */}
+        {/* PROMOTION */}
         <div className="section">
           <h3>Promotion (Optional)</h3>
 
-          {promotionPlans.map((p) => (
+          {(promotionPlans || []).map((p) => (
             <button
               key={p.id}
               type="button"
-              onClick={() => setSelectedPlan(p)}
               className={selectedPlan?.id === p.id ? "active" : ""}
+              onClick={() => setSelectedPlan(p)}
             >
               {p.name} - ₦{p.price}
             </button>
@@ -286,8 +266,8 @@ export default function AddProduct() {
         {error && <div className="error">{error}</div>}
 
         {/* SUBMIT */}
-        <button onClick={handleSubmit} disabled={loading || payLoading}>
-          {loading || payLoading
+        <button onClick={handleSubmit} disabled={loading}>
+          {loading
             ? "Processing..."
             : selectedPlan
             ? "Pay & Publish"
