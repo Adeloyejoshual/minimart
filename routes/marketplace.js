@@ -60,6 +60,12 @@ const safeJSON = (value, fallback = {}) => {
   }
 };
 
+const normalizeKey = (key, fallbackName = "") =>
+  String(key || fallbackName || "")
+    .trim()
+    .toLowerCase()
+    .replace(/\s+/g, "_");
+
 const parseDurationDays = (duration) => {
   if (!duration) return 0;
   const match = String(duration).match(/(\d+)/);
@@ -105,29 +111,30 @@ const uploadImages = async (files) => {
   if (!files?.length) return [];
 
   return Promise.all(
-    files.map((file, index) =>
-      new Promise((resolve, reject) => {
-        const stream = cloudinary.uploader.upload_stream(
-          {
-            folder: "products",
-            transformation: [
-              { width: 900, height: 900, crop: "limit" },
-              { quality: "auto" },
-              { fetch_format: "auto" },
-            ],
-          },
-          (err, result) => {
-            if (err) return reject(err);
-            resolve({ url: result.secure_url, position: index });
-          }
-        );
-        stream.end(file.buffer);
-      })
+    files.map(
+      (file, index) =>
+        new Promise((resolve, reject) => {
+          const stream = cloudinary.uploader.upload_stream(
+            {
+              folder: "products",
+              transformation: [
+                { width: 900, height: 900, crop: "limit" },
+                { quality: "auto" },
+                { fetch_format: "auto" },
+              ],
+            },
+            (err, result) => {
+              if (err) return reject(err);
+              resolve({ url: result.secure_url, position: index });
+            }
+          );
+          stream.end(file.buffer);
+        })
     )
   );
 };
 
-/* ================= PAYSTACK VERIFY ================= */
+/* ================= PAYMENT VERIFY ================= */
 router.get("/payment/verify/:reference", async (req, res) => {
   try {
     const { reference } = req.params;
@@ -166,7 +173,6 @@ router.post("/payments/initiate", async (req, res) => {
     const plan = getPlan(plan_id);
     if (!plan) return res.status(400).json({ message: "Invalid plan" });
 
-    /* FREE PLAN → skip Paystack */
     if (plan.price === 0) {
       await pool.query(
         `UPDATE products
@@ -176,10 +182,7 @@ router.post("/payments/initiate", async (req, res) => {
         [product_id]
       );
 
-      return res.json({
-        success: true,
-        message: "Free plan applied",
-      });
+      return res.json({ success: true, message: "Free plan applied" });
     }
 
     const reference = `PSK_${Date.now()}`;
@@ -210,7 +213,7 @@ router.post("/payments/initiate", async (req, res) => {
   }
 });
 
-/* ================= PAYSTACK WEBHOOK ================= */
+/* ================= WEBHOOK ================= */
 router.post("/webhooks/paystack", async (req, res) => {
   try {
     const hash = crypto
@@ -222,11 +225,11 @@ router.post("/webhooks/paystack", async (req, res) => {
       return res.sendStatus(401);
     }
 
-    const event = req.body;
+    if (req.body.event !== "charge.success") {
+      return res.sendStatus(200);
+    }
 
-    if (event.event !== "charge.success") return res.sendStatus(200);
-
-    const data = event.data;
+    const data = req.body.data;
 
     const paymentRes = await pool.query(
       "SELECT * FROM payments WHERE reference=$1",
@@ -251,13 +254,7 @@ router.post("/webhooks/paystack", async (req, res) => {
            promotion_start = $3,
            promotion_end = $4
        WHERE id = $5`,
-      [
-        plan.id,
-        plan.boostScore,
-        start,
-        end,
-        payment.product_id,
-      ]
+      [plan.id, plan.boostScore, start, end, payment.product_id]
     );
 
     await pool.query(
@@ -337,10 +334,11 @@ router.get("/products/:id", async (req, res) => {
       return res.status(404).json({ message: "Product not found" });
     }
 
-    pool.query(
-      "UPDATE products SET views = COALESCE(views,0)+1 WHERE id=$1",
-      [id]
-    ).catch(() => {});
+    pool
+      .query("UPDATE products SET views = COALESCE(views,0)+1 WHERE id=$1", [
+        id,
+      ])
+      .catch(() => {});
 
     res.json(normalizeProduct(rows[0]));
   } catch {
@@ -362,7 +360,7 @@ router.post("/products", upload.array("images", 10), async (req, res) => {
     }
 
     const attributes = safeJSON(req.body.attributes);
-    const delivery = normalizeDelivery(safeJSON(req.body.delivery, {}));
+    const delivery = normalizeDelivery(safeJSON(req.body.delivery));
 
     const { rows } = await client.query(
       `
@@ -435,7 +433,7 @@ router.get("/categories", async (req, res) => {
     const tree = [];
 
     rows.forEach((cat) => {
-      const key = cat.fields_key || "";
+      const key = normalizeKey(cat.fields_key, cat.name);
 
       map[cat.id] = {
         ...cat,
