@@ -1,11 +1,9 @@
 import { useEffect, useMemo, useState } from "react";
-import { useNavigate } from "react-router-dom";
 import DropdownModal from "../components/DropdownModal.jsx";
 import AddProductHeader from "../components/AddProductHeader.jsx";
 import { locationsByState } from "../config/locationsByState.js";
 import "./AddProduct.css";
 
-/* ================= INITIAL STATE ================= */
 const INITIAL_FORM = {
   title: "",
   description: "",
@@ -18,9 +16,10 @@ const INITIAL_FORM = {
 
   delivery: {
     available: true,
-    from_days: "",
-    to_days: "",
-    fee_required: false,
+    duration: {
+      from: "",
+      to: "",
+    },
     fee: "",
     note: "",
   },
@@ -33,10 +32,8 @@ const INITIAL_FORM = {
 };
 
 export default function AddProduct() {
-  const navigate = useNavigate();
-
-  const [categories, setCategories] = useState([]);
   const [form, setForm] = useState(INITIAL_FORM);
+  const [categories, setCategories] = useState([]);
 
   const [state, setState] = useState("");
   const [city, setCity] = useState("");
@@ -47,28 +44,23 @@ export default function AddProduct() {
   const [loading, setLoading] = useState(false);
   const [progress, setProgress] = useState(0);
 
-  const [createdProduct, setCreatedProduct] = useState(null);
-  const [showShare, setShowShare] = useState(false);
-
-  /* ================= FETCH ================= */
+  /* ================= FETCH CATEGORIES ================= */
   useEffect(() => {
     fetch("https://minimart-ivrm.onrender.com/api/marketplace/categories")
       .then((r) => r.json())
-      .then((d) => setCategories(d || []))
+      .then(setCategories)
       .catch(console.error);
   }, []);
 
   /* ================= CATEGORY ================= */
-  const selectedCategory = useMemo(() => {
-    return categories.find(
-      (c) => String(c.id) === String(form.category_id)
-    );
-  }, [categories, form.category_id]);
+  const selectedCategory = useMemo(
+    () => categories.find((c) => String(c.id) === String(form.category_id)),
+    [categories, form.category_id]
+  );
 
   const options = selectedCategory?.dynamicOptions || {};
   const brand = form.attributes?.brand;
 
-  /* ================= FIELD ENGINE ================= */
   const fields = useMemo(() => {
     const dynamic = selectedCategory?.dynamicOptions?.fields || [];
     return ["condition", ...dynamic];
@@ -93,63 +85,54 @@ export default function AddProduct() {
   );
 
   /* ================= HELPERS ================= */
-  const updateForm = (k, v) =>
-    setForm((p) => ({ ...p, [k]: v }));
+  const update = (key, value) =>
+    setForm((p) => ({ ...p, [key]: value }));
 
-  const updateAttr = (k, v) =>
+  const updateAttr = (key, value) =>
     setForm((p) => ({
       ...p,
       attributes: {
-        ...(p.attributes || {}),
-        [k]: v,
+        ...p.attributes,
+        [key]: value,
       },
     }));
-
-  /* FIXED FEATURE TOGGLE (SAFE ALWAYS) */
-  const toggleFeature = (feature) => {
-    setForm((p) => {
-      const current = p.attributes?.features || [];
-
-      const updated = current.includes(feature)
-        ? current.filter((f) => f !== feature)
-        : [...current, feature];
-
-      return {
-        ...p,
-        attributes: {
-          ...p.attributes,
-          features: updated,
-        },
-      };
-    });
-  };
 
   const onlyNumbers = (v) => v.replace(/[^\d]/g, "");
 
   const formatLabel = (t) =>
     t.replace(/_/g, " ").replace(/\b\w/g, (l) => l.toUpperCase());
 
+  const toggleFeature = (feature) => {
+    setForm((p) => {
+      const current = p.attributes.features || [];
+      const exists = current.includes(feature);
+
+      return {
+        ...p,
+        attributes: {
+          ...p.attributes,
+          features: exists
+            ? current.filter((f) => f !== feature)
+            : [...current, feature],
+        },
+      };
+    });
+  };
+
   /* ================= VALIDATION ================= */
   const validate = () => {
-    if (form.title.trim().length < 15) return "Title too short";
-    if (form.description.trim().length < 30) return "Description too short";
+    if (form.title.length < 10) return "Title too short";
+    if (form.description.length < 20) return "Description too short";
     if (!form.price) return "Price required";
     if (!form.category_id) return "Select category";
-    if (!form.contact.phone || form.contact.phone.length < 10)
-      return "Valid phone required";
-
-    if (!form.attributes.condition)
-      return "Select condition";
+    if (!form.contact.phone) return "Phone required";
 
     if (form.delivery.available) {
-      if (!form.delivery.from_days || !form.delivery.to_days)
-        return "Enter delivery range";
+      if (!form.delivery.duration.from || !form.delivery.duration.to)
+        return "Delivery range required";
 
-      if (+form.delivery.from_days > +form.delivery.to_days)
+      if (+form.delivery.duration.to < +form.delivery.duration.from)
         return "Invalid delivery range";
-
-      if (form.delivery.fee_required && !form.delivery.fee)
-        return "Enter delivery fee";
     }
 
     return null;
@@ -157,17 +140,16 @@ export default function AddProduct() {
 
   /* ================= IMAGES ================= */
   const handleImages = (files) => {
-    const raw = Array.from(files).slice(0, 8);
+    const list = Array.from(files).slice(0, 8);
 
     previews.forEach((p) => URL.revokeObjectURL(p));
 
-    setImages(raw);
-    setPreviews(raw.map((f) => URL.createObjectURL(f)));
+    setImages(list);
+    setPreviews(list.map((f) => URL.createObjectURL(f)));
   };
 
   const removeImage = (i) => {
     setImages((p) => p.filter((_, x) => x !== i));
-
     setPreviews((p) => {
       URL.revokeObjectURL(p[i]);
       return p.filter((_, x) => x !== i);
@@ -176,8 +158,8 @@ export default function AddProduct() {
 
   /* ================= SUBMIT ================= */
   const handleSubmit = () => {
-    const error = validate();
-    if (error) return alert(error);
+    const err = validate();
+    if (err) return alert(err);
 
     setLoading(true);
     setProgress(0);
@@ -186,6 +168,7 @@ export default function AddProduct() {
 
     const payload = {
       ...form,
+      price: form.price.replace(/[^\d]/g, ""),
       attributes: JSON.stringify(form.attributes),
       delivery: JSON.stringify(form.delivery),
       contact: JSON.stringify(form.contact),
@@ -212,16 +195,13 @@ export default function AddProduct() {
       setLoading(false);
 
       if (xhr.status >= 200 && xhr.status < 300) {
-        const product = JSON.parse(xhr.response).product;
-
-        setCreatedProduct(product);
-        setShowShare(true);
-
+        alert("Product created successfully");
         setForm(INITIAL_FORM);
         setImages([]);
         setPreviews([]);
         setState("");
         setCity("");
+        setProgress(0);
       } else {
         alert("Upload failed");
       }
@@ -235,16 +215,12 @@ export default function AddProduct() {
     xhr.send(fd);
   };
 
-  /* ================= LOCATION ================= */
-  const states = Object.keys(locationsByState || {});
+  const states = Object.keys(locationsByState || []);
   const cities = state ? locationsByState[state] : [];
-
-  const isUsed = form.attributes?.condition === "used";
 
   /* ================= UI ================= */
   return (
     <div className="add-product-container">
-
       <AddProductHeader title="Add Product" />
 
       {loading && (
@@ -253,24 +229,23 @@ export default function AddProduct() {
         </div>
       )}
 
-      {/* BASIC */}
       <input
         placeholder="Title"
         value={form.title}
-        onChange={(e) => updateForm("title", e.target.value)}
+        onChange={(e) => update("title", e.target.value)}
       />
 
       <textarea
         placeholder="Description"
         value={form.description}
-        onChange={(e) => updateForm("description", e.target.value)}
+        onChange={(e) => update("description", e.target.value)}
       />
 
       <input
         placeholder="Price"
         value={form.price}
         onChange={(e) =>
-          updateForm("price", e.target.value.replace(/[^\d,]/g, ""))
+          update("price", e.target.value.replace(/[^\d]/g, ""))
         }
       />
 
@@ -291,11 +266,11 @@ export default function AddProduct() {
         }))}
       />
 
-      {/* FIELD ENGINE */}
+      {/* DYNAMIC FIELDS */}
       {fields.map((f) => {
         const value = form.attributes?.[f] || "";
-
-        if (f === "used_detail" && !isUsed) return null;
+        if (f === "used_detail" && form.attributes.condition !== "used")
+          return null;
 
         return (
           <DropdownModal
@@ -312,29 +287,26 @@ export default function AddProduct() {
       {options.features?.length > 0 && (
         <div className="form-section">
           <h3>Features</h3>
-
           <div className="checkbox-grid">
-            {options.features.map((feature) => (
-              <label key={feature} className="checkbox-item">
+            {options.features.map((f) => (
+              <label key={f}>
                 <input
                   type="checkbox"
-                  checked={
-                    form.attributes?.features?.includes(feature) || false
-                  }
-                  onChange={() => toggleFeature(feature)}
+                  checked={form.attributes.features.includes(f)}
+                  onChange={() => toggleFeature(f)}
                 />
-                {feature}
+                {f}
               </label>
             ))}
           </div>
         </div>
       )}
 
-      {/* DELIVERY (RESTORED FULLY) */}
+      {/* DELIVERY */}
       <div className="form-section">
         <h3>Delivery</h3>
 
-        <label className="toggle-row">
+        <label>
           <input
             type="checkbox"
             checked={form.delivery.available}
@@ -348,79 +320,63 @@ export default function AddProduct() {
               }))
             }
           />
-          Delivery Available
+          Available
         </label>
 
         {form.delivery.available && (
           <>
-            <div className="delivery-row">
-              <input
-                type="number"
-                placeholder="From (days)"
-                value={form.delivery.from_days}
-                onChange={(e) =>
-                  setForm((p) => ({
-                    ...p,
-                    delivery: {
-                      ...p.delivery,
-                      from_days: e.target.value,
+            <input
+              type="number"
+              placeholder="From days"
+              value={form.delivery.duration.from}
+              onChange={(e) =>
+                setForm((p) => ({
+                  ...p,
+                  delivery: {
+                    ...p.delivery,
+                    duration: {
+                      ...p.delivery.duration,
+                      from: e.target.value,
                     },
-                  }))
-                }
-              />
+                  },
+                }))
+              }
+            />
 
-              <input
-                type="number"
-                placeholder="To (days)"
-                value={form.delivery.to_days}
-                onChange={(e) =>
-                  setForm((p) => ({
-                    ...p,
-                    delivery: {
-                      ...p.delivery,
-                      to_days: e.target.value,
+            <input
+              type="number"
+              placeholder="To days"
+              value={form.delivery.duration.to}
+              onChange={(e) =>
+                setForm((p) => ({
+                  ...p,
+                  delivery: {
+                    ...p.delivery,
+                    duration: {
+                      ...p.delivery.duration,
+                      to: e.target.value,
                     },
-                  }))
-                }
-              />
-            </div>
+                  },
+                }))
+              }
+            />
 
-            <label className="toggle-row">
-              <input
-                type="checkbox"
-                checked={form.delivery.fee_required}
-                onChange={(e) =>
-                  setForm((p) => ({
-                    ...p,
-                    delivery: {
-                      ...p.delivery,
-                      fee_required: e.target.checked,
-                      fee: e.target.checked ? p.delivery.fee : "",
-                    },
-                  }))
-                }
-              />
-              Delivery Fee Required
-            </label>
-
-            {form.delivery.fee_required && (
-              <input
-                placeholder="Delivery Fee"
-                value={form.delivery.fee}
-                onChange={(e) =>
-                  setForm((p) => ({
-                    ...p,
-                    delivery: {
-                      ...p.delivery,
-                      fee: e.target.value.replace(/[^\d]/g, ""),
-                    },
-                  }))
-                }
-              />
-            )}
+            <input
+              placeholder="Fee"
+              value={form.delivery.fee}
+              onChange={(e) =>
+                setForm((p) => ({
+                  ...p,
+                  delivery: {
+                    ...p.delivery,
+                    fee: e.target.value.replace(/[^\d]/g, ""),
+                  },
+                }))
+              }
+            />
 
             <textarea
-              placeholder="Delivery note"
+              placeholder="Note"
               value={form.delivery.note}
               onChange={(e) =>
                 setForm((p) => ({
@@ -458,7 +414,7 @@ export default function AddProduct() {
         placeholder="Phone"
         value={form.contact.phone}
         onChange={(e) =>
-          updateForm("contact", {
+          update("contact", {
             ...form.contact,
             phone: onlyNumbers(e.target.value),
           })
@@ -469,7 +425,7 @@ export default function AddProduct() {
         placeholder="WhatsApp"
         value={form.contact.whatsapp}
         onChange={(e) =>
-          updateForm("contact", {
+          update("contact", {
             ...form.contact,
             whatsapp: onlyNumbers(e.target.value),
           })
@@ -481,9 +437,9 @@ export default function AddProduct() {
 
       <div className="preview-grid">
         {previews.map((src, i) => (
-          <div key={i} className="preview-item">
+          <div key={i}>
             <img src={src} alt="" />
-            <button onClick={() => removeImage(i)}>×</button>
+            <button onClick={() => removeImage(i)}>X</button>
           </div>
         ))}
       </div>
@@ -491,7 +447,6 @@ export default function AddProduct() {
       <button onClick={handleSubmit} disabled={loading}>
         {loading ? "Uploading..." : "Create Product"}
       </button>
-
     </div>
   );
 }
