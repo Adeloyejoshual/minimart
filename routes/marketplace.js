@@ -1,6 +1,5 @@
 import express from "express";
 import { Pool } from "pg";
-import multer from "multer";
 import { v2 as cloudinary } from "cloudinary";
 import dotenv from "dotenv";
 
@@ -36,18 +35,6 @@ cloudinary.config({
   api_secret: process.env.CLOUDINARY_API_SECRET,
 });
 
-/* ================= MULTER ================= */
-const upload = multer({
-  storage: multer.memoryStorage(),
-  limits: { fileSize: 5 * 1024 * 1024, files: 10 },
-  fileFilter: (req, file, cb) => {
-    if (!file.mimetype.startsWith("image/")) {
-      return cb(new Error("Only images allowed"));
-    }
-    cb(null, true);
-  },
-});
-
 /* ================= HELPERS ================= */
 const safeJSON = (value, fallback = {}) => {
   try {
@@ -57,19 +44,16 @@ const safeJSON = (value, fallback = {}) => {
   }
 };
 
-/* ✅ DELIVERY NORMALIZER (NEW) */
-const normalizeDelivery = (d = {}) => {
-  return {
-    available: d?.available ?? false,
-    duration: {
-      from: Number(d?.duration?.from ?? 0),
-      to: Number(d?.duration?.to ?? 0),
-    },
-    fee: d?.fee ?? null, // optional
-    type: d?.type || "optional",
-    note: d?.note || "",
-  };
-};
+const normalizeDelivery = (d = {}) => ({
+  available: d?.available ?? false,
+  duration: {
+    from: Number(d?.duration?.from ?? 0),
+    to: Number(d?.duration?.to ?? 0),
+  },
+  fee: d?.fee ?? null,
+  type: d?.type || "optional",
+  note: d?.note || "",
+});
 
 const normalizeProduct = (p) => ({
   ...p,
@@ -84,32 +68,37 @@ const normalizeProduct = (p) => ({
   promotion: promotionPlans.find((x) => x.id == p.promotion_id) || null,
 });
 
-/* ================= IMAGE UPLOAD ================= */
-const uploadImages = async (files) => {
-  if (!files?.length) return [];
+/* =========================================================
+CLOUDINARY SIGNATURE (✅ NEW - SECURE DIRECT UPLOADS)
+========================================================= */
+router.get("/cloudinary-signature", (req, res) => {
+  try {
+    const timestamp = Math.round(new Date().getTime() / 1000);
+    
+    const signature = cloudinary.v2.utils.api_sign_request(
+      { 
+        timestamp, 
+        folder: "products",
+        transformation: [
+          { width: 900, height: 900, crop: "limit" },
+          { quality: "auto" },
+          { fetch_format: "auto" }
+        ]
+      },
+      process.env.CLOUDINARY_API_SECRET
+    );
 
-  return Promise.all(
-    files.map((file, index) => {
-      return new Promise((resolve, reject) => {
-        const stream = cloudinary.uploader.upload_stream(
-          {
-            folder: "products",
-            transformation: [
-              { width: 900, height: 900, crop: "limit" },
-              { quality: "auto" },
-              { fetch_format: "auto" },
-            ],
-          },
-          (err, result) => {
-            if (err) return reject(err);
-            resolve({ url: result.secure_url, position: index });
-          }
-        );
-        stream.end(file.buffer);
-      });
-    })
-  );
-};
+    res.json({
+      timestamp,
+      signature,
+      cloud_name: process.env.CLOUDINARY_CLOUD_NAME,
+      api_key: process.env.CLOUDINARY_API_KEY,
+    });
+  } catch (err) {
+    console.error("Signature error:", err);
+    res.status(500).json({ error: "Signature generation failed" });
+  }
+});
 
 /* =========================================================
 GET PRODUCTS
@@ -156,7 +145,7 @@ router.get("/products", async (req, res) => {
 });
 
 /* =========================================================
-GET SINGLE PRODUCT
+GET SINGLE PRODUCT (+ VIEW INCREMENT)
 ========================================================= */
 router.get("/products/:id", async (req, res) => {
   try {
@@ -181,44 +170,51 @@ router.get("/products/:id", async (req, res) => {
     if (!rows.length)
       return res.status(404).json({ message: "Product not found" });
 
-    pool.query(
-      "UPDATE products SET views = COALESCE(views,0)+1 WHERE id=$1",
-      [id]
-    ).catch(() => {});
+    // Fire-and-forget view increment
+    pool.query("UPDATE products SET views = COALESCE(views,0)+1 WHERE id=$1", [id])
+      .catch(() => {});
 
     res.json(normalizeProduct(rows[0]));
-  } catch {
+  } catch (err) {
+    console.error(err);
     res.status(500).json({ message: "Failed to fetch product" });
   }
 });
 
 /* =========================================================
-CREATE PRODUCT
+CREATE PRODUCT (✅ UPDATED - DIRECT IMAGE URLS)
 ========================================================= */
-router.post("/products", upload.array("images", 10), async (req, res) => {
+router.post("/products", async (req, res) => {
   const client = await pool.connect();
 
   try {
     await client.query("BEGIN");
 
-    const { title, price, category_id } = req.body;
+    const { 
+      title, 
+      price, 
+      category_id, 
+      image_urls = [],  // ✅ [{url: "...", position: 0}, ...]
+      ...rest 
+    } = req.body;
 
     if (!title || !price || !category_id) {
       return res.status(400).json({ message: "Missing required fields" });
     }
 
-    const attributes = safeJSON(req.body.attributes);
+    if (!image_urls.length) {
+      return res.status(400).json({ message: "At least one image required" });
+    }
 
-    /* ✅ DELIVERY PARSE + VALIDATION */
-    const rawDelivery = safeJSON(req.body.delivery, {});
-
+    const attributes = safeJSON(rest.attributes);
+    const rawDelivery = safeJSON(rest.delivery, {});
     const delivery = normalizeDelivery(rawDelivery);
 
+    // Delivery validation
     if (delivery.available) {
       if (delivery.duration.from < 0) {
         return res.status(400).json({ message: "Invalid delivery 'from'" });
       }
-
       if (delivery.duration.to <= delivery.duration.from) {
         return res.status(400).json({ message: "'To' must be greater than 'From'" });
       }
@@ -236,39 +232,39 @@ router.post("/products", upload.array("images", 10), async (req, res) => {
       `,
       [
         title,
-        req.body.description || "",
+        rest.description || "",
         price,
         category_id,
-        req.body.subcategory_id || null,
+        rest.subcategory_id || null,
         attributes,
         delivery,
-        safeJSON(req.body.contact),
-        req.body.promotion_id || null,
-        req.body.location_state,
-        req.body.location_city,
+        safeJSON(rest.contact),
+        rest.promotion_id || null,
+        rest.location_state,
+        rest.location_city,
       ]
     );
 
     const product = rows[0];
 
-    const images = await uploadImages(req.files);
-
-    for (const img of images) {
-      await client.query(
+    // Bulk insert pre-uploaded images
+    const imageInserts = image_urls.map((img, i) =>
+      client.query(
         `INSERT INTO product_images (product_id, image_url, position)
-         VALUES ($1,$2,$3)`,
-        [product.id, img.url, img.position]
-      );
-    }
+         VALUES ($1, $2, $3)`,
+        [product.id, img.url, img.position ?? i]
+      )
+    );
+    await Promise.all(imageInserts);
 
     await client.query("COMMIT");
 
     res.status(201).json({
-      product: normalizeProduct(product),
+      product: normalizeProduct({ ...product, images: image_urls.map(i => i.url) }),
     });
   } catch (err) {
     await client.query("ROLLBACK");
-    console.error(err);
+    console.error("Create product error:", err);
     res.status(500).json({ message: "Failed to create product" });
   } finally {
     client.release();
@@ -276,7 +272,7 @@ router.post("/products", upload.array("images", 10), async (req, res) => {
 });
 
 /* =========================================================
-GET CATEGORIES (FIXED)
+GET CATEGORIES (✅ FIXED TREE STRUCTURE)
 ========================================================= */
 router.get("/categories", async (req, res) => {
   try {
@@ -291,7 +287,6 @@ router.get("/categories", async (req, res) => {
 
     rows.forEach((cat) => {
       const key = cat.fields_key || "";
-
       const rawFields = categoryFields[key] || [];
       const filteredFields = rawFields.filter(
         (f) => f !== "condition" && f !== "used_detail"
@@ -301,14 +296,11 @@ router.get("/categories", async (req, res) => {
         ...cat,
         dynamicOptions: {
           fields: filteredFields,
-
           brands: brands[key] || [],
           models: models[key] || {},
           colors: colors[key] || [],
-
           conditions,
           usedDetails,
-
           ram: ramOptions,
           storage: storageOptions,
           sims,
@@ -316,7 +308,6 @@ router.get("/categories", async (req, res) => {
           years,
           engines,
           fuel_types: fuelTypes,
-
           location: Object.keys(locationsByState),
         },
         subcategories: [],
@@ -332,7 +323,8 @@ router.get("/categories", async (req, res) => {
     });
 
     res.json(tree);
-  } catch {
+  } catch (err) {
+    console.error("Categories error:", err);
     res.status(500).json({ message: "Failed to fetch categories" });
   }
 });
