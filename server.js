@@ -10,6 +10,9 @@ import { Server as SocketIOServer } from "socket.io";
 /* ================= CONFIG ================= */
 dotenv.config();
 
+/* ================= CRON JOB (AUTO-EXPIRE PROMOTIONS) ================= */
+import "./jobs/expirePromotions.js";
+
 /* ================= APP ================= */
 const app = express();
 const PORT = process.env.PORT || 5000;
@@ -103,7 +106,7 @@ import messagesRouter from "./routes/messages.js";
 import adminRouter from "./routes/admin.js";
 import searchRouter from "./routes/search.js";
 import productDetailRouter from "./routes/productDetail.js";
-import paymentRouter from "./routes/payment.js"; // ✅ NEW
+import paymentRouter from "./routes/payment.js";
 
 app.use("/api/marketplace", marketplaceRouter);
 app.use("/api/users", userRouter);
@@ -111,7 +114,7 @@ app.use("/api/messages", messagesRouter);
 app.use("/api/admin", adminRouter);
 app.use("/api/search", searchRouter);
 app.use("/api/product", productDetailRouter);
-app.use("/api/payment", paymentRouter); // ✅ PAYMENT
+app.use("/api/payment", paymentRouter);
 
 /* ================= HEALTH ================= */
 app.get("/api/health", async (req, res) => {
@@ -162,7 +165,6 @@ io.on("connection", (socket) => {
       );
 
       io.to(room).emit("receiveMessage", rows[0]);
-
     } catch (err) {
       console.error("❌ Socket error:", err.message);
     }
