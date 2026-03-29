@@ -1,168 +1,293 @@
-import { useState } from "react";
+import { useEffect, useMemo, useState } from "react";
+import AddProductHeader from "../components/AddProductHeader.jsx";
+import { categoryRules } from "../config/categoryRules.js";
+import "./AddProduct.css";
 
+/* ================= INITIAL STATE ================= */
+const INITIAL_FORM = {
+  title: "",
+  description: "",
+  price: "",
+  category_id: "",
+
+  attributes: {
+    features: [],
+    condition: "",
+  },
+
+  delivery: {
+    available: true,
+    duration: {
+      from: "",
+      to: "",
+    },
+    fee: "",
+    note: "",
+  },
+
+  contact: {
+    phone: "",
+    whatsapp: "",
+    preferred: "chat",
+  },
+};
+
+/* ================= HELPERS ================= */
+const onlyNumbers = (v = "") => v.toString().replace(/[^\d]/g, "");
+
+const formatPrice = (v = "") =>
+  v.replace(/[^\d]/g, "").replace(/\B(?=(\d{3})+(?!\d))/g, ",");
+
+/* ================= COMPONENT ================= */
 export default function AddProduct() {
-  const [form, setForm] = useState({
-    title: "",
-    price: "",
-    category_id: "",
-    description: "",
-    email: "",
-  });
+  const [form, setForm] = useState(INITIAL_FORM);
+  const [images, setImages] = useState([]);
+  const [previews, setPreviews] = useState([]);
+  const [categories, setCategories] = useState([]);
 
   const [loading, setLoading] = useState(false);
+  const [progress, setProgress] = useState(0);
+  const [error, setError] = useState(null);
+  const [isValid, setIsValid] = useState(false);
 
-  const handleChange = (e) => {
-    setForm({ ...form, [e.target.name]: e.target.value });
+  /* ================= FETCH CATEGORIES ================= */
+  useEffect(() => {
+    fetch("https://minimart-ivrm.onrender.com/api/marketplace/categories")
+      .then((r) => r.json())
+      .then(setCategories)
+      .catch(() => {});
+  }, []);
+
+  const selectedCategory = useMemo(
+    () =>
+      categories.find((c) => String(c.id) === String(form.category_id)),
+    [categories, form.category_id]
+  );
+
+  const activeRule = useMemo(() => {
+    const name = selectedCategory?.name;
+    return categoryRules[name] || categoryRules.default;
+  }, [selectedCategory]);
+
+  const validate = () => {
+    if (!form.title || form.title.length < 3)
+      return "Title too short";
+
+    if (!form.description || form.description.length < 10)
+      return "Description too short";
+
+    if (!form.price) return "Price required";
+    if (!form.category_id) return "Select category";
+
+    if (!form.attributes.condition)
+      return "Select condition";
+
+    if (!form.contact.phone || form.contact.phone.length < 10)
+      return "Valid phone required";
+
+    if (form.delivery.available) {
+      const from = Number(form.delivery.duration.from);
+      const to = Number(form.delivery.duration.to);
+
+      if (!from || !to) return "Delivery duration required";
+      if (from > to) return "Invalid delivery range";
+    }
+
+    if (images.length < (activeRule.minImages || 1))
+      return `Upload at least ${activeRule.minImages || 1} images`;
+
+    if (images.length > (activeRule.maxImages || 10))
+      return `Max ${activeRule.maxImages || 10} images allowed`;
+
+    return null;
   };
 
-  /* ================= CREATE PRODUCT ================= */
-  const createProduct = async () => {
-    const fd = new FormData();
-    fd.append("title", form.title);
-    fd.append("price", form.price);
-    fd.append("category_id", form.category_id);
-    fd.append("description", form.description);
+  useEffect(() => {
+    const err = validate();
+    setError(err);
+    setIsValid(!err);
+  }, [form, images]);
 
-    const res = await fetch(
-      "https://minimart-ivrm.onrender.com/api/products",
-      {
-        method: "POST",
-        body: fd,
-      }
-    );
+  /* ================= IMAGE HANDLING ================= */
+  const handleImages = (files) => {
+    const list = Array.from(files);
 
-    const data = await res.json();
+    if (images.length + list.length > 10) {
+      return alert("Max 10 images allowed");
+    }
 
-    if (!res.ok) throw new Error("Product creation failed");
+    const newImages = list.map((f) => ({
+      file: f,
+      url: URL.createObjectURL(f),
+    }));
 
-    return data.product.id;
+    setImages((p) => [...p, ...list]);
+    setPreviews((p) => [...p, ...newImages.map((i) => i.url)]);
   };
 
-  /* ================= INIT PAYMENT ================= */
-  const initPayment = async (productId) => {
-    const res = await fetch(
-      "https://minimart-ivrm.onrender.com/api/payment/initialize",
-      {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          productId,
-          email: form.email,
-          amount: Number(form.price),
-        }),
-      }
-    );
-
-    const data = await res.json();
-
-    if (!res.ok) throw new Error("Payment init failed");
-
-    return data.authorization_url;
+  const removeImage = (i) => {
+    setImages((p) => p.filter((_, x) => x !== i));
+    setPreviews((p) => p.filter((_, x) => x !== i));
   };
 
-  /* ================= VERIFY PAYMENT ================= */
-  const verifyPayment = async (reference) => {
-    await fetch(
-      "https://minimart-ivrm.onrender.com/api/paystack/verify",
-      {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ reference }),
-      }
-    );
-  };
+  /* ================= SUBMIT ================= */
+  const handleSubmit = async () => {
+    const err = validate();
+    if (err) return alert(err);
 
-  /* ================= SUBMIT FLOW ================= */
-  const handleSubmit = async (e) => {
-    e.preventDefault();
     setLoading(true);
 
     try {
-      // 1. create product (draft)
-      const productId = await createProduct();
+      const fd = new FormData();
 
-      // 2. initialize payment
-      const url = await initPayment(productId);
+      fd.append("title", form.title);
+      fd.append("description", form.description);
+      fd.append("price", onlyNumbers(form.price));
+      fd.append("category_id", form.category_id);
 
-      // 3. redirect to Paystack
-      window.location.href = url;
-    } catch (err) {
-      alert(err.message);
-    } finally {
-      setLoading(false);
+      fd.append("attributes", JSON.stringify(form.attributes));
+      fd.append("contact", JSON.stringify(form.contact));
+
+      fd.append(
+        "delivery",
+        JSON.stringify({
+          available: form.delivery.available,
+          duration: {
+            from: Number(form.delivery.duration.from),
+            to: Number(form.delivery.duration.to),
+          },
+          fee: onlyNumbers(form.delivery.fee),
+          note: form.delivery.note,
+        })
+      );
+
+      fd.append("location_state", form.location_state || "");
+      fd.append("location_city", form.location_city || "");
+
+      images.forEach((img) => {
+        fd.append("images", img);
+      });
+
+      const res = await fetch(
+        "https://minimart-ivrm.onrender.com/api/marketplace/products",
+        {
+          method: "POST",
+          body: fd,
+        }
+      );
+
+      if (!res.ok) throw new Error();
+
+      alert("Product created successfully");
+
+      setForm(INITIAL_FORM);
+      setImages([]);
+      setPreviews([]);
+    } catch (e) {
+      alert("Upload failed");
     }
+
+    setLoading(false);
   };
 
-  /* ================= RETURN FROM PAYSTACK ================= */
-  const handleVerify = async () => {
-    const reference = new URLSearchParams(window.location.search).get(
-      "reference"
-    );
-
-    if (!reference) return;
-
-    try {
-      await verifyPayment(reference);
-      alert("Payment successful & product activated!");
-    } catch {
-      alert("Verification failed");
-    }
-  };
-
+  /* ================= UI ================= */
   return (
-    <div style={{ padding: 20 }}>
-      <h2>Add Product (Test Paystack)</h2>
+    <div className="add-product-container">
+      <AddProductHeader title="Add Product" />
 
-      <form onSubmit={handleSubmit}>
+      {/* TITLE */}
+      <input
+        placeholder="Product title"
+        value={form.title}
+        onChange={(e) =>
+          setForm({ ...form, title: e.target.value })
+        }
+      />
+
+      {/* DESCRIPTION */}
+      <textarea
+        placeholder="Description"
+        value={form.description}
+        onChange={(e) =>
+          setForm({ ...form, description: e.target.value })
+        }
+      />
+
+      {/* PRICE */}
+      <input
+        placeholder="Price"
+        value={form.price}
+        onChange={(e) =>
+          setForm({
+            ...form,
+            price: formatPrice(e.target.value),
+          })
+        }
+      />
+
+      {/* DELIVERY */}
+      <div>
         <input
-          name="title"
-          placeholder="Title"
-          onChange={handleChange}
-          required
+          placeholder="From days"
+          value={form.delivery.duration.from}
+          onChange={(e) =>
+            setForm({
+              ...form,
+              delivery: {
+                ...form.delivery,
+                duration: {
+                  ...form.delivery.duration,
+                  from: e.target.value,
+                },
+              },
+            })
+          }
         />
-        <br />
 
         <input
-          name="price"
-          placeholder="Price"
-          type="number"
-          onChange={handleChange}
-          required
+          placeholder="To days"
+          value={form.delivery.duration.to}
+          onChange={(e) =>
+            setForm({
+              ...form,
+              delivery: {
+                ...form.delivery,
+                duration: {
+                  ...form.delivery.duration,
+                  to: e.target.value,
+                },
+              },
+            })
+          }
         />
-        <br />
+      </div>
 
+      {/* IMAGES */}
+      <label>
+        + Add Images
         <input
-          name="category_id"
-          placeholder="Category ID"
-          onChange={handleChange}
-          required
+          type="file"
+          multiple
+          hidden
+          onChange={(e) => handleImages(e.target.files)}
         />
-        <br />
+      </label>
 
-        <input
-          name="email"
-          placeholder="Email"
-          onChange={handleChange}
-          required
-        />
-        <br />
+      <div className="preview-grid">
+        {previews.map((src, i) => (
+          <div key={i}>
+            <img src={src} alt="" />
+            <button onClick={() => removeImage(i)}>×</button>
+          </div>
+        ))}
+      </div>
 
-        <textarea
-          name="description"
-          placeholder="Description"
-          onChange={handleChange}
-        />
-        <br />
+      {/* ERROR */}
+      {error && <div className="error-box">{error}</div>}
 
-        <button disabled={loading}>
-          {loading ? "Processing..." : "Create & Pay"}
-        </button>
-      </form>
-
-      <hr />
-
-      <button onClick={handleVerify}>
-        Verify Payment (after redirect)
+      {/* SUBMIT */}
+      <button disabled={!isValid || loading} onClick={handleSubmit}>
+        {loading ? "Uploading..." : "Create Product"}
       </button>
     </div>
   );
