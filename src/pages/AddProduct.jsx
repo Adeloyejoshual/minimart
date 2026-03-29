@@ -50,7 +50,7 @@ export default function AddProduct() {
   const [createdProduct, setCreatedProduct] = useState(null);
   const [showShare, setShowShare] = useState(false);
 
-  /* ================= FETCH CATEGORIES ================= */
+  /* ================= FETCH ================= */
   useEffect(() => {
     fetch("https://minimart-ivrm.onrender.com/api/marketplace/categories")
       .then((r) => r.json())
@@ -99,10 +99,13 @@ export default function AddProduct() {
   const updateAttr = (k, v) =>
     setForm((p) => ({
       ...p,
-      attributes: { ...p.attributes, [k]: v },
+      attributes: {
+        ...(p.attributes || {}),
+        [k]: v,
+      },
     }));
 
-  /* ✅ SAFE FEATURE TOGGLE (FIXED CRASH PROTECTION) */
+  /* FIXED FEATURE TOGGLE (SAFE ALWAYS) */
   const toggleFeature = (feature) => {
     setForm((p) => {
       const current = p.attributes?.features || [];
@@ -242,7 +245,6 @@ export default function AddProduct() {
   return (
     <div className="add-product-container">
 
-      {/* ✅ NEW HEADER */}
       <AddProductHeader title="Add Product" />
 
       {loading && (
@@ -327,6 +329,112 @@ export default function AddProduct() {
           </div>
         </div>
       )}
+
+      {/* DELIVERY (RESTORED FULLY) */}
+      <div className="form-section">
+        <h3>Delivery</h3>
+
+        <label className="toggle-row">
+          <input
+            type="checkbox"
+            checked={form.delivery.available}
+            onChange={(e) =>
+              setForm((p) => ({
+                ...p,
+                delivery: {
+                  ...p.delivery,
+                  available: e.target.checked,
+                },
+              }))
+            }
+          />
+          Delivery Available
+        </label>
+
+        {form.delivery.available && (
+          <>
+            <div className="delivery-row">
+              <input
+                type="number"
+                placeholder="From (days)"
+                value={form.delivery.from_days}
+                onChange={(e) =>
+                  setForm((p) => ({
+                    ...p,
+                    delivery: {
+                      ...p.delivery,
+                      from_days: e.target.value,
+                    },
+                  }))
+                }
+              />
+
+              <input
+                type="number"
+                placeholder="To (days)"
+                value={form.delivery.to_days}
+                onChange={(e) =>
+                  setForm((p) => ({
+                    ...p,
+                    delivery: {
+                      ...p.delivery,
+                      to_days: e.target.value,
+                    },
+                  }))
+                }
+              />
+            </div>
+
+            <label className="toggle-row">
+              <input
+                type="checkbox"
+                checked={form.delivery.fee_required}
+                onChange={(e) =>
+                  setForm((p) => ({
+                    ...p,
+                    delivery: {
+                      ...p.delivery,
+                      fee_required: e.target.checked,
+                      fee: e.target.checked ? p.delivery.fee : "",
+                    },
+                  }))
+                }
+              />
+              Delivery Fee Required
+            </label>
+
+            {form.delivery.fee_required && (
+              <input
+                placeholder="Delivery Fee"
+                value={form.delivery.fee}
+                onChange={(e) =>
+                  setForm((p) => ({
+                    ...p,
+                    delivery: {
+                      ...p.delivery,
+                      fee: e.target.value.replace(/[^\d]/g, ""),
+                    },
+                  }))
+                }
+              />
+            )}
+
+            <textarea
+              placeholder="Delivery note"
+              value={form.delivery.note}
+              onChange={(e) =>
+                setForm((p) => ({
+                  ...p,
+                  delivery: {
+                    ...p.delivery,
+                    note: e.target.value,
+                  },
+                }))
+              }
+            />
+          </>
+        )}
+      </div>
 
       {/* LOCATION */}
       <DropdownModal
