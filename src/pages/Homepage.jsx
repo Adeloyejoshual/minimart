@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useState, useMemo } from "react";
 import { Link } from "react-router-dom";
 import TopNav from "../components/TopNav";
 import BottomNav from "../components/BottomNav";
@@ -31,9 +31,22 @@ export default function Homepage() {
 
         const data = await res.json();
 
-        // ✅ Correct mapping from backend
-        setProducts(data.latest || []);
-        setTrending(data.promoted || []);
+        const latest = data.latest || [];
+        const promoted = data.promoted || [];
+
+        // ✅ Products
+        setProducts(latest);
+
+        // ✅ Trending (fallback if empty)
+        if (promoted.length > 0) {
+          setTrending(promoted.slice(0, 6));
+        } else {
+          const recommended = [...latest]
+            .sort((a, b) => b.price - a.price)
+            .slice(0, 6);
+
+          setTrending(recommended);
+        }
 
         setLoaded(true);
       } catch (err) {
@@ -46,7 +59,20 @@ export default function Homepage() {
     fetchHomepage();
   }, [loaded, setProducts, setTrending, setLoaded]);
 
+  /* ================= DERIVED DATA ================= */
+
+  const cheapDeals = useMemo(() => {
+    return products.filter((p) => p.price < 50000).slice(0, 6);
+  }, [products]);
+
+  const discover = useMemo(() => {
+    return [...products]
+      .sort(() => 0.5 - Math.random())
+      .slice(0, 6);
+  }, [products]);
+
   /* ================= HELPERS ================= */
+
   const getImage = (p) =>
     p.images?.[0] ||
     "https://via.placeholder.com/300x200?text=No+Image";
@@ -59,9 +85,10 @@ export default function Homepage() {
   };
 
   /* ================= CARD ================= */
-  const Card = ({ p, trendingMode = false }) => (
+
+  const Card = ({ p, compact = false }) => (
     <Link to={`/product/${p.id}`} className="card-link">
-      <div className="card">
+      <div className={`card ${compact ? "compact" : ""}`}>
         <div className="card-image">
           <img src={getImage(p)} alt={p.title} loading="lazy" />
         </div>
@@ -73,7 +100,7 @@ export default function Homepage() {
 
           <div className="title">{p.title}</div>
 
-          {!trendingMode && (
+          {!compact && (
             <>
               <div className="desc">{p.description}</div>
               <div className="location">📍 {getLocation(p)}</div>
@@ -85,25 +112,49 @@ export default function Homepage() {
   );
 
   /* ================= RENDER ================= */
+
   return (
     <>
       <TopNav />
 
       <div className="homepage-container">
-        {/* TRENDING */}
+        {/* 🔥 TRENDING */}
         <div className="section">
           <h2>🔥 Trending</h2>
-
-          <div className="trending-scroll">
+          <div className="horizontal-scroll">
             {trending.map((p) => (
-              <Card key={p.id} p={p} trendingMode />
+              <Card key={p.id} p={p} compact />
             ))}
           </div>
         </div>
 
-        {/* PRODUCTS */}
+        {/* 💰 CHEAP DEALS */}
+        {cheapDeals.length > 0 && (
+          <div className="section">
+            <h2>💰 Cheap Deals</h2>
+            <div className="horizontal-scroll">
+              {cheapDeals.map((p) => (
+                <Card key={p.id} p={p} compact />
+              ))}
+            </div>
+          </div>
+        )}
+
+        {/* ✨ DISCOVER */}
+        {discover.length > 0 && (
+          <div className="section">
+            <h2>✨ Discover</h2>
+            <div className="horizontal-scroll">
+              {discover.map((p) => (
+                <Card key={p.id} p={p} compact />
+              ))}
+            </div>
+          </div>
+        )}
+
+        {/* 🆕 PRODUCTS */}
         <div className="section">
-          <h2>🛒 Latest Products</h2>
+          <h2>🆕 New Arrivals</h2>
 
           <div className="products-grid">
             {products.map((p) => (
