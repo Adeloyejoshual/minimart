@@ -1,3 +1,4 @@
+// server.js
 import express from "express";
 import cors from "cors";
 import path from "path";
@@ -23,7 +24,7 @@ const io = new SocketIOServer(server, {
   cors: { origin: "*", methods: ["GET", "POST"] },
 });
 
-/* ================= DB ================= */
+/* ================= DATABASE ================= */
 export const pool = new Pool({
   connectionString: process.env.COCKROACH_URI,
   ssl: { rejectUnauthorized: false },
@@ -42,7 +43,7 @@ export const pool = new Pool({
 
 /* ================= SIMPLE CACHE ================= */
 export const cache = new Map();
-const CACHE_TTL = 60 * 1000;
+const CACHE_TTL = 60 * 1000; // 1 min
 
 export const setCache = (key, value) => {
   cache.set(key, { value, time: Date.now() });
@@ -51,12 +52,10 @@ export const setCache = (key, value) => {
 export const getCache = (key) => {
   const data = cache.get(key);
   if (!data) return null;
-
   if (Date.now() - data.time > CACHE_TTL) {
     cache.delete(key);
     return null;
   }
-
   return data.value;
 };
 
@@ -64,9 +63,7 @@ export const getCache = (key) => {
 setInterval(() => {
   const now = Date.now();
   for (const [key, val] of cache.entries()) {
-    if (now - val.time > CACHE_TTL) {
-      cache.delete(key);
-    }
+    if (now - val.time > CACHE_TTL) cache.delete(key);
   }
 }, 60000);
 
@@ -75,13 +72,13 @@ app.use(cors());
 app.use(express.json({ limit: "10mb" }));
 app.use(express.urlencoded({ extended: true }));
 
-/* 🔥 IMPORTANT: RAW BODY FOR PAYSTACK */
+/* 🔥 RAW BODY FOR PAYSTACK WEBHOOKS */
 app.use(
   "/api/payment/webhooks/paystack",
   express.raw({ type: "application/json" })
 );
 
-/* ================= SECURITY ================= */
+/* ================= SECURITY HEADERS ================= */
 app.use((req, res, next) => {
   res.setHeader("X-Content-Type-Options", "nosniff");
   res.setHeader("X-Frame-Options", "DENY");
@@ -97,16 +94,13 @@ app.use((req, res, next) => {
 
 /* ================= RATE LIMIT ================= */
 const rateLimitMap = new Map();
-
 app.use((req, res, next) => {
   const ip = req.headers["x-forwarded-for"] || req.socket.remoteAddress;
   const now = Date.now();
-
-  const windowMs = 2000;
+  const windowMs = 2000; // 2 sec window
   const maxReq = 60;
 
   let record = rateLimitMap.get(ip);
-
   if (!record || now - record.time > windowMs) {
     record = { count: 1, time: now };
   } else {
@@ -131,6 +125,7 @@ import searchRouter from "./routes/search.js";
 import productDetailRouter from "./routes/productDetail.js";
 import paymentRouter from "./routes/payment.js";
 import homepageRouter from "./routes/homepage.js";
+import sellerProfileRouter from "./routes/sellerprofile.js";
 
 app.use("/api/marketplace", marketplaceRouter);
 app.use("/api/users", userRouter);
@@ -141,11 +136,13 @@ app.use("/api/product", productDetailRouter);
 app.use("/api/payment", paymentRouter);
 app.use("/api", homepageRouter);
 
-/* ================= HEALTH ================= */
+/* Seller profile routes */
+app.use("/api/marketplace/sellers", sellerProfileRouter);
+
+/* ================= HEALTH CHECK ================= */
 app.get("/api/health", async (req, res) => {
   try {
     const { rows } = await pool.query("SELECT 1");
-
     res.json({
       success: true,
       db: rows.length > 0,
@@ -153,20 +150,16 @@ app.get("/api/health", async (req, res) => {
       memory: process.memoryUsage().rss,
     });
   } catch (err) {
-    res.status(500).json({
-      success: false,
-      error: err.message,
-    });
+    res.status(500).json({ success: false, error: err.message });
   }
 });
 
-/* ================= SOCKET ================= */
+/* ================= SOCKET.IO ================= */
 io.on("connection", (socket) => {
   console.log("🔌 Connected:", socket.id);
 
   socket.on("joinRoom", ({ senderId, receiverId, productId }) => {
     if (!senderId || !receiverId || !productId) return;
-
     const room = `${productId}_${[senderId, receiverId].sort().join("_")}`;
     socket.join(room);
   });
@@ -174,18 +167,14 @@ io.on("connection", (socket) => {
   socket.on("sendMessage", async (data) => {
     try {
       const { senderId, receiverId, productId, message } = data;
-
       if (!senderId || !receiverId || !productId || !message) return;
 
       const room = `${productId}_${[senderId, receiverId].sort().join("_")}`;
-
       const { rows } = await pool.query(
-        `
-        INSERT INTO messages
-        (sender_id, receiver_id, product_id, message, created_at)
-        VALUES ($1,$2,$3,$4,NOW())
-        RETURNING *
-        `,
+        `INSERT INTO messages
+         (sender_id, receiver_id, product_id, message, created_at)
+         VALUES ($1,$2,$3,$4,NOW())
+         RETURNING *`,
         [senderId, receiverId, productId, message]
       );
 
@@ -200,7 +189,7 @@ io.on("connection", (socket) => {
   });
 });
 
-/* ================= STATIC ================= */
+/* ================= STATIC FILES ================= */
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
@@ -211,7 +200,6 @@ if (process.env.NODE_ENV === "production") {
     if (req.path.startsWith("/api/")) {
       return res.status(404).json({ message: "API not found" });
     }
-
     res.sendFile(path.join(__dirname, "dist", "index.html"));
   });
 }
@@ -219,14 +207,10 @@ if (process.env.NODE_ENV === "production") {
 /* ================= ERROR HANDLER ================= */
 app.use((err, req, res, next) => {
   console.error("🔥 ERROR:", err);
-
-  res.status(500).json({
-    success: false,
-    message: err.message || "Internal Server Error",
-  });
+  res.status(500).json({ success: false, message: err.message || "Internal Server Error" });
 });
 
-/* ================= START ================= */
+/* ================= START SERVER ================= */
 server.listen(PORT, () => {
   console.log(`🚀 Server running on port ${PORT}`);
 });
