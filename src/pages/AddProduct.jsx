@@ -5,6 +5,9 @@ import { locationsByState } from "../config/locationsByState.js";
 import { promotionPlans } from "../config/promotions.js";
 import "./AddProduct.css";
 
+/* ================= STORAGE KEY ================= */
+const STORAGE_KEY = "add_product_draft";
+
 /* ================= INITIAL FORM ================= */
 const INITIAL_FORM = {
   title: "",
@@ -37,6 +40,7 @@ const INITIAL_FORM = {
   contact: {
     phone: "",
     whatsapp: "",
+    email: "",
     preferred: "chat",
   },
 };
@@ -52,9 +56,34 @@ export default function AddProduct() {
   const [previews, setPreviews] = useState([]);
 
   const [loading, setLoading] = useState(false);
-  const [progress, setProgress] = useState(0);
-
   const [selectedPlan, setSelectedPlan] = useState(null);
+
+  /* ================= LOAD DRAFT ================= */
+  useEffect(() => {
+    const saved = localStorage.getItem(STORAGE_KEY);
+    if (saved) {
+      try {
+        const parsed = JSON.parse(saved);
+        setForm(parsed.form || INITIAL_FORM);
+        setState(parsed.state || "");
+        setCity(parsed.city || "");
+        setSelectedPlan(parsed.selectedPlan || null);
+      } catch (e) {
+        console.error("Draft parse failed", e);
+      }
+    }
+  }, []);
+
+  /* ================= SAVE DRAFT ================= */
+  useEffect(() => {
+    const draft = {
+      form,
+      state,
+      city,
+      selectedPlan,
+    };
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(draft));
+  }, [form, state, city, selectedPlan]);
 
   /* ================= FETCH ================= */
   useEffect(() => {
@@ -63,6 +92,13 @@ export default function AddProduct() {
       .then(setCategories)
       .catch(console.error);
   }, []);
+
+  /* ================= CLEANUP IMAGES ================= */
+  useEffect(() => {
+    return () => {
+      previews.forEach((url) => URL.revokeObjectURL(url));
+    };
+  }, [previews]);
 
   /* ================= CATEGORY ================= */
   const selectedCategory = useMemo(
@@ -74,7 +110,6 @@ export default function AddProduct() {
   const attributes = form.attributes || {};
   const brand = attributes.brand || "";
 
-  /* ================= NORMALIZE ================= */
   const normalizeOptions = (list = []) =>
     Array.isArray(list)
       ? list.map((x) =>
@@ -82,17 +117,13 @@ export default function AddProduct() {
         )
       : [];
 
-  /* ================= FIELDS (FIXED) ================= */
   const fields = useMemo(() => {
     const dynamic = selectedCategory?.dynamicOptions?.fields || [];
-
-    // prevent duplicate condition
     return dynamic.includes("condition")
       ? dynamic
       : ["condition", ...dynamic];
   }, [selectedCategory]);
 
-  /* ================= OPTIONS MAP ================= */
   const optionsMap = useMemo(() => {
     const modelsForBrand =
       brand && options.models?.[brand] ? options.models[brand] : [];
@@ -120,10 +151,7 @@ export default function AddProduct() {
   const updateAttr = (key, value) =>
     setForm((p) => {
       const next = { ...p.attributes, [key]: value };
-
-      // reset dependent field
       if (key === "brand") next.model = "";
-
       return { ...p, attributes: next };
     });
 
@@ -142,10 +170,10 @@ export default function AddProduct() {
       },
     }));
 
-  const onlyNumbers = (v = "") => v.replace(/\D/g, "")
+  const onlyNumbers = (v = "") => v.replace(/\D/g, "");
 
   const formatLabel = (t) =>
-  t.replace(/_/g, " ").replace(/\b\w/g, (l) => l.toUpperCase());
+    t.replace(/_/g, " ").replace(/\b\w/g, (l) => l.toUpperCase());
 
   const toggleFeature = (f) => {
     setForm((p) => {
@@ -164,13 +192,27 @@ export default function AddProduct() {
     });
   };
 
+  const handleStateChange = (s) => {
+    setState(s);
+    setCity("");
+  };
+
   /* ================= VALIDATION ================= */
   const validate = () => {
-    if (form.title.length < 10) return "Title too short";
-    if (form.description.length < 20) return "Description too short";
+    if (form.title.trim().length < 10) return "Title too short";
+    if (form.description.trim().length < 20) return "Description too short";
     if (!form.price) return "Price required";
     if (!form.category_id) return "Select category";
-    if (!form.contact.phone) return "Phone required";
+    if (!/^\d{10,15}$/.test(form.contact.phone))
+      return "Invalid phone number";
+
+    for (const field of fields) {
+      if (!attributes[field]) {
+        return `${formatLabel(field)} is required`;
+      }
+    }
+
+    if (images.length === 0) return "Add at least one image";
 
     if (form.delivery.available) {
       const from = Number(form.delivery.duration.from);
@@ -211,24 +253,22 @@ export default function AddProduct() {
     if (err) return alert(err);
 
     const finalPlan =
-      selectedPlan || promotionPlans.find((p) => p.price === 0); // ✅ allow free fallback
+      selectedPlan || promotionPlans.find((p) => p.price === 0);
 
     setLoading(true);
-    setProgress(0); // Note: fetch has no progress → UI only
 
-    /* ================= STEP 1: CREATE PRODUCT ================= */
     const fd = new FormData();
 
     const payload = {
       ...form,
-      price: form.price.replace(/\D/g, "")
+      price: form.price.replace(/\D/g, ""),
       attributes: JSON.stringify(form.attributes),
       delivery: JSON.stringify(form.delivery),
       contact: JSON.stringify(form.contact),
       location_state: state,
       location_city: city,
-      promotion_plan: finalPlan.id, // ✅ ID only
-      status: finalPlan.price === 0 ? "active" : "pending", // 🔥
+      promotion_plan: finalPlan.id,
+      status: finalPlan.price === 0 ? "active" : "pending",
     };
 
     Object.entries(payload).forEach(([k, v]) => fd.append(k, v));
@@ -256,9 +296,10 @@ export default function AddProduct() {
         return alert("No product ID returned");
       }
 
-      /* ================= FREE PLAN ================= */
       if (finalPlan.price === 0) {
         alert("✅ Product created successfully");
+
+        localStorage.removeItem(STORAGE_KEY);
 
         setForm(INITIAL_FORM);
         setImages([]);
@@ -271,20 +312,18 @@ export default function AddProduct() {
         return;
       }
 
-      /* ================= STEP 2: INIT PAYMENT ================= */
       const payRes = await fetch(
-        "https://minimart-ivrm.onrender.com/api/payment/initialize", // ✅ full backend URL
+        "https://minimart-ivrm.onrender.com/api/payment/initialize",
         {
           method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-          },
+          headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
             email:
-              email: form.contact.email || `${form.contact.phone}@mail.local`,
+              form.contact.email ||
+              `${form.contact.phone}@mail.local`,
             amount: finalPlan.price,
             planId: finalPlan.id,
-            productId, // 🔥 VERY IMPORTANT
+            productId,
           }),
         }
       );
@@ -296,7 +335,6 @@ export default function AddProduct() {
         return alert("Payment initialization failed");
       }
 
-      /* ================= STEP 3: REDIRECT ================= */
       window.location.href = payData.authorization_url;
     } catch (err) {
       console.error(err);
@@ -312,12 +350,6 @@ export default function AddProduct() {
   return (
     <div className="add-product-container">
       <AddProductHeader title="Add Product" />
-
-      {loading && (
-        <div className="progress">
-          <div style={{ width: `${progress}%` }} />
-        </div>
-      )}
 
       <input
         placeholder="Title"
@@ -337,18 +369,19 @@ export default function AddProduct() {
         onChange={(e) => update("price", onlyNumbers(e.target.value))}
       />
 
-      {/* CATEGORY */}
       <DropdownModal
         label="Category"
         value={form.category_id}
         onChange={(v) =>
           setForm((prev) => ({
-  ...INITIAL_FORM,
-  title: prev.title,
-  description: prev.description,
-  price: prev.price,
-  category_id: v,
-}));
+            ...INITIAL_FORM,
+            title: prev.title,
+            description: prev.description,
+            price: prev.price,
+            contact: prev.contact,
+            delivery: prev.delivery,
+            category_id: v,
+          }))
         }
         options={categories.map((c) => ({
           id: c.id,
@@ -356,10 +389,8 @@ export default function AddProduct() {
         }))}
       />
 
-      {/* DYNAMIC FIELDS */}
       {fields.map((f) => {
         if (!optionsMap[f]) return null;
-
         if (f === "used_detail" && attributes.condition !== "used")
           return null;
 
@@ -374,77 +405,10 @@ export default function AddProduct() {
         );
       })}
 
-      {/* FEATURES */}
-      {options.features?.length > 0 && (
-        <div className="form-section">
-          <h3>Features</h3>
-          <div className="checkbox-grid">
-            {options.features.map((f) => (
-              <label key={f}>
-                <input
-                  type="checkbox"
-                  checked={(attributes.features || []).includes(f)}
-                  onChange={() => toggleFeature(f)}
-                />
-                {f}
-              </label>
-            ))}
-          </div>
-        </div>
-      )}
-
-      {/* DELIVERY */}
-      <div className="form-section">
-        <h3>Delivery</h3>
-
-        <label>
-          <input
-            type="checkbox"
-            checked={form.delivery.available}
-            onChange={(e) =>
-              updateDelivery("available", e.target.checked)
-            }
-          />
-          Available
-        </label>
-
-        {form.delivery.available && (
-          <>
-            <input
-              type="number"
-              placeholder="From days"
-              value={form.delivery.duration.from}
-              onChange={(e) =>
-                updateDeliveryDuration("from", e.target.value)
-              }
-            />
-
-            <input
-              type="number"
-              placeholder="To days"
-              value={form.delivery.duration.to}
-              onChange={(e) =>
-                updateDeliveryDuration("to", e.target.value)
-              }
-            />
-
-            <input
-              type="number"
-              placeholder="Delivery fee"
-              value={form.delivery.fee}
-              onChange={(e) =>
-                updateDelivery("fee", onlyNumbers(e.target.value))
-              }
-            />
-          </>
-        )}
-      </div>
-
-      {/* LOCATION */}
       <DropdownModal
         label="State"
         value={state}
-        onChange={setState}
+        onChange={handleStateChange}
         options={states}
       />
 
@@ -457,7 +421,6 @@ export default function AddProduct() {
         />
       )}
 
-      {/* CONTACT */}
       <input
         placeholder="Phone"
         value={form.contact.phone}
@@ -480,7 +443,6 @@ export default function AddProduct() {
         }
       />
 
-      {/* IMAGES */}
       <input type="file" multiple onChange={(e) => handleImages(e.target.files)} />
 
       <div className="preview-grid">
@@ -492,10 +454,8 @@ export default function AddProduct() {
         ))}
       </div>
 
-      {/* PROMOTION */}
       <div className="form-section">
         <h3>Promotion Plans</h3>
-
         {promotionPlans.map((plan) => (
           <div
             key={plan.id}
