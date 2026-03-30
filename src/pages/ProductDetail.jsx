@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { useParams, useNavigate } from "react-router-dom";
-import ProductDetailHeader from "../components/ProductDetailHeader.jsx"; // ✅ header with back & share
+import ProductDetailHeader from "../components/ProductDetailHeader"; // ✅ header with back & share
 import BottomNav from "../components/BottomNav";
 import "../styles/ProductDetail.css";
 
