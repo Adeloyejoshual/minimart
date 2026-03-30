@@ -1,161 +1,137 @@
-/* ---------------- GLOBAL BACKGROUND ---------------- */
-body {
+/* =======================================================
+   🌐 GLOBAL BASE
+======================================================= */
+
+html, body {
   margin: 0;
   padding: 0;
-  font-family: 'Inter', sans-serif;
-
-  background: linear-gradient(
-    135deg,
-    #f5f9ff 0%,
-    #eef6ff 45%,
-    #f8fbff 100%
-  );
+  font-family: Inter, system-ui, sans-serif;
+  background: linear-gradient(135deg, #f5f9ff, #eef6ff, #f8fbff);
+  scroll-behavior: smooth;
 }
 
-/* ---------------- MAIN CONTAINER ---------------- */
-.homepage-container {
-  max-width: 1400px;
-  margin: 0 auto;
-  padding: 14px;
-
-  background: radial-gradient(
-    circle at top,
-    rgba(59, 130, 246, 0.10),
-    transparent 55%
-  );
-}
-
-/* ---------------- SECTION ---------------- */
-.section {
-  margin-bottom: 28px;
-}
-
-.section h2 {
-  font-size: 1.2rem;
-  font-weight: 800;
-  margin-bottom: 12px;
-  color: #1e3a8a;
-
-  display: flex;
-  align-items: center;
-  gap: 6px;
-}
-
-/* ---------------- LINKS ---------------- */
-.card-link {
-  text-decoration: none;
-  color: inherit;
+#root {
+  min-height: 100%;
 }
 
 /* =======================================================
-   🔥 MASONRY GRID (MAIN PRODUCTS)
+   📦 MAIN LAYOUT
+======================================================= */
+
+.homepage-container {
+  max-width: 1200px;
+  margin: 0 auto;
+  padding: 12px;
+}
+
+/* =======================================================
+   🧩 SECTION
+======================================================= */
+
+.section {
+  margin-bottom: 20px;
+}
+
+.section h2 {
+  font-size: 1rem;
+  font-weight: 700;
+  margin-bottom: 10px;
+  color: #1e3a8a;
+}
+
+/* =======================================================
+   🧱 PRODUCT GRID (MOBILE FIRST)
 ======================================================= */
 
 .products-grid {
-  column-count: 6;
-  column-gap: 14px;
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 10px;
 }
 
-@media (max-width: 1200px) { .products-grid { column-count: 5; } }
-@media (max-width: 1024px) { .products-grid { column-count: 4; } }
-@media (max-width: 768px)  { .products-grid { column-count: 3; } }
-@media (max-width: 600px)  { .products-grid { column-count: 2; } }
-
-.card-link {
-  display: inline-block;
-  width: 100%;
-  margin-bottom: 14px;
-  break-inside: avoid;
-  -webkit-column-break-inside: avoid;
+@media (min-width: 768px) {
+  .products-grid {
+    grid-template-columns: repeat(3, 1fr);
+  }
 }
 
-/* ---------------- CARD ---------------- */
+@media (min-width: 1024px) {
+  .products-grid {
+    grid-template-columns: repeat(4, 1fr);
+  }
+}
+
+/* =======================================================
+   🪪 CARD (CLEAN + FAST)
+======================================================= */
+
 .card {
-  background: rgba(255, 255, 255, 0.92);
-  backdrop-filter: blur(12px);
-  border-radius: 18px;
+  background: #fff;
+  border-radius: 14px;
   overflow: hidden;
   display: flex;
   flex-direction: column;
-  box-shadow: 0 6px 18px rgba(30, 64, 175, 0.10);
-  transition: all 0.25s ease;
+  box-shadow: 0 4px 10px rgba(0,0,0,0.06);
+  transition: transform 0.2s ease;
+}
+
+.card:active {
+  transform: scale(0.98);
 }
 
 .card:hover {
-  transform: translateY(-6px) scale(1.01);
-  box-shadow: 0 14px 30px rgba(30, 64, 175, 0.18);
+  transform: translateY(-3px);
 }
 
-/* ---------------- IMAGE ---------------- */
-.card-image {
-  width: 100%;
-  background: #eef2ff;
-  overflow: hidden;
-}
-
+/* IMAGE */
 .card-image img {
   width: 100%;
-  height: auto;
-  display: block;
+  height: 140px;
+  object-fit: cover;
+  background: #eef2ff;
 }
 
-/* ---------------- CARD BODY ---------------- */
+/* BODY */
 .card-body {
-  padding: 10px;
+  padding: 8px;
   display: flex;
   flex-direction: column;
-  gap: 6px;
+  gap: 4px;
 }
 
-/* ---------------- PRICE ---------------- */
+/* PRICE */
 .price {
-  font-weight: 800;
-  font-size: 0.95rem;
+  font-weight: 700;
   color: #2563eb;
+  font-size: 0.9rem;
 }
 
-/* ---------------- TITLE ---------------- */
+/* TITLE */
 .title {
-  font-size: 0.85rem;
+  font-size: 0.8rem;
   font-weight: 600;
-  color: #333;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
 }
 
-/* ---------------- DESCRIPTION ---------------- */
-.desc {
-  font-size: 0.75rem;
-  color: #555;
-  display: -webkit-box;
-  -webkit-line-clamp: 2;
-  -webkit-box-orient: vertical;
-  overflow: hidden;
-}
-
-/* ---------------- LOCATION ---------------- */
+/* LOCATION */
 .location {
   font-size: 0.7rem;
   color: #888;
 }
 
 /* =======================================================
-   ✨ HORIZONTAL SECTIONS (TRENDING / DISCOVER / DEALS)
+   📱 HORIZONTAL SCROLL SECTIONS (TRENDING / CHEAP / ETC)
 ======================================================= */
-
-.horizontal-scroll-wrapper {
-  position: relative;
-}
 
 .horizontal-scroll {
   display: flex;
-  gap: 10px;
   overflow-x: auto;
-  padding: 4px 0 8px;
+  gap: 10px;
+  padding-bottom: 6px;
   scroll-snap-type: x mandatory;
-  scroll-behavior: smooth;
-  max-height: 180px;
+  -webkit-overflow-scrolling: touch;
 }
 
 /* hide scrollbar */
@@ -163,140 +139,90 @@ body {
   display: none;
 }
 
-.horizontal-scroll .card-link {
-  flex: 0 0 60%;
-  max-width: 140px;
+.scroll-item {
+  flex: 0 0 160px;
   scroll-snap-align: start;
 }
 
-/* compact cards */
+/* compact card for horizontal sections */
 .card.compact {
-  height: 160px;
-  flex-direction: column;
+  height: 150px;
 }
 
-.card.compact .card-image {
-  height: 80px;
+.card.compact .card-image img {
+  height: 90px;
 }
 
-.card.compact .card-body {
-  padding: 6px;
-  gap: 4px;
-}
-
-.card.compact .title {
-  font-size: 0.75rem;
-}
-
-.card.compact .price {
-  font-size: 0.8rem;
-}
-
-.card.compact .desc,
 .card.compact .location {
   display: none;
 }
 
-/* ================== ARROWS FOR DESKTOP ================== */
-.scroll-arrow {
-  position: absolute;
-  top: 50%;
-  transform: translateY(-50%);
-  background: rgba(30, 64, 175, 0.9);
-  color: #fff;
-  border: none;
-  border-radius: 50%;
-  width: 32px;
-  height: 32px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  cursor: pointer;
-  z-index: 10;
-  transition: background 0.3s ease;
-}
-
-.scroll-arrow:hover {
-  background: rgba(59, 130, 246, 0.9);
-}
-
-.scroll-arrow-left {
-  left: -10px;
-}
-
-.scroll-arrow-right {
-  right: -10px;
-}
-
-/* arrows only on desktop */
-@media (max-width: 1024px) {
-  .scroll-arrow {
-    display: none;
-  }
-}
-
 /* =======================================================
-   ✨ TRENDING GRADIENT FADE EDGES
+   🔥 FADE EDGES (MOBILE SAFE)
 ======================================================= */
-.trending-scroll {
+
+.horizontal-scroll-wrapper {
   position: relative;
 }
 
-.trending-scroll::before,
-.trending-scroll::after {
+.horizontal-scroll-wrapper::before,
+.horizontal-scroll-wrapper::after {
   content: "";
   position: absolute;
   top: 0;
-  width: 30px;
+  width: 20px;
   height: 100%;
   z-index: 2;
   pointer-events: none;
 }
 
-.trending-scroll::before {
+.horizontal-scroll-wrapper::before {
   left: 0;
   background: linear-gradient(to right, #f5f9ff, transparent);
 }
 
-.trending-scroll::after {
+.horizontal-scroll-wrapper::after {
   right: 0;
   background: linear-gradient(to left, #f5f9ff, transparent);
 }
 
 /* =======================================================
-   ⏳ LOADING / EMPTY
+   ⚡ LOADING
 ======================================================= */
+
 .loading-text {
   text-align: center;
-  font-size: 0.85rem;
+  font-size: 0.8rem;
   color: #777;
-  margin: 12px 0;
 }
 
 /* =======================================================
-   ⬆️ BACK TO TOP BUTTON
+   ⬆️ FLOATING BUTTON
 ======================================================= */
-.back-to-top {
+
+.floating-btn {
   position: fixed;
-  bottom: 80px;
-  right: 16px;
+  bottom: 70px;
+  right: 14px;
   background: #2563eb;
   color: white;
   border: none;
-  padding: 10px 12px;
-  border-radius: 50%;
-  font-size: 16px;
-  cursor: pointer;
-  box-shadow: 0 6px 18px rgba(0,0,0,0.2);
+  padding: 12px 14px;
+  border-radius: 50px;
+  font-weight: 600;
+  box-shadow: 0 6px 14px rgba(0,0,0,0.2);
+  z-index: 1000;
 }
 
-.back-to-top:hover {
-  background: #1d4ed8;
+.floating-btn:active {
+  transform: scale(0.95);
 }
 
 /* =======================================================
-   🧠 SMOOTH SCROLL
+   🧠 PERFORMANCE OPTIMIZATION
 ======================================================= */
-html {
-  scroll-behavior: smooth;
+
+img {
+  loading: lazy;
+  will-change: transform;
 }
