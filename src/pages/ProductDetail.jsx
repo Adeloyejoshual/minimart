@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { useParams, useNavigate } from "react-router-dom";
+import ProductDetailHeader from "../components/ProductDetailHeader.jsx"; // ✅ header with back & share
 import BottomNav from "../components/BottomNav";
-import ProductDetailHeader from "../components/ProductDetailHeader"; // new header
 import "../styles/ProductDetail.css";
 
 export default function ProductDetail() {
@@ -81,98 +81,125 @@ export default function ProductDetail() {
   );
 
   // ================= LOADING / ERROR STATES =================
-  if (loading) return <div className="product-detail">Loading product...</div>;
-  if (error) return <div className="product-detail">{error}</div>;
-  if (!product) return <div className="product-detail">Product not found</div>;
+  if (loading)
+    return (
+      <>
+        <ProductDetailHeader title="Loading..." />
+        <div className="product-detail">Loading product...</div>
+        <BottomNav />
+      </>
+    );
+
+  if (error)
+    return (
+      <>
+        <ProductDetailHeader title="Error" />
+        <div className="product-detail">{error}</div>
+        <BottomNav />
+      </>
+    );
+
+  if (!product)
+    return (
+      <>
+        <ProductDetailHeader title="Not Found" />
+        <div className="product-detail">Product not found</div>
+        <BottomNav />
+      </>
+    );
 
   // ================= RENDER =================
   return (
     <>
-      {/* ================= HEADER ================= */}
-      <div className="image-section">
-        <ProductDetailHeader title={product.title} />
-        <img
-          src={activeImage || "https://via.placeholder.com/400"}
-          alt={product.title}
-          className="main-img"
-        />
-        <div className="thumbnails">
-          {product.images.map((img, i) => (
-            <img
-              key={i}
-              src={img}
-              onClick={() => setActiveImage(img)}
-              className={activeImage === img ? "active" : ""}
-            />
-          ))}
+      <ProductDetailHeader title={product.title} />
+
+      <div className="product-detail">
+
+        {/* ================= IMAGES ================= */}
+        <div className="image-section">
+          <img
+            src={activeImage || "https://via.placeholder.com/400"}
+            alt={product.title}
+            className="main-img"
+          />
+
+          <div className="thumbnails">
+            {product.images.map((img, i) => (
+              <img
+                key={i}
+                src={img}
+                onClick={() => setActiveImage(img)}
+                className={activeImage === img ? "active" : ""}
+              />
+            ))}
+          </div>
         </div>
-      </div>
 
-      {/* ================= DETAILS ================= */}
-      <div className="details-section">
-        <h1>{product.title}</h1>
-        <h2>₦{Number(product.price || 0).toLocaleString()}</h2>
-        <p className="location">📍 {getLocation()}</p>
+        {/* ================= DETAILS ================= */}
+        <div className="details-section">
+          <h1 className="title">{product.title}</h1>
+          <h2 className="price">₦{Number(product.price || 0).toLocaleString()}</h2>
+          <p className="location">📍 {getLocation()}</p>
+          {product.category?.name && (
+            <p className="category">
+              Category: <strong>{product.category.name}</strong>
+            </p>
+          )}
+          <p className="description">{product.description || "No description available"}</p>
 
-        {product.category?.name && (
-          <p className="category">
-            Category: <strong>{product.category.name}</strong>
-          </p>
-        )}
-
-        <p className="desc">{product.description || "No description available"}</p>
-
-        {/* ================= SELLER ================= */}
-        {product.seller?.id && (
-          <div className="seller" onClick={navigateToSeller} style={{ cursor: "pointer" }}>
-            <img
-              src={product.seller.avatar || "https://via.placeholder.com/50"}
-              alt={product.seller.name}
-              className="seller-avatar"
-            />
-            <span className="seller-name">{product.seller.name}</span>
-          </div>
-        )}
-
-        {/* ================= SPECIFICATIONS ================= */}
-        {filteredAttributes.length > 0 && (
-          <div className="attributes">
-            <h3>Specifications</h3>
-            <div className="attr-grid">
-              {filteredAttributes.map(([key, value]) => (
-                <div key={key} className="attr-item">
-                  <span className="attr-key">{formatKey(key)}</span>
-                  <span className="attr-value">{Array.isArray(value) ? value.join(", ") : value}</span>
-                </div>
-              ))}
+          {/* ================= SELLER ================= */}
+          {product.seller?.id && (
+            <div className="seller" onClick={navigateToSeller} style={{ cursor: "pointer" }}>
+              <img
+                src={product.seller.avatar || "https://via.placeholder.com/50"}
+                alt={product.seller.name}
+                className="seller-avatar"
+              />
+              <span className="seller-name">{product.seller.name}</span>
             </div>
-          </div>
-        )}
+          )}
 
-        {/* ================= DELIVERY ================= */}
-        {product.delivery?.available && (
-          <div className="delivery">
-            <h3>Delivery</h3>
-            <p><strong>Type:</strong> {product.delivery.type}</p>
-            {product.delivery.type === "fixed" && (
-              <p><strong>Fee:</strong> ₦{Number(product.delivery.fee || 0).toLocaleString()}</p>
-            )}
-            {product.delivery.note && <p><strong>Note:</strong> {product.delivery.note}</p>}
-          </div>
-        )}
+          {/* ================= SPECIFICATIONS ================= */}
+          {filteredAttributes.length > 0 && (
+            <div className="attributes">
+              <h3>Specifications</h3>
+              <div className="attr-grid">
+                {filteredAttributes.map(([key, value]) => (
+                  <div key={key} className="attr-item">
+                    <span className="attr-key">{formatKey(key)}</span>
+                    <span className="attr-value">{Array.isArray(value) ? value.join(", ") : value}</span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
 
-        {/* ================= CONTACT ================= */}
-        {(product.contact?.phone || product.contact?.whatsapp) && (
-          <div className="contact">
-            <h3>Seller Contact</h3>
-            {product.contact.phone && <p>📞 {product.contact.phone}</p>}
-            {product.contact.whatsapp && <p>💬 {product.contact.whatsapp}</p>}
-          </div>
-        )}
+          {/* ================= DELIVERY ================= */}
+          {product.delivery?.available && (
+            <div className="delivery">
+              <h3>Delivery</h3>
+              <p><strong>Type:</strong> {product.delivery.type}</p>
+              {product.delivery.type === "fixed" && (
+                <p><strong>Fee:</strong> ₦{Number(product.delivery.fee || 0).toLocaleString()}</p>
+              )}
+              {product.delivery.note && <p><strong>Note:</strong> {product.delivery.note}</p>}
+            </div>
+          )}
 
-        <button className="contact-btn" onClick={openContact}>
-          Contact Seller
-        </button>
+          {/* ================= CONTACT ================= */}
+          {(product.contact?.phone || product.contact?.whatsapp) && (
+            <div className="contact">
+              <h3>Seller Contact</h3>
+              {product.contact.phone && <p>📞 {product.contact.phone}</p>}
+              {product.contact.whatsapp && <p>💬 {product.contact.whatsapp}</p>}
+            </div>
+          )}
+
+          <button className="contact-btn" onClick={openContact}>
+            Contact Seller
+          </button>
+        </div>
+
       </div>
 
       <BottomNav />
