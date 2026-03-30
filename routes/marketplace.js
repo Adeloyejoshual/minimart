@@ -1,476 +1,421 @@
-import { useEffect, useMemo, useState } from "react";
-import DropdownModal from "../components/DropdownModal.jsx";
-import AddProductHeader from "../components/AddProductHeader.jsx";
-import { locationsByState } from "../config/locationsByState.js";
-import { promotionPlans } from "../config/promotions.js";
-import "./AddProduct.css";
+import express from "express";
+import { Pool } from "pg";
+import multer from "multer";
+import { v2 as cloudinary } from "cloudinary";
+import dotenv from "dotenv";
+import axios from "axios";
+import crypto from "crypto";
 
-/* ================= INITIAL FORM ================= */
-const INITIAL_FORM = {
-  title: "",
-  description: "",
-  price: "",
-  category_id: "",
+/* ================= CONFIG ================= */
+import { brands } from "../src/config/brands.js";
+import { colors } from "../src/config/colors.js";
+import { categoryFields } from "../src/config/categoryFields.js";
+import { conditions, usedDetails } from "../src/config/conditions.js";
+import { featuresByCategory } from "../src/config/featuresByCategory.js";
+import { models } from "../src/config/models.js";
+import { ramOptions } from "../src/config/ramOptions.js";
+import { sims } from "../src/config/sims.js";
+import { storageOptions } from "../src/config/storageOptions.js";
+import { years } from "../src/config/years.js";
+import { engines } from "../src/config/engines.js";
+import { fuelTypes } from "../src/config/fuelTypes.js";
+import { locationsByState } from "../src/config/locationsByState.js";
+import { promotionPlans } from "../src/config/promotions.js";
 
-  attributes: {
-    brand: "",
-    model: "",
-    color: "",
-    condition: "",
-    used_detail: "",
-    ram: "",
-    storage: "",
-    sim: "",
-    year: "",
-    engine: "",
-    fuel_type: "",
-    features: [],
+dotenv.config();
+const router = express.Router();
+
+/* ================= DB ================= */
+const pool = new Pool({
+  connectionString: process.env.COCKROACH_URI,
+  ssl: { rejectUnauthorized: false },
+});
+
+/* ================= CLOUDINARY ================= */
+cloudinary.config({
+  cloud_name: process.env.CLOUDINARY_CLOUD_NAME,
+  api_key: process.env.CLOUDINARY_API_KEY,
+  api_secret: process.env.CLOUDINARY_API_SECRET,
+});
+
+/* ================= MULTER ================= */
+const upload = multer({
+  storage: multer.memoryStorage(),
+  limits: { fileSize: 5 * 1024 * 1024, files: 10 },
+  fileFilter: (_, file, cb) => {
+    if (!file.mimetype.startsWith("image/")) {
+      return cb(new Error("Only images allowed"));
+    }
+    cb(null, true);
   },
+});
 
-  delivery: {
-    available: true,
-    duration: { from: "", to: "" },
-    fee: "",
-    note: "",
-  },
-
-  contact: {
-    phone: "",
-    whatsapp: "",
-    email: "", // ✅ added
-    preferred: "chat",
-  },
+/* ================= HELPERS ================= */
+const safeJSON = (value, fallback = {}) => {
+  try {
+    return value ? JSON.parse(value) : fallback;
+  } catch {
+    return fallback;
+  }
 };
 
-export default function AddProduct() {
-  const [form, setForm] = useState(INITIAL_FORM);
-  const [categories, setCategories] = useState([]);
+const parseDurationDays = (duration) => {
+  const match = String(duration || "").match(/(\d+)/);
+  return match ? parseInt(match[1], 10) : 0;
+};
 
-  const [state, setState] = useState("");
-  const [city, setCity] = useState("");
+const getPlan = (id) => {
+  const plan = promotionPlans.find((p) => p.id == id);
+  if (!plan) return null;
 
-  const [images, setImages] = useState([]);
-  const [previews, setPreviews] = useState([]);
-
-  const [loading, setLoading] = useState(false);
-  const [selectedPlan, setSelectedPlan] = useState(null);
-
-  /* ================= FETCH ================= */
-  useEffect(() => {
-    fetch("https://minimart-ivrm.onrender.com/api/marketplace/categories")
-      .then((r) => r.json())
-      .then(setCategories)
-      .catch(console.error);
-  }, []);
-
-  /* ================= CATEGORY ================= */
-  const selectedCategory = useMemo(
-    () => categories.find((c) => String(c.id) === String(form.category_id)),
-    [categories, form.category_id]
-  );
-
-  const options = selectedCategory?.dynamicOptions || {};
-  const attributes = form.attributes;
-  const brand = attributes.brand;
-
-  /* ================= HELPERS ================= */
-  const normalizeOptions = (list = []) =>
-    Array.isArray(list)
-      ? list.map((x) =>
-          typeof x === "string" ? { id: x, name: x } : x
-        )
-      : [];
-
-  const onlyNumbers = (v = "") => v.replace(/\D/g, "");
-
-  const formatLabel = (t) =>
-    t.replace(/_/g, " ").replace(/\b\w/g, (l) => l.toUpperCase());
-
-  /* ================= OPTIONS ================= */
-  const optionsMap = useMemo(() => {
-    const modelsForBrand =
-      brand && options.models?.[brand] ? options.models[brand] : [];
-
-    return {
-      brand: normalizeOptions(options.brands),
-      model: normalizeOptions(modelsForBrand),
-      color: normalizeOptions(options.colors),
-      condition: normalizeOptions(options.conditions),
-      used_detail: normalizeOptions(options.usedDetails),
-      ram: normalizeOptions(options.ram),
-      storage: normalizeOptions(options.storage),
-      sim: normalizeOptions(options.sims),
-      year: normalizeOptions(options.years),
-      engine: normalizeOptions(options.engines),
-      fuel_type: normalizeOptions(options.fuel_types),
-    };
-  }, [options, brand]);
-
-  const fields = useMemo(() => {
-    const dynamic = options.fields || [];
-    return dynamic.includes("condition")
-      ? dynamic
-      : ["condition", ...dynamic];
-  }, [options]);
-
-  /* ================= STATE UPDATES ================= */
-  const update = (key, value) =>
-    setForm((p) => ({ ...p, [key]: value }));
-
-  const updateAttr = (key, value) =>
-    setForm((p) => ({
-      ...p,
-      attributes: {
-        ...p.attributes,
-        [key]: value,
-        ...(key === "brand" && { model: "" }),
-      },
-    }));
-
-  const updateContact = (key, value) =>
-    setForm((p) => ({
-      ...p,
-      contact: { ...p.contact, [key]: value },
-    }));
-
-  const updateDelivery = (key, value) =>
-    setForm((p) => ({
-      ...p,
-      delivery: { ...p.delivery, [key]: value },
-    }));
-
-  const updateDeliveryDuration = (key, value) =>
-    setForm((p) => ({
-      ...p,
-      delivery: {
-        ...p.delivery,
-        duration: { ...p.delivery.duration, [key]: value },
-      },
-    }));
-
-  /* ================= MULTI FEATURES ================= */
-  const toggleFeature = (feature) => {
-    setForm((p) => {
-      const list = p.attributes.features || [];
-      const exists = list.includes(feature);
-
-      return {
-        ...p,
-        attributes: {
-          ...p.attributes,
-          features: exists
-            ? list.filter((f) => f !== feature)
-            : [...list, feature],
-        },
-      };
-    });
+  return {
+    ...plan,
+    durationDays: parseDurationDays(plan.duration),
+    boostScore: plan.priority ?? 0,
   };
+};
 
-  /* ================= VALIDATION ================= */
-  const validate = () => {
-    if (form.title.length < 10) return "Title too short";
-    if (form.description.length < 20) return "Description too short";
-    if (!form.price) return "Price required";
-    if (!form.category_id) return "Select category";
-    if (!form.contact.phone) return "Phone required";
-    if (!form.contact.email) return "Email required";
+const normalizeDelivery = (d = {}) => ({
+  available: d?.available ?? false,
+  duration: {
+    from: Number(d?.duration?.from ?? 0),
+    to: Number(d?.duration?.to ?? 0),
+  },
+  fee: d?.fee ?? null,
+  note: d?.note || "",
+});
 
-    if (form.delivery.available) {
-      const from = Number(form.delivery.duration.from);
-      const to = Number(form.delivery.duration.to);
+const normalizeProduct = (p) => ({
+  ...p,
+  images: p.images || [],
+  attributes: p.attributes || {},
+  delivery: normalizeDelivery(p.delivery),
+  contact: p.contact || {},
+  location: {
+    state: p.location_state,
+    city: p.location_city,
+  },
+  promotion:
+    promotionPlans.find((x) => x.id == p.promotion_id) || null,
+});
 
-      if (Number.isNaN(from) || Number.isNaN(to))
-        return "Delivery range required";
+/* ================= IMAGE UPLOAD ================= */
+const uploadImages = async (files = []) => {
+  if (!files.length) return [];
 
-      if (to < from) return "Invalid delivery range";
-    }
-
-    return null;
-  };
-
-  /* ================= IMAGES ================= */
-  const handleImages = (files) => {
-    const list = Array.from(files).slice(0, 8);
-
-    previews.forEach(URL.revokeObjectURL);
-
-    setImages(list);
-    setPreviews(list.map((f) => URL.createObjectURL(f)));
-  };
-
-  const removeImage = (i) => {
-    setImages((p) => p.filter((_, x) => x !== i));
-    setPreviews((p) => {
-      URL.revokeObjectURL(p[i]);
-      return p.filter((_, x) => x !== i);
-    });
-  };
-
-  /* ================= SUBMIT ================= */
-  const handleSubmit = async () => {
-    if (loading) return;
-
-    const err = validate();
-    if (err) return alert(err);
-
-    const finalPlan =
-      selectedPlan || promotionPlans.find((p) => p.price === 0);
-
-    setLoading(true);
-
-    const fd = new FormData();
-
-    const payload = {
-      ...form,
-      price: form.price.replace(/\D/g, ""),
-      attributes: JSON.stringify(form.attributes),
-      delivery: JSON.stringify(form.delivery),
-      contact: JSON.stringify(form.contact),
-      location_state: state,
-      location_city: city,
-      promotion_plan: finalPlan.id,
-      status: finalPlan.price === 0 ? "active" : "pending",
-    };
-
-    Object.entries(payload).forEach(([k, v]) => fd.append(k, v));
-    images.forEach((img) => fd.append("images", img));
-
-    try {
-      const res = await fetch(
-        "https://minimart-ivrm.onrender.com/api/marketplace/products",
-        {
-          method: "POST",
-          body: fd,
-        }
-      );
-
-      if (!res.ok) throw new Error();
-
-      const result = await res.json();
-      const productId = result?.product?.id || result?.id;
-
-      if (finalPlan.price === 0) {
-        alert("✅ Product created");
-
-        setForm(INITIAL_FORM);
-        setImages([]);
-        setPreviews([]);
-        setState("");
-        setCity("");
-        setSelectedPlan(null);
-        setLoading(false);
-        return;
-      }
-
-      /* PAYMENT */
-      const payRes = await fetch(
-        "https://minimart-ivrm.onrender.com/api/payment/initialize",
-        {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            email: form.contact.email,
-            planId: finalPlan.id,
-            productId,
-          }),
-        }
-      );
-
-      const payData = await payRes.json();
-
-      if (!payData.success) throw new Error();
-
-      window.location.href = payData.authorization_url;
-    } catch (err) {
-      alert("Something went wrong");
-      setLoading(false);
-    }
-  };
-
-  const states = Object.keys(locationsByState || {});
-  const cities = state ? locationsByState[state] : [];
-
-  /* ================= UI ================= */
-  return (
-    <div className="add-product-container">
-      <AddProductHeader title="Add Product" />
-
-      <input
-        placeholder="Title"
-        value={form.title}
-        onChange={(e) => update("title", e.target.value)}
-      />
-
-      <textarea
-        placeholder="Description"
-        value={form.description}
-        onChange={(e) => update("description", e.target.value)}
-      />
-
-      <input
-        placeholder="Price"
-        value={form.price}
-        onChange={(e) => update("price", onlyNumbers(e.target.value))}
-      />
-
-      {/* EMAIL */}
-      <input
-        placeholder="Email"
-        value={form.contact.email}
-        onChange={(e) => updateContact("email", e.target.value)}
-      />
-
-      {/* CATEGORY */}
-      <DropdownModal
-        label="Category"
-        value={form.category_id}
-        onChange={(v) =>
-          setForm((prev) => ({
-            ...prev,
-            category_id: v,
-            attributes: INITIAL_FORM.attributes,
-          }))
-        }
-        options={categories.map((c) => ({
-          id: c.id,
-          name: c.name,
-        }))}
-      />
-
-      {/* DYNAMIC FIELDS */}
-      {fields.map((f) => {
-        if (!optionsMap[f]) return null;
-        if (f === "used_detail" && attributes.condition !== "used")
-          return null;
-
-        return (
-          <DropdownModal
-            key={f}
-            label={formatLabel(f)}
-            value={attributes[f] || ""}
-            onChange={(v) => updateAttr(f, v)}
-            options={optionsMap[f]}
-          />
-        );
-      })}
-
-      {/* FEATURES MULTI CHECKBOX */}
-      {Array.isArray(options.features) && options.features.length > 0 && (
-        <div className="form-section">
-          <h3>Features</h3>
-          <div className="checkbox-grid">
-            {options.features.map((f) => (
-              <label key={f}>
-                <input
-                  type="checkbox"
-                  checked={attributes.features.includes(f)}
-                  onChange={() => toggleFeature(f)}
-                />
-                {f}
-              </label>
-            ))}
-          </div>
-        </div>
-      )}
-
-      {/* DELIVERY */}
-      <div className="form-section">
-        <h3>Delivery</h3>
-
-        <label>
-          <input
-            type="checkbox"
-            checked={form.delivery.available}
-            onChange={(e) =>
-              updateDelivery("available", e.target.checked)
+  return Promise.all(
+    files.map(
+      (file, index) =>
+        new Promise((resolve, reject) => {
+          const stream = cloudinary.uploader.upload_stream(
+            {
+              folder: "products",
+              transformation: [
+                { width: 900, height: 900, crop: "limit" },
+                { quality: "auto" },
+                { fetch_format: "auto" },
+              ],
+            },
+            (err, result) => {
+              if (err) return reject(err);
+              resolve({ url: result.secure_url, position: index });
             }
-          />
-          Available
-        </label>
-
-        {form.delivery.available && (
-          <>
-            <input
-              placeholder="From days"
-              value={form.delivery.duration.from}
-              onChange={(e) =>
-                updateDeliveryDuration("from", e.target.value)
-              }
-            />
-
-            <input
-              placeholder="To days"
-              value={form.delivery.duration.to}
-              onChange={(e) =>
-                updateDeliveryDuration("to", e.target.value)
-              }
-            />
-
-            <input
-              placeholder="Fee"
-              value={form.delivery.fee}
-              onChange={(e) =>
-                updateDelivery("fee", onlyNumbers(e.target.value))
-              }
-            />
-          </>
-        )}
-      </div>
-
-      {/* LOCATION */}
-      <DropdownModal label="State" value={state} onChange={setState} options={states} />
-      {state && (
-        <DropdownModal label="City" value={city} onChange={setCity} options={cities} />
-      )}
-
-      {/* PHONE */}
-      <input
-        placeholder="Phone"
-        value={form.contact.phone}
-        onChange={(e) =>
-          updateContact("phone", onlyNumbers(e.target.value))
-        }
-      />
-
-      {/* IMAGES */}
-      <input type="file" multiple onChange={(e) => handleImages(e.target.files)} />
-
-      <div className="preview-grid">
-        {previews.map((src, i) => (
-          <div key={i}>
-            <img src={src} alt="" />
-            <button onClick={() => removeImage(i)}>X</button>
-          </div>
-        ))}
-      </div>
-
-      {/* PLANS */}
-      <div className="form-section">
-        <h3>Promotion Plans</h3>
-        {promotionPlans.map((plan) => (
-          <div
-            key={plan.id}
-            onClick={() => setSelectedPlan(plan)}
-            style={{
-              border:
-                selectedPlan?.id === plan.id
-                  ? "2px solid green"
-                  : "1px solid #ccc",
-              padding: "10px",
-              borderRadius: "8px",
-              cursor: "pointer",
-            }}
-          >
-            <strong>{plan.name}</strong>
-            <p>{plan.duration}</p>
-            <p>₦{plan.price}</p>
-          </div>
-        ))}
-      </div>
-
-      <button onClick={handleSubmit} disabled={loading}>
-        {loading ? "Uploading..." : "Create Product"}
-      </button>
-    </div>
+          );
+          stream.end(file.buffer);
+        })
+    )
   );
-}
+};
+
+/* ================= PAYSTACK VERIFY ================= */
+router.get("/payment/verify/:reference", async (req, res) => {
+  try {
+    const { reference } = req.params;
+
+    const response = await axios.get(
+      `https://api.paystack.co/transaction/verify/${reference}`,
+      {
+        headers: {
+          Authorization: `Bearer ${process.env.PAYSTACK_SECRET_KEY}`,
+        },
+      }
+    );
+
+    const data = response.data.data;
+
+    if (data.status !== "success") {
+      return res.status(400).json({ success: false });
+    }
+
+    res.json({
+      success: true,
+      amount: data.amount,
+      reference: data.reference,
+    });
+  } catch {
+    res.status(500).json({ message: "Verification failed" });
+  }
+});
+
+/* ================= INIT PAYMENT ================= */
+router.post("/payments/initiate", async (req, res) => {
+  try {
+    const { plan_id, product_id, email } = req.body;
+
+    const plan = getPlan(plan_id);
+    if (!plan) return res.status(400).json({ message: "Invalid plan" });
+
+    if (plan.price === 0) {
+      await pool.query(
+        `UPDATE products
+         SET is_promoted=false, promotion_priority=0
+         WHERE id=$1`,
+        [product_id]
+      );
+
+      return res.json({ success: true });
+    }
+
+    const reference = `PSK_${Date.now()}`;
+
+    await pool.query(
+      `INSERT INTO payments(reference,plan_id,product_id,status)
+       VALUES($1,$2,$3,'pending')`,
+      [reference, plan_id, product_id]
+    );
+
+    const paystack = await axios.post(
+      "https://api.paystack.co/transaction/initialize",
+      {
+        email,
+        amount: plan.price * 100,
+        reference,
+      },
+      {
+        headers: {
+          Authorization: `Bearer ${process.env.PAYSTACK_SECRET_KEY}`,
+        },
+      }
+    );
+
+    res.json(paystack.data);
+  } catch {
+    res.status(500).json({ message: "Payment init failed" });
+  }
+});
+
+/* ================= PAYSTACK WEBHOOK ================= */
+router.post("/webhooks/paystack", async (req, res) => {
+  try {
+    const hash = crypto
+      .createHmac("sha512", process.env.PAYSTACK_SECRET_KEY)
+      .update(JSON.stringify(req.body))
+      .digest("hex");
+
+    if (hash !== req.headers["x-paystack-signature"]) {
+      return res.sendStatus(401);
+    }
+
+    if (req.body.event !== "charge.success")
+      return res.sendStatus(200);
+
+    const data = req.body.data;
+
+    const payment = (
+      await pool.query(
+        "SELECT * FROM payments WHERE reference=$1",
+        [data.reference]
+      )
+    ).rows[0];
+
+    if (!payment) return res.sendStatus(200);
+
+    const plan = getPlan(payment.plan_id);
+    if (!plan) return res.sendStatus(200);
+
+    const start = new Date();
+    const end = new Date();
+    end.setDate(end.getDate() + plan.durationDays);
+
+    await pool.query(
+      `UPDATE products
+       SET is_promoted=true,
+           promotion_type=$1,
+           promotion_priority=$2,
+           promotion_start=$3,
+           promotion_end=$4
+       WHERE id=$5`,
+      [
+        plan.id,
+        plan.boostScore,
+        start,
+        end,
+        payment.product_id,
+      ]
+    );
+
+    await pool.query(
+      "UPDATE payments SET status='success' WHERE reference=$1",
+      [data.reference]
+    );
+
+    res.sendStatus(200);
+  } catch {
+    res.sendStatus(500);
+  }
+});
+
+/* ================= PRODUCTS ================= */
+router.get("/products", async (req, res) => {
+  try {
+    let { skip = 0, limit = 20 } = req.query;
+
+    skip = Math.max(+skip || 0, 0);
+    limit = Math.min(+limit || 20, 50);
+
+    const base = `
+      SELECT p.*,
+      COALESCE(json_agg(pi.image_url ORDER BY pi.position)
+      FILTER (WHERE pi.image_url IS NOT NULL), '[]') AS images
+      FROM products p
+      LEFT JOIN product_images pi ON p.id=pi.product_id
+      WHERE p.is_active=true
+      GROUP BY p.id
+    `;
+
+    const { rows } = await pool.query(
+      `${base}
+       ORDER BY p.is_promoted DESC,
+                COALESCE(p.promotion_priority,0) DESC,
+                p.created_at DESC
+       OFFSET $1 LIMIT $2`,
+      [skip, limit]
+    );
+
+    res.json(rows.map(normalizeProduct));
+  } catch {
+    res.status(500).json({ message: "Failed to fetch products" });
+  }
+});
+
+/* ================= CREATE PRODUCT ================= */
+router.post("/products", upload.array("images", 10), async (req, res) => {
+  const client = await pool.connect();
+
+  try {
+    await client.query("BEGIN");
+
+    const { title, price, category_id } = req.body;
+
+    if (!title || !price || !category_id) {
+      return res.status(400).json({ message: "Missing fields" });
+    }
+
+    const attributes = safeJSON(req.body.attributes);
+    const delivery = normalizeDelivery(safeJSON(req.body.delivery));
+
+    const { rows } = await client.query(
+      `
+      INSERT INTO products (
+        title,description,price,category_id,
+        attributes,delivery,contact,
+        location_state,location_city,
+        created_at,updated_at
+      )
+      VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,now(),now())
+      RETURNING *
+      `,
+      [
+        title,
+        req.body.description || "",
+        price,
+        category_id,
+        attributes,
+        delivery,
+        safeJSON(req.body.contact),
+        req.body.location_state,
+        req.body.location_city,
+      ]
+    );
+
+    const product = rows[0];
+    const imgs = await uploadImages(req.files);
+
+    for (const img of imgs) {
+      await client.query(
+        `INSERT INTO product_images(product_id,image_url,position)
+         VALUES($1,$2,$3)`,
+        [product.id, img.url, img.position]
+      );
+    }
+
+    await client.query("COMMIT");
+
+    res.json({ product: normalizeProduct(product) });
+  } catch (err) {
+    await client.query("ROLLBACK");
+    res.status(500).json({ message: "Create failed" });
+  } finally {
+    client.release();
+  }
+});
+
+/* ================= CATEGORIES (FIXED) ================= */
+router.get("/categories", async (req, res) => {
+  try {
+    const { rows } = await pool.query(`
+      SELECT id,name,parent_id,fields_key
+      FROM categories
+      ORDER BY name ASC
+    `);
+
+    const map = {};
+    const tree = [];
+
+    rows.forEach((cat) => {
+      const key = cat.fields_key || cat.name;
+
+      map[cat.id] = {
+        ...cat,
+        dynamicOptions: {
+          /* 🔥 CRITICAL FIX */
+          fields: categoryFields[cat.name] || [],
+
+          brands: brands[key] || [],
+          models: models[key] || {},
+          colors: colors[key] || [],
+
+          conditions,
+          usedDetails,
+
+          ram: ramOptions,
+          storage: storageOptions,
+          sims,
+
+          features: featuresByCategory[key] || [],
+
+          years,
+          engines,
+          fuel_types: fuelTypes,
+
+          location: Object.keys(locationsByState),
+        },
+        subcategories: [],
+      };
+
+      if (!cat.parent_id) tree.push(map[cat.id]);
+    });
+
+    rows.forEach((cat) => {
+      if (cat.parent_id && map[cat.parent_id]) {
+        map[cat.parent_id].subcategories.push(map[cat.id]);
+      }
+    });
+
+    res.json(tree);
+  } catch (err) {
+    res.status(500).json({ message: "Failed to fetch categories" });
+  }
+});
+
+export default router;
