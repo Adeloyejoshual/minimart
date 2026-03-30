@@ -42,9 +42,11 @@ export default function App() {
   const [loadingUser, setLoadingUser] = useState(true);
   const [loadingAdmin, setLoadingAdmin] = useState(true);
 
+  const [timeoutReached, setTimeoutReached] = useState(false);
+
   const API = "https://minimart-ivrm.onrender.com/api/users";
 
-  /* ================= LOAD USER ================= */
+  /* ================= USER ================= */
   useEffect(() => {
     const token = localStorage.getItem("token");
 
@@ -56,6 +58,7 @@ export default function App() {
     axios
       .get(`${API}/me`, {
         headers: { Authorization: `Bearer ${token}` },
+        timeout: 8000, // prevent infinite loading
       })
       .then((res) => setUser(res.data))
       .catch(() => {
@@ -65,7 +68,7 @@ export default function App() {
       .finally(() => setLoadingUser(false));
   }, []);
 
-  /* ================= LOAD ADMIN ================= */
+  /* ================= ADMIN ================= */
   useEffect(() => {
     const token = localStorage.getItem("admin_token");
     const storedAdmin = localStorage.getItem("admin");
@@ -85,28 +88,45 @@ export default function App() {
     }
   }, []);
 
+  /* ================= TIMEOUT MESSAGE ================= */
+  useEffect(() => {
+    const timer = setTimeout(() => setTimeoutReached(true), 5000);
+    return () => clearTimeout(timer);
+  }, []);
+
   /* ================= GLOBAL LOADING ================= */
   const isAppLoading = loadingUser || loadingAdmin;
 
   if (isAppLoading) {
     return (
       <div className="global-loader">
+        <div className="logo">Minimart</div>
         <div className="spinner"></div>
-        <p>Loading Minimart...</p>
+        <p>
+          {timeoutReached
+            ? "Waking up server... please wait"
+            : "Loading Minimart..."}
+        </p>
       </div>
     );
   }
 
   /* ================= ROUTE GUARDS ================= */
   const ProtectedRoute = ({ children }) => {
-    return user ? children : <Navigate to="/auth" replace />;
+    if (!user) {
+      return <Navigate to="/auth" replace />;
+    }
+    return children;
   };
 
   const AdminProtectedRoute = ({ children }) => {
-    return admin ? children : <Navigate to="/admin/login" replace />;
+    if (!admin) {
+      return <Navigate to="/admin/login" replace />;
+    }
+    return children;
   };
 
-  /* ================= AUTH HANDLER ================= */
+  /* ================= AUTH ================= */
   const handleAuthSuccess = (userData, token) => {
     localStorage.setItem("token", token);
     setUser(userData);
@@ -140,7 +160,7 @@ export default function App() {
         <Route path="/auth" element={<AuthPage setUser={handleAuthSuccess} />} />
         <Route path="/terms" element={<TermsAndConditions />} />
 
-        {/* ================= USER PROTECTED ================= */}
+        {/* ================= USER ================= */}
         <Route path="/profile" element={<ProtectedRoute><Profile user={user} /></ProtectedRoute>} />
         <Route path="/settings" element={<ProtectedRoute><SettingsPage user={user} /></ProtectedRoute>} />
         <Route path="/minimart/add" element={<ProtectedRoute><AddProduct user={user} /></ProtectedRoute>} />
