@@ -68,15 +68,15 @@ export default function App() {
   /* ================= LOAD ADMIN ================= */
   useEffect(() => {
     const token = localStorage.getItem("admin_token");
-    const stored = localStorage.getItem("admin");
+    const storedAdmin = localStorage.getItem("admin");
 
-    if (!token || !stored) {
+    if (!token || !storedAdmin) {
       setLoadingAdmin(false);
       return;
     }
 
     try {
-      setAdmin(JSON.parse(stored));
+      setAdmin(JSON.parse(storedAdmin));
     } catch {
       localStorage.removeItem("admin");
       localStorage.removeItem("admin_token");
@@ -85,18 +85,24 @@ export default function App() {
     }
   }, []);
 
-  /* ================= PROTECTED ROUTES ================= */
-  const ProtectedRoute = ({ children }) => {
-    if (loadingUser)
-      return <div className="loading">Loading...</div>;
+  /* ================= GLOBAL LOADING ================= */
+  const isAppLoading = loadingUser || loadingAdmin;
 
+  if (isAppLoading) {
+    return (
+      <div className="global-loader">
+        <div className="spinner"></div>
+        <p>Loading Minimart...</p>
+      </div>
+    );
+  }
+
+  /* ================= ROUTE GUARDS ================= */
+  const ProtectedRoute = ({ children }) => {
     return user ? children : <Navigate to="/auth" replace />;
   };
 
   const AdminProtectedRoute = ({ children }) => {
-    if (loadingAdmin)
-      return <div className="loading">Loading admin...</div>;
-
     return admin ? children : <Navigate to="/admin/login" replace />;
   };
 
@@ -107,10 +113,10 @@ export default function App() {
     toast.success(`Welcome back, ${userData.name}`);
   };
 
-  /* ================= ROUTES ================= */
+  /* ================= APP ================= */
   return (
     <Router>
-      {/* Toast system */}
+      {/* Toast */}
       <Toaster
         position="top-right"
         toastOptions={{
@@ -126,7 +132,6 @@ export default function App() {
       />
 
       <Routes>
-
         {/* ================= PUBLIC ================= */}
         <Route path="/" element={<Homepage user={user} />} />
         <Route path="/search" element={<SearchPage user={user} />} />
@@ -156,9 +161,7 @@ export default function App() {
         <Route
           path="/admin"
           element={
-            loadingAdmin ? (
-              <div className="loading">Loading...</div>
-            ) : admin ? (
+            admin ? (
               <Navigate to="/admin/dashboard" replace />
             ) : (
               <Navigate to="/admin/login" replace />
@@ -169,7 +172,11 @@ export default function App() {
         <Route path="/admin/login" element={<AdminLogin setAdmin={setAdmin} />} />
         <Route
           path="/admin/dashboard"
-          element={<AdminProtectedRoute><AdminDashboard /></AdminProtectedRoute>}
+          element={
+            <AdminProtectedRoute>
+              <AdminDashboard />
+            </AdminProtectedRoute>
+          }
         />
 
         {/* ================= FALLBACK ================= */}
