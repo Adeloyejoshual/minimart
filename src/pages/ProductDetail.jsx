@@ -1,11 +1,12 @@
 import { useEffect, useState } from "react";
-import { useParams } from "react-router-dom";
+import { useParams, useNavigate } from "react-router-dom"; // ✅ added useNavigate
 import TopNav from "../components/TopNav";
 import BottomNav from "../components/BottomNav";
 import "../styles/ProductDetail.css";
 
 export default function ProductDetail() {
   const { id } = useParams();
+  const navigate = useNavigate(); // ✅ initialize navigate
 
   const [product, setProduct] = useState(null);
   const [activeImage, setActiveImage] = useState("");
@@ -50,6 +51,12 @@ export default function ProductDetail() {
   }, [id]);
 
   // ================= HELPERS =================
+  const navigateToSeller = () => {
+    if (product?.seller?.id) {
+      navigate(`/seller/${product.seller.id}`);
+    }
+  };
+
   const getLocation = () =>
     `${product?.location?.state || ""} ${product?.location?.city || ""}`.trim() || "Nigeria";
 
@@ -140,6 +147,18 @@ export default function ProductDetail() {
           )}
           <p className="desc">{product.description || "No description available"}</p>
 
+          {/* ================= SELLER ================= */}
+          {product.seller?.id && (
+            <div className="seller" onClick={navigateToSeller} style={{ cursor: "pointer" }}>
+              <img
+                src={product.seller.avatar || "https://via.placeholder.com/50"}
+                alt={product.seller.name}
+                className="seller-avatar"
+              />
+              <span className="seller-name">{product.seller.name}</span>
+            </div>
+          )}
+
           {/* ================= SPECIFICATIONS ================= */}
           {filteredAttributes.length > 0 && (
             <div className="attributes">
@@ -180,38 +199,6 @@ export default function ProductDetail() {
             Contact Seller
           </button>
         </div>
-
-        {/* ================= RELATED PRODUCTS ================= */}
-        {relatedProducts.length > 0 && (
-          <div className="related-products">
-            <h3>Related Products</h3>
-            <div className="product-grid">
-              {relatedProducts.map((p) => (
-                <div key={p.id} className="related-item">
-                  <img src={p.images[0] || "https://via.placeholder.com/150"} alt={p.title} />
-                  <p>{p.title}</p>
-                  <p>₦{Number(p.price || 0).toLocaleString()}</p>
-                </div>
-              ))}
-            </div>
-          </div>
-        )}
-
-        {/* ================= SELLER PRODUCTS ================= */}
-        {sellerProducts.length > 0 && (
-          <div className="seller-products">
-            <h3>More from this Seller</h3>
-            <div className="product-grid">
-              {sellerProducts.map((p) => (
-                <div key={p.id} className="related-item">
-                  <img src={p.images[0] || "https://via.placeholder.com/150"} alt={p.title} />
-                  <p>{p.title}</p>
-                  <p>₦{Number(p.price || 0).toLocaleString()}</p>
-                </div>
-              ))}
-            </div>
-          </div>
-        )}
 
       </div>
 
