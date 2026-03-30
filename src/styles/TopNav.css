@@ -2,20 +2,66 @@
 .top-nav {
   position: sticky;
   top: 0;
-  background: linear-gradient(90deg, #1e3a8a, #3b82f6, #60a5fa); /* live flowing blue gradient */
-  background-size: 300% 300%; /* for animated flow effect */
-  animation: gradientFlow 8s ease infinite; /* smooth moving gradient */
-  box-shadow: 0 4px 12px rgba(0,0,0,0.1);
+  background: linear-gradient(90deg, #1e3a8a, #3b82f6, #60a5fa);
+  background-size: 300% 300%;
+  animation: gradientFlow 8s ease infinite;
+  box-shadow: 0 8px 20px rgba(0,0,0,0.15);
   padding: 0.5rem 1rem;
   z-index: 999;
-  transition: background 0.3s ease;
+  transition: background 0.3s ease, box-shadow 0.3s ease;
+  overflow: hidden;
 }
 
-/* Animate the gradient like water flowing */
+/* Animated gradient */
 @keyframes gradientFlow {
   0% { background-position: 0% 50%; }
   50% { background-position: 100% 50%; }
   100% { background-position: 0% 50%; }
+}
+
+/* Dropping light-blue overlay (like water effect) */
+.top-nav::after {
+  content: "";
+  position: absolute;
+  left: 0;
+  top: 0;
+  width: 100%;
+  height: 100%;
+  background: linear-gradient(to bottom, rgba(147,197,253,0.2), transparent);
+  pointer-events: none;
+  animation: dropBlue 3s ease-in-out infinite;
+}
+
+@keyframes dropBlue {
+  0% { transform: translateY(-20px); opacity: 0.4; }
+  50% { transform: translateY(0px); opacity: 0.2; }
+  100% { transform: translateY(-20px); opacity: 0.4; }
+}
+
+/* ===================== NAV CONTAINER ===================== */
+.nav-container {
+  max-width: 1280px;
+  margin: 0 auto;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  position: relative;
+  z-index: 1; /* above overlay */
+}
+
+/* ===================== HAMBURGER ===================== */
+.hamburger-btn {
+  font-size: 1.6rem;
+  color: #fff;
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  transition: color 0.3s ease;
+}
+
+.hamburger-btn:hover {
+  color: #e0f2fe;
 }
 
 /* ===================== BRAND ===================== */
@@ -26,23 +72,13 @@
   cursor: pointer;
 }
 
-.nav-brand .logo-icon {
-  font-size: 1.75rem;
-  color: #fff;
-  transition: color 0.3s ease;
-}
-
-.nav-brand .logo-icon:hover {
-  color: #e0f2fe; /* subtle light blue on hover */
-}
-
+.nav-brand .logo-icon,
 .nav-brand .brand-name {
-  font-weight: 700;
-  font-size: 1.25rem;
   color: #fff;
   transition: color 0.3s ease;
 }
 
+.nav-brand:hover .logo-icon,
 .nav-brand:hover .brand-name {
   color: #e0f2fe;
 }
@@ -51,11 +87,11 @@
 .search-wrapper {
   flex: 1;
   position: relative;
+  max-width: 500px;
 }
 
 .search-input {
   width: 100%;
-  max-width: 400px;
   padding: 0.6rem 1rem;
   border-radius: 1rem;
   border: 1px solid #93c5fd;
@@ -73,11 +109,11 @@
 .search-input:focus {
   border-color: #60a5fa;
   box-shadow: 0 0 0 2px rgba(147,197,253,0.3);
-  background: #f0f9ff; /* soft watery blue */
+  background: #f0f9ff;
 }
 
-/* ===================== RESPONSIVE NAV ===================== */
-@media (max-width: 768px) {
+/* ===================== RESPONSIVE ===================== */
+@media (max-width: 1024px) {
   .nav-container {
     flex-wrap: wrap;
     justify-content: flex-start;
@@ -97,6 +133,12 @@
 
   .search-input {
     width: 100%;
+  }
+}
+
+@media (max-width: 768px) {
+  .hamburger-btn {
+    font-size: 1.8rem;
   }
 }
 
