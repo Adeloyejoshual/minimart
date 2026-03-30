@@ -2,7 +2,7 @@
 .top-nav {
   position: sticky;
   top: 0;
-  background: white;
+  background: #1e3a8a; /* solid professional blue header */
   box-shadow: 0 4px 12px rgba(0,0,0,0.1);
   padding: 0.5rem 1rem;
   z-index: 999;
@@ -28,13 +28,23 @@
 
 .nav-brand .logo-icon {
   font-size: 1.75rem;
-  color: #4f46e5;
+  color: #fff; /* white logo on blue */
+  transition: color 0.3s ease;
+}
+
+.nav-brand .logo-icon:hover {
+  color: #93c5fd; /* light blue hover */
 }
 
 .nav-brand .brand-name {
   font-weight: 700;
   font-size: 1.25rem;
-  color: #4f46e5;
+  color: #fff; /* white brand name */
+  transition: color 0.3s ease;
+}
+
+.nav-brand:hover .brand-name {
+  color: #93c5fd; /* light blue on hover */
 }
 
 /* ===================== SEARCH ===================== */
@@ -48,18 +58,25 @@
   max-width: 400px;
   padding: 0.6rem 1rem;
   border-radius: 1rem;
-  border: 1px solid #ddd;
+  border: 1px solid #93c5fd; /* light blue border */
   font-size: 1rem;
   outline: none;
   transition: all 0.3s ease;
+  background: #fff;
+  color: #1e3a8a;
+}
+
+.search-input::placeholder {
+  color: #1e3a8a; /* placeholder dark blue */
 }
 
 .search-input:focus {
-  border-color: #4f46e5;
-  box-shadow: 0 0 0 2px rgba(79,70,229,0.2);
+  border-color: #60a5fa; /* slightly brighter blue */
+  box-shadow: 0 0 0 2px rgba(147,197,253,0.3); /* light blue glow */
+  background: #f0f4ff; /* very light blue */
 }
 
-/* RESPONSIVE NAV */
+/* ===================== RESPONSIVE NAV ===================== */
 @media (max-width: 768px) {
   .nav-container {
     flex-wrap: wrap;
