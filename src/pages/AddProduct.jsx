@@ -142,7 +142,7 @@ export default function AddProduct() {
       },
     }));
 
-  const onlyNumbers = (v = "") => v.replace(/[^d]/g, ""); // ✅ correct
+  const onlyNumbers = (v = "") => v.replace(/\D/g, "")
 
   const formatLabel = (t) =>
     t.replace(/_/g, " ").replace(/\bw/g, (l) => l.toUpperCase()); // ✅ correct
