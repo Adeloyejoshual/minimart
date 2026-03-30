@@ -52,62 +52,78 @@ const normalizeProduct = (p) => ({
     id: p.category_id || null,
     name: p.category_name || "",
     fieldsKey: p.fields_key || null,
-    dynamicFields: Array.isArray(p.dynamic_fields)
-      ? p.dynamic_fields
-      : safeJSON(p.dynamic_fields, []),
+    dynamicFields: safeJSON(p.dynamic_fields, []),
   },
 });
 
 // ================= GET PRODUCT DETAIL =================
 router.get("/:id", async (req, res) => {
   const { id } = req.params;
-  if (!id) return res.status(400).json({ message: "Invalid product ID" });
+
+  if (!id) {
+    return res.status(400).json({ message: "Invalid product ID" });
+  }
 
   try {
-    // Fetch main product
+    // ================= PRODUCT =================
     const productRes = await pool.query(
       `
       SELECT 
-        p.*, 
-        c.name AS category_name, 
-        c.fields AS dynamic_fields, 
+        p.*,
+        c.name AS category_name,
+        c.fields AS dynamic_fields,
         c.fields_key,
-        u.id AS seller_id, u.name AS seller_name, u.avatar AS seller_avatar,
+
+        u.id AS seller_id,
+        u.name AS seller_name,
+        u.avatar AS seller_avatar,
+
         COALESCE(
-          json_agg(pi.image_url ORDER BY pi.position) 
-          FILTER (WHERE pi.image_url IS NOT NULL), '[]'
+          json_agg(pi.image_url ORDER BY pi.position)
+          FILTER (WHERE pi.image_url IS NOT NULL),
+          '[]'
         ) AS images
+
       FROM products p
       LEFT JOIN categories c ON p.category_id = c.id
       LEFT JOIN users u ON p.user_id = u.id
       LEFT JOIN product_images pi ON p.id = pi.product_id
+
       WHERE p.id = $1 AND p.is_active = true
       GROUP BY p.id, c.name, c.fields, c.fields_key, u.id, u.name, u.avatar
       `,
       [id]
     );
 
-    if (!productRes.rows.length)
+    if (!productRes.rows.length) {
       return res.status(404).json({ message: "Product not found" });
+    }
 
     const product = normalizeProduct(productRes.rows[0]);
 
-    // Increment product views asynchronously
-    pool
-      .query(`UPDATE products SET views = COALESCE(views,0)+1 WHERE id=$1`, [id])
-      .catch(() => {});
+    // ================= VIEWS (NON-BLOCKING BUT LOGGED) =================
+    pool.query(
+      `UPDATE products SET views = COALESCE(views,0) + 1 WHERE id = $1`,
+      [id]
+    ).catch((err) => {
+      console.error("VIEW UPDATE FAILED:", err.message);
+    });
 
-    // Fetch related products (same category, exclude current)
+    // ================= RELATED PRODUCTS =================
     const relatedPromise = pool.query(
       `
-      SELECT p.*, 
+      SELECT 
+        p.*,
         COALESCE(
-          json_agg(pi.image_url ORDER BY pi.position) 
-          FILTER (WHERE pi.image_url IS NOT NULL), '[]'
+          json_agg(pi.image_url ORDER BY pi.position)
+          FILTER (WHERE pi.image_url IS NOT NULL),
+          '[]'
         ) AS images
       FROM products p
       LEFT JOIN product_images pi ON p.id = pi.product_id
-      WHERE p.category_id = $1 AND p.id != $2 AND p.is_active = true
+      WHERE p.category_id = $1 
+        AND p.id != $2 
+        AND p.is_active = true
       GROUP BY p.id
       ORDER BY p.views DESC NULLS LAST
       LIMIT 8
@@ -115,25 +131,35 @@ router.get("/:id", async (req, res) => {
       [product.category.id, id]
     );
 
-    // Fetch other products from same seller
-    const sellerPromise = pool.query(
-      `
-      SELECT p.*, 
-        COALESCE(
-          json_agg(pi.image_url ORDER BY pi.position) 
-          FILTER (WHERE pi.image_url IS NOT NULL), '[]'
-        ) AS images
-      FROM products p
-      LEFT JOIN product_images pi ON p.id = pi.product_id
-      WHERE p.user_id = $1 AND p.id != $2 AND p.is_active = true
-      GROUP BY p.id
-      ORDER BY p.created_at DESC
-      LIMIT 6
-      `,
-      [product.seller.id, id]
-    );
+    // ================= SELLER PRODUCTS =================
+    const sellerPromise =
+      product.seller.id
+        ? pool.query(
+            `
+            SELECT 
+              p.*,
+              COALESCE(
+                json_agg(pi.image_url ORDER BY pi.position)
+                FILTER (WHERE pi.image_url IS NOT NULL),
+                '[]'
+              ) AS images
+            FROM products p
+            LEFT JOIN product_images pi ON p.id = pi.product_id
+            WHERE p.user_id = $1 
+              AND p.id != $2 
+              AND p.is_active = true
+            GROUP BY p.id
+            ORDER BY p.created_at DESC
+            LIMIT 6
+            `,
+            [product.seller.id, id]
+          )
+        : Promise.resolve({ rows: [] });
 
-    const [relatedRes, sellerRes] = await Promise.all([relatedPromise, sellerPromise]);
+    const [relatedRes, sellerRes] = await Promise.all([
+      relatedPromise,
+      sellerPromise,
+    ]);
 
     res.json({
       product,
