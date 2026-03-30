@@ -56,29 +56,10 @@ body {
   column-gap: 14px;
 }
 
-@media (max-width: 1200px) {
-  .products-grid {
-    column-count: 5;
-  }
-}
-
-@media (max-width: 1024px) {
-  .products-grid {
-    column-count: 4;
-  }
-}
-
-@media (max-width: 768px) {
-  .products-grid {
-    column-count: 3;
-  }
-}
-
-@media (max-width: 600px) {
-  .products-grid {
-    column-count: 2;
-  }
-}
+@media (max-width: 1200px) { .products-grid { column-count: 5; } }
+@media (max-width: 1024px) { .products-grid { column-count: 4; } }
+@media (max-width: 768px)  { .products-grid { column-count: 3; } }
+@media (max-width: 600px)  { .products-grid { column-count: 2; } }
 
 /* Masonry item */
 .card-link {
@@ -176,7 +157,7 @@ body {
   display: flex;
   gap: 12px;
   overflow-x: auto;
-  padding: 4px 4px 10px;
+  padding: 4px 4px 12px;
 
   scroll-snap-type: x mandatory;
   scroll-behavior: smooth;
@@ -204,31 +185,41 @@ body {
 }
 
 /* =======================================================
-   ✨ TRENDING (GRADIENT FADE EDGES)
+   ✨ TRENDING / DEALS / DISCOVER GRADIENT FADE
 ======================================================= */
 
-.trending-scroll {
+.trending-scroll,
+.deals-scroll,
+.discover-scroll {
   position: relative;
+  padding: 0 8px;
 }
 
-/* fade edges */
 .trending-scroll::before,
-.trending-scroll::after {
+.trending-scroll::after,
+.deals-scroll::before,
+.deals-scroll::after,
+.discover-scroll::before,
+.discover-scroll::after {
   content: "";
   position: absolute;
   top: 0;
-  width: 30px;
+  width: 40px;
   height: 100%;
   z-index: 2;
   pointer-events: none;
 }
 
-.trending-scroll::before {
+.trending-scroll::before,
+.deals-scroll::before,
+.discover-scroll::before {
   left: 0;
   background: linear-gradient(to right, #f5f9ff, transparent);
 }
 
-.trending-scroll::after {
+.trending-scroll::after,
+.deals-scroll::after,
+.discover-scroll::after {
   right: 0;
   background: linear-gradient(to left, #f5f9ff, transparent);
 }
@@ -276,4 +267,29 @@ body {
 
 html {
   scroll-behavior: smooth;
+}
+
+/* =======================================================
+   📱 RESPONSIVE HORIZONTAL SCROLL
+======================================================= */
+
+@media (min-width: 480px) {
+  .horizontal-scroll .card-link {
+    flex: 0 0 45%;
+    max-width: 180px;
+  }
+}
+
+@media (min-width: 768px) {
+  .horizontal-scroll .card-link {
+    flex: 0 0 20%;
+    max-width: 180px;
+  }
+}
+
+@media (min-width: 1024px) {
+  .horizontal-scroll .card-link {
+    flex: 0 0 10%;
+    max-width: 160px;
+  }
 }
