@@ -5,10 +5,13 @@ import { locationsByState } from "../config/locationsByState.js";
 import { promotionPlans } from "../config/promotions.js";
 import "./AddProduct.css";
 
-/* ================= STORAGE KEY ================= */
+/* ================= ENV ================= */
+const API = import.meta.env.VITE_API_URL;
+
+/* ================= STORAGE ================= */
 const STORAGE_KEY = "add_product_draft";
 
-/* ================= INITIAL FORM ================= */
+/* ================= INITIAL ================= */
 const INITIAL_FORM = {
   title: "",
   description: "",
@@ -60,44 +63,38 @@ export default function AddProduct() {
 
   /* ================= LOAD DRAFT ================= */
   useEffect(() => {
-    const saved = localStorage.getItem(STORAGE_KEY);
-    if (saved) {
-      try {
-        const parsed = JSON.parse(saved);
-        setForm(parsed.form || INITIAL_FORM);
-        setState(parsed.state || "");
-        setCity(parsed.city || "");
-        setSelectedPlan(parsed.selectedPlan || null);
-      } catch (e) {
-        console.error("Draft parse failed", e);
-      }
+    try {
+      const saved = JSON.parse(localStorage.getItem(STORAGE_KEY));
+      if (!saved) return;
+
+      setForm(saved.form || INITIAL_FORM);
+      setState(saved.state || "");
+      setCity(saved.city || "");
+      setSelectedPlan(saved.selectedPlan || null);
+    } catch (err) {
+      console.error("Draft load failed", err);
     }
   }, []);
 
   /* ================= SAVE DRAFT ================= */
   useEffect(() => {
-    const draft = {
-      form,
-      state,
-      city,
-      selectedPlan,
-    };
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(draft));
+    localStorage.setItem(
+      STORAGE_KEY,
+      JSON.stringify({ form, state, city, selectedPlan })
+    );
   }, [form, state, city, selectedPlan]);
 
   /* ================= FETCH ================= */
   useEffect(() => {
-    fetch("https://minimart-ivrm.onrender.com/api/marketplace/categories")
+    fetch(`${API}/api/marketplace/categories`)
       .then((r) => r.json())
       .then(setCategories)
       .catch(console.error);
   }, []);
 
-  /* ================= CLEANUP IMAGES ================= */
+  /* ================= CLEANUP ================= */
   useEffect(() => {
-    return () => {
-      previews.forEach((url) => URL.revokeObjectURL(url));
-    };
+    return () => previews.forEach(URL.revokeObjectURL);
   }, [previews]);
 
   /* ================= CATEGORY ================= */
@@ -107,84 +104,76 @@ export default function AddProduct() {
   );
 
   const options = selectedCategory?.dynamicOptions || {};
-  const attributes = form.attributes || {};
-  const brand = attributes.brand || "";
+  const attributes = form.attributes;
 
-  const normalizeOptions = (list = []) =>
-    Array.isArray(list)
-      ? list.map((x) =>
-          typeof x === "string" ? { id: x, name: x } : x
-        )
-      : [];
+  const normalize = (list = []) =>
+    list.map((x) => (typeof x === "string" ? { id: x, name: x } : x));
 
   const fields = useMemo(() => {
-    const dynamic = selectedCategory?.dynamicOptions?.fields || [];
-    return dynamic.includes("condition")
-      ? dynamic
-      : ["condition", ...dynamic];
+    const f = selectedCategory?.dynamicOptions?.fields || [];
+    return f.includes("condition") ? f : ["condition", ...f];
   }, [selectedCategory]);
 
   const optionsMap = useMemo(() => {
-    const modelsForBrand =
-      brand && options.models?.[brand] ? options.models[brand] : [];
-
+    const brand = attributes.brand;
     return {
-      brand: normalizeOptions(options.brands),
-      model: normalizeOptions(modelsForBrand),
-      color: normalizeOptions(options.colors),
-      condition: normalizeOptions(options.conditions),
-      used_detail: normalizeOptions(options.usedDetails),
-      ram: normalizeOptions(options.ram),
-      storage: normalizeOptions(options.storage),
-      sim: normalizeOptions(options.sims),
-      year: normalizeOptions(options.years),
-      engine: normalizeOptions(options.engines),
-      fuel_type: normalizeOptions(options.fuel_types),
-      features: normalizeOptions(options.features),
+      brand: normalize(options.brands),
+      model: normalize(options.models?.[brand] || []),
+      color: normalize(options.colors),
+      condition: normalize(options.conditions),
+      used_detail: normalize(options.usedDetails),
+      ram: normalize(options.ram),
+      storage: normalize(options.storage),
+      sim: normalize(options.sims),
+      year: normalize(options.years),
+      engine: normalize(options.engines),
+      fuel_type: normalize(options.fuel_types),
+      features: normalize(options.features),
     };
-  }, [options, brand]);
+  }, [options, attributes.brand]);
 
   /* ================= HELPERS ================= */
-  const update = (key, value) =>
-    setForm((p) => ({ ...p, [key]: value }));
+  const update = (k, v) =>
+    setForm((p) => ({ ...p, [k]: v }));
 
-  const updateAttr = (key, value) =>
+  const updateAttr = (k, v) =>
     setForm((p) => {
-      const next = { ...p.attributes, [key]: value };
-      if (key === "brand") next.model = "";
+      const next = { ...p.attributes, [k]: v };
+      if (k === "brand") next.model = "";
       return { ...p, attributes: next };
     });
 
-  const updateDelivery = (key, value) =>
+  const updateContact = (k, v) =>
     setForm((p) => ({
       ...p,
-      delivery: { ...p.delivery, [key]: value },
+      contact: { ...p.contact, [k]: v },
     }));
 
-  const updateDeliveryDuration = (key, value) =>
+  const updateDelivery = (k, v) =>
+    setForm((p) => ({
+      ...p,
+      delivery: { ...p.delivery, [k]: v },
+    }));
+
+  const updateDeliveryDuration = (k, v) =>
     setForm((p) => ({
       ...p,
       delivery: {
         ...p.delivery,
-        duration: { ...p.delivery.duration, [key]: value },
+        duration: { ...p.delivery.duration, [k]: v },
       },
     }));
 
   const onlyNumbers = (v = "") => v.replace(/\D/g, "");
 
-  const formatLabel = (t) =>
-    t.replace(/_/g, " ").replace(/\b\w/g, (l) => l.toUpperCase());
-
   const toggleFeature = (f) => {
     setForm((p) => {
       const list = p.attributes.features || [];
-      const exists = list.includes(f);
-
       return {
         ...p,
         attributes: {
           ...p.attributes,
-          features: exists
+          features: list.includes(f)
             ? list.filter((x) => x !== f)
             : [...list, f],
         },
@@ -192,49 +181,16 @@ export default function AddProduct() {
     });
   };
 
-  const handleStateChange = (s) => {
-    setState(s);
-    setCity("");
-  };
-
-  /* ================= VALIDATION ================= */
-  const validate = () => {
-    if (form.title.trim().length < 10) return "Title too short";
-    if (form.description.trim().length < 20) return "Description too short";
-    if (!form.price) return "Price required";
-    if (!form.category_id) return "Select category";
-    if (!/^\d{10,15}$/.test(form.contact.phone))
-      return "Invalid phone number";
-
-    for (const field of fields) {
-      if (!attributes[field]) {
-        return `${formatLabel(field)} is required`;
-      }
-    }
-
-    if (images.length === 0) return "Add at least one image";
-
-    if (form.delivery.available) {
-      const from = Number(form.delivery.duration.from);
-      const to = Number(form.delivery.duration.to);
-
-      if (Number.isNaN(from) || Number.isNaN(to))
-        return "Delivery range required";
-
-      if (to < from) return "Invalid delivery range";
-    }
-
-    return null;
-  };
-
   /* ================= IMAGES ================= */
   const handleImages = (files) => {
-    const list = Array.from(files).slice(0, 8);
+    const selected = Array.from(files);
+    const merged = [...images, ...selected].slice(0, 8);
 
-    previews.forEach((url) => URL.revokeObjectURL(url));
-
-    setImages(list);
-    setPreviews(list.map((f) => URL.createObjectURL(f)));
+    setImages(merged);
+    setPreviews((prev) => {
+      prev.forEach(URL.revokeObjectURL);
+      return merged.map((f) => URL.createObjectURL(f));
+    });
   };
 
   const removeImage = (i) => {
@@ -243,6 +199,33 @@ export default function AddProduct() {
       URL.revokeObjectURL(p[i]);
       return p.filter((_, x) => x !== i);
     });
+  };
+
+  /* ================= VALIDATION ================= */
+  const validate = () => {
+    if (form.title.trim().length < 10) return "Title too short";
+    if (form.description.trim().length < 20) return "Description too short";
+    if (!form.price) return "Price required";
+    if (!form.category_id) return "Select category";
+
+    if (!/^\d{10,15}$/.test(form.contact.phone))
+      return "Invalid phone number";
+
+    for (const f of fields) {
+      if (!attributes[f]) return `${f} required`;
+    }
+
+    if (!images.length) return "Add at least one image";
+
+    if (form.delivery.available) {
+      const from = Number(form.delivery.duration.from);
+      const to = Number(form.delivery.duration.to);
+
+      if (!from || !to) return "Delivery duration required";
+      if (to < from) return "Invalid delivery range";
+    }
+
+    return null;
   };
 
   /* ================= SUBMIT ================= */
@@ -257,92 +240,78 @@ export default function AddProduct() {
 
     setLoading(true);
 
-    const fd = new FormData();
-
-    const payload = {
-      ...form,
-      price: form.price.replace(/\D/g, ""),
-      attributes: JSON.stringify(form.attributes),
-      delivery: JSON.stringify(form.delivery),
-      contact: JSON.stringify(form.contact),
-      location_state: state,
-      location_city: city,
-      promotion_plan: finalPlan.id,
-      status: finalPlan.price === 0 ? "active" : "pending",
-    };
-
-    Object.entries(payload).forEach(([k, v]) => fd.append(k, v));
-    images.forEach((img) => fd.append("images", img));
-
     try {
-      const res = await fetch(
-        "https://minimart-ivrm.onrender.com/api/marketplace/products",
-        {
-          method: "POST",
-          body: fd,
-        }
-      );
+      const fd = new FormData();
 
-      if (!res.ok) {
-        setLoading(false);
-        return alert("Product creation failed");
-      }
+      const payload = {
+        ...form,
+        price: onlyNumbers(form.price),
+        attributes: JSON.stringify(form.attributes),
+        delivery: JSON.stringify(form.delivery),
+        contact: JSON.stringify(form.contact),
+        location_state: state,
+        location_city: city,
+        promotion_plan: finalPlan.id,
+        status: finalPlan.price === 0 ? "active" : "pending",
+      };
 
-      const result = await res.json();
-      const productId = result?.product?.id || result?.id;
+      Object.entries(payload).forEach(([k, v]) => fd.append(k, v));
+      images.forEach((img) => fd.append("images", img));
 
-      if (!productId) {
-        setLoading(false);
-        return alert("No product ID returned");
-      }
+      const res = await fetch(`${API}/api/marketplace/products`, {
+        method: "POST",
+        body: fd,
+      });
 
+      if (!res.ok) throw new Error("Create failed");
+
+      const data = await res.json();
+      const productId = data?.product?.id || data?.id;
+
+      if (!productId) throw new Error("No product ID");
+
+      /* ===== FREE PLAN ===== */
       if (finalPlan.price === 0) {
-        alert("✅ Product created successfully");
+        alert("✅ Product created");
 
         localStorage.removeItem(STORAGE_KEY);
-
         setForm(INITIAL_FORM);
         setImages([]);
         setPreviews([]);
         setState("");
         setCity("");
         setSelectedPlan(null);
-
-        setLoading(false);
         return;
       }
 
-      const payRes = await fetch(
-        "https://minimart-ivrm.onrender.com/api/payment/initialize",
-        {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            email:
-              form.contact.email ||
-              `${form.contact.phone}@mail.local`,
-            amount: finalPlan.price,
-            planId: finalPlan.id,
-            productId,
-          }),
-        }
-      );
+      /* ===== PAYMENT ===== */
+      const payRes = await fetch(`${API}/api/payment/initialize`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          email:
+            form.contact.email ||
+            `${form.contact.phone}@mail.local`,
+          amount: finalPlan.price,
+          planId: finalPlan.id,
+          productId,
+        }),
+      });
 
       const payData = await payRes.json();
 
-      if (!payData.success) {
-        setLoading(false);
-        return alert("Payment initialization failed");
-      }
+      if (!payData.success) throw new Error("Payment failed");
 
       window.location.href = payData.authorization_url;
     } catch (err) {
       console.error(err);
-      alert("Something went wrong");
+      alert(err.message || "Something went wrong");
+    } finally {
       setLoading(false);
     }
   };
 
+  /* ================= LOCATION ================= */
   const states = Object.keys(locationsByState || {});
   const cities = state ? locationsByState[state] : [];
 
@@ -372,17 +341,7 @@ export default function AddProduct() {
       <DropdownModal
         label="Category"
         value={form.category_id}
-        onChange={(v) =>
-          setForm((prev) => ({
-            ...INITIAL_FORM,
-            title: prev.title,
-            description: prev.description,
-            price: prev.price,
-            contact: prev.contact,
-            delivery: prev.delivery,
-            category_id: v,
-          }))
-        }
+        onChange={(v) => update("category_id", v)}
         options={categories.map((c) => ({
           id: c.id,
           name: c.name,
@@ -397,7 +356,7 @@ export default function AddProduct() {
         return (
           <DropdownModal
             key={f}
-            label={formatLabel(f)}
+            label={f}
             value={attributes[f] || ""}
             onChange={(v) => updateAttr(f, v)}
             options={optionsMap[f]}
@@ -405,10 +364,71 @@ export default function AddProduct() {
         );
       })}
 
+      {/* ================= DELIVERY ================= */}
+      <div className="form-section">
+        <h3>Delivery</h3>
+
+        <label>
+          <input
+            type="checkbox"
+            checked={form.delivery.available}
+            onChange={(e) =>
+              updateDelivery("available", e.target.checked)
+            }
+          />
+          Delivery Available
+        </label>
+
+        {form.delivery.available && (
+          <>
+            <input
+              placeholder="From (days)"
+              value={form.delivery.duration.from}
+              onChange={(e) =>
+                updateDeliveryDuration(
+                  "from",
+                  onlyNumbers(e.target.value)
+                )
+              }
+            />
+
+            <input
+              placeholder="To (days)"
+              value={form.delivery.duration.to}
+              onChange={(e) =>
+                updateDeliveryDuration(
+                  "to",
+                  onlyNumbers(e.target.value)
+                )
+              }
+            />
+
+            <input
+              placeholder="Delivery Fee"
+              value={form.delivery.fee}
+              onChange={(e) =>
+                updateDelivery("fee", onlyNumbers(e.target.value))
+              }
+            />
+
+            <textarea
+              placeholder="Delivery Note"
+              value={form.delivery.note}
+              onChange={(e) =>
+                updateDelivery("note", e.target.value)
+              }
+            />
+          </>
+        )}
+      </div>
+
       <DropdownModal
         label="State"
         value={state}
-        onChange={handleStateChange}
+        onChange={(s) => {
+          setState(s);
+          setCity("");
+        }}
         options={states}
       />
 
@@ -425,10 +445,7 @@ export default function AddProduct() {
         placeholder="Phone"
         value={form.contact.phone}
         onChange={(e) =>
-          update("contact", {
-            ...form.contact,
-            phone: onlyNumbers(e.target.value),
-          })
+          updateContact("phone", onlyNumbers(e.target.value))
         }
       />
 
@@ -436,14 +453,23 @@ export default function AddProduct() {
         placeholder="WhatsApp"
         value={form.contact.whatsapp}
         onChange={(e) =>
-          update("contact", {
-            ...form.contact,
-            whatsapp: onlyNumbers(e.target.value),
-          })
+          updateContact("whatsapp", onlyNumbers(e.target.value))
         }
       />
 
-      <input type="file" multiple onChange={(e) => handleImages(e.target.files)} />
+      <input
+        placeholder="Email"
+        value={form.contact.email}
+        onChange={(e) =>
+          updateContact("email", e.target.value)
+        }
+      />
+
+      <input
+        type="file"
+        multiple
+        onChange={(e) => handleImages(e.target.files)}
+      />
 
       <div className="preview-grid">
         {previews.map((src, i) => (
@@ -460,15 +486,9 @@ export default function AddProduct() {
           <div
             key={plan.id}
             onClick={() => setSelectedPlan(plan)}
-            style={{
-              border:
-                selectedPlan?.id === plan.id
-                  ? "2px solid green"
-                  : "1px solid #ccc",
-              padding: "10px",
-              borderRadius: "8px",
-              cursor: "pointer",
-            }}
+            className={
+              selectedPlan?.id === plan.id ? "selected-plan" : ""
+            }
           >
             <strong>{plan.name}</strong>
             <p>{plan.duration}</p>
