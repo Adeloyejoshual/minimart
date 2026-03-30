@@ -342,10 +342,13 @@ export default function AddProduct() {
         label="Category"
         value={form.category_id}
         onChange={(v) =>
-          setForm({
-            ...INITIAL_FORM,
-            category_id: v,
-          })
+          setForm((prev) => ({
+  ...INITIAL_FORM,
+  title: prev.title,
+  description: prev.description,
+  price: prev.price,
+  category_id: v,
+}));
         }
         options={categories.map((c) => ({
           id: c.id,
