@@ -1,38 +1,101 @@
-.homepage-container { padding: 1rem; }
+/* ================= BASE ================= */
+.homepage-container {
+  padding: 1rem;
+  background: #f7f9fc;
+}
 
-.location-banner { margin-bottom: 1rem; font-weight: bold; }
-
+/* ================= GRID (MASONRY STYLE) ================= */
 .products-grid {
-  display: grid;
-  grid-template-columns: repeat(2, 1fr); /* Mobile */
-  gap: 1rem;
+  column-count: 2; /* mobile default */
+  column-gap: 12px;
 }
 
+/* tablet */
+@media (min-width: 768px) {
+  .products-grid {
+    column-count: 4;
+  }
+}
+
+/* desktop */
+@media (min-width: 1200px) {
+  .products-grid {
+    column-count: 6;
+  }
+}
+
+/* large screens (auto feel) */
+@media (min-width: 1600px) {
+  .products-grid {
+    column-count: 7;
+  }
+}
+
+/* ================= CARD (IMPORTANT FOR MASONRY) ================= */
 .product-card {
+  break-inside: avoid;
+  margin-bottom: 12px;
+
   background: #fff;
-  border-radius: 8px;
+  border-radius: 10px;
   overflow: hidden;
-  display: flex;
-  flex-direction: column;
-  box-shadow: 0 2px 6px rgba(0,0,0,0.1);
+
+  display: inline-block;
+  width: 100%;
+
+  box-shadow: 0 3px 10px rgba(0,0,0,0.08);
+  transition: transform 0.2s ease;
 }
 
+.product-card:hover {
+  transform: translateY(-3px);
+}
+
+/* ================= IMAGE ================= */
 .product-image {
   width: 100%;
-  aspect-ratio: 1.2;
-  object-fit: cover;
+  height: auto; /* CRITICAL */
+  display: block;
 }
 
-.product-info { padding: 0.5rem; }
-.price { font-weight: bold; margin-bottom: 0.3rem; }
-.title { font-size: 1rem; margin-bottom: 0.2rem; }
-.description { font-size: 0.875rem; color: #555; margin-bottom: 0.2rem; }
-.location { font-size: 0.75rem; color: #999; }
-
-@media (min-width: 768px) {
-  .products-grid { grid-template-columns: repeat(4, 1fr); }
+/* ================= INFO ================= */
+.product-info {
+  padding: 8px;
 }
 
-@media (min-width: 1200px) {
-  .products-grid { grid-template-columns: repeat(6, 1fr); }
+.price {
+  font-weight: 700;
+  color: #1d4ed8;
+  margin-bottom: 4px;
+}
+
+.title {
+  font-size: 0.9rem;
+  font-weight: 600;
+
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.description {
+  font-size: 0.8rem;
+  color: #555;
+
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+.location {
+  font-size: 0.75rem;
+  color: #888;
+}
+
+/* ================= OPTIONAL HEADER ================= */
+.location-banner {
+  margin-bottom: 1rem;
+  font-weight: 600;
+  color: #1e3a8a;
 }
