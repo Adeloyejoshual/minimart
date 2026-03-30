@@ -221,7 +221,7 @@ export default function AddProduct() {
 
     const payload = {
       ...form,
-      price: form.price.replace(/[^d]/g, ""), // ✅ correct number
+      price: form.price.replace(/\D/g, "")
       attributes: JSON.stringify(form.attributes),
       delivery: JSON.stringify(form.delivery),
       contact: JSON.stringify(form.contact),
