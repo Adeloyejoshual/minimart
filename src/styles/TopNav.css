@@ -6,10 +6,9 @@
   background-size: 300% 300%;
   animation: gradientFlow 8s ease infinite;
   box-shadow: 0 8px 20px rgba(0,0,0,0.15);
-  padding: 0.5rem 1rem;
-  z-index: 999;
+  padding: 0.6rem 1rem;
+  z-index: 1000;
   overflow: hidden;
-  transition: background 0.3s ease, box-shadow 0.3s ease;
 }
 
 /* Gradient animation */
@@ -19,23 +18,20 @@
   100% { background-position: 0% 50%; }
 }
 
-/* Dropping light-blue overlay (water effect) */
+/* Light overlay effect */
 .top-nav::after {
   content: "";
   position: absolute;
-  left: 0;
-  top: 0;
-  width: 100%;
-  height: 100%;
+  inset: 0;
   background: linear-gradient(to bottom, rgba(147,197,253,0.2), transparent);
   pointer-events: none;
   animation: dropBlue 3s ease-in-out infinite;
 }
 
 @keyframes dropBlue {
-  0% { transform: translateY(-20px); opacity: 0.4; }
+  0% { transform: translateY(-15px); opacity: 0.4; }
   50% { transform: translateY(0px); opacity: 0.2; }
-  100% { transform: translateY(-20px); opacity: 0.4; }
+  100% { transform: translateY(-15px); opacity: 0.4; }
 }
 
 /* ===================== NAV CONTAINER ===================== */
@@ -45,23 +41,24 @@
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 1rem;
   position: relative;
   z-index: 1;
 }
 
-/* ===================== HAMBURGER ===================== */
-.hamburger-btn {
-  font-size: 1.6rem;
+/* ===================== 3 DOT MENU ===================== */
+.menu-dots {
+  font-size: 26px;
   color: #fff;
   background: transparent;
   border: none;
   cursor: pointer;
-  transition: color 0.3s ease;
+  padding: 6px 10px;
+  transition: transform 0.2s ease, color 0.3s ease;
 }
 
-.hamburger-btn:hover {
+.menu-dots:hover {
   color: #e0f2fe;
+  transform: scale(1.1);
 }
 
 /* ===================== BRAND ===================== */
@@ -88,19 +85,20 @@
   width: 100%;
   display: flex;
   justify-content: center;
-  padding: 8px 14px;
+  gap: 8px;
+  padding: 10px 14px;
   background: #f0f9ff;
   box-shadow: 0 4px 12px rgba(0,0,0,0.05);
   position: sticky;
-  top: 60px;
-  z-index: 998;
+  top: 62px;
+  z-index: 999;
 }
 
 .search-below-nav .search-input {
   width: 100%;
-  max-width: 500px;
-  padding: 0.6rem 1rem;
-  border-radius: 1rem;
+  max-width: 520px;
+  padding: 0.65rem 1rem;
+  border-radius: 14px;
   border: 1px solid #93c5fd;
   font-size: 1rem;
   outline: none;
@@ -109,47 +107,63 @@
   color: #1e3a8a;
 }
 
-.search-below-nav .search-input::placeholder {
-  color: #1e3a8a;
-}
-
 .search-below-nav .search-input:focus {
   border-color: #60a5fa;
   box-shadow: 0 0 0 2px rgba(147,197,253,0.3);
-  background: #f0f9ff;
+}
+
+/* Search button */
+.search-btn {
+  padding: 0.65rem 1rem;
+  border: none;
+  border-radius: 12px;
+  background: #1e3a8a;
+  color: #fff;
+  cursor: pointer;
+  transition: background 0.3s ease;
+}
+
+.search-btn:hover {
+  background: #3b82f6;
 }
 
 /* ===================== RESPONSIVE ===================== */
+
+/* Tablet */
 @media (max-width: 1024px) {
   .nav-container {
-    flex-wrap: wrap;
-    justify-content: flex-start;
-    gap: 0.5rem;
-  }
-
-  .nav-brand {
-    order: 2;
-    flex: 1;
+    padding: 0 4px;
   }
 
   .search-below-nav {
-    top: 55px;
-    padding: 6px 10px;
+    top: 58px;
+    padding: 8px 10px;
   }
 }
 
+/* Mobile */
 @media (max-width: 768px) {
-  .hamburger-btn {
-    font-size: 1.8rem;
+  .menu-dots {
+    font-size: 28px;
+  }
+
+  .search-below-nav {
+    flex-direction: row;
+    gap: 6px;
   }
 
   .search-below-nav .search-input {
     max-width: 100%;
   }
+
+  .search-btn {
+    padding: 0.6rem 0.9rem;
+  }
 }
 
+/* Desktop stability */
 @media (min-width: 769px) {
   .search-below-nav {
-    top: 60px;
+    top: 62px;
   }
 }
