@@ -9,6 +9,7 @@ const pool = new Pool({
   ssl: { rejectUnauthorized: false },
 });
 
+/* ================= VERIFY PAYMENT ================= */
 router.post("/verify", async (req, res) => {
   const { reference } = req.body;
 
@@ -17,7 +18,7 @@ router.post("/verify", async (req, res) => {
   }
 
   try {
-    /* ================= VERIFY WITH PAYSTACK ================= */
+    /* ================= PAYSTACK VERIFY ================= */
     const verifyRes = await axios.get(
       `https://api.paystack.co/transaction/verify/${reference}`,
       {
@@ -33,10 +34,32 @@ router.post("/verify", async (req, res) => {
       return res.status(400).json({ error: "Payment not successful" });
     }
 
-    const { productId, promotionId } = data.metadata;
+    /* ================= FIX METADATA ================= */
+    const { productId, planId } = data.metadata || {};
 
     if (!productId) {
       return res.status(400).json({ error: "Missing productId in metadata" });
+    }
+
+    /* ================= GET PLAN FROM DB ================= */
+    let plan = null;
+
+    if (planId) {
+      const planRes = await pool.query(
+        `SELECT * FROM promotion_plans WHERE id = $1`,
+        [planId]
+      );
+      plan = planRes.rows[0];
+    }
+
+    /* ================= PREVENT DUPLICATES ================= */
+    const existing = await pool.query(
+      `SELECT id FROM products WHERE id = $1 AND is_active = true`,
+      [productId]
+    );
+
+    if (existing.rows.length && data.metadata?.verified_once) {
+      return res.json({ success: true, message: "Already processed" });
     }
 
     /* ================= ACTIVATE PRODUCT ================= */
@@ -46,14 +69,26 @@ router.post("/verify", async (req, res) => {
       SET
         status = 'active',
         is_active = true,
+
         is_promoted = CASE WHEN $2::int IS NOT NULL THEN true ELSE false END,
         promotion_id = $2,
+
         promotion_start = CASE WHEN $2::int IS NOT NULL THEN now() ELSE NULL END,
-        promotion_expires_at = CASE WHEN $2::int IS NOT NULL THEN now() + interval '30 days' ELSE NULL END
+        promotion_expires_at = CASE 
+          WHEN $2::int IS NOT NULL AND $3::int IS NOT NULL
+          THEN now() + ($3 || ' days')::interval
+          ELSE NULL
+        END,
+
+        updated_at = now()
       WHERE id = $1
       RETURNING *
       `,
-      [productId, promotionId || null]
+      [
+        productId,
+        planId || null,
+        plan?.duration_days || null,
+      ]
     );
 
     if (!result.rows.length) {
@@ -65,8 +100,11 @@ router.post("/verify", async (req, res) => {
       product: result.rows[0],
     });
   } catch (err) {
-    console.error(err.response?.data || err.message);
-    res.status(500).json({ error: "Verification failed" });
+    console.error("❌ VERIFY ERROR:", err.response?.data || err.message);
+
+    res.status(500).json({
+      error: "Verification failed",
+    });
   }
 });
 
