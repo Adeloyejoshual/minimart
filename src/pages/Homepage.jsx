@@ -1,5 +1,6 @@
+// src/pages/Homepage.jsx
 import { useEffect, useState, useMemo } from "react";
-import { Link } from "react-router-dom";
+import { useNavigate } from "react-router-dom";
 import TopNav from "../components/TopNav";
 import BottomNav from "../components/BottomNav";
 import { useProductCache } from "../context/ProductCacheContext";
@@ -16,6 +17,7 @@ export default function Homepage() {
   } = useProductCache();
 
   const [loading, setLoading] = useState(false);
+  const navigate = useNavigate();
 
   /* ================= FETCH HOMEPAGE ================= */
   useEffect(() => {
@@ -28,23 +30,19 @@ export default function Homepage() {
         const res = await fetch(
           "https://minimart-ivrm.onrender.com/api/homepage"
         );
-
         const data = await res.json();
 
         const latest = data.latest || [];
         const promoted = data.promoted || [];
 
-        // ✅ Products
         setProducts(latest);
 
-        // ✅ Trending (fallback if empty)
         if (promoted.length > 0) {
           setTrending(promoted.slice(0, 6));
         } else {
           const recommended = [...latest]
             .sort((a, b) => b.price - a.price)
             .slice(0, 6);
-
           setTrending(recommended);
         }
 
@@ -60,59 +58,51 @@ export default function Homepage() {
   }, [loaded, setProducts, setTrending, setLoaded]);
 
   /* ================= DERIVED DATA ================= */
+  const cheapDeals = useMemo(
+    () => products.filter((p) => p.price < 50000).slice(0, 6),
+    [products]
+  );
 
-  const cheapDeals = useMemo(() => {
-    return products.filter((p) => p.price < 50000).slice(0, 6);
-  }, [products]);
-
-  const discover = useMemo(() => {
-    return [...products]
-      .sort(() => 0.5 - Math.random())
-      .slice(0, 6);
-  }, [products]);
+  const discover = useMemo(
+    () => [...products].sort(() => 0.5 - Math.random()).slice(0, 6),
+    [products]
+  );
 
   /* ================= HELPERS ================= */
-
   const getImage = (p) =>
-    p.images?.[0] ||
-    "https://via.placeholder.com/300x200?text=No+Image";
+    p.images?.[0] || "https://via.placeholder.com/300x200?text=No+Image";
 
-  const getLocation = (p) => {
-    if (p.location?.state && p.location?.city) {
-      return `${p.location.state}, ${p.location.city}`;
-    }
-    return p.location?.state || "Nigeria";
-  };
+  const getLocation = (p) =>
+    p.location?.state && p.location?.city
+      ? `${p.location.state}, ${p.location.city}`
+      : p.location?.state || "Nigeria";
 
   /* ================= CARD ================= */
-
   const Card = ({ p, compact = false }) => (
-    <Link to={`/product/${p.id}`} className="card-link">
-      <div className={`card ${compact ? "compact" : ""}`}>
-        <div className="card-image">
-          <img src={getImage(p)} alt={p.title} loading="lazy" />
-        </div>
-
-        <div className="card-body">
-          <div className="price">
-            ₦{Number(p.price).toLocaleString()}
-          </div>
-
-          <div className="title">{p.title}</div>
-
-          {!compact && (
-            <>
-              <div className="desc">{p.description}</div>
-              <div className="location">📍 {getLocation(p)}</div>
-            </>
-          )}
-        </div>
+    <div
+      className={`card ${compact ? "compact" : ""}`}
+      onClick={() => navigate(`/product/${p.id}`)}
+      style={{ cursor: "pointer" }}
+    >
+      <div className="card-image">
+        <img src={getImage(p)} alt={p.title} loading="lazy" />
       </div>
-    </Link>
+
+      <div className="card-body">
+        <div className="price">₦{Number(p.price).toLocaleString()}</div>
+        <div className="title">{p.title}</div>
+
+        {!compact && (
+          <>
+            <div className="desc">{p.description}</div>
+            <div className="location">📍 {getLocation(p)}</div>
+          </>
+        )}
+      </div>
+    </div>
   );
 
   /* ================= RENDER ================= */
-
   return (
     <>
       <TopNav />
@@ -152,7 +142,7 @@ export default function Homepage() {
           </div>
         )}
 
-        {/* 🆕 PRODUCTS */}
+        {/* 🆕 NEW ARRIVALS */}
         <div className="section">
           <h2>🆕 New Arrivals</h2>
 
@@ -162,13 +152,8 @@ export default function Homepage() {
             ))}
           </div>
 
-          {loading && (
-            <p className="loading-text">Loading...</p>
-          )}
-
-          {!loading && products.length === 0 && (
-            <p className="loading-text">No products found</p>
-          )}
+          {loading && <p className="loading-text">Loading...</p>}
+          {!loading && products.length === 0 && <p className="loading-text">No products found</p>}
         </div>
       </div>
 
