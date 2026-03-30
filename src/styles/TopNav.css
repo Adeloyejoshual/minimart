@@ -2,20 +2,20 @@
 .top-nav {
   position: sticky;
   top: 0;
-  background: #1e3a8a; /* solid professional blue header */
+  background: linear-gradient(90deg, #1e3a8a, #3b82f6, #60a5fa); /* live flowing blue gradient */
+  background-size: 300% 300%; /* for animated flow effect */
+  animation: gradientFlow 8s ease infinite; /* smooth moving gradient */
   box-shadow: 0 4px 12px rgba(0,0,0,0.1);
   padding: 0.5rem 1rem;
   z-index: 999;
   transition: background 0.3s ease;
 }
 
-.nav-container {
-  max-width: 1280px;
-  margin: 0 auto;
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 1rem;
+/* Animate the gradient like water flowing */
+@keyframes gradientFlow {
+  0% { background-position: 0% 50%; }
+  50% { background-position: 100% 50%; }
+  100% { background-position: 0% 50%; }
 }
 
 /* ===================== BRAND ===================== */
@@ -28,23 +28,23 @@
 
 .nav-brand .logo-icon {
   font-size: 1.75rem;
-  color: #fff; /* white logo on blue */
+  color: #fff;
   transition: color 0.3s ease;
 }
 
 .nav-brand .logo-icon:hover {
-  color: #93c5fd; /* light blue hover */
+  color: #e0f2fe; /* subtle light blue on hover */
 }
 
 .nav-brand .brand-name {
   font-weight: 700;
   font-size: 1.25rem;
-  color: #fff; /* white brand name */
+  color: #fff;
   transition: color 0.3s ease;
 }
 
 .nav-brand:hover .brand-name {
-  color: #93c5fd; /* light blue on hover */
+  color: #e0f2fe;
 }
 
 /* ===================== SEARCH ===================== */
@@ -58,7 +58,7 @@
   max-width: 400px;
   padding: 0.6rem 1rem;
   border-radius: 1rem;
-  border: 1px solid #93c5fd; /* light blue border */
+  border: 1px solid #93c5fd;
   font-size: 1rem;
   outline: none;
   transition: all 0.3s ease;
@@ -67,13 +67,13 @@
 }
 
 .search-input::placeholder {
-  color: #1e3a8a; /* placeholder dark blue */
+  color: #1e3a8a;
 }
 
 .search-input:focus {
-  border-color: #60a5fa; /* slightly brighter blue */
-  box-shadow: 0 0 0 2px rgba(147,197,253,0.3); /* light blue glow */
-  background: #f0f4ff; /* very light blue */
+  border-color: #60a5fa;
+  box-shadow: 0 0 0 2px rgba(147,197,253,0.3);
+  background: #f0f9ff; /* soft watery blue */
 }
 
 /* ===================== RESPONSIVE NAV ===================== */
