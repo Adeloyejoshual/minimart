@@ -1,4 +1,3 @@
-// components/TopNav.jsx
 import React, { useState, useEffect, useRef } from "react";
 import { useNavigate } from "react-router-dom";
 import HamburgerMenu from "./HamburgerMenu";
@@ -19,6 +18,7 @@ export default function TopNav() {
     { label: "Categories", icon: "📂", action: () => navigate("/categories") },
   ];
 
+  // Load recent searches
   useEffect(() => {
     const stored = JSON.parse(localStorage.getItem("recent_searches") || "[]");
     setRecent(stored);
@@ -30,6 +30,7 @@ export default function TopNav() {
     navigate(`/search?q=${encodeURIComponent(q)}`);
   };
 
+  // Show/hide navbar on scroll
   useEffect(() => {
     const handleScroll = () => {
       const current = window.scrollY;
@@ -46,7 +47,7 @@ export default function TopNav() {
     <>
       <header className={`top-nav ${showNav ? "show" : "hide"}`}>
         <div className="nav-container">
-          {/* Hamburger menu */}
+          {/* Left: Hamburger menu */}
           <HamburgerMenu items={menuItems} />
 
           {/* Brand */}
@@ -55,7 +56,7 @@ export default function TopNav() {
             <span className="brand-name">MiniMart</span>
           </div>
 
-          {/* Search */}
+          {/* Search (desktop) */}
           <div className="search-wrapper" ref={wrapperRef}>
             <input
               className="search-input"
