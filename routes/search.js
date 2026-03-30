@@ -9,9 +9,55 @@ const pool = new Pool({
   ssl: { rejectUnauthorized: false },
 });
 
-/* ================= HELPERS ================= */
+/* ================= NORMALIZER ================= */
 const normalize = (str = "") =>
-  String(str).toLowerCase().trim().replace(/\s+/g, " ");
+  String(str)
+    .toLowerCase()
+    .trim()
+    .replace(/\s+/g, " ");
+
+/* ================= FUZZY SIMILARITY (SQL SAFE LIGHT VERSION) ================= */
+const similarity = (a = "", b = "") => {
+  a = normalize(a);
+  b = normalize(b);
+
+  if (!a || !b) return 0;
+
+  let matches = 0;
+  const len = Math.max(a.length, b.length);
+
+  for (let i = 0; i < Math.min(a.length, b.length); i++) {
+    if (a[i] === b[i]) matches++;
+  }
+
+  return matches / len;
+};
+
+/* ================= INTENT DETECTOR ================= */
+const detectIntent = (q = "") => {
+  const query = normalize(q);
+
+  return {
+    category:
+      query.includes("phone") || query.includes("iphone") || query.includes("laptop")
+        ? "electronics"
+        : query.includes("shoe") || query.includes("shirt")
+        ? "fashion"
+        : null,
+
+    maxPrice:
+      query.match(/under\s(\d+)/)?.[1] ||
+      (["cheap", "budget", "affordable"].some((w) => query.includes(w))
+        ? 50000
+        : null),
+
+    minPrice:
+      query.match(/above\s(\d+)/)?.[1] ||
+      (["premium", "expensive"].some((w) => query.includes(w))
+        ? 200000
+        : null),
+  };
+};
 
 /* ================= CLICK TRACK ================= */
 router.post("/track-click", async (req, res) => {
@@ -33,7 +79,7 @@ router.post("/track-click", async (req, res) => {
   }
 });
 
-/* ================= AUTOCOMPLETE ================= */
+/* ================= AUTOCOMPLETE (SMARTER) ================= */
 router.get("/suggest", async (req, res) => {
   try {
     const q = normalize(req.query.q || "");
@@ -41,7 +87,7 @@ router.get("/suggest", async (req, res) => {
 
     const { rows } = await pool.query(
       `
-      SELECT DISTINCT title
+      SELECT title, views
       FROM products
       WHERE LOWER(title) LIKE $1
       ORDER BY views DESC NULLS LAST
@@ -57,7 +103,7 @@ router.get("/suggest", async (req, res) => {
   }
 });
 
-/* ================= MAIN SEARCH ================= */
+/* ================= MAIN SEARCH (AI LEVEL) ================= */
 router.get("/", async (req, res) => {
   try {
     let {
@@ -69,24 +115,24 @@ router.get("/", async (req, res) => {
       state,
       page = 1,
       limit = 20,
-      user_id,
     } = req.query;
 
     q = normalize(q);
-
     page = Math.max(parseInt(page) || 1, 1);
     limit = Math.min(parseInt(limit) || 20, 50);
     const offset = (page - 1) * limit;
+
+    const intent = detectIntent(q);
 
     const where = [];
     const values = [];
     let i = 1;
 
-    /* ================= BASE CONDITION ================= */
+    /* ================= BASE ================= */
     where.push("p.is_active = true");
     where.push("p.status = 'active'");
 
-    /* ================= CORE SEARCH (FIXED) ================= */
+    /* ================= SMART TEXT SEARCH ================= */
     if (q) {
       where.push(`
         (
@@ -95,7 +141,6 @@ router.get("/", async (req, res) => {
           OR LOWER(p.description) LIKE $${i}
           OR LOWER(p.search_text) LIKE $${i}
           OR LOWER(p.attributes->>'brand') LIKE $${i}
-          OR LOWER(p.attributes->>'model') LIKE $${i}
           OR LOWER(c.name) LIKE $${i}
         )
       `);
@@ -105,27 +150,31 @@ router.get("/", async (req, res) => {
     }
 
     /* ================= FILTERS ================= */
+    const finalCategory = category || intent.category;
+    const finalMaxPrice = maxPrice || intent.maxPrice;
+    const finalMinPrice = minPrice || intent.minPrice;
+
     if (brand) {
       where.push(`LOWER(p.attributes->>'brand') = $${i}`);
       values.push(normalize(brand));
       i++;
     }
 
-    if (category) {
+    if (finalCategory) {
       where.push(`p.category_id = $${i}`);
-      values.push(category);
+      values.push(finalCategory);
       i++;
     }
 
-    if (minPrice) {
+    if (finalMinPrice) {
       where.push(`p.price >= $${i}`);
-      values.push(minPrice);
+      values.push(finalMinPrice);
       i++;
     }
 
-    if (maxPrice) {
+    if (finalMaxPrice) {
       where.push(`p.price <= $${i}`);
-      values.push(maxPrice);
+      values.push(finalMaxPrice);
       i++;
     }
 
@@ -153,7 +202,9 @@ router.get("/", async (req, res) => {
       LEFT JOIN product_images pi ON p.id = pi.product_id
       ${whereSQL}
       GROUP BY p.id, c.name
-      ORDER BY p.views DESC NULLS LAST
+      ORDER BY 
+        p.views DESC NULLS LAST,
+        p.created_at DESC
       LIMIT $${i} OFFSET $${i + 1}
       `,
       [...values, limit, offset]
@@ -169,12 +220,13 @@ router.get("/", async (req, res) => {
       values
     );
 
-    /* ================= SUGGESTIONS ================= */
+    /* ================= SUGGESTIONS (SMART) ================= */
     const suggestionsRes = await pool.query(
       `
-      SELECT DISTINCT title
+      SELECT title, views
       FROM products
       WHERE LOWER(title) LIKE $1
+      ORDER BY views DESC NULLS LAST
       LIMIT 10
       `,
       [`%${q}%`]
@@ -205,6 +257,7 @@ router.get("/", async (req, res) => {
     /* ================= RESPONSE ================= */
     res.json({
       query: q,
+      intent,
       total: Number(countRes.rows[0].count),
       page,
       totalPages: Math.ceil(countRes.rows[0].count / limit),
