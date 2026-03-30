@@ -281,7 +281,7 @@ export default function AddProduct() {
           },
           body: JSON.stringify({
             email:
-              form.contact.whatsapp || `${form.contact.phone}@temp.com`, // ✅ safer email
+              email: form.contact.email || `${form.contact.phone}@mail.local`
             amount: finalPlan.price,
             planId: finalPlan.id,
             productId, // 🔥 VERY IMPORTANT
