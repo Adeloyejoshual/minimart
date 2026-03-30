@@ -3,25 +3,38 @@ import axios from "axios";
 
 const router = express.Router();
 
-/* ================= TEST PAYSTACK INIT ONLY ================= */
+/* ================= PAYSTACK INIT ================= */
 router.post("/initialize", async (req, res) => {
-  const { email, amount } = req.body;
+  let { email, amount, productId, planId } = req.body;
 
   try {
+    /* ================= VALIDATION ================= */
     if (!email || !email.includes("@")) {
       return res.status(400).json({ error: "Invalid email" });
     }
+
+    amount = Number(amount);
 
     if (!amount || amount <= 0) {
       return res.status(400).json({ error: "Invalid amount" });
     }
 
+    /* ================= PAYLOAD ================= */
     const payload = {
       email,
-      amount: Math.round(Number(amount) * 100),
+      amount: Math.round(amount * 100),
+
+      /* 🔥 CRITICAL FOR MARKETPLACE */
+      metadata: {
+        productId,
+        planId,
+      },
+
+      /* OPTIONAL BUT RECOMMENDED */
+      callback_url: `${process.env.FRONTEND_URL}/payment/success`,
     };
 
-    console.log("🔥 PAYSTACK REQUEST:", payload);
+    console.log("🔥 PAYSTACK INIT:", payload);
 
     const response = await axios.post(
       "https://api.paystack.co/transaction/initialize",
