@@ -6,23 +6,9 @@ import "../styles/TopNav.css";
 export default function TopNav() {
   const navigate = useNavigate();
   const [search, setSearch] = useState("");
-  const [recent, setRecent] = useState([]);
   const [showNav, setShowNav] = useState(true);
   const lastScroll = useRef(0);
   const wrapperRef = useRef(null);
-
-  const menuItems = [
-    { label: "Cart", icon: "🛒", action: () => navigate("/cart") },
-    { label: "Orders", icon: "📦", action: () => navigate("/orders") },
-    { label: "Favorites", icon: "❤️", action: () => navigate("/favorites") },
-    { label: "Categories", icon: "📂", action: () => navigate("/categories") },
-  ];
-
-  // Load recent searches
-  useEffect(() => {
-    const stored = JSON.parse(localStorage.getItem("recent_searches") || "[]");
-    setRecent(stored);
-  }, []);
 
   const handleSearch = (q) => {
     if (!q.trim()) return;
@@ -48,16 +34,10 @@ export default function TopNav() {
       <header className={`top-nav ${showNav ? "show" : "hide"}`}>
         <div className="nav-container">
           {/* Left: Hamburger menu */}
-          <HamburgerMenu items={menuItems} />
+          <HamburgerMenu />
 
-          {/* Brand */}
-          <div className="nav-brand" onClick={() => navigate("/")}>
-            <div className="logo-icon">🛒</div>
-            <span className="brand-name">MiniMart</span>
-          </div>
-
-          {/* Search (desktop) */}
-          <div className="search-wrapper" ref={wrapperRef}>
+          {/* Center: Search */}
+          <div className="search-wrapper" ref={wrapperRef} style={{ flex: 1, margin: "0 1rem" }}>
             <input
               className="search-input"
               value={search}
@@ -65,6 +45,12 @@ export default function TopNav() {
               onChange={(e) => setSearch(e.target.value)}
               onKeyDown={(e) => { if (e.key === "Enter") handleSearch(search); }}
             />
+          </div>
+
+          {/* Right: Brand */}
+          <div className="nav-brand" onClick={() => navigate("/")}>
+            <div className="logo-icon">🛒</div>
+            <span className="brand-name">MiniMart</span>
           </div>
         </div>
       </header>
