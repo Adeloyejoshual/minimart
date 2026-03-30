@@ -8,18 +8,18 @@
   box-shadow: 0 8px 20px rgba(0,0,0,0.15);
   padding: 0.5rem 1rem;
   z-index: 999;
-  transition: background 0.3s ease, box-shadow 0.3s ease;
   overflow: hidden;
+  transition: background 0.3s ease, box-shadow 0.3s ease;
 }
 
-/* Animated gradient */
+/* Gradient animation */
 @keyframes gradientFlow {
   0% { background-position: 0% 50%; }
   50% { background-position: 100% 50%; }
   100% { background-position: 0% 50%; }
 }
 
-/* Dropping light-blue overlay (like water effect) */
+/* Dropping light-blue overlay (water effect) */
 .top-nav::after {
   content: "";
   position: absolute;
@@ -47,7 +47,7 @@
   justify-content: space-between;
   gap: 1rem;
   position: relative;
-  z-index: 1; /* above overlay */
+  z-index: 1;
 }
 
 /* ===================== HAMBURGER ===================== */
@@ -83,15 +83,22 @@
   color: #e0f2fe;
 }
 
-/* ===================== SEARCH ===================== */
-.search-wrapper {
-  flex: 1;
-  position: relative;
-  max-width: 500px;
+/* ===================== SEARCH BELOW NAV ===================== */
+.search-below-nav {
+  width: 100%;
+  display: flex;
+  justify-content: center;
+  padding: 8px 14px;
+  background: #f0f9ff;
+  box-shadow: 0 4px 12px rgba(0,0,0,0.05);
+  position: sticky;
+  top: 60px;
+  z-index: 998;
 }
 
-.search-input {
+.search-below-nav .search-input {
   width: 100%;
+  max-width: 500px;
   padding: 0.6rem 1rem;
   border-radius: 1rem;
   border: 1px solid #93c5fd;
@@ -102,11 +109,11 @@
   color: #1e3a8a;
 }
 
-.search-input::placeholder {
+.search-below-nav .search-input::placeholder {
   color: #1e3a8a;
 }
 
-.search-input:focus {
+.search-below-nav .search-input:focus {
   border-color: #60a5fa;
   box-shadow: 0 0 0 2px rgba(147,197,253,0.3);
   background: #f0f9ff;
@@ -125,14 +132,9 @@
     flex: 1;
   }
 
-  .search-wrapper {
-    order: 3;
-    width: 100%;
-    margin-top: 0.5rem;
-  }
-
-  .search-input {
-    width: 100%;
+  .search-below-nav {
+    top: 55px;
+    padding: 6px 10px;
   }
 }
 
@@ -140,11 +142,14 @@
   .hamburger-btn {
     font-size: 1.8rem;
   }
+
+  .search-below-nav .search-input {
+    max-width: 100%;
+  }
 }
 
 @media (min-width: 769px) {
-  .search-wrapper {
-    flex: 1;
-    margin-left: auto;
+  .search-below-nav {
+    top: 60px;
   }
 }
