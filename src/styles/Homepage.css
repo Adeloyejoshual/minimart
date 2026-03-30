@@ -61,12 +61,10 @@ body {
 @media (max-width: 768px)  { .products-grid { column-count: 3; } }
 @media (max-width: 600px)  { .products-grid { column-count: 2; } }
 
-/* Masonry item */
 .card-link {
   display: inline-block;
   width: 100%;
   margin-bottom: 14px;
-
   break-inside: avoid;
   -webkit-column-break-inside: avoid;
 }
@@ -75,19 +73,14 @@ body {
 .card {
   background: rgba(255, 255, 255, 0.92);
   backdrop-filter: blur(12px);
-
   border-radius: 18px;
   overflow: hidden;
-
   display: flex;
   flex-direction: column;
-
   box-shadow: 0 6px 18px rgba(30, 64, 175, 0.10);
-
   transition: all 0.25s ease;
 }
 
-/* hover */
 .card:hover {
   transform: translateY(-6px) scale(1.01);
   box-shadow: 0 14px 30px rgba(30, 64, 175, 0.18);
@@ -126,7 +119,6 @@ body {
   font-size: 0.85rem;
   font-weight: 600;
   color: #333;
-
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -136,7 +128,6 @@ body {
 .desc {
   font-size: 0.75rem;
   color: #555;
-
   display: -webkit-box;
   -webkit-line-clamp: 2;
   -webkit-box-orient: vertical;
@@ -150,17 +141,21 @@ body {
 }
 
 /* =======================================================
-   🔥 HORIZONTAL SECTIONS (TRENDING / DISCOVER / DEALS)
+   ✨ HORIZONTAL SECTIONS (TRENDING / DISCOVER / DEALS)
 ======================================================= */
+
+.horizontal-scroll-wrapper {
+  position: relative;
+}
 
 .horizontal-scroll {
   display: flex;
-  gap: 12px;
+  gap: 10px;
   overflow-x: auto;
-  padding: 4px 4px 12px;
-
+  padding: 4px 0 8px;
   scroll-snap-type: x mandatory;
   scroll-behavior: smooth;
+  max-height: 180px;
 }
 
 /* hide scrollbar */
@@ -168,58 +163,102 @@ body {
   display: none;
 }
 
-/* cards inside horizontal scroll */
 .horizontal-scroll .card-link {
-  flex: 0 0 65%;
-  max-width: 200px;
+  flex: 0 0 60%;
+  max-width: 140px;
   scroll-snap-align: start;
 }
 
 /* compact cards */
+.card.compact {
+  height: 160px;
+  flex-direction: column;
+}
+
+.card.compact .card-image {
+  height: 80px;
+}
+
+.card.compact .card-body {
+  padding: 6px;
+  gap: 4px;
+}
+
 .card.compact .title {
-  font-size: 0.8rem;
+  font-size: 0.75rem;
 }
 
 .card.compact .price {
-  font-size: 0.9rem;
+  font-size: 0.8rem;
+}
+
+.card.compact .desc,
+.card.compact .location {
+  display: none;
+}
+
+/* ================== ARROWS FOR DESKTOP ================== */
+.scroll-arrow {
+  position: absolute;
+  top: 50%;
+  transform: translateY(-50%);
+  background: rgba(30, 64, 175, 0.9);
+  color: #fff;
+  border: none;
+  border-radius: 50%;
+  width: 32px;
+  height: 32px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  z-index: 10;
+  transition: background 0.3s ease;
+}
+
+.scroll-arrow:hover {
+  background: rgba(59, 130, 246, 0.9);
+}
+
+.scroll-arrow-left {
+  left: -10px;
+}
+
+.scroll-arrow-right {
+  right: -10px;
+}
+
+/* arrows only on desktop */
+@media (max-width: 1024px) {
+  .scroll-arrow {
+    display: none;
+  }
 }
 
 /* =======================================================
-   ✨ TRENDING / DEALS / DISCOVER GRADIENT FADE
+   ✨ TRENDING GRADIENT FADE EDGES
 ======================================================= */
-
-.trending-scroll,
-.deals-scroll,
-.discover-scroll {
+.trending-scroll {
   position: relative;
-  padding: 0 8px;
 }
 
 .trending-scroll::before,
-.trending-scroll::after,
-.deals-scroll::before,
-.deals-scroll::after,
-.discover-scroll::before,
-.discover-scroll::after {
+.trending-scroll::after {
   content: "";
   position: absolute;
   top: 0;
-  width: 40px;
+  width: 30px;
   height: 100%;
   z-index: 2;
   pointer-events: none;
 }
 
-.trending-scroll::before,
-.deals-scroll::before,
-.discover-scroll::before {
+.trending-scroll::before {
   left: 0;
   background: linear-gradient(to right, #f5f9ff, transparent);
 }
 
-.trending-scroll::after,
-.deals-scroll::after,
-.discover-scroll::after {
+.trending-scroll::after {
   right: 0;
   background: linear-gradient(to left, #f5f9ff, transparent);
 }
@@ -227,7 +266,6 @@ body {
 /* =======================================================
    ⏳ LOADING / EMPTY
 ======================================================= */
-
 .loading-text {
   text-align: center;
   font-size: 0.85rem;
@@ -238,22 +276,17 @@ body {
 /* =======================================================
    ⬆️ BACK TO TOP BUTTON
 ======================================================= */
-
 .back-to-top {
   position: fixed;
   bottom: 80px;
   right: 16px;
-
   background: #2563eb;
   color: white;
   border: none;
-
   padding: 10px 12px;
   border-radius: 50%;
-
   font-size: 16px;
   cursor: pointer;
-
   box-shadow: 0 6px 18px rgba(0,0,0,0.2);
 }
 
@@ -264,32 +297,6 @@ body {
 /* =======================================================
    🧠 SMOOTH SCROLL
 ======================================================= */
-
 html {
   scroll-behavior: smooth;
-}
-
-/* =======================================================
-   📱 RESPONSIVE HORIZONTAL SCROLL
-======================================================= */
-
-@media (min-width: 480px) {
-  .horizontal-scroll .card-link {
-    flex: 0 0 45%;
-    max-width: 180px;
-  }
-}
-
-@media (min-width: 768px) {
-  .horizontal-scroll .card-link {
-    flex: 0 0 20%;
-    max-width: 180px;
-  }
-}
-
-@media (min-width: 1024px) {
-  .horizontal-scroll .card-link {
-    flex: 0 0 10%;
-    max-width: 160px;
-  }
 }
