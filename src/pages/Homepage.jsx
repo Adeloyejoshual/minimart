@@ -5,12 +5,6 @@ import BottomNav from "../components/BottomNav";
 import { useProductCache } from "../context/ProductCacheContext";
 import "../styles/Homepage.css";
 
-import { Swiper, SwiperSlide } from "swiper/react";
-import { Navigation, Pagination } from "swiper/modules";
-import "swiper/css";
-import "swiper/css/navigation";
-import "swiper/css/pagination";
-
 export default function Homepage() {
   const {
     products,
@@ -24,7 +18,7 @@ export default function Homepage() {
   const [loading, setLoading] = useState(false);
   const navigate = useNavigate();
 
-  /* ================= FETCH (SAFE + OPTIMIZED) ================= */
+  /* ================= FETCH ONCE ================= */
   useEffect(() => {
     if (loaded) return;
 
@@ -39,25 +33,17 @@ export default function Homepage() {
           { signal: controller.signal }
         );
 
-        if (!res.ok) throw new Error("Failed to fetch");
-
         const data = await res.json();
 
         const latest = Array.isArray(data?.latest) ? data.latest : [];
         const promoted = Array.isArray(data?.promoted) ? data.promoted : [];
 
         setProducts(latest);
-
-        setTrending(
-          promoted.length > 0
-            ? promoted.slice(0, 10)
-            : latest.slice(0, 10)
-        );
-
+        setTrending(promoted.length ? promoted.slice(0, 10) : latest.slice(0, 10));
         setLoaded(true);
       } catch (err) {
         if (err.name !== "AbortError") {
-          console.error("Homepage fetch error:", err);
+          console.error(err);
         }
       } finally {
         setLoading(false);
@@ -65,20 +51,16 @@ export default function Homepage() {
     };
 
     fetchData();
-
     return () => controller.abort();
   }, [loaded, setProducts, setTrending, setLoaded]);
 
   /* ================= DERIVED DATA ================= */
-  const cheapDeals = useMemo(() => {
-    return products
-      .filter((p) => Number(p.price) < 50000)
-      .slice(0, 10);
-  }, [products]);
+  const cheapDeals = useMemo(
+    () => products.filter((p) => Number(p.price) < 50000).slice(0, 10),
+    [products]
+  );
 
-  const recommended = useMemo(() => {
-    return products.slice(0, 12);
-  }, [products]);
+  const recommended = useMemo(() => products.slice(0, 12), [products]);
 
   /* ================= HELPERS ================= */
   const getImage = (p) =>
@@ -94,14 +76,12 @@ export default function Homepage() {
   const Card = useCallback(
     ({ p }) => (
       <div
-        className="masonry-card"
+        className="card"
         onClick={() => navigate(`/product/${p.id}`)}
       >
         <img src={getImage(p)} alt={p.title} loading="lazy" />
         <div className="info">
-          <div className="price">
-            ₦{Number(p.price || 0).toLocaleString()}
-          </div>
+          <div className="price">₦{Number(p.price || 0).toLocaleString()}</div>
           <div className="title">{p.title}</div>
           <div className="location">📍 {getLocation(p)}</div>
         </div>
@@ -110,32 +90,23 @@ export default function Homepage() {
     [navigate]
   );
 
-  /* ================= SWIPER SECTION ================= */
+  /* ================= HORIZONTAL SECTION ================= */
   const Section = ({ title, items }) => {
     if (!items.length) return null;
 
     return (
       <div className="section">
-        <h2>{title}</h2>
+        <div className="section-header">
+          <h2>{title}</h2>
+        </div>
 
-        <Swiper
-          modules={[Navigation, Pagination]}
-          slidesPerView={2}
-          spaceBetween={10}
-          navigation
-          pagination={{ clickable: true }}
-          breakpoints={{
-            480: { slidesPerView: 3 },
-            768: { slidesPerView: 4 },
-            1024: { slidesPerView: 6 },
-          }}
-        >
+        <div className="horizontal-scroll">
           {items.map((p) => (
-            <SwiperSlide key={p.id}>
+            <div key={p.id} className="scroll-item">
               <Card p={p} />
-            </SwiperSlide>
+            </div>
           ))}
-        </Swiper>
+        </div>
       </div>
     );
   };
@@ -143,34 +114,43 @@ export default function Homepage() {
   /* ================= UI ================= */
   return (
     <>
-      <TopNav />
+      {/* ================= STICKY HEADER ================= */}
+      <div className="sticky-header">
+        <TopNav />
+      </div>
 
       <div className="homepage-container">
+
+        {/* ================= QUICK ACTION BUTTON ================= */}
+        <button
+          className="floating-btn"
+          onClick={() => navigate("/minimart/add")}
+        >
+          + Sell
+        </button>
 
         {/* ================= SECTIONS ================= */}
         <Section title="🔥 Trending" items={trending} />
         <Section title="💰 Cheap Deals" items={cheapDeals} />
         <Section title="✨ Recommended" items={recommended} />
 
-        {/* ================= MAIN GRID ================= */}
+        {/* ================= ALL PRODUCTS ================= */}
         <div className="section">
-          <h2>🛒 All Products</h2>
+          <div className="section-header">
+            <h2>🛒 All Products</h2>
+          </div>
 
           {products.length === 0 && !loading ? (
-            <p className="empty-text">No products available</p>
+            <p className="empty">No products available</p>
           ) : (
-            <div className="masonry-grid">
+            <div className="grid">
               {products.map((p) => (
                 <Card key={p.id} p={p} />
               ))}
             </div>
           )}
 
-          {loading && (
-            <div className="loading-text">
-              Loading products...
-            </div>
-          )}
+          {loading && <p className="loading">Loading products...</p>}
         </div>
       </div>
 
