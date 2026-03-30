@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { useParams, useNavigate } from "react-router-dom";
-import ProductDetailHeader from "../components/ProductDetailHeader"; // ✅ header with back & share
-import BottomNav from "../components/BottomNav";
+import ProductDetailHeader from "../components/ProductDetailHeader.jsx"; // ✅ JSX header
+import BottomNav from "../components/BottomNav.jsx";
 import "../styles/ProductDetail.css";
 
 export default function ProductDetail() {
@@ -28,7 +28,6 @@ export default function ProductDetail() {
           `https://minimart-ivrm.onrender.com/api/product/${id}`,
           { signal: controller.signal }
         );
-
         if (!res.ok) throw new Error("Failed to fetch product");
 
         const data = await res.json();
@@ -52,9 +51,7 @@ export default function ProductDetail() {
 
   // ================= HELPERS =================
   const navigateToSeller = () => {
-    if (product?.seller?.id) {
-      navigate(`/seller/${product.seller.id}`);
-    }
+    if (product?.seller?.id) navigate(`/seller/${product.seller.id}`);
   };
 
   const getLocation = () =>
@@ -111,10 +108,9 @@ export default function ProductDetail() {
   // ================= RENDER =================
   return (
     <>
-      <ProductDetailHeader title={product.title} />
+      <ProductDetailHeader title={product.title} shareUrl={window.location.href} />
 
       <div className="product-detail">
-
         {/* ================= IMAGES ================= */}
         <div className="image-section">
           <img
@@ -140,11 +136,13 @@ export default function ProductDetail() {
           <h1 className="title">{product.title}</h1>
           <h2 className="price">₦{Number(product.price || 0).toLocaleString()}</h2>
           <p className="location">📍 {getLocation()}</p>
+
           {product.category?.name && (
             <p className="category">
               Category: <strong>{product.category.name}</strong>
             </p>
           )}
+
           <p className="description">{product.description || "No description available"}</p>
 
           {/* ================= SELLER ================= */}
@@ -167,7 +165,9 @@ export default function ProductDetail() {
                 {filteredAttributes.map(([key, value]) => (
                   <div key={key} className="attr-item">
                     <span className="attr-key">{formatKey(key)}</span>
-                    <span className="attr-value">{Array.isArray(value) ? value.join(", ") : value}</span>
+                    <span className="attr-value">
+                      {Array.isArray(value) ? value.join(", ") : value}
+                    </span>
                   </div>
                 ))}
               </div>
@@ -178,11 +178,19 @@ export default function ProductDetail() {
           {product.delivery?.available && (
             <div className="delivery">
               <h3>Delivery</h3>
-              <p><strong>Type:</strong> {product.delivery.type}</p>
+              <p>
+                <strong>Type:</strong> {product.delivery.type}
+              </p>
               {product.delivery.type === "fixed" && (
-                <p><strong>Fee:</strong> ₦{Number(product.delivery.fee || 0).toLocaleString()}</p>
+                <p>
+                  <strong>Fee:</strong> ₦{Number(product.delivery.fee || 0).toLocaleString()}
+                </p>
               )}
-              {product.delivery.note && <p><strong>Note:</strong> {product.delivery.note}</p>}
+              {product.delivery.note && (
+                <p>
+                  <strong>Note:</strong> {product.delivery.note}
+                </p>
+              )}
             </div>
           )}
 
@@ -199,7 +207,6 @@ export default function ProductDetail() {
             Contact Seller
           </button>
         </div>
-
       </div>
 
       <BottomNav />
