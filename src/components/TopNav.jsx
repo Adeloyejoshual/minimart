@@ -1,60 +1,100 @@
-import React, { useState, useEffect, useRef } from "react";
+import React, { useState, useEffect, useRef, useCallback } from "react";
 import { useNavigate } from "react-router-dom";
-import HamburgerMenu from "./HamburgerMenu";
 import "../styles/TopNav.css";
 
 export default function TopNav() {
   const navigate = useNavigate();
   const [search, setSearch] = useState("");
   const [showNav, setShowNav] = useState(true);
-  const lastScroll = useRef(0);
+  const [menuOpen, setMenuOpen] = useState(false);
 
-  // Show/hide navbar on scroll
+  const lastScroll = useRef(0);
+  const ticking = useRef(false);
+
+  // ---------------- SCROLL ----------------
   useEffect(() => {
     const handleScroll = () => {
       const current = window.scrollY;
-      if (current <= 0) setShowNav(true);
-      else if (current > lastScroll.current) setShowNav(false);
-      else setShowNav(true);
-      lastScroll.current = current;
+
+      if (!ticking.current) {
+        window.requestAnimationFrame(() => {
+          if (current <= 0) setShowNav(true);
+          else if (current > lastScroll.current) setShowNav(false);
+          else setShowNav(true);
+
+          lastScroll.current = current;
+          ticking.current = false;
+        });
+
+        ticking.current = true;
+      }
     };
-    window.addEventListener("scroll", handleScroll);
+
+    window.addEventListener("scroll", handleScroll, { passive: true });
     return () => window.removeEventListener("scroll", handleScroll);
   }, []);
 
-  const handleSearch = (q) => {
-    if (!q.trim()) return;
-    setSearch("");
-    navigate(`/search?q=${encodeURIComponent(q)}`);
-  };
+  // ---------------- SEARCH ----------------
+  const handleSearch = useCallback(
+    (q) => {
+      const query = q.trim();
+      if (!query) return;
+      setSearch("");
+      navigate(`/search?q=${encodeURIComponent(query)}`);
+    },
+    [navigate]
+  );
 
   return (
     <>
-      {/* Top Nav */}
+      {/* TOP NAV */}
       <header className={`top-nav ${showNav ? "show" : "hide"}`}>
         <div className="nav-container">
-          {/* Left: Hamburger */}
-          <HamburgerMenu />
+          {/* 3 DOT BUTTON */}
+          <button className="menu-dots" onClick={() => setMenuOpen(true)}>
+            ⋮
+          </button>
 
-          {/* Brand */}
+          {/* BRAND */}
           <div className="nav-brand" onClick={() => navigate("/")}>
-            <div className="logo-icon">🛒</div>
+            <span className="logo-icon">🛒</span>
             <span className="brand-name">MiniMart</span>
           </div>
         </div>
       </header>
 
-      {/* Search below TopNav */}
+      {/* SEARCH */}
       <div className="search-below-nav">
         <input
           className="search-input"
           value={search}
           placeholder="Search products..."
           onChange={(e) => setSearch(e.target.value)}
-          onKeyDown={(e) => {
-            if (e.key === "Enter") handleSearch(search);
-          }}
+          onKeyDown={(e) => e.key === "Enter" && handleSearch(search)}
         />
+        <button className="search-btn" onClick={() => handleSearch(search)}>
+          Search
+        </button>
+      </div>
+
+      {/* OVERLAY */}
+      {menuOpen && (
+        <div className="menu-overlay" onClick={() => setMenuOpen(false)} />
+      )}
+
+      {/* LEFT SLIDE MENU */}
+      <div className={`side-drawer ${menuOpen ? "open" : ""}`}>
+        <div className="drawer-header">
+          <h3>Menu</h3>
+          <button onClick={() => setMenuOpen(false)}>✕</button>
+        </div>
+
+        <ul className="drawer-list">
+          <li onClick={() => { navigate("/"); setMenuOpen(false); }}>Home</li>
+          <li onClick={() => { navigate("/add-product"); setMenuOpen(false); }}>Sell Product</li>
+          <li onClick={() => { navigate("/search"); setMenuOpen(false); }}>Search</li>
+          <li onClick={() => { navigate("/categories"); setMenuOpen(false); }}>Categories</li>
+        </ul>
       </div>
     </>
   );
