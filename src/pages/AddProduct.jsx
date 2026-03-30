@@ -292,8 +292,12 @@ export default function AddProduct() {
 
   /* ================= UI ================= */
   return (
-    <div className="add-product-container">
-      <AddProductHeader title="Add Product" />
+  <div className="add-product-container">
+    <AddProductHeader title="Add Product" />
+
+    {/* ================= BASIC INFO ================= */}
+    <div className="form-section">
+      <h3>Basic Information</h3>
 
       <input
         placeholder="Title"
@@ -313,14 +317,17 @@ export default function AddProduct() {
         onChange={(e) => update("price", onlyNumbers(e.target.value))}
       />
 
-      {/* EMAIL */}
       <input
         placeholder="Email"
         value={form.contact.email}
         onChange={(e) => updateContact("email", e.target.value)}
       />
+    </div>
 
-      {/* CATEGORY */}
+    {/* ================= CATEGORY ================= */}
+    <div className="form-section">
+      <h3>Category</h3>
+
       <DropdownModal
         label="Category"
         value={form.category_id}
@@ -336,8 +343,12 @@ export default function AddProduct() {
           name: c.name,
         }))}
       />
+    </div>
 
-      {/* DYNAMIC FIELDS */}
+    {/* ================= ATTRIBUTES ================= */}
+    <div className="form-section">
+      <h3>Product Details</h3>
+
       {fields.map((f) => {
         if (!optionsMap[f]) return null;
         if (f === "used_detail" && attributes.condition !== "used")
@@ -353,77 +364,93 @@ export default function AddProduct() {
           />
         );
       })}
+    </div>
 
-      {/* FEATURES MULTI CHECKBOX */}
-      {Array.isArray(options.features) && options.features.length > 0 && (
-        <div className="form-section">
-          <h3>Features</h3>
-          <div className="checkbox-grid">
-            {options.features.map((f) => (
-              <label key={f}>
-                <input
-                  type="checkbox"
-                  checked={attributes.features.includes(f)}
-                  onChange={() => toggleFeature(f)}
-                />
-                {f}
-              </label>
-            ))}
-          </div>
-        </div>
-      )}
-
-      {/* DELIVERY */}
+    {/* ================= FEATURES ================= */}
+    {Array.isArray(options.features) && options.features.length > 0 && (
       <div className="form-section">
-        <h3>Delivery</h3>
+        <h3>Features</h3>
 
-        <label>
+        <div className="features-grid">
+          {options.features.map((f) => (
+            <div
+              key={f}
+              className={`feature-tag ${
+                attributes.features.includes(f) ? "active" : ""
+              }`}
+              onClick={() => toggleFeature(f)}
+            >
+              {f}
+            </div>
+          ))}
+        </div>
+      </div>
+    )}
+
+    {/* ================= DELIVERY ================= */}
+    <div className="form-section">
+      <h3>Delivery</h3>
+
+      <label>
+        <input
+          type="checkbox"
+          checked={form.delivery.available}
+          onChange={(e) =>
+            updateDelivery("available", e.target.checked)
+          }
+        />
+        Available
+      </label>
+
+      {form.delivery.available && (
+        <div className="delivery-grid">
           <input
-            type="checkbox"
-            checked={form.delivery.available}
+            placeholder="From days"
+            value={form.delivery.duration.from}
             onChange={(e) =>
-              updateDelivery("available", e.target.checked)
+              updateDeliveryDuration("from", e.target.value)
             }
           />
-          Available
-        </label>
 
-        {form.delivery.available && (
-          <>
-            <input
-              placeholder="From days"
-              value={form.delivery.duration.from}
-              onChange={(e) =>
-                updateDeliveryDuration("from", e.target.value)
-              }
-            />
+          <input
+            placeholder="To days"
+            value={form.delivery.duration.to}
+            onChange={(e) =>
+              updateDeliveryDuration("to", e.target.value)
+            }
+          />
 
-            <input
-              placeholder="To days"
-              value={form.delivery.duration.to}
-              onChange={(e) =>
-                updateDeliveryDuration("to", e.target.value)
-              }
-            />
+          <input
+            placeholder="Fee"
+            value={form.delivery.fee}
+            onChange={(e) =>
+              updateDelivery("fee", onlyNumbers(e.target.value))
+            }
+          />
+        </div>
+      )}
+    </div>
 
-            <input
-              placeholder="Fee"
-              value={form.delivery.fee}
-              onChange={(e) =>
-                updateDelivery("fee", onlyNumbers(e.target.value))
-              }
-            />
-          </>
-        )}
-      </div>
+    {/* ================= LOCATION ================= */}
+    <div className="form-section">
+      <h3>Location</h3>
 
-      {/* LOCATION */}
-      <DropdownModal label="State" value={state} onChange={setState} options={states} />
+      <DropdownModal
+        label="State"
+        value={state}
+        onChange={setState}
+        options={states}
+      />
+
       {state && (
-        <DropdownModal label="City" value={city} onChange={setCity} options={cities} />
+        <DropdownModal
+          label="City"
+          value={city}
+          onChange={setCity}
+          options={cities}
+        />
       )}
 
-      {/* PHONE */}
       <input
         placeholder="Phone"
         value={form.contact.phone}
@@ -431,35 +458,40 @@ export default function AddProduct() {
           updateContact("phone", onlyNumbers(e.target.value))
         }
       />
+    </div>
 
-      {/* IMAGES */}
-      <input type="file" multiple onChange={(e) => handleImages(e.target.files)} />
+    {/* ================= MEDIA ================= */}
+    <div className="form-section">
+      <h3>Product Images</h3>
 
-      <div className="preview-grid">
+      <input
+        type="file"
+        multiple
+        onChange={(e) => handleImages(e.target.files)}
+      />
+
+      <div className="images">
         {previews.map((src, i) => (
-          <div key={i}>
+          <div key={i} className="img-wrap">
             <img src={src} alt="" />
-            <button onClick={() => removeImage(i)}>X</button>
+            <button onClick={() => removeImage(i)}>×</button>
           </div>
         ))}
       </div>
+    </div>
 
-      {/* PLANS */}
-      <div className="form-section">
-        <h3>Promotion Plans</h3>
+    {/* ================= PROMOTION ================= */}
+    <div className="form-section">
+      <h3>Promotion Plans</h3>
+
+      <div className="plan-grid">
         {promotionPlans.map((plan) => (
           <div
             key={plan.id}
+            className={`plan-card ${
+              selectedPlan?.id === plan.id ? "active" : ""
+            }`}
             onClick={() => setSelectedPlan(plan)}
-            style={{
-              border:
-                selectedPlan?.id === plan.id
-                  ? "2px solid green"
-                  : "1px solid #ccc",
-              padding: "10px",
-              borderRadius: "8px",
-              cursor: "pointer",
-            }}
           >
             <strong>{plan.name}</strong>
             <p>{plan.duration}</p>
@@ -467,10 +499,13 @@ export default function AddProduct() {
           </div>
         ))}
       </div>
+    </div>
 
-      <button onClick={handleSubmit} disabled={loading}>
+    {/* ================= ACTIONS ================= */}
+    <div className="form-section">
+      <button className="btn" onClick={handleSubmit} disabled={loading}>
         {loading ? "Uploading..." : "Create Product"}
       </button>
     </div>
-  );
-}
+  </div>
+);
