@@ -12,7 +12,7 @@ export const promotionPlans = [
     id: 1,
     name: "Basic Boost",
     duration: "7 days",
-    price: 500,
+    price: 100,
     priority: 1,
     features: ["Featured"],
     description: "Basic visibility",
