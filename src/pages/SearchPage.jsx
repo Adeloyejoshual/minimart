@@ -12,6 +12,9 @@ export default function SearchPage() {
   /* ================= STATE ================= */
   const [searchQuery, setSearchQuery] = useState(urlQuery);
   const [products, setProducts] = useState([]);
+  const [trending, setTrending] = useState([]);
+  const [recent, setRecent] = useState([]);
+
   const [loading, setLoading] = useState(false);
 
   const [page, setPage] = useState(1);
@@ -19,10 +22,11 @@ export default function SearchPage() {
 
   const debounceRef = useRef(null);
 
-  /* ================= FETCH ================= */
+  /* ================= FETCH SEARCH ================= */
   const fetchSearch = useCallback(
     async (reset = false, queryOverride = null) => {
       const q = (queryOverride ?? searchQuery).trim();
+
       if (!q) return;
 
       try {
@@ -48,6 +52,38 @@ export default function SearchPage() {
     [searchQuery, page]
   );
 
+  /* ================= FETCH TRENDING ================= */
+  const fetchTrending = useCallback(async () => {
+    try {
+      const res = await fetch(`/api/trending-products`);
+      const data = await res.json();
+
+      setTrending(Array.isArray(data?.products) ? data.products : []);
+    } catch (err) {
+      console.error(err);
+      setTrending([]);
+    }
+  }, []);
+
+  /* ================= FETCH RECENT ================= */
+  const fetchRecent = useCallback(async () => {
+    try {
+      const res = await fetch(`/api/recent-products`);
+      const data = await res.json();
+
+      setRecent(Array.isArray(data?.products) ? data.products : []);
+    } catch (err) {
+      console.error(err);
+      setRecent([]);
+    }
+  }, []);
+
+  /* ================= INIT LOAD ================= */
+  useEffect(() => {
+    fetchTrending();
+    fetchRecent();
+  }, []);
+
   /* ================= URL SYNC ================= */
   useEffect(() => {
     setSearchQuery(urlQuery);
@@ -59,15 +95,16 @@ export default function SearchPage() {
 
   /* ================= LIVE SEARCH ================= */
   useEffect(() => {
-    if (!searchQuery.trim()) return;
-
     clearTimeout(debounceRef.current);
 
     debounceRef.current = setTimeout(() => {
       setProducts([]);
       setPage(1);
-      fetchSearch(true);
-    }, 400);
+
+      if (searchQuery.trim()) {
+        fetchSearch(true);
+      }
+    }, 350);
 
     return () => clearTimeout(debounceRef.current);
   }, [searchQuery]);
@@ -78,24 +115,41 @@ export default function SearchPage() {
     fetchSearch(false);
   }, [page]);
 
-  /* ================= INFINITE SCROLL ================= */
+  /* ================= SCROLL ================= */
   useEffect(() => {
     const onScroll = () => {
       if (
         window.innerHeight + window.scrollY >=
         document.body.offsetHeight - 300
       ) {
-        if (!loading && hasMore) setPage((p) => p + 1);
+        if (!loading && hasMore && searchQuery.trim()) {
+          setPage((p) => p + 1);
+        }
       }
     };
 
     window.addEventListener("scroll", onScroll);
     return () => window.removeEventListener("scroll", onScroll);
-  }, [loading, hasMore]);
+  }, [loading, hasMore, searchQuery]);
 
   const openProduct = (p) => {
     navigate(`/product/${p.id}`);
   };
+
+  /* ================= DATA DECISION ENGINE ================= */
+  const hasSearch = searchQuery.trim().length > 0;
+
+  const displayProducts = hasSearch
+    ? products
+    : trending.length > 0
+    ? trending
+    : recent;
+
+  const title = hasSearch
+    ? `Results for "${searchQuery}"`
+    : trending.length > 0
+    ? "🔥 Trending Products"
+    : "🆕 Recent Products";
 
   return (
     <div className="search-page">
@@ -107,11 +161,11 @@ export default function SearchPage() {
       <main className="results">
 
         <h1 className="results-title">
-          Results for "{searchQuery}"
+          {title}
         </h1>
 
         <div className="products-grid">
-          {products.map((p) => (
+          {displayProducts.map((p) => (
             <div
               key={p.id}
               className="product-card"
@@ -136,9 +190,9 @@ export default function SearchPage() {
         {loading && <div className="spinner" />}
 
         {/* ================= EMPTY ================= */}
-        {!loading && products.length === 0 && (
+        {!loading && displayProducts.length === 0 && (
           <div className="empty-state">
-            No products found
+            No products available
           </div>
         )}
       </main>
