@@ -8,7 +8,6 @@ import "../styles/AddProduct.css";
 const STORAGE_DRAFT = "product_draft";
 const STORAGE_PAYMENT = "payment_retry";
 
-/* ================= INITIAL FORM ================= */
 const INITIAL_FORM = {
   title: "",
   description: "",
@@ -79,7 +78,7 @@ export default function AddProduct() {
         setState(draft.state);
         setCity(draft.city);
         if (draft.selectedPlan !== null) {
-          const plan = promotionPlans.find(p => p.id === draft.selectedPlan);
+          const plan = promotionPlans.find((p) => p.id === draft.selectedPlan);
           setSelectedPlan(plan || null);
         }
       }
@@ -100,13 +99,12 @@ export default function AddProduct() {
     localStorage.removeItem(STORAGE_PAYMENT);
   }, []);
 
-  /* ================= DRAFT EFFECTS ================= */
   useEffect(() => {
     loadDraft();
   }, [loadDraft]);
 
   useEffect(() => {
-    if (!loading) saveDraft(); // Auto-save except during submit
+    if (!loading) saveDraft();
   }, [saveDraft, loading]);
 
   /* ================= PAYMENT PERSISTENCE ================= */
@@ -117,11 +115,11 @@ export default function AddProduct() {
 
   useEffect(() => {
     if (paymentData) {
-      localStorage.setItem(STORAGE_PAYMENT, JSON.stringify(paymentData));
+      localStorage.setItem(STORAGE_PAYMENT, JSON.stringify(paymentPid));
     }
   }, [paymentData]);
 
-  /* ================= FETCH & OTHERS (unchanged) ================= */
+  /* ================= FETCH CATEGORIES ================= */
   useEffect(() => {
     fetch("https://minimart-ivrm.onrender.com/api/marketplace/categories")
       .then((r) => r.json())
@@ -129,12 +127,10 @@ export default function AddProduct() {
       .catch(console.error);
   }, []);
 
-  // ... all other functions unchanged (selectedCategory, helpers, updates, etc.) ...
-
-  const selectedCategory = useMemo(
-    () => categories.find((c) => String(c.id) === String(form.category_id)),
-    [categories, form.category_id]
-  );
+  const selectedCategory = useMemo(() => {
+    if (!form.category_id) return null;
+    return categories.find((c) => String(c.id) === String(form.category_id)) || null;
+  }, [categories, form.category_id]);
 
   const options = selectedCategory?.dynamicOptions || {};
   const attributes = form.attributes;
@@ -149,7 +145,7 @@ export default function AddProduct() {
 
   const onlyNumbers = (v = "") => v.replace(/D/g, "");
 
-  const formatPrice = (v) => {
+  const formatPrice = (v = "") => {
     const num = v.replace(/D/g, "");
     return num ? new Intl.NumberFormat("en-NG").format(Number(num)) : "";
   };
@@ -169,7 +165,7 @@ export default function AddProduct() {
       used_detail: normalizeOptions(options.usedDetails),
       ram: normalizeOptions(options.ram),
       storage: normalizeOptions(options.storage),
-      sim: normalizeOptions(options.sims),
+      sim: normalize(options.sims),
       year: normalizeOptions(options.years),
       engine: normalizeOptions(options.engines),
       fuel_type: normalizeOptions(options.fuel_types),
@@ -255,8 +251,12 @@ export default function AddProduct() {
   };
 
   const handleImages = (files) => {
-    const list = Array.from(files).slice(0, 8);
+    const list = Array.from(files)
+      .slice(0, 8)
+      .filter((f) => f.size <= 3 * 1024 * 1024);
+
     previews.forEach(URL.revokeObjectURL);
+
     setImages(list);
     setPreviews(list.map((f) => URL.createObjectURL(f)));
   };
@@ -280,7 +280,10 @@ export default function AddProduct() {
         {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify(paymentData),
+          body: JSON.stringify({
+            ...paymentData,
+            email: form.contact.email,
+          }),
         }
       );
 
@@ -320,10 +323,12 @@ export default function AddProduct() {
       location_state: state,
       location_city: city,
       promotion_plan: finalPlan.id,
-      status: finalPlan.price === 0 ? "active" : "pending",
+      state: "draft", // only “draft” from frontend
     };
 
-    Object.entries(payload).forEach(([k, v]) => fd.append(k, v));
+    Object.entries(payload)
+      .filter(([_, v]) => v !== null && v !== undefined)
+      .forEach(([k, v]) => fd.append(k, v));
     images.forEach((img) => fd.append("images", img));
 
     try {
@@ -340,15 +345,14 @@ export default function AddProduct() {
       const result = await res.json();
       const productId = result?.product?.id || result?.id;
 
-            if (finalPlan.price === 0) {
+      if (finalPlan.price === 0) {
         alert("✅ Product created");
-
-        clearDraft(); // 🔥 Full reset including drafts
+        clearDraft();
         setLoading(false);
         return;
       }
 
-      /* 🔥 PAYMENT */
+      /* PAYMENT INIT with idempotencyKey */
       const payRes = await fetch(
         "https://minimart-ivrm.onrender.com/api/payment/initialize",
         {
@@ -359,6 +363,7 @@ export default function AddProduct() {
             amount: Number(finalPlan.price),
             planId: finalPlan.id,
             productId,
+            idempotencyKey: `${productId}`,
           }),
         }
       );
@@ -371,6 +376,7 @@ export default function AddProduct() {
           amount: Number(finalPlan.price),
           planId: finalPlan.id,
           productId,
+          idempotencyKey: `${productId}`,
         });
         setLoading(false);
         return alert(payData.message || "Payment init failed - retry below");
@@ -386,15 +392,13 @@ export default function AddProduct() {
   const states = Object.keys(locationsByState || {});
   const cities = state ? locationsByState[state] : [];
 
-  /* ================= UI ================= */
   return (
     <div className="add-product-container">
-      <AddProductHeader 
+      <AddProductHeader
         title="Add Product"
         onClearDraft={clearDraft}
       />
 
-      {/* ALL SECTIONS - ROUND STYLE */}
       <div className="form-section-round">
         <label>Product Title</label>
         <input
@@ -470,7 +474,7 @@ export default function AddProduct() {
         );
       })}
 
-      {/* FEATURES - CHECKBOX INLINE */}
+      {/* FEATURES */}
       {Array.isArray(options.features) && options.features.length > 0 && (
         <div className="form-section-round">
           <label>Features</label>
@@ -532,7 +536,7 @@ export default function AddProduct() {
         <label>State</label>
         <DropdownModal label="" value={state} onChange={setState} options={states} />
       </div>
-      
+
       {state && (
         <div className="form-section-round">
           <label>City</label>
@@ -551,11 +555,20 @@ export default function AddProduct() {
 
       <div className="form-section-round">
         <label>Product Images (max 8)</label>
-        <input type="file" multiple accept="image/*" onChange={(e) => handleImages(e.target.files)} />
+        <label className="add-image-btn">
+          + Add Images
+          <input
+            type="file"
+            multiple
+            accept="image/*"
+            onChange={(e) => handleImages(e.target.files)}
+            hidden
+          />
+        </label>
         <div className="preview-grid">
           {previews.map((src, i) => (
             <div key={i} className="preview-item">
-              <img src={src} alt={`Preview ${i + 1}`} />
+              <img src={src} className="preview-thumb" alt={`Preview ${i + 1}`} />
               <button onClick={() => removeImage(i)}>✕</button>
             </div>
           ))}
@@ -588,6 +601,7 @@ export default function AddProduct() {
         </div>
       </div>
 
+            {/* ===== BUTTONS ===== */}
       <div className="form-section-round button-section">
         <button onClick={handleSubmit} disabled={loading} className="primary-btn">
           {loading ? "Uploading..." : "Create Product"}
