@@ -1,7 +1,6 @@
-/* ===================== ROOT STICKY SYSTEM ===================== */
+/* ===================== ROOT SYSTEM ===================== */
 :root {
   --nav-height: 58px;
-  --search-height: 64px;
 }
 
 /* ===================== TOP NAV ===================== */
@@ -20,14 +19,14 @@
   overflow: hidden;
 }
 
-/* Gradient animation (optimized slightly) */
+/* ===================== GRADIENT ANIMATION ===================== */
 @keyframes gradientFlow {
   0% { background-position: 0% 50%; }
   50% { background-position: 100% 50%; }
   100% { background-position: 0% 50%; }
 }
 
-/* ===================== LIGHT OVERLAY ===================== */
+/* ===================== OVERLAY EFFECT ===================== */
 .top-nav::after {
   content: "";
   position: absolute;
@@ -63,39 +62,37 @@
   background: transparent;
   border: none;
   cursor: pointer;
+
   padding: 6px 10px;
   transition: transform 0.2s ease, color 0.3s ease;
 }
 
 .menu-dots:hover {
-  color: #e0f2fe;
   transform: scale(1.1);
+  color: #e0f2fe;
 }
 
 /* ===================== BRAND ===================== */
 .nav-brand {
-  display: flex;
-  align-items: center;
-  gap: 0.5rem;
-  cursor: pointer;
   color: #fff;
+  font-weight: 700;
+  cursor: pointer;
 }
 
-/* ===================== STICKY SEARCH WRAPPER ===================== */
-.search-below-nav {
+/* ========================================================= */
+/* ===================== SEARCH SYSTEM ===================== */
+/* ========================================================= */
+
+/* Wrapper under nav OR inside header (single system) */
+.search-wrapper {
   position: sticky;
-
-  /* 👇 IMPORTANT FIX: no hardcoded pixel jump */
   top: var(--nav-height);
-
   z-index: 999;
+
+  padding: 10px 14px;
 
   display: flex;
   justify-content: center;
-  align-items: center;
-
-  gap: 8px;
-  padding: 10px 14px;
 
   background: rgba(240, 249, 255, 0.95);
   backdrop-filter: blur(10px);
@@ -103,79 +100,106 @@
   box-shadow: 0 4px 12px rgba(0,0,0,0.05);
 }
 
-/* ===================== SEARCH INPUT ===================== */
-.search-below-nav .search-input {
+/* search box container */
+.search-box {
   width: 100%;
   max-width: 520px;
 
-  padding: 0.7rem 1rem;
-
-  border-radius: 14px;
-  border: 1px solid #93c5fd;
-
-  font-size: 1rem;
-  outline: none;
-
-  transition: all 0.25s ease;
+  display: flex;
+  align-items: center;
 
   background: #fff;
-  color: #1e3a8a;
+  border-radius: 14px;
+
+  border: 1px solid #93c5fd;
+  overflow: hidden;
+
+  transition: all 0.25s ease;
 }
 
-.search-below-nav .search-input:focus {
+.search-box:focus-within {
   border-color: #60a5fa;
   box-shadow: 0 0 0 3px rgba(147,197,253,0.25);
 }
 
-/* ===================== SEARCH BUTTON ===================== */
-.search-btn {
-  padding: 0.65rem 1rem;
+/* input */
+.search-input {
+  flex: 1;
   border: none;
-  border-radius: 12px;
+  outline: none;
 
-  background: #1e3a8a;
-  color: #fff;
+  padding: 12px 14px;
+  font-size: 1rem;
+
+  background: transparent;
+  color: #1e3a8a;
+}
+
+/* INLINE BUTTON (your required design) */
+.search-btn {
+  border: none;
+  background: transparent;
+
+  padding: 0 14px;
+
+  font-size: 0.9rem;
+  font-weight: 700;
+
+  color: #1e3a8a;
 
   cursor: pointer;
-  transition: all 0.25s ease;
+  white-space: nowrap;
+
+  transition: color 0.2s ease, transform 0.2s ease;
 }
 
 .search-btn:hover {
-  background: #3b82f6;
-  transform: translateY(-1px);
+  color: #3b82f6;
+}
+
+.search-btn:active {
+  transform: scale(0.95);
+}
+
+/* ===================== DROPDOWN ===================== */
+.search-dropdown {
+  position: absolute;
+  top: 100%;
+  left: 50%;
+  transform: translateX(-50%);
+
+  width: 100%;
+  max-width: 520px;
+
+  margin-top: 8px;
+
+  background: #fff;
+  border-radius: 12px;
+
+  box-shadow: 0 8px 20px rgba(0,0,0,0.08);
+
+  max-height: 300px;
+  overflow-y: auto;
 }
 
 /* ===================== RESPONSIVE ===================== */
-@media (max-width: 1024px) {
-  :root {
-    --nav-height: 56px;
-  }
-
-  .search-below-nav {
-    padding: 8px 10px;
-  }
-}
-
 @media (max-width: 768px) {
   .menu-dots {
     font-size: 28px;
   }
 
-  .search-below-nav {
-    flex-direction: row;
+  .search-wrapper {
+    padding: 8px 10px;
   }
 
-  .search-below-nav .search-input {
+  .search-box {
     max-width: 100%;
   }
 }
 
-/* ===================== PERFORMANCE FIX ===================== */
+/* ===================== PERFORMANCE ===================== */
 @media (prefers-reduced-motion: reduce) {
-  .top-nav {
-    animation: none;
-  }
-
+  .top-nav,
   .top-nav::after {
     animation: none;
   }
