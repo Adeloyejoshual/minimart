@@ -1,13 +1,14 @@
 import express from "express";
 import axios from "axios";
+import crypto from "crypto";
 
 const router = express.Router();
 
 /* ================= PAYSTACK INIT ================= */
 router.post("/initialize", async (req, res) => {
-  let { email, amount, productId, planId } = req.body;
-
   try {
+    let { email, amount, productId, planId, userId } = req.body;
+
     /* ================= VALIDATION ================= */
     if (!email || !email.includes("@")) {
       return res.status(400).json({ error: "Invalid email" });
@@ -15,23 +16,29 @@ router.post("/initialize", async (req, res) => {
 
     amount = Number(amount);
 
-    if (!amount || amount <= 0) {
+    if (!Number.isFinite(amount) || amount <= 0) {
       return res.status(400).json({ error: "Invalid amount" });
     }
+
+    /* ================= SAFE REFERENCE ================= */
+    const reference = `PSK_${crypto.randomBytes(12).toString("hex")}`;
 
     /* ================= PAYLOAD ================= */
     const payload = {
       email,
       amount: Math.round(amount * 100),
 
-      /* 🔥 CRITICAL FOR MARKETPLACE */
+      reference,
+
+      /* 🔥 CRITICAL MARKETPLACE CONTEXT */
       metadata: {
-        productId,
-        planId,
+        productId: productId || null,
+        planId: planId || null,
+        userId: userId || null,
+        email,
       },
 
-      /* OPTIONAL BUT RECOMMENDED */
-      callback_url: `${process.env.FRONTEND_URL}/payment/success`,
+      callback_url: `${process.env.FRONTEND_URL}/payment/success?ref=${reference}`,
     };
 
     console.log("🔥 PAYSTACK INIT:", payload);
@@ -49,13 +56,12 @@ router.post("/initialize", async (req, res) => {
 
     return res.json({
       success: true,
+      reference,
       authorization_url: response.data.data.authorization_url,
-      reference: response.data.data.reference,
     });
 
   } catch (err) {
-    console.error("❌ PAYSTACK ERROR:");
-    console.error(err.response?.data || err.message);
+    console.error("❌ PAYSTACK INIT ERROR:", err.response?.data || err.message);
 
     return res.status(500).json({
       error: "Init failed",
