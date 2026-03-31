@@ -1,10 +1,46 @@
-import { useEffect, useState, useMemo, useCallback } from "react";
+import {
+  useEffect,
+  useState,
+  useMemo,
+  useCallback,
+  memo,
+} from "react";
 import { useNavigate } from "react-router-dom";
 import TopNav from "../components/TopNav";
 import BottomNav from "../components/BottomNav";
 import { useProductCache } from "../context/ProductCacheContext";
 import "../styles/Homepage.css";
 
+/* ================= CARD (MEMOIZED FOR PERFORMANCE) ================= */
+const Card = memo(function Card({ p, onClick }) {
+  const getImage = () =>
+    p?.images?.[0] || "https://via.placeholder.com/300x200?text=No+Image";
+
+  const getLocation = () =>
+    p?.location?.state && p?.location?.city
+      ? `${p.location.state}, ${p.location.city}`
+      : p?.location?.state || "Nigeria";
+
+  return (
+    <div className="card" onClick={() => onClick(p.id)}>
+      <div className="card-image">
+        <img src={getImage()} alt={p.title} loading="lazy" />
+      </div>
+
+      <div className="card-body">
+        <div className="price">₦{Number(p.price || 0).toLocaleString()}</div>
+
+        <div className="title">
+          {p.title?.length > 60 ? p.title.slice(0, 60) + "..." : p.title}
+        </div>
+
+        <div className="location">📍 {getLocation()}</div>
+      </div>
+    </div>
+  );
+});
+
+/* ================= HOMEPAGE ================= */
 export default function Homepage() {
   const {
     products,
@@ -19,15 +55,16 @@ export default function Homepage() {
   const [visibleCount, setVisibleCount] = useState(12);
 
   const navigate = useNavigate();
+
   const PAGE_SIZE = 12;
 
-  /* ================= FETCH ONCE ================= */
+  /* ================= FETCH ================= */
   useEffect(() => {
     if (loaded) return;
 
     const controller = new AbortController();
 
-    const fetchData = async () => {
+    const load = async () => {
       try {
         setLoading(true);
 
@@ -42,7 +79,11 @@ export default function Homepage() {
         const promoted = Array.isArray(data?.promoted) ? data.promoted : [];
 
         setProducts(latest);
-        setTrending(promoted.length ? promoted.slice(0, 10) : latest.slice(0, 10));
+
+        setTrending(
+          promoted.length ? promoted.slice(0, 10) : latest.slice(0, 10)
+        );
+
         setLoaded(true);
       } catch (err) {
         if (err.name !== "AbortError") console.error(err);
@@ -51,7 +92,7 @@ export default function Homepage() {
       }
     };
 
-    fetchData();
+    load();
     return () => controller.abort();
   }, [loaded, setProducts, setTrending, setLoaded]);
 
@@ -68,17 +109,14 @@ export default function Homepage() {
     [products, visibleCount]
   );
 
-  /* ================= HELPERS ================= */
-  const getImage = (p) =>
-    p?.images?.[0] || "https://via.placeholder.com/300x200?text=No+Image";
-
-  const getLocation = (p) =>
-    p?.location?.state && p?.location?.city
-      ? `${p.location.state}, ${p.location.city}`
-      : p?.location?.state || "Nigeria";
+  /* ================= NAV ================= */
+  const goToProduct = useCallback(
+    (id) => navigate(`/product/${id}`),
+    [navigate]
+  );
 
   /* ================= INFINITE SCROLL ================= */
-  const loaderRef = useCallback(
+  const loadMoreRef = useCallback(
     (node) => {
       if (!node) return;
 
@@ -89,60 +127,23 @@ export default function Homepage() {
       });
 
       observer.observe(node);
-
       return () => observer.disconnect();
     },
     []
   );
 
-  /* ================= JIJI CARD ================= */
-  const Card = useCallback(
-    ({ p }) => (
-      <div
-        className="jiji-card"
-        onClick={() => navigate(`/product/${p.id}`)}
-      >
-        <img
-          className="jiji-img"
-          src={getImage(p)}
-          alt={p.title}
-          loading="lazy"
-        />
-
-        <div className="jiji-info">
-          <div className="jiji-price">
-            ₦{Number(p.price || 0).toLocaleString()}
-          </div>
-
-          <div className="jiji-title">
-            {p.title?.length > 60
-              ? p.title.slice(0, 60) + "..."
-              : p.title}
-          </div>
-
-          <div className="jiji-location">
-            📍 {getLocation(p)}
-          </div>
-        </div>
-      </div>
-    ),
-    [navigate]
-  );
-
-  /* ================= MINI SECTION ================= */
+  /* ================= SECTION ================= */
   const Section = ({ title, items }) => {
     if (!items.length) return null;
 
     return (
       <div className="mini-section">
-        <div className="mini-header">
-          <h3>{title}</h3>
-        </div>
+        <h3 className="mini-title">{title}</h3>
 
-        <div className="mini-scroll">
+        <div className="horizontal-scroll">
           {items.map((p) => (
-            <div key={p.id} className="mini-item">
-              <Card p={p} />
+            <div key={p.id} className="scroll-item">
+              <Card p={p} onClick={goToProduct} />
             </div>
           ))}
         </div>
@@ -153,13 +154,11 @@ export default function Homepage() {
   /* ================= UI ================= */
   return (
     <>
-      <div className="sticky-header">
-        <TopNav />
-      </div>
+      <TopNav />
 
       <div className="homepage-container">
 
-        {/* SELL BUTTON */}
+        {/* FLOAT BUTTON */}
         <button
           className="floating-btn"
           onClick={() => navigate("/minimart/add")}
@@ -172,11 +171,9 @@ export default function Homepage() {
         <Section title="💰 Cheap Deals" items={cheapDeals} />
         <Section title="✨ Recommended" items={recommended} />
 
-        {/* ALL PRODUCTS */}
+        {/* ALL PRODUCTS (MASONRY GRID) */}
         <div className="section">
-          <div className="section-header">
-            <h2>🛒 All Products</h2>
-          </div>
+          <h2>🛒 All Products</h2>
 
           {visibleProducts.length === 0 && !loading ? (
             <p className="empty">No products available</p>
@@ -184,16 +181,15 @@ export default function Homepage() {
             <>
               <div className="grid">
                 {visibleProducts.map((p) => (
-                  <Card key={p.id} p={p} />
+                  <Card key={p.id} p={p} onClick={goToProduct} />
                 ))}
               </div>
 
-              {/* INFINITE SCROLL TRIGGER */}
-              <div ref={loaderRef} style={{ height: "30px" }} />
+              <div ref={loadMoreRef} style={{ height: 40 }} />
             </>
           )}
 
-          {loading && <p className="loading">Loading products...</p>}
+          {loading && <p className="loading">Loading...</p>}
         </div>
       </div>
 
