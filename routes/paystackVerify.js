@@ -18,7 +18,7 @@ router.post("/verify", async (req, res) => {
   }
 
   try {
-    /* ================= PAYSTACK VERIFY ================= */
+    /* ================= VERIFY WITH PAYSTACK ================= */
     const verifyRes = await axios.get(
       `https://api.paystack.co/transaction/verify/${reference}`,
       {
@@ -34,14 +34,28 @@ router.post("/verify", async (req, res) => {
       return res.status(400).json({ error: "Payment not successful" });
     }
 
-    /* ================= FIX METADATA ================= */
-    const { productId, planId } = data.metadata || {};
+    const metadata = data.metadata || {};
+    const productId = metadata.productId;
+    const planId = metadata.planId;
 
     if (!productId) {
       return res.status(400).json({ error: "Missing productId in metadata" });
     }
 
-    /* ================= GET PLAN FROM DB ================= */
+    /* ================= IDEMPOTENCY CHECK ================= */
+    const paymentCheck = await pool.query(
+      `SELECT id FROM payments WHERE reference = $1 AND status = 'success'`,
+      [reference]
+    );
+
+    if (paymentCheck.rows.length > 0) {
+      return res.json({
+        success: true,
+        message: "Payment already processed",
+      });
+    }
+
+    /* ================= GET PLAN ================= */
     let plan = null;
 
     if (planId) {
@@ -52,14 +66,40 @@ router.post("/verify", async (req, res) => {
       plan = planRes.rows[0];
     }
 
-    /* ================= PREVENT DUPLICATES ================= */
-    const existing = await pool.query(
-      `SELECT id FROM products WHERE id = $1 AND is_active = true`,
-      [productId]
+    /* ================= SAVE PAYMENT RECORD ================= */
+    await pool.query(
+      `
+      INSERT INTO payments (
+        reference,
+        amount,
+        status,
+        product_id,
+        plan_id,
+        metadata,
+        type
+      )
+      VALUES ($1, $2, 'success', $3, $4, $5, 'promotion')
+      `,
+      [
+        reference,
+        data.amount / 100,
+        productId,
+        planId || null,
+        metadata,
+      ]
     );
 
-    if (existing.rows.length && data.metadata?.verified_once) {
-      return res.json({ success: true, message: "Already processed" });
+    /* ================= CALCULATE EXPIRY ================= */
+    let expiresAt = null;
+
+    if (plan?.duration) {
+      const match = plan.duration.match(/\d+/);
+      const days = match ? parseInt(match[0]) : null;
+
+      if (days) {
+        expiresAt = new Date();
+        expiresAt.setDate(expiresAt.getDate() + days);
+      }
     }
 
     /* ================= ACTIVATE PRODUCT ================= */
@@ -70,40 +110,34 @@ router.post("/verify", async (req, res) => {
         status = 'active',
         is_active = true,
 
-        is_promoted = CASE WHEN $2::int IS NOT NULL THEN true ELSE false END,
+        is_promoted = $2 IS NOT NULL,
         promotion_id = $2,
 
-        promotion_start = CASE WHEN $2::int IS NOT NULL THEN now() ELSE NULL END,
-        promotion_expires_at = CASE 
-          WHEN $2::int IS NOT NULL AND $3::int IS NOT NULL
-          THEN now() + ($3 || ' days')::interval
-          ELSE NULL
-        END,
+        promotion_start = CASE WHEN $2 IS NOT NULL THEN now() ELSE NULL END,
+        promotion_expires_at = $3,
 
         updated_at = now()
       WHERE id = $1
       RETURNING *
       `,
-      [
-        productId,
-        planId || null,
-        plan?.duration_days || null,
-      ]
+      [productId, planId || null, expiresAt]
     );
 
     if (!result.rows.length) {
       return res.status(404).json({ error: "Product not found" });
     }
 
-    res.json({
+    return res.json({
       success: true,
       product: result.rows[0],
     });
+
   } catch (err) {
     console.error("❌ VERIFY ERROR:", err.response?.data || err.message);
 
-    res.status(500).json({
+    return res.status(500).json({
       error: "Verification failed",
+      details: err.response?.data || err.message,
     });
   }
 });
