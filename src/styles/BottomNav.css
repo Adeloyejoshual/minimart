@@ -1,0 +1,60 @@
+/* src/styles/BottomNav.css */
+
+.bottom-nav {
+  position: fixed;
+  bottom: 0;
+  left: 0;
+  right: 0;
+
+  height: 60px;
+  background: #fff;
+  border-top: 1px solid #e5e5e5;
+
+  display: flex;
+  justify-content: space-around;
+  align-items: center;
+
+  z-index: 1000;
+}
+
+/* NAV ITEM */
+.nav-item {
+  background: none;
+  border: none;
+  cursor: pointer;
+
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+
+  color: #888;
+  font-size: 12px;
+  transition: all 0.2s ease;
+}
+
+/* ICON */
+.nav-item .icon {
+  font-size: 18px;
+}
+
+/* LABEL */
+.nav-item .label {
+  margin-top: 2px;
+}
+
+/* ACTIVE STATE */
+.nav-item.active {
+  color: #000;
+  font-weight: 600;
+  transform: translateY(-2px);
+}
+
+.nav-item.active .icon {
+  font-size: 19px;
+}
+
+/* HOVER EFFECT */
+.nav-item:hover {
+  color: #000;
+}
