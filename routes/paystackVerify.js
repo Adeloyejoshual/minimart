@@ -9,7 +9,7 @@ const pool = new Pool({
   ssl: { rejectUnauthorized: false },
 });
 
-/* ================= VERIFY PAYMENT ================= */
+/* ================= VERIFY PAYMENT (HARDENED) ================= */
 router.post("/verify", async (req, res) => {
   const { reference } = req.body;
 
@@ -17,8 +17,10 @@ router.post("/verify", async (req, res) => {
     return res.status(400).json({ error: "Missing reference" });
   }
 
+  const client = await pool.connect();
+
   try {
-    /* ================= VERIFY WITH PAYSTACK ================= */
+    /* ================= PAYSTACK VERIFY ================= */
     const verifyRes = await axios.get(
       `https://api.paystack.co/transaction/verify/${reference}`,
       {
@@ -39,35 +41,39 @@ router.post("/verify", async (req, res) => {
     const planId = metadata.planId;
 
     if (!productId) {
-      return res.status(400).json({ error: "Missing productId in metadata" });
+      return res.status(400).json({ error: "Missing productId" });
     }
 
-    /* ================= IDEMPOTENCY CHECK ================= */
-    const paymentCheck = await pool.query(
-      `SELECT id FROM payments WHERE reference = $1 AND status = 'success'`,
+    /* ================= TRANSACTION START ================= */
+    await client.query("BEGIN");
+
+    /* ================= IDEMPOTENCY (ATOMIC) ================= */
+    const existing = await client.query(
+      `SELECT id FROM payments WHERE reference = $1 FOR UPDATE`,
       [reference]
     );
 
-    if (paymentCheck.rows.length > 0) {
+    if (existing.rows.length > 0) {
+      await client.query("ROLLBACK");
       return res.json({
         success: true,
-        message: "Payment already processed",
+        message: "Already processed",
       });
     }
 
-    /* ================= GET PLAN ================= */
+    /* ================= PLAN FETCH ================= */
     let plan = null;
 
     if (planId) {
-      const planRes = await pool.query(
+      const planRes = await client.query(
         `SELECT * FROM promotion_plans WHERE id = $1`,
         [planId]
       );
       plan = planRes.rows[0];
     }
 
-    /* ================= SAVE PAYMENT RECORD ================= */
-    await pool.query(
+    /* ================= SAVE PAYMENT ================= */
+    await client.query(
       `
       INSERT INTO payments (
         reference,
@@ -89,21 +95,20 @@ router.post("/verify", async (req, res) => {
       ]
     );
 
-    /* ================= CALCULATE EXPIRY ================= */
+    /* ================= EXPIRY CALC ================= */
     let expiresAt = null;
 
     if (plan?.duration) {
-      const match = plan.duration.match(/\d+/);
-      const days = match ? parseInt(match[0]) : null;
+      const days = parseInt(plan.duration.match(/\d+/)?.[0] || "0");
 
-      if (days) {
+      if (days > 0) {
         expiresAt = new Date();
         expiresAt.setDate(expiresAt.getDate() + days);
       }
     }
 
-    /* ================= ACTIVATE PRODUCT ================= */
-    const result = await pool.query(
+    /* ================= PRODUCT UPDATE ================= */
+    const update = await client.query(
       `
       UPDATE products
       SET
@@ -116,6 +121,7 @@ router.post("/verify", async (req, res) => {
         promotion_start = CASE WHEN $2 IS NOT NULL THEN now() ELSE NULL END,
         promotion_expires_at = $3,
 
+        state = 'active',
         updated_at = now()
       WHERE id = $1
       RETURNING *
@@ -123,22 +129,29 @@ router.post("/verify", async (req, res) => {
       [productId, planId || null, expiresAt]
     );
 
-    if (!result.rows.length) {
+    if (!update.rows.length) {
+      await client.query("ROLLBACK");
       return res.status(404).json({ error: "Product not found" });
     }
 
+    await client.query("COMMIT");
+
     return res.json({
       success: true,
-      product: result.rows[0],
+      product: update.rows[0],
     });
 
   } catch (err) {
+    await client.query("ROLLBACK");
+
     console.error("❌ VERIFY ERROR:", err.response?.data || err.message);
 
     return res.status(500).json({
       error: "Verification failed",
-      details: err.response?.data || err.message,
     });
+
+  } finally {
+    client.release();
   }
 });
 
