@@ -1,4 +1,3 @@
-// src/App.jsx
 import React, { useEffect, useState } from "react";
 import { BrowserRouter as Router, Routes, Route, Navigate } from "react-router-dom";
 import axios from "axios";
@@ -23,14 +22,17 @@ import Support from "./pages/Support";
 import Invitation from "./pages/Invitation";
 import TermsAndConditions from "./pages/TermsAndConditions";
 
-// Profile sub-pages
+/* ================= MENU PAGE (ADDED) ================= */
+import MenuPage from "./pages/MenuPage";
+
+/* ================= PROFILE SUB-PAGES ================= */
 import Coupons from "./pages/Profile/Coupons";
 import Dashboard from "./pages/Profile/Dashboard";
 import Leaderboard from "./pages/Profile/Leaderboard";
 import Verification from "./pages/Profile/Verification";
 import Wallet from "./pages/Profile/Wallet";
 
-// Admin
+/* ================= ADMIN ================= */
 import AdminLogin from "./pages/admin/AdminLogin";
 import AdminDashboard from "./pages/admin/AdminDashboard";
 
@@ -46,7 +48,7 @@ export default function App() {
 
   const API = "https://minimart-ivrm.onrender.com/api/users";
 
-  /* ================= USER ================= */
+  /* ================= USER AUTH ================= */
   useEffect(() => {
     const token = localStorage.getItem("token");
 
@@ -58,7 +60,7 @@ export default function App() {
     axios
       .get(`${API}/me`, {
         headers: { Authorization: `Bearer ${token}` },
-        timeout: 8000, // prevent infinite loading
+        timeout: 8000,
       })
       .then((res) => setUser(res.data))
       .catch(() => {
@@ -68,7 +70,7 @@ export default function App() {
       .finally(() => setLoadingUser(false));
   }, []);
 
-  /* ================= ADMIN ================= */
+  /* ================= ADMIN AUTH ================= */
   useEffect(() => {
     const token = localStorage.getItem("admin_token");
     const storedAdmin = localStorage.getItem("admin");
@@ -88,13 +90,12 @@ export default function App() {
     }
   }, []);
 
-  /* ================= TIMEOUT MESSAGE ================= */
+  /* ================= TIMEOUT ================= */
   useEffect(() => {
     const timer = setTimeout(() => setTimeoutReached(true), 5000);
     return () => clearTimeout(timer);
   }, []);
 
-  /* ================= GLOBAL LOADING ================= */
   const isAppLoading = loadingUser || loadingAdmin;
 
   if (isAppLoading) {
@@ -113,20 +114,15 @@ export default function App() {
 
   /* ================= ROUTE GUARDS ================= */
   const ProtectedRoute = ({ children }) => {
-    if (!user) {
-      return <Navigate to="/auth" replace />;
-    }
+    if (!user) return <Navigate to="/auth" replace />;
     return children;
   };
 
   const AdminProtectedRoute = ({ children }) => {
-    if (!admin) {
-      return <Navigate to="/admin/login" replace />;
-    }
+    if (!admin) return <Navigate to="/admin/login" replace />;
     return children;
   };
 
-  /* ================= AUTH ================= */
   const handleAuthSuccess = (userData, token) => {
     localStorage.setItem("token", token);
     setUser(userData);
@@ -136,7 +132,6 @@ export default function App() {
   /* ================= APP ================= */
   return (
     <Router>
-      {/* Toast */}
       <Toaster
         position="top-right"
         toastOptions={{
@@ -152,6 +147,7 @@ export default function App() {
       />
 
       <Routes>
+
         {/* ================= PUBLIC ================= */}
         <Route path="/" element={<Homepage user={user} />} />
         <Route path="/search" element={<SearchPage user={user} />} />
@@ -160,22 +156,144 @@ export default function App() {
         <Route path="/auth" element={<AuthPage setUser={handleAuthSuccess} />} />
         <Route path="/terms" element={<TermsAndConditions />} />
 
-        {/* ================= USER ================= */}
-        <Route path="/profile" element={<ProtectedRoute><Profile user={user} /></ProtectedRoute>} />
-        <Route path="/settings" element={<ProtectedRoute><SettingsPage user={user} /></ProtectedRoute>} />
-        <Route path="/minimart/add" element={<ProtectedRoute><AddProduct user={user} /></ProtectedRoute>} />
-        <Route path="/conversations" element={<ProtectedRoute><Conversations user={user} /></ProtectedRoute>} />
-        <Route path="/chat/:productId" element={<ProtectedRoute><Chat user={user} /></ProtectedRoute>} />
-        <Route path="/coupons" element={<ProtectedRoute><Coupons user={user} /></ProtectedRoute>} />
-        <Route path="/dashboard" element={<ProtectedRoute><Dashboard user={user} /></ProtectedRoute>} />
-        <Route path="/leaderboard" element={<ProtectedRoute><Leaderboard user={user} /></ProtectedRoute>} />
-        <Route path="/verification" element={<ProtectedRoute><Verification user={user} /></ProtectedRoute>} />
-        <Route path="/wallet" element={<ProtectedRoute><Wallet user={user} /></ProtectedRoute>} />
-        <Route path="/become-seller" element={<ProtectedRoute><BecomeSeller user={user} /></ProtectedRoute>} />
-        <Route path="/faq" element={<ProtectedRoute><FAQ user={user} /></ProtectedRoute>} />
-        <Route path="/complain" element={<ProtectedRoute><Complain user={user} /></ProtectedRoute>} />
-        <Route path="/support" element={<ProtectedRoute><Support user={user} /></ProtectedRoute>} />
-        <Route path="/invitation" element={<ProtectedRoute><Invitation user={user} /></ProtectedRoute>} />
+        {/* ================= MENU (NEW PAGE) ================= */}
+        <Route path="/menu" element={<MenuPage />} />
+
+        {/* ================= USER PROTECTED ================= */}
+        <Route
+          path="/profile"
+          element={
+            <ProtectedRoute>
+              <Profile user={user} />
+            </ProtectedRoute>
+          }
+        />
+
+        <Route
+          path="/settings"
+          element={
+            <ProtectedRoute>
+              <SettingsPage user={user} />
+            </ProtectedRoute>
+          }
+        />
+
+        <Route
+          path="/minimart/add"
+          element={
+            <ProtectedRoute>
+              <AddProduct user={user} />
+            </ProtectedRoute>
+          }
+        />
+
+        <Route
+          path="/conversations"
+          element={
+            <ProtectedRoute>
+              <Conversations user={user} />
+            </ProtectedRoute>
+          }
+        />
+
+        <Route
+          path="/chat/:productId"
+          element={
+            <ProtectedRoute>
+              <Chat user={user} />
+            </ProtectedRoute>
+          }
+        />
+
+        <Route
+          path="/coupons"
+          element={
+            <ProtectedRoute>
+              <Coupons user={user} />
+            </ProtectedRoute>
+          }
+        />
+
+        <Route
+          path="/dashboard"
+          element={
+            <ProtectedRoute>
+              <Dashboard user={user} />
+            </ProtectedRoute>
+          }
+        />
+
+        <Route
+          path="/leaderboard"
+          element={
+            <ProtectedRoute>
+              <Leaderboard user={user} />
+            </ProtectedRoute>
+          }
+        />
+
+        <Route
+          path="/verification"
+          element={
+            <ProtectedRoute>
+              <Verification user={user} />
+            </ProtectedRoute>
+          }
+        />
+
+        <Route
+          path="/wallet"
+          element={
+            <ProtectedRoute>
+              <Wallet user={user} />
+            </ProtectedRoute>
+          }
+        />
+
+        <Route
+          path="/become-seller"
+          element={
+            <ProtectedRoute>
+              <BecomeSeller user={user} />
+            </ProtectedRoute>
+          }
+        />
+
+        <Route
+          path="/faq"
+          element={
+            <ProtectedRoute>
+              <FAQ user={user} />
+            </ProtectedRoute>
+          }
+        />
+
+        <Route
+          path="/complain"
+          element={
+            <ProtectedRoute>
+              <Complain user={user} />
+            </ProtectedRoute>
+          }
+        />
+
+        <Route
+          path="/support"
+          element={
+            <ProtectedRoute>
+              <Support user={user} />
+            </ProtectedRoute>
+          }
+        />
+
+        <Route
+          path="/invitation"
+          element={
+            <ProtectedRoute>
+              <Invitation user={user} />
+            </ProtectedRoute>
+          }
+        />
 
         {/* ================= ADMIN ================= */}
         <Route
@@ -190,6 +308,7 @@ export default function App() {
         />
 
         <Route path="/admin/login" element={<AdminLogin setAdmin={setAdmin} />} />
+
         <Route
           path="/admin/dashboard"
           element={
@@ -201,6 +320,7 @@ export default function App() {
 
         {/* ================= FALLBACK ================= */}
         <Route path="*" element={<Navigate to="/" replace />} />
+
       </Routes>
     </Router>
   );
