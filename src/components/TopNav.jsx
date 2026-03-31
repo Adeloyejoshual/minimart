@@ -37,6 +37,7 @@ export default function TopNav() {
   const normalize = (str = "") =>
     str.toLowerCase().replace(/[^a-z0-9\s]/g, "").trim();
 
+  /* ================= FUZZY ================= */
   const similarity = (a, b) => {
     a = normalize(a);
     b = normalize(b);
@@ -53,7 +54,7 @@ export default function TopNav() {
     return matches / len;
   };
 
-  /* ================= SEARCH ================= */
+  /* ================= SMART SEARCH ================= */
   const smartSearch = (items, query) => {
     const q = normalize(query);
 
@@ -71,7 +72,7 @@ export default function TopNav() {
     return smartSearch(products, debounced);
   }, [debounced, products]);
 
-  /* ================= NAV ================= */
+  /* ================= SEARCH ACTION ================= */
   const goSearch = useCallback(
     (text) => {
       const q = text.trim();
@@ -87,77 +88,88 @@ export default function TopNav() {
 
   return (
     <>
-      {/* ================= TOP NAV ================= */}
-      <header className="top-nav">
-        <div className="nav-container">
-          <button
-            className="menu-dots"
-            onClick={() => navigate("/menu")}
-          >
-            ⋮
-          </button>
+      {/* ================= STICKY HEADER ================= */}
+      <div className="sticky-header">
 
-          <div className="nav-brand" onClick={() => navigate("/")}>
-            🛒 MiniMart
+        {/* ================= TOP NAV ================= */}
+        <header className="top-nav">
+          <div className="nav-container">
+
+            <button
+              className="menu-dots"
+              onClick={() => navigate("/menu")}
+            >
+              ⋮
+            </button>
+
+            <div
+              className="nav-brand"
+              onClick={() => navigate("/")}
+            >
+              🛒 MiniMart
+            </div>
+
           </div>
-        </div>
-      </header>
+        </header>
 
-      {/* ================= SEARCH ================= */}
-      <div className="search-wrapper">
+        {/* ================= SEARCH ================= */}
+        <div className="search-wrapper">
 
-        <div className="search-box">
-          <input
-            className="search-input"
-            value={search}
-            placeholder="Search products..."
-            onChange={(e) => {
-              setSearch(e.target.value);
-              setOpen(true);
-            }}
-            onFocus={() => setOpen(true)}
-            onKeyDown={(e) => {
-              if (e.key === "Enter") goSearch(search);
-            }}
-          />
+          <div className="search-box">
+            <input
+              className="search-input"
+              value={search}
+              placeholder="Search products..."
+              onChange={(e) => {
+                setSearch(e.target.value);
+                setOpen(true);
+              }}
+              onFocus={() => setOpen(true)}
+              onKeyDown={(e) => {
+                if (e.key === "Enter") goSearch(search);
+              }}
+            />
 
-          {/* 🔥 INLINE SEARCH ICON */}
-          <button
-            className="search-icon"
-            onClick={() => goSearch(search)}
-          >
-            🔍
-          </button>
-        </div>
+            <button
+              className="search-icon"
+              onClick={() => goSearch(search)}
+            >
+              🔍
+            </button>
+          </div>
 
-        {/* ================= DROPDOWN ================= */}
-        {open && (search || results.length > 0) && (
-          <div className="search-dropdown">
+          {/* ================= DROPDOWN ================= */}
+          {open && (search || results.length > 0) && (
+            <div className="search-dropdown">
 
-            <p className="dropdown-title">Smart Results</p>
+              <p className="dropdown-title">Smart Results</p>
 
-            {results.map((p, i) => (
-              <div
-                key={p.id}
-                className="dropdown-item"
-                onClick={() => goSearch(p.title)}
-              >
-                <img src={p?.images?.[0]} alt="" />
+              {results.map((p, i) => (
+                <div
+                  key={p.id}
+                  className="dropdown-item"
+                  onClick={() => goSearch(p.title)}
+                >
+                  <img src={p?.images?.[0]} alt="" />
 
-                <div>
-                  <p className="title">
-                    {i === 0 && "⭐ "}
-                    {p.title}
-                  </p>
+                  <div>
+                    <p className="title">
+                      {i === 0 && "⭐ "}
+                      {p.title}
+                    </p>
 
-                  <span className="meta">
-                    {p.category} • ₦{Number(p.price).toLocaleString()}
-                  </span>
+                    <span className="meta">
+                      {p.category} • ₦
+                      {Number(p.price).toLocaleString()}
+                    </span>
+                  </div>
                 </div>
-              </div>
-            ))}
-          </div>
-        )}
+              ))}
+
+            </div>
+          )}
+
+        </div>
       </div>
     </>
   );
