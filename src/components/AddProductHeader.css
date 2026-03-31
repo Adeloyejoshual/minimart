@@ -1,20 +1,55 @@
+/* ===================== ROOT SYSTEM (reuse your gradient colors) ===================== */
+:root {
+  --nav-height: 58px;
+  --header-bg: linear-gradient(90deg, #1e3a8a, #3b82f6, #60a5fa);
+}
+
+/* ===================== ADD PRODUCT HEADER ===================== */
 .add-product-header {
   position: sticky;
   top: 0;
-  z-index: 50;
+  z-index: 1000;
+
+  background: var(--header-bg);
+  background-size: 300% 300%;
+  animation: gradientFlow 8s ease infinite;
+
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.18);
+  padding: 14px 16px;
 
   display: flex;
   align-items: center;
   justify-content: space-between;
 
-  padding: 14px 16px;
-
-  background: rgba(255, 255, 255, 0.85);
-  backdrop-filter: blur(10px);
-
-  border-bottom: 1px solid rgba(0, 0, 0, 0.06);
+  color: #ffffff;
 }
 
+/* ===================== GRADIENT ANIMATION (same as your system) ===================== */
+@keyframes gradientFlow {
+  0% { background-position: 0% 50%; }
+  50% { background-position: 100% 50%; }
+  100% { background-position: 0% 50%; }
+}
+
+.add-product-header::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(
+    to bottom,
+    rgba(147, 197, 253, 0.3), transparent
+  );
+  pointer-events: none;
+  animation: dropBlue 3s ease-in-out infinite;
+}
+
+@keyframes dropBlue {
+  0% { transform: translateY(-10px); opacity: 0.35; }
+  50% { transform: translateY(0px); opacity: 0.15; }
+  100% { transform: translateY(-10px); opacity: 0.35; }
+}
+
+/* ===================== BACK BUTTON ===================== */
 .back-btn {
   width: 40px;
   height: 40px;
@@ -22,24 +57,91 @@
   border: none;
   border-radius: 10px;
 
-  background: #f3f3f3;
+  background: rgba(255, 255, 255, 0.15);
   font-size: 18px;
+  color: #e0f2fe;
   cursor: pointer;
+
+  display: flex;
+  align-items: center;
+  justify-content: center;
+
+  transition: 0.2s ease;
+}
+
+.back-btn:hover {
+  background: rgba(255, 255, 255, 0.25);
+  transform: scale(1.05);
 }
 
 .back-btn:active {
   transform: scale(0.95);
 }
 
+/* ===================== HEADER TITLE ===================== */
 .header-title {
   font-size: 18px;
   font-weight: 600;
   text-align: center;
   flex: 1;
+  color: #ffffff;
+  text-shadow: 0 1px 3px rgba(0, 0, 0, 0.3);
 }
 
+/* ===================== CLEAR BUTTON ON RIGHT ===================== */
 .header-right {
-  width: 40px;
+  width: 52px;
   display: flex;
   justify-content: flex-end;
+}
+
+.clear-btn {
+  width: 40px;
+  height: 40px;
+
+  border: 1px solid rgba(255, 255, 255, 0.4);
+  border-radius: 10px;
+
+  background: rgba(255, 255, 255, 0.15);
+  color: #e0f2fe;
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+
+  display: flex;
+  align-items: center;
+  justify-content: center;
+
+  transition: 0.2s ease;
+}
+
+.clear-btn:hover {
+  background: rgba(255, 255, 255, 0.25);
+  border-color: #ffffff;
+}
+
+.clear-btn:active {
+  transform: scale(0.95);
+}
+
+/* ===================== RESPONSIVE (small screens) ===================== */
+@media (max-width: 500px) {
+  .add-product-header {
+    padding: 12px 14px;
+  }
+
+  .back-btn,
+  .clear-btn {
+    width: 36px;
+    height: 36px;
+    font-size: 16px;
+  }
+}
+
+/* ===================== PERFORMANCE (reduce animation if needed) ===================== */
+@media (prefers-reduced-motion: reduce) {
+  .add-product-header,
+  .add-product-header::after {
+    animation: none;
+  }
 }
