@@ -1,24 +1,33 @@
+/* ===================== ROOT STICKY SYSTEM ===================== */
+:root {
+  --nav-height: 58px;
+  --search-height: 64px;
+}
+
 /* ===================== TOP NAV ===================== */
 .top-nav {
   position: sticky;
   top: 0;
+  z-index: 1000;
+
   background: linear-gradient(90deg, #1e3a8a, #3b82f6, #60a5fa);
   background-size: 300% 300%;
   animation: gradientFlow 8s ease infinite;
+
   box-shadow: 0 8px 20px rgba(0,0,0,0.15);
   padding: 0.6rem 1rem;
-  z-index: 1000;
+
   overflow: hidden;
 }
 
-/* Gradient animation */
+/* Gradient animation (optimized slightly) */
 @keyframes gradientFlow {
   0% { background-position: 0% 50%; }
   50% { background-position: 100% 50%; }
   100% { background-position: 0% 50%; }
 }
 
-/* Light overlay effect */
+/* ===================== LIGHT OVERLAY ===================== */
 .top-nav::after {
   content: "";
   position: absolute;
@@ -29,23 +38,25 @@
 }
 
 @keyframes dropBlue {
-  0% { transform: translateY(-15px); opacity: 0.4; }
-  50% { transform: translateY(0px); opacity: 0.2; }
-  100% { transform: translateY(-15px); opacity: 0.4; }
+  0% { transform: translateY(-10px); opacity: 0.35; }
+  50% { transform: translateY(0px); opacity: 0.15; }
+  100% { transform: translateY(-10px); opacity: 0.35; }
 }
 
 /* ===================== NAV CONTAINER ===================== */
 .nav-container {
   max-width: 1280px;
   margin: 0 auto;
+
   display: flex;
   align-items: center;
   justify-content: space-between;
+
   position: relative;
-  z-index: 1;
+  z-index: 2;
 }
 
-/* ===================== 3 DOT MENU ===================== */
+/* ===================== MENU ===================== */
 .menu-dots {
   font-size: 26px;
   color: #fff;
@@ -67,81 +78,84 @@
   align-items: center;
   gap: 0.5rem;
   cursor: pointer;
-}
-
-.nav-brand .logo-icon,
-.nav-brand .brand-name {
   color: #fff;
-  transition: color 0.3s ease;
 }
 
-.nav-brand:hover .logo-icon,
-.nav-brand:hover .brand-name {
-  color: #e0f2fe;
-}
-
-/* ===================== SEARCH BELOW NAV ===================== */
+/* ===================== STICKY SEARCH WRAPPER ===================== */
 .search-below-nav {
-  width: 100%;
+  position: sticky;
+
+  /* 👇 IMPORTANT FIX: no hardcoded pixel jump */
+  top: var(--nav-height);
+
+  z-index: 999;
+
   display: flex;
   justify-content: center;
+  align-items: center;
+
   gap: 8px;
   padding: 10px 14px;
-  background: #f0f9ff;
+
+  background: rgba(240, 249, 255, 0.95);
+  backdrop-filter: blur(10px);
+
   box-shadow: 0 4px 12px rgba(0,0,0,0.05);
-  position: sticky;
-  top: 62px;
-  z-index: 999;
 }
 
+/* ===================== SEARCH INPUT ===================== */
 .search-below-nav .search-input {
   width: 100%;
   max-width: 520px;
-  padding: 0.65rem 1rem;
+
+  padding: 0.7rem 1rem;
+
   border-radius: 14px;
   border: 1px solid #93c5fd;
+
   font-size: 1rem;
   outline: none;
-  transition: all 0.3s ease;
+
+  transition: all 0.25s ease;
+
   background: #fff;
   color: #1e3a8a;
 }
 
 .search-below-nav .search-input:focus {
   border-color: #60a5fa;
-  box-shadow: 0 0 0 2px rgba(147,197,253,0.3);
+  box-shadow: 0 0 0 3px rgba(147,197,253,0.25);
 }
 
-/* Search button */
+/* ===================== SEARCH BUTTON ===================== */
 .search-btn {
   padding: 0.65rem 1rem;
   border: none;
   border-radius: 12px;
+
   background: #1e3a8a;
   color: #fff;
+
   cursor: pointer;
-  transition: background 0.3s ease;
+  transition: all 0.25s ease;
 }
 
 .search-btn:hover {
   background: #3b82f6;
+  transform: translateY(-1px);
 }
 
 /* ===================== RESPONSIVE ===================== */
-
-/* Tablet */
 @media (max-width: 1024px) {
-  .nav-container {
-    padding: 0 4px;
+  :root {
+    --nav-height: 56px;
   }
 
   .search-below-nav {
-    top: 58px;
     padding: 8px 10px;
   }
 }
 
-/* Mobile */
 @media (max-width: 768px) {
   .menu-dots {
     font-size: 28px;
@@ -149,21 +163,20 @@
 
   .search-below-nav {
     flex-direction: row;
-    gap: 6px;
   }
 
   .search-below-nav .search-input {
     max-width: 100%;
   }
-
-  .search-btn {
-    padding: 0.6rem 0.9rem;
-  }
 }
 
-/* Desktop stability */
-@media (min-width: 769px) {
-  .search-below-nav {
-    top: 62px;
+/* ===================== PERFORMANCE FIX ===================== */
+@media (prefers-reduced-motion: reduce) {
+  .top-nav {
+    animation: none;
+  }
+
+  .top-nav::after {
+    animation: none;
   }
 }
