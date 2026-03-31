@@ -11,27 +11,7 @@ const pool = new Pool({
 
 /* ================= NORMALIZER ================= */
 const normalize = (str = "") =>
-  String(str)
-    .toLowerCase()
-    .trim()
-    .replace(/\s+/g, " ");
-
-/* ================= FUZZY SIMILARITY (SQL SAFE LIGHT VERSION) ================= */
-const similarity = (a = "", b = "") => {
-  a = normalize(a);
-  b = normalize(b);
-
-  if (!a || !b) return 0;
-
-  let matches = 0;
-  const len = Math.max(a.length, b.length);
-
-  for (let i = 0; i < Math.min(a.length, b.length); i++) {
-    if (a[i] === b[i]) matches++;
-  }
-
-  return matches / len;
-};
+  String(str).toLowerCase().trim().replace(/\s+/g, " ");
 
 /* ================= INTENT DETECTOR ================= */
 const detectIntent = (q = "") => {
@@ -39,7 +19,9 @@ const detectIntent = (q = "") => {
 
   return {
     category:
-      query.includes("phone") || query.includes("iphone") || query.includes("laptop")
+      query.includes("phone") ||
+      query.includes("iphone") ||
+      query.includes("laptop")
         ? "electronics"
         : query.includes("shoe") || query.includes("shirt")
         ? "fashion"
@@ -79,7 +61,7 @@ router.post("/track-click", async (req, res) => {
   }
 });
 
-/* ================= AUTOCOMPLETE (SMARTER) ================= */
+/* ================= AUTOCOMPLETE ================= */
 router.get("/suggest", async (req, res) => {
   try {
     const q = normalize(req.query.q || "");
@@ -87,7 +69,7 @@ router.get("/suggest", async (req, res) => {
 
     const { rows } = await pool.query(
       `
-      SELECT title, views
+      SELECT title
       FROM products
       WHERE LOWER(title) LIKE $1
       ORDER BY views DESC NULLS LAST
@@ -103,7 +85,39 @@ router.get("/suggest", async (req, res) => {
   }
 });
 
-/* ================= MAIN SEARCH (AI LEVEL) ================= */
+/* ================= TRENDING FEED ================= */
+const getTrending = async (limit = 20) => {
+  const { rows } = await pool.query(
+    `
+    SELECT *
+    FROM products
+    WHERE is_active = true AND status = 'active'
+    ORDER BY views DESC NULLS LAST, created_at DESC
+    LIMIT $1
+    `,
+    [limit]
+  );
+
+  return rows;
+};
+
+/* ================= RECENT FEED ================= */
+const getRecent = async (limit = 20) => {
+  const { rows } = await pool.query(
+    `
+    SELECT *
+    FROM products
+    WHERE is_active = true AND status = 'active'
+    ORDER BY created_at DESC
+    LIMIT $1
+    `,
+    [limit]
+  );
+
+  return rows;
+};
+
+/* ================= MAIN SEARCH ================= */
 router.get("/", async (req, res) => {
   try {
     let {
@@ -118,36 +132,54 @@ router.get("/", async (req, res) => {
     } = req.query;
 
     q = normalize(q);
+    const isEmptySearch = !q;
+
     page = Math.max(parseInt(page) || 1, 1);
-    limit = Math.min(parseInt(limit) || 20, 50);
+    limit = Math.min(parseInt(limit) || 50, 50);
     const offset = (page - 1) * limit;
 
+    /* ================= EMPTY SEARCH → FEED ================= */
+    if (isEmptySearch) {
+      const trending = await getTrending(limit);
+      const recent = await getRecent(limit);
+
+      const feed = trending.length ? trending : recent;
+
+      return res.json({
+        query: "",
+        mode: trending.length ? "trending" : "recent",
+        total: feed.length,
+        page: 1,
+        totalPages: 1,
+        products: feed,
+        suggestions: [],
+        related: [],
+      });
+    }
+
+    /* ================= INTENT ================= */
     const intent = detectIntent(q);
 
     const where = [];
     const values = [];
     let i = 1;
 
-    /* ================= BASE ================= */
     where.push("p.is_active = true");
     where.push("p.status = 'active'");
 
-    /* ================= SMART TEXT SEARCH ================= */
-    if (q) {
-      where.push(`
-        (
-          p.search_vector @@ plainto_tsquery('english', $${i})
-          OR LOWER(p.title) LIKE $${i}
-          OR LOWER(p.description) LIKE $${i}
-          OR LOWER(p.search_text) LIKE $${i}
-          OR LOWER(p.attributes->>'brand') LIKE $${i}
-          OR LOWER(c.name) LIKE $${i}
-        )
-      `);
+    /* ================= TEXT SEARCH ================= */
+    where.push(`
+      (
+        p.search_vector @@ plainto_tsquery('english', $${i})
+        OR LOWER(p.title) LIKE $${i}
+        OR LOWER(p.description) LIKE $${i}
+        OR LOWER(p.search_text) LIKE $${i}
+        OR LOWER(p.attributes->>'brand') LIKE $${i}
+      )
+    `);
 
-      values.push(`%${q}%`);
-      i++;
-    }
+    values.push(`%${q}%`);
+    i++;
 
     /* ================= FILTERS ================= */
     const finalCategory = category || intent.category;
@@ -186,7 +218,7 @@ router.get("/", async (req, res) => {
 
     const whereSQL = `WHERE ${where.join(" AND ")}`;
 
-    /* ================= MAIN QUERY ================= */
+    /* ================= SEARCH QUERY ================= */
     const { rows } = await pool.query(
       `
       SELECT 
@@ -214,16 +246,15 @@ router.get("/", async (req, res) => {
     const countRes = await pool.query(
       `
       SELECT COUNT(*) FROM products p
-      LEFT JOIN categories c ON p.category_id = c.id
       ${whereSQL}
       `,
       values
     );
 
-    /* ================= SUGGESTIONS (SMART) ================= */
+    /* ================= SUGGESTIONS ================= */
     const suggestionsRes = await pool.query(
       `
-      SELECT title, views
+      SELECT title
       FROM products
       WHERE LOWER(title) LIKE $1
       ORDER BY views DESC NULLS LAST
@@ -257,6 +288,7 @@ router.get("/", async (req, res) => {
     /* ================= RESPONSE ================= */
     res.json({
       query: q,
+      mode: "search",
       intent,
       total: Number(countRes.rows[0].count),
       page,
