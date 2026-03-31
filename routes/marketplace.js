@@ -109,7 +109,7 @@ const uploadImages = async (files = []) => {
               folder: "products",
               transformation: [
                 { width: 900, height: 900, crop: "limit" },
-                { quality: "auto" },
+                { quality: "auto:good" },
                 { fetch_format: "auto" },
               ],
             },
@@ -124,9 +124,7 @@ const uploadImages = async (files = []) => {
   );
 };
 
-/* =========================================================
-   PAYSTACK CALLBACK PAGE (AUTO VERIFY + REDIRECT)
-========================================================= */
+/* ================= PAYSTACK CALLBACK ================= */
 router.get("/payment/callback", async (req, res) => {
   const { reference } = req.query;
 
@@ -155,7 +153,9 @@ router.get("/payment/callback", async (req, res) => {
       [reference]
     );
 
-    return res.redirect(`${process.env.FRONTEND_URL}/payment/success?ref=${reference}`);
+    return res.redirect(
+      `${process.env.FRONTEND_URL}/payment/success?ref=${reference}`
+    );
   } catch {
     return res.redirect(`${process.env.FRONTEND_URL}/payment/failed`);
   }
@@ -169,12 +169,17 @@ router.post("/payments/initiate", async (req, res) => {
     const plan = getPlan(plan_id);
     if (!plan) return res.status(400).json({ message: "Invalid plan" });
 
-    const reference = `PSK_${Date.now()}`;
+    const reference = `PSK_${crypto.randomBytes(12).toString("hex")}`;
 
     await pool.query(
-      `INSERT INTO payments(reference, plan_id, product_id, status)
-       VALUES($1,$2,$3,'pending')`,
-      [reference, plan_id, product_id]
+      `INSERT INTO payments(reference, plan_id, product_id, status, metadata)
+       VALUES($1,$2,$3,'pending',$4)`,
+      [
+        reference,
+        plan_id,
+        product_id,
+        JSON.stringify({ email }),
+      ]
     );
 
     const paystack = await axios.post(
@@ -193,7 +198,8 @@ router.post("/payments/initiate", async (req, res) => {
     );
 
     res.json(paystack.data);
-  } catch {
+  } catch (err) {
+    console.error(err);
     res.status(500).json({ message: "Payment init failed" });
   }
 });
@@ -216,14 +222,16 @@ router.post("/webhooks/paystack", async (req, res) => {
 
     const data = req.body.data;
 
-    const payment = (
-      await pool.query(
-        "SELECT * FROM payments WHERE reference=$1",
-        [data.reference]
-      )
-    ).rows[0];
+    const paymentRes = await pool.query(
+      "SELECT * FROM payments WHERE reference=$1",
+      [data.reference]
+    );
 
+    const payment = paymentRes.rows[0];
     if (!payment) return res.sendStatus(200);
+
+    /* ✅ IDEMPOTENCY CHECK */
+    if (payment.status === "success") return res.sendStatus(200);
 
     const plan = getPlan(payment.plan_id);
     if (!plan) return res.sendStatus(200);
@@ -244,19 +252,18 @@ router.post("/webhooks/paystack", async (req, res) => {
     );
 
     await pool.query(
-      "UPDATE payments SET status='success' WHERE reference=$1",
+      `UPDATE payments SET status='success' WHERE reference=$1`,
       [data.reference]
     );
 
     res.sendStatus(200);
-  } catch {
+  } catch (err) {
+    console.error(err);
     res.sendStatus(500);
   }
 });
 
-/* =========================================================
-   PRODUCTS (ONLY ACTIVE ON SUCCESS)
-========================================================= */
+/* ================= PRODUCTS ================= */
 router.get("/products", async (req, res) => {
   try {
     const { skip = 0, limit = 20 } = req.query;
@@ -264,8 +271,11 @@ router.get("/products", async (req, res) => {
     const { rows } = await pool.query(
       `
       SELECT p.*,
-      COALESCE(json_agg(pi.image_url ORDER BY pi.position)
-      FILTER (WHERE pi.image_url IS NOT NULL), '[]') AS images
+      COALESCE(
+        json_agg(pi.image_url ORDER BY pi.position)
+        FILTER (WHERE pi.image_url IS NOT NULL),
+        '[]'
+      ) AS images
       FROM products p
       LEFT JOIN product_images pi ON p.id=pi.product_id
       WHERE p.is_active=true AND p.status='active'
@@ -284,7 +294,7 @@ router.get("/products", async (req, res) => {
   }
 });
 
-/* ================= CREATE PRODUCT (PENDING ONLY) ================= */
+/* ================= CREATE PRODUCT (DRAFT SAFE) ================= */
 router.post("/products", upload.array("images", 10), async (req, res) => {
   const client = await pool.connect();
 
@@ -306,10 +316,10 @@ router.post("/products", upload.array("images", 10), async (req, res) => {
         title, description, price, category_id,
         attributes, delivery, contact,
         location_state, location_city,
-        status,
+        status, is_active,
         created_at, updated_at
       )
-      VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,'pending',now(),now())
+      VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,'draft',false,now(),now())
       RETURNING *
       `,
       [
@@ -339,17 +349,16 @@ router.post("/products", upload.array("images", 10), async (req, res) => {
     await client.query("COMMIT");
 
     res.json({ product: normalizeProduct(product) });
-  } catch {
+  } catch (err) {
     await client.query("ROLLBACK");
+    console.error(err);
     res.status(500).json({ message: "Create failed" });
   } finally {
     client.release();
   }
 });
 
-/* =========================================================
-   AUTO DELETE UNPAID PRODUCTS (24 HOURS)
-========================================================= */
+/* ================= CLEANUP ================= */
 setInterval(async () => {
   try {
     await pool.query(`
@@ -360,7 +369,7 @@ setInterval(async () => {
   } catch (e) {
     console.error("Cleanup failed:", e.message);
   }
-}, 60 * 60 * 1000); // every 1 hour
+}, 60 * 60 * 1000);
 
 /* ================= CATEGORIES ================= */
 router.get("/categories", async (req, res) => {
