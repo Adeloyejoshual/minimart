@@ -506,7 +506,7 @@ export default function AddProduct() {
 
       {/* LOCATION */}
       <div className="form-section rounded">
-        <h3>📍 Location</h3>
+        <h3> Location</h3>
         <DropdownModal
           label="State"
           value={state}
