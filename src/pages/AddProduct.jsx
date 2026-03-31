@@ -56,6 +56,22 @@ export default function AddProduct() {
   const [selectedPlan, setSelectedPlan] = useState(null);
   const [paymentData, setPaymentData] = useState(null);
 
+  /* ================= CLEAR DRAFT FUNCTION ================= */
+  const clearDraft = useCallback(() => {
+    setForm(INITIAL_FORM);
+    setImages([]);
+    setPreviews([]);
+    setState("");
+    setCity("");
+    setSelectedPlan(null);
+    setPaymentData(null);
+    localStorage.removeItem("product_draft");
+    localStorage.removeItem("payment_retry");
+    
+    // Clean up image previews
+    previews.forEach(URL.revokeObjectURL);
+  }, [previews]);
+
   /* ================= LOAD DRAFT ON MOUNT ================= */
   useEffect(() => {
     const saved = localStorage.getItem("product_draft");
@@ -67,7 +83,7 @@ export default function AddProduct() {
         setCity(data.city || "");
         setSelectedPlan(data.selectedPlan || null);
 
-        // Note: images can’t be restored from FileList, but we can keep the draft shape
+        // Note: images can't be restored from FileList, but we can keep the draft shape
       } catch (e) {
         console.error("Failed to load draft:", e);
       }
@@ -386,7 +402,10 @@ export default function AddProduct() {
 
   return (
     <div className="add-product-container">
-      <AddProductHeader title="Add Product" />
+      <AddProductHeader 
+        title="Add Product"
+        onClearDraft={clearDraft}
+      />
 
       {/* BASIC INFO */}
       <div className="form-section rounded">
@@ -635,7 +654,7 @@ export default function AddProduct() {
       </div>
 
       {/* DRAFT INDICATOR */}
-            {(form.title || form.description) && (
+      {(form.title || form.description) && (
         <div className="draft-indicator">
           💾 Auto-saving draft...
         </div>
