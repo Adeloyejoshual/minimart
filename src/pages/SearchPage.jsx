@@ -1,5 +1,6 @@
 import { useEffect, useState, useRef, useCallback } from "react";
 import { useSearchParams, useNavigate } from "react-router-dom";
+import TopNav from "../components/TopNav";
 import "../styles/SearchPage.css";
 
 export default function SearchPage() {
@@ -12,12 +13,6 @@ export default function SearchPage() {
   const [searchQuery, setSearchQuery] = useState(urlQuery);
   const [products, setProducts] = useState([]);
   const [loading, setLoading] = useState(false);
-
-  const [filters, setFilters] = useState({
-    brand: "",
-    minPrice: "",
-    maxPrice: "",
-  });
 
   const [page, setPage] = useState(1);
   const [hasMore, setHasMore] = useState(true);
@@ -34,11 +29,7 @@ export default function SearchPage() {
         setLoading(true);
 
         const res = await fetch(
-          `/api/search?q=${encodeURIComponent(q)}&page=${
-            reset ? 1 : page
-          }&brand=${filters.brand}&minPrice=${
-            filters.minPrice
-          }&maxPrice=${filters.maxPrice}`
+          `/api/search?q=${encodeURIComponent(q)}&page=${reset ? 1 : page}`
         );
 
         const data = await res.json();
@@ -54,7 +45,7 @@ export default function SearchPage() {
         setLoading(false);
       }
     },
-    [searchQuery, page, filters]
+    [searchQuery, page]
   );
 
   /* ================= URL SYNC ================= */
@@ -79,7 +70,7 @@ export default function SearchPage() {
     }, 400);
 
     return () => clearTimeout(debounceRef.current);
-  }, [searchQuery, filters]);
+  }, [searchQuery]);
 
   /* ================= PAGINATION ================= */
   useEffect(() => {
@@ -87,7 +78,7 @@ export default function SearchPage() {
     fetchSearch(false);
   }, [page]);
 
-  /* ================= SCROLL ================= */
+  /* ================= INFINITE SCROLL ================= */
   useEffect(() => {
     const onScroll = () => {
       if (
@@ -106,70 +97,18 @@ export default function SearchPage() {
     navigate(`/product/${p.id}`);
   };
 
-  /* ================= EMPTY ================= */
-  if (!searchQuery.trim()) {
-    return (
-      <div className="empty-state">
-        Search products (e.g. iPhone, Samsung, cheap phone)
-      </div>
-    );
-  }
-
   return (
     <div className="search-page">
 
-      {/* ================= SEARCH ================= */}
-      <div className="search-bar">
-        <input
-          type="text"
-          placeholder="Search products..."
-          value={searchQuery}
-          onChange={(e) => setSearchQuery(e.target.value)}
-        />
-
-        <button
-          onClick={() => {
-            setProducts([]);
-            setPage(1);
-            navigate(`/search?q=${encodeURIComponent(searchQuery)}`);
-            fetchSearch(true);
-          }}
-        >
-          Search
-        </button>
-      </div>
-
-      {/* ================= FILTERS ================= */}
-      <aside className="filters">
-        <h2>Filters</h2>
-
-        <input
-          placeholder="Brand"
-          onChange={(e) =>
-            setFilters((f) => ({ ...f, brand: e.target.value }))
-          }
-        />
-
-        <input
-          type="number"
-          placeholder="Min Price"
-          onChange={(e) =>
-            setFilters((f) => ({ ...f, minPrice: e.target.value }))
-          }
-        />
-
-        <input
-          type="number"
-          placeholder="Max Price"
-          onChange={(e) =>
-            setFilters((f) => ({ ...f, maxPrice: e.target.value }))
-          }
-        />
-      </aside>
+      {/* ================= GLOBAL NAV ================= */}
+      <TopNav />
 
       {/* ================= RESULTS ================= */}
       <main className="results">
-        <h1>Results for "{searchQuery}"</h1>
+
+        <h1 className="results-title">
+          Results for "{searchQuery}"
+        </h1>
 
         <div className="products-grid">
           {products.map((p) => (
@@ -198,7 +137,9 @@ export default function SearchPage() {
 
         {/* ================= EMPTY ================= */}
         {!loading && products.length === 0 && (
-          <div className="empty-state">No products found</div>
+          <div className="empty-state">
+            No products found
+          </div>
         )}
       </main>
     </div>
