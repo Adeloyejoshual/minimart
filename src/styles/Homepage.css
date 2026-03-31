@@ -1,12 +1,13 @@
 /* =======================================================
-   🌐 GLOBAL BASE
+   🌐 BASE
 ======================================================= */
 
 html, body {
   margin: 0;
   padding: 0;
   font-family: Inter, system-ui, sans-serif;
-  background: linear-gradient(135deg, #f5f9ff, #eef6ff, #f8fbff);
+  background: #f6f8fc;
+  color: #111;
   scroll-behavior: smooth;
 }
 
@@ -15,7 +16,7 @@ html, body {
 }
 
 /* =======================================================
-   📦 MAIN LAYOUT
+   📦 CONTAINER
 ======================================================= */
 
 .homepage-container {
@@ -25,54 +26,60 @@ html, body {
 }
 
 /* =======================================================
-   🧩 SECTION
+   🧠 SECTION TITLES
 ======================================================= */
-
-.section {
-  margin-bottom: 20px;
-}
 
 .section h2 {
   font-size: 1rem;
   font-weight: 700;
-  margin-bottom: 10px;
+  margin: 14px 0 10px;
   color: #1e3a8a;
 }
 
 /* =======================================================
-   🧱 PRODUCT GRID (MOBILE FIRST)
+   🧱 PINTEREST MASONRY GRID
 ======================================================= */
 
-.products-grid {
-  display: grid;
-  grid-template-columns: repeat(2, 1fr);
-  gap: 10px;
+.grid {
+  column-count: 2;
+  column-gap: 10px;
 }
 
 @media (min-width: 768px) {
-  .products-grid {
-    grid-template-columns: repeat(3, 1fr);
+  .grid {
+    column-count: 3;
   }
 }
 
 @media (min-width: 1024px) {
-  .products-grid {
-    grid-template-columns: repeat(4, 1fr);
+  .grid {
+    column-count: 4;
+  }
+}
+
+@media (min-width: 1400px) {
+  .grid {
+    column-count: 5;
   }
 }
 
 /* =======================================================
-   🪪 CARD (CLEAN + FAST)
+   🪪 PRODUCT CARD (JIJI STYLE)
 ======================================================= */
 
 .card {
+  break-inside: avoid;
+  margin-bottom: 10px;
+
   background: #fff;
   border-radius: 14px;
   overflow: hidden;
-  display: flex;
-  flex-direction: column;
-  box-shadow: 0 4px 10px rgba(0,0,0,0.06);
-  transition: transform 0.2s ease;
+
+  display: inline-block;
+  width: 100%;
+
+  box-shadow: 0 4px 12px rgba(0,0,0,0.06);
+  transition: transform 0.15s ease, box-shadow 0.15s ease;
 }
 
 .card:active {
@@ -80,18 +87,27 @@ html, body {
 }
 
 .card:hover {
-  transform: translateY(-3px);
+  box-shadow: 0 6px 16px rgba(0,0,0,0.08);
 }
 
-/* IMAGE */
-.card-image img {
-  width: 100%;
-  height: 140px;
-  object-fit: cover;
+/* =======================================================
+   🖼️ IMAGE (NATURAL MASONRY FLOW)
+======================================================= */
+
+.card-image {
   background: #eef2ff;
 }
 
-/* BODY */
+.card-image img {
+  width: 100%;
+  height: auto; /* critical for masonry */
+  display: block;
+}
+
+/* =======================================================
+   📦 CARD CONTENT
+======================================================= */
+
 .card-body {
   padding: 8px;
   display: flex;
@@ -101,18 +117,21 @@ html, body {
 
 /* PRICE */
 .price {
-  font-weight: 700;
-  color: #2563eb;
+  font-weight: 800;
   font-size: 0.9rem;
+  color: #2563eb;
 }
 
 /* TITLE */
 .title {
   font-size: 0.8rem;
   font-weight: 600;
-  white-space: nowrap;
+  line-height: 1.2;
+
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
   overflow: hidden;
-  text-overflow: ellipsis;
 }
 
 /* LOCATION */
@@ -122,7 +141,7 @@ html, body {
 }
 
 /* =======================================================
-   📱 HORIZONTAL SCROLL SECTIONS (TRENDING / CHEAP / ETC)
+   📱 HORIZONTAL SECTIONS (TRENDING / CHEAP / ETC)
 ======================================================= */
 
 .horizontal-scroll {
@@ -130,11 +149,11 @@ html, body {
   overflow-x: auto;
   gap: 10px;
   padding-bottom: 6px;
+
   scroll-snap-type: x mandatory;
   -webkit-overflow-scrolling: touch;
 }
 
-/* hide scrollbar */
 .horizontal-scroll::-webkit-scrollbar {
   display: none;
 }
@@ -144,73 +163,47 @@ html, body {
   scroll-snap-align: start;
 }
 
-/* compact card for horizontal sections */
-.card.compact {
-  height: 150px;
+/* compact cards */
+.scroll-item .card {
+  border-radius: 12px;
 }
 
-.card.compact .card-image img {
-  height: 90px;
-}
-
-.card.compact .location {
-  display: none;
+.scroll-item .card-image img {
+  height: 100px;
+  object-fit: cover;
 }
 
 /* =======================================================
-   🔥 FADE EDGES (MOBILE SAFE)
+   🔥 MINI SECTION HEADER
 ======================================================= */
 
-.horizontal-scroll-wrapper {
-  position: relative;
-}
-
-.horizontal-scroll-wrapper::before,
-.horizontal-scroll-wrapper::after {
-  content: "";
-  position: absolute;
-  top: 0;
-  width: 20px;
-  height: 100%;
-  z-index: 2;
-  pointer-events: none;
-}
-
-.horizontal-scroll-wrapper::before {
-  left: 0;
-  background: linear-gradient(to right, #f5f9ff, transparent);
-}
-
-.horizontal-scroll-wrapper::after {
-  right: 0;
-  background: linear-gradient(to left, #f5f9ff, transparent);
+.mini-title {
+  font-size: 0.9rem;
+  font-weight: 700;
+  margin: 10px 0;
+  color: #111827;
 }
 
 /* =======================================================
-   ⚡ LOADING
-======================================================= */
-
-.loading-text {
-  text-align: center;
-  font-size: 0.8rem;
-  color: #777;
-}
-
-/* =======================================================
-   ⬆️ FLOATING BUTTON
+   ⚡ FLOATING BUTTON (SELL)
 ======================================================= */
 
 .floating-btn {
   position: fixed;
-  bottom: 70px;
+  bottom: 75px;
   right: 14px;
+
   background: #2563eb;
   color: white;
+
   border: none;
   padding: 12px 14px;
   border-radius: 50px;
+
   font-weight: 600;
-  box-shadow: 0 6px 14px rgba(0,0,0,0.2);
+  font-size: 0.85rem;
+
+  box-shadow: 0 8px 18px rgba(0,0,0,0.2);
   z-index: 1000;
 }
 
@@ -219,10 +212,26 @@ html, body {
 }
 
 /* =======================================================
-   🧠 PERFORMANCE OPTIMIZATION
+   ⚡ LOADING / EMPTY STATES
 ======================================================= */
 
-img {
-  loading: lazy;
+.loading,
+.empty {
+  text-align: center;
+  font-size: 0.85rem;
+  color: #777;
+  padding: 20px;
+}
+
+/* =======================================================
+   ⚡ PERFORMANCE OPTIMIZATION (ANDROID SAFE)
+======================================================= */
+
+.card {
   will-change: transform;
+  contain: content;
+}
+
+img {
+  content-visibility: auto;
 }
