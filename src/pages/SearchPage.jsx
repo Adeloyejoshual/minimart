@@ -1,5 +1,6 @@
 import { useEffect, useState, useRef, useCallback } from "react";
 import { useSearchParams, useNavigate } from "react-router-dom";
+import "../styles/SearchPage.css";
 
 export default function SearchPage() {
   const [params] = useSearchParams();
@@ -23,7 +24,7 @@ export default function SearchPage() {
 
   const debounceRef = useRef(null);
 
-  /* ================= FETCH ENGINE ================= */
+  /* ================= FETCH ================= */
   const fetchSearch = useCallback(
     async (reset = false, queryOverride = null) => {
       const q = (queryOverride ?? searchQuery).trim();
@@ -43,13 +44,10 @@ export default function SearchPage() {
         const data = await res.json();
         const safe = Array.isArray(data?.products) ? data.products : [];
 
-        setProducts((prev) =>
-          reset ? safe : [...prev, ...safe]
-        );
-
+        setProducts((prev) => (reset ? safe : [...prev, ...safe]));
         setHasMore(safe.length > 0);
       } catch (err) {
-        console.error("Search error:", err);
+        console.error(err);
         setProducts([]);
         setHasMore(false);
       } finally {
@@ -68,7 +66,7 @@ export default function SearchPage() {
     if (urlQuery) fetchSearch(true, urlQuery);
   }, [urlQuery]);
 
-  /* ================= LIVE SEARCH (AI MODE) ================= */
+  /* ================= LIVE SEARCH ================= */
   useEffect(() => {
     if (!searchQuery.trim()) return;
 
@@ -89,7 +87,7 @@ export default function SearchPage() {
     fetchSearch(false);
   }, [page]);
 
-  /* ================= INFINITE SCROLL ================= */
+  /* ================= SCROLL ================= */
   useEffect(() => {
     const onScroll = () => {
       if (
@@ -104,35 +102,32 @@ export default function SearchPage() {
     return () => window.removeEventListener("scroll", onScroll);
   }, [loading, hasMore]);
 
-  /* ================= OPEN PRODUCT ================= */
   const openProduct = (p) => {
     navigate(`/product/${p.id}`);
   };
 
-  /* ================= EMPTY STATE ================= */
+  /* ================= EMPTY ================= */
   if (!searchQuery.trim()) {
     return (
-      <div className="p-6 text-gray-600">
+      <div className="empty-state">
         Search products (e.g. iPhone, Samsung, cheap phone)
       </div>
     );
   }
 
   return (
-    <div className="flex flex-col md:flex-row gap-6 p-4">
+    <div className="search-page">
 
-      {/* ================= SEARCH BAR ================= */}
-      <div className="w-full md:w-64 mb-4 md:mb-0">
+      {/* ================= SEARCH ================= */}
+      <div className="search-bar">
         <input
           type="text"
           placeholder="Search products..."
           value={searchQuery}
           onChange={(e) => setSearchQuery(e.target.value)}
-          className="border p-2 w-full rounded"
         />
 
         <button
-          className="mt-2 w-full bg-blue-600 text-white p-2 rounded"
           onClick={() => {
             setProducts([]);
             setPage(1);
@@ -145,11 +140,10 @@ export default function SearchPage() {
       </div>
 
       {/* ================= FILTERS ================= */}
-      <aside className="w-full md:w-64 border-r pr-4 space-y-3">
-        <h2 className="font-bold text-lg">Filters</h2>
+      <aside className="filters">
+        <h2>Filters</h2>
 
         <input
-          className="border p-2 w-full rounded"
           placeholder="Brand"
           onChange={(e) =>
             setFilters((f) => ({ ...f, brand: e.target.value }))
@@ -157,7 +151,6 @@ export default function SearchPage() {
         />
 
         <input
-          className="border p-2 w-full rounded"
           type="number"
           placeholder="Min Price"
           onChange={(e) =>
@@ -166,7 +159,6 @@ export default function SearchPage() {
         />
 
         <input
-          className="border p-2 w-full rounded"
           type="number"
           placeholder="Max Price"
           onChange={(e) =>
@@ -176,47 +168,37 @@ export default function SearchPage() {
       </aside>
 
       {/* ================= RESULTS ================= */}
-      <main className="flex-1">
-        <h1 className="text-xl font-bold mb-4">
-          AI Results for "{searchQuery}"
-        </h1>
+      <main className="results">
+        <h1>Results for "{searchQuery}"</h1>
 
-        <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
+        <div className="products-grid">
           {products.map((p) => (
             <div
               key={p.id}
+              className="product-card"
               onClick={() => openProduct(p)}
-              className="border rounded p-2 cursor-pointer hover:shadow"
             >
               <img
                 src={p?.images?.[0] || "/placeholder.png"}
-                className="h-32 w-full object-cover rounded"
                 alt={p.title}
               />
 
-              <p className="font-semibold mt-2 line-clamp-2">
-                {p.title}
-              </p>
-
-              <p className="text-green-600 font-bold">
-                ₦{Number(p.price).toLocaleString()}
-              </p>
+              <div className="info">
+                <p className="title">{p.title}</p>
+                <p className="price">
+                  ₦{Number(p.price).toLocaleString()}
+                </p>
+              </div>
             </div>
           ))}
         </div>
 
         {/* ================= LOADING ================= */}
-        {loading && (
-          <div className="text-center py-6">
-            <div className="w-8 h-8 border-4 border-blue-400 border-t-transparent rounded-full animate-spin mx-auto"></div>
-          </div>
-        )}
+        {loading && <div className="spinner" />}
 
         {/* ================= EMPTY ================= */}
         {!loading && products.length === 0 && (
-          <div className="text-center py-10 text-gray-500">
-            No products found
-          </div>
+          <div className="empty-state">No products found</div>
         )}
       </main>
     </div>
