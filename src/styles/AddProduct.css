@@ -2,11 +2,12 @@
 .add-product-container {
   max-width: 900px;
   margin: 2rem auto;
-  padding: 1.5rem 2rem;
-  background: #fff;
-  border-radius: 14px;
-  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.06);
+  padding: 1.8rem 2.2rem;
+  background: #ffffff;
+  border-radius: 20px;
+  box-shadow: 0 12px 36px rgba(0, 0, 0, 0.08);
   font-family: "Inter", sans-serif;
+  color: #111827;
 }
 
 /* ================= HEADER ================= */
@@ -14,7 +15,7 @@
   display: flex;
   align-items: center;
   gap: 0.75rem;
-  margin-bottom: 2rem;
+  margin-bottom: 1.8rem;
 }
 
 .add-product-header .back-btn {
@@ -22,22 +23,23 @@
   border: none;
   font-size: 1.6rem;
   cursor: pointer;
-  transition: 0.2s;
+  color: #374151;
+  transition: 0.2s ease;
 }
 
 .add-product-header .back-btn:hover {
-  transform: translateX(-2px);
+  transform: translateX(-3px);
 }
 
 .add-product-header .page-title {
   font-size: 1.6rem;
   font-weight: 700;
-  color: #111;
+  color: #111827;
 }
 
-/* ================= FORM FIELD ================= */
+/* ================= FORM FIELD (INPUT/TEXTAREA/SELECT) ================= */
 .field {
-  margin-bottom: 1.1rem;
+  margin-bottom: 1.2rem;
   display: flex;
   flex-direction: column;
 }
@@ -45,7 +47,7 @@
 .field label {
   font-weight: 500;
   margin-bottom: 0.4rem;
-  color: #333;
+  color: #334155;
   font-size: 0.95rem;
 }
 
@@ -54,42 +56,43 @@
 .field select {
   padding: 0.8rem 1rem;
   border: 1px solid #d1d5db;
-  border-radius: 10px;
+  border-radius: 12px;
   font-size: 1rem;
   outline: none;
   transition: 0.2s ease;
-  background: #fff;
+  background: #ffffff;
 }
 
 .field input:focus,
 .field textarea:focus,
 .field select:focus {
-  border-color: #6366f1;
-  box-shadow: 0 0 0 3px rgba(99, 102, 241, 0.15);
+  border-color: #4f46e5;
+  box-shadow: 0 0 0 3px rgba(99, 102, 241, 0.18);
 }
 
 textarea {
   resize: vertical;
-  min-height: 100px;
+  min-height: 110px;
 }
 
-/* ================= SECTION BLOCKS ================= */
+/* ================= FORM SECTION (ROUNDED CARDS) ================= */
 .form-section {
   margin-top: 1.6rem;
-  padding: 1.3rem;
-  border: 1px solid #ececec;
-  border-radius: 14px;
-  background: #fafafa;
+  padding: 1.4rem;
+  border-radius: 16px;
+  border: 1px solid #e5e7eb;
+  background: #ffffff;
+  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.04);
 }
 
 .form-section h3 {
   font-size: 1.05rem;
   font-weight: 600;
-  margin-bottom: 1rem;
-  color: #222;
+  margin-bottom: 0.9rem;
+  color: #111827;
 }
 
-/* ================= CATEGORY ================= */
+/* ================= CATEGORY (SCROLL / ITEM) ================= */
 .category-scroll {
   display: flex;
   flex-wrap: wrap;
@@ -102,11 +105,11 @@ textarea {
   gap: 0.5rem;
   padding: 0.55rem 1.1rem;
   border: 1px solid #e5e7eb;
-  border-radius: 999px;
+  border-radius: 24px;
   cursor: pointer;
   font-size: 0.95rem;
-  background: #fff;
-  color: #333;
+  background: #ffffff;
+  color: #334155;
   transition: 0.2s ease;
 }
 
@@ -115,31 +118,37 @@ textarea {
   border-color: #c7d2fe;
 }
 
-/* ACTIVE CATEGORY */
 .category-item.active {
   background: #dbeafe;
   border-color: #60a5fa;
   color: #1d4ed8;
   font-weight: 600;
-  box-shadow: 0 3px 10px rgba(96, 165, 250, 0.25);
-  transform: scale(1.03);
+  box-shadow: 0 4px 12px rgba(96, 165, 250, 0.3);
+  transform: scale(1.035);
 }
 
-/* ================= FEATURES (TAGS STYLE) ================= */
+/* ================= FEATURES GRID (TAGS STYLE) ================= */
 .features-grid {
   display: flex;
   flex-wrap: wrap;
   gap: 0.6rem;
+  margin-top: 0.6rem;
 }
 
 .feature-tag {
   padding: 0.45rem 0.9rem;
   border-radius: 999px;
-  border: 1px solid #ddd;
+  border: 1px solid #e2e4e9;
   font-size: 0.85rem;
   cursor: pointer;
-  transition: 0.2s;
-  background: #fff;
+  transition: 0.2s ease;
+  background: #ffffff;
+  color: #4b5563;
+}
+
+.feature-tag:hover {
+  background: #f0f4f9;
+  border-color: #93c5fd;
 }
 
 .feature-tag.active {
@@ -161,24 +170,26 @@ textarea {
   }
 }
 
-/* ================= IMAGE UPLOAD ================= */
+/* ================= IMAGE UPLOAD & PREVIEW ================= */
 .image-upload {
   display: inline-block;
   padding: 0.7rem 1.2rem;
-  border: 1px dashed #999;
-  border-radius: 10px;
+  border: 1px dashed #9ca3af;
+  border-radius: 12px;
   cursor: pointer;
   font-size: 0.95rem;
-  color: #555;
-  transition: 0.2s;
+  color: #4b5563;
+  background: #f9fafb;
+  transition: 0.2s ease;
 }
 
 .image-upload:hover {
   border-color: #6366f1;
-  background: #f8fafc;
-  color: #4f46e5;
+  background: #f0f9ff;
+  color: #3b82f6;
 }
 
+/* IMAGES GRID (small rounded thumbnails) */
 .images {
   display: flex;
   flex-wrap: wrap;
@@ -190,9 +201,10 @@ textarea {
   position: relative;
   width: 92px;
   height: 92px;
-  border-radius: 10px;
+  border-radius: 12px;
   overflow: hidden;
   border: 1px solid #e5e7eb;
+  background: #f3f4f6;
 }
 
 .img-wrap img {
@@ -201,6 +213,7 @@ textarea {
   object-fit: cover;
 }
 
+/* Remove button on thumbnail */
 .img-wrap button {
   position: absolute;
   top: -6px;
@@ -210,76 +223,89 @@ textarea {
   border-radius: 50%;
   border: none;
   background: #ef4444;
-  color: #fff;
+  color: #ffffff;
+  font-size: 0.75rem;
   cursor: pointer;
+  transition: 0.15s ease;
 }
 
-/* ================= BUTTON ================= */
+.img-wrap button:hover {
+  background: #dc2626;
+}
+
+/* ================= BUTTONS ================= */
 .btn {
   display: inline-flex;
   align-items: center;
   justify-content: center;
   padding: 0.9rem 2rem;
-  border-radius: 10px;
+  border-radius: 12px;
   background: #6366f1;
-  color: #fff;
+  color: #ffffff;
   font-weight: 600;
   border: none;
   cursor: pointer;
-  transition: 0.2s;
+  transition: 0.2s ease;
+  font-size: 0.95rem;
 }
 
 .btn:hover:not(:disabled) {
   background: #4f46e5;
   transform: translateY(-1px);
+  box-shadow: 0 6px 16px rgba(79, 70, 229, 0.25);
 }
 
 .btn:disabled {
   background: #a5b4fc;
   cursor: not-allowed;
+  opacity: 1;
 }
 
-/* ================= PROMOTION PLANS (LIGHT BLUE FOCUS) ================= */
+/* ================= PROMOTION PLANS (MODERN CARD) ================= */
 .plan-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
-  gap: 0.8rem;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 1rem;
+  margin-top: 0.8rem;
 }
 
 .plan-card {
-  padding: 14px;
-  border-radius: 14px;
-  border: 1px solid #ddd;
-  background: #fff;
+  padding: 16px;
+  border-radius: 16px;
+  border: 1px solid #e5e7eb;
+  background: #ffffff;
   cursor: pointer;
-  transition: 0.2s ease;
+  transition: 0.25s ease;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.06);
 }
 
 .plan-card:hover {
-  transform: translateY(-2px);
-  border-color: #93c5fd;
+  border-color: #6366f1;
+  box-shadow: 0 8px 24px rgba(99, 102, 241, 0.18);
+  transform: translateY(-3px);
 }
 
-/* ACTIVE PLAN = LIGHT BLUE THEME */
+/* ACTIVE PLAN – LIGHT BLUE STYLE */
 .plan-card.active {
-  background: #dbeafe;
   border: 2px solid #60a5fa;
+  background: #dbeafe;
   color: #1d4ed8;
-  box-shadow: 0 6px 18px rgba(96, 165, 250, 0.25);
+  box-shadow: 0 10px 30px rgba(96, 165, 250, 0.28);
 }
 
-/* ================= TOAST ================= */
+/* TOAST (NOTIFICATION) ================= */
 .toast {
   position: fixed;
   bottom: 1.5rem;
   left: 50%;
   transform: translateX(-50%);
-  background: #111;
-  color: #fff;
-  padding: 0.85rem 1.2rem;
-  border-radius: 10px;
+  background: #0f172a;
+  color: #ffffff;
+  padding: 0.95rem 1.4rem;
+  border-radius: 12px;
   font-size: 0.95rem;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.24);
   z-index: 9999;
-  opacity: 0.95;
+  opacity: 0.96;
   pointer-events: none;
 }
