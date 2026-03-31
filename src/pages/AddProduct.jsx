@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState, useCallback } from "react";
 import DropdownModal from "../components/DropdownModal.jsx";
 import AddProductHeader from "../components/AddProductHeader.jsx";
 import { locationsByState } from "../config/locationsByState.js";
@@ -49,14 +49,47 @@ export default function AddProduct() {
   const [state, setState] = useState("");
   const [city, setCity] = useState("");
 
-  const [images, setImages] = useState([]);
-  const [previews, setPreviews] = useState([]);
+  const [images, setImages] = useState([]); // hold File objects
+  const [previews, setPreviews] = useState([]); // hold URLs
 
   const [loading, setLoading] = useState(false);
   const [selectedPlan, setSelectedPlan] = useState(null);
-  const [paymentData, setPaymentData] = useState(null); // 🔥 NEW: Payment retry state
+  const [paymentData, setPaymentData] = useState(null);
 
-  /* ================= FETCH ================= */
+  /* ================= LOAD DRAFT ON MOUNT ================= */
+  useEffect(() => {
+    const saved = localStorage.getItem("product_draft");
+    if (saved) {
+      try {
+        const data = JSON.parse(saved);
+        setForm(data.form);
+        setState(data.state || "");
+        setCity(data.city || "");
+        setSelectedPlan(data.selectedPlan || null);
+
+        // Note: images can’t be restored from FileList, but we can keep the draft shape
+      } catch (e) {
+        console.error("Failed to load draft:", e);
+      }
+    }
+  }, []);
+
+  /* ================= AUTO‑SAVE DRAFT ================= */
+  useEffect(() => {
+    const timeout = setTimeout(() => {
+      const draft = {
+        form,
+        state,
+        city,
+        selectedPlan,
+      };
+      localStorage.setItem("product_draft", JSON.stringify(draft));
+    }, 3000);
+
+    return () => clearTimeout(timeout);
+  }, [form, state, city, selectedPlan]);
+
+  /* ================= FETCH CATEGORIES ================= */
   useEffect(() => {
     fetch("https://minimart-ivrm.onrender.com/api/marketplace/categories")
       .then((r) => r.json())
@@ -76,7 +109,7 @@ export default function AddProduct() {
     }
   }, [paymentData]);
 
-  /* ================= CATEGORY ================= */
+  /* ================= CATEGORY & OPTIONS ================= */
   const selectedCategory = useMemo(
     () => categories.find((c) => String(c.id) === String(form.category_id)),
     [categories, form.category_id]
@@ -86,7 +119,6 @@ export default function AddProduct() {
   const attributes = form.attributes;
   const brand = attributes.brand;
 
-  /* ================= HELPERS ================= */
   const normalizeOptions = (list = []) =>
     Array.isArray(list)
       ? list.map((x) =>
@@ -99,7 +131,6 @@ export default function AddProduct() {
   const formatLabel = (t) =>
     t.replace(/_/g, " ").replace(/\bw/g, (l) => l.toUpperCase());
 
-  /* ================= OPTIONS ================= */
   const optionsMap = useMemo(() => {
     const modelsForBrand =
       brand && options.models?.[brand] ? options.models[brand] : [];
@@ -126,11 +157,17 @@ export default function AddProduct() {
       : ["condition", ...dynamic];
   }, [options]);
 
-  /* ================= STATE UPDATES ================= */
-  const update = (key, value) =>
-    setForm((p) => ({ ...p, [key]: value }));
+  /* ================= PRICE FORMATTER ================= */
+  const formatPrice = (value) => {
+    const num = value.replace(/D/g, "");
+    return num.replace(/B(?=(d{3})+(?!d))/g, ",");
+  };
 
-  const updateAttr = (key, value) =>
+  /* ================= STATE UPDATERS ================= */
+  const update = useCallback((key, value) =>
+    setForm((p) => ({ ...p, [key]: value })), []);
+
+  const updateAttr = useCallback((key, value) =>
     setForm((p) => ({
       ...p,
       attributes: {
@@ -138,28 +175,28 @@ export default function AddProduct() {
         [key]: value,
         ...(key === "brand" && { model: "" }),
       },
-    }));
+    })), []);
 
-  const updateContact = (key, value) =>
+  const updateContact = useCallback((key, value) =>
     setForm((p) => ({
       ...p,
       contact: { ...p.contact, [key]: value },
-    }));
+    })), []);
 
-  const updateDelivery = (key, value) =>
+  const updateDelivery = useCallback((key, value) =>
     setForm((p) => ({
       ...p,
       delivery: { ...p.delivery, [key]: value },
-    }));
+    })), []);
 
-  const updateDeliveryDuration = (key, value) =>
+  const updateDeliveryDuration = useCallback((key, value) =>
     setForm((p) => ({
       ...p,
       delivery: {
         ...p.delivery,
         duration: { ...p.delivery.duration, [key]: value },
       },
-    }));
+    })), []);
 
   /* ================= MULTI FEATURES ================= */
   const toggleFeature = (feature) => {
@@ -201,9 +238,9 @@ export default function AddProduct() {
     return null;
   };
 
-  /* ================= IMAGES ================= */
+  /* ================= IMAGES HANDLING (max 7) ================= */
   const handleImages = (files) => {
-    const list = Array.from(files).slice(0, 8);
+    const list = Array.from(files).slice(0, 7); // enforce max 7
 
     previews.forEach(URL.revokeObjectURL);
 
@@ -296,20 +333,20 @@ export default function AddProduct() {
 
       if (finalPlan.price === 0) {
         alert("✅ Product created");
-
+        localStorage.removeItem("product_draft");
         setForm(INITIAL_FORM);
         setImages([]);
         setPreviews([]);
         setState("");
         setCity("");
         setSelectedPlan(null);
-        setPaymentData(null); // 🔥 Clear payment data
+        setPaymentData(null);
         localStorage.removeItem("payment_retry");
         setLoading(false);
         return;
       }
 
-      /* 🔥 FIXED PAYMENT */
+      /* 🔥 FIXED PAYMENT INIT */
       const payRes = await fetch(
         "https://minimart-ivrm.onrender.com/api/payment/initialize",
         {
@@ -317,7 +354,7 @@ export default function AddProduct() {
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
             email: form.contact.email,
-            amount: Number(finalPlan.price), // 🔥 REQUIRED FIX
+            amount: Number(finalPlan.price),
             planId: finalPlan.id,
             productId,
           }),
@@ -332,7 +369,7 @@ export default function AddProduct() {
           amount: Number(finalPlan.price),
           planId: finalPlan.id,
           productId,
-        }); // 🔥 Store for retry
+        });
         setLoading(false);
         return alert(payData.message || "Payment init failed - retry below");
       }
@@ -347,205 +384,261 @@ export default function AddProduct() {
   const states = Object.keys(locationsByState || {});
   const cities = state ? locationsByState[state] : [];
 
-  /* ================= UI ================= */
   return (
     <div className="add-product-container">
       <AddProductHeader title="Add Product" />
 
-      <input
-        placeholder="Title"
-        value={form.title}
-        onChange={(e) => update("title", e.target.value)}
-      />
+      {/* BASIC INFO */}
+      <div className="form-section rounded">
+        <h3>📝 Basic Information</h3>
+        <input
+          className="rounded-input"
+          placeholder="Product Title"
+          value={form.title}
+          onChange={(e) => update("title", e.target.value)}
+        />
+        <textarea
+          className="rounded-textarea"
+          placeholder="Product Description"
+          value={form.description}
+          onChange={(e) => update("description", e.target.value)}
+        />
+        <input
+          className="rounded-input"
+          placeholder="Price (₦)"
+          value={formatPrice(form.price)}
+          onChange={(e) => update("price", onlyNumbers(e.target.value))}
+        />
+      </div>
 
-      <textarea
-        placeholder="Description"
-        value={form.description}
-        onChange={(e) => update("description", e.target.value)}
-      />
+      {/* CONTACT */}
+      <div className="form-section rounded">
+        <h3>✉️ Contact Information</h3>
+        <input
+          className="rounded-input"
+          placeholder="Email"
+          value={form.contact.email}
+          onChange={(e) => updateContact("email", e.target.value)}
+        />
+        <input
+          className="rounded-input"
+          placeholder="Phone Number"
+          value={form.contact.phone}
+          onChange={(e) => updateContact("phone", onlyNumbers(e.target.value))}
+        />
+      </div>
 
-      <input
-        placeholder="Price"
-        value={form.price}
-        onChange={(e) => update("price", onlyNumbers(e.target.value))}
-      />
+      {/* CATEGORY + ATTRIBUTES */}
+      <div className="form-section rounded">
+        <h3>🏷️ Category & Attributes</h3>
+        <DropdownModal
+          label="Category"
+          value={form.category_id}
+          onChange={(v) =>
+            setForm((prev) => ({
+              ...prev,
+              category_id: v,
+              attributes: INITIAL_FORM.attributes,
+            }))
+          }
+          options={categories.map((c) => ({
+            id: c.id,
+            name: c.name,
+          }))}
+        />
 
-      {/* EMAIL */}
-      <input
-        placeholder="Email"
-        value={form.contact.email}
-        onChange={(e) => updateContact("email", e.target.value)}
-      />
+        {fields.map((f) => {
+          if (!optionsMap[f]) return null;
+          if (f === "used_detail" && attributes.condition !== "used") return null;
 
-      {/* CATEGORY */}
-      <DropdownModal
-        label="Category"
-        value={form.category_id}
-        onChange={(v) =>
-          setForm((prev) => ({
-            ...prev,
-            category_id: v,
-            attributes: INITIAL_FORM.attributes,
-          }))
-        }
-        options={categories.map((c) => ({
-          id: c.id,
-          name: c.name,
-        }))}
-      />
+          return (
+            <DropdownModal
+              key={f}
+              label={formatLabel(f)}
+              value={attributes[f] || ""}
+              onChange={(v) => updateAttr(f, v)}
+              options={optionsMap[f]}
+            />
+          );
+        })}
 
-      {/* DYNAMIC FIELDS */}
-      {fields.map((f) => {
-        if (!optionsMap[f]) return null;
-        if (f === "used_detail" && attributes.condition !== "used")
-          return null;
-
-        return (
-          <DropdownModal
-            key={f}
-            label={formatLabel(f)}
-            value={attributes[f] || ""}
-            onChange={(v) => updateAttr(f, v)}
-            options={optionsMap[f]}
-          />
-        );
-      })}
-
-      {/* FEATURES MULTI CHECKBOX */}
-      {Array.isArray(options.features) && options.features.length > 0 && (
-        <div className="form-section">
-          <h3>Features</h3>
-          <div className="checkbox-grid">
-            {options.features.map((f) => (
-              <label key={f}>
-                <input
-                  type="checkbox"
-                  checked={attributes.features.includes(f)}
-                  onChange={() => toggleFeature(f)}
-                />
-                {f}
-              </label>
-            ))}
+        {/* FEATURES CHECKBOXES */}
+        {Array.isArray(options.features) && options.features.length > 0 && (
+          <div className="features-section">
+            <h4>Features</h4>
+            <div className="checkbox-grid improved">
+              {options.features.map((f) => (
+                <label key={f} className="checkbox-label">
+                  <div className="checkbox-container">
+                    <input
+                      type="checkbox"
+                      checked={attributes.features.includes(f)}
+                      onChange={() => toggleFeature(f)}
+                    />
+                    <span className="checkmark"></span>
+                  </div>
+                  <span>{formatLabel(f)}</span>
+                </label>
+              ))}
+            </div>
           </div>
-        </div>
-      )}
-
-      {/* DELIVERY */}
-      <div className="form-section">
-        <h3>Delivery</h3>
-
-        <label>
-          <input
-            type="checkbox"
-            checked={form.delivery.available}
-            onChange={(e) =>
-              updateDelivery("available", e.target.checked)
-            }
-          />
-          Available
-        </label>
-
-        {form.delivery.available && (
-          <>
-            <input
-              placeholder="From days"
-              value={form.delivery.duration.from}
-              onChange={(e) =>
-                updateDeliveryDuration("from", e.target.value)
-              }
-            />
-
-            <input
-              placeholder="To days"
-              value={form.delivery.duration.to}
-              onChange={(e) =>
-                updateDeliveryDuration("to", e.target.value)
-              }
-            />
-
-            <input
-              placeholder="Fee"
-              value={form.delivery.fee}
-              onChange={(e) =>
-                updateDelivery("fee", onlyNumbers(e.target.value))
-              }
-            />
-          </>
         )}
       </div>
 
       {/* LOCATION */}
-      <DropdownModal label="State" value={state} onChange={setState} options={states} />
-      {state && (
-        <DropdownModal label="City" value={city} onChange={setCity} options={cities} />
-      )}
-
-      {/* PHONE */}
-      <input
-        placeholder="Phone"
-        value={form.contact.phone}
-        onChange={(e) =>
-          updateContact("phone", onlyNumbers(e.target.value))
-        }
-      />
-
-      {/* IMAGES */}
-      <input type="file" multiple onChange={(e) => handleImages(e.target.files)} />
-
-      <div className="preview-grid">
-        {previews.map((src, i) => (
-          <div key={i}>
-            <img src={src} alt="" />
-            <button onClick={() => removeImage(i)}>X</button>
-          </div>
-        ))}
+      <div className="form-section rounded">
+        <h3>📍 Location</h3>
+        <DropdownModal
+          label="State"
+          value={state}
+          onChange={setState}
+          options={states}
+        />
+        {state && (
+          <DropdownModal
+            label="City"
+            value={city}
+            onChange={setCity}
+            options={cities}
+          />
+        )}
       </div>
 
-      {/* PLANS */}
-      <div className="form-section">
-        <h3>Promotion Plans</h3>
-        {promotionPlans.map((plan) => (
-          <div
-            key={plan.id}
-            onClick={() => setSelectedPlan(plan)}
-            style={{
-              border:
-                selectedPlan?.id === plan.id
-                  ? "2px solid green"
-                  : "1px solid #ccc",
-              padding: "10px",
-              borderRadius: "8px",
-              cursor: "pointer",
-            }}
-          >
-            <strong>{plan.name}</strong>
-            <p>{plan.duration}</p>
-            <p>₦{plan.price}</p>
+      {/* DELIVERY */}
+      <div className="form-section rounded">
+        <h3>🚚 Delivery</h3>
+        <label className="checkbox-label">
+          <div className="checkbox-container">
+            <input
+              type="checkbox"
+              checked={form.delivery.available}
+              onChange={(e) => updateDelivery("available", e.target.checked)}
+            />
+            <span className="checkmark"></span>
           </div>
-        ))}
+          <span>Delivery Available</span>
+        </label>
+
+        {form.delivery.available && (
+          <div className="delivery-grid">
+            <input
+              className="rounded-input"
+              placeholder="From days"
+              value={form.delivery.duration.from}
+              onChange={(e) => updateDeliveryDuration("from", e.target.value)}
+            />
+            <input
+              className="rounded-input"
+              placeholder="To days"
+              value={form.delivery.duration.to}
+              onChange={(e) => updateDeliveryDuration("to", e.target.value)}
+            />
+            <input
+              className="rounded-input"
+              placeholder="Delivery Fee (₦)"
+              value={formatPrice(form.delivery.fee)}
+              onChange={(e) =>
+                updateDelivery("fee", onlyNumbers(e.target.value))
+              }
+            />
+          </div>
+        )}
       </div>
 
-      <button onClick={handleSubmit} disabled={loading}>
-        {loading ? "Uploading..." : "Create Product"}
-      </button>
+      {/* IMAGES (max 7, small thumbnails) */}
+      <div className="form-section rounded">
+        <h3>🖼️ Product Images (max 7)</h3>
+        <div className="image-preview-grid">
+          {previews.map((src, i) => (
+            <div key={i} className="preview-item">
+              <img src={src} alt={`Preview ${i}`} className="preview-thumb" />
+              <button
+                type="button"
+                onClick={() => removeImage(i)}
+                className="remove-preview"
+              >
+                ✕
+              </button>
+            </div>
+          ))}
 
-      {/* 🔥 NEW: RETRY BUTTON */}
-      {paymentData && (
+          {images.length < 7 && (
+            <label className="add-image-btn">
+              +
+              <input
+                type="file"
+                accept="image/*"
+                multiple
+                style={{ display: "none" }}
+                onChange={(e) => {
+                  const files = Array.from(e.target.files);
+                  const remaining = 7 - images.length;
+                  handleImages(files.slice(0, remaining));
+                }}
+              />
+            </label>
+          )}
+        </div>
+
+        <p className="image-hint">
+          {images.length}/7 images (max 7)
+        </p>
+      </div>
+
+      {/* PROMOTION PLANS */}
+      <div className="form-section rounded">
+        <h3>🎯 Promotion Plans</h3>
+        <div className="plans-grid">
+          {promotionPlans.map((plan) => (
+            <div
+              key={plan.id}
+              className={`plan-card ${selectedPlan?.id === plan.id ? "selected" : ""}`}
+              onClick={() => setSelectedPlan(plan)}
+            >
+              <div className="plan-header">
+                <h4>{plan.name}</h4>
+                <div className="plan-price">
+                  ₦{formatPrice(plan.price.toString())}
+                </div>
+              </div>
+              <div className="plan-duration">{plan.duration}</div>
+              <ul className="plan-features">
+                {plan.features.map((feature, i) => (
+                  <li key={i}>✅ {feature}</li>
+                ))}
+              </ul>
+              <p className="plan-description">{plan.description}</p>
+            </div>
+          ))}
+        </div>
+      </div>
+
+      {/* SUBMIT & RETRY BUTTONS */}
+      <div className="action-buttons">
         <button
-          onClick={retryPayment}
-          style={{
-            marginTop: "10px",
-            background: "#f59e0b",
-            color: "#fff",
-            padding: "12px",
-            borderRadius: "8px",
-            border: "none",
-            cursor: "pointer",
-          }}
+          onClick={handleSubmit}
           disabled={loading}
+          className="primary-btn rounded"
         >
-          {loading ? "Retrying..." : "Retry Payment"}
+          {loading ? "⏳ Creating Product..." : "🚀 Create Product"}
         </button>
+
+        {paymentData && (
+          <button
+            onClick={retryPayment}
+            className="retry-btn rounded"
+            disabled={loading}
+          >
+            {loading ? "🔄 Retrying..." : "🔄 Retry Payment"}
+          </button>
+        )}
+      </div>
+
+      {/* DRAFT INDICATOR */}
+            {(form.title || form.description) && (
+        <div className="draft-indicator">
+          💾 Auto-saving draft...
+        </div>
       )}
     </div>
   );
