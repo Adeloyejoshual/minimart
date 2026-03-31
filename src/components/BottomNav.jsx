@@ -1,7 +1,14 @@
 // src/components/BottomNav.jsx
 import React from "react";
 import { useNavigate, useLocation } from "react-router-dom";
-import { FaHome, FaShoppingCart, FaComments, FaUser, FaHandshake } from "react-icons/fa";
+import {
+  FaHome,
+  FaShoppingCart,
+  FaComments,
+  FaUser,
+  FaHandshake,
+} from "react-icons/fa";
+import "../styles/BottomNav.css";
 
 export default function BottomNav() {
   const navigate = useNavigate();
@@ -16,42 +23,18 @@ export default function BottomNav() {
   ];
 
   return (
-    <div
-      style={{
-        position: "fixed",
-        bottom: 0,
-        left: 0,
-        right: 0,
-        height: 60,
-        display: "flex",
-        justifyContent: "space-around",
-        alignItems: "center",
-        borderTop: "1px solid #ccc",
-        background: "#fff",
-        zIndex: 100,
-      }}
-    >
+    <div className="bottom-nav">
       {navItems.map((item) => {
         const isActive = location.pathname === item.path;
+
         return (
           <button
             key={item.label}
             onClick={() => navigate(item.path)}
-            style={{
-              display: "flex",
-              flexDirection: "column",
-              alignItems: "center",
-              justifyContent: "center",
-              background: "none",
-              border: "none",
-              color: isActive ? "black" : "#888",
-              fontWeight: isActive ? "bold" : "normal",
-              fontSize: isActive ? 14 : 12,
-              cursor: "pointer",
-            }}
+            className={`nav-item ${isActive ? "active" : ""}`}
           >
-            {item.icon}
-            <span style={{ marginTop: 2 }}>{item.label}</span>
+            <div className="icon">{item.icon}</div>
+            <span className="label">{item.label}</span>
           </button>
         );
       })}
