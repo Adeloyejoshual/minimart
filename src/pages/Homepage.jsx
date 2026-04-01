@@ -3,24 +3,66 @@ import {
   useState,
   useMemo,
   useCallback,
+  memo,
   useRef,
 } from "react";
 
 import { useNavigate } from "react-router-dom";
 import TopNav from "../components/TopNav";
 import BottomNav from "../components/BottomNav";
-import Card from "../components/Card";
+import { useProductCache } from "../context/ProductCacheContext";
 import "../styles/Homepage.css";
 
-export default function Homepage() {
-  const navigate = useNavigate();
+/* ================= CARD ================= */
+const Card = memo(function Card({ p, onClick }) {
+  const image =
+    Array.isArray(p?.images) && p.images.length > 0
+      ? p.images[0]
+      : "https://via.placeholder.com/300x200?text=No+Image";
 
-  const [products, setProducts] = useState([]);
-  const [trending, setTrending] = useState([]);
+  const location =
+    p?.location?.state && p?.location?.city
+      ? `${p.location.state}, ${p.location.city}`
+      : p?.location?.state || "Nigeria";
+
+  return (
+    <div className="card" onClick={() => onClick(p.id)}>
+      <div className="card-image">
+        <img src={image} alt={p.title} loading="lazy" />
+      </div>
+
+      <div className="card-body">
+        <div className="price">
+          ₦{Number(p.price || 0).toLocaleString()}
+        </div>
+
+        <div className="title">
+          {p.title?.length > 60
+            ? p.title.slice(0, 60) + "..."
+            : p.title}
+        </div>
+
+        <div className="location">📍 {location}</div>
+      </div>
+    </div>
+  );
+});
+
+/* ================= HOMEPAGE ================= */
+export default function Homepage() {
+  const {
+    products,
+    setProducts,
+    trending,
+    setTrending,
+  } = useProductCache();
+
   const [loading, setLoading] = useState(false);
   const [visibleCount, setVisibleCount] = useState(12);
 
+  const navigate = useNavigate();
   const observerRef = useRef(null);
+
   const PAGE_SIZE = 12;
 
   /* ================= FETCH ================= */
@@ -36,18 +78,24 @@ export default function Homepage() {
           { signal: controller.signal }
         );
 
-        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        if (!res.ok) {
+          throw new Error(`HTTP ${res.status}`);
+        }
 
         const data = await res.json();
 
-        console.log("HOMEPAGE DATA:", data);
+        const latest = Array.isArray(data?.latest) ? data.latest : [];
+        const promoted = Array.isArray(data?.promoted)
+          ? data.promoted
+          : [];
 
-        setProducts(Array.isArray(data?.latest) ? data.latest : []);
-        setTrending(Array.isArray(data?.promoted) ? data.promoted : []);
-
+        setProducts(latest);
+        setTrending(
+          promoted.length ? promoted.slice(0, 10) : latest.slice(0, 10)
+        );
       } catch (err) {
         if (err.name !== "AbortError") {
-          console.error("FETCH ERROR:", err);
+          console.error("Homepage fetch error:", err);
         }
       } finally {
         setLoading(false);
@@ -57,11 +105,14 @@ export default function Homepage() {
     load();
 
     return () => controller.abort();
-  }, []);
+  }, [setProducts, setTrending]);
 
-  /* ================= DERIVED ================= */
+  /* ================= DERIVED DATA ================= */
   const cheapDeals = useMemo(
-    () => products.filter((p) => Number(p.price) < 50000).slice(0, 10),
+    () =>
+      products
+        .filter((p) => Number(p.price) < 50000)
+        .slice(0, 10),
     [products]
   );
 
@@ -80,7 +131,9 @@ export default function Homepage() {
 
   /* ================= INFINITE SCROLL ================= */
   const loadMoreRef = useCallback((node) => {
-    if (observerRef.current) observerRef.current.disconnect();
+    if (observerRef.current) {
+      observerRef.current.disconnect();
+    }
 
     observerRef.current = new IntersectionObserver(
       (entries) => {
@@ -96,15 +149,17 @@ export default function Homepage() {
 
   /* ================= SECTION ================= */
   const Section = ({ title, items }) => {
-    if (!items.length) return null;
+    if (!items?.length) return null;
 
     return (
       <div className="mini-section">
-        <h3>{title}</h3>
+        <h3 className="mini-title">{title}</h3>
 
         <div className="horizontal-scroll">
           {items.map((p) => (
-            <Card key={p.id} p={p} onClick={goToProduct} />
+            <div key={p.id} className="scroll-item">
+              <Card p={p} onClick={goToProduct} />
+            </div>
           ))}
         </div>
       </div>
@@ -132,12 +187,16 @@ export default function Homepage() {
           <h2>🛒 All Products</h2>
 
           {visibleProducts.length === 0 && !loading ? (
-            <p>No products available</p>
+            <p className="empty">No products available</p>
           ) : (
             <>
               <div className="grid">
                 {visibleProducts.map((p) => (
-                  <Card key={p.id} p={p} onClick={goToProduct} />
+                  <Card
+                    key={p.id}
+                    p={p}
+                    onClick={goToProduct}
+                  />
                 ))}
               </div>
 
@@ -145,7 +204,7 @@ export default function Homepage() {
             </>
           )}
 
-          {loading && <p>Loading...</p>}
+          {loading && <p className="loading">Loading...</p>}
         </div>
       </div>
 
