@@ -227,6 +227,8 @@ router.post("/webhooks/paystack", async (req, res) => {
       `
       UPDATE products
       SET
+        is_active = true,
+        state = 'active',
         is_promoted = true,
         promotion_type = $1,
         promotion_priority = $2,
@@ -249,6 +251,50 @@ router.post("/webhooks/paystack", async (req, res) => {
 });
 
 /* =========================================================
+ACTIVATE PRODUCT (FREE PLAN / ADMIN)
+========================================================= */
+router.post("/products/:id/activate", async (req, res) => {
+  const { id } = req.params;
+
+  const client = await pool.connect();
+
+  try {
+    await client.query("BEGIN");
+
+    const { rows } = await client.query(
+      "SELECT * FROM products WHERE id = $1 FOR UPDATE",
+      [id]
+    );
+
+    if (!rows.length || rows[0]?.is_active !== true || rows[0]?.state === "active") {
+      await client.query("ROLLBACK");
+      return res.status(400).json({ message: "Cannot activate this product" });
+    }
+
+    await client.query(
+      `
+      UPDATE products
+      SET
+        is_active = true,
+        state = 'active',
+        updated_at = now()
+      WHERE id = $1
+      `,
+      [id]
+    );
+
+    await client.query("COMMIT");
+
+    res.json({ success: true });
+  } catch (err) {
+    await client.query("ROLLBACK");
+    res.status(500).json({ message: "Failed to activate product" });
+  } finally {
+    client.release();
+  }
+});
+
+/* =========================================================
 GET PRODUCTS
 ========================================================= */
 router.get("/products", async (req, res) => {
@@ -264,7 +310,7 @@ router.get("/products", async (req, res) => {
       FILTER (WHERE pi.image_url IS NOT NULL), '[]') AS images
       FROM products p
       LEFT JOIN product_images pi ON p.id = pi.product_id
-      WHERE p.is_active = true
+      WHERE p.is_active = true AND p.state = 'active'
       GROUP BY p.id
     `;
 
@@ -307,7 +353,7 @@ router.get("/products/:id", async (req, res) => {
       FILTER (WHERE pi.image_url IS NOT NULL), '[]') AS images
       FROM products p
       LEFT JOIN product_images pi ON p.id = pi.product_id
-      WHERE p.id = $1
+      WHERE p.id = $1 AND p.is_active = true AND p.state = 'active'
       GROUP BY p.id
       `,
       [id]
