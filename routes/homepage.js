@@ -8,93 +8,58 @@ const pool = new Pool({
   ssl: { rejectUnauthorized: false },
 });
 
-/* ================= SAFE PARSER ================= */
-const safeParse = (val, fallback = {}) => {
-  if (!val) return fallback;
-  if (typeof val !== "string") return val;
-
-  try {
-    return JSON.parse(val);
-  } catch {
-    return fallback;
-  }
-};
-
 /* ================= NORMALIZER ================= */
-const normalizeProduct = (p) => {
-  const media = safeParse(p.media, { images: [], videos: [] });
+const normalizeProduct = (p) => ({
+  ...p,
+  images: p.images || [],
+  attributes: p.attributes || {},
+  delivery: p.delivery || {},
+  contact: p.contact || {},
+  location: {
+    state: p.location_state,
+    city: p.location_city,
+  },
+});
 
-  return {
-    id: p.id,
-    title: p.title,
-    description: p.description,
-    price: Number(p.price || 0),
-
-    location: {
-      state: p.location_state || null,
-      city: p.location_city || null,
-    },
-
-    images: Array.isArray(media.images) ? media.images : [],
-    videos: Array.isArray(media.videos) ? media.videos : [],
-
-    attributes: safeParse(p.attributes, {}),
-    delivery: safeParse(p.delivery, {}),
-    contact: safeParse(p.contact, {}),
-
-    is_promoted: Boolean(p.is_promoted),
-    promotion_priority: Number(p.promotion_priority || 0),
-
-    created_at: p.created_at,
-
-    // important for frontend logic
-    status: p.status,
-    is_active: p.is_active,
-  };
-};
-
-/* ================= BASE QUERY ================= */
-const buildQuery = (where = "", order = "") => `
-  SELECT
-    p.id,
-    p.title,
-    p.description,
-    p.price,
-    p.location_state,
-    p.location_city,
-    p.attributes,
-    p.delivery,
-    p.contact,
-    p.media,
-    p.is_promoted,
-    p.promotion_priority,
-    p.created_at,
-    p.status,
-    p.is_active
+/* ================= BASE PRODUCT SELECT ================= */
+const baseProductQuery = `
+  SELECT 
+    p.*,
+    COALESCE(
+      json_agg(pi.image_url ORDER BY pi.position)
+      FILTER (WHERE pi.image_url IS NOT NULL),
+      '[]'
+    ) AS images
   FROM products p
+  LEFT JOIN product_images pi ON p.id = pi.product_id
   WHERE p.is_active = true
-    AND p.status = 'approved'
-  ${where}
-  ${order}
 `;
 
 /* ================= HOMEPAGE ================= */
 router.get("/homepage", async (req, res) => {
   try {
-    const promotedQuery = buildQuery(
-      "AND p.is_promoted = true",
-      "ORDER BY p.promotion_priority DESC NULLS LAST, p.created_at DESC LIMIT 10"
-    );
+    const promotedQuery = `
+      ${baseProductQuery}
+      AND p.is_promoted = true
+      AND (p.promotion_end IS NULL OR p.promotion_end > NOW())
+      GROUP BY p.id
+      ORDER BY p.promotion_priority DESC, p.created_at DESC
+      LIMIT 10
+    `;
 
-    const latestQuery = buildQuery(
-      "",
-      "ORDER BY p.created_at DESC LIMIT 20"
-    );
+    const latestQuery = `
+      ${baseProductQuery}
+      GROUP BY p.id
+      ORDER BY p.created_at DESC
+      LIMIT 20
+    `;
 
-    const cheapQuery = buildQuery(
-      "AND COALESCE(p.price, 0)::numeric < 50000",
-      "ORDER BY p.created_at DESC LIMIT 10"
-    );
+    const discoverQuery = `
+      ${baseProductQuery}
+      GROUP BY p.id
+      ORDER BY RANDOM()
+      LIMIT 10
+    `;
 
     const categoriesQuery = `
       SELECT id, name, parent_id
@@ -102,24 +67,23 @@ router.get("/homepage", async (req, res) => {
       ORDER BY name ASC
     `;
 
-    const [promotedRes, latestRes, cheapRes, categoriesRes] =
-      await Promise.all([
-        pool.query(promotedQuery),
-        pool.query(latestQuery),
-        pool.query(cheapQuery),
-        pool.query(categoriesQuery),
-      ]);
+    const [promoted, latest, discover, categories] = await Promise.all([
+      pool.query(promotedQuery),
+      pool.query(latestQuery),
+      pool.query(discoverQuery),
+      pool.query(categoriesQuery),
+    ]);
 
-    res.json({
-      promoted: promotedRes.rows.map(normalizeProduct),
-      latest: latestRes.rows.map(normalizeProduct),
-      cheapDeals: cheapRes.rows.map(normalizeProduct),
-      categories: categoriesRes.rows,
+    return res.json({
+      promoted: promoted.rows.map(normalizeProduct),
+      latest: latest.rows.map(normalizeProduct),
+      discover: discover.rows.map(normalizeProduct),
+      categories: categories.rows,
     });
-  } catch (err) {
-    console.error("HOMEPAGE ERROR:", err);
 
-    res.status(500).json({
+  } catch (err) {
+    console.error("Homepage error:", err);
+    return res.status(500).json({
       message: "Failed to load homepage",
     });
   }
