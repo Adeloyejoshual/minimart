@@ -8,40 +8,46 @@ const pool = new Pool({
   ssl: { rejectUnauthorized: false },
 });
 
-/* ================= SAFE JSON ================= */
-const safeParse = (value, fallback = {}) => {
-  if (!value) return fallback;
-  if (typeof value !== "string") return value;
+/* ================= SAFE PARSER ================= */
+const safeParse = (val, fallback = {}) => {
+  if (!val) return fallback;
+  if (typeof val !== "string") return val;
   try {
-    return JSON.parse(value);
+    return JSON.parse(val);
   } catch {
     return fallback;
   }
 };
 
-/* ================= PRODUCT NORMALIZER ================= */
-const normalizeProduct = (p) => ({
-  id: p.id,
-  title: p.title,
-  description: p.description,
-  price: Number(p.price || 0),
+/* ================= NORMALIZER ================= */
+const normalizeProduct = (p) => {
+  const media = safeParse(p.media, { images: [], videos: [] });
 
-  location: {
-    state: p.location_state ?? null,
-    city: p.location_city ?? null,
-  },
+  return {
+    id: p.id,
+    title: p.title,
+    description: p.description,
+    price: Number(p.price || 0),
 
-  images: Array.isArray(p.images) ? p.images : [],
+    location: {
+      state: p.location_state || null,
+      city: p.location_city || null,
+    },
 
-  attributes: safeParse(p.attributes, {}),
-  delivery: safeParse(p.delivery, {}),
-  contact: safeParse(p.contact, {}),
+    images: Array.isArray(media.images) ? media.images : [],
+    videos: Array.isArray(media.videos) ? media.videos : [],
 
-  is_promoted: Boolean(p.is_promoted),
-  created_at: p.created_at,
-});
+    attributes: safeParse(p.attributes, {}),
+    delivery: safeParse(p.delivery, {}),
+    contact: safeParse(p.contact, {}),
 
-/* ================= BASE QUERY BUILDER ================= */
+    is_promoted: Boolean(p.is_promoted),
+    promotion_priority: p.promotion_priority || 0,
+    created_at: p.created_at,
+  };
+};
+
+/* ================= BASE QUERY ================= */
 const baseProductQuery = (extraWhere = "", orderBy = "") => `
   SELECT 
     p.id,
@@ -53,53 +59,42 @@ const baseProductQuery = (extraWhere = "", orderBy = "") => `
     p.attributes,
     p.delivery,
     p.contact,
-    p.is_promoted,
-    p.promotion_priority,
-    p.created_at,
-
-    COALESCE(
-      json_agg(pi.image_url ORDER BY pi.position)
-      FILTER (WHERE pi.image_url IS NOT NULL),
-      '[]'
-    ) AS images
-
-  FROM products p
-  LEFT JOIN product_images pi ON p.id = pi.product_id
-  WHERE p.is_active = true
-  ${extraWhere}
-  GROUP BY 
-    p.id,
-    p.title,
-    p.description,
-    p.price,
-    p.location_state,
-    p.location_city,
-    p.attributes,
-    p.delivery,
-    p.contact,
+    p.media,
     p.is_promoted,
     p.promotion_priority,
     p.created_at
+  FROM products p
+  WHERE p.is_active = true
+  ${extraWhere}
   ${orderBy}
 `;
 
 /* ================= HOMEPAGE ================= */
 router.get("/homepage", async (req, res) => {
   try {
-    const promotedQuery = baseProductQuery(
-      "AND p.is_promoted = true",
-      "ORDER BY p.promotion_priority DESC NULLS LAST, p.created_at DESC"
-    ) + " LIMIT 10";
+    const promotedQuery = `
+      ${baseProductQuery(
+        "AND p.is_promoted = true",
+        "ORDER BY p.promotion_priority DESC NULLS LAST, p.created_at DESC"
+      )}
+      LIMIT 10
+    `;
 
-    const latestQuery = baseProductQuery(
-      "",
-      "ORDER BY p.created_at DESC"
-    ) + " LIMIT 20";
+    const latestQuery = `
+      ${baseProductQuery(
+        "",
+        "ORDER BY p.created_at DESC"
+      )}
+      LIMIT 20
+    `;
 
-    const discoverQuery = baseProductQuery(
-      "",
-      "ORDER BY RANDOM()"
-    ) + " LIMIT 10";
+    const cheapQuery = `
+      ${baseProductQuery(
+        "AND p.price::numeric < 50000",
+        "ORDER BY p.created_at DESC"
+      )}
+      LIMIT 10
+    `;
 
     const categoriesQuery = `
       SELECT id, name, parent_id
@@ -107,19 +102,18 @@ router.get("/homepage", async (req, res) => {
       ORDER BY name ASC
     `;
 
-    const [promotedRes, latestRes, discoverRes, categoriesRes] =
-      await Promise.all([
-        pool.query(promotedQuery),
-        pool.query(latestQuery),
-        pool.query(discoverQuery),
-        pool.query(categoriesQuery),
-      ]);
+    const [promoted, latest, cheap, categories] = await Promise.all([
+      pool.query(promotedQuery),
+      pool.query(latestQuery),
+      pool.query(cheapQuery),
+      pool.query(categoriesQuery),
+    ]);
 
     res.json({
-      promoted: promotedRes.rows.map(normalizeProduct),
-      latest: latestRes.rows.map(normalizeProduct),
-      discover: discoverRes.rows.map(normalizeProduct),
-      categories: categoriesRes.rows,
+      promoted: promoted.rows.map(normalizeProduct),
+      latest: latest.rows.map(normalizeProduct),
+      cheapDeals: cheap.rows.map(normalizeProduct),
+      categories: categories.rows,
     });
   } catch (err) {
     console.error("HOMEPAGE ERROR:", err);
