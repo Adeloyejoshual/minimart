@@ -7,15 +7,13 @@ const pool = new Pool({
   connectionString: process.env.DATABASE_URL,
 });
 
-/**
- * GET /api/products/:id
- * Fetch single product with seller + category info
- */
+// GET single product
 router.get("/:id", async (req, res) => {
   const { id } = req.params;
 
   try {
-    const query = `
+    const result = await pool.query(
+      `
       SELECT 
         p.*,
         u.id AS seller_id,
@@ -29,49 +27,44 @@ router.get("/:id", async (req, res) => {
       LEFT JOIN categories sc ON p.subcategory_id = sc.id
       WHERE p.id = $1
       LIMIT 1
-    `;
+      `,
+      [id]
+    );
 
-    const { rows } = await pool.query(query, [id]);
-
-    if (rows.length === 0) {
+    if (result.rows.length === 0) {
       return res.status(404).json({
         success: false,
         message: "Product not found",
       });
     }
 
-    const product = rows[0];
+    const product = result.rows[0];
 
-    // Parse JSON fields safely
-    product.media =
-      typeof product.media === "string"
-        ? JSON.parse(product.media)
-        : product.media;
+    // Safe JSON parsing helper
+    const safeParse = (data) => {
+      if (!data) return null;
+      if (typeof data === "object") return data;
+      try {
+        return JSON.parse(data);
+      } catch {
+        return null;
+      }
+    };
 
-    product.attributes =
-      typeof product.attributes === "string"
-        ? JSON.parse(product.attributes)
-        : product.attributes;
-
-    product.delivery =
-      typeof product.delivery === "string"
-        ? JSON.parse(product.delivery)
-        : product.delivery;
-
-    product.contact =
-      typeof product.contact === "string"
-        ? JSON.parse(product.contact)
-        : product.contact;
+    product.media = safeParse(product.media) || { images: [], videos: [] };
+    product.attributes = safeParse(product.attributes) || {};
+    product.delivery = safeParse(product.delivery) || {};
+    product.contact = safeParse(product.contact) || {};
 
     return res.json({
       success: true,
       product,
     });
-  } catch (error) {
-    console.error("Product detail error:", error);
+  } catch (err) {
+    console.error("Product fetch error:", err);
     return res.status(500).json({
       success: false,
-      message: "Server error fetching product",
+      message: "Server error",
     });
   }
 });
