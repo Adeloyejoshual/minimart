@@ -3,65 +3,28 @@ import {
   useState,
   useMemo,
   useCallback,
-  memo,
+  useRef,
 } from "react";
+
 import { useNavigate } from "react-router-dom";
 import TopNav from "../components/TopNav";
 import BottomNav from "../components/BottomNav";
-import { useProductCache } from "../context/ProductCacheContext";
+import Card from "../components/Card";
 import "../styles/Homepage.css";
 
-/* ================= CARD (MEMOIZED FOR PERFORMANCE) ================= */
-const Card = memo(function Card({ p, onClick }) {
-  const getImage = () =>
-    p?.images?.[0] || "https://via.placeholder.com/300x200?text=No+Image";
-
-  const getLocation = () =>
-    p?.location?.state && p?.location?.city
-      ? `${p.location.state}, ${p.location.city}`
-      : p?.location?.state || "Nigeria";
-
-  return (
-    <div className="card" onClick={() => onClick(p.id)}>
-      <div className="card-image">
-        <img src={getImage()} alt={p.title} loading="lazy" />
-      </div>
-
-      <div className="card-body">
-        <div className="price">₦{Number(p.price || 0).toLocaleString()}</div>
-
-        <div className="title">
-          {p.title?.length > 60 ? p.title.slice(0, 60) + "..." : p.title}
-        </div>
-
-        <div className="location">📍 {getLocation()}</div>
-      </div>
-    </div>
-  );
-});
-
-/* ================= HOMEPAGE ================= */
 export default function Homepage() {
-  const {
-    products,
-    setProducts,
-    trending,
-    setTrending,
-    loaded,
-    setLoaded,
-  } = useProductCache();
+  const navigate = useNavigate();
 
+  const [products, setProducts] = useState([]);
+  const [trending, setTrending] = useState([]);
   const [loading, setLoading] = useState(false);
   const [visibleCount, setVisibleCount] = useState(12);
 
-  const navigate = useNavigate();
-
+  const observerRef = useRef(null);
   const PAGE_SIZE = 12;
 
   /* ================= FETCH ================= */
   useEffect(() => {
-    if (loaded) return;
-
     const controller = new AbortController();
 
     const load = async () => {
@@ -73,30 +36,30 @@ export default function Homepage() {
           { signal: controller.signal }
         );
 
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+
         const data = await res.json();
 
-        const latest = Array.isArray(data?.latest) ? data.latest : [];
-        const promoted = Array.isArray(data?.promoted) ? data.promoted : [];
+        console.log("HOMEPAGE DATA:", data);
 
-        setProducts(latest);
+        setProducts(Array.isArray(data?.latest) ? data.latest : []);
+        setTrending(Array.isArray(data?.promoted) ? data.promoted : []);
 
-        setTrending(
-          promoted.length ? promoted.slice(0, 10) : latest.slice(0, 10)
-        );
-
-        setLoaded(true);
       } catch (err) {
-        if (err.name !== "AbortError") console.error(err);
+        if (err.name !== "AbortError") {
+          console.error("FETCH ERROR:", err);
+        }
       } finally {
         setLoading(false);
       }
     };
 
     load();
-    return () => controller.abort();
-  }, [loaded, setProducts, setTrending, setLoaded]);
 
-  /* ================= DERIVED DATA ================= */
+    return () => controller.abort();
+  }, []);
+
+  /* ================= DERIVED ================= */
   const cheapDeals = useMemo(
     () => products.filter((p) => Number(p.price) < 50000).slice(0, 10),
     [products]
@@ -116,21 +79,20 @@ export default function Homepage() {
   );
 
   /* ================= INFINITE SCROLL ================= */
-  const loadMoreRef = useCallback(
-    (node) => {
-      if (!node) return;
+  const loadMoreRef = useCallback((node) => {
+    if (observerRef.current) observerRef.current.disconnect();
 
-      const observer = new IntersectionObserver((entries) => {
+    observerRef.current = new IntersectionObserver(
+      (entries) => {
         if (entries[0].isIntersecting) {
           setVisibleCount((prev) => prev + PAGE_SIZE);
         }
-      });
+      },
+      { threshold: 1.0 }
+    );
 
-      observer.observe(node);
-      return () => observer.disconnect();
-    },
-    []
-  );
+    if (node) observerRef.current.observe(node);
+  }, []);
 
   /* ================= SECTION ================= */
   const Section = ({ title, items }) => {
@@ -138,13 +100,11 @@ export default function Homepage() {
 
     return (
       <div className="mini-section">
-        <h3 className="mini-title">{title}</h3>
+        <h3>{title}</h3>
 
         <div className="horizontal-scroll">
           {items.map((p) => (
-            <div key={p.id} className="scroll-item">
-              <Card p={p} onClick={goToProduct} />
-            </div>
+            <Card key={p.id} p={p} onClick={goToProduct} />
           ))}
         </div>
       </div>
@@ -157,8 +117,6 @@ export default function Homepage() {
       <TopNav />
 
       <div className="homepage-container">
-
-        {/* FLOAT BUTTON */}
         <button
           className="floating-btn"
           onClick={() => navigate("/minimart/add")}
@@ -166,17 +124,15 @@ export default function Homepage() {
           + Sell
         </button>
 
-        {/* MINI SECTIONS */}
         <Section title="🔥 Trending" items={trending} />
         <Section title="💰 Cheap Deals" items={cheapDeals} />
         <Section title="✨ Recommended" items={recommended} />
 
-        {/* ALL PRODUCTS (MASONRY GRID) */}
         <div className="section">
           <h2>🛒 All Products</h2>
 
           {visibleProducts.length === 0 && !loading ? (
-            <p className="empty">No products available</p>
+            <p>No products available</p>
           ) : (
             <>
               <div className="grid">
@@ -189,7 +145,7 @@ export default function Homepage() {
             </>
           )}
 
-          {loading && <p className="loading">Loading...</p>}
+          {loading && <p>Loading...</p>}
         </div>
       </div>
 
