@@ -12,6 +12,7 @@ const pool = new Pool({
 const safeParse = (val, fallback = {}) => {
   if (!val) return fallback;
   if (typeof val !== "string") return val;
+
   try {
     return JSON.parse(val);
   } catch {
@@ -42,14 +43,19 @@ const normalizeProduct = (p) => {
     contact: safeParse(p.contact, {}),
 
     is_promoted: Boolean(p.is_promoted),
-    promotion_priority: p.promotion_priority || 0,
+    promotion_priority: Number(p.promotion_priority || 0),
+
     created_at: p.created_at,
+
+    // important for frontend logic
+    status: p.status,
+    is_active: p.is_active,
   };
 };
 
 /* ================= BASE QUERY ================= */
-const baseProductQuery = (extraWhere = "", orderBy = "") => `
-  SELECT 
+const buildQuery = (where = "", order = "") => `
+  SELECT
     p.id,
     p.title,
     p.description,
@@ -62,39 +68,33 @@ const baseProductQuery = (extraWhere = "", orderBy = "") => `
     p.media,
     p.is_promoted,
     p.promotion_priority,
-    p.created_at
+    p.created_at,
+    p.status,
+    p.is_active
   FROM products p
   WHERE p.is_active = true
-  ${extraWhere}
-  ${orderBy}
+    AND p.status = 'approved'
+  ${where}
+  ${order}
 `;
 
 /* ================= HOMEPAGE ================= */
 router.get("/homepage", async (req, res) => {
   try {
-    const promotedQuery = `
-      ${baseProductQuery(
-        "AND p.is_promoted = true",
-        "ORDER BY p.promotion_priority DESC NULLS LAST, p.created_at DESC"
-      )}
-      LIMIT 10
-    `;
+    const promotedQuery = buildQuery(
+      "AND p.is_promoted = true",
+      "ORDER BY p.promotion_priority DESC NULLS LAST, p.created_at DESC LIMIT 10"
+    );
 
-    const latestQuery = `
-      ${baseProductQuery(
-        "",
-        "ORDER BY p.created_at DESC"
-      )}
-      LIMIT 20
-    `;
+    const latestQuery = buildQuery(
+      "",
+      "ORDER BY p.created_at DESC LIMIT 20"
+    );
 
-    const cheapQuery = `
-      ${baseProductQuery(
-        "AND p.price::numeric < 50000",
-        "ORDER BY p.created_at DESC"
-      )}
-      LIMIT 10
-    `;
+    const cheapQuery = buildQuery(
+      "AND COALESCE(p.price, 0)::numeric < 50000",
+      "ORDER BY p.created_at DESC LIMIT 10"
+    );
 
     const categoriesQuery = `
       SELECT id, name, parent_id
@@ -102,18 +102,19 @@ router.get("/homepage", async (req, res) => {
       ORDER BY name ASC
     `;
 
-    const [promoted, latest, cheap, categories] = await Promise.all([
-      pool.query(promotedQuery),
-      pool.query(latestQuery),
-      pool.query(cheapQuery),
-      pool.query(categoriesQuery),
-    ]);
+    const [promotedRes, latestRes, cheapRes, categoriesRes] =
+      await Promise.all([
+        pool.query(promotedQuery),
+        pool.query(latestQuery),
+        pool.query(cheapQuery),
+        pool.query(categoriesQuery),
+      ]);
 
     res.json({
-      promoted: promoted.rows.map(normalizeProduct),
-      latest: latest.rows.map(normalizeProduct),
-      cheapDeals: cheap.rows.map(normalizeProduct),
-      categories: categories.rows,
+      promoted: promotedRes.rows.map(normalizeProduct),
+      latest: latestRes.rows.map(normalizeProduct),
+      cheapDeals: cheapRes.rows.map(normalizeProduct),
+      categories: categoriesRes.rows,
     });
   } catch (err) {
     console.error("HOMEPAGE ERROR:", err);
