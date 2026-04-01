@@ -15,7 +15,10 @@ export default function ProductDetail() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
 
+  /* ================= FETCH ================= */
   useEffect(() => {
+    window.scrollTo(0, 0); // important UX fix
+
     const controller = new AbortController();
 
     const fetchProduct = async () => {
@@ -28,7 +31,7 @@ export default function ProductDetail() {
           { signal: controller.signal }
         );
 
-        if (!res.ok) throw new Error("Failed to fetch product");
+        if (!res.ok) throw new Error("Failed to fetch");
 
         const data = await res.json();
 
@@ -50,18 +53,20 @@ export default function ProductDetail() {
     };
 
     fetchProduct();
-
     return () => controller.abort();
   }, [id]);
 
-  // reset image when product changes
-  useEffect(() => {
-    const imgs = Array.isArray(product?.images) ? product.images : [];
-    setActiveImage(imgs[0] || "");
-  }, [product]);
+  /* ================= FORMATTERS ================= */
+  const formatPrice = (price) =>
+    new Intl.NumberFormat("en-NG", {
+      style: "currency",
+      currency: "NGN",
+    }).format(price || 0);
 
+  /* ================= CONTACT ================= */
   const openContact = () => {
     const contact = product?.contact || {};
+
     if (contact.whatsapp) {
       window.open(`https://wa.me/${contact.whatsapp}`, "_blank");
     } else if (contact.phone) {
@@ -69,11 +74,12 @@ export default function ProductDetail() {
     }
   };
 
+  /* ================= STATES ================= */
   if (loading) {
     return (
       <>
         <TopNav />
-        <div className="product-detail">Loading product...</div>
+        <div className="product-detail loading">Loading product...</div>
         <BottomNav />
       </>
     );
@@ -83,7 +89,7 @@ export default function ProductDetail() {
     return (
       <>
         <TopNav />
-        <div className="product-detail">{error}</div>
+        <div className="product-detail error">{error}</div>
         <BottomNav />
       </>
     );
@@ -101,18 +107,22 @@ export default function ProductDetail() {
 
   const images = Array.isArray(product.images) ? product.images : [];
 
+  /* ================= UI ================= */
   return (
     <>
       <TopNav />
 
       <div className="product-detail">
 
-        {/* ================= IMAGE SECTION ================= */}
+        {/* ================= IMAGE ================= */}
         <div className="image-section">
           <img
             src={activeImage || "https://via.placeholder.com/400"}
             alt={product.title}
             className="main-img"
+            onError={(e) =>
+              (e.target.src = "https://via.placeholder.com/400")
+            }
           />
 
           <div className="thumbnails">
@@ -120,9 +130,9 @@ export default function ProductDetail() {
               <img
                 key={i}
                 src={img}
+                alt="product"
                 onClick={() => setActiveImage(img)}
                 className={activeImage === img ? "active" : ""}
-                alt="thumb"
               />
             ))}
           </div>
@@ -130,18 +140,25 @@ export default function ProductDetail() {
 
         {/* ================= DETAILS ================= */}
         <div className="details-section">
-          <h1>{product.title}</h1>
+          <h1 className="product-title">{product.title}</h1>
 
-          <h2>₦{Number(product.price || 0).toLocaleString()}</h2>
+          <h2 className="product-price">
+            {formatPrice(product.price)}
+          </h2>
+
+          {/* LOCATION (PROFESSIONAL) */}
+          <p className="product-meta">
+            {product?.location?.city}, {product?.location?.state}
+          </p>
 
           <p className="desc">
             {product.description || "No description available"}
           </p>
 
-          {/* ================= CATEGORY FIELDS ================= */}
+          {/* CATEGORY FIELDS */}
           {product.category?.dynamicFields?.length > 0 && (
             <div className="extra-details">
-              <h3>Details</h3>
+              <h3>Specifications</h3>
 
               {product.category.dynamicFields.map((field, i) => (
                 <p key={i}>
@@ -152,21 +169,24 @@ export default function ProductDetail() {
             </div>
           )}
 
-          {/* ================= DELIVERY ================= */}
+          {/* DELIVERY */}
           {product.delivery && (
             <div className="delivery-box">
               <h3>Delivery</h3>
               <p>
-                {product.delivery.available ? "Available" : "Not available"}
+                {product.delivery.available
+                  ? "Delivery available"
+                  : "No delivery"}
               </p>
               <p>
-                {product.delivery.from_days} - {product.delivery.to_days} days
+                {product.delivery.from_days} -{" "}
+                {product.delivery.to_days} days
               </p>
-              <p>Fee: ₦{product.delivery.fee || 0}</p>
+              <p>Fee: {formatPrice(product.delivery.fee)}</p>
             </div>
           )}
 
-          {/* ================= CONTACT ================= */}
+          {/* CONTACT */}
           {(product.contact?.phone || product.contact?.whatsapp) && (
             <button className="contact-btn" onClick={openContact}>
               Contact Seller
@@ -175,10 +195,11 @@ export default function ProductDetail() {
         </div>
       </div>
 
-      {/* ================= RELATED PRODUCTS ================= */}
+      {/* ================= RELATED ================= */}
       {related.length > 0 && (
         <div className="related-section">
           <h2>Related Products</h2>
+
           <div className="related-grid">
             {related.map((p) => (
               <div
@@ -186,18 +207,27 @@ export default function ProductDetail() {
                 className="card"
                 onClick={() => navigate(`/product/${p.id}`)}
               >
-                <p>{p.title}</p>
-                <p>₦{p.price}</p>
+                <img
+                  src={p.images?.[0]}
+                  alt={p.title}
+                  onError={(e) =>
+                    (e.target.src =
+                      "https://via.placeholder.com/150")
+                  }
+                />
+                <p className="title">{p.title}</p>
+                <p className="price">{formatPrice(p.price)}</p>
               </div>
             ))}
           </div>
         </div>
       )}
 
-      {/* ================= SELLER PRODUCTS ================= */}
+      {/* ================= SELLER ================= */}
       {sellerProducts.length > 0 && (
         <div className="related-section">
           <h2>More from this seller</h2>
+
           <div className="related-grid">
             {sellerProducts.map((p) => (
               <div
@@ -205,8 +235,16 @@ export default function ProductDetail() {
                 className="card"
                 onClick={() => navigate(`/product/${p.id}`)}
               >
-                <p>{p.title}</p>
-                <p>₦{p.price}</p>
+                <img
+                  src={p.images?.[0]}
+                  alt={p.title}
+                  onError={(e) =>
+                    (e.target.src =
+                      "https://via.placeholder.com/150")
+                  }
+                />
+                <p className="title">{p.title}</p>
+                <p className="price">{formatPrice(p.price)}</p>
               </div>
             ))}
           </div>
