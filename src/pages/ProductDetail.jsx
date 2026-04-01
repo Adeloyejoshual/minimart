@@ -1,11 +1,12 @@
 import { useEffect, useState } from "react";
-import { useParams } from "react-router-dom";
+import { useParams, useNavigate } from "react-router-dom";
 import axios from "axios";
 
 const API_BASE = "https://minimart-ivrm.onrender.com";
 
 export default function ProductDetail() {
   const { id } = useParams();
+  const navigate = useNavigate();
 
   const [product, setProduct] = useState(null);
   const [loading, setLoading] = useState(true);
@@ -14,12 +15,9 @@ export default function ProductDetail() {
   useEffect(() => {
     const fetchProduct = async () => {
       try {
-        setLoading(true);
-
         const res = await axios.get(
           `${API_BASE}/api/product/${id}`
         );
-
         setProduct(res.data.product);
       } catch (err) {
         setError(
@@ -37,13 +35,52 @@ export default function ProductDetail() {
   if (error) return <div style={{ padding: 20, color: "red" }}>{error}</div>;
   if (!product) return null;
 
-  const media = product.media || {};
-  const images = media.images || [];
+  const images = product.media?.images || [];
 
   return (
     <div style={{ maxWidth: 900, margin: "0 auto", padding: 20 }}>
-      <h1>{product.title}</h1>
+      
+      {/* 🔷 HEADER */}
+      <div
+        style={{
+          display: "flex",
+          justifyContent: "space-between",
+          alignItems: "center",
+          marginBottom: 20,
+          borderBottom: "1px solid #eee",
+          paddingBottom: 10,
+        }}
+      >
+        <div>
+          <h2 style={{ margin: 0 }}>{product.title}</h2>
+          <p style={{ margin: 0, fontSize: 12, color: "#666" }}>
+            {product.category_name} • {product.subcategory_name}
+          </p>
+        </div>
 
+        {/* ACTIONS */}
+        <div style={{ display: "flex", gap: 10 }}>
+          {/* VIEW SELLER */}
+          <button
+            onClick={() => navigate(`/seller/${product.seller_id}`)}
+            style={btnStyle}
+          >
+            View Seller
+          </button>
+
+          {/* CHAT SELLER */}
+          <button
+            onClick={() =>
+              navigate(`/conversations?userId=${product.seller_id}`)
+            }
+            style={{ ...btnStyle, background: "#2563eb", color: "#fff" }}
+          >
+            Chat Seller
+          </button>
+        </div>
+      </div>
+
+      {/* PRICE */}
       <h2 style={{ color: "green" }}>
         ₦{Number(product.price).toLocaleString()}
       </h2>
@@ -65,7 +102,7 @@ export default function ProductDetail() {
             />
           ))
         ) : (
-          <p>No images available</p>
+          <p>No images</p>
         )}
       </div>
 
@@ -75,20 +112,22 @@ export default function ProductDetail() {
         <p>{product.description || "No description"}</p>
       </div>
 
-      {/* SELLER */}
+      {/* SELLER QUICK INFO */}
       <div style={{ marginTop: 20 }}>
         <h3>Seller</h3>
-        <p>{product.seller_name || "Unknown"}</p>
-        <p>{product.seller_email || "N/A"}</p>
-      </div>
-
-      {/* META */}
-      <div style={{ marginTop: 20, fontSize: 12, color: "#666" }}>
-        <p>Category: {product.category_name}</p>
-        <p>Subcategory: {product.subcategory_name}</p>
-        <p>Status: {product.status}</p>
-        <p>Views: {product.views}</p>
+        <p>{product.seller_name}</p>
+        <p style={{ fontSize: 12, color: "#666" }}>
+          Click "View Seller" to see profile
+        </p>
       </div>
     </div>
   );
 }
+
+const btnStyle = {
+  padding: "8px 12px",
+  borderRadius: 6,
+  border: "1px solid #ddd",
+  cursor: "pointer",
+  background: "#f9f9f9",
+};
