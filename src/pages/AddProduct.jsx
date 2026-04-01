@@ -600,7 +600,7 @@ export default function AddProduct() {
         </div>
       </div>
 
-      {/* SUBMIT BUTTONS */}
+            {/* SUBMIT BUTTONS */}
       <div className="form-section-round button-section">
         <button onClick={handleSubmit} disabled={loading} className="primary-btn">
           {loading ? "Processing..." : "Create Product"}
@@ -616,4 +616,3 @@ export default function AddProduct() {
   );
 }
 
-export default AddProduct;
