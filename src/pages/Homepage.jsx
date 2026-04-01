@@ -1,57 +1,36 @@
-import {
-  useEffect,
-  useState,
-  useMemo,
-  useCallback,
-  memo,
-  useRef,
-} from "react";
-
+import { useEffect, useState, useMemo, useCallback, memo } from "react";
 import { useNavigate } from "react-router-dom";
 import TopNav from "../components/TopNav";
 import BottomNav from "../components/BottomNav";
 import { useProductCache } from "../context/ProductCacheContext";
 import "../styles/Homepage.css";
 
-/* ================= SAFE HELPERS ================= */
-const safeArray = (v) => (Array.isArray(v) ? v : []);
-
-const safeNumber = (v) => {
-  const n = Number(v);
-  return Number.isFinite(n) ? n : 0;
-};
-
-const isActiveProduct = (p) =>
-  p?.is_active === true && (p?.status === "approved" || p?.status === "active");
-
-/* ================= IMAGE ================= */
-const getImage = (p) => {
-  const images = safeArray(p?.media?.images || p?.images);
-  return images.length > 0
-    ? images[0]
-    : "https://via.placeholder.com/300x200?text=No+Image";
-};
-
-/* ================= CARD ================= */
-const Card = memo(function Card({ p, onClick }) {
-  const image = getImage(p);
+/* ================= PRODUCT CARD ================= */
+const Card = memo(function Card({ product, onClick }) {
+  const image =
+    product?.images?.[0] ||
+    "https://via.placeholder.com/300x200?text=No+Image";
 
   const location =
-    p?.location_state && p?.location_city
-      ? `${p.location_state}, ${p.location_city}`
-      : p?.location_state || "Nigeria";
+    product?.location?.state && product?.location?.city
+      ? `${product.location.state}, ${product.location.city}`
+      : product?.location?.state || "Nigeria";
 
   return (
-    <div className="card" onClick={() => onClick(p.id)}>
+    <div className="card" onClick={() => onClick(product.id)}>
       <div className="card-image">
-        <img src={image} alt={p?.title || "Product"} loading="lazy" />
+        <img src={image} alt={product.title} loading="lazy" />
       </div>
 
       <div className="card-body">
-        <div className="price">₦{safeNumber(p?.price).toLocaleString()}</div>
+        <div className="price">
+          ₦{Number(product.price || 0).toLocaleString()}
+        </div>
 
         <div className="title">
-          {p?.title ? p.title.slice(0, 60) : "Untitled Product"}
+          {product.title?.length > 55
+            ? product.title.slice(0, 55) + "..."
+            : product.title}
         </div>
 
         <div className="location">📍 {location}</div>
@@ -60,81 +39,52 @@ const Card = memo(function Card({ p, onClick }) {
   );
 });
 
-/* ================= SECTION ================= */
-const Section = memo(function Section({ title, items, onClick }) {
-  const list = safeArray(items);
-  if (!list.length) return null;
-
-  return (
-    <div className="mini-section">
-      <h3 className="mini-title">{title}</h3>
-
-      <div className="horizontal-scroll">
-        {list.map((p) => (
-          <div key={p.id} className="scroll-item">
-            <Card p={p} onClick={onClick} />
-          </div>
-        ))}
-      </div>
-    </div>
-  );
-});
-
 /* ================= HOMEPAGE ================= */
 export default function Homepage() {
-  const { products, setProducts, trending, setTrending } =
-    useProductCache();
+  const {
+    products,
+    setProducts,
+    trending,
+    setTrending,
+    loaded,
+    setLoaded,
+  } = useProductCache();
 
   const [loading, setLoading] = useState(false);
-  const [error, setError] = useState(null);
   const [visibleCount, setVisibleCount] = useState(12);
 
   const navigate = useNavigate();
-
-  const observerRef = useRef(null);
-  const hasMoreRef = useRef(true);
-
   const PAGE_SIZE = 12;
 
-  /* ================= FETCH ================= */
+  /* ================= FETCH DATA ================= */
   useEffect(() => {
+    if (loaded) return;
+
     const controller = new AbortController();
 
     const fetchHome = async () => {
       try {
         setLoading(true);
-        setError(null);
 
         const res = await fetch(
           "https://minimart-ivrm.onrender.com/api/homepage",
           { signal: controller.signal }
         );
 
-        if (!res.ok) throw new Error(`HTTP ${res.status}`);
-
         const data = await res.json();
 
-        const latest = safeArray(data?.latest);
-        const promoted = safeArray(data?.promoted);
+        const latest = Array.isArray(data?.latest) ? data.latest : [];
+        const promoted = Array.isArray(data?.promoted) ? data.promoted : [];
 
-        const activeLatest = latest.filter(isActiveProduct);
-        const activePromoted = promoted.filter(isActiveProduct);
-
-        setProducts(activeLatest);
+        setProducts(latest);
 
         setTrending(
-          activePromoted.length
-            ? activePromoted.slice(0, 10)
-            : activeLatest.slice(0, 10)
+          promoted.length ? promoted.slice(0, 10) : latest.slice(0, 10)
         );
 
-        setVisibleCount(PAGE_SIZE);
-        hasMoreRef.current = true;
+        setLoaded(true);
       } catch (err) {
-        if (err.name !== "AbortError") {
-          console.error(err);
-          setError("Failed to load products");
-        }
+        if (err.name !== "AbortError") console.error("Homepage load failed:", err);
       } finally {
         setLoading(false);
       }
@@ -142,31 +92,25 @@ export default function Homepage() {
 
     fetchHome();
     return () => controller.abort();
-  }, [setProducts, setTrending]);
+  }, [loaded, setProducts, setTrending, setLoaded]);
 
   /* ================= DERIVED DATA ================= */
-  const activeProducts = useMemo(
-    () => safeArray(products).filter(isActiveProduct),
+  const cheapDeals = useMemo(
+    () => products.filter((p) => Number(p.price || 0) < 50000).slice(0, 10),
     [products]
   );
 
-  const cheapDeals = useMemo(
-    () =>
-      activeProducts.filter((p) => safeNumber(p.price) < 50000).slice(0, 10),
-    [activeProducts]
-  );
-
   const recommended = useMemo(
-    () => activeProducts.slice(0, 10),
-    [activeProducts]
+    () => products.slice(0, 10),
+    [products]
   );
 
   const visibleProducts = useMemo(
-    () => activeProducts.slice(0, visibleCount),
-    [activeProducts, visibleCount]
+    () => products.slice(0, visibleCount),
+    [products, visibleCount]
   );
 
-  /* ================= NAV ================= */
+  /* ================= NAVIGATION ================= */
   const goToProduct = useCallback(
     (id) => navigate(`/product/${id}`),
     [navigate]
@@ -175,32 +119,38 @@ export default function Homepage() {
   /* ================= INFINITE SCROLL ================= */
   const loadMoreRef = useCallback(
     (node) => {
-      if (!node || !hasMoreRef.current) return;
+      if (!node) return;
 
-      if (observerRef.current) observerRef.current.disconnect();
+      const observer = new IntersectionObserver((entries) => {
+        if (entries[0].isIntersecting) {
+          setVisibleCount((v) => v + PAGE_SIZE);
+        }
+      });
 
-      observerRef.current = new IntersectionObserver(
-        ([entry]) => {
-          if (entry.isIntersecting) {
-            setVisibleCount((prev) => {
-              const next = prev + PAGE_SIZE;
-
-              if (next >= activeProducts.length) {
-                hasMoreRef.current = false;
-                return activeProducts.length;
-              }
-
-              return next;
-            });
-          }
-        },
-        { threshold: 1.0 }
-      );
-
-      observerRef.current.observe(node);
+      observer.observe(node);
+      return () => observer.disconnect();
     },
-    [activeProducts.length]
+    []
   );
+
+  /* ================= SECTION COMPONENT ================= */
+  const Section = ({ title, items }) => {
+    if (!items?.length) return null;
+
+    return (
+      <div className="mini-section">
+        <h3 className="mini-title">{title}</h3>
+
+        <div className="horizontal-scroll">
+          {items.map((p) => (
+            <div key={p.id} className="scroll-item">
+              <Card product={p} onClick={goToProduct} />
+            </div>
+          ))}
+        </div>
+      </div>
+    );
+  };
 
   /* ================= UI ================= */
   return (
@@ -208,51 +158,44 @@ export default function Homepage() {
       <TopNav />
 
       <div className="homepage-container">
+
+        {/* FLOAT SELL BUTTON */}
         <button
           className="floating-btn"
           onClick={() => navigate("/minimart/add")}
         >
-          + Sell
+          + Sell Item
         </button>
 
-        {error && <p className="error">{error}</p>}
+        {/* HERO / QUICK VALUE PROPS */}
+        <div className="hero">
+          <h1>Marketplace for Everyone</h1>
+          <p>Buy, sell, and discover products instantly</p>
+        </div>
 
-        <Section
-          title="🔥 Trending"
-          items={trending}
-          onClick={goToProduct}
-        />
+        {/* SECTIONS */}
+        <Section title="🔥 Trending" items={trending} />
+        <Section title="💰 Cheap Deals" items={cheapDeals} />
+        <Section title="✨ Recommended" items={recommended} />
 
-        <Section
-          title="💰 Cheap Deals"
-          items={cheapDeals}
-          onClick={goToProduct}
-        />
-
-        <Section
-          title="✨ Recommended"
-          items={recommended}
-          onClick={goToProduct}
-        />
-
+        {/* ALL PRODUCTS */}
         <div className="section">
           <h2>🛒 All Products</h2>
 
-          {!loading && visibleProducts.length === 0 ? (
-            <p className="empty">No products available</p>
-          ) : (
-            <>
-              <div className="grid">
-                {visibleProducts.map((p) => (
-                  <Card key={p.id} p={p} onClick={goToProduct} />
-                ))}
-              </div>
+          {loading && <p className="loading">Loading products...</p>}
 
-              <div ref={loadMoreRef} style={{ height: 40 }} />
-            </>
+          {!loading && visibleProducts.length === 0 && (
+            <p className="empty">No products available</p>
           )}
 
-          {loading && <p className="loading">Loading...</p>}
+          <div className="grid">
+            {visibleProducts.map((p) => (
+              <Card key={p.id} product={p} onClick={goToProduct} />
+            ))}
+          </div>
+
+          {/* INFINITE SCROLL TRIGGER */}
+          <div ref={loadMoreRef} style={{ height: 40 }} />
         </div>
       </div>
 
