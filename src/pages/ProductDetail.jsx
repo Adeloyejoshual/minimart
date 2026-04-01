@@ -17,7 +17,7 @@ export default function ProductDetail() {
         setLoading(true);
 
         const res = await axios.get(
-          `${API_BASE}/api/products/${id}`
+          `${API_BASE}/api/product/${id}`
         );
 
         setProduct(res.data.product);
@@ -33,25 +33,17 @@ export default function ProductDetail() {
     if (id) fetchProduct();
   }, [id]);
 
-  if (loading) {
-    return <div style={{ padding: 20 }}>Loading product...</div>;
-  }
-
-  if (error) {
-    return <div style={{ padding: 20, color: "red" }}>{error}</div>;
-  }
-
+  if (loading) return <div style={{ padding: 20 }}>Loading...</div>;
+  if (error) return <div style={{ padding: 20, color: "red" }}>{error}</div>;
   if (!product) return null;
 
   const media = product.media || {};
   const images = media.images || [];
 
   return (
-    <div style={{ padding: 20, maxWidth: 900, margin: "0 auto" }}>
-      {/* TITLE */}
+    <div style={{ maxWidth: 900, margin: "0 auto", padding: 20 }}>
       <h1>{product.title}</h1>
 
-      {/* PRICE */}
       <h2 style={{ color: "green" }}>
         ₦{Number(product.price).toLocaleString()}
       </h2>
@@ -63,7 +55,7 @@ export default function ProductDetail() {
             <img
               key={i}
               src={img}
-              alt={`product-${i}`}
+              alt=""
               style={{
                 width: 250,
                 height: 250,
@@ -73,45 +65,29 @@ export default function ProductDetail() {
             />
           ))
         ) : (
-          <div>No images available</div>
+          <p>No images available</p>
         )}
       </div>
 
       {/* DESCRIPTION */}
       <div style={{ marginTop: 20 }}>
         <h3>Description</h3>
-        <p>{product.description || "No description provided."}</p>
+        <p>{product.description || "No description"}</p>
       </div>
 
-      {/* ATTRIBUTES */}
-      {product.attributes && (
-        <div style={{ marginTop: 20 }}>
-          <h3>Details</h3>
-          <pre
-            style={{
-              background: "#f5f5f5",
-              padding: 10,
-              borderRadius: 6,
-            }}
-          >
-            {JSON.stringify(product.attributes, null, 2)}
-          </pre>
-        </div>
-      )}
-
-      {/* SELLER INFO */}
+      {/* SELLER */}
       <div style={{ marginTop: 20 }}>
         <h3>Seller</h3>
-        <p>Name: {product.seller_name || "Unknown"}</p>
-        <p>Email: {product.seller_email || "N/A"}</p>
+        <p>{product.seller_name || "Unknown"}</p>
+        <p>{product.seller_email || "N/A"}</p>
       </div>
 
       {/* META */}
       <div style={{ marginTop: 20, fontSize: 12, color: "#666" }}>
         <p>Category: {product.category_name}</p>
         <p>Subcategory: {product.subcategory_name}</p>
-        <p>Views: {product.views}</p>
         <p>Status: {product.status}</p>
+        <p>Views: {product.views}</p>
       </div>
     </div>
   );
