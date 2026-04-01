@@ -1,257 +1,266 @@
 import { useEffect, useState } from "react";
 import { useParams, useNavigate } from "react-router-dom";
-import TopNav from "../components/TopNav";
-import BottomNav from "../components/BottomNav";
-import "../styles/ProductDetail.css";
+import axios from "axios";
+
+const API_BASE = "https://minimart-ivrm.onrender.com";
 
 export default function ProductDetail() {
   const { id } = useParams();
   const navigate = useNavigate();
 
   const [product, setProduct] = useState(null);
-  const [related, setRelated] = useState([]);
-  const [sellerProducts, setSellerProducts] = useState([]);
-  const [activeImage, setActiveImage] = useState("");
   const [loading, setLoading] = useState(true);
-  const [error, setError] = useState(null);
+  const [activeImage, setActiveImage] = useState("");
+  const [related, setRelated] = useState([]);
 
-  /* ================= FETCH ================= */
+  /* ================= FETCH PRODUCT ================= */
   useEffect(() => {
-    window.scrollTo(0, 0); // important UX fix
-
-    const controller = new AbortController();
-
     const fetchProduct = async () => {
       try {
         setLoading(true);
-        setError(null);
 
-        const res = await fetch(
-          `https://minimart-ivrm.onrender.com/api/product/${id}`,
-          { signal: controller.signal }
+        const res = await axios.get(
+          `${API_BASE}/products/${id}`
         );
 
-        if (!res.ok) throw new Error("Failed to fetch");
-
-        const data = await res.json();
-
-        const p = data.product || null;
-
-        setProduct(p);
-        setRelated(data.related || []);
-        setSellerProducts(data.sellerProducts || []);
-
-        const imgs = Array.isArray(p?.images) ? p.images : [];
-        setActiveImage(imgs[0] || "");
+        setProduct(res.data);
+        setActiveImage(res.data?.images?.[0] || "");
       } catch (err) {
-        if (err.name !== "AbortError") {
-          setError("Unable to load product");
-        }
+        console.error("Product fetch failed:", err);
+        setProduct(null);
       } finally {
         setLoading(false);
       }
     };
 
-    fetchProduct();
-    return () => controller.abort();
+    if (id) fetchProduct();
   }, [id]);
 
-  /* ================= FORMATTERS ================= */
-  const formatPrice = (price) =>
-    new Intl.NumberFormat("en-NG", {
-      style: "currency",
-      currency: "NGN",
-    }).format(price || 0);
+  /* ================= FETCH RELATED ================= */
+  useEffect(() => {
+    const fetchRelated = async () => {
+      try {
+        if (!product?.category_id) return;
 
-  /* ================= CONTACT ================= */
-  const openContact = () => {
-    const contact = product?.contact || {};
+        const res = await axios.get(
+          `${API_BASE}/products?skip=0&limit=50`
+        );
 
-    if (contact.whatsapp) {
-      window.open(`https://wa.me/${contact.whatsapp}`, "_blank");
-    } else if (contact.phone) {
-      window.location.href = `tel:${contact.phone}`;
+        const all = res.data?.products || [];
+
+        const filtered = all
+          .filter(
+            (p) =>
+              p.category_id === product.category_id &&
+              p.id !== product.id
+          )
+          .slice(0, 6);
+
+        setRelated(filtered);
+      } catch (err) {
+        console.error("Related fetch failed:", err);
+      }
+    };
+
+    fetchRelated();
+  }, [product]);
+
+  /* ================= SHARE ================= */
+  const shareProduct = async () => {
+    const url = window.location.href;
+
+    const shareData = {
+      title: product.title,
+      text: product.description || "Check this product",
+      url,
+    };
+
+    try {
+      if (navigator.share) {
+        await navigator.share(shareData);
+      } else {
+        await navigator.clipboard.writeText(url);
+        alert("Link copied to clipboard");
+      }
+    } catch (err) {
+      console.error("Share failed:", err);
     }
   };
 
   /* ================= STATES ================= */
-  if (loading) {
-    return (
-      <>
-        <TopNav />
-        <div className="product-detail loading">Loading product...</div>
-        <BottomNav />
-      </>
-    );
-  }
+  if (loading) return <p>Loading product...</p>;
+  if (!product) return <p>Product not found</p>;
 
-  if (error) {
-    return (
-      <>
-        <TopNav />
-        <div className="product-detail error">{error}</div>
-        <BottomNav />
-      </>
-    );
-  }
-
-  if (!product) {
-    return (
-      <>
-        <TopNav />
-        <div className="product-detail">Product not found</div>
-        <BottomNav />
-      </>
-    );
-  }
-
-  const images = Array.isArray(product.images) ? product.images : [];
-
-  /* ================= UI ================= */
   return (
-    <>
-      <TopNav />
+    <div style={{ maxWidth: 900, margin: "0 auto", padding: 16 }}>
 
-      <div className="product-detail">
+      {/* ================= TITLE ================= */}
+      <h2>{product.title}</h2>
 
-        {/* ================= IMAGE ================= */}
-        <div className="image-section">
-          <img
-            src={activeImage || "https://via.placeholder.com/400"}
-            alt={product.title}
-            className="main-img"
-            onError={(e) =>
-              (e.target.src = "https://via.placeholder.com/400")
-            }
-          />
+      {/* ================= IMAGE ================= */}
+      <div>
+        <img
+          src={activeImage}
+          alt={product.title}
+          style={{
+            width: "100%",
+            maxHeight: 400,
+            objectFit: "cover",
+            borderRadius: 10,
+          }}
+        />
 
-          <div className="thumbnails">
-            {images.map((img, i) => (
-              <img
-                key={i}
-                src={img}
-                alt="product"
-                onClick={() => setActiveImage(img)}
-                className={activeImage === img ? "active" : ""}
-              />
-            ))}
-          </div>
-        </div>
-
-        {/* ================= DETAILS ================= */}
-        <div className="details-section">
-          <h1 className="product-title">{product.title}</h1>
-
-          <h2 className="product-price">
-            {formatPrice(product.price)}
-          </h2>
-
-          {/* LOCATION (PROFESSIONAL) */}
-          <p className="product-meta">
-            {product?.location?.city}, {product?.location?.state}
-          </p>
-
-          <p className="desc">
-            {product.description || "No description available"}
-          </p>
-
-          {/* CATEGORY FIELDS */}
-          {product.category?.dynamicFields?.length > 0 && (
-            <div className="extra-details">
-              <h3>Specifications</h3>
-
-              {product.category.dynamicFields.map((field, i) => (
-                <p key={i}>
-                  <strong>{field}:</strong>{" "}
-                  {product.attributes?.[field] || "N/A"}
-                </p>
-              ))}
-            </div>
-          )}
-
-          {/* DELIVERY */}
-          {product.delivery && (
-            <div className="delivery-box">
-              <h3>Delivery</h3>
-              <p>
-                {product.delivery.available
-                  ? "Delivery available"
-                  : "No delivery"}
-              </p>
-              <p>
-                {product.delivery.from_days} -{" "}
-                {product.delivery.to_days} days
-              </p>
-              <p>Fee: {formatPrice(product.delivery.fee)}</p>
-            </div>
-          )}
-
-          {/* CONTACT */}
-          {(product.contact?.phone || product.contact?.whatsapp) && (
-            <button className="contact-btn" onClick={openContact}>
-              Contact Seller
-            </button>
-          )}
+        <div style={{ display: "flex", gap: 8, marginTop: 10 }}>
+          {product.images?.map((img, i) => (
+            <img
+              key={i}
+              src={img}
+              onClick={() => setActiveImage(img)}
+              style={{
+                width: 70,
+                height: 70,
+                objectFit: "cover",
+                cursor: "pointer",
+                borderRadius: 6,
+                border:
+                  activeImage === img
+                    ? "2px solid blue"
+                    : "1px solid #ddd",
+              }}
+            />
+          ))}
         </div>
       </div>
 
-      {/* ================= RELATED ================= */}
+      {/* ================= PRICE ================= */}
+      <h3 style={{ marginTop: 15 }}>
+        ₦{Number(product.price).toLocaleString()}
+      </h3>
+
+      {/* ================= LOCATION ================= */}
+      <p>
+        📍 {product.location?.city}, {product.location?.state}
+      </p>
+
+      {/* ================= DESCRIPTION ================= */}
+      <p>{product.description}</p>
+
+      {/* ================= ATTRIBUTES ================= */}
+      {product.attributes && (
+        <div style={{ marginTop: 20 }}>
+          <h4>Details</h4>
+          <ul>
+            {Object.entries(product.attributes).map(([k, v]) => (
+              <li key={k}>
+                <b>{k}:</b> {v}
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
+
+      {/* ================= DELIVERY ================= */}
+      {product.delivery && (
+        <div style={{ marginTop: 20 }}>
+          <h4>Delivery</h4>
+          <p>
+            {product.delivery.available
+              ? "Available"
+              : "Not available"}
+          </p>
+          <p>
+            {product.delivery.duration?.from} -{" "}
+            {product.delivery.duration?.to} days
+          </p>
+          <p>Fee: ₦{product.delivery.fee || 0}</p>
+          <p>{product.delivery.note}</p>
+        </div>
+      )}
+
+      {/* ================= CONTACT ================= */}
+      {product.contact && (
+        <div style={{ marginTop: 20 }}>
+          <h4>Seller Contact</h4>
+          <p>{product.contact.phone}</p>
+        </div>
+      )}
+
+      {/* ================= ACTIONS ================= */}
+      <div style={{ marginTop: 20, display: "flex", gap: 10 }}>
+        <button
+          onClick={shareProduct}
+          style={{
+            padding: "10px 14px",
+            borderRadius: 6,
+            border: "1px solid #ccc",
+            cursor: "pointer",
+          }}
+        >
+          Share Product
+        </button>
+
+        <button
+          onClick={() => navigate(-1)}
+          style={{
+            padding: "10px 14px",
+            borderRadius: 6,
+            border: "1px solid #ccc",
+            cursor: "pointer",
+          }}
+        >
+          Back
+        </button>
+      </div>
+
+      {/* ================= RELATED PRODUCTS ================= */}
       {related.length > 0 && (
-        <div className="related-section">
-          <h2>Related Products</h2>
+        <div style={{ marginTop: 30 }}>
+          <h3>Related Products</h3>
 
-          <div className="related-grid">
-            {related.map((p) => (
+          <div
+            style={{
+              display: "flex",
+              gap: 12,
+              overflowX: "auto",
+            }}
+          >
+            {related.map((item) => (
               <div
-                key={p.id}
-                className="card"
-                onClick={() => navigate(`/product/${p.id}`)}
+                key={item.id}
+                onClick={() =>
+                  navigate(`/product/${item.id}`)
+                }
+                style={{
+                  minWidth: 160,
+                  border: "1px solid #ddd",
+                  borderRadius: 8,
+                  padding: 10,
+                  cursor: "pointer",
+                }}
               >
                 <img
-                  src={p.images?.[0]}
-                  alt={p.title}
-                  onError={(e) =>
-                    (e.target.src =
-                      "https://via.placeholder.com/150")
-                  }
+                  src={item.images?.[0]}
+                  alt={item.title}
+                  style={{
+                    width: "100%",
+                    height: 100,
+                    objectFit: "cover",
+                    borderRadius: 6,
+                  }}
                 />
-                <p className="title">{p.title}</p>
-                <p className="price">{formatPrice(p.price)}</p>
+
+                <p style={{ fontSize: 13 }}>
+                  {item.title}
+                </p>
+
+                <b>
+                  ₦{Number(item.price).toLocaleString()}
+                </b>
               </div>
             ))}
           </div>
         </div>
       )}
-
-      {/* ================= SELLER ================= */}
-      {sellerProducts.length > 0 && (
-        <div className="related-section">
-          <h2>More from this seller</h2>
-
-          <div className="related-grid">
-            {sellerProducts.map((p) => (
-              <div
-                key={p.id}
-                className="card"
-                onClick={() => navigate(`/product/${p.id}`)}
-              >
-                <img
-                  src={p.images?.[0]}
-                  alt={p.title}
-                  onError={(e) =>
-                    (e.target.src =
-                      "https://via.placeholder.com/150")
-                  }
-                />
-                <p className="title">{p.title}</p>
-                <p className="price">{formatPrice(p.price)}</p>
-              </div>
-            ))}
-          </div>
-        </div>
-      )}
-
-      <BottomNav />
-    </>
+    </div>
   );
 }
