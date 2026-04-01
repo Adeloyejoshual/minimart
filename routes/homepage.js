@@ -1,4 +1,3 @@
-
 import express from "express";
 import { Pool } from "pg";
 
@@ -22,101 +21,83 @@ const normalizeProduct = (p) => ({
   },
 });
 
-/* ================= BASE QUERY (SAFE) ================= */
-const baseQuery = `
-  SELECT 
-    p.id,
-    p.title,
-    p.description,
-    p.price,
-    p.created_at,
-    p.is_active,
-    p.is_promoted,
-    p.promotion_end,
-    p.promotion_priority,
-    p.location_state,
-    p.location_city,
-    p.attributes,
-    p.delivery,
-    p.contact,
-    COALESCE(
-      json_agg(pi.image_url ORDER BY pi.position)
-      FILTER (WHERE pi.image_url IS NOT NULL),
-      '[]'
-    ) AS images
-  FROM products p
-  LEFT JOIN product_images pi ON p.id = pi.product_id
-  WHERE COALESCE(p.is_active, false) = true
-`;
+/* ================= PRODUCT DETAIL ================= */
+router.get("/:id", async (req, res) => {
+  const { id } = req.params;
 
-/* ================= HOMEPAGE ================= */
-router.get("/homepage", async (req, res) => {
   try {
-    /* 🔥 PROMOTED */
-    const promotedQuery = `
-      ${baseQuery}
-      AND p.is_promoted = true
-      AND (p.promotion_end IS NULL OR p.promotion_end > NOW())
+    const query = `
+      SELECT 
+        p.id,
+        p.title,
+        p.description,
+        p.price,
+        p.created_at,
+        p.is_active,
+        p.is_promoted,
+        p.promotion_end,
+        p.promotion_priority,
+        p.location_state,
+        p.location_city,
+        p.attributes,
+        p.delivery,
+        p.contact,
+
+        u.id AS seller_id,
+        u.name AS seller_name,
+        u.email AS seller_email,
+
+        c.name AS category_name,
+        sc.name AS subcategory_name,
+
+        COALESCE(
+          json_agg(pi.image_url ORDER BY pi.position)
+          FILTER (WHERE pi.image_url IS NOT NULL),
+          '[]'
+        ) AS images
+
+      FROM products p
+
+      LEFT JOIN users u ON p.seller_id = u.id
+      LEFT JOIN categories c ON p.category_id = c.id
+      LEFT JOIN categories sc ON p.subcategory_id = sc.id
+      LEFT JOIN product_images pi ON p.id = pi.product_id
+
+      WHERE p.id = $1
+        AND COALESCE(p.is_active, false) = true
+
       GROUP BY 
         p.id, p.title, p.description, p.price, p.created_at,
         p.is_active, p.is_promoted, p.promotion_end,
         p.promotion_priority, p.location_state, p.location_city,
-        p.attributes, p.delivery, p.contact
-      ORDER BY p.promotion_priority DESC, p.created_at DESC
-      LIMIT 10
+        p.attributes, p.delivery, p.contact,
+        u.id, u.name, u.email,
+        c.name, sc.name
     `;
 
-    /* 🆕 LATEST */
-    const latestQuery = `
-      ${baseQuery}
-      GROUP BY 
-        p.id, p.title, p.description, p.price, p.created_at,
-        p.is_active, p.is_promoted, p.promotion_end,
-        p.promotion_priority, p.location_state, p.location_city,
-        p.attributes, p.delivery, p.contact
-      ORDER BY p.created_at DESC
-      LIMIT 20
-    `;
+    const result = await pool.query(query, [id]);
 
-    /* ⭐ DISCOVER */
-    const discoverQuery = `
-      ${baseQuery}
-      GROUP BY 
-        p.id, p.title, p.description, p.price, p.created_at,
-        p.is_active, p.is_promoted, p.promotion_end,
-        p.promotion_priority, p.location_state, p.location_city,
-        p.attributes, p.delivery, p.contact
-      ORDER BY RANDOM()
-      LIMIT 10
-    `;
+    if (result.rows.length === 0) {
+      return res.status(404).json({
+        success: false,
+        message: "Product not found",
+      });
+    }
 
-    /* 📂 CATEGORIES */
-    const categoriesQuery = `
-      SELECT id, name, parent_id
-      FROM categories
-      ORDER BY name ASC
-    `;
-
-    const [promoted, latest, discover, categories] = await Promise.all([
-      pool.query(promotedQuery),
-      pool.query(latestQuery),
-      pool.query(discoverQuery),
-      pool.query(categoriesQuery),
-    ]);
+    const product = result.rows[0];
 
     return res.json({
-      promoted: promoted.rows.map(normalizeProduct),
-      latest: latest.rows.map(normalizeProduct),
-      discover: discover.rows.map(normalizeProduct),
-      categories: categories.rows,
+      success: true,
+      product: normalizeProduct(product),
     });
 
   } catch (err) {
-    console.error("HOMEPAGE ERROR:", err);
+    console.error("PRODUCT DETAIL ERROR:", err);
 
     return res.status(500).json({
-      message: "Failed to load homepage",
-      error: err.message, // IMPORTANT for debugging
+      success: false,
+      message: "Failed to fetch product",
+      error: err.message,
     });
   }
 });
