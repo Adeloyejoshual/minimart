@@ -13,12 +13,24 @@ import BottomNav from "../components/BottomNav";
 import { useProductCache } from "../context/ProductCacheContext";
 import "../styles/Homepage.css";
 
+/* ================= SAFE HELPERS ================= */
+const safeArray = (v) => (Array.isArray(v) ? v : []);
+
+const safeNumber = (v) => {
+  const n = Number(v);
+  return Number.isFinite(n) ? n : 0;
+};
+
+const getImage = (p) => {
+  const images = safeArray(p?.images);
+  return images.length > 0
+    ? images[0]
+    : "https://via.placeholder.com/300x200?text=No+Image";
+};
+
 /* ================= CARD ================= */
 const Card = memo(function Card({ p, onClick }) {
-  const image =
-    Array.isArray(p?.images) && p.images.length > 0
-      ? p.images[0]
-      : "https://via.placeholder.com/300x200?text=No+Image";
+  const image = getImage(p);
 
   const location =
     p?.location?.state && p?.location?.city
@@ -28,14 +40,16 @@ const Card = memo(function Card({ p, onClick }) {
   return (
     <div className="card" onClick={() => onClick(p.id)}>
       <div className="card-image">
-        <img src={image} alt={p.title} loading="lazy" />
+        <img src={image} alt={p?.title || "Product"} loading="lazy" />
       </div>
 
       <div className="card-body">
-        <div className="price">₦{Number(p.price || 0).toLocaleString()}</div>
+        <div className="price">
+          ₦{safeNumber(p?.price).toLocaleString()}
+        </div>
 
         <div className="title">
-          {p.title?.length > 60 ? p.title.slice(0, 60) + "..." : p.title}
+          {p?.title ? p.title.slice(0, 60) : "Untitled Product"}
         </div>
 
         <div className="location">📍 {location}</div>
@@ -46,14 +60,15 @@ const Card = memo(function Card({ p, onClick }) {
 
 /* ================= SECTION ================= */
 const Section = memo(function Section({ title, items, onClick }) {
-  if (!items?.length) return null;
+  const list = safeArray(items);
+  if (!list.length) return null;
 
   return (
     <div className="mini-section">
       <h3 className="mini-title">{title}</h3>
 
       <div className="horizontal-scroll">
-        {items.map((p) => (
+        {list.map((p) => (
           <div key={p.id} className="scroll-item">
             <Card p={p} onClick={onClick} />
           </div>
@@ -69,6 +84,7 @@ export default function Homepage() {
     useProductCache();
 
   const [loading, setLoading] = useState(false);
+  const [error, setError] = useState(null);
   const [visibleCount, setVisibleCount] = useState(12);
 
   const navigate = useNavigate();
@@ -78,13 +94,14 @@ export default function Homepage() {
 
   const PAGE_SIZE = 12;
 
-  /* ================= FETCH DATA ================= */
+  /* ================= FETCH ================= */
   useEffect(() => {
     const controller = new AbortController();
 
     const fetchHome = async () => {
       try {
         setLoading(true);
+        setError(null);
 
         const res = await fetch(
           "https://minimart-ivrm.onrender.com/api/homepage",
@@ -95,12 +112,11 @@ export default function Homepage() {
 
         const data = await res.json();
 
-        const latest = Array.isArray(data?.latest) ? data.latest : [];
-        const promoted = Array.isArray(data?.promoted)
-          ? data.promoted
-          : [];
+        const latest = safeArray(data?.latest);
+        const promoted = safeArray(data?.promoted);
 
         setProducts(latest);
+
         setTrending(
           promoted.length ? promoted.slice(0, 10) : latest.slice(0, 10)
         );
@@ -109,7 +125,8 @@ export default function Homepage() {
         hasMoreRef.current = true;
       } catch (err) {
         if (err.name !== "AbortError") {
-          console.error("Homepage fetch error:", err);
+          console.error(err);
+          setError("Failed to load products");
         }
       } finally {
         setLoading(false);
@@ -123,21 +140,25 @@ export default function Homepage() {
 
   /* ================= DERIVED DATA ================= */
   const cheapDeals = useMemo(
-    () => products.filter((p) => Number(p.price) < 50000).slice(0, 10),
+    () =>
+      safeArray(products)
+        .filter((p) => safeNumber(p.price) < 50000)
+        .slice(0, 10),
     [products]
   );
 
   const recommended = useMemo(
-    () => products.slice(0, 10),
+    () => safeArray(products).slice(0, 10),
     [products]
   );
 
   const visibleProducts = useMemo(
-    () => products.slice(0, visibleCount),
+    () =>
+      safeArray(products).slice(0, visibleCount),
     [products, visibleCount]
   );
 
-  /* ================= NAVIGATION ================= */
+  /* ================= NAV ================= */
   const goToProduct = useCallback(
     (id) => navigate(`/product/${id}`),
     [navigate]
@@ -151,8 +172,8 @@ export default function Homepage() {
       if (observerRef.current) observerRef.current.disconnect();
 
       observerRef.current = new IntersectionObserver(
-        (entries) => {
-          if (entries[0].isIntersecting) {
+        ([entry]) => {
+          if (entry.isIntersecting) {
             setVisibleCount((prev) => {
               const next = prev + PAGE_SIZE;
 
@@ -186,6 +207,8 @@ export default function Homepage() {
           + Sell
         </button>
 
+        {error && <p className="error">{error}</p>}
+
         <Section
           title="🔥 Trending"
           items={trending}
@@ -207,7 +230,7 @@ export default function Homepage() {
         <div className="section">
           <h2>🛒 All Products</h2>
 
-          {visibleProducts.length === 0 && !loading ? (
+          {!loading && visibleProducts.length === 0 ? (
             <p className="empty">No products available</p>
           ) : (
             <>
