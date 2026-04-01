@@ -28,7 +28,7 @@ const INITIAL_FORM = {
     features: [],
   },
   delivery: {
-    type: "standard", // ✅ CHANGED: no checkbox, type selector
+    type: "standard",
     duration: { from: "", to: "" },
     fee: "",
     note: "",
@@ -93,7 +93,6 @@ export default function AddProduct() {
     localStorage.removeItem(STORAGE_PAYMENT);
   }, []);
 
-  /* ================= DRAFT EFFECTS ================= */
   useEffect(() => {
     loadDraft();
   }, [loadDraft]);
@@ -146,16 +145,14 @@ export default function AddProduct() {
   // ✅ FIXED: proper regex
   const onlyNumbers = (v = "") => v.replace(/D/g, "");
 
-  // ✅ FIXED: display only (not input value)
+  // ✅ FIXED: display only
   const displayPrice = (v) =>
     v ? new Intl.NumberFormat("en-NG").format(Number(v)) : "";
 
-  // ✅ FIXED: proper regex for title case
   const formatLabel = (t) =>
     t.replace(/\bw/g, (l) => l.toUpperCase()).replace(/_/g, " ");
 
   const optionsMap = useMemo(() => {
-    // ✅ FIXED: safer model lookup
     const modelsForBrand =
       brand && options.models && options.models[brand]
         ? options.models[brand]
@@ -240,19 +237,24 @@ export default function AddProduct() {
     if (!form.category_id) return "Select category";
     if (!form.contact.phone) return "Phone required";
     if (!form.contact.email) return "Email required";
+
     if (form.delivery.type !== "none" && form.delivery.type !== "pickup") {
       const from = Number(form.delivery.duration.from);
       const to = Number(form.delivery.duration.to);
-      if (Number.isNaN(from) || Number.isNaN(to)) return "Delivery range required";
+      if (Number.isNaN(from) || Number.isNaN(to))
+        return "Delivery range required";
       if (to < from) return "Invalid delivery range";
     }
+
     return null;
   };
 
-  /* ================= IMAGE HANDLING ✅ FIXED ================= */
+  /* ================= IMAGE HANDLING ================= */
   const handleImages = (files) => {
-    const list = Array.from(files).slice(0, 8);
-    // Clean old previews first
+    const list = Array.from(files)
+      .slice(0, 8)
+      .filter((f) => f.size <= 3 * 1024 * 1024); // 3MB limit
+
     previews.forEach(URL.revokeObjectURL);
     setImages(list);
     setPreviews(list.map((f) => URL.createObjectURL(f)));
@@ -261,29 +263,30 @@ export default function AddProduct() {
   const removeImage = (i) => {
     const oldPreview = previews[i];
     if (oldPreview) URL.revokeObjectURL(oldPreview);
-    
+
     setImages((prev) => prev.filter((_, x) => x !== i));
     setPreviews((prev) => prev.filter((_, x) => x !== i));
   };
 
-  /* ================= NEW TRANSACTION FLOW ================= */
-  const createProduct = async () => {
-    const finalPlan = selectedPlan || promotionPlans.find((p) => p.price === 0);
+  /* ================= CREATE PAYMENT-READY DRAFT ================= */
+  const createProductDraft = async () => {
     const fd = new FormData();
 
     const payload = {
       ...form,
-      price: form.price, // ✅ already clean numbers
+      price: form.price,
       attributes: JSON.stringify(form.attributes),
       delivery: JSON.stringify(form.delivery),
       contact: JSON.stringify(form.contact),
       location_state: state,
       location_city: city,
-      promotion_plan: finalPlan.id,
-      status: "pending_payment", // ✅ NEW: always pending payment
+      promotion_plan: selectedPlan?.id || null,
+      // ✅ No status; backend controls state
     };
 
-    Object.entries(payload).forEach(([k, v]) => fd.append(k, v));
+    Object.entries(payload)
+      .filter(([_, v]) => v !== null && v !== undefined)
+      .forEach(([k, v]) => fd.append(k, v));
     images.forEach((img) => fd.append("images", img));
 
     const res = await fetch("https://minimart-ivrm.onrender.com/api/marketplace/products", {
@@ -292,14 +295,15 @@ export default function AddProduct() {
     });
 
     if (!res.ok) {
-      const error = await res.json().catch(() => ({ message: "Network error" }));
-      throw new Error(error.message || "Product creation failed");
+      const data = await res.json().catch(() => ({}));
+      throw new Error(data.message || "Failed to save product draft");
     }
 
     const data = await res.json();
     return data.product;
   };
 
+  /* ================= START PAYMENT FLOW ================= */
   const startPayment = async (productId, plan) => {
     const res = await fetch("https://minimart-ivrm.onrender.com/api/payment/initialize", {
       method: "POST",
@@ -321,6 +325,7 @@ export default function AddProduct() {
     return data.authorization_url;
   };
 
+  /* ================= FORM SUBMIT FLOW ================= */
   const handleSubmit = async () => {
     if (loading) return;
 
@@ -331,26 +336,27 @@ export default function AddProduct() {
     setLoading(true);
 
     try {
-      // ✅ NEW FLOW: 1. Create DRAFT (pending_payment) → 2. Pay → 3. Webhook activates
-      const product = await createProduct();
+      // ✅ 1. Save as DRAFT (no “active” status)
+      const product = await createProductDraft();
       const productId = product?.id;
 
       if (!productId) {
         throw new Error("Failed to create product draft");
       }
 
-      // Free plan: activate immediately (no payment)
+      // ✅ 2. FREE PLAN: backend activates only (no user‑only activation)
       if (finalPlan.price === 0) {
-        await fetch(`https://minimart-ivrm.onrender.com/api/marketplace/products/${productId}/activate`, {
-          method: "POST",
-        });
+        await fetch(
+          `https://minimart-ivrm.onrender.com/api/marketplace/products/${productId}/activate`,
+          { method: "POST" }
+        );
         clearDraft();
-        alert("✅ Product created successfully!");
+        alert("✅ Product created and activated");
         setLoading(false);
         return;
       }
 
-      // Paid plan: save payment data + redirect
+      // ✅ 3. PAID PLAN: store payment info → redirect
       setPaymentData({
         email: form.contact.email,
         amount: Number(finalPlan.price),
@@ -361,12 +367,12 @@ export default function AddProduct() {
       const authUrl = await startPayment(productId, finalPlan);
       window.location.href = authUrl;
     } catch (err) {
-      console.error("Submit error:", err);
       alert(err.message || "Something went wrong");
       setLoading(false);
     }
   };
 
+  /* ================= RETRY PAYMENT ================= */
   const retryPayment = async () => {
     if (!paymentData) return alert("No payment data found");
 
@@ -410,12 +416,11 @@ export default function AddProduct() {
         />
       </div>
 
-      {/* ✅ FIXED: PRICE INPUT - raw value + display helper */}
       <div className="form-section-round">
         <label>Price (₦)</label>
         <input
           placeholder="0"
-          value={form.price} // ✅ RAW VALUE - no formatting
+          value={form.price}
           onChange={(e) => update("price", onlyNumbers(e.target.value))}
         />
         {form.price && <small>₦{displayPrice(form.price)}</small>}
@@ -487,7 +492,7 @@ export default function AddProduct() {
         </div>
       )}
 
-      {/* ✅ FIXED: DELIVERY TYPE SELECTOR (no checkbox) */}
+      {/* DELIVERY TYPE */}
       <div className="form-section-round">
         <label>Delivery Type</label>
         <select
@@ -501,7 +506,6 @@ export default function AddProduct() {
         </select>
       </div>
 
-      {/* Delivery details (conditional) */}
       {form.delivery.type !== "none" && form.delivery.type !== "pickup" && (
         <div className="sub-grid">
           <div className="form-section-round-small">
@@ -550,14 +554,14 @@ export default function AddProduct() {
         />
       </div>
 
-      {/* ✅ FIXED: IMAGE HANDLING */}
+      {/* IMAGES */}
       <div className="form-section-round">
         <label>Product Images (max 8)</label>
-        <input 
-          key={images.length} // ✅ Forces reset after clear
-          type="file" 
-          multiple 
-          accept="image/*" 
+        <input
+          key={images.length}
+          type="file"
+          multiple
+          accept="image/*"
           onChange={(e) => handleImages(e.target.files)}
         />
         <div className="preview-grid">
@@ -570,7 +574,7 @@ export default function AddProduct() {
         </div>
       </div>
 
-      {/* PROMOTION PLANS */}
+             {/* PROMOTION PLANS */}
       <div className="form-section-round">
         <label>Promotion Plan</label>
         <div className="plans-grid">
