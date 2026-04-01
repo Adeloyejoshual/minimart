@@ -1,12 +1,8 @@
-import { useEffect, useMemo, useState, useCallback } from "react";
+import { useEffect, useMemo, useState } from "react";
 import DropdownModal from "../components/DropdownModal.jsx";
 import AddProductHeader from "../components/AddProductHeader.jsx";
 import { locationsByState } from "../config/locationsByState.js";
-import { promotionPlans } from "../config/promotions.js";
-import "../styles/AddProduct.css";
-
-const STORAGE_DRAFT = "product_draft";
-const STORAGE_PAYMENT = "payment_retry";
+import "./AddProduct.css";
 
 const INITIAL_FORM = {
   title: "",
@@ -15,23 +11,15 @@ const INITIAL_FORM = {
   category_id: "",
 
   attributes: {
-    brand: "",
-    model: "",
-    color: "",
-    condition: "",
-    used_detail: "",
-    ram: "",
-    storage: "",
-    sim: "",
-    year: "",
-    engine: "",
-    fuel_type: "",
     features: [],
   },
 
   delivery: {
     available: true,
-    duration: { from: "", to: "" },
+    duration: {
+      from: "",
+      to: "",
+    },
     fee: "",
     note: "",
   },
@@ -39,7 +27,6 @@ const INITIAL_FORM = {
   contact: {
     phone: "",
     whatsapp: "",
-    email: "",
     preferred: "chat",
   },
 };
@@ -55,69 +42,7 @@ export default function AddProduct() {
   const [previews, setPreviews] = useState([]);
 
   const [loading, setLoading] = useState(false);
-  const [selectedPlan, setSelectedPlan] = useState(null);
-  const [paymentData, setPaymentData] = useState(null);
-
-  /* ================= AUTO-SAVE DRAFT ================= */
-  const saveDraft = useCallback(() => {
-    const draft = {
-      form,
-      state,
-      city,
-      selectedPlan: selectedPlan?.id || null,
-    };
-    localStorage.setItem(STORAGE_DRAFT, JSON.stringify(draft));
-  }, [form, state, city, selectedPlan]);
-
-  const loadDraft = useCallback(() => {
-    try {
-      const saved = localStorage.getItem(STORAGE_DRAFT);
-      if (saved) {
-        const draft = JSON.parse(saved);
-        setForm(draft.form);
-        setState(draft.state);
-        setCity(draft.city);
-        if (draft.selectedPlan !== null) {
-          const plan = promotionPlans.find((p) => p.id === draft.selectedPlan);
-          setSelectedPlan(plan || null);
-        }
-      }
-    } catch (e) {
-      console.error("Draft load failed:", e);
-    }
-  }, []);
-
-  const clearDraft = useCallback(() => {
-    setForm(INITIAL_FORM);
-    setImages([]);
-    setPreviews([]);
-    setState("");
-    setCity("");
-    setSelectedPlan(null);
-    setPaymentData(null);
-    localStorage.removeItem(STORAGE_DRAFT);
-    localStorage.removeItem(STORAGE_PAYMENT);
-  }, []);
-
-  useEffect(() => {
-    loadDraft();
-  }, [loadDraft]);
-
-  useEffect(() => {
-    if (!loading) saveDraft();
-  }, [saveDraft, loading]);
-
-  /* ================= PAYMENT PERSISTENCE ================= */
-  useEffect(() => {
-    const saved = localStorage.getItem(STORAGE_PAYMENT);
-    if (saved) setPaymentData(JSON.parse(saved));
-  }, []);
-
-  useEffect(() => {
-    if (paymentData) {
-      localStorage.setItem(STORAGE_PAYMENT, JSON.stringify(paymentPid));
-    }
-  }, [paymentData]);
+  const [progress, setProgress] = useState(0);
 
   /* ================= FETCH CATEGORIES ================= */
   useEffect(() => {
@@ -127,35 +52,36 @@ export default function AddProduct() {
       .catch(console.error);
   }, []);
 
-  const selectedCategory = useMemo(() => {
-    if (!form.category_id) return null;
-    return categories.find((c) => String(c.id) === String(form.category_id)) || null;
-  }, [categories, form.category_id]);
+  /* ================= CATEGORY ================= */
+  const selectedCategory = useMemo(
+    () =>
+      categories.find((c) => String(c.id) === String(form.category_id)),
+    [categories, form.category_id]
+  );
 
   const options = selectedCategory?.dynamicOptions || {};
-  const attributes = form.attributes;
-  const brand = attributes.brand;
+  const brand = form.attributes?.brand;
 
+  /* ================= SAFE NORMALIZER ================= */
   const normalizeOptions = (list = []) =>
     Array.isArray(list)
-      ? list.map((x) =>
-          typeof x === "string" ? { id: x, name: x } : x
+      ? list.map((item) =>
+          typeof item === "string"
+            ? { id: item, name: item }
+            : item
         )
       : [];
 
-  const onlyNumbers = (v = "") => v.replace(/D/g, "");
+  /* ================= FIELDS ================= */
+  const fields = useMemo(() => {
+    const dynamic = selectedCategory?.dynamicOptions?.fields || [];
+    return ["condition", ...dynamic];
+  }, [selectedCategory]);
 
-  const formatPrice = (v = "") => {
-    const num = v.replace(/D/g, "");
-    return num ? new Intl.NumberFormat("en-NG").format(Number(num)) : "";
-  };
-
-  const formatLabel = (t) =>
-    t.replace(/_/g, " ").replace(/\bw/g, (l) => l.toUpperCase());
-
+  /* ================= OPTIONS MAP (FIXED) ================= */
   const optionsMap = useMemo(() => {
     const modelsForBrand =
-      brand && options.models?.[brand] ? options.models[brand] : [];
+      options.models?.[brand] || [];
 
     return {
       brand: normalizeOptions(options.brands),
@@ -165,97 +91,82 @@ export default function AddProduct() {
       used_detail: normalizeOptions(options.usedDetails),
       ram: normalizeOptions(options.ram),
       storage: normalizeOptions(options.storage),
-      sim: normalize(options.sims),
+      sim: normalizeOptions(options.sims),
       year: normalizeOptions(options.years),
       engine: normalizeOptions(options.engines),
       fuel_type: normalizeOptions(options.fuel_types),
+      features: normalizeOptions(options.features),
     };
   }, [options, brand]);
 
-  const fields = useMemo(() => {
-    const dynamic = options.fields || [];
-    return dynamic.includes("condition")
-      ? dynamic
-      : ["condition", ...dynamic];
-  }, [options]);
-
+  /* ================= HELPERS ================= */
   const update = (key, value) =>
     setForm((p) => ({ ...p, [key]: value }));
 
   const updateAttr = (key, value) =>
-    setForm((p) => ({
-      ...p,
-      attributes: {
+    setForm((p) => {
+      const updated = {
         ...p.attributes,
         [key]: value,
-        ...(key === "brand" && { model: "" }),
-      },
-    }));
+      };
 
-  const updateContact = (key, value) =>
-    setForm((p) => ({
-      ...p,
-      contact: { ...p.contact, [key]: value },
-    }));
+      /* RESET MODEL WHEN BRAND CHANGES */
+      if (key === "brand") {
+        updated.model = "";
+      }
 
-  const updateDelivery = (key, value) =>
-    setForm((p) => ({
-      ...p,
-      delivery: { ...p.delivery, [key]: value },
-    }));
+      return {
+        ...p,
+        attributes: updated,
+      };
+    });
 
-  const updateDeliveryDuration = (key, value) =>
-    setForm((p) => ({
-      ...p,
-      delivery: {
-        ...p.delivery,
-        duration: { ...p.delivery.duration, [key]: value },
-      },
-    }));
+  const onlyNumbers = (v) => v.replace(/[^\d]/g, "");
+
+  const formatLabel = (t) =>
+    t.replace(/_/g, " ").replace(/\b\w/g, (l) => l.toUpperCase());
 
   const toggleFeature = (feature) => {
     setForm((p) => {
-      const list = p.attributes.features || [];
-      const exists = list.includes(feature);
+      const current = p.attributes.features || [];
+      const exists = current.includes(feature);
+
       return {
         ...p,
         attributes: {
           ...p.attributes,
           features: exists
-            ? list.filter((f) => f !== feature)
-            : [...list, feature],
+            ? current.filter((f) => f !== feature)
+            : [...current, feature],
         },
       };
     });
   };
 
+  /* ================= VALIDATION ================= */
   const validate = () => {
     if (form.title.length < 10) return "Title too short";
     if (form.description.length < 20) return "Description too short";
     if (!form.price) return "Price required";
     if (!form.category_id) return "Select category";
     if (!form.contact.phone) return "Phone required";
-    if (!form.contact.email) return "Email required";
 
     if (form.delivery.available) {
-      const from = Number(form.delivery.duration.from);
-      const to = Number(form.delivery.duration.to);
-
-      if (Number.isNaN(from) || Number.isNaN(to))
+      if (!form.delivery.duration.from || !form.delivery.duration.to)
         return "Delivery range required";
 
-      if (to < from) return "Invalid delivery range";
+      if (+form.delivery.duration.to < +form.delivery.duration.from)
+        return "Invalid delivery range";
     }
 
     return null;
   };
 
+  /* ================= IMAGES ================= */
   const handleImages = (files) => {
-    const list = Array.from(files)
-      .slice(0, 8)
-      .filter((f) => f.size <= 3 * 1024 * 1024);
+    const list = Array.from(files).slice(0, 8);
 
-    previews.forEach(URL.revokeObjectURL);
+    previews.forEach((p) => URL.revokeObjectURL(p));
 
     setImages(list);
     setPreviews(list.map((f) => URL.createObjectURL(f)));
@@ -269,224 +180,147 @@ export default function AddProduct() {
     });
   };
 
-  const retryPayment = async () => {
-    if (!paymentData) return alert("No payment to retry");
-
-    try {
-      setLoading(true);
-
-      const res = await fetch(
-        "https://minimart-ivrm.onrender.com/api/payment/initialize",
-        {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            ...paymentData,
-            email: form.contact.email,
-          }),
-        }
-      );
-
-      const data = await res.json();
-
-      if (!data.success || !data.authorization_url) {
-        setLoading(false);
-        return alert(data.message || "Payment failed");
-      }
-
-      window.location.href = data.authorization_url;
-    } catch (err) {
-      alert("Retry failed. Try again.");
-      setLoading(false);
-    }
-  };
-
-  const handleSubmit = async () => {
-    if (loading) return;
-
+  /* ================= SUBMIT ================= */
+  const handleSubmit = () => {
     const err = validate();
     if (err) return alert(err);
 
-    const finalPlan =
-      selectedPlan || promotionPlans.find((p) => p.price === 0);
-
     setLoading(true);
+    setProgress(0);
 
     const fd = new FormData();
 
     const payload = {
       ...form,
-      price: form.price.replace(/D/g, ""),
+      price: form.price.replace(/[^\d]/g, ""),
       attributes: JSON.stringify(form.attributes),
       delivery: JSON.stringify(form.delivery),
       contact: JSON.stringify(form.contact),
       location_state: state,
       location_city: city,
-      promotion_plan: finalPlan.id,
-      state: "draft", // only “draft” from frontend
     };
 
-    Object.entries(payload)
-      .filter(([_, v]) => v !== null && v !== undefined)
-      .forEach(([k, v]) => fd.append(k, v));
+    Object.entries(payload).forEach(([k, v]) => fd.append(k, v));
     images.forEach((img) => fd.append("images", img));
 
-    try {
-      const res = await fetch(
-        "https://minimart-ivrm.onrender.com/api/marketplace/products",
-        {
-          method: "POST",
-          body: fd,
-        }
-      );
+    const xhr = new XMLHttpRequest();
+    xhr.open(
+      "POST",
+      "https://minimart-ivrm.onrender.com/api/marketplace/products"
+    );
 
-      if (!res.ok) throw new Error();
-
-      const result = await res.json();
-      const productId = result?.product?.id || result?.id;
-
-      if (finalPlan.price === 0) {
-        alert("✅ Product created");
-        clearDraft();
-        setLoading(false);
-        return;
+    xhr.upload.onprogress = (e) => {
+      if (e.lengthComputable) {
+        setProgress(Math.round((e.loaded / e.total) * 100));
       }
+    };
 
-      /* PAYMENT INIT with idempotencyKey */
-      const payRes = await fetch(
-        "https://minimart-ivrm.onrender.com/api/payment/initialize",
-        {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            email: form.contact.email,
-            amount: Number(finalPlan.price),
-            planId: finalPlan.id,
-            productId,
-            idempotencyKey: `${productId}`,
-          }),
-        }
-      );
-
-      const payData = await payRes.json();
-
-      if (!payData.success || !payData.authorization_url) {
-        setPaymentData({
-          email: form.contact.email,
-          amount: Number(finalPlan.price),
-          planId: finalPlan.id,
-          productId,
-          idempotencyKey: `${productId}`,
-        });
-        setLoading(false);
-        return alert(payData.message || "Payment init failed - retry below");
-      }
-
-      window.location.href = payData.authorization_url;
-    } catch (err) {
-      alert("Something went wrong");
+    xhr.onload = () => {
       setLoading(false);
-    }
+
+      if (xhr.status >= 200 && xhr.status < 300) {
+        alert("Product created successfully");
+        setForm(INITIAL_FORM);
+        setImages([]);
+        setPreviews([]);
+        setState("");
+        setCity("");
+        setProgress(0);
+      } else {
+        alert("Upload failed");
+      }
+    };
+
+    xhr.onerror = () => {
+      setLoading(false);
+      alert("Network error");
+    };
+
+    xhr.send(fd);
   };
 
   const states = Object.keys(locationsByState || {});
   const cities = state ? locationsByState[state] : [];
 
+  /* ================= UI ================= */
   return (
     <div className="add-product-container">
-      <AddProductHeader
-        title="Add Product"
-        onClearDraft={clearDraft}
+      <AddProductHeader title="Add Product" />
+
+      {loading && (
+        <div className="progress">
+          <div style={{ width: `${progress}%` }} />
+        </div>
+      )}
+
+      <input
+        placeholder="Title"
+        value={form.title}
+        onChange={(e) => update("title", e.target.value)}
       />
 
-      <div className="form-section-round">
-        <label>Product Title</label>
-        <input
-          placeholder="Enter product title (min 10 chars)"
-          value={form.title}
-          onChange={(e) => update("title", e.target.value)}
-        />
-      </div>
+      <textarea
+        placeholder="Description"
+        value={form.description}
+        onChange={(e) => update("description", e.target.value)}
+      />
 
-      <div className="form-section-round">
-        <label>Description</label>
-        <textarea
-          placeholder="Detailed description (min 20 chars)"
-          value={form.description}
-          onChange={(e) => update("description", e.target.value)}
-          rows="4"
-        />
-      </div>
+      <input
+        placeholder="Price"
+        value={form.price}
+        onChange={(e) =>
+          update("price", e.target.value.replace(/[^\d]/g, ""))
+        }
+      />
 
-      <div className="form-section-round">
-        <label>Price (₦)</label>
-        <input
-          placeholder="0"
-          value={formatPrice(form.price)}
-          onChange={(e) => update("price", onlyNumbers(e.target.value))}
-        />
-      </div>
-
-      <div className="form-section-round">
-        <label>Email</label>
-        <input
-          placeholder="your@email.com"
-          type="email"
-          value={form.contact.email}
-          onChange={(e) => updateContact("email", e.target.value)}
-        />
-      </div>
-
-      <div className="form-section-round">
-        <label>Category</label>
-        <DropdownModal
-          label=""
-          value={form.category_id}
-          onChange={(v) =>
-            setForm((prev) => ({
-              ...prev,
-              category_id: v,
-              attributes: INITIAL_FORM.attributes,
-            }))
-          }
-          options={categories.map((c) => ({
-            id: c.id,
-            name: c.name,
-          }))}
-        />
-      </div>
+      {/* CATEGORY */}
+      <DropdownModal
+        label="Category"
+        value={form.category_id}
+        onChange={(v) =>
+          setForm((p) => ({
+            ...p,
+            category_id: v,
+            attributes: { features: [] },
+          }))
+        }
+        options={categories.map((c) => ({
+          id: c.id,
+          name: c.name,
+        }))}
+      />
 
       {/* DYNAMIC FIELDS */}
       {fields.map((f) => {
-        if (!optionsMap[f]) return null;
-        if (f === "used_detail" && attributes.condition !== "used") return null;
+        const value = form.attributes?.[f] || "";
+
+        if (f === "used_detail" && form.attributes.condition !== "used")
+          return null;
 
         return (
-          <div key={f} className="form-section-round">
-            <label>{formatLabel(f)}</label>
-            <DropdownModal
-              label=""
-              value={attributes[f] || ""}
-              onChange={(v) => updateAttr(f, v)}
-              options={optionsMap[f]}
-            />
-          </div>
+          <DropdownModal
+            key={f}
+            label={formatLabel(f)}
+            value={value}
+            onChange={(v) => updateAttr(f, v)}
+            options={optionsMap[f] || []}
+          />
         );
       })}
 
       {/* FEATURES */}
-      {Array.isArray(options.features) && options.features.length > 0 && (
-        <div className="form-section-round">
-          <label>Features</label>
-          <div className="checkbox-grid-inline">
+      {options.features?.length > 0 && (
+        <div className="form-section">
+          <h3>Features</h3>
+          <div className="checkbox-grid">
             {options.features.map((f) => (
-              <label key={f} className="checkbox-inline">
+              <label key={f}>
                 <input
                   type="checkbox"
-                  checked={attributes.features.includes(f)}
+                  checked={form.attributes.features.includes(f)}
                   onChange={() => toggleFeature(f)}
                 />
-                <span>{formatLabel(f)}</span>
+                {f}
               </label>
             ))}
           </div>
@@ -494,129 +328,126 @@ export default function AddProduct() {
       )}
 
       {/* DELIVERY */}
-      <div className="form-section-round">
+      <div className="form-section">
+        <h3>Delivery</h3>
+
         <label>
           <input
             type="checkbox"
             checked={form.delivery.available}
-            onChange={(e) => updateDelivery("available", e.target.checked)}
+            onChange={(e) =>
+              setForm((p) => ({
+                ...p,
+                delivery: {
+                  ...p.delivery,
+                  available: e.target.checked,
+                },
+              }))
+            }
           />
-          Delivery Available
+          Available
         </label>
 
         {form.delivery.available && (
-          <div className="sub-grid">
-            <div className="form-section-round-small">
-              <label>From (days)</label>
-              <input
-                value={form.delivery.duration.from}
-                onChange={(e) => updateDeliveryDuration("from", e.target.value)}
-              />
-            </div>
-            <div className="form-section-round-small">
-              <label>To (days)</label>
-              <input
-                value={form.delivery.duration.to}
-                onChange={(e) => updateDeliveryDuration("to", e.target.value)}
-              />
-            </div>
-            <div className="form-section-round-small">
-              <label>Fee (₦)</label>
-              <input
-                value={formatPrice(form.delivery.fee)}
-                onChange={(e) => updateDelivery("fee", onlyNumbers(e.target.value))}
-              />
-            </div>
-          </div>
+          <>
+            <input
+              type="number"
+              placeholder="From days"
+              value={form.delivery.duration.from}
+              onChange={(e) =>
+                setForm((p) => ({
+                  ...p,
+                  delivery: {
+                    ...p.delivery,
+                    duration: {
+                      ...p.delivery.duration,
+                      from: e.target.value,
+                    },
+                  },
+                }))
+              }
+            />
+
+            <input
+              type="number"
+              placeholder="To days"
+              value={form.delivery.duration.to}
+              onChange={(e) =>
+                setForm((p) => ({
+                  ...p,
+                  delivery: {
+                    ...p.delivery,
+                    duration: {
+                      ...p.delivery.duration,
+                      to: e.target.value,
+                    },
+                  },
+                }))
+              }
+            />
+          </>
         )}
       </div>
 
       {/* LOCATION */}
-      <div className="form-section-round">
-        <label>State</label>
-        <DropdownModal label="" value={state} onChange={setState} options={states} />
-      </div>
+      <DropdownModal
+        label="State"
+        value={state}
+        onChange={setState}
+        options={states}
+      />
 
       {state && (
-        <div className="form-section-round">
-          <label>City</label>
-          <DropdownModal label="" value={city} onChange={setCity} options={cities} />
-        </div>
+        <DropdownModal
+          label="City"
+          value={city}
+          onChange={setCity}
+          options={cities}
+        />
       )}
 
-      <div className="form-section-round">
-        <label>Phone</label>
-        <input
-          placeholder="08012345678"
-          value={form.contact.phone}
-          onChange={(e) => updateContact("phone", onlyNumbers(e.target.value))}
-        />
+      {/* CONTACT */}
+      <input
+        placeholder="Phone"
+        value={form.contact.phone}
+        onChange={(e) =>
+          update("contact", {
+            ...form.contact,
+            phone: onlyNumbers(e.target.value),
+          })
+        }
+      />
+
+      <input
+        placeholder="WhatsApp"
+        value={form.contact.whatsapp}
+        onChange={(e) =>
+          update("contact", {
+            ...form.contact,
+            whatsapp: onlyNumbers(e.target.value),
+          })
+        }
+      />
+
+      {/* IMAGES */}
+      <input
+        type="file"
+        multiple
+        onChange={(e) => handleImages(e.target.files)}
+      />
+
+      <div className="preview-grid">
+        {previews.map((src, i) => (
+          <div key={i}>
+            <img src={src} alt="" />
+            <button onClick={() => removeImage(i)}>X</button>
+          </div>
+        ))}
       </div>
 
-      <div className="form-section-round">
-        <label>Product Images (max 8)</label>
-        <label className="add-image-btn">
-          + Add Images
-          <input
-            type="file"
-            multiple
-            accept="image/*"
-            onChange={(e) => handleImages(e.target.files)}
-            hidden
-          />
-        </label>
-        <div className="preview-grid">
-          {previews.map((src, i) => (
-            <div key={i} className="preview-item">
-              <img src={src} className="preview-thumb" alt={`Preview ${i + 1}`} />
-              <button onClick={() => removeImage(i)}>✕</button>
-            </div>
-          ))}
-        </div>
-      </div>
-
-      {/* PROMOTION PLANS */}
-      <div className="form-section-round">
-        <label>Promotion Plan</label>
-        <div className="plans-grid">
-          {promotionPlans.map((plan) => (
-            <div
-              key={plan.id}
-              className={`plan-card ${selectedPlan?.id === plan.id ? 'selected' : ''}`}
-              onClick={() => setSelectedPlan(plan)}
-            >
-              <div className="plan-header">
-                <strong>{plan.name}</strong>
-                <span className="plan-price">₦{formatPrice(plan.price.toString())}</span>
-              </div>
-              <div className="plan-duration">{plan.duration}</div>
-              <ul className="plan-features">
-                {plan.features.map((feat, i) => (
-                  <li key={i}>{feat}</li>
-                ))}
-              </ul>
-              {plan.description && <p className="plan-desc">{plan.description}</p>}
-            </div>
-          ))}
-        </div>
-      </div>
-
-            {/* ===== BUTTONS ===== */}
-      <div className="form-section-round button-section">
-        <button onClick={handleSubmit} disabled={loading} className="primary-btn">
-          {loading ? "Uploading..." : "Create Product"}
-        </button>
-
-        {paymentData && (
-          <button
-            onClick={retryPayment}
-            disabled={loading}
-            className="retry-btn"
-          >
-            {loading ? "Retrying..." : "Retry Payment"}
-          </button>
-        )}
-      </div>
+      <button onClick={handleSubmit} disabled={loading}>
+        {loading ? "Uploading..." : "Create Product"}
+      </button>
     </div>
   );
 }
