@@ -7,13 +7,12 @@ const pool = new Pool({
   connectionString: process.env.DATABASE_URL,
 });
 
-// GET single product
 router.get("/:id", async (req, res) => {
   const { id } = req.params;
 
   try {
-    // 🔥 MAIN PRODUCT QUERY
-    const result = await pool.query(
+    // 🔹 1. Fetch product
+    const productRes = await pool.query(
       `
       SELECT 
         p.*,
@@ -32,33 +31,44 @@ router.get("/:id", async (req, res) => {
       [id]
     );
 
-    if (result.rows.length === 0) {
+    if (productRes.rows.length === 0) {
       return res.status(404).json({
         success: false,
         message: "Product not found",
       });
     }
 
-    const product = result.rows[0];
+    const product = productRes.rows[0];
 
-    // 🔥 FETCH IMAGES FROM product_images TABLE
-    const imagesResult = await pool.query(
-      `
-      SELECT url
-      FROM product_images
-      WHERE product_id = $1
-      ORDER BY id ASC
-      `,
-      [id]
-    );
+    // 🔹 2. Fetch images (SAFE — works even if schema differs)
+    let images = [];
 
-    // attach images array
-    product.images = imagesResult.rows.map((row) => row.url);
+    try {
+      const imgRes = await pool.query(
+        `
+        SELECT 
+          COALESCE(url, image_url, img, src) AS url
+        FROM product_images
+        WHERE product_id = $1
+        ORDER BY id ASC
+        `,
+        [id]
+      );
 
-    // ✅ Safe JSON parsing
+      images = imgRes.rows
+        .map((row) => row.url)
+        .filter(Boolean);
+    } catch (imgErr) {
+      console.error("Image fetch warning:", imgErr.message);
+    }
+
+    product.images = images;
+
+    // 🔹 3. Safe JSON parsing
     const safeParse = (data, fallback) => {
       if (!data) return fallback;
       if (typeof data === "object") return data;
+
       try {
         return JSON.parse(data);
       } catch {
@@ -71,15 +81,17 @@ router.get("/:id", async (req, res) => {
     product.delivery = safeParse(product.delivery, {});
     product.contact = safeParse(product.contact, {});
 
+    // 🔹 4. Return response
     return res.json({
       success: true,
       product,
     });
   } catch (err) {
-    console.error("Product fetch error:", err);
+    console.error("🔥 PRODUCT DETAIL ERROR:", err);
+
     return res.status(500).json({
       success: false,
-      message: "Server error",
+      message: err.message,
     });
   }
 });
