@@ -21,8 +21,12 @@ const safeNumber = (v) => {
   return Number.isFinite(n) ? n : 0;
 };
 
+const isActiveProduct = (p) =>
+  p?.is_active === true && (p?.status === "approved" || p?.status === "active");
+
+/* ================= IMAGE ================= */
 const getImage = (p) => {
-  const images = safeArray(p?.images);
+  const images = safeArray(p?.media?.images || p?.images);
   return images.length > 0
     ? images[0]
     : "https://via.placeholder.com/300x200?text=No+Image";
@@ -33,9 +37,9 @@ const Card = memo(function Card({ p, onClick }) {
   const image = getImage(p);
 
   const location =
-    p?.location?.state && p?.location?.city
-      ? `${p.location.state}, ${p.location.city}`
-      : p?.location?.state || "Nigeria";
+    p?.location_state && p?.location_city
+      ? `${p.location_state}, ${p.location_city}`
+      : p?.location_state || "Nigeria";
 
   return (
     <div className="card" onClick={() => onClick(p.id)}>
@@ -44,9 +48,7 @@ const Card = memo(function Card({ p, onClick }) {
       </div>
 
       <div className="card-body">
-        <div className="price">
-          ₦{safeNumber(p?.price).toLocaleString()}
-        </div>
+        <div className="price">₦{safeNumber(p?.price).toLocaleString()}</div>
 
         <div className="title">
           {p?.title ? p.title.slice(0, 60) : "Untitled Product"}
@@ -115,10 +117,15 @@ export default function Homepage() {
         const latest = safeArray(data?.latest);
         const promoted = safeArray(data?.promoted);
 
-        setProducts(latest);
+        const activeLatest = latest.filter(isActiveProduct);
+        const activePromoted = promoted.filter(isActiveProduct);
+
+        setProducts(activeLatest);
 
         setTrending(
-          promoted.length ? promoted.slice(0, 10) : latest.slice(0, 10)
+          activePromoted.length
+            ? activePromoted.slice(0, 10)
+            : activeLatest.slice(0, 10)
         );
 
         setVisibleCount(PAGE_SIZE);
@@ -134,28 +141,29 @@ export default function Homepage() {
     };
 
     fetchHome();
-
     return () => controller.abort();
   }, [setProducts, setTrending]);
 
   /* ================= DERIVED DATA ================= */
+  const activeProducts = useMemo(
+    () => safeArray(products).filter(isActiveProduct),
+    [products]
+  );
+
   const cheapDeals = useMemo(
     () =>
-      safeArray(products)
-        .filter((p) => safeNumber(p.price) < 50000)
-        .slice(0, 10),
-    [products]
+      activeProducts.filter((p) => safeNumber(p.price) < 50000).slice(0, 10),
+    [activeProducts]
   );
 
   const recommended = useMemo(
-    () => safeArray(products).slice(0, 10),
-    [products]
+    () => activeProducts.slice(0, 10),
+    [activeProducts]
   );
 
   const visibleProducts = useMemo(
-    () =>
-      safeArray(products).slice(0, visibleCount),
-    [products, visibleCount]
+    () => activeProducts.slice(0, visibleCount),
+    [activeProducts, visibleCount]
   );
 
   /* ================= NAV ================= */
@@ -177,9 +185,9 @@ export default function Homepage() {
             setVisibleCount((prev) => {
               const next = prev + PAGE_SIZE;
 
-              if (next >= products.length) {
+              if (next >= activeProducts.length) {
                 hasMoreRef.current = false;
-                return products.length;
+                return activeProducts.length;
               }
 
               return next;
@@ -191,7 +199,7 @@ export default function Homepage() {
 
       observerRef.current.observe(node);
     },
-    [products.length]
+    [activeProducts.length]
   );
 
   /* ================= UI ================= */
