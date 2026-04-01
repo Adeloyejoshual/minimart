@@ -32,14 +32,10 @@ const Card = memo(function Card({ p, onClick }) {
       </div>
 
       <div className="card-body">
-        <div className="price">
-          ₦{Number(p.price || 0).toLocaleString()}
-        </div>
+        <div className="price">₦{Number(p.price || 0).toLocaleString()}</div>
 
         <div className="title">
-          {p.title?.length > 60
-            ? p.title.slice(0, 60) + "..."
-            : p.title}
+          {p.title?.length > 60 ? p.title.slice(0, 60) + "..." : p.title}
         </div>
 
         <div className="location">📍 {location}</div>
@@ -48,28 +44,45 @@ const Card = memo(function Card({ p, onClick }) {
   );
 });
 
+/* ================= SECTION ================= */
+const Section = memo(function Section({ title, items, onClick }) {
+  if (!items?.length) return null;
+
+  return (
+    <div className="mini-section">
+      <h3 className="mini-title">{title}</h3>
+
+      <div className="horizontal-scroll">
+        {items.map((p) => (
+          <div key={p.id} className="scroll-item">
+            <Card p={p} onClick={onClick} />
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+});
+
 /* ================= HOMEPAGE ================= */
 export default function Homepage() {
-  const {
-    products,
-    setProducts,
-    trending,
-    setTrending,
-  } = useProductCache();
+  const { products, setProducts, trending, setTrending } =
+    useProductCache();
 
   const [loading, setLoading] = useState(false);
   const [visibleCount, setVisibleCount] = useState(12);
 
   const navigate = useNavigate();
+
   const observerRef = useRef(null);
+  const hasMoreRef = useRef(true);
 
   const PAGE_SIZE = 12;
 
-  /* ================= FETCH ================= */
+  /* ================= FETCH DATA ================= */
   useEffect(() => {
     const controller = new AbortController();
 
-    const load = async () => {
+    const fetchHome = async () => {
       try {
         setLoading(true);
 
@@ -78,9 +91,7 @@ export default function Homepage() {
           { signal: controller.signal }
         );
 
-        if (!res.ok) {
-          throw new Error(`HTTP ${res.status}`);
-        }
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
 
         const data = await res.json();
 
@@ -93,6 +104,9 @@ export default function Homepage() {
         setTrending(
           promoted.length ? promoted.slice(0, 10) : latest.slice(0, 10)
         );
+
+        setVisibleCount(PAGE_SIZE);
+        hasMoreRef.current = true;
       } catch (err) {
         if (err.name !== "AbortError") {
           console.error("Homepage fetch error:", err);
@@ -102,69 +116,62 @@ export default function Homepage() {
       }
     };
 
-    load();
+    fetchHome();
 
     return () => controller.abort();
   }, [setProducts, setTrending]);
 
   /* ================= DERIVED DATA ================= */
   const cheapDeals = useMemo(
-    () =>
-      products
-        .filter((p) => Number(p.price) < 50000)
-        .slice(0, 10),
+    () => products.filter((p) => Number(p.price) < 50000).slice(0, 10),
     [products]
   );
 
-  const recommended = useMemo(() => products.slice(0, 10), [products]);
+  const recommended = useMemo(
+    () => products.slice(0, 10),
+    [products]
+  );
 
   const visibleProducts = useMemo(
     () => products.slice(0, visibleCount),
     [products, visibleCount]
   );
 
-  /* ================= NAV ================= */
+  /* ================= NAVIGATION ================= */
   const goToProduct = useCallback(
     (id) => navigate(`/product/${id}`),
     [navigate]
   );
 
   /* ================= INFINITE SCROLL ================= */
-  const loadMoreRef = useCallback((node) => {
-    if (observerRef.current) {
-      observerRef.current.disconnect();
-    }
+  const loadMoreRef = useCallback(
+    (node) => {
+      if (!node || !hasMoreRef.current) return;
 
-    observerRef.current = new IntersectionObserver(
-      (entries) => {
-        if (entries[0].isIntersecting) {
-          setVisibleCount((prev) => prev + PAGE_SIZE);
-        }
-      },
-      { threshold: 1.0 }
-    );
+      if (observerRef.current) observerRef.current.disconnect();
 
-    if (node) observerRef.current.observe(node);
-  }, []);
+      observerRef.current = new IntersectionObserver(
+        (entries) => {
+          if (entries[0].isIntersecting) {
+            setVisibleCount((prev) => {
+              const next = prev + PAGE_SIZE;
 
-  /* ================= SECTION ================= */
-  const Section = ({ title, items }) => {
-    if (!items?.length) return null;
+              if (next >= products.length) {
+                hasMoreRef.current = false;
+                return products.length;
+              }
 
-    return (
-      <div className="mini-section">
-        <h3 className="mini-title">{title}</h3>
+              return next;
+            });
+          }
+        },
+        { threshold: 1.0 }
+      );
 
-        <div className="horizontal-scroll">
-          {items.map((p) => (
-            <div key={p.id} className="scroll-item">
-              <Card p={p} onClick={goToProduct} />
-            </div>
-          ))}
-        </div>
-      </div>
-    );
-  };
+      observerRef.current.observe(node);
+    },
+    [products.length]
+  );
 
   /* ================= UI ================= */
   return (
@@ -179,9 +186,23 @@ export default function Homepage() {
           + Sell
         </button>
 
-        <Section title="🔥 Trending" items={trending} />
-        <Section title="💰 Cheap Deals" items={cheapDeals} />
-        <Section title="✨ Recommended" items={recommended} />
+        <Section
+          title="🔥 Trending"
+          items={trending}
+          onClick={goToProduct}
+        />
+
+        <Section
+          title="💰 Cheap Deals"
+          items={cheapDeals}
+          onClick={goToProduct}
+        />
+
+        <Section
+          title="✨ Recommended"
+          items={recommended}
+          onClick={goToProduct}
+        />
 
         <div className="section">
           <h2>🛒 All Products</h2>
@@ -192,11 +213,7 @@ export default function Homepage() {
             <>
               <div className="grid">
                 {visibleProducts.map((p) => (
-                  <Card
-                    key={p.id}
-                    p={p}
-                    onClick={goToProduct}
-                  />
+                  <Card key={p.id} p={p} onClick={goToProduct} />
                 ))}
               </div>
 
