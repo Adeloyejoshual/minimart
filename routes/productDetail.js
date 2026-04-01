@@ -12,6 +12,7 @@ router.get("/:id", async (req, res) => {
   const { id } = req.params;
 
   try {
+    // 🔥 MAIN PRODUCT QUERY
     const result = await pool.query(
       `
       SELECT 
@@ -40,21 +41,35 @@ router.get("/:id", async (req, res) => {
 
     const product = result.rows[0];
 
-    // Safe JSON parsing helper
-    const safeParse = (data) => {
-      if (!data) return null;
+    // 🔥 FETCH IMAGES FROM product_images TABLE
+    const imagesResult = await pool.query(
+      `
+      SELECT url
+      FROM product_images
+      WHERE product_id = $1
+      ORDER BY id ASC
+      `,
+      [id]
+    );
+
+    // attach images array
+    product.images = imagesResult.rows.map((row) => row.url);
+
+    // ✅ Safe JSON parsing
+    const safeParse = (data, fallback) => {
+      if (!data) return fallback;
       if (typeof data === "object") return data;
       try {
         return JSON.parse(data);
       } catch {
-        return null;
+        return fallback;
       }
     };
 
-    product.media = safeParse(product.media) || { images: [], videos: [] };
-    product.attributes = safeParse(product.attributes) || {};
-    product.delivery = safeParse(product.delivery) || {};
-    product.contact = safeParse(product.contact) || {};
+    product.media = safeParse(product.media, { images: [], videos: [] });
+    product.attributes = safeParse(product.attributes, {});
+    product.delivery = safeParse(product.delivery, {});
+    product.contact = safeParse(product.contact, {});
 
     return res.json({
       success: true,
