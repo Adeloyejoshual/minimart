@@ -5,6 +5,7 @@ import "../styles/ProductDetailHeader.css";
 export default function ProductDetailHeader({ title, price }) {
   const navigate = useNavigate();
   const [copied, setCopied] = useState(false);
+  const [sharing, setSharing] = useState(false);
 
   const handleShare = async () => {
     const shareData = {
@@ -14,13 +15,13 @@ export default function ProductDetailHeader({ title, price }) {
     };
 
     try {
-      // Native share (best UX on mobile)
+      setSharing(true);
+
       if (navigator.share) {
         await navigator.share(shareData);
         return;
       }
 
-      // Clipboard fallback
       await navigator.clipboard.writeText(shareData.url);
 
       setCopied(true);
@@ -28,37 +29,49 @@ export default function ProductDetailHeader({ title, price }) {
     } catch (err) {
       console.error("Share failed:", err);
 
-      // final fallback
-      prompt("Copy this link:", window.location.href);
+      try {
+        await navigator.clipboard.writeText(window.location.href);
+        setCopied(true);
+        setTimeout(() => setCopied(false), 2000);
+      } catch (e) {
+        // silent fail (no prompt in modern UX)
+      }
+    } finally {
+      setSharing(false);
     }
   };
 
   return (
     <div className="product-detail-header">
 
+      {/* BACK */}
       <button
-        className="back-btn"
+        className="icon-btn"
         onClick={() => navigate(-1)}
         aria-label="Go back"
       >
         ←
       </button>
 
+      {/* TITLE */}
       <h2 className="title">
         {title || "Product Detail"}
       </h2>
 
+      {/* SHARE */}
       <button
-        className="share-btn"
+        className={`icon-btn ${sharing ? "loading" : ""}`}
         onClick={handleShare}
         aria-label="Share product"
+        disabled={sharing}
       >
-        ⬆️
+        ⤴
       </button>
 
+      {/* TOAST */}
       {copied && (
         <div className="share-toast">
-          Link copied ✔
+          Link copied
         </div>
       )}
     </div>
