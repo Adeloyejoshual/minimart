@@ -1,311 +1,325 @@
-/* ================= BASE CONTAINER ================= */
+/* =========================================================
+   PAGE WRAPPER
+========================================================= */
 .add-product-container {
-  max-width: 900px;
-  margin: 2rem auto;
-  padding: 1.8rem 2.2rem;
-  background: #ffffff;
-  border-radius: 20px;
-  box-shadow: 0 12px 36px rgba(0, 0, 0, 0.08);
-  font-family: "Inter", sans-serif;
-  color: #111827;
-}
+  max-width: 860px;
+  margin: 0 auto;
+  padding: 1.2rem;
 
-/* ================= HEADER ================= */
-.add-product-header {
-  display: flex;
-  align-items: center;
-  gap: 0.75rem;
-  margin-bottom: 1.8rem;
-}
-
-.add-product-header .back-btn {
-  background: none;
-  border: none;
-  font-size: 1.6rem;
-  cursor: pointer;
-  color: #374151;
-  transition: 0.2s ease;
-}
-
-.add-product-header .back-btn:hover {
-  transform: translateX(-3px);
-}
-
-.add-product-header .page-title {
-  font-size: 1.6rem;
-  font-weight: 700;
-  color: #111827;
-}
-
-/* ================= FORM FIELD (INPUT/TEXTAREA/SELECT) ================= */
-.field {
-  margin-bottom: 1.2rem;
   display: flex;
   flex-direction: column;
+  gap: 18px;
+
+  background: #f7f9fc;
+  font-family: "Segoe UI", sans-serif;
 }
 
-.field label {
-  font-weight: 500;
-  margin-bottom: 0.4rem;
-  color: #334155;
-  font-size: 0.95rem;
-}
-
-.field input,
-.field textarea,
-.field select {
-  padding: 0.8rem 1rem;
-  border: 1px solid #d1d5db;
-  border-radius: 12px;
-  font-size: 1rem;
-  outline: none;
-  transition: 0.2s ease;
+/* =========================================================
+   SECTION BASE (ALL GROUPS)
+========================================================= */
+.section {
   background: #ffffff;
+  border-radius: 14px;
+  padding: 16px;
+
+  box-shadow: 0 4px 18px rgba(0, 0, 0, 0.06);
+
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
 }
 
-.field input:focus,
-.field textarea:focus,
-.field select:focus {
-  border-color: #4f46e5;
-  box-shadow: 0 0 0 3px rgba(99, 102, 241, 0.18);
+.section-title {
+  font-size: 0.95rem;
+  font-weight: 700;
+  color: #333;
+}
+
+/* =========================================================
+   INPUTS (GLOBAL CONTROLLED)
+========================================================= */
+.input,
+select,
+textarea {
+  width: 100%;
+  padding: 0.85rem 1rem;
+
+  border: 1px solid #ddd;
+  border-radius: 12px;
+
+  font-size: 0.95rem;
+  transition: 0.2s;
+}
+
+.input:focus,
+select:focus,
+textarea:focus {
+  border-color: #0077ff;
+  box-shadow: 0 0 0 3px rgba(0, 119, 255, 0.12);
+  outline: none;
 }
 
 textarea {
-  resize: vertical;
   min-height: 110px;
+  resize: vertical;
 }
 
-/* ================= FORM SECTION (ROUNDED CARDS) ================= */
-.form-section {
-  margin-top: 1.6rem;
-  padding: 1.4rem;
-  border-radius: 16px;
-  border: 1px solid #e5e7eb;
-  background: #ffffff;
-  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.04);
-}
-
-.form-section h3 {
-  font-size: 1.05rem;
-  font-weight: 600;
-  margin-bottom: 0.9rem;
-  color: #111827;
-}
-
-/* ================= CATEGORY (SCROLL / ITEM) ================= */
-.category-scroll {
+/* =========================================================
+   SECTION 1: PRODUCT DETAILS
+   (Title / Description / Price)
+========================================================= */
+.section-product {
   display: flex;
-  flex-wrap: wrap;
-  gap: 0.7rem;
+  flex-direction: column;
+  gap: 10px;
 }
 
-.category-item {
+/* =========================================================
+   SECTION 2: CATEGORY + CONDITION
+========================================================= */
+.section-category {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 10px;
+}
+
+/* highlight condition block */
+.condition-box {
+  padding: 12px;
+  border-radius: 12px;
+  background: #fff7e6;
+  border: 1px solid #ffcc66;
+}
+
+/* =========================================================
+   SECTION 3: DELIVERY
+========================================================= */
+.section-delivery {
   display: flex;
-  align-items: center;
-  gap: 0.5rem;
-  padding: 0.55rem 1.1rem;
-  border: 1px solid #e5e7eb;
-  border-radius: 24px;
-  cursor: pointer;
-  font-size: 0.95rem;
-  background: #ffffff;
-  color: #334155;
-  transition: 0.2s ease;
+  flex-direction: column;
+  gap: 10px;
 }
 
-.category-item:hover {
-  background: #f3f4f6;
-  border-color: #c7d2fe;
-}
-
-.category-item.active {
-  background: #dbeafe;
-  border-color: #60a5fa;
-  color: #1d4ed8;
-  font-weight: 600;
-  box-shadow: 0 4px 12px rgba(96, 165, 250, 0.3);
-  transform: scale(1.035);
-}
-
-/* ================= FEATURES GRID (TAGS STYLE) ================= */
-.features-grid {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 0.6rem;
-  margin-top: 0.6rem;
-}
-
-.feature-tag {
-  padding: 0.45rem 0.9rem;
-  border-radius: 999px;
-  border: 1px solid #e2e4e9;
-  font-size: 0.85rem;
-  cursor: pointer;
-  transition: 0.2s ease;
-  background: #ffffff;
-  color: #4b5563;
-}
-
-.feature-tag:hover {
-  background: #f0f4f9;
-  border-color: #93c5fd;
-}
-
-.feature-tag.active {
-  background: #eef2ff;
-  border-color: #6366f1;
-  color: #4f46e5;
-}
-
-/* ================= DELIVERY GRID ================= */
 .delivery-grid {
   display: grid;
-  grid-template-columns: repeat(2, 1fr);
-  gap: 0.8rem;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 10px;
 }
 
-@media (max-width: 600px) {
-  .delivery-grid {
-    grid-template-columns: 1fr;
-  }
-}
-
-/* ================= IMAGE UPLOAD & PREVIEW ================= */
-.image-upload {
-  display: inline-block;
-  padding: 0.7rem 1.2rem;
-  border: 1px dashed #9ca3af;
+.delivery-card {
+  padding: 12px;
   border-radius: 12px;
+
+  border: 1px solid #ddd;
+  background: #fafafa;
+
+  text-align: center;
   cursor: pointer;
-  font-size: 0.95rem;
-  color: #4b5563;
-  background: #f9fafb;
-  transition: 0.2s ease;
+  transition: 0.2s;
 }
 
-.image-upload:hover {
-  border-color: #6366f1;
-  background: #f0f9ff;
-  color: #3b82f6;
+.delivery-card:hover {
+  border-color: #0077ff;
+  background: #eef5ff;
 }
 
-/* IMAGES GRID (small rounded thumbnails) */
-.images {
+.delivery-card.active {
+  border-color: #0077ff;
+  background: #e3f0ff;
+  font-weight: 600;
+}
+
+/* =========================================================
+   SECTION 4: LOCATION + CONTACT
+========================================================= */
+.section-location {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 10px;
+}
+
+.location-grid {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 10px;
+}
+
+/* =========================================================
+   SECTION 5: IMAGES
+========================================================= */
+.section-images {
   display: flex;
-  flex-wrap: wrap;
-  gap: 0.8rem;
-  margin-top: 0.8rem;
+  flex-direction: column;
+  gap: 10px;
 }
 
-.img-wrap {
+.image-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(80px, 1fr));
+  gap: 10px;
+}
+
+.image-item {
   position: relative;
-  width: 92px;
-  height: 92px;
+  aspect-ratio: 1 / 1;
   border-radius: 12px;
   overflow: hidden;
-  border: 1px solid #e5e7eb;
-  background: #f3f4f6;
+  background: #eee;
 }
 
-.img-wrap img {
+.image-item img {
   width: 100%;
   height: 100%;
   object-fit: cover;
 }
 
-/* Remove button on thumbnail */
-.img-wrap button {
+.image-remove {
   position: absolute;
-  top: -6px;
-  right: -6px;
+  top: 6px;
+  right: 6px;
+
   width: 22px;
   height: 22px;
-  border-radius: 50%;
+
   border: none;
-  background: #ef4444;
-  color: #ffffff;
-  font-size: 0.75rem;
+  border-radius: 50%;
+
+  background: rgba(255, 0, 0, 0.85);
+  color: #fff;
+  font-size: 12px;
   cursor: pointer;
-  transition: 0.15s ease;
 }
 
-.img-wrap button:hover {
-  background: #dc2626;
-}
+/* upload button */
+.upload-btn {
+  width: 70px;
+  height: 70px;
 
-/* ================= BUTTONS ================= */
-.btn {
-  display: inline-flex;
+  border: 2px dashed #bbb;
+  border-radius: 12px;
+
+  display: flex;
   align-items: center;
   justify-content: center;
-  padding: 0.9rem 2rem;
-  border-radius: 12px;
-  background: #6366f1;
-  color: #ffffff;
-  font-weight: 600;
-  border: none;
+
+  font-size: 26px;
+  color: #888;
+
+  background: #f9f9f9;
   cursor: pointer;
-  transition: 0.2s ease;
-  font-size: 0.95rem;
 }
 
-.btn:hover:not(:disabled) {
-  background: #4f46e5;
-  transform: translateY(-1px);
-  box-shadow: 0 6px 16px rgba(79, 70, 229, 0.25);
+.upload-btn:hover {
+  border-color: #0077ff;
+  color: #0077ff;
 }
 
-.btn:disabled {
-  background: #a5b4fc;
-  cursor: not-allowed;
-  opacity: 1;
+/* =========================================================
+   SECTION 6: PROMOTION PLANS
+========================================================= */
+.section-plans {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
 }
 
-/* ================= PROMOTION PLANS (MODERN CARD) ================= */
-.plan-grid {
+.plans-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
-  gap: 1rem;
-  margin-top: 0.8rem;
+  grid-template-columns: 1fr;
+  gap: 12px;
 }
 
 .plan-card {
-  padding: 16px;
-  border-radius: 16px;
-  border: 1px solid #e5e7eb;
-  background: #ffffff;
+  padding: 14px;
+  border-radius: 14px;
+
+  border: 1px solid #ddd;
+  background: #fff;
+
   cursor: pointer;
-  transition: 0.25s ease;
-  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.06);
+  transition: 0.2s;
 }
 
 .plan-card:hover {
-  border-color: #6366f1;
-  box-shadow: 0 8px 24px rgba(99, 102, 241, 0.18);
-  transform: translateY(-3px);
+  border-color: #0077ff;
 }
 
-/* ACTIVE PLAN – LIGHT BLUE STYLE */
-.plan-card.active {
-  border: 2px solid #60a5fa;
-  background: #dbeafe;
-  color: #1d4ed8;
-  box-shadow: 0 10px 30px rgba(96, 165, 250, 0.28);
+.plan-card.selected {
+  border-color: #0077ff;
+  background: #eef5ff;
 }
 
-/* TOAST (NOTIFICATION) ================= */
-.toast {
-  position: fixed;
-  bottom: 1.5rem;
-  left: 50%;
-  transform: translateX(-50%);
-  background: #0f172a;
-  color: #ffffff;
-  padding: 0.95rem 1.4rem;
+.plan-header {
+  display: flex;
+  justify-content: space-between;
+  font-weight: 700;
+}
+
+.plan-price {
+  color: #0077ff;
+}
+
+.plan-features {
+  margin-top: 8px;
+  padding-left: 18px;
+  font-size: 0.9rem;
+}
+
+/* =========================================================
+   SUBMIT SECTION
+========================================================= */
+.section-submit {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.primary-btn {
+  padding: 0.95rem;
   border-radius: 12px;
-  font-size: 0.95rem;
-  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.24);
-  z-index: 9999;
-  opacity: 0.96;
-  pointer-events: none;
+
+  background: #0077ff;
+  color: #fff;
+
+  border: none;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.primary-btn:hover {
+  background: #005ecc;
+}
+
+.primary-btn:disabled {
+  background: #aaa;
+}
+
+/* retry button */
+.retry-btn {
+  padding: 0.9rem;
+  border-radius: 12px;
+
+  background: #ffcc00;
+  color: #111;
+
+  border: none;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+/* =========================================================
+   RESPONSIVE
+========================================================= */
+@media (max-width: 600px) {
+  .delivery-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .location-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .plans-grid {
+    grid-template-columns: 1fr;
+  }
 }
