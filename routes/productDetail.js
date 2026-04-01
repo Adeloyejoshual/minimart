@@ -4,94 +4,86 @@ import { Pool } from "pg";
 const router = express.Router();
 
 const pool = new Pool({
-  connectionString: process.env.DATABASE_URL,
+  connectionString: process.env.COCKROACH_URI,
+  ssl: { rejectUnauthorized: false },
 });
 
+/* ================= PRODUCT DETAIL ================= */
 router.get("/:id", async (req, res) => {
   const { id } = req.params;
 
   try {
-    // 🔹 1. Fetch product
-    const productRes = await pool.query(
+    const result = await pool.query(
       `
       SELECT 
-        p.*,
+        p.id,
+        p.title,
+        p.description,
+        p.price,
+        p.created_at,
+        p.is_active,
+        p.is_promoted,
+        p.promotion_end,
+        p.promotion_priority,
+        p.location_state,
+        p.location_city,
+        p.attributes,
+        p.delivery,
+        p.contact,
+
         u.id AS seller_id,
         u.name AS seller_name,
         u.email AS seller_email,
+
         c.name AS category_name,
-        sc.name AS subcategory_name
+        sc.name AS subcategory_name,
+
+        COALESCE(
+          json_agg(pi.image_url ORDER BY pi.position)
+          FILTER (WHERE pi.image_url IS NOT NULL),
+          '[]'
+        ) AS images
+
       FROM products p
       LEFT JOIN users u ON p.seller_id = u.id
       LEFT JOIN categories c ON p.category_id = c.id
       LEFT JOIN categories sc ON p.subcategory_id = sc.id
+      LEFT JOIN product_images pi ON p.id = pi.product_id
+
       WHERE p.id = $1
-      LIMIT 1
+        AND COALESCE(p.is_active, false) = true
+
+      GROUP BY 
+        p.id, u.id, u.name, u.email,
+        c.name, sc.name
       `,
       [id]
     );
 
-    if (productRes.rows.length === 0) {
+    if (result.rows.length === 0) {
       return res.status(404).json({
         success: false,
         message: "Product not found",
       });
     }
 
-    const product = productRes.rows[0];
+    const product = result.rows[0];
 
-    // 🔹 2. Fetch images (SAFE — works even if schema differs)
-    let images = [];
-
-    try {
-      const imgRes = await pool.query(
-        `
-        SELECT 
-          COALESCE(url, image_url, img, src) AS url
-        FROM product_images
-        WHERE product_id = $1
-        ORDER BY id ASC
-        `,
-        [id]
-      );
-
-      images = imgRes.rows
-        .map((row) => row.url)
-        .filter(Boolean);
-    } catch (imgErr) {
-      console.error("Image fetch warning:", imgErr.message);
-    }
-
-    product.images = images;
-
-    // 🔹 3. Safe JSON parsing
-    const safeParse = (data, fallback) => {
-      if (!data) return fallback;
-      if (typeof data === "object") return data;
-
-      try {
-        return JSON.parse(data);
-      } catch {
-        return fallback;
-      }
-    };
-
-    product.media = safeParse(product.media, { images: [], videos: [] });
-    product.attributes = safeParse(product.attributes, {});
-    product.delivery = safeParse(product.delivery, {});
-    product.contact = safeParse(product.contact, {});
-
-    // 🔹 4. Return response
     return res.json({
       success: true,
-      product,
+      product: {
+        ...product,
+        images: product.images || [],
+      },
     });
+
   } catch (err) {
-    console.error("🔥 PRODUCT DETAIL ERROR:", err);
+    console.error("PRODUCT DETAIL ERROR:", err);
 
     return res.status(500).json({
       success: false,
-      message: err.message,
+      message: "Server error",
+      error: err.message,
     });
   }
 });
