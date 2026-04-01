@@ -1,4 +1,4 @@
-import { useEffect, useState, useMemo, useCallback, memo } from "react";
+import { useEffect, useState, useMemo, useCallback, memo, useRef } from "react";
 import { useNavigate } from "react-router-dom";
 import TopNav from "../components/TopNav";
 import BottomNav from "../components/BottomNav";
@@ -13,19 +13,36 @@ const Card = memo(function Card({ product, onClick }) {
 
   const location =
     product?.location?.state && product?.location?.city
-      ? `${product.location.state}, ${product.location.city}`
+      ? `${product.location.city}, ${product.location.state}`
       : product?.location?.state || "Nigeria";
 
+  const formattedPrice = new Intl.NumberFormat("en-NG", {
+    style: "currency",
+    currency: "NGN",
+  }).format(product.price || 0);
+
   return (
-    <div className="card" onClick={() => onClick(product.id)}>
+    <div
+      className="card"
+      role="button"
+      tabIndex={0}
+      onClick={() => onClick(product.id)}
+      onKeyDown={(e) => e.key === "Enter" && onClick(product.id)}
+    >
       <div className="card-image">
-        <img src={image} alt={product.title} loading="lazy" />
+        <img
+          src={image}
+          alt={product.title}
+          loading="lazy"
+          onError={(e) => {
+            e.target.src =
+              "https://via.placeholder.com/300x200?text=No+Image";
+          }}
+        />
       </div>
 
       <div className="card-body">
-        <div className="price">
-          ₦{Number(product.price || 0).toLocaleString()}
-        </div>
+        <div className="price">{formattedPrice}</div>
 
         <div className="title">
           {product.title?.length > 55
@@ -33,7 +50,8 @@ const Card = memo(function Card({ product, onClick }) {
             : product.title}
         </div>
 
-        <div className="location">📍 {location}</div>
+        {/* PROFESSIONAL LOCATION */}
+        <div className="location">{location}</div>
       </div>
     </div>
   );
@@ -51,9 +69,11 @@ export default function Homepage() {
   } = useProductCache();
 
   const [loading, setLoading] = useState(false);
+  const [error, setError] = useState(null);
   const [visibleCount, setVisibleCount] = useState(12);
 
   const navigate = useNavigate();
+  const observerRef = useRef(null);
   const PAGE_SIZE = 12;
 
   /* ================= FETCH DATA ================= */
@@ -65,11 +85,14 @@ export default function Homepage() {
     const fetchHome = async () => {
       try {
         setLoading(true);
+        setError(null);
 
         const res = await fetch(
           "https://minimart-ivrm.onrender.com/api/homepage",
           { signal: controller.signal }
         );
+
+        if (!res.ok) throw new Error("Failed to fetch");
 
         const data = await res.json();
 
@@ -84,7 +107,10 @@ export default function Homepage() {
 
         setLoaded(true);
       } catch (err) {
-        if (err.name !== "AbortError") console.error("Homepage load failed:", err);
+        if (err.name !== "AbortError") {
+          console.error(err);
+          setError("Unable to load products. Please try again.");
+        }
       } finally {
         setLoading(false);
       }
@@ -100,10 +126,7 @@ export default function Homepage() {
     [products]
   );
 
-  const recommended = useMemo(
-    () => products.slice(0, 10),
-    [products]
-  );
+  const recommended = useMemo(() => products.slice(0, 10), [products]);
 
   const visibleProducts = useMemo(
     () => products.slice(0, visibleCount),
@@ -116,19 +139,18 @@ export default function Homepage() {
     [navigate]
   );
 
-  /* ================= INFINITE SCROLL ================= */
+  /* ================= INFINITE SCROLL (FIXED) ================= */
   const loadMoreRef = useCallback(
     (node) => {
-      if (!node) return;
+      if (observerRef.current) observerRef.current.disconnect();
 
-      const observer = new IntersectionObserver((entries) => {
+      observerRef.current = new IntersectionObserver((entries) => {
         if (entries[0].isIntersecting) {
           setVisibleCount((v) => v + PAGE_SIZE);
         }
       });
 
-      observer.observe(node);
-      return () => observer.disconnect();
+      if (node) observerRef.current.observe(node);
     },
     []
   );
@@ -158,29 +180,31 @@ export default function Homepage() {
       <TopNav />
 
       <div className="homepage-container">
-
         {/* FLOAT SELL BUTTON */}
         <button
           className="floating-btn"
           onClick={() => navigate("/minimart/add")}
         >
-          + Sell Item
+          Sell Item
         </button>
 
-        {/* HERO / QUICK VALUE PROPS */}
+        {/* HERO */}
         <div className="hero">
           <h1>Marketplace for Everyone</h1>
-          <p>Buy, sell, and discover products instantly</p>
+          <p>Buy, sell, and discover products seamlessly</p>
         </div>
 
+        {/* ERROR */}
+        {error && <p className="error">{error}</p>}
+
         {/* SECTIONS */}
-        <Section title="🔥 Trending" items={trending} />
-        <Section title="💰 Cheap Deals" items={cheapDeals} />
-        <Section title="✨ Recommended" items={recommended} />
+        <Section title="Trending" items={trending} />
+        <Section title="Affordable Deals" items={cheapDeals} />
+        <Section title="Recommended for You" items={recommended} />
 
         {/* ALL PRODUCTS */}
         <div className="section">
-          <h2>🛒 All Products</h2>
+          <h2>All Products</h2>
 
           {loading && <p className="loading">Loading products...</p>}
 
@@ -194,7 +218,6 @@ export default function Homepage() {
             ))}
           </div>
 
-          {/* INFINITE SCROLL TRIGGER */}
           <div ref={loadMoreRef} style={{ height: 40 }} />
         </div>
       </div>
