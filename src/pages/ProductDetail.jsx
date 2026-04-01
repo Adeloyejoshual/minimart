@@ -16,18 +16,34 @@ export default function ProductDetail({ user }) {
   useEffect(() => {
     const fetchProduct = async () => {
       try {
-        const res = await axios.get(
-          `${API_BASE}/api/product/${id}`
-        );
+        const res = await axios.get(`${API_BASE}/api/product/${id}`);
 
-        const data = res.data.product;
+        const data = res.data?.product;
+
+        if (!data) throw new Error("Invalid product response");
+
         setProduct(data);
 
-        const images = data.images || [];
-        setMainImage(images.length ? images[0] : "");
+        // 🔥 SAFE IMAGE NORMALIZATION (IMPORTANT FIX)
+        let images = data.images;
+
+        if (!Array.isArray(images)) {
+          try {
+            images = JSON.parse(images || "[]");
+          } catch {
+            images = [];
+          }
+        }
+
+        images = images.filter(Boolean);
+
+        setMainImage(images.length > 0 ? images[0] : "");
+
       } catch (err) {
         setError(
-          err.response?.data?.message || "Failed to load product"
+          err.response?.data?.message ||
+          err.message ||
+          "Failed to load product"
         );
       } finally {
         setLoading(false);
@@ -41,7 +57,9 @@ export default function ProductDetail({ user }) {
   if (error) return <div style={{ padding: 20, color: "red" }}>{error}</div>;
   if (!product) return null;
 
-  const images = product.images || [];
+  const images = Array.isArray(product.images)
+    ? product.images
+    : [];
 
   return (
     <div style={{ maxWidth: 1000, margin: "0 auto", padding: 20 }}>
@@ -56,19 +74,13 @@ export default function ProductDetail({ user }) {
         </div>
 
         <div style={{ display: "flex", gap: 10 }}>
-          <button
-            onClick={() =>
-              navigate(`/seller/${product.seller_id}`)
-            }
-          >
+          <button onClick={() => navigate(`/seller/${product.seller_id}`)}>
             View Seller
           </button>
 
           <button
             onClick={() =>
-              navigate(
-                `/conversations?userId=${product.seller_id}`
-              )
+              navigate(`/conversations?userId=${product.seller_id}`)
             }
           >
             Chat Seller
@@ -76,7 +88,7 @@ export default function ProductDetail({ user }) {
         </div>
       </div>
 
-      {/* IMAGE */}
+      {/* IMAGE SECTION */}
       <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 20 }}>
 
         <div>
@@ -84,11 +96,11 @@ export default function ProductDetail({ user }) {
             {mainImage ? (
               <img
                 src={mainImage}
-                alt=""
+                alt={product.title}
                 style={{ width: "100%", height: "100%", objectFit: "cover" }}
               />
             ) : (
-              <div>No Image</div>
+              <div style={{ padding: 20 }}>No Image Available</div>
             )}
           </div>
 
@@ -98,14 +110,12 @@ export default function ProductDetail({ user }) {
                 key={i}
                 src={img}
                 onClick={() => setMainImage(img)}
+                onError={(e) => (e.target.style.display = "none")}
                 style={{
                   width: 60,
                   height: 60,
                   objectFit: "cover",
-                  border:
-                    mainImage === img
-                      ? "2px solid blue"
-                      : "1px solid #ddd",
+                  border: mainImage === img ? "2px solid blue" : "1px solid #ddd",
                   cursor: "pointer",
                 }}
               />
