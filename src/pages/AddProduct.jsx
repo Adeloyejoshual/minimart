@@ -127,27 +127,7 @@ export default function AddProduct() {
       .catch(console.error);
   }, []);
 
-  /* ✅ 9. AUTO-ADD NEW ATTRIBUTES (VERY IMPORTANT) */
-  useEffect(() => {
-    if (!options.fields) return;
-
-    setForm((prev) => {
-      const newAttrs = { ...prev.attributes };
-
-      options.fields.forEach((f) => {
-        if (!(f in newAttrs)) {
-          newAttrs[f] = f === "features" ? [] : "";
-        }
-      });
-
-      return {
-        ...prev,
-        attributes: newAttrs,
-      };
-    });
-  }, [options?.fields]);
-
-  /* ================= UTILITY FUNCTIONS ================= */
+  /* ================= UTILITY FUNCTIONS (MOVED UP) ✅ 1. FIXED ORDERING ================= */
   const selectedCategory = useMemo(
     () => categories.find((c) => String(c.id) === String(form.category_id)),
     [categories, form.category_id]
@@ -162,17 +142,19 @@ export default function AddProduct() {
       ? list.map((x) => (typeof x === "string" ? { id: x, name: x } : x))
       : [];
 
-  // ✅ 1. FIXED: proper regex (was /D/ → now /D/)
+  // ✅ 2. FIXED: proper regex
   const onlyNumbers = (v = "") => v.replace(/D/g, "");
 
-  // ✅ FIXED: display only
   const displayPrice = (v) =>
     v ? new Intl.NumberFormat("en-NG").format(Number(v)) : "";
 
+  // ✅ 5. FIXED: proper label formatting
   const formatLabel = (t) =>
-    t.replace(/\bw/g, (l) => l.toUpperCase()).replace(/_/g, " ");
+    t
+      .replace(/_/g, " ")
+      .replace(/\bw/g, (l) => l.toUpperCase());
 
-  // ✅ 2. FULLY DYNAMIC OPTIONS MAP (CRITICAL)
+  // ✅ FULLY DYNAMIC OPTIONS MAP
   const optionsMap = useMemo(() => {
     const map = {};
 
@@ -180,7 +162,6 @@ export default function AddProduct() {
       if (key === "models") return;
 
       if (key === "model") {
-        // ✅ 3. FIXED MODEL HANDLING (brand-dependent)
         const modelsForBrand =
           brand && options.models?.[brand]
             ? options.models[brand]
@@ -189,7 +170,6 @@ export default function AddProduct() {
         return;
       }
 
-      // ✅ 5. SUPPORT CUSTOM FIELDS WITH FALLBACK
       map[key] = normalizeOptions(options[key] || []);
     });
 
@@ -200,11 +180,27 @@ export default function AddProduct() {
     return [...(options.features || [])].sort((a, b) => a.localeCompare(b));
   }, [options.features]);
 
-  // ✅ 6. FIELDS CONTROL EVERYTHING (KEEP WORKING)
   const fields = useMemo(() => {
     const dynamic = options.fields || [];
     return dynamic.includes("condition") ? dynamic : ["condition", ...dynamic];
   }, [options]);
+
+  /* ✅ 3. FIXED: Safe attribute initialization (category change only) */
+  useEffect(() => {
+    if (!options.fields?.length) return;
+
+    setForm((prev) => {
+      const newAttrs = { ...prev.attributes };
+
+      options.fields.forEach((f) => {
+        if (newAttrs[f] === undefined) {
+          newAttrs[f] = f === "features" ? [] : "";
+        }
+      });
+
+      return { ...prev, attributes: newAttrs };
+    });
+  }, [form.category_id]);
 
   /* ================= FORM UPDATERS ================= */
   const update = (key, value) => setForm((p) => ({ ...p, [key]: value }));
@@ -278,7 +274,7 @@ export default function AddProduct() {
   const handleImages = (files) => {
     const list = Array.from(files)
       .slice(0, 8)
-      .filter((f) => f.size <= 3 * 1024 * 1024); // 3MB limit
+      .filter((f) => f.size <= 3 * 1024 * 1024);
 
     previews.forEach(URL.revokeObjectURL);
     setImages(list);
@@ -306,7 +302,6 @@ export default function AddProduct() {
       location_state: state,
       location_city: city,
       promotion_plan: selectedPlan?.id || null,
-      // ✅ No status; backend controls state
     };
 
     Object.entries(payload)
@@ -361,7 +356,6 @@ export default function AddProduct() {
     setLoading(true);
 
     try {
-      // ✅ 1. Save as DRAFT (no "active" status)
       const product = await createProductDraft();
       const productId = product?.id;
 
@@ -369,7 +363,6 @@ export default function AddProduct() {
         throw new Error("Failed to create product draft");
       }
 
-      // ✅ 2. FREE PLAN: backend activates only (no user‑only activation)
       if (finalPlan.price === 0) {
         await fetch(
           `https://minimart-ivrm.onrender.com/api/marketplace/products/${productId}/activate`,
@@ -381,7 +374,6 @@ export default function AddProduct() {
         return;
       }
 
-      // ✅ 3. PAID PLAN: store payment info → redirect
       setPaymentData({
         email: form.contact.email,
         amount: Number(finalPlan.price),
@@ -480,12 +472,9 @@ export default function AddProduct() {
         />
       </div>
 
-      {/* ✅ 4. DYNAMIC FIELDS WITH FEATURES SUPPORT */}
+      {/* DYNAMIC FIELDS */}
       {fields.map((f) => {
-        // ✅ FIXED: allow features even without optionsMap entry
         if (!optionsMap[f] && f !== "features") return null;
-        
-        // ✅ 8. FIXED: case-sensitive condition check
         if (f === "used_detail" && attributes.condition !== "Used") return null;
 
         return (
@@ -501,16 +490,17 @@ export default function AddProduct() {
         );
       })}
 
-      {/* ✅ FEATURES (separate rendering) */}
+      {/* FEATURES */}
       {sortedFeatures.length > 0 && (
         <div className="form-section-round">
           <label>Features</label>
           <div className="checkbox-grid-inline">
             {sortedFeatures.map((f) => (
               <label key={f} className="checkbox-inline">
+                {/* ✅ 4. FIXED: safe features check */}
                 <input
                   type="checkbox"
-                  checked={attributes.features.includes(f)}
+                  checked={(attributes.features || []).includes(f)}
                   onChange={() => toggleFeature(f)}
                 />
                 <span>{formatLabel(f)}</span>
