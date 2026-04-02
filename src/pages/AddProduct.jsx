@@ -88,7 +88,7 @@ export default function AddProduct() {
       : [];
 
   // ✅ FIXED: Allow decimals for fees
-  const onlyNumbers = (v = "") => v.replace(/[^d.]/g, "");
+  const onlyNumbers = (v = "") => v.replace(/[^\d.]/g, "");
   const displayPrice = (v) =>
     v ? new Intl.NumberFormat("en-NG").format(Number(v)) : "";
 
