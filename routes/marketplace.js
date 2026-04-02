@@ -10,6 +10,7 @@ import crypto from "crypto";
 import { brands } from "../src/config/brands.js";
 import { colors } from "../src/config/colors.js";
 import { categoryFields } from "../src/config/categoryFields.js";
+import { fieldOptions } from "../src/config/fieldOptions.js";  // ⭐ NEW IMPORT
 import { conditions, usedDetails } from "../src/config/conditions.js";
 import { featuresByCategory } from "../src/config/featuresByCategory.js";
 import { models } from "../src/config/models.js";
@@ -451,7 +452,7 @@ router.post("/products", upload.array("images", 10), async (req, res) => {
 });
 
 /* =========================================================
-GET CATEGORIES
+GET CATEGORIES (FULLY FIXED - DYNAMIC FIELDS + OPTIONS)
 ========================================================= */
 router.get("/categories", async (req, res) => {
   try {
@@ -469,27 +470,48 @@ router.get("/categories", async (req, res) => {
 
       map[cat.id] = {
         ...cat,
+
+        /* ================= DYNAMIC OPTIONS ================= */
         dynamicOptions: {
+          // ⭐ CRITICAL: controls what frontend renders
+          fields: categoryFields[key] || [],
+
+          /* ===== CORE DROPDOWNS ===== */
           brands: brands[key] || [],
           models: models[key] || {},
-          colors: colors[key] || [],
+
+          // ✅ FIX: colors is GLOBAL (not keyed)
+          colors: colors || [],
+
           conditions,
           usedDetails,
+
           ram: ramOptions,
           storage: storageOptions,
           sims,
+
           features: featuresByCategory[key] || [],
+
           years,
           engines,
           fuel_types: fuelTypes,
+
           location: Object.keys(locationsByState),
+
+          /* ===== CUSTOM FIELD OPTIONS (SIZE, SKILLS, ETC) ===== */
+          ...fieldOptions,
         },
+
         subcategories: [],
       };
 
-      if (!cat.parent_id) tree.push(map[cat.id]);
+      // root categories
+      if (!cat.parent_id) {
+        tree.push(map[cat.id]);
+      }
     });
 
+    // build tree
     rows.forEach((cat) => {
       if (cat.parent_id && map[cat.parent_id]) {
         map[cat.parent_id].subcategories.push(map[cat.id]);
@@ -497,7 +519,8 @@ router.get("/categories", async (req, res) => {
     });
 
     res.json(tree);
-  } catch {
+  } catch (err) {
+    console.error("Categories fetch error:", err);
     res.status(500).json({ message: "Failed to fetch categories" });
   }
 });
