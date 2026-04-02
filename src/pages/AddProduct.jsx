@@ -87,8 +87,12 @@ export default function AddProduct() {
       ? list.map((x) => (typeof x === "string" ? { id: x, name: x } : x))
       : [];
 
-  // ✅ FIXED: Allow decimals for fees
-  const onlyNumbers = (v = "") => v.replace(/[^\d.]/g, "");
+  const onlyNumbers = (v = "") => {
+  const cleaned = v.replace(/[^\d.]/g, "");
+  const parts = cleaned.split(".");
+  if (parts.length > 2) return parts[0] + "." + parts.slice(1).join("");
+  return cleaned;
+};
   const displayPrice = (v) =>
     v ? new Intl.NumberFormat("en-NG").format(Number(v)) : "";
 
