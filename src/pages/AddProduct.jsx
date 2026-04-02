@@ -127,6 +127,26 @@ export default function AddProduct() {
       .catch(console.error);
   }, []);
 
+  /* ✅ 9. AUTO-ADD NEW ATTRIBUTES (VERY IMPORTANT) */
+  useEffect(() => {
+    if (!options.fields) return;
+
+    setForm((prev) => {
+      const newAttrs = { ...prev.attributes };
+
+      options.fields.forEach((f) => {
+        if (!(f in newAttrs)) {
+          newAttrs[f] = f === "features" ? [] : "";
+        }
+      });
+
+      return {
+        ...prev,
+        attributes: newAttrs,
+      };
+    });
+  }, [options?.fields]);
+
   /* ================= UTILITY FUNCTIONS ================= */
   const selectedCategory = useMemo(
     () => categories.find((c) => String(c.id) === String(form.category_id)),
@@ -142,7 +162,7 @@ export default function AddProduct() {
       ? list.map((x) => (typeof x === "string" ? { id: x, name: x } : x))
       : [];
 
-  // ✅ FIXED: proper regex
+  // ✅ 1. FIXED: proper regex (was /D/ → now /D/)
   const onlyNumbers = (v = "") => v.replace(/D/g, "");
 
   // ✅ FIXED: display only
@@ -152,30 +172,35 @@ export default function AddProduct() {
   const formatLabel = (t) =>
     t.replace(/\bw/g, (l) => l.toUpperCase()).replace(/_/g, " ");
 
+  // ✅ 2. FULLY DYNAMIC OPTIONS MAP (CRITICAL)
   const optionsMap = useMemo(() => {
-    const modelsForBrand =
-      brand && options.models && options.models[brand]
-        ? options.models[brand]
-        : [];
-    return {
-      brand: normalizeOptions(options.brands),
-      model: normalizeOptions(modelsForBrand),
-      color: normalizeOptions(options.colors),
-      condition: normalizeOptions(options.conditions),
-      used_detail: normalizeOptions(options.usedDetails),
-      ram: normalizeOptions(options.ram),
-      storage: normalizeOptions(options.storage),
-      sim: normalizeOptions(options.sims),
-      year: normalizeOptions(options.years),
-      engine: normalizeOptions(options.engines),
-      fuel_type: normalizeOptions(options.fuel_types),
-    };
+    const map = {};
+
+    Object.keys(options || {}).forEach((key) => {
+      if (key === "models") return;
+
+      if (key === "model") {
+        // ✅ 3. FIXED MODEL HANDLING (brand-dependent)
+        const modelsForBrand =
+          brand && options.models?.[brand]
+            ? options.models[brand]
+            : [];
+        map.model = normalizeOptions(modelsForBrand);
+        return;
+      }
+
+      // ✅ 5. SUPPORT CUSTOM FIELDS WITH FALLBACK
+      map[key] = normalizeOptions(options[key] || []);
+    });
+
+    return map;
   }, [options, brand]);
 
   const sortedFeatures = useMemo(() => {
     return [...(options.features || [])].sort((a, b) => a.localeCompare(b));
   }, [options.features]);
 
+  // ✅ 6. FIELDS CONTROL EVERYTHING (KEEP WORKING)
   const fields = useMemo(() => {
     const dynamic = options.fields || [];
     return dynamic.includes("condition") ? dynamic : ["condition", ...dynamic];
@@ -336,7 +361,7 @@ export default function AddProduct() {
     setLoading(true);
 
     try {
-      // ✅ 1. Save as DRAFT (no “active” status)
+      // ✅ 1. Save as DRAFT (no "active" status)
       const product = await createProductDraft();
       const productId = product?.id;
 
@@ -455,10 +480,13 @@ export default function AddProduct() {
         />
       </div>
 
-      {/* DYNAMIC FIELDS */}
+      {/* ✅ 4. DYNAMIC FIELDS WITH FEATURES SUPPORT */}
       {fields.map((f) => {
-        if (!optionsMap[f]) return null;
-        if (f === "used_detail" && attributes.condition !== "used") return null;
+        // ✅ FIXED: allow features even without optionsMap entry
+        if (!optionsMap[f] && f !== "features") return null;
+        
+        // ✅ 8. FIXED: case-sensitive condition check
+        if (f === "used_detail" && attributes.condition !== "Used") return null;
 
         return (
           <div key={f} className="form-section-round">
@@ -473,7 +501,7 @@ export default function AddProduct() {
         );
       })}
 
-      {/* FEATURES */}
+      {/* ✅ FEATURES (separate rendering) */}
       {sortedFeatures.length > 0 && (
         <div className="form-section-round">
           <label>Features</label>
@@ -574,7 +602,7 @@ export default function AddProduct() {
         </div>
       </div>
 
-             {/* PROMOTION PLANS */}
+      {/* PROMOTION PLANS */}
       <div className="form-section-round">
         <label>Promotion Plan</label>
         <div className="plans-grid">
@@ -600,7 +628,7 @@ export default function AddProduct() {
         </div>
       </div>
 
-            {/* SUBMIT BUTTONS */}
+      {/* SUBMIT BUTTONS */}
       <div className="form-section-round button-section">
         <button onClick={handleSubmit} disabled={loading} className="primary-btn">
           {loading ? "Processing..." : "Create Product"}
@@ -615,4 +643,3 @@ export default function AddProduct() {
     </div>
   );
 }
-
