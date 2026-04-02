@@ -54,6 +54,7 @@ export default function AddProduct() {
   const [selectedPlan, setSelectedPlan] = useState(null);
   const [paymentData, setPaymentData] = useState(null);
   const [isDragging, setIsDragging] = useState(false);
+  const imageTimersRef = useRef(new Map());
 
   const MAX_IMAGES = 6;
   const MAX_SIZE = 3 * 1024 * 1024;
@@ -86,7 +87,8 @@ export default function AddProduct() {
       ? list.map((x) => (typeof x === "string" ? { id: x, name: x } : x))
       : [];
 
-  const onlyNumbers = (v = "") => v.replace(/D/g, "");
+  // ✅ FIXED: Allow decimals for fees
+  const onlyNumbers = (v = "") => v.replace(/[^d.]/g, "");
   const displayPrice = (v) =>
     v ? new Intl.NumberFormat("en-NG").format(Number(v)) : "";
 
@@ -163,7 +165,6 @@ export default function AddProduct() {
     setIsDragging(false);
     localStorage.removeItem(STORAGE_DRAFT);
     localStorage.removeItem(STORAGE_PAYMENT);
-    // activeImage auto‑cleared on unmount
   }, []);
 
   /* ================= FORM UPDATERS ================= */
@@ -269,70 +270,58 @@ export default function AddProduct() {
     });
   };
 
-  /* ================= LONG‑PRESS TO DRAG HELPER ================= */
-  const useLongPress = (onStart, options = {}) => {
-    const { threshold = 500 } = options;
-    const timer = useRef();
+  // ✅ FIXED: Proper long-press per image (no hooks in loops)
+  const handleLongPressStart = useCallback((e, index) => {
+    e.preventDefault();
+    setIsDragging(true);
+    e.dataTransfer?.setData("index", index);
+  }, []);
 
-    const cleanup = useCallback(() => {
-      if (timer.current) {
-        clearTimeout(timer.current);
-        timer.current = null;
-      }
-    }, []);
+  const handleLongPressEnd = useCallback((e) => {
+    const timerId = e.currentTarget.dataset.timer;
+    if (timerId) {
+      clearTimeout(Number(timerId));
+      delete e.currentTarget.dataset.timer;
+    }
+    setIsDragging(false);
+  }, []);
 
-    const start = useCallback(
-      (e) => {
-        cleanup();
-        timer.current = setTimeout(() => {
-          onStart?.(e);
-        }, threshold);
-      },
-      [onStart, threshold, cleanup]
-    );
-
-    const end = useCallback(
-      (e) => {
-        cleanup();
-      },
-      [cleanup]
-    );
-
-    return {
-      onMouseDown: start,
-      onMouseUp: end,
-      onMouseLeave: end,
-      onTouchStart: start,
-      onTouchEnd: end,
-      onTouchCancel: end,
-    };
-  };
+  const handleTouchStart = useCallback((e, index) => {
+    const timer = setTimeout(() => handleLongPressStart(e, index), 500);
+    e.currentTarget.dataset.timer = timer;
+  }, [handleLongPressStart]);
 
   const handleDrop = useCallback((e, index) => {
+    e.preventDefault();
     const from = Number(e.dataTransfer.getData("index"));
-
     setImages((prev) => {
       const copy = [...prev];
       const [moved] = copy.splice(from, 1);
       copy.splice(index, 0, moved);
       return copy;
     });
+    setIsDragging(false);
   }, []);
 
-  const onLongPressStartDrag = useCallback(
-    (e) => {
-      setIsDragging(true);
-    },
-    []
-  );
+  // ✅ FIXED: Safe sequential compression (no CPU spike)
+  const compressImagesSequentially = async (imageFiles) => {
+    const compressedFiles = [];
+    for (const file of imageFiles) {
+      try {
+        const compressed = await compressImage(file);
+        compressedFiles.push(compressed);
+      } catch {
+        compressedFiles.push(file); // fallback
+      }
+    }
+    return compressedFiles;
+  };
 
   /* ================= EFFECTS ================= */
-  // Load draft on mount
   useEffect(() => {
     loadDraft();
   }, [loadDraft]);
 
-  // Autosave draft (debounced)
   useEffect(() => {
     if (!loading) {
       const timeout = setTimeout(saveDraft, 800);
@@ -340,7 +329,6 @@ export default function AddProduct() {
     }
   }, [form, state, city, selectedPlan, loading, saveDraft]);
 
-  // Load payment retry data
   useEffect(() => {
     const saved = localStorage.getItem(STORAGE_PAYMENT);
     if (saved) {
@@ -352,14 +340,12 @@ export default function AddProduct() {
     }
   }, []);
 
-  // Save payment data
   useEffect(() => {
     if (paymentData) {
       localStorage.setItem(STORAGE_PAYMENT, JSON.stringify(paymentData));
     }
   }, [paymentData]);
 
-  // Fetch categories
   useEffect(() => {
     fetch("https://minimart-ivrm.onrender.com/api/marketplace/categories")
       .then((r) => r.json())
@@ -367,7 +353,6 @@ export default function AddProduct() {
       .catch(console.error);
   }, []);
 
-  // Initialize attributes when category changes
   useEffect(() => {
     if (!options.fields?.length) return;
 
@@ -382,14 +367,14 @@ export default function AddProduct() {
     });
   }, [form.category_id, options.fields]);
 
-  // Cleanup image URLs on unmount
   useEffect(() => {
     return () => {
       images.forEach((img) => {
         if (img.preview) URL.revokeObjectURL(img.preview);
       });
+      // Cleanup timers
+      imageTimersRef.current.clear();
     };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   /* ================= API FUNCTIONS ================= */
@@ -410,15 +395,8 @@ export default function AddProduct() {
       .filter(([_, v]) => v !== null && v !== undefined && v !== "")
       .forEach(([k, v]) => fd.append(k, String(v)));
 
-    const compressedFiles = await Promise.all(
-      images.map(async (img) => {
-        try {
-          return await compressImage(img.file);
-        } catch {
-          return img.file; // fallback to original
-        }
-      })
-    );
+    const imageFiles = images.map((img) => img.file);
+    const compressedFiles = await compressImagesSequentially(imageFiles);
 
     compressedFiles.forEach((file) => {
       fd.append("images", file);
@@ -528,176 +506,163 @@ export default function AddProduct() {
     <div className="add-product-container">
       <AddProductHeader title="Add Product" onClearDraft={clearDraft} />
 
+      {/* ✅ STRUCTURED SECTIONS */}
+
       {/* BASIC INFO */}
-      <div className="form-section-round">
-        <label>
-          Product Title <span className="required">*</span>
-        </label>
-        <input
-          placeholder="Enter product title (min 10 chars)"
-          value={form.title}
-          onChange={(e) => update("title", e.target.value)}
-        />
-      </div>
-
-      <div className="form-section-round">
-        <label>
-          Description <span className="required">*</span>
-        </label>
-        <textarea
-          placeholder="Detailed description (min 20 chars)"
-          value={form.description}
-          onChange={(e) => update("description", e.target.value)}
-          rows="4"
-        />
-      </div>
-
-      <div className="form-section-round">
-        <label>
-          Price (₦) <span className="required">*</span>
-        </label>
-        <input
-          placeholder="0"
-          value={displayPrice(form.price)}
-          onChange={(e) =>
-            update("price", onlyNumbers(e.target.value))
-          }
-        />
-        {form.price && <small>₦{displayPrice(form.price)}</small>}
-      </div>
-
-      {/* CATEGORY & DYNAMIC FIELDS */}
-      <div className="form-section-round">
-        <label>
-          Category <span className="required">*</span>
-        </label>
-        <DropdownModal
-          label=""
-          value={form.category_id}
-          onChange={(v) =>
-            setForm((prev) => ({
-              ...prev,
-              category_id: v,
-              attributes: INITIAL_FORM.attributes,
-            }))
-          }
-          options={categories.map((c) => ({ id: c.id, name: c.name }))}
-        />
-      </div>
-
-      {fields.map((f) => {
-        if (!optionsMap[f] && f !== "features") return null;
-        if (f === "used_detail" && attributes.condition !== "Used")
-          return null;
-
-        return (
-          <div key={f} className="form-section-round">
-            <label>{formatLabel(f)}</label>
-            <DropdownModal
-              label=""
-              value={attributes[f] || ""}
-              onChange={(v) => updateAttr(f, v)}
-              options={optionsMap[f]}
-            />
-          </div>
-        );
-      })}
-
-            {/* FEATURES - RIGHT-ALIGNED CHECKBOXES */}
-      {sortedFeatures.length > 0 && (
-        <div className="form-section-round">
-          <label>Features</label>
-          <div className="checkbox-grid-inline">
-            {sortedFeatures.map((f) => (
-              <label
-                key={f}
-                className="checkbox-inline right-check"
-              >
-                <span>{formatLabel(f)}</span>
-                <input
-                  type="checkbox"
-                  checked={(attributes.features || []).includes(f)}
-                  onChange={() => toggleFeature(f)}
-                />
-              </label>
-            ))}
-          </div>
-        </div>
-      )}
-
-      {/* CONTACT */}
-      <div className="form-section-round">
-        <label>
-          Email <span className="required">*</span>
-        </label>
-        <input
-          type="email"
-          placeholder="your@email.com"
-          value={form.contact.email}
-          onChange={(e) =>
-            updateContact("email", e.target.value)
-          }
-        />
-      </div>
-
-      <div className="form-section-round">
-        <label>
-          Phone <span className="required">*</span>
-        </label>
-        <input
-          placeholder="08012345678"
-          value={form.contact.phone}
-          onChange={(e) =>
-            updateContact("phone", onlyNumbers(e.target.value))
-          }
-        />
-      </div>
-
-      {/* LOCATION */}
-      <div className="form-section-round">
-        <label>
-          State <span className="required">*</span>
-        </label>
-        <DropdownModal
-          label=""
-          value={state}
-          onChange={setState}
-          options={states}
-        />
-      </div>
-
-      {state && (
-        <div className="form-section-round">
+      <div className="form-card blue">
+        <h3>Basic Information</h3>
+        <div className="form-group">
           <label>
-            City <span className="required">*</span>
+            Product Title <span className="required">*</span>
+          </label>
+          <input
+            placeholder="Enter product title (min 10 chars)"
+            value={form.title}
+            onChange={(e) => update("title", e.target.value)}
+          />
+        </div>
+        <div className="form-group">
+          <label>
+            Description <span className="required">*</span>
+          </label>
+          <textarea
+            placeholder="Detailed description (min 20 chars)"
+            value={form.description}
+            onChange={(e) => update("description", e.target.value)}
+            rows="4"
+          />
+        </div>
+        <div className="form-group">
+          <label>
+            Price (₦) <span className="required">*</span>
+          </label>
+          <input
+            placeholder="0"
+            value={displayPrice(form.price)}
+            onChange={(e) =>
+              update("price", onlyNumbers(e.target.value))
+            }
+          />
+          {form.price && <small>₦{displayPrice(form.price)}</small>}
+        </div>
+      </div>
+
+      {/* CATEGORY & FEATURES */}
+      <div className="form-card blue">
+        <h3>Product Details</h3>
+        <div className="form-group">
+          <label>
+            Category <span className="required">*</span>
           </label>
           <DropdownModal
             label=""
-            value={city}
-            onChange={setCity}
-            options={cities}
+            value={form.category_id}
+            onChange={(v) =>
+              setForm((prev) => ({
+                ...prev,
+                category_id: v,
+                attributes: INITIAL_FORM.attributes,
+              }))
+            }
+            options={categories.map((c) => ({ id: c.id, name: c.name }))}
           />
         </div>
-      )}
 
-      {/* DELIVERY */}
-      <div className="form-section-round">
-        <label>Delivery Type</label>
-        <select
-          value={form.delivery.type}
-          onChange={(e) =>
-            updateDelivery("type", e.target.value)
-          }
-        >
-          <option value="none">No delivery</option>
-          <option value="standard">Standard delivery</option>
-          <option value="express">Express delivery</option>
-          <option value="pickup">Pickup only</option>
-        </select>
+        {fields.map((f) => {
+          if (!optionsMap[f] && f !== "features") return null;
+          if (f === "used_detail" && attributes.condition !== "Used") return null;
+
+          return (
+            <div key={f} className="form-group">
+              <label>{formatLabel(f)}</label>
+              <DropdownModal
+                label=""
+                value={attributes[f] || ""}
+                onChange={(v) => updateAttr(f, v)}
+                options={optionsMap[f]}
+              />
+            </div>
+          );
+        })}
+
+        {sortedFeatures.length > 0 && (
+          <div className="form-group">
+            <label>Features</label>
+            <div className="checkbox-grid-inline">
+              {sortedFeatures.map((f) => (
+                <label key={f} className="checkbox-inline right-check">
+                  <span>{formatLabel(f)}</span>
+                  <input
+                    type="checkbox"
+                    checked={(attributes.features || []).includes(f)}
+                    onChange={() => toggleFeature(f)}
+                  />
+                </label>
+              ))}
+            </div>
+          </div>
+        )}
       </div>
 
-      {form.delivery.type !== "none" &&
-        form.delivery.type !== "pickup" && (
+      {/* CONTACT */}
+      <div className="form-card blue">
+        <h3>Contact Information</h3>
+        <div className="form-group">
+          <label>
+            Email <span className="required">*</span>
+          </label>
+          <input
+            type="email"
+            placeholder="your@email.com"
+            value={form.contact.email}
+            onChange={(e) => updateContact("email", e.target.value)}
+          />
+        </div>
+        <div className="form-group">
+          <label>
+            Phone <span className="required">*</span>
+          </label>
+          <input
+            placeholder="08012345678"
+            value={form.contact.phone}
+            onChange={(e) => updateContact("phone", onlyNumbers(e.target.value))}
+          />
+        </div>
+      </div>
+
+      {/* LOCATION + DELIVERY */}
+      <div className="form-card blue">
+        <h3>Location & Delivery</h3>
+        <div className="form-group">
+          <label>
+            State <span className="required">*</span>
+          </label>
+          <DropdownModal label="" value={state} onChange={setState} options={states} />
+        </div>
+
+        {state && (
+          <div className="form-group">
+            <label>
+              City <span className="required">*</span>
+            </label>
+            <DropdownModal label="" value={city} onChange={setCity} options={cities} />
+          </div>
+        )}
+
+        <div className="form-group">
+          <label>Delivery Type</label>
+          <select
+            value={form.delivery.type}
+            onChange={(e) => updateDelivery("type", e.target.value)}
+          >
+            <option value="none">No delivery</option>
+            <option value="standard">Standard delivery</option>
+            <option value="express">Express delivery</option>
+            <option value="pickup">Pickup only</option>
+          </select>
+        </div>
+
+        {form.delivery.type !== "none" && form.delivery.type !== "pickup" && (
           <div className="sub-grid">
             <div className="form-section-round-small">
               <label>
@@ -708,10 +673,7 @@ export default function AddProduct() {
                 min="1"
                 value={form.delivery.duration.from}
                 onChange={(e) =>
-                  updateDeliveryDuration(
-                    "from",
-                    onlyNumbers(e.target.value)
-                  )
+                  updateDeliveryDuration("from", onlyNumbers(e.target.value))
                 }
               />
             </div>
@@ -724,10 +686,7 @@ export default function AddProduct() {
                 min="1"
                 value={form.delivery.duration.to}
                 onChange={(e) =>
-                  updateDeliveryDuration(
-                    "to",
-                    onlyNumbers(e.target.value)
-                  )
+                  updateDeliveryDuration("to", onlyNumbers(e.target.value))
                 }
               />
             </div>
@@ -738,68 +697,56 @@ export default function AddProduct() {
               <input
                 type="number"
                 min="0"
+                step="0.01"
                 value={form.delivery.fee}
                 onChange={(e) =>
-                  updateDelivery(
-                    "fee",
-                    onlyNumbers(e.target.value)
-                  )
+                  updateDelivery("fee", onlyNumbers(e.target.value))
                 }
               />
             </div>
           </div>
         )}
+      </div>
 
       {/* IMAGES */}
-      <div className="form-section-round">
-        <label>
-          Product Images (max 6, 3MB each){" "}
-          <span className="required">*</span>
+      <div className="form-card blue">
+        <h3>Product Images</h3>
+        <label className="form-group-label">
+          Product Images (max 6, 3MB each) <span className="required">*</span>
         </label>
-
         {images.length > 0 && (
           <div className="preview-grid-modern">
-            {images.map((img, i) => {
-              const longPressHandlers = useLongPress(
-                onLongPressStartDrag,
-                {
-                  threshold: 500,
-                }
-              );
-
-              return (
-                <div
-                  key={img.id}
-                  className="preview-thumb"
-                  draggable={true}
-                  onClick={() => setActiveImage(img.preview)}
-                  onDragStart={(e) => {
-                    if (!isDragging) {
-                      e.preventDefault();
-                      return;
-                    }
-                    e.dataTransfer.setData("index", i);
+            {images.map((img, i) => (
+              <div
+                key={img.id}
+                className={`preview-thumb ${isDragging ? 'dragging' : ''}`}
+                draggable={true}
+                onClick={() => setActiveImage(img.preview)}
+                onDragStart={(e) => {
+                  // ✅ FIXED: Always allow drag, no conditional preventDefault
+                  e.dataTransfer.setData("index", i);
+                }}
+                onDragOver={(e) => e.preventDefault()}
+                onDragEnd={() => setIsDragging(false)}
+                onDrop={(e) => handleDrop(e, i)}
+                onTouchStart={(e) => handleTouchStart(e, i)}
+                onTouchEnd={handleLongPressEnd}
+                onTouchCancel={handleLongPressEnd}
+                onMouseDown={(e) => handleTouchStart(e, i)}
+                onMouseUp={handleLongPressEnd}
+                onMouseLeave={handleLongPressEnd}
+              >
+                <img src={img.preview} alt="" />
+                <button
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    removeImage(img.id);
                   }}
-                  onDragOver={(e) => e.preventDefault()}
-                  onDragEnd={() => setIsDragging(false)}
-                  onDrop={(e) => {
-                    handleDrop(e, i);
-                    setIsDragging(false);
-                  }}
-                  {...longPressHandlers}
                 >
-                  <img src={img.preview} alt="" />
-                  <button
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      removeImage(img.id);
-                    }}
-                  >
-                    ✕
-                  </button>
-                </div>
-              );
-            })}
+                  ✕
+                </button>
+              </div>
+            ))}
 
             {images.length < MAX_IMAGES && (
               <label className="add-image-box">
@@ -808,9 +755,7 @@ export default function AddProduct() {
                   multiple
                   accept="image/*"
                   hidden
-                  onChange={(e) =>
-                    handleImages(e.target.files)
-                  }
+                  onChange={(e) => handleImages(e.target.files)}
                 />
                 + Add
               </label>
@@ -819,17 +764,15 @@ export default function AddProduct() {
         )}
       </div>
 
-      {/* PROMOTION PLANS */}
-      <div className="form-section-round">
-        <label>Promotion Plan (Optional)</label>
+      {/* PROMOTION */}
+      <div className="form-card blue">
+        <h3>Promotion Plan (Optional)</h3>
         <div className="plans-grid">
           {promotionPlans.map((plan) => (
             <div
               key={plan.id}
               className={`plan-card ${
-                selectedPlan?.id === plan.id
-                  ? "selected"
-                  : ""
+                selectedPlan?.id === plan.id ? "selected" : ""
               }`}
               onClick={() => setSelectedPlan(plan)}
             >
@@ -839,18 +782,14 @@ export default function AddProduct() {
                   ₦{displayPrice(plan.price.toString())}
                 </span>
               </div>
-              <div className="plan-duration">
-                {plan.duration}
-              </div>
+              <div className="plan-duration">{plan.duration}</div>
               <ul className="plan-features">
                 {plan.features.map((feat, i) => (
                   <li key={i}>{feat}</li>
                 ))}
               </ul>
               {plan.description && (
-                <p className="plan-desc">
-                  {plan.description}
-                </p>
+                <p className="plan-desc">{plan.description}</p>
               )}
             </div>
           ))}
@@ -858,20 +797,12 @@ export default function AddProduct() {
       </div>
 
       {/* ACTION BUTTONS */}
-      <div className="form-section-round button-section">
-        <button
-          onClick={handleSubmit}
-          disabled={loading}
-          className="primary-btn"
-        >
+      <div className="form-card blue button-section">
+        <button onClick={handleSubmit} disabled={loading} className="primary-btn">
           {loading ? "Processing..." : "Create Product"}
         </button>
         {paymentData && (
-          <button
-            onClick={retryPayment}
-            disabled={loading}
-            className="retry-btn"
-          >
+          <button onClick={retryPayment} disabled={loading} className="retry-btn">
             {loading ? "Retrying..." : "Retry Payment"}
           </button>
         )}
@@ -879,10 +810,7 @@ export default function AddProduct() {
 
       {/* FULLSCREEN IMAGE PREVIEW */}
       {activeImage && (
-        <div
-          className="image-modal"
-          onClick={() => setActiveImage(null)}
-        >
+        <div className="image-modal" onClick={() => setActiveImage(null)}>
           <img src={activeImage} alt="preview" />
         </div>
       )}
