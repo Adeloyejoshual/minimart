@@ -5,6 +5,8 @@ import { locationsByState } from "../config/locationsByState.js";
 import { promotionPlans } from "../config/promotions.js";
 import "../styles/AddProduct.css";
 
+import imageCompression from "browser-image-compression";
+
 const STORAGE_DRAFT = "product_draft";
 const STORAGE_PAYMENT = "payment_retry";
 
@@ -47,10 +49,26 @@ export default function AddProduct() {
   const [state, setState] = useState("");
   const [city, setCity] = useState("");
   const [images, setImages] = useState([]);
-  const [previews, setPreviews] = useState([]);
+  const [activeImage, setActiveImage] = useState(null);
   const [loading, setLoading] = useState(false);
   const [selectedPlan, setSelectedPlan] = useState(null);
   const [paymentData, setPaymentData] = useState(null);
+
+  const MAX_IMAGES = 6;
+  const MAX_SIZE = 3 * 1024 * 1024;
+
+  const isSlowDevice = () =>
+    navigator.hardwareConcurrency <= 4 ||
+    navigator.deviceMemory <= 4 ||
+    /Android|iPhone|iPad/i.test(navigator.userAgent);
+
+  const compressImage = async (file) => {
+    return await imageCompression(file, {
+      maxSizeMB: isSlowDevice() ? 0.4 : 0.8,
+      maxWidthOrHeight: isSlowDevice() ? 900 : 1280,
+      useWebWorker: true,
+    });
+  };
 
   /* ================= CORE UTILITIES ================= */
   const selectedCategory = useMemo(
@@ -68,7 +86,8 @@ export default function AddProduct() {
       : [];
 
   const onlyNumbers = (v = "") => v.replace(/D/g, "");
-  const displayPrice = (v) => v ? new Intl.NumberFormat("en-NG").format(Number(v)) : "";
+  const displayPrice = (v) =>
+    v ? new Intl.NumberFormat("en-NG").format(Number(v)) : "";
 
   const formatLabel = (t) =>
     t
@@ -105,6 +124,7 @@ export default function AddProduct() {
 
   /* ================= DRAFT MANAGEMENT ================= */
   const saveDraft = useCallback(() => {
+    if (loading) return;
     const draft = {
       form,
       state,
@@ -112,7 +132,7 @@ export default function AddProduct() {
       selectedPlan: selectedPlan?.id || null,
     };
     localStorage.setItem(STORAGE_DRAFT, JSON.stringify(draft));
-  }, [form, state, city, selectedPlan]);
+  }, [form, state, city, selectedPlan, loading]);
 
   const loadDraft = useCallback(() => {
     try {
@@ -135,13 +155,13 @@ export default function AddProduct() {
   const clearDraft = useCallback(() => {
     setForm(INITIAL_FORM);
     setImages([]);
-    setPreviews([]);
     setState("");
     setCity("");
     setSelectedPlan(null);
     setPaymentData(null);
     localStorage.removeItem(STORAGE_DRAFT);
     localStorage.removeItem(STORAGE_PAYMENT);
+    // activeImage auto‑cleared on unmount
   }, []);
 
   /* ================= FORM UPDATERS ================= */
@@ -216,22 +236,31 @@ export default function AddProduct() {
 
   /* ================= IMAGE HANDLING ================= */
   const handleImages = (files) => {
-    const list = Array.from(files)
-      .slice(0, 8)
-      .filter((f) => f.size <= 3 * 1024 * 1024 && f.type.startsWith("image/"));
+    const fileArray = Array.from(files);
 
-    // Clean up old previews
-    previews.forEach(URL.revokeObjectURL);
-    setImages(list);
-    setPreviews(list.map((f) => URL.createObjectURL(f)));
+    if (images.length >= MAX_IMAGES) return;
+
+    const remaining = MAX_IMAGES - images.length;
+
+    const validFiles = fileArray
+      .filter((f) => f.type.startsWith("image/") && f.size <= MAX_SIZE)
+      .slice(0, remaining);
+
+    const newImages = validFiles.map((file) => ({
+      id: crypto.randomUUID(),
+      file,
+      preview: URL.createObjectURL(file),
+    }));
+
+    setImages((prev) => [...prev, ...newImages]);
   };
 
-  const removeImage = (i) => {
-    const oldPreview = previews[i];
-    if (oldPreview) URL.revokeObjectURL(oldPreview);
-
-    setImages((prev) => prev.filter((_, x) => x !== i));
-    setPreviews((prev) => prev.filter((_, x) => x !== i));
+  const removeImage = (id) => {
+    setImages((prev) => {
+      const target = prev.find((x) => x.id === id);
+      if (target?.preview) URL.revokeObjectURL(target.preview);
+      return prev.filter((x) => x.id !== id);
+    });
   };
 
   /* ================= EFFECTS ================= */
@@ -240,7 +269,7 @@ export default function AddProduct() {
     loadDraft();
   }, [loadDraft]);
 
-  // Autosave draft (debounced by React batching)
+  // Autosave draft (debounced)
   useEffect(() => {
     if (!loading) {
       const timeout = setTimeout(saveDraft, 800);
@@ -293,9 +322,11 @@ export default function AddProduct() {
   // Cleanup image URLs on unmount
   useEffect(() => {
     return () => {
-      previews.forEach(URL.revokeObjectURL);
+      images.forEach((img) => {
+        if (img.preview) URL.revokeObjectURL(img.preview);
+      });
     };
-  }, [previews]);
+  }, [images]);
 
   /* ================= API FUNCTIONS ================= */
   const createProductDraft = async () => {
@@ -315,7 +346,13 @@ export default function AddProduct() {
       .filter(([_, v]) => v !== null && v !== undefined && v !== "")
       .forEach(([k, v]) => fd.append(k, String(v)));
 
-    images.forEach((img, i) => fd.append("images", img));
+    const compressedFiles = await Promise.all(
+      images.map((img) => compressImage(img.file))
+    );
+
+    compressedFiles.forEach((file) => {
+      fd.append("images", file);
+    });
 
     const res = await fetch("https://minimart-ivrm.onrender.com/api/marketplace/products", {
       method: "POST",
@@ -533,7 +570,7 @@ export default function AddProduct() {
         </div>
       )}
 
-      {/* DELIVERY */}
+            {/* DELIVERY */}
       <div className="form-section-round">
         <label>Delivery Type</label>
         <select
@@ -581,24 +618,58 @@ export default function AddProduct() {
 
       {/* IMAGES */}
       <div className="form-section-round">
-        <label>Product Images (max 8, 3MB each) <span className="required">*</span></label>
-        <input
-          type="file"
-          multiple
-          accept="image/*"
-          onChange={(e) => handleImages(e.target.files)}
-        />
-        {previews.length > 0 && (
-          <div className="preview-grid">
-            {previews.map((src, i) => (
-              <div key={i} className="preview-item">
-                <img src={src} alt={`Preview ${i + 1}`} />
-                <button type="button" onClick={() => removeImage(i)}>✕</button>
+        <label>
+          Product Images (max 6, 3MB each) <span className="required">*</span>
+        </label>
+
+        {images.length > 0 && (
+          <div className="preview-grid-modern">
+            {images.map((img, i) => (
+              <div
+                key={img.id}
+                className="preview-thumb"
+                draggable
+                onClick={() => setActiveImage(img.preview)}
+                onDragStart={(e) => e.dataTransfer.setData("index", i)}
+                onDragOver={(e) => e.preventDefault()}
+                onDrop={(e) => {
+                  const from = Number(e.dataTransfer.getData("index"));
+
+                  setImages((prev) => {
+                    const copy = [...prev];
+                    const [moved] = copy.splice(from, 1);
+                    copy.splice(i, 0, moved);
+                    return copy;
+                  });
+                }}
+              >
+                <img src={img.preview} alt="" />
+
+                <button
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    removeImage(img.id);
+                  }}
+                >
+                  ✕
+                </button>
               </div>
             ))}
+
+            {images.length < MAX_IMAGES && (
+              <label className="add-image-box">
+                <input
+                  type="file"
+                  multiple
+                  accept="image/*"
+                  hidden
+                  onChange={(e) => handleImages(e.target.files)}
+                />
+                + Add
+              </label>
+            )}
           </div>
         )}
-        <small>{images.length}/8 images selected</small>
       </div>
 
       {/* PROMOTION PLANS */}
@@ -646,6 +717,16 @@ export default function AddProduct() {
           </button>
         )}
       </div>
+
+      {/* FULLSCREEN IMAGE PREVIEW */}
+      {activeImage && (
+        <div
+          className="image-modal"
+          onClick={() => setActiveImage(null)}
+        >
+          <img src={activeImage} alt="preview" />
+        </div>
+      )}
     </div>
   );
 }
