@@ -10,7 +10,7 @@ import crypto from "crypto";
 import { brands } from "../src/config/brands.js";
 import { colors } from "../src/config/colors.js";
 import { categoryFields } from "../src/config/categoryFields.js";
-import { fieldOptions } from "../src/config/fieldOptions.js";  // ⭐ NEW IMPORT
+import { fieldOptions } from "../src/config/fieldOptions.js";
 import { conditions, usedDetails } from "../src/config/conditions.js";
 import { featuresByCategory } from "../src/config/featuresByCategory.js";
 import { models } from "../src/config/models.js";
@@ -148,9 +148,9 @@ router.get("/payment/verify/:reference", async (req, res) => {
 });
 
 /* =========================================================
-INITIATE PAYMENT (NEW)
+PAYMENT INITIALIZE (STANDARD ROUTE - FRONTEND MATCH)
 ========================================================= */
-router.post("/payments/initiate", async (req, res) => {
+router.post("/payment/initialize", async (req, res) => {
   try {
     const { plan_id, product_id, email } = req.body;
 
@@ -183,6 +183,7 @@ router.post("/payments/initiate", async (req, res) => {
 
     res.json(paystack.data);
   } catch (err) {
+    console.error("Payment init error:", err);
     res.status(500).json({ message: "Payment init failed" });
   }
 });
@@ -247,12 +248,13 @@ router.post("/webhooks/paystack", async (req, res) => {
 
     res.sendStatus(200);
   } catch (err) {
+    console.error("Paystack webhook error:", err);
     res.sendStatus(500);
   }
 });
 
 /* =========================================================
-ACTIVATE PRODUCT (FREE PLAN / ADMIN)
+ACTIVATE PRODUCT (FIXED LOGIC - PRODUCTION READY)
 ========================================================= */
 router.post("/products/:id/activate", async (req, res) => {
   const { id } = req.params;
@@ -267,7 +269,8 @@ router.post("/products/:id/activate", async (req, res) => {
       [id]
     );
 
-    if (!rows.length || rows[0]?.is_active !== true || rows[0]?.state === "active") {
+    // ✅ FIXED: Only block if already active
+    if (!rows.length || rows[0]?.state === "active") {
       await client.query("ROLLBACK");
       return res.status(400).json({ message: "Cannot activate this product" });
     }
@@ -289,6 +292,7 @@ router.post("/products/:id/activate", async (req, res) => {
     res.json({ success: true });
   } catch (err) {
     await client.query("ROLLBACK");
+    console.error("Product activation error:", err);
     res.status(500).json({ message: "Failed to activate product" });
   } finally {
     client.release();
@@ -335,7 +339,8 @@ router.get("/products", async (req, res) => {
       .filter((p) => !trendingIds.has(p.id));
 
     res.json({ trending, products: [...trending, ...products] });
-  } catch {
+  } catch (err) {
+    console.error("Products fetch error:", err);
     res.status(500).json({ message: "Failed to fetch products" });
   }
 });
@@ -370,13 +375,14 @@ router.get("/products/:id", async (req, res) => {
     ).catch(() => {});
 
     res.json(normalizeProduct(rows[0]));
-  } catch {
+  } catch (err) {
+    console.error("Single product error:", err);
     res.status(500).json({ message: "Failed to fetch product" });
   }
 });
 
 /* =========================================================
-CREATE PRODUCT (CLEAN - NO PAYMENT LOGIC)
+CREATE PRODUCT (VALIDATION + PRODUCTION READY)
 ========================================================= */
 router.post("/products", upload.array("images", 10), async (req, res) => {
   const client = await pool.connect();
@@ -386,8 +392,12 @@ router.post("/products", upload.array("images", 10), async (req, res) => {
 
     const { title, price, category_id } = req.body;
 
-    if (!title || !price || !category_id) {
+    // ✅ PRODUCTION VALIDATION
+    if (!title?.trim() || !price || !category_id) {
       return res.status(400).json({ message: "Missing required fields" });
+    }
+    if (req.files?.length === 0) {
+      return res.status(400).json({ message: "At least 1 image required" });
     }
 
     const attributes = safeJSON(req.body.attributes);
@@ -398,12 +408,8 @@ router.post("/products", upload.array("images", 10), async (req, res) => {
       INSERT INTO products (
         title, description, price, category_id, subcategory_id,
         attributes, delivery, contact,
-        promotion_id,
-        promotion_start,
-        promotion_end,
-        is_promoted,
-        promotion_type,
-        promotion_priority,
+        promotion_id, promotion_start, promotion_end,
+        is_promoted, promotion_type, promotion_priority,
         location_state, location_city,
         created_at, updated_at
       )
@@ -415,9 +421,9 @@ router.post("/products", upload.array("images", 10), async (req, res) => {
       RETURNING *
       `,
       [
-        title,
-        req.body.description || "",
-        price,
+        title.trim(),
+        req.body.description?.trim() || "",
+        Number(price),
         category_id,
         req.body.subcategory_id || null,
         attributes,
@@ -429,7 +435,6 @@ router.post("/products", upload.array("images", 10), async (req, res) => {
     );
 
     const product = rows[0];
-
     const images = await uploadImages(req.files);
 
     for (const img of images) {
@@ -445,6 +450,7 @@ router.post("/products", upload.array("images", 10), async (req, res) => {
     res.status(201).json({ product: normalizeProduct(product) });
   } catch (err) {
     await client.query("ROLLBACK");
+    console.error("Product creation error:", err);
     res.status(500).json({ message: "Failed to create product" });
   } finally {
     client.release();
@@ -452,7 +458,7 @@ router.post("/products", upload.array("images", 10), async (req, res) => {
 });
 
 /* =========================================================
-GET CATEGORIES (FULLY FIXED - DYNAMIC FIELDS + OPTIONS)
+GET CATEGORIES (FULLY FIXED - STANDARDIZED KEYS)
 ========================================================= */
 router.get("/categories", async (req, res) => {
   try {
@@ -470,48 +476,41 @@ router.get("/categories", async (req, res) => {
 
       map[cat.id] = {
         ...cat,
-
-        /* ================= DYNAMIC OPTIONS ================= */
         dynamicOptions: {
-          // ⭐ CRITICAL: controls what frontend renders
+          // ⭐ CRITICAL: Exact frontend field order + naming
           fields: categoryFields[key] || [],
 
-          /* ===== CORE DROPDOWNS ===== */
-          brands: brands[key] || [],
-          models: models[key] || {},
+          // ✅ STANDARDIZED KEYS (brand/color/ram/etc)
+          brand: brands[key] || [],
+          model: models[key] || {},
+          color: colors || [],
 
-          // ✅ FIX: colors is GLOBAL (not keyed)
-          colors: colors || [],
-
-          conditions,
-          usedDetails,
+          condition: conditions,
+          used_detail: usedDetails,
 
           ram: ramOptions,
           storage: storageOptions,
-          sims,
+          sim: sims,
 
           features: featuresByCategory[key] || [],
 
-          years,
-          engines,
-          fuel_types: fuelTypes,
+          year: years,
+          engine: engines,
+          fuel_type: fuelTypes,
 
           location: Object.keys(locationsByState),
 
-          /* ===== CUSTOM FIELD OPTIONS (SIZE, SKILLS, ETC) ===== */
+          // Custom fields spread
           ...fieldOptions,
         },
-
         subcategories: [],
       };
 
-      // root categories
       if (!cat.parent_id) {
         tree.push(map[cat.id]);
       }
     });
 
-    // build tree
     rows.forEach((cat) => {
       if (cat.parent_id && map[cat.parent_id]) {
         map[cat.parent_id].subcategories.push(map[cat.id]);
