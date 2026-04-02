@@ -1,299 +1,920 @@
 /* =========================================================
-   GLOBAL IMPROVEMENTS
+   ADD PRODUCT - UNIVERSAL PRODUCTION STYLES
+   Works on ALL devices: Desktop, Tablet, Mobile, WebView
+========================================================= */
+
+/* =========================================================
+   PERFORMANCE & UNIVERSAL BASE
 ========================================================= */
 * {
   box-sizing: border-box;
+  -webkit-tap-highlight-color: transparent;
+  -webkit-touch-callout: none;
+  -webkit-user-select: none;
+  user-select: none;
+}
+
+html {
+  scroll-behavior: smooth;
+  -webkit-overflow-scrolling: touch;
 }
 
 body {
-  -webkit-tap-highlight-color: transparent;
+  font-feature-settings: "kern" 1, "liga" 1, "calt" 1;
 }
 
 /* =========================================================
-   FORM CARD (YOUR MAIN UPGRADE)
+   MAIN CONTAINER - Perfect centering
 ========================================================= */
-.form-card {
-  border-radius: 18px;
-  padding: 18px;
+.add-product-container {
+  max-width: 900px;
+  margin: 0 auto;
+  padding: clamp(1.5rem, 4vw, 2.5rem) clamp(1rem, 3vw, 2rem) clamp(3rem, 8vw, 5rem);
+  min-height: 100vh;
+  width: 100%;
 
   display: flex;
   flex-direction: column;
-  gap: 14px;
+  gap: clamp(1.5rem, 3vw, 2rem);
 
-  transition: 0.25s ease;
-}
-
-/* LIGHT BLUE STYLE */
-.form-card.blue {
-  background: #f0f6ff;
-  border: 1px solid #dbe9ff;
-
-  box-shadow: 0 4px 18px rgba(0, 119, 255, 0.08);
-}
-
-/* subtle hover lift */
-.form-card:hover {
-  transform: translateY(-1px);
-}
-
-/* titles */
-.form-card h3 {
-  font-size: 1rem;
-  font-weight: 700;
-  color: #0a2540;
+  background: linear-gradient(135deg, #f8fafc 0%, #e2e8f0 50%, #f1f5f9 100%);
+  font-family: system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+  font-size: clamp(15px, 2.5vw, 16px);
+  line-height: 1.6;
+  color: #111827;
+  
+  /* Universal scroll improvements */
+  scroll-padding-top: 2rem;
 }
 
 /* =========================================================
-   FORM GROUP
+   FORM CARDS - Responsive glass cards
+========================================================= */
+.form-card {
+  background: rgba(255, 255, 255, 0.92);
+  backdrop-filter: saturate(180%) blur(24px);
+  border-radius: clamp(20px, 4vw, 28px);
+  padding: clamp(1.75rem, 4vw, 2.5rem) clamp(1.5rem, 3vw, 2.25rem);
+  border: 1px solid rgba(255, 255, 255, 0.25);
+
+  box-shadow: 
+    0 25px 75px rgba(0, 0, 0, 0.1),
+    0 5px 20px rgba(0, 0, 0, 0.06),
+    inset 0 1px 0 rgba(255, 255, 255, 0.8);
+
+  display: flex;
+  flex-direction: column;
+  gap: clamp(1.25rem, 2.5vw, 1.75rem);
+  transition: all 0.4s cubic-bezier(0.34, 1.56, 0.64, 1);
+
+  /* Universal hover */
+  position: relative;
+}
+
+.form-card::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  padding: 2px;
+  background: linear-gradient(45deg, #0077ff, #00d4ff, #0077ff);
+  mask: linear-gradient(#fff 0 0) content-box, linear-gradient(#fff 0 0);
+  mask-composite: exclude;
+  opacity: 0;
+  transition: opacity 0.4s ease;
+  pointer-events: none;
+  z-index: -1;
+}
+
+.form-card:hover::after {
+  opacity: 1;
+}
+
+.form-card:hover {
+  transform: translateY(-6px);
+  box-shadow: 
+    0 40px 100px rgba(0, 0, 0, 0.15),
+    0 10px 35px rgba(0, 0, 0, 0.1);
+}
+
+.form-card.blue {
+  border-top: clamp(5px, 1vw, 8px) solid #0077ff;
+}
+
+.form-card h3 {
+  font-size: clamp(1.125rem, 3vw, 1.375rem);
+  font-weight: 800;
+  margin: 0 0 clamp(1rem, 2.5vw, 1.5rem) 0;
+  padding-bottom: clamp(0.75rem, 2vw, 1.25rem);
+  
+  background: linear-gradient(135deg, #0077ff 0%, #00b4ff 50%, #0077ff 100%);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+  letter-spacing: -0.02em;
+  position: relative;
+}
+
+.form-card h3::after {
+  content: '';
+  position: absolute;
+  bottom: 0;
+  left: 0;
+  width: 60px;
+  height: 3px;
+  background: linear-gradient(90deg, transparent, #0077ff, transparent);
+  border-radius: 2px;
+}
+
+/* =========================================================
+   FORM GROUPS - Universal spacing
 ========================================================= */
 .form-group {
   display: flex;
   flex-direction: column;
-  gap: 6px;
+  gap: clamp(0.75rem, 1.5vw, 1rem);
 }
 
 .form-group label {
-  font-size: 0.85rem;
-  font-weight: 600;
-  color: #333;
+  font-weight: 700;
+  font-size: clamp(0.875rem, 2vw, 0.975rem);
+  color: #111827;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 0.5rem;
 }
 
 .required {
-  color: #ff3b30;
+  color: #dc2626;
+  font-size: 0.875rem;
+  font-weight: 800;
 }
 
 /* =========================================================
-   INPUT IMPROVEMENTS
+   INPUTS - Universal touch targets
 ========================================================= */
 input,
 textarea,
 select {
-  padding: 0.9rem 1rem;
-  border-radius: 14px;
+  width: 100%;
+  padding: clamp(1rem, 2.5vw, 1.25rem) clamp(1.25rem, 3vw, 1.75rem);
+  min-height: clamp(52px, 12vw, 64px);
 
-  border: 1px solid #d6dbe3;
-  background: #fff;
+  border: 2px solid #d1d5db;
+  border-radius: clamp(16px, 3vw, 24px);
+  background: linear-gradient(145deg, #ffffff, #fafbfc);
+  
+  font-size: clamp(0.95rem, 2vw, 1rem);
+  font-family: inherit;
+  color: #111827;
+  line-height: 1.5;
 
-  font-size: 0.95rem;
-  transition: all 0.2s ease;
+  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
 }
 
-/* better focus */
+input::placeholder,
+textarea::placeholder {
+  color: #9ca3af;
+}
+
+/* Focus - Universal ring */
 input:focus,
 textarea:focus,
 select:focus {
   border-color: #0077ff;
-  box-shadow: 0 0 0 4px rgba(0, 119, 255, 0.12);
+  background: #ffffff;
+  box-shadow: 
+    0 0 0 clamp(3px, 0.75vw, 5px) rgba(0, 119, 255, 0.2),
+    0 12px 40px rgba(0, 119, 255, 0.15);
+  outline: none;
+  transform: translateY(-1px);
 }
 
-/* tap feel */
-input:active,
-textarea:active {
-  transform: scale(0.995);
+/* Validation states */
+input:valid:not(:placeholder-shown),
+textarea:valid:not(:placeholder-shown) {
+  border-color: #10b981;
+}
+
+input:invalid:not(:placeholder-shown),
+textarea:invalid:not(:placeholder-shown) {
+  border-color: #ef4444;
+}
+
+input.error,
+textarea.error {
+  border-color: #dc2626 !important;
+  animation: shake 0.5s cubic-bezier(0.36, 0.07, 0.19, 0.97) both;
+}
+
+@keyframes shake {
+  10%, 90% { transform: translateX(-2px); }
+  20%, 80% { transform: translateX(3px); }
+  30%, 50%, 70% { transform: translateX(-1px); }
+  40%, 60% { transform: translateX(2px); }
+}
+
+textarea {
+  min-height: clamp(120px, 20vw, 160px);
+  resize: vertical;
 }
 
 /* =========================================================
-   PRICE PREVIEW
+   VALIDATION TEXT
 ========================================================= */
-.price-preview {
-  font-size: 0.8rem;
-  color: #0077ff;
+.form-error,
+.form-success {
+  font-size: clamp(0.8rem, 1.75vw, 0.875rem);
   font-weight: 600;
+  margin-top: 0.75rem;
+  padding: 0.75rem 1rem;
+  border-radius: 12px;
+  border-left: 4px solid;
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+}
+
+.form-error {
+  color: #dc2626;
+  background: rgba(239, 68, 68, 0.1);
+  border-left-color: #dc2626;
+}
+
+.form-success {
+  color: #059669;
+  background: rgba(16, 185, 129, 0.1);
+  border-left-color: #059669;
+}
+
+small.price-preview {
+  font-size: clamp(0.875rem, 2vw, 0.95rem);
+  font-weight: 800;
+  color: #059669;
+  margin-top: 1rem;
+  padding: clamp(0.75rem, 2vw, 1rem) clamp(1rem, 2.5vw, 1.5rem);
+  background: rgba(16, 185, 129, 0.08);
+  border-radius: 16px;
+  border-left: 5px solid #10b981;
+  display: block;
 }
 
 /* =========================================================
-   IMAGE GRID (UPGRADED)
+   UTILITY GRIDS - Responsive everywhere
 ========================================================= */
+.sub-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(clamp(140px, 20vw, 180px), 1fr));
+  gap: clamp(1rem, 2.5vw, 1.5rem);
+  margin-top: clamp(1.25rem, 3vw, 2rem);
+  padding-top: clamp(1.25rem, 3vw, 2rem);
+  border-top: 1px solid #f3f4f6;
+}
+
+.checkbox-grid-inline {
+  display: grid;
+  grid-template-columns: 
+    repeat(auto-fill, minmax(clamp(140px, 22vw, 180px), 1fr));
+  gap: clamp(0.875rem, 2vw, 1.25rem);
+  margin-top: clamp(1rem, 2.5vw, 1.5rem);
+}
+
+.plans-grid {
+  display: grid;
+  grid-template-columns: 
+    repeat(auto-fit, minmax(clamp(280px, 45vw, 360px), 1fr));
+  gap: clamp(1.25rem, 3vw, 2rem);
+  margin-top: clamp(1.5rem, 4vw, 2.5rem);
+}
+
 .preview-grid-modern {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(95px, 1fr));
-  gap: 12px;
+  grid-template-columns: 
+    repeat(auto-fit, minmax(clamp(100px, 18vw, 140px), 1fr));
+  gap: clamp(1rem, 2.5vw, 1.5rem);
+  margin-top: clamp(1.5rem, 4vw, 2.5rem);
 }
 
+/* =========================================================
+   CHECKBOXES - 100% universal support
+========================================================= */
+.checkbox-inline {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: clamp(0.875rem, 2vw, 1.25rem) clamp(1rem, 2.5vw, 1.5rem);
+  border-radius: clamp(12px, 2.5vw, 18px);
+  border: 2px solid #d1d5db;
+  background: linear-gradient(145deg, #fafbfc, #f9fafb);
+  
+  cursor: pointer;
+  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+  font-size: clamp(0.875rem, 2vw, 0.95rem);
+  font-weight: 600;
+  position: relative;
+  overflow: hidden;
+}
+
+.checkbox-inline::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(135deg, rgba(0, 119, 255, 0.1), transparent);
+  opacity: 0;
+  transition: opacity 0.3s ease;
+}
+
+.checkbox-inline:hover::before {
+  opacity: 1;
+}
+
+.checkbox-inline:hover {
+  border-color: #9ca3af;
+  transform: translateY(-2px);
+  box-shadow: 0 8px 25px rgba(0, 0, 0, 0.1);
+}
+
+.checkbox-inline input[type="checkbox"] {
+  width: clamp(20px, 5vw, 24px);
+  height: clamp(20px, 5vw, 24px);
+  accent-color: #0077ff;
+  cursor: pointer;
+  margin: 0;
+  flex-shrink: 0;
+}
+
+/* CLASS-BASED ACTIVE STATES - Works everywhere */
+.checkbox-inline.active {
+  border-color: #0077ff !important;
+  background: linear-gradient(135deg, #dbeafe, #eff6ff) !important;
+  box-shadow: 
+    0 12px 35px rgba(0, 119, 255, 0.25),
+    0 4px 15px rgba(0, 0, 0, 0.08) !important;
+  transform: translateY(-3px) !important;
+}
+
+.checkbox-inline.active::before {
+  opacity: 1 !important;
+  background: linear-gradient(135deg, rgba(0, 119, 255, 0.2), transparent) !important;
+}
+
+.checkbox-inline.active span {
+  color: #0077ff !important;
+  font-weight: 800 !important;
+}
+
+/* =========================================================
+   IMAGE PREVIEWS - Universal drag & drop
+========================================================= */
 .preview-thumb {
   position: relative;
-  aspect-ratio: 1 / 1;
-
-  border-radius: 14px;
+  aspect-ratio: 1;
+  border-radius: clamp(16px, 3vw, 24px);
   overflow: hidden;
-
-  background: #eef2f7;
-
+  background: linear-gradient(145deg, #f9fafb, #f3f4f6);
+  border: clamp(2px, 0.5vw, 4px) solid #f9fafb;
+  
   cursor: pointer;
-  transition: 0.2s;
+  transition: all 0.35s cubic-bezier(0.4, 0, 0.2, 1);
+  will-change: transform, box-shadow;
+
+  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.08);
 }
 
-/* hover + tap */
 .preview-thumb:hover {
-  transform: scale(1.03);
+  border-color: #e5e7eb;
+  transform: scale(1.04);
+  box-shadow: 
+    0 16px 45px rgba(0, 0, 0, 0.15),
+    0 6px 20px rgba(0, 0, 0, 0.08);
 }
 
-/* dragging state */
 .preview-thumb.dragging {
-  opacity: 0.6;
-  transform: scale(0.95);
+  opacity: 0.88;
+  transform: scale(1.1) !important;
+  box-shadow: 
+    0 30px 70px rgba(0, 119, 255, 0.35),
+    0 10px 30px rgba(0, 0, 0, 0.2) !important;
+  z-index: 50;
 }
 
-/* image */
+.preview-thumb.drag-over {
+  border-color: #00b4ff !important;
+  background: rgba(0, 180, 255, 0.12) !important;
+  transform: scale(1.05) !important;
+  box-shadow: 
+    0 20px 55px rgba(0, 180, 255, 0.3),
+    0 8px 25px rgba(0, 0, 0, 0.15) !important;
+}
+
 .preview-thumb img {
   width: 100%;
   height: 100%;
   object-fit: cover;
+  transition: transform 0.45s cubic-bezier(0.4, 0, 0.2, 1);
+  will-change: transform;
 }
 
-/* remove button */
+.preview-thumb:hover img {
+  transform: scale(1.1);
+}
+
 .preview-thumb button {
   position: absolute;
-  top: 6px;
-  right: 6px;
-
-  width: 24px;
-  height: 24px;
-
-  border-radius: 50%;
+  top: clamp(8px, 2vw, 12px);
+  right: clamp(8px, 2vw, 12px);
+  width: clamp(28px, 7vw, 36px);
+  height: clamp(28px, 7vw, 36px);
   border: none;
-
-  background: rgba(255, 0, 0, 0.85);
-  color: #fff;
-
-  font-size: 12px;
+  border-radius: 50%;
+  background: rgba(239, 68, 68, 0.97);
+  color: white;
+  font-size: clamp(14px, 3.5vw, 18px);
+  font-weight: 800;
   cursor: pointer;
+  
+  opacity: 0;
+  transform: scale(0.85) translateY(-4px);
+  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+  
+  backdrop-filter: blur(16px);
+  box-shadow: 0 8px 25px rgba(239, 68, 68, 0.4);
 }
 
-/* add image tile */
-.add-image-box {
-  border: 2px dashed #c5d7ff;
-  border-radius: 14px;
+.preview-thumb:hover button {
+  opacity: 1;
+  transform: scale(1) translateY(0);
+}
 
+.add-image-box {
+  border: clamp(2px, 0.6vw, 4px) dashed #d1d5db;
+  border-radius: clamp(16px, 3vw, 24px);
+  background: linear-gradient(145deg, #fafbfc, #f9fafb);
+  
   display: flex;
+  flex-direction: column;
   align-items: center;
   justify-content: center;
-
-  font-size: 26px;
-  font-weight: 500;
-
-  color: #5b8def;
-  background: #f4f8ff;
-
+  gap: clamp(0.75rem, 2vw, 1rem);
+  
+  font-size: clamp(1.75rem, 5vw, 2.5rem);
+  color: #6b7280;
   cursor: pointer;
-  transition: 0.2s;
-
-  aspect-ratio: 1 / 1;
+  transition: all 0.35s cubic-bezier(0.4, 0, 0.2, 1);
+  aspect-ratio: 1;
+  
+  text-align: center;
+  font-weight: 600;
 }
 
 .add-image-box:hover {
   border-color: #0077ff;
   color: #0077ff;
+  background: linear-gradient(145deg, #eff6ff, #e0f2fe);
+  transform: scale(1.05);
+  box-shadow: 
+    0 20px 55px rgba(0, 119, 255, 0.25),
+    0 8px 25px rgba(0, 0, 0, 0.1);
+}
+
+.add-image-box span {
+  font-size: clamp(0.875rem, 2.5vw, 1rem);
+  font-weight: 500;
 }
 
 /* =========================================================
-   DELIVERY SELECT (BETTER UI)
-========================================================= */
-select {
-  cursor: pointer;
-}
-
-/* =========================================================
-   PLAN CARD (ENHANCED)
+   PROMOTION PLANS - Responsive luxury cards
 ========================================================= */
 .plan-card {
-  padding: 16px;
-  border-radius: 16px;
+  padding: clamp(1.75rem, 4vw, 2.5rem) clamp(1.5rem, 3.5vw, 2.25rem);
+  border-radius: clamp(20px, 4vw, 28px);
+  border: clamp(1px, 0.25vw, 2px) solid #d1d5db;
+  background: linear-gradient(145deg, #ffffff, #fafbfc);
+  
+  cursor: pointer;
+  transition: all 0.45s cubic-bezier(0.4, 0, 0.2, 1);
+  position: relative;
+  overflow: hidden;
+}
 
-  border: 1px solid #e2e6ee;
-  background: #fff;
+.plan-card::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: clamp(4px, 1vw, 6px);
+  background: linear-gradient(90deg, #0077ff 0%, #00b4ff 50%, #0077ff 100%);
+  transform: scaleX(0);
+  transition: transform 0.45s cubic-bezier(0.4, 0, 0.2, 1);
+}
 
-  transition: all 0.2s ease;
+.plan-card:hover::before,
+.plan-card.selected::before {
+  transform: scaleX(1);
 }
 
 .plan-card:hover {
-  transform: translateY(-2px);
   border-color: #0077ff;
+  transform: translateY(-8px);
+  box-shadow: 
+    0 45px 120px rgba(0, 119, 255, 0.22),
+    0 15px 45px rgba(0, 0, 0, 0.12);
 }
 
-/* selected */
 .plan-card.selected {
   border-color: #0077ff;
-  background: #edf4ff;
-  box-shadow: 0 6px 20px rgba(0, 119, 255, 0.15);
+  background: linear-gradient(145deg, #eff6ff, #dbeafe);
+  box-shadow: 
+    0 35px 95px rgba(0, 119, 255, 0.3),
+    0 12px 40px rgba(0, 0, 0, 0.15);
+}
+
+.plan-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  margin-bottom: clamp(1rem, 2.5vw, 1.5rem);
+  gap: clamp(1rem, 2.5vw, 1.5rem);
+}
+
+.plan-header strong {
+  font-size: clamp(1.125rem, 2.5vw, 1.375rem);
+  color: #111827;
+  line-height: 1.3;
+  flex: 1;
+}
+
+.plan-price {
+  font-size: clamp(1.375rem, 3vw, 1.75rem);
+  font-weight: 900;
+  color: #0077ff;
+  line-height: 1.2;
+  white-space: nowrap;
+}
+
+.plan-duration {
+  color: #6b7280;
+  font-size: clamp(0.875rem, 2vw, 0.975rem);
+  font-weight: 600;
+  margin-bottom: clamp(0.875rem, 2vw, 1.25rem);
+}
+
+.plan-features {
+  margin: clamp(1rem, 2.5vw, 1.5rem) 0;
+  padding-left: clamp(1.25rem, 3vw, 1.75rem);
+  font-size: clamp(0.875rem, 2vw, 0.975rem);
+  color: #374151;
+}
+
+.plan-features li {
+  margin-bottom: clamp(0.375rem, 1vw, 0.625rem);
+  position: relative;
+}
+
+.plan-desc {
+  font-size: clamp(0.875rem, 2vw, 0.975rem);
+  color: #6b7280;
+  line-height: 1.65;
+  margin-top: clamp(1rem, 2.5vw, 1.5rem);
+  padding-top: clamp(1rem, 2.5vw, 1.5rem);
+  border-top: 1px solid #f3f4f6;
 }
 
 /* =========================================================
-   BUTTONS (UPGRADED)
+   BUTTON SECTION - Perfect responsive footer
 ========================================================= */
-.primary-btn {
-  padding: 1rem;
-  border-radius: 14px;
-
-  background: linear-gradient(135deg, #0077ff, #3399ff);
-  color: #fff;
-
-  font-weight: 600;
-  font-size: 0.95rem;
-
-  border: none;
-  cursor: pointer;
-
-  transition: all 0.2s ease;
+.button-section {
+  flex-direction: row !important;
+  align-items: stretch;
+  gap: clamp(1.25rem, 3vw, 2rem);
+  padding: clamp(1.75rem, 4vw, 2.5rem) !important;
+  margin-top: clamp(2rem, 5vw, 3rem) !important;
+  background: linear-gradient(145deg, #ffffff, #fafbfc);
+  border-radius: clamp(20px, 4vw, 28px);
+  border: 1px solid rgba(255, 255, 255, 0.6);
+  box-shadow: 
+    0 -8px 35px rgba(0, 0, 0, 0.08),
+    inset 0 1px 0 rgba(255, 255, 255, 1);
 }
 
-/* hover */
-.primary-btn:hover {
-  transform: translateY(-1px);
-  box-shadow: 0 6px 18px rgba(0, 119, 255, 0.25);
-}
-
-/* disabled */
-.primary-btn:disabled {
-  background: #bfc7d1;
-  pointer-events: none;
-}
-
-/* retry */
+.primary-btn,
 .retry-btn {
-  padding: 0.95rem;
-  border-radius: 14px;
-
-  background: #ffcc00;
-  color: #111;
-
-  font-weight: 600;
+  flex: 1;
+  padding: clamp(1.25rem, 3vw, 1.625rem) clamp(2rem, 4vw, 2.75rem);
+  min-height: clamp(60px, 14vw, 72px);
+  
+  border-radius: clamp(16px, 3vw, 24px);
+  font-size: clamp(1rem, 2.5vw, 1.125rem);
+  font-weight: 800;
   border: none;
-
   cursor: pointer;
+  
+  position: relative;
+  overflow: hidden;
+  
+  transition: all 0.35s cubic-bezier(0.4, 0, 0.2, 1);
+  box-shadow: 0 12px 40px rgba(0, 0, 0, 0.15);
+}
+
+.primary-btn {
+  background: linear-gradient(135deg, #0077ff 0%, #005fcc 50%, #004499 100%);
+  color: #ffffff;
+}
+
+.primary-btn:hover:not(:disabled) {
+  background: linear-gradient(135deg, #005fcc 0%, #004499 50%, #003377 100%);
+  transform: translateY(-4px);
+  box-shadow: 
+    0 25px 65px rgba(0, 119, 255, 0.45),
+    0 12px 35px rgba(0, 0, 0, 0.2);
+}
+
+.primary-btn:active:not(:disabled) {
+  transform: translateY(-1px);
+}
+
+.primary-btn:disabled {
+  background: linear-gradient(135deg, #9ca3af, #6b7280);
+  cursor: not-allowed;
+  transform: none;
+  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.12);
+}
+
+.retry-btn {
+  background: linear-gradient(135deg, #facc15 0%, #eab308 50%, #ca8a04 100%);
+  color: #111827;
+}
+
+.retry-btn:hover:not(:disabled) {
+  background: linear-gradient(135deg, #eab308 0%, #ca8a04 50%, #a16207 100%);
+  transform: translateY(-4px);
+  box-shadow: 
+    0 25px 65px rgba(234, 179, 8, 0.45),
+    0 12px 35px rgba(0, 0, 0, 0.2);
+}
+
+.primary-btn:disabled::after,
+.retry-btn:disabled::after {
+  content: attr(data-loading-text);
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-weight: 800;
+  font-size: 1.1em;
+  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.1);
 }
 
 /* =========================================================
-   IMAGE MODAL (FULLSCREEN PREVIEW)
+   LOADING OVERLAY - Universal fullscreen
+========================================================= */
+.loading-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(255, 255, 255, 0.98);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+  z-index: 10000;
+
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: clamp(1.5rem, 4vw, 2.25rem);
+  padding: clamp(2rem, 8vw, 4rem);
+
+  animation: fadeInOverlay 0.3s cubic-bezier(0.34, 1.56, 0.64, 1);
+}
+
+@keyframes fadeInOverlay {
+  from { 
+    opacity: 0; 
+    backdrop-filter: blur(0px); 
+    transform: scale(0.95);
+  }
+}
+
+.loader {
+  width: clamp(48px, 12vw, 64px);
+  height: clamp(48px, 12vw, 64px);
+  border: clamp(4px, 1vw, 6px) solid #e5e7eb;
+  border-top-color: #0077ff;
+  border-radius: 50%;
+  animation: spin 1.2s cubic-bezier(0.4, 0, 0.2, 1) infinite;
+}
+
+@keyframes spin {
+  to { transform: rotate(360deg); }
+}
+
+.loading-text {
+  font-size: clamp(1.125rem, 3vw, 1.375rem);
+  font-weight: 800;
+  color: #374151;
+  text-align: center;
+  max-width: clamp(250px, 40vw, 400px);
+  line-height: 1.4;
+  padding: clamp(1rem, 2.5vw, 1.5rem) clamp(1.5rem, 4vw, 2.5rem);
+  background: rgba(255, 255, 255, 0.8);
+  border-radius: 20px;
+  box-shadow: 0 10px 35px rgba(0, 0, 0, 0.1);
+}
+
+/* =========================================================
+   IMAGE MODAL - Responsive fullscreen
 ========================================================= */
 .image-modal {
   position: fixed;
   inset: 0;
-
-  background: rgba(0, 0, 0, 0.85);
+  background: rgba(0, 0, 0, 0.94);
+  backdrop-filter: blur(12px);
+  z-index: 10001;
 
   display: flex;
   align-items: center;
   justify-content: center;
+  padding: clamp(1.5rem, 6vw, 3rem);
+  cursor: pointer;
 
-  z-index: 2000;
+  animation: modalSlideIn 0.4s cubic-bezier(0.34, 1.56, 0.64, 1);
+}
+
+@keyframes modalSlideIn {
+  from { 
+    opacity: 0; 
+    transform: scale(0.9) translateY(30px); 
+  }
 }
 
 .image-modal img {
-  max-width: 95%;
-  max-height: 90%;
-  border-radius: 12px;
+  max-width: clamp(90vw, 95vw, 98vw);
+  max-height: clamp(80vh, 90vh, 95vh);
+  width: auto;
+  height: auto;
+  border-radius: clamp(16px, 3vw, 24px);
+  box-shadow: 
+    0 50px 120px rgba(0, 0, 0, 0.7),
+    0 0 0 1px rgba(255, 255, 255, 0.15);
+  transition: transform 0.4s ease;
 }
 
 /* =========================================================
-   RESPONSIVE TUNING
+   RESPONSIVE BREAKPOINTS - Universal coverage
 ========================================================= */
-@media (max-width: 600px) {
+
+/* Large Desktop & Fullscreen */
+@media (min-width: 1440px) {
+  .add-product-container {
+    max-width: 1000px;
+    padding-left: 4rem;
+    padding-right: 4rem;
+  }
+  
+  .plans-grid {
+    grid-template-columns: repeat(2, 1fr);
+  }
+}
+
+/* Desktop */
+@media (max-width: 1200px) {
+  .plans-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+/* Tablet Landscape */
+@media (max-width: 1024px) {
+  .add-product-container {
+    padding-left: 2rem;
+    padding-right: 2rem;
+  }
+  
+  .preview-grid-modern {
+    grid-template-columns: repeat(4, 1fr);
+  }
+}
+
+/* Tablet Portrait */
+@media (max-width: 768px) {
+  .add-product-container {
+    padding-bottom: 6rem;
+    gap: 1.5rem;
+  }
+
   .form-card {
-    padding: 14px;
+    padding: 1.75rem 1.5rem;
+    margin-bottom: 1.25rem;
+  }
+
+  .plans-grid {
+    grid-template-columns: 1fr;
   }
 
   .preview-grid-modern {
     grid-template-columns: repeat(3, 1fr);
+  }
+
+  .checkbox-grid-inline {
+    grid-template-columns: repeat(2, 1fr);
+  }
+
+  .button-section {
+    flex-direction: column;
+    gap: 1.5rem;
+    padding: 2rem 1.75rem !important;
+  }
+}
+
+/* Mobile Landscape */
+@media (max-width: 600px) {
+  .preview-grid-modern {
+    grid-template-columns: repeat(3, 1fr);
+  }
+}
+
+/* Mobile Portrait */
+@media (max-width: 480px) {
+  .preview-grid-modern {
+    grid-template-columns: repeat(2, 1fr);
+  }
+  
+  .checkbox-grid-inline {
+    grid-template-columns: 1fr;
+  }
+  
+  .sub-grid {
+    grid-template-columns: 1fr;
+  }
+  
+  .button-section {
+    padding: 1.75rem 1.5rem !important;
+  }
+}
+
+/* =========================================================
+   DARK MODE - Universal support
+========================================================= */
+@media (prefers-color-scheme: dark) {
+  .add-product-container {
+    background: linear-gradient(135deg, #0f172a 0%, #1e293b 50%, #111827 100%);
+    color: #f9fafb;
+  }
+
+  .form-card {
+    background: rgba(30, 41, 59, 0.95);
+    border-color: rgba(55, 65, 81, 0.6);
+  }
+
+  .form-card h3 {
+    color: #60a5fa;
+  }
+
+  input, textarea, select {
+    background: linear-gradient(145deg, #1e293b, #334155);
+    border-color: #4b5563;
+    color: #f9fafb;
+  }
+
+  input::placeholder,
+  textarea::placeholder {
+    color: #9ca3af;
+  }
+
+  .checkbox-inline {
+    background: linear-gradient(145deg, #1e293b, #334155);
+    border-color: #4b5563;
+  }
+
+  .preview-thumb {
+    background: linear-gradient(145deg, #1e293b, #334155);
+    border-color: #4b5563;
+  }
+}
+
+/* =========================================================
+   PRINT - Perfect universal print
+========================================================= */
+@media print {
+  .add-product-container {
+    background: white !important;
+    padding: 1rem !important;
+    gap: 1rem !important;
+  }
+  
+  .form-card,
+  .button-section {
+    box-shadow: none !important;
+    border: 1px solid #ccc !important;
+    break-inside: avoid;
+    margin-bottom: 1rem;
+  }
+  
+  button,
+  .loading-overlay,
+  .image-modal {
+    display: none !important;
   }
 }
