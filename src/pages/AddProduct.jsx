@@ -69,7 +69,7 @@ export default function AddProduct() {
 
   const onlyNumbers = (v = "") => v.replace(/D/g, "");
   const displayPrice = (v) => v ? new Intl.NumberFormat("en-NG").format(Number(v)) : "";
-  
+
   const formatLabel = (t) =>
     t
       .replace(/_/g, " ")
@@ -295,7 +295,7 @@ export default function AddProduct() {
     return () => {
       previews.forEach(URL.revokeObjectURL);
     };
-  }, []);
+  }, [previews]);
 
   /* ================= API FUNCTIONS ================= */
   const createProductDraft = async () => {
@@ -481,19 +481,19 @@ export default function AddProduct() {
         );
       })}
 
-      {/* FEATURES */}
+      {/* FEATURES - RIGHT-ALIGNED CHECKBOXES */}
       {sortedFeatures.length > 0 && (
         <div className="form-section-round">
           <label>Features</label>
           <div className="checkbox-grid-inline">
             {sortedFeatures.map((f) => (
-              <label key={f} className="checkbox-inline">
+              <label key={f} className="checkbox-inline right-check">
+                <span>{formatLabel(f)}</span>
                 <input
                   type="checkbox"
                   checked={(attributes.features || []).includes(f)}
                   onChange={() => toggleFeature(f)}
                 />
-                <span>{formatLabel(f)}</span>
               </label>
             ))}
           </div>
