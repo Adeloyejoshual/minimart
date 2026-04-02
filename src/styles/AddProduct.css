@@ -10,19 +10,19 @@
   flex-direction: column;
   gap: 18px;
 
-  background: #f7f9fc;
+  background: #f6f8fb;
   font-family: "Segoe UI", sans-serif;
 }
 
 /* =========================================================
-   SECTION BASE (ALL GROUPS)
+   SECTION (CARD STYLE)
 ========================================================= */
 .section {
-  background: #ffffff;
+  background: #fff;
   border-radius: 14px;
   padding: 16px;
 
-  box-shadow: 0 4px 18px rgba(0, 0, 0, 0.06);
+  box-shadow: 0 3px 14px rgba(0, 0, 0, 0.06);
 
   display: flex;
   flex-direction: column;
@@ -32,15 +32,15 @@
 .section-title {
   font-size: 0.95rem;
   font-weight: 700;
-  color: #333;
+  color: #222;
 }
 
 /* =========================================================
-   INPUTS (GLOBAL CONTROLLED)
+   INPUTS
 ========================================================= */
-.input,
-select,
-textarea {
+input,
+textarea,
+select {
   width: 100%;
   padding: 0.85rem 1rem;
 
@@ -48,12 +48,14 @@ textarea {
   border-radius: 12px;
 
   font-size: 0.95rem;
+  background: #fff;
+
   transition: 0.2s;
 }
 
-.input:focus,
-select:focus,
-textarea:focus {
+input:focus,
+textarea:focus,
+select:focus {
   border-color: #0077ff;
   box-shadow: 0 0 0 3px rgba(0, 119, 255, 0.12);
   outline: none;
@@ -65,41 +67,83 @@ textarea {
 }
 
 /* =========================================================
-   SECTION 1: PRODUCT DETAILS
-   (Title / Description / Price)
+   PRICE DISPLAY
 ========================================================= */
-.section-product {
-  display: flex;
-  flex-direction: column;
-  gap: 10px;
+.price-preview {
+  font-size: 0.85rem;
+  color: #0077ff;
+  margin-top: 4px;
 }
 
 /* =========================================================
-   SECTION 2: CATEGORY + CONDITION
+   GRID HELPERS
 ========================================================= */
-.section-category {
+.grid-2 {
   display: grid;
-  grid-template-columns: 1fr;
+  grid-template-columns: 1fr 1fr;
   gap: 10px;
 }
 
-/* highlight condition block */
-.condition-box {
-  padding: 12px;
-  border-radius: 12px;
-  background: #fff7e6;
-  border: 1px solid #ffcc66;
+.grid-3 {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 10px;
 }
 
 /* =========================================================
-   SECTION 3: DELIVERY
+   DROPDOWN MODAL (OPTIONAL STYLING HOOK)
 ========================================================= */
-.section-delivery {
-  display: flex;
-  flex-direction: column;
+.dropdown-trigger {
+  padding: 0.85rem;
+  border: 1px solid #ddd;
+  border-radius: 12px;
+  background: #fff;
+  cursor: pointer;
+}
+
+/* =========================================================
+   FEATURE CARDS (REPLACES CHECKBOXES)
+========================================================= */
+.features-grid {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
   gap: 10px;
 }
 
+.feature-card {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+
+  padding: 10px 12px;
+  border-radius: 10px;
+
+  border: 1px solid #ddd;
+  background: #fafafa;
+
+  cursor: pointer;
+  transition: 0.2s;
+  font-size: 0.9rem;
+}
+
+.feature-card:hover {
+  border-color: #0077ff;
+}
+
+.feature-card.active {
+  border-color: #0077ff;
+  background: #e3f0ff;
+  font-weight: 600;
+}
+
+.feature-check {
+  font-size: 14px;
+  color: #0077ff;
+}
+
+/* =========================================================
+   DELIVERY CARDS
+========================================================= */
 .delivery-grid {
   display: grid;
   grid-template-columns: repeat(3, 1fr);
@@ -116,6 +160,7 @@ textarea {
   text-align: center;
   cursor: pointer;
   transition: 0.2s;
+  font-size: 0.9rem;
 }
 
 .delivery-card:hover {
@@ -130,32 +175,20 @@ textarea {
 }
 
 /* =========================================================
-   SECTION 4: LOCATION + CONTACT
+   LOCATION GRID
 ========================================================= */
-.section-location {
-  display: grid;
-  grid-template-columns: 1fr;
-  gap: 10px;
-}
-
 .location-grid {
   display: grid;
-  grid-template-columns: repeat(2, 1fr);
+  grid-template-columns: 1fr 1fr;
   gap: 10px;
 }
 
 /* =========================================================
-   SECTION 5: IMAGES
+   IMAGE UPLOAD GRID
 ========================================================= */
-.section-images {
-  display: flex;
-  flex-direction: column;
-  gap: 10px;
-}
-
 .image-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(80px, 1fr));
+  grid-template-columns: repeat(auto-fill, minmax(90px, 1fr));
   gap: 10px;
 }
 
@@ -173,6 +206,7 @@ textarea {
   object-fit: cover;
 }
 
+/* remove button */
 .image-remove {
   position: absolute;
   top: 6px;
@@ -190,11 +224,8 @@ textarea {
   cursor: pointer;
 }
 
-/* upload button */
-.upload-btn {
-  width: 70px;
-  height: 70px;
-
+/* upload tile (+) */
+.upload-tile {
   border: 2px dashed #bbb;
   border-radius: 12px;
 
@@ -202,30 +233,27 @@ textarea {
   align-items: center;
   justify-content: center;
 
-  font-size: 26px;
-  color: #888;
+  font-size: 28px;
+  color: #777;
 
-  background: #f9f9f9;
   cursor: pointer;
+  background: #f9f9f9;
+  aspect-ratio: 1 / 1;
+
+  transition: 0.2s;
 }
 
-.upload-btn:hover {
+.upload-tile:hover {
   border-color: #0077ff;
   color: #0077ff;
 }
 
 /* =========================================================
-   SECTION 6: PROMOTION PLANS
+   PROMOTION PLANS
 ========================================================= */
-.section-plans {
+.plans-grid {
   display: flex;
   flex-direction: column;
-  gap: 12px;
-}
-
-.plans-grid {
-  display: grid;
-  grid-template-columns: 1fr;
   gap: 12px;
 }
 
@@ -246,7 +274,7 @@ textarea {
 
 .plan-card.selected {
   border-color: #0077ff;
-  background: #eef5ff;
+  background: #eaf3ff;
 }
 
 .plan-header {
@@ -265,15 +293,15 @@ textarea {
   font-size: 0.9rem;
 }
 
-/* =========================================================
-   SUBMIT SECTION
-========================================================= */
-.section-submit {
-  display: flex;
-  flex-direction: column;
-  gap: 10px;
+.plan-desc {
+  font-size: 0.85rem;
+  color: #555;
+  margin-top: 6px;
 }
 
+/* =========================================================
+   BUTTONS
+========================================================= */
 .primary-btn {
   padding: 0.95rem;
   border-radius: 12px;
@@ -284,6 +312,8 @@ textarea {
   border: none;
   font-weight: 600;
   cursor: pointer;
+
+  transition: 0.2s;
 }
 
 .primary-btn:hover {
@@ -294,7 +324,6 @@ textarea {
   background: #aaa;
 }
 
-/* retry button */
 .retry-btn {
   padding: 0.9rem;
   border-radius: 12px;
@@ -308,9 +337,32 @@ textarea {
 }
 
 /* =========================================================
+   STICKY SUBMIT (MOBILE UX BOOST)
+========================================================= */
+.sticky-submit {
+  position: sticky;
+  bottom: 0;
+  background: #fff;
+  padding: 10px;
+  box-shadow: 0 -2px 10px rgba(0,0,0,0.05);
+}
+
+/* =========================================================
    RESPONSIVE
 ========================================================= */
 @media (max-width: 600px) {
+  .grid-2 {
+    grid-template-columns: 1fr;
+  }
+
+  .grid-3 {
+    grid-template-columns: 1fr;
+  }
+
+  .features-grid {
+    grid-template-columns: 1fr;
+  }
+
   .delivery-grid {
     grid-template-columns: 1fr;
   }
@@ -319,7 +371,7 @@ textarea {
     grid-template-columns: 1fr;
   }
 
-  .plans-grid {
-    grid-template-columns: 1fr;
+  .image-grid {
+    grid-template-columns: repeat(3, 1fr);
   }
 }
