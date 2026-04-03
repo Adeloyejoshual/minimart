@@ -15,6 +15,7 @@ const INITIAL_FORM = {
   description: "",
   price: "",
   category_id: "",
+  subcategory_id: "",
   attributes: {
     brand: "",
     model: "",
@@ -30,7 +31,7 @@ const INITIAL_FORM = {
     features: [],
   },
   delivery: {
-    type: "standard",
+    available: false,
     duration: { from: "", to: "" },
     fee: "",
     note: "",
@@ -78,7 +79,7 @@ export default function AddProduct() {
         useWebWorker: true,
       });
     } catch {
-      return file; // fallback to original
+      return file;
     }
   }, [isSlowDevice]);
 
@@ -104,7 +105,7 @@ export default function AddProduct() {
       : [],
   []);
 
-  const onlyNumbers = useCallback((v = "") => v.replace(/[^d.]/g, ""), []);
+  const onlyNumbers = useCallback((v = "") => v.replace(/[^0-9.]/g, ""), []);
   const onlyDigits = useCallback((v = "") => v.replace(/D/g, ""), []);
 
   const displayPrice = useCallback((v) => {
@@ -116,18 +117,23 @@ export default function AddProduct() {
     t.replace(/_/g, " ").replace(/\bw/g, (l) => l.toUpperCase()),
   []);
 
-  // Dynamic options
+  // Dynamic options - FIXED
   const optionsMap = useMemo(() => {
     const map = {};
     const dynamic = selectedCategory?.dynamicOptions || {};
+    
     Object.keys(dynamic).forEach(key => {
-      if (key === "models") return;
       if (key === "model" && form.attributes.brand) {
-        map.model = normalizeOptions(dynamic.model?.[form.attributes.brand]);
-        return;
+        // Model depends on brand
+        const brandModels = dynamic.model?.[form.attributes.brand] || [];
+        map.model = normalizeOptions(brandModels);
+      } else if (key !== "model") {
+        map[key] = normalizeOptions(dynamic[key]);
       }
-      map[key] = normalizeOptions(dynamic[key]);
     });
+    
+    // Always include condition first
+    map.condition = map.condition || normalizeOptions(["New", "Used"]);
     return map;
   }, [selectedCategory?.dynamicOptions, form.attributes.brand, normalizeOptions]);
 
@@ -136,8 +142,8 @@ export default function AddProduct() {
   [selectedCategory?.dynamicOptions?.features]);
 
   const fields = useMemo(() => {
-    const dynamic = selectedCategory?.dynamicOptions?.fields || [];
-    return dynamic.includes("condition") ? dynamic : ["condition", ...dynamic];
+    const dynamicFields = selectedCategory?.dynamicOptions?.fields || [];
+    return ["condition", ...dynamicFields.filter(f => f !== "condition")];
   }, [selectedCategory?.dynamicOptions?.fields]);
 
   // ================= FORM UPDATERS =================
@@ -151,7 +157,7 @@ export default function AddProduct() {
       attributes: {
         ...prev.attributes,
         [key]: value,
-        ...(key === "brand" && { model: "" }),
+        model: key === "brand" ? "" : prev.attributes.model,
       },
     }));
   }, []);
@@ -166,7 +172,10 @@ export default function AddProduct() {
   const updateDelivery = useCallback((key, value) => {
     setForm(prev => ({
       ...prev,
-      delivery: { ...prev.delivery, [key]: value },
+      delivery: { 
+        ...prev.delivery, 
+        [key]: key === "available" ? Boolean(value) : value 
+      },
     }));
   }, []);
 
@@ -199,19 +208,21 @@ export default function AddProduct() {
   // ================= VALIDATION =================
   const validateForm = useCallback(() => {
     if (!images.length) return "Upload at least 1 image";
-    if (form.title.length < 10) return "Title must be at least 10 characters";
-    if (form.description.length < 20) return "Description must be at least 20 characters";
+    if (form.title.trim().length < 10) return "Title must be at least 10 characters";
+    if (form.description.trim().length < 20) return "Description must be at least 20 characters";
     if (!form.price || Number(form.price) <= 0) return "Enter valid price";
     if (!form.category_id) return "Select category";
     if (!state || !city) return "Select state and city";
     if (!form.contact.phone || form.contact.phone.length < 10) return "Valid phone required";
     if (!form.contact.email || !form.contact.email.includes("@")) return "Valid email required";
 
-    if (form.delivery.type !== "none" && form.delivery.type !== "pickup") {
+    if (form.delivery.available) {
       const from = Number(form.delivery.duration.from);
       const to = Number(form.delivery.duration.to);
-      if (Number.isNaN(from) || Number.isNaN(to) || to < from) return "Valid delivery duration required";
-      if (!form.delivery.fee || Number(form.delivery.fee) <= 0) return "Delivery fee required";
+      if (Number.isNaN(from) || Number.isNaN(to) || to < from) 
+        return "Valid delivery duration required";
+      if (!form.delivery.fee || Number(form.delivery.fee) <= 0) 
+        return "Delivery fee required";
     }
     return null;
   }, [form, images.length, state, city]);
@@ -219,7 +230,13 @@ export default function AddProduct() {
   // ================= DRAFT MANAGEMENT =================
   const saveDraft = useCallback(() => {
     if (loading) return;
-    const draft = { form, state, city, images: images.map(i => ({id: i.id})), selectedPlan: selectedPlan?.id || null };
+    const draft = { 
+      form, 
+      state, 
+      city, 
+      images: images.map(i => ({id: i.id})), 
+      selectedPlan: selectedPlan?.id || null 
+    };
     localStorage.setItem(STORAGE_DRAFT, JSON.stringify(draft));
   }, [form, state, city, images, selectedPlan, loading]);
 
@@ -231,8 +248,8 @@ export default function AddProduct() {
         setForm(draft.form || INITIAL_FORM);
         setState(draft.state || "");
         setCity(draft.city || "");
-        // Rebuild images from IDs (previews lost)
-        if (draft.images?.length) setImages(draft.images.map(id => ({id, file: null, preview: null})));
+        if (draft.images?.length) 
+          setImages(draft.images.map(id => ({id, file: null, preview: null})));
         if (draft.selectedPlan !== null) {
           const plan = promotionPlans.find(p => p.id === draft.selectedPlan);
           setSelectedPlan(plan || null);
@@ -246,9 +263,12 @@ export default function AddProduct() {
   const clearDraft = useCallback(() => {
     setForm(INITIAL_FORM);
     setImages([]);
-    setState(""); setCity("");
-    setSelectedPlan(null); setPaymentData(null);
-    setError(""); setSuccess("");
+    setState(""); 
+    setCity("");
+    setSelectedPlan(null); 
+    setPaymentData(null);
+    setError(""); 
+    setSuccess("");
     setPaymentSuccess(false);
     localStorage.removeItem(STORAGE_DRAFT);
     localStorage.removeItem(STORAGE_PAYMENT);
@@ -260,20 +280,25 @@ export default function AddProduct() {
       showError("Maximum 6 images");
       return;
     }
-    const fileArray = Array.from(files).filter(f => 
-      f.type.startsWith("image/") && f.size <= MAX_SIZE
-    ).slice(0, MAX_IMAGES - images.length);
+    
+    const fileArray = Array.from(files)
+      .filter(f => f.type.startsWith("image/") && f.size <= MAX_SIZE)
+      .slice(0, MAX_IMAGES - images.length);
 
-    Promise.all(fileArray.map(compressImage)).then(compressed => {
-      const newImages = compressed.map(file => ({
-        id: crypto.randomUUID(),
-        file,
-        preview: URL.createObjectURL(file),
-      }));
-      setImages(prev => [...prev, ...newImages]);
-      showSuccess(`${newImages.length} image(s) added`);
-    }).catch(showError);
-  }, [images.length, showError, compressImage]);
+    if (!fileArray.length) return;
+
+    Promise.all(fileArray.map(compressImage))
+      .then(compressed => {
+        const newImages = compressed.map(file => ({
+          id: crypto.randomUUID(),
+          file,
+          preview: URL.createObjectURL(file),
+        }));
+        setImages(prev => [...prev, ...newImages]);
+        showSuccess(`${newImages.length} image(s) added`);
+      })
+      .catch(err => showError("Image processing failed"));
+  }, [images.length, compressImage, showError, showSuccess]);
 
   const removeImage = useCallback((id) => {
     setImages(prev => {
@@ -297,143 +322,159 @@ export default function AddProduct() {
 
   // ================= API FUNCTIONS =================
   const createProductDraft = async () => {
-    console.log("🚀 Creating product draft. Images:", images.length);
-    if (!images.some(img => img.file)) throw new Error("All images must have files");
+    if (!images.some(img => img.file)) 
+      throw new Error("All images must have files attached");
 
     const fd = new FormData();
-    const payload = {
-      title: form.title,
-      description: form.description,
-      price: Number(form.price),
-      category_id: form.category_id,
-      attributes: JSON.stringify(form.attributes),
-      delivery: JSON.stringify(form.delivery),
-      contact: JSON.stringify(form.contact),
-      location_state: state,
-      location_city: city,
-      promotion_plan: selectedPlan?.id || null,
-    };
-
-    Object.entries(payload).forEach(([k, v]) => {
-      if (v !== null && v !== undefined && v !== "") fd.append(k, String(v));
-    });
+    fd.append("title", form.title.trim());
+    fd.append("description", form.description.trim());
+    fd.append("price", Number(form.price).toString());
+    fd.append("category_id", form.category_id);
+    fd.append("attributes", JSON.stringify(form.attributes));
+    fd.append("delivery", JSON.stringify(form.delivery));
+    fd.append("contact", JSON.stringify(form.contact));
+    fd.append("location_state", state);
+    fd.append("location_city", city);
 
     images.forEach(img => {
       if (img.file) fd.append("images", img.file);
     });
 
-    console.log("📤 FormData keys:", Array.from(fd.keys()));
-    
+    console.log("📤 Creating product with", images.length, "images");
+
     const res = await fetch(`${API_BASE}/api/marketplace/products`, {
       method: "POST",
       body: fd,
     });
 
     if (!res.ok) {
-      const text = await res.text();
-      console.error("API ERROR:", res.status, text);
-      const data = JSON.parse(text || "{}").catch(() => ({}));
-      throw new Error(data.message || `HTTP ${res.status}`);
+      const data = await res.json().catch(() => ({}));
+      throw new Error(data.error || data.message || `HTTP ${res.status}`);
     }
 
-    return (await res.json()).product;
+    const result = await res.json();
+    return result.product_id || result.product?.id;
   };
 
   const startPayment = async (productId, plan) => {
-    const res = await fetch(`${API_BASE}/api/payment/initialize`, {
+    const res = await fetch(`${API_BASE}/api/marketplace/payment/initialize`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
         email: form.contact.email,
         amount: Number(plan.price),
-        planId: plan.id,
         productId,
+        planId: plan.id,
       }),
     });
 
     const data = await res.json();
     if (!data.success || !data.authorization_url) {
-      throw new Error(data.message || "Payment init failed");
+      throw new Error(data.error || "Payment initialization failed");
     }
+    
     return data.authorization_url;
   };
 
-  const handlePaymentSuccess = async (reference) => {
+  const verifyPayment = async (reference) => {
     if (!paymentData?.productId) {
       showError("No product ID for verification");
       return;
     }
-    setLoading(true);
+
     try {
-      const res = await fetch(`${API_BASE}/api/payment/verify`, {
+      const res = await fetch(`${API_BASE}/api/marketplace/payment/verify`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ reference, productId: paymentData.productId }),
+        body: JSON.stringify({ 
+          reference, 
+          productId: paymentData.productId 
+        }),
       });
+
       const data = await res.json();
       if (data.success) {
         setPaymentSuccess(true);
         clearDraft();
-        showSuccess("Product live! 🎉");
-        setTimeout(() => window.location.href = "/", 2000);
+        showSuccess("Product is now live! 🎉");
+        setTimeout(() => window.location.href = "/products", 2000);
       } else {
-        throw new Error(data.message || "Verification failed");
+        throw new Error(data.error || data.message || "Verification failed");
       }
     } catch (err) {
       showError(err.message);
-    } finally {
-      setLoading(false);
     }
   };
 
   // ================= SUBMIT =================
   const handleSubmit = async (e) => {
     e?.preventDefault();
-    console.log("🎯 handleSubmit fired");
     
     const validationError = validateForm();
     if (validationError) return showError(validationError);
 
-    const finalPlan = selectedPlan || promotionPlans.find(p => p.price === 0);
     setLoading(true);
     setError("");
 
     try {
-      const product = await createProductDraft();
-      const productId = product?.id;
-      if (!productId) throw new Error("No product ID returned");
+      // 1. Create product draft
+      const productId = await createProductDraft();
+      console.log("✅ Product created:", productId);
+
+      // 2. Handle free vs paid plans
+      const finalPlan = selectedPlan || promotionPlans.find(p => p.price === 0);
+      
+      if (!finalPlan) throw new Error("No valid plan selected");
 
       if (finalPlan.price === 0) {
-        // Free plan - direct activate
-        await fetch(`${API_BASE}/api/marketplace/products/${productId}/activate`, { method: "POST" });
-        clearDraft();
-        showSuccess("Product created & live!");
-        setTimeout(() => window.location.href = "/", 1500);
-        return;
+        // Free plan - activate immediately
+        const res = await fetch(`${API_BASE}/api/marketplace/products/${productId}/activate`, {
+          method: "POST",
+        });
+        
+        if (res.ok) {
+          clearDraft();
+          showSuccess("Product created & published successfully! 🎉");
+          setTimeout(() => window.location.href = "/products", 1500);
+        } else {
+          throw new Error("Activation failed");
+        }
+      } else {
+        // Paid plan - start payment
+        const paymentInfo = {
+          email: form.contact.email,
+          amount: finalPlan.price,
+          planId: finalPlan.id,
+          productId
+        };
+        
+        setPaymentData(paymentInfo);
+        localStorage.setItem(STORAGE_PAYMENT, JSON.stringify(paymentInfo));
+        
+        const authUrl = await startPayment(productId, finalPlan);
+        window.location.href = authUrl;
       }
-
-      // Paid plan
-      setPaymentData({ email: form.contact.email, amount: finalPlan.price, planId: finalPlan.id, productId });
-      localStorage.setItem(STORAGE_PAYMENT, JSON.stringify(paymentData));
-      
-      const authUrl = await startPayment(productId, finalPlan);
-      window.location.href = authUrl;
     } catch (err) {
-      showError(err.message || "Submission failed");
+      console.error("Submit error:", err);
+      showError(err.message || "Failed to create product");
     } finally {
       setLoading(false);
     }
   };
 
   const retryPayment = async () => {
-    if (!paymentData) return showError("No payment data");
+    if (!paymentData) return showError("No payment data found");
+    
     setLoading(true);
     try {
-      const plan = { id: paymentData.planId, price: paymentData.amount };
+      const plan = { 
+        id: paymentData.planId, 
+        price: paymentData.amount 
+      };
       const authUrl = await startPayment(paymentData.productId, plan);
       window.location.href = authUrl;
     } catch (err) {
-      showError(err.message);
+      showError(err.message || "Payment retry failed");
     } finally {
       setLoading(false);
     }
@@ -447,7 +488,7 @@ export default function AddProduct() {
       const timeout = setTimeout(saveDraft, 1000);
       return () => clearTimeout(timeout);
     }
-  }, [form, state, city, images, selectedPlan, loading]);
+  }, [form, state, city, images, selectedPlan]);
 
   useEffect(() => {
     const saved = localStorage.getItem(STORAGE_PAYMENT);
@@ -455,52 +496,61 @@ export default function AddProduct() {
   }, []);
 
   useEffect(() => {
-    if (paymentData) localStorage.setItem(STORAGE_PAYMENT, JSON.stringify(paymentData));
+    if (paymentData) {
+      localStorage.setItem(STORAGE_PAYMENT, JSON.stringify(paymentData));
+    }
   }, [paymentData]);
 
-  // Paystack callback
+  // Payment callback handler
   useEffect(() => {
     const urlParams = new URLSearchParams(window.location.search);
     const status = urlParams.get('status');
     const reference = urlParams.get('reference');
     
     if (status === 'success' && reference && paymentData) {
-      handlePaymentSuccess(reference);
+      verifyPayment(reference);
     } else if (status === 'cancel' && paymentData) {
-      showError("Payment cancelled - retry below");
-      localStorage.removeItem(STORAGE_PAYMENT);
+      showError("Payment cancelled. Use retry button below.");
     }
   }, [paymentData]);
 
-  // Categories
+  // Load categories
   useEffect(() => {
     fetch(`${API_BASE}/api/marketplace/categories`)
       .then(r => r.json())
       .then(setCategories)
-      .catch(e => console.error("Categories load failed:", e));
+      .catch(e => {
+        console.error("Categories load failed:", e);
+        showError("Failed to load categories");
+      });
   }, []);
 
-  // Auto-init attributes
+  // Auto-init form fields based on category
   useEffect(() => {
-    if (!selectedCategory?.dynamicOptions?.fields?.length) return;
-    setForm(prev => {
-      const newAttrs = { ...prev.attributes };
-      selectedCategory.dynamicOptions.fields.forEach(f => {
-        if (newAttrs[f] === undefined) newAttrs[f] = f === "features" ? [] : "";
+    if (selectedCategory?.dynamicOptions?.fields?.length) {
+      setForm(prev => {
+        const newAttrs = { ...prev.attributes };
+        selectedCategory.dynamicOptions.fields.forEach(field => {
+          if (newAttrs[field] === undefined || newAttrs[field] === "") {
+            newAttrs[field] = field === "features" ? [] : "";
+          }
+        });
+        return { ...prev, attributes: newAttrs };
       });
-      return { ...prev, attributes: newAttrs };
-    });
+    }
   }, [selectedCategory?.dynamicOptions?.fields]);
 
-  // Cleanup
+  // Cleanup images
   useEffect(() => () => {
-    images.forEach(img => img.preview && URL.revokeObjectURL(img.preview));
+    images.forEach(img => {
+      if (img.preview) URL.revokeObjectURL(img.preview);
+    });
   }, [images]);
 
-  // ================= BUTTON LOGIC =================
+  // ================= RENDER =================
   const showRetryButton = paymentData && paymentData.amount > 0;
   const states = Object.keys(locationsByState || {});
-  const cities = state ? locationsByState[state] : [];
+  const cities = state ? (locationsByState[state] || []) : [];
 
   return (
     <div className="add-product-container">
@@ -509,12 +559,12 @@ export default function AddProduct() {
       <form onSubmit={handleSubmit}>
         {/* Basic Info */}
         <section className="section form-card">
-          <h3>Basic Information</h3>
+          <h3>📦 Basic Information</h3>
           <div className="form-group">
             <label>Product Title <span className="required">*</span></label>
             <input
               required
-              placeholder="Enter product title"
+              placeholder="Enter catchy product title (min 10 chars)"
               value={form.title}
               onChange={e => updateForm("title", e.target.value)}
               maxLength={200}
@@ -525,7 +575,7 @@ export default function AddProduct() {
             <textarea
               required
               rows="4"
-              placeholder="Detailed description..."
+              placeholder="Describe your product in detail (min 20 chars)..."
               value={form.description}
               onChange={e => updateForm("description", e.target.value)}
             />
@@ -536,22 +586,23 @@ export default function AddProduct() {
               required
               type="text"
               inputMode="numeric"
-              placeholder="10000"
+              placeholder="Enter price"
               value={displayPrice(form.price)}
               onChange={e => updateForm("price", onlyNumbers(e.target.value))}
             />
           </div>
         </section>
 
-        {/* Product Details */}
+        {/* Category & Attributes */}
         <section className="section form-card">
-          <h3>Product Details</h3>
+          <h3>🏷️ Category & Details</h3>
           <div className="form-group">
             <label>Category <span className="required">*</span></label>
             <DropdownModal
               value={form.category_id}
               onChange={v => updateForm("category_id", v)}
               options={categories.map(c => ({ id: c.id, name: c.name }))}
+              placeholder="Select category"
             />
           </div>
 
@@ -563,12 +614,12 @@ export default function AddProduct() {
               <div key={field} className="form-group">
                 <label>{formatLabel(field)}</label>
                 {field === "features" ? (
-                  <div className="checkbox-grid-inline">
+                  <div className="checkbox-grid">
                     {sortedFeatures.map(feat => (
-                      <label key={feat} className="checkbox-inline">
+                      <label key={feat} className="checkbox-item">
                         <input
                           type="checkbox"
-                          checked={form.attributes.features.includes(feat)}
+                          checked={form.attributes.features?.includes(feat) || false}
                           onChange={() => toggleFeature(feat)}
                         />
                         <span>{formatLabel(feat)}</span>
@@ -579,7 +630,8 @@ export default function AddProduct() {
                   <DropdownModal
                     value={form.attributes[field] || ""}
                     onChange={v => updateAttribute(field, v)}
-                    options={optionsMap[field]}
+                    options={optionsMap[field] || []}
+                    placeholder={`Select ${formatLabel(field)}`}
                   />
                 )}
               </div>
@@ -589,7 +641,7 @@ export default function AddProduct() {
 
         {/* Contact */}
         <section className="section form-card">
-          <h3>Contact Information</h3>
+          <h3>📱 Contact Information</h3>
           <div className="form-group">
             <label>Email <span className="required">*</span></label>
             <input
@@ -615,43 +667,74 @@ export default function AddProduct() {
 
         {/* Location & Delivery */}
         <section className="section form-card">
-          <h3>Location & Delivery</h3>
+          <h3>📍 Location & Delivery</h3>
           <div className="form-group">
             <label>State <span className="required">*</span></label>
-            <DropdownModal value={state} onChange={setState} options={states.map(s => ({id: s, name: s}))} />
+            <DropdownModal 
+              value={state} 
+              onChange={setState} 
+              options={states.map(s => ({id: s, name: s}))}
+              placeholder="Select state"
+            />
           </div>
           {state && (
             <div className="form-group">
               <label>City <span className="required">*</span></label>
-              <DropdownModal value={city} onChange={setCity} options={cities.map(c => ({id: c, name: c}))} />
+              <DropdownModal 
+                value={city} 
+                onChange={setCity} 
+                options={cities.map(c => ({id: c, name: c}))}
+                placeholder="Select city"
+              />
             </div>
           )}
-          <div className="form-group">
-            <label>Delivery Type</label>
-            <DropdownModal
-              value={form.delivery.type}
-              onChange={updateDelivery.bind(null, "type")}
-              options={[
-                { id: "none", name: "No delivery" },
-                { id: "standard", name: "Standard" },
-                { id: "express", name: "Express" },
-                { id: "pickup", name: "Pickup only" },
-              ]}
-            />
+          
+          <div className="form-group checkbox-group">
+            <label className="checkbox-label">
+              <input
+                type="checkbox"
+                checked={form.delivery.available}
+                onChange={e => updateDelivery("available", e.target.checked)}
+              />
+              Offer delivery
+            </label>
           </div>
-          {form.delivery.type !== "none" && form.delivery.type !== "pickup" && (
-            <div className="delivery-grid">
-              <div className="form-group">
-                <label>From (days) <span className="required">*</span></label>
-                <input type="number" min="1" value={form.delivery.duration.from} onChange={e => updateDeliveryDuration("from", e.target.value)} />
+
+          {form.delivery.available && (
+            <div className="delivery-details">
+              <div className="delivery-grid">
+                <div className="form-group">
+                  <label>Delivery time (from)</label>
+                  <input 
+                    type="number" 
+                    min="1" 
+                    max="30"
+                    value={form.delivery.duration.from} 
+                    onChange={e => updateDeliveryDuration("from", e.target.value)}
+                    placeholder="1"
+                  />
+                </div>
+                <div className="form-group">
+                  <label>Delivery time (to)</label>
+                  <input 
+                    type="number" 
+                    min="1" 
+                    max="30"
+                    value={form.delivery.duration.to} 
+                    onChange={e => updateDeliveryDuration("to", e.target.value)}
+                    placeholder="3"
+                  />
+                </div>
               </div>
               <div className="form-group">
-                <label>To (days) <span className="required">*</span></label>
-                <input type="number" min="1" value={form.delivery.duration.to} onChange={e => updateDeliveryDuration("to", e.target.value)} />
-              </div>
-              <div className="form-group">
-                <label>Fee (₦) <span className="required">*</span></label>
-                <input type="text" inputMode="numeric" value={displayPrice(form.delivery.fee)} onChange={e => updateDelivery("fee", onlyNumbers(e.target.value))} />
+                <label>Delivery Fee (₦)</label>
+                <input
+                  type="text"
+                  inputMode="numeric"
+                  placeholder="1000"
+                  value={displayPrice(form.delivery.fee)}
+                  onChange={e => updateDelivery("fee", onlyNumbers(e.target.value))}
+                />
               </div>
             </div>
           )}
@@ -659,44 +742,60 @@ export default function AddProduct() {
 
         {/* Images */}
         <section className="section form-card">
-          <h3>Product Images <span className="required">*</span> (max 6, 3MB each)</h3>
-          <div className="preview-grid-modern">
-            {images.map((img, i) => (
-              <div
-                key={img.id}
-                className={`preview-thumb ${isDragging ? "dragging" : ""}`}
-                draggable
-                onDragStart={e => e.dataTransfer.setData("index", i)}
-                onDragOver={e => e.preventDefault()}
-                onDrop={e => handleDrop(e, i)}
-                onClick={() => setActiveImage(img.preview)}
-              >
-                <img src={img.preview || ''} alt="" />
-                <button type="button" onClick={e => { e.stopPropagation(); removeImage(img.id); }}>✕</button>
-              </div>
-            ))}
-            {images.length < MAX_IMAGES && (
-              <label className="add-image-box">
-                <input
-                  type="file"
-                  multiple
-                  accept="image/*"
-                  onChange={e => {
-                    handleImages(e.target.files);
-                    e.target.value = "";
-                  }}
-                />
-                <div>+</div>
-                <span>Add Images</span>
-              </label>
+          <h3>🖼️ Product Images <span className="required">*</span></h3>
+          <p className="help-text">Max 6 images, 3MB each. First image is cover.</p>
+          <div className="image-upload-area">
+            <div className="preview-grid">
+              {images.map((img, i) => (
+                <div
+                  key={img.id}
+                  className={`image-preview ${isDragging ? "dragging" : ""}`}
+                  draggable
+                  onDragStart={e => e.dataTransfer.setData("index", i)}
+                  onDragOver={e => e.preventDefault()}
+                  onDrop={e => handleDrop(e, i)}
+                  onClick={() => setActiveImage(img.preview)}
+                >
+                  <img src={img.preview || ''} alt="" />
+                  <button 
+                    type="button" 
+                    className="remove-btn"
+                    onClick={e => { e.stopPropagation(); removeImage(img.id); }}
+                  >
+                    ✕
+                  </button>
+                  {i === 0 && <div className="cover-badge">Cover</div>}
+                </div>
+              ))}
+              
+              {images.length < MAX_IMAGES && (
+                <label className="upload-zone">
+                  <input
+                    type="file"
+                    multiple
+                    accept="image/*"
+                    onChange={e => {
+                      handleImages(e.target.files);
+                      e.target.value = "";
+                    }}
+                  />
+                  <div className="upload-icon">+</div>
+                  <div className="upload-text">
+                    {images.length === 0 ? "Click or drag images" : `Add ${MAX_IMAGES - images.length} more`}
+                  </div>
+                </label>
+              )}
+            </div>
+            {images.length > 0 && (
+              <div className="image-count">{images.length}/6 images</div>
             )}
           </div>
-          {images.length > 0 && <small>{images.length}/6 images</small>}
         </section>
 
-        {/* Promotions */}
+        {/* Promotion Plans */}
         <section className="section form-card">
-          <h3>Promotion (Optional)</h3>
+          <h3>🚀 Promotion Plan</h3>
+          <p className="help-text">Choose a plan to boost visibility (optional)</p>
           <div className="plans-grid">
             {promotionPlans.map(plan => (
               <div
@@ -704,55 +803,94 @@ export default function AddProduct() {
                 className={`plan-card ${selectedPlan?.id === plan.id ? "selected" : ""}`}
                 onClick={() => setSelectedPlan(plan)}
               >
-                <div className="plan-header">
-                  <strong>{plan.name}</strong>
-                  <span>₦{displayPrice(plan.price)}</span>
-                </div>
-                <div>{plan.duration}</div>
-                <ul>{plan.features.map((f, i) => <li key={i}>{f}</li>)}</ul>
+                <div className="plan-price">₦{displayPrice(plan.price)}</div>
+                <h4>{plan.name}</h4>
+                <div className="plan-duration">{plan.duration}</div>
+                <ul className="plan-features">
+                  {plan.features.map((feature, i) => (
+                    <li key={i}>{feature}</li>
+                  ))}
+                </ul>
                 {plan.description && <p>{plan.description}</p>}
               </div>
             ))}
           </div>
+          {selectedPlan && (
+            <div className="plan-selected">
+              Selected: <strong>{selectedPlan.name}</strong> (₦{displayPrice(selectedPlan.price)})
+            </div>
+          )}
         </section>
 
-        {/* Submit */}
-        <div className="button-section">
+        {/* Action Buttons */}
+        <div className="action-buttons">
           {showRetryButton ? (
-            <button type="button" className="retry-btn" onClick={retryPayment} disabled={loading}>
-              {loading ? "Retrying..." : "🔄 Retry Payment"}
+            <button 
+              type="button" 
+              className="btn-retry" 
+              onClick={retryPayment} 
+              disabled={loading}
+            >
+              {loading ? "🔄 Retrying..." : "🔄 Retry Payment"}
             </button>
           ) : (
-            <button type="submit" className="primary-btn" disabled={loading}>
-              {loading ? "⏳ Processing..." : "🚀 Create Product"}
+            <button 
+              type="submit" 
+              className="btn-primary" 
+              disabled={loading || !images.length}
+            >
+              {loading ? "⏳ Creating Product..." : "🚀 Create & Publish Product"}
             </button>
           )}
+          <button 
+            type="button" 
+            className="btn-secondary" 
+            onClick={clearDraft}
+            disabled={loading}
+          >
+            Clear Draft
+          </button>
         </div>
       </form>
 
       {/* Messages */}
-      {error && <div className="form-error">⚠️ {error}</div>}
-      {success && <div className="form-success">✅ {success}</div>}
-
-      {/* Modals */}
-      {activeImage && (
-        <div className="image-modal" onClick={() => setActiveImage(null)}>
-          <img src={activeImage} alt="Preview" />
+      {error && (
+        <div className="error-banner">
+          <span>⚠️ {error}</span>
+          <button onClick={() => setError("")}>&times;</button>
         </div>
       )}
+      {success && (
+        <div className="success-banner">
+          <span>✅ {success}</span>
+        </div>
+      )}
+
+      {/* Image Modal */}
+      {activeImage && (
+        <div className="image-modal-overlay" onClick={() => setActiveImage(null)}>
+          <div className="image-modal-content">
+            <img src={activeImage} alt="Full preview" />
+          </div>
+        </div>
+      )}
+
+      {/* Loading Overlay */}
       {loading && (
         <div className="loading-overlay">
-          <div className="loader" />
-          <div>{paymentData ? "Finalizing payment..." : "Creating product..."}</div>
+          <div className="spinner"></div>
+          <div>{paymentData ? "Finalizing payment..." : "Creating your product..."}</div>
         </div>
       )}
+
+      {/* Success Modal */}
       {paymentSuccess && (
         <div className="success-modal-overlay">
           <div className="success-modal">
-            <div>🎉</div>
-            <h3>Success!</h3>
-            <p>Product is live and promoted.</p>
-            <div className="loader small" />
+            <div className="success-icon">🎉</div>
+            <h2>Your product is live!</h2>
+            <p>It's now visible to all buyers and promoted.</p>
+            <div className="spinner small"></div>
           </div>
         </div>
       )}
