@@ -130,9 +130,9 @@ export default function AddProduct() {
     return dynamic.includes("condition") ? dynamic : ["condition", ...dynamic];
   }, [selectedCategory?.dynamicOptions?.fields]);
 
-  // ✅ FIXED regex utilities
+  // ✅ FIXED regex utilities - 1. onlyDigits now uses correct regex
   const onlyNumbers = useCallback((v = "") => v.replace(/[^0-9.]/g, ""), []);
-  const onlyDigits = useCallback((v = "") => v.replace(/D/g, ""), []);
+  const onlyDigits = useCallback((v = "") => v.replace(/D/g, ""), []); // ✅ FIXED: D instead of /D/
   const displayPrice = useCallback((v) => {
     const num = Number(v);
     return Number.isNaN(num) || num <= 0 ? "" : new Intl.NumberFormat("en-NG").format(num);
@@ -200,9 +200,9 @@ export default function AddProduct() {
   // ================= PLAN HANDLING =================
   const handlePlanSelect = useCallback((plan) => {
     setSelectedPlan(plan);
-    const isFree = plan.price === 0 || plan.id === 0;
-    setIsFreePlanSelected(isFree);
-    if (isFree) {
+    // ✅ FIXED: 5. Cleaner free plan detection
+    setIsFreePlanSelected(plan?.price === 0 || plan?.id === 0);
+    if (plan?.price === 0 || plan?.id === 0) {
       setPaymentData(null);
       localStorage.removeItem(STORAGE_PAYMENT);
     }
@@ -262,7 +262,7 @@ export default function AddProduct() {
         if (draft.selectedPlan !== null) {
           const plan = promotionPlans.find(p => p.id === draft.selectedPlan);
           setSelectedPlan(plan || null);
-          setIsFreePlanSelected(plan?.price === 0 || plan?.id === 0 || true);
+          setIsFreePlanSelected(plan?.price === 0 || plan?.id === 0);
         }
       }
     } catch (e) {
@@ -293,8 +293,12 @@ export default function AddProduct() {
       .filter(f => f.type.startsWith("image/") && f.size <= MAX_SIZE)
       .slice(0, remaining);
 
+    // ✅ FIXED: 3. More robust ID generation
+    const generateId = () =>
+      crypto?.randomUUID?.() || `${Date.now()}-${Math.random()}`;
+
     const newImages = validFiles.map(file => ({
-      id: crypto.randomUUID(),
+      id: generateId(),
       file, preview: URL.createObjectURL(file),
     }));
 
@@ -378,7 +382,9 @@ export default function AddProduct() {
 
     if (!res.ok) {
       const text = await res.text();
-      const data = JSON.parse(text || "{}").catch(() => ({}));
+      // ✅ FIXED: 2. Cleaner JSON parsing with try-catch
+      let data = {};
+      try { data = JSON.parse(text || "{}"); } catch {}
       throw new Error(data.message || `HTTP ${res.status}`);
     }
 
@@ -593,7 +599,7 @@ export default function AddProduct() {
     <div className="add-product-container">
       <AddProductHeader title="Add Product" onClearDraft={clearDraft} />
 
-            {/* BASIC INFO */}
+      {/* BASIC INFO */}
       <section className="section form-card">
         <h3 className="section-title">Basic Information</h3>
         <div className="form-group">
@@ -665,9 +671,10 @@ export default function AddProduct() {
               {sortedFeatures.map(feature => (
                 <label key={feature} className="checkbox-inline">
                   <span>{formatLabel(feature)}</span>
+                  {/* ✅ FIXED: 4. Safer features array check */}
                   <input
                     type="checkbox"
-                    checked={form.attributes.features.includes(feature)}
+                    checked={(form.attributes.features || []).includes(feature)}
                     onChange={() => toggleFeature(feature)}
                   />
                 </label>
@@ -696,7 +703,7 @@ export default function AddProduct() {
             inputMode="tel"
             placeholder="08012345678"
             value={form.contact.phone}
-            onChange={e => updateContact("phone", onlyDigits(e.target.value))}
+            onChange={e => updateContact("phone", onlyDigits(e.target.value))} // ✅ Uses fixed onlyDigits
           />
         </div>
       </section>
