@@ -70,9 +70,9 @@ const normalizeDelivery = (d = {}) => ({
 const normalizeProduct = (p) => ({
   ...p,
   images: p.images || [],
-  attributes: p.attributes || {},
-  delivery: normalizeDelivery(p.delivery),
-  contact: p.contact || {},
+  attributes: safeJSON(p.attributes, {}),
+  delivery: normalizeDelivery(safeJSON(p.delivery, {})),
+  contact: safeJSON(p.contact, {}),
   location: {
     state: p.location_state,
     city: p.location_city,
@@ -119,8 +119,7 @@ router.get("/products", async (req, res) => {
     const baseQuery = `
       SELECT p.*,
       COALESCE(
-        json_agg(pi.image_url ORDER BY pi.position)
-        FILTER (WHERE pi.image_url IS NOT NULL),
+        json_agg(pi.image_url ORDER BY pi.position),
         '[]'
       ) AS images
       FROM products p
@@ -148,7 +147,11 @@ router.get("/products", async (req, res) => {
       .map(normalizeProduct)
       .filter((p) => !trendingIds.has(p.id));
 
-    res.json({ trending, products: [...trending, ...products] });
+    res.json({ 
+      trending, 
+      products: [...trending, ...products],
+      total: productsRes.rowCount + trending.length 
+    });
   } catch (err) {
     console.error(err);
     res.status(500).json({ message: "Failed to fetch products" });
@@ -166,8 +169,7 @@ router.get("/products/:id", async (req, res) => {
       `
       SELECT p.*,
       COALESCE(
-        json_agg(pi.image_url ORDER BY pi.position)
-        FILTER (WHERE pi.image_url IS NOT NULL),
+        json_agg(pi.image_url ORDER BY pi.position),
         '[]'
       ) AS images
       FROM products p
@@ -182,10 +184,11 @@ router.get("/products/:id", async (req, res) => {
       return res.status(404).json({ message: "Product not found" });
     }
 
+    // Increment views
     pool.query(
       "UPDATE products SET views = COALESCE(views,0)+1 WHERE id=$1",
       [id]
-    ).catch(() => {});
+    ).catch(console.error);
 
     res.json(normalizeProduct(rows[0]));
   } catch (err) {
@@ -203,73 +206,97 @@ router.post("/products", upload.array("images", 10), async (req, res) => {
   try {
     await client.query("BEGIN");
 
-    const { title, price, category_id } = req.body;
+    const { 
+      title, 
+      price, 
+      category_id, 
+      description, 
+      subcategory_id,
+      location_state, 
+      location_city 
+    } = req.body;
 
-    if (!title || !price || !category_id) {
-      return res.status(400).json({ message: "Missing required fields" });
+    // ✅ VALIDATION
+    if (!title?.trim() || !price || !category_id || !location_state?.trim() || !location_city?.trim()) {
+      return res.status(400).json({ 
+        message: "Missing required: title, price, category_id, location_state, location_city" 
+      });
     }
 
-    const attributes = safeJSON(req.body.attributes);
-    const delivery = normalizeDelivery(safeJSON(req.body.delivery));
-    const contact = safeJSON(req.body.contact);
+    if (Number(price) <= 0) {
+      return res.status(400).json({ message: "Price must be greater than 0" });
+    }
+
+    // ✅ CATEGORY EXISTS CHECK
+    const catCheck = await client.query(
+      "SELECT id FROM categories WHERE id = $1", 
+      [category_id]
+    );
+    if (!catCheck.rows.length) {
+      return res.status(400).json({ message: "Invalid category_id" });
+    }
+
+    const attributes = safeJSON(req.body.attributes, {});
+    const delivery = normalizeDelivery(safeJSON(req.body.delivery, {}));
+    const contact = safeJSON(req.body.contact, {});
 
     const { rows } = await client.query(
-      `
-      INSERT INTO products (
+      `INSERT INTO products (
         title, description, price, category_id, subcategory_id,
         attributes, delivery, contact,
-        location_state, location_city,
-        created_at, updated_at
+        location_state, location_city, state,
+        created_at, updated_at, is_active
       )
-      VALUES (
-        $1,$2,$3,$4,$5,$6,$7,$8,
-        $9,$10,now(),now()
-      )
-      RETURNING *
-      `,
+      VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,'draft',now(),now(),true)
+      RETURNING *`,
       [
-        title,
-        req.body.description || "",
-        price,
+        title.trim(),
+        description?.trim() || "",
+        Number(price),
         category_id,
-        req.body.subcategory_id || null,
-        attributes,
-        delivery,
-        contact,
-        req.body.location_state,
-        req.body.location_city,
+        subcategory_id || null,
+        JSON.stringify(attributes),
+        JSON.stringify(delivery),
+        JSON.stringify(contact),
+        location_state.trim(),
+        location_city.trim(),
       ]
     );
 
     const product = rows[0];
+    const images = await uploadImages(req.files || []);
 
-    const images = await uploadImages(req.files);
-
-    for (const img of images) {
+    // Insert images with position
+    for (const [index, img] of images.entries()) {
       await client.query(
         `INSERT INTO product_images (product_id, image_url, position)
          VALUES ($1,$2,$3)`,
-        [product.id, img.url, img.position]
+        [product.id, img.url, index]
       );
     }
 
     await client.query("COMMIT");
 
     res.status(201).json({
-      product: normalizeProduct({ ...product, images: images.map(i => i.url) }),
+      product: normalizeProduct({ 
+        ...product, 
+        images 
+      }),
     });
 
   } catch (err) {
     console.error(err);
     await client.query("ROLLBACK");
-    res.status(500).json({ message: "Failed to create product" });
+    res.status(500).json({ 
+      message: err.message || "Failed to create product" 
+    });
   } finally {
     client.release();
   }
 });
 
 /* =========================================================
-GET CATEGORIES (FIXED)
+GET CATEGORIES (PERFECTLY FIXED)
 ========================================================= */
 router.get("/categories", async (req, res) => {
   try {
@@ -282,36 +309,34 @@ router.get("/categories", async (req, res) => {
     const map = {};
     const tree = [];
 
-    // build map
+    // Build category map with dynamic options
     for (const cat of rows) {
-      const key = cat.fields_key || "";
+      const key = cat.fields_key || "default";
 
       map[cat.id] = {
         id: cat.id,
         name: cat.name,
-        parent_id: cat.parent_id,
-
+        parent_id: cat.parent_id || null,
         dynamicOptions: {
-          brands: brands[key] || [],
-          models: models[key] || {},
-          colors: colors[key] || [],
-          conditions,
-          usedDetails,
-          ram: ramOptions,
-          storage: storageOptions,
-          sims,
+          brands: brands[key] || brands.default || [],
+          models: models[key] || models.default || {},
+          colors: colors[key] || colors.default || [],
+          conditions: conditions || [],
+          usedDetails: usedDetails || [],
+          ram: ramOptions || [],
+          storage: storageOptions || [],
+          sims: sims || [],
           features: featuresByCategory[key] || [],
-          years,
-          engines,
-          fuel_type: fuelTypes, // ✅ fixed
-          fields: categoryFields[key] || [], // ✅ required
+          years: years || [],
+          engines: engines[key] || engines.default || [],
+          fuel_types: fuelTypes[key] || fuelTypes.default || [], // ✅ FIXED naming
+          fields: categoryFields[key] || [], // ✅ Frontend expects this
         },
-
         subcategories: [],
       };
     }
 
-    // build tree
+    // Build tree structure (adjacency model)
     for (const cat of rows) {
       if (cat.parent_id && map[cat.parent_id]) {
         map[cat.parent_id].subcategories.push(map[cat.id]);
@@ -321,10 +346,61 @@ router.get("/categories", async (req, res) => {
     }
 
     res.json(tree);
-
   } catch (err) {
     console.error(err);
     res.status(500).json({ message: "Failed to fetch categories" });
+  }
+});
+
+/* =========================================================
+FREE PLAN ACTIVATION
+========================================================= */
+router.post("/payments/free-plan/:productId", async (req, res) => {
+  const client = await pool.connect();
+  
+  try {
+    const { productId } = req.params;
+    
+    await client.query("BEGIN");
+    
+    await client.query(
+      `UPDATE products 
+       SET state = 'active', 
+           is_active = true, 
+           is_promoted = false,
+           promotion_priority = 0,
+           promotion_expires_at = NULL,
+           updated_at = now()
+       WHERE id = $1 AND state = 'draft'`,
+      [productId]
+    );
+    
+    const { rows } = await client.query(
+      `SELECT p.*, 
+       COALESCE(json_agg(pi.image_url ORDER BY pi.position), '[]') AS images
+       FROM products p
+       LEFT JOIN product_images pi ON p.id = pi.product_id
+       WHERE p.id = $1
+       GROUP BY p.id`,
+      [productId]
+    );
+    
+    await client.query("COMMIT");
+    
+    res.json({ 
+      success: true, 
+      product: normalizeProduct(rows[0]) 
+    });
+    
+  } catch (err) {
+    await client.query("ROLLBACK");
+    console.error(err);
+    res.status(400).json({ 
+      success: false, 
+      error: "Failed to activate free plan" 
+    });
+  } finally {
+    client.release();
   }
 });
 
