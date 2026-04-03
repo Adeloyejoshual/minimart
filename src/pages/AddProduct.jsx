@@ -43,7 +43,7 @@ const INITIAL_FORM = {
 };
 
 export default function AddProduct() {
-  // Core state
+  // ================= STATE =================
   const [form, setForm] = useState(INITIAL_FORM);
   const [categories, setCategories] = useState([]);
   const [state, setState] = useState("");
@@ -53,48 +53,53 @@ export default function AddProduct() {
   const [loading, setLoading] = useState(false);
   const [selectedPlan, setSelectedPlan] = useState(null);
   const [paymentData, setPaymentData] = useState(null);
+  const [error, setError] = useState("");
+  const [success, setSuccess] = useState("");
   const [isDragging, setIsDragging] = useState(false);
   const imageTimersRef = useRef(new Map());
 
   const MAX_IMAGES = 6;
   const MAX_SIZE = 3 * 1024 * 1024; // 3MB
 
-  // Device optimization
+  // ================= UTILITIES =================
   const isSlowDevice = useCallback(() => 
     navigator.hardwareConcurrency <= 4 ||
     navigator.deviceMemory <= 4 ||
     /Android|iPhone|iPad/i.test(navigator.userAgent)
   , []);
 
-  // Image compression
-  const compressImage = async (file) => {
+  const compressImage = useCallback(async (file) => {
     return await imageCompression(file, {
       maxSizeMB: isSlowDevice() ? 0.4 : 0.8,
       maxWidthOrHeight: isSlowDevice() ? 900 : 1280,
       useWebWorker: true,
     });
-  };
+  }, [isSlowDevice]);
 
-  // Utilities
+  const showError = useCallback((message) => {
+    setError(message);
+    setTimeout(() => setError(""), 5000);
+  }, []);
+
+  const showSuccess = useCallback((message) => {
+    setSuccess(message);
+    setTimeout(() => setSuccess(""), 3000);
+  }, []);
+
   const selectedCategory = useMemo(() => 
-    categories.find((c) => String(c.id) === String(form.category_id)),
+    categories.find(c => String(c.id) === String(form.category_id)),
   [categories, form.category_id]);
-
-  const options = selectedCategory?.dynamicOptions || {};
-  const attributes = form.attributes;
-  const brand = attributes.brand;
 
   const normalizeOptions = useCallback((list = []) =>
     Array.isArray(list)
-      ? list.map((x) => (typeof x === "string" ? { id: x, name: x } : x))
+      ? list.map(x => typeof x === "string" ? { id: x, name: x } : x)
       : [],
   []);
 
   const onlyNumbers = useCallback((v = "") => {
     const cleaned = v.replace(/[^d.]/g, "");
     const parts = cleaned.split(".");
-    if (parts.length > 2) return parts[0] + "." + parts.slice(1).join("");
-    return cleaned;
+    return parts.length > 2 ? parts[0] + "." + parts.slice(1).join("") : cleaned;
   }, []);
 
   const displayPrice = useCallback((v) =>
@@ -102,34 +107,35 @@ export default function AddProduct() {
   []);
 
   const formatLabel = useCallback((t) =>
-    t.replace(/_/g, " ").replace(/\bw/g, (l) => l.toUpperCase()),
+    t.replace(/_/g, " ").replace(/\bw/g, l => l.toUpperCase()),
   []);
 
-  // Dynamic options map
+  // Dynamic options
   const optionsMap = useMemo(() => {
     const map = {};
-    Object.keys(options || {}).forEach((key) => {
+    Object.keys(selectedCategory?.dynamicOptions || {}).forEach(key => {
       if (key === "models") return;
       if (key === "model") {
-        const modelsForBrand = brand && options.model?.[brand] ? options.model[brand] : [];
+        const modelsForBrand = form.attributes.brand && 
+          selectedCategory?.dynamicOptions?.model?.[form.attributes.brand];
         map.model = normalizeOptions(modelsForBrand);
         return;
       }
-      map[key] = normalizeOptions(options[key] || []);
+      map[key] = normalizeOptions(selectedCategory?.dynamicOptions?.[key]);
     });
     return map;
-  }, [options, brand, normalizeOptions]);
+  }, [selectedCategory?.dynamicOptions, form.attributes.brand, normalizeOptions]);
 
   const sortedFeatures = useMemo(() => 
-    [...(options.features || [])].sort((a, b) => a.localeCompare(b)),
-  [options.features]);
+    [...(selectedCategory?.dynamicOptions?.features || [])].sort((a, b) => a.localeCompare(b)),
+  [selectedCategory?.dynamicOptions?.features]);
 
   const fields = useMemo(() => {
-    const dynamic = options.fields || [];
+    const dynamic = selectedCategory?.dynamicOptions?.fields || [];
     return dynamic.includes("condition") ? dynamic : ["condition", ...dynamic];
-  }, [options.fields]);
+  }, [selectedCategory?.dynamicOptions?.fields]);
 
-  // Form updaters
+  // ================= FORM UPDATERS =================
   const updateForm = useCallback((key, value) => {
     setForm(prev => ({ ...prev, [key]: value }));
   }, []);
@@ -171,29 +177,45 @@ export default function AddProduct() {
 
   const toggleFeature = useCallback((feature) => {
     setForm(prev => {
-      const list = prev.attributes.features || [];
-      const exists = list.includes(feature);
+      const features = prev.attributes.features || [];
+      const exists = features.includes(feature);
       return {
         ...prev,
         attributes: {
           ...prev.attributes,
           features: exists 
-            ? list.filter(f => f !== feature) 
-            : [...list, feature],
+            ? features.filter(f => f !== feature)
+            : [...features, feature],
         },
       };
     });
   }, []);
 
-  // Draft management
+  // ================= VALIDATION =================
+  const validateForm = useCallback(() => {
+    if (form.title.length < 10) return "Title must be at least 10 characters";
+    if (form.description.length < 20) return "Description must be at least 20 characters";
+    if (!form.price || Number(form.price) <= 0) return "Please enter a valid price";
+    if (!form.category_id) return "Please select a category";
+    if (!form.contact.phone || form.contact.phone.length < 10) return "Please enter a valid phone number";
+    if (!form.contact.email || !form.contact.email.includes("@")) return "Please enter a valid email";
+    if (images.length === 0) return "Please upload at least 1 image";
+    if (!state || !city) return "Please select your state and city";
+
+    if (form.delivery.type !== "none" && form.delivery.type !== "pickup") {
+      const from = Number(form.delivery.duration.from);
+      const to = Number(form.delivery.duration.to);
+      if (Number.isNaN(from) || Number.isNaN(to)) return "Please enter delivery duration";
+      if (to < from) return "End day must be after start day";
+      if (!form.delivery.fee || Number(form.delivery.fee) <= 0) return "Please enter delivery fee";
+    }
+    return null;
+  }, [form, images.length, state, city]);
+
+  // ================= DRAFT MANAGEMENT =================
   const saveDraft = useCallback(() => {
     if (loading) return;
-    const draft = {
-      form,
-      state,
-      city,
-      selectedPlan: selectedPlan?.id || null,
-    };
+    const draft = { form, state, city, selectedPlan: selectedPlan?.id || null };
     localStorage.setItem(STORAGE_DRAFT, JSON.stringify(draft));
   }, [form, state, city, selectedPlan, loading]);
 
@@ -222,35 +244,16 @@ export default function AddProduct() {
     setCity("");
     setSelectedPlan(null);
     setPaymentData(null);
+    setError("");
+    setSuccess("");
     localStorage.removeItem(STORAGE_DRAFT);
     localStorage.removeItem(STORAGE_PAYMENT);
   }, []);
 
-  // Validation
-  const validateForm = useCallback(() => {
-    if (form.title.length < 10) return "Title too short (min 10 chars)";
-    if (form.description.length < 20) return "Description too short (min 20 chars)";
-    if (!form.price || Number(form.price) <= 0) return "Valid price required";
-    if (!form.category_id) return "Select a category";
-    if (!form.contact.phone || form.contact.phone.length < 10) return "Valid phone required";
-    if (!form.contact.email || !form.contact.email.includes("@")) return "Valid email required";
-    if (images.length === 0) return "Add at least 1 image";
-    if (!state || !city) return "Select state and city";
-
-    if (form.delivery.type !== "none" && form.delivery.type !== "pickup") {
-      const from = Number(form.delivery.duration.from);
-      const to = Number(form.delivery.duration.to);
-      if (Number.isNaN(from) || Number.isNaN(to)) return "Delivery range required";
-      if (to < from) return "End day must be after start day";
-      if (!form.delivery.fee || Number(form.delivery.fee) <= 0) return "Delivery fee required";
-    }
-    return null;
-  }, [form, images.length, state, city]);
-
-  // Image handling
+  // ================= IMAGE HANDLING =================
   const handleImages = useCallback((files) => {
     if (images.length >= MAX_IMAGES) {
-      alert("Maximum 6 images allowed");
+      showError("Maximum 6 images allowed");
       return;
     }
 
@@ -267,7 +270,7 @@ export default function AddProduct() {
     }));
 
     setImages(prev => [...prev, ...newImages]);
-  }, [images.length]);
+  }, [images.length, showError]);
 
   const removeImage = useCallback((id) => {
     setImages(prev => {
@@ -276,27 +279,6 @@ export default function AddProduct() {
       return prev.filter(x => x.id !== id);
     });
   }, []);
-
-  // Drag & drop handlers
-  const handleLongPressStart = useCallback((e, index) => {
-    e.preventDefault();
-    setIsDragging(true);
-    e.dataTransfer?.setData("index", index);
-  }, []);
-
-  const handleLongPressEnd = useCallback((e) => {
-    const timerId = e.currentTarget?.dataset.timer;
-    if (timerId) {
-      clearTimeout(Number(timerId));
-      delete e.currentTarget.dataset.timer;
-    }
-    setIsDragging(false);
-  }, []);
-
-  const handleTouchStart = useCallback((e, index) => {
-    const timer = setTimeout(() => handleLongPressStart(e, index), 500);
-    e.currentTarget.dataset.timer = String(timer);
-  }, [handleLongPressStart]);
 
   const handleDrop = useCallback((e, index) => {
     e.preventDefault();
@@ -310,20 +292,25 @@ export default function AddProduct() {
     setIsDragging(false);
   }, []);
 
-  const compressImagesSequentially = useCallback(async (imageFiles) => {
-    const compressedFiles = [];
-    for (const file of imageFiles) {
-      try {
-        const compressed = await compressImage(file);
-        compressedFiles.push(compressed);
-      } catch {
-        compressedFiles.push(file);
-      }
-    }
-    return compressedFiles;
-  }, [compressImage]);
+  const handleTouchStart = useCallback((e, index) => {
+    const timer = setTimeout(() => {
+      e.preventDefault();
+      setIsDragging(true);
+      e.dataTransfer?.setData("index", index);
+    }, 500);
+    e.currentTarget.dataset.timer = String(timer);
+  }, []);
 
-  // API functions
+  const handleLongPressEnd = useCallback((e) => {
+    const timerId = e.currentTarget?.dataset.timer;
+    if (timerId) {
+      clearTimeout(Number(timerId));
+      delete e.currentTarget.dataset.timer;
+    }
+    setIsDragging(false);
+  }, []);
+
+  // ================= API FUNCTIONS =================
   const createProductDraft = async () => {
     const fd = new FormData();
     const payload = {
@@ -342,7 +329,16 @@ export default function AddProduct() {
       .forEach(([k, v]) => fd.append(k, String(v)));
 
     const imageFiles = images.map(img => img.file);
-    const compressedFiles = await compressImagesSequentially(imageFiles);
+    const compressedFiles = await Promise.all(
+      imageFiles.map(async file => {
+        try {
+          return await compressImage(file);
+        } catch {
+          return file;
+        }
+      })
+    );
+
     compressedFiles.forEach(file => fd.append("images", file));
 
     const res = await fetch("https://minimart-ivrm.onrender.com/api/marketplace/products", {
@@ -377,16 +373,17 @@ export default function AddProduct() {
     return data.authorization_url;
   };
 
-  // Submit handlers
+  // ================= SUBMIT HANDLERS =================
   const handleSubmit = async () => {
-    const error = validateForm();
-    if (error) {
-      alert(error);
+    const validationError = validateForm();
+    if (validationError) {
+      showError(validationError);
       return;
     }
 
     const finalPlan = selectedPlan || promotionPlans.find(p => p.price === 0);
     setLoading(true);
+    setError("");
 
     try {
       const product = await createProductDraft();
@@ -400,7 +397,7 @@ export default function AddProduct() {
           { method: "POST" }
         );
         clearDraft();
-        alert("✅ Product created and activated successfully!");
+        showSuccess("✅ Product created and activated successfully!");
         return;
       }
 
@@ -414,27 +411,30 @@ export default function AddProduct() {
       const authUrl = await startPayment(productId, finalPlan);
       window.location.href = authUrl;
     } catch (err) {
-      alert(`Error: ${err.message || "Something went wrong"}`);
+      showError(err.message || "Something went wrong. Please try again.");
     } finally {
       setLoading(false);
     }
   };
 
   const retryPayment = async () => {
-    if (!paymentData) return alert("No pending payment found");
+    if (!paymentData) {
+      showError("No pending payment found");
+      return;
+    }
     setLoading(true);
     try {
       const plan = { id: paymentData.planId, price: paymentData.amount };
       const authUrl = await startPayment(paymentData.productId, plan);
       window.location.href = authUrl;
     } catch (err) {
-      alert(`Payment retry failed: ${err.message}`);
+      showError(`Payment retry failed: ${err.message}`);
     } finally {
       setLoading(false);
     }
   };
 
-  // Effects
+  // ================= EFFECTS =================
   useEffect(() => {
     loadDraft();
   }, []);
@@ -471,27 +471,25 @@ export default function AddProduct() {
   }, []);
 
   useEffect(() => {
-    if (!options.fields?.length) return;
+    if (!selectedCategory?.dynamicOptions?.fields?.length) return;
     setForm(prev => {
       const newAttrs = { ...prev.attributes };
-      options.fields.forEach(f => {
+      selectedCategory.dynamicOptions.fields.forEach(f => {
         if (newAttrs[f] === undefined) {
           newAttrs[f] = f === "features" ? [] : "";
         }
       });
       return { ...prev, attributes: newAttrs };
     });
-  }, [form.category_id, options.fields]);
+  }, [form.category_id, selectedCategory?.dynamicOptions?.fields]);
 
   useEffect(() => {
     return () => {
-      images.forEach(img => {
-        if (img.preview) URL.revokeObjectURL(img.preview);
-      });
+      images.forEach(img => img.preview && URL.revokeObjectURL(img.preview));
     };
   }, [images]);
 
-  // Render data
+  // ================= RENDER DATA =================
   const states = Object.keys(locationsByState || {});
   const cities = state ? locationsByState[state] : [];
 
@@ -505,51 +503,51 @@ export default function AddProduct() {
         <div className="form-group">
           <label>Product Title <span className="required">*</span></label>
           <input
-            placeholder="Enter product title (min 10 chars)"
+            placeholder="Enter product title"
             value={form.title}
-            onChange={(e) => updateForm("title", e.target.value)}
+            onChange={e => updateForm("title", e.target.value)}
           />
         </div>
         <div className="form-group">
           <label>Description <span className="required">*</span></label>
           <textarea
-            placeholder="Detailed description (min 20 chars)"
+            placeholder="Detailed product description"
             value={form.description}
-            onChange={(e) => updateForm("description", e.target.value)}
+            onChange={e => updateForm("description", e.target.value)}
           />
         </div>
         <div className="form-group">
           <label>Price (₦) <span className="required">*</span></label>
           <input
-            placeholder="0"
+            placeholder="Enter price"
             value={displayPrice(form.price)}
-            onChange={(e) => updateForm("price", onlyNumbers(e.target.value))}
+            onChange={e => updateForm("price", onlyNumbers(e.target.value))}
           />
         </div>
       </section>
 
-      {/* CATEGORY & ATTRIBUTES */}
+      {/* PRODUCT DETAILS */}
       <section className="section form-card blue">
         <h3 className="section-title">Product Details</h3>
         <div className="form-group">
           <label>Category <span className="required">*</span></label>
           <DropdownModal
             value={form.category_id}
-            onChange={(v) => updateForm("category_id", v)}
+            onChange={v => updateForm("category_id", v)}
             options={categories.map(c => ({ id: c.id, name: c.name }))}
           />
         </div>
 
         {fields.map(field => {
           if (!optionsMap[field] && field !== "features") return null;
-          if (field === "used_detail" && attributes.condition !== "Used") return null;
+          if (field === "used_detail" && form.attributes.condition !== "Used") return null;
 
           return (
             <div key={field} className="form-group">
               <label>{formatLabel(field)}</label>
               <DropdownModal
-                value={attributes[field] || ""}
-                onChange={(v) => updateAttribute(field, v)}
+                value={form.attributes[field] || ""}
+                onChange={v => updateAttribute(field, v)}
                 options={optionsMap[field]}
               />
             </div>
@@ -565,7 +563,7 @@ export default function AddProduct() {
                   <span>{formatLabel(feature)}</span>
                   <input
                     type="checkbox"
-                    checked={attributes.features?.includes(feature)}
+                    checked={form.attributes.features?.includes(feature)}
                     onChange={() => toggleFeature(feature)}
                   />
                 </label>
@@ -584,7 +582,7 @@ export default function AddProduct() {
             type="email"
             placeholder="your@email.com"
             value={form.contact.email}
-            onChange={(e) => updateContact("email", e.target.value)}
+            onChange={e => updateContact("email", e.target.value)}
           />
         </div>
         <div className="form-group">
@@ -592,7 +590,7 @@ export default function AddProduct() {
           <input
             placeholder="08012345678"
             value={form.contact.phone}
-            onChange={(e) => updateContact("phone", onlyNumbers(e.target.value))}
+            onChange={e => updateContact("phone", onlyNumbers(e.target.value))}
           />
         </div>
       </section>
@@ -614,7 +612,7 @@ export default function AddProduct() {
           <label>Delivery Type</label>
           <select
             value={form.delivery.type}
-            onChange={(e) => updateDelivery("type", e.target.value)}
+            onChange={e => updateDelivery("type", e.target.value)}
           >
             <option value="none">No delivery</option>
             <option value="standard">Standard delivery</option>
@@ -630,7 +628,7 @@ export default function AddProduct() {
                 type="number"
                 min="1"
                 value={form.delivery.duration.from}
-                onChange={(e) => updateDeliveryDuration("from", onlyNumbers(e.target.value))}
+                onChange={e => updateDeliveryDuration("from", onlyNumbers(e.target.value))}
               />
             </div>
             <div className="form-group">
@@ -639,7 +637,7 @@ export default function AddProduct() {
                 type="number"
                 min="1"
                 value={form.delivery.duration.to}
-                onChange={(e) => updateDeliveryDuration("to", onlyNumbers(e.target.value))}
+                onChange={e => updateDeliveryDuration("to", onlyNumbers(e.target.value))}
               />
             </div>
             <div className="form-group">
@@ -649,14 +647,14 @@ export default function AddProduct() {
                 min="0"
                 step="0.01"
                 value={form.delivery.fee}
-                onChange={(e) => updateDelivery("fee", onlyNumbers(e.target.value))}
+                onChange={e => updateDelivery("fee", onlyNumbers(e.target.value))}
               />
             </div>
           </div>
         )}
       </section>
 
-      {/* IMAGES - FIXED */}
+      {/* IMAGES */}
       <section className="section form-card blue">
         <h3 className="section-title">Product Images</h3>
         <label className="form-group-label">
@@ -669,18 +667,18 @@ export default function AddProduct() {
               className={`preview-thumb ${isDragging ? 'dragging' : ''}`}
               draggable
               onClick={() => setActiveImage(img.preview)}
-              onDragStart={(e) => e.dataTransfer.setData("index", i)}
-              onDragOver={(e) => e.preventDefault()}
+              onDragStart={e => e.dataTransfer.setData("index", i)}
+              onDragOver={e => e.preventDefault()}
               onDragEnd={() => setIsDragging(false)}
-              onDrop={(e) => handleDrop(e, i)}
-              onTouchStart={(e) => handleTouchStart(e, i)}
+              onDrop={e => handleDrop(e, i)}
+              onTouchStart={e => handleTouchStart(e, i)}
               onTouchEnd={handleLongPressEnd}
-              onMouseDown={(e) => handleTouchStart(e, i)}
+              onMouseDown={e => handleTouchStart(e, i)}
               onMouseUp={handleLongPressEnd}
             >
               <img src={img.preview} alt="" />
               <button
-                onClick={(e) => {
+                onClick={e => {
                   e.stopPropagation();
                   removeImage(img.id);
                 }}
@@ -689,7 +687,6 @@ export default function AddProduct() {
               </button>
             </div>
           ))}
-          
           {images.length < MAX_IMAGES && (
             <label className="add-image-box add-image-btn">
               <input
@@ -697,7 +694,7 @@ export default function AddProduct() {
                 multiple
                 accept="image/*"
                 hidden
-                onChange={(e) => {
+                onChange={e => {
                   handleImages(e.target.files);
                   e.target.value = '';
                 }}
@@ -736,25 +733,31 @@ export default function AddProduct() {
         </div>
       </section>
 
-      {/* BUTTONS */}
+      {/* ACTION BUTTONS */}
       <div className="button-section section form-card blue">
-        <button 
-          className="primary-btn" 
-          onClick={handleSubmit} 
-          disabled={loading}
-        >
+        <button className="primary-btn" onClick={handleSubmit} disabled={loading}>
           {loading ? "Processing..." : "Create Product"}
         </button>
         {paymentData && (
-          <button 
-            className="retry-btn" 
-            onClick={retryPayment} 
-            disabled={loading}
-          >
+          <button className="retry-btn" onClick={retryPayment} disabled={loading}>
             {loading ? "Retrying..." : "Retry Payment"}
           </button>
         )}
       </div>
+
+      {/* GLOBAL MESSAGES */}
+      {error && (
+        <div className="form-error">
+          <span>⚠️</span>
+          {error}
+        </div>
+      )}
+      {success && (
+        <div className="form-success">
+          <span>✅</span>
+          {success}
+        </div>
+      )}
 
       {/* MODALS */}
       {activeImage && (
@@ -762,7 +765,6 @@ export default function AddProduct() {
           <img src={activeImage} alt="Full preview" />
         </div>
       )}
-
       {loading && (
         <div className="loading-overlay">
           <div className="loader"></div>
