@@ -8,7 +8,6 @@
 
   display: flex;
   flex-direction: column;
-
   gap: 24px;
 
   background: #f7f9fc;
@@ -16,7 +15,7 @@
 }
 
 /* =========================================================
-   GLASS HEADER (MODERN)
+   GLASS HEADER
 ========================================================= */
 .glass-header {
   position: sticky;
@@ -29,7 +28,7 @@
 
   padding: 14px 16px;
 
-  background: rgba(255, 255, 255, 0.7);
+  background: rgba(255, 255, 255, 0.75);
   backdrop-filter: blur(16px);
   -webkit-backdrop-filter: blur(16px);
 
@@ -53,17 +52,17 @@
   border: none;
   cursor: pointer;
 
-  background: rgba(255,255,255,0.6);
+  background: rgba(255, 255, 255, 0.6);
   color: #0077ff;
 
   font-weight: 600;
 }
 
 /* =========================================================
-   SECTION SYSTEM (MAIN CARD LAYOUT)
+   SECTION CARD
 ========================================================= */
 .section {
-  background: #ffffff;
+  background: #fff;
   border-radius: 14px;
 
   padding: 16px;
@@ -72,11 +71,9 @@
 
   display: flex;
   flex-direction: column;
-
   gap: 12px;
 }
 
-/* optional section title */
 .section-title {
   font-size: 0.95rem;
   font-weight: 700;
@@ -84,7 +81,7 @@
 }
 
 /* =========================================================
-   INPUT SYSTEM
+   INPUTS
 ========================================================= */
 input,
 textarea,
@@ -114,71 +111,14 @@ textarea {
 }
 
 /* =========================================================
-   BASIC DETAILS
+   GRID SYSTEMS
 ========================================================= */
-.basic-grid {
-  display: flex;
-  flex-direction: column;
-  gap: 10px;
-}
-
-/* =========================================================
-   CATEGORY
-========================================================= */
-.category-box {
-  display: flex;
-  flex-direction: column;
-}
-
-/* =========================================================
-   ATTRIBUTES GRID
-========================================================= */
-.attributes-grid {
-  display: grid;
-  grid-template-columns: repeat(2, 1fr);
-  gap: 10px;
-}
-
-/* used condition highlight */
-.condition-used-box {
-  padding: 10px;
-  border-radius: 12px;
-
-  background: #fff7e6;
-  border: 1px solid #ffcc66;
-}
-
-/* =========================================================
-   LOCATION SECTION
-========================================================= */
-.location-grid {
-  display: grid;
-  grid-template-columns: repeat(2, 1fr);
-  gap: 10px;
-}
-
-/* =========================================================
-   CONTACT SECTION
-========================================================= */
-.contact-section {
-  display: flex;
-  flex-direction: column;
-  gap: 12px;
-}
-
+.attributes-grid,
+.location-grid,
 .contact-grid {
   display: grid;
   grid-template-columns: repeat(2, 1fr);
   gap: 10px;
-}
-
-/* =========================================================
-   DELIVERY SECTION (IMPORTANT)
-========================================================= */
-.delivery-section {
-  display: flex;
-  flex-direction: column;
-  gap: 12px;
 }
 
 .delivery-grid {
@@ -187,6 +127,9 @@ textarea {
   gap: 10px;
 }
 
+/* =========================================================
+   DELIVERY OPTIONS
+========================================================= */
 .delivery-option {
   padding: 12px;
   border-radius: 12px;
@@ -214,45 +157,49 @@ textarea {
 }
 
 /* =========================================================
-   IMAGE UPLOAD
+   IMAGE UPLOAD (FIXED + MODERN)
 ========================================================= */
 .image-upload-box {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 10px;
-}
-
-.add-image-btn {
-  width: 68px;
-  height: 68px;
-
-  border: 2px dashed #bbb;
-  border-radius: 12px;
-
-  display: flex;
-  align-items: center;
-  justify-content: center;
-
-  font-size: 26px;
-  color: #888;
-
-  background: #f9f9f9;
-  cursor: pointer;
-  transition: 0.2s;
-}
-
-.add-image-btn:hover {
-  border-color: #0077ff;
-  color: #0077ff;
-}
-
-/* preview grid */
-.preview-grid {
   display: grid;
   grid-template-columns: repeat(4, 1fr);
   gap: 10px;
 }
 
+/* ADD IMAGE BUTTON */
+.add-image-btn {
+  min-height: 120px;
+
+  border: 2px dashed #bbb;
+  border-radius: 14px;
+
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+
+  font-size: 28px;
+  font-weight: 600;
+
+  color: #777;
+  background: #fafafa;
+
+  cursor: pointer;
+  transition: 0.25s ease;
+}
+
+.add-image-btn:hover {
+  border-color: #0077ff;
+  color: #0077ff;
+  background: #eef5ff;
+}
+
+.add-image-btn span {
+  font-size: 12px;
+  margin-top: 6px;
+  color: #666;
+}
+
+/* IMAGE PREVIEW */
 .preview-item {
   position: relative;
   aspect-ratio: 1 / 1;
@@ -280,7 +227,7 @@ textarea {
   border: none;
   border-radius: 50%;
 
-  background: rgba(255,0,0,0.85);
+  background: rgba(255, 0, 0, 0.85);
   color: #fff;
 
   font-size: 12px;
@@ -288,14 +235,8 @@ textarea {
 }
 
 /* =========================================================
-   SUBMIT
+   SUBMIT BUTTONS
 ========================================================= */
-.submit-section {
-  display: flex;
-  flex-direction: column;
-  gap: 10px;
-}
-
 button {
   padding: 0.9rem;
   border-radius: 12px;
@@ -318,27 +259,13 @@ button:disabled {
   background: #aaa;
 }
 
-/* progress */
-.progress {
-  height: 6px;
-  background: #eee;
-  border-radius: 10px;
-  overflow: hidden;
-}
-
-.progress div {
-  height: 100%;
-  background: #0077ff;
-}
-
 /* =========================================================
    SHARE MODAL
 ========================================================= */
 .share-overlay {
   position: fixed;
   inset: 0;
-
-  background: rgba(0,0,0,0.6);
+  background: rgba(0, 0, 0, 0.6);
 
   display: flex;
   align-items: center;
@@ -357,7 +284,7 @@ button:disabled {
   padding: 18px;
   text-align: center;
 
-  box-shadow: 0 10px 40px rgba(0,0,0,0.2);
+  box-shadow: 0 10px 40px rgba(0, 0, 0, 0.2);
 }
 
 .share-actions {
@@ -383,7 +310,7 @@ button:disabled {
     grid-template-columns: 1fr;
   }
 
-  .preview-grid {
+  .image-upload-box {
     grid-template-columns: repeat(2, 1fr);
   }
 
