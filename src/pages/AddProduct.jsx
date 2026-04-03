@@ -1,21 +1,18 @@
-import { useEffect, useMemo, useState, useCallback, useRef } from "react";
+import { useEffect, useMemo, useState, useCallback } from "react";
 import DropdownModal from "../components/DropdownModal.jsx";
 import AddProductHeader from "../components/AddProductHeader.jsx";
 import { locationsByState } from "../config/locationsByState.js";
 import { promotionPlans } from "../config/promotions.js";
 import "../styles/AddProduct.css";
-import imageCompression from "browser-image-compression";
 
 const STORAGE_DRAFT = "product_draft";
 const STORAGE_PAYMENT = "payment_retry";
-const API_BASE = import.meta.env.VITE_API_URL || "https://minimart-ivrm.onrender.com";
 
 const INITIAL_FORM = {
   title: "",
   description: "",
   price: "",
   category_id: "",
-  subcategory_id: "",
   attributes: {
     brand: "",
     model: "",
@@ -31,7 +28,7 @@ const INITIAL_FORM = {
     features: [],
   },
   delivery: {
-    available: false,
+    type: "standard",
     duration: { from: "", to: "" },
     fee: "",
     note: "",
@@ -45,213 +42,37 @@ const INITIAL_FORM = {
 };
 
 export default function AddProduct() {
-  // ================= STATE =================
   const [form, setForm] = useState(INITIAL_FORM);
   const [categories, setCategories] = useState([]);
   const [state, setState] = useState("");
   const [city, setCity] = useState("");
   const [images, setImages] = useState([]);
-  const [activeImage, setActiveImage] = useState(null);
+  const [previews, setPreviews] = useState([]);
   const [loading, setLoading] = useState(false);
   const [selectedPlan, setSelectedPlan] = useState(null);
   const [paymentData, setPaymentData] = useState(null);
-  const [error, setError] = useState("");
-  const [success, setSuccess] = useState("");
-  const [paymentSuccess, setPaymentSuccess] = useState(false);
-  const [isDragging, setIsDragging] = useState(false);
-  const imageTimersRef = useRef(new Map());
 
-  const MAX_IMAGES = 6;
-  const MAX_SIZE = 3 * 1024 * 1024; // 3MB
-
-  // ================= UTILITIES =================
-  const isSlowDevice = useCallback(() =>
-    navigator.hardwareConcurrency <= 4 ||
-    navigator.deviceMemory <= 4 ||
-    /Android|iPhone|iPad/i.test(navigator.userAgent)
-  , []);
-
-  const compressImage = useCallback(async (file) => {
-    try {
-      return await imageCompression(file, {
-        maxSizeMB: isSlowDevice() ? 0.4 : 0.8,
-        maxWidthOrHeight: isSlowDevice() ? 900 : 1280,
-        useWebWorker: true,
-      });
-    } catch {
-      return file;
-    }
-  }, [isSlowDevice]);
-
-  const showError = useCallback((message) => {
-    console.error("❌ ERROR:", message);
-    setError(message);
-    setTimeout(() => setError(""), 5000);
-  }, []);
-
-  const showSuccess = useCallback((message) => {
-    console.log("✅ SUCCESS:", message);
-    setSuccess(message);
-    setTimeout(() => setSuccess(""), 3000);
-  }, []);
-
-  const selectedCategory = useMemo(() =>
-    categories.find(c => String(c.id) === String(form.category_id)),
-  [categories, form.category_id]);
-
-  const normalizeOptions = useCallback((list = []) =>
-    Array.isArray(list)
-      ? list.map(x => typeof x === "string" ? { id: x, name: x } : x).filter(Boolean)
-      : [],
-  []);
-
-  const onlyNumbers = useCallback((v = "") => v.replace(/[^0-9.]/g, ""), []);
-  const onlyDigits = useCallback((v = "") => v.replace(/D/g, ""), []);
-
-  const displayPrice = useCallback((v) => {
-    const num = Number(v);
-    return Number.isNaN(num) || num <= 0 ? "" : new Intl.NumberFormat("en-NG").format(num);
-  }, []);
-
-  const formatLabel = useCallback((t) =>
-    t.replace(/_/g, " ").replace(/\bw/g, (l) => l.toUpperCase()),
-  []);
-
-  // Dynamic options - FIXED
-  const optionsMap = useMemo(() => {
-    const map = {};
-    const dynamic = selectedCategory?.dynamicOptions || {};
-    
-    Object.keys(dynamic).forEach(key => {
-      if (key === "model" && form.attributes.brand) {
-        // Model depends on brand
-        const brandModels = dynamic.model?.[form.attributes.brand] || [];
-        map.model = normalizeOptions(brandModels);
-      } else if (key !== "model") {
-        map[key] = normalizeOptions(dynamic[key]);
-      }
-    });
-    
-    // Always include condition first
-    map.condition = map.condition || normalizeOptions(["New", "Used"]);
-    return map;
-  }, [selectedCategory?.dynamicOptions, form.attributes.brand, normalizeOptions]);
-
-  const sortedFeatures = useMemo(() =>
-    [...(selectedCategory?.dynamicOptions?.features || [])].sort((a, b) => a.localeCompare(b)),
-  [selectedCategory?.dynamicOptions?.features]);
-
-  const fields = useMemo(() => {
-    const dynamicFields = selectedCategory?.dynamicOptions?.fields || [];
-    return ["condition", ...dynamicFields.filter(f => f !== "condition")];
-  }, [selectedCategory?.dynamicOptions?.fields]);
-
-  // ================= FORM UPDATERS =================
-  const updateForm = useCallback((key, value) => {
-    setForm(prev => ({ ...prev, [key]: value }));
-  }, []);
-
-  const updateAttribute = useCallback((key, value) => {
-    setForm(prev => ({
-      ...prev,
-      attributes: {
-        ...prev.attributes,
-        [key]: value,
-        model: key === "brand" ? "" : prev.attributes.model,
-      },
-    }));
-  }, []);
-
-  const updateContact = useCallback((key, value) => {
-    setForm(prev => ({
-      ...prev,
-      contact: { ...prev.contact, [key]: value },
-    }));
-  }, []);
-
-  const updateDelivery = useCallback((key, value) => {
-    setForm(prev => ({
-      ...prev,
-      delivery: { 
-        ...prev.delivery, 
-        [key]: key === "available" ? Boolean(value) : value 
-      },
-    }));
-  }, []);
-
-  const updateDeliveryDuration = useCallback((key, value) => {
-    setForm(prev => ({
-      ...prev,
-      delivery: {
-        ...prev.delivery,
-        duration: { ...prev.delivery.duration, [key]: value },
-      },
-    }));
-  }, []);
-
-  const toggleFeature = useCallback((feature) => {
-    setForm(prev => {
-      const features = prev.attributes.features || [];
-      const exists = features.includes(feature);
-      return {
-        ...prev,
-        attributes: {
-          ...prev.attributes,
-          features: exists
-            ? features.filter(f => f !== feature)
-            : [...features, feature],
-        },
-      };
-    });
-  }, []);
-
-  // ================= VALIDATION =================
-  const validateForm = useCallback(() => {
-    if (!images.length) return "Upload at least 1 image";
-    if (form.title.trim().length < 10) return "Title must be at least 10 characters";
-    if (form.description.trim().length < 20) return "Description must be at least 20 characters";
-    if (!form.price || Number(form.price) <= 0) return "Enter valid price";
-    if (!form.category_id) return "Select category";
-    if (!state || !city) return "Select state and city";
-    if (!form.contact.phone || form.contact.phone.length < 10) return "Valid phone required";
-    if (!form.contact.email || !form.contact.email.includes("@")) return "Valid email required";
-
-    if (form.delivery.available) {
-      const from = Number(form.delivery.duration.from);
-      const to = Number(form.delivery.duration.to);
-      if (Number.isNaN(from) || Number.isNaN(to) || to < from) 
-        return "Valid delivery duration required";
-      if (!form.delivery.fee || Number(form.delivery.fee) <= 0) 
-        return "Delivery fee required";
-    }
-    return null;
-  }, [form, images.length, state, city]);
-
-  // ================= DRAFT MANAGEMENT =================
+  /* ================= AUTO-SAVE DRAFT ================= */
   const saveDraft = useCallback(() => {
-    if (loading) return;
-    const draft = { 
-      form, 
-      state, 
-      city, 
-      images: images.map(i => ({id: i.id})), 
-      selectedPlan: selectedPlan?.id || null 
+    const draft = {
+      form,
+      state,
+      city,
+      selectedPlan: selectedPlan?.id || null,
     };
     localStorage.setItem(STORAGE_DRAFT, JSON.stringify(draft));
-  }, [form, state, city, images, selectedPlan, loading]);
+  }, [form, state, city, selectedPlan]);
 
   const loadDraft = useCallback(() => {
     try {
       const saved = localStorage.getItem(STORAGE_DRAFT);
       if (saved) {
         const draft = JSON.parse(saved);
-        setForm(draft.form || INITIAL_FORM);
-        setState(draft.state || "");
-        setCity(draft.city || "");
-        if (draft.images?.length) 
-          setImages(draft.images.map(id => ({id, file: null, preview: null})));
+        setForm(draft.form);
+        setState(draft.state);
+        setCity(draft.city);
         if (draft.selectedPlan !== null) {
-          const plan = promotionPlans.find(p => p.id === draft.selectedPlan);
+          const plan = promotionPlans.find((p) => p.id === draft.selectedPlan);
           setSelectedPlan(plan || null);
         }
       }
@@ -263,236 +84,33 @@ export default function AddProduct() {
   const clearDraft = useCallback(() => {
     setForm(INITIAL_FORM);
     setImages([]);
-    setState(""); 
+    setPreviews([]);
+    setState("");
     setCity("");
-    setSelectedPlan(null); 
+    setSelectedPlan(null);
     setPaymentData(null);
-    setError(""); 
-    setSuccess("");
-    setPaymentSuccess(false);
     localStorage.removeItem(STORAGE_DRAFT);
     localStorage.removeItem(STORAGE_PAYMENT);
   }, []);
 
-  // ================= IMAGE HANDLING =================
-  const handleImages = useCallback((files) => {
-    if (images.length >= MAX_IMAGES) {
-      showError("Maximum 6 images");
-      return;
-    }
-    
-    const fileArray = Array.from(files)
-      .filter(f => f.type.startsWith("image/") && f.size <= MAX_SIZE)
-      .slice(0, MAX_IMAGES - images.length);
-
-    if (!fileArray.length) return;
-
-    Promise.all(fileArray.map(compressImage))
-      .then(compressed => {
-        const newImages = compressed.map(file => ({
-          id: crypto.randomUUID(),
-          file,
-          preview: URL.createObjectURL(file),
-        }));
-        setImages(prev => [...prev, ...newImages]);
-        showSuccess(`${newImages.length} image(s) added`);
-      })
-      .catch(err => showError("Image processing failed"));
-  }, [images.length, compressImage, showError, showSuccess]);
-
-  const removeImage = useCallback((id) => {
-    setImages(prev => {
-      const img = prev.find(x => x.id === id);
-      if (img?.preview) URL.revokeObjectURL(img.preview);
-      return prev.filter(x => x.id !== id);
-    });
-  }, []);
-
-  const handleDrop = useCallback((e, index) => {
-    e.preventDefault();
-    const from = Number(e.dataTransfer.getData("index"));
-    setImages(prev => {
-      const copy = [...prev];
-      const [moved] = copy.splice(from, 1);
-      copy.splice(index, 0, moved);
-      return copy;
-    });
-    setIsDragging(false);
-  }, []);
-
-  // ================= API FUNCTIONS =================
-  const createProductDraft = async () => {
-    if (!images.some(img => img.file)) 
-      throw new Error("All images must have files attached");
-
-    const fd = new FormData();
-    fd.append("title", form.title.trim());
-    fd.append("description", form.description.trim());
-    fd.append("price", Number(form.price).toString());
-    fd.append("category_id", form.category_id);
-    fd.append("attributes", JSON.stringify(form.attributes));
-    fd.append("delivery", JSON.stringify(form.delivery));
-    fd.append("contact", JSON.stringify(form.contact));
-    fd.append("location_state", state);
-    fd.append("location_city", city);
-
-    images.forEach(img => {
-      if (img.file) fd.append("images", img.file);
-    });
-
-    console.log("📤 Creating product with", images.length, "images");
-
-    const res = await fetch(`${API_BASE}/api/marketplace/products`, {
-      method: "POST",
-      body: fd,
-    });
-
-    if (!res.ok) {
-      const data = await res.json().catch(() => ({}));
-      throw new Error(data.error || data.message || `HTTP ${res.status}`);
-    }
-
-    const result = await res.json();
-    return result.product_id || result.product?.id;
-  };
-
-  const startPayment = async (productId, plan) => {
-    const res = await fetch(`${API_BASE}/api/marketplace/payment/initialize`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        email: form.contact.email,
-        amount: Number(plan.price),
-        productId,
-        planId: plan.id,
-      }),
-    });
-
-    const data = await res.json();
-    if (!data.success || !data.authorization_url) {
-      throw new Error(data.error || "Payment initialization failed");
-    }
-    
-    return data.authorization_url;
-  };
-
-  const verifyPayment = async (reference) => {
-    if (!paymentData?.productId) {
-      showError("No product ID for verification");
-      return;
-    }
-
-    try {
-      const res = await fetch(`${API_BASE}/api/marketplace/payment/verify`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ 
-          reference, 
-          productId: paymentData.productId 
-        }),
-      });
-
-      const data = await res.json();
-      if (data.success) {
-        setPaymentSuccess(true);
-        clearDraft();
-        showSuccess("Product is now live! 🎉");
-        setTimeout(() => window.location.href = "/products", 2000);
-      } else {
-        throw new Error(data.error || data.message || "Verification failed");
-      }
-    } catch (err) {
-      showError(err.message);
-    }
-  };
-
-  // ================= SUBMIT =================
-  const handleSubmit = async (e) => {
-    e?.preventDefault();
-    
-    const validationError = validateForm();
-    if (validationError) return showError(validationError);
-
-    setLoading(true);
-    setError("");
-
-    try {
-      // 1. Create product draft
-      const productId = await createProductDraft();
-      console.log("✅ Product created:", productId);
-
-      // 2. Handle free vs paid plans
-      const finalPlan = selectedPlan || promotionPlans.find(p => p.price === 0);
-      
-      if (!finalPlan) throw new Error("No valid plan selected");
-
-      if (finalPlan.price === 0) {
-        // Free plan - activate immediately
-        const res = await fetch(`${API_BASE}/api/marketplace/products/${productId}/activate`, {
-          method: "POST",
-        });
-        
-        if (res.ok) {
-          clearDraft();
-          showSuccess("Product created & published successfully! 🎉");
-          setTimeout(() => window.location.href = "/products", 1500);
-        } else {
-          throw new Error("Activation failed");
-        }
-      } else {
-        // Paid plan - start payment
-        const paymentInfo = {
-          email: form.contact.email,
-          amount: finalPlan.price,
-          planId: finalPlan.id,
-          productId
-        };
-        
-        setPaymentData(paymentInfo);
-        localStorage.setItem(STORAGE_PAYMENT, JSON.stringify(paymentInfo));
-        
-        const authUrl = await startPayment(productId, finalPlan);
-        window.location.href = authUrl;
-      }
-    } catch (err) {
-      console.error("Submit error:", err);
-      showError(err.message || "Failed to create product");
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  const retryPayment = async () => {
-    if (!paymentData) return showError("No payment data found");
-    
-    setLoading(true);
-    try {
-      const plan = { 
-        id: paymentData.planId, 
-        price: paymentData.amount 
-      };
-      const authUrl = await startPayment(paymentData.productId, plan);
-      window.location.href = authUrl;
-    } catch (err) {
-      showError(err.message || "Payment retry failed");
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  // ================= EFFECTS =================
-  useEffect(() => loadDraft(), []);
+  useEffect(() => {
+    loadDraft();
+  }, [loadDraft]);
 
   useEffect(() => {
-    if (!loading) {
-      const timeout = setTimeout(saveDraft, 1000);
-      return () => clearTimeout(timeout);
-    }
-  }, [form, state, city, images, selectedPlan]);
+    if (!loading) saveDraft();
+  }, [saveDraft, loading]);
 
+  /* ================= PAYMENT PERSISTENCE ================= */
   useEffect(() => {
     const saved = localStorage.getItem(STORAGE_PAYMENT);
-    if (saved) setPaymentData(JSON.parse(saved));
+    if (saved) {
+      try {
+        setPaymentData(JSON.parse(saved));
+      } catch (e) {
+        localStorage.removeItem(STORAGE_PAYMENT);
+      }
+    }
   }, []);
 
   useEffect(() => {
@@ -501,399 +119,499 @@ export default function AddProduct() {
     }
   }, [paymentData]);
 
-  // Payment callback handler
+  /* ================= FETCH CATEGORIES ================= */
   useEffect(() => {
-    const urlParams = new URLSearchParams(window.location.search);
-    const status = urlParams.get('status');
-    const reference = urlParams.get('reference');
-    
-    if (status === 'success' && reference && paymentData) {
-      verifyPayment(reference);
-    } else if (status === 'cancel' && paymentData) {
-      showError("Payment cancelled. Use retry button below.");
-    }
-  }, [paymentData]);
-
-  // Load categories
-  useEffect(() => {
-    fetch(`${API_BASE}/api/marketplace/categories`)
-      .then(r => r.json())
+    fetch("https://minimart-ivrm.onrender.com/api/marketplace/categories")
+      .then((r) => r.json())
       .then(setCategories)
-      .catch(e => {
-        console.error("Categories load failed:", e);
-        showError("Failed to load categories");
-      });
+      .catch(console.error);
   }, []);
 
-  // Auto-init form fields based on category
-  useEffect(() => {
-    if (selectedCategory?.dynamicOptions?.fields?.length) {
-      setForm(prev => {
-        const newAttrs = { ...prev.attributes };
-        selectedCategory.dynamicOptions.fields.forEach(field => {
-          if (newAttrs[field] === undefined || newAttrs[field] === "") {
-            newAttrs[field] = field === "features" ? [] : "";
-          }
-        });
-        return { ...prev, attributes: newAttrs };
-      });
-    }
-  }, [selectedCategory?.dynamicOptions?.fields]);
+  /* ================= UTILITY FUNCTIONS ================= */
+  const selectedCategory = useMemo(
+    () => categories.find((c) => String(c.id) === String(form.category_id)),
+    [categories, form.category_id]
+  );
 
-  // Cleanup images
-  useEffect(() => () => {
-    images.forEach(img => {
-      if (img.preview) URL.revokeObjectURL(img.preview);
+  const options = selectedCategory?.dynamicOptions || {};
+  const attributes = form.attributes;
+  const brand = attributes.brand;
+
+  const normalizeOptions = (list = []) =>
+    Array.isArray(list)
+      ? list.map((x) => (typeof x === "string" ? { id: x, name: x } : x))
+      : [];
+
+  // ✅ FIXED: proper regex
+  const onlyNumbers = (v = "") => v.replace(/D/g, "");
+
+  // ✅ FIXED: display only
+  const displayPrice = (v) =>
+    v ? new Intl.NumberFormat("en-NG").format(Number(v)) : "";
+
+  const formatLabel = (t) =>
+    t.replace(/\bw/g, (l) => l.toUpperCase()).replace(/_/g, " ");
+
+  const optionsMap = useMemo(() => {
+    const modelsForBrand =
+      brand && options.models && options.models[brand]
+        ? options.models[brand]
+        : [];
+    return {
+      brand: normalizeOptions(options.brands),
+      model: normalizeOptions(modelsForBrand),
+      color: normalizeOptions(options.colors),
+      condition: normalizeOptions(options.conditions),
+      used_detail: normalizeOptions(options.usedDetails),
+      ram: normalizeOptions(options.ram),
+      storage: normalizeOptions(options.storage),
+      sim: normalizeOptions(options.sims),
+      year: normalizeOptions(options.years),
+      engine: normalizeOptions(options.engines),
+      fuel_type: normalizeOptions(options.fuel_types),
+    };
+  }, [options, brand]);
+
+  const sortedFeatures = useMemo(() => {
+    return [...(options.features || [])].sort((a, b) => a.localeCompare(b));
+  }, [options.features]);
+
+  const fields = useMemo(() => {
+    const dynamic = options.fields || [];
+    return dynamic.includes("condition") ? dynamic : ["condition", ...dynamic];
+  }, [options]);
+
+  /* ================= FORM UPDATERS ================= */
+  const update = (key, value) => setForm((p) => ({ ...p, [key]: value }));
+
+  const updateAttr = (key, value) =>
+    setForm((p) => ({
+      ...p,
+      attributes: {
+        ...p.attributes,
+        [key]: value,
+        ...(key === "brand" && { model: "" }),
+      },
+    }));
+
+  const updateContact = (key, value) =>
+    setForm((p) => ({
+      ...p,
+      contact: { ...p.contact, [key]: value },
+    }));
+
+  const updateDelivery = (key, value) =>
+    setForm((p) => ({
+      ...p,
+      delivery: { ...p.delivery, [key]: value },
+    }));
+
+  const updateDeliveryDuration = (key, value) =>
+    setForm((p) => ({
+      ...p,
+      delivery: {
+        ...p.delivery,
+        duration: { ...p.delivery.duration, [key]: value },
+      },
+    }));
+
+  const toggleFeature = (feature) => {
+    setForm((p) => {
+      const list = p.attributes.features || [];
+      const exists = list.includes(feature);
+      return {
+        ...p,
+        attributes: {
+          ...p.attributes,
+          features: exists ? list.filter((f) => f !== feature) : [...list, feature],
+        },
+      };
     });
-  }, [images]);
+  };
 
-  // ================= RENDER =================
-  const showRetryButton = paymentData && paymentData.amount > 0;
+  /* ================= VALIDATION ================= */
+  const validate = () => {
+    if (form.title.length < 10) return "Title too short";
+    if (form.description.length < 20) return "Description too short";
+    if (!form.price) return "Price required";
+    if (!form.category_id) return "Select category";
+    if (!form.contact.phone) return "Phone required";
+    if (!form.contact.email) return "Email required";
+
+    if (form.delivery.type !== "none" && form.delivery.type !== "pickup") {
+      const from = Number(form.delivery.duration.from);
+      const to = Number(form.delivery.duration.to);
+      if (Number.isNaN(from) || Number.isNaN(to))
+        return "Delivery range required";
+      if (to < from) return "Invalid delivery range";
+    }
+
+    return null;
+  };
+
+  /* ================= IMAGE HANDLING ================= */
+  const handleImages = (files) => {
+    const list = Array.from(files)
+      .slice(0, 8)
+      .filter((f) => f.size <= 3 * 1024 * 1024); // 3MB limit
+
+    previews.forEach(URL.revokeObjectURL);
+    setImages(list);
+    setPreviews(list.map((f) => URL.createObjectURL(f)));
+  };
+
+  const removeImage = (i) => {
+    const oldPreview = previews[i];
+    if (oldPreview) URL.revokeObjectURL(oldPreview);
+
+    setImages((prev) => prev.filter((_, x) => x !== i));
+    setPreviews((prev) => prev.filter((_, x) => x !== i));
+  };
+
+  /* ================= CREATE PAYMENT-READY DRAFT ================= */
+  const createProductDraft = async () => {
+    const fd = new FormData();
+
+    const payload = {
+      ...form,
+      price: form.price,
+      attributes: JSON.stringify(form.attributes),
+      delivery: JSON.stringify(form.delivery),
+      contact: JSON.stringify(form.contact),
+      location_state: state,
+      location_city: city,
+      promotion_plan: selectedPlan?.id || null,
+      // ✅ No status; backend controls state
+    };
+
+    Object.entries(payload)
+      .filter(([_, v]) => v !== null && v !== undefined)
+      .forEach(([k, v]) => fd.append(k, v));
+    images.forEach((img) => fd.append("images", img));
+
+    const res = await fetch("https://minimart-ivrm.onrender.com/api/marketplace/products", {
+      method: "POST",
+      body: fd,
+    });
+
+    if (!res.ok) {
+      const data = await res.json().catch(() => ({}));
+      throw new Error(data.message || "Failed to save product draft");
+    }
+
+    const data = await res.json();
+    return data.product;
+  };
+
+  /* ================= START PAYMENT FLOW ================= */
+  const startPayment = async (productId, plan) => {
+    const res = await fetch("https://minimart-ivrm.onrender.com/api/payment/initialize", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        email: form.contact.email,
+        amount: Number(plan.price),
+        planId: plan.id,
+        productId,
+      }),
+    });
+
+    const data = await res.json();
+
+    if (!data.success || !data.authorization_url) {
+      throw new Error(data.message || "Payment initialization failed");
+    }
+
+    return data.authorization_url;
+  };
+
+  /* ================= FORM SUBMIT FLOW ================= */
+  const handleSubmit = async () => {
+    if (loading) return;
+
+    const err = validate();
+    if (err) return alert(err);
+
+    const finalPlan = selectedPlan || promotionPlans.find((p) => p.price === 0);
+    setLoading(true);
+
+    try {
+      // ✅ 1. Save as DRAFT (no “active” status)
+      const product = await createProductDraft();
+      const productId = product?.id;
+
+      if (!productId) {
+        throw new Error("Failed to create product draft");
+      }
+
+      // ✅ 2. FREE PLAN: backend activates only (no user‑only activation)
+      if (finalPlan.price === 0) {
+        await fetch(
+          `https://minimart-ivrm.onrender.com/api/marketplace/products/${productId}/activate`,
+          { method: "POST" }
+        );
+        clearDraft();
+        alert("✅ Product created and activated");
+        setLoading(false);
+        return;
+      }
+
+      // ✅ 3. PAID PLAN: store payment info → redirect
+      setPaymentData({
+        email: form.contact.email,
+        amount: Number(finalPlan.price),
+        planId: finalPlan.id,
+        productId,
+      });
+
+      const authUrl = await startPayment(productId, finalPlan);
+      window.location.href = authUrl;
+    } catch (err) {
+      alert(err.message || "Something went wrong");
+      setLoading(false);
+    }
+  };
+
+  /* ================= RETRY PAYMENT ================= */
+  const retryPayment = async () => {
+    if (!paymentData) return alert("No payment data found");
+
+    setLoading(true);
+
+    try {
+      const plan = { id: paymentData.planId, price: paymentData.amount };
+      const authUrl = await startPayment(paymentData.productId, plan);
+      window.location.href = authUrl;
+    } catch (err) {
+      alert(err.message || "Payment retry failed");
+      setLoading(false);
+    }
+  };
+
   const states = Object.keys(locationsByState || {});
-  const cities = state ? (locationsByState[state] || []) : [];
+  const cities = state ? locationsByState[state] : [];
 
+  /* ================= RENDER ================= */
   return (
     <div className="add-product-container">
       <AddProductHeader title="Add Product" onClearDraft={clearDraft} />
 
-      <form onSubmit={handleSubmit}>
-        {/* Basic Info */}
-        <section className="section form-card">
-          <h3>📦 Basic Information</h3>
-          <div className="form-group">
-            <label>Product Title <span className="required">*</span></label>
-            <input
-              required
-              placeholder="Enter catchy product title (min 10 chars)"
-              value={form.title}
-              onChange={e => updateForm("title", e.target.value)}
-              maxLength={200}
-            />
-          </div>
-          <div className="form-group">
-            <label>Description <span className="required">*</span></label>
-            <textarea
-              required
-              rows="4"
-              placeholder="Describe your product in detail (min 20 chars)..."
-              value={form.description}
-              onChange={e => updateForm("description", e.target.value)}
-            />
-          </div>
-          <div className="form-group">
-            <label>Price (₦) <span className="required">*</span></label>
-            <input
-              required
-              type="text"
-              inputMode="numeric"
-              placeholder="Enter price"
-              value={displayPrice(form.price)}
-              onChange={e => updateForm("price", onlyNumbers(e.target.value))}
-            />
-          </div>
-        </section>
+      {/* BASIC FIELDS */}
+      <div className="form-section-round">
+        <label>Product Title</label>
+        <input
+          placeholder="Enter product title (min 10 chars)"
+          value={form.title}
+          onChange={(e) => update("title", e.target.value)}
+        />
+      </div>
 
-        {/* Category & Attributes */}
-        <section className="section form-card">
-          <h3>🏷️ Category & Details</h3>
-          <div className="form-group">
-            <label>Category <span className="required">*</span></label>
+      <div className="form-section-round">
+        <label>Description</label>
+        <textarea
+          placeholder="Detailed description (min 20 chars)"
+          value={form.description}
+          onChange={(e) => update("description", e.target.value)}
+          rows="4"
+        />
+      </div>
+
+      <div className="form-section-round">
+        <label>Price (₦)</label>
+        <input
+          placeholder="0"
+          value={form.price}
+          onChange={(e) => update("price", onlyNumbers(e.target.value))}
+        />
+        {form.price && <small>₦{displayPrice(form.price)}</small>}
+      </div>
+
+      <div className="form-section-round">
+        <label>Email</label>
+        <input
+          placeholder="your@email.com"
+          type="email"
+          value={form.contact.email}
+          onChange={(e) => updateContact("email", e.target.value)}
+        />
+      </div>
+
+      <div className="form-section-round">
+        <label>Category</label>
+        <DropdownModal
+          label=""
+          value={form.category_id}
+          onChange={(v) =>
+            setForm((prev) => ({
+              ...prev,
+              category_id: v,
+              attributes: INITIAL_FORM.attributes,
+            }))
+          }
+          options={categories.map((c) => ({
+            id: c.id,
+            name: c.name,
+          }))}
+        />
+      </div>
+
+      {/* DYNAMIC FIELDS */}
+      {fields.map((f) => {
+        if (!optionsMap[f]) return null;
+        if (f === "used_detail" && attributes.condition !== "used") return null;
+
+        return (
+          <div key={f} className="form-section-round">
+            <label>{formatLabel(f)}</label>
             <DropdownModal
-              value={form.category_id}
-              onChange={v => updateForm("category_id", v)}
-              options={categories.map(c => ({ id: c.id, name: c.name }))}
-              placeholder="Select category"
+              label=""
+              value={attributes[f] || ""}
+              onChange={(v) => updateAttr(f, v)}
+              options={optionsMap[f]}
             />
           </div>
+        );
+      })}
 
-          {fields.map(field => {
-            if (field === "used_detail" && form.attributes.condition !== "Used") return null;
-            if (!optionsMap[field] && field !== "features") return null;
-
-            return (
-              <div key={field} className="form-group">
-                <label>{formatLabel(field)}</label>
-                {field === "features" ? (
-                  <div className="checkbox-grid">
-                    {sortedFeatures.map(feat => (
-                      <label key={feat} className="checkbox-item">
-                        <input
-                          type="checkbox"
-                          checked={form.attributes.features?.includes(feat) || false}
-                          onChange={() => toggleFeature(feat)}
-                        />
-                        <span>{formatLabel(feat)}</span>
-                      </label>
-                    ))}
-                  </div>
-                ) : (
-                  <DropdownModal
-                    value={form.attributes[field] || ""}
-                    onChange={v => updateAttribute(field, v)}
-                    options={optionsMap[field] || []}
-                    placeholder={`Select ${formatLabel(field)}`}
-                  />
-                )}
-              </div>
-            );
-          })}
-        </section>
-
-        {/* Contact */}
-        <section className="section form-card">
-          <h3>📱 Contact Information</h3>
-          <div className="form-group">
-            <label>Email <span className="required">*</span></label>
-            <input
-              required
-              type="email"
-              placeholder="your@email.com"
-              value={form.contact.email}
-              onChange={e => updateContact("email", e.target.value)}
-            />
-          </div>
-          <div className="form-group">
-            <label>Phone <span className="required">*</span></label>
-            <input
-              required
-              type="tel"
-              inputMode="tel"
-              placeholder="08012345678"
-              value={form.contact.phone}
-              onChange={e => updateContact("phone", onlyDigits(e.target.value))}
-            />
-          </div>
-        </section>
-
-        {/* Location & Delivery */}
-        <section className="section form-card">
-          <h3>📍 Location & Delivery</h3>
-          <div className="form-group">
-            <label>State <span className="required">*</span></label>
-            <DropdownModal 
-              value={state} 
-              onChange={setState} 
-              options={states.map(s => ({id: s, name: s}))}
-              placeholder="Select state"
-            />
-          </div>
-          {state && (
-            <div className="form-group">
-              <label>City <span className="required">*</span></label>
-              <DropdownModal 
-                value={city} 
-                onChange={setCity} 
-                options={cities.map(c => ({id: c, name: c}))}
-                placeholder="Select city"
-              />
-            </div>
-          )}
-          
-          <div className="form-group checkbox-group">
-            <label className="checkbox-label">
-              <input
-                type="checkbox"
-                checked={form.delivery.available}
-                onChange={e => updateDelivery("available", e.target.checked)}
-              />
-              Offer delivery
-            </label>
-          </div>
-
-          {form.delivery.available && (
-            <div className="delivery-details">
-              <div className="delivery-grid">
-                <div className="form-group">
-                  <label>Delivery time (from)</label>
-                  <input 
-                    type="number" 
-                    min="1" 
-                    max="30"
-                    value={form.delivery.duration.from} 
-                    onChange={e => updateDeliveryDuration("from", e.target.value)}
-                    placeholder="1"
-                  />
-                </div>
-                <div className="form-group">
-                  <label>Delivery time (to)</label>
-                  <input 
-                    type="number" 
-                    min="1" 
-                    max="30"
-                    value={form.delivery.duration.to} 
-                    onChange={e => updateDeliveryDuration("to", e.target.value)}
-                    placeholder="3"
-                  />
-                </div>
-              </div>
-              <div className="form-group">
-                <label>Delivery Fee (₦)</label>
+      {/* FEATURES */}
+      {sortedFeatures.length > 0 && (
+        <div className="form-section-round">
+          <label>Features</label>
+          <div className="checkbox-grid-inline">
+            {sortedFeatures.map((f) => (
+              <label key={f} className="checkbox-inline">
                 <input
-                  type="text"
-                  inputMode="numeric"
-                  placeholder="1000"
-                  value={displayPrice(form.delivery.fee)}
-                  onChange={e => updateDelivery("fee", onlyNumbers(e.target.value))}
+                  type="checkbox"
+                  checked={attributes.features.includes(f)}
+                  onChange={() => toggleFeature(f)}
                 />
-              </div>
-            </div>
-          )}
-        </section>
-
-        {/* Images */}
-        <section className="section form-card">
-          <h3>🖼️ Product Images <span className="required">*</span></h3>
-          <p className="help-text">Max 6 images, 3MB each. First image is cover.</p>
-          <div className="image-upload-area">
-            <div className="preview-grid">
-              {images.map((img, i) => (
-                <div
-                  key={img.id}
-                  className={`image-preview ${isDragging ? "dragging" : ""}`}
-                  draggable
-                  onDragStart={e => e.dataTransfer.setData("index", i)}
-                  onDragOver={e => e.preventDefault()}
-                  onDrop={e => handleDrop(e, i)}
-                  onClick={() => setActiveImage(img.preview)}
-                >
-                  <img src={img.preview || ''} alt="" />
-                  <button 
-                    type="button" 
-                    className="remove-btn"
-                    onClick={e => { e.stopPropagation(); removeImage(img.id); }}
-                  >
-                    ✕
-                  </button>
-                  {i === 0 && <div className="cover-badge">Cover</div>}
-                </div>
-              ))}
-              
-              {images.length < MAX_IMAGES && (
-                <label className="upload-zone">
-                  <input
-                    type="file"
-                    multiple
-                    accept="image/*"
-                    onChange={e => {
-                      handleImages(e.target.files);
-                      e.target.value = "";
-                    }}
-                  />
-                  <div className="upload-icon">+</div>
-                  <div className="upload-text">
-                    {images.length === 0 ? "Click or drag images" : `Add ${MAX_IMAGES - images.length} more`}
-                  </div>
-                </label>
-              )}
-            </div>
-            {images.length > 0 && (
-              <div className="image-count">{images.length}/6 images</div>
-            )}
-          </div>
-        </section>
-
-        {/* Promotion Plans */}
-        <section className="section form-card">
-          <h3>🚀 Promotion Plan</h3>
-          <p className="help-text">Choose a plan to boost visibility (optional)</p>
-          <div className="plans-grid">
-            {promotionPlans.map(plan => (
-              <div
-                key={plan.id}
-                className={`plan-card ${selectedPlan?.id === plan.id ? "selected" : ""}`}
-                onClick={() => setSelectedPlan(plan)}
-              >
-                <div className="plan-price">₦{displayPrice(plan.price)}</div>
-                <h4>{plan.name}</h4>
-                <div className="plan-duration">{plan.duration}</div>
-                <ul className="plan-features">
-                  {plan.features.map((feature, i) => (
-                    <li key={i}>{feature}</li>
-                  ))}
-                </ul>
-                {plan.description && <p>{plan.description}</p>}
-              </div>
+                <span>{formatLabel(f)}</span>
+              </label>
             ))}
           </div>
-          {selectedPlan && (
-            <div className="plan-selected">
-              Selected: <strong>{selectedPlan.name}</strong> (₦{displayPrice(selectedPlan.price)})
+        </div>
+      )}
+
+      {/* DELIVERY TYPE */}
+      <div className="form-section-round">
+        <label>Delivery Type</label>
+        <select
+          value={form.delivery.type}
+          onChange={(e) => updateDelivery("type", e.target.value)}
+        >
+          <option value="none">No delivery</option>
+          <option value="standard">Standard delivery</option>
+          <option value="express">Express delivery</option>
+          <option value="pickup">Pickup only</option>
+        </select>
+      </div>
+
+      {form.delivery.type !== "none" && form.delivery.type !== "pickup" && (
+        <div className="sub-grid">
+          <div className="form-section-round-small">
+            <label>From (days)</label>
+            <input
+              value={form.delivery.duration.from}
+              onChange={(e) => updateDeliveryDuration("from", e.target.value)}
+            />
+          </div>
+          <div className="form-section-round-small">
+            <label>To (days)</label>
+            <input
+              value={form.delivery.duration.to}
+              onChange={(e) => updateDeliveryDuration("to", e.target.value)}
+            />
+          </div>
+          <div className="form-section-round-small">
+            <label>Fee (₦)</label>
+            <input
+              value={form.delivery.fee}
+              onChange={(e) => updateDelivery("fee", onlyNumbers(e.target.value))}
+            />
+          </div>
+        </div>
+      )}
+
+      {/* LOCATION */}
+      <div className="form-section-round">
+        <label>State</label>
+        <DropdownModal label="" value={state} onChange={setState} options={states} />
+      </div>
+
+      {state && (
+        <div className="form-section-round">
+          <label>City</label>
+          <DropdownModal label="" value={city} onChange={setCity} options={cities} />
+        </div>
+      )}
+
+      <div className="form-section-round">
+        <label>Phone</label>
+        <input
+          placeholder="08012345678"
+          value={form.contact.phone}
+          onChange={(e) => updateContact("phone", onlyNumbers(e.target.value))}
+        />
+      </div>
+
+      {/* IMAGES */}
+      <div className="form-section-round">
+        <label>Product Images (max 8)</label>
+        <input
+          key={images.length}
+          type="file"
+          multiple
+          accept="image/*"
+          onChange={(e) => handleImages(e.target.files)}
+        />
+        <div className="preview-grid">
+          {previews.map((src, i) => (
+            <div key={i} className="preview-item">
+              <img src={src} alt={`Preview ${i + 1}`} />
+              <button type="button" onClick={() => removeImage(i)}>✕</button>
             </div>
-          )}
-        </section>
+          ))}
+        </div>
+      </div>
 
-        {/* Action Buttons */}
-        <div className="action-buttons">
-          {showRetryButton ? (
-            <button 
-              type="button" 
-              className="btn-retry" 
-              onClick={retryPayment} 
-              disabled={loading}
+            {/* PROMOTION PLANS */}
+      <div className="form-section-round">
+        <label>Promotion Plan</label>
+        <div className="plans-grid">
+          {promotionPlans.map((plan) => (
+            <div
+              key={plan.id}
+              className={`plan-card ${selectedPlan?.id === plan.id ? "selected" : ""}`}
+              onClick={() => setSelectedPlan(plan)}
             >
-              {loading ? "🔄 Retrying..." : "🔄 Retry Payment"}
-            </button>
-          ) : (
-            <button 
-              type="submit" 
-              className="btn-primary" 
-              disabled={loading || !images.length}
-            >
-              {loading ? "⏳ Creating Product..." : "🚀 Create & Publish Product"}
-            </button>
-          )}
-          <button 
-            type="button" 
-            className="btn-secondary" 
-            onClick={clearDraft}
-            disabled={loading}
-          >
-            Clear Draft
+              <div className="plan-header">
+                <strong>{plan.name}</strong>
+                <span className="plan-price">₦{displayPrice(plan.price.toString())}</span>
+              </div>
+              <div className="plan-duration">{plan.duration}</div>
+              <ul className="plan-features">
+                {plan.features.map((feat, i) => (
+                  <li key={i}>{feat}</li>
+                ))}
+              </ul>
+              {plan.description && <p className="plan-desc">{plan.description}</p>}
+            </div>
+          ))}
+        </div>
+      </div>
+
+      {/* SUBMIT BUTTONS */}
+      <div className="form-section-round button-section">
+        <button onClick={handleSubmit} disabled={loading} className="primary-btn">
+          {loading ? "Processing..." : "Create Product"}
+        </button>
+
+        {paymentData && (
+          <button onClick={retryPayment} disabled={loading} className="retry-btn">
+            {loading ? "Retrying..." : "Retry Payment"}
           </button>
-        </div>
-      </form>
-
-      {/* Messages */}
-      {error && (
-        <div className="error-banner">
-          <span>⚠️ {error}</span>
-          <button onClick={() => setError("")}>&times;</button>
-        </div>
-      )}
-      {success && (
-        <div className="success-banner">
-          <span>✅ {success}</span>
-        </div>
-      )}
-
-      {/* Image Modal */}
-      {activeImage && (
-        <div className="image-modal-overlay" onClick={() => setActiveImage(null)}>
-          <div className="image-modal-content">
-            <img src={activeImage} alt="Full preview" />
-          </div>
-        </div>
-      )}
-
-      {/* Loading Overlay */}
-      {loading && (
-        <div className="loading-overlay">
-          <div className="spinner"></div>
-          <div>{paymentData ? "Finalizing payment..." : "Creating your product..."}</div>
-        </div>
-      )}
-
-      {/* Success Modal */}
-      {paymentSuccess && (
-        <div className="success-modal-overlay">
-          <div className="success-modal">
-            <div className="success-icon">🎉</div>
-            <h2>Your product is live!</h2>
-            <p>It's now visible to all buyers and promoted.</p>
-            <div className="spinner small"></div>
-          </div>
-        </div>
-      )}
+        )}
+      </div>
     </div>
   );
 }
