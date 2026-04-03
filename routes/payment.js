@@ -9,33 +9,61 @@ router.post("/initialize", async (req, res) => {
 
   try {
     /* ================= VALIDATION ================= */
-    if (!email || !email.includes("@")) {
+    if (!email || typeof email !== "string" || !email.includes("@")) {
       return res.status(400).json({ error: "Invalid email" });
+    }
+
+    if (!productId) {
+      return res.status(400).json({ error: "Missing productId" });
     }
 
     amount = Number(amount);
 
-    if (!amount || amount <= 0) {
+    if (!Number.isFinite(amount) || amount <= 0) {
       return res.status(400).json({ error: "Invalid amount" });
     }
+
+    /* ================= NORMALIZE ================= */
+    const amountKobo = Math.round(amount * 100);
+
+    /* ================= METADATA ================= */
+    const metadata = {
+      productId: String(productId),
+      planId: planId ? String(planId) : null,
+    };
 
     /* ================= PAYLOAD ================= */
     const payload = {
       email,
-      amount: Math.round(amount * 100),
+      amount: amountKobo,
+      currency: "NGN",
 
-      /* 🔥 CRITICAL FOR MARKETPLACE */
-      metadata: {
-        productId,
-        planId,
-      },
+      metadata,
 
-      /* OPTIONAL BUT RECOMMENDED */
       callback_url: `${process.env.FRONTEND_URL}/payment/success`,
+
+      // Optional but useful for tracing
+      custom_fields: [
+        {
+          display_name: "Product ID",
+          variable_name: "product_id",
+          value: String(productId),
+        },
+        {
+          display_name: "Plan ID",
+          variable_name: "plan_id",
+          value: String(planId || ""),
+        },
+      ],
     };
 
-    console.log("🔥 PAYSTACK INIT:", payload);
+    console.log("🔥 INIT REQUEST:", {
+      email,
+      amount: amountKobo,
+      metadata,
+    });
 
+    /* ================= PAYSTACK CALL ================= */
     const response = await axios.post(
       "https://api.paystack.co/transaction/initialize",
       payload,
@@ -47,18 +75,33 @@ router.post("/initialize", async (req, res) => {
       }
     );
 
+    const data = response.data?.data;
+
+    if (!data?.authorization_url) {
+      throw new Error("Invalid Paystack response");
+    }
+
+    console.log("✅ INIT SUCCESS:", {
+      reference: data.reference,
+      productId,
+      planId,
+    });
+
+    /* ================= RESPONSE ================= */
     return res.json({
       success: true,
-      authorization_url: response.data.data.authorization_url,
-      reference: response.data.data.reference,
+      authorization_url: data.authorization_url,
+      reference: data.reference,
     });
 
   } catch (err) {
-    console.error("❌ PAYSTACK ERROR:");
-    console.error(err.response?.data || err.message);
+    console.error("❌ PAYSTACK INIT ERROR:", {
+      message: err.message,
+      data: err.response?.data,
+    });
 
     return res.status(500).json({
-      error: "Init failed",
+      error: "Payment initialization failed",
       details: err.response?.data || err.message,
     });
   }
