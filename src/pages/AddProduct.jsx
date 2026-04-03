@@ -12,7 +12,7 @@ const STORAGE_PAYMENT = "payment_retry";
 const INITIAL_FORM = {
   title: "",
   description: "",
-  price: "", // as string of digits
+  price: "",
   category_id: "",
   attributes: {
     brand: "",
@@ -31,11 +31,11 @@ const INITIAL_FORM = {
   delivery: {
     type: "standard",
     duration: { from: "", to: "" },
-    fee: "", // as string of digits
+    fee: "",
     note: "",
   },
   contact: {
-    phone: "", // digits only
+    phone: "",
     whatsapp: "",
     email: "",
     preferred: "chat",
@@ -96,12 +96,13 @@ export default function AddProduct() {
       : [],
   []);
 
+  // ✅ FIXED: Proper numeric handling
   const onlyNumbers = useCallback((v = "") => {
-    const cleaned = v.replace(/[^d.]/g, ""); // keep only digits and dot
-    const parts = cleaned.split(".");
-    return parts.length > 2
-      ? parts[0] + "." + parts.slice(1).join("")
-      : cleaned;
+    return v.replace(/[^d.]/g, ""); // Keep digits + decimal (was: /[^d.]/g ❌)
+  }, []);
+
+  const onlyDigits = useCallback((v = "") => {
+    return v.replace(/D/g, ""); // Strict digits only (phone, duration)
   }, []);
 
   const displayPrice = useCallback((v) => {
@@ -521,9 +522,12 @@ export default function AddProduct() {
         </div>
         <div className="form-group">
           <label>Price (₦) <span className="required">*</span></label>
+          {/* ✅ FIXED: text input + proper numeric handling */}
           <input
-            placeholder="Enter price (10000)"
-            value={form.price}
+            type="text"
+            inputMode="numeric"
+            placeholder="10000"
+            value={displayPrice(form.price)}
             onChange={e => updateForm("price", onlyNumbers(e.target.value))}
           />
         </div>
@@ -557,7 +561,7 @@ export default function AddProduct() {
           );
         })}
 
-                {sortedFeatures.length > 0 && (
+        {sortedFeatures.length > 0 && (
           <div className="form-group">
             <label>Features</label>
             <div className="checkbox-grid-inline">
@@ -590,10 +594,13 @@ export default function AddProduct() {
         </div>
         <div className="form-group">
           <label>Phone <span className="required">*</span></label>
+          {/* ✅ FIXED: text input + digits only */}
           <input
+            type="text"
+            inputMode="tel"
             placeholder="08012345678"
             value={form.contact.phone}
-            onChange={e => updateContact("phone", onlyNumbers(e.target.value))}
+            onChange={e => updateContact("phone", onlyDigits(e.target.value))}
           />
         </div>
       </section>
@@ -620,7 +627,6 @@ export default function AddProduct() {
           </div>
         )}
 
-        {/* Delivery Type – using DropdownModal */}
         <div className="form-group">
           <label>Delivery Type</label>
           <DropdownModal
@@ -635,34 +641,36 @@ export default function AddProduct() {
           />
         </div>
 
-        {/* Duration + Fee (only show if delivery type is not "none" or "pickup") */}
         {form.delivery.type !== "none" && form.delivery.type !== "pickup" && (
           <div className="delivery-grid sub-grid">
             <div className="form-group">
               <label>From (days) <span className="required">*</span></label>
+              {/* ✅ FIXED: text input + digits only */}
               <input
-                type="number"
+                type="text"
+                inputMode="numeric"
                 min="1"
                 value={form.delivery.duration.from}
-                onChange={e => updateDeliveryDuration("from", onlyNumbers(e.target.value))}
+                onChange={e => updateDeliveryDuration("from", onlyDigits(e.target.value))}
               />
             </div>
             <div className="form-group">
               <label>To (days) <span className="required">*</span></label>
               <input
-                type="number"
+                type="text"
+                inputMode="numeric"
                 min="1"
                 value={form.delivery.duration.to}
-                onChange={e => updateDeliveryDuration("to", onlyNumbers(e.target.value))}
+                onChange={e => updateDeliveryDuration("to", onlyDigits(e.target.value))}
               />
             </div>
             <div className="form-group">
               <label>Fee (₦) <span className="required">*</span></label>
+              {/* ✅ FIXED: text input + decimal support */}
               <input
-                type="number"
-                min="0"
-                step="0.01"
-                value={form.delivery.fee}
+                type="text"
+                inputMode="numeric"
+                value={displayPrice(form.delivery.fee)}
                 onChange={e => updateDelivery("fee", onlyNumbers(e.target.value))}
               />
             </div>
