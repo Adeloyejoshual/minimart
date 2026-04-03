@@ -1,42 +1,43 @@
 /* =========================================================
-   STYLE 1 PERFECTLY APPLIED TO STYLE 2 STRUCTURE
+   GLOBAL PAGE WRAPPER
 ========================================================= */
-
-/* GLOBAL CONTAINER - STYLE 1 CLAMP SCALING */
 .add-product-container {
   max-width: 860px;
   margin: 0 auto;
-  padding: clamp(1.2rem, 3vw, 2rem) clamp(1rem, 3vw, 2rem) clamp(3rem, 8vw, 5rem);
-  min-height: 100vh;
+  padding: 1.2rem;
+
   display: flex;
   flex-direction: column;
-  gap: clamp(1.5rem, 3vw, 24px);
-  background: #f7f9fc;
+
+  gap: 24px;
+
+  background: #ffffff; /* pure white */
   font-family: "Segoe UI", sans-serif;
-  font-size: clamp(15px, 2.5vw, 16px);
-  line-height: 1.6;
-  color: #222;
 }
 
-/* GLASS HEADER - IDENTICAL STYLE 1 */
+/* =========================================================
+   GLASS HEADER (MODERN)
+========================================================= */
 .glass-header {
   position: sticky;
   top: 0;
   z-index: 1000;
+
   display: flex;
   align-items: center;
   justify-content: center;
-  padding: clamp(14px, 3vw, 16px) clamp(16px, 4vw, 24px);
-  background: rgba(255, 255, 255, 0.7);
+
+  padding: 14px 16px;
+
+  background: rgba(255, 255, 255, 0.95); /* almost pure white glass */
   backdrop-filter: blur(16px);
   -webkit-backdrop-filter: blur(16px);
-  border-bottom: 1px solid rgba(0, 0, 0, 0.06);
-  border-radius: clamp(14px, 3vw, 20px);
-  box-shadow: 0 4px 18px rgba(0, 0, 0, 0.06);
+
+  border-bottom: 1px solid #eee;
 }
 
 .glass-header h2 {
-  font-size: clamp(1.1rem, 2.5vw, 1.15rem);
+  font-size: 1.15rem;
   font-weight: 700;
   margin: 0;
   color: #222;
@@ -44,350 +45,353 @@
 
 .glass-back-btn {
   position: absolute;
-  left: clamp(12px, 3vw, 16px);
-  padding: clamp(8px, 2vw, 12px) clamp(12px, 3vw, 16px);
+  left: 12px;
+
+  padding: 8px 12px;
   border-radius: 10px;
-  border: none;
+
+  border: 1px solid #eee;
   cursor: pointer;
-  background: rgba(255, 255, 255, 0.6);
+
+  background: #ffffff; /* white */
   color: #0077ff;
+
   font-weight: 600;
-  font-size: clamp(0.875rem, 2vw, 0.95rem);
   transition: all 0.2s ease;
 }
 
 .glass-back-btn:hover {
-  background: #eef5ff;
+  background: #f0f7ff;
 }
 
-/* SECTION SYSTEM - STYLE 1 GLASS CARDS */
+/* =========================================================
+   SECTION SYSTEM (MAIN CARD LAYOUT)
+========================================================= */
 .section {
   background: #ffffff;
-  border-radius: clamp(14px, 3vw, 20px);
-  padding: clamp(16px, 3vw, 24px);
+  border-radius: 14px;
+
+  padding: 16px;
+
   box-shadow: 0 4px 18px rgba(0, 0, 0, 0.06);
-  border: 1px solid rgba(0, 0, 0, 0.06);
+
   display: flex;
   flex-direction: column;
-  gap: clamp(12px, 2.5vw, 16px);
-  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+
+  gap: 12px;
+
+  border: 1px solid #eee;
 }
 
+/* optional section title */
 .section-title {
-  font-size: clamp(0.95rem, 2.5vw, 1.125rem);
+  font-size: 0.95rem;
   font-weight: 700;
   color: #333;
-  margin: 0 0 clamp(12px, 2.5vw, 16px) 0;
 }
 
-/* INPUT SYSTEM - STYLE 1 PERFECT */
-input, textarea, select {
+/* =========================================================
+   INPUT SYSTEM
+========================================================= */
+input,
+textarea,
+select {
   width: 100%;
-  padding: clamp(0.85rem, 2vw, 1.125rem) clamp(1rem, 2.5vw, 1.5rem);
-  min-height: clamp(52px, 12vw, 56px);
-  border: 1px solid #ddd;
-  border-radius: clamp(12px, 2.5vw, 16px);
-  background: #fff;
-  font-size: clamp(0.9rem, 2vw, 0.95rem);
-  font-family: inherit;
+  padding: 0.85rem 1rem;
+
+  border: 1px solid #eee;
+  border-radius: 12px;
+
+  font-size: 0.95rem;
+
+  background: #ffffff;
   color: #222;
-  line-height: 1.5;
-  transition: all 0.2s ease;
+
+  transition: 0.2s;
 }
 
-input::placeholder, textarea::placeholder {
-  color: #999;
-}
-
-input:focus, textarea:focus, select:focus {
+input:focus,
+textarea:focus,
+select:focus {
   border-color: #0077ff;
   box-shadow: 0 0 0 3px rgba(0, 119, 255, 0.12);
   outline: none;
 }
 
 textarea {
-  min-height: clamp(120px, 20vw, 140px);
+  min-height: 120px;
   resize: vertical;
 }
 
-/* GRIDS - STYLE 1 RESPONSIVE */
-.basic-grid, .category-box, .contact-section, .delivery-section, .submit-section {
+/* =========================================================
+   BASIC DETAILS
+========================================================= */
+.basic-grid {
   display: flex;
   flex-direction: column;
-  gap: clamp(0.75rem, 2vw, 10px);
+  gap: 10px;
 }
 
-.attributes-grid, .location-grid, .contact-grid {
+/* =========================================================
+   CATEGORY
+========================================================= */
+.category-box {
+  display: flex;
+  flex-direction: column;
+}
+
+/* =========================================================
+   ATTRIBUTES GRID
+========================================================= */
+.attributes-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(clamp(140px, 20vw, 180px), 1fr));
-  gap: clamp(0.75rem, 2vw, 10px);
+  grid-template-columns: repeat(2, 1fr);
+  gap: 10px;
+}
+
+/* used condition highlight (now light blue) */
+.condition-used-box {
+  padding: 10px;
+  border-radius: 12px;
+
+  background: #f0f7ff;
+  border: 1px solid #d0e6ff;
+  color: #333;
+}
+
+/* =========================================================
+   LOCATION SECTION
+========================================================= */
+.location-grid {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 10px;
+}
+
+/* =========================================================
+   CONTACT SECTION
+========================================================= */
+.contact-section {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.contact-grid {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 10px;
+}
+
+/* =========================================================
+   DELIVERY SECTION (IMPORTANT)
+========================================================= */
+.delivery-section {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
 }
 
 .delivery-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(clamp(140px, 20vw, 180px), 1fr));
-  gap: clamp(0.75rem, 2vw, 10px);
-  margin-top: clamp(1rem, 2.5vw, 1.25rem);
-  padding-top: clamp(1rem, 2.5vw, 1.25rem);
-  border-top: 1px solid #f0f0f0;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 10px;
 }
 
-/* DELIVERY OPTIONS - STYLE 1 */
 .delivery-option {
-  padding: clamp(12px, 2.5vw, 16px);
+  padding: 12px;
   border-radius: 12px;
-  border: 1px solid #ddd;
-  background: #fafafa;
+
+  border: 1px solid #eee;
+  background: #ffffff;
+
   text-align: center;
-  font-size: clamp(0.875rem, 2vw, 0.9rem);
+  font-size: 0.9rem;
   font-weight: 500;
+
+  color: #444;
   cursor: pointer;
-  transition: all 0.2s ease;
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
+  transition: 0.2s;
 }
 
 .delivery-option:hover {
   border-color: #0077ff;
-  background: #eef5ff;
+  background: #f0f7ff;
 }
 
 .delivery-option.active {
   border-color: #0077ff;
   background: #e3f0ff;
   font-weight: 600;
+  color: #0077ff;
 }
 
-/* IMAGE UPLOAD - STYLE 1 X VISIBLE */
-.image-upload-box, .preview-grid {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(clamp(100px, 18vw, 120px), 1fr));
-  gap: clamp(0.75rem, 2vw, 10px);
-  margin-top: clamp(1.25rem, 3vw, 1.5rem);
+/* =========================================================
+   IMAGE UPLOAD
+========================================================= */
+.image-upload-box {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
 }
 
 .add-image-btn {
-  border: 2px dashed #bbb;
-  border-radius: clamp(12px, 2.5vw, 14px);
-  background: #fafafa;
+  width: 68px;
+  height: 68px;
+
+  border: 2px dashed #eee;
+  border-radius: 12px;
+
   display: flex;
-  flex-direction: column;
   align-items: center;
   justify-content: center;
-  gap: clamp(0.5rem, 1.5vw, 0.75rem);
-  font-size: clamp(1.5rem, 4vw, 1.75rem);
-  color: #777;
+
+  font-size: 26px;
+  color: #999;
+
+  background: #ffffff;
   cursor: pointer;
-  transition: all 0.25s ease;
-  aspect-ratio: 1;
-  font-weight: 600;
-  text-align: center;
+  transition: 0.2s;
 }
 
 .add-image-btn:hover {
   border-color: #0077ff;
   color: #0077ff;
-  background: #eef5ff;
+  background: #f0f7ff;
+}
+
+/* preview grid */
+.preview-grid {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 10px;
 }
 
 .preview-item {
   position: relative;
-  aspect-ratio: 1;
+  aspect-ratio: 1 / 1;
+
   border-radius: 12px;
   overflow: hidden;
-  background: #eee;
-  border: 1px solid #ddd;
-  cursor: pointer;
-  transition: all 0.25s ease;
-  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.06);
-}
 
-.preview-item:hover {
-  transform: scale(1.02);
-  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.12);
-  border-color: #ccc;
+  background: #f9f9f9;
+  border: 1px solid #eee;
 }
 
 .preview-item img {
   width: 100%;
   height: 100%;
   object-fit: cover;
-  transition: transform 0.3s ease;
 }
 
-.preview-item:hover img {
-  transform: scale(1.05);
-}
-
-/* X BUTTON ALWAYS VISIBLE - STYLE 1 */
 .preview-item button {
   position: absolute;
-  top: clamp(6px, 1.5vw, 8px);
-  right: clamp(6px, 1.5vw, 8px);
-  width: clamp(22px, 5vw, 26px);
-  height: clamp(22px, 5vw, 26px);
+  top: 6px;
+  right: 6px;
+
+  width: 22px;
+  height: 22px;
+
   border: none;
   border-radius: 50%;
+
   background: rgba(255, 0, 0, 0.9);
   color: #fff;
-  font-size: clamp(12px, 3vw, 14px);
-  font-weight: 800;
+
+  font-size: 12px;
   cursor: pointer;
-  opacity: 1;
-  transform: scale(1);
-  transition: all 0.2s ease;
-  box-shadow: 0 2px 8px rgba(255, 0, 0, 0.4);
-  z-index: 10;
+  transition: 0.2s;
 }
 
 .preview-item button:hover {
   background: #dc2626;
-  transform: scale(1.1);
 }
 
-/* CONDITION USED BOX - STYLE 1 */
-.condition-used-box {
-  padding: clamp(12px, 2.5vw, 16px);
-  border-radius: clamp(12px, 2.5vw, 16px);
-  background: #fff7e6;
-  border: 1px solid #ffcc66;
-  font-weight: 500;
-}
-
-/* SUBMIT SECTION - STYLE 1 */
+/* =========================================================
+   SUBMIT
+========================================================= */
 .submit-section {
-  flex-direction: row !important;
-  align-items: stretch;
-  gap: clamp(1.25rem, 3vw, 1.5rem);
-  padding: clamp(1.5rem, 4vw, 2rem) !important;
-  margin-top: clamp(2rem, 5vw, 2.5rem) !important;
-  background: #ffffff;
-  border-radius: clamp(14px, 3vw, 20px);
-  border: 1px solid rgba(0, 0, 0, 0.06);
-  box-shadow: 0 4px 18px rgba(0, 0, 0, 0.06);
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
 }
 
 button {
-  flex: 1;
-  padding: clamp(0.9rem, 2.5vw, 1.125rem) clamp(1.5rem, 3.5vw, 2rem);
-  min-height: clamp(56px, 13vw, 60px);
+  padding: 0.9rem;
   border-radius: 12px;
-  font-size: clamp(0.95rem, 2.5vw, 1rem);
-  font-weight: 600;
-  border: none;
-  cursor: pointer;
+
   background: #0077ff;
   color: #fff;
-  transition: all 0.2s ease;
-  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+
+  border: none;
+  font-weight: 600;
+
+  cursor: pointer;
+  transition: 0.2s;
 }
 
-button:hover:not(:disabled) {
+button:hover {
   background: #005ecc;
-  transform: translateY(-2px);
-  box-shadow: 0 6px 20px rgba(0, 119, 255, 0.3);
 }
 
 button:disabled {
-  background: #aaa;
-  cursor: not-allowed;
-  transform: none;
+  background: #eee;
+  color: #999;
+  border: 1px solid #ddd;
 }
 
-.cancel-btn {
-  background: #f3f4f6 !important;
-  color: #374151 !important;
-}
-
-.cancel-btn:hover:not(:disabled) {
-  background: #e5e7eb !important;
-  transform: translateY(-2px);
-  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.15);
-}
-
-/* PROGRESS BAR - STYLE 1 */
+/* progress */
 .progress {
-  height: clamp(6px, 1.5vw, 8px);
-  background: #e5e7eb;
+  height: 6px;
+  background: #eee;
   border-radius: 10px;
   overflow: hidden;
 }
 
 .progress div {
   height: 100%;
-  background: linear-gradient(90deg, #0077ff, #3b82f6);
-  transition: width 0.3s ease;
+  background: #0077ff;
 }
 
-/* SHARE MODAL - STYLE 1 GLASS */
+/* =========================================================
+   SHARE MODAL
+========================================================= */
 .share-overlay {
   position: fixed;
   inset: 0;
-  background: rgba(0, 0, 0, 0.6);
-  backdrop-filter: blur(12px);
-  z-index: 10000;
+
+  background: rgba(0, 0, 0, 0.5);
+
   display: flex;
   align-items: center;
   justify-content: center;
-  padding: clamp(1.5rem, 6vw, 2.5rem);
+
+  z-index: 9999;
 }
 
 .share-modal {
-  width: clamp(320px, 90vw, 420px);
-  background: rgba(255, 255, 255, 0.95);
-  backdrop-filter: blur(20px);
-  -webkit-backdrop-filter: blur(20px);
-  border-radius: clamp(14px, 3vw, 20px);
-  padding: clamp(1.5rem, 4vw, 2rem);
+  width: 92%;
+  max-width: 420px;
+
+  background: #ffffff;
+  border-radius: 16px;
+
+  padding: 18px;
   text-align: center;
-  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
-  border: 1px solid rgba(255, 255, 255, 0.2);
+
+  box-shadow: 0 10px 40px rgba(0, 0, 0, 0.2);
+  border: 1px solid #eee;
 }
 
 .share-actions {
   display: flex;
   flex-direction: column;
-  gap: clamp(0.75rem, 2vw, 1rem);
-  margin-top: clamp(1rem, 2.5vw, 1.25rem);
+  gap: 10px;
+  margin-top: 12px;
 }
 
-/* RESPONSIVE - STYLE 1 BREAKPOINTS */
-@media (max-width: 1024px) {
-  .preview-grid, .image-upload-box {
-    grid-template-columns: repeat(4, 1fr);
-  }
-}
-
-@media (max-width: 768px) {
-  .preview-grid, .image-upload-box {
-    grid-template-columns: repeat(3, 1fr);
-  }
-  .delivery-grid {
-    grid-template-columns: repeat(2, 1fr);
-  }
-  .submit-section {
-    flex-direction: column !important;
-    gap: clamp(1rem, 2.5vw, 1.25rem);
-  }
-}
-
-@media (max-width: 600px) {
-  .preview-grid, .image-upload-box {
-    grid-template-columns: repeat(2, 1fr);
-  }
-  .attributes-grid, .location-grid, .contact-grid, .delivery-grid {
-    grid-template-columns: 1fr;
-  }
-  .add-product-container {
-    padding: clamp(1rem, 4vw, 1.25rem);
-  }
-}
-
-@media (min-width: 1440px) {
-  .add-product-container {
-    max-width: 900px;
-    padding-left: 2rem;
-    padding-right: 2rem;
-  }
+.cancel-btn {
+  background: #f0f0f0 !important;
+  color: #555 !important;
+  border: 1px solid #eee;
 }
