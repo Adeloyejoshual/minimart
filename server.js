@@ -121,17 +121,20 @@ app.use((req, res, next) => {
 });
 
 /* =========================================================
-   🚨 CRITICAL: PAYSTACK WEBHOOK BEFORE JSON PARSER
+   🚨 CRITICAL: WEBHOOKS BEFORE JSON PARSER (FIXED)
 ========================================================= */
-import paystackWebhook from "./routes/paystackWebhook.js";
-app.use("/api/webhooks/paystack", paystackWebhook);  // ✅ CORRECTED PATH
-app.use("/api/payment/webhook", express.raw({ type: "application/json" }), paystackWebhook);  // ✅ BACKWARD COMPAT
+// ✅ CORRECT IMPORT - matches your payment.js webhook endpoint
+import paymentRouter from "./routes/payment.js";
+
+// ✅ Webhook endpoints FIRST (raw body)
+app.use("/api/payments/webhook", paymentRouter);           // Main webhook
+app.use("/api/webhooks/paystack", paymentRouter);         // Legacy
+app.use("/api/payment/webhook", paymentRouter);           // Backward compat
 
 /* ================= BODY PARSERS ================= */
 app.use(express.json({ limit: "10mb" }));
 app.use(express.urlencoded({ limit: "10mb", extended: true }));
-
-app.use(express.raw({ type: "application/json" })); // Fallback for webhooks
+app.use(express.raw({ type: "application/json" })); // Fallback
 
 /* ================= ROUTES ================= */
 import marketplaceRouter from "./routes/marketplace.js";
@@ -140,7 +143,6 @@ import messagesRouter from "./routes/messages.js";
 import adminRouter from "./routes/admin.js";
 import searchRouter from "./routes/search.js";
 import productDetailRouter from "./routes/productDetail.js";
-import paymentRouter from "./routes/payment.js";
 import homepageRouter from "./routes/homepage.js";
 import sellerProfileRouter from "./routes/sellerprofile.js";
 
@@ -150,21 +152,12 @@ app.use("/api/messages", messagesRouter);
 app.use("/api/admin", adminRouter);
 app.use("/api/search", searchRouter);
 app.use("/api/product", productDetailRouter);
-app.use("/api/payment", paymentRouter);
+// ✅ Payment router (includes initialize/verify/free-plan/health)
+app.use("/api/payments", paymentRouter);
 app.use("/api", homepageRouter);
 app.use("/api/marketplace/sellers", sellerProfileRouter);
 
-/* ================= WEBHOOK HEALTH ================= */
-app.get("/api/webhooks/health", (req, res) => {
-  res.json({ 
-    status: "ok", 
-    webhook: "ready", 
-    timestamp: new Date().toISOString(),
-    paystack_key: process.env.PAYSTACK_SECRET_KEY ? "configured" : "missing"
-  });
-});
-
-/* ================= COMPREHENSIVE HEALTH ================= */
+/* ================= HEALTH CHECKS ================= */
 app.get("/api/health", async (req, res) => {
   try {
     const { rows } = await pool.query("SELECT 1 as health");
@@ -177,6 +170,7 @@ app.get("/api/health", async (req, res) => {
       db: rows[0]?.health === 1,
       cache_size: cache.size,
       routes: true,
+      payments: true,
       env: {
         paystack: !!process.env.PAYSTACK_SECRET_KEY,
         db: !!process.env.COCKROACH_URI,
@@ -190,6 +184,15 @@ app.get("/api/health", async (req, res) => {
       details: err.message 
     });
   }
+});
+
+app.get("/api/payments/health", (req, res) => {
+  res.json({ 
+    status: "ok", 
+    endpoints: ["/initialize", "/verify", "/webhook", "/free-plan/:id"],
+    timestamp: new Date().toISOString(),
+    paystack_key: process.env.PAYSTACK_SECRET_KEY ? "configured" : "missing"
+  });
 });
 
 /* ================= SOCKET.IO ================= */
@@ -249,7 +252,7 @@ if (process.env.NODE_ENV === "production") {
   });
 }
 
-/* ================= COMPREHENSIVE ERROR HANDLER ================= */
+/* ================= ERROR HANDLERS ================= */
 app.use((err, req, res, next) => {
   console.error("🔥 GLOBAL ERROR:", {
     url: req.url,
@@ -259,7 +262,6 @@ app.use((err, req, res, next) => {
     body: req.body
   });
 
-  // Handle multer/parsing errors specifically
   if (err.type === 'entity.too.large') {
     return res.status(413).json({ 
       success: false, 
@@ -275,7 +277,6 @@ app.use((err, req, res, next) => {
   });
 });
 
-/* ================= 404 HANDLER ================= */
 app.use("*", (req, res) => {
   if (req.path.startsWith("/api/")) {
     return res.status(404).json({ 
@@ -286,15 +287,24 @@ app.use("*", (req, res) => {
   res.status(404).send("Not Found");
 });
 
-/* ================= START SERVER ================= */
+/* ================= START SERVER (PRODUCTION READY) ================= */
 const startServer = () => {
   server.listen(PORT, "0.0.0.0", () => {
-    console.log(`🚀 Server running → http://localhost:${PORT}`);
-    console.log(`📊 Health → http://localhost:${PORT}/api/health`);
-    console.log(`🔗 Webhook → http://localhost:${PORT}/api/webhooks/paystack`);
+    const baseUrl = process.env.NODE_ENV === "production" 
+      ? `https://minimart-ivrm.onrender.com`
+      : `http://localhost:${PORT}`;
+    
+    console.log(`🚀 Server running → ${baseUrl}`);
+    console.log(`📊 Health → ${baseUrl}/api/health`);
+    console.log(`💳 Payments → ${baseUrl}/api/payments/health`);
+    console.log(`🪝 Webhook → ${baseUrl}/api/payments/webhook`);
     
     if (process.env.NODE_ENV === "production") {
-      console.log(`🌐 Frontend: ${process.env.FRONTEND_URL}`);
+      console.log(`🌐 Production Mode`);
+      console.log(`🔗 Frontend Callback: ${process.env.FRONTEND_URL || baseUrl}`);
+      console.log(`🔑 Paystack Configured: ${!!process.env.PAYSTACK_SECRET_KEY}`);
+    } else {
+      console.log(`🔧 Development Mode`);
     }
   });
 };
