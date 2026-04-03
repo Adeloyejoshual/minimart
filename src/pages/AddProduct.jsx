@@ -523,12 +523,12 @@ export default function AddProduct() {
           <label>Price (₦) <span className="required">*</span></label>
           {/* ✅ FIXED: text input + proper numeric handling */}
           <input
-            type="text"
-            inputMode="numeric"
-            placeholder="10000"
-            value={displayPrice(form.price)}
-            onChange={e => updateForm("price", onlyNumbers(e.target.value))}
-          />
+  type="text"
+  inputMode="numeric"
+  placeholder="10000"
+  value={form.price}
+  onChange={e => updateForm("price", onlyNumbers(e.target.value))}
+/>
         </div>
       </section>
 
