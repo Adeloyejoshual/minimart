@@ -75,8 +75,15 @@ export default function AddProduct() {
     setTimeout(() => setSuccess(""), 3000);
   }, []);
 
-  const onlyNumbers = useCallback((v) => v.replace(/[^0-9.]/g, ""), []);
-  const onlyDigits = useCallback((v) => v.replace(/D/g, ""), []);
+  const onlyNumbers = useCallback(
+  (v) => v.replace(/[^0-9.]/g, ""),
+  []
+);
+
+const onlyDigits = useCallback(
+  (v) => v.replace(/\D/g, ""),
+  []
+);
   const displayPrice = useCallback((v) => {
     const num = Number(v);
     return isNaN(num) || num <= 0 ? "" : new Intl.NumberFormat("en-NG").format(num);
