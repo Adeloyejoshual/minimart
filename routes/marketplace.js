@@ -3,8 +3,6 @@ import { Pool } from "pg";
 import multer from "multer";
 import { v2 as cloudinary } from "cloudinary";
 import dotenv from "dotenv";
-import axios from "axios";
-import crypto from "crypto";
 
 /* ================= CONFIG ================= */
 import { brands } from "../src/config/brands.js";
@@ -20,7 +18,6 @@ import { years } from "../src/config/years.js";
 import { engines } from "../src/config/engines.js";
 import { fuelTypes } from "../src/config/fuelTypes.js";
 import { locationsByState } from "../src/config/locationsByState.js";
-import { promotionPlans } from "../src/config/promotions.js";
 
 dotenv.config();
 
@@ -80,7 +77,6 @@ const normalizeProduct = (p) => ({
     state: p.location_state,
     city: p.location_city,
   },
-  promotion: promotionPlans.find((x) => x.id == p.promotion_id) || null,
 });
 
 /* ================= CLOUDINARY UPLOAD ================= */
@@ -109,190 +105,6 @@ const uploadImages = async (files) => {
     )
   );
 };
-
-/* =========================================================
-PAYSTACK VERIFY (OPTIONAL UTILITY ENDPOINT)
-========================================================= */
-router.get("/payment/verify/:reference", async (req, res) => {
-  try {
-    const { reference } = req.params;
-
-    const response = await axios.get(
-      `https://api.paystack.co/transaction/verify/${reference}`,
-      {
-        headers: {
-          Authorization: `Bearer ${process.env.PAYSTACK_SECRET_KEY}`,
-        },
-      }
-    );
-
-    const data = response.data.data;
-
-    if (data.status !== "success") {
-      return res.status(400).json({
-        success: false,
-        message: "Payment not successful",
-      });
-    }
-
-    res.json({
-      success: true,
-      amount: data.amount,
-      customer: data.customer,
-      reference: data.reference,
-    });
-  } catch (err) {
-    res.status(500).json({ message: "Verification failed" });
-  }
-});
-
-/* =========================================================
-INITIATE PAYMENT (NEW)
-========================================================= */
-router.post("/payments/initiate", async (req, res) => {
-  try {
-    const { plan_id, product_id, email } = req.body;
-
-    const plan = promotionPlans.find((p) => p.id === plan_id);
-    if (!plan) {
-      return res.status(400).json({ message: "Invalid plan" });
-    }
-
-    const reference = `PSK_${Date.now()}`;
-
-    await pool.query(
-      `INSERT INTO payments (reference, plan_id, product_id, status)
-       VALUES ($1,$2,$3,'pending')`,
-      [reference, plan_id, product_id]
-    );
-
-    const paystack = await axios.post(
-      "https://api.paystack.co/transaction/initialize",
-      {
-        email,
-        amount: plan.price * 100,
-        reference,
-      },
-      {
-        headers: {
-          Authorization: `Bearer ${process.env.PAYSTACK_SECRET_KEY}`,
-        },
-      }
-    );
-
-    res.json(paystack.data);
-  } catch (err) {
-    res.status(500).json({ message: "Payment init failed" });
-  }
-});
-
-/* =========================================================
-PAYSTACK WEBHOOK (SOURCE OF TRUTH)
-========================================================= */
-router.post("/webhooks/paystack", async (req, res) => {
-  try {
-    const hash = crypto
-      .createHmac("sha512", process.env.PAYSTACK_SECRET_KEY)
-      .update(JSON.stringify(req.body))
-      .digest("hex");
-
-    if (hash !== req.headers["x-paystack-signature"]) {
-      return res.sendStatus(401);
-    }
-
-    const event = req.body;
-
-    if (event.event !== "charge.success") {
-      return res.sendStatus(200);
-    }
-
-    const data = event.data;
-
-    const paymentRes = await pool.query(
-      "SELECT * FROM payments WHERE reference=$1",
-      [data.reference]
-    );
-
-    const payment = paymentRes.rows[0];
-    if (!payment) return res.sendStatus(200);
-
-    const plan = promotionPlans.find((p) => p.id === payment.plan_id);
-    if (!plan) return res.sendStatus(200);
-
-    const start = new Date();
-    const end = new Date();
-    end.setDate(end.getDate() + plan.durationDays);
-
-    await pool.query(
-      `
-      UPDATE products
-      SET
-        is_active = true,
-        state = 'active',
-        is_promoted = true,
-        promotion_type = $1,
-        promotion_priority = $2,
-        promotion_start = $3,
-        promotion_end = $4
-      WHERE id = $5
-      `,
-      [plan.id, plan.boostScore, start, end, payment.product_id]
-    );
-
-    await pool.query(
-      "UPDATE payments SET status='success' WHERE reference=$1",
-      [data.reference]
-    );
-
-    res.sendStatus(200);
-  } catch (err) {
-    res.sendStatus(500);
-  }
-});
-
-/* =========================================================
-ACTIVATE PRODUCT (FREE PLAN / ADMIN)
-========================================================= */
-router.post("/products/:id/activate", async (req, res) => {
-  const { id } = req.params;
-
-  const client = await pool.connect();
-
-  try {
-    await client.query("BEGIN");
-
-    const { rows } = await client.query(
-      "SELECT * FROM products WHERE id = $1 FOR UPDATE",
-      [id]
-    );
-
-    if (!rows.length || rows[0]?.is_active !== true || rows[0]?.state === "active") {
-      await client.query("ROLLBACK");
-      return res.status(400).json({ message: "Cannot activate this product" });
-    }
-
-    await client.query(
-      `
-      UPDATE products
-      SET
-        is_active = true,
-        state = 'active',
-        updated_at = now()
-      WHERE id = $1
-      `,
-      [id]
-    );
-
-    await client.query("COMMIT");
-
-    res.json({ success: true });
-  } catch (err) {
-    await client.query("ROLLBACK");
-    res.status(500).json({ message: "Failed to activate product" });
-  } finally {
-    client.release();
-  }
-});
 
 /* =========================================================
 GET PRODUCTS
