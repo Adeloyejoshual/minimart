@@ -96,14 +96,13 @@ export default function AddProduct() {
       : [],
   []);
 
-  // ✅ FIXED: Proper numeric handling
   const onlyNumbers = useCallback((v = "") => {
-    return v.replace(/[^d.]/g, ""); // Keep digits + decimal (was: /[^d.]/g ❌)
-  }, []);
+  return v.replace(/[^\d.]/g, "");
+}, []);
 
   const onlyDigits = useCallback((v = "") => {
-    return v.replace(/D/g, ""); // Strict digits only (phone, duration)
-  }, []);
+  return v.replace(/\D/g, "");
+}, []);
 
   const displayPrice = useCallback((v) => {
     const num = Number(v);
