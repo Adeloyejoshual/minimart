@@ -804,5 +804,3 @@ export default function AddProduct() {
     </div>
   );
 }
-
-export default AddProduct;
