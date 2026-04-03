@@ -4,7 +4,6 @@ import AddProductHeader from "../components/AddProductHeader.jsx";
 import { locationsByState } from "../config/locationsByState.js";
 import { promotionPlans } from "../config/promotions.js";
 import "../styles/AddProduct.css";
-
 import imageCompression from "browser-image-compression";
 
 const STORAGE_DRAFT = "product_draft";
@@ -44,6 +43,7 @@ const INITIAL_FORM = {
 };
 
 export default function AddProduct() {
+  // ================= STATE =================
   const [form, setForm] = useState(INITIAL_FORM);
   const [categories, setCategories] = useState([]);
   const [state, setState] = useState("");
@@ -53,87 +53,173 @@ export default function AddProduct() {
   const [loading, setLoading] = useState(false);
   const [selectedPlan, setSelectedPlan] = useState(null);
   const [paymentData, setPaymentData] = useState(null);
+  const [error, setError] = useState("");
+  const [success, setSuccess] = useState("");
+  const [paymentSuccess, setPaymentSuccess] = useState(false); // ✅ NEW
   const [isDragging, setIsDragging] = useState(false);
   const imageTimersRef = useRef(new Map());
 
   const MAX_IMAGES = 6;
-  const MAX_SIZE = 3 * 1024 * 1024;
+  const MAX_SIZE = 3 * 1024 * 1024; // 3MB
 
-  const isSlowDevice = () =>
+  // ================= UTILITIES =================
+  const isSlowDevice = useCallback(() =>
     navigator.hardwareConcurrency <= 4 ||
     navigator.deviceMemory <= 4 ||
-    /Android|iPhone|iPad/i.test(navigator.userAgent);
+    /Android|iPhone|iPad/i.test(navigator.userAgent)
+  , []);
 
-  const compressImage = async (file) => {
+  const compressImage = useCallback(async (file) => {
     return await imageCompression(file, {
       maxSizeMB: isSlowDevice() ? 0.4 : 0.8,
       maxWidthOrHeight: isSlowDevice() ? 900 : 1280,
       useWebWorker: true,
     });
-  };
+  }, [isSlowDevice]);
 
-  /* ================= CORE UTILITIES ================= */
-  const selectedCategory = useMemo(
-    () => categories.find((c) => String(c.id) === String(form.category_id)),
-    [categories, form.category_id]
-  );
+  const showError = useCallback((message) => {
+    setError(message);
+    setTimeout(() => setError(""), 5000);
+  }, []);
 
-  const options = selectedCategory?.dynamicOptions || {};
-  const attributes = form.attributes;
-  const brand = attributes.brand;
+  const showSuccess = useCallback((message) => {
+    setSuccess(message);
+    setTimeout(() => setSuccess(""), 3000);
+  }, []);
 
-  const normalizeOptions = (list = []) =>
+  const selectedCategory = useMemo(() =>
+    categories.find(c => String(c.id) === String(form.category_id)),
+  [categories, form.category_id]);
+
+  const normalizeOptions = useCallback((list = []) =>
     Array.isArray(list)
-      ? list.map((x) => (typeof x === "string" ? { id: x, name: x } : x))
-      : [];
+      ? list.map(x => typeof x === "string" ? { id: x, name: x } : x)
+      : [],
+  []);
 
-  // ✅ FIXED: Allow decimals for fees
-  const onlyNumbers = (v = "") => v.replace(/[^d.]/g, "");
-  const displayPrice = (v) =>
-    v ? new Intl.NumberFormat("en-NG").format(Number(v)) : "";
+  const onlyNumbers = useCallback((v = "") => {
+  return v.replace(/[^\d.]/g, "");
+}, []);
 
-  const formatLabel = (t) =>
-    t
-      .replace(/_/g, " ")
-      .replace(/\bw/g, (l) => l.toUpperCase());
+const onlyDigits = useCallback((v = "") => {
+  return v.replace(/\D/g, "");
+}, []);
 
-  /* ================= DYNAMIC OPTIONS MAP ================= */
+  const displayPrice = useCallback((v) => {
+    const num = Number(v);
+    return Number.isNaN(num) || num <= 0 ? "" : new Intl.NumberFormat("en-NG").format(num);
+  }, []);
+
+  const formatLabel = useCallback((t) =>
+    t.replace(/_/g, " ").replace(/\bw/g, (l) => l.toUpperCase()),
+  []);
+
+  // Dynamic options
   const optionsMap = useMemo(() => {
     const map = {};
-
-    Object.keys(options || {}).forEach((key) => {
+    Object.keys(selectedCategory?.dynamicOptions || {}).forEach(key => {
       if (key === "models") return;
-
       if (key === "model") {
-        const modelsForBrand = brand && options.model?.[brand] ? options.model[brand] : [];
+        const modelsForBrand = form.attributes.brand &&
+          selectedCategory?.dynamicOptions?.model?.[form.attributes.brand];
         map.model = normalizeOptions(modelsForBrand);
         return;
       }
-
-      map[key] = normalizeOptions(options[key] || []);
+      map[key] = normalizeOptions(selectedCategory?.dynamicOptions?.[key]);
     });
-
     return map;
-  }, [options, brand]);
+  }, [selectedCategory?.dynamicOptions, form.attributes.brand, normalizeOptions]);
 
-  const sortedFeatures = useMemo(() => {
-    return [...(options.features || [])].sort((a, b) => a.localeCompare(b));
-  }, [options.features]);
+  const sortedFeatures = useMemo(() =>
+    [...(selectedCategory?.dynamicOptions?.features || [])].sort((a, b) => a.localeCompare(b)),
+  [selectedCategory?.dynamicOptions?.features]);
 
   const fields = useMemo(() => {
-    const dynamic = options.fields || [];
+    const dynamic = selectedCategory?.dynamicOptions?.fields || [];
     return dynamic.includes("condition") ? dynamic : ["condition", ...dynamic];
-  }, [options]);
+  }, [selectedCategory?.dynamicOptions?.fields]);
 
-  /* ================= DRAFT MANAGEMENT ================= */
+  // ================= FORM UPDATERS =================
+  const updateForm = useCallback((key, value) => {
+    setForm(prev => ({ ...prev, [key]: value }));
+  }, []);
+
+  const updateAttribute = useCallback((key, value) => {
+    setForm(prev => ({
+      ...prev,
+      attributes: {
+        ...prev.attributes,
+        [key]: value,
+        ...(key === "brand" && { model: "" }),
+      },
+    }));
+  }, []);
+
+  const updateContact = useCallback((key, value) => {
+    setForm(prev => ({
+      ...prev,
+      contact: { ...prev.contact, [key]: value },
+    }));
+  }, []);
+
+  const updateDelivery = useCallback((key, value) => {
+    setForm(prev => ({
+      ...prev,
+      delivery: { ...prev.delivery, [key]: value },
+    }));
+  }, []);
+
+  const updateDeliveryDuration = useCallback((key, value) => {
+    setForm(prev => ({
+      ...prev,
+      delivery: {
+        ...prev.delivery,
+        duration: { ...prev.delivery.duration, [key]: value },
+      },
+    }));
+  }, []);
+
+  const toggleFeature = useCallback((feature) => {
+    setForm(prev => {
+      const features = prev.attributes.features || [];
+      const exists = features.includes(feature);
+      return {
+        ...prev,
+        attributes: {
+          ...prev.attributes,
+          features: exists
+            ? features.filter(f => f !== feature)
+            : [...features, feature],
+        },
+      };
+    });
+  }, []);
+
+  // ================= VALIDATION =================
+  const validateForm = useCallback(() => {
+    if (form.title.length < 10) return "Title must be at least 10 characters";
+    if (form.description.length < 20) return "Description must be at least 20 characters";
+    if (!form.price || Number(form.price) <= 0) return "Please enter a valid price";
+    if (!form.category_id) return "Please select a category";
+    if (!form.contact.phone || form.contact.phone.length < 10) return "Please enter a valid phone number";
+    if (!form.contact.email || !form.contact.email.includes("@")) return "Please enter a valid email";
+    if (images.length === 0) return "Please upload at least 1 image";
+    if (!state || !city) return "Please select your state and city";
+
+    if (form.delivery.type !== "none" && form.delivery.type !== "pickup") {
+      const from = Number(form.delivery.duration.from);
+      const to = Number(form.delivery.duration.to);
+      if (Number.isNaN(from) || Number.isNaN(to)) return "Please enter delivery duration";
+      if (to < from) return "End day must be after start day";
+      if (!form.delivery.fee || Number(form.delivery.fee) <= 0) return "Please enter delivery fee";
+    }
+    return null;
+  }, [form, images.length, state, city]);
+
+  // ================= DRAFT MANAGEMENT =================
   const saveDraft = useCallback(() => {
     if (loading) return;
-    const draft = {
-      form,
-      state,
-      city,
-      selectedPlan: selectedPlan?.id || null,
-    };
+    const draft = { form, state, city, selectedPlan: selectedPlan?.id || null };
     localStorage.setItem(STORAGE_DRAFT, JSON.stringify(draft));
   }, [form, state, city, selectedPlan, loading]);
 
@@ -146,7 +232,7 @@ export default function AddProduct() {
         setState(draft.state || "");
         setCity(draft.city || "");
         if (draft.selectedPlan !== null) {
-          const plan = promotionPlans.find((p) => p.id === draft.selectedPlan);
+          const plan = promotionPlans.find(p => p.id === draft.selectedPlan);
           setSelectedPlan(plan || null);
         }
       }
@@ -162,139 +248,47 @@ export default function AddProduct() {
     setCity("");
     setSelectedPlan(null);
     setPaymentData(null);
-    setIsDragging(false);
+    setError("");
+    setSuccess("");
+    setPaymentSuccess(false);
     localStorage.removeItem(STORAGE_DRAFT);
     localStorage.removeItem(STORAGE_PAYMENT);
   }, []);
 
-  /* ================= FORM UPDATERS ================= */
-  const update = (key, value) =>
-    setForm((p) => ({ ...p, [key]: value }));
-
-  const updateAttr = (key, value) =>
-    setForm((p) => ({
-      ...p,
-      attributes: {
-        ...p.attributes,
-        [key]: value,
-        ...(key === "brand" && { model: "" }),
-      },
-    }));
-
-  const updateContact = (key, value) =>
-    setForm((p) => ({
-      ...p,
-      contact: { ...p.contact, [key]: value },
-    }));
-
-  const updateDelivery = (key, value) =>
-    setForm((p) => ({
-      ...p,
-      delivery: { ...p.delivery, [key]: value },
-    }));
-
-  const updateDeliveryDuration = (key, value) =>
-    setForm((p) => ({
-      ...p,
-      delivery: {
-        ...p.delivery,
-        duration: { ...p.delivery.duration, [key]: value },
-      },
-    }));
-
-  const toggleFeature = (feature) => {
-    setForm((p) => {
-      const list = p.attributes.features || [];
-      const exists = list.includes(feature);
-      return {
-        ...p,
-        attributes: {
-          ...p.attributes,
-          features: exists ? list.filter((f) => f !== feature) : [...list, feature],
-        },
-      };
-    });
-  };
-
-  /* ================= VALIDATION ================= */
-  const validate = () => {
-    if (form.title.length < 10) return "Title too short (min 10 chars)";
-    if (form.description.length < 20) return "Description too short (min 20 chars)";
-    if (!form.price || Number(form.price) <= 0) return "Valid price required";
-    if (!form.category_id) return "Select a category";
-    if (!form.contact.phone || form.contact.phone.length < 10) return "Valid phone required";
-    if (!form.contact.email || !form.contact.email.includes("@")) return "Valid email required";
-    if (images.length === 0) return "Add at least 1 image";
-    if (!state || !city) return "Select state and city";
-
-    if (form.delivery.type !== "none" && form.delivery.type !== "pickup") {
-      const from = Number(form.delivery.duration.from);
-      const to = Number(form.delivery.duration.to);
-      if (Number.isNaN(from) || Number.isNaN(to)) return "Delivery range required";
-      if (to < from) return "End day must be after start day";
-      if (!form.delivery.fee || Number(form.delivery.fee) <= 0) return "Delivery fee required";
-    }
-
-    return null;
-  };
-
-  /* ================= IMAGE HANDLING ================= */
-  const handleImages = (files) => {
-    const fileArray = Array.from(files);
-
+  // ================= IMAGE HANDLING =================
+  const handleImages = useCallback((files) => {
     if (images.length >= MAX_IMAGES) {
-      alert("Maximum 6 images allowed");
+      showError("Maximum 6 images allowed");
       return;
     }
 
+    const fileArray = Array.from(files);
     const remaining = MAX_IMAGES - images.length;
-
     const validFiles = fileArray
-      .filter((f) => f.type.startsWith("image/") && f.size <= MAX_SIZE)
+      .filter(f => f.type.startsWith("image/") && f.size <= MAX_SIZE)
       .slice(0, remaining);
 
-    const newImages = validFiles.map((file) => ({
+    const newImages = validFiles.map(file => ({
       id: crypto.randomUUID(),
       file,
       preview: URL.createObjectURL(file),
     }));
 
-    setImages((prev) => [...prev, ...newImages]);
-  };
+    setImages(prev => [...prev, ...newImages]);
+  }, [images.length, showError]);
 
-  const removeImage = (id) => {
-    setImages((prev) => {
-      const target = prev.find((x) => x.id === id);
+  const removeImage = useCallback((id) => {
+    setImages(prev => {
+      const target = prev.find(x => x.id === id);
       if (target?.preview) URL.revokeObjectURL(target.preview);
-      return prev.filter((x) => x.id !== id);
+      return prev.filter(x => x.id !== id);
     });
-  };
-
-  // ✅ FIXED: Proper long-press per image (no hooks in loops)
-  const handleLongPressStart = useCallback((e, index) => {
-    e.preventDefault();
-    setIsDragging(true);
-    e.dataTransfer?.setData("index", index);
   }, []);
-
-  const handleLongPressEnd = useCallback((e) => {
-    const timerId = e.currentTarget.dataset.timer;
-    if (timerId) {
-      clearTimeout(Number(timerId));
-      delete e.currentTarget.dataset.timer;
-    }
-    setIsDragging(false);
-  }, []);
-
-  const handleTouchStart = useCallback((e, index) => {
-    const timer = setTimeout(() => handleLongPressStart(e, index), 500);
-    e.currentTarget.dataset.timer = timer;
-  }, [handleLongPressStart]);
 
   const handleDrop = useCallback((e, index) => {
     e.preventDefault();
     const from = Number(e.dataTransfer.getData("index"));
-    setImages((prev) => {
+    setImages(prev => {
       const copy = [...prev];
       const [moved] = copy.splice(from, 1);
       copy.splice(index, 0, moved);
@@ -303,81 +297,25 @@ export default function AddProduct() {
     setIsDragging(false);
   }, []);
 
-  // ✅ FIXED: Safe sequential compression (no CPU spike)
-  const compressImagesSequentially = async (imageFiles) => {
-    const compressedFiles = [];
-    for (const file of imageFiles) {
-      try {
-        const compressed = await compressImage(file);
-        compressedFiles.push(compressed);
-      } catch {
-        compressedFiles.push(file); // fallback
-      }
-    }
-    return compressedFiles;
-  };
-
-  /* ================= EFFECTS ================= */
-  useEffect(() => {
-    loadDraft();
-  }, [loadDraft]);
-
-  useEffect(() => {
-    if (!loading) {
-      const timeout = setTimeout(saveDraft, 800);
-      return () => clearTimeout(timeout);
-    }
-  }, [form, state, city, selectedPlan, loading, saveDraft]);
-
-  useEffect(() => {
-    const saved = localStorage.getItem(STORAGE_PAYMENT);
-    if (saved) {
-      try {
-        setPaymentData(JSON.parse(saved));
-      } catch (e) {
-        localStorage.removeItem(STORAGE_PAYMENT);
-      }
-    }
+  const handleTouchStart = useCallback((e, index) => {
+    const timer = setTimeout(() => {
+      e.preventDefault();
+      setIsDragging(true);
+      if (e.dataTransfer) e.dataTransfer.setData("index", index);
+    }, 500);
+    e.currentTarget.dataset.timer = String(timer);
   }, []);
 
-  useEffect(() => {
-    if (paymentData) {
-      localStorage.setItem(STORAGE_PAYMENT, JSON.stringify(paymentData));
+  const handleLongPressEnd = useCallback((e) => {
+    const timerId = e.currentTarget?.dataset.timer;
+    if (timerId) {
+      clearTimeout(Number(timerId));
+      delete e.currentTarget.dataset.timer;
     }
-  }, [paymentData]);
-
-  useEffect(() => {
-    fetch("https://minimart-ivrm.onrender.com/api/marketplace/categories")
-      .then((r) => r.json())
-      .then(setCategories)
-      .catch(console.error);
+    setIsDragging(false);
   }, []);
 
-  useEffect(() => {
-    if (!options.fields?.length) return;
-
-    setForm((prev) => {
-      const newAttrs = { ...prev.attributes };
-      options.fields.forEach((f) => {
-        if (newAttrs[f] === undefined) {
-          newAttrs[f] = f === "features" ? [] : "";
-        }
-      });
-      return { ...prev, attributes: newAttrs };
-    });
-  }, [form.category_id, options.fields]);
-
-  useEffect(() => {
-    return () => {
-      images.forEach((img) => {
-        if (img.preview) URL.revokeObjectURL(img.preview);
-      });
-      // Cleanup timers
-      imageTimersRef.current.clear();
-    };
-  }, []);
-
-  /* ================= API FUNCTIONS ================= */
+  // ================= API FUNCTIONS =================
   const createProductDraft = async () => {
     const fd = new FormData();
     const payload = {
@@ -395,12 +333,22 @@ export default function AddProduct() {
       .filter(([_, v]) => v !== null && v !== undefined && v !== "")
       .forEach(([k, v]) => fd.append(k, String(v)));
 
-    const imageFiles = images.map((img) => img.file);
-    const compressedFiles = await compressImagesSequentially(imageFiles);
+    const imageFiles = images
+      .map(img => img.file)
+      .filter(Boolean);
 
-    compressedFiles.forEach((file) => {
-      fd.append("images", file);
-    });
+    const compressedFiles = await Promise.all(
+      imageFiles.map(async (file) => {
+        try {
+          const compressed = await compressImage(file);
+          return new File([compressed], file.name, { type: compressed.type });
+        } catch {
+          return file;
+        }
+      })
+    );
+
+    compressedFiles.forEach(file => fd.append("images", file));
 
     const res = await fetch("https://minimart-ivrm.onrender.com/api/marketplace/products", {
       method: "POST",
@@ -408,8 +356,10 @@ export default function AddProduct() {
     });
 
     if (!res.ok) {
-      const data = await res.json().catch(() => ({}));
-      throw new Error(data.message || "Failed to save product draft");
+      const text = await res.text();
+      console.error("API ERROR:", text);
+      const data = JSON.parse(text || "{}").catch(() => ({}));
+      throw new Error(data.message || `HTTP ${res.status}: ${text.slice(0, 100)}`);
     }
 
     return (await res.json()).product;
@@ -431,23 +381,54 @@ export default function AddProduct() {
     if (!data.success || !data.authorization_url) {
       throw new Error(data.message || "Payment initialization failed");
     }
-
     return data.authorization_url;
   };
 
-  /* ================= SUBMIT HANDLERS ================= */
-  const handleSubmit = async () => {
-    if (loading) return;
+  // ✅ NEW: Payment Success Handler
+  const handlePaymentSuccess = async (reference) => {
+    setLoading(true);
+    try {
+      const res = await fetch("https://minimart-ivrm.onrender.com/api/payment/verify", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          reference,
+          productId: paymentData.productId,
+        }),
+      });
 
-    const error = validate();
-    if (error) {
-      alert(error);
+      const data = await res.json();
+      
+      if (data.success) {
+        setPaymentSuccess(true);
+        clearDraft();
+        showSuccess("✅ Product created and activated successfully!");
+        
+        setTimeout(() => {
+          window.location.href = "/";
+        }, 2000);
+      } else {
+        throw new Error(data.message || "Payment verification failed");
+      }
+    } catch (err) {
+      showError(err.message || "Payment verification failed");
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  // ================= SUBMIT HANDLERS =================
+  const handleSubmit = async (e) => {
+    e?.preventDefault();
+    const validationError = validateForm();
+    if (validationError) {
+      showError(validationError);
       return;
     }
 
-    const finalPlan =
-      selectedPlan || promotionPlans.find((p) => p.price === 0);
+    const finalPlan = selectedPlan || promotionPlans.find(p => p.price === 0);
     setLoading(true);
+    setError("");
 
     try {
       const product = await createProductDraft();
@@ -458,12 +439,10 @@ export default function AddProduct() {
       if (finalPlan.price === 0) {
         await fetch(
           `https://minimart-ivrm.onrender.com/api/marketplace/products/${productId}/activate`,
-          {
-            method: "POST",
-          }
+          { method: "POST" }
         );
         clearDraft();
-        alert("✅ Product created and activated successfully!");
+        showSuccess("✅ Product created and activated successfully!");
         return;
       }
 
@@ -477,109 +456,170 @@ export default function AddProduct() {
       const authUrl = await startPayment(productId, finalPlan);
       window.location.href = authUrl;
     } catch (err) {
-      alert(`Error: ${err.message || "Something went wrong"}`);
+      showError(err.message || "Something went wrong. Please try again.");
     } finally {
       setLoading(false);
     }
   };
 
   const retryPayment = async () => {
-    if (!paymentData) return alert("No pending payment found");
-
+    if (!paymentData) {
+      showError("No pending payment found");
+      return;
+    }
     setLoading(true);
     try {
       const plan = { id: paymentData.planId, price: paymentData.amount };
       const authUrl = await startPayment(paymentData.productId, plan);
       window.location.href = authUrl;
     } catch (err) {
-      alert(`Payment retry failed: ${err.message}`);
+      showError(`Payment retry failed: ${err.message}`);
     } finally {
       setLoading(false);
     }
   };
 
-  /* ================= RENDER ================= */
+  // ================= EFFECTS =================
+  useEffect(() => {
+    loadDraft();
+  }, []);
+
+  useEffect(() => {
+    if (!loading) {
+      const timeout = setTimeout(saveDraft, 800);
+      return () => clearTimeout(timeout);
+    }
+  }, [form, state, city, selectedPlan, loading, saveDraft]);
+
+  useEffect(() => {
+    const saved = localStorage.getItem(STORAGE_PAYMENT);
+    if (saved) {
+      try {
+        setPaymentData(JSON.parse(saved));
+      } catch {
+        localStorage.removeItem(STORAGE_PAYMENT);
+      }
+    }
+  }, []);
+
+  useEffect(() => {
+    if (paymentData) {
+      localStorage.setItem(STORAGE_PAYMENT, JSON.stringify(paymentData));
+    }
+  }, [paymentData]);
+
+  // ✅ NEW: Paystack callback handling
+  useEffect(() => {
+    const urlParams = new URLSearchParams(window.location.search);
+    const status = urlParams.get('status');
+    const reference = urlParams.get('reference');
+    
+    if (status === 'success' && reference && paymentData) {
+      handlePaymentSuccess(reference);
+    } else if (status === 'cancel' && paymentData) {
+      showError("Payment cancelled. You can retry below.");
+      setPaymentData(null);
+      localStorage.removeItem(STORAGE_PAYMENT);
+    }
+  }, []);
+
+  useEffect(() => {
+    fetch("https://minimart-ivrm.onrender.com/api/marketplace/categories")
+      .then(r => r.json())
+      .then(setCategories)
+      .catch(console.error);
+  }, []);
+
+  useEffect(() => {
+    if (!selectedCategory?.dynamicOptions?.fields?.length) return;
+    setForm(prev => {
+      const newAttrs = { ...prev.attributes };
+      selectedCategory.dynamicOptions.fields.forEach(f => {
+        if (newAttrs[f] === undefined) {
+          newAttrs[f] = f === "features" ? [] : "";
+        }
+      });
+      return { ...prev, attributes: newAttrs };
+    });
+  }, [form.category_id, selectedCategory?.dynamicOptions?.fields]);
+
+  useEffect(() => {
+    return () => {
+      images.forEach(img => img.preview && URL.revokeObjectURL(img.preview));
+    };
+  }, [images]);
+
+  // ================= RENDER DATA =================
   const states = Object.keys(locationsByState || {});
   const cities = state ? locationsByState[state] : [];
+
+  // ✅ DYNAMIC BUTTON LOGIC
+  const showRetryButton = paymentData && selectedPlan?.price > 0;
 
   return (
     <div className="add-product-container">
       <AddProductHeader title="Add Product" onClearDraft={clearDraft} />
 
-      {/* ✅ STRUCTURED SECTIONS */}
-
-      {/* 🔵 BASIC INFO */}
-      <div className="form-card blue">
-        <h3>Basic Information</h3>
+      {/* BASIC INFO */}
+      <section className="section form-card">
+        <h3 className="section-title">Basic Information</h3>
         <div className="form-group">
-          <label>
-            Product Title <span className="required">*</span>
-          </label>
+          <label>Product Title <span className="required">*</span></label>
           <input
-            placeholder="Enter product title (min 10 chars)"
+            placeholder="Enter product title"
             value={form.title}
-            onChange={(e) => update("title", e.target.value)}
+            onChange={e => updateForm("title", e.target.value)}
           />
         </div>
         <div className="form-group">
-          <label>
-            Description <span className="required">*</span>
-          </label>
+          <label>Description <span className="required">*</span></label>
           <textarea
-            placeholder="Detailed description (min 20 chars)"
+            placeholder="Detailed product description"
             value={form.description}
-            onChange={(e) => update("description", e.target.value)}
-            rows="4"
+            onChange={e => updateForm("description", e.target.value)}
           />
         </div>
         <div className="form-group">
-          <label>
-            Price (₦) <span className="required">*</span>
-          </label>
+          <label>Price (₦) <span className="required">*</span></label>
           <input
-            placeholder="0"
+            type="text"
+            inputMode="numeric"
+            placeholder="10000"
             value={displayPrice(form.price)}
-            onChange={(e) =>
-              update("price", onlyNumbers(e.target.value))
-            }
+            onChange={e => updateForm("price", onlyNumbers(e.target.value))}
           />
-          {form.price && <small>₦{displayPrice(form.price)}</small>}
         </div>
-      </div>
+      </section>
 
-      {/* 🔵 CATEGORY & FEATURES */}
-      <div className="form-card blue">
-        <h3>Product Details</h3>
+      {/* PRODUCT DETAILS */}
+      <section className="section form-card">
+        <h3 className="section-title">Product Details</h3>
         <div className="form-group">
-          <label>
-            Category <span className="required">*</span>
-          </label>
+          <label>Category <span className="required">*</span></label>
           <DropdownModal
-            label=""
             value={form.category_id}
             onChange={(v) =>
-              setForm((prev) => ({
+              setForm(prev => ({
                 ...prev,
                 category_id: v,
                 attributes: INITIAL_FORM.attributes,
               }))
             }
-            options={categories.map((c) => ({ id: c.id, name: c.name }))}
+            options={categories.map(c => ({ id: c.id, name: c.name }))}
           />
         </div>
 
-        {fields.map((f) => {
-          if (!optionsMap[f] && f !== "features") return null;
-          if (f === "used_detail" && attributes.condition !== "Used") return null;
+        {fields.map(field => {
+          if (!optionsMap[field] && field !== "features") return null;
+          if (field === "used_detail" && form.attributes.condition !== "Used") return null;
 
           return (
-            <div key={f} className="form-group">
-              <label>{formatLabel(f)}</label>
+            <div key={field} className="form-group">
+              <label>{formatLabel(field)}</label>
               <DropdownModal
-                label=""
-                value={attributes[f] || ""}
-                onChange={(v) => updateAttr(f, v)}
-                options={optionsMap[f]}
+                value={form.attributes[field] || ""}
+                onChange={v => updateAttribute(field, v)}
+                options={optionsMap[field]}
               />
             </div>
           );
@@ -589,198 +629,184 @@ export default function AddProduct() {
           <div className="form-group">
             <label>Features</label>
             <div className="checkbox-grid-inline">
-              {sortedFeatures.map((f) => (
-                <label key={f} className="checkbox-inline right-check">
-                  <span>{formatLabel(f)}</span>
+              {sortedFeatures.map(feature => (
+                <label key={feature} className="checkbox-inline">
+                  <span>{formatLabel(feature)}</span>
                   <input
                     type="checkbox"
-                    checked={(attributes.features || []).includes(f)}
-                    onChange={() => toggleFeature(f)}
+                    checked={form.attributes.features.includes(feature)}
+                    onChange={() => toggleFeature(feature)}
                   />
                 </label>
               ))}
             </div>
           </div>
         )}
-      </div>
+      </section>
 
-      {/* 🔵 CONTACT */}
-      <div className="form-card blue">
-        <h3>Contact Information</h3>
+      {/* CONTACT */}
+      <section className="section form-card">
+        <h3 className="section-title">Contact Information</h3>
         <div className="form-group">
-          <label>
-            Email <span className="required">*</span>
-          </label>
+          <label>Email <span className="required">*</span></label>
           <input
             type="email"
             placeholder="your@email.com"
             value={form.contact.email}
-            onChange={(e) => updateContact("email", e.target.value)}
+            onChange={e => updateContact("email", e.target.value)}
           />
         </div>
         <div className="form-group">
-          <label>
-            Phone <span className="required">*</span>
-          </label>
+          <label>Phone <span className="required">*</span></label>
           <input
+            type="text"
+            inputMode="tel"
             placeholder="08012345678"
             value={form.contact.phone}
-            onChange={(e) => updateContact("phone", onlyNumbers(e.target.value))}
+            onChange={e => updateContact("phone", onlyDigits(e.target.value))}
           />
         </div>
-      </div>
+      </section>
 
-      {/* 🔵 LOCATION + DELIVERY */}
-      <div className="form-card blue">
-        <h3>Location & Delivery</h3>
+      {/* LOCATION & DELIVERY */}
+      <section className="section form-card">
+        <h3 className="section-title">Location & Delivery</h3>
         <div className="form-group">
-          <label>
-            State <span className="required">*</span>
-          </label>
-          <DropdownModal label="" value={state} onChange={setState} options={states} />
+          <label>State <span className="required">*</span></label>
+          <DropdownModal
+            value={state}
+            onChange={setState}
+            options={states.map(s => ({ id: s, name: s }))}
+          />
         </div>
-
         {state && (
           <div className="form-group">
-            <label>
-              City <span className="required">*</span>
-            </label>
-            <DropdownModal label="" value={city} onChange={setCity} options={cities} />
+            <label>City <span className="required">*</span></label>
+            <DropdownModal
+              value={city}
+              onChange={setCity}
+              options={cities.map(c => ({ id: c, name: c }))}
+            />
           </div>
         )}
 
         <div className="form-group">
           <label>Delivery Type</label>
-          <select
+          <DropdownModal
             value={form.delivery.type}
-            onChange={(e) => updateDelivery("type", e.target.value)}
-          >
-            <option value="none">No delivery</option>
-            <option value="standard">Standard delivery</option>
-            <option value="express">Express delivery</option>
-            <option value="pickup">Pickup only</option>
-          </select>
+            onChange={v => updateDelivery("type", v)}
+            options={[
+              { id: "none", name: "No delivery" },
+              { id: "standard", name: "Standard delivery" },
+              { id: "express", name: "Express delivery" },
+              { id: "pickup", name: "Pickup only" },
+            ]}
+          />
         </div>
 
         {form.delivery.type !== "none" && form.delivery.type !== "pickup" && (
-          <div className="sub-grid">
-            <div className="form-section-round-small">
-              <label>
-                From (days) <span className="required">*</span>
-              </label>
+          <div className="delivery-grid sub-grid">
+            <div className="form-group">
+              <label>From (days) <span className="required">*</span></label>
               <input
-                type="number"
+                type="text"
+                inputMode="numeric"
                 min="1"
                 value={form.delivery.duration.from}
-                onChange={(e) =>
-                  updateDeliveryDuration("from", onlyNumbers(e.target.value))
-                }
+                onChange={e => updateDeliveryDuration("from", onlyDigits(e.target.value))}
               />
             </div>
-            <div className="form-section-round-small">
-              <label>
-                To (days) <span className="required">*</span>
-              </label>
+            <div className="form-group">
+              <label>To (days) <span className="required">*</span></label>
               <input
-                type="number"
+                type="text"
+                inputMode="numeric"
                 min="1"
                 value={form.delivery.duration.to}
-                onChange={(e) =>
-                  updateDeliveryDuration("to", onlyNumbers(e.target.value))
-                }
+                onChange={e => updateDeliveryDuration("to", onlyDigits(e.target.value))}
               />
             </div>
-            <div className="form-section-round-small">
-              <label>
-                Fee (₦) <span className="required">*</span>
-              </label>
+            <div className="form-group">
+              <label>Fee (₦) <span className="required">*</span></label>
               <input
-                type="number"
-                min="0"
-                step="0.01"
-                value={form.delivery.fee}
-                onChange={(e) =>
-                  updateDelivery("fee", onlyNumbers(e.target.value))
-                }
+                type="text"
+                inputMode="numeric"
+                value={displayPrice(form.delivery.fee)}
+                onChange={e => updateDelivery("fee", onlyNumbers(e.target.value))}
               />
             </div>
           </div>
         )}
-      </div>
+      </section>
 
-      {/* 🔵 IMAGES */}
-      <div className="form-card blue">
-        <h3>Product Images</h3>
+      {/* IMAGES */}
+      <section className="section form-card">
+        <h3 className="section-title">Product Images</h3>
         <label className="form-group-label">
           Product Images (max 6, 3MB each) <span className="required">*</span>
         </label>
-        {images.length > 0 && (
-          <div className="preview-grid-modern">
-            {images.map((img, i) => (
-              <div
-                key={img.id}
-                className={`preview-thumb ${isDragging ? 'dragging' : ''}`}
-                draggable={true}
-                onClick={() => setActiveImage(img.preview)}
-                onDragStart={(e) => {
-                  // ✅ FIXED: Always allow drag, no conditional preventDefault
-                  e.dataTransfer.setData("index", i);
+        <div className="preview-grid-modern image-upload-box">
+          {images.map((img, i) => (
+            <div
+              key={img.id}
+              className={`preview-thumb ${isDragging ? "dragging" : ""}`}
+              draggable
+              onClick={() => setActiveImage(img.preview)}
+              onDragStart={e => e.dataTransfer.setData("index", i)}
+              onDragOver={e => e.preventDefault()}
+              onDragEnd={() => setIsDragging(false)}
+              onDrop={e => handleDrop(e, i)}
+              onTouchStart={e => handleTouchStart(e, i)}
+              onTouchEnd={handleLongPressEnd}
+              onMouseDown={e => handleTouchStart(e, i)}
+              onMouseUp={handleLongPressEnd}
+            >
+              <img src={img.preview} alt="" />
+              <button
+                onClick={e => {
+                  e.stopPropagation();
+                  removeImage(img.id);
                 }}
-                onDragOver={(e) => e.preventDefault()}
-                onDragEnd={() => setIsDragging(false)}
-                onDrop={(e) => handleDrop(e, i)}
-                onTouchStart={(e) => handleTouchStart(e, i)}
-                onTouchEnd={handleLongPressEnd}
-                onTouchCancel={handleLongPressEnd}
-                onMouseDown={(e) => handleTouchStart(e, i)}
-                onMouseUp={handleLongPressEnd}
-                onMouseLeave={handleLongPressEnd}
               >
-                <img src={img.preview} alt="" />
-                <button
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    removeImage(img.id);
-                  }}
-                >
-                  ✕
-                </button>
-              </div>
-            ))}
-
-            {images.length < MAX_IMAGES && (
-              <label className="add-image-box">
-                <input
-                  type="file"
-                  multiple
-                  accept="image/*"
-                  hidden
-                  onChange={(e) => handleImages(e.target.files)}
-                />
-                + Add
-              </label>
-            )}
-          </div>
+                ✕
+              </button>
+            </div>
+          ))}
+          {images.length < MAX_IMAGES && (
+            <label className="add-image-box add-image-btn">
+              <input
+                type="file"
+                multiple
+                accept="image/*"
+                hidden
+                onChange={e => {
+                  handleImages(e.target.files);
+                  e.target.value = "";
+                }}
+              />
+              <div>+</div>
+              <span>Add Image</span>
+            </label>
+          )}
+        </div>
+        {images.length > 0 && (
+          <small className="price-preview">{images.length}/6 images</small>
         )}
-      </div>
+      </section>
 
-      {/* 🔵 PROMOTION */}
-      <div className="form-card blue">
-        <h3>Promotion Plan (Optional)</h3>
+      {/* PROMOTION */}
+      <section className="section form-card">
+        <h3 className="section-title">Promotion Plan (Optional)</h3>
         <div className="plans-grid">
-          {promotionPlans.map((plan) => (
+          {promotionPlans.map(plan => (
             <div
               key={plan.id}
-              className={`plan-card ${
-                selectedPlan?.id === plan.id ? "selected" : ""
-              }`}
+              className={`plan-card ${selectedPlan?.id === plan.id ? "selected" : ""}`}
               onClick={() => setSelectedPlan(plan)}
             >
               <div className="plan-header">
                 <strong>{plan.name}</strong>
-                <span className="plan-price">
-                  ₦{displayPrice(plan.price.toString())}
-                </span>
+                <span className="plan-price">₦{displayPrice(String(plan.price))}</span>
               </div>
               <div className="plan-duration">{plan.duration}</div>
               <ul className="plan-features">
@@ -788,30 +814,76 @@ export default function AddProduct() {
                   <li key={i}>{feat}</li>
                 ))}
               </ul>
-              {plan.description && (
-                <p className="plan-desc">{plan.description}</p>
-              )}
+              {plan.description && <p className="plan-desc">{plan.description}</p>}
             </div>
           ))}
         </div>
-      </div>
+      </section>
 
-      {/* ACTION BUTTONS */}
-      <div className="form-card blue button-section">
-        <button onClick={handleSubmit} disabled={loading} className="primary-btn">
-          {loading ? "Processing..." : "Create Product"}
-        </button>
-        {paymentData && (
-          <button onClick={retryPayment} disabled={loading} className="retry-btn">
+      {/* ✅ DYNAMIC ACTION BUTTONS */}
+      <div className="button-section section form-card">
+        {showRetryButton ? (
+          <button
+            type="button"
+            className="retry-btn"
+            onClick={retryPayment}
+            disabled={loading}
+          >
             {loading ? "Retrying..." : "Retry Payment"}
+          </button>
+        ) : (
+          <button
+            type="button"
+            className="primary-btn"
+            onClick={handleSubmit}
+            disabled={loading}
+          >
+            {loading ? "Processing..." : "Create Product"}
           </button>
         )}
       </div>
 
-      {/* FULLSCREEN IMAGE PREVIEW */}
+      {/* GLOBAL MESSAGES */}
+      {error && (
+        <div className="form-error">
+          <span>⚠️</span>
+          {error}
+        </div>
+      )}
+      {success && (
+        <div className="form-success">
+          <span>✅</span>
+          {success}
+        </div>
+      )}
+
+      {/* IMAGE MODAL */}
       {activeImage && (
         <div className="image-modal" onClick={() => setActiveImage(null)}>
-          <img src={activeImage} alt="preview" />
+          <img src={activeImage} alt="Full preview" />
+        </div>
+      )}
+
+      {/* LOADING MODAL */}
+      {loading && (
+        <div className="loading-overlay">
+          <div className="loader"></div>
+          <div className="loading-text">
+            {paymentData ? "Finalizing payment..." : "Creating your product..."}
+          </div>
+        </div>
+      )}
+
+      {/* ✅ SUCCESS MODAL */}
+      {paymentSuccess && (
+        <div className="success-modal-overlay">
+          <div className="success-modal">
+            <div className="success-icon">🎉</div>
+            <h3>Product Created Successfully!</h3>
+            <p>Your product is now live and visible to buyers.</p>
+            <p>Redirecting to homepage...</p>
+            <div className="loader small"></div>
+          </div>
         </div>
       )}
     </div>
