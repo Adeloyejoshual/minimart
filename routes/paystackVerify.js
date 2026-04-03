@@ -9,7 +9,7 @@ const pool = new Pool({
   ssl: { rejectUnauthorized: false },
 });
 
-/* ================= VERIFY PAYMENT (HARDENED) ================= */
+/* ================= VERIFY PAYMENT ================= */
 router.post("/verify", async (req, res) => {
   const { reference } = req.body;
 
@@ -20,7 +20,7 @@ router.post("/verify", async (req, res) => {
   const client = await pool.connect();
 
   try {
-    /* ================= PAYSTACK VERIFY ================= */
+    /* ================= VERIFY WITH PAYSTACK ================= */
     const verifyRes = await axios.get(
       `https://api.paystack.co/transaction/verify/${reference}`,
       {
@@ -30,24 +30,39 @@ router.post("/verify", async (req, res) => {
       }
     );
 
-    const data = verifyRes.data.data;
+    const payment = verifyRes.data?.data;
 
-    if (data.status !== "success") {
-      return res.status(400).json({ error: "Payment not successful" });
+    if (!payment || payment.status !== "success") {
+      return res.status(400).json({
+        error: "Payment not successful",
+      });
     }
 
-    const metadata = data.metadata || {};
-    const productId = metadata.productId;
-    const planId = metadata.planId;
+    /* ================= EXTRACT METADATA ================= */
+    const metadata = payment.metadata || {};
+
+    // Fallback support (important if metadata wasn't sent correctly)
+    const productId =
+      metadata.productId ||
+      metadata.product_id ||
+      req.body.productId;
+
+    const planId =
+      metadata.planId ||
+      metadata.plan_id ||
+      req.body.planId ||
+      null;
 
     if (!productId) {
-      return res.status(400).json({ error: "Missing productId" });
+      return res.status(400).json({
+        error: "Missing productId in metadata",
+      });
     }
 
-    /* ================= TRANSACTION START ================= */
+    /* ================= BEGIN TRANSACTION ================= */
     await client.query("BEGIN");
 
-    /* ================= IDEMPOTENCY (ATOMIC) ================= */
+    /* ================= IDEMPOTENCY CHECK ================= */
     const existing = await client.query(
       `SELECT id FROM payments WHERE reference = $1 FOR UPDATE`,
       [reference]
@@ -57,11 +72,11 @@ router.post("/verify", async (req, res) => {
       await client.query("ROLLBACK");
       return res.json({
         success: true,
-        message: "Already processed",
+        message: "Payment already processed",
       });
     }
 
-    /* ================= PLAN FETCH ================= */
+    /* ================= FETCH PLAN ================= */
     let plan = null;
 
     if (planId) {
@@ -69,7 +84,21 @@ router.post("/verify", async (req, res) => {
         `SELECT * FROM promotion_plans WHERE id = $1`,
         [planId]
       );
-      plan = planRes.rows[0];
+      plan = planRes.rows[0] || null;
+    }
+
+    /* ================= CALCULATE EXPIRY ================= */
+    let expiresAt = null;
+
+    if (plan?.duration) {
+      // Extract number from strings like "7 days", "30 days"
+      const match = plan.duration.match(/\d+/);
+      const days = match ? parseInt(match[0], 10) : 0;
+
+      if (days > 0) {
+        expiresAt = new Date();
+        expiresAt.setDate(expiresAt.getDate() + days);
+      }
     }
 
     /* ================= SAVE PAYMENT ================= */
@@ -82,72 +111,72 @@ router.post("/verify", async (req, res) => {
         product_id,
         plan_id,
         metadata,
-        type
+        type,
+        created_at
       )
-      VALUES ($1, $2, 'success', $3, $4, $5, 'promotion')
+      VALUES ($1, $2, 'success', $3, $4, $5, 'promotion', now())
       `,
       [
         reference,
-        data.amount / 100,
+        payment.amount / 100,
         productId,
-        planId || null,
+        planId,
         metadata,
       ]
     );
 
-    /* ================= EXPIRY CALC ================= */
-    let expiresAt = null;
-
-    if (plan?.duration) {
-      const days = parseInt(plan.duration.match(/\d+/)?.[0] || "0");
-
-      if (days > 0) {
-        expiresAt = new Date();
-        expiresAt.setDate(expiresAt.getDate() + days);
-      }
-    }
-
-    /* ================= PRODUCT UPDATE ================= */
-    const update = await client.query(
+    /* ================= UPDATE PRODUCT ================= */
+    const updateRes = await client.query(
       `
       UPDATE products
       SET
         status = 'active',
         is_active = true,
 
-        is_promoted = $2 IS NOT NULL,
-        promotion_id = $2,
+        is_promoted = CASE
+          WHEN $2 IS NOT NULL AND $3 IS NOT NULL THEN TRUE
+          ELSE FALSE
+        END,
 
-        promotion_start = CASE WHEN $2 IS NOT NULL THEN now() ELSE NULL END,
+        promotion_id = $2,
+        promotion_start = CASE
+          WHEN $2 IS NOT NULL THEN now()
+          ELSE NULL
+        END,
         promotion_expires_at = $3,
 
-        state = 'active',
         updated_at = now()
       WHERE id = $1
       RETURNING *
       `,
-      [productId, planId || null, expiresAt]
+      [productId, planId, expiresAt]
     );
 
-    if (!update.rows.length) {
+    if (!updateRes.rows.length) {
       await client.query("ROLLBACK");
-      return res.status(404).json({ error: "Product not found" });
+      return res.status(404).json({
+        error: "Product not found",
+      });
     }
 
+    /* ================= COMMIT ================= */
     await client.query("COMMIT");
 
     return res.json({
       success: true,
-      product: update.rows[0],
+      product: updateRes.rows[0],
     });
 
   } catch (err) {
     await client.query("ROLLBACK");
 
-    console.error("❌ VERIFY ERROR:", err.response?.data || err.message);
+    console.error("❌ VERIFY ERROR:", {
+      message: err.message,
+      data: err.response?.data,
+    });
 
     return res.status(500).json({
-      error: "Verification failed",
+      error: "Payment verification failed",
     });
 
   } finally {
