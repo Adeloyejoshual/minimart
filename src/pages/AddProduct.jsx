@@ -547,7 +547,7 @@ export default function AddProduct() {
               update("price", onlyNumbers(e.target.value))
             }
           />
-          {form.price && <small>₦{displayPrice(form.price)}</small>}
+          
         </div>
       </div>
 
