@@ -3,7 +3,7 @@ import DropdownModal from "../components/DropdownModal.jsx";
 import AddProductHeader from "../components/AddProductHeader.jsx";
 import { locationsByState } from "../config/locationsByState.js";
 import { promotionPlans } from "../config/promotions.js";
-import ".AddProduct.css";
+import "../styles/AddProduct.css";
 
 import imageCompression from "browser-image-compression";
 
