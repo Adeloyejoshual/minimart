@@ -12,7 +12,7 @@ const STORAGE_PAYMENT = "payment_retry";
 const INITIAL_FORM = {
   title: "",
   description: "",
-  price: "",
+  price: "", // as string of digits (e.g. "1234")
   category_id: "",
   attributes: {
     brand: "",
@@ -31,11 +31,11 @@ const INITIAL_FORM = {
   delivery: {
     type: "standard",
     duration: { from: "", to: "" },
-    fee: "",
+    fee: "", // as string of digits
     note: "",
   },
   contact: {
-    phone: "",
+    phone: "", // as string of digits
     whatsapp: "",
     email: "",
     preferred: "chat",
@@ -96,18 +96,23 @@ export default function AddProduct() {
       : [],
   []);
 
+  // Keep only digits and dot (fix bug from /[^d.]/ to /[^0-9.]/)
   const onlyNumbers = useCallback((v = "") => {
-    const cleaned = v.replace(/[^d.]/g, "");
+    const cleaned = v.replace(/[^d.]/g, ""); // keep only digits and dot
     const parts = cleaned.split(".");
-    return parts.length > 2 ? parts[0] + "." + parts.slice(1).join("") : cleaned;
+    return parts.length > 2
+      ? parts[0] + "." + parts.slice(1).join("")
+      : cleaned;
   }, []);
 
-  const displayPrice = useCallback((v) =>
-    v ? new Intl.NumberFormat("en-NG").format(Number(v)) : "",
-  []);
+  // Format numeric string for display only (₦1,234,567)
+  const displayPrice = useCallback((v) => {
+    const num = Number(v);
+    return Number.isNaN(num) || num <= 0 ? "" : new Intl.NumberFormat("en-NG").format(num);
+  }, []);
 
   const formatLabel = useCallback((t) =>
-    t.replace(/_/g, " ").replace(/\bw/g, l => l.toUpperCase()),
+    t.replace(/_/g, " ").replace(/\bw/g, (l) => l.toUpperCase()),
   []);
 
   // Dynamic options
@@ -498,7 +503,7 @@ export default function AddProduct() {
       <AddProductHeader title="Add Product" onClearDraft={clearDraft} />
 
       {/* BASIC INFO */}
-      <section className="section form-card blue">
+      <section className="section form-card">
         <h3 className="section-title">Basic Information</h3>
         <div className="form-group">
           <label>Product Title <span className="required">*</span></label>
@@ -519,15 +524,15 @@ export default function AddProduct() {
         <div className="form-group">
           <label>Price (₦) <span className="required">*</span></label>
           <input
-            placeholder="Enter price"
-            value={displayPrice(form.price)}
+            placeholder="Enter price (e.g. 10000)"
+            value={form.price}
             onChange={e => updateForm("price", onlyNumbers(e.target.value))}
           />
         </div>
       </section>
 
       {/* PRODUCT DETAILS */}
-      <section className="section form-card blue">
+      <section className="section form-card">
         <h3 className="section-title">Product Details</h3>
         <div className="form-group">
           <label>Category <span className="required">*</span></label>
@@ -554,7 +559,7 @@ export default function AddProduct() {
           );
         })}
 
-        {sortedFeatures.length > 0 && (
+                {sortedFeatures.length > 0 && (
           <div className="form-group">
             <label>Features</label>
             <div className="checkbox-grid-inline">
@@ -574,7 +579,7 @@ export default function AddProduct() {
       </section>
 
       {/* CONTACT */}
-      <section className="section form-card blue">
+      <section className="section form-card">
         <h3 className="section-title">Contact Information</h3>
         <div className="form-group">
           <label>Email <span className="required">*</span></label>
@@ -596,30 +601,43 @@ export default function AddProduct() {
       </section>
 
       {/* LOCATION & DELIVERY */}
-      <section className="section form-card blue">
+      <section className="section form-card">
         <h3 className="section-title">Location & Delivery</h3>
         <div className="form-group">
           <label>State <span className="required">*</span></label>
-          <DropdownModal value={state} onChange={setState} options={states} />
+          <DropdownModal
+            value={state}
+            onChange={setState}
+            options={states.map(s => ({ id: s, name: s }))}
+          />
         </div>
         {state && (
           <div className="form-group">
             <label>City <span className="required">*</span></label>
-            <DropdownModal value={city} onChange={setCity} options={cities} />
+            <DropdownModal
+              value={city}
+              onChange={setCity}
+              options={cities.map(c => ({ id: c, name: c }))}
+            />
           </div>
         )}
+
+        {/* Delivery Type - now using DropdownModal */}
         <div className="form-group">
           <label>Delivery Type</label>
-          <select
+          <DropdownModal
             value={form.delivery.type}
-            onChange={e => updateDelivery("type", e.target.value)}
-          >
-            <option value="none">No delivery</option>
-            <option value="standard">Standard delivery</option>
-            <option value="express">Express delivery</option>
-            <option value="pickup">Pickup only</option>
-          </select>
+            onChange={v => updateDelivery("type", v)}
+            options={[
+              { id: "none", name: "No delivery" },
+              { id: "standard", name: "Standard delivery" },
+              { id: "express", name: "Express delivery" },
+              { id: "pickup", name: "Pickup only" },
+            ]}
+          />
         </div>
+
+        {/* Duration + Fee (only show when not "none" or "pickup") */}
         {form.delivery.type !== "none" && form.delivery.type !== "pickup" && (
           <div className="delivery-grid sub-grid">
             <div className="form-group">
@@ -638,6 +656,7 @@ export default function AddProduct() {
                 min="1"
                 value={form.delivery.duration.to}
                 onChange={e => updateDeliveryDuration("to", onlyNumbers(e.target.value))}
+              }
               />
             </div>
             <div className="form-group">
@@ -655,7 +674,7 @@ export default function AddProduct() {
       </section>
 
       {/* IMAGES */}
-      <section className="section form-card blue">
+      <section className="section form-card">
         <h3 className="section-title">Product Images</h3>
         <label className="form-group-label">
           Product Images (max 6, 3MB each) <span className="required">*</span>
@@ -710,7 +729,7 @@ export default function AddProduct() {
       </section>
 
       {/* PROMOTION */}
-      <section className="section form-card blue">
+      <section className="section form-card">
         <h3 className="section-title">Promotion Plan (Optional)</h3>
         <div className="plans-grid">
           {promotionPlans.map(plan => (
@@ -734,7 +753,7 @@ export default function AddProduct() {
       </section>
 
       {/* ACTION BUTTONS */}
-      <div className="button-section section form-card blue">
+      <div className="button-section section form-card">
         <button className="primary-btn" onClick={handleSubmit} disabled={loading}>
           {loading ? "Processing..." : "Create Product"}
         </button>
@@ -761,7 +780,7 @@ export default function AddProduct() {
 
       {/* MODALS */}
       {activeImage && (
-        <div className="image-modal" onClick={() => setActiveImage(null)}>
+        <div className="image-modal" onClick={() => setActiveDOMContentLoaded(null)}>
           <img src={activeImage} alt="Full preview" />
         </div>
       )}
