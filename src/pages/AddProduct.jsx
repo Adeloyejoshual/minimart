@@ -12,7 +12,7 @@ const STORAGE_PAYMENT = "payment_retry";
 const INITIAL_FORM = {
   title: "",
   description: "",
-  price: "", // as string of digits (e.g. "1234")
+  price: "", // as string of digits
   category_id: "",
   attributes: {
     brand: "",
@@ -35,7 +35,7 @@ const INITIAL_FORM = {
     note: "",
   },
   contact: {
-    phone: "", // as string of digits
+    phone: "", // digits only
     whatsapp: "",
     email: "",
     preferred: "chat",
@@ -96,7 +96,6 @@ export default function AddProduct() {
       : [],
   []);
 
-  // Keep only digits and dot (fix bug from /[^d.]/ to /[^0-9.]/)
   const onlyNumbers = useCallback((v = "") => {
     const cleaned = v.replace(/[^d.]/g, ""); // keep only digits and dot
     const parts = cleaned.split(".");
@@ -105,7 +104,6 @@ export default function AddProduct() {
       : cleaned;
   }, []);
 
-  // Format numeric string for display only (₦1,234,567)
   const displayPrice = useCallback((v) => {
     const num = Number(v);
     return Number.isNaN(num) || num <= 0 ? "" : new Intl.NumberFormat("en-NG").format(num);
@@ -121,7 +119,7 @@ export default function AddProduct() {
     Object.keys(selectedCategory?.dynamicOptions || {}).forEach(key => {
       if (key === "models") return;
       if (key === "model") {
-        const modelsForBrand = form.attributes.brand && 
+        const modelsForBrand = form.attributes.brand &&
           selectedCategory?.dynamicOptions?.model?.[form.attributes.brand];
         map.model = normalizeOptions(modelsForBrand);
         return;
@@ -188,7 +186,7 @@ export default function AddProduct() {
         ...prev,
         attributes: {
           ...prev.attributes,
-          features: exists 
+          features: exists
             ? features.filter(f => f !== feature)
             : [...features, feature],
         },
@@ -301,7 +299,7 @@ export default function AddProduct() {
     const timer = setTimeout(() => {
       e.preventDefault();
       setIsDragging(true);
-      e.dataTransfer?.setData("index", index);
+      if (e.dataTransfer) e.dataTransfer.setData("index", index);
     }, 500);
     e.currentTarget.dataset.timer = String(timer);
   }, []);
@@ -524,7 +522,7 @@ export default function AddProduct() {
         <div className="form-group">
           <label>Price (₦) <span className="required">*</span></label>
           <input
-            placeholder="Enter price (e.g. 10000)"
+            placeholder="Enter price (10000)"
             value={form.price}
             onChange={e => updateForm("price", onlyNumbers(e.target.value))}
           />
@@ -568,7 +566,7 @@ export default function AddProduct() {
                   <span>{formatLabel(feature)}</span>
                   <input
                     type="checkbox"
-                    checked={form.attributes.features?.includes(feature)}
+                    checked={form.attributes.features.includes(feature)}
                     onChange={() => toggleFeature(feature)}
                   />
                 </label>
@@ -622,7 +620,7 @@ export default function AddProduct() {
           </div>
         )}
 
-        {/* Delivery Type - now using DropdownModal */}
+        {/* Delivery Type – using DropdownModal */}
         <div className="form-group">
           <label>Delivery Type</label>
           <DropdownModal
@@ -637,7 +635,7 @@ export default function AddProduct() {
           />
         </div>
 
-        {/* Duration + Fee (only show when not "none" or "pickup") */}
+        {/* Duration + Fee (only show if delivery type is not "none" or "pickup") */}
         {form.delivery.type !== "none" && form.delivery.type !== "pickup" && (
           <div className="delivery-grid sub-grid">
             <div className="form-group">
@@ -656,7 +654,6 @@ export default function AddProduct() {
                 min="1"
                 value={form.delivery.duration.to}
                 onChange={e => updateDeliveryDuration("to", onlyNumbers(e.target.value))}
-              }
               />
             </div>
             <div className="form-group">
@@ -683,7 +680,7 @@ export default function AddProduct() {
           {images.map((img, i) => (
             <div
               key={img.id}
-              className={`preview-thumb ${isDragging ? 'dragging' : ''}`}
+              className={`preview-thumb ${isDragging ? "dragging" : ""}`}
               draggable
               onClick={() => setActiveImage(img.preview)}
               onDragStart={e => e.dataTransfer.setData("index", i)}
@@ -715,7 +712,7 @@ export default function AddProduct() {
                 hidden
                 onChange={e => {
                   handleImages(e.target.files);
-                  e.target.value = '';
+                  e.target.value = "";
                 }}
               />
               <div>+</div>
@@ -735,7 +732,7 @@ export default function AddProduct() {
           {promotionPlans.map(plan => (
             <div
               key={plan.id}
-              className={`plan-card ${selectedPlan?.id === plan.id ? 'selected' : ''}`}
+              className={`plan-card ${selectedPlan?.id === plan.id ? "selected" : ""}`}
               onClick={() => setSelectedPlan(plan)}
             >
               <div className="plan-header">
@@ -744,7 +741,9 @@ export default function AddProduct() {
               </div>
               <div className="plan-duration">{plan.duration}</div>
               <ul className="plan-features">
-                {plan.features.map((feat, i) => <li key={i}>{feat}</li>)}
+                {plan.features.map((feat, i) => (
+                  <li key={i}>{feat}</li>
+                ))}
               </ul>
               {plan.description && <p className="plan-desc">{plan.description}</p>}
             </div>
@@ -754,11 +753,19 @@ export default function AddProduct() {
 
       {/* ACTION BUTTONS */}
       <div className="button-section section form-card">
-        <button className="primary-btn" onClick={handleSubmit} disabled={loading}>
+        <button
+          className="primary-btn"
+          onClick={handleSubmit}
+          disabled={loading}
+        >
           {loading ? "Processing..." : "Create Product"}
         </button>
         {paymentData && (
-          <button className="retry-btn" onClick={retryPayment} disabled={loading}>
+          <button
+            className="retry-btn"
+            onClick={retryPayment}
+            disabled={loading}
+          >
             {loading ? "Retrying..." : "Retry Payment"}
           </button>
         )}
@@ -778,12 +785,14 @@ export default function AddProduct() {
         </div>
       )}
 
-      {/* MODALS */}
+      {/* IMAGE MODAL */}
       {activeImage && (
-        <div className="image-modal" onClick={() => setActiveDOMContentLoaded(null)}>
+        <div className="image-modal" onClick={() => setActiveImage(null)}>
           <img src={activeImage} alt="Full preview" />
         </div>
       )}
+
+      {/* LOADING / PAYMENT MODAL */}
       {loading && (
         <div className="loading-overlay">
           <div className="loader"></div>
@@ -795,3 +804,5 @@ export default function AddProduct() {
     </div>
   );
 }
+
+export default AddProduct;
