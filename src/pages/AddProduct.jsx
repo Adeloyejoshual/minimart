@@ -98,12 +98,12 @@ export default function AddProduct() {
   []);
 
   const onlyNumbers = useCallback((v = "") => {
-    return v.replace(/[^d.]/g, "");
-  }, []);
+  return v.replace(/[^\d.]/g, "");
+}, []);
 
-  const onlyDigits = useCallback((v = "") => {
-    return v.replace(/D/g, "");
-  }, []);
+const onlyDigits = useCallback((v = "") => {
+  return v.replace(/\D/g, "");
+}, []);
 
   const displayPrice = useCallback((v) => {
     const num = Number(v);
