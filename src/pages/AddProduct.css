@@ -1,11 +1,8 @@
 /* =========================================================
-   ADD PRODUCT - YOUR EXACT LIGHT COLOR SCHEME
-   NO DARK MODE - Pure white/light design
+   STYLE 1 PERFECTLY APPLIED TO STYLE 2 STRUCTURE
 ========================================================= */
 
-/* =========================================================
-   YOUR GLOBAL CONTAINER
-========================================================= */
+/* GLOBAL CONTAINER - STYLE 1 CLAMP SCALING */
 .add-product-container {
   max-width: 860px;
   margin: 0 auto;
@@ -19,12 +16,9 @@
   font-size: clamp(15px, 2.5vw, 16px);
   line-height: 1.6;
   color: #222;
-  scroll-padding-top: 2rem;
 }
 
-/* =========================================================
-   YOUR GLASS HEADER
-========================================================= */
+/* GLASS HEADER - IDENTICAL STYLE 1 */
 .glass-header {
   position: sticky;
   top: 0;
@@ -33,7 +27,6 @@
   align-items: center;
   justify-content: center;
   padding: clamp(14px, 3vw, 16px) clamp(16px, 4vw, 24px);
-  margin-bottom: clamp(1.5rem, 4vw, 2rem);
   background: rgba(255, 255, 255, 0.7);
   backdrop-filter: blur(16px);
   -webkit-backdrop-filter: blur(16px);
@@ -67,11 +60,8 @@
   background: #eef5ff;
 }
 
-/* =========================================================
-   YOUR SECTION SYSTEM
-========================================================= */
-.section,
-.form-card {
+/* SECTION SYSTEM - STYLE 1 GLASS CARDS */
+.section {
   background: #ffffff;
   border-radius: clamp(14px, 3vw, 20px);
   padding: clamp(16px, 3vw, 24px);
@@ -83,48 +73,15 @@
   transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
 }
 
-.section-title,
-.form-card h3 {
+.section-title {
   font-size: clamp(0.95rem, 2.5vw, 1.125rem);
   font-weight: 700;
   color: #333;
   margin: 0 0 clamp(12px, 2.5vw, 16px) 0;
 }
 
-/* =========================================================
-   YOUR FORM GROUPS & LABELS
-========================================================= */
-.form-group {
-  display: flex;
-  flex-direction: column;
-  gap: clamp(0.75rem, 1.5vw, 1rem);
-}
-
-.form-group label {
-  font-weight: 700;
-  font-size: clamp(0.875rem, 2vw, 0.95rem);
-  color: #333;
-}
-
-.form-group-label {
-  font-weight: 700;
-  font-size: clamp(0.875rem, 2vw, 0.95rem);
-  color: #333;
-  margin-bottom: clamp(1rem, 2.5vw, 1.25rem);
-}
-
-.required {
-  color: #dc2626;
-  font-size: 0.875rem;
-  font-weight: 800;
-}
-
-/* =========================================================
-   YOUR INPUT SYSTEM
-========================================================= */
-input,
-textarea,
-select {
+/* INPUT SYSTEM - STYLE 1 PERFECT */
+input, textarea, select {
   width: 100%;
   padding: clamp(0.85rem, 2vw, 1.125rem) clamp(1rem, 2.5vw, 1.5rem);
   min-height: clamp(52px, 12vw, 56px);
@@ -138,16 +95,13 @@ select {
   transition: all 0.2s ease;
 }
 
-input::placeholder,
-textarea::placeholder {
+input::placeholder, textarea::placeholder {
   color: #999;
 }
 
-input:focus,
-textarea:focus,
-select:focus {
+input:focus, textarea:focus, select:focus {
   border-color: #0077ff;
-  box-shadow: 0 0 0 clamp(3px, 0.75vw, 4px) rgba(0, 119, 255, 0.12);
+  box-shadow: 0 0 0 3px rgba(0, 119, 255, 0.12);
   outline: none;
 }
 
@@ -156,12 +110,14 @@ textarea {
   resize: vertical;
 }
 
-/* =========================================================
-   YOUR GRIDS - EXACT SPECS
-========================================================= */
-.attributes-grid,
-.location-grid,
-.contact-grid {
+/* GRIDS - STYLE 1 RESPONSIVE */
+.basic-grid, .category-box, .contact-section, .delivery-section, .submit-section {
+  display: flex;
+  flex-direction: column;
+  gap: clamp(0.75rem, 2vw, 10px);
+}
+
+.attributes-grid, .location-grid, .contact-grid {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(clamp(140px, 20vw, 180px), 1fr));
   gap: clamp(0.75rem, 2vw, 10px);
@@ -176,33 +132,8 @@ textarea {
   border-top: 1px solid #f0f0f0;
 }
 
-.checkbox-grid-inline {
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(clamp(140px, 22vw, 180px), 1fr));
-  gap: clamp(0.875rem, 2vw, 1rem);
-  margin-top: clamp(1rem, 2.5vw, 1.25rem);
-}
-
-.preview-grid-modern,
-.image-upload-box {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(clamp(100px, 18vw, 120px), 1fr));
-  gap: clamp(0.75rem, 2vw, 10px);
-  margin-top: clamp(1.25rem, 3vw, 1.5rem);
-}
-
-.plans-grid {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(clamp(280px, 45vw, 340px), 1fr));
-  gap: clamp(1.25rem, 3vw, 1.5rem);
-  margin-top: clamp(1.5rem, 4vw, 2rem);
-}
-
-/* =========================================================
-   YOUR DELIVERY OPTIONS
-========================================================= */
-.delivery-option,
-.checkbox-inline {
+/* DELIVERY OPTIONS - STYLE 1 */
+.delivery-option {
   padding: clamp(12px, 2.5vw, 16px);
   border-radius: 12px;
   border: 1px solid #ddd;
@@ -217,86 +148,26 @@ textarea {
   justify-content: space-between;
 }
 
-.delivery-option:hover,
-.checkbox-inline:hover {
+.delivery-option:hover {
   border-color: #0077ff;
   background: #eef5ff;
 }
 
-.delivery-option.active,
-.checkbox-inline.active {
+.delivery-option.active {
   border-color: #0077ff;
   background: #e3f0ff;
   font-weight: 600;
 }
 
-.checkbox-inline input[type="checkbox"] {
-  width: clamp(20px, 5vw, 22px);
-  height: clamp(20px, 5vw, 22px);
-  accent-color: #0077ff;
-  margin: 0;
+/* IMAGE UPLOAD - STYLE 1 X VISIBLE */
+.image-upload-box, .preview-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(clamp(100px, 18vw, 120px), 1fr));
+  gap: clamp(0.75rem, 2vw, 10px);
+  margin-top: clamp(1.25rem, 3vw, 1.5rem);
 }
 
-/* =========================================================
-   YOUR IMAGE UPLOAD - X ALWAYS VISIBLE
-========================================================= */
-.preview-thumb {
-  position: relative;
-  aspect-ratio: 1;
-  border-radius: 12px;
-  overflow: hidden;
-  background: #eee;
-  border: 1px solid #ddd;
-  cursor: pointer;
-  transition: all 0.25s ease;
-  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.06);
-}
-
-.preview-thumb:hover {
-  transform: scale(1.02);
-  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.12);
-  border-color: #ccc;
-}
-
-.preview-thumb img {
-  width: 100%;
-  height: 100%;
-  object-fit: cover;
-  transition: transform 0.3s ease;
-}
-
-.preview-thumb:hover img {
-  transform: scale(1.05);
-}
-
-/* ✅ X BUTTON ALWAYS VISIBLE */
-.preview-thumb button {
-  position: absolute;
-  top: clamp(6px, 1.5vw, 8px);
-  right: clamp(6px, 1.5vw, 8px);
-  width: clamp(22px, 5vw, 26px);
-  height: clamp(22px, 5vw, 26px);
-  border: none;
-  border-radius: 50%;
-  background: rgba(255, 0, 0, 0.9);
-  color: #fff;
-  font-size: clamp(12px, 3vw, 14px);
-  font-weight: 800;
-  cursor: pointer;
-  opacity: 1; /* ✅ ALWAYS VISIBLE */
-  transform: scale(1); /* ✅ ALWAYS VISIBLE */
-  transition: all 0.2s ease;
-  box-shadow: 0 2px 8px rgba(255, 0, 0, 0.4);
-  z-index: 10;
-}
-
-.preview-thumb button:hover {
-  background: #dc2626;
-  transform: scale(1.1);
-}
-
-.add-image-btn,
-.add-image-box {
+.add-image-btn {
   border: 2px dashed #bbb;
   border-radius: clamp(12px, 2.5vw, 14px);
   background: #fafafa;
@@ -314,88 +185,77 @@ textarea {
   text-align: center;
 }
 
-.add-image-btn:hover,
-.add-image-box:hover {
+.add-image-btn:hover {
   border-color: #0077ff;
   color: #0077ff;
   background: #eef5ff;
 }
 
-/* =========================================================
-   YOUR PROMOTION PLANS
-========================================================= */
-.plan-card {
-  padding: clamp(1.5rem, 3.5vw, 2rem) clamp(1.25rem, 3vw, 1.75rem);
-  border-radius: clamp(14px, 3vw, 20px);
+.preview-item {
+  position: relative;
+  aspect-ratio: 1;
+  border-radius: 12px;
+  overflow: hidden;
+  background: #eee;
   border: 1px solid #ddd;
-  background: #ffffff;
   cursor: pointer;
-  transition: all 0.3s ease;
+  transition: all 0.25s ease;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.06);
 }
 
-.plan-card:hover {
-  border-color: #0077ff;
-  transform: translateY(-4px);
-  box-shadow: 0 8px 25px rgba(0, 119, 255, 0.15);
+.preview-item:hover {
+  transform: scale(1.02);
+  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.12);
+  border-color: #ccc;
 }
 
-.plan-card.selected {
-  border-color: #0077ff;
-  background: #e3f0ff;
-  box-shadow: 0 12px 35px rgba(0, 119, 255, 0.2);
+.preview-item img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  transition: transform 0.3s ease;
 }
 
-.plan-header {
-  display: flex;
-  justify-content: space-between;
-  align-items: flex-start;
-  margin-bottom: clamp(1rem, 2.5vw, 1.25rem);
-  gap: 1rem;
+.preview-item:hover img {
+  transform: scale(1.05);
 }
 
-.plan-header strong {
-  font-size: clamp(1.1rem, 2.5vw, 1.25rem);
-  color: #222;
-  flex: 1;
+/* X BUTTON ALWAYS VISIBLE - STYLE 1 */
+.preview-item button {
+  position: absolute;
+  top: clamp(6px, 1.5vw, 8px);
+  right: clamp(6px, 1.5vw, 8px);
+  width: clamp(22px, 5vw, 26px);
+  height: clamp(22px, 5vw, 26px);
+  border: none;
+  border-radius: 50%;
+  background: rgba(255, 0, 0, 0.9);
+  color: #fff;
+  font-size: clamp(12px, 3vw, 14px);
+  font-weight: 800;
+  cursor: pointer;
+  opacity: 1;
+  transform: scale(1);
+  transition: all 0.2s ease;
+  box-shadow: 0 2px 8px rgba(255, 0, 0, 0.4);
+  z-index: 10;
 }
 
-.plan-price {
-  font-size: clamp(1.375rem, 3vw, 1.5rem);
-  font-weight: 900;
-  color: #0077ff;
+.preview-item button:hover {
+  background: #dc2626;
+  transform: scale(1.1);
 }
 
-.plan-duration {
-  color: #666;
-  font-size: clamp(0.875rem, 2vw, 0.9rem);
-  font-weight: 600;
-  margin-bottom: clamp(0.75rem, 2vw, 1rem);
+/* CONDITION USED BOX - STYLE 1 */
+.condition-used-box {
+  padding: clamp(12px, 2.5vw, 16px);
+  border-radius: clamp(12px, 2.5vw, 16px);
+  background: #fff7e6;
+  border: 1px solid #ffcc66;
+  font-weight: 500;
 }
 
-.plan-features {
-  margin: clamp(1rem, 2.5vw, 1.25rem) 0;
-  padding-left: 1.25rem;
-  font-size: clamp(0.875rem, 2vw, 0.9rem);
-  color: #555;
-}
-
-.plan-features li {
-  margin-bottom: 0.5rem;
-}
-
-.plan-desc {
-  font-size: clamp(0.875rem, 2vw, 0.9rem);
-  color: #666;
-  line-height: 1.6;
-  margin-top: 1rem;
-  padding-top: 1rem;
-  border-top: 1px solid #f0f0f0;
-}
-
-/* =========================================================
-   YOUR BUTTONS & SUBMIT
-========================================================= */
-.button-section,
+/* SUBMIT SECTION - STYLE 1 */
 .submit-section {
   flex-direction: row !important;
   align-items: stretch;
@@ -408,7 +268,6 @@ textarea {
   box-shadow: 0 4px 18px rgba(0, 0, 0, 0.06);
 }
 
-.primary-btn,
 button {
   flex: 1;
   padding: clamp(0.9rem, 2.5vw, 1.125rem) clamp(1.5rem, 3.5vw, 2rem);
@@ -424,192 +283,111 @@ button {
   box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
 }
 
-.primary-btn:hover:not(:disabled),
 button:hover:not(:disabled) {
   background: #005ecc;
   transform: translateY(-2px);
   box-shadow: 0 6px 20px rgba(0, 119, 255, 0.3);
 }
 
-.retry-btn {
-  flex: 1;
-  padding: clamp(0.9rem, 2.5vw, 1.125rem) clamp(1.5rem, 3.5vw, 2rem);
-  min-height: clamp(56px, 13vw, 60px);
-  border-radius: 12px;
-  font-size: clamp(0.95rem, 2.5vw, 1rem);
-  font-weight: 600;
-  border: none;
-  cursor: pointer;
-  background: #facc15;
-  color: #222;
-  transition: all 0.2s ease;
-  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
-}
-
-.retry-btn:hover:not(:disabled) {
-  background: #eab308;
-  transform: translateY(-2px);
-  box-shadow: 0 6px 20px rgba(234, 179, 8, 0.3);
-}
-
-.primary-btn:disabled,
-.retry-btn:disabled,
 button:disabled {
   background: #aaa;
   cursor: not-allowed;
   transform: none;
 }
 
-/* =========================================================
-   YOUR MESSAGES
-========================================================= */
-.form-error,
-.form-success {
-  font-size: clamp(0.8rem, 1.75vw, 0.875rem);
-  font-weight: 600;
-  margin: clamp(1rem, 3vw, 1.5rem) 0;
-  padding: clamp(0.75rem, 2vw, 1rem) clamp(1rem, 2.5vw, 1.25rem);
-  border-radius: 12px;
-  border-left: 4px solid;
-  display: flex;
-  align-items: center;
-  gap: 0.75rem;
+.cancel-btn {
+  background: #f3f4f6 !important;
+  color: #374151 !important;
 }
 
-.form-error {
-  color: #dc2626;
-  background: rgba(239, 68, 68, 0.1);
-  border-left-color: #dc2626;
+.cancel-btn:hover:not(:disabled) {
+  background: #e5e7eb !important;
+  transform: translateY(-2px);
+  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.15);
 }
 
-.form-success {
-  color: #059669;
-  background: rgba(16, 185, 129, 0.1);
-  border-left-color: #059669;
+/* PROGRESS BAR - STYLE 1 */
+.progress {
+  height: clamp(6px, 1.5vw, 8px);
+  background: #e5e7eb;
+  border-radius: 10px;
+  overflow: hidden;
 }
 
-small.price-preview {
-  font-size: clamp(0.875rem, 2vw, 0.95rem);
-  font-weight: 800;
-  color: #059669;
-  margin-top: 1rem;
-  padding: clamp(0.75rem, 2vw, 1rem) clamp(1rem, 2.5vw, 1.25rem);
-  background: rgba(16, 185, 129, 0.08);
-  border-radius: 12px;
-  border-left: 4px solid #10b981;
+.progress div {
+  height: 100%;
+  background: linear-gradient(90deg, #0077ff, #3b82f6);
+  transition: width 0.3s ease;
 }
 
-/* =========================================================
-   YOUR MODALS & LOADING
-========================================================= */
-.loading-overlay {
+/* SHARE MODAL - STYLE 1 GLASS */
+.share-overlay {
   position: fixed;
   inset: 0;
   background: rgba(0, 0, 0, 0.6);
   backdrop-filter: blur(12px);
   z-index: 10000;
   display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  gap: clamp(1.5rem, 4vw, 2rem);
-  padding: clamp(2rem, 8vw, 3rem);
-}
-
-.loader {
-  width: clamp(48px, 12vw, 56px);
-  height: clamp(48px, 12vw, 56px);
-  border: clamp(4px, 1vw, 5px) solid #e5e7eb;
-  border-top-color: #0077ff;
-  border-radius: 50%;
-  animation: spin 1s linear infinite;
-}
-
-@keyframes spin {
-  to { transform: rotate(360deg); }
-}
-
-.loading-text {
-  font-size: clamp(1.1rem, 3vw, 1.25rem);
-  font-weight: 700;
-  color: #333;
-  text-align: center;
-  max-width: clamp(300px, 45vw, 450px);
-  padding: clamp(1rem, 2.5vw, 1.25rem);
-  background: #fff;
-  border-radius: 14px;
-  box-shadow: 0 8px 25px rgba(0, 0, 0, 0.15);
-}
-
-.image-modal {
-  position: fixed;
-  inset: 0;
-  background: rgba(0, 0, 0, 0.8);
-  backdrop-filter: blur(12px);
-  z-index: 10001;
-  display: flex;
   align-items: center;
   justify-content: center;
   padding: clamp(1.5rem, 6vw, 2.5rem);
-  cursor: pointer;
 }
 
-.image-modal img {
-  max-width: clamp(90vw, 95vw, 98vw);
-  max-height: clamp(80vh, 90vh, 92vh);
-  border-radius: clamp(12px, 2.5vw, 16px);
-  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.5);
+.share-modal {
+  width: clamp(320px, 90vw, 420px);
+  background: rgba(255, 255, 255, 0.95);
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
+  border-radius: clamp(14px, 3vw, 20px);
+  padding: clamp(1.5rem, 4vw, 2rem);
+  text-align: center;
+  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
+  border: 1px solid rgba(255, 255, 255, 0.2);
 }
 
-/* =========================================================
-   RESPONSIVE - YOUR EXACT BREAKPOINTS
-========================================================= */
-@media (min-width: 1440px) {
-  .add-product-container {
-    max-width: 900px;
-    padding-left: 2rem;
-    padding-right: 2rem;
-  }
+.share-actions {
+  display: flex;
+  flex-direction: column;
+  gap: clamp(0.75rem, 2vw, 1rem);
+  margin-top: clamp(1rem, 2.5vw, 1.25rem);
 }
 
+/* RESPONSIVE - STYLE 1 BREAKPOINTS */
 @media (max-width: 1024px) {
-  .preview-grid-modern,
-  .image-upload-box {
+  .preview-grid, .image-upload-box {
     grid-template-columns: repeat(4, 1fr);
   }
 }
 
 @media (max-width: 768px) {
-  .add-product-container {
-    padding-bottom: clamp(4rem, 10vw, 6rem);
-  }
-  .preview-grid-modern,
-  .image-upload-box {
+  .preview-grid, .image-upload-box {
     grid-template-columns: repeat(3, 1fr);
   }
-  .checkbox-grid-inline,
   .delivery-grid {
     grid-template-columns: repeat(2, 1fr);
   }
-  .button-section {
+  .submit-section {
     flex-direction: column !important;
     gap: clamp(1rem, 2.5vw, 1.25rem);
   }
 }
 
 @media (max-width: 600px) {
-  .preview-grid-modern,
-  .image-upload-box {
+  .preview-grid, .image-upload-box {
     grid-template-columns: repeat(2, 1fr);
   }
-  .attributes-grid,
-  .location-grid,
-  .contact-grid,
-  .delivery-grid,
-  .checkbox-grid-inline {
+  .attributes-grid, .location-grid, .contact-grid, .delivery-grid {
     grid-template-columns: 1fr;
   }
   .add-product-container {
     padding: clamp(1rem, 4vw, 1.25rem);
+  }
+}
+
+@media (min-width: 1440px) {
+  .add-product-container {
+    max-width: 900px;
+    padding-left: 2rem;
+    padding-right: 2rem;
   }
 }
