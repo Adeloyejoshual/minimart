@@ -52,7 +52,8 @@ const upload = multer({
 const safeJSON = (value, fallback = {}) => {
   try {
     return value ? JSON.parse(value) : fallback;
-  } catch {
+  } catch (err) {
+    console.error("JSON parse error:", err, value);
     return fallback;
   }
 };
@@ -84,7 +85,7 @@ const uploadImages = async (files = []) => {
   if (!files.length) return [];
 
   return Promise.all(
-    files.map((file, index) =>
+    files.map((file) =>
       new Promise((resolve, reject) => {
         const stream = cloudinary.uploader.upload_stream(
           {
@@ -97,7 +98,7 @@ const uploadImages = async (files = []) => {
           },
           (err, result) => {
             if (err) return reject(err);
-            resolve({ url: result.secure_url, position: index });
+            resolve({ url: result.secure_url });
           }
         );
         stream.end(file.buffer);
@@ -118,10 +119,7 @@ router.get("/products", async (req, res) => {
 
     const baseQuery = `
       SELECT p.*,
-      COALESCE(
-        json_agg(pi.image_url ORDER BY pi.position),
-        '[]'
-      ) AS images
+        COALESCE(json_agg(pi.image_url ORDER BY pi.position), '[]') AS images
       FROM products p
       LEFT JOIN product_images pi ON p.id = pi.product_id
       WHERE p.is_active = true AND p.state = 'active'
@@ -147,10 +145,10 @@ router.get("/products", async (req, res) => {
       .map(normalizeProduct)
       .filter((p) => !trendingIds.has(p.id));
 
-    res.json({ 
-      trending, 
+    res.json({
+      trending,
       products: [...trending, ...products],
-      total: productsRes.rowCount + trending.length 
+      total: productsRes.rowCount + trending.length,
     });
   } catch (err) {
     console.error(err);
@@ -168,10 +166,7 @@ router.get("/products/:id", async (req, res) => {
     const { rows } = await pool.query(
       `
       SELECT p.*,
-      COALESCE(
-        json_agg(pi.image_url ORDER BY pi.position),
-        '[]'
-      ) AS images
+        COALESCE(json_agg(pi.image_url ORDER BY pi.position), '[]') AS images
       FROM products p
       LEFT JOIN product_images pi ON p.id = pi.product_id
       WHERE p.id = $1 AND p.is_active = true AND p.state = 'active'
@@ -186,7 +181,7 @@ router.get("/products/:id", async (req, res) => {
 
     // Increment views
     pool.query(
-      "UPDATE products SET views = COALESCE(views,0)+1 WHERE id=$1",
+      "UPDATE products SET views = COALESCE(views, 0) + 1 WHERE id = $1",
       [id]
     ).catch(console.error);
 
@@ -206,20 +201,26 @@ router.post("/products", upload.array("images", 10), async (req, res) => {
   try {
     await client.query("BEGIN");
 
-    const { 
-      title, 
-      price, 
-      category_id, 
-      description, 
+    const {
+      title,
+      price,
+      category_id,
+      description,
       subcategory_id,
-      location_state, 
-      location_city 
+      location_state,
+      location_city,
     } = req.body;
 
     // ✅ VALIDATION
-    if (!title?.trim() || !price || !category_id || !location_state?.trim() || !location_city?.trim()) {
-      return res.status(400).json({ 
-        message: "Missing required: title, price, category_id, location_state, location_city" 
+    if (
+      !title?.trim() ||
+      !price ||
+      !category_id ||
+      !location_state?.trim() ||
+      !location_city?.trim()
+    ) {
+      return res.status(400).json({
+        message: "Missing required: title, price, category_id, location_state, location_city",
       });
     }
 
@@ -229,7 +230,7 @@ router.post("/products", upload.array("images", 10), async (req, res) => {
 
     // ✅ CATEGORY EXISTS CHECK
     const catCheck = await client.query(
-      "SELECT id FROM categories WHERE id = $1", 
+      "SELECT id FROM categories WHERE id = $1",
       [category_id]
     );
     if (!catCheck.rows.length) {
@@ -264,31 +265,41 @@ router.post("/products", upload.array("images", 10), async (req, res) => {
     );
 
     const product = rows[0];
-    const images = await uploadImages(req.files || []);
 
-    // Insert images with position
-    for (const [index, img] of images.entries()) {
+    // ✅ UPLOAD IMAGES
+    const uploadedImages = await uploadImages(req.files || []);
+
+    // Find current max position for this product to avoid `unique_position`
+    const { rows: maxRow } = await client.query(
+      "SELECT COALESCE(MAX(position), -1) AS max_pos FROM product_images WHERE product_id = $1",
+      [product.id]
+    );
+    let nextPos = (maxRow[0]?.max_pos ?? -1) + 1;
+
+    for (const img of uploadedImages) {
       await client.query(
         `INSERT INTO product_images (product_id, image_url, position)
-         VALUES ($1,$2,$3)`,
-        [product.id, img.url, index]
+         VALUES ($1, $2, $3)`,
+        [product.id, img.url, nextPos++]
       );
     }
 
     await client.query("COMMIT");
 
     res.status(201).json({
-      product: normalizeProduct({ 
-        ...product, 
-        images 
+      product: normalizeProduct({
+        ...product,
+        images: uploadedImages.map((img, idx) => ({
+          url: img.url,
+          position: idx,
+        })),
       }),
     });
-
   } catch (err) {
     console.error(err);
     await client.query("ROLLBACK");
-    res.status(500).json({ 
-      message: err.message || "Failed to create product" 
+    res.status(500).json({
+      message: err.message || "Failed to create product",
     });
   } finally {
     client.release();
@@ -296,7 +307,7 @@ router.post("/products", upload.array("images", 10), async (req, res) => {
 });
 
 /* =========================================================
-GET CATEGORIES (PERFECTLY FIXED)
+GET CATEGORIES
 ========================================================= */
 router.get("/categories", async (req, res) => {
   try {
@@ -321,16 +332,16 @@ router.get("/categories", async (req, res) => {
           brands: brands[key] || brands.default || [],
           models: models[key] || models.default || {},
           colors: colors[key] || colors.default || [],
-          conditions: conditions || [],
-          usedDetails: usedDetails || [],
-          ram: ramOptions || [],
-          storage: storageOptions || [],
-          sims: sims || [],
+          conditions: conditions[key] || conditions.default || [],
+          usedDetails: usedDetails[key] || usedDetails.default || [],
+          ram: ramOptions[key] || ramOptions.default || [],
+          storage: storageOptions[key] || storageOptions.default || [],
+          sims: sims[key] || sims.default || [],
           features: featuresByCategory[key] || [],
-          years: years || [],
+          years: years[key] || [],
           engines: engines[key] || engines.default || [],
-          fuel_types: fuelTypes[key] || fuelTypes.default || [], // ✅ FIXED naming
-          fields: categoryFields[key] || [], // ✅ Frontend expects this
+          fuel_types: fuelTypes[key] || fuelTypes.default || [],
+          fields: categoryFields[key] || [], // frontend expects this
         },
         subcategories: [],
       };
@@ -357,16 +368,16 @@ FREE PLAN ACTIVATION
 ========================================================= */
 router.post("/payments/free-plan/:productId", async (req, res) => {
   const client = await pool.connect();
-  
+
   try {
     const { productId } = req.params;
-    
+
     await client.query("BEGIN");
-    
+
     await client.query(
-      `UPDATE products 
-       SET state = 'active', 
-           is_active = true, 
+      `UPDATE products
+       SET state = 'active',
+           is_active = true,
            is_promoted = false,
            promotion_priority = 0,
            promotion_expires_at = NULL,
@@ -374,30 +385,29 @@ router.post("/payments/free-plan/:productId", async (req, res) => {
        WHERE id = $1 AND state = 'draft'`,
       [productId]
     );
-    
+
     const { rows } = await client.query(
-      `SELECT p.*, 
-       COALESCE(json_agg(pi.image_url ORDER BY pi.position), '[]') AS images
+      `SELECT p.*,
+              COALESCE(json_agg(pi.image_url ORDER BY pi.position), '[]') AS images
        FROM products p
        LEFT JOIN product_images pi ON p.id = pi.product_id
        WHERE p.id = $1
        GROUP BY p.id`,
       [productId]
     );
-    
+
     await client.query("COMMIT");
-    
-    res.json({ 
-      success: true, 
-      product: normalizeProduct(rows[0]) 
+
+    res.json({
+      success: true,
+      product: normalizeProduct(rows[0]),
     });
-    
   } catch (err) {
     await client.query("ROLLBACK");
     console.error(err);
-    res.status(400).json({ 
-      success: false, 
-      error: "Failed to activate free plan" 
+    res.status(400).json({
+      success: false,
+      error: "Failed to activate free plan",
     });
   } finally {
     client.release();
