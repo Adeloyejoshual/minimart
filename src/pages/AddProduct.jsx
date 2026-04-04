@@ -1,11 +1,10 @@
 import { useEffect, useMemo, useState, useCallback, useRef, useLayoutEffect } from "react";
-import ErrorBoundary from "../components/ErrorBoundary"; // simple ErrorBoundary class component
+import ErrorBoundary from "../components/ErrorBoundary";
 import DropdownModal from "../components/DropdownModal.jsx";
 import AddProductHeader from "../components/AddProductHeader.jsx";
 import { locationsByState } from "../config/locationsByState.js";
 import { promotionPlans } from "../config/promotions.js";
 import "../styles/AddProduct.css";
-
 import imageCompression from "browser-image-compression";
 
 const STORAGE_DRAFT = "product_draft";
@@ -54,7 +53,8 @@ export default function AddProduct() {
   const [loading, setLoading] = useState(false);
   const [selectedPlan, setSelectedPlan] = useState(null);
   const [paymentData, setPaymentData] = useState(null);
-  const [isDragging, setIsDragging] = useState(false);
+  const [errors, setErrors] = useState({});
+  const fieldRefs = useRef({});
 
   const MAX_IMAGES = 6;
   const MAX_SIZE = 3 * 1024 * 1024;
@@ -87,32 +87,24 @@ export default function AddProduct() {
       ? list.map((x) => (typeof x === "string" ? { id: x, name: x } : x))
       : [];
 
-  // ✅ FIXED: Allow decimals; reject everything except digits and dot
   const onlyNumbers = (v = "") => v.replace(/[^0-9.]/g, "");
-  const displayPrice = (v) =>
-    v ? new Intl.NumberFormat("en-NG").format(Number(v)) : "";
+  const displayPrice = (v) => v ? new Intl.NumberFormat("en-NG").format(Number(v)) : "";
 
   const formatLabel = (t) =>
-    t
-      .replace(/_/g, " ")
-      .replace(/(^|s)w/g, (l) => l.toUpperCase());
+    t.replace(/_/g, " ").replace(/(^|s)w/g, (l) => l.toUpperCase());
 
   /* ================= DYNAMIC OPTIONS MAP ================= */
   const optionsMap = useMemo(() => {
     const map = {};
-
     Object.keys(options || {}).forEach((key) => {
       if (key === "models") return;
-
       if (key === "model") {
         const modelsForBrand = brand && options.model?.[brand] ? options.model[brand] : [];
         map.model = normalizeOptions(modelsForBrand);
         return;
       }
-
       map[key] = normalizeOptions(options[key] || []);
     });
-
     return map;
   }, [options, brand]);
 
@@ -125,15 +117,45 @@ export default function AddProduct() {
     return dynamic.includes("condition") ? dynamic : ["condition", ...dynamic];
   }, [options]);
 
+  /* ================= VALIDATION + SCROLL ================= */
+  const validate = () => {
+    const e = {};
+    if (form.title.length < 10) e.title = "Minimum 10 characters required";
+    if (form.description.length < 20) e.description = "Minimum 20 characters required";
+    if (!form.price || Number(form.price) <= 0) e.price = "Enter valid price (₦)";
+    if (!form.category_id) e.category_id = "Select a category";
+    if (!form.contact.phone || form.contact.phone.length < 10) e.phone = "Valid phone required (10+ digits)";
+    if (!form.contact.email || !form.contact.email.includes("@")) e.email = "Valid email required";
+    if (images.length === 0) e.images = "Add at least 1 image";
+    if (!state) e.state = "Select your state";
+    if (!city) e.city = "Select your city";
+
+    if (form.delivery.type !== "none" && form.delivery.type !== "pickup") {
+      const from = Number(form.delivery.duration.from);
+      const to = Number(form.delivery.duration.to);
+      if (Number.isNaN(from) || Number.isNaN(to)) e.delivery_duration = "Delivery range required";
+      if (to < from) e.delivery_duration = "End day must be after start day";
+      if (!form.delivery.fee || Number(form.delivery.fee) <= 0) e.delivery_fee = "Delivery fee required";
+    }
+
+    setErrors(e);
+    return Object.keys(e).length ? e : null;
+  };
+
+  const scrollToFirstError = useCallback((errObj) => {
+    const firstKey = Object.keys(errObj)[0];
+    const el = fieldRefs.current[firstKey];
+    if (el) {
+      el.scrollIntoView({ behavior: "smooth", block: "center" });
+      el.classList.add("shake");
+      setTimeout(() => el.classList.remove("shake"), 500);
+    }
+  }, []);
+
   /* ================= DRAFT MANAGEMENT ================= */
   const saveDraft = useCallback(() => {
     if (loading) return;
-    const draft = {
-      form,
-      state,
-      city,
-      selectedPlan: selectedPlan?.id || null,
-    };
+    const draft = { form, state, city, selectedPlan: selectedPlan?.id || null };
     localStorage.setItem(STORAGE_DRAFT, JSON.stringify(draft));
   }, [form, state, city, selectedPlan, loading]);
 
@@ -162,7 +184,7 @@ export default function AddProduct() {
     setCity("");
     setSelectedPlan(null);
     setPaymentData(null);
-    setIsDragging(false);
+    setErrors({});
     localStorage.removeItem(STORAGE_DRAFT);
     localStorage.removeItem(STORAGE_PAYMENT);
   }, []);
@@ -174,32 +196,19 @@ export default function AddProduct() {
   const updateAttr = (key, value) =>
     setForm((p) => ({
       ...p,
-      attributes: {
-        ...p.attributes,
-        [key]: value,
-        ...(key === "brand" && { model: "" }),
-      },
+      attributes: { ...p.attributes, [key]: value, ...(key === "brand" && { model: "" }) },
     }));
 
   const updateContact = (key, value) =>
-    setForm((p) => ({
-      ...p,
-      contact: { ...p.contact, [key]: value },
-    }));
+    setForm((p) => ({ ...p, contact: { ...p.contact, [key]: value } }));
 
   const updateDelivery = (key, value) =>
-    setForm((p) => ({
-      ...p,
-      delivery: { ...p.delivery, [key]: value },
-    }));
+    setForm((p) => ({ ...p, delivery: { ...p.delivery, [key]: value } }));
 
   const updateDeliveryDuration = (key, value) =>
     setForm((p) => ({
       ...p,
-      delivery: {
-        ...p.delivery,
-        duration: { ...p.delivery.duration, [key]: value },
-      },
+      delivery: { ...p.delivery, duration: { ...p.delivery.duration, [key]: value } },
     }));
 
   const toggleFeature = (feature) => {
@@ -216,52 +225,26 @@ export default function AddProduct() {
     });
   };
 
-  /* ================= VALIDATION ================= */
-  const validate = () => {
-    if (form.title.length < 10) return "Title too short (min 10 chars)";
-    if (form.description.length < 20) return "Description too short (min 20 chars)";
-    if (!form.price || Number(form.price) <= 0) return "Valid price required";
-    if (!form.category_id) return "Select a category";
-    if (!form.contact.phone || form.contact.phone.length < 10) return "Valid phone required";
-    if (!form.contact.email || !form.contact.email.includes("@")) return "Valid email required";
-    if (images.length === 0) return "Add at least 1 image";
-    if (!state || !city) return "Select state and city";
-
-    if (form.delivery.type !== "none" && form.delivery.type !== "pickup") {
-      const from = Number(form.delivery.duration.from);
-      const to = Number(form.delivery.duration.to);
-      if (Number.isNaN(from) || Number.isNaN(to)) return "Delivery range required";
-      if (to < from) return "End day must be after start day";
-      if (!form.delivery.fee || Number(form.delivery.fee) <= 0) return "Delivery fee required";
-    }
-
-    return null;
-  };
-
   /* ================= IMAGE HANDLING ================= */
   const handleImages = (files) => {
     const fileArray = Array.from(files);
-
     if (images.length >= MAX_IMAGES) {
-      alert("Maximum 6 images allowed");
+      setErrors((prev) => ({ ...prev, images: `Maximum ${MAX_IMAGES} images allowed` }));
       return;
     }
-
     const remaining = MAX_IMAGES - images.length;
-
     const validFiles = fileArray
       .filter((f) => f.type.startsWith("image/") && f.size <= MAX_SIZE)
       .slice(0, remaining);
 
     const newImages = validFiles.map((file) => ({
-      id:
-        crypto?.randomUUID?.() ||
-        `${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
+      id: crypto?.randomUUID?.() || `${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
       file,
       preview: URL.createObjectURL(file),
     }));
 
     setImages((prev) => [...prev, ...newImages]);
+    if (errors.images) setErrors((prev) => ({ ...prev, images: "" }));
   };
 
   const removeImage = (id) => {
@@ -272,59 +255,6 @@ export default function AddProduct() {
     });
   };
 
-  // ✅ FIXED: Proper long‑press per image (no hooks in loops)
-  const handleLongPressStart = useCallback((e, index) => {
-    e.preventDefault();
-    setIsDragging(true);
-    e.dataTransfer.setData("index", index);
-  }, []);
-
-  const handleLongPressEnd = useCallback((e) => {
-    const timerId = e.currentTarget.dataset.timer;
-    if (timerId) {
-      clearTimeout(Number(timerId));
-      delete e.currentTarget.dataset.timer;
-    }
-    setIsDragging(false);
-  }, []);
-
-  const touchHandlers = useMemo(
-    () =>
-      images.map((_, i) =>
-        (e) => {
-          const timer = setTimeout(() => handleLongPressStart(e, i), 500);
-          e.currentTarget.dataset.timer = timer;
-        }
-      ),
-    [images, handleLongPressStart]
-  );
-
-  const longPressEndHandlers = useMemo(
-    () =>
-      images.map((_, i) => (e) => {
-        const timerId = e.currentTarget.dataset.timer;
-        if (timerId) {
-          clearTimeout(Number(timerId));
-          delete e.currentTarget.dataset.timer;
-        }
-        setIsDragging(false);
-      }),
-    [images]
-  );
-
-  const handleDrop = useCallback((e, index) => {
-    e.preventDefault();
-    const from = Number(e.dataTransfer.getData("index"));
-    setImages((prev) => {
-      const copy = [...prev];
-      const [moved] = copy.splice(from, 1);
-      copy.splice(index, 0, moved);
-      return copy;
-    });
-    setIsDragging(false);
-  }, []);
-
-  // ✅ FIXED: Safe sequential compression (no CPU spike)
   const compressImagesSequentially = async (imageFiles) => {
     const compressedFiles = [];
     for (const file of imageFiles) {
@@ -332,7 +262,7 @@ export default function AddProduct() {
         const compressed = await compressImage(file);
         compressedFiles.push(compressed);
       } catch {
-        compressedFiles.push(file); // fallback
+        compressedFiles.push(file);
       }
     }
     return compressedFiles;
@@ -384,7 +314,6 @@ export default function AddProduct() {
 
   useEffect(() => {
     if (!options.fields?.length) return;
-
     setForm((prev) => {
       const newAttrs = { ...prev.attributes };
       options.fields.forEach((f) => {
@@ -416,10 +345,7 @@ export default function AddProduct() {
 
     const imageFiles = images.map((img) => img.file);
     const compressedFiles = await compressImagesSequentially(imageFiles);
-
-    compressedFiles.forEach((file) => {
-      fd.append("images", file);
-    });
+    compressedFiles.forEach((file) => fd.append("images", file));
 
     const res = await fetch("https://minimart-ivrm.onrender.com/api/marketplace/products", {
       method: "POST",
@@ -450,36 +376,30 @@ export default function AddProduct() {
     if (!data.success || !data.authorization_url) {
       throw new Error(data.message || "Payment initialization failed");
     }
-
     return data.authorization_url;
   };
 
-  /* ================= SUBMIT HANDLERS ================= */
+  /* ================= SUBMIT ================= */
   const handleSubmit = async () => {
     if (loading) return;
-
     const error = validate();
     if (error) {
-      alert(error);
+      scrollToFirstError(error);
       return;
     }
 
-    const finalPlan =
-      selectedPlan || promotionPlans.find((p) => p.price === 0);
+    const finalPlan = selectedPlan || promotionPlans.find((p) => p.price === 0);
     setLoading(true);
 
     try {
       const product = await createProductDraft();
       const productId = product?.id;
-
       if (!productId) throw new Error("Failed to create product draft");
 
       if (finalPlan.price === 0) {
         const res = await fetch(
           `https://minimart-ivrm.onrender.com/api/marketplace/products/${productId}/activate`,
-          {
-            method: "POST",
-          }
+          { method: "POST" }
         );
         if (!res.ok) throw new Error("Activation failed");
         clearDraft();
@@ -493,31 +413,26 @@ export default function AddProduct() {
         planId: finalPlan.id,
         productId,
       };
-
       setPaymentData(paymentInfo);
       localStorage.setItem(STORAGE_PAYMENT, JSON.stringify(paymentInfo));
-
       const authUrl = await startPayment(productId, finalPlan);
       window.location.href = authUrl;
     } catch (err) {
-      alert(`Error: ${err.message || "Something went wrong"}`);
+      setErrors({ submit: err.message || "Something went wrong" });
     } finally {
       setLoading(false);
     }
   };
 
   const retryPayment = async () => {
-    if (!paymentData) return alert("No pending payment found");
-
+    if (!paymentData) return setErrors({ submit: "No pending payment found" });
     setLoading(true);
     try {
       const plan = { id: paymentData.planId, price: paymentData.amount };
-      const productId = paymentData.productId;
-
-      const authUrl = await startPayment(productId, plan);
+      const authUrl = await startPayment(paymentData.productId, plan);
       window.location.href = authUrl;
     } catch (err) {
-      alert(`Payment retry failed: ${err.message}`);
+      setErrors({ submit: `Payment retry failed: ${err.message}` });
     } finally {
       setLoading(false);
     }
@@ -532,346 +447,332 @@ export default function AddProduct() {
       fallback={
         <div className="error-boundary">
           Error loading form.{" "}
-          <button onClick={clearDraft} className="retry-btn">
-            Reset Form
-          </button>
+          <button onClick={clearDraft} className="retry-btn">Reset Form</button>
         </div>
       }
     >
       <div className="add-product-container">
         <AddProductHeader title="Add Product" onClearDraft={clearDraft} />
 
-        {/* 🔵 BASIC INFO */}
+        {/* BASIC INFO */}
         <div className="form-card blue">
           <h3>Basic Information</h3>
           <div className="form-group">
-            <label>
-              Product Title <span className="required">*</span>
-            </label>
+            <label>Product Title <span className="required">*</span></label>
             <input
+              ref={(el) => (fieldRefs.current.title = el)}
               placeholder="Enter product title (min 10 chars)"
               value={form.title}
-              onChange={(e) => update("title", e.target.value)}
+              onChange={(e) => {
+                update("title", e.target.value);
+                if (errors.title) setErrors((prev) => ({ ...prev, title: "" }));
+              }}
             />
+            {errors.title && <span className="error">{errors.title}</span>}
           </div>
           <div className="form-group">
-            <label>
-              Description <span className="required">*</span>
-            </label>
+            <label>Description <span className="required">*</span></label>
             <textarea
+              ref={(el) => (fieldRefs.current.description = el)}
               placeholder="Detailed description (min 20 chars)"
               value={form.description}
-              onChange={(e) => update("description", e.target.value)}
+              onChange={(e) => {
+                update("description", e.target.value);
+                if (errors.description) setErrors((prev) => ({ ...prev, description: "" }));
+              }}
               rows="4"
             />
+            {errors.description && <span className="error">{errors.description}</span>}
           </div>
           <div className="form-group">
-            <label>
-              Price (₦) <span className="required">*</span>
-            </label>
+            <label>Price (₦) <span className="required">*</span></label>
             <input
-              placeholder="0"
-              value={displayPrice(form.price)}
-              onChange={(e) =>
-                update("price", onlyNumbers(e.target.value))
-              }
+              ref={(el) => (fieldRefs.current.price = el)}
+              placeholder="100000"
+              value={form.price}
+              onChange={(e) => {
+                const raw = onlyNumbers(e.target.value);
+                update("price", raw);
+                if (errors.price) setErrors((prev) => ({ ...prev, price: "" }));
+              }}
+              onBlur={() => form.price && update("price", Number(form.price).toString())}
             />
-            {form.price && <small>₦{displayPrice(form.price)}</small>}
+            {errors.price && <span className="error">{errors.price}</span>}
+            {form.price && !errors.price && <small>₦{displayPrice(form.price)}</small>}
           </div>
         </div>
 
-                  {/* 🔵 CATEGORY & FEATURES (with loading) */}
-          <div className="form-card blue">
-            <h3>Product Details</h3>
-
-            {!categories.length ? (
-              <div className="skeleton">Loading categories...</div>
-            ) : (
-              <>
-                <div className="form-group">
-                  <label>
-                    Category <span className="required">*</span>
-                  </label>
+        {/* CATEGORY & FEATURES */}
+        <div className="form-card blue">
+          <h3>Product Details</h3>
+          {!categories.length ? (
+            <div className="skeleton">Loading categories...</div>
+          ) : (
+            <>
+              <div className="form-group">
+                <label>Category <span className="required">*</span></label>
+                <div ref={(el) => (fieldRefs.current.category_id = el)}>
                   <DropdownModal
                     label=""
                     value={form.category_id}
-                    onChange={(v) =>
+                    onChange={(v) => {
                       setForm((prev) => ({
                         ...prev,
                         category_id: v,
                         attributes: INITIAL_FORM.attributes,
-                      }))
-                    }
+                      }));
+                      if (errors.category_id) setErrors((prev) => ({ ...prev, category_id: "" }));
+                    }}
                     options={categories.map((c) => ({ id: c.id, name: c.name }))}
                   />
                 </div>
+                {errors.category_id && <span className="error">{errors.category_id}</span>}
+              </div>
 
-                {fields.map((f) => {
-                  if (!optionsMap[f] && f !== "features") return null;
-                  if (f === "used_detail" && attributes.condition !== "Used") return null;
-
-                  return (
-                    <div key={f} className="form-group">
-                      <label>{formatLabel(f)}</label>
-                      <DropdownModal
-                        label=""
-                        value={attributes[f] || ""}
-                        onChange={(v) => updateAttr(f, v)}
-                        options={optionsMap[f]}
-                      />
-                    </div>
-                  );
-                })}
-
-                {sortedFeatures.length > 0 && (
-                  <div className="form-group">
-                    <label>Features</label>
-                    <div className="checkbox-grid-inline">
-                      {sortedFeatures.map((f) => (
-                        <label key={f} className="checkbox-inline right-check">
-                          <span>{formatLabel(f)}</span>
-                          <input
-                            type="checkbox"
-                            checked={(attributes.features || []).includes(f)}
-                            onChange={() => toggleFeature(f)}
-                          />
-                        </label>
-                      ))}
-                    </div>
+              {fields.map((f) => {
+                if (!optionsMap[f] && f !== "features") return null;
+                if (f === "used_detail" && attributes.condition !== "Used") return null;
+                return (
+                  <div key={f} className="form-group">
+                    <label>{formatLabel(f)}</label>
+                    <DropdownModal
+                      label=""
+                      value={attributes[f] || ""}
+                      onChange={(v) => updateAttr(f, v)}
+                      options={optionsMap[f]}
+                    />
                   </div>
-                )}
-              </>
-            )}
+                );
+              })}
+
+              {sortedFeatures.length > 0 && (
+                <div className="form-group">
+                  <label>Features</label>
+                  <div className="checkbox-grid-inline">
+                    {sortedFeatures.map((f) => (
+                      <label key={f} className="checkbox-inline right-check">
+                        <span>{formatLabel(f)}</span>
+                        <input
+                          type="checkbox"
+                          checked={(attributes.features || []).includes(f)}
+                          onChange={() => toggleFeature(f)}
+                        />
+                      </label>
+                    ))}
+                  </div>
+                </div>
+              )}
+            </>
+          )}
+        </div>
+
+        {/* CONTACT */}
+        <div className="form-card blue">
+          <h3>Contact Information</h3>
+          <div className="form-group">
+            <label>Email <span className="required">*</span></label>
+            <input
+              ref={(el) => (fieldRefs.current.email = el)}
+              type="email"
+              placeholder="your@email.com"
+              value={form.contact.email}
+              onChange={(e) => {
+                updateContact("email", e.target.value);
+                if (errors.email) setErrors((prev) => ({ ...prev, email: "" }));
+              }}
+            />
+            {errors.email && <span className="error">{errors.email}</span>}
+          </div>
+          <div className="form-group">
+            <label>Phone <span className="required">*</span></label>
+            <input
+              ref={(el) => (fieldRefs.current.phone = el)}
+              placeholder="08012345678"
+              value={form.contact.phone}
+              onChange={(e) => {
+                updateContact("phone", onlyNumbers(e.target.value));
+                if (errors.phone) setErrors((prev) => ({ ...prev, phone: "" }));
+              }}
+            />
+            {errors.phone && <span className="error">{errors.phone}</span>}
+          </div>
+        </div>
+
+        {/* LOCATION + DELIVERY */}
+        <div className="form-card blue">
+          <h3>Location & Delivery</h3>
+          <div className="form-group">
+            <label>State <span className="required">*</span></label>
+            <div ref={(el) => (fieldRefs.current.state = el)}>
+              <DropdownModal label="" value={state} onChange={setState} options={states} />
+            </div>
+            {errors.state && <span className="error">{errors.state}</span>}
+          </div>
+          {state && (
+            <div className="form-group">
+              <label>City <span className="required">*</span></label>
+              <div ref={(el) => (fieldRefs.current.city = el)}>
+                <DropdownModal label="" value={city} onChange={setCity} options={cities} />
+              </div>
+              {errors.city && <span className="error">{errors.city}</span>}
+            </div>
+          )}
+          <div className="form-group">
+            <label>Delivery Type</label>
+            <DropdownModal
+              label=""
+              value={form.delivery.type}
+              onChange={(v) => {
+                updateDelivery("type", v);
+                if (errors.delivery_type) setErrors((prev) => ({ ...prev, delivery_type: "" }));
+              }}
+              options={[
+                { id: "none", name: "No delivery" },
+                { id: "standard", name: "Standard delivery" },
+                { id: "express", name: "Express delivery" },
+                { id: "pickup", name: "Pickup only" },
+              ]}
+            />
           </div>
 
-          {/* 🔵 CONTACT */}
-          <div className="form-card blue">
-            <h3>Contact Information</h3>
-            <div className="form-group">
-              <label>
-                Email <span className="required">*</span>
-              </label>
-              <input
-                type="email"
-                placeholder="your@email.com"
-                value={form.contact.email}
-                onChange={(e) => updateContact("email", e.target.value)}
-              />
-            </div>
-            <div className="form-group">
-              <label>
-                Phone <span className="required">*</span>
-              </label>
-              <input
-                placeholder="08012345678"
-                value={form.contact.phone}
-                onChange={(e) => updateContact("phone", onlyNumbers(e.target.value))}
-              />
-            </div>
-          </div>
-
-          {/* 🔵 LOCATION + DELIVERY */}
-          <div className="form-card blue">
-            <h3>Location & Delivery</h3>
-            <div className="form-group">
-              <label>
-                State <span className="required">*</span>
-              </label>
-              <DropdownModal
-                label=""
-                value={state}
-                onChange={setState}
-                options={states}
-              />
-            </div>
-
-            {state && (
-              <div className="form-group">
-                <label>
-                  City <span className="required">*</span>
-                </label>
-                <DropdownModal
-                  label=""
-                  value={city}
-                  onChange={setCity}
-                  options={cities}
+          {form.delivery.type !== "none" && form.delivery.type !== "pickup" && (
+            <div className="sub-grid">
+              <div className="form-section-round-small">
+                <label>From (days) <span className="required">*</span></label>
+                <input
+                  ref={(el) => (fieldRefs.current.delivery_duration = el)}
+                  type="number"
+                  min="1"
+                  value={form.delivery.duration.from}
+                  onChange={(e) => updateDeliveryDuration("from", onlyNumbers(e.target.value))}
                 />
               </div>
-            )}
-
-            <div className="form-group">
-              <label>Delivery Type</label>
-              <select
-                value={form.delivery.type}
-                onChange={(e) => updateDelivery("type", e.target.value)}
-              >
-                <option value="none">No delivery</option>
-                <option value="standard">Standard delivery</option>
-                <option value="express">Express delivery</option>
-                <option value="pickup">Pickup only</option>
-              </select>
-            </div>
-
-            {form.delivery.type !== "none" && form.delivery.type !== "pickup" && (
-              <div className="sub-grid">
-                <div className="form-section-round-small">
-                  <label>
-                    From (days) <span className="required">*</span>
-                  </label>
-                  <input
-                    type="number"
-                    min="1"
-                    value={form.delivery.duration.from}
-                    onChange={(e) =>
-                      updateDeliveryDuration("from", onlyNumbers(e.target.value))
-                    }
-                  />
-                </div>
-                <div className="form-section-round-small">
-                  <label>
-                    To (days) <span className="required">*</span>
-                  </label>
-                  <input
-                    type="number"
-                    min="1"
-                    value={form.delivery.duration.to}
-                    onChange={(e) =>
-                      updateDeliveryDuration("to", onlyNumbers(e.target.value))
-                    }
-                  />
-                </div>
-                <div className="form-section-round-small">
-                  <label>
-                    Fee (₦) <span className="required">*</span>
-                  </label>
-                  <input
-                    type="number"
-                    min="0"
-                    step="0.01"
-                    value={form.delivery.fee}
-                    onChange={(e) =>
-                      updateDelivery("fee", onlyNumbers(e.target.value))
-                    }
-                  />
-                </div>
+              <div className="form-section-round-small">
+                <label>To (days) <span className="required">*</span></label>
+                <input
+                  type="number"
+                  min="1"
+                  value={form.delivery.duration.to}
+                  onChange={(e) => updateDeliveryDuration("to", onlyNumbers(e.target.value))}
+                />
               </div>
-            )}
-          </div>
+              <div className="form-section-round-small">
+                <label>Fee (₦) <span className="required">*</span></label>
+                <input
+                  ref={(el) => (fieldRefs.current.delivery_fee = el)}
+                  type="number"
+                  min="0"
+                  step="0.01"
+                  value={form.delivery.fee}
+                  onChange={(e) => updateDelivery("fee", onlyNumbers(e.target.value))}
+                />
+              </div>
+              {(errors.delivery_duration || errors.delivery_fee) && (
+                <span className="error" style={{ gridColumn: "1 / -1", textAlign: "center" }}>
+                  {errors.delivery_duration || errors.delivery_fee}
+                </span>
+              )}
+            </div>
+          )}
+        </div>
 
-          {/* 🔵 IMAGES */}
-          <div className="form-card blue">
-            <h3>Product Images</h3>
-            <label className="form-group-label">
-              Product Images (max 6, 3MB each) <span className="required">*</span>
-            </label>
+        {/* IMAGES */}
+        <div className="form-card blue">
+          <h3>Product Images</h3>
+          <label className="form-group-label">
+            Product Images (max 6, 3MB each) <span className="required">*</span>
+          </label>
+          <div className="images-section" ref={(el) => (fieldRefs.current.images = el)}>
             {images.length > 0 && (
               <div className="preview-grid-modern">
-                {images.map((img, i) => (
-                  <div
-                    key={img.id}
-                    className={`preview-thumb ${isDragging ? "dragging" : ""}`}
-                    draggable={true}
-                    onClick={() => setActiveImage(img.preview)}
-                    onDragStart={(e) => {
-                      e.dataTransfer.setData("index", i);
-                    }}
-                    onDragOver={(e) => e.preventDefault()}
-                    onDragEnd={() => setIsDragging(false)}
-                    onDrop={(e) => handleDrop(e, i)}
-                    onTouchStart={touchHandlers[i]}
-                    onTouchEnd={longPressEndHandlers[i]}
-                    onTouchCancel={longPressEndHandlers[i]}
-                    onMouseDown={touchHandlers[i]}
-                    onMouseUp={longPressEndHandlers[i]}
-                    onMouseLeave={longPressEndHandlers[i]}
-                  >
-                    <img src={img.preview} alt="" />
+                {images.map((img) => (
+                  <div key={img.id} className="preview-card">
+                    <img
+                      src={img.preview}
+                      alt=""
+                      onClick={() => setActiveImage(img.preview)}
+                      style={{ cursor: "pointer" }}
+                    />
                     <button
+                      className="remove-btn"
                       onClick={(e) => {
                         e.stopPropagation();
                         removeImage(img.id);
                       }}
+                      title="Remove image"
                     >
-                      ✕
+                      ×
                     </button>
                   </div>
                 ))}
-
-                {images.length < MAX_IMAGES && (
-                  <label className="add-image-box">
-                    <input
-                      type="file"
-                      multiple
-                      accept="image/*"
-                      hidden
-                      onChange={(e) => handleImages(e.target.files)}
-                    />
-                    + Add
-                  </label>
-                )}
               </div>
             )}
-          </div>
-
-          {/* 🔵 PROMOTION */}
-          <div className="form-card blue">
-            <h3>Promotion Plan (Optional)</h3>
-            <div className="plans-grid">
-              {promotionPlans.map((plan) => (
-                <div
-                  key={plan.id}
-                  className={`plan-card ${
-                    selectedPlan?.id === plan.id ? "selected" : ""
-                  }`}
-                  onClick={() => setSelectedPlan(plan)}
-                >
-                  <div className="plan-header">
-                    <strong>{plan.name}</strong>
-                    <span className="plan-price">
-                      ₦{displayPrice(plan.price.toString())}
-                    </span>
-                  </div>
-                  <div className="plan-duration">{plan.duration}</div>
-                  <ul className="plan-features">
-                    {plan.features.map((feat, i) => (
-                      <li key={i}>{feat}</li>
-                    ))}
-                  </ul>
-                  {plan.description && (
-                    <p className="plan-desc">{plan.description}</p>
-                  )}
-                </div>
-              ))}
-            </div>
-          </div>
-
-          {/* ACTION BUTTONS */}
-          <div className="form-card blue button-section">
-            <button
-              onClick={handleSubmit}
-              disabled={loading}
-              className="primary-btn"
-            >
-              {loading ? "Processing..." : "Create Product"}
-            </button>
-            {paymentData && (
-              <button
-                onClick={retryPayment}
-                disabled={loading}
-                className="retry-btn"
-              >
-                {loading ? "Retrying..." : "Retry Payment"}
-              </button>
+            {images.length < MAX_IMAGES && (
+              <label className="add-card">
+                <input
+                  type="file"
+                  multiple
+                  accept="image/*"
+                  hidden
+                  onChange={(e) => {
+                    handleImages(e.target.files);
+                    e.target.value = "";
+                  }}
+                />
+                <span>+</span>
+                <small>{images.length ? `Add more (${MAX_IMAGES - images.length} left)` : "Add images"}</small>
+              </label>
             )}
+            {errors.images && <span className="error">{errors.images}</span>}
           </div>
+        </div>
 
-          {/* FULLSCREEN IMAGE PREVIEW */}
-          {activeImage && (
-            <div className="image-modal" onClick={() => setActiveImage(null)}>
-              <img src={activeImage} alt="preview" />
-            </div>
+        {/* PROMOTION */}
+        <div className="form-card blue">
+          <h3>Promotion Plan (Optional)</h3>
+          <div className="plans-grid">
+            {promotionPlans.map((plan) => (
+              <div
+                key={plan.id}
+                className={`plan-card ${selectedPlan?.id === plan.id ? "selected" : ""}`}
+                onClick={() => setSelectedPlan(plan)}
+              >
+                <div className="plan-header">
+                  <strong>{plan.name}</strong>
+                  <span className="plan-price">₦{displayPrice(plan.price.toString())}</span>
+                </div>
+                <div className="plan-duration">{plan.duration}</div>
+                <ul className="plan-features">
+                  {plan.features.map((feat, i) => (
+                    <li key={i}>{feat}</li>
+                  ))}
+                </ul>
+                {plan.description && <p className="plan-desc">{plan.description}</p>}
+              </div>
+            ))}
+          </div>
+        </div>
+
+        {/* ACTION BUTTONS */}
+        <div className="form-card blue button-section">
+          {errors.submit && <span className="error" style={{ display: "block", marginBottom: "1rem" }}>{errors.submit}</span>}
+          <button onClick={handleSubmit} disabled={loading} className="primary-btn">
+            {loading ? "Processing..." : "Create Product"}
+          </button>
+          {paymentData && (
+            <button onClick={retryPayment} disabled={loading} className="retry-btn">
+              {loading ? "Retrying..." : "Retry Payment"}
+            </button>
           )}
         </div>
-      </ErrorBoundary>
-    );
+
+        {/* FULLSCREEN IMAGE PREVIEW */}
+        {activeImage && (
+          <div className="image-modal" onClick={() => setActiveImage(null)}>
+            <img src={activeImage} alt="preview" />
+          </div>
+        )}
+      </div>
+    </ErrorBoundary>
+  );
 }
