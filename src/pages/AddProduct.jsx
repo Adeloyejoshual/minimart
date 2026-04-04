@@ -1,4 +1,11 @@
-import { useEffect, useMemo, useState, useCallback, useRef, useLayoutEffect } from "react";
+import {
+  useEffect,
+  useMemo,
+  useState,
+  useCallback,
+  useRef,
+  useLayoutEffect,
+} from "react";
 import ErrorBoundary from "../components/ErrorBoundary";
 import DropdownModal from "../components/DropdownModal.jsx";
 import AddProductHeader from "../components/AddProductHeader.jsx";
@@ -54,6 +61,7 @@ export default function AddProduct() {
   const [selectedPlan, setSelectedPlan] = useState(null);
   const [paymentData, setPaymentData] = useState(null);
   const [errors, setErrors] = useState({});
+  const [productCreated, setProductCreated] = useState(false); // ✅ NEW
   const fieldRefs = useRef({});
 
   const MAX_IMAGES = 6;
@@ -88,7 +96,8 @@ export default function AddProduct() {
       : [];
 
   const onlyNumbers = (v = "") => v.replace(/[^0-9.]/g, "");
-  const displayPrice = (v) => v ? new Intl.NumberFormat("en-NG").format(Number(v)) : "";
+  const displayPrice = (v) =>
+    v ? new Intl.NumberFormat("en-NG").format(Number(v)) : "";
 
   const formatLabel = (t) =>
     t.replace(/_/g, " ").replace(/(^|s)w/g, (l) => l.toUpperCase());
@@ -120,12 +129,17 @@ export default function AddProduct() {
   /* ================= VALIDATION + SCROLL ================= */
   const validate = () => {
     const e = {};
-    if (form.title.length < 10) e.title = "Minimum 10 characters required";
-    if (form.description.length < 20) e.description = "Minimum 20 characters required";
-    if (!form.price || Number(form.price) <= 0) e.price = "Enter valid price (₦)";
+    if (form.title.length < 10)
+      e.title = "Minimum 10 characters required";
+    if (form.description.length < 20)
+      e.description = "Minimum 20 characters required";
+    if (!form.price || Number(form.price) <= 0)
+      e.price = "Enter valid price (₦)";
     if (!form.category_id) e.category_id = "Select a category";
-    if (!form.contact.phone || form.contact.phone.length < 10) e.phone = "Valid phone required (10+ digits)";
-    if (!form.contact.email || !form.contact.email.includes("@")) e.email = "Valid email required";
+    if (!form.contact.phone || form.contact.phone.length < 10)
+      e.phone = "Valid phone required (10+ digits)";
+    if (!form.contact.email || !form.contact.email.includes("@"))
+      e.email = "Valid email required";
     if (images.length === 0) e.images = "Add at least 1 image";
     if (!state) e.state = "Select your state";
     if (!city) e.city = "Select your city";
@@ -133,9 +147,12 @@ export default function AddProduct() {
     if (form.delivery.type !== "none" && form.delivery.type !== "pickup") {
       const from = Number(form.delivery.duration.from);
       const to = Number(form.delivery.duration.to);
-      if (Number.isNaN(from) || Number.isNaN(to)) e.delivery_duration = "Delivery range required";
-      if (to < from) e.delivery_duration = "End day must be after start day";
-      if (!form.delivery.fee || Number(form.delivery.fee) <= 0) e.delivery_fee = "Delivery fee required";
+      if (Number.isNaN(from) || Number.isNaN(to))
+        e.delivery_duration = "Delivery range required";
+      if (to < from)
+        e.delivery_duration = "End day must be after start day";
+      if (!form.delivery.fee || Number(form.delivery.fee) <= 0)
+        e.delivery_fee = "Delivery fee required";
     }
 
     setErrors(e);
@@ -155,7 +172,12 @@ export default function AddProduct() {
   /* ================= DRAFT MANAGEMENT ================= */
   const saveDraft = useCallback(() => {
     if (loading) return;
-    const draft = { form, state, city, selectedPlan: selectedPlan?.id || null };
+    const draft = {
+      form,
+      state,
+      city,
+      selectedPlan: selectedPlan?.id || null,
+    };
     localStorage.setItem(STORAGE_DRAFT, JSON.stringify(draft));
   }, [form, state, city, selectedPlan, loading]);
 
@@ -185,30 +207,40 @@ export default function AddProduct() {
     setSelectedPlan(null);
     setPaymentData(null);
     setErrors({});
+    setProductCreated(false);
     localStorage.removeItem(STORAGE_DRAFT);
     localStorage.removeItem(STORAGE_PAYMENT);
   }, []);
 
   /* ================= FORM UPDATERS ================= */
-  const update = (key, value) =>
-    setForm((p) => ({ ...p, [key]: value }));
+  const update = (key, value) => setForm((p) => ({ ...p, [key]: value }));
 
   const updateAttr = (key, value) =>
     setForm((p) => ({
       ...p,
-      attributes: { ...p.attributes, [key]: value, ...(key === "brand" && { model: "" }) },
+      attributes: {
+        ...p.attributes,
+        [key]: value,
+        ...(key === "brand" && { model: "" }),
+      },
     }));
 
   const updateContact = (key, value) =>
     setForm((p) => ({ ...p, contact: { ...p.contact, [key]: value } }));
 
   const updateDelivery = (key, value) =>
-    setForm((p) => ({ ...p, delivery: { ...p.delivery, [key]: value } }));
+    setForm((p) => ({
+      ...p,
+      delivery: { ...p.delivery, [key]: value },
+    }));
 
   const updateDeliveryDuration = (key, value) =>
     setForm((p) => ({
       ...p,
-      delivery: { ...p.delivery, duration: { ...p.delivery.duration, [key]: value } },
+      delivery: {
+        ...p.delivery,
+        duration: { ...p.delivery.duration, [key]: value },
+      },
     }));
 
   const toggleFeature = (feature) => {
@@ -219,7 +251,9 @@ export default function AddProduct() {
         ...p,
         attributes: {
           ...p.attributes,
-          features: exists ? list.filter((f) => f !== feature) : [...list, feature],
+          features: exists
+            ? list.filter((f) => f !== feature)
+            : [...list, feature],
         },
       };
     });
@@ -229,7 +263,10 @@ export default function AddProduct() {
   const handleImages = (files) => {
     const fileArray = Array.from(files);
     if (images.length >= MAX_IMAGES) {
-      setErrors((prev) => ({ ...prev, images: `Maximum ${MAX_IMAGES} images allowed` }));
+      setErrors((prev) => ({
+        ...prev,
+        images: `Maximum ${MAX_IMAGES} images allowed`,
+      }));
       return;
     }
     const remaining = MAX_IMAGES - images.length;
@@ -238,7 +275,9 @@ export default function AddProduct() {
       .slice(0, remaining);
 
     const newImages = validFiles.map((file) => ({
-      id: crypto?.randomUUID?.() || `${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
+      id:
+        crypto?.randomUUID?.() ||
+        `${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
       file,
       preview: URL.createObjectURL(file),
     }));
@@ -261,7 +300,7 @@ export default function AddProduct() {
       try {
         const compressed = await compressImage(file);
         compressedFiles.push(compressed);
-      } catch {
+      } catch (e) {
         compressedFiles.push(file);
       }
     }
@@ -301,13 +340,17 @@ export default function AddProduct() {
 
   useEffect(() => {
     const controller = new AbortController();
-    fetch("https://minimart-ivrm.onrender.com/api/marketplace/categories", {
-      signal: controller.signal,
-    })
+    fetch(
+      "https://minimart-ivrm.onrender.com/api/marketplace/categories",
+      {
+        signal: controller.signal,
+      }
+    )
       .then((r) => r.json())
       .then(setCategories)
       .catch((err) => {
-        if (err.name !== "AbortError") console.error("Categories fetch failed:", err);
+        if (err.name !== "AbortError")
+          console.error("Categories fetch failed:", err);
       });
     return () => controller.abort();
   }, []);
@@ -347,10 +390,13 @@ export default function AddProduct() {
     const compressedFiles = await compressImagesSequentially(imageFiles);
     compressedFiles.forEach((file) => fd.append("images", file));
 
-    const res = await fetch("https://minimart-ivrm.onrender.com/api/marketplace/products", {
-      method: "POST",
-      body: fd,
-    });
+    const res = await fetch(
+      "https://minimart-ivrm.onrender.com/api/marketplace/products",
+      {
+        method: "POST",
+        body: fd,
+      }
+    );
 
     if (!res.ok) {
       const data = await res.json().catch(() => ({}));
@@ -361,16 +407,19 @@ export default function AddProduct() {
   };
 
   const startPayment = async (productId, plan) => {
-    const res = await fetch("https://minimart-ivrm.onrender.com/api/payment/initialize", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        email: form.contact.email,
-        amount: Number(plan.price),
-        planId: plan.id,
-        productId,
-      }),
-    });
+    const res = await fetch(
+      "https://minimart-ivrm.onrender.com/api/payment/initialize",
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          email: form.contact.email,
+          amount: Number(plan.price),
+          planId: plan.id,
+          productId,
+        }),
+      }
+    );
 
     const data = await res.json();
     if (!data.success || !data.authorization_url) {
@@ -379,7 +428,7 @@ export default function AddProduct() {
     return data.authorization_url;
   };
 
-  /* ================= SUBMIT ================= */
+  /* ================= FIXED SUBMIT LOGIC ================= */
   const handleSubmit = async () => {
     if (loading) return;
     const error = validate();
@@ -388,55 +437,81 @@ export default function AddProduct() {
       return;
     }
 
-    const finalPlan = selectedPlan || promotionPlans.find((p) => p.price === 0);
     setLoading(true);
+    setErrors({});
 
     try {
+      // 1️⃣ ALWAYS CREATE PRODUCT FIRST
       const product = await createProductDraft();
       const productId = product?.id;
       if (!productId) throw new Error("Failed to create product draft");
 
+      setProductCreated(true); // ✅ MARK AS CREATED
+      localStorage.removeItem(STORAGE_PAYMENT); // ✅ CLEAR OLD PAYMENT
+
+      // 2️⃣ RESOLVE FINAL PLAN
+      const finalPlan = selectedPlan || promotionPlans.find((p) => p.price === 0);
+
       if (finalPlan.price === 0) {
+        // FREE PLAN
         const res = await fetch(
           `https://minimart-ivrm.onrender.com/api/marketplace/products/${productId}/activate`,
           { method: "POST" }
         );
         if (!res.ok) throw new Error("Activation failed");
+
         clearDraft();
-        alert("✅ Product created and activated successfully!");
+        alert("✅ Product created and activated successfully (Free Plan)!");
+        window.location.reload(); // fresh state
         return;
       }
 
+      // 3️⃣ PAID PLAN
       const paymentInfo = {
         email: form.contact.email,
         amount: Number(finalPlan.price),
         planId: finalPlan.id,
         productId,
       };
+
       setPaymentData(paymentInfo);
       localStorage.setItem(STORAGE_PAYMENT, JSON.stringify(paymentInfo));
+
       const authUrl = await startPayment(productId, finalPlan);
       window.location.href = authUrl;
     } catch (err) {
       setErrors({ submit: err.message || "Something went wrong" });
+      setProductCreated(false);
     } finally {
       setLoading(false);
     }
   };
 
+  /* ================= FIXED RETRY LOGIC ================= */
   const retryPayment = async () => {
-    if (!paymentData) return setErrors({ submit: "No pending payment found" });
+    if (!paymentData || !productCreated || selectedPlan?.price <= 0) {
+      setErrors({ submit: "No valid payment session to retry" });
+      return;
+    }
+
     setLoading(true);
     try {
       const plan = { id: paymentData.planId, price: paymentData.amount };
       const authUrl = await startPayment(paymentData.productId, plan);
       window.location.href = authUrl;
     } catch (err) {
-      setErrors({ submit: `Payment retry failed: ${err.message}` });
+      setErrors({ submit: `Retry failed: ${err.message}` });
     } finally {
       setLoading(false);
     }
   };
+
+  /* ================= BUTTON VISIBILITY LOGIC ================= */
+  const showRetryButton =
+    paymentData && productCreated && selectedPlan?.price > 0;
+
+  const showCreateButton =
+    !paymentData || !productCreated || selectedPlan?.price === 0;
 
   /* ================= RENDER ================= */
   const states = Object.keys(locationsByState || {});
@@ -447,58 +522,80 @@ export default function AddProduct() {
       fallback={
         <div className="error-boundary">
           Error loading form.{" "}
-          <button onClick={clearDraft} className="retry-btn">Reset Form</button>
+          <button onClick={clearDraft} className="retry-btn">
+            Reset Form
+          </button>
         </div>
       }
     >
       <div className="add-product-container">
-        <AddProductHeader title="Add Product" onClearDraft={clearDraft} />
+        <AddProductHeader
+          title="Add Product"
+          onClearDraft={clearDraft}
+        />
 
         {/* BASIC INFO */}
         <div className="form-card blue">
           <h3>Basic Information</h3>
           <div className="form-group">
-            <label>Product Title <span className="required">*</span></label>
+            <label>
+              Product Title <span className="required">*</span>
+            </label>
             <input
               ref={(el) => (fieldRefs.current.title = el)}
               placeholder="Enter product title (min 10 chars)"
               value={form.title}
               onChange={(e) => {
                 update("title", e.target.value);
-                if (errors.title) setErrors((prev) => ({ ...prev, title: "" }));
+                if (errors.title)
+                  setErrors((prev) => ({ ...prev, title: "" }));
               }}
             />
-            {errors.title && <span className="error">{errors.title}</span>}
+            {errors.title && (
+              <span className="error">{errors.title}</span>
+            )}
           </div>
           <div className="form-group">
-            <label>Description <span className="required">*</span></label>
+            <label>
+              Description <span className="required">*</span>
+            </label>
             <textarea
               ref={(el) => (fieldRefs.current.description = el)}
               placeholder="Detailed description (min 20 chars)"
               value={form.description}
               onChange={(e) => {
                 update("description", e.target.value);
-                if (errors.description) setErrors((prev) => ({ ...prev, description: "" }));
+                if (errors.description)
+                  setErrors((prev) => ({ ...prev, description: "" }));
               }}
               rows="4"
             />
-            {errors.description && <span className="error">{errors.description}</span>}
+            {errors.description && (
+              <span className="error">{errors.description}</span>
+            )}
           </div>
           <div className="form-group">
-            <label>Price (₦) <span className="required">*</span></label>
+            <label>
+              Price (₦) <span className="required">*</span>
+            </label>
             <input
               ref={(el) => (fieldRefs.current.price = el)}
-              placeholder="100000"
+              placeholder="10,000"
               value={form.price}
               onChange={(e) => {
                 const raw = onlyNumbers(e.target.value);
                 update("price", raw);
-                if (errors.price) setErrors((prev) => ({ ...prev, price: "" }));
+                if (errors.price)
+                  setErrors((prev) => ({ ...prev, price: "" }));
               }}
-              onBlur={() => form.price && update("price", Number(form.price).toString())}
+              onBlur={() =>
+                form.price && update("price", Number(form.price).toString())
+              }
             />
             {errors.price && <span className="error">{errors.price}</span>}
-            {form.price && !errors.price && <small>₦{displayPrice(form.price)}</small>}
+            {form.price && !errors.price && (
+              <small>₦{displayPrice(form.price)}</small>
+            )}
           </div>
         </div>
 
@@ -510,7 +607,9 @@ export default function AddProduct() {
           ) : (
             <>
               <div className="form-group">
-                <label>Category <span className="required">*</span></label>
+                <label>
+                  Category <span className="required">*</span>
+                </label>
                 <div ref={(el) => (fieldRefs.current.category_id = el)}>
                   <DropdownModal
                     label=""
@@ -521,17 +620,24 @@ export default function AddProduct() {
                         category_id: v,
                         attributes: INITIAL_FORM.attributes,
                       }));
-                      if (errors.category_id) setErrors((prev) => ({ ...prev, category_id: "" }));
+                      if (errors.category_id)
+                        setErrors((prev) => ({ ...prev, category_id: "" }));
                     }}
                     options={categories.map((c) => ({ id: c.id, name: c.name }))}
                   />
                 </div>
-                {errors.category_id && <span className="error">{errors.category_id}</span>}
+                {errors.category_id && (
+                  <span className="error">{errors.category_id}</span>
+                )}
               </div>
 
               {fields.map((f) => {
                 if (!optionsMap[f] && f !== "features") return null;
-                if (f === "used_detail" && attributes.condition !== "Used") return null;
+                if (
+                  f === "used_detail" &&
+                  attributes.condition !== "Used"
+                )
+                  return null;
                 return (
                   <div key={f} className="form-group">
                     <label>{formatLabel(f)}</label>
@@ -570,7 +676,9 @@ export default function AddProduct() {
         <div className="form-card blue">
           <h3>Contact Information</h3>
           <div className="form-group">
-            <label>Email <span className="required">*</span></label>
+            <label>
+              Email <span className="required">*</span>
+            </label>
             <input
               ref={(el) => (fieldRefs.current.email = el)}
               type="email"
@@ -578,20 +686,24 @@ export default function AddProduct() {
               value={form.contact.email}
               onChange={(e) => {
                 updateContact("email", e.target.value);
-                if (errors.email) setErrors((prev) => ({ ...prev, email: "" }));
+                if (errors.email)
+                  setErrors((prev) => ({ ...prev, email: "" }));
               }}
             />
             {errors.email && <span className="error">{errors.email}</span>}
           </div>
           <div className="form-group">
-            <label>Phone <span className="required">*</span></label>
+            <label>
+              Phone <span className="required">*</span>
+            </label>
             <input
               ref={(el) => (fieldRefs.current.phone = el)}
               placeholder="08012345678"
               value={form.contact.phone}
               onChange={(e) => {
                 updateContact("phone", onlyNumbers(e.target.value));
-                if (errors.phone) setErrors((prev) => ({ ...prev, phone: "" }));
+                if (errors.phone)
+                  setErrors((prev) => ({ ...prev, phone: "" }));
               }}
             />
             {errors.phone && <span className="error">{errors.phone}</span>}
@@ -602,17 +714,31 @@ export default function AddProduct() {
         <div className="form-card blue">
           <h3>Location & Delivery</h3>
           <div className="form-group">
-            <label>State <span className="required">*</span></label>
+            <label>
+              State <span className="required">*</span>
+            </label>
             <div ref={(el) => (fieldRefs.current.state = el)}>
-              <DropdownModal label="" value={state} onChange={setState} options={states} />
+              <DropdownModal
+                label=""
+                value={state}
+                onChange={setState}
+                options={states}
+              />
             </div>
             {errors.state && <span className="error">{errors.state}</span>}
           </div>
           {state && (
             <div className="form-group">
-              <label>City <span className="required">*</span></label>
+              <label>
+                City <span className="required">*</span>
+              </label>
               <div ref={(el) => (fieldRefs.current.city = el)}>
-                <DropdownModal label="" value={city} onChange={setCity} options={cities} />
+                <DropdownModal
+                  label=""
+                  value={city}
+                  onChange={setCity}
+                  options={cities}
+                />
               </div>
               {errors.city && <span className="error">{errors.city}</span>}
             </div>
@@ -624,7 +750,8 @@ export default function AddProduct() {
               value={form.delivery.type}
               onChange={(v) => {
                 updateDelivery("type", v);
-                if (errors.delivery_type) setErrors((prev) => ({ ...prev, delivery_type: "" }));
+                if (errors.delivery_type)
+                  setErrors((prev) => ({ ...prev, delivery_type: "" }));
               }}
               options={[
                 { id: "none", name: "No delivery" },
@@ -635,54 +762,88 @@ export default function AddProduct() {
             />
           </div>
 
-          {form.delivery.type !== "none" && form.delivery.type !== "pickup" && (
-            <div className="sub-grid">
-              <div className="form-section-round-small">
-                <label>From (days) <span className="required">*</span></label>
-                <input
-                  ref={(el) => (fieldRefs.current.delivery_duration = el)}
-                  type="number"
-                  min="1"
-                  value={form.delivery.duration.from}
-                  onChange={(e) => updateDeliveryDuration("from", onlyNumbers(e.target.value))}
-                />
+          {form.delivery.type !== "none" &&
+            form.delivery.type !== "pickup" && (
+              <div className="sub-grid">
+                <div className="form-section-round-small">
+                  <label>
+                    From (days) <span className="required">*</span>
+                  </label>
+                  <input
+                    ref={(el) =>
+                      (fieldRefs.current.delivery_duration = el)
+                    }
+                    type="number"
+                    min="1"
+                    value={form.delivery.duration.from}
+                    onChange={(e) =>
+                      updateDeliveryDuration(
+                        "from",
+                        onlyNumbers(e.target.value)
+                      )
+                    }
+                  />
+                </div>
+                <div className="form-section-round-small">
+                  <label>
+                    To (days) <span className="required">*</span>
+                  </label>
+                  <input
+                    type="number"
+                    min="1"
+                    value={form.delivery.duration.to}
+                    onChange={(e) =>
+                      updateDeliveryDuration(
+                        "to",
+                        onlyNumbers(e.target.value)
+                      )
+                    }
+                  />
+                </div>
+                <div className="form-section-round-small">
+                  <label>
+                    Fee (₦) <span className="required">*</span>
+                  </label>
+                  <input
+                    ref={(el) =>
+                      (fieldRefs.current.delivery_fee = el)
+                    }
+                    type="number"
+                    min="0"
+                    step="0.01"
+                    value={form.delivery.fee}
+                    onChange={(e) =>
+                      updateDelivery(
+                        "fee",
+                        onlyNumbers(e.target.value)
+                      )
+                    }
+                  />
+                </div>
+                {(errors.delivery_duration ||
+                  errors.delivery_fee) && (
+                  <span
+                    className="error"
+                    style={{ gridColumn: "1 / -1", textAlign: "center" }}
+                  >
+                    {errors.delivery_duration || errors.delivery_fee}
+                  </span>
+                )}
               </div>
-              <div className="form-section-round-small">
-                <label>To (days) <span className="required">*</span></label>
-                <input
-                  type="number"
-                  min="1"
-                  value={form.delivery.duration.to}
-                  onChange={(e) => updateDeliveryDuration("to", onlyNumbers(e.target.value))}
-                />
-              </div>
-              <div className="form-section-round-small">
-                <label>Fee (₦) <span className="required">*</span></label>
-                <input
-                  ref={(el) => (fieldRefs.current.delivery_fee = el)}
-                  type="number"
-                  min="0"
-                  step="0.01"
-                  value={form.delivery.fee}
-                  onChange={(e) => updateDelivery("fee", onlyNumbers(e.target.value))}
-                />
-              </div>
-              {(errors.delivery_duration || errors.delivery_fee) && (
-                <span className="error" style={{ gridColumn: "1 / -1", textAlign: "center" }}>
-                  {errors.delivery_duration || errors.delivery_fee}
-                </span>
-              )}
-            </div>
-          )}
+            )}
         </div>
 
         {/* IMAGES */}
         <div className="form-card blue">
           <h3>Product Images</h3>
           <label className="form-group-label">
-            Product Images (max 6, 3MB each) <span className="required">*</span>
+            Product Images (max 6, 3MB each){" "}
+            <span className="required">*</span>
           </label>
-          <div className="images-section" ref={(el) => (fieldRefs.current.images = el)}>
+          <div
+            className="images-section"
+            ref={(el) => (fieldRefs.current.images = el)}
+          >
             {images.length > 0 && (
               <div className="preview-grid-modern">
                 {images.map((img) => (
@@ -720,10 +881,16 @@ export default function AddProduct() {
                   }}
                 />
                 <span>+</span>
-                <small>{images.length ? `Add more (${MAX_IMAGES - images.length} left)` : "Add images"}</small>
+                <small>
+                  {images.length
+                    ? `Add more (${MAX_IMAGES - images.length} left)`
+                    : "Add images"}
+                </small>
               </label>
             )}
-            {errors.images && <span className="error">{errors.images}</span>}
+            {errors.images && (
+              <span className="error">{errors.images}</span>
+            )}
           </div>
         </div>
 
@@ -734,12 +901,16 @@ export default function AddProduct() {
             {promotionPlans.map((plan) => (
               <div
                 key={plan.id}
-                className={`plan-card ${selectedPlan?.id === plan.id ? "selected" : ""}`}
+                className={`plan-card ${
+                  selectedPlan?.id === plan.id ? "selected" : ""
+                }`}
                 onClick={() => setSelectedPlan(plan)}
               >
                 <div className="plan-header">
                   <strong>{plan.name}</strong>
-                  <span className="plan-price">₦{displayPrice(plan.price.toString())}</span>
+                  <span className="plan-price">
+                    ₦{displayPrice(plan.price.toString())}
+                  </span>
                 </div>
                 <div className="plan-duration">{plan.duration}</div>
                 <ul className="plan-features">
@@ -747,20 +918,41 @@ export default function AddProduct() {
                     <li key={i}>{feat}</li>
                   ))}
                 </ul>
-                {plan.description && <p className="plan-desc">{plan.description}</p>}
+                {plan.description && (
+                  <p className="plan-desc">{plan.description}</p>
+                )}
               </div>
             ))}
           </div>
         </div>
 
-        {/* ACTION BUTTONS */}
+        {/* ACTION BUTTONS - FIXED */}
         <div className="form-card blue button-section">
-          {errors.submit && <span className="error" style={{ display: "block", marginBottom: "1rem" }}>{errors.submit}</span>}
-          <button onClick={handleSubmit} disabled={loading} className="primary-btn">
-            {loading ? "Processing..." : "Create Product"}
-          </button>
-          {paymentData && (
-            <button onClick={retryPayment} disabled={loading} className="retry-btn">
+          {errors.submit && (
+            <span
+              className="error"
+              style={{ display: "block", marginBottom: "1rem" }}
+            >
+              {errors.submit}
+            </span>
+          )}
+
+          {showCreateButton && (
+            <button
+              onClick={handleSubmit}
+              disabled={loading}
+              className="primary-btn"
+            >
+              {loading ? "Processing..." : "Create Product"}
+            </button>
+          )}
+
+          {showRetryButton && (
+            <button
+              onClick={retryPayment}
+              disabled={loading}
+              className="retry-btn"
+            >
               {loading ? "Retrying..." : "Retry Payment"}
             </button>
           )}
@@ -768,7 +960,10 @@ export default function AddProduct() {
 
         {/* FULLSCREEN IMAGE PREVIEW */}
         {activeImage && (
-          <div className="image-modal" onClick={() => setActiveImage(null)}>
+          <div
+            className="image-modal"
+            onClick={() => setActiveImage(null)}
+          >
             <img src={activeImage} alt="preview" />
           </div>
         )}
