@@ -954,13 +954,15 @@ export default function AddProduct() {
     </div>
 
         {/* FULLSCREEN IMAGE PREVIEW */}
-    {activeImage && (
-      <div
-        className="image-modal"
-        onClick={() => setActiveImage(null)}
-      >
-        <img src={activeImage} alt="preview" />
+        {activeImage && (
+          <div
+            className="image-modal"
+            onClick={() => setActiveImage(null)}
+          >
+            <img src={activeImage} alt="preview" />
+          </div>
+        )}
       </div>
-    )}
-  </div>
-</ErrorBoundary>);
+    </ErrorBoundary>
+  );
+} // ✅ component ends here
