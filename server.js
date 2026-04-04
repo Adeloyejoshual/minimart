@@ -58,6 +58,7 @@ export const getCache = (key) => {
   return data.value;
 };
 
+// Auto-clean cache
 setInterval(() => {
   const now = Date.now();
   for (const [key] of cache.entries()) {
@@ -90,6 +91,7 @@ app.use((req, res, next) => {
     const duration = Date.now() - start;
     console.log(`${log} | ${res.statusCode} | ${duration}ms`);
   });
+  
   next();
 });
 
@@ -98,7 +100,7 @@ const rateLimitMap = new Map();
 app.use((req, res, next) => {
   const ip = req.headers["x-forwarded-for"]?.split(',')[0]?.trim() || req.socket.remoteAddress;
   const now = Date.now();
-  const windowMs = 15 * 60 * 1000;
+  const windowMs = 15 * 60 * 1000; // 15min
   const maxReq = 1000;
 
   let record = rateLimitMap.get(ip);
@@ -110,31 +112,31 @@ app.use((req, res, next) => {
   rateLimitMap.set(ip, record);
 
   if (record.count > maxReq) {
-    return res.status(429).json({ success: false, error: "Too many requests" });
+    return res.status(429).json({ 
+      success: false, 
+      error: "Too many requests. Try again later." 
+    });
   }
   next();
 });
 
 /* =========================================================
-   🚨 WEBHOOKS FIRST (raw body) - BEFORE JSON PARSER
+   🚨 CRITICAL: WEBHOOKS BEFORE JSON PARSER (FIXED)
 ========================================================= */
+// ✅ CORRECT IMPORT - matches your payment.js webhook endpoint
 import paymentRouter from "./routes/payment.js";
 
-// ✅ Webhooks ONLY (raw body required)
-app.use(express.raw({ type: "application/json" }));
-app.use("/api/payments/webhook", paymentRouter);
-app.use("/api/webhooks/paystack", paymentRouter);
-app.use("/api/payment/webhook", paymentRouter);
+// ✅ Webhook endpoints FIRST (raw body)
+app.use("/api/payments/webhook", paymentRouter);           // Main webhook
+app.use("/api/webhooks/paystack", paymentRouter);         // Legacy
+app.use("/api/payment/webhook", paymentRouter);           // Backward compat
 
-/* ================= BODY PARSERS (AFTER WEBHOOKS) ================= */
+/* ================= BODY PARSERS ================= */
 app.use(express.json({ limit: "10mb" }));
 app.use(express.urlencoded({ limit: "10mb", extended: true }));
+app.use(express.raw({ type: "application/json" })); // Fallback
 
-// ✅ CRITICAL: MAIN PAYMENT ROUTES
-app.use("/api/payment", paymentRouter);  // ← initialize/verify/free-plan/health
-app.use("/api/payments", paymentRouter); // ← Legacy support
-
-/* ================= OTHER ROUTES ================= */
+/* ================= ROUTES ================= */
 import marketplaceRouter from "./routes/marketplace.js";
 import userRouter from "./routes/users.js";
 import messagesRouter from "./routes/messages.js";
@@ -150,6 +152,8 @@ app.use("/api/messages", messagesRouter);
 app.use("/api/admin", adminRouter);
 app.use("/api/search", searchRouter);
 app.use("/api/product", productDetailRouter);
+// ✅ Payment router (includes initialize/verify/free-plan/health)
+app.use("/api/payments", paymentRouter);
 app.use("/api", homepageRouter);
 app.use("/api/marketplace/sellers", sellerProfileRouter);
 
@@ -157,6 +161,7 @@ app.use("/api/marketplace/sellers", sellerProfileRouter);
 app.get("/api/health", async (req, res) => {
   try {
     const { rows } = await pool.query("SELECT 1 as health");
+    
     res.json({
       success: true,
       timestamp: new Date().toISOString(),
@@ -164,42 +169,41 @@ app.get("/api/health", async (req, res) => {
       memory: process.memoryUsage(),
       db: rows[0]?.health === 1,
       cache_size: cache.size,
+      routes: true,
       payments: true,
-      endpoints: {
-        payment_init: "/api/payment/initialize",
-        payment_verify: "/api/payment/verify",
-        free_plan: "/api/payment/free-plan/:id"
+      env: {
+        paystack: !!process.env.PAYSTACK_SECRET_KEY,
+        db: !!process.env.COCKROACH_URI,
+        frontend: !!process.env.FRONTEND_URL
       }
     });
   } catch (err) {
-    res.status(500).json({ success: false, error: "Database unavailable" });
+    res.status(500).json({ 
+      success: false, 
+      error: "Database unavailable",
+      details: err.message 
+    });
   }
 });
 
-// ✅ PAYMENT HEALTH - TEST THIS FIRST
-app.get("/api/payment/health", (req, res) => {
+app.get("/api/payments/health", (req, res) => {
   res.json({ 
-    success: true,
-    status: "Payment routes active ✅",
-    endpoints: [
-      "POST /api/payment/initialize",
-      "POST /api/payment/verify", 
-      "POST /api/payment/free-plan/:id",
-      "POST /api/payments/webhook"
-    ],
-    paystack: !!process.env.PAYSTACK_SECRET_KEY ? "✅ Configured" : "❌ Missing",
-    timestamp: new Date().toISOString()
+    status: "ok", 
+    endpoints: ["/initialize", "/verify", "/webhook", "/free-plan/:id"],
+    timestamp: new Date().toISOString(),
+    paystack_key: process.env.PAYSTACK_SECRET_KEY ? "configured" : "missing"
   });
 });
 
 /* ================= SOCKET.IO ================= */
 io.on("connection", (socket) => {
   console.log("🔌 Socket connected:", socket.id);
+
   socket.on("joinRoom", ({ senderId, receiverId, productId }) => {
     if (!senderId || !receiverId || !productId) return;
     const room = `product_${productId}_${[senderId, receiverId].sort().join("_")}`;
     socket.join(room);
-    console.log(`📱 ${socket.id} joined: ${room}`);
+    console.log(`📱 ${socket.id} joined room: ${room}`);
   });
 
   socket.on("sendMessage", async (data) => {
@@ -208,19 +212,22 @@ io.on("connection", (socket) => {
       if (!senderId || !receiverId || !productId || !message?.trim()) return;
 
       const room = `product_${productId}_${[senderId, receiverId].sort().join("_")}`;
+      
       const { rows } = await pool.query(
         `INSERT INTO messages (sender_id, receiver_id, product_id, message, created_at)
          VALUES ($1,$2,$3,$4,NOW()) RETURNING *`,
         [senderId, receiverId, productId, message.trim()]
       );
+
       io.to(room).emit("receiveMessage", rows[0]);
+      console.log(`💬 Message sent in room: ${room}`);
     } catch (err) {
-      console.error("❌ Socket error:", err.message);
+      console.error("❌ Socket message error:", err.message);
     }
   });
 
-  socket.on("disconnect", () => {
-    console.log(`❌ Socket ${socket.id} disconnected`);
+  socket.on("disconnect", (reason) => {
+    console.log(`❌ Socket ${socket.id} disconnected: ${reason}`);
   });
 });
 
@@ -229,10 +236,17 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
 if (process.env.NODE_ENV === "production") {
-  app.use(express.static(path.join(__dirname, "dist"), { maxAge: "1y", index: false }));
+  app.use(express.static(path.join(__dirname, "dist"), {
+    maxAge: "1y",
+    index: false
+  }));
+
   app.get("*", (req, res) => {
     if (req.path.startsWith("/api/")) {
-      return res.status(404).json({ success: false, message: "API not found" });
+      return res.status(404).json({ 
+        success: false, 
+        message: "API endpoint not found" 
+      });
     }
     res.sendFile(path.join(__dirname, "dist", "index.html"));
   });
@@ -240,43 +254,69 @@ if (process.env.NODE_ENV === "production") {
 
 /* ================= ERROR HANDLERS ================= */
 app.use((err, req, res, next) => {
-  console.error("🔥 ERROR:", { url: req.url, method: req.method, error: err.message });
+  console.error("🔥 GLOBAL ERROR:", {
+    url: req.url,
+    method: req.method,
+    error: err.message,
+    stack: err.stack,
+    body: req.body
+  });
+
+  if (err.type === 'entity.too.large') {
+    return res.status(413).json({ 
+      success: false, 
+      error: "Payload too large" 
+    });
+  }
+
   res.status(500).json({
     success: false,
-    error: process.env.NODE_ENV === "production" ? "Server error" : err.message
+    error: process.env.NODE_ENV === "production" 
+      ? "Internal server error" 
+      : err.message
   });
 });
 
 app.use("*", (req, res) => {
   if (req.path.startsWith("/api/")) {
-    return res.status(404).json({ success: false, message: "Route not found" });
+    return res.status(404).json({ 
+      success: false, 
+      message: "API route not found" 
+    });
   }
   res.status(404).send("Not Found");
 });
 
-/* ================= START SERVER ================= */
+/* ================= START SERVER (PRODUCTION READY) ================= */
 const startServer = () => {
   server.listen(PORT, "0.0.0.0", () => {
     const baseUrl = process.env.NODE_ENV === "production" 
       ? `https://minimart-ivrm.onrender.com`
       : `http://localhost:${PORT}`;
     
-    console.log(`
-🚀 Server ready → ${baseUrl}`);
+    console.log(`🚀 Server running → ${baseUrl}`);
     console.log(`📊 Health → ${baseUrl}/api/health`);
-    console.log(`💳 Payments → ${baseUrl}/api/payment/health`);  // ← TEST THIS
+    console.log(`💳 Payments → ${baseUrl}/api/payments/health`);
     console.log(`🪝 Webhook → ${baseUrl}/api/payments/webhook`);
-    console.log(`✅ All routes active
-`);
+    
+    if (process.env.NODE_ENV === "production") {
+      console.log(`🌐 Production Mode`);
+      console.log(`🔗 Frontend Callback: ${process.env.FRONTEND_URL || baseUrl}`);
+      console.log(`🔑 Paystack Configured: ${!!process.env.PAYSTACK_SECRET_KEY}`);
+    } else {
+      console.log(`🔧 Development Mode`);
+    }
   });
 };
 
+// Graceful shutdown
 process.on('SIGTERM', () => {
-  console.log('🛑 Shutting down...');
+  console.log('🛑 SIGTERM received, shutting down gracefully');
   server.close(() => {
     pool.end().then(() => process.exit(0));
   });
 });
 
 startServer();
+
 export default app;
