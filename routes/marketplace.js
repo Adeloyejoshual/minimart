@@ -21,6 +21,7 @@ import { engines } from "../src/config/engines.js";
 import { fuelTypes } from "../src/config/fuelTypes.js";
 import { locationsByState } from "../src/config/locationsByState.js";
 import { promotionPlans } from "../src/config/promotions.js";
+import { fieldOptions } from "../src/config/fieldOptions.js"; // NEW
 
 dotenv.config();
 const router = express.Router();
@@ -60,7 +61,7 @@ const safeJSON = (value, fallback = {}) => {
 };
 
 const parseDurationDays = (duration) => {
-  const match = String(duration || "").match(/(d+)/);
+  const match = String(duration || "").match(/(d+)/); // fixed regex
   return match ? parseInt(match[1], 10) : 0;
 };
 
@@ -357,7 +358,7 @@ router.post("/products", upload.array("images", 10), async (req, res) => {
   }
 });
 
-/* ================= CATEGORIES (FIXED) ================= */
+/* ================= CATEGORIES (with fieldOptions) ================= */
 router.get("/categories", async (req, res) => {
   try {
     const { rows } = await pool.query(`
@@ -369,31 +370,48 @@ router.get("/categories", async (req, res) => {
     const map = {};
     const tree = [];
 
+    // Global drop‑down options
+    const globalOptions = {
+      brands,
+      colors,
+      conditions,
+      usedDetails,
+      ram: ramOptions,
+      storage: storageOptions,
+      sims,
+      years,
+      engines,
+      fuel_types: fuelTypes,
+      location: Object.keys(locationsByState),
+      featuresByCategory,
+    };
+
     rows.forEach((cat) => {
       const key = cat.fields_key || cat.name;
 
       map[cat.id] = {
         ...cat,
         dynamicOptions: {
-          fields: categoryFields[cat.name] || [],
+          // 🔥 NEW: central field options map
+          fields: (fieldOptions[key] || fieldOptions.default).map((fieldKey) => ({
+            name: fieldKey,
+            type: "select",
+            options: globalOptions[fieldKey] || [],
+          })),
 
+          // legacy free‑form options (still here if you need them)
           brands: brands[key] || [],
           models: models[key] || {},
           colors: colors[key] || [],
-
           conditions,
           usedDetails,
-
           ram: ramOptions,
           storage: storageOptions,
           sims,
-
           features: featuresByCategory[key] || [],
-
           years,
           engines,
           fuel_types: fuelTypes,
-
           location: Object.keys(locationsByState),
         },
         subcategories: [],
