@@ -61,7 +61,8 @@ export default function AddProduct() {
   const [selectedPlan, setSelectedPlan] = useState(null);
   const [paymentData, setPaymentData] = useState(null);
   const [errors, setErrors] = useState({});
-  const [productCreated, setProductCreated] = useState(false); // ✅ NEW
+  const [productId, setProductId] = useState(null);          // ✅ NEW
+  const [paymentPending, setPaymentPending] = useState(false); // ✅ NEW
   const fieldRefs = useRef({});
 
   const MAX_IMAGES = 6;
@@ -70,7 +71,7 @@ export default function AddProduct() {
   const isSlowDevice = () =>
     navigator.hardwareConcurrency <= 4 ||
     navigator.deviceMemory <= 4 ||
-    /Android|iPhone|iPad/i.test(navigator.userAgent);
+    /Android|iPhone/i.test(navigator.userAgent);
 
   const compressImage = async (file) => {
     return await imageCompression(file, {
@@ -100,20 +101,33 @@ export default function AddProduct() {
     v ? new Intl.NumberFormat("en-NG").format(Number(v)) : "";
 
   const formatLabel = (t) =>
-    t.replace(/_/g, " ").replace(/(^|s)w/g, (l) => l.toUpperCase());
+    t.replace(/_/g, " ").replace(/(^|s)w/g, (l) => l.ToUpper() || l);
 
-  /* ================= DYNAMIC OPTIONS MAP ================= */
+  /* ================= DYNAMIC OPTIONS MAP (DEBUGGED) ================= */
   const optionsMap = useMemo(() => {
     const map = {};
-    Object.keys(options || {}).forEach((key) => {
-      if (key === "models") return;
-      if (key === "model") {
-        const modelsForBrand = brand && options.model?.[brand] ? options.model[brand] : [];
-        map.model = normalizeOptions(modelsForBrand);
-        return;
+
+    console.log("🔍 Raw options:", options); // DEBUG
+    console.log("🔍 Brand:", brand); // DEBUG
+
+    // Brands always first
+    map.brand = normalizeOptions(options.brands || []);
+
+    // Model depends on brand
+    if (brand && options.models && options.models[brand]) {
+      map.model = normalizeOptions(options.models[brand]);
+    } else {
+      map.model = [];
+    }
+
+    // Other fields
+    ["color", "ram", "storage", "sim", "condition", "year", "engine", "fuel_type"].forEach(
+      (key) => {
+        map[key] = normalizeOptions(options[key] || []);
       }
-      map[key] = normalizeOptions(options[key] || []);
-    });
+    );
+
+    console.log("✅ FINAL MAP:", map); // DEBUG
     return map;
   }, [options, brand]);
 
@@ -207,7 +221,8 @@ export default function AddProduct() {
     setSelectedPlan(null);
     setPaymentData(null);
     setErrors({});
-    setProductCreated(false);
+    setProductId(null);
+    setPaymentPending(false);
     localStorage.removeItem(STORAGE_DRAFT);
     localStorage.removeItem(STORAGE_PAYMENT);
   }, []);
@@ -283,7 +298,8 @@ export default function AddProduct() {
     }));
 
     setImages((prev) => [...prev, ...newImages]);
-    if (errors.images) setErrors((prev) => ({ ...prev, images: "" }));
+    if (errors.images)
+      setErrors((prev) => ({ ...prev, images: "" }));
   };
 
   const removeImage = (id) => {
@@ -428,94 +444,67 @@ export default function AddProduct() {
     return data.authorization_url;
   };
 
-  /* ================= FIXED SUBMIT LOGIC ================= */
+  /* ================= FIXED handleSubmit ================= */
   const handleSubmit = async () => {
-    if (loading) return;
     const error = validate();
-    if (error) {
-      scrollToFirstError(error);
-      return;
-    }
+    if (error) return scrollToFirstError(error);
 
     setLoading(true);
-    setErrors({});
-
     try {
-      // 1️⃣ ALWAYS CREATE PRODUCT FIRST
+      // CREATE DRAFT
       const product = await createProductDraft();
-      const productId = product?.id;
-      if (!productId) throw new Error("Failed to create product draft");
+      setProductId(product.id);
 
-      setProductCreated(true); // ✅ MARK AS CREATED
-      localStorage.removeItem(STORAGE_PAYMENT); // ✅ CLEAR OLD PAYMENT
-
-      // 2️⃣ RESOLVE FINAL PLAN
-      const finalPlan = selectedPlan || promotionPlans.find((p) => p.price === 0);
+      const finalPlan =
+        selectedPlan || promotionPlans.find((p) => p.price === 0);
 
       if (finalPlan.price === 0) {
-        // FREE PLAN
+        // FREE - Use YOUR endpoint
         const res = await fetch(
-          `https://minimart-ivrm.onrender.com/api/marketplace/products/${productId}/activate`,
-          { method: "POST" }
+          `/api/marketplace/products/${product.id}/activate`,
+          {
+            method: "POST",
+          }
         );
-        if (!res.ok) throw new Error("Activation failed");
-
+        if (!res.ok) throw new Error("Free activation failed");
         clearDraft();
-        alert("✅ Product created and activated successfully (Free Plan)!");
-        window.location.reload(); // fresh state
-        return;
+        alert("✅ Product live!");
+        window.location.href = "/"; // Redirect home
+      } else {
+        // PAID
+        setPaymentPending(true);
+        const authUrl = await startPayment(product.id, finalPlan);
+        window.location.href = authUrl;
       }
-
-      // 3️⃣ PAID PLAN
-      const paymentInfo = {
-        email: form.contact.email,
-        amount: Number(finalPlan.price),
-        planId: finalPlan.id,
-        productId,
-      };
-
-      setPaymentData(paymentInfo);
-      localStorage.setItem(STORAGE_PAYMENT, JSON.stringify(paymentInfo));
-
-      const authUrl = await startPayment(productId, finalPlan);
-      window.location.href = authUrl;
     } catch (err) {
-      setErrors({ submit: err.message || "Something went wrong" });
-      setProductCreated(false);
+      console.error(err);
+      setErrors({ submit: err.message });
     } finally {
       setLoading(false);
     }
   };
 
-  /* ================= FIXED RETRY LOGIC ================= */
+  /* ================= FIXED retryPayment ================= */
   const retryPayment = async () => {
-    if (!paymentData || !productCreated || selectedPlan?.price <= 0) {
-      setErrors({ submit: "No valid payment session to retry" });
-      return;
-    }
-
+    if (!productId || !paymentData) return;
     setLoading(true);
     try {
       const plan = { id: paymentData.planId, price: paymentData.amount };
-      const authUrl = await startPayment(paymentData.productId, plan);
+      const authUrl = await startPayment(productId, plan);
       window.location.href = authUrl;
     } catch (err) {
-      setErrors({ submit: `Retry failed: ${err.message}` });
+      setErrors({ submit: err.message });
     } finally {
       setLoading(false);
     }
   };
 
-  /* ================= BUTTON VISIBILITY LOGIC ================= */
-  const showRetryButton =
-    paymentData && productCreated && selectedPlan?.price > 0;
-
-  const showCreateButton =
-    !paymentData || !productCreated || selectedPlan?.price === 0;
-
-  /* ================= RENDER ================= */
+  /* ================= PRICE INPUT (BULLETPROOF) ================= */
   const states = Object.keys(locationsByState || {});
   const cities = state ? locationsByState[state] : [];
+
+  const needsPayment = selectedPlan?.price > 0 && productId && paymentPending;
+  const canCreate = !productId || !paymentPending;
 
   return (
     <ErrorBoundary
@@ -535,439 +524,444 @@ export default function AddProduct() {
         />
 
         {/* BASIC INFO */}
-        <div className="form-card blue">
-          <h3>Basic Information</h3>
-          <div className="form-group">
-            <label>
-              Product Title <span className="required">*</span>
-            </label>
-            <input
-              ref={(el) => (fieldRefs.current.title = el)}
-              placeholder="Enter product title (min 10 chars)"
-              value={form.title}
-              onChange={(e) => {
-                update("title", e.target.value);
-                if (errors.title)
-                  setErrors((prev) => ({ ...prev, title: "" }));
-              }}
-            />
-            {errors.title && (
-              <span className="error">{errors.title}</span>
-            )}
-          </div>
-          <div className="form-group">
-            <label>
-              Description <span className="required">*</span>
-            </label>
-            <textarea
-              ref={(el) => (fieldRefs.current.description = el)}
-              placeholder="Detailed description (min 20 chars)"
-              value={form.description}
-              onChange={(e) => {
-                update("description", e.target.value);
-                if (errors.description)
-                  setErrors((prev) => ({ ...prev, description: "" }));
-              }}
-              rows="4"
-            />
-            {errors.description && (
-              <span className="error">{errors.description}</span>
-            )}
-          </div>
-          <div className="form-group">
-            <label>
-              Price (₦) <span className="required">*</span>
-            </label>
-            <input
-              ref={(el) => (fieldRefs.current.price = el)}
-              placeholder="10,000"
-              value={form.price}
-              onChange={(e) => {
-                const raw = onlyNumbers(e.target.value);
-                update("price", raw);
-                if (errors.price)
-                  setErrors((prev) => ({ ...prev, price: "" }));
-              }}
-              onBlur={() =>
-                form.price && update("price", Number(form.price).toString())
-              }
-            />
-            {errors.price && <span className="error">{errors.price}</span>}
-            {form.price && !errors.price && (
-              <small>₦{displayPrice(form.price)}</small>
-            )}
-          </div>
+            <div className="form-card blue">
+      <h3>Basic Information</h3>
+      <div className="form-group">
+        <label>
+          Product Title <span className="required">*</span>
+        </label>
+        <input
+          ref={(el) => (fieldRefs.current.title = el)}
+          placeholder="Enter product title (min 10 chars)"
+          value={form.title}
+          onChange={(e) => {
+            update("title", e.target.value);
+            if (errors.title)
+              setErrors((prev) => ({ ...prev, title: "" }));
+          }}
+        />
+        {errors.title && <span className="error">{errors.title}</span>}
+      </div>
+      <div className="form-group">
+        <label>
+          Description <span className="required">*</span>
+        </label>
+        <textarea
+          ref={(el) => (fieldRefs.current.description = el)}
+          placeholder="Detailed description (min 20 chars)"
+          value={form.description}
+          onChange={(e) => {
+            update("description", e.target.value);
+            if (errors.description)
+              setErrors((prev) => ({ ...prev, description: "" }));
+          }}
+          rows="4"
+        />
+        {errors.description && (
+          <span className="error">{errors.description}</span>
+        )}
+      </div>
+
+      {/* PRICE INPUT – BULLETPROOF */}
+      <div className="form-group">
+        <label>
+          Price (₦) <span className="required">*</span>
+        </label>
+        <div style={{ position: "relative" }}>
+          <input
+            ref={(el) => (fieldRefs.current.price = el)}
+            placeholder="59900"
+            value={form.price}
+            className="price-input"
+            onChange={(e) => {
+              const raw = onlyNumbers(e.target.value);
+              update("price", raw);
+              setErrors((prev) => ({ ...prev, price: "" }));
+            }}
+            onBlur={(e) => {
+              const raw = onlyNumbers(e.target.value);
+              const val = raw ? Number(raw).toString() : "";
+              update("price", val);
+            }}
+          />
         </div>
+        {errors.price ? (
+          <span className="error">{errors.price}</span>
+        ) : form.price ? (
+          <small className="price-display">
+            ₦{displayPrice(form.price)}
+          </small>
+        ) : null}
+      </div>
+    </div>
 
-        {/* CATEGORY & FEATURES */}
-        <div className="form-card blue">
-          <h3>Product Details</h3>
-          {!categories.length ? (
-            <div className="skeleton">Loading categories...</div>
-          ) : (
-            <>
-              <div className="form-group">
-                <label>
-                  Category <span className="required">*</span>
-                </label>
-                <div ref={(el) => (fieldRefs.current.category_id = el)}>
-                  <DropdownModal
-                    label=""
-                    value={form.category_id}
-                    onChange={(v) => {
-                      setForm((prev) => ({
-                        ...prev,
-                        category_id: v,
-                        attributes: INITIAL_FORM.attributes,
-                      }));
-                      if (errors.category_id)
-                        setErrors((prev) => ({ ...prev, category_id: "" }));
-                    }}
-                    options={categories.map((c) => ({ id: c.id, name: c.name }))}
-                  />
-                </div>
-                {errors.category_id && (
-                  <span className="error">{errors.category_id}</span>
-                )}
-              </div>
-
-              {fields.map((f) => {
-                if (!optionsMap[f] && f !== "features") return null;
-                if (
-                  f === "used_detail" &&
-                  attributes.condition !== "Used"
-                )
-                  return null;
-                return (
-                  <div key={f} className="form-group">
-                    <label>{formatLabel(f)}</label>
-                    <DropdownModal
-                      label=""
-                      value={attributes[f] || ""}
-                      onChange={(v) => updateAttr(f, v)}
-                      options={optionsMap[f]}
-                    />
-                  </div>
-                );
-              })}
-
-              {sortedFeatures.length > 0 && (
-                <div className="form-group">
-                  <label>Features</label>
-                  <div className="checkbox-grid-inline">
-                    {sortedFeatures.map((f) => (
-                      <label key={f} className="checkbox-inline right-check">
-                        <span>{formatLabel(f)}</span>
-                        <input
-                          type="checkbox"
-                          checked={(attributes.features || []).includes(f)}
-                          onChange={() => toggleFeature(f)}
-                        />
-                      </label>
-                    ))}
-                  </div>
-                </div>
-              )}
-            </>
-          )}
-        </div>
-
-        {/* CONTACT */}
-        <div className="form-card blue">
-          <h3>Contact Information</h3>
+    {/* CATEGORY & FEATURES */}
+    <div className="form-card blue">
+      <h3>Product Details</h3>
+      {!categories.length ? (
+        <div className="skeleton">Loading categories...</div>
+      ) : (
+        <>
           <div className="form-group">
             <label>
-              Email <span className="required">*</span>
+              Category <span className="required">*</span>
             </label>
-            <input
-              ref={(el) => (fieldRefs.current.email = el)}
-              type="email"
-              placeholder="your@email.com"
-              value={form.contact.email}
-              onChange={(e) => {
-                updateContact("email", e.target.value);
-                if (errors.email)
-                  setErrors((prev) => ({ ...prev, email: "" }));
-              }}
-            />
-            {errors.email && <span className="error">{errors.email}</span>}
-          </div>
-          <div className="form-group">
-            <label>
-              Phone <span className="required">*</span>
-            </label>
-            <input
-              ref={(el) => (fieldRefs.current.phone = el)}
-              placeholder="08012345678"
-              value={form.contact.phone}
-              onChange={(e) => {
-                updateContact("phone", onlyNumbers(e.target.value));
-                if (errors.phone)
-                  setErrors((prev) => ({ ...prev, phone: "" }));
-              }}
-            />
-            {errors.phone && <span className="error">{errors.phone}</span>}
-          </div>
-        </div>
-
-        {/* LOCATION + DELIVERY */}
-        <div className="form-card blue">
-          <h3>Location & Delivery</h3>
-          <div className="form-group">
-            <label>
-              State <span className="required">*</span>
-            </label>
-            <div ref={(el) => (fieldRefs.current.state = el)}>
+            <div ref={(el) => (fieldRefs.current.category_id = el)}>
               <DropdownModal
                 label=""
-                value={state}
-                onChange={setState}
-                options={states}
+                value={form.category_id}
+                onChange={(v) => {
+                  setForm((prev) => ({
+                    ...prev,
+                    category_id: v,
+                    attributes: INITIAL_FORM.attributes,
+                  }));
+                  if (errors.category_id)
+                    setErrors((prev) => ({ ...prev, category_id: "" }));
+                }}
+                options={categories.map((c) => ({
+                  id: c.id,
+                  name: c.name,
+                }))}
               />
             </div>
-            {errors.state && <span className="error">{errors.state}</span>}
+            {errors.category_id && (
+              <span className="error">{errors.category_id}</span>
+            )}
           </div>
-          {state && (
-            <div className="form-group">
-              <label>
-                City <span className="required">*</span>
-              </label>
-              <div ref={(el) => (fieldRefs.current.city = el)}>
+
+          {fields.map((f) => {
+            if (!optionsMap[f] && f !== "features") return null;
+            if (f === "used_detail" && attributes.condition !== "Used")
+              return null;
+
+            return (
+              <div key={f} className="form-group">
+                <label>{formatLabel(f)}</label>
                 <DropdownModal
                   label=""
-                  value={city}
-                  onChange={setCity}
-                  options={cities}
+                  value={attributes[f] || ""}
+                  onChange={(v) => updateAttr(f, v)}
+                  options={optionsMap[f]}
                 />
               </div>
-              {errors.city && <span className="error">{errors.city}</span>}
-            </div>
-          )}
-          <div className="form-group">
-            <label>Delivery Type</label>
-            <DropdownModal
-              label=""
-              value={form.delivery.type}
-              onChange={(v) => {
-                updateDelivery("type", v);
-                if (errors.delivery_type)
-                  setErrors((prev) => ({ ...prev, delivery_type: "" }));
-              }}
-              options={[
-                { id: "none", name: "No delivery" },
-                { id: "standard", name: "Standard delivery" },
-                { id: "express", name: "Express delivery" },
-                { id: "pickup", name: "Pickup only" },
-              ]}
-            />
-          </div>
+            );
+          })}
 
-          {form.delivery.type !== "none" &&
-            form.delivery.type !== "pickup" && (
-              <div className="sub-grid">
-                <div className="form-section-round-small">
-                  <label>
-                    From (days) <span className="required">*</span>
-                  </label>
-                  <input
-                    ref={(el) =>
-                      (fieldRefs.current.delivery_duration = el)
-                    }
-                    type="number"
-                    min="1"
-                    value={form.delivery.duration.from}
-                    onChange={(e) =>
-                      updateDeliveryDuration(
-                        "from",
-                        onlyNumbers(e.target.value)
-                      )
-                    }
-                  />
-                </div>
-                <div className="form-section-round-small">
-                  <label>
-                    To (days) <span className="required">*</span>
-                  </label>
-                  <input
-                    type="number"
-                    min="1"
-                    value={form.delivery.duration.to}
-                    onChange={(e) =>
-                      updateDeliveryDuration(
-                        "to",
-                        onlyNumbers(e.target.value)
-                      )
-                    }
-                  />
-                </div>
-                <div className="form-section-round-small">
-                  <label>
-                    Fee (₦) <span className="required">*</span>
-                  </label>
-                  <input
-                    ref={(el) =>
-                      (fieldRefs.current.delivery_fee = el)
-                    }
-                    type="number"
-                    min="0"
-                    step="0.01"
-                    value={form.delivery.fee}
-                    onChange={(e) =>
-                      updateDelivery(
-                        "fee",
-                        onlyNumbers(e.target.value)
-                      )
-                    }
-                  />
-                </div>
-                {(errors.delivery_duration ||
-                  errors.delivery_fee) && (
-                  <span
-                    className="error"
-                    style={{ gridColumn: "1 / -1", textAlign: "center" }}
+          {sortedFeatures.length > 0 && (
+            <div className="form-group">
+              <label>Features</label>
+              <div className="checkbox-grid-inline">
+                {sortedFeatures.map((f) => (
+                  <label
+                    key={f}
+                    className="checkbox-inline right-check"
                   >
-                    {errors.delivery_duration || errors.delivery_fee}
-                  </span>
-                )}
-              </div>
-            )}
-        </div>
-
-        {/* IMAGES */}
-        <div className="form-card blue">
-          <h3>Product Images</h3>
-          <label className="form-group-label">
-            Product Images (max 6, 3MB each){" "}
-            <span className="required">*</span>
-          </label>
-          <div
-            className="images-section"
-            ref={(el) => (fieldRefs.current.images = el)}
-          >
-            {images.length > 0 && (
-              <div className="preview-grid-modern">
-                {images.map((img) => (
-                  <div key={img.id} className="preview-card">
-                    <img
-                      src={img.preview}
-                      alt=""
-                      onClick={() => setActiveImage(img.preview)}
-                      style={{ cursor: "pointer" }}
+                    <span>{formatLabel(f)}</span>
+                    <input
+                      type="checkbox"
+                      checked={(attributes.features || []).includes(f)}
+                      onChange={() => toggleFeature(f)}
                     />
-                    <button
-                      className="remove-btn"
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        removeImage(img.id);
-                      }}
-                      title="Remove image"
-                    >
-                      ×
-                    </button>
-                  </div>
+                  </label>
                 ))}
               </div>
-            )}
-            {images.length < MAX_IMAGES && (
-              <label className="add-card">
-                <input
-                  type="file"
-                  multiple
-                  accept="image/*"
-                  hidden
-                  onChange={(e) => {
-                    handleImages(e.target.files);
-                    e.target.value = "";
-                  }}
-                />
-                <span>+</span>
-                <small>
-                  {images.length
-                    ? `Add more (${MAX_IMAGES - images.length} left)`
-                    : "Add images"}
-                </small>
+            </div>
+          )}
+        </>
+      )}
+    </div>
+
+    {/* CONTACT */}
+    <div className="form-card blue">
+      <h3>Contact Information</h3>
+      <div className="form-group">
+        <label>
+          Email <span className="required">*</span>
+        </label>
+        <input
+          ref={(el) => (fieldRefs.current.email = el)}
+          type="email"
+          placeholder="your@email.com"
+          value={form.contact.email}
+          onChange={(e) => {
+            updateContact("email", e.target.value);
+            if (errors.email)
+              setErrors((prev) => ({ ...prev, email: "" }));
+          }}
+        />
+        {errors.email && (
+          <span className="error">{errors.email}</span>
+        )}
+      </div>
+      <div className="form-group">
+        <label>
+          Phone <span className="required">*</span>
+        </label>
+        <input
+          ref={(el) => (fieldRefs.current.phone = el)}
+          placeholder="08012345678"
+          value={form.contact.phone}
+          onChange={(e) => {
+            updateContact("phone", onlyNumbers(e.target.value));
+            if (errors.phone)
+              setErrors((prev) => ({ ...prev, phone: "" }));
+          }}
+        />
+        {errors.phone && (
+          <span className="error">{errors.phone}</span>
+        )}
+      </div>
+    </div>
+
+    {/* LOCATION + DELIVERY */}
+    <div className="form-card blue">
+      <h3>Location & Delivery</h3>
+      <div className="form-group">
+        <label>
+          State <span className="required">*</span>
+        </label>
+        <div ref={(el) => (fieldRefs.current.state = el)}>
+          <DropdownModal
+            label=""
+            value={state}
+            onChange={setState}
+            options={states}
+          />
+        </div>
+        {errors.state && (
+          <span className="error">{errors.state}</span>
+        )}
+      </div>
+      {state && (
+        <div className="form-group">
+          <label>
+            City <span className="required">*</span>
+          </label>
+          <div ref={(el) => (fieldRefs.current.city = el)}>
+            <DropdownModal
+              label=""
+              value={city}
+              onChange={setCity}
+              options={cities}
+            />
+          </div>
+          {errors.city && (
+            <span className="error">{errors.city}</span>
+          )}
+        </div>
+      )}
+      <div className="form-group">
+        <label>Delivery Type</label>
+        <DropdownModal
+          label=""
+          value={form.delivery.type}
+          onChange={(v) => {
+            updateDelivery("type", v);
+            if (errors.delivery_type)
+              setErrors((prev) => ({ ...prev, delivery_type: "" }));
+          }}
+          options={[
+            { id: "none", name: "No delivery" },
+            { id: "standard", name: "Standard delivery" },
+            { id: "express", name: "Express delivery" },
+            { id: "pickup", name: "Pickup only" },
+          ]}
+        />
+      </div>
+
+      {form.delivery.type !== "none" &&
+        form.delivery.type !== "pickup" && (
+          <div className="sub-grid">
+            <div className="form-section-round-small">
+              <label>
+                From (days) <span className="required">*</span>
               </label>
-            )}
-            {errors.images && (
-              <span className="error">{errors.images}</span>
+              <input
+                ref={(el) => (fieldRefs.current.delivery_duration = el)}
+                type="number"
+                min="1"
+                value={form.delivery.duration.from}
+                onChange={(e) =>
+                  updateDeliveryDuration("from", onlyNumbers(e.target.value))
+                }
+              />
+            </div>
+            <div className="form-section-round-small">
+              <label>
+                To (days) <span className="required">*</span>
+              </label>
+              <input
+                type="number"
+                min="1"
+                value={form.delivery.duration.to}
+                onChange={(e) =>
+                  updateDeliveryDuration("to", onlyNumbers(e.target.value))
+                }
+              />
+            </div>
+            <div className="form-section-round-small">
+              <label>
+                Fee (₦) <span className="required">*</span>
+              </label>
+              <input
+                ref={(el) => (fieldRefs.current.delivery_fee = el)}
+                type="number"
+                min="0"
+                step="0.01"
+                value={form.delivery.fee}
+                onChange={(e) =>
+                  updateDelivery("fee", onlyNumbers(e.target.value))
+                }
+              />
+            </div>
+            {(errors.delivery_duration || errors.delivery_fee) && (
+              <span
+                className="error"
+                style={{ gridColumn: "1 / -1", textAlign: "center" }}
+              >
+                {errors.delivery_duration || errors.delivery_fee}
+              </span>
             )}
           </div>
-        </div>
+        )}
+    </div>
 
-        {/* PROMOTION */}
-        <div className="form-card blue">
-          <h3>Promotion Plan (Optional)</h3>
-          <div className="plans-grid">
-            {promotionPlans.map((plan) => (
-              <div
-                key={plan.id}
-                className={`plan-card ${
-                  selectedPlan?.id === plan.id ? "selected" : ""
-                }`}
-                onClick={() => setSelectedPlan(plan)}
-              >
-                <div className="plan-header">
-                  <strong>{plan.name}</strong>
-                  <span className="plan-price">
-                    ₦{displayPrice(plan.price.toString())}
-                  </span>
-                </div>
-                <div className="plan-duration">{plan.duration}</div>
-                <ul className="plan-features">
-                  {plan.features.map((feat, i) => (
-                    <li key={i}>{feat}</li>
-                  ))}
-                </ul>
-                {plan.description && (
-                  <p className="plan-desc">{plan.description}</p>
-                )}
+    {/* IMAGES */}
+    <div className="form-card blue">
+      <h3>Product Images</h3>
+      <label className="form-group-label">
+        Product Images (max 6, 3MB each){" "}
+        <span className="required">*</span>
+      </label>
+      <div
+        className="images-section"
+        ref={(el) => (fieldRefs.current.images = el)}
+      >
+        {images.length > 0 && (
+          <div className="preview-grid-modern">
+            {images.map((img) => (
+              <div key={img.id} className="preview-card">
+                <img
+                  src={img.preview}
+                  alt=""
+                  onClick={() => setActiveImage(img.preview)}
+                  style={{ cursor: "pointer" }}
+                />
+                <button
+                  className="remove-btn"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    removeImage(img.id);
+                  }}
+                  title="Remove image"
+                >
+                  ×
+                </button>
               </div>
             ))}
           </div>
-        </div>
-
-        {/* ACTION BUTTONS - FIXED */}
-        <div className="form-card blue button-section">
-          {errors.submit && (
-            <span
-              className="error"
-              style={{ display: "block", marginBottom: "1rem" }}
-            >
-              {errors.submit}
-            </span>
-          )}
-
-          {showCreateButton && (
-            <button
-              onClick={handleSubmit}
-              disabled={loading}
-              className="primary-btn"
-            >
-              {loading ? "Processing..." : "Create Product"}
-            </button>
-          )}
-
-          {showRetryButton && (
-            <button
-              onClick={retryPayment}
-              disabled={loading}
-              className="retry-btn"
-            >
-              {loading ? "Retrying..." : "Retry Payment"}
-            </button>
-          )}
-        </div>
-
-        {/* FULLSCREEN IMAGE PREVIEW */}
-        {activeImage && (
-          <div
-            className="image-modal"
-            onClick={() => setActiveImage(null)}
-          >
-            <img src={activeImage} alt="preview" />
-          </div>
+        )}
+        {images.length < MAX_IMAGES && (
+          <label className="add-card">
+            <input
+              type="file"
+              multiple
+              accept="image/*"
+              hidden
+              onChange={(e) => {
+                handleImages(e.target.files);
+                e.target.value = "";
+              }}
+            />
+            <span>+</span>
+            <small>
+              {images.length
+                ? `Add more (${MAX_IMAGES - images.length} left)`
+                : "Add images"}
+            </small>
+          </label>
+        )}
+        {errors.images && (
+          <span className="error">{errors.images}</span>
         )}
       </div>
-    </ErrorBoundary>
-  );
-}
+    </div>
+
+    {/* PROMOTION */}
+    <div className="form-card blue">
+      <h3>Promotion Plan (Optional)</h3>
+      <div className="plans-grid">
+        {promotionPlans.map((plan) => (
+          <div
+            key={plan.id}
+            className={`plan-card ${
+              selectedPlan?.id === plan.id ? "selected" : ""
+            }`}
+            onClick={() => setSelectedPlan(plan)}
+          >
+            <div className="plan-header">
+              <strong>{plan.name}</strong>
+              <span className="plan-price">
+                ₦{displayPrice(plan.price.toString())}
+              </span>
+            </div>
+            <div className="plan-duration">{plan.duration}</div>
+            <ul className="plan-features">
+              {plan.features.map((feat, i) => (
+                <li key={i}>{feat}</li>
+              ))}
+            </ul>
+            {plan.description && (
+              <p className="plan-desc">{plan.description}</p>
+            )}
+          </div>
+        ))}
+      </div>
+    </div>
+
+    {/* ACTION BUTTONS - BULLETPROOF */}
+    <div className="form-card blue button-section">
+      {errors.submit && (
+        <span
+          className="error"
+          style={{ display: "block", marginBottom: "1rem" }}
+        >
+          {errors.submit}
+        </span>
+      )}
+
+      <div className="button-section">
+        {canCreate && (
+          <button
+            onClick={handleSubmit}
+            disabled={loading}
+            className="primary-btn"
+          >
+            {loading ? "Processing..." : "Create Product"}
+          </button>
+        )}
+        {needsPayment && (
+          <button
+            onClick={retryPayment}
+            className="retry-btn"
+            disabled={loading}
+          >
+            {loading ? "Retrying..." : "Retry Payment"}
+          </button>
+        )}
+      </div>
+    </div>
+
+    {/* FULLSCREEN IMAGE PREVIEW */}
+    {activeImage && (
+      <div
+        className="image-modal"
+        onClick={() => setActiveImage(null)}
+      >
+        <img src={activeImage} alt="preview" />
+      </div>
+    )}
+  </div>
+</ErrorBoundary>
+;
