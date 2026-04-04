@@ -1,27 +1,22 @@
-import {
-  useEffect,
-  useMemo,
-  useState,
-  useCallback,
-  useRef,
-  useLayoutEffect,
-} from "react";
-import ErrorBoundary from "../components/ErrorBoundary";
+import { useEffect, useMemo, useState, useCallback } from "react";
 import DropdownModal from "../components/DropdownModal.jsx";
 import AddProductHeader from "../components/AddProductHeader.jsx";
 import { locationsByState } from "../config/locationsByState.js";
 import { promotionPlans } from "../config/promotions.js";
 import "../styles/AddProduct.css";
-import imageCompression from "browser-image-compression";
 
 const STORAGE_DRAFT = "product_draft";
 const STORAGE_PAYMENT = "payment_retry";
 
+const API_BASE = "https://minimart-ivrm.onrender.com/api/marketplace";
+
+/* ================= INITIAL FORM ================= */
 const INITIAL_FORM = {
   title: "",
   description: "",
   price: "",
   category_id: "",
+  subcategory_id: "",
   attributes: {
     brand: "",
     model: "",
@@ -37,9 +32,10 @@ const INITIAL_FORM = {
     features: [],
   },
   delivery: {
-    type: "standard",
+    available: true,
     duration: { from: "", to: "" },
     fee: "",
+    type: "optional",
     note: "",
   },
   contact: {
@@ -50,44 +46,81 @@ const INITIAL_FORM = {
   },
 };
 
-// ✅ FIXED: Consistent API base
-const BASE_API = import.meta.env.VITE_API_BASE_URL || 
-  (import.meta.env.PROD 
-    ? "https://minimart-ivrm.onrender.com" 
-    : "http://localhost:3000");
-
 export default function AddProduct() {
   const [form, setForm] = useState(INITIAL_FORM);
   const [categories, setCategories] = useState([]);
   const [state, setState] = useState("");
   const [city, setCity] = useState("");
   const [images, setImages] = useState([]);
-  const [activeImage, setActiveImage] = useState(null);
+  const [previews, setPreviews] = useState([]);
   const [loading, setLoading] = useState(false);
   const [selectedPlan, setSelectedPlan] = useState(null);
   const [paymentData, setPaymentData] = useState(null);
-  const [errors, setErrors] = useState({});
   const [productId, setProductId] = useState(null);
-  const [paymentPending, setPaymentPending] = useState(false);
-  const fieldRefs = useRef({});
+  const [error, setError] = useState("");
 
-  const MAX_IMAGES = 6;
-  const MAX_SIZE = 3 * 1024 * 1024;
+  /* ================= AUTO-SAVE DRAFT ================= */
+  const saveDraft = useCallback(() => {
+    const draft = {
+      form,
+      state,
+      city,
+      selectedPlan: selectedPlan?.id || null,
+    };
+    localStorage.setItem(STORAGE_DRAFT, JSON.stringify(draft));
+  }, [form, state, city, selectedPlan]);
 
-  const isSlowDevice = () =>
-    navigator.hardwareConcurrency <= 4 ||
-    navigator.deviceMemory <= 4 ||
-    /Android|iPhone/i.test(navigator.userAgent);
+  const loadDraft = useCallback(() => {
+    try {
+      const saved = localStorage.getItem(STORAGE_DRAFT);
+      if (saved) {
+        const draft = JSON.parse(saved);
+        setForm(draft.form);
+        setState(draft.state);
+        setCity(draft.city);
+        if (draft.selectedPlan !== null) {
+          const plan = promotionPlans.find((p) => p.id === draft.selectedPlan);
+          setSelectedPlan(plan || null);
+        }
+      }
+    } catch (e) {
+      console.error("Draft load failed:", e);
+    }
+  }, []);
 
-  const compressImage = async (file) => {
-    return await imageCompression(file, {
-      maxSizeMB: isSlowDevice() ? 0.4 : 0.8,
-      maxWidthOrHeight: isSlowDevice() ? 900 : 1280,
-      useWebWorker: true,
-    });
-  };
+  const clearDraft = useCallback(() => {
+    setForm(INITIAL_FORM);
+    setImages([]);
+    setPreviews([]);
+    setState("");
+    setCity("");
+    setSelectedPlan(null);
+    setPaymentData(null);
+    setProductId(null);
+    setError("");
+    localStorage.removeItem(STORAGE_DRAFT);
+    localStorage.removeItem(STORAGE_PAYMENT);
+  }, []);
 
-  /* ================= CORE UTILITIES ================= */
+  /* ================= EFFECTS ================= */
+  useEffect(() => {
+    loadDraft();
+    fetch(`${API_BASE}/categories`)
+      .then((r) => r.json())
+      .then(setCategories)
+      .catch(console.error);
+  }, [loadDraft]);
+
+  useEffect(() => {
+    if (!loading) saveDraft();
+  }, [saveDraft, loading]);
+
+  useEffect(() => {
+    const saved = localStorage.getItem(STORAGE_PAYMENT);
+    if (saved) setPaymentData(JSON.parse(saved));
+  }, []);
+
+  /* ================= UTILITIES ================= */
   const selectedCategory = useMemo(
     () => categories.find((c) => String(c.id) === String(form.category_id)),
     [categories, form.category_id]
@@ -104,52 +137,29 @@ export default function AddProduct() {
         )
       : [];
 
-  const onlyNumbers = (v = "") => v.replace(/[^0-9.]/g, "");
-  const displayPrice = (v) =>
-    v ? new Intl.NumberFormat("en-NG").format(Number(v)) : "";
-
+  const onlyNumbers = (v = "") => v.replace(/D/g, "");
+  const formatPrice = (v) =>
+    v ? new Intl.NumberFormat("en-NG").format(Number(v.replace(/D/g, ""))) : "";
   const formatLabel = (t) =>
-    t.replace(/_/g, " ").replace(/(^|s)w/g, (l) => l.toUpperCase());
+    t.replace(/_/g, " ").replace(/\bw/g, (l) => l.toUpperCase());
 
-  /* ================= DYNAMIC OPTIONS MAP ================= */
   const optionsMap = useMemo(() => {
-    const map = {};
-
-    map.brand = normalizeOptions(options.brands || []);
-
-    if (brand && options.models && options.models[brand]) {
-      map.model = normalizeOptions(options.models[brand]);
-    } else {
-      map.model = [];
-    }
-
-    const keys = [
-      "colors", "color", "conditions", "condition", "ram", "storage",
-      "sim", "year", "engine", "fuel_type"
-    ];
-
-    keys.forEach((key) => {
-      const field = key.replace(/s$/, "");
-      const backendKey =
-        options[key] !== undefined
-          ? key
-          : options[field] !== undefined
-          ? field
-          : null;
-
-      map[field] = normalizeOptions(
-        backendKey ? options[backendKey] || [] : []
-      );
-    });
-
-    return map;
+    const modelsForBrand =
+      brand && options.models?.[brand] ? options.models[brand] : [];
+    return {
+      brand: normalizeOptions(options.brands),
+      model: normalizeOptions(modelsForBrand),
+      color: normalizeOptions(options.colors),
+      condition: normalizeOptions(options.conditions),
+      used_detail: normalizeOptions(options.usedDetails),
+      ram: normalizeOptions(options.ram),
+      storage: normalizeOptions(options.storage),
+      sim: normalizeOptions(options.sims),
+      year: normalizeOptions(options.years),
+      engine: normalizeOptions(options.engines),
+      fuel_type: normalizeOptions(options.fuel_types),
+    };
   }, [options, brand]);
-
-  const sortedFeatures = useMemo(() => {
-    return [...(options.features || [])].sort((a, b) =>
-      a.localeCompare(b)
-    );
-  }, [options.features]);
 
   const fields = useMemo(() => {
     const dynamic = options.fields || [];
@@ -158,99 +168,8 @@ export default function AddProduct() {
       : ["condition", ...dynamic];
   }, [options]);
 
-  /* ================= VALIDATION ================= */
-  const validate = () => {
-    const e = {};
-    if (form.title.length < 10)
-      e.title = "Minimum 10 characters required";
-    if (form.description.length < 20)
-      e.description = "Minimum 20 characters required";
-    if (!form.price || Number(form.price) <= 0)
-      e.price = "Enter valid price (₦)";
-    if (!form.category_id) e.category_id = "Select a category";
-    if (!form.contact.phone || form.contact.phone.length < 10)
-      e.phone = "Valid phone required (10+ digits)";
-    if (!form.contact.email || !form.contact.email.includes("@"))
-      e.email = "Valid email required";
-    if (images.length === 0) e.images = "Add at least 1 image";
-    if (!state) e.state = "Select your state";
-    if (!city) e.city = "Select your city";
-
-    if (form.delivery.type !== "none" && form.delivery.type !== "pickup") {
-      const from = Number(form.delivery.duration.from);
-      const to = Number(form.delivery.duration.to);
-      if (Number.isNaN(from) || Number.isNaN(to))
-        e.delivery_duration = "Delivery range required";
-      if (to < from)
-        e.delivery_duration = "End day must be after start day";
-      if (!form.delivery.fee || Number(form.delivery.fee) <= 0)
-        e.delivery_fee = "Delivery fee required";
-    }
-
-    setErrors(e);
-    return Object.keys(e).length ? e : null;
-  };
-
-  const scrollToFirstError = useCallback((errObj) => {
-    const firstKey = Object.keys(errObj)[0];
-    const el = fieldRefs.current[firstKey];
-    if (el) {
-      el.scrollIntoView({ behavior: "smooth", block: "center" });
-      el.classList.add("shake");
-      setTimeout(() => el.classList.remove("shake"), 500);
-    }
-  }, []);
-
-  /* ================= DRAFT MANAGEMENT ================= */
-  const saveDraft = useCallback(() => {
-    if (loading) return;
-    const draft = {
-      form,
-      state,
-      city,
-      selectedPlan: selectedPlan?.id || null,
-    };
-    localStorage.setItem(STORAGE_DRAFT, JSON.stringify(draft));
-  }, [form, state, city, selectedPlan, loading]);
-
-  const loadDraft = useCallback(() => {
-    try {
-      const saved = localStorage.getItem(STORAGE_DRAFT);
-      if (saved) {
-        const draft = JSON.parse(saved);
-        setForm(draft.form || INITIAL_FORM);
-        setState(draft.state || "");
-        setCity(draft.city || "");
-        if (draft.selectedPlan !== null) {
-          const plan = promotionPlans.find(
-            (p) => p.id === draft.selectedPlan
-          );
-          setSelectedPlan(plan || null);
-        }
-      }
-    } catch (e) {
-      console.error("Draft load failed:", e);
-    }
-  }, []);
-
-  const clearDraft = useCallback(() => {
-    setForm(INITIAL_FORM);
-    setImages([]);
-    setState("");
-    setCity("");
-    setSelectedPlan(null);
-    setPaymentData(null);
-    setErrors({});
-    setProductId(null);
-    setPaymentPending(false);
-    localStorage.removeItem(STORAGE_DRAFT);
-    localStorage.removeItem(STORAGE_PAYMENT);
-  }, []);
-
-  /* ================= FORM UPDATERS ================= */
-  const update = (key, value) =>
-    setForm((p) => ({ ...p, [key]: value }));
-
+  /* ================= UPDATERS ================= */
+  const update = (key, value) => setForm((p) => ({ ...p, [key]: value }));
   const updateAttr = (key, value) =>
     setForm((p) => ({
       ...p,
@@ -260,16 +179,16 @@ export default function AddProduct() {
         ...(key === "brand" && { model: "" }),
       },
     }));
-
   const updateContact = (key, value) =>
-    setForm((p) => ({ ...p, contact: { ...p.contact, [key]: value } }));
-
+    setForm((p) => ({
+      ...p,
+      contact: { ...p.contact, [key]: value },
+    }));
   const updateDelivery = (key, value) =>
     setForm((p) => ({
       ...p,
       delivery: { ...p.delivery, [key]: value },
     }));
-
   const updateDeliveryDuration = (key, value) =>
     setForm((p) => ({
       ...p,
@@ -278,7 +197,6 @@ export default function AddProduct() {
         duration: { ...p.delivery.duration, [key]: value },
       },
     }));
-
   const toggleFeature = (feature) => {
     setForm((p) => {
       const list = p.attributes.features || [];
@@ -295,266 +213,174 @@ export default function AddProduct() {
     });
   };
 
-  /* ================= IMAGE HANDLING ================= */
+  /* ================= VALIDATION & SUBMIT ================= */
+  const validate = () => {
+    if (form.title.length < 10) return "Title too short (min 10 chars)";
+    if (form.description.length < 20)
+      return "Description too short (min 20 chars)";
+    if (!form.price || Number(form.price.replace(/D/g, "")) <= 0)
+      return "Valid price required";
+    if (!form.category_id) return "Select category";
+    if (!form.contact.phone || form.contact.phone.length < 10)
+      return "Valid phone required";
+    if (!form.contact.email || !form.contact.email.includes("@"))
+      return "Valid email required";
+    if (form.delivery.available) {
+      const from = Number(form.delivery.duration.from);
+      const to = Number(form.delivery.duration.to);
+      if (Number.isNaN(from) || Number.isNaN(to))
+        return "Delivery range required";
+      if (to < from) return "Invalid delivery range (to > from)";
+    }
+    if (!state || !city) return "Select state and city";
+    if (images.length === 0) return "Add at least 1 image";
+    return null;
+  };
+
   const handleImages = (files) => {
-    const fileArray = Array.from(files);
-    if (images.length >= MAX_IMAGES) {
-      setErrors((prev) => ({
-        ...prev,
-        images: `Maximum ${MAX_IMAGES} images allowed`,
-      }));
-      return;
-    }
-    const remaining = MAX_IMAGES - images.length;
-    const validFiles = fileArray
-      .filter(
-        (f) =>
-          f.type.startsWith("image/") && f.size <= MAX_SIZE
-      )
-      .slice(0, remaining);
-
-    const newImages = validFiles.map((file) => ({
-      id:
-        crypto?.randomUUID?.() ||
-        `${Date.now()}-${Math.random()
-          .toString(36)
-          .substr(2, 9)}`,
-      file,
-      preview: URL.createObjectURL(file),
-    }));
-
-    setImages((prev) => [...prev, ...newImages]);
-    if (errors.images)
-      setErrors((prev) => ({ ...prev, images: "" }));
+    const list = Array.from(files).slice(0, 8);
+    previews.forEach(URL.revokeObjectURL);
+    setImages(list);
+    setPreviews(list.map((f) => URL.createObjectURL(f)));
   };
 
-  const removeImage = (id) => {
-    setImages((prev) => {
-      const target = prev.find((x) => x.id === id);
-      if (target?.preview) URL.revokeObjectURL(target.preview);
-      return prev.filter((x) => x.id !== id);
+  const removeImage = (i) => {
+    setImages((p) => p.filter((_, x) => x !== i));
+    setPreviews((p) => {
+      URL.revokeObjectURL(p[i]);
+      return p.filter((_, x) => x !== i);
     });
   };
 
-  const compressImagesSequentially = async (imageFiles) => {
-    const compressedFiles = [];
-    for (const file of imageFiles) {
-      try {
-        const compressed = await compressImage(file);
-        compressedFiles.push(compressed);
-      } catch (e) {
-        compressedFiles.push(file);
-      }
-    }
-    return compressedFiles;
-  };
-
-  /* ================= EFFECTS ================= */
-  useEffect(() => {
-    loadDraft();
-  }, [loadDraft]);
-
-  useEffect(() => {
-    if (!loading) {
-      const timeout = setTimeout(saveDraft, 800);
-      return () => clearTimeout(timeout);
-    }
-  }, [form, state, city, selectedPlan, loading, saveDraft]);
-
-  useEffect(() => {
-    const saved = localStorage.getItem(STORAGE_PAYMENT);
-    if (saved) {
-      try {
-        setPaymentData(JSON.parse(saved));
-      } catch (e) {
-        localStorage.removeItem(STORAGE_PAYMENT);
-      }
-    }
-  }, []);
-
-  useLayoutEffect(() => {
-    return () => {
-      images.forEach((img) => {
-        if (img.preview) URL.revokeObjectURL(img.preview);
-      });
-    };
-  }, [images]);
-
-  useEffect(() => {
-    const controller = new AbortController();
-    fetch(`${BASE_API}/api/marketplace/categories`, {
-      signal: controller.signal,
-    })
-      .then((r) => {
-        if (!r.ok)
-          throw new Error(`HTTP ${r.status}: ${r.statusText}`);
-        return r.json();
-      })
-      .then(setCategories)
-      .catch((err) => {
-        if (err.name !== "AbortError") {
-          console.error("Categories fetch failed:", err);
-          setErrors((prev) => ({
-            ...prev,
-            submit: "Failed to load categories",
-          }));
-        }
-      });
-    return () => controller.abort();
-  }, []);
-
-  useEffect(() => {
-    if (!options.fields?.length) return;
-    setForm((prev) => {
-      const newAttrs = { ...prev.attributes };
-      options.fields.forEach((f) => {
-        if (newAttrs[f] === undefined) {
-          newAttrs[f] = f === "features" ? [] : "";
-        }
-      });
-      return { ...prev, attributes: newAttrs };
-    });
-  }, [form.category_id, options.fields]);
-
-  /* ================= FIXED API FUNCTIONS ================= */
   const createProductDraft = async () => {
-    const fd = new FormData();
-    const payload = {
-      ...form,
-      price: Number(form.price),
-      attributes: JSON.stringify(form.attributes),
-      delivery: JSON.stringify(form.delivery),
-      contact: JSON.stringify(form.contact),
-      location_state: state,
-      location_city: city,
-      promotion_plan: selectedPlan?.id || null,
-    };
-
-    Object.entries(payload)
-      .filter(
-        ([_, v]) =>
-          v !== null && v !== undefined && v !== ""
-      )
-      .forEach(([k, v]) => fd.append(k, String(v)));
-
-    const imageFiles = images.map((img) => img.file);
-    const compressedFiles = await compressImagesSequentially(imageFiles);
-    compressedFiles.forEach((file) => fd.append("images", file));
-
-    const res = await fetch(`${BASE_API}/api/marketplace/products`, {
-      method: "POST",
-      body: fd,
-    });
-
-    if (!res.ok) {
-      let text;
-      try {
-        text = await res.text();
-      } catch (e) {
-        text = "Unknown error";
-      }
-      throw new Error(text || `HTTP ${res.status}`);
+    const finalPlan = selectedPlan || promotionPlans.find((p) => p.price === 0);
+    const err = validate();
+    if (err) {
+      setError(err);
+      return null;
     }
-
-    let data;
-    try {
-      data = await res.json();
-    } catch (e) {
-      throw new Error(`Server returned non-JSON: ${res.status}`);
-    }
-
-    return data.product;
-  };
-
-  const startPayment = async (productId, plan) => {
-    const res = await fetch(`${BASE_API}/api/payment/initialize`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        email: form.contact.email,
-        amount: Number(plan.price),
-        planId: plan.id,
-        productId,
-      }),
-    });
-
-    let data;
-    try {
-      data = await res.json();
-    } catch (e) {
-      throw new Error(`Non-JSON response: ${res.status}`);
-    }
-
-    if (!data.success || !data.authorization_url) {
-      throw new Error(
-        data.message || "Payment initialization failed"
-      );
-    }
-    return data.authorization_url;
-  };
-
-  /* ================= FIXED handleSubmit ================= */
-  const handleSubmit = async () => {
-    const error = validate();
-    if (error) return scrollToFirstError(error);
 
     setLoading(true);
+    setError("");
+
+    const formData = new FormData();
+    formData.append("title", form.title.trim());
+    formData.append("description", form.description);
+    formData.append("price", form.price.replace(/D/g, ""));
+    formData.append("category_id", form.category_id);
+    if (form.subcategory_id) formData.append("subcategory_id", form.subcategory_id);
+    formData.append("attributes", JSON.stringify(form.attributes));
+    formData.append("delivery", JSON.stringify(form.delivery));
+    formData.append("contact", JSON.stringify(form.contact));
+    formData.append("location_state", state);
+    formData.append("location_city", city);
+    formData.append("user_id", "current_user_uuid"); // Replace with real user ID
+    images.forEach((img) => formData.append("images", img));
+
     try {
-      const product = await createProductDraft();
-      setProductId(product.id);
+      const res = await fetch(`${API_BASE}/products`, {
+        method: "POST",
+        body: formData,
+      });
 
-      const finalPlan =
-        selectedPlan ||
-        promotionPlans.find((p) => p.price === 0);
-
-      // ✅ FIXED: Store idempotent payment data
-      if (finalPlan.price > 0) {
-        localStorage.setItem(STORAGE_PAYMENT, JSON.stringify({
-          productId: product.id,
-          planId: finalPlan.id,
-          amount: finalPlan.price,
-          email: form.contact.email,
-          timestamp: Date.now()
-        }));
+      if (!res.ok) {
+        const errorData = await res.json();
+        throw new Error(errorData.message || "Failed to create product");
       }
 
-      if (finalPlan.price === 0) {
-        // FREE – activate
-        const res = await fetch(
-          `${BASE_API}/api/marketplace/products/${product.id}/activate`,
-          { method: "POST" }
-        );
-        if (!res.ok) throw new Error("Free activation failed");
-        clearDraft();
-        alert("✅ Product live!");
-        window.location.href = "/";
-      } else {
-        // PAID
-        setPaymentPending(true);
-        const authUrl = await startPayment(product.id, finalPlan);
-        window.location.href = authUrl;
-      }
+      const result = await res.json();
+      return result.product?.id || result.id;
     } catch (err) {
-      console.error(err);
-      setErrors({ submit: err.message });
+      setError(err.message);
+      return null;
     } finally {
       setLoading(false);
     }
   };
 
-  /* ================= FIXED retryPayment ================= */
-  const retryPayment = async () => {
-    if (!productId || !paymentData) return;
-    setLoading(true);
+  const initiatePayment = async (productId) => {
+    const finalPlan = selectedPlan || promotionPlans.find((p) => p.price === 0);
+    const email = form.contact.email;
+
     try {
-      const plan = { 
-        id: paymentData.planId, 
-        price: paymentData.amount 
-      };
-      const authUrl = await startPayment(productId, plan);
-      window.location.href = authUrl;
+      const res = await fetch(`${API_BASE}/payments/initialize`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          email,
+          amount: finalPlan.price,
+          productId,
+          planId: finalPlan.id,
+        }),
+      });
+
+      const data = await res.json();
+      if (!data.success || !data.authorization_url) {
+        throw new Error(data.error || "Payment initialization failed");
+      }
+      return data;
     } catch (err) {
-      setErrors({ submit: err.message });
+      throw new Error(err.message);
+    }
+  };
+
+  const handleSubmit = async () => {
+    if (loading) return;
+
+    // Free plan - direct activation
+    const finalPlan = selectedPlan || promotionPlans.find((p) => p.price === 0);
+    if (finalPlan.price === 0) {
+      const productId = await createProductDraft();
+      if (productId) {
+        await fetch(`${API_BASE}/products/${productId}/activate`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ plan_id: finalPlan.id }),
+        });
+        alert("✅ Product created and activated successfully!");
+        clearDraft();
+      }
+      return;
+    }
+
+    // Paid plan flow
+    const productId = await createProductDraft();
+    if (!productId) return;
+
+    try {
+      const payment = await initiatePayment(productId);
+      
+      // Save for retry
+      setPaymentData({
+        email: form.contact.email,
+        amount: finalPlan.price,
+        productId,
+        planId: finalPlan.id,
+      });
+      localStorage.setItem(STORAGE_PAYMENT, JSON.stringify(paymentData));
+
+      // Redirect to Paystack
+      window.location.href = payment.authorization_url;
+    } catch (err) {
+      setError(err.message);
+      setPaymentData({
+        email: form.contact.email,
+        amount: finalPlan.price,
+        productId,
+        planId: finalPlan.id,
+      });
+    }
+  };
+
+  const retryPayment = async () => {
+    if (!paymentData?.productId) return alert("No payment data found");
+
+    try {
+      setLoading(true);
+      const payment = await initiatePayment(paymentData.productId);
+      window.location.href = payment.authorization_url;
+    } catch (err) {
+      alert("Retry failed: " + err.message);
     } finally {
       setLoading(false);
     }
@@ -563,472 +389,255 @@ export default function AddProduct() {
   const states = Object.keys(locationsByState || {});
   const cities = state ? locationsByState[state] : [];
 
-  const needsPayment =
-    selectedPlan?.price > 0 && productId && paymentPending;
-  const canCreate = !productId || !paymentPending;
-
   return (
-    <ErrorBoundary
-      fallback={
-        <div className="error-boundary">
-          Error loading form.{" "}
-          <button onClick={clearDraft} className="retry-btn">
-            Reset Form
-          </button>
+    <div className="add-product-container">
+      <AddProductHeader title="Add Product" onClearDraft={clearDraft} />
+      
+      {error && (
+        <div className="error-banner" style={{ color: 'red', padding: '1rem', background: '#fee' }}>
+          {error}
         </div>
-      }
-    >
-      <div className="add-product-container">
-        <AddProductHeader
-          title="Add Product"
-          onClearDraft={clearDraft}
+      )}
+
+      {/* FORM SECTIONS */}
+      <div className="form-section-round">
+        <label>Product Title *</label>
+        <input
+          placeholder="Enter product title (min 10 chars)"
+          value={form.title}
+          onChange={(e) => update("title", e.target.value)}
         />
+      </div>
 
-        {/* BASIC INFO */}
-        <div className="form-card blue">
-          <h3>Basic Information</h3>
-          <div className="form-group">
-            <label>
-              Product Title <span className="required">*</span>
-            </label>
-            <input
-              ref={(el) => (fieldRefs.current.title = el)}
-              placeholder="Enter product title (min 10 chars)"
-              value={form.title}
-              onChange={(e) => {
-                update("title", e.target.value);
-                if (errors.title)
-                  setErrors((prev) => ({ ...prev, title: "" }));
-              }}
-            />
-            {errors.title && <span className="error">{errors.title}</span>}
-          </div>
-          <div className="form-group">
-            <label>
-              Description <span className="required">*</span>
-            </label>
-            <textarea
-              ref={(el) => (fieldRefs.current.description = el)}
-              placeholder="Detailed description (min 20 chars)"
-              value={form.description}
-              onChange={(e) => {
-                update("description", e.target.value);
-                if (errors.description)
-                  setErrors((prev) => ({ ...prev, description: "" }));
-              }}
-              rows="4"
-            />
-            {errors.description && (
-              <span className="error">{errors.description}</span>
-            )}
-          </div>
+      <div className="form-section-round">
+        <label>Description *</label>
+        <textarea
+          placeholder="Detailed description (min 20 chars)"
+          value={form.description}
+          onChange={(e) => update("description", e.target.value)}
+          rows="4"
+        />
+      </div>
 
-          <div className="form-group">
-            <label>
-              Price (₦) <span className="required">*</span>
-            </label>
-            <div style={{ position: "relative" }}>
-              <input
-                ref={(el) => (fieldRefs.current.price = el)}
-                placeholder="59900"
-                value={form.price}
-                className="price-input"
-                onChange={(e) => {
-                  const raw = onlyNumbers(e.target.value);
-                  update("price", raw);
-                  setErrors((prev) => ({ ...prev, price: "" }));
-                }}
-                onBlur={(e) => {
-                  const raw = onlyNumbers(e.target.value);
-                  const val = raw ? Number(raw).toString() : "";
-                  update("price", val);
-                }}
-              />
-            </div>
-            {errors.price ? (
-              <span className="error">{errors.price}</span>
-            ) : form.price ? (
-              <small className="price-display">
-                ₦{displayPrice(form.price)}
-              </small>
-            ) : null}
-          </div>
-        </div>
+      <div className="form-section-round">
+        <label>Price (₦) *</label>
+        <input
+          placeholder="0"
+          value={formatPrice(form.price)}
+          onChange={(e) => update("price", onlyNumbers(e.target.value))}
+        />
+      </div>
 
-        {/* CATEGORY & FEATURES */}
-        <div className="form-card blue">
-          <h3>Product Details</h3>
-          {!categories.length ? (
-            <div className="skeleton">Loading categories...</div>
-          ) : (
-            <>
-              <div className="form-group">
-                <label>
-                  Category <span className="required">*</span>
-                </label>
-                <div ref={(el) => (fieldRefs.current.category_id = el)}>
-                  <DropdownModal
-                    label=""
-                    value={form.category_id}
-                    onChange={(v) => {
-                      setForm((prev) => ({
-                        ...prev,
-                        category_id: v,
-                        attributes: INITIAL_FORM.attributes,
-                      }));
-                      if (errors.category_id)
-                        setErrors((prev) => ({ ...prev, category_id: "" }));
-                    }}
-                    options={categories.map((c) => ({
-                      id: c.id,
-                      name: c.name,
-                    }))}
-                  />
-                </div>
-                {errors.category_id && (
-                  <span className="error">{errors.category_id}</span>
-                )}
-              </div>
+      <div className="form-section-round">
+        <label>Email *</label>
+        <input
+          placeholder="your@email.com"
+          type="email"
+          value={form.contact.email}
+          onChange={(e) => updateContact("email", e.target.value)}
+        />
+      </div>
 
-              {fields.map((f) => {
-                if (!optionsMap[f] && f !== "features") return null;
-                if (f === "used_detail" && attributes.condition !== "Used")
-                  return null;
+      <div className="form-section-round">
+        <label>Category *</label>
+        <DropdownModal
+          label=""
+          value={form.category_id}
+          onChange={(v) => {
+            setForm((prev) => ({
+              ...prev,
+              category_id: v,
+              attributes: INITIAL_FORM.attributes,
+            }));
+          }}
+          options={categories.map((c) => ({
+            id: c.id,
+            name: c.name,
+          }))}
+        />
+      </div>
 
-                return (
-                  <div key={f} className="form-group">
-                    <label>{formatLabel(f)}</label>
-                    <DropdownModal
-                      label=""
-                      value={attributes[f] || ""}
-                      onChange={(v) => updateAttr(f, v)}
-                      options={optionsMap[f]}
-                    />
-                  </div>
-                );
-              })}
+      {/* DYNAMIC FIELDS */}
+      {fields.map((f) => {
+        if (!optionsMap[f]) return null;
+        if (f === "used_detail" && attributes.condition !== "used") return null;
 
-              {sortedFeatures.length > 0 && (
-                <div className="form-group">
-                  <label>Features</label>
-                  <div className="checkbox-grid-inline">
-                    {sortedFeatures.map((f) => (
-                      <label
-                        key={f}
-                        className="checkbox-inline right-check"
-                      >
-                        <span>{formatLabel(f)}</span>
-                        <input
-                          type="checkbox"
-                          checked={(attributes.features || []).includes(f)}
-                          onChange={() => toggleFeature(f)}
-                        />
-                      </label>
-                    ))}
-                  </div>
-                </div>
-              )}
-            </>
-          )}
-        </div>
-
-        {/* CONTACT */}
-        <div className="form-card blue">
-          <h3>Contact Information</h3>
-          <div className="form-group">
-            <label>
-              Email <span className="required">*</span>
-            </label>
-            <input
-              ref={(el) => (fieldRefs.current.email = el)}
-              type="email"
-              placeholder="your@email.com"
-              value={form.contact.email}
-              onChange={(e) => {
-                updateContact("email", e.target.value);
-                if (errors.email)
-                  setErrors((prev) => ({ ...prev, email: "" }));
-              }}
-            />
-            {errors.email && (
-              <span className="error">{errors.email}</span>
-            )}
-          </div>
-          <div className="form-group">
-            <label>
-              Phone <span className="required">*</span>
-            </label>
-            <input
-              ref={(el) => (fieldRefs.current.phone = el)}
-              type="tel"
-              inputMode="numeric"
-              placeholder="08012345678"
-              value={form.contact.phone}
-              onChange={(e) => {
-                updateContact("phone", onlyNumbers(e.target.value));
-                if (errors.phone)
-                  setErrors((prev) => ({ ...prev, phone: "" }));
-              }}
-            />
-            {errors.phone && (
-              <span className="error">{errors.phone}</span>
-            )}
-          </div>
-        </div>
-
-        {/* LOCATION + DELIVERY */}
-        <div className="form-card blue">
-          <h3>Location & Delivery</h3>
-          <div className="form-group">
-            <label>
-              State <span className="required">*</span>
-            </label>
-            <div ref={(el) => (fieldRefs.current.state = el)}>
-              <DropdownModal
-                label=""
-                value={state}
-                onChange={setState}
-                options={states}
-              />
-            </div>
-            {errors.state && (
-              <span className="error">{errors.state}</span>
-            )}
-          </div>
-          {state && (
-            <div className="form-group">
-              <label>
-                City <span className="required">*</span>
-              </label>
-              <div ref={(el) => (fieldRefs.current.city = el)}>
-                <DropdownModal
-                  label=""
-                  value={city}
-                  onChange={setCity}
-                  options={cities}
-                />
-              </div>
-              {errors.city && (
-                <span className="error">{errors.city}</span>
-              )}
-            </div>
-          )}
-          <div className="form-group">
-            <label>Delivery Type</label>
+        return (
+          <div key={f} className="form-section-round">
+            <label>{formatLabel(f)}</label>
             <DropdownModal
               label=""
-              value={form.delivery.type}
-              onChange={(v) => {
-                updateDelivery("type", v);
-                if (errors.delivery_type)
-                  setErrors((prev) => ({ ...prev, delivery_type: "" }));
-              }}
-              options={[
-                { id: "none", name: "No delivery" },
-                { id: "standard", name: "Standard delivery" },
-                { id: "express", name: "Express delivery" },
-                { id: "pickup", name: "Pickup only" },
-              ]}
+              value={attributes[f] || ""}
+              onChange={(v) => updateAttr(f, v)}
+              options={optionsMap[f]}
             />
           </div>
+        );
+      })}
 
-          {form.delivery.type !== "none" &&
-            form.delivery.type !== "pickup" && (
-              <div className="sub-grid">
-                <div className="form-section-round-small">
-                  <label>
-                    From (days) <span className="required">*</span>
-                  </label>
-                  <input
-                    ref={(el) =>
-                      (fieldRefs.current.delivery_duration = el)
-                    }
-                    type="number"
-                    min="1"
-                    value={form.delivery.duration.from}
-                    onChange={(e) =>
-                      updateDeliveryDuration("from", onlyNumbers(e.target.value))
-                    }
-                  />
-                </div>
-                <div className="form-section-round-small">
-                  <label>
-                    To (days) <span className="required">*</span>
-                  </label>
-                  <input
-                    type="number"
-                    min="1"
-                    value={form.delivery.duration.to}
-                    onChange={(e) =>
-                      updateDeliveryDuration("to", onlyNumbers(e.target.value))
-                    }
-                  />
-                </div>
-                <div className="form-section-round-small">
-                  <label>
-                    Fee (₦) <span className="required">*</span>
-                  </label>
-                  <input
-                    ref={(el) =>
-                      (fieldRefs.current.delivery_fee = el)
-                    }
-                    type="number"
-                    min="0"
-                    step="0.01"
-                    value={form.delivery.fee}
-                    onChange={(e) =>
-                      updateDelivery("fee", onlyNumbers(e.target.value))
-                    }
-                  />
-                </div>
-                {(errors.delivery_duration || errors.delivery_fee) && (
-                  <span
-                    className="error"
-                    style={{ gridColumn: "1 / -1", textAlign: "center" }}
-                  >
-                    {errors.delivery_duration || errors.delivery_fee}
-                  </span>
-                )}
-              </div>
-            )}
-        </div>
-
-        {/* IMAGES */}
-        <div className="form-card blue">
-          <h3>Product Images</h3>
-          <label className="form-group-label">
-            Product Images (max 6, 3MB each){" "}
-            <span className="required">*</span>
-          </label>
-          <div
-            className="images-section"
-            ref={(el) => (fieldRefs.current.images = el)}
-          >
-            {images.length > 0 && (
-              <div className="preview-grid-modern">
-                {images.map((img) => (
-                  <div key={img.id} className="preview-card">
-                    <img
-                      src={img.preview}
-                      alt=""
-                      onClick={() => setActiveImage(img.preview)}
-                      style={{ cursor: "pointer" }}
-                    />
-                    <button
-                      className="remove-btn"
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        removeImage(img.id);
-                      }}
-                      title="Remove image"
-                    >
-                      ×
-                    </button>
-                  </div>
-                ))}
-              </div>
-            )}
-            {images.length < MAX_IMAGES && (
-              <label className="add-card">
+      {/* FEATURES */}
+      {Array.isArray(options.features) && options.features.length > 0 && (
+        <div className="form-section-round">
+          <label>Features</label>
+          <div className="checkbox-grid-inline">
+            {options.features.map((f) => (
+              <label key={f} className="checkbox-inline">
                 <input
-                  type="file"
-                  multiple
-                  accept="image/*"
-                  hidden
-                  onChange={(e) => {
-                    handleImages(e.target.files);
-                    e.target.value = "";
-                  }}
+                  type="checkbox"
+                  checked={attributes.features.includes(f)}
+                  onChange={() => toggleFeature(f)}
                 />
-                <span>+</span>
-                <small>
-                  {images.length
-                    ? `Add more (${MAX_IMAGES - images.length} left)`
-                    : "Add images"}
-                </small>
+                <span>{formatLabel(f)}</span>
               </label>
-            )}
-            {errors.images && (
-              <span className="error">{errors.images}</span>
-            )}
-          </div>
-        </div>
-
-        {/* PROMOTION */}
-        <div className="form-card blue">
-          <h3>Promotion Plan (Optional)</h3>
-          <div className="plans-grid">
-            {promotionPlans.map((plan) => (
-              <div
-                key={plan.id}
-                className={`plan-card ${
-                  selectedPlan?.id === plan.id ? "selected" : ""
-                }`}
-                onClick={() => setSelectedPlan(plan)}
-              >
-                <div className="plan-header">
-                  <strong>{plan.name}</strong>
-                  <span className="plan-price">
-                    ₦{displayPrice(plan.price.toString())}
-                  </span>
-                </div>
-                <div className="plan-duration">{plan.duration}</div>
-                <ul className="plan-features">
-                  {plan.features.map((feat, i) => (
-                    <li key={i}>{feat}</li>
-                  ))}
-                </ul>
-                {plan.description && (
-                  <p className="plan-desc">{plan.description}</p>
-                )}
-              </div>
             ))}
           </div>
         </div>
+      )}
 
-        {/* ACTION BUTTONS */}
-        <div className="form-card blue button-section">
-          {errors.submit && (
-            <span
-              className="error"
-              style={{ display: "block", marginBottom: "1rem" }}
-            >
-              {errors.submit}
-            </span>
-          )}
-
-          <div className="button-section">
-            {canCreate && (
-              <button
-                onClick={handleSubmit}
-                disabled={loading}
-                className="primary-btn"
-              >
-                {loading ? "Processing..." : "Create Product"}
-              </button>
-            )}
-            {needsPayment && (
-              <button
-                onClick={retryPayment}
-                className="retry-btn"
-                disabled={loading}
-              >
-                {loading ? "Retrying..." : "Retry Payment"}
-              </button>
-            )}
-          </div>
-        </div>
-
-        {/* FULLSCREEN IMAGE PREVIEW */}
-        {activeImage && (
-          <div
-            className="image-modal"
-            onClick={() => setActiveImage(null)}
-          >
-            <img src={activeImage} alt="preview" />
+      {/* DELIVERY */}
+      <div className="form-section-round">
+        <label>
+          <input
+            type="checkbox"
+            checked={form.delivery.available}
+            onChange={(e) => updateDelivery("available", e.target.checked)}
+          />
+          Delivery Available
+        </label>
+        {form.delivery.available && (
+          <div className="sub-grid">
+            <div className="form-section-round-small">
+              <label>From (days)</label>
+              <input
+                value={form.delivery.duration.from}
+                onChange={(e) => updateDeliveryDuration("from", e.target.value)}
+              />
+            </div>
+            <div className="form-section-round-small">
+              <label>To (days)</label>
+              <input
+                value={form.delivery.duration.to}
+                onChange={(e) => updateDeliveryDuration("to", e.target.value)}
+              />
+            </div>
+            <div className="form-section-round-small">
+              <label>Fee (₦)</label>
+              <input
+                value={formatPrice(form.delivery.fee)}
+                onChange={(e) => updateDelivery("fee", onlyNumbers(e.target.value))}
+              />
+            </div>
           </div>
         )}
       </div>
-    </ErrorBoundary>
+
+      {/* LOCATION */}
+      <div className="form-section-round">
+        <label>State *</label>
+        <DropdownModal
+          label=""
+          value={state}
+          onChange={setState}
+          options={states.map((s) => ({ id: s, name: s }))}
+        />
+      </div>
+
+      {state && (
+        <div className="form-section-round">
+          <label>City *</label>
+          <DropdownModal
+            label=""
+            value={city}
+            onChange={setCity}
+            options={cities.map((c) => ({ id: c, name: c }))}
+          />
+        </div>
+      )}
+
+      <div className="form-section-round">
+        <label>Phone *</label>
+        <input
+          placeholder="08012345678"
+          value={form.contact.phone}
+          onChange={(e) => updateContact("phone", onlyNumbers(e.target.value))}
+        />
+      </div>
+
+      <div className="form-section-round">
+        <label>Product Images * (max 8)</label>
+        <input
+          type="file"
+          multiple
+          accept="image/*"
+          onChange={(e) => handleImages(e.target.files)}
+        />
+        <div className="preview-grid">
+          {previews.map((src, i) => (
+            <div key={i} className="preview-item">
+              <img src={src} alt={`Preview ${i + 1}`} />
+              <button type="button" onClick={() => removeImage(i)}>✕</button>
+            </div>
+          ))}
+        </div>
+      </div>
+
+      {/* PROMOTION PLANS */}
+      <div className="form-section-round">
+        <label>Promotion Plan</label>
+        <div className="plans-grid">
+          {promotionPlans.map((plan) => (
+            <div
+              key={plan.id}
+              className={`plan-card ${selectedPlan?.id === plan.id ? "selected" : ""}`}
+              onClick={() => setSelectedPlan(plan)}
+            >
+              <div className="plan-header">
+                <strong>{plan.name}</strong>
+                <span className="plan-price">₦{formatPrice(plan.price.toString())}</span>
+              </div>
+              <div className="plan-duration">{plan.duration}</div>
+              <ul className="plan-features">
+                {plan.features.map((feat, i) => (
+                  <li key={i}>{feat}</li>
+                ))}
+              </ul>
+              {plan.description && <p className="plan-desc">{plan.description}</p>}
+            </div>
+          ))}
+        </div>
+        {selectedPlan && (
+          <div style={{ fontSize: "0.9em", opacity: 0.7 }}>
+            Selected: {selectedPlan.name} - ₦{formatPrice(selectedPlan.price.toString())}
+          </div>
+        )}
+      </div>
+
+      {/* SUBMIT BUTTONS */}
+      <div className="form-section-round button-section">
+        <button
+          onClick={handleSubmit}
+          disabled={loading}
+          className="primary-btn"
+          style={{ width: "100%", padding: "1rem" }}
+        >
+          {loading
+            ? "Processing..."
+            : selectedPlan?.price === 0 || !selectedPlan
+            ? "Create Product (Free)"
+            : "Pay & Create"}
+        </button>
+
+        {paymentData && (
+          <button
+            onClick={retryPayment}
+            disabled={loading}
+            className="retry-btn"
+            style={{ width: "100%", padding: "1rem", marginTop: "0.5rem" }}
+          >
+            {loading ? "Retrying..." : "Retry Payment"}
+          </button>
+        )}
+      </div>
+    </div>
   );
 }
