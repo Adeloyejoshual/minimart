@@ -56,21 +56,32 @@ export default function AddProduct() {
   const [selectedPlan, setSelectedPlan] = useState(null);
   const [paymentData, setPaymentData] = useState(null);
 
+  /* ================= FLATTEN CATEGORY TREE ================= */
+  const flattenCategories = (nodes) =>
+    nodes.flatMap((node) => [
+      { id: node.id, name: node.name },
+      ...flattenCategories(node.subcategories || []),
+    ]);
+
+  const flatCategories = useMemo(
+    () => flattenCategories(categories),
+    [categories]
+  );
+
   /* ================= FETCH CATEGORIES ================= */
   useEffect(() => {
     fetch("https://minimart-ivrm.onrender.com/api/marketplace/categories")
       .then((r) => r.json())
       .then((data) => {
-        // If the API returns `tree` nested under `data`, adjust here:
-        const cats = Array.isArray(data) ? data : data.tree || [];
-        setCategories(cats);
+        const tree = Array.isArray(data) ? data : data.tree || [];
+        setCategories(Array.isArray(tree) ? tree : []);
       })
       .catch((err) => {
         console.error("Failed to fetch categories:", err);
       });
   }, []);
 
-  /* ================= PAYMENT RETRY ================= */
+  /* ================= PAYMENT RETRY (localStorage) ================= */
   useEffect(() => {
     const saved = localStorage.getItem("payment_retry");
     if (saved) setPaymentData(JSON.parse(saved));
@@ -86,11 +97,13 @@ export default function AddProduct() {
 
   /* ================= SELECTED CATEGORY & OPTIONS ================= */
   const selectedCategory = useMemo(
-    () => categories.find((c) => String(c.id) === String(form.category_id)),
-    [categories, form.category_id]
+    () =>
+      flatCategories.find((c) => String(c.id) === String(form.category_id)),
+    [flatCategories, form.category_id]
   );
 
   const options = selectedCategory?.dynamicOptions || {};
+
   const attributes = form.attributes;
   const brand = attributes.brand;
 
@@ -102,7 +115,7 @@ export default function AddProduct() {
         )
       : [];
 
-  const onlyNumbers = (v = "") => v.replace(/D/g, "");
+  const onlyNumbers = (v = "") => v.replace(/[^0-9]/g, "");
 
   const formatLabel = (t) =>
     t
@@ -202,7 +215,8 @@ export default function AddProduct() {
     if (!form.category_id)
       return "Select a category";
 
-    if (!/^d{10,15}$/.test(onlyNumbers(form.contact.phone)))
+    const cleanPhone = onlyNumbers(form.contact.phone);
+    if (!/^d{10,15}$/.test(cleanPhone))
       return "Phone must be 10–15 digits";
 
     if (
@@ -212,9 +226,7 @@ export default function AddProduct() {
       return "Valid email required";
 
     if (form.delivery.available) {
-      const from = Number(
-        onlyNumbers(form.delivery.duration.from)
-      );
+      const from = Number(onlyNumbers(form.delivery.duration.from));
       const to = Number(onlyNumbers(form.delivery.duration.to));
 
       if (Number.isNaN(from) || Number.isNaN(to))
@@ -278,9 +290,7 @@ export default function AddProduct() {
 
       if (!data.success || !data.authorization_url) {
         setLoading(false);
-        return alert(
-          data.message || "Payment initialization failed"
-        );
+        return alert(data.message || "Payment initialization failed");
       }
 
       setPaymentData(null);
@@ -315,9 +325,7 @@ export default function AddProduct() {
     const fd = new FormData();
 
     const cleanPrice = Number(onlyNumbers(form.price));
-    const cleanFrom = Number(
-      onlyNumbers(form.delivery.duration.from)
-    );
+    const cleanFrom = Number(onlyNumbers(form.delivery.duration.from));
     const cleanTo = Number(onlyNumbers(form.delivery.duration.to));
 
     const payload = {
@@ -341,8 +349,8 @@ export default function AddProduct() {
     };
 
     // Append payload fields
-    Object.entries(payload).forEach(([k, v]) => {
-      fd.append(k, v);
+    Object.entries(payload).forEach(([key, value]) => {
+      fd.append(key, value);
     });
 
     // Append images
@@ -369,7 +377,7 @@ export default function AddProduct() {
         return alert("Product created but ID is missing; contact admin.");
       }
 
-      // If it's free, mark as “active” (no payment)
+      // If it's free, mark as “active”
       if (Number(finalPlan.price) === 0) {
         alert("✅ Product created and published (no payment needed)");
 
@@ -443,25 +451,29 @@ export default function AddProduct() {
         value={form.title}
         onChange={(e) => update("title", e.target.value)}
       />
+
       <textarea
         placeholder="Description"
         value={form.description}
         onChange={(e) => update("description", e.target.value)}
       />
+
       <input
         placeholder="Price"
         value={form.price}
         onChange={(e) => update("price", onlyNumbers(e.target.value))}
       />
+
       <input
         placeholder="Email"
         value={form.contact.email}
         onChange={(e) => updateContact("email", e.target.value)}
       />
 
+      {/* ================= CATEGORY DROPDOWN ================= */}
       <DropdownModal
         label="Category"
-        value={form.category_id}
+        value={form.category_id || ""}
         onChange={(v) =>
           setForm((prev) => ({
             ...prev,
@@ -469,9 +481,11 @@ export default function AddProduct() {
             attributes: INITIAL_FORM.attributes,
           }))
         }
-        options={categories.map((c) => ({ id: c.id, name: c.name }))}
+        options={flatCategories}
+        placeholder="Select category"
       />
 
+      {/* ================= DYNAMIC FIELDS (from category) ================= */}
       {fields.map((f) => {
         if (!optionsMap[f]) return null;
         if (f === "used_detail" && attributes.condition !== "Used") return null;
@@ -483,10 +497,12 @@ export default function AddProduct() {
             value={attributes[f] || ""}
             onChange={(v) => updateAttr(f, v)}
             options={optionsMap[f]}
+            placeholder={`Select ${formatLabel(f)}`}
           />
         );
       })}
 
+      {/* ================= FEATURES ================= */}
       {Array.isArray(options.features) && (
         <div className="form-section">
           <h3>Features</h3>
@@ -505,21 +521,26 @@ export default function AddProduct() {
         </div>
       )}
 
+      {/* ================= LOCATION ================= */}
       <DropdownModal
         label="State"
         value={state}
         onChange={setState}
         options={normalizeOptions(states)}
+        placeholder="Select state"
       />
+
       {state && (
         <DropdownModal
           label="City"
           value={city}
           onChange={setCity}
           options={normalizeOptions(cities)}
+          placeholder="Select city"
         />
       )}
 
+      {/* ================= PHONE & UPLOADS ================= */}
       <input
         placeholder="Phone"
         value={form.contact.phone}
@@ -531,6 +552,7 @@ export default function AddProduct() {
       <input
         type="file"
         multiple
+        accept="image/*"
         onChange={(e) => handleImages(e.target.files)}
       />
 
@@ -543,6 +565,7 @@ export default function AddProduct() {
         ))}
       </div>
 
+      {/* ================= PROMOTION PLANS ================= */}
       <div className="form-section">
         <h3>Promotion Plans</h3>
         {promotionPlans.map((plan) => (
