@@ -597,451 +597,459 @@ export default function AddProduct() {
           onClearDraft={clearDraft}
         />
 
-                  {/* BASIC INFO */}
-          <div className="form-card blue">
-            <h3>Basic Information</h3>
-            <div className="form-group">
-              <label>
-                Product Title <span className="required">*</span>
-              </label>
-              <input
-                ref={(el) => (fieldRefs.current.title = el)}
-                placeholder="Enter product title (min 10 chars)"
-                value={form.title}
-                onChange={(e) => {
-                  update("title", e.target.value);
-                  if (errors.title)
-                    setErrors((prev) => ({ ...prev, title: "" }));
-                }}
-              />
-              {errors.title && <span className="error">{errors.title}</span>}
-            </div>
-            <div className="form-group">
-              <label>
-                Description <span className="required">*</span>
-              </label>
-              <textarea
-                ref={(el) => (fieldRefs.current.description = el)}
-                placeholder="Detailed description (min 20 chars)"
-                value={form.description}
-                onChange={(e) => {
-                  update("description", e.target.value);
-                  if (errors.description)
-                    setErrors((prev) => ({ ...prev, description: "" }));
-                }}
-                rows="4"
-              />
-              {errors.description && (
-                <span className="error">{errors.description}</span>
-              )}
-            </div>
-
-            {/* PRICE INPUT – BULLETPROOF */}
-            <div className="form-group">
-              <label>
-                Price (₦) <span className="required">*</span>
-              </label>
-              <div style={{ position: "relative" }}>
-                <input
-                  ref={(el) => (fieldRefs.current.price = el)}
-                  placeholder="59900"
-                  value={form.price}
-                  className="price-input"
-                  onChange={(e) => {
-                    const raw = onlyNumbers(e.target.value);
-                    update("price", raw);
-                    setErrors((prev) => ({ ...prev, price: "" }));
-                  }}
-                  onBlur={(e) => {
-                    const raw = onlyNumbers(e.target.value);
-                    const val = raw ? Number(raw).toString() : "";
-                    update("price", val);
-                  }}
-                />
-              </div>
-              {errors.price ? (
-                <span className="error">{errors.price}</span>
-              ) : form.price ? (
-                <small className="price-display">
-                  ₦{displayPrice(form.price)}
-                </small>
-              ) : null}
-            </div>
+                {/* BASIC INFO */}
+        <div className="form-card blue">
+          <h3>Basic Information</h3>
+          <div className="form-group">
+            <label>
+              Product Title <span className="required">*</span>
+            </label>
+            <input
+              ref={(el) => (fieldRefs.current.title = el)}
+              placeholder="Enter product title (min 10 chars)"
+              value={form.title}
+              onChange={(e) => {
+                update("title", e.target.value);
+                if (errors.title)
+                  setErrors((prev) => ({ ...prev, title: "" }));
+              }}
+            />
+            {errors.title && <span className="error">{errors.title}</span>}
           </div>
-
-          {/* CATEGORY & FEATURES */}
-          <div className="form-card blue">
-            <h3>Product Details</h3>
-            {!categories.length ? (
-              <div className="skeleton">Loading categories...</div>
-            ) : (
-              <>
-                <div className="form-group">
-                  <label>
-                    Category <span className="required">*</span>
-                  </label>
-                  <div ref={(el) => (fieldRefs.current.category_id = el)}>
-                    <DropdownModal
-                      label=""
-                      value={form.category_id}
-                      onChange={(v) => {
-                        setForm((prev) => ({
-                          ...prev,
-                          category_id: v,
-                          attributes: INITIAL_FORM.attributes,
-                        }));
-                        if (errors.category_id)
-                          setErrors((prev) => ({ ...prev, category_id: "" }));
-                      }}
-                      options={categories.map((c) => ({
-                        id: c.id,
-                        name: c.name,
-                      }))}
-                    />
-                  </div>
-                  {errors.category_id && (
-                    <span className="error">{errors.category_id}</span>
-                  )}
-                </div>
-
-                {fields.map((f) => {
-                  if (!optionsMap[f] && f !== "features") return null;
-                  if (f === "used_detail" && attributes.condition !== "Used")
-                    return null;
-
-                  return (
-                    <div key={f} className="form-group">
-                      <label>{formatLabel(f)}</label>
-                      <DropdownModal
-                        label=""
-                        value={attributes[f] || ""}
-                        onChange={(v) => updateAttr(f, v)}
-                        options={optionsMap[f]}
-                      />
-                    </div>
-                  );
-                })}
-
-                {sortedFeatures.length > 0 && (
-                  <div className="form-group">
-                    <label>Features</label>
-                    <div className="checkbox-grid-inline">
-                      {sortedFeatures.map((f) => (
-                        <label
-                          key={f}
-                          className="checkbox-inline right-check"
-                        >
-                          <span>{formatLabel(f)}</span>
-                          <input
-                            type="checkbox"
-                            checked={(attributes.features || []).includes(f)}
-                            onChange={() => toggleFeature(f)}
-                          />
-                        </label>
-                      ))}
-                    </div>
-                  </div>
-                )}
-              </>
+          <div className="form-group">
+            <label>
+              Description <span className="required">*</span>
+            </label>
+            <textarea
+              ref={(el) => (fieldRefs.current.description = el)}
+              placeholder="Detailed description (min 20 chars)"
+              value={form.description}
+              onChange={(e) => {
+                update("description", e.target.value);
+                if (errors.description)
+                  setErrors((prev) => ({ ...prev, description: "" }));
+              }}
+              rows="4"
+            />
+            {errors.description && (
+              <span className="error">{errors.description}</span>
             )}
           </div>
 
-          {/* CONTACT */}
-          <div className="form-card blue">
-            <h3>Contact Information</h3>
-            <div className="form-group">
-              <label>
-                Email <span className="required">*</span>
-              </label>
+          {/* PRICE INPUT – BULLETPROOF */}
+          <div className="form-group">
+            <label>
+              Price (₦) <span className="required">*</span>
+            </label>
+            <div style={{ position: "relative" }}>
               <input
-                ref={(el) => (fieldRefs.current.email = el)}
-                type="email"
-                placeholder="your@email.com"
-                value={form.contact.email}
+                ref={(el) => (fieldRefs.current.price = el)}
+                placeholder="59900"
+                value={form.price}
+                className="price-input"
                 onChange={(e) => {
-                  updateContact("email", e.target.value);
-                  if (errors.email)
-                    setErrors((prev) => ({ ...prev, email: "" }));
+                  const raw = onlyNumbers(e.target.value);
+                  update("price", raw);
+                  setErrors((prev) => ({ ...prev, price: "" }));
+                }}
+                onBlur={(e) => {
+                  const raw = onlyNumbers(e.target.value);
+                  const val = raw ? Number(raw).toString() : "";
+                  update("price", val);
                 }}
               />
-              {errors.email && (
-                <span className="error">{errors.email}</span>
-              )}
             </div>
-            <div className="form-group">
-              <label>
-                Phone <span className="required">*</span>
-              </label>
-              <input
-                ref={(el) => (fieldRefs.current.phone = el)}
-                placeholder="08012345678"
-                value={form.contact.phone}
-                onChange={(e) => {
-                  updateContact("phone", onlyNumbers(e.target.value));
-                  if (errors.phone)
-                    setErrors((prev) => ({ ...prev, phone: "" }));
-                }}
-              />
-              {errors.phone && (
-                <span className="error">{errors.phone}</span>
-              )}
-            </div>
+            {errors.price ? (
+              <span className="error">{errors.price}</span>
+            ) : form.price ? (
+              <small className="price-display">
+                ₦{displayPrice(form.price)}
+              </small>
+            ) : null}
           </div>
+        </div>
 
-          {/* LOCATION + DELIVERY */}
-          <div className="form-card blue">
-            <h3>Location & Delivery</h3>
-            <div className="form-group">
-              <label>
-                State <span className="required">*</span>
-              </label>
-              <div ref={(el) => (fieldRefs.current.state = el)}>
-                <DropdownModal
-                  label=""
-                  value={state}
-                  onChange={setState}
-                  options={states}
-                />
-              </div>
-              {errors.state && (
-                <span className="error">{errors.state}</span>
-              )}
-            </div>
-            {state && (
+        {/* CATEGORY & FEATURES */}
+        <div className="form-card blue">
+          <h3>Product Details</h3>
+          {!categories.length ? (
+            <div className="skeleton">Loading categories...</div>
+          ) : (
+            <>
               <div className="form-group">
                 <label>
-                  City <span className="required">*</span>
+                  Category <span className="required">*</span>
                 </label>
-                <div ref={(el) => (fieldRefs.current.city = el)}>
+                <div ref={(el) => (fieldRefs.current.category_id = el)}>
                   <DropdownModal
                     label=""
-                    value={city}
-                    onChange={setCity}
-                    options={cities}
+                    value={form.category_id}
+                    onChange={(v) => {
+                      setForm((prev) => ({
+                        ...prev,
+                        category_id: v,
+                        attributes: INITIAL_FORM.attributes,
+                      }));
+                      if (errors.category_id)
+                        setErrors((prev) => ({ ...prev, category_id: "" }));
+                    }}
+                    options={categories.map((c) => ({
+                      id: c.id,
+                      name: c.name,
+                    }))}
                   />
                 </div>
-                {errors.city && (
-                  <span className="error">{errors.city}</span>
+                {errors.category_id && (
+                  <span className="error">{errors.category_id}</span>
+                )}
+              </div>
+
+              {fields.map((f) => {
+                if (!optionsMap[f] && f !== "features") return null;
+                if (f === "used_detail" && attributes.condition !== "Used")
+                  return null;
+
+                return (
+                  <div key={f} className="form-group">
+                    <label>{formatLabel(f)}</label>
+                    <DropdownModal
+                      label=""
+                      value={attributes[f] || ""}
+                      onChange={(v) => updateAttr(f, v)}
+                      options={optionsMap[f]}
+                    />
+                  </div>
+                );
+              })}
+
+              {sortedFeatures.length > 0 && (
+                <div className="form-group">
+                  <label>Features</label>
+                  <div className="checkbox-grid-inline">
+                    {sortedFeatures.map((f) => (
+                      <label
+                        key={f}
+                        className="checkbox-inline right-check"
+                      >
+                        <span>{formatLabel(f)}</span>
+                        <input
+                          type="checkbox"
+                          checked={(attributes.features || []).includes(f)}
+                          onChange={() => toggleFeature(f)}
+                        />
+                      </label>
+                    ))}
+                  </div>
+                </div>
+              )}
+            </>
+          )}
+        </div>
+
+        {/* CONTACT */}
+        <div className="form-card blue">
+          <h3>Contact Information</h3>
+          <div className="form-group">
+            <label>
+              Email <span className="required">*</span>
+            </label>
+            <input
+              ref={(el) => (fieldRefs.current.email = el)}
+              type="email"
+              placeholder="your@email.com"
+              value={form.contact.email}
+              onChange={(e) => {
+                updateContact("email", e.target.value);
+                if (errors.email)
+                  setErrors((prev) => ({ ...prev, email: "" }));
+              }}
+            />
+            {errors.email && (
+              <span className="error">{errors.email}</span>
+            )}
+          </div>
+          <div className="form-group">
+            <label>
+              Phone <span className="required">*</span>
+            </label>
+            <input
+              ref={(el) => (fieldRefs.current.phone = el)}
+              placeholder="08012345678"
+              value={form.contact.phone}
+              onChange={(e) => {
+                updateContact("phone", onlyNumbers(e.target.value));
+                if (errors.phone)
+                  setErrors((prev) => ({ ...prev, phone: "" }));
+              }}
+            />
+            {errors.phone && (
+              <span className="error">{errors.phone}</span>
+            )}
+          </div>
+        </div>
+
+        {/* LOCATION + DELIVERY */}
+        <div className="form-card blue">
+          <h3>Location & Delivery</h3>
+          <div className="form-group">
+            <label>
+              State <span className="required">*</span>
+            </label>
+            <div ref={(el) => (fieldRefs.current.state = el)}>
+              <DropdownModal
+                label=""
+                value={state}
+                onChange={setState}
+                options={states}
+              />
+            </div>
+            {errors.state && (
+              <span className="error">{errors.state}</span>
+            )}
+          </div>
+          {state && (
+            <div className="form-group">
+              <label>
+                City <span className="required">*</span>
+              </label>
+              <div ref={(el) => (fieldRefs.current.city = el)}>
+                <DropdownModal
+                  label=""
+                  value={city}
+                  onChange={setCity}
+                  options={cities}
+                />
+              </div>
+              {errors.city && (
+                <span className="error">{errors.city}</span>
+              )}
+            </div>
+          )}
+          <div className="form-group">
+            <label>Delivery Type</label>
+            <DropdownModal
+              label=""
+              value={form.delivery.type}
+              onChange={(v) => {
+                updateDelivery("type", v);
+                if (errors.delivery_type)
+                  setErrors((prev) => ({ ...prev, delivery_type: "" }));
+              }}
+              options={[
+                { id: "none", name: "No delivery" },
+                { id: "standard", name: "Standard delivery" },
+                { id: "express", name: "Express delivery" },
+                { id: "pickup", name: "Pickup only" },
+              ]}
+            />
+          </div>
+
+          {form.delivery.type !== "none" &&
+            form.delivery.type !== "pickup" && (
+              <div className="sub-grid">
+                <div className="form-section-round-small">
+                  <label>
+                    From (days) <span className="required">*</span>
+                  </label>
+                  <input
+                    ref={(el) =>
+                      (fieldRefs.current.delivery_duration = el)
+                    }
+                    type="number"
+                    min="1"
+                    value={form.delivery.duration.from}
+                    onChange={(e) =>
+                      updateDeliveryDuration(
+                        "from",
+                        onlyNumbers(e.target.value)
+                      )
+                    }
+                  />
+                </div>
+                <div className="form-section-round-small">
+                  <label>
+                    To (days) <span className="required">*</span>
+                  </label>
+                  <input
+                    type="number"
+                    min="1"
+                    value={form.delivery.duration.to}
+                    onChange={(e) =>
+                      updateDeliveryDuration(
+                        "to",
+                        onlyNumbers(e.target.value)
+                      )
+                    }
+                  />
+                </div>
+                <div className="form-section-round-small">
+                  <label>
+                    Fee (₦) <span className="required">*</span>
+                  </label>
+                  <input
+                    ref={(el) =>
+                      (fieldRefs.current.delivery_fee = el)
+                    }
+                    type="number"
+                    min="0"
+                    step="0.01"
+                    value={form.delivery.fee}
+                    onChange={(e) =>
+                      updateDelivery(
+                        "fee",
+                        onlyNumbers(e.target.value)
+                      )
+                    }
+                  />
+                </div>
+                {(errors.delivery_duration || errors.delivery_fee) && (
+                  <span
+                    className="error"
+                    style={{ gridColumn: "1 / -1", textAlign: "center" }}
+                  >
+                    {errors.delivery_duration || errors.delivery_fee}
+                  </span>
                 )}
               </div>
             )}
-            <div className="form-group">
-              <label>Delivery Type</label>
-              <DropdownModal
-                label=""
-                value={form.delivery.type}
-                onChange={(v) => {
-                  updateDelivery("type", v);
-                  if (errors.delivery_type)
-                    setErrors((prev) => ({ ...prev, delivery_type: "" }));
-                }}
-                options={[
-                  { id: "none", name: "No delivery" },
-                  { id: "standard", name: "Standard delivery" },
-                  { id: "express", name: "Express delivery" },
-                  { id: "pickup", name: "Pickup only" },
-                ]}
-              />
-            </div>
-
-            {form.delivery.type !== "none" &&
-              form.delivery.type !== "pickup" && (
-                <div className="sub-grid">
-                  <div className="form-section-round-small">
-                    <label>
-                      From (days) <span className="required">*</span>
-                    </label>
-                    <input
-                      ref={(el) =>
-                        (fieldRefs.current.delivery_duration = el)
-                      }
-                      type="number"
-                      min="1"
-                      value={form.delivery.duration.from}
-                      onChange={(e) =>
-                        updateDeliveryDuration("from", onlyNumbers(e.target.value))
-                      }
-                    />
-                  </div>
-                  <div className="form-section-round-small">
-                    <label>
-                      To (days) <span className="required">*</span>
-                    </label>
-                    <input
-                      type="number"
-                      min="1"
-                      value={form.delivery.duration.to}
-                      onChange={(e) =>
-                        updateDeliveryDuration("to", onlyNumbers(e.target.value))
-                      }
-                    />
-                  </div>
-                  <div className="form-section-round-small">
-                    <label>
-                      Fee (₦) <span className="required">*</span>
-                    </label>
-                    <input
-                      ref={(el) =>
-                        (fieldRefs.current.delivery_fee = el)
-                      }
-                      type="number"
-                      min="0"
-                      step="0.01"
-                      value={form.delivery.fee}
-                      onChange={(e) =>
-                        updateDelivery("fee", onlyNumbers(e.target.value))
-                      }
-                    />
-                  </div>
-                  {(errors.delivery_duration || errors.delivery_fee) && (
-                    <span
-                      className="error"
-                      style={{ gridColumn: "1 / -1", textAlign: "center" }}
-                    >
-                      {errors.delivery_duration || errors.delivery_fee}
-                    </span>
-                  )}
-                </div>
-              )}
-          </div>
-
-          {/* IMAGES */}
-          <div className="form-card blue">
-            <h3>Product Images</h3>
-            <label className="form-group-label">
-              Product Images (max 6, 3MB each){" "}
-              <span className="required">*</span>
-            </label>
-            <div
-              className="images-section"
-              ref={(el) => (fieldRefs.current.images = el)}
-            >
-              {images.length > 0 && (
-                <div className="preview-grid-modern">
-                  {images.map((img) => (
-                    <div key={img.id} className="preview-card">
-                      <img
-                        src={img.preview}
-                        alt=""
-                        onClick={() => setActiveImage(img.preview)}
-                        style={{ cursor: "pointer" }}
-                      />
-                      <button
-                        className="remove-btn"
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          removeImage(img.id);
-                        }}
-                        title="Remove image"
-                      >
-                        ×
-                      </button>
-                    </div>
-                  ))}
-                </div>
-              )}
-              {images.length < MAX_IMAGES && (
-                <label className="add-card">
-                  <input
-                    type="file"
-                    multiple
-                    accept="image/*"
-                    hidden
-                    onChange={(e) => {
-                      handleImages(e.target.files);
-                      e.target.value = "";
-                    }}
-                  />
-                  <span>+</span>
-                  <small>
-                    {images.length
-                      ? `Add more (${MAX_IMAGES - images.length} left)`
-                      : "Add images"}
-                  </small>
-                </label>
-              )}
-              {errors.images && (
-                <span className="error">{errors.images}</span>
-              )}
-            </div>
-          </div>
-
-          {/* PROMOTION */}
-          <div className="form-card blue">
-            <h3>Promotion Plan (Optional)</h3>
-            <div className="plans-grid">
-              {promotionPlans.map((plan) => (
-                <div
-                  key={plan.id}
-                  className={`plan-card ${
-                    selectedPlan?.id === plan.id ? "selected" : ""
-                  }`}
-                  onClick={() => setSelectedPlan(plan)}
-                >
-                  <div className="plan-header">
-                    <strong>{plan.name}</strong>
-                    <span className="plan-price">
-                      ₦{displayPrice(plan.price.toString())}
-                    </span>
-                  </div>
-                  <div className="plan-duration">{plan.duration}</div>
-                  <ul className="plan-features">
-                    {plan.features.map((feat, i) => (
-                      <li key={i}>{feat}</li>
-                    ))}
-                  </ul>
-                  {plan.description && (
-                    <p className="plan-desc">{plan.description}</p>
-                  )}
-                </div>
-              ))}
-            </div>
-          </div>
-
-          {/* ACTION BUTTONS */}
-          <div className="form-card blue button-section">
-            {errors.submit && (
-              <span
-                className="error"
-                style={{ display: "block", marginBottom: "1rem" }}
-              >
-                {errors.submit}
-              </span>
-            )}
-
-            <div className="button-section">
-              {canCreate && (
-                <button
-                  onClick={handleSubmit}
-                  disabled={loading}
-                  className="primary-btn"
-                >
-                  {loading ? "Processing..." : "Create Product"}
-                </button>
-              )}
-              {needsPayment && (
-                <button
-                  onClick={retryPayment}
-                  className="retry-btn"
-                  disabled={loading}
-                >
-                  {loading ? "Retrying..." : "Retry Payment"}
-                </button>
-              )}
-            </div>
-          </div>
-
-                          {/* FULLSCREEN IMAGE PREVIEW */}
-          {activeImage && (
-            <div
-              className="image-modal"
-              onClick={() => setActiveImage(null)}
-            >
-              <img src={activeImage} alt="preview" />
-            </div>
-          )}
         </div>
-      </ErrorBoundary>
-    );
-  }
+
+        {/* IMAGES */}
+        <div className="form-card blue">
+          <h3>Product Images</h3>
+          <label className="form-group-label">
+            Product Images (max 6, 3MB each){" "}
+            <span className="required">*</span>
+          </label>
+          <div
+            className="images-section"
+            ref={(el) => (fieldRefs.current.images = el)}
+          >
+            {images.length > 0 && (
+              <div className="preview-grid-modern">
+                {images.map((img) => (
+                  <div key={img.id} className="preview-card">
+                    <img
+                      src={img.preview}
+                      alt=""
+                      onClick={() => setActiveImage(img.preview)}
+                      style={{ cursor: "pointer" }}
+                    />
+                    <button
+                      className="remove-btn"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        removeImage(img.id);
+                      }}
+                      title="Remove image"
+                    >
+                      ×
+                    </button>
+                  </div>
+                ))}
+              </div>
+            )}
+            {images.length < MAX_IMAGES && (
+              <label className="add-card">
+                <input
+                  type="file"
+                  multiple
+                  accept="image/*"
+                  hidden
+                  onChange={(e) => {
+                    handleImages(e.target.files);
+                    e.target.value = "";
+                  }}
+                />
+                <span>+</span>
+                <small>
+                  {images.length
+                    ? `Add more (${MAX_IMAGES - images.length} left)`
+                    : "Add images"}
+                </small>
+              </label>
+            )}
+            {errors.images && (
+              <span className="error">{errors.images}</span>
+            )}
+          </div>
+        </div>
+
+        {/* PROMOTION */}
+        <div className="form-card blue">
+          <h3>Promotion Plan (Optional)</h3>
+          <div className="plans-grid">
+            {promotionPlans.map((plan) => (
+              <div
+                key={plan.id}
+                className={`plan-card ${
+                  selectedPlan?.id === plan.id ? "selected" : ""
+                }`}
+                onClick={() => setSelectedPlan(plan)}
+              >
+                <div className="plan-header">
+                  <strong>{plan.name}</strong>
+                  <span className="plan-price">
+                    ₦{displayPrice(plan.price.toString())}
+                  </span>
+                </div>
+                <div className="plan-duration">{plan.duration}</div>
+                <ul className="plan-features">
+                  {plan.features.map((feat, i) => (
+                    <li key={i}>{feat}</li>
+                  ))}
+                </ul>
+                {plan.description && (
+                  <p className="plan-desc">{plan.description}</p>
+                )}
+              </div>
+            ))}
+          </div>
+        </div>
+
+        {/* ACTION BUTTONS */}
+        <div className="form-card blue button-section">
+          {errors.submit && (
+            <span
+              className="error"
+              style={{ display: "block", marginBottom: "1rem" }}
+            >
+              {errors.submit}
+            </span>
+          )}
+
+          <div className="button-section">
+            {canCreate && (
+              <button
+                onClick={handleSubmit}
+                disabled={loading}
+                className="primary-btn"
+              >
+                {loading ? "Processing..." : "Create Product"}
+              </button>
+            )}
+            {needsPayment && (
+              <button
+                onClick={retryPayment}
+                className="retry-btn"
+                disabled={loading}
+              >
+                {loading ? "Retrying..." : "Retry Payment"}
+              </button>
+            )}
+          </div>
+        </div>
+
+        {/* FULLSCREEN IMAGE PREVIEW */}
+        {activeImage && (
+          <div
+            className="image-modal"
+            onClick={() => setActiveImage(null)}
+          >
+            <img src={activeImage} alt="preview" />
+          </div>
+        )}
+      </div>
+    </ErrorBoundary>
+  );
 }
