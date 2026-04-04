@@ -1,10 +1,8 @@
 /* =========================================================
-   ADD PRODUCT - LIGHT BLUE ROUNDED SECTIONS
+   ADD PRODUCT - SCOPED STYLES ONLY (No Global Impact)
 ========================================================= */
 
-/* =========================================================
-   YOUR GLOBAL CONTAINER
-========================================================= */
+/* Container - Scoped */
 .add-product-container {
   max-width: 860px;
   margin: 0 auto;
@@ -13,7 +11,7 @@
   display: flex;
   flex-direction: column;
   gap: clamp(1.5rem, 3vw, 24px);
-  background: #f8fbff; /* very light blue bg */
+  background: #f8fbff;
   font-family: "Segoe UI", sans-serif;
   font-size: clamp(15px, 2.5vw, 16px);
   line-height: 1.6;
@@ -21,10 +19,8 @@
   scroll-padding-top: 2rem;
 }
 
-/* =========================================================
-   YOUR GLASS HEADER
-========================================================= */
-.glass-header {
+/* Scoped Glass Header */
+.add-product-container .glass-header {
   position: sticky;
   top: 0;
   z-index: 1000;
@@ -41,14 +37,14 @@
   box-shadow: 0 4px 18px rgba(0, 119, 255, 0.08);
 }
 
-.glass-header h2 {
+.add-product-container .glass-header h2 {
   font-size: clamp(1.1rem, 2.5vw, 1.15rem);
   font-weight: 700;
   margin: 0;
   color: #222;
 }
 
-.glass-back-btn {
+.add-product-container .glass-back-btn {
   position: absolute;
   left: clamp(12px, 3vw, 16px);
   padding: clamp(8px, 2vw, 12px) clamp(12px, 3vw, 16px);
@@ -62,17 +58,15 @@
   transition: all 0.2s ease;
 }
 
-.glass-back-btn:hover {
+.add-product-container .glass-back-btn:hover {
   background: #f0f7ff;
 }
 
-/* =========================================================
-   LIGHT BLUE ROUNDED SECTIONS - EACH ONE
-========================================================= */
-.section,
-.form-card {
-  background: linear-gradient(135deg, #f0f7ff 0%, #e3f0ff 100%); /* light blue gradient */
-  border-radius: clamp(20px, 4vw, 28px); /* more rounded */
+/* Scoped Light Blue Cards */
+.add-product-container .form-card,
+.add-product-container .section {
+  background: linear-gradient(135deg, #f0f7ff 0%, #e3f0ff 100%);
+  border-radius: clamp(20px, 4vw, 28px);
   padding: clamp(20px, 4vw, 28px);
   box-shadow: 
     0 8px 32px rgba(0, 119, 255, 0.12),
@@ -86,9 +80,8 @@
   overflow: hidden;
 }
 
-/* subtle shine effect */
-.section::before,
-.form-card::before {
+.add-product-container .form-card::before,
+.add-product-container .section::before {
   content: '';
   position: absolute;
   top: 0;
@@ -98,16 +91,16 @@
   background: linear-gradient(90deg, transparent, rgba(0, 119, 255, 0.4), transparent);
 }
 
-.section:hover,
-.form-card:hover {
+.add-product-container .form-card:hover,
+.add-product-container .section:hover {
   transform: translateY(-4px);
   box-shadow: 
     0 16px 48px rgba(0, 119, 255, 0.2),
     0 4px 16px rgba(0, 0, 0, 0.08);
 }
 
-.section-title,
-.form-card h3 {
+.add-product-container .form-card h3,
+.add-product-container .section-title {
   font-size: clamp(1rem, 2.75vw, 1.25rem);
   font-weight: 800;
   background: linear-gradient(135deg, #0077ff, #1e40af);
@@ -119,16 +112,14 @@
   z-index: 2;
 }
 
-/* =========================================================
-   YOUR FORM GROUPS & LABELS
-========================================================= */
-.form-group {
+/* Scoped Form Groups */
+.add-product-container .form-group {
   display: flex;
   flex-direction: column;
   gap: clamp(1rem, 2vw, 1.25rem);
 }
 
-.form-group label {
+.add-product-container .form-group label {
   font-weight: 700;
   font-size: clamp(0.9rem, 2.25vw, 1rem);
   color: #1e3a8a;
@@ -137,14 +128,14 @@
   gap: 0.5rem;
 }
 
-.form-group-label {
+.add-product-container .form-group-label {
   font-weight: 800;
   font-size: clamp(0.9rem, 2.25vw, 1rem);
   color: #1e3a8a;
   margin-bottom: clamp(1.25rem, 3vw, 1.5rem);
 }
 
-.required {
+.add-product-container .required {
   color: #0077ff;
   font-size: 0.875rem;
   font-weight: 900;
@@ -156,12 +147,10 @@
   50% { opacity: 0.7; }
 }
 
-/* =========================================================
-   YOUR INPUT SYSTEM - GLASSMORPHISM
-========================================================= */
-input,
-textarea,
-select {
+/* Scoped Inputs - Using attribute selectors */
+.add-product-container input,
+.add-product-container textarea,
+.add-product-container select {
   width: 100%;
   padding: clamp(1rem, 2.25vw, 1.25rem) clamp(1.25rem, 3vw, 1.75rem);
   min-height: clamp(56px, 13vw, 64px);
@@ -177,14 +166,14 @@ select {
   box-shadow: 0 2px 12px rgba(0, 119, 255, 0.08);
 }
 
-input::placeholder,
-textarea::placeholder {
+.add-product-container input::placeholder,
+.add-product-container textarea::placeholder {
   color: #94a3b8;
 }
 
-input:focus,
-textarea:focus,
-select:focus {
+.add-product-container input:focus,
+.add-product-container textarea:focus,
+.add-product-container select:focus {
   border-color: #0077ff;
   background: rgba(255, 255, 255, 0.95);
   box-shadow: 
@@ -194,60 +183,48 @@ select:focus {
   outline: none;
 }
 
-textarea {
+.add-product-container textarea {
   min-height: clamp(140px, 22vw, 160px);
   resize: vertical;
 }
 
-/* =========================================================
-   YOUR GRIDS - ENHANCED SPACING
-========================================================= */
-.attributes-grid,
-.location-grid,
-.contact-grid {
+/* Scoped Grids */
+.add-product-container .attributes-grid,
+.add-product-container .location-grid,
+.add-product-container .contact-grid,
+.add-product-container .delivery-grid,
+.add-product-container .checkbox-grid-inline,
+.add-product-container .preview-grid-modern,
+.add-product-container .plans-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(clamp(160px, 22vw, 200px), 1fr));
   gap: clamp(1rem, 2.25vw, 1.25rem);
 }
 
-.delivery-grid {
-  display: grid;
+.add-product-container .attributes-grid { grid-template-columns: repeat(auto-fit, minmax(clamp(160px, 22vw, 200px), 1fr)); }
+.add-product-container .delivery-grid { 
   grid-template-columns: repeat(auto-fit, minmax(clamp(160px, 22vw, 200px), 1fr));
-  gap: clamp(1rem, 2.25vw, 1.25rem);
   margin-top: clamp(1.25rem, 3vw, 1.5rem);
   padding-top: clamp(1.25rem, 3vw, 1.5rem);
   background: rgba(0, 119, 255, 0.05);
   border-radius: 16px;
   border: 1px solid rgba(0, 119, 255, 0.1);
 }
-
-.checkbox-grid-inline {
-  display: grid;
+.add-product-container .checkbox-grid-inline { 
   grid-template-columns: repeat(auto-fill, minmax(clamp(160px, 24vw, 200px), 1fr));
-  gap: clamp(1rem, 2.25vw, 1.25rem);
   margin-top: clamp(1.25rem, 3vw, 1.5rem);
 }
-
-.preview-grid-modern,
-.image-upload-box {
-  display: grid;
+.add-product-container .preview-grid-modern { 
   grid-template-columns: repeat(auto-fit, minmax(clamp(110px, 20vw, 140px), 1fr));
-  gap: clamp(1rem, 2.25vw, 1.25rem);
   margin-top: clamp(1.5rem, 3.5vw, 1.75rem);
 }
-
-.plans-grid {
-  display: grid;
+.add-product-container .plans-grid { 
   grid-template-columns: repeat(auto-fit, minmax(clamp(300px, 48vw, 360px), 1fr));
-  gap: clamp(1.5rem, 3.5vw, 1.75rem);
   margin-top: clamp(1.75rem, 4vw, 2rem);
 }
 
-/* =========================================================
-   YOUR DELIVERY OPTIONS & CHECKBOXES
-========================================================= */
-.delivery-option,
-.checkbox-inline {
+/* Scoped Delivery Options & Checkboxes */
+.add-product-container .delivery-option,
+.add-product-container .checkbox-inline {
   padding: clamp(14px, 3vw, 18px);
   border-radius: 16px;
   border: 1px solid rgba(0, 119, 255, 0.2);
@@ -264,15 +241,15 @@ textarea {
   backdrop-filter: blur(10px);
 }
 
-.delivery-option:hover,
-.checkbox-inline:hover {
+.add-product-container .delivery-option:hover,
+.add-product-container .checkbox-inline:hover {
   border-color: #0077ff;
   background: rgba(0, 119, 255, 0.08);
   transform: translateY(-2px);
 }
 
-.delivery-option.active,
-.checkbox-inline.active {
+.add-product-container .delivery-option.active,
+.add-product-container .checkbox-inline.active {
   border-color: #0077ff;
   background: rgba(0, 119, 255, 0.15);
   box-shadow: 0 4px 16px rgba(0, 119, 255, 0.2);
@@ -280,17 +257,15 @@ textarea {
   color: #0077ff;
 }
 
-.checkbox-inline input[type="checkbox"] {
+.add-product-container .checkbox-inline input[type="checkbox"] {
   width: clamp(22px, 5.5vw, 24px);
   height: clamp(22px, 5.5vw, 24px);
   accent-color: #0077ff;
   margin: 0;
 }
 
-/* =========================================================
-   YOUR IMAGE UPLOAD - ENHANCED
-========================================================= */
-.preview-thumb {
+/* Scoped Image Upload */
+.add-product-container .preview-card {
   position: relative;
   aspect-ratio: 1;
   border-radius: 18px;
@@ -302,7 +277,7 @@ textarea {
   box-shadow: 0 4px 20px rgba(0, 119, 255, 0.1);
 }
 
-.preview-thumb:hover {
+.add-product-container .preview-card:hover {
   border-color: #0077ff;
   box-shadow: 
     0 8px 32px rgba(0, 119, 255, 0.25),
@@ -310,19 +285,18 @@ textarea {
   transform: translateY(-4px);
 }
 
-.preview-thumb img {
+.add-product-container .preview-card img {
   width: 100%;
   height: 100%;
   object-fit: cover;
   transition: transform 0.4s ease;
 }
 
-.preview-thumb:hover img {
+.add-product-container .preview-card:hover img {
   transform: scale(1.08);
 }
 
-/* X BUTTON - ALWAYS VISIBLE + GLOW */
-.preview-thumb button {
+.add-product-container .preview-card .remove-btn {
   position: absolute;
   top: clamp(8px, 2vw, 10px);
   right: clamp(8px, 2vw, 10px);
@@ -344,7 +318,7 @@ textarea {
   z-index: 10;
 }
 
-.preview-thumb button:hover {
+.add-product-container .preview-card .remove-btn:hover {
   background: #dc2626;
   transform: scale(1.1);
   box-shadow: 
@@ -352,8 +326,7 @@ textarea {
     0 0 0 4px rgba(255, 255, 255, 0.9);
 }
 
-.add-image-btn,
-.add-image-box {
+.add-product-container .add-card {
   border: 2px dashed rgba(0, 119, 255, 0.4);
   border-radius: 20px;
   background: rgba(255, 255, 255, 0.6);
@@ -373,8 +346,7 @@ textarea {
   box-shadow: 0 4px 20px rgba(0, 119, 255, 0.1);
 }
 
-.add-image-btn:hover,
-.add-image-box:hover {
+.add-product-container .add-card:hover {
   border-color: #0077ff;
   color: #0077ff;
   background: rgba(0, 119, 255, 0.08);
@@ -382,10 +354,8 @@ textarea {
   box-shadow: 0 12px 40px rgba(0, 119, 255, 0.25);
 }
 
-/* =========================================================
-   YOUR PROMOTION PLANS - LIGHT BLUE TOO
-========================================================= */
-.plan-card {
+/* Scoped Promotion Plans */
+.add-product-container .plan-card {
   padding: clamp(1.75rem, 4vw, 2.25rem) clamp(1.5rem, 3.5vw, 2rem);
   border-radius: clamp(20px, 4vw, 28px);
   border: 1px solid rgba(0, 119, 255, 0.2);
@@ -396,7 +366,7 @@ textarea {
   box-shadow: 0 4px 20px rgba(0, 119, 255, 0.1);
 }
 
-.plan-card:hover {
+.add-product-container .plan-card:hover {
   border-color: #0077ff;
   transform: translateY(-6px);
   box-shadow: 
@@ -404,7 +374,7 @@ textarea {
     0 0 0 1px rgba(0, 119, 255, 0.2);
 }
 
-.plan-card.selected {
+.add-product-container .plan-card.selected {
   border-color: #0077ff;
   background: rgba(0, 119, 255, 0.08);
   box-shadow: 
@@ -412,7 +382,7 @@ textarea {
     0 0 0 1px rgba(0, 119, 255, 0.3);
 }
 
-.plan-header {
+.add-product-container .plan-header {
   display: flex;
   justify-content: space-between;
   align-items: flex-start;
@@ -420,13 +390,13 @@ textarea {
   gap: 1rem;
 }
 
-.plan-header strong {
+.add-product-container .plan-header strong {
   font-size: clamp(1.125rem, 2.75vw, 1.375rem);
   color: #1e3a8a;
   flex: 1;
 }
 
-.plan-price {
+.add-product-container .plan-price {
   font-size: clamp(1.5rem, 3.25vw, 1.75rem);
   font-weight: 900;
   background: linear-gradient(135deg, #0077ff, #1e40af);
@@ -435,26 +405,26 @@ textarea {
   background-clip: text;
 }
 
-.plan-duration {
+.add-product-container .plan-duration {
   color: #64748b;
   font-size: clamp(0.9rem, 2.25vw, 0.95rem);
   font-weight: 700;
   margin-bottom: clamp(1rem, 2.5vw, 1.25rem);
 }
 
-.plan-features {
+.add-product-container .plan-features {
   margin: clamp(1.25rem, 3vw, 1.5rem) 0;
   padding-left: 1.5rem;
   font-size: clamp(0.9rem, 2.25vw, 0.95rem);
   color: #475569;
 }
 
-.plan-features li {
+.add-product-container .plan-features li {
   margin-bottom: 0.75rem;
   position: relative;
 }
 
-.plan-features li::before {
+.add-product-container .plan-features li::before {
   content: '✓';
   position: absolute;
   left: -1.5rem;
@@ -463,7 +433,7 @@ textarea {
   font-size: 0.875rem;
 }
 
-.plan-desc {
+.add-product-container .plan-desc {
   font-size: clamp(0.9rem, 2.25vw, 0.95rem);
   color: #64748b;
   line-height: 1.7;
@@ -472,11 +442,8 @@ textarea {
   border-top: 1px solid rgba(0, 119, 255, 0.15);
 }
 
-/* =========================================================
-   BUTTON SECTION - LIGHT BLUE TOO
-========================================================= */
-.button-section,
-.submit-section {
+/* Scoped Button Section */
+.add-product-container .button-section {
   flex-direction: row !important;
   align-items: stretch;
   gap: clamp(1.5rem, 3.5vw, 1.75rem);
@@ -490,9 +457,10 @@ textarea {
     0 2px 8px rgba(0, 0, 0, 0.05);
 }
 
-.primary-btn,
-.retry-btn,
-button {
+/* Scoped Buttons */
+.add-product-container .primary-btn,
+.add-product-container .retry-btn,
+.add-product-container button {
   flex: 1;
   padding: clamp(1.125rem, 2.75vw, 1.375rem) clamp(2rem, 4.5vw, 2.5rem);
   min-height: clamp(64px, 15vw, 72px);
@@ -511,8 +479,8 @@ button {
   overflow: hidden;
 }
 
-.primary-btn::before,
-.retry-btn::before {
+.add-product-container .primary-btn::before,
+.add-product-container .retry-btn::before {
   content: '';
   position: absolute;
   top: 0;
@@ -523,22 +491,22 @@ button {
   transition: left 0.6s;
 }
 
-.primary-btn:hover:not(:disabled)::before,
-.retry-btn:hover:not(:disabled)::before {
+.add-product-container .primary-btn:hover:not(:disabled)::before,
+.add-product-container .retry-btn:hover:not(:disabled)::before {
   left: 100%;
 }
 
-.primary-btn:hover:not(:disabled),
-.retry-btn:hover:not(:disabled) {
+.add-product-container .primary-btn:hover:not(:disabled),
+.add-product-container .retry-btn:hover:not(:disabled) {
   transform: translateY(-4px);
   box-shadow: 
     0 16px 64px rgba(0, 119, 255, 0.5),
     0 8px 32px rgba(0, 0, 0, 0.15);
 }
 
-.primary-btn:disabled,
-.retry-btn:disabled,
-button:disabled {
+.add-product-container .primary-btn:disabled,
+.add-product-container .retry-btn:disabled,
+.add-product-container button:disabled {
   background: rgba(0, 119, 255, 0.3);
   color: rgba(255, 255, 255, 0.7);
   transform: none;
@@ -546,26 +514,16 @@ button:disabled {
   cursor: not-allowed;
 }
 
-/* =========================================================
-   MESSAGES - LIGHT BLUE ACCENTS
-========================================================= */
-.form-error,
-.form-success {
-  font-size: clamp(0.875rem, 2vw, 0.95rem);
-  font-weight: 700;
-  margin: clamp(1.25rem, 3.5vw, 1.5rem) 0;
-  padding: clamp(1rem, 2.5vw, 1.25rem) clamp(1.5rem, 3.5vw, 1.75rem);
-  border-radius: 20px;
-  border-left: 5px solid #0077ff;
-  display: flex;
-  align-items: center;
-  gap: 1rem;
-  background: rgba(0, 119, 255, 0.1);
-  border: 1px solid rgba(0, 119, 255, 0.2);
-  box-shadow: 0 4px 20px rgba(0, 119, 255, 0.15);
+/* Scoped Error Messages */
+.add-product-container .error {
+  display: block;
+  color: #ef4444;
+  font-size: 13px;
+  margin-top: 4px;
+  font-weight: 500;
 }
 
-small.price-preview {
+.add-product-container small.price-preview {
   font-size: clamp(0.95rem, 2.25vw, 1rem);
   font-weight: 900;
   color: #0077ff;
@@ -578,48 +536,12 @@ small.price-preview {
   box-shadow: 0 4px 20px rgba(0, 119, 255, 0.1);
 }
 
-/* =========================================================
-   MODALS - ENHANCED LIGHT BLUE
-========================================================= */
-.loading-overlay {
-  position: fixed;
-  inset: 0;
-  background: rgba(16, 185, 129, 0.1);
-  backdrop-filter: blur(16px);
-  z-index: 10000;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  gap: clamp(2rem, 5vw, 2.5rem);
-  padding: clamp(2.5rem, 10vw, 4rem);
+/* Scoped Modals & Overlays */
+.add-product-container .images-section {
+  min-height: 140px;
 }
 
-.loader {
-  width: clamp(56px, 14vw, 64px);
-  height: clamp(56px, 14vw, 64px);
-  border: clamp(5px, 1.25vw, 6px) solid rgba(0, 119, 255, 0.2);
-  border-top-color: #0077ff;
-  border-radius: 50%;
-  animation: spin 1s linear infinite;
-}
-
-.loading-text {
-  font-size: clamp(1.125rem, 3.25vw, 1.375rem);
-  font-weight: 800;
-  color: #1e3a8a;
-  text-align: center;
-  max-width: clamp(350px, 50vw, 500px);
-  padding: clamp(1.5rem, 3.5vw, 1.75rem);
-  background: linear-gradient(135deg, #f0f7ff 0%, #e3f0ff 100%);
-  border-radius: 24px;
-  box-shadow: 
-    0 12px 48px rgba(0, 119, 255, 0.2),
-    0 2px 8px rgba(0, 0, 0, 0.08);
-  border: 1px solid rgba(0, 119, 255, 0.2);
-}
-
-.image-modal {
+.add-product-container .image-modal {
   position: fixed;
   inset: 0;
   background: rgba(0, 0, 0, 0.6);
@@ -632,7 +554,7 @@ small.price-preview {
   cursor: pointer;
 }
 
-.image-modal img {
+.add-product-container .image-modal img {
   max-width: clamp(92vw, 96vw, 98vw);
   max-height: clamp(85vh, 92vh, 94vh);
   border-radius: 24px;
@@ -641,137 +563,57 @@ small.price-preview {
     0 0 0 1px rgba(255, 255, 255, 0.2);
 }
 
-/* =========================================================
-   SUCCESS MODAL - LIGHT BLUE PERFECTION
-========================================================= */
-.success-modal-overlay {
-  position: fixed;
-  inset: 0;
-  background: rgba(0, 119, 255, 0.15);
-  backdrop-filter: blur(20px);
-  z-index: 10000;
+/* Scoped Shake Animation */
+.add-product-container .shake {
+  animation: shake 0.4s ease-in-out;
+  border-color: #ef4444 !important;
+  box-shadow: 0 0 0 3px rgba(239, 68, 68, 0.1);
+}
+
+@keyframes shake {
+  0%, 100% { transform: translateX(0); }
+  25% { transform: translateX(-4px); }
+  75% { transform: translateX(4px); }
+}
+
+/* Scoped Sub-grid for delivery */
+.add-product-container .sub-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+  gap: 1rem;
+  margin-top: 1rem;
+}
+
+.add-product-container .form-section-round-small {
   display: flex;
-  align-items: center;
-  justify-content: center;
-  padding: clamp(2rem, 8vw, 3rem);
+  flex-direction: column;
+  gap: 0.5rem;
 }
 
-.success-modal {
-  background: linear-gradient(135deg, #f0f7ff 0%, #e3f0ff 100%);
-  border-radius: clamp(24px, 5vw, 32px);
-  padding: clamp(2.5rem, 6vw, 3rem);
-  text-align: center;
-  max-width: clamp(400px, 85vw, 500px);
-  box-shadow: 
-    0 24px 80px rgba(0, 119, 255, 0.3),
-    0 8px 32px rgba(0, 0, 0, 0.1);
-  border: 1px solid rgba(0, 119, 255, 0.25);
-  position: relative;
-  overflow: hidden;
+.add-product-container .form-section-round-small input {
+  min-height: 48px;
+  padding: 0.75rem 1rem;
 }
 
-.success-modal::before {
-  content: '';
-  position: absolute;
-  top: 0;
-  left: 0;
-  right: 0;
-  height: 4px;
-  background: linear-gradient(90deg, #10b981, #059669, #10b981);
-}
-
-.success-icon {
-  font-size: clamp(4rem, 10vw, 5rem);
-  margin-bottom: clamp(1.25rem, 3vw, 1.5rem);
-  animation: bounce 2s infinite;
-}
-
-@keyframes bounce {
-  0%, 20%, 50%, 80%, 100% { transform: translateY(0); }
-  40% { transform: translateY(-12px); }
-  60% { transform: translateY(-6px); }
-}
-
-.success-modal h3 {
-  color: #1e40af;
-  font-size: clamp(1.5rem, 4vw, 1.875rem);
-  font-weight: 900;
-  margin-bottom: clamp(1rem, 2.5vw, 1.25rem);
-  background: linear-gradient(135deg, #1e40af, #0077ff);
-  -webkit-background-clip: text;
-  -webkit-text-fill-color: transparent;
-  background-clip: text;
-}
-
-.success-modal p {
-  color: #475569;
-  font-size: clamp(1rem, 2.5vw, 1.125rem);
-  margin-bottom: clamp(1.5rem, 4vw, 2rem);
-  line-height: 1.7;
-}
-
-.loader.small {
-  width: clamp(28px, 7vw, 32px);
-  height: clamp(28px, 7vw, 32px);
-  border-width: clamp(3px, 0.75vw, 4px);
-  border-color: rgba(0, 119, 255, 0.3);
-  border-top-color: #0077ff;
-  margin: 0 auto;
-}
-
-/* =========================================================
-   RESPONSIVE - PERFECT BREAKPOINTS
-========================================================= */
-@media (min-width: 1440px) {
-  .add-product-container {
-    max-width: 950px;
-    padding: 1.5rem 2.5rem;
-  }
-}
-
+/* Responsive - Scoped */
 @media (max-width: 1024px) {
-  .preview-grid-modern,
-  .image-upload-box {
-    grid-template-columns: repeat(4, 1fr);
-  }
+  .add-product-container .preview-grid-modern { grid-template-columns: repeat(4, 1fr); }
 }
 
 @media (max-width: 768px) {
-  .add-product-container {
-    padding-bottom: clamp(5rem, 12vw, 7rem);
-  }
-  .preview-grid-modern,
-  .image-upload-box {
-    grid-template-columns: repeat(3, 1fr);
-  }
-  .checkbox-grid-inline,
-  .delivery-grid {
-    grid-template-columns: repeat(2, 1fr);
-  }
-  .button-section {
-    flex-direction: column !important;
-    gap: clamp(1.25rem, 3vw, 1.5rem);
-  }
+  .add-product-container .preview-grid-modern { grid-template-columns: repeat(3, 1fr); }
+  .add-product-container .checkbox-grid-inline,
+  .add-product-container .delivery-grid,
+  .add-product-container .sub-grid { grid-template-columns: repeat(2, 1fr); }
+  .add-product-container .button-section { flex-direction: column !important; gap: clamp(1.25rem, 3vw, 1.5rem); }
 }
 
 @media (max-width: 600px) {
-  .preview-grid-modern,
-  .image-upload-box {
-    grid-template-columns: repeat(2, 1fr);
-  }
-  .attributes-grid,
-  .location-grid,
-  .contact-grid,
-  .delivery-grid,
-  .checkbox-grid-inline {
-    grid-template-columns: 1fr;
-  }
-  .add-product-container {
-    padding: clamp(1.25rem, 5vw, 1.5rem);
-  }
-  .section,
-  .form-card {
-    padding: clamp(1.5rem, 5vw, 2rem);
-    border-radius: clamp(18px, 6vw, 24px);
-  }
+  .add-product-container .preview-grid-modern { grid-template-columns: repeat(2, 1fr); }
+  .add-product-container .attributes-grid,
+  .add-product-container .location-grid,
+  .add-product-container .contact-grid,
+  .add-product-container .delivery-grid,
+  .add-product-container .checkbox-grid-inline,
+  .add-product-container .sub-grid { grid-template-columns: 1fr; }
 }
