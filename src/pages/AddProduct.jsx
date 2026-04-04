@@ -56,15 +56,21 @@ export default function AddProduct() {
   const [selectedPlan, setSelectedPlan] = useState(null);
   const [paymentData, setPaymentData] = useState(null);
 
-  /* ================= FETCH ================= */
+  /* ================= FETCH CATEGORIES ================= */
   useEffect(() => {
     fetch("https://minimart-ivrm.onrender.com/api/marketplace/categories")
       .then((r) => r.json())
-      .then(setCategories)
-      .catch(console.error);
+      .then((data) => {
+        // If the API returns `tree` nested under `data`, adjust here:
+        const cats = Array.isArray(data) ? data : data.tree || [];
+        setCategories(cats);
+      })
+      .catch((err) => {
+        console.error("Failed to fetch categories:", err);
+      });
   }, []);
 
-  /* ================= LOAD PAYMENT RETRY ================= */
+  /* ================= PAYMENT RETRY ================= */
   useEffect(() => {
     const saved = localStorage.getItem("payment_retry");
     if (saved) setPaymentData(JSON.parse(saved));
@@ -73,10 +79,12 @@ export default function AddProduct() {
   useEffect(() => {
     if (paymentData) {
       localStorage.setItem("payment_retry", JSON.stringify(paymentData));
+    } else {
+      localStorage.removeItem("payment_retry");
     }
   }, [paymentData]);
 
-  /* ================= CATEGORY ================= */
+  /* ================= SELECTED CATEGORY & OPTIONS ================= */
   const selectedCategory = useMemo(
     () => categories.find((c) => String(c.id) === String(form.category_id)),
     [categories, form.category_id]
@@ -94,12 +102,14 @@ export default function AddProduct() {
         )
       : [];
 
-  const onlyNumbers = (v = "") => v.replace(/\D/g, "");
+  const onlyNumbers = (v = "") => v.replace(/D/g, "");
 
   const formatLabel = (t) =>
-    t.replace(/_/g, " ").replace(/\b\w/g, (l) => l.toUpperCase());
+    t
+      .replace(/_/g, " ")
+      .replace(/\bw/g, (l) => l.toUpperCase());
 
-  /* ================= OPTIONS ================= */
+  /* ================= OPTIONS MAP ================= */
   const optionsMap = useMemo(() => {
     const modelsForBrand =
       brand && options.models?.[brand] ? options.models[brand] : [];
@@ -120,13 +130,13 @@ export default function AddProduct() {
   }, [options, brand]);
 
   const fields = useMemo(() => {
-    const dynamic = options.fields || [];
+    const dynamic = options.fields?.map?.((f) => f.name) || [];
     return dynamic.includes("condition")
       ? dynamic
       : ["condition", ...dynamic];
   }, [options]);
 
-  /* ================= UPDATE ================= */
+  /* ================= UPDATE HELPERS ================= */
   const update = (key, value) =>
     setForm((p) => ({ ...p, [key]: value }));
 
@@ -136,7 +146,7 @@ export default function AddProduct() {
       attributes: {
         ...p.attributes,
         [key]: value,
-        ...(key === "brand" && { model: "" }),
+        ...(key === "brand" && { model: "" }), // reset model when brand changes
       },
     }));
 
@@ -164,7 +174,9 @@ export default function AddProduct() {
   /* ================= FEATURES ================= */
   const toggleFeature = (feature) => {
     setForm((p) => {
-      const list = p.attributes.features || [];
+      const list = Array.isArray(p.attributes.features)
+        ? p.attributes.features
+        : [];
       const exists = list.includes(feature);
 
       return {
@@ -181,25 +193,35 @@ export default function AddProduct() {
 
   /* ================= VALIDATION ================= */
   const validate = () => {
-    if (form.title.length < 10) return "Title too short";
-    if (form.description.length < 20) return "Description too short";
-    if (!form.price) return "Price required";
-    if (!form.category_id) return "Select category";
+    if (form.title.trim().length < 10)
+      return "Title too short (min 10 characters)";
+    if (form.description.trim().length < 20)
+      return "Description too short (min 20 characters)";
+    if (!form.price || onlyNumbers(form.price) === "")
+      return "Price required";
+    if (!form.category_id)
+      return "Select a category";
 
-    if (!/^\d{10,15}$/.test(form.contact.phone))
-      return "Invalid phone number";
+    if (!/^d{10,15}$/.test(onlyNumbers(form.contact.phone)))
+      return "Phone must be 10–15 digits";
 
-    if (!/^\S+@\S+\.\S+$/.test(form.contact.email))
+    if (
+      form.contact.email &&
+      !/^S+@S+.S+$/.test(form.contact.email)
+    )
       return "Valid email required";
 
     if (form.delivery.available) {
-      const from = Number(form.delivery.duration.from);
-      const to = Number(form.delivery.duration.to);
+      const from = Number(
+        onlyNumbers(form.delivery.duration.from)
+      );
+      const to = Number(onlyNumbers(form.delivery.duration.to));
 
       if (Number.isNaN(from) || Number.isNaN(to))
         return "Delivery range required";
 
-      if (to < from) return "Invalid delivery range";
+      if (to < from)
+        return "Invalid delivery range (to must be >= from)";
     }
 
     return null;
@@ -207,7 +229,10 @@ export default function AddProduct() {
 
   /* ================= IMAGES ================= */
   const handleImages = (files) => {
-    if (files.length > 8) alert("Max 8 images allowed");
+    if (files.length > 8) {
+      alert("Max 8 images allowed");
+      return;
+    }
 
     const list = Array.from(files).slice(0, 8);
 
@@ -227,7 +252,10 @@ export default function AddProduct() {
 
   /* ================= RETRY PAYMENT ================= */
   const retryPayment = async () => {
-    if (!paymentData) return alert("No payment to retry");
+    if (!paymentData) {
+      alert("No pending payment to retry");
+      return;
+    }
 
     try {
       setLoading(true);
@@ -237,7 +265,12 @@ export default function AddProduct() {
         {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify(paymentData),
+          body: JSON.stringify({
+            email: paymentData.email,
+            amount: Number(paymentData.amount) * 100,
+            plan_id: paymentData.plan_id,
+            product_id: paymentData.product_id,
+          }),
         }
       );
 
@@ -245,49 +278,77 @@ export default function AddProduct() {
 
       if (!data.success || !data.authorization_url) {
         setLoading(false);
-        return alert(data.message || "Payment failed");
+        return alert(
+          data.message || "Payment initialization failed"
+        );
       }
 
       setPaymentData(null);
       localStorage.removeItem("payment_retry");
 
       window.location.href = data.authorization_url;
-    } catch {
-      alert("Retry failed");
+    } catch (err) {
+      console.error("retryPayment error:", err);
+      alert("Retry failed – check network and try again");
       setLoading(false);
     }
   };
 
-  /* ================= SUBMIT ================= */
+  /* ================= SUBMIT + PAY ================= */
   const handleSubmit = async () => {
-    if (loading) return;
+    if (loading || !form.category_id) return;
 
     const err = validate();
     if (err) return alert(err);
 
+    // Pick plan or fallback to free
     const finalPlan =
-      selectedPlan || promotionPlans.find((p) => Number(p.price) === 0);
+      selectedPlan ||
+      promotionPlans.find((p) => Number(p.price) === 0);
 
-    if (!finalPlan) return alert("No promotion plan available");
+    if (!finalPlan) {
+      return alert("No promotion plan available");
+    }
 
     setLoading(true);
 
     const fd = new FormData();
 
+    const cleanPrice = Number(onlyNumbers(form.price));
+    const cleanFrom = Number(
+      onlyNumbers(form.delivery.duration.from)
+    );
+    const cleanTo = Number(onlyNumbers(form.delivery.duration.to));
+
     const payload = {
-      ...form,
-      price: form.price.replace(/\D/g, ""),
+      title: form.title.trim(),
+      description: form.description.trim(),
+      price: cleanPrice,
+      category_id: form.category_id,
+
       attributes: JSON.stringify(form.attributes),
-      delivery: JSON.stringify(form.delivery),
+      delivery: JSON.stringify({
+        ...form.delivery,
+        duration: {
+          from: cleanFrom,
+          to: cleanTo,
+        },
+      }),
       contact: JSON.stringify(form.contact),
       location_state: state,
       location_city: city,
-      promotion_plan: finalPlan.id,
-      status: finalPlan.price === 0 ? "active" : "pending",
+      plan_id: finalPlan.id,
     };
 
-    Object.entries(payload).forEach(([k, v]) => fd.append(k, v));
-    images.forEach((img) => fd.append("images", img));
+    // Append payload fields
+    Object.entries(payload).forEach(([k, v]) => {
+      fd.append(k, v);
+    });
+
+    // Append images
+    images.forEach((img) => {
+      fd.append("images", img);
+    });
 
     try {
       const res = await fetch(
@@ -295,18 +356,22 @@ export default function AddProduct() {
         { method: "POST", body: fd }
       );
 
-      if (!res.ok) throw new Error();
+      if (!res.ok) {
+        const text = await res.text();
+        throw new Error(`HTTP ${res.status}: ${text}`);
+      }
 
       const result = await res.json();
       const productId = result?.product?.id || result?.id;
 
       if (!productId) {
         setLoading(false);
-        return alert("Product ID missing");
+        return alert("Product created but ID is missing; contact admin.");
       }
 
-      if (finalPlan.price === 0) {
-        alert("✅ Product created");
+      // If it's free, mark as “active” (no payment)
+      if (Number(finalPlan.price) === 0) {
+        alert("✅ Product created and published (no payment needed)");
 
         setForm(INITIAL_FORM);
         setImages([]);
@@ -315,12 +380,12 @@ export default function AddProduct() {
         setCity("");
         setSelectedPlan(null);
         setPaymentData(null);
-        localStorage.removeItem("payment_retry");
 
         setLoading(false);
         return;
       }
 
+      // Otherwise, go to Paystack
       const payRes = await fetch(
         "https://minimart-ivrm.onrender.com/api/payment/initialize",
         {
@@ -328,9 +393,9 @@ export default function AddProduct() {
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
             email: form.contact.email,
-            amount: Number(finalPlan.price),
-            planId: finalPlan.id,
-            productId,
+            amount: Number(finalPlan.price) * 100,
+            plan_id: finalPlan.id,
+            product_id: productId,
           }),
         }
       );
@@ -338,23 +403,30 @@ export default function AddProduct() {
       const payData = await payRes.json();
 
       if (!payData.success || !payData.authorization_url) {
+        // Save payload so user can retry
         setPaymentData({
           email: form.contact.email,
           amount: Number(finalPlan.price),
-          planId: finalPlan.id,
-          productId,
+          plan_id: finalPlan.id,
+          product_id: productId,
         });
 
         setLoading(false);
-        return alert("Payment failed - retry below");
+        alert(
+          "Payment failed – you can retry later with the 'Retry Payment' button"
+        );
+        return;
       }
 
       setPaymentData(null);
       localStorage.removeItem("payment_retry");
 
       window.location.href = payData.authorization_url;
-    } catch {
-      alert("Something went wrong");
+    } catch (err) {
+      console.error("AddProduct handleSubmit error:", err);
+      alert(
+        "Something went wrong. Please check your internet and try again."
+      );
       setLoading(false);
     }
   };
@@ -362,16 +434,30 @@ export default function AddProduct() {
   const states = Object.keys(locationsByState || {});
   const cities = state ? locationsByState[state] : [];
 
-  /* ================= UI ================= */
   return (
     <div className="add-product-container">
       <AddProductHeader title="Add Product" />
 
-      <input placeholder="Title" value={form.title} onChange={(e) => update("title", e.target.value)} />
-      <textarea placeholder="Description" value={form.description} onChange={(e) => update("description", e.target.value)} />
-      <input placeholder="Price" value={form.price} onChange={(e) => update("price", onlyNumbers(e.target.value))} />
-
-      <input placeholder="Email" value={form.contact.email} onChange={(e) => updateContact("email", e.target.value)} />
+      <input
+        placeholder="Title"
+        value={form.title}
+        onChange={(e) => update("title", e.target.value)}
+      />
+      <textarea
+        placeholder="Description"
+        value={form.description}
+        onChange={(e) => update("description", e.target.value)}
+      />
+      <input
+        placeholder="Price"
+        value={form.price}
+        onChange={(e) => update("price", onlyNumbers(e.target.value))}
+      />
+      <input
+        placeholder="Email"
+        value={form.contact.email}
+        onChange={(e) => updateContact("email", e.target.value)}
+      />
 
       <DropdownModal
         label="Category"
@@ -388,7 +474,7 @@ export default function AddProduct() {
 
       {fields.map((f) => {
         if (!optionsMap[f]) return null;
-        if (f === "used_detail" && attributes.condition !== "used") return null;
+        if (f === "used_detail" && attributes.condition !== "Used") return null;
 
         return (
           <DropdownModal
@@ -419,16 +505,38 @@ export default function AddProduct() {
         </div>
       )}
 
-      <DropdownModal label="State" value={state} onChange={setState} options={states} />
-      {state && <DropdownModal label="City" value={city} onChange={setCity} options={cities} />}
+      <DropdownModal
+        label="State"
+        value={state}
+        onChange={setState}
+        options={normalizeOptions(states)}
+      />
+      {state && (
+        <DropdownModal
+          label="City"
+          value={city}
+          onChange={setCity}
+          options={normalizeOptions(cities)}
+        />
+      )}
 
-      <input placeholder="Phone" value={form.contact.phone} onChange={(e) => updateContact("phone", onlyNumbers(e.target.value))} />
+      <input
+        placeholder="Phone"
+        value={form.contact.phone}
+        onChange={(e) =>
+          updateContact("phone", onlyNumbers(e.target.value))
+        }
+      />
 
-      <input type="file" multiple onChange={(e) => handleImages(e.target.files)} />
+      <input
+        type="file"
+        multiple
+        onChange={(e) => handleImages(e.target.files)}
+      />
 
       <div className="preview-grid">
         {previews.map((src, i) => (
-          <div key={i}>
+          <div key={i} className="preview-item">
             <img src={src} alt="" />
             <button onClick={() => removeImage(i)}>X</button>
           </div>
@@ -442,25 +550,47 @@ export default function AddProduct() {
             key={plan.id}
             onClick={() => setSelectedPlan(plan)}
             style={{
-              border: selectedPlan?.id === plan.id ? "2px solid green" : "1px solid #ccc",
+              border:
+                selectedPlan?.id === plan.id
+                  ? "2px solid green"
+                  : "1px solid #ccc",
               padding: "10px",
               borderRadius: "8px",
               cursor: "pointer",
+              marginBottom: "8px",
             }}
           >
             <strong>{plan.name}</strong>
-            <p>{plan.duration}</p>
-            <p>₦{plan.price}</p>
+            <p style={{ margin: "4px 0 0" }}>{plan.duration}</p>
+            <p style={{ margin: "4px 0 0" }}>
+              ₦{Number(plan.price).toLocaleString()}
+            </p>
           </div>
         ))}
       </div>
 
-      <button onClick={handleSubmit} disabled={loading}>
-        {loading ? "Uploading..." : "Create Product"}
+      <button
+        onClick={handleSubmit}
+        disabled={loading}
+        style={{
+          marginTop: "20px",
+        }}
+      >
+        {loading ? "Processing..." : "Pay & Create Product"}
       </button>
 
       {paymentData && !loading && (
-        <button onClick={retryPayment} style={{ marginTop: 10, background: "#f59e0b", color: "#fff" }}>
+        <button
+          onClick={retryPayment}
+          style={{
+            marginTop: "10px",
+            background: "#f59e0b",
+            color: "#fff",
+            padding: "8px 16px",
+            border: "none",
+            borderRadius: "4px",
+          }}
+        >
           Retry Payment
         </button>
       )}
