@@ -1031,7 +1031,7 @@ export default function AddProduct() {
             </div>
           </div>
 
-          {/* FULLSCREEN IMAGE PREVIEW */}
+                    {/* FULLSCREEN IMAGE PREVIEW */}
           {activeImage && (
             <div
               className="image-modal"
@@ -1042,6 +1042,6 @@ export default function AddProduct() {
           )}
         </div>
       </ErrorBoundary>
-    </>
-  );
+    );
+  }
 }
