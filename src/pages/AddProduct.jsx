@@ -27,6 +27,8 @@ const INITIAL_FORM = {
     engine: "",
     fuel_type: "",
     features: [],
+    size: "",
+    age_range: "",
   },
   delivery: {
     type: "standard",
@@ -55,7 +57,7 @@ export default function AddProduct() {
   const [error, setError] = useState("");
   const [success, setSuccess] = useState("");
   const [isDragging, setIsDragging] = useState(false);
-  const [dragIndex, setDragIndex] = useState(null); // 🔧 6. Added
+  const [dragIndex, setDragIndex] = useState(null);
   const imageTimersRef = useRef(new Map());
 
   const MAX_IMAGES = 6;
@@ -63,20 +65,18 @@ export default function AddProduct() {
 
   /* ================= FIXED UTILITIES ================= */
   const selectedCategory = useMemo(
-    () => categories.find((c) => c.id == form.category_id), // 🔧 9. Fixed
+    () => categories.find((c) => c.id == form.category_id),
     [categories, form.category_id]
   );
 
   const options = selectedCategory?.dynamicOptions || {};
   const attributes = form.attributes;
-  const brand = attributes.brand;
 
   const normalizeOptions = (list = []) =>
     Array.isArray(list)
       ? list.map((x) => (typeof x === "string" ? { id: x, name: x } : x))
       : [];
 
-  // 🔧 1. FIXED regex
   const onlyNumbers = (v = "") => v.replace(/[^d.]/g, "");
   const onlyDigits = (v = "") => v.replace(/D/g, "");
   
@@ -85,11 +85,9 @@ export default function AddProduct() {
     return Number.isNaN(num) || num <= 0 ? "" : new Intl.NumberFormat("en-NG").format(num);
   };
   
-  // 🔧 1. FIXED label formatting
   const formatLabel = (t) =>
     t.replace(/_/g, " ").replace(/\bw/g, (l) => l.toUpperCase());
 
-  // 🔧 2. Added missing helpers
   const showError = useCallback((msg) => {
     setError(msg);
     setTimeout(() => setError(""), 4000);
@@ -100,7 +98,6 @@ export default function AddProduct() {
     setTimeout(() => setSuccess(""), 4000);
   }, []);
 
-  // 🔧 3. Added missing image compression
   const compressImage = async (file) => {
     return await imageCompression(file, {
       maxSizeMB: 1,
@@ -109,36 +106,40 @@ export default function AddProduct() {
     });
   };
 
-  /* ================= DYNAMIC OPTIONS ================= */
-  const optionsMap = useMemo(() => {
-    const map = {};
-    Object.keys(options || {}).forEach((key) => {
-      if (key === "models") return;
-      if (key === "model") {
-        const modelsForBrand = brand && options.model?.[brand] ? options.model[brand] : [];
-        map.model = normalizeOptions(modelsForBrand);
-        return;
-      }
-      map[key] = normalizeOptions(options[key] || []);
-    });
-    return map;
-  }, [options, brand, normalizeOptions]);
+  /* ================= ✅ 1. FIXED OPTION MAPPING ================= */
+  const optionsMap = useMemo(() => ({
+    brand: normalizeOptions(options.brand || []),
+    model: options.model || {}, // Object for brand-specific models
+    color: normalizeOptions(options.color || []),
+    condition: normalizeOptions(options.condition || []),
+    used_detail: normalizeOptions(options.used_detail || []),
+    ram: normalizeOptions(options.ram || []),
+    storage: normalizeOptions(options.storage || []),
+    sim: normalizeOptions(options.sim || []),
+    features: options.features || [],
+    year: normalizeOptions(options.year || []),
+    engine: normalizeOptions(options.engine || []),
+    fuel_type: normalizeOptions(options.fuel_type || []),
+    size: normalizeOptions(options.size || []),
+    age_range: normalizeOptions(options.age_range || []),
+  }), [options]);
 
-  const sortedFeatures = useMemo(() => 
-    [...(options.features || [])].sort((a, b) => a.localeCompare(b)),
-  [options.features]);
-
+  /* ================= ✅ 2. FIXED FIELDS ================= */
   const fields = useMemo(() => {
-    const dynamic = options.fields || [];
+    const dynamic = selectedCategory?.categoryFields || [];
     return dynamic.includes("condition") ? dynamic : ["condition", ...dynamic];
-  }, [options]);
+  }, [selectedCategory?.categoryFields]);
 
   /* ================= FORM UPDATERS ================= */
   const updateForm = (key, value) => setForm((p) => ({ ...p, [key]: value }));
   const updateAttribute = (key, value) =>
     setForm((p) => ({
       ...p,
-      attributes: { ...p.attributes, [key]: value, ...(key === "brand" && { model: "" }) },
+      attributes: { 
+        ...p.attributes, 
+        [key]: value, 
+        ...(key === "brand" && { model: "" }) // Reset model on brand change
+      },
     }));
   const updateContact = (key, value) =>
     setForm((p) => ({ ...p, contact: { ...p.contact, [key]: value } }));
@@ -241,7 +242,7 @@ export default function AddProduct() {
     }));
 
     setImages((prev) => [...prev, ...newImages]);
-  }, [images.length]); // 🔧 4. Fixed dependency
+  }, [images.length, showError]);
 
   const removeImage = useCallback((id) => {
     setImages((prev) => {
@@ -251,7 +252,6 @@ export default function AddProduct() {
     });
   }, []);
 
-  // 🔧 6. Fixed mobile drag
   const handleDrop = useCallback((e, index) => {
     e.preventDefault();
     const from = dragIndex;
@@ -272,7 +272,7 @@ export default function AddProduct() {
     const timer = setTimeout(() => {
       e.preventDefault();
       setIsDragging(true);
-      setDragIndex(index); // 🔧 6. Fixed
+      setDragIndex(index);
     }, 500);
     e.currentTarget.dataset.timer = String(timer);
   }, []);
@@ -286,24 +286,51 @@ export default function AddProduct() {
     setIsDragging(false);
   }, []);
 
-  /* ================= API ================= */
+  /* ================= ✅ 7-9. FIXED API SUBMISSION ================= */
   const createProductDraft = async () => {
     const fd = new FormData();
-    const payload = {
-      ...form,
-      price: Number(form.price),
-      attributes: JSON.stringify(form.attributes),
-      delivery: JSON.stringify(form.delivery),
-      contact: JSON.stringify(form.contact),
-      location_state: state,
-      location_city: city,
-      promotion_plan: selectedPlan?.id || null,
-    };
+    
+    // Basic fields
+    fd.append("title", form.title);
+    fd.append("description", form.description);
+    fd.append("price", Number(form.price).toString());
+    fd.append("category_id", form.category_id);
+    
+    // ✅ FIXED attributes payload
+    fd.append("attributes", JSON.stringify({
+      brand: attributes.brand,
+      model: attributes.model,
+      color: attributes.color,
+      condition: attributes.condition,
+      used_detail: attributes.used_detail,
+      ram: attributes.ram,
+      storage: attributes.storage,
+      sim: attributes.sim,
+      features: attributes.features,
+      year: attributes.year,
+      engine: attributes.engine,
+      fuel_type: attributes.fuel_type,
+      size: attributes.size,
+      age_range: attributes.age_range,
+    }));
 
-    Object.entries(payload)
-      .filter(([_, v]) => v !== null && v !== undefined && v !== "")
-      .forEach(([k, v]) => fd.append(k, String(v)));
+    // ✅ FIXED delivery payload
+    fd.append("delivery", JSON.stringify({
+      available: form.delivery.type !== "none",
+      type: form.delivery.type,
+      duration: form.delivery.duration,
+      fee: form.delivery.fee,
+      note: form.delivery.note,
+    }));
 
+    // ✅ FIXED contact payload
+    fd.append("contact", JSON.stringify(form.contact));
+    
+    fd.append("location_state", state);
+    fd.append("location_city", city);
+    fd.append("promotion_plan", selectedPlan?.id || null);
+
+    // Images
     const imageFiles = images.map((img) => img.file);
     const compressedFiles = await Promise.all(
       imageFiles.map(async (file) => {
@@ -324,11 +351,8 @@ export default function AddProduct() {
 
     if (!res.ok) {
       const data = await res.json().catch(() => ({}));
-      // 🔧 8. Improved error handling
       throw new Error(
-        data.message ||
-        data.error ||
-        "Failed to save product draft"
+        data.message || data.error || "Failed to save product draft"
       );
     }
 
@@ -378,7 +402,6 @@ export default function AddProduct() {
           { method: "POST" }
         );
         clearDraft();
-        // 🔧 5. Fixed payment persistence
         localStorage.removeItem(STORAGE_PAYMENT);
         setPaymentData(null);
         showSuccess("✅ Product created and activated successfully!");
@@ -455,19 +478,18 @@ export default function AddProduct() {
   }, []);
 
   useEffect(() => {
-    if (!options.fields?.length) return;
+    if (!fields.length) return;
     setForm((prev) => {
       const newAttrs = { ...prev.attributes };
-      options.fields.forEach((f) => {
+      fields.forEach((f) => {
         if (newAttrs[f] === undefined) {
           newAttrs[f] = f === "features" ? [] : "";
         }
       });
       return { ...prev, attributes: newAttrs };
     });
-  }, [form.category_id, options.fields]);
+  }, [form.category_id, fields]);
 
-  // 🔧 10. Fixed memory leak cleanup
   useEffect(() => {
     return () => {
       images.forEach((img) => {
@@ -479,6 +501,11 @@ export default function AddProduct() {
   /* ================= RENDER ================= */
   const states = Object.keys(locationsByState || {});
   const cities = state ? locationsByState[state] : [];
+
+  // ✅ 3. FIXED model options
+  const modelOptions = attributes.brand && options.model?.[attributes.brand] 
+    ? normalizeOptions(options.model[attributes.brand]) 
+    : [];
 
   return (
     <div className="add-product-container">
@@ -509,27 +536,58 @@ export default function AddProduct() {
             type="text"
             inputMode="numeric"
             placeholder="10000"
-            value={form.price} // 🔧 7. Fixed cursor jumping
+            value={displayPrice(form.price)}
             onChange={(e) => updateForm("price", onlyNumbers(e.target.value))}
-            onBlur={() => updateForm("price", onlyNumbers(form.price))} // 🔧 7. Added
+            onBlur={() => updateForm("price", onlyNumbers(form.price))}
           />
         </div>
       </section>
 
-      {/* PRODUCT DETAILS */}
+      {/* ✅ 4. PRODUCT DETAILS - FULLY FIXED RENDER ================= */}
       <section className="section form-card">
         <h3 className="section-title">Product Details</h3>
         <div className="form-group">
           <label>Category <span className="required">*</span></label>
           <DropdownModal
             value={form.category_id}
-            onChange={(v) => updateForm("category_id", v)}
+            onChange={(v) => {
+              updateForm("category_id", v);
+              updateForm("attributes", INITIAL_FORM.attributes); // Reset attributes
+            }}
             options={categories.map((c) => ({ id: c.id, name: c.name }))}
           />
         </div>
 
+        {/* ✅ 4. FIXED BRAND (separate handling) */}
+        {optionsMap.brand.length > 0 && (
+          <div className="form-group">
+            <label>{formatLabel("brand")}</label>
+            <DropdownModal
+              value={attributes.brand}
+              onChange={(v) => updateAttribute("brand", v)}
+              options={optionsMap.brand}
+            />
+          </div>
+        )}
+
+        {/* ✅ 3. FIXED MODEL (brand-dependent) */}
+        {modelOptions.length > 0 && (
+          <div className="form-group">
+            <label>{formatLabel("model")}</label>
+            <DropdownModal
+              value={attributes.model}
+              onChange={(v) => updateAttribute("model", v)}
+              options={modelOptions}
+            />
+          </div>
+        )}
+
+        {/* ✅ 2. FIXED FIELD LOOP */}
         {fields.map((field) => {
-          if (!optionsMap[field] && field !== "features") return null;
+          if (field === "brand" || field === "model") return null; // Handled separately
+          
+          const fieldOptions = optionsMap[field];
+          if (!fieldOptions && field !== "features") return null;
           if (field === "used_detail" && attributes.condition !== "Used") return null;
 
           return (
@@ -538,32 +596,36 @@ export default function AddProduct() {
               <DropdownModal
                 value={attributes[field] || ""}
                 onChange={(v) => updateAttribute(field, v)}
-                options={optionsMap[field]}
+                options={fieldOptions || []}
               />
             </div>
           );
         })}
 
-        {sortedFeatures.length > 0 && (
+        {/* ✅ 6. FIXED FEATURES */}
+        {optionsMap.features.length > 0 && (
           <div className="form-group">
             <label>Features</label>
             <div className="checkbox-grid-inline">
-              {sortedFeatures.map((feature) => (
-                <label key={feature} className="checkbox-inline">
-                  <span>{formatLabel(feature)}</span>
-                  <input
-                    type="checkbox"
-                    checked={attributes.features.includes(feature)}
-                    onChange={() => toggleFeature(feature)}
-                  />
-                </label>
-              ))}
+              {optionsMap.features
+                .slice()
+                .sort((a, b) => a.localeCompare(b))
+                .map((feature) => (
+                  <label key={feature} className="checkbox-inline">
+                    <span>{formatLabel(feature)}</span>
+                    <input
+                      type="checkbox"
+                      checked={attributes.features.includes(feature)}
+                      onChange={() => toggleFeature(feature)}
+                    />
+                  </label>
+                ))}
             </div>
           </div>
         )}
       </section>
 
-      {/* CONTACT */}
+      {/* CONTACT & LOCATION - UNCHANGED */}
       <section className="section form-card">
         <h3 className="section-title">Contact Information</h3>
         <div className="form-group">
@@ -587,7 +649,6 @@ export default function AddProduct() {
         </div>
       </section>
 
-      {/* LOCATION & DELIVERY */}
       <section className="section form-card">
         <h3 className="section-title">Location & Delivery</h3>
         <div className="form-group">
@@ -608,7 +669,7 @@ export default function AddProduct() {
             />
           </div>
         )}
-
+        {/* Delivery fields unchanged */}
         <div className="form-group">
           <label>Delivery Type</label>
           <DropdownModal
@@ -622,7 +683,6 @@ export default function AddProduct() {
             ]}
           />
         </div>
-
         {form.delivery.type !== "none" && form.delivery.type !== "pickup" && (
           <div className="delivery-grid sub-grid">
             <div className="form-group">
@@ -648,16 +708,16 @@ export default function AddProduct() {
               <input
                 type="text"
                 inputMode="numeric"
-                value={form.delivery.fee} // 🔧 7. Fixed cursor jumping
+                value={displayPrice(form.delivery.fee)}
                 onChange={(e) => updateDelivery("fee", onlyNumbers(e.target.value))}
-                onBlur={() => updateDelivery("fee", onlyNumbers(form.delivery.fee))} // 🔧 7. Added
+                onBlur={() => updateDelivery("fee", onlyNumbers(form.delivery.fee))}
               />
             </div>
           </div>
         )}
       </section>
 
-      {/* IMAGES */}
+      {/* Images, Promotion, Actions - UNCHANGED */}
       <section className="section form-card">
         <h3 className="section-title">Product Images</h3>
         <label className="form-group-label">
@@ -670,7 +730,7 @@ export default function AddProduct() {
               className={`preview-thumb ${isDragging ? "dragging" : ""}`}
               draggable
               onClick={() => setActiveImage(img.preview)}
-              onDragStart={() => setDragIndex(i)} // 🔧 6. Fixed
+              onDragStart={() => setDragIndex(i)}
               onDragOver={(e) => e.preventDefault()}
               onDragEnd={() => {
                 setDragIndex(null);
@@ -713,7 +773,6 @@ export default function AddProduct() {
         {images.length > 0 && <small className="price-preview">{images.length}/6 images</small>}
       </section>
 
-      {/* PROMOTION */}
       <section className="section form-card">
         <h3 className="section-title">Promotion Plan (Optional)</h3>
         <div className="plans-grid">
@@ -739,7 +798,6 @@ export default function AddProduct() {
         </div>
       </section>
 
-      {/* ACTION BUTTONS */}
       <div className="button-section section form-card">
         <button className="primary-btn" onClick={handleSubmit} disabled={loading}>
           {loading ? "Processing..." : "Create Product"}
@@ -751,7 +809,6 @@ export default function AddProduct() {
         )}
       </div>
 
-      {/* MESSAGES */}
       {error && (
         <div className="form-error">
           <span>⚠️</span> {error}
@@ -763,7 +820,6 @@ export default function AddProduct() {
         </div>
       )}
 
-      {/* MODALS */}
       {activeImage && (
         <div className="image-modal" onClick={() => setActiveImage(null)}>
           <img src={activeImage} alt="Full preview" />
