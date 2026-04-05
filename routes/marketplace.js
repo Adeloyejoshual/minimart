@@ -7,7 +7,7 @@ import dotenv from "dotenv";
 /* ================= CONFIG ================= */
 import { brands } from "../src/config/brands.js";
 import { colors } from "../src/config/colors.js";
-import { categoryFields } from "../src/config/categoryFields.js"; // ✅ Make sure this exists
+import { categoryFields } from "../src/config/categoryFields.js";
 import { conditions, usedDetails } from "../src/config/conditions.js";
 import { featuresByCategory } from "../src/config/featuresByCategory.js";
 import { models } from "../src/config/models.js";
@@ -58,7 +58,7 @@ const safeJSON = (value, fallback = {}) => {
 };
 
 const normalizeDelivery = (d = {}) => ({
-  available: d?.available ?? false, // ✅ 2. Fixed - now matches frontend
+  available: d?.available ?? false,
   duration: {
     from: Number(d?.duration?.from ?? 0),
     to: Number(d?.duration?.to ?? 0),
@@ -78,6 +78,8 @@ const normalizeProduct = (p) => ({
     city: p.location_city,
   },
 });
+
+const safeArray = (arr) => Array.isArray(arr) ? arr : []; // ✅ 6. Added normalization
 
 /* ================= CLOUDINARY UPLOAD ================= */
 const uploadImages = async (files) => {
@@ -147,7 +149,6 @@ router.get("/products", async (req, res) => {
 
     res.json({ trending, products: [...trending, ...products] });
   } catch (err) {
-    // ✅ 11. Better error handling
     res.status(500).json({ message: err.message || "Failed to fetch products" });
   }
 });
@@ -183,7 +184,6 @@ router.get("/products/:id", async (req, res) => {
 
     res.json(normalizeProduct(rows[0]));
   } catch (err) {
-    // ✅ 11. Better error handling
     res.status(500).json({ message: err.message || "Failed to fetch product" });
   }
 });
@@ -197,9 +197,8 @@ router.post("/products", upload.array("images", 10), async (req, res) => {
   try {
     await client.query("BEGIN");
 
-    const { title, price, category_id, promotion_id } = req.body; // ✅ 1. Fixed field names
+    const { title, price, category_id, promotion_plan } = req.body; // ✅ Fixed: promotion_plan
 
-    // ✅ 12. Image validation
     if (!req.files || req.files.length === 0) {
       return res.status(400).json({ message: "At least one image is required" });
     }
@@ -242,12 +241,12 @@ router.post("/products", upload.array("images", 10), async (req, res) => {
         attributes,
         delivery,
         contact,
-        promotion_id || null, // ✅ 1. Fixed: promotion_plan → promotion_id
-        null, // promotion_start
-        null, // promotion_end
-        false, // is_promoted
-        null, // promotion_type
-        0, // promotion_priority
+        promotion_plan || null, // ✅ Fixed field name
+        null,
+        null,
+        false,
+        null,
+        0,
         req.body.location_state,
         req.body.location_city,
       ]
@@ -270,7 +269,6 @@ router.post("/products", upload.array("images", 10), async (req, res) => {
     res.status(201).json({ product: normalizeProduct(product) });
   } catch (err) {
     await client.query("ROLLBACK");
-    // ✅ 11. Better error handling
     res.status(500).json({ 
       message: err.message || "Failed to create product" 
     });
@@ -280,7 +278,7 @@ router.post("/products", upload.array("images", 10), async (req, res) => {
 });
 
 /* =========================================================
-GET CATEGORIES (PERFECT FRONTEND MATCH)
+GET CATEGORIES (✅ PERFECT FRONTEND CONTRACT)
 ========================================================= */
 router.get("/categories", async (req, res) => {
   try {
@@ -294,25 +292,36 @@ router.get("/categories", async (req, res) => {
     const tree = [];
 
     rows.forEach((cat) => {
-      const key = cat.fields_key || "";
+      // ✅ 3. FIXED key resolution
+      const key = cat.fields_key?.trim() || cat.name.toLowerCase().replace(/s+/g, '_');
 
       map[cat.id] = {
         ...cat,
         dynamicOptions: {
-          // ✅ 6,7,8,9,10. PERFECT KEY MATCHING
-          fields: categoryFields[key] || [], // ✅ Added fields
-          brands: brands[key] || [],
-          model: models[key] || {}, // ✅ Renamed from models
-          colors: colors[key] || [],
-          conditions,
-          used_detail: usedDetails, // ✅ Renamed from usedDetails
-          ram: ramOptions,
-          storage: storageOptions,
-          sims,
-          features: featuresByCategory[key] || [],
-          years,
-          engines,
-          fuel_type: fuelTypes, // ✅ Renamed from fuel_types
+          // ✅ 1. PERFECT KEY MATCHING (frontend contract)
+          fields: categoryFields[key] || [], // 🔥 DRIVES UI FIELDS
+          
+          brand: safeArray(brands[key]), // ✅ Fixed: brands → brand
+          model: models[key] || {}, // ✅ Fixed: models → model (object)
+          color: safeArray(colors[key]),
+          
+          condition: conditions,
+          used_detail: usedDetails, // ✅ Fixed: usedDetails → used_detail
+          
+          ram: safeArray(ramOptions),
+          storage: safeArray(storageOptions),
+          sim: safeArray(sims), // ✅ Fixed: sims → sim
+          
+          features: safeArray(featuresByCategory[key]),
+          
+          year: safeArray(years),
+          engine: safeArray(engines),
+          fuel_type: safeArray(fuelTypes), // ✅ Fixed: fuelTypes → fuel_type
+          
+          // Frontend-ready fallbacks
+          size: safeArray([]),
+          age_range: safeArray([]),
+          
           location: Object.keys(locationsByState),
         },
         subcategories: [],
@@ -321,6 +330,7 @@ router.get("/categories", async (req, res) => {
       if (!cat.parent_id) tree.push(map[cat.id]);
     });
 
+    // ✅ 5. FIXED safe tree building
     rows.forEach((cat) => {
       if (cat.parent_id && map[cat.parent_id]) {
         map[cat.parent_id].subcategories.push(map[cat.id]);
@@ -329,7 +339,6 @@ router.get("/categories", async (req, res) => {
 
     res.json(tree);
   } catch (err) {
-    // ✅ 11. Better error handling
     res.status(500).json({ message: err.message || "Failed to fetch categories" });
   }
 });
