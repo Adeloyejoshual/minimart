@@ -5,8 +5,20 @@ import { HTML5Backend } from 'react-dnd-html5-backend';
 import imageCompression from 'browser-image-compression';
 import { Upload, X, Image as ImageIcon, MapPin, Truck, Phone, Mail } from 'lucide-react';
 
-// Your config imports
-import { brands, colors, categoryFields, conditions, featuresByCategory, models, ramOptions, sims, storageOptions, years, engines, fuelTypes, locationsByState, fieldOptions } from '../config'; // Adjust path
+import { brands } from "../src/config/brands.js";
+import { colors } from "../src/config/colors.js";
+import { categoryFields } from "../src/config/categoryFields.js";
+import { conditions, usedDetails } from "../src/config/conditions.js";
+import { featuresByCategory } from "../src/config/featuresByCategory.js";
+import { models } from "../src/config/models.js";
+import { ramOptions } from "../src/config/ramOptions.js";
+import { sims } from "../src/config/sims.js";
+import { storageOptions } from "../src/config/storageOptions.js";
+import { years } from "../src/config/years.js";
+import { engines } from "../src/config/engines.js";
+import { fuelTypes } from "../src/config/fuelTypes.js";
+import { locationsByState } from "../src/config/locationsByState.js";
+import { fieldOptions } from "../src/config/fieldOptions.js";
 
 const AddProduct = ({ user }) => {
   const [formData, setFormData] = useState({
