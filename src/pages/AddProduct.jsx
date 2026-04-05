@@ -1,712 +1,338 @@
-import { useEffect, useMemo, useState, useCallback, useRef } from "react";
-import DropdownModal from "../components/DropdownModal.jsx";
-import AddProductHeader from "../components/AddProductHeader.jsx";
-import { locationsByState } from "../config/locationsByState.js";
-import "../styles/AddProduct.css";
-import imageCompression from "browser-image-compression";
+import React, { useState, useEffect, useCallback, useRef } from 'react';
+import { useDropzone } from 'react-dropzone';
+import { DndProvider, useDrag, useDrop } from 'react-dnd';
+import { HTML5Backend } from 'react-dnd-html5-backend';
+import imageCompression from 'browser-image-compression';
+import { Upload, X, Image as ImageIcon, MapPin, Truck, Phone, Mail } from 'lucide-react';
 
-const STORAGE_DRAFT = "product_draft";
+// Your config imports
+import { brands, colors, categoryFields, conditions, featuresByCategory, models, ramOptions, sims, storageOptions, years, engines, fuelTypes, locationsByState, fieldOptions } from '../config'; // Adjust path
 
-const INITIAL_FORM = {
-  title: "",
-  description: "",
-  price: "",
-  category_id: "",
-  attributes: {
-    brand: "",
-    model: "",
-    color: "",
-    condition: "",
-    used_detail: "",
-    ram: "",
-    storage: "",
-    sim: "",
-    year: "",
-    engine: "",
-    fuel_type: "",
-    features: [],
-    subcategory: "",
-  },
-  delivery: {
-    type: "standard",
-    duration: { from: "", to: "" },
-    fee: "",
-    note: "",
-  },
-  contact: {
-    phone: "",
-    whatsapp: "",
-    email: "",
-    preferred: "chat",
-  },
-};
-
-export default function AddProduct() {
-  // State
-  const [form, setForm] = useState(INITIAL_FORM);
-  const [categories, setCategories] = useState([]);
-  const [state, setState] = useState("");
-  const [city, setCity] = useState("");
-  const [images, setImages] = useState([]);
-  const [activeImage, setActiveImage] = useState(null);
+const AddProduct = ({ user }) => {
+  const [formData, setFormData] = useState({
+    title: '',
+    description: '',
+    price: '',
+    category_id: '',
+    attributes: {},
+    location_state: '',
+    location_city: '',
+    delivery: { duration: '', fee: '' },
+    contact: { email: user?.email || '', phone: '' },
+    state: 'draft',
+    images: [],
+    // Add other fields as needed
+  });
+  const [errors, setErrors] = useState({});
   const [loading, setLoading] = useState(false);
-  const [error, setError] = useState("");
-  const [success, setSuccess] = useState("");
-  const [isDragging, setIsDragging] = useState(false);
+  const [success, setSuccess] = useState('');
+  const [categories, setCategories] = useState([]);
+  const [dynamicFields, setDynamicFields] = useState({});
+  const [imageModal, setImageModal] = useState(null);
+  const draftKey = 'product_draft_' + user?.id;
+  const saveTimeoutRef = useRef(null);
 
-  const MAX_IMAGES = 6;
-  const MAX_SIZE = 3 * 1024 * 1024;
-
-  // Utilities
-  const isSlowDevice = useCallback(() =>
-    navigator.hardwareConcurrency <= 4 ||
-    navigator.deviceMemory <= 4 ||
-    /Android|iPhone|iPad/i.test(navigator.userAgent)
-  , []);
-
-  const compressImage = useCallback(async (file) => {
-    return await imageCompression(file, {
-      maxSizeMB: isSlowDevice() ? 0.4 : 0.8,
-      maxWidthOrHeight: isSlowDevice() ? 900 : 1280,
-      useWebWorker: true,
-    });
-  }, [isSlowDevice]);
-
-  const showError = useCallback((message) => {
-    setError(message);
-    setTimeout(() => setError(""), 5000);
+  // Load categories from API
+  useEffect(() => {
+    fetch('/api/marketplace/categories')
+      .then(res => res.json())
+      .then(setCategories)
+      .catch(console.error);
   }, []);
 
-  const showSuccess = useCallback((message) => {
-    setSuccess(message);
-    setTimeout(() => setSuccess(""), 3000);
-  }, []);
+  // Load draft from localStorage
+  useEffect(() => {
+    const draft = localStorage.getItem(draftKey);
+    if (draft) {
+      setFormData(JSON.parse(draft));
+    }
+  }, [draftKey]);
 
-  const onlyNumbers = useCallback((v = "") => v.replace(/[^0-9.]/g, ""), []);
-  const onlyDigits = useCallback((v = "") => v.replace(/D/g, ""), []);
-  const displayPrice = useCallback((v) => {
-    const num = Number(v);
-    return Number.isNaN(num) || num <= 0 ? "" : new Intl.NumberFormat("en-NG").format(num);
-  }, []);
-  const formatLabel = useCallback((t) =>
-    t.replace(/_/g, " ").replace(/\bw/g, (l) => l.toUpperCase()),
-  []);
+  // Auto-save draft
+  const saveDraft = useCallback(() => {
+    localStorage.setItem(draftKey, JSON.stringify(formData));
+  }, [formData, draftKey]);
 
-  // Selectors
-  const selectedCategory = useMemo(() =>
-    categories.find(c => String(c.id) === String(form.category_id)),
-  [categories, form.category_id]);
+  useEffect(() => {
+    if (saveTimeoutRef.current) clearTimeout(saveTimeoutRef.current);
+    saveTimeoutRef.current = setTimeout(saveDraft, 10000);
+    return () => clearTimeout(saveTimeoutRef.current);
+  }, [formData, saveDraft]);
 
-  const optionsMap = useMemo(() => {
-    const opt = selectedCategory?.dynamicOptions || {};
-    const normalize = (val) => {
-      if (!val) return [];
-      if (Array.isArray(val)) {
-        return val.map(v => typeof v === "string" ? { id: v, name: v } : v);
-      }
-      if (typeof val === "object") {
-        return Object.values(val).flat().map(v => ({ id: v, name: v }));
-      }
-      return [];
-    };
-    return {
-      brand: normalize(opt.brands),
-      model: normalize(opt.models),
-      color: normalize(opt.colors),
-      condition: normalize(opt.conditions),
-      ram: normalize(opt.ram),
-      storage: normalize(opt.storage),
-      sim: normalize(opt.sims),
-      year: normalize(opt.years),
-      engine: normalize(opt.engines),
-      fuel_type: normalize(opt.fuel_types),
-    };
-  }, [selectedCategory]);
-
-  const sortedFeatures = useMemo(() =>
-    [...(selectedCategory?.dynamicOptions?.features || [])].sort((a, b) => a.localeCompare(b)),
-  [selectedCategory?.dynamicOptions?.features]);
-
-  const fields = useMemo(() => {
-    const dynamic = selectedCategory?.dynamicOptions?.fields || [];
-    return dynamic.includes("condition") ? dynamic : ["condition", ...dynamic];
-  }, [selectedCategory?.dynamicOptions?.fields]);
-
-  // Form updaters
-  const updateForm = useCallback((key, value) => {
-    setForm(prev => ({ ...prev, [key]: value }));
-  }, []);
-
-  const updateAttribute = useCallback((key, value) => {
-    setForm(prev => ({
-      ...prev,
-      attributes: {
-        ...prev.attributes,
-        [key]: value,
-        ...(key === "brand" && { model: "" }),
-      },
-    }));
-  }, []);
-
-  const updateContact = useCallback((key, value) => {
-    setForm(prev => ({
-      ...prev,
-      contact: { ...prev.contact, [key]: value },
-    }));
-  }, []);
-
-  const updateDelivery = useCallback((key, value) => {
-    setForm(prev => ({
-      ...prev,
-      delivery: { ...prev.delivery, [key]: value },
-    }));
-  }, []);
-
-  const updateDeliveryDuration = useCallback((key, value) => {
-    setForm(prev => ({
-      ...prev,
-      delivery: {
-        ...prev.delivery,
-        duration: { ...prev.delivery.duration, [key]: value },
-      },
-    }));
-  }, []);
-
-  const toggleFeature = useCallback((feature) => {
-    setForm(prev => {
-      const features = prev.attributes.features || [];
-      const exists = features.includes(feature);
-      return {
-        ...prev,
-        attributes: {
-          ...prev.attributes,
-          features: exists
-            ? features.filter(f => f !== feature)
-            : [...features, feature],
-        },
-      };
-    });
-  }, []);
+  // Update dynamic fields based on category
+  useEffect(() => {
+    const cat = categories.find(c => c.id === formData.category_id);
+    if (cat) {
+      setDynamicFields(categoryFields[cat.name] || {});
+    }
+  }, [formData.category_id, categories, categoryFields]);
 
   // Validation
-  const validateForm = useCallback(() => {
-    if (form.title.length < 10) return "Title must be at least 10 characters";
-    if (form.description.length < 20) return "Description must be at least 20 characters";
-    if (!form.price || Number(form.price) <= 0) return "Please enter a valid price";
-    if (!form.category_id) return "Please select a category";
-    if (!form.contact.phone || form.contact.phone.length < 10) return "Please enter a valid phone number";
-    if (!form.contact.email || !form.contact.email.includes("@")) return "Please enter a valid email";
-    if (images.length === 0) return "Please upload at least 1 image";
-    if (!state || !city) return "Please select your state and city";
-
-    if (form.delivery.type !== "none" && form.delivery.type !== "pickup") {
-      const from = Number(form.delivery.duration.from);
-      const to = Number(form.delivery.duration.to);
-      if (Number.isNaN(from) || Number.isNaN(to)) return "Please enter delivery duration";
-      if (to < from) return "End day must be after start day";
-      if (!form.delivery.fee || Number(form.delivery.fee) <= 0) return "Please enter delivery fee";
-    }
-    return null;
-  }, [form, images.length, state, city]);
-
-  // Draft
-  const saveDraft = useCallback(() => {
-    if (loading) return;
-    const draft = { form, state, city };
-    localStorage.setItem(STORAGE_DRAFT, JSON.stringify(draft));
-  }, [form, state, city, loading]);
-
-  const loadDraft = useCallback(() => {
-    try {
-      const saved = localStorage.getItem(STORAGE_DRAFT);
-      if (saved) {
-        const draft = JSON.parse(saved);
-        setForm(draft.form || INITIAL_FORM);
-        setState(draft.state || "");
-        setCity(draft.city || "");
-      }
-    } catch (e) {
-      console.error("Draft load failed:", e);
-    }
-  }, []);
-
-  const clearDraft = useCallback(() => {
-    setForm(INITIAL_FORM);
-    setImages([]);
-    setState(""); 
-    setCity("");
-    setError(""); 
-    setSuccess("");
-    localStorage.removeItem(STORAGE_DRAFT);
-  }, []);
-
-  // Images
-  const handleImages = useCallback((files) => {
-    if (images.length >= MAX_IMAGES) {
-      showError("Maximum 6 images allowed");
-      return;
-    }
-    const fileArray = Array.from(files);
-    const remaining = MAX_IMAGES - images.length;
-    const validFiles = fileArray
-      .filter(f => f.type.startsWith("image/") && f.size <= MAX_SIZE)
-      .slice(0, remaining);
-
-    const generateId = () =>
-      crypto?.randomUUID?.() || `${Date.now()}-${Math.random()}`;
-
-    const newImages = validFiles.map(file => ({
-      id: generateId(),
-      file, 
-      preview: URL.createObjectURL(file),
-    }));
-
-    setImages(prev => [...prev, ...newImages]);
-  }, [images.length, showError]);
-
-  const removeImage = useCallback((id) => {
-    setImages(prev => {
-      const target = prev.find(x => x.id === id);
-      if (target?.preview) URL.revokeObjectURL(target.preview);
-      return prev.filter(x => x.id !== id);
-    });
-  }, []);
-
-  const handleDrop = useCallback((e, index) => {
-    e.preventDefault();
-    const from = Number(e.dataTransfer.getData("index"));
-    setImages(prev => {
-      const copy = [...prev];
-      const [moved] = copy.splice(from, 1);
-      copy.splice(index, 0, moved);
-      return copy;
-    });
-    setIsDragging(false);
-  }, []);
-
-  const handleTouchStart = useCallback((e, index) => {
-    const timer = setTimeout(() => {
-      e.preventDefault();
-      setIsDragging(true);
-      if (e.dataTransfer) e.dataTransfer.setData("index", index);
-    }, 500);
-    e.currentTarget.dataset.timer = String(timer);
-  }, []);
-
-  const handleLongPressEnd = useCallback((e) => {
-    const timerId = e.currentTarget?.dataset.timer;
-    if (timerId) {
-      clearTimeout(Number(timerId));
-      delete e.currentTarget.dataset.timer;
-    }
-    setIsDragging(false);
-  }, []);
-
-  // API
-  const createProductDraft = async () => {
-    const fd = new FormData();
-    const payload = {
-      title: form.title, 
-      description: form.description,
-      price: Number(form.price), 
-      category_id: form.category_id,
-      subcategory_id: form.attributes.subcategory || null,
-      attributes: JSON.stringify(form.attributes),
-      delivery: JSON.stringify(form.delivery),
-      contact: JSON.stringify(form.contact),
-      location_state: state, 
-      location_city: city,
-    };
-
-    Object.entries(payload).forEach(([key, value]) => {
-      if (value !== null && value !== undefined && value !== "") {
-        fd.append(key, String(value));
-      }
-    });
-
-    const imageFiles = images.map(img => img.file).filter(Boolean);
-    const compressedFiles = await Promise.all(
-      imageFiles.map(async (file) => {
-        try {
-          const compressed = await compressImage(file);
-          return new File([compressed], file.name, { type: compressed.type });
-        } catch {
-          return file;
-        }
-      })
-    );
-
-    compressedFiles.forEach((file) => fd.append("images", file));
-
-    const res = await fetch("https://minimart-ivrm.onrender.com/api/marketplace/products", {
-      method: "POST", 
-      body: fd,
-    });
-
-    if (!res.ok) {
-      const text = await res.text();
-      let data = {};
-      try { data = JSON.parse(text || "{}"); } catch {}
-      throw new Error(data.message || `HTTP ${res.status}`);
-    }
-
-    return (await res.json()).product;
+  const validateField = (name, value) => {
+    if (!value && name !== 'description') return 'Required';
+    if (name === 'price' && (isNaN(value) || value <= 0)) return 'Invalid price';
+    if (name === 'contact.email' && !/S+@S+.S+/.test(value)) return 'Invalid email';
+    return '';
   };
 
+  const handleChange = (e) => {
+    const { name, value } = e.target;
+    setFormData(prev => ({ ...prev, [name]: value }));
+    setErrors(prev => ({ ...prev, [name]: validateField(name, value) }));
+  };
+
+  const handleObjectChange = (path, value) => {
+    const keys = path.split('.');
+    setFormData(prev => {
+      const newData = { ...prev };
+      let obj = newData;
+      for (let i = 0; i < keys.length - 1; i++) obj = obj[keys[i]] = { ...obj[keys[i]] };
+      obj[keys[keys.length - 1]] = value;
+      return newData;
+    });
+  };
+
+  // Image handling
+  const maxImages = 6;
+  const onDrop = useCallback(async (acceptedFiles) => {
+    const newImages = await Promise.all(
+      acceptedFiles.slice(0, maxImages - formData.images.length).map(async (file) => {
+        if (file.size > 5 * 1024 * 1024) return null; // 5MB limit
+        const options = { maxSizeMB: 1, maxWidthOrHeight: 1920 };
+        const compressed = await imageCompression(file, options);
+        return {
+          file: compressed,
+          preview: URL.createObjectURL(compressed),
+          url: '', // Backend will fill
+        };
+      }).filter(Boolean)
+    );
+    setFormData(prev => ({ ...prev, images: [...prev.images, ...newImages] }));
+  }, [formData.images]);
+
+  const { getRootProps, getInputProps, isDragActive } = useDropzone({
+    onDrop,
+    accept: { 'image/*': [] },
+    multiple: true,
+    maxFiles: maxImages,
+  });
+
+  // Drag & Drop for images reorder [web:11]
+  const moveImage = (dragIndex, hoverIndex) => {
+    setFormData(prev => {
+      const images = [...prev.images];
+      const [dragged] = images.splice(dragIndex, 1);
+      images.splice(hoverIndex, 0, dragged);
+      return { ...prev, images };
+    });
+  };
+
+  const ImageItem = ({ image, index }) => {
+    const ref = useRef(null);
+    const [{ isDragging }, drag] = useDrag({
+      type: 'image',
+      item: { index },
+      collect: (monitor) => ({ isDragging: !!monitor.isDragging() }),
+    });
+    const [, drop] = useDrop({
+      accept: 'image',
+      hover: (item) => {
+        if (item.index === index) return;
+        moveImage(item.index, index);
+        item.index = index;
+      },
+    });
+
+    const removeImage = () => {
+      URL.revokeObjectURL(image.preview);
+      setFormData(prev => ({ ...prev, images: prev.images.filter((_, i) => i !== index) }));
+    };
+
+    return (
+      <div ref={drag(drop(ref))} className={`relative p-2 bg-gray-100 rounded-lg cursor-move ${isDragging ? 'opacity-50' : ''}`}>
+        <img src={image.preview} alt="Preview" className="w-20 h-20 object-cover rounded" onClick={() => setImageModal(index)} />
+        <button onClick={removeImage} className="absolute top-1 right-1 bg-red-500 text-white rounded-full p-1">
+          <X size={16} />
+        </button>
+      </div>
+    );
+  };
+
+  // Submit
   const handleSubmit = async (e) => {
-    e?.preventDefault();
-    const validationError = validateForm();
-    if (validationError) {
-      showError(validationError);
-      return;
-    }
+    e.preventDefault();
+    const newErrors = {};
+    Object.keys(formData).forEach(key => {
+      if (key !== 'images' && key !== 'attributes') {
+        newErrors[key] = validateField(key, formData[key]);
+      }
+    });
+    if (formData.images.length === 0) newErrors.images = 'At least one image required';
+    setErrors(newErrors);
+
+    if (Object.values(newErrors).some(err => err)) return;
 
     setLoading(true);
-    setError("");
+    const data = new FormData();
+    Object.keys(formData).forEach(key => {
+      if (key === 'images') {
+        formData.images.forEach((img, i) => {
+          data.append(`images[${i}]`, img.file);
+        });
+      } else if (typeof formData[key] === 'object') {
+        data.append(key, JSON.stringify(formData[key]));
+      } else {
+        data.append(key, formData[key]);
+      }
+    });
+    data.append('user_id', user.id);
+    data.append('seller_id', user.id);
 
     try {
-      const product = await createProductDraft();
-      if (!product?.id) {
-        throw new Error("Failed to create product");
+      const res = await fetch('/api/marketplace/products', {
+        method: 'POST',
+        body: data,
+      });
+      if (res.ok) {
+        setSuccess('Product created successfully!');
+        localStorage.removeItem(draftKey);
+        setFormData({ /* reset */ });
+      } else {
+        throw new Error('Submission failed');
       }
-
-      showSuccess("✅ Product created successfully!");
-      clearDraft();
-      setTimeout(() => window.location.href = "/", 2000);
-
     } catch (err) {
-      console.error("Submit error:", err);
-      showError(err.message || "Failed to create product.");
+      setErrors({ submit: err.message });
     } finally {
       setLoading(false);
     }
   };
 
-  // Effects
-  useEffect(() => loadDraft(), []);
-  
-  useEffect(() => {
-    if (!loading) {
-      const timeout = setTimeout(saveDraft, 1000);
-      return () => clearTimeout(timeout);
-    }
-  }, [form, state, city, images.length, loading]);
-
-  useEffect(() => {
-    fetch("https://minimart-ivrm.onrender.com/api/marketplace/categories")
-      .then(r => r.json())
-      .then(setCategories)
-      .catch(console.error);
-  }, []);
-
-  useEffect(() => {
-    if (!selectedCategory?.dynamicOptions?.fields?.length) return;
-    setForm(prev => {
-      const newAttrs = { ...prev.attributes };
-      selectedCategory.dynamicOptions.fields.forEach(f => {
-        if (newAttrs[f] === undefined) {
-          newAttrs[f] = f === "features" ? [] : "";
-        }
-      });
-      return { ...prev, attributes: newAttrs };
-    });
-  }, [form.category_id, selectedCategory?.dynamicOptions?.fields]);
-
-  useEffect(() => {
-    return () => {
-      images.forEach(img => img.preview && URL.revokeObjectURL(img.preview));
-    };
-  }, [images]);
-
-  useEffect(() => {
-    const handleEsc = (e) => {
-      if (e.key === 'Escape') setActiveImage(null);
-    };
-    if (activeImage) {
-      document.addEventListener('keydown', handleEsc);
-      return () => document.removeEventListener('keydown', handleEsc);
-    }
-  }, [activeImage]);
-
-  // Render data
-  const states = Object.keys(locationsByState || {});
-  const cities = state ? locationsByState[state] : [];
-
   return (
-    <div className="add-product-container">
-      <AddProductHeader title="Add Product" onClearDraft={clearDraft} />
+    <DndProvider backend={HTML5Backend}>
+      <div className="max-w-2xl mx-auto p-4 sm:p-6 bg-white rounded-xl shadow-lg">
+        <h1 className="text-2xl font-bold mb-6 text-center">Add New Product</h1>
+        
+        <form onSubmit={handleSubmit} className="space-y-6">
+          {/* Basic Fields */}
+          <div>
+            <label className="block text-sm font-medium mb-2 flex items-center"><span>Title</span></label>
+            <input name="title" value={formData.title} onChange={handleChange} className="w-full p-3 border rounded-lg focus:ring-2 focus:ring-blue-500" />
+            {errors.title && <p className="text-red-500 text-sm mt-1">{errors.title}</p>}
+          </div>
 
-      {/* BASIC INFO */}
-      <section className="section form-card">
-        <h3 className="section-title">Basic Information</h3>
-        <div className="form-group">
-          <label>Product Title <span className="required">*</span></label>
-          <input
-            placeholder="Enter product title"
-            value={form.title}
-            onChange={e => updateForm("title", e.target.value)}
-          />
-        </div>
-        <div className="form-group">
-          <label>Description <span className="required">*</span></label>
-          <textarea
-            placeholder="Detailed product description"
-            value={form.description}
-            onChange={e => updateForm("description", e.target.value)}
-          />
-        </div>
-        <div className="form-group">
-          <label>Price (₦) <span className="required">*</span></label>
-          <input
-            type="text"
-            inputMode="numeric"
-            placeholder="10000"
-            value={displayPrice(form.price)}
-            onChange={e => updateForm("price", onlyNumbers(e.target.value))}
-          />
-        </div>
-      </section>
-
-      {/* PRODUCT DETAILS */}
-      <section className="section form-card">
-        <h3 className="section-title">Product Details</h3>
-        <div className="form-group">
-          <label>Category <span className="required">*</span></label>
-          <DropdownModal
-            value={form.category_id}
-            onChange={(v) =>
-              setForm(prev => ({
-                ...prev,
-                category_id: v,
-                attributes: INITIAL_FORM.attributes,
-              }))
-            }
-            options={categories.map(c => ({ id: c.id, name: c.name }))}
-          />
-        </div>
-
-        {fields.map(field => {
-          if (!optionsMap[field] && field !== "features") return null;
-          if (field === "used_detail" && form.attributes.condition !== "Used") return null;
-
-          return (
-            <div key={field} className="form-group">
-              <label>{formatLabel(field)}</label>
-              <DropdownModal
-                value={form.attributes[field] || ""}
-                onChange={v => updateAttribute(field, v)}
-                options={optionsMap[field]}
-              />
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <div>
+              <label className="block text-sm font-medium mb-2">Price ($)</label>
+              <input name="price" type="number" step="0.01" value={formData.price} onChange={handleChange} className="w-full p-3 border rounded-lg" />
+              {errors.price && <p className="text-red-500 text-sm">{errors.price}</p>}
             </div>
-          );
-        })}
-
-        {sortedFeatures.length > 0 && (
-          <div className="form-group">
-            <label>Features</label>
-            <div className="checkbox-grid-inline">
-              {sortedFeatures.map(feature => (
-                <label key={feature} className="checkbox-inline">
-                  <span>{formatLabel(feature)}</span>
-                  <input
-                    type="checkbox"
-                    checked={(form.attributes.features || []).includes(feature)}
-                    onChange={() => toggleFeature(feature)}
-                  />
-                </label>
-              ))}
+            <div>
+              <label className="block text-sm font-medium mb-2">Category</label>
+              <select name="category_id" value={formData.category_id} onChange={handleChange} className="w-full p-3 border rounded-lg">
+                <option value="">Select Category</option>
+                {categories.map(cat => <option key={cat.id} value={cat.id}>{cat.name}</option>)}
+              </select>
             </div>
           </div>
-        )}
-      </section>
 
-      {/* CONTACT */}
-      <section className="section form-card">
-        <h3 className="section-title">Contact Information</h3>
-        <div className="form-group">
-          <label>Email <span className="required">*</span></label>
-          <input
-            type="email"
-            placeholder="your@email.com"
-            value={form.contact.email}
-            onChange={e => updateContact("email", e.target.value)}
-          />
-        </div>
-        <div className="form-group">
-          <label>Phone <span className="required">*</span></label>
-          <input
-            type="text"
-            inputMode="tel"
-            placeholder="08012345678"
-            value={form.contact.phone}
-            onChange={e => updateContact("phone", onlyDigits(e.target.value))}
-          />
-        </div>
-      </section>
+          <textarea name="description" placeholder="Description" value={formData.description} onChange={handleChange} rows={4} className="w-full p-3 border rounded-lg" />
 
-      {/* LOCATION & DELIVERY */}
-      <section className="section form-card">
-        <h3 className="section-title">Location & Delivery</h3>
-        <div className="form-group">
-          <label>State <span className="required">*</span></label>
-          <DropdownModal
-            value={state}
-            onChange={setState}
-            options={states.map(s => ({ id: s, name: s }))}
-          />
-        </div>
-        {state && (
-          <div className="form-group">
-            <label>City <span className="required">*</span></label>
-            <DropdownModal
-              value={city}
-              onChange={setCity}
-              options={cities.map(c => ({ id: c, name: c }))}
-            />
-          </div>
-        )}
-
-        <div className="form-group">
-          <label>Delivery Type</label>
-          <DropdownModal
-            value={form.delivery.type}
-            onChange={v => updateDelivery("type", v)}
-            options={[
-              { id: "none", name: "No delivery" },
-              { id: "standard", name: "Standard delivery" },
-              { id: "express", name: "Express delivery" },
-              { id: "pickup", name: "Pickup only" },
-            ]}
-          />
-        </div>
-
-        {form.delivery.type !== "none" && form.delivery.type !== "pickup" && (
-          <div className="delivery-grid sub-grid">
-            <div className="form-group">
-              <label>From (days) <span className="required">*</span></label>
-              <input
-                type="text"
-                inputMode="numeric"
-                min="1"
-                value={form.delivery.duration.from}
-                onChange={e => updateDeliveryDuration("from", onlyDigits(e.target.value))}
-              />
-            </div>
-            <div className="form-group">
-              <label>To (days) <span className="required">*</span></label>
-              <input
-                type="text"
-                inputMode="numeric"
-                min="1"
-                value={form.delivery.duration.to}
-                onChange={e => updateDeliveryDuration("to", onlyDigits(e.target.value))}
-              />
-            </div>
-            <div className="form-group">
-              <label>Fee (₦) <span className="required">*</span></label>
-              <input
-                type="text"
-                inputMode="numeric"
-                value={displayPrice(form.delivery.fee)}
-                onChange={e => updateDelivery("fee", onlyNumbers(e.target.value))}
-              />
-            </div>
-          </div>
-        )}
-      </section>
-
-      {/* IMAGES */}
-      <section className="section form-card">
-        <h3 className="section-title">Product Images</h3>
-        <label className="form-group-label">
-          Product Images (max 6, 3MB each) <span className="required">*</span>
-        </label>
-        <div className="preview-grid-modern image-upload-box">
-          {images.map((img, i) => (
-            <div
-              key={img.id}
-              className={`preview-thumb ${isDragging ? "dragging" : ""}`}
-              draggable
-              onClick={() => setActiveImage(img.preview)}
-              onDragStart={e => e.dataTransfer.setData("index", i)}
-              onDragOver={e => e.preventDefault()}
-              onDragEnd={() => setIsDragging(false)}
-              onDrop={e => handleDrop(e, i)}
-              onTouchStart={e => handleTouchStart(e, i)}
-              onTouchEnd={handleLongPressEnd}
-              onMouseDown={e => handleTouchStart(e, i)}
-              onMouseUp={handleLongPressEnd}
-            >
-              <img src={img.preview} alt="" />
-              <button
-                onClick={e => {
-                  e.stopPropagation();
-                  removeImage(img.id);
-                }}
-              >
-                ✕
-              </button>
+          {/* Dynamic Fields */}
+          {Object.entries(dynamicFields).map(([field, options]) => (
+            <div key={field}>
+              <label className="block text-sm font-medium mb-2">{field}</label>
+              <select name={`attributes.${field}`} value={formData.attributes[field] || ''} onChange={(e) => handleObjectChange(`attributes.${field}`, e.target.value)} className="w-full p-3 border rounded-lg">
+                <option value="">{field}...</option>
+                {options.map(opt => <option key={opt} value={opt}>{opt}</option>)}
+              </select>
             </div>
           ))}
-          {images.length < MAX_IMAGES && (
-            <label className="add-image-box add-image-btn">
-              <input
-                type="file"
-                multiple
-                accept="image/*"
-                hidden
-                onChange={e => {
-                  handleImages(e.target.files);
-                  e.target.value = "";
-                }}
-              />
-              <div>+</div>
-              <span>Add Image</span>
-            </label>
-          )}
-        </div>
-        {images.length > 0 && (
-          <small className="price-preview">{images.length}/6 images</small>
-        )}
-      </section>
 
-      {/* CREATE BUTTON */}
-      <div className="button-section section form-card">
-        <button
-          type="button"
-          className="primary-btn"
-          onClick={handleSubmit}
-          disabled={loading}
-        >
-          {loading ? "Creating..." : "Create Product"}
-        </button>
+          {/* Location */}
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <div>
+              <label className="block text-sm font-medium mb-2 flex items-center"><MapPin size={16} className="mr-1" /> State</label>
+              <select name="location_state" value={formData.location_state} onChange={handleChange} className="w-full p-3 border rounded-lg">
+                <option value="">Select State</option>
+                {Object.keys(locationsByState).map(state => <option key={state} value={state}>{state}</option>)}
+              </select>
+            </div>
+            <div>
+              <label className="block text-sm font-medium mb-2">City</label>
+              <input name="location_city" value={formData.location_city} onChange={handleChange} className="w-full p-3 border rounded-lg" list={`cities-${formData.location_state}`} />
+              {formData.location_state && (
+                <datalist id={`cities-${formData.location_state}`}>
+                  {locationsByState[formData.location_state]?.map(city => <option key={city} value={city} />)}
+                </datalist>
+              )}
+            </div>
+          </div>
+
+          {/* Delivery */}
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <div>
+              <label className="block text-sm font-medium mb-2 flex items-center"><Truck size={16} className="mr-1" /> Duration (days)</label>
+              <input name="delivery.duration" type="number" value={formData.delivery.duration} onChange={(e) => handleObjectChange('delivery.duration', e.target.value)} className="w-full p-3 border rounded-lg" />
+            </div>
+            <div>
+              <label className="block text-sm font-medium mb-2">Fee ($)</label>
+              <input name="delivery.fee" type="number" step="0.01" value={formData.delivery.fee} onChange={(e) => handleObjectChange('delivery.fee', e.target.value)} className="w-full p-3 border rounded-lg" />
+            </div>
+          </div>
+
+          {/* Contact */}
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <div>
+              <label className="block text-sm font-medium mb-2 flex items-center"><Mail size={16} className="mr-1" /> Email</label>
+              <input name="contact.email" value={formData.contact.email} onChange={(e) => handleObjectChange('contact.email', e.target.value)} className="w-full p-3 border rounded-lg" />
+              {errors['contact.email'] && <p className="text-red-500 text-sm">{errors['contact.email']}</p>}
+            </div>
+            <div>
+              <label className="block text-sm font-medium mb-2 flex items-center"><Phone size={16} className="mr-1" /> Phone</label>
+              <input name="contact.phone" value={formData.contact.phone} onChange={(e) => handleObjectChange('contact.phone', e.target.value)} className="w-full p-3 border rounded-lg" />
+            </div>
+          </div>
+
+          {/* Images */}
+          <div>
+            <label className="block text-sm font-medium mb-4 flex items-center">
+              <ImageIcon size={16} className="mr-1" /> Images (Max 6)
+            </label>
+            <div {...getRootProps()} className={`border-2 border-dashed rounded-lg p-8 text-center cursor-pointer transition-all ${isDragActive ? 'border-blue-500 bg-blue-50' : 'border-gray-300 hover:border-gray-400'}`}>
+              <input {...getInputProps()} />
+              <p>{isDragActive ? 'Drop images here...' : 'Drag & drop or click to upload images'}</p>
+            </div>
+            {formData.images.length > 0 && (
+              <div className="mt-4 grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-4">
+                {formData.images.map((image, index) => <ImageItem key={index} image={image} index={index} />)}
+              </div>
+            )}
+            {errors.images && <p className="text-red-500 text-sm mt-2">{errors.images}</p>}
+            {formData.images.length >= maxImages && <p className="text-orange-500 text-sm">Max 6 images reached.</p>}
+          </div>
+
+          {success && <div className="p-4 bg-green-100 border border-green-400 text-green-700 rounded-lg">{success}</div>}
+          {errors.submit && <div className="p-4 bg-red-100 border border-red-400 text-red-700 rounded-lg">{errors.submit}</div>}
+
+          <div className="flex flex-col sm:flex-row gap-4 pt-4">
+            <button type="submit" disabled={loading} className="flex-1 bg-blue-600 text-white py-3 px-6 rounded-lg font-medium hover:bg-blue-700 disabled:opacity-50">
+              {loading ? 'Publishing...' : 'Publish Product'}
+            </button>
+            <button type="button" onClick={saveDraft} className="flex-1 bg-gray-600 text-white py-3 px-6 rounded-lg font-medium hover:bg-gray-700">
+              Save Draft
+            </button>
+          </div>
+        </form>
       </div>
 
-      {/* MESSAGES */}
-      {error && (
-        <div className="form-error">
-          <span>⚠️</span> {error}
+      {/* Image Modal */}
+      {imageModal !== null && (
+        <div className="fixed inset-0 bg-black/80 flex items-center justify-center z-50 p-4" onClick={() => setImageModal(null)}>
+          <img src={formData.images[imageModal]?.preview} alt="Full" className="max-w-full max-h-full object-contain" />
         </div>
       )}
-      {success && (
-        <div className="form-success">
-          <span>✅</span> {success}
-        </div>
-      )}
-
-      {/* MODALS */}
-      {activeImage && (
-        <div className="image-modal" onClick={() => setActiveImage(null)}>
-          <img src={activeImage} alt="Full preview" />
-        </div>
-      )}
-
-      {loading && (
-        <div className="loading-overlay">
-          <div className="loader"></div>
-          <div className="loading-text">Creating your product...</div>
-        </div>
-      )}
-    </div>
+    </DndProvider>
   );
-}
+};
+
+export default AddProduct;
