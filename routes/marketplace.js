@@ -65,8 +65,9 @@ const parseDurationDays = (duration) => {
   return match ? parseInt(match[1], 10) : 0;
 };
 
+// ✅ FIXED: Proper INT8 comparison for promotion_plans.id
 const getPlan = (id) => {
-  const plan = promotionPlans.find((p) => String(p.id) === String(id));
+  const plan = promotionPlans.find((p) => Number(p.id) === Number(id));
   if (!plan) return null;
 
   return {
@@ -177,13 +178,13 @@ router.get("/payment/verify/:reference", async (req, res) => {
 
 router.post("/payment/initialize", async (req, res) => {
   try {
-    const { email, amount, plan_id, product_id } = req.body;
+    const { email, amount, planId, productId } = req.body;
 
-    if (!email || !amount || !plan_id || !product_id) {
+    if (!email || !amount || !planId || !productId) {
       return res.status(400).json({ success: false, message: "Missing required fields" });
     }
 
-    const plan = getPlan(plan_id);
+    const plan = getPlan(planId);
     if (!plan) {
       return res.status(400).json({ success: false, message: "Invalid plan ID" });
     }
@@ -194,7 +195,7 @@ router.post("/payment/initialize", async (req, res) => {
       `INSERT INTO payments (reference, amount, plan_id, product_id, email, status, created_at)
        VALUES ($1, $2, $3, $4, $5, 'pending', NOW())
        ON CONFLICT (reference) DO NOTHING`,
-      [reference, amount, plan_id, product_id, email]
+      [reference, amount, planId, productId, email]
     );
 
     const { data } = await axios.post(
@@ -203,7 +204,7 @@ router.post("/payment/initialize", async (req, res) => {
         email,
         amount: amount * 100,
         reference,
-        metadata: { product_id, plan_id },
+        metadata: { product_id: productId, plan_id: planId },
       },
       {
         headers: {
@@ -288,6 +289,49 @@ router.post("/webhooks/paystack", express.raw({ type: "application/json" }), asy
   } catch (error) {
     console.error("Paystack webhook error:", error);
     res.status(500).send("Internal Server Error");
+  }
+});
+
+/* ================= ✅ NEW: ACTIVATE ENDPOINT ================= */
+router.post("/products/:id/activate", async (req, res) => {
+  try {
+    const { id } = req.params;
+    
+    const { rowCount } = await pool.query(
+      `UPDATE products 
+       SET status = 'active', 
+           is_active = true, 
+           updated_at = NOW()
+       WHERE id = $1 AND status = 'pending'`,
+      [id]
+    );
+    
+    if (rowCount === 0) {
+      return res.status(404).json({ success: false, message: "Product not found or already active" });
+    }
+    
+    const { rows } = await pool.query(
+      `SELECT 
+         p.*,
+         COALESCE(
+           json_agg(pi.image_url ORDER BY pi.position_order ASC) FILTER (WHERE pi.image_url IS NOT NULL), 
+           '[]'::jsonb
+         ) as images
+       FROM products p
+       LEFT JOIN product_images pi ON p.id = pi.product_id
+       WHERE p.id = $1 
+       GROUP BY p.id`,
+      [id]
+    );
+    
+    res.json({ 
+      success: true, 
+      product: normalizeProduct(rows[0]),
+      message: "Product activated successfully"
+    });
+  } catch (error) {
+    console.error("Activate product error:", error);
+    res.status(500).json({ success: false, message: "Activation failed" });
   }
 });
 
@@ -459,7 +503,7 @@ router.post("/products", upload.array("images", 10), async (req, res) => {
         contact || "{}",
         location_state,
         location_city,
-        promotion_id || null,
+        promotion_id ? Number(promotion_id) : null, // ✅ FIXED: Proper INT8 conversion
       ]
     );
 
@@ -556,7 +600,7 @@ router.get("/categories", async (req, res) => {
          SELECT c.id, c.name, c.parent_id, c.fields_key, ct.level + 1
          FROM categories c
          JOIN category_tree ct ON c.parent_id = ct.id
-         WHERE ct.level < 3  -- prevent infinite recursion
+         WHERE ct.level < 3
        )
        SELECT * FROM category_tree 
        ORDER BY level, name
