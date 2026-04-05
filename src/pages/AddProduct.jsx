@@ -1,9 +1,5 @@
-import React, { useState, useEffect, useCallback, useRef } from 'react';
-import { useDropzone } from 'react-dropzone';
-import { DndProvider, useDrag, useDrop } from 'react-dnd';
-import { HTML5Backend } from 'react-dnd-html5-backend';
-import imageCompression from 'browser-image-compression';
-import { Upload, X, Image as ImageIcon, MapPin, Truck, Phone, Mail } from 'lucide-react';
+import { useEffect, useState, useRef } from "react";
+import imageCompression from "browser-image-compression";
 
 import { brands } from "../config/brands.js";
 import { colors } from "../config/colors.js";
@@ -20,331 +16,283 @@ import { fuelTypes } from "../config/fuelTypes.js";
 import { locationsByState } from "../config/locationsByState.js";
 import { fieldOptions } from "../config/fieldOptions.js";
 
-const AddProduct = ({ user }) => {
-  const [formData, setFormData] = useState({
-    title: '',
-    description: '',
-    price: '',
-    category_id: '',
-    attributes: {},
-    location_state: '',
-    location_city: '',
-    delivery: { duration: '', fee: '' },
-    contact: { email: user?.email || '', phone: '' },
-    state: 'draft',
-    images: [],
-    // Add other fields as needed
-  });
-  const [errors, setErrors] = useState({});
-  const [loading, setLoading] = useState(false);
-  const [success, setSuccess] = useState('');
-  const [categories, setCategories] = useState([]);
-  const [dynamicFields, setDynamicFields] = useState({});
-  const [imageModal, setImageModal] = useState(null);
-  const draftKey = 'product_draft_' + user?.id;
-  const saveTimeoutRef = useRef(null);
+const STORAGE_KEY = "product_draft_v2";
 
-  // Load categories from API
+export default function AddProduct({ user }) {
+  const fileRef = useRef();
+
+  const [loading, setLoading] = useState(false);
+  const [preview, setPreview] = useState(null);
+
+  const [form, setForm] = useState({
+    title: "",
+    description: "",
+    price: "",
+    category_id: "",
+    subcategory_id: "",
+    attributes: {},
+    location_state: "",
+    location_city: "",
+    delivery: { duration: "", fee: "" },
+    contact: { email: "", phone: "" }
+  });
+
+  const [images, setImages] = useState([]);
+
+  // ================= LOAD DRAFT =================
   useEffect(() => {
-    fetch('/api/marketplace/categories')
-      .then(res => res.json())
-      .then(setCategories)
-      .catch(console.error);
+    const draft = localStorage.getItem(STORAGE_KEY);
+    if (draft) {
+      const parsed = JSON.parse(draft);
+      setForm(parsed.form || {});
+      setImages(parsed.images || []);
+    }
   }, []);
 
-  // Load draft from localStorage
+  // ================= AUTO SAVE =================
   useEffect(() => {
-    const draft = localStorage.getItem(draftKey);
-    if (draft) {
-      setFormData(JSON.parse(draft));
-    }
-  }, [draftKey]);
+    localStorage.setItem(STORAGE_KEY, JSON.stringify({ form, images }));
+  }, [form, images]);
 
-  // Auto-save draft
-  const saveDraft = useCallback(() => {
-    localStorage.setItem(draftKey, JSON.stringify(formData));
-  }, [formData, draftKey]);
-
-  useEffect(() => {
-    if (saveTimeoutRef.current) clearTimeout(saveTimeoutRef.current);
-    saveTimeoutRef.current = setTimeout(saveDraft, 10000);
-    return () => clearTimeout(saveTimeoutRef.current);
-  }, [formData, saveDraft]);
-
-  // Update dynamic fields based on category
-  useEffect(() => {
-    const cat = categories.find(c => c.id === formData.category_id);
-    if (cat) {
-      setDynamicFields(categoryFields[cat.name] || {});
-    }
-  }, [formData.category_id, categories, categoryFields]);
-
-  // Validation
-  const validateField = (name, value) => {
-    if (!value && name !== 'description') return 'Required';
-    if (name === 'price' && (isNaN(value) || value <= 0)) return 'Invalid price';
-    if (name === 'contact.email' && !/S+@S+.S+/.test(value)) return 'Invalid email';
-    return '';
+  // ================= INPUT =================
+  const update = (name, value) => {
+    setForm(prev => ({ ...prev, [name]: value }));
   };
 
-  const handleChange = (e) => {
-    const { name, value } = e.target;
-    setFormData(prev => ({ ...prev, [name]: value }));
-    setErrors(prev => ({ ...prev, [name]: validateField(name, value) }));
+  const updateNested = (section, key, value) => {
+    setForm(prev => ({
+      ...prev,
+      [section]: { ...prev[section], [key]: value }
+    }));
   };
 
-  const handleObjectChange = (path, value) => {
-    const keys = path.split('.');
-    setFormData(prev => {
-      const newData = { ...prev };
-      let obj = newData;
-      for (let i = 0; i < keys.length - 1; i++) obj = obj[keys[i]] = { ...obj[keys[i]] };
-      obj[keys[keys.length - 1]] = value;
-      return newData;
-    });
+  const updateAttr = (key, value) => {
+    setForm(prev => ({
+      ...prev,
+      attributes: { ...prev.attributes, [key]: value }
+    }));
   };
 
-  // Image handling
-  const maxImages = 6;
-  const onDrop = useCallback(async (acceptedFiles) => {
-    const newImages = await Promise.all(
-      acceptedFiles.slice(0, maxImages - formData.images.length).map(async (file) => {
-        if (file.size > 5 * 1024 * 1024) return null; // 5MB limit
-        const options = { maxSizeMB: 1, maxWidthOrHeight: 1920 };
-        const compressed = await imageCompression(file, options);
-        return {
-          file: compressed,
-          preview: URL.createObjectURL(compressed),
-          url: '', // Backend will fill
-        };
-      }).filter(Boolean)
+  // ================= DYNAMIC FIELDS =================
+  const dynamicFields = categoryFields[form.category_id] || [];
+
+  const getOptions = (field) => {
+    if (field === "brand") return brands;
+    if (field === "model") return models[form.attributes.brand] || [];
+    if (field === "color") return colors;
+    if (field === "ram") return ramOptions;
+    if (field === "storage") return storageOptions;
+    if (field === "sim") return sims;
+    if (field === "year") return years;
+    if (field === "engine") return engines;
+    if (field === "fuel") return fuelTypes;
+    return fieldOptions[field] || [];
+  };
+
+  // ================= IMAGES =================
+  const handleImages = async (files) => {
+    const list = Array.from(files).slice(0, 6 - images.length);
+
+    const compressed = await Promise.all(
+      list.map(file =>
+        imageCompression(file, { maxSizeMB: 1, maxWidthOrHeight: 1024 })
+      )
     );
-    setFormData(prev => ({ ...prev, images: [...prev.images, ...newImages] }));
-  }, [formData.images]);
 
-  const { getRootProps, getInputProps, isDragActive } = useDropzone({
-    onDrop,
-    accept: { 'image/*': [] },
-    multiple: true,
-    maxFiles: maxImages,
-  });
+    const mapped = compressed.map((file, i) => ({
+      file,
+      url: URL.createObjectURL(file),
+      position: images.length + i
+    }));
 
-  // Drag & Drop for images reorder [web:11]
-  const moveImage = (dragIndex, hoverIndex) => {
-    setFormData(prev => {
-      const images = [...prev.images];
-      const [dragged] = images.splice(dragIndex, 1);
-      images.splice(hoverIndex, 0, dragged);
-      return { ...prev, images };
-    });
+    setImages(prev => [...prev, ...mapped]);
   };
 
-  const ImageItem = ({ image, index }) => {
-    const ref = useRef(null);
-    const [{ isDragging }, drag] = useDrag({
-      type: 'image',
-      item: { index },
-      collect: (monitor) => ({ isDragging: !!monitor.isDragging() }),
-    });
-    const [, drop] = useDrop({
-      accept: 'image',
-      hover: (item) => {
-        if (item.index === index) return;
-        moveImage(item.index, index);
-        item.index = index;
-      },
-    });
-
-    const removeImage = () => {
-      URL.revokeObjectURL(image.preview);
-      setFormData(prev => ({ ...prev, images: prev.images.filter((_, i) => i !== index) }));
-    };
-
-    return (
-      <div ref={drag(drop(ref))} className={`relative p-2 bg-gray-100 rounded-lg cursor-move ${isDragging ? 'opacity-50' : ''}`}>
-        <img src={image.preview} alt="Preview" className="w-20 h-20 object-cover rounded" onClick={() => setImageModal(index)} />
-        <button onClick={removeImage} className="absolute top-1 right-1 bg-red-500 text-white rounded-full p-1">
-          <X size={16} />
-        </button>
-      </div>
-    );
+  const removeImage = (index) => {
+    const updated = images.filter((_, i) => i !== index)
+      .map((img, i) => ({ ...img, position: i }));
+    setImages(updated);
   };
 
-  // Submit
-  const handleSubmit = async (e) => {
-    e.preventDefault();
-    const newErrors = {};
-    Object.keys(formData).forEach(key => {
-      if (key !== 'images' && key !== 'attributes') {
-        newErrors[key] = validateField(key, formData[key]);
-      }
-    });
-    if (formData.images.length === 0) newErrors.images = 'At least one image required';
-    setErrors(newErrors);
+  // ================= DRAG =================
+  const dragItem = useRef();
+  const dragOverItem = useRef();
 
-    if (Object.values(newErrors).some(err => err)) return;
+  const handleSort = () => {
+    const copy = [...images];
+    const dragged = copy.splice(dragItem.current, 1)[0];
+    copy.splice(dragOverItem.current, 0, dragged);
+
+    const updated = copy.map((img, i) => ({ ...img, position: i }));
+    setImages(updated);
+  };
+
+  // ================= VALIDATION =================
+  const validate = () => {
+    if (!form.title || !form.price || !form.category_id) {
+      alert("Missing required fields");
+      return false;
+    }
+
+    if (form.contact.email &&
+      !/^[^@]+@[^@]+\.[^@]+$/.test(form.contact.email)) {
+      alert("Invalid email");
+      return false;
+    }
+
+    if (form.contact.phone &&
+      !/^\d{10,15}$/.test(form.contact.phone)) {
+      alert("Invalid phone");
+      return false;
+    }
+
+    return true;
+  };
+
+  // ================= SUBMIT =================
+  const submit = async () => {
+    if (!validate()) return;
 
     setLoading(true);
-    const data = new FormData();
-    Object.keys(formData).forEach(key => {
-      if (key === 'images') {
-        formData.images.forEach((img, i) => {
-          data.append(`images[${i}]`, img.file);
-        });
-      } else if (typeof formData[key] === 'object') {
-        data.append(key, JSON.stringify(formData[key]));
+
+    const fd = new FormData();
+
+    Object.entries(form).forEach(([k, v]) => {
+      if (typeof v === "object") {
+        fd.append(k, JSON.stringify(v));
       } else {
-        data.append(key, formData[key]);
+        fd.append(k, v);
       }
     });
-    data.append('user_id', user.id);
-    data.append('seller_id', user.id);
+
+    fd.append("user_id", user?.id);
+
+    images.forEach(img => fd.append("images", img.file));
 
     try {
-      const res = await fetch('/api/marketplace/products', {
-        method: 'POST',
-        body: data,
+      const res = await fetch("/api/marketplace/products", {
+        method: "POST",
+        body: fd
       });
-      if (res.ok) {
-        setSuccess('Product created successfully!');
-        localStorage.removeItem(draftKey);
-        setFormData({ /* reset */ });
-      } else {
-        throw new Error('Submission failed');
-      }
-    } catch (err) {
-      setErrors({ submit: err.message });
+
+      if (!res.ok) throw new Error();
+
+      localStorage.removeItem(STORAGE_KEY);
+      alert("Product created");
+
+    } catch {
+      alert("Failed to submit");
+
     } finally {
       setLoading(false);
     }
   };
 
+  // ================= LOCATION =================
+  const cities = locationsByState[form.location_state] || [];
+
   return (
-    <DndProvider backend={HTML5Backend}>
-      <div className="max-w-2xl mx-auto p-4 sm:p-6 bg-white rounded-xl shadow-lg">
-        <h1 className="text-2xl font-bold mb-6 text-center">Add New Product</h1>
-        
-        <form onSubmit={handleSubmit} className="space-y-6">
-          {/* Basic Fields */}
-          <div>
-            <label className="block text-sm font-medium mb-2 flex items-center"><span>Title</span></label>
-            <input name="title" value={formData.title} onChange={handleChange} className="w-full p-3 border rounded-lg focus:ring-2 focus:ring-blue-500" />
-            {errors.title && <p className="text-red-500 text-sm mt-1">{errors.title}</p>}
-          </div>
+    <div className="max-w-3xl mx-auto p-4 space-y-3">
 
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            <div>
-              <label className="block text-sm font-medium mb-2">Price ($)</label>
-              <input name="price" type="number" step="0.01" value={formData.price} onChange={handleChange} className="w-full p-3 border rounded-lg" />
-              {errors.price && <p className="text-red-500 text-sm">{errors.price}</p>}
-            </div>
-            <div>
-              <label className="block text-sm font-medium mb-2">Category</label>
-              <select name="category_id" value={formData.category_id} onChange={handleChange} className="w-full p-3 border rounded-lg">
-                <option value="">Select Category</option>
-                {categories.map(cat => <option key={cat.id} value={cat.id}>{cat.name}</option>)}
-              </select>
-            </div>
-          </div>
+      <h2 className="text-xl font-bold">Add Product</h2>
 
-          <textarea name="description" placeholder="Description" value={formData.description} onChange={handleChange} rows={4} className="w-full p-3 border rounded-lg" />
+      <input placeholder="Title"
+        value={form.title}
+        onChange={e => update("title", e.target.value)} />
 
-          {/* Dynamic Fields */}
-          {Object.entries(dynamicFields).map(([field, options]) => (
-            <div key={field}>
-              <label className="block text-sm font-medium mb-2">{field}</label>
-              <select name={`attributes.${field}`} value={formData.attributes[field] || ''} onChange={(e) => handleObjectChange(`attributes.${field}`, e.target.value)} className="w-full p-3 border rounded-lg">
-                <option value="">{field}...</option>
-                {options.map(opt => <option key={opt} value={opt}>{opt}</option>)}
-              </select>
+      <textarea placeholder="Description"
+        value={form.description}
+        onChange={e => update("description", e.target.value)} />
+
+      <input placeholder="Price"
+        value={form.price}
+        onChange={e => update("price", e.target.value)} />
+
+      {/* CATEGORY */}
+      <select onChange={e => update("category_id", e.target.value)}>
+        <option value="">Select Category</option>
+        {Object.keys(categoryFields).map(c => (
+          <option key={c} value={c}>{c}</option>
+        ))}
+      </select>
+
+      {/* DYNAMIC */}
+      {dynamicFields.map(field => (
+        <select key={field}
+          value={form.attributes[field] || ""}
+          onChange={e => updateAttr(field, e.target.value)}>
+          <option value="">Select {field}</option>
+          {getOptions(field).map(opt => (
+            <option key={opt} value={opt}>{opt}</option>
+          ))}
+        </select>
+      ))}
+
+      {/* LOCATION */}
+      <select onChange={e => update("location_state", e.target.value)}>
+        <option>Select State</option>
+        {Object.keys(locationsByState).map(s => (
+          <option key={s}>{s}</option>
+        ))}
+      </select>
+
+      <select onChange={e => update("location_city", e.target.value)}>
+        <option>Select City</option>
+        {cities.map(c => <option key={c}>{c}</option>)}
+      </select>
+
+      {/* DELIVERY */}
+      <input placeholder="Delivery Duration"
+        onChange={e => updateNested("delivery", "duration", e.target.value)} />
+
+      <input placeholder="Delivery Fee"
+        onChange={e => updateNested("delivery", "fee", e.target.value)} />
+
+      {/* CONTACT */}
+      <input placeholder="Email"
+        onChange={e => updateNested("contact", "email", e.target.value)} />
+
+      <input placeholder="Phone"
+        onChange={e => updateNested("contact", "phone", e.target.value)} />
+
+      {/* IMAGES */}
+      <div className="border p-3">
+        <button onClick={() => fileRef.current.click()}>Upload Images</button>
+        <input type="file" hidden multiple ref={fileRef}
+          onChange={e => handleImages(e.target.files)} />
+
+        <div className="grid grid-cols-3 gap-2 mt-2">
+          {images.map((img, i) => (
+            <div key={i}
+              draggable
+              onDragStart={() => dragItem.current = i}
+              onDragEnter={() => dragOverItem.current = i}
+              onDragEnd={handleSort}
+              className="relative">
+
+              <img src={img.url}
+                onClick={() => setPreview(img.url)}
+                className="h-24 w-full object-cover" />
+
+              <button onClick={() => removeImage(i)}
+                className="absolute top-0 right-0 bg-black text-white px-1">x</button>
             </div>
           ))}
-
-          {/* Location */}
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            <div>
-              <label className="block text-sm font-medium mb-2 flex items-center"><MapPin size={16} className="mr-1" /> State</label>
-              <select name="location_state" value={formData.location_state} onChange={handleChange} className="w-full p-3 border rounded-lg">
-                <option value="">Select State</option>
-                {Object.keys(locationsByState).map(state => <option key={state} value={state}>{state}</option>)}
-              </select>
-            </div>
-            <div>
-              <label className="block text-sm font-medium mb-2">City</label>
-              <input name="location_city" value={formData.location_city} onChange={handleChange} className="w-full p-3 border rounded-lg" list={`cities-${formData.location_state}`} />
-              {formData.location_state && (
-                <datalist id={`cities-${formData.location_state}`}>
-                  {locationsByState[formData.location_state]?.map(city => <option key={city} value={city} />)}
-                </datalist>
-              )}
-            </div>
-          </div>
-
-          {/* Delivery */}
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            <div>
-              <label className="block text-sm font-medium mb-2 flex items-center"><Truck size={16} className="mr-1" /> Duration (days)</label>
-              <input name="delivery.duration" type="number" value={formData.delivery.duration} onChange={(e) => handleObjectChange('delivery.duration', e.target.value)} className="w-full p-3 border rounded-lg" />
-            </div>
-            <div>
-              <label className="block text-sm font-medium mb-2">Fee ($)</label>
-              <input name="delivery.fee" type="number" step="0.01" value={formData.delivery.fee} onChange={(e) => handleObjectChange('delivery.fee', e.target.value)} className="w-full p-3 border rounded-lg" />
-            </div>
-          </div>
-
-          {/* Contact */}
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            <div>
-              <label className="block text-sm font-medium mb-2 flex items-center"><Mail size={16} className="mr-1" /> Email</label>
-              <input name="contact.email" value={formData.contact.email} onChange={(e) => handleObjectChange('contact.email', e.target.value)} className="w-full p-3 border rounded-lg" />
-              {errors['contact.email'] && <p className="text-red-500 text-sm">{errors['contact.email']}</p>}
-            </div>
-            <div>
-              <label className="block text-sm font-medium mb-2 flex items-center"><Phone size={16} className="mr-1" /> Phone</label>
-              <input name="contact.phone" value={formData.contact.phone} onChange={(e) => handleObjectChange('contact.phone', e.target.value)} className="w-full p-3 border rounded-lg" />
-            </div>
-          </div>
-
-          {/* Images */}
-          <div>
-            <label className="block text-sm font-medium mb-4 flex items-center">
-              <ImageIcon size={16} className="mr-1" /> Images (Max 6)
-            </label>
-            <div {...getRootProps()} className={`border-2 border-dashed rounded-lg p-8 text-center cursor-pointer transition-all ${isDragActive ? 'border-blue-500 bg-blue-50' : 'border-gray-300 hover:border-gray-400'}`}>
-              <input {...getInputProps()} />
-              <p>{isDragActive ? 'Drop images here...' : 'Drag & drop or click to upload images'}</p>
-            </div>
-            {formData.images.length > 0 && (
-              <div className="mt-4 grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-4">
-                {formData.images.map((image, index) => <ImageItem key={index} image={image} index={index} />)}
-              </div>
-            )}
-            {errors.images && <p className="text-red-500 text-sm mt-2">{errors.images}</p>}
-            {formData.images.length >= maxImages && <p className="text-orange-500 text-sm">Max 6 images reached.</p>}
-          </div>
-
-          {success && <div className="p-4 bg-green-100 border border-green-400 text-green-700 rounded-lg">{success}</div>}
-          {errors.submit && <div className="p-4 bg-red-100 border border-red-400 text-red-700 rounded-lg">{errors.submit}</div>}
-
-          <div className="flex flex-col sm:flex-row gap-4 pt-4">
-            <button type="submit" disabled={loading} className="flex-1 bg-blue-600 text-white py-3 px-6 rounded-lg font-medium hover:bg-blue-700 disabled:opacity-50">
-              {loading ? 'Publishing...' : 'Publish Product'}
-            </button>
-            <button type="button" onClick={saveDraft} className="flex-1 bg-gray-600 text-white py-3 px-6 rounded-lg font-medium hover:bg-gray-700">
-              Save Draft
-            </button>
-          </div>
-        </form>
+        </div>
       </div>
 
-      {/* Image Modal */}
-      {imageModal !== null && (
-        <div className="fixed inset-0 bg-black/80 flex items-center justify-center z-50 p-4" onClick={() => setImageModal(null)}>
-          <img src={formData.images[imageModal]?.preview} alt="Full" className="max-w-full max-h-full object-contain" />
+      {/* MODAL */}
+      {preview && (
+        <div className="fixed inset-0 bg-black/80 flex items-center justify-center">
+          <img src={preview} className="max-h-[90%]" />
+          <button onClick={() => setPreview(null)}>Close</button>
         </div>
       )}
-    </DndProvider>
-  );
-};
 
-export default AddProduct;
+      <button onClick={submit} disabled={loading}>
+        {loading ? "Submitting..." : "Submit"}
+      </button>
+
+    </div>
+  );
+}
