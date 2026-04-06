@@ -478,13 +478,37 @@ router.post("/products/:id/activate", async (req, res, next) => {
 });
 
 /* =========================================================
-GET CATEGORIES (FLAT VERSION)
+GET CATEGORIES (FLAT VERSION - FIXED)
 ========================================================= */
-router.get("/categories", async (req, res, next) => {
+
+// ✅ FLATTEN FUNCTION (MUST EXIST ABOVE ROUTE)
+const flattenCategories = (categories = []) => {
+  const result = [];
+
+  const walk = (list) => {
+    list.forEach((cat) => {
+      result.push({
+        id: String(cat.id),
+        name: cat.name,
+        parent_id: cat.parent_id || null,
+        dynamicOptions: cat.dynamicOptions || null,
+      });
+
+      if (Array.isArray(cat.subcategories) && cat.subcategories.length > 0) {
+        walk(cat.subcategories);
+      }
+    });
+  };
+
+  walk(categories);
+  return result;
+};
+
+router.get("/categories", async (req, res) => {
   try {
     const { rows: categoryRows } = await pool.query(
-      `SELECT id, name, parent_id, fields_key 
-       FROM categories 
+      `SELECT id, name, parent_id, fields_key
+       FROM categories
        WHERE active = true
        ORDER BY name ASC`
     );
@@ -492,7 +516,8 @@ router.get("/categories", async (req, res, next) => {
     const categoryMap = {};
     const tree = [];
 
-    categoryRows.forEach((cat) => {
+    // Build category map + attach dynamic options
+    for (const cat of categoryRows) {
       const key = cat.fields_key?.trim() || "default";
       const rawFields = categoryFields[key] || [];
 
@@ -514,28 +539,33 @@ router.get("/categories", async (req, res, next) => {
       };
 
       categoryMap[cat.id] = {
-        ...cat,
+        id: String(cat.id),
+        name: cat.name,
+        parent_id: cat.parent_id,
+        fields_key: cat.fields_key,
         dynamicOptions,
         subcategories: [],
       };
+    }
 
-      if (!cat.parent_id) {
-        tree.push(categoryMap[cat.id]);
-      }
-    });
-
-    categoryRows.forEach((cat) => {
+    // Build tree
+    for (const cat of Object.values(categoryMap)) {
       if (cat.parent_id && categoryMap[cat.parent_id]) {
-        categoryMap[cat.parent_id].subcategories.push(categoryMap[cat.id]);
+        categoryMap[cat.parent_id].subcategories.push(cat);
+      } else {
+        tree.push(cat);
       }
-    });
+    }
 
-    // ✅ FLAT CATEGORIES FOR FRONTEND
+    // ✅ RETURN FLAT STRUCTURE (SAFE)
     const flat = flattenCategories(tree);
-    res.json(flat);
+
+    return res.json(flat);
   } catch (err) {
     console.error("GET /categories error:", err);
-    res.status(500).json({ message: "Failed to fetch categories" });
+    return res.status(500).json({
+      message: "Failed to fetch categories",
+    });
   }
 });
 
