@@ -117,7 +117,7 @@ router.get("/products", async (req, res) => {
     const offset = Math.max(+skip || 0, 0);
     const take = Math.min(+limit || 20, 50);
 
-    const whereClauses = ["p.is_active = true", "p.state = 'active'"];
+    const whereClauses = ["p.is_active = true", "p.status = 'active'"]; // ✅ status
     const params = [];
     let paramIndex = 1;
 
@@ -182,7 +182,7 @@ router.get("/products/:id", async (req, res) => {
       FILTER (WHERE pi.image_url IS NOT NULL), '[]') AS images 
       FROM products p 
       LEFT JOIN product_images pi ON p.id = pi.product_id 
-      WHERE p.id = $1 AND p.is_active = true AND p.state = 'active' 
+      WHERE p.id = $1 AND p.is_active = true AND p.status = 'active' 
       GROUP BY p.id 
       `,
       [id]
@@ -229,10 +229,13 @@ router.post("/products", upload.array("images", 10), async (req, res) => {
     } = req.body;
 
     // Validation
-    if (!title?.trim()) return res.status(400).json({ message: "Title required" });
-    if (!price || isNaN(price) || +price <= 0) return res.status(400).json({ message: "Valid price required" });
+    if (!title || !title.trim())
+      return res.status(400).json({ message: "Title required" });
+    if (!price || isNaN(price) || +price <= 0)
+      return res.status(400).json({ message: "Valid price required" });
     if (!category_id) return res.status(400).json({ message: "Category required" });
-    if (!req.files?.length) return res.status(400).json({ message: "At least one image required" });
+    if (!req.files?.length)
+      return res.status(400).json({ message: "At least one image required" });
 
     const parsedAttributes = safeJSON(attributes);
     const parsedDelivery = normalizeDelivery(safeJSON(delivery));
@@ -243,12 +246,14 @@ router.post("/products", upload.array("images", 10), async (req, res) => {
       INSERT INTO products (
         title, description, price, category_id, subcategory_id,
         attributes, delivery, contact, promotion_id,
-        location_state, location_city, state
+        location_state, location_city, status,          -- ✅ status
+        whatsapp, whatsapp_link                         -- ✅ add WhatsApp
       )
-      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, 'draft')
+      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, 'draft', $12, $13)  -- ✅
       RETURNING id, title, description, price, category_id, subcategory_id,
                 attributes, delivery, contact, promotion_id,
-                location_state, location_city, created_at, state, is_active
+                location_state, location_city, created_at, status, is_active,
+                whatsapp, whatsapp_link
       `,
       [
         title.trim(),
@@ -262,6 +267,8 @@ router.post("/products", upload.array("images", 10), async (req, res) => {
         promotion_id ? parseInt(promotion_id, 10) : null,
         location_state?.trim() || null,
         location_city?.trim() || null,
+        (parsedContact.whatsapp || "").trim() || null,          // ✅ WhatsApp
+        (parsedContact.whatsapp_link || "").trim() || null,     // ✅ WhatsApp link
       ]
     );
 
@@ -310,13 +317,13 @@ router.post("/products/:id/activate", async (req, res) => {
 
     const result = await client.query(
       `UPDATE products 
-       SET state = 'active', 
+       SET status = 'active',                           -- ✅ status
            is_active = true,
            promotion_id = $1,
            promotion_priority = COALESCE(promotion_priority, 0) + 1,
            updated_at = NOW()
-       WHERE id = $2 AND state = 'draft'
-       RETURNING id, title, state, is_active, promotion_id`,
+       WHERE id = $2 AND status = 'draft'              -- ✅ status
+       RETURNING id, title, status, is_active, promotion_id`,
       [promotion_id || null, id]
     );
 
