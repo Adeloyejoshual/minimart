@@ -209,7 +209,7 @@ router.get("/products/:id", async (req, res) => {
 
     const product = rows[0];
 
-    // Fire‑and‑forget view increment
+    // Fire-and-forget view increment
     pool.query(
       "UPDATE products SET views = COALESCE(views, 0) + 1 WHERE id = $1",
       [id]
@@ -321,7 +321,7 @@ router.post("/products", async (req, res) => {
     await Promise.all(imagePromises);
     await client.query("COMMIT");
 
-    // Re‑fetch full product with images
+    // Re-fetch full product with images
     const { rows: fullRows } = await pool.query(
       `
         SELECT p.*,
@@ -364,7 +364,7 @@ router.post("/products", async (req, res) => {
 });
 
 /* =========================================================
-GET CATEGORIES (TREE STRUCTURE + DYNAMIC OPTIONS)
+GET CATEGORIES (TREE STRUCTURE + DYNAMIC OPTIONS) - FULLY FIXED
 ========================================================= */
 
 router.get("/categories", async (req, res) => {
@@ -384,9 +384,9 @@ router.get("/categories", async (req, res) => {
     categoryRows.forEach((cat) => {
       const key = cat.fields_key || "default";
       const rawFields = categoryFields[key] || [];
-      const filteredFields = rawFields.filter(
-        (f) => !["condition", "used_detail"].includes(f)
-      );
+      
+      // ✅ FIX 1: Remove harmful filter - keep ALL fields
+      const filteredFields = rawFields; // No more stripping condition/used_detail
 
       categoryMap[cat.id] = {
         ...cat,
@@ -399,7 +399,7 @@ router.get("/categories", async (req, res) => {
           usedDetails,
           ram: ramOptions,
           storage: storageOptions,
-          sims,
+          sim: sims,  // ✅ FIX 2: Consistent naming (sims → sim)
           features: featuresByCategory[key] || [],
           years,
           engines,
