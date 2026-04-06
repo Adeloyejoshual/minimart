@@ -94,6 +94,27 @@ const safeProduct = (p) => ({
   views: p.views || 0,
 });
 
+/* ================= NEW: Flatten Categories ================= */
+const flattenCategories = (categories = []) => {
+  const result = [];
+  const walk = (list) => {
+    list.forEach((cat) => {
+      result.push({
+        id: String(cat.id),
+        name: cat.name,
+        parent_id: cat.parent_id || null,
+        fields_key: cat.fields_key || null,
+        dynamicOptions: cat.dynamicOptions
+      });
+      if (Array.isArray(cat.subcategories) && cat.subcategories.length > 0) {
+        walk(cat.subcategories);
+      }
+    });
+  };
+  walk(categories);
+  return result;
+};
+
 /* ================= CLOUDINARY UPLOAD ================= */
 const uploadImages = async (files) => {
   if (!files?.length) return [];
@@ -122,7 +143,7 @@ const uploadImages = async (files) => {
 };
 
 /* =========================================================
-GET PRODUCTS (Fixed: Safe arrays + safe queries)
+GET PRODUCTS (Safe arrays + filters)
 ========================================================= */
 router.get("/products", async (req, res, next) => {
   try {
@@ -165,41 +186,26 @@ router.get("/products", async (req, res, next) => {
       GROUP BY p.id 
     `;
 
-    let trendingRes;
-    let feedRes;
-
-    try {
-      trendingRes = await pool.query(`${baseQuery} ORDER BY p.views DESC NULLS LAST LIMIT 6`);
-    } catch (err) {
-      console.error("Trending query failed:", err);
-      trendingRes = { rows: [] };
-    }
-
-    try {
-      feedRes = await pool.query(
+    const [trendingRes, feedRes] = await Promise.all([
+      pool.query(`${baseQuery} ORDER BY p.views DESC NULLS LAST LIMIT 6`),
+      pool.query(
         `${baseQuery} ORDER BY 
           (p.promotion_expires_at IS NOT NULL) DESC,
           p.promotion_priority DESC NULLS LAST,
           p.created_at DESC 
           OFFSET $${paramIndex} LIMIT $${paramIndex + 1}`,
         [...params, offset, take]
-      );
-    } catch (err) {
-      console.error("Feed query failed:", err);
-      feedRes = { rows: [] };
-    }
+      )
+    ]);
 
     const trendingRows = trendingRes.rows || [];
     const feedRows = feedRes.rows || [];
 
     const trending = trendingRows
-      .map(normalizeProduct)
       .map(safeProduct);
-
     const trendingIds = new Set(trending.map((p) => p.id));
 
     const feedProducts = feedRows
-      .map(normalizeProduct)
       .map(safeProduct)
       .filter((p) => !trendingIds.has(p.id));
 
@@ -251,9 +257,9 @@ router.get("/products/:id", async (req, res, next) => {
     }
 
     const productRow = result.rows[0];
-    const safe = safeProduct(normalizeProduct(productRow));
+    const safe = safeProduct(productRow);
 
-    // Fire‑and‑forget view increment
+    // Fire-and-forget view increment
     pool.query("UPDATE products SET views = COALESCE(views, 0) + 1 WHERE id = $1", [id])
       .catch((err) => console.error("View increment failed:", err));
 
@@ -268,7 +274,7 @@ router.get("/products/:id", async (req, res, next) => {
 });
 
 /* =========================================================
-🟡 PAYMENT STATUS VERIFICATION (Frontend Polling)
+PAYMENT STATUS VERIFICATION
 ========================================================= */
 router.get("/payment/verify/:reference", async (req, res, next) => {
   try {
@@ -296,7 +302,7 @@ router.get("/payment/verify/:reference", async (req, res, next) => {
 });
 
 /* =========================================================
-CREATE PRODUCT (Safe transaction + Cloudinary)
+CREATE PRODUCT
 ========================================================= */
 router.post("/products", upload.array("images", 10), async (req, res, next) => {
   const client = await pool.connect();
@@ -382,7 +388,7 @@ router.post("/products", upload.array("images", 10), async (req, res, next) => {
 
     res.status(201).json({
       success: true,
-      product: safeProduct(normalizeProduct(normalized)),
+      product: safeProduct(normalized),
     });
   } catch (err) {
     await client.query("ROLLBACK").catch(() => {});
@@ -398,7 +404,7 @@ router.post("/products", upload.array("images", 10), async (req, res, next) => {
 });
 
 /* =========================================================
-ACTIVATE PRODUCT (One true version)
+ACTIVATE PRODUCT
 ========================================================= */
 router.post("/products/:id/activate", async (req, res, next) => {
   const client = await pool.connect();
@@ -422,7 +428,7 @@ router.post("/products/:id/activate", async (req, res, next) => {
 
     const expiresAt =
       durationDays > 0
-        ? `NOW() + (${durationDays} || ' days')::INTERVAL`
+        ? `NOW() + (${durationDays} || 'days')::INTERVAL`
         : "NULL";
 
     const result = await client.query(
@@ -437,11 +443,9 @@ router.post("/products/:id/activate", async (req, res, next) => {
        WHERE id = $2 
          AND status = 'draft'
          AND (
-           $1 IS NULL                           -- Free plan OK
-           OR EXISTS (
+           $1 IS NULL OR EXISTS (
              SELECT 1 FROM payment_logs 
-             WHERE product_id = $2 
-               AND status = 'success'
+             WHERE product_id = $2 AND status = 'success'
            )
          )
        RETURNING id, title, status, is_active, promotion_id, promotion_expires_at`,
@@ -457,9 +461,7 @@ router.post("/products/:id/activate", async (req, res, next) => {
 
     await client.query("COMMIT");
 
-    console.log(
-      `✅ Activated: ${id} (promo: ${promotion_id || "free"}, expires: ${durationDays}d)`
-    );
+    console.log(`✅ Activated: ${id} (promo: ${promotion_id || "free"}, expires: ${durationDays}d)`);
 
     res.json({
       success: true,
@@ -476,7 +478,7 @@ router.post("/products/:id/activate", async (req, res, next) => {
 });
 
 /* =========================================================
-GET CATEGORIES
+GET CATEGORIES (FLAT VERSION)
 ========================================================= */
 router.get("/categories", async (req, res, next) => {
   try {
@@ -528,7 +530,9 @@ router.get("/categories", async (req, res, next) => {
       }
     });
 
-    res.json(tree);
+    // ✅ FLAT CATEGORIES FOR FRONTEND
+    const flat = flattenCategories(tree);
+    res.json(flat);
   } catch (err) {
     console.error("GET /categories error:", err);
     res.status(500).json({ message: "Failed to fetch categories" });
@@ -568,7 +572,7 @@ router.get("/cloudinary-signature", (req, res, next) => {
 });
 
 /* =========================================================
-GLOBAL ERROR HANDLER FOR THIS ROUTER
+GLOBAL ERROR HANDLER
 ========================================================= */
 router.use((err, req, res, next) => {
   console.error("Marketplace error:", err);
