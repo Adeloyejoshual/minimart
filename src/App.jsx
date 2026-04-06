@@ -97,6 +97,7 @@ export default function App() {
   }, []);
 
   const isAppLoading = loadingUser || loadingAdmin;
+  const isAuthReady = !isAppLoading;
 
   if (isAppLoading) {
     return (
@@ -114,12 +115,27 @@ export default function App() {
 
   /* ================= ROUTE GUARDS ================= */
   const ProtectedRoute = ({ children }) => {
-    if (!user) return <Navigate to="/auth" replace />;
+    if (!isAuthReady) {
+      // Still loading auth → don’t redirect yet
+      return <div className="global-loader">Loading auth...</div>;
+    }
+
+    if (!user) {
+      return <Navigate to="/auth" replace />;
+    }
+
     return children;
   };
 
   const AdminProtectedRoute = ({ children }) => {
-    if (!admin) return <Navigate to="/admin/login" replace />;
+    if (!isAuthReady) {
+      return <div className="global-loader">Loading auth...</div>;
+    }
+
+    if (!admin) {
+      return <Navigate to="/admin/login" replace />;
+    }
+
     return children;
   };
 
@@ -129,7 +145,6 @@ export default function App() {
     toast.success(`Welcome back, ${userData.name}`);
   };
 
-  /* ================= APP ================= */
   return (
     <Router>
       <Toaster
@@ -147,7 +162,6 @@ export default function App() {
       />
 
       <Routes>
-
         {/* ================= PUBLIC ================= */}
         <Route path="/" element={<Homepage user={user} />} />
         <Route path="/search" element={<SearchPage user={user} />} />
@@ -320,7 +334,6 @@ export default function App() {
 
         {/* ================= FALLBACK ================= */}
         <Route path="*" element={<Navigate to="/" replace />} />
-
       </Routes>
     </Router>
   );
