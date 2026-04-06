@@ -66,17 +66,13 @@ export default function AddProduct() {
   const MAX_IMAGES = 6;
   const MAX_SIZE = 3 * 1024 * 1024;
 
-  // 🔍 Debug logging
-  useEffect(() => {
-    console.log("🟢 AddProduct MOUNTED", {
-      images: images.length,
-      formComplete: form.title.length > 0,
-      hasPayment: !!paymentData,
-    });
+  // 🔍 Safe UUID generator
+  const generateId = useCallback(() => {
+    return (crypto?.randomUUID?.() || `${Date.now()}-${Math.random().toString(36).slice(2)}`);
   }, []);
 
   const selectedCategory = useMemo(
-    () => categories.find((c) => c.id == form.category_id),
+    () => (Array.isArray(categories) ? categories.find((c) => c.id == form.category_id) : null),
     [categories, form.category_id]
   );
 
@@ -91,10 +87,13 @@ export default function AddProduct() {
   const onlyNumbers = (v = "") => v.replace(/[^0-9.]/g, "");
   const onlyDigits = (v = "") => v.replace(/[^0-9]/g, "");
 
+  // ✅ Fixed displayPrice - separate raw vs formatted
   const displayPrice = (v) => {
     const num = Number(v);
     return Number.isNaN(num) || num <= 0 ? "" : new Intl.NumberFormat("en-NG").format(num);
   };
+
+  const rawPriceDisplay = (v) => v || "";
 
   const formatLabel = (t) =>
     t.replace(/_/g, " ").replace(/\bw/g, (l) => l.toUpperCase());
@@ -115,7 +114,7 @@ export default function AddProduct() {
   useEffect(() => {
     const savedPayment = localStorage.getItem(STORAGE_PAYMENT);
     if (savedPayment) {
-      console.log("🧹 Cleared dangerous payment data:", savedPayment);
+      console.log("🧹 Cleared dangerous payment data");
       localStorage.removeItem(STORAGE_PAYMENT);
     }
   }, []);
@@ -174,9 +173,11 @@ export default function AddProduct() {
     age_range: normalizeOptions(options.age_range || []),
   }), [options]);
 
+  // ✅ FIXED: Safe fields extraction
   const fields = useMemo(() => {
-    return selectedCategory?.dynamicOptions?.fields || [];
-  }, [selectedCategory?.dynamicOptions?.fields]);
+    const rawFields = selectedCategory?.dynamicOptions?.fields;
+    return Array.isArray(rawFields) ? rawFields : [];
+  }, [selectedCategory]);
 
   const updateForm = useCallback((key, value) => {
     setForm((prev) => ({ ...prev, [key]: value }));
@@ -248,16 +249,25 @@ export default function AddProduct() {
     return null;
   }, [form, images.length, state, city]);
 
-  // 🛡️ Safe draft saving (debounced, no auto-submit)
+  // ✅ FIXED: Safe draft saving (no loops)
   useEffect(() => {
     if (loading) return;
     const timeout = setTimeout(() => {
-      const draft = { form, state, city, selectedPlan: selectedPlan?.id || null };
-      localStorage.setItem(STORAGE_DRAFT, JSON.stringify(draft));
-      console.log("💾 Draft saved");
-    }, 1000);
+      try {
+        const draft = { 
+          form, 
+          state, 
+          city, 
+          imagesCount: images.length,
+          selectedPlan: selectedPlan?.id || null 
+        };
+        localStorage.setItem(STORAGE_DRAFT, JSON.stringify(draft));
+      } catch (e) {
+        console.warn("Draft save failed:", e);
+      }
+    }, 1500);
     return () => clearTimeout(timeout);
-  }, [form, state, city, selectedPlan, loading]);
+  }, [form.title, form.description, form.price, form.category_id, state, city, selectedPlan?.id, images.length, loading]);
 
   const clearDraft = useCallback(() => {
     setForm(INITIAL_FORM);
@@ -271,13 +281,11 @@ export default function AddProduct() {
     showSuccess("Draft cleared");
   }, [showSuccess]);
 
-  // 🟣 6. Payment session helper
   const clearPaymentSession = useCallback(() => {
     localStorage.removeItem(STORAGE_PAYMENT);
     setPaymentData(null);
   }, []);
 
-  // 🟠 7. Auto-poll payment status
   const checkPaymentStatus = useCallback(async (reference) => {
     try {
       const res = await fetch(
@@ -295,7 +303,6 @@ export default function AddProduct() {
     }
   }, [clearPaymentSession, clearDraft, showSuccess]);
 
-  // 🟠 7. POLL PAYMENT STATUS useEffect
   useEffect(() => {
     if (!paymentData?.reference) return;
 
@@ -306,6 +313,7 @@ export default function AddProduct() {
     return () => clearInterval(interval);
   }, [paymentData, checkPaymentStatus]);
 
+  // ✅ FIXED: Safe image handler
   const handleImages = useCallback((files) => {
     if (images.length >= MAX_IMAGES) {
       showError("Maximum 6 images allowed");
@@ -318,14 +326,14 @@ export default function AddProduct() {
       .slice(0, remaining);
 
     const newImages = validFiles.map((file) => ({
-      id: crypto.randomUUID(),
+      id: generateId(),
       file,
       preview: URL.createObjectURL(file),
     }));
 
     setImages((prev) => [...prev, ...newImages]);
     showSuccess(`${validFiles.length} image(s) added`);
-  }, [images.length, showError, showSuccess]);
+  }, [images.length, showError, showSuccess, generateId]);
 
   const removeImage = useCallback((id) => {
     setImages((prev) => {
@@ -382,7 +390,6 @@ export default function AddProduct() {
     return (await res.json()).product;
   };
 
-  // 🟡 2. FIXED startPayment (secure + resilient)
   const startPayment = async (productId, plan) => {
     const payload = {
       email: form.contact.email,
@@ -395,7 +402,7 @@ export default function AddProduct() {
       {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(payload), // ✅ No amount sent (security)
+        body: JSON.stringify(payload),
       }
     );
 
@@ -416,7 +423,6 @@ export default function AddProduct() {
     return paymentSession;
   };
 
-  // 🛡️ BULLETPROOF handleSubmit
   const handleSubmit = useCallback(async () => {
     console.log("🚨 handleSubmit MANUALLY TRIGGERED");
 
@@ -452,7 +458,6 @@ export default function AddProduct() {
         return;
       }
 
-      // ✅ FIXED payment flow
       const session = await startPayment(productId, finalPlan);
       setPaymentData(session);
       showSuccess("💳 Payment ready! Click 'Go to Payment' below.");
@@ -466,22 +471,24 @@ export default function AddProduct() {
     }
   }, [form, images, state, city, selectedPlan, validateForm, loading, clearDraft]);
 
-  // 🟣 5. SAFER payment redirect
   const manualPaymentRedirect = useCallback(() => {
     if (!paymentData?.authUrl) {
       showError("No payment session available");
       return;
     }
-    window.open(paymentData.authUrl, "_blank"); // ✅ New tab UX
+    window.open(paymentData.authUrl, "_blank");
   }, [paymentData, showError]);
 
-  // Load categories
+  // ✅ FIXED: Safe categories fetch
   useEffect(() => {
     fetch("https://minimart-ivrm.onrender.com/api/marketplace/categories")
       .then((r) => r.json())
-      .then(setCategories)
+      .then((data) => {
+        setCategories(Array.isArray(data) ? data : []);
+      })
       .catch((e) => {
         console.error("Categories fetch failed:", e);
+        setCategories([]);
         showError("Failed to load categories");
       });
   }, [showError]);
@@ -504,7 +511,7 @@ export default function AddProduct() {
   }, [attributes.brand, options.models]);
 
   const states = Object.keys(locationsByState || {});
-  const cities = state ? locationsByState[state] : [];
+  const cities = state ? locationsByState[state] || [] : [];
 
   return (
     <div className="add-product-container">
@@ -535,7 +542,7 @@ export default function AddProduct() {
             type="text"
             inputMode="numeric"
             placeholder="10000"
-            value={displayPrice(form.price)}
+            value={rawPriceDisplay(form.price)}  // ✅ FIXED
             onChange={(e) => updateForm("price", onlyNumbers(e.target.value))}
           />
         </div>
@@ -552,7 +559,10 @@ export default function AddProduct() {
               updateForm("category_id", v);
               updateForm("attributes", INITIAL_FORM.attributes);
             }}
-            options={categories.map((c) => ({ id: c.id, name: c.name }))}
+            options={(Array.isArray(categories) ? categories : []).map((c) => ({ 
+              id: c?.id || '', 
+              name: c?.name || '' 
+            }))}  // ✅ FIXED
           />
         </div>
 
@@ -578,6 +588,7 @@ export default function AddProduct() {
           </div>
         )}
 
+        {/* ✅ FIXED: Safe fields mapping */}
         {fields.map((field) => {
           if (field === "brand" || field === "model") return null;
           const fieldOptions = optionsMap[field] ?? [];
@@ -596,13 +607,14 @@ export default function AddProduct() {
           );
         })}
 
-        {optionsMap.features?.length > 0 && (
+        {/* ✅ FIXED: Safe features mapping */}
+        {Array.isArray(optionsMap.features) && optionsMap.features.length > 0 && (
           <div className="form-group">
             <label>Features</label>
             <div className="checkbox-grid-inline">
               {optionsMap.features
                 .slice()
-                .sort((a, b) => a.localeCompare(b))
+                .sort((a, b) => (a || "").localeCompare(b || ""))
                 .map((feature) => (
                   <label key={feature} className="checkbox-inline">
                     <span>{formatLabel(feature)}</span>
@@ -686,7 +698,7 @@ export default function AddProduct() {
           <label>Delivery Type</label>
           <DropdownModal
             value={form.delivery.type}
-            onChange={updateDelivery}
+            onChange={(value) => updateDelivery("type", value)}  // ✅ FIXED
             options={[
               { id: "none", name: "No delivery" },
               { id: "standard", name: "Standard delivery" },
@@ -720,7 +732,7 @@ export default function AddProduct() {
               <input
                 type="text"
                 inputMode="numeric"
-                value={displayPrice(form.delivery.fee)}
+                value={rawPriceDisplay(form.delivery.fee)}  // ✅ FIXED
                 onChange={(e) => updateDelivery("fee", onlyNumbers(e.target.value))}
               />
             </div>
