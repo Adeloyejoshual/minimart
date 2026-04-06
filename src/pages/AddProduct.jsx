@@ -880,4 +880,3 @@ export default function AddProduct() {
   );
 }
 
-export default AddProduct;
