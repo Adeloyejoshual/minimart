@@ -106,41 +106,49 @@ export default function AddProduct() {
     });
   };
 
-  /* ================= ✅ 1. FIXED OPTION MAPPING ================= */
+  /* ================= ✅ FIX 1: CORRECT OPTION MAPPING ================= */
   const optionsMap = useMemo(() => ({
-    brand: normalizeOptions(options.brand || []),
-    model: options.model || {}, // Object for brand-specific models
-    color: normalizeOptions(options.color || []),
-    condition: normalizeOptions(options.condition || []),
-    used_detail: normalizeOptions(options.used_detail || []),
+    brand: normalizeOptions(options.brands || []),
+    model: options.models || {}, // Object for brand-specific models
+    color: normalizeOptions(options.colors || []),
+    condition: normalizeOptions(options.conditions || []),
+    used_detail: normalizeOptions(options.usedDetails || []),
     ram: normalizeOptions(options.ram || []),
     storage: normalizeOptions(options.storage || []),
-    sim: normalizeOptions(options.sim || []),
+    sim: normalizeOptions(options.sim || []), // ✅ FIX 3: Uses backend "sim"
     features: options.features || [],
-    year: normalizeOptions(options.year || []),
-    engine: normalizeOptions(options.engine || []),
-    fuel_type: normalizeOptions(options.fuel_type || []),
+    year: normalizeOptions(options.years || []),
+    engine: normalizeOptions(options.engines || []),
+    fuel_type: normalizeOptions(options.fuel_types || []),
     size: normalizeOptions(options.size || []),
     age_range: normalizeOptions(options.age_range || []),
   }), [options]);
 
-  /* ================= ✅ 2. FIXED FIELDS ================= */
+  /* ================= ✅ FIX 2: CORRECT FIELDS SOURCE ================= */
   const fields = useMemo(() => {
-    const dynamic = selectedCategory?.categoryFields || [];
-    return dynamic.includes("condition") ? dynamic : ["condition", ...dynamic];
-  }, [selectedCategory?.categoryFields]);
+    return selectedCategory?.dynamicOptions?.fields || []; // ✅ From backend dynamicOptions.fields
+  }, [selectedCategory?.dynamicOptions?.fields]);
 
   /* ================= FORM UPDATERS ================= */
   const updateForm = (key, value) => setForm((p) => ({ ...p, [key]: value }));
-  const updateAttribute = (key, value) =>
-    setForm((p) => ({
-      ...p,
-      attributes: { 
-        ...p.attributes, 
-        [key]: value, 
-        ...(key === "brand" && { model: "" }) // Reset model on brand change
-      },
-    }));
+  
+  const updateAttribute = useCallback((key, value) => {
+    setForm((p) => {
+      const updated = {
+        ...p.attributes,
+        [key]: value,
+      };
+      // ✅ FIX 5: Reset model on brand change
+      if (key === "brand") {
+        updated.model = "";
+      }
+      return {
+        ...p,
+        attributes: updated,
+      };
+    });
+  }, []);
+
   const updateContact = (key, value) =>
     setForm((p) => ({ ...p, contact: { ...p.contact, [key]: value } }));
   const updateDelivery = (key, value) =>
@@ -185,7 +193,7 @@ export default function AddProduct() {
     return null;
   };
 
-  /* ================= DRAFT ================= */
+  /* ================= DRAFT (unchanged) ================= */
   const saveDraft = useCallback(() => {
     if (loading) return;
     const draft = { form, state, city, selectedPlan: selectedPlan?.id || null };
@@ -223,7 +231,7 @@ export default function AddProduct() {
     localStorage.removeItem(STORAGE_PAYMENT);
   }, []);
 
-  /* ================= IMAGE HANDLING ================= */
+  /* ================= IMAGE HANDLING (unchanged) ================= */
   const handleImages = useCallback((files) => {
     if (images.length >= MAX_IMAGES) {
       showError("Maximum 6 images allowed");
@@ -286,51 +294,23 @@ export default function AddProduct() {
     setIsDragging(false);
   }, []);
 
-  /* ================= ✅ 7-9. FIXED API SUBMISSION ================= */
+  /* ================= API SUBMISSION (unchanged) ================= */
   const createProductDraft = async () => {
     const fd = new FormData();
     
-    // Basic fields
     fd.append("title", form.title);
     fd.append("description", form.description);
     fd.append("price", Number(form.price).toString());
     fd.append("category_id", form.category_id);
     
-    // ✅ FIXED attributes payload
-    fd.append("attributes", JSON.stringify({
-      brand: attributes.brand,
-      model: attributes.model,
-      color: attributes.color,
-      condition: attributes.condition,
-      used_detail: attributes.used_detail,
-      ram: attributes.ram,
-      storage: attributes.storage,
-      sim: attributes.sim,
-      features: attributes.features,
-      year: attributes.year,
-      engine: attributes.engine,
-      fuel_type: attributes.fuel_type,
-      size: attributes.size,
-      age_range: attributes.age_range,
-    }));
-
-    // ✅ FIXED delivery payload
-    fd.append("delivery", JSON.stringify({
-      available: form.delivery.type !== "none",
-      type: form.delivery.type,
-      duration: form.delivery.duration,
-      fee: form.delivery.fee,
-      note: form.delivery.note,
-    }));
-
-    // ✅ FIXED contact payload
+    fd.append("attributes", JSON.stringify(attributes));
+    fd.append("delivery", JSON.stringify(form.delivery));
     fd.append("contact", JSON.stringify(form.contact));
     
     fd.append("location_state", state);
     fd.append("location_city", city);
-    fd.append("promotion_plan", selectedPlan?.id || null);
+    fd.append("promotion_id", selectedPlan?.id || null);
 
-    // Images
     const imageFiles = images.map((img) => img.file);
     const compressedFiles = await Promise.all(
       imageFiles.map(async (file) => {
@@ -349,7 +329,7 @@ export default function AddProduct() {
       body: fd,
     });
 
-    if (!res.ok) {
+        if (!res.ok) {
       const data = await res.json().catch(() => ({}));
       throw new Error(
         data.message || data.error || "Failed to save product draft"
@@ -477,6 +457,20 @@ export default function AddProduct() {
       .catch(console.error);
   }, []);
 
+  /* ================= ✅ FIX 4: ROBUST MODEL OPTIONS ================= */
+  const modelOptions = useMemo(() => {
+    const brand = attributes.brand;
+    if (!brand) return [];
+
+    const models = options.models || {};
+    // Case-insensitive brand matching
+    const matchKey = Object.keys(models).find(
+      (k) => k.toLowerCase() === brand.toLowerCase()
+    );
+
+    return matchKey ? normalizeOptions(models[matchKey]) : [];
+  }, [attributes.brand, options.models]);
+
   useEffect(() => {
     if (!fields.length) return;
     setForm((prev) => {
@@ -496,16 +490,11 @@ export default function AddProduct() {
         if (img.preview) URL.revokeObjectURL(img.preview);
       });
     };
-  }, []);
+  }, [images]);
 
   /* ================= RENDER ================= */
   const states = Object.keys(locationsByState || {});
   const cities = state ? locationsByState[state] : [];
-
-  // ✅ 3. FIXED model options
-  const modelOptions = attributes.brand && options.model?.[attributes.brand] 
-    ? normalizeOptions(options.model[attributes.brand]) 
-    : [];
 
   return (
     <div className="add-product-container">
@@ -543,7 +532,7 @@ export default function AddProduct() {
         </div>
       </section>
 
-      {/* ✅ 4. PRODUCT DETAILS - FULLY FIXED RENDER ================= */}
+      {/* ✅ PRODUCT DETAILS - FULLY FIXED RENDER ================= */}
       <section className="section form-card">
         <h3 className="section-title">Product Details</h3>
         <div className="form-group">
@@ -552,13 +541,15 @@ export default function AddProduct() {
             value={form.category_id}
             onChange={(v) => {
               updateForm("category_id", v);
-              updateForm("attributes", INITIAL_FORM.attributes); // Reset attributes
+              updateForm("attributes", INITIAL_FORM.attributes);
+              setState("");
+              setCity("");
             }}
             options={categories.map((c) => ({ id: c.id, name: c.name }))}
           />
         </div>
 
-        {/* ✅ 4. FIXED BRAND (separate handling) */}
+        {/* ✅ FIXED BRAND */}
         {optionsMap.brand.length > 0 && (
           <div className="form-group">
             <label>{formatLabel("brand")}</label>
@@ -570,7 +561,7 @@ export default function AddProduct() {
           </div>
         )}
 
-        {/* ✅ 3. FIXED MODEL (brand-dependent) */}
+        {/* ✅ FIXED MODEL (brand-dependent) */}
         {modelOptions.length > 0 && (
           <div className="form-group">
             <label>{formatLabel("model")}</label>
@@ -582,12 +573,14 @@ export default function AddProduct() {
           </div>
         )}
 
-        {/* ✅ 2. FIXED FIELD LOOP */}
+        {/* ✅ FIXED FIELD LOOP - SAFE FALLBACKS */}
         {fields.map((field) => {
-          if (field === "brand" || field === "model") return null; // Handled separately
+          if (field === "brand" || field === "model") return null;
           
-          const fieldOptions = optionsMap[field];
-          if (!fieldOptions && field !== "features") return null;
+          const fieldOptions = optionsMap[field] ?? []; // ✅ FIX 6: Nullish coalescing
+          if (field !== "features" && (!fieldOptions || fieldOptions.length === 0)) {
+            return null; // ✅ FIX 6: Correct logic
+          }
           if (field === "used_detail" && attributes.condition !== "Used") return null;
 
           return (
@@ -596,14 +589,14 @@ export default function AddProduct() {
               <DropdownModal
                 value={attributes[field] || ""}
                 onChange={(v) => updateAttribute(field, v)}
-                options={fieldOptions || []}
+                options={fieldOptions}
               />
             </div>
           );
         })}
 
-        {/* ✅ 6. FIXED FEATURES */}
-        {optionsMap.features.length > 0 && (
+        {/* ✅ FIXED FEATURES */}
+        {optionsMap.features?.length > 0 && (
           <div className="form-group">
             <label>Features</label>
             <div className="checkbox-grid-inline">
@@ -615,7 +608,7 @@ export default function AddProduct() {
                     <span>{formatLabel(feature)}</span>
                     <input
                       type="checkbox"
-                      checked={attributes.features.includes(feature)}
+                      checked={attributes.features?.includes(feature) || false}
                       onChange={() => toggleFeature(feature)}
                     />
                   </label>
@@ -669,7 +662,6 @@ export default function AddProduct() {
             />
           </div>
         )}
-        {/* Delivery fields unchanged */}
         <div className="form-group">
           <label>Delivery Type</label>
           <DropdownModal
@@ -717,7 +709,7 @@ export default function AddProduct() {
         )}
       </section>
 
-      {/* Images, Promotion, Actions - UNCHANGED */}
+      {/* IMAGES, PROMOTION, ACTIONS - UNCHANGED */}
       <section className="section form-card">
         <h3 className="section-title">Product Images</h3>
         <label className="form-group-label">
