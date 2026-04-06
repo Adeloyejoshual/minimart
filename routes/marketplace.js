@@ -109,7 +109,7 @@ const uploadImages = async (files) => {
 };
 
 /* =========================================================
-GET PRODUCTS (Trending + Feed)
+GET PRODUCTS (✅ FIXED: Promotion Expiry + Better Ranking)
 ========================================================= */
 router.get("/products", async (req, res) => {
   try {
@@ -117,7 +117,12 @@ router.get("/products", async (req, res) => {
     const offset = Math.max(+skip || 0, 0);
     const take = Math.min(+limit || 20, 50);
 
-    const whereClauses = ["p.is_active = true", "p.status = 'active'"]; // ✅ status
+    const whereClauses = [
+      "p.is_active = true", 
+      "p.status = 'active'",
+      // ✅ FIXED: Promotion expiry filter
+      "(p.promotion_expires_at IS NULL OR p.promotion_expires_at > NOW())"
+    ];
     const params = [];
     let paramIndex = 1;
 
@@ -146,9 +151,13 @@ router.get("/products", async (req, res) => {
     `;
 
     const [trendingRes, feedRes] = await Promise.all([
-      pool.query(`${baseQuery} ORDER BY p.views DESC NULLS LAST, p.promotion_priority DESC LIMIT 6`),
+      pool.query(`${baseQuery} ORDER BY p.views DESC NULLS LAST LIMIT 6`),
       pool.query(
-        `${baseQuery} ORDER BY p.promotion_priority DESC NULLS LAST, p.created_at DESC OFFSET $${paramIndex} LIMIT $${paramIndex + 1}`,
+        `${baseQuery} ORDER BY 
+          (p.promotion_expires_at IS NOT NULL) DESC,        -- ✅ Promoted first
+          p.promotion_priority DESC NULLS LAST,
+          p.created_at DESC 
+          OFFSET $${paramIndex} LIMIT $${paramIndex + 1}`,
         [...params, offset, take]
       ),
     ]);
@@ -182,7 +191,10 @@ router.get("/products/:id", async (req, res) => {
       FILTER (WHERE pi.image_url IS NOT NULL), '[]') AS images 
       FROM products p 
       LEFT JOIN product_images pi ON p.id = pi.product_id 
-      WHERE p.id = $1 AND p.is_active = true AND p.status = 'active' 
+      WHERE p.id = $1 
+        AND p.is_active = true 
+        AND p.status = 'active'
+        AND (p.promotion_expires_at IS NULL OR p.promotion_expires_at > NOW())
       GROUP BY p.id 
       `,
       [id]
@@ -206,7 +218,35 @@ router.get("/products/:id", async (req, res) => {
 });
 
 /* =========================================================
-CREATE PRODUCT (FULLY FRONTEND-COMPATIBLE)
+🟡 NEW: PAYMENT STATUS VERIFICATION (Frontend Polling)
+========================================================= */
+router.get("/payment/verify/:reference", async (req, res) => {
+  try {
+    const { reference } = req.params;
+
+    const result = await pool.query(
+      `SELECT status, product_id, amount, plan_id, created_at
+       FROM payment_logs 
+       WHERE reference = $1`,
+      [reference]
+    );
+
+    if (result.rowCount === 0) {
+      return res.json({ status: "pending" });
+    }
+
+    res.json({
+      status: result.rows[0].status,
+      product_id: result.rows[0].product_id,
+    });
+  } catch (err) {
+    console.error("Verify payment error:", err);
+    res.status(500).json({ status: "error" });
+  }
+});
+
+/* =========================================================
+CREATE PRODUCT (✅ Storage leak protection)
 ========================================================= */
 router.post("/products", upload.array("images", 10), async (req, res) => {
   const client = await pool.connect();
@@ -246,10 +286,10 @@ router.post("/products", upload.array("images", 10), async (req, res) => {
       INSERT INTO products (
         title, description, price, category_id, subcategory_id,
         attributes, delivery, contact, promotion_id,
-        location_state, location_city, status,          -- ✅ status
-        whatsapp, whatsapp_link                         -- ✅ add WhatsApp
+        location_state, location_city, status,
+        whatsapp, whatsapp_link
       )
-      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, 'draft', $12, $13)  -- ✅
+      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, 'draft', $12, $13)
       RETURNING id, title, description, price, category_id, subcategory_id,
                 attributes, delivery, contact, promotion_id,
                 location_state, location_city, created_at, status, is_active,
@@ -267,8 +307,8 @@ router.post("/products", upload.array("images", 10), async (req, res) => {
         promotion_id ? parseInt(promotion_id, 10) : null,
         location_state?.trim() || null,
         location_city?.trim() || null,
-        (parsedContact.whatsapp || "").trim() || null,          // ✅ WhatsApp
-        (parsedContact.whatsapp_link || "").trim() || null,     // ✅ WhatsApp link
+        (parsedContact.whatsapp || "").trim() || null,
+        (parsedContact.whatsapp_link || "").trim() || null,
       ]
     );
 
@@ -304,7 +344,7 @@ router.post("/products", upload.array("images", 10), async (req, res) => {
 });
 
 /* =========================================================
-ACTIVATE PRODUCT (Payment success / Free plan)
+ACTIVATE PRODUCT (🔴 FIXED: Payment Lock + Expiry)
 ========================================================= */
 router.post("/products/:id/activate", async (req, res) => {
   const client = await pool.connect();
@@ -315,28 +355,48 @@ router.post("/products/:id/activate", async (req, res) => {
     const { id } = req.params;
     const { promotion_id } = req.body;
 
+    // ✅ Get promotion duration
+    const planRes = promotion_id 
+      ? await client.query("SELECT duration_days FROM promotion_plans WHERE id = $1", [promotion_id])
+      : { rows: [{ duration_days: 0 }] };
+    
+    const durationDays = planRes.rows[0]?.duration_days || 0;
+    const expiresAt = durationDays > 0 ? `NOW() + (${durationDays} || ' days')::INTERVAL` : 'NULL';
+
+    // 🔴 FIXED: Only activate if FREE or PAID+verified
     const result = await client.query(
       `UPDATE products 
-       SET status = 'active',                           -- ✅ status
-           is_active = true,
-           promotion_id = $1,
-           promotion_priority = COALESCE(promotion_priority, 0) + 1,
-           updated_at = NOW()
-       WHERE id = $2 AND status = 'draft'              -- ✅ status
-       RETURNING id, title, status, is_active, promotion_id`,
+       SET 
+         status = 'active',
+         is_active = true,
+         promotion_id = $1,
+         promotion_priority = COALESCE(promotion_priority, 0) + 1,
+         promotion_expires_at = ${expiresAt},  -- ✅ Auto-expiry
+         updated_at = NOW()
+       WHERE id = $2 
+         AND status = 'draft'
+         AND (
+           $1 IS NULL                           -- ✅ Free plan OK
+           OR EXISTS (
+             SELECT 1 FROM payment_logs 
+             WHERE product_id = $2 
+             AND status = 'success'             -- ✅ Must be paid
+           )
+         )
+       RETURNING id, title, status, is_active, promotion_id, promotion_expires_at`,
       [promotion_id || null, id]
     );
 
     if (result.rowCount === 0) {
       await client.query("ROLLBACK");
       return res.status(404).json({ 
-        message: "Draft product not found or already published" 
+        message: "Draft product not found, already published, or payment required" 
       });
     }
 
     await client.query("COMMIT");
     
-    console.log(`✅ Activated product: ${id} (promo: ${promotion_id || 'none'})`);
+    console.log(`✅ Activated: ${id} (promo: ${promotion_id || 'free'}, expires: ${durationDays}d)`);
     res.json({ 
       success: true, 
       message: "Product published successfully",
@@ -352,7 +412,7 @@ router.post("/products/:id/activate", async (req, res) => {
 });
 
 /* =========================================================
-GET CATEGORIES (FULLY FIXED - PERFECT FRONTEND CONTRACT)
+GET CATEGORIES (Unchanged - already perfect)
 ========================================================= */
 router.get("/categories", async (req, res) => {
   try {
@@ -373,7 +433,7 @@ router.get("/categories", async (req, res) => {
       categoryMap[cat.id] = {
         ...cat,
         dynamicOptions: {
-          fields: rawFields, // ✅ EXACT frontend match - drives UI fields
+          fields: rawFields,
           brands: safeArray(brands[key]),
           models: models[key] || {},
           colors: safeArray(colors[key]),
@@ -396,7 +456,6 @@ router.get("/categories", async (req, res) => {
       }
     });
 
-    // Build tree structure
     categoryRows.forEach((cat) => {
       if (cat.parent_id && categoryMap[cat.parent_id]) {
         categoryMap[cat.parent_id].subcategories.push(categoryMap[cat.id]);
@@ -411,7 +470,7 @@ router.get("/categories", async (req, res) => {
 });
 
 /* =========================================================
-CLOUDINARY SIGNATURE (Frontend direct uploads)
+CLOUDINARY SIGNATURE (Unchanged)
 ========================================================= */
 router.get("/cloudinary-signature", (req, res) => {
   try {
