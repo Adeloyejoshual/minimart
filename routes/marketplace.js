@@ -97,6 +97,7 @@ const safeProduct = (p) => ({
 /* ================= NEW: Flatten Categories ================= */
 const flattenCategories = (categories = []) => {
   const result = [];
+
   const walk = (list) => {
     list.forEach((cat) => {
       result.push({
@@ -104,13 +105,15 @@ const flattenCategories = (categories = []) => {
         name: cat.name,
         parent_id: cat.parent_id || null,
         fields_key: cat.fields_key || null,
-        dynamicOptions: cat.dynamicOptions
+        dynamicOptions: cat.dynamicOptions || null,
       });
+
       if (Array.isArray(cat.subcategories) && cat.subcategories.length > 0) {
         walk(cat.subcategories);
       }
     });
   };
+
   walk(categories);
   return result;
 };
@@ -145,7 +148,7 @@ const uploadImages = async (files) => {
 /* =========================================================
 GET PRODUCTS (Safe arrays + filters)
 ========================================================= */
-router.get("/products", async (req, res, next) => {
+router.get("/products", async (req, res) => {
   try {
     const { skip = 0, limit = 20, state, category_id } = req.query;
 
@@ -195,14 +198,13 @@ router.get("/products", async (req, res, next) => {
           p.created_at DESC 
           OFFSET $${paramIndex} LIMIT $${paramIndex + 1}`,
         [...params, offset, take]
-      )
+      ),
     ]);
 
     const trendingRows = trendingRes.rows || [];
     const feedRows = feedRes.rows || [];
 
-    const trending = trendingRows
-      .map(safeProduct);
+    const trending = trendingRows.map(safeProduct);
     const trendingIds = new Set(trending.map((p) => p.id));
 
     const feedProducts = feedRows
@@ -227,7 +229,7 @@ router.get("/products", async (req, res, next) => {
 /* =========================================================
 GET SINGLE PRODUCT (+ VIEW COUNT)
 ========================================================= */
-router.get("/products/:id", async (req, res, next) => {
+router.get("/products/:id", async (req, res) => {
   try {
     const { id } = req.params;
 
@@ -260,8 +262,10 @@ router.get("/products/:id", async (req, res, next) => {
     const safe = safeProduct(productRow);
 
     // Fire-and-forget view increment
-    pool.query("UPDATE products SET views = COALESCE(views, 0) + 1 WHERE id = $1", [id])
-      .catch((err) => console.error("View increment failed:", err));
+    pool.query(
+      "UPDATE products SET views = COALESCE(views, 0) + 1 WHERE id = $1",
+      [id]
+    ).catch((err) => console.error("View increment failed:", err));
 
     res.json(safe);
   } catch (err) {
@@ -276,7 +280,7 @@ router.get("/products/:id", async (req, res, next) => {
 /* =========================================================
 PAYMENT STATUS VERIFICATION
 ========================================================= */
-router.get("/payment/verify/:reference", async (req, res, next) => {
+router.get("/payment/verify/:reference", async (req, res) => {
   try {
     const { reference } = req.params;
 
@@ -304,7 +308,7 @@ router.get("/payment/verify/:reference", async (req, res, next) => {
 /* =========================================================
 CREATE PRODUCT
 ========================================================= */
-router.post("/products", upload.array("images", 10), async (req, res, next) => {
+router.post("/products", upload.array("images", 10), async (req, res) => {
   const client = await pool.connect();
 
   try {
@@ -371,7 +375,6 @@ router.post("/products", upload.array("images", 10), async (req, res, next) => {
 
     const product = productRows[0];
 
-    // Insert images
     const images = await uploadImages(req.files);
     const imagePromises = images.map((img) =>
       client.query(
@@ -406,7 +409,7 @@ router.post("/products", upload.array("images", 10), async (req, res, next) => {
 /* =========================================================
 ACTIVATE PRODUCT
 ========================================================= */
-router.post("/products/:id/activate", async (req, res, next) => {
+router.post("/products/:id/activate", async (req, res) => {
   const client = await pool.connect();
 
   try {
@@ -415,7 +418,6 @@ router.post("/products/:id/activate", async (req, res, next) => {
     const { id } = req.params;
     const { promotion_id } = req.body;
 
-    // Get promotion duration
     let durationDays = 0;
 
     if (promotion_id) {
@@ -478,32 +480,8 @@ router.post("/products/:id/activate", async (req, res, next) => {
 });
 
 /* =========================================================
-GET CATEGORIES (FLAT VERSION - FIXED)
+GET CATEGORIES (FLAT VERSION)
 ========================================================= */
-
-// ✅ FLATTEN FUNCTION (MUST EXIST ABOVE ROUTE)
-const flattenCategories = (categories = []) => {
-  const result = [];
-
-  const walk = (list) => {
-    list.forEach((cat) => {
-      result.push({
-        id: String(cat.id),
-        name: cat.name,
-        parent_id: cat.parent_id || null,
-        dynamicOptions: cat.dynamicOptions || null,
-      });
-
-      if (Array.isArray(cat.subcategories) && cat.subcategories.length > 0) {
-        walk(cat.subcategories);
-      }
-    });
-  };
-
-  walk(categories);
-  return result;
-};
-
 router.get("/categories", async (req, res) => {
   try {
     const { rows: categoryRows } = await pool.query(
@@ -516,7 +494,6 @@ router.get("/categories", async (req, res) => {
     const categoryMap = {};
     const tree = [];
 
-    // Build category map + attach dynamic options
     for (const cat of categoryRows) {
       const key = cat.fields_key?.trim() || "default";
       const rawFields = categoryFields[key] || [];
@@ -548,7 +525,6 @@ router.get("/categories", async (req, res) => {
       };
     }
 
-    // Build tree
     for (const cat of Object.values(categoryMap)) {
       if (cat.parent_id && categoryMap[cat.parent_id]) {
         categoryMap[cat.parent_id].subcategories.push(cat);
@@ -557,7 +533,6 @@ router.get("/categories", async (req, res) => {
       }
     }
 
-    // ✅ RETURN FLAT STRUCTURE (SAFE)
     const flat = flattenCategories(tree);
 
     return res.json(flat);
@@ -572,7 +547,7 @@ router.get("/categories", async (req, res) => {
 /* =========================================================
 CLOUDINARY SIGNATURE
 ========================================================= */
-router.get("/cloudinary-signature", (req, res, next) => {
+router.get("/cloudinary-signature", (req, res) => {
   try {
     const timestamp = Math.round(new Date().getTime() / 1000);
 
