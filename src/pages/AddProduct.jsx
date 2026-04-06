@@ -61,7 +61,7 @@ export default function AddProduct() {
   const [isDragging, setIsDragging] = useState(false);
   const [dragIndex, setDragIndex] = useState(null);
   const imageTimersRef = useRef(new Map());
-  const submitRef = useRef(false); // 🛡️ Prevent double-submit
+  const submitRef = useRef(false);
 
   const MAX_IMAGES = 6;
   const MAX_SIZE = 3 * 1024 * 1024;
@@ -113,13 +113,36 @@ export default function AddProduct() {
 
   // 🛡️ Safety: Clear dangerous localStorage on mount
   useEffect(() => {
-    // Clear payment retry data to prevent auto-submit
     const savedPayment = localStorage.getItem(STORAGE_PAYMENT);
     if (savedPayment) {
       console.log("🧹 Cleared dangerous payment data:", savedPayment);
       localStorage.removeItem(STORAGE_PAYMENT);
     }
   }, []);
+
+  // 🟦 4. RESTORE PAYMENT SESSION ON RELOAD
+  useEffect(() => {
+    const saved = localStorage.getItem(STORAGE_PAYMENT);
+    if (!saved) return;
+
+    try {
+      const parsed = JSON.parse(saved);
+      const isExpired = Date.now() - parsed.createdAt > 30 * 60 * 1000;
+
+      if (isExpired) {
+        localStorage.removeItem(STORAGE_PAYMENT);
+        showError("Payment session expired. Please start again.");
+        return;
+      }
+
+      console.log("🔁 Restored payment session:", parsed.reference);
+      setPaymentData(parsed);
+      showSuccess("Payment session restored. Click 'Go to Payment'.");
+    } catch (e) {
+      localStorage.removeItem(STORAGE_PAYMENT);
+      console.error("Invalid payment session:", e);
+    }
+  }, [showError, showSuccess]);
 
   const compressImage = async (file) => {
     try {
@@ -246,7 +269,42 @@ export default function AddProduct() {
     localStorage.removeItem(STORAGE_DRAFT);
     localStorage.removeItem(STORAGE_PAYMENT);
     showSuccess("Draft cleared");
+  }, [showSuccess]);
+
+  // 🟣 6. Payment session helper
+  const clearPaymentSession = useCallback(() => {
+    localStorage.removeItem(STORAGE_PAYMENT);
+    setPaymentData(null);
   }, []);
+
+  // 🟠 7. Auto-poll payment status
+  const checkPaymentStatus = useCallback(async (reference) => {
+    try {
+      const res = await fetch(
+        `https://minimart-ivrm.onrender.com/api/payment/verify/${reference}`
+      );
+      const data = await res.json();
+
+      if (data.status === "success") {
+        clearPaymentSession();
+        clearDraft();
+        showSuccess("✅ Payment confirmed! Product is now live.");
+      }
+    } catch (e) {
+      console.warn("Payment status check failed:", e);
+    }
+  }, [clearPaymentSession, clearDraft, showSuccess]);
+
+  // 🟠 7. POLL PAYMENT STATUS useEffect
+  useEffect(() => {
+    if (!paymentData?.reference) return;
+
+    const interval = setInterval(() => {
+      checkPaymentStatus(paymentData.reference);
+    }, 5000);
+
+    return () => clearInterval(interval);
+  }, [paymentData, checkPaymentStatus]);
 
   const handleImages = useCallback((files) => {
     if (images.length >= MAX_IMAGES) {
@@ -277,7 +335,6 @@ export default function AddProduct() {
     });
   }, []);
 
-  // Drag & drop handlers (simplified)
   const handleDrop = useCallback((e, index) => {
     e.preventDefault();
     const from = dragIndex;
@@ -325,30 +382,44 @@ export default function AddProduct() {
     return (await res.json()).product;
   };
 
+  // 🟡 2. FIXED startPayment (secure + resilient)
   const startPayment = async (productId, plan) => {
-    const res = await fetch("https://minimart-ivrm.onrender.com/api/payment/initialize", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        email: form.contact.email,
-        amount: Number(plan.price),
-        planId: plan.id,
-        productId,
-      }),
-    });
+    const payload = {
+      email: form.contact.email,
+      planId: plan.id,
+      productId,
+    };
+
+    const res = await fetch(
+      "https://minimart-ivrm.onrender.com/api/payment/initialize",
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload), // ✅ No amount sent (security)
+      }
+    );
 
     const data = await res.json();
-    if (!data.success || !data.authorization_url) {
+
+    if (!res.ok || !data.success || !data.authorization_url) {
       throw new Error(data.message || "Payment initialization failed");
     }
-    return data.authorization_url;
+
+    const paymentSession = {
+      ...payload,
+      reference: data.reference,
+      authUrl: data.authorization_url,
+      createdAt: Date.now(),
+    };
+
+    localStorage.setItem(STORAGE_PAYMENT, JSON.stringify(paymentSession));
+    return paymentSession;
   };
 
-  // 🛡️ BULLETPROOF handleSubmit - NO AUTO-REDIRECT
+  // 🛡️ BULLETPROOF handleSubmit
   const handleSubmit = useCallback(async () => {
     console.log("🚨 handleSubmit MANUALLY TRIGGERED");
 
-    // Double-submit protection
     if (loading || submitRef.current) {
       console.log("⛔ Submit blocked (already running)");
       return;
@@ -372,7 +443,6 @@ export default function AddProduct() {
       if (!productId) throw new Error("Failed to create product draft");
 
       if (finalPlan.price === 0) {
-        // Free plan - activate immediately
         await fetch(
           `https://minimart-ivrm.onrender.com/api/marketplace/products/${productId}/activate`,
           { method: "POST" }
@@ -382,19 +452,10 @@ export default function AddProduct() {
         return;
       }
 
-      // Paid plan - show payment URL (NO REDIRECT)
-      const authUrl = await startPayment(productId, finalPlan);
-      console.log("💳 Payment URL:", authUrl);
-      showSuccess(`Payment ready! Open: ${authUrl.slice(0, 50)}...`);
-      
-      // Store for manual retry (no auto-redirect)
-      setPaymentData({
-        email: form.contact.email,
-        amount: Number(finalPlan.price),
-        planId: finalPlan.id,
-        productId,
-        authUrl,
-      });
+      // ✅ FIXED payment flow
+      const session = await startPayment(productId, finalPlan);
+      setPaymentData(session);
+      showSuccess("💳 Payment ready! Click 'Go to Payment' below.");
 
     } catch (err) {
       console.error("Submit failed:", err);
@@ -405,11 +466,14 @@ export default function AddProduct() {
     }
   }, [form, images, state, city, selectedPlan, validateForm, loading, clearDraft]);
 
-  const manualPaymentRedirect = () => {
-    if (paymentData?.authUrl) {
-      window.location.href = paymentData.authUrl;
+  // 🟣 5. SAFER payment redirect
+  const manualPaymentRedirect = useCallback(() => {
+    if (!paymentData?.authUrl) {
+      showError("No payment session available");
+      return;
     }
-  };
+    window.open(paymentData.authUrl, "_blank"); // ✅ New tab UX
+  }, [paymentData, showError]);
 
   // Load categories
   useEffect(() => {
@@ -420,7 +484,7 @@ export default function AddProduct() {
         console.error("Categories fetch failed:", e);
         showError("Failed to load categories");
       });
-  }, []);
+  }, [showError]);
 
   // Cleanup images
   useEffect(() => {
@@ -753,14 +817,14 @@ export default function AddProduct() {
               onClick={manualPaymentRedirect}
               disabled={loading}
             >
-              Go to Payment
+              💳 Go to Payment
             </button>
             <button 
               className="retry-btn" 
-              onClick={() => console.log("Manual retry clicked")}
+              onClick={clearPaymentSession}
               disabled={loading}
             >
-              Retry Later
+              Clear Session
             </button>
           </>
         )}
