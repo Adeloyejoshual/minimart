@@ -4,7 +4,7 @@ import multer from "multer";
 import { v2 as cloudinary } from "cloudinary";
 import dotenv from "dotenv";
 
-/* ================= CONFIG ================= */
+// Configs
 import { brands } from "../src/config/brands.js";
 import { colors } from "../src/config/colors.js";
 import { categoryFields } from "../src/config/categoryFields.js";
@@ -50,8 +50,10 @@ const upload = multer({
 
 /* ================= HELPERS ================= */
 const safeJSON = (value, fallback = {}) => {
+  if (value == null) return fallback;
+  if (typeof value === "object") return value;
   try {
-    return value ? JSON.parse(value) : fallback;
+    return JSON.parse(value);
   } catch {
     return fallback;
   }
@@ -69,16 +71,27 @@ const normalizeDelivery = (d = {}) => ({
   note: d?.note || "",
 });
 
-const normalizeProduct = (p) => ({
-  ...p,
-  images: p.images || [],
-  attributes: safeJSON(p.attributes),
+const safeProduct = (p) => ({
+  id: p.id || "",
+  title: p.title || "Untitled",
+  description: p.description || "",
+  price: p.price != null ? parseFloat(p.price) : 0,
+  category_id: p.category_id || null,
+  subcategory_id: p.subcategory_id || null,
+  attributes: safeJSON(p.attributes, {}),
   delivery: normalizeDelivery(safeJSON(p.delivery)),
-  contact: safeJSON(p.contact),
-  location: {
-    state: p.location_state,
-    city: p.location_city,
-  },
+  contact: safeJSON(p.contact, {}),
+  location_state: p.location_state || null,
+  location_city: p.location_city || null,
+  state: p.location_state,
+  city: p.location_city,
+  images: safeArray(p.images),
+  status: p.status || "draft",
+  is_active: p.is_active ?? false,
+  promotion_id: p.promotion_id || null,
+  promotion_expires_at: p.promotion_expires_at || null,
+  promotion_priority: p.promotion_priority || 0,
+  views: p.views || 0,
 });
 
 /* ================= CLOUDINARY UPLOAD ================= */
@@ -109,19 +122,19 @@ const uploadImages = async (files) => {
 };
 
 /* =========================================================
-GET PRODUCTS (✅ FIXED: Promotion Expiry + Better Ranking)
+GET PRODUCTS (Fixed: Safe arrays + safe queries)
 ========================================================= */
-router.get("/products", async (req, res) => {
+router.get("/products", async (req, res, next) => {
   try {
     const { skip = 0, limit = 20, state, category_id } = req.query;
-    const offset = Math.max(+skip || 0, 0);
-    const take = Math.min(+limit || 20, 50);
+
+    const offset = Math.max(Math.floor(+skip || 0), 0);
+    const take = Math.max(Math.floor(+limit || 20), 1);
 
     const whereClauses = [
-      "p.is_active = true", 
+      "p.is_active = true",
       "p.status = 'active'",
-      // ✅ FIXED: Promotion expiry filter
-      "(p.promotion_expires_at IS NULL OR p.promotion_expires_at > NOW())"
+      "(p.promotion_expires_at IS NULL OR p.promotion_expires_at > NOW())",
     ];
     const params = [];
     let paramIndex = 1;
@@ -139,32 +152,56 @@ router.get("/products", async (req, res) => {
     }
 
     const whereStr = whereClauses.length ? `WHERE ${whereClauses.join(" AND ")}` : "";
-    
+
     const baseQuery = `
       SELECT p.*, 
-      COALESCE(json_agg(pi.image_url ORDER BY pi.position) 
-      FILTER (WHERE pi.image_url IS NOT NULL), '[]') AS images 
+        COALESCE(
+          json_agg(pi.image_url ORDER BY pi.position) FILTER (WHERE pi.image_url IS NOT NULL),
+          '[]'
+        ) AS images 
       FROM products p 
       LEFT JOIN product_images pi ON p.id = pi.product_id 
       ${whereStr}
       GROUP BY p.id 
     `;
 
-    const [trendingRes, feedRes] = await Promise.all([
-      pool.query(`${baseQuery} ORDER BY p.views DESC NULLS LAST LIMIT 6`),
-      pool.query(
+    let trendingRes;
+    let feedRes;
+
+    try {
+      trendingRes = await pool.query(`${baseQuery} ORDER BY p.views DESC NULLS LAST LIMIT 6`);
+    } catch (err) {
+      console.error("Trending query failed:", err);
+      trendingRes = { rows: [] };
+    }
+
+    try {
+      feedRes = await pool.query(
         `${baseQuery} ORDER BY 
-          (p.promotion_expires_at IS NOT NULL) DESC,        -- ✅ Promoted first
+          (p.promotion_expires_at IS NOT NULL) DESC,
           p.promotion_priority DESC NULLS LAST,
           p.created_at DESC 
           OFFSET $${paramIndex} LIMIT $${paramIndex + 1}`,
         [...params, offset, take]
-      ),
-    ]);
+      );
+    } catch (err) {
+      console.error("Feed query failed:", err);
+      feedRes = { rows: [] };
+    }
 
-    const trending = trendingRes.rows.map(normalizeProduct);
+    const trendingRows = trendingRes.rows || [];
+    const feedRows = feedRes.rows || [];
+
+    const trending = trendingRows
+      .map(normalizeProduct)
+      .map(safeProduct);
+
     const trendingIds = new Set(trending.map((p) => p.id));
-    const feedProducts = feedRes.rows.map(normalizeProduct).filter((p) => !trendingIds.has(p.id));
+
+    const feedProducts = feedRows
+      .map(normalizeProduct)
+      .map(safeProduct)
+      .filter((p) => !trendingIds.has(p.id));
 
     res.json({
       trending,
@@ -173,22 +210,28 @@ router.get("/products", async (req, res) => {
     });
   } catch (err) {
     console.error("GET /products error:", err);
-    res.status(500).json({ message: "Failed to fetch products" });
+    res.status(500).json({
+      trending: [],
+      products: [],
+      filters_applied: {},
+    });
   }
 });
 
 /* =========================================================
 GET SINGLE PRODUCT (+ VIEW COUNT)
 ========================================================= */
-router.get("/products/:id", async (req, res) => {
+router.get("/products/:id", async (req, res, next) => {
   try {
     const { id } = req.params;
 
-    const { rows } = await pool.query(
+    const result = await pool.query(
       `
       SELECT p.*, 
-      COALESCE(json_agg(pi.image_url ORDER BY pi.position) 
-      FILTER (WHERE pi.image_url IS NOT NULL), '[]') AS images 
+        COALESCE(
+          json_agg(pi.image_url ORDER BY pi.position) FILTER (WHERE pi.image_url IS NOT NULL),
+          '[]'
+        ) AS images 
       FROM products p 
       LEFT JOIN product_images pi ON p.id = pi.product_id 
       WHERE p.id = $1 
@@ -200,27 +243,34 @@ router.get("/products/:id", async (req, res) => {
       [id]
     );
 
-    if (!rows.length) {
-      return res.status(404).json({ message: "Product not found" });
+    if (!result.rows.length) {
+      return res.status(404).json({
+        message: "Product not found",
+        product: null,
+      });
     }
 
-    const product = rows[0];
-    
-    // Fire-and-forget view increment
-    pool.query("UPDATE products SET views = COALESCE(views, 0) + 1 WHERE id = $1", [id])
-      .catch(console.error);
+    const productRow = result.rows[0];
+    const safe = safeProduct(normalizeProduct(productRow));
 
-    res.json(normalizeProduct(product));
+    // Fire‑and‑forget view increment
+    pool.query("UPDATE products SET views = COALESCE(views, 0) + 1 WHERE id = $1", [id])
+      .catch((err) => console.error("View increment failed:", err));
+
+    res.json(safe);
   } catch (err) {
     console.error("GET /products/:id error:", err);
-    res.status(500).json({ message: "Failed to fetch product" });
+    res.status(500).json({
+      message: "Failed to fetch product",
+      product: null,
+    });
   }
 });
 
 /* =========================================================
-🟡 NEW: PAYMENT STATUS VERIFICATION (Frontend Polling)
+🟡 PAYMENT STATUS VERIFICATION (Frontend Polling)
 ========================================================= */
-router.get("/payment/verify/:reference", async (req, res) => {
+router.get("/payment/verify/:reference", async (req, res, next) => {
   try {
     const { reference } = req.params;
 
@@ -246,9 +296,9 @@ router.get("/payment/verify/:reference", async (req, res) => {
 });
 
 /* =========================================================
-CREATE PRODUCT (✅ Storage leak protection)
+CREATE PRODUCT (Safe transaction + Cloudinary)
 ========================================================= */
-router.post("/products", upload.array("images", 10), async (req, res) => {
+router.post("/products", upload.array("images", 10), async (req, res, next) => {
   const client = await pool.connect();
 
   try {
@@ -273,7 +323,8 @@ router.post("/products", upload.array("images", 10), async (req, res) => {
       return res.status(400).json({ message: "Title required" });
     if (!price || isNaN(price) || +price <= 0)
       return res.status(400).json({ message: "Valid price required" });
-    if (!category_id) return res.status(400).json({ message: "Category required" });
+    if (!category_id)
+      return res.status(400).json({ message: "Category required" });
     if (!req.files?.length)
       return res.status(400).json({ message: "At least one image required" });
 
@@ -324,11 +375,14 @@ router.post("/products", upload.array("images", 10), async (req, res) => {
     );
 
     await Promise.all(imagePromises);
+
     await client.query("COMMIT");
+
+    const normalized = { ...product, images: images.map((img) => img.url) };
 
     res.status(201).json({
       success: true,
-      product: normalizeProduct({ ...product, images: images.map(img => img.url) }),
+      product: safeProduct(normalizeProduct(normalized)),
     });
   } catch (err) {
     await client.query("ROLLBACK").catch(() => {});
@@ -344,26 +398,33 @@ router.post("/products", upload.array("images", 10), async (req, res) => {
 });
 
 /* =========================================================
-ACTIVATE PRODUCT (🔴 FIXED: Payment Lock + Expiry)
+ACTIVATE PRODUCT (One true version)
 ========================================================= */
-router.post("/products/:id/activate", async (req, res) => {
+router.post("/products/:id/activate", async (req, res, next) => {
   const client = await pool.connect();
-  
+
   try {
     await client.query("BEGIN");
-    
+
     const { id } = req.params;
     const { promotion_id } = req.body;
 
-    // ✅ Get promotion duration
-    const planRes = promotion_id 
-      ? await client.query("SELECT duration_days FROM promotion_plans WHERE id = $1", [promotion_id])
-      : { rows: [{ duration_days: 0 }] };
-    
-    const durationDays = planRes.rows[0]?.duration_days || 0;
-    const expiresAt = durationDays > 0 ? `NOW() + (${durationDays} || ' days')::INTERVAL` : 'NULL';
+    // Get promotion duration
+    let durationDays = 0;
 
-    // 🔴 FIXED: Only activate if FREE or PAID+verified
+    if (promotion_id) {
+      const planRes = await client.query(
+        "SELECT duration_days FROM promotion_plans WHERE id = $1",
+        [promotion_id]
+      );
+      durationDays = planRes.rows[0]?.duration_days || 0;
+    }
+
+    const expiresAt =
+      durationDays > 0
+        ? `NOW() + (${durationDays} || ' days')::INTERVAL`
+        : "NULL";
+
     const result = await client.query(
       `UPDATE products 
        SET 
@@ -371,16 +432,16 @@ router.post("/products/:id/activate", async (req, res) => {
          is_active = true,
          promotion_id = $1,
          promotion_priority = COALESCE(promotion_priority, 0) + 1,
-         promotion_expires_at = ${expiresAt},  -- ✅ Auto-expiry
+         promotion_expires_at = ${expiresAt},
          updated_at = NOW()
        WHERE id = $2 
          AND status = 'draft'
          AND (
-           $1 IS NULL                           -- ✅ Free plan OK
+           $1 IS NULL                           -- Free plan OK
            OR EXISTS (
              SELECT 1 FROM payment_logs 
              WHERE product_id = $2 
-             AND status = 'success'             -- ✅ Must be paid
+               AND status = 'success'
            )
          )
        RETURNING id, title, status, is_active, promotion_id, promotion_expires_at`,
@@ -389,18 +450,21 @@ router.post("/products/:id/activate", async (req, res) => {
 
     if (result.rowCount === 0) {
       await client.query("ROLLBACK");
-      return res.status(404).json({ 
-        message: "Draft product not found, already published, or payment required" 
+      return res.status(404).json({
+        message: "Draft product not found, already published, or payment required",
       });
     }
 
     await client.query("COMMIT");
-    
-    console.log(`✅ Activated: ${id} (promo: ${promotion_id || 'free'}, expires: ${durationDays}d)`);
-    res.json({ 
-      success: true, 
+
+    console.log(
+      `✅ Activated: ${id} (promo: ${promotion_id || "free"}, expires: ${durationDays}d)`
+    );
+
+    res.json({
+      success: true,
       message: "Product published successfully",
-      product_id: result.rows[0].id 
+      product_id: result.rows[0].id,
     });
   } catch (err) {
     await client.query("ROLLBACK").catch(() => {});
@@ -412,9 +476,9 @@ router.post("/products/:id/activate", async (req, res) => {
 });
 
 /* =========================================================
-GET CATEGORIES (Unchanged - already perfect)
+GET CATEGORIES
 ========================================================= */
-router.get("/categories", async (req, res) => {
+router.get("/categories", async (req, res, next) => {
   try {
     const { rows: categoryRows } = await pool.query(
       `SELECT id, name, parent_id, fields_key 
@@ -430,24 +494,26 @@ router.get("/categories", async (req, res) => {
       const key = cat.fields_key?.trim() || "default";
       const rawFields = categoryFields[key] || [];
 
+      const dynamicOptions = {
+        fields: rawFields,
+        brands: safeArray(brands[key]),
+        models: models[key] || {},
+        colors: safeArray(colors[key]),
+        conditions,
+        usedDetails,
+        ram: safeArray(ramOptions),
+        storage: safeArray(storageOptions),
+        sim: safeArray(sims),
+        features: safeArray(featuresByCategory[key]),
+        years: safeArray(years),
+        engines: safeArray(engines),
+        fuel_types: safeArray(fuelTypes),
+        states: Object.keys(locationsByState),
+      };
+
       categoryMap[cat.id] = {
         ...cat,
-        dynamicOptions: {
-          fields: rawFields,
-          brands: safeArray(brands[key]),
-          models: models[key] || {},
-          colors: safeArray(colors[key]),
-          conditions,
-          usedDetails,
-          ram: safeArray(ramOptions),
-          storage: safeArray(storageOptions),
-          sim: safeArray(sims),
-          features: safeArray(featuresByCategory[key]),
-          years: safeArray(years),
-          engines: safeArray(engines),
-          fuel_types: safeArray(fuelTypes),
-          states: Object.keys(locationsByState),
-        },
+        dynamicOptions,
         subcategories: [],
       };
 
@@ -470,9 +536,9 @@ router.get("/categories", async (req, res) => {
 });
 
 /* =========================================================
-CLOUDINARY SIGNATURE (Unchanged)
+CLOUDINARY SIGNATURE
 ========================================================= */
-router.get("/cloudinary-signature", (req, res) => {
+router.get("/cloudinary-signature", (req, res, next) => {
   try {
     const timestamp = Math.round(new Date().getTime() / 1000);
 
@@ -499,6 +565,19 @@ router.get("/cloudinary-signature", (req, res) => {
     console.error("Signature error:", err);
     res.status(500).json({ error: "Signature generation failed" });
   }
+});
+
+/* =========================================================
+GLOBAL ERROR HANDLER FOR THIS ROUTER
+========================================================= */
+router.use((err, req, res, next) => {
+  console.error("Marketplace error:", err);
+  res.status(500).json({
+    error: "Internal server error",
+    trending: [],
+    products: [],
+    filters_applied: {},
+  });
 });
 
 export default router;
