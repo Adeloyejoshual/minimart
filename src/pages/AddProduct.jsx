@@ -31,7 +31,7 @@ const INITIAL_FORM = {
     age_range: "",
   },
   delivery: {
-    type: "standard",
+    available: false,
     duration: { from: "", to: "" },
     fee: "",
     note: "",
@@ -66,15 +66,24 @@ export default function AddProduct() {
   const MAX_IMAGES = 6;
   const MAX_SIZE = 3 * 1024 * 1024;
 
-  // 🔍 Safe UUID generator
+  // UUID generator
   const generateId = useCallback(() => {
     return (crypto?.randomUUID?.() || `${Date.now()}-${Math.random().toString(36).slice(2)}`);
   }, []);
 
-  const selectedCategory = useMemo(
-    () => (Array.isArray(categories) ? categories.find((c) => c.id == form.category_id) : null),
-    [categories, form.category_id]
-  );
+  // Flatten categories for flat selector
+  const flatCategories = useMemo(() => {
+    if (!Array.isArray(categories)) return [];
+    return categories.map((c) => ({
+      id: String(c.id || ""),
+      name: c.name || "Unknown",
+      dynamicOptions: c.dynamicOptions || {},
+    })).filter((c) => c.name !== "Unknown");
+  }, [categories]);
+
+  const selectedCategory = useMemo(() => 
+    flatCategories.find((c) => c.id === String(form.category_id)) || null,
+  [flatCategories, form.category_id]);
 
   const options = selectedCategory?.dynamicOptions || {};
   const attributes = form.attributes;
@@ -87,13 +96,10 @@ export default function AddProduct() {
   const onlyNumbers = (v = "") => v.replace(/[^0-9.]/g, "");
   const onlyDigits = (v = "") => v.replace(/[^0-9]/g, "");
 
-  // ✅ Fixed displayPrice - separate raw vs formatted
   const displayPrice = (v) => {
     const num = Number(v);
     return Number.isNaN(num) || num <= 0 ? "" : new Intl.NumberFormat("en-NG").format(num);
   };
-
-  const rawPriceDisplay = (v) => v || "";
 
   const formatLabel = (t) =>
     t.replace(/_/g, " ").replace(/\bw/g, (l) => l.toUpperCase());
@@ -110,16 +116,15 @@ export default function AddProduct() {
     setTimeout(() => setSuccess(""), 5000);
   }, []);
 
-  // 🛡️ Safety: Clear dangerous localStorage on mount
+  // Clear dangerous localStorage on mount
   useEffect(() => {
     const savedPayment = localStorage.getItem(STORAGE_PAYMENT);
     if (savedPayment) {
-      console.log("🧹 Cleared dangerous payment data");
       localStorage.removeItem(STORAGE_PAYMENT);
     }
   }, []);
 
-  // 🟦 4. RESTORE PAYMENT SESSION ON RELOAD
+  // Restore payment session
   useEffect(() => {
     const saved = localStorage.getItem(STORAGE_PAYMENT);
     if (!saved) return;
@@ -130,16 +135,14 @@ export default function AddProduct() {
 
       if (isExpired) {
         localStorage.removeItem(STORAGE_PAYMENT);
-        showError("Payment session expired. Please start again.");
+        showError("Payment session expired.");
         return;
       }
 
-      console.log("🔁 Restored payment session:", parsed.reference);
       setPaymentData(parsed);
-      showSuccess("Payment session restored. Click 'Go to Payment'.");
+      showSuccess("Payment session restored.");
     } catch (e) {
       localStorage.removeItem(STORAGE_PAYMENT);
-      console.error("Invalid payment session:", e);
     }
   }, [showError, showSuccess]);
 
@@ -151,7 +154,6 @@ export default function AddProduct() {
         useWebWorker: true,
       });
     } catch (e) {
-      console.warn("Compression failed, using original:", e);
       return file;
     }
   };
@@ -173,11 +175,11 @@ export default function AddProduct() {
     age_range: normalizeOptions(options.age_range || []),
   }), [options]);
 
-  // ✅ FIXED: Safe fields extraction
-  const fields = useMemo(() => {
-    const rawFields = selectedCategory?.dynamicOptions?.fields;
-    return Array.isArray(rawFields) ? rawFields : [];
-  }, [selectedCategory]);
+  const fields = useMemo(() => 
+    Array.isArray(selectedCategory?.dynamicOptions?.fields) 
+      ? selectedCategory.dynamicOptions.fields 
+      : [],
+  [selectedCategory]);
 
   const updateForm = useCallback((key, value) => {
     setForm((prev) => ({ ...prev, [key]: value }));
@@ -199,7 +201,10 @@ export default function AddProduct() {
   }, []);
 
   const updateDelivery = useCallback((key, value) => {
-    setForm((prev) => ({ ...prev, delivery: { ...prev.delivery, [key]: value } }));
+    setForm((prev) => ({ 
+      ...prev, 
+      delivery: { ...prev.delivery, [key]: value } 
+    }));
   }, []);
 
   const updateDeliveryDuration = useCallback((key, value) => {
@@ -231,40 +236,35 @@ export default function AddProduct() {
   const validateForm = useCallback(() => {
     if (form.title.length < 10) return "Title must be at least 10 characters";
     if (form.description.length < 20) return "Description must be at least 20 characters";
-    if (!form.price || Number(form.price) <= 0) return "Please enter a valid price";
+    if (!form.price || Number(form.price) <= 0) return "Valid price required";
     if (!form.category_id) return "Please select a category";
-    if (!form.contact.phone || form.contact.phone.length < 10) return "Please enter a valid phone number";
-    if (!form.contact.email || !form.contact.email.includes("@")) return "Please enter a valid email";
-    if (!form.contact.whatsapp || form.contact.whatsapp.length < 10) return "Please enter a valid WhatsApp number";
-    if (images.length === 0) return "Please upload at least 1 image";
-    if (!state || !city) return "Please select your state and city";
+    if (!form.contact.phone || form.contact.phone.length < 10) return "Valid phone required";
+    if (!form.contact.email || !form.contact.email.includes("@")) return "Valid email required";
+    if (!form.contact.whatsapp || form.contact.whatsapp.length < 10) return "WhatsApp required";
+    if (images.length === 0) return "Upload at least 1 image";
+    if (!state || !city) return "Select state and city";
 
-    if (form.delivery.type !== "none" && form.delivery.type !== "pickup") {
+    if (form.delivery.available) {
       const from = Number(form.delivery.duration.from);
       const to = Number(form.delivery.duration.to);
-      if (Number.isNaN(from) || Number.isNaN(to)) return "Please enter delivery duration";
+      if (Number.isNaN(from) || Number.isNaN(to)) return "Enter delivery duration";
       if (to < from) return "End day must be after start day";
-      if (!form.delivery.fee || Number(form.delivery.fee) <= 0) return "Please enter delivery fee";
+      if (!form.delivery.fee || Number(form.delivery.fee) <= 0) return "Enter delivery fee";
     }
     return null;
   }, [form, images.length, state, city]);
 
-  // ✅ FIXED: Safe draft saving (no loops)
+  // Auto-save draft
   useEffect(() => {
     if (loading) return;
     const timeout = setTimeout(() => {
       try {
         const draft = { 
-          form, 
-          state, 
-          city, 
-          imagesCount: images.length,
+          form, state, city, imagesCount: images.length, 
           selectedPlan: selectedPlan?.id || null 
         };
         localStorage.setItem(STORAGE_DRAFT, JSON.stringify(draft));
-      } catch (e) {
-        console.warn("Draft save failed:", e);
-      }
+      } catch (e) {}
     }, 1500);
     return () => clearTimeout(timeout);
   }, [form.title, form.description, form.price, form.category_id, state, city, selectedPlan?.id, images.length, loading]);
@@ -289,7 +289,7 @@ export default function AddProduct() {
   const checkPaymentStatus = useCallback(async (reference) => {
     try {
       const res = await fetch(
-        `https://minimart-ivrm.onrender.com/api/payment/verify/${reference}`
+        `https://minimart-ivrm.onrender.com/api/marketplace/payment/verify/${reference}`
       );
       const data = await res.json();
 
@@ -298,22 +298,17 @@ export default function AddProduct() {
         clearDraft();
         showSuccess("✅ Payment confirmed! Product is now live.");
       }
-    } catch (e) {
-      console.warn("Payment status check failed:", e);
-    }
+    } catch (e) {}
   }, [clearPaymentSession, clearDraft, showSuccess]);
 
   useEffect(() => {
     if (!paymentData?.reference) return;
-
     const interval = setInterval(() => {
       checkPaymentStatus(paymentData.reference);
     }, 5000);
-
     return () => clearInterval(interval);
   }, [paymentData, checkPaymentStatus]);
 
-  // ✅ FIXED: Safe image handler
   const handleImages = useCallback((files) => {
     if (images.length >= MAX_IMAGES) {
       showError("Maximum 6 images allowed");
@@ -364,6 +359,7 @@ export default function AddProduct() {
     fd.append("description", form.description);
     fd.append("price", Number(form.price).toString());
     fd.append("category_id", form.category_id);
+    fd.append("subcategory_id", form.category_id); // Use same for now
     fd.append("attributes", JSON.stringify(attributes));
     fd.append("delivery", JSON.stringify(form.delivery));
     fd.append("contact", JSON.stringify(form.contact));
@@ -375,7 +371,7 @@ export default function AddProduct() {
     const compressedFiles = await Promise.all(
       imageFiles.map(async (file) => await compressImage(file))
     );
-    compressedFiles.forEach((file) => fd.append("images", file));
+    compressedFiles.forEach((file, i) => fd.append("images", file));
 
     const res = await fetch("https://minimart-ivrm.onrender.com/api/marketplace/products", {
       method: "POST",
@@ -384,7 +380,7 @@ export default function AddProduct() {
 
     if (!res.ok) {
       const data = await res.json().catch(() => ({}));
-      throw new Error(data.message || data.error || "Failed to save product draft");
+      throw new Error(data.message || "Failed to save product");
     }
 
     return (await res.json()).product;
@@ -397,19 +393,16 @@ export default function AddProduct() {
       productId,
     };
 
-    const res = await fetch(
-      "https://minimart-ivrm.onrender.com/api/payment/initialize",
-      {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(payload),
-      }
-    );
+    const res = await fetch("https://minimart-ivrm.onrender.com/api/payment/initialize", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
+    });
 
     const data = await res.json();
 
     if (!res.ok || !data.success || !data.authorization_url) {
-      throw new Error(data.message || "Payment initialization failed");
+      throw new Error(data.message || "Payment failed");
     }
 
     const paymentSession = {
@@ -424,12 +417,7 @@ export default function AddProduct() {
   };
 
   const handleSubmit = useCallback(async () => {
-    console.log("🚨 handleSubmit MANUALLY TRIGGERED");
-
-    if (loading || submitRef.current) {
-      console.log("⛔ Submit blocked (already running)");
-      return;
-    }
+    if (loading || submitRef.current) return;
     submitRef.current = true;
 
     const validationError = validateForm();
@@ -446,25 +434,23 @@ export default function AddProduct() {
     try {
       const product = await createProductDraft();
       const productId = product?.id;
-      if (!productId) throw new Error("Failed to create product draft");
+      if (!productId) throw new Error("Failed to create product");
 
       if (finalPlan.price === 0) {
-        await fetch(
-          `https://minimart-ivrm.onrender.com/api/marketplace/products/${productId}/activate`,
-          { method: "POST" }
-        );
+        await fetch(`https://minimart-ivrm.onrender.com/api/marketplace/products/${productId}/activate`, {
+          method: "POST"
+        });
         clearDraft();
-        showSuccess("✅ Product created and activated successfully!");
+        showSuccess("✅ Product created successfully!");
         return;
       }
 
       const session = await startPayment(productId, finalPlan);
       setPaymentData(session);
-      showSuccess("💳 Payment ready! Click 'Go to Payment' below.");
+      showSuccess("💳 Payment ready!");
 
     } catch (err) {
-      console.error("Submit failed:", err);
-      showError(err.message || "Something went wrong. Please try again.");
+      showError(err.message || "Something went wrong.");
     } finally {
       setLoading(false);
       submitRef.current = false;
@@ -473,25 +459,19 @@ export default function AddProduct() {
 
   const manualPaymentRedirect = useCallback(() => {
     if (!paymentData?.authUrl) {
-      showError("No payment session available");
+      showError("No payment session");
       return;
     }
     window.open(paymentData.authUrl, "_blank");
   }, [paymentData, showError]);
 
-  // ✅ FIXED: Safe categories fetch
+  // Load categories
   useEffect(() => {
     fetch("https://minimart-ivrm.onrender.com/api/marketplace/categories")
       .then((r) => r.json())
-      .then((data) => {
-        setCategories(Array.isArray(data) ? data : []);
-      })
-      .catch((e) => {
-        console.error("Categories fetch failed:", e);
-        setCategories([]);
-        showError("Failed to load categories");
-      });
-  }, [showError]);
+      .then(setCategories)
+      .catch(() => setCategories([]));
+  }, []);
 
   // Cleanup images
   useEffect(() => {
@@ -542,7 +522,7 @@ export default function AddProduct() {
             type="text"
             inputMode="numeric"
             placeholder="10000"
-            value={rawPriceDisplay(form.price)}  // ✅ FIXED
+            value={displayPrice(form.price)}
             onChange={(e) => updateForm("price", onlyNumbers(e.target.value))}
           />
         </div>
@@ -554,15 +534,12 @@ export default function AddProduct() {
         <div className="form-group">
           <label>Category <span className="required">*</span></label>
           <DropdownModal
-            value={form.category_id}
+            value={String(form.category_id)}
             onChange={(v) => {
               updateForm("category_id", v);
               updateForm("attributes", INITIAL_FORM.attributes);
             }}
-            options={(Array.isArray(categories) ? categories : []).map((c) => ({ 
-              id: c?.id || '', 
-              name: c?.name || '' 
-            }))}  // ✅ FIXED
+            options={flatCategories}
           />
         </div>
 
@@ -588,7 +565,6 @@ export default function AddProduct() {
           </div>
         )}
 
-        {/* ✅ FIXED: Safe fields mapping */}
         {fields.map((field) => {
           if (field === "brand" || field === "model") return null;
           const fieldOptions = optionsMap[field] ?? [];
@@ -607,7 +583,6 @@ export default function AddProduct() {
           );
         })}
 
-        {/* ✅ FIXED: Safe features mapping */}
         {Array.isArray(optionsMap.features) && optionsMap.features.length > 0 && (
           <div className="form-group">
             <label>Features</label>
@@ -663,7 +638,7 @@ export default function AddProduct() {
           />
         </div>
         <div className="form-group">
-          <label>WhatsApp Link (optional)</label>
+          <label>WhatsApp Link</label>
           <input
             type="url"
             placeholder="https://wa.me/2348012345678"
@@ -695,19 +670,17 @@ export default function AddProduct() {
           </div>
         )}
         <div className="form-group">
-          <label>Delivery Type</label>
-          <DropdownModal
-            value={form.delivery.type}
-            onChange={(value) => updateDelivery("type", value)}  // ✅ FIXED
-            options={[
-              { id: "none", name: "No delivery" },
-              { id: "standard", name: "Standard delivery" },
-              { id: "express", name: "Express delivery" },
-              { id: "pickup", name: "Pickup only" },
-            ]}
-          />
+          <label>Delivery Available</label>
+          <label className="toggle-switch">
+            <input
+              type="checkbox"
+              checked={form.delivery.available}
+              onChange={(e) => updateDelivery("available", e.target.checked)}
+            />
+            <span className="slider"></span>
+          </label>
         </div>
-        {form.delivery.type !== "none" && form.delivery.type !== "pickup" && (
+        {form.delivery.available && (
           <div className="delivery-grid sub-grid">
             <div className="form-group">
               <label>From (days) <span className="required">*</span></label>
@@ -732,8 +705,16 @@ export default function AddProduct() {
               <input
                 type="text"
                 inputMode="numeric"
-                value={rawPriceDisplay(form.delivery.fee)}  // ✅ FIXED
+                value={displayPrice(form.delivery.fee)}
                 onChange={(e) => updateDelivery("fee", onlyNumbers(e.target.value))}
+              />
+            </div>
+            <div className="form-group full-width">
+              <label>Delivery Note</label>
+              <textarea
+                placeholder="Additional delivery info"
+                value={form.delivery.note}
+                onChange={(e) => updateDelivery("note", e.target.value)}
               />
             </div>
           </div>
@@ -755,17 +736,15 @@ export default function AddProduct() {
               onClick={() => setActiveImage(img.preview)}
               onDragStart={() => setDragIndex(i)}
               onDragOver={(e) => e.preventDefault()}
-              onDragEnd={() => {
-                setDragIndex(null);
-                setIsDragging(false);
-              }}
               onDrop={(e) => handleDrop(e, i)}
             >
               <img src={img.preview} alt="" />
-              <button onClick={(e) => {
-                e.stopPropagation();
-                removeImage(img.id);
-              }}>
+              <button 
+                onClick={(e) => {
+                  e.stopPropagation();
+                  removeImage(img.id);
+                }}
+              >
                 ✕
               </button>
             </div>
@@ -862,7 +841,9 @@ export default function AddProduct() {
       {loading && (
         <div className="loading-overlay">
           <div className="loader"></div>
-          <div className="loading-text">Creating your product...</div>
+          <div className="loading-text">
+            {paymentData ? "Finalizing payment..." : "Creating your product..."}
+          </div>
         </div>
       )}
     </div>
