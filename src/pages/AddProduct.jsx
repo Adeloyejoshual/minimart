@@ -274,7 +274,7 @@ export default function AddProduct() {
     setForm((prev) => ({ ...prev, [key]: value }));
   }, []);
 
-    const updateAttribute = useCallback((key, value) => {
+  const updateAttribute = useCallback((key, value) => {
     setForm((prev) => {
       const updated = { ...prev.attributes, [key]: value };
       if (key === "brand") updated.model = "";
@@ -481,10 +481,6 @@ export default function AddProduct() {
     fd.append("description", form.description.trim());
     fd.append("price", Number(form.price).toString());
     fd.append("category_id", form.category_id);
-
-    // Remove if backend doesn't expect it
-    // fd.append("subcategory_id", form.subcategory_id || "");
-
     fd.append("attributes", JSON.stringify(attributes));
     fd.append("delivery", JSON.stringify(form.delivery));
     fd.append("contact", JSON.stringify(form.contact));
@@ -514,6 +510,19 @@ export default function AddProduct() {
     return (await res.json()).product;
   };
 
+  const deleteProductDraft = async (productId) => {
+    try {
+      const res = await fetch(
+        `https://minimart-ivrm.onrender.com/api/marketplace/products/${productId}`,
+        { method: "DELETE" }
+      );
+      return res.ok;
+    } catch (err) {
+      console.error("Draft cleanup failed:", err);
+      return false;
+    }
+  };
+
   const handleSubmit = useCallback(async () => {
     if (loading || submitRef.current) return;
     submitRef.current = true;
@@ -529,15 +538,17 @@ export default function AddProduct() {
     setLoading(true);
     setError("");
 
-    try {
-      const product = await createProductDraft();
-      const productId = product?.id;
-      if (!productId) throw new Error("Failed to create product draft");
+    let tempProductId = null;
 
-      // Free plan
+    try {
       if (finalPlan.price === 0) {
+        // ✅ Free plan: create + activate atomically
+        const product = await createProductDraft();
+        tempProductId = product?.id;
+        if (!tempProductId) throw new Error("Failed to create product draft");
+
         const activateRes = await fetch(
-          `https://minimart-ivrm.onrender.com/api/payment/products/${productId}/activate`,
+          `https://minimart-ivrm.onrender.com/api/payment/products/${tempProductId}/activate`,
           {
             method: "POST",
             headers: { "Content-Type": "application/json" },
@@ -546,21 +557,23 @@ export default function AddProduct() {
         );
 
         if (!activateRes.ok) {
-          const err = await activateRes.json().catch(() => ({}));
-          throw new Error(err.message || "Activation failed");
+          const errData = await activateRes.json().catch(() => ({}));
+          // ✅ Delete draft if activation fails
+          await deleteProductDraft(tempProductId);
+          throw new Error(errData.message || "Activation failed");
         }
 
-        clearDraft();
-        showSuccess("✅ Product created successfully!");
+        clearDraft(); // ✅ Clear draft on success
+        showSuccess("✅ Product created and published!");
         return;
       }
 
-      // Paid plan
+      // ✅ Paid plan: Initialize payment FIRST (no product creation)
       const payload = {
         email: form.contact.email,
-        amount: Number(form.price),
+        amount: Number(finalPlan.price), // Use plan price, not product price
         planId: finalPlan.id,
-        productId,
+        // Backend will create draft or handle product creation
       };
 
       const res = await fetch(
@@ -572,7 +585,7 @@ export default function AddProduct() {
         }
       );
 
-            const data = await res.json();
+      const data = await res.json();
       if (!res.ok || !data.success || !data.authorization_url) {
         throw new Error(data.message || "Payment initialization failed");
       }
@@ -594,6 +607,12 @@ export default function AddProduct() {
       }
     } catch (err) {
       console.error("Submit error:", err);
+      
+      // ✅ Cleanup draft if it was created but failed
+      if (tempProductId) {
+        await deleteProductDraft(tempProductId);
+      }
+      
       showError(err.message || "Something went wrong");
     } finally {
       setLoading(false);
@@ -717,7 +736,7 @@ export default function AddProduct() {
           );
         })}
 
-        {/* Features */}
+        {/* Features - Fixed z-order */}
         {optionsMap.features.length > 0 && (
           <div className="form-group">
             <label>Features</label>
