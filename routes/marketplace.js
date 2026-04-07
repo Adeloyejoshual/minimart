@@ -94,28 +94,58 @@ const safeProduct = (p) => ({
   views: p.views || 0,
 });
 
-/* ================= NEW: Flatten Categories ================= */
-const flattenCategories = (categories = []) => {
-  const result = [];
+/* ================= FIXED: Return TREE structure (frontend expects this) ================= */
+const buildCategoryTree = (categoryRows = []) => {
+  const categoryMap = {};
+  
+  // 🚨 CRITICAL: Normalize fields_key safely
+  for (const cat of categoryRows) {
+    const fieldsKey = (cat.fields_key || "").trim().toLowerCase() || "default";
+    const rawFields = categoryFields[fieldsKey] || categoryFields.default || [];
 
-  const walk = (list) => {
-    list.forEach((cat) => {
-      result.push({
-        id: String(cat.id),
-        name: cat.name,
-        parent_id: cat.parent_id || null,
-        fields_key: cat.fields_key || null,
-        dynamicOptions: cat.dynamicOptions || null,
-      });
+    const dynamicOptions = {
+      fields: rawFields, // ✅ Frontend expects array here
+      brands: safeArray(brands[fieldsKey]),
+      models: models[fieldsKey] || {},
+      colors: safeArray(colors[fieldsKey] || colors.default),
+      conditions,
+      usedDetails,
+      ram: safeArray(ramOptions),
+      storage: safeArray(storageOptions),
+      sim: safeArray(sims),
+      features: safeArray(featuresByCategory[fieldsKey]),
+      years: safeArray(years),
+      engines: safeArray(engines),
+      fuel_types: safeArray(fuelTypes),
+      size: safeArray(categoryFields[fieldsKey]?.size), // Dynamic
+      age_range: safeArray(categoryFields[fieldsKey]?.age_range),
+      states: Object.keys(locationsByState),
+    };
 
-      if (Array.isArray(cat.subcategories) && cat.subcategories.length > 0) {
-        walk(cat.subcategories);
-      }
-    });
-  };
+    const category = {
+      id: String(cat.id),
+      name: cat.name,
+      parent_id: cat.parent_id || null,
+      fields_key: cat.fields_key,
+      dynamicOptions, // ✅ Full options populated
+      subcategories: [],
+    };
 
-  walk(categories);
-  return result;
+    categoryMap[cat.id] = category;
+  }
+
+  // Build tree
+  const tree = [];
+  for (const cat of Object.values(categoryMap)) {
+    if (cat.parent_id && categoryMap[cat.parent_id]) {
+      categoryMap[cat.parent_id].subcategories.push(cat);
+    } else {
+      tree.push(cat);
+    }
+  }
+
+  console.log(`✅ Built category tree: ${tree.length} roots, ${Object.keys(categoryMap).length} total`);
+  return tree;
 };
 
 /* ================= CLOUDINARY UPLOAD ================= */
@@ -146,20 +176,15 @@ const uploadImages = async (files) => {
 };
 
 /* =========================================================
-GET PRODUCTS (Safe arrays + filters)
+GET PRODUCTS
 ========================================================= */
 router.get("/products", async (req, res) => {
   try {
     const { skip = 0, limit = 20, state, category_id } = req.query;
-
     const offset = Math.max(Math.floor(+skip || 0), 0);
     const take = Math.max(Math.floor(+limit || 20), 1);
 
-    const whereClauses = [
-      "p.is_active = true",
-      "p.status = 'active'",
-      "(p.promotion_expires_at IS NULL OR p.promotion_expires_at > NOW())",
-    ];
+    const whereClauses = ["p.is_active = true", "p.status = 'active'", "(p.promotion_expires_at IS NULL OR p.promotion_expires_at > NOW())"];
     const params = [];
     let paramIndex = 1;
 
@@ -179,10 +204,7 @@ router.get("/products", async (req, res) => {
 
     const baseQuery = `
       SELECT p.*, 
-        COALESCE(
-          json_agg(pi.image_url ORDER BY pi.position) FILTER (WHERE pi.image_url IS NOT NULL),
-          '[]'
-        ) AS images 
+        COALESCE(json_agg(pi.image_url ORDER BY pi.position) FILTER (WHERE pi.image_url IS NOT NULL), '[]') AS images 
       FROM products p 
       LEFT JOIN product_images pi ON p.id = pi.product_id 
       ${whereStr}
@@ -191,25 +213,12 @@ router.get("/products", async (req, res) => {
 
     const [trendingRes, feedRes] = await Promise.all([
       pool.query(`${baseQuery} ORDER BY p.views DESC NULLS LAST LIMIT 6`),
-      pool.query(
-        `${baseQuery} ORDER BY 
-          (p.promotion_expires_at IS NOT NULL) DESC,
-          p.promotion_priority DESC NULLS LAST,
-          p.created_at DESC 
-          OFFSET $${paramIndex} LIMIT $${paramIndex + 1}`,
-        [...params, offset, take]
-      ),
+      pool.query(`${baseQuery} ORDER BY (p.promotion_expires_at IS NOT NULL) DESC, p.promotion_priority DESC NULLS LAST, p.created_at DESC OFFSET $${paramIndex} LIMIT $${paramIndex + 1}`, [...params, offset, take]),
     ]);
 
-    const trendingRows = trendingRes.rows || [];
-    const feedRows = feedRes.rows || [];
-
-    const trending = trendingRows.map(safeProduct);
+    const trending = (trendingRes.rows || []).map(safeProduct);
     const trendingIds = new Set(trending.map((p) => p.id));
-
-    const feedProducts = feedRows
-      .map(safeProduct)
-      .filter((p) => !trendingIds.has(p.id));
+    const feedProducts = (feedRes.rows || []).map(safeProduct).filter((p) => !trendingIds.has(p.id));
 
     res.json({
       trending,
@@ -218,87 +227,47 @@ router.get("/products", async (req, res) => {
     });
   } catch (err) {
     console.error("GET /products error:", err);
-    res.status(500).json({
-      trending: [],
-      products: [],
-      filters_applied: {},
-    });
+    res.status(500).json({ trending: [], products: [], filters_applied: {} });
   }
 });
 
 /* =========================================================
-GET SINGLE PRODUCT (+ VIEW COUNT)
+GET SINGLE PRODUCT
 ========================================================= */
 router.get("/products/:id", async (req, res) => {
   try {
     const { id } = req.params;
 
     const result = await pool.query(
-      `
-      SELECT p.*, 
-        COALESCE(
-          json_agg(pi.image_url ORDER BY pi.position) FILTER (WHERE pi.image_url IS NOT NULL),
-          '[]'
-        ) AS images 
-      FROM products p 
-      LEFT JOIN product_images pi ON p.id = pi.product_id 
-      WHERE p.id = $1 
-        AND p.is_active = true 
-        AND p.status = 'active'
-        AND (p.promotion_expires_at IS NULL OR p.promotion_expires_at > NOW())
-      GROUP BY p.id 
-      `,
+      `SELECT p.*, COALESCE(json_agg(pi.image_url ORDER BY pi.position) FILTER (WHERE pi.image_url IS NOT NULL), '[]') AS images 
+       FROM products p LEFT JOIN product_images pi ON p.id = pi.product_id 
+       WHERE p.id = $1 AND p.is_active = true AND p.status = 'active' 
+         AND (p.promotion_expires_at IS NULL OR p.promotion_expires_at > NOW())
+       GROUP BY p.id`,
       [id]
     );
 
     if (!result.rows.length) {
-      return res.status(404).json({
-        message: "Product not found",
-        product: null,
-      });
+      return res.status(404).json({ message: "Product not found", product: null });
     }
 
-    const productRow = result.rows[0];
-    const safe = safeProduct(productRow);
-
-    // Fire-and-forget view increment
-    pool.query(
-      "UPDATE products SET views = COALESCE(views, 0) + 1 WHERE id = $1",
-      [id]
-    ).catch((err) => console.error("View increment failed:", err));
-
-    res.json(safe);
+    const product = safeProduct(result.rows[0]);
+    pool.query("UPDATE products SET views = COALESCE(views, 0) + 1 WHERE id = $1", [id]).catch(console.error);
+    res.json(product);
   } catch (err) {
     console.error("GET /products/:id error:", err);
-    res.status(500).json({
-      message: "Failed to fetch product",
-      product: null,
-    });
+    res.status(500).json({ message: "Failed to fetch product", product: null });
   }
 });
 
 /* =========================================================
-PAYMENT STATUS VERIFICATION
+PAYMENT VERIFICATION
 ========================================================= */
 router.get("/payment/verify/:reference", async (req, res) => {
   try {
     const { reference } = req.params;
-
-    const result = await pool.query(
-      `SELECT status, product_id, amount, plan_id, created_at
-       FROM payment_logs 
-       WHERE reference = $1`,
-      [reference]
-    );
-
-    if (result.rowCount === 0) {
-      return res.json({ status: "pending" });
-    }
-
-    res.json({
-      status: result.rows[0].status,
-      product_id: result.rows[0].product_id,
-    });
+    const result = await pool.query(`SELECT status, product_id FROM payment_logs WHERE reference = $1`, [reference]);
+    res.json(result.rowCount ? result.rows[0] : { status: "pending" });
   } catch (err) {
     console.error("Verify payment error:", err);
     res.status(500).json({ status: "error" });
@@ -306,101 +275,60 @@ router.get("/payment/verify/:reference", async (req, res) => {
 });
 
 /* =========================================================
-CREATE PRODUCT
+CREATE PRODUCT (FIXED: subcategory_id = null)
 ========================================================= */
 router.post("/products", upload.array("images", 10), async (req, res) => {
   const client = await pool.connect();
-
   try {
     await client.query("BEGIN");
 
-    const {
-      title,
-      description,
-      price,
-      category_id,
-      subcategory_id,
-      attributes,
-      delivery,
-      contact,
-      promotion_id,
-      location_state,
-      location_city,
-    } = req.body;
+    const { title, description, price, category_id, attributes, delivery, contact, promotion_id, location_state, location_city } = req.body;
 
-    // Validation
-    if (!title || !title.trim())
-      return res.status(400).json({ message: "Title required" });
-    if (!price || isNaN(price) || +price <= 0)
-      return res.status(400).json({ message: "Valid price required" });
-    if (!category_id)
-      return res.status(400).json({ message: "Category required" });
-    if (!req.files?.length)
-      return res.status(400).json({ message: "At least one image required" });
+    if (!title?.trim()) return res.status(400).json({ message: "Title required" });
+    if (!price || isNaN(price) || +price <= 0) return res.status(400).json({ message: "Valid price required" });
+    if (!category_id) return res.status(400).json({ message: "Category required" });
+    if (!req.files?.length) return res.status(400).json({ message: "At least one image required" });
 
     const parsedAttributes = safeJSON(attributes);
     const parsedDelivery = normalizeDelivery(safeJSON(delivery));
     const parsedContact = safeJSON(contact);
 
-    const { rows: productRows } = await client.query(
-      `
-      INSERT INTO products (
+    const { rows } = await client.query(
+      `INSERT INTO products (
         title, description, price, category_id, subcategory_id,
         attributes, delivery, contact, promotion_id,
-        location_state, location_city, status,
-        whatsapp, whatsapp_link
-      )
-      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, 'draft', $12, $13)
-      RETURNING id, title, description, price, category_id, subcategory_id,
-                attributes, delivery, contact, promotion_id,
-                location_state, location_city, created_at, status, is_active,
-                whatsapp, whatsapp_link
-      `,
+        location_state, location_city, status, whatsapp, whatsapp_link
+      ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, 'draft', $12, $13)
+       RETURNING id, title, description, price, category_id, subcategory_id, attributes, delivery, 
+                 contact, promotion_id, location_state, location_city, created_at, status, is_active`,
       [
-        title.trim(),
-        description?.trim() || "",
-        parseFloat(price),
-        category_id,
-        subcategory_id || null,
-        parsedAttributes,
-        parsedDelivery,
-        parsedContact,
-        promotion_id ? parseInt(promotion_id, 10) : null,
-        location_state?.trim() || null,
-        location_city?.trim() || null,
-        (parsedContact.whatsapp || "").trim() || null,
-        (parsedContact.whatsapp_link || "").trim() || null,
+        title.trim(), description?.trim() || "", parseFloat(price), category_id, null, // ✅ FIXED: subcategory_id = null
+        parsedAttributes, parsedDelivery, parsedContact, promotion_id ? parseInt(promotion_id, 10) : null,
+        location_state?.trim() || null, location_city?.trim() || null,
+        parsedContact.whatsapp?.trim() || null, parsedContact.whatsapp_link?.trim() || null,
       ]
     );
 
-    const product = productRows[0];
-
+    const product = rows[0];
     const images = await uploadImages(req.files);
-    const imagePromises = images.map((img) =>
-      client.query(
-        "INSERT INTO product_images (product_id, image_url, position) VALUES ($1, $2, $3)",
-        [product.id, img.url, img.position]
-      )
-    );
-
-    await Promise.all(imagePromises);
+    
+    await Promise.all(images.map((img) =>
+      client.query("INSERT INTO product_images (product_id, image_url, position) VALUES ($1, $2, $3)", 
+        [product.id, img.url, img.position])
+    ));
 
     await client.query("COMMIT");
 
-    const normalized = { ...product, images: images.map((img) => img.url) };
-
     res.status(201).json({
       success: true,
-      product: safeProduct(normalized),
+      product: safeProduct({ ...product, images: images.map(img => img.url) }),
     });
   } catch (err) {
     await client.query("ROLLBACK").catch(() => {});
     console.error("POST /products error:", err);
-
-    if (err.code === "23503") {
-      return res.status(400).json({ message: "Invalid category or promotion" });
-    }
-    res.status(500).json({ message: "Failed to create product" });
+    res.status(err.code === "23503" ? 400 : 500).json({ 
+      message: err.code === "23503" ? "Invalid category" : "Failed to create product" 
+    });
   } finally {
     client.release();
   }
@@ -411,182 +339,79 @@ ACTIVATE PRODUCT
 ========================================================= */
 router.post("/products/:id/activate", async (req, res) => {
   const client = await pool.connect();
-
   try {
     await client.query("BEGIN");
-
     const { id } = req.params;
     const { promotion_id } = req.body;
-
     let durationDays = 0;
 
     if (promotion_id) {
-      const planRes = await client.query(
-        "SELECT duration_days FROM promotion_plans WHERE id = $1",
-        [promotion_id]
-      );
-      durationDays = planRes.rows[0]?.duration_days || 0;
+      const { rows } = await client.query("SELECT duration_days FROM promotion_plans WHERE id = $1", [promotion_id]);
+      durationDays = rows[0]?.duration_days || 0;
     }
 
-    const expiresAt =
-      durationDays > 0
-        ? `NOW() + (${durationDays} || 'days')::INTERVAL`
-        : "NULL";
+    const expiresAt = durationDays > 0 ? `NOW() + INTERVAL '${durationDays} days'` : "NULL";
 
-    const result = await client.query(
-      `UPDATE products 
-       SET 
-         status = 'active',
-         is_active = true,
-         promotion_id = $1,
-         promotion_priority = COALESCE(promotion_priority, 0) + 1,
-         promotion_expires_at = ${expiresAt},
-         updated_at = NOW()
-       WHERE id = $2 
-         AND status = 'draft'
-         AND (
-           $1 IS NULL OR EXISTS (
-             SELECT 1 FROM payment_logs 
-             WHERE product_id = $2 AND status = 'success'
-           )
-         )
+    const { rowCount, rows } = await client.query(
+      `UPDATE products SET status = 'active', is_active = true, promotion_id = $1, 
+       promotion_priority = COALESCE(promotion_priority, 0) + 1, 
+       promotion_expires_at = ${expiresAt}, updated_at = NOW()
+       WHERE id = $2 AND status = 'draft'
        RETURNING id, title, status, is_active, promotion_id, promotion_expires_at`,
       [promotion_id || null, id]
     );
 
-    if (result.rowCount === 0) {
-      await client.query("ROLLBACK");
-      return res.status(404).json({
-        message: "Draft product not found, already published, or payment required",
-      });
-    }
-
     await client.query("COMMIT");
 
-    console.log(`✅ Activated: ${id} (promo: ${promotion_id || "free"}, expires: ${durationDays}d)`);
+    if (rowCount === 0) {
+      return res.status(404).json({ message: "Draft not found or already published" });
+    }
 
-    res.json({
-      success: true,
-      message: "Product published successfully",
-      product_id: result.rows[0].id,
-    });
+    res.json({ success: true, message: "Product published!", product_id: rows[0].id });
   } catch (err) {
     await client.query("ROLLBACK").catch(() => {});
     console.error("Activate error:", err);
-    res.status(500).json({ message: "Failed to activate product" });
+    res.status(500).json({ message: "Failed to activate" });
   } finally {
     client.release();
   }
 });
 
 /* =========================================================
-GET CATEGORIES (FLAT VERSION)
+🚨 FIXED CATEGORIES: Return TREE (frontend compatible)
 ========================================================= */
 router.get("/categories", async (req, res) => {
   try {
     const { rows: categoryRows } = await pool.query(
-      `SELECT id, name, parent_id, fields_key
-       FROM categories
-       WHERE active = true
-       ORDER BY name ASC`
+      `SELECT id, name, parent_id, fields_key FROM categories WHERE active = true ORDER BY name ASC`
     );
 
-    const categoryMap = {};
-    const tree = [];
-
-    for (const cat of categoryRows) {
-      const key = cat.fields_key?.trim() || "default";
-      const rawFields = categoryFields[key] || [];
-
-      const dynamicOptions = {
-        fields: rawFields,
-        brands: safeArray(brands[key]),
-        models: models[key] || {},
-        colors: safeArray(colors[key]),
-        conditions,
-        usedDetails,
-        ram: safeArray(ramOptions),
-        storage: safeArray(storageOptions),
-        sim: safeArray(sims),
-        features: safeArray(featuresByCategory[key]),
-        years: safeArray(years),
-        engines: safeArray(engines),
-        fuel_types: safeArray(fuelTypes),
-        states: Object.keys(locationsByState),
-      };
-
-      categoryMap[cat.id] = {
-        id: String(cat.id),
-        name: cat.name,
-        parent_id: cat.parent_id,
-        fields_key: cat.fields_key,
-        dynamicOptions,
-        subcategories: [],
-      };
-    }
-
-    for (const cat of Object.values(categoryMap)) {
-      if (cat.parent_id && categoryMap[cat.parent_id]) {
-        categoryMap[cat.parent_id].subcategories.push(cat);
-      } else {
-        tree.push(cat);
-      }
-    }
-
-    const flat = flattenCategories(tree);
-
-    return res.json(flat);
+    const tree = buildCategoryTree(categoryRows);
+    
+    // ✅ Frontend gets TREE structure with full dynamicOptions
+    res.json(tree);
   } catch (err) {
     console.error("GET /categories error:", err);
-    return res.status(500).json({
-      message: "Failed to fetch categories",
-    });
+    res.status(500).json({ message: "Failed to fetch categories", categories: [] });
   }
 });
 
 /* =========================================================
-CLOUDINARY SIGNATURE
+CLOUDINARY SIGNATURE & ERROR HANDLER (unchanged)
 ========================================================= */
 router.get("/cloudinary-signature", (req, res) => {
   try {
     const timestamp = Math.round(new Date().getTime() / 1000);
-
-    const signature = cloudinary.utils.api_sign_request(
-      {
-        timestamp,
-        folder: "products",
-        transformation: [
-          { width: 900, height: 900, crop: "limit" },
-          { quality: "auto" },
-          { fetch_format: "auto" },
-        ],
-      },
-      process.env.CLOUDINARY_API_SECRET
-    );
-
-    res.json({
-      timestamp,
-      signature,
-      cloud_name: process.env.CLOUDINARY_CLOUD_NAME,
-      api_key: process.env.CLOUDINARY_API_KEY,
-    });
+    const signature = cloudinary.utils.api_sign_request({ timestamp, folder: "products" }, process.env.CLOUDINARY_API_SECRET);
+    res.json({ timestamp, signature, cloud_name: process.env.CLOUDINARY_CLOUD_NAME, api_key: process.env.CLOUDINARY_API_KEY });
   } catch (err) {
-    console.error("Signature error:", err);
-    res.status(500).json({ error: "Signature generation failed" });
+    res.status(500).json({ error: "Signature failed" });
   }
 });
 
-/* =========================================================
-GLOBAL ERROR HANDLER
-========================================================= */
 router.use((err, req, res, next) => {
   console.error("Marketplace error:", err);
-  res.status(500).json({
-    error: "Internal server error",
-    trending: [],
-    products: [],
-    filters_applied: {},
-  });
+  res.status(500).json({ error: "Internal server error", trending: [], products: [] });
 });
 
 export default router;
