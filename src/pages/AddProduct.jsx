@@ -3,6 +3,7 @@ import DropdownModal from "../components/DropdownModal.jsx";
 import AddProductHeader from "../components/AddProductHeader.jsx";
 import { locationsByState } from "../config/locationsByState.js";
 import { promotionPlans } from "../config/promotions.js";
+import { fieldOptions } from "../config/fieldOptions.js"; // 👈 new
 import "../styles/AddProduct.css";
 import imageCompression from "browser-image-compression";
 
@@ -29,6 +30,10 @@ const INITIAL_FORM = {
     features: [],
     size: "",
     age_range: "",
+    bedrooms: "",
+    bathrooms: "",
+    experience_level: "",
+    skills: "",
   },
   delivery: {
     available: false,
@@ -65,41 +70,81 @@ export default function AddProduct() {
   const MAX_IMAGES = 6;
   const MAX_SIZE = 3 * 1024 * 1024;
 
-  // 🔧 FIXED: Robust category processing with logging
+  // 🔧 Safer, flat categories from API
   const flatCategories = useMemo(() => {
-    console.log("🔍 Raw categories from API:", categories);
-    if (!Array.isArray(categories)) {
-      console.warn("⚠️ Categories is not an array:", categories);
-      return [];
-    }
-    
+    if (!Array.isArray(categories)) return [];
+
     return categories
       .filter((c) => c?.id && c?.name)
       .map((c) => {
-        const dynamicOptions = {
-          fields: Array.isArray(c.dynamicOptions?.fields) ? c.dynamicOptions.fields : [],
-          brands: Array.isArray(c.dynamicOptions?.brands) ? c.dynamicOptions.brands : [],
-          models: c.dynamicOptions?.models || {},
-          colors: Array.isArray(c.dynamicOptions?.colors) ? c.dynamicOptions.colors : [],
-          conditions: Array.isArray(c.dynamicOptions?.conditions) ? c.dynamicOptions.conditions : [],
-          usedDetails: Array.isArray(c.dynamicOptions?.usedDetails) ? c.dynamicOptions.usedDetails : [],
-          ram: Array.isArray(c.dynamicOptions?.ram) ? c.dynamicOptions.ram : [],
-          storage: Array.isArray(c.dynamicOptions?.storage) ? c.dynamicOptions.storage : [],
-          sim: Array.isArray(c.dynamicOptions?.sim) ? c.dynamicOptions.sim : [],
-          features: Array.isArray(c.dynamicOptions?.features) ? c.dynamicOptions.features : [],
-          years: Array.isArray(c.dynamicOptions?.years) ? c.dynamicOptions.years : [],
-          engines: Array.isArray(c.dynamicOptions?.engines) ? c.dynamicOptions.engines : [],
-          fuel_types: Array.isArray(c.dynamicOptions?.fuel_types) ? c.dynamicOptions.fuel_types : [],
-          size: Array.isArray(c.dynamicOptions?.size) ? c.dynamicOptions.size : [],
-          age_range: Array.isArray(c.dynamicOptions?.age_range) ? c.dynamicOptions.age_range : [],
-          ...c.dynamicOptions // Fallback to raw dynamicOptions
-        };
-        
-        console.log(`✅ Processed category ${c.id}:`, { name: c.name, fieldsCount: dynamicOptions.fields.length });
+        const key = c.fields_key || "";
+        const dynamicOptions = c.dynamicOptions || {};
+
         return {
           id: String(c.id),
           name: c.name,
-          dynamicOptions,
+          dynamicOptions: {
+            fields: Array.isArray(dynamicOptions.fields)
+              ? dynamicOptions.fields
+              : categoryFields[key] || [],
+            brands: Array.isArray(dynamicOptions.brands)
+              ? dynamicOptions.brands
+              : brands[key] || [],
+            models: dynamicOptions.models || models[key] || {},
+            colors: Array.isArray(dynamicOptions.colors)
+              ? dynamicOptions.colors
+              : colors[key] || [],
+            conditions: Array.isArray(dynamicOptions.conditions)
+              ? dynamicOptions.conditions
+              : conditions,
+            usedDetails: Array.isArray(dynamicOptions.usedDetails)
+              ? dynamicOptions.usedDetails
+              : usedDetails,
+            ram: Array.isArray(dynamicOptions.ram)
+              ? dynamicOptions.ram
+              : ramOptions,
+            storage: Array.isArray(dynamicOptions.storage)
+              ? dynamicOptions.storage
+              : storageOptions,
+            sim: Array.isArray(dynamicOptions.sim)
+              ? dynamicOptions.sim
+              : sims,
+            features: Array.isArray(dynamicOptions.features)
+              ? dynamicOptions.features
+              : featuresByCategory[key] || [],
+            years: Array.isArray(dynamicOptions.years)
+              ? dynamicOptions.years
+              : years,
+            engines: Array.isArray(dynamicOptions.engines)
+              ? dynamicOptions.engines
+              : engines,
+            fuel_types: Array.isArray(dynamicOptions.fuel_types)
+              ? dynamicOptions.fuel_types
+              : fuelTypes,
+            location: Array.isArray(dynamicOptions.location)
+              ? dynamicOptions.location
+              : Object.keys(locationsByState),
+
+            // 👇 use fieldOptions for shared fields
+            size: Array.isArray(dynamicOptions.size)
+              ? dynamicOptions.size
+              : fieldOptions.size,
+            age_range: Array.isArray(dynamicOptions.age_range)
+              ? dynamicOptions.age_range
+              : fieldOptions.age_range,
+            bedrooms: Array.isArray(dynamicOptions.bedrooms)
+              ? dynamicOptions.bedrooms
+              : fieldOptions.bedrooms,
+            bathrooms: Array.isArray(dynamicOptions.bathrooms)
+              ? dynamicOptions.bathrooms
+              : fieldOptions.bathrooms,
+            experience_level: Array.isArray(dynamicOptions.experience_level)
+              ? dynamicOptions.experience_level
+              : fieldOptions.experience_level,
+            skills: Array.isArray(dynamicOptions.skills)
+              ? dynamicOptions.skills
+              : fieldOptions.skills,
+          },
         };
       });
   }, [categories]);
@@ -109,15 +154,13 @@ export default function AddProduct() {
     [flatCategories, form.category_id]
   );
 
-  console.log("🎯 Selected category:", selectedCategory?.name, selectedCategory?.dynamicOptions?.fields);
-
   const options = selectedCategory?.dynamicOptions || {};
   const attributes = form.attributes;
 
   const normalizeOptions = useCallback((list) => {
     if (!list) return [];
     return Array.isArray(list)
-      ? list.map((x) => typeof x === "string" ? { id: x, name: x } : x)
+      ? list.map((x) => (typeof x === "string" ? { id: x, name: x } : x))
       : [];
   }, []);
 
@@ -126,7 +169,9 @@ export default function AddProduct() {
 
   const displayPrice = (v) => {
     const num = Number(v);
-    return Number.isNaN(num) || num <= 0 ? "" : new Intl.NumberFormat("en-NG").format(num);
+    return Number.isNaN(num) || num <= 0
+      ? ""
+      : new Intl.NumberFormat("en-NG").format(num);
   };
 
   const formatLabel = (t) =>
@@ -153,7 +198,6 @@ export default function AddProduct() {
 
   // Load categories on mount
   useEffect(() => {
-    console.log("📥 Fetching categories...");
     fetch("https://minimart-ivrm.onrender.com/api/marketplace/categories")
       .then((r) => {
         if (!r.ok) throw new Error(`HTTP ${r.status}`);
@@ -187,7 +231,9 @@ export default function AddProduct() {
         setForm(draft.form || INITIAL_FORM);
         setState(draft.state || "");
         setCity(draft.city || "");
-        setSelectedPlan(promotionPlans.find(p => p.id === draft.selectedPlan) || null);
+        setSelectedPlan(
+          promotionPlans.find((p) => p.id === draft.selectedPlan) || null
+        );
         showSuccess("Draft restored");
       }
     } catch (e) {
@@ -213,7 +259,17 @@ export default function AddProduct() {
       }
     }, 1500);
     return () => clearTimeout(timeout);
-  }, [form.title, form.description, form.price, form.category_id, state, city, selectedPlan?.id, images.length, loading]);
+  }, [
+    form.title,
+    form.description,
+    form.price,
+    form.category_id,
+    state,
+    city,
+    selectedPlan?.id,
+    images.length,
+    loading,
+  ]);
 
   const updateForm = useCallback((key, value) => {
     setForm((prev) => ({ ...prev, [key]: value }));
@@ -222,7 +278,7 @@ export default function AddProduct() {
   const updateAttribute = useCallback((key, value) => {
     setForm((prev) => {
       const updated = { ...prev.attributes, [key]: value };
-      if (key === "brand") updated.model = ""; // Reset dependent fields
+      if (key === "brand") updated.model = "";
       if (key === "condition") updated.used_detail = "";
       return { ...prev, attributes: updated };
     });
@@ -269,22 +325,29 @@ export default function AddProduct() {
   }, []);
 
   const validateForm = useCallback(() => {
-    if (!form.title?.trim() || form.title.length < 10) return "Title must be at least 10 characters";
-    if (!form.description?.trim() || form.description.length < 20) return "Description must be at least 20 characters";
+    if (!form.title?.trim() || form.title.length < 10)
+      return "Title must be at least 10 characters";
+    if (!form.description?.trim() || form.description.length < 20)
+      return "Description must be at least 20 characters";
     if (!form.price || Number(form.price) <= 0) return "Valid price required";
     if (!form.category_id) return "Please select a category";
-    if (!form.contact.phone || form.contact.phone.length < 10) return "Valid phone required";
-    if (!form.contact.email?.includes("@")) return "Valid email required";
-    if (!form.contact.whatsapp || form.contact.whatsapp.length < 10) return "WhatsApp required";
+    if (!form.contact.phone || form.contact.phone.length < 10)
+      return "Valid phone required";
+    if (!form.contact.email?.includes("@"))
+      return "Valid email required";
+    if (!form.contact.whatsapp || form.contact.whatsapp.length < 10)
+      return "WhatsApp required";
     if (images.length === 0) return "Upload at least 1 image";
     if (!state || !city) return "Select state and city";
 
     if (form.delivery.available) {
       const from = Number(form.delivery.duration.from);
       const to = Number(form.delivery.duration.to);
-      if (Number.isNaN(from) || Number.isNaN(to)) return "Enter valid delivery duration";
+      if (Number.isNaN(from) || Number.isNaN(to))
+        return "Enter valid delivery duration";
       if (to < from) return "End day must be after start day";
-      if (!form.delivery.fee || Number(form.delivery.fee) <= 0) return "Enter valid delivery fee";
+      if (!form.delivery.fee || Number(form.delivery.fee) <= 0)
+        return "Enter valid delivery fee";
     }
     return null;
   }, [form, images.length, state, city]);
@@ -349,41 +412,51 @@ export default function AddProduct() {
     });
   }, []);
 
-  const handleDrop = useCallback((e, index) => {
-    e.preventDefault();
-    const from = dragIndex;
-    if (from === null || from === index) return;
+  const handleDrop = useCallback(
+    (e, index) => {
+      e.preventDefault();
+      const from = dragIndex;
+      if (from === null || from === index) return;
 
-    setImages((prev) => {
-      const copy = [...prev];
-      const [moved] = copy.splice(from, 1);
-      copy.splice(index, 0, moved);
-      return copy;
-    });
-    setDragIndex(null);
-    setIsDragging(false);
-  }, [dragIndex]);
+      setImages((prev) => {
+        const copy = [...prev];
+        const [moved] = copy.splice(from, 1);
+        copy.splice(index, 0, moved);
+        return copy;
+      });
+      setDragIndex(null);
+      setIsDragging(false);
+    },
+    [dragIndex]
+  );
 
-  // Memoized options maps with fallbacks
-  const optionsMap = useMemo(() => ({
-    brand: normalizeOptions(options.brands),
-    model: options.models || {},
-    color: normalizeOptions(options.colors),
-    condition: normalizeOptions(options.conditions),
-    used_detail: normalizeOptions(options.usedDetails),
-    ram: normalizeOptions(options.ram),
-    storage: normalizeOptions(options.storage),
-    sim: normalizeOptions(options.sim),
-    features: Array.isArray(options.features) ? options.features : [],
-    year: normalizeOptions(options.years),
-    engine: normalizeOptions(options.engines),
-    fuel_type: normalizeOptions(options.fuel_types),
-    size: normalizeOptions(options.size),
-    age_range: normalizeOptions(options.age_range),
-  }), [options, normalizeOptions]);
+  const optionsMap = useMemo(() => {
+    return {
+      brand: normalizeOptions(options.brands),
+      model: options.models || {},
+      color: normalizeOptions(options.colors),
+      condition: normalizeOptions(options.conditions),
+      used_detail: normalizeOptions(options.usedDetails),
+      ram: normalizeOptions(options.ram),
+      storage: normalizeOptions(options.storage),
+      sim: normalizeOptions(options.sim),
+      features: Array.isArray(options.features) ? options.features : [],
+      year: normalizeOptions(options.years),
+      engine: normalizeOptions(options.engines),
+      fuel_type: normalizeOptions(options.fuel_types),
+      size: normalizeOptions(options.size),
+      age_range: normalizeOptions(options.age_range),
+      bedrooms: normalizeOptions(options.bedrooms),
+      bathrooms: normalizeOptions(options.bathrooms),
+      experience_level: normalizeOptions(options.experience_level),
+      skills: normalizeOptions(options.skills),
+    };
+  }, [options, normalizeOptions]);
 
-  const fields = useMemo(() => Array.isArray(options.fields) ? options.fields : [], [options.fields]);
-  console.log("📋 Render fields:", fields, "Options map keys:", Object.keys(optionsMap));
+  const fields = useMemo(
+    () => Array.isArray(options.fields) ? options.fields : [],
+    [options.fields]
+  );
 
   const modelOptions = useMemo(() => {
     const brand = attributes.brand;
@@ -403,7 +476,7 @@ export default function AddProduct() {
     fd.append("description", form.description.trim());
     fd.append("price", Number(form.price).toString());
     fd.append("category_id", form.category_id);
-    fd.append("subcategory_id", form.category_id);
+    fd.append("subcategory_id", form.subcategory_id || ""); // ❗ was category_id
     fd.append("attributes", JSON.stringify(attributes));
     fd.append("delivery", JSON.stringify(form.delivery));
     fd.append("contact", JSON.stringify(form.contact));
@@ -412,13 +485,18 @@ export default function AddProduct() {
     fd.append("promotion_id", selectedPlan?.id || "");
 
     const imageFiles = images.map((img) => img.file);
-    const compressedFiles = await Promise.all(imageFiles.map(compressImage));
+    const compressedFiles = await Promise.all(
+      imageFiles.map(compressImage)
+    );
     compressedFiles.forEach((file) => fd.append("images", file));
 
-    const res = await fetch("https://minimart-ivrm.onrender.com/api/marketplace/products", {
-      method: "POST",
-      body: fd,
-    });
+    const res = await fetch(
+      "https://minimart-ivrm.onrender.com/api/marketplace/products",
+      {
+        method: "POST",
+        body: fd,
+      }
+    );
 
     if (!res.ok) {
       const data = await res.json().catch(() => ({}));
@@ -449,33 +527,38 @@ export default function AddProduct() {
       if (!productId) throw new Error("Failed to create product draft");
 
       if (finalPlan.price === 0) {
-        await fetch(`https://minimart-ivrm.onrender.com/api/marketplace/products/${productId}/activate`, {
-          method: "POST",
-        });
+        await fetch(
+          `https://minimart-ivrm.onrender.com/api/marketplace/products/${productId}/activate`,
+          {
+            method: "POST",
+          }
+        );
         clearDraft();
         showSuccess("✅ Product created successfully!");
         return;
       }
 
-      // Payment flow
       const payload = {
         email: form.contact.email,
         planId: finalPlan.id,
         productId,
       };
 
-      const res = await fetch("https://minimart-ivrm.onrender.com/api/payment/initialize", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(payload),
-      });
+      const res = await fetch(
+        "https://minimart-ivrm.onrender.com/api/payment/initiate",
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(payload),
+        }
+      );
 
       const data = await res.json();
       if (!res.ok || !data.success || !data.authorization_url) {
         throw new Error(data.message || "Payment initialization failed");
       }
 
-      const paymentSession = {
+            const paymentSession = {
         ...payload,
         reference: data.reference,
         authUrl: data.authorization_url,
@@ -540,7 +623,7 @@ export default function AddProduct() {
         </div>
       </section>
 
-      {/* Category & Attributes - FIXED */}
+      {/* Category & Attributes */}
       <section className="section form-card">
         <h3 className="section-title">Product Details</h3>
         <div className="form-group">
@@ -548,7 +631,6 @@ export default function AddProduct() {
           <DropdownModal
             value={form.category_id}
             onChange={(v) => {
-              console.log("Category changed to:", v);
               updateForm("category_id", v);
               updateForm("attributes", INITIAL_FORM.attributes);
             }}
@@ -584,10 +666,10 @@ export default function AddProduct() {
         {/* Dynamic fields */}
         {fields.map((field) => {
           if (field === "brand" || field === "model") return null;
-          
+
           let fieldOptions = optionsMap[field];
           if (!fieldOptions || fieldOptions.length === 0) return null;
-          
+
           // Conditional fields
           if (field === "used_detail" && attributes.condition !== "Used") return null;
 
@@ -650,8 +732,7 @@ export default function AddProduct() {
         <div className="form-group">
           <label>WhatsApp <span className="required">*</span></label>
           <input
-            type="tel"
-            placeholder="08012345678"
+            type="tel"           placeholder="08012345678"
             value={form.contact.whatsapp}
             onChange={(e) => updateContact("whatsapp", onlyDigits(e.target.value))}
           />
