@@ -3,7 +3,7 @@ import DropdownModal from "../components/DropdownModal.jsx";
 import AddProductHeader from "../components/AddProductHeader.jsx";
 import { locationsByState } from "../config/locationsByState.js";
 import { promotionPlans } from "../config/promotions.js";
-import { fieldOptions } from "../config/fieldOptions.js"; // 👈 new
+import { fieldOptions } from "../config/fieldOptions.js";
 import "../styles/AddProduct.css";
 import imageCompression from "browser-image-compression";
 
@@ -70,7 +70,7 @@ export default function AddProduct() {
   const MAX_IMAGES = 6;
   const MAX_SIZE = 3 * 1024 * 1024;
 
-  // 🔧 Safer, flat categories from API
+  // Safer, flat categories from API
   const flatCategories = useMemo(() => {
     if (!Array.isArray(categories)) return [];
 
@@ -125,7 +125,6 @@ export default function AddProduct() {
               ? dynamicOptions.location
               : Object.keys(locationsByState),
 
-            // 👇 use fieldOptions for shared fields
             size: Array.isArray(dynamicOptions.size)
               ? dynamicOptions.size
               : fieldOptions.size,
@@ -281,8 +280,8 @@ export default function AddProduct() {
       if (key === "brand") updated.model = "";
       if (key === "condition") updated.used_detail = "";
       return { ...prev, attributes: updated };
-    });
-  }, []);
+    }, []);
+  };
 
   const updateContact = useCallback((key, value) => {
     setForm((prev) => ({
@@ -364,32 +363,35 @@ export default function AddProduct() {
     showSuccess("Draft cleared");
   }, [showSuccess]);
 
-  const handleImages = useCallback((files) => {
-    if (images.length >= MAX_IMAGES) {
-      showError("Maximum 6 images allowed");
-      return;
-    }
-    const fileArray = Array.from(files);
-    const remaining = MAX_IMAGES - images.length;
-    const validFiles = fileArray
-      .filter((f) => f.type.startsWith("image/") && f.size <= MAX_SIZE)
-      .slice(0, remaining);
+  const handleImages = useCallback(
+    (files) => {
+      if (images.length >= MAX_IMAGES) {
+        showError("Maximum 6 images allowed");
+        return;
+      }
+      const fileArray = Array.from(files);
+      const remaining = MAX_IMAGES - images.length;
+      const validFiles = fileArray
+        .filter((f) => f.type.startsWith("image/") && f.size <= MAX_SIZE)
+        .slice(0, remaining);
 
-    Promise.all(validFiles.map(compressImage))
-      .then((compressed) => {
-        const newImages = compressed.map((file) => ({
-          id: generateId(),
-          file,
-          preview: URL.createObjectURL(file),
-        }));
-        setImages((prev) => [...prev, ...newImages]);
-        showSuccess(`${compressed.length} image(s) added`);
-      })
-      .catch((err) => {
-        console.error("Image compression failed:", err);
-        showError("Image processing failed");
-      });
-  }, [images.length, showError, showSuccess, generateId]);
+      Promise.all(validFiles.map(compressImage))
+        .then((compressed) => {
+          const newImages = compressed.map((file) => ({
+            id: generateId(),
+            file,
+            preview: URL.createObjectURL(file),
+          }));
+          setImages((prev) => [...prev, ...newImages]);
+          showSuccess(`${compressed.length} image(s) added`);
+        })
+        .catch((err) => {
+          console.error("Image compression failed:", err);
+          showError("Image processing failed");
+        });
+    },
+    [images.length, showError, showSuccess, generateId]
+  );
 
   const compressImage = async (file) => {
     try {
@@ -404,13 +406,16 @@ export default function AddProduct() {
     }
   };
 
-  const removeImage = useCallback((id) => {
-    setImages((prev) => {
-      const target = prev.find((x) => x.id === id);
-      if (target?.preview) URL.revokeObjectURL(target.preview);
-      return prev.filter((x) => x.id !== id);
-    });
-  }, []);
+  const removeImage = useCallback(
+    (id) => {
+      setImages((prev) => {
+        const target = prev.find((x) => x.id === id);
+        if (target?.preview) URL.revokeObjectURL(target.preview);
+        return prev.filter((x) => x.id !== id);
+      });
+    },
+    []
+  );
 
   const handleDrop = useCallback(
     (e, index) => {
@@ -476,7 +481,10 @@ export default function AddProduct() {
     fd.append("description", form.description.trim());
     fd.append("price", Number(form.price).toString());
     fd.append("category_id", form.category_id);
-    fd.append("subcategory_id", form.subcategory_id || ""); // ❗ was category_id
+
+    // Remove if backend doesn't expect it
+    // fd.append("subcategory_id", form.subcategory_id || "");
+
     fd.append("attributes", JSON.stringify(attributes));
     fd.append("delivery", JSON.stringify(form.delivery));
     fd.append("contact", JSON.stringify(form.contact));
@@ -526,26 +534,37 @@ export default function AddProduct() {
       const productId = product?.id;
       if (!productId) throw new Error("Failed to create product draft");
 
+      // Free plan
       if (finalPlan.price === 0) {
-        await fetch(
-          `https://minimart-ivrm.onrender.com/api/marketplace/products/${productId}/activate`,
+        const activateRes = await fetch(
+          `https://minimart-ivrm.onrender.com/api/payment/products/${productId}/activate`,
           {
             method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ promotion_id: null }),
           }
         );
+
+        if (!activateRes.ok) {
+          const err = await activateRes.json().catch(() => ({}));
+          throw new Error(err.message || "Activation failed");
+        }
+
         clearDraft();
         showSuccess("✅ Product created successfully!");
         return;
       }
 
+      // Paid plan
       const payload = {
         email: form.contact.email,
+        amount: Number(form.price),
         planId: finalPlan.id,
         productId,
       };
 
       const res = await fetch(
-        "https://minimart-ivrm.onrender.com/api/payment/initiate",
+        "https://minimart-ivrm.onrender.com/api/payment/initialize",
         {
           method: "POST",
           headers: { "Content-Type": "application/json" },
@@ -553,12 +572,12 @@ export default function AddProduct() {
         }
       );
 
-      const data = await res.json();
+            const data = await res.json();
       if (!res.ok || !data.success || !data.authorization_url) {
         throw new Error(data.message || "Payment initialization failed");
       }
 
-            const paymentSession = {
+      const paymentSession = {
         ...payload,
         reference: data.reference,
         authUrl: data.authorization_url,
@@ -567,8 +586,12 @@ export default function AddProduct() {
 
       localStorage.setItem(STORAGE_PAYMENT, JSON.stringify(paymentSession));
       setPaymentData(paymentSession);
+
       showSuccess("💳 Redirecting to payment...");
-      window.open(paymentSession.authUrl, "_blank");
+      const win = window.open(data.authorization_url, "_blank");
+      if (!win || win.closed) {
+        showError("Popup blocked; allow popups and try again");
+      }
     } catch (err) {
       console.error("Submit error:", err);
       showError(err.message || "Something went wrong");
@@ -576,7 +599,16 @@ export default function AddProduct() {
       setLoading(false);
       submitRef.current = false;
     }
-  }, [form, images, state, city, selectedPlan, validateForm, loading, clearDraft]);
+  }, [
+    form,
+    images,
+    state,
+    city,
+    selectedPlan,
+    validateForm,
+    loading,
+    clearDraft,
+  ]);
 
   // Cleanup images on unmount
   useEffect(() => {
@@ -732,7 +764,8 @@ export default function AddProduct() {
         <div className="form-group">
           <label>WhatsApp <span className="required">*</span></label>
           <input
-            type="tel"           placeholder="08012345678"
+            type="tel"
+            placeholder="08012345678"
             value={form.contact.whatsapp}
             onChange={(e) => updateContact("whatsapp", onlyDigits(e.target.value))}
           />
@@ -899,11 +932,18 @@ export default function AddProduct() {
 
       {/* Actions */}
       <div className="button-section section form-card">
-        <button className="primary-btn" onClick={handleSubmit} disabled={loading}>
+        <button
+          className="primary-btn"
+          onClick={handleSubmit}
+          disabled={loading}
+        >
           {loading ? "Processing..." : "🚀 Create Product"}
         </button>
         {paymentData && (
-          <button className="secondary-btn" onClick={() => window.open(paymentData.authUrl, "_blank")}>
+          <button
+            className="secondary-btn"
+            onClick={() => window.open(paymentData.authUrl, "_blank")}
+          >
             💳 Pay Now
           </button>
         )}
