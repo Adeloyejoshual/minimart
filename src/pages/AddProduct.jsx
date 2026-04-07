@@ -274,14 +274,14 @@ export default function AddProduct() {
     setForm((prev) => ({ ...prev, [key]: value }));
   }, []);
 
-  const updateAttribute = useCallback((key, value) => {
+    const updateAttribute = useCallback((key, value) => {
     setForm((prev) => {
       const updated = { ...prev.attributes, [key]: value };
       if (key === "brand") updated.model = "";
       if (key === "condition") updated.used_detail = "";
       return { ...prev, attributes: updated };
-    }, []);
-  };
+    });
+  }, []);
 
   const updateContact = useCallback((key, value) => {
     setForm((prev) => ({
