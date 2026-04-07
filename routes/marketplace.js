@@ -21,6 +21,7 @@ import { engines } from "../src/config/engines.js";
 import { fuelTypes } from "../src/config/fuelTypes.js";
 import { locationsByState } from "../src/config/locationsByState.js";
 import { promotionPlans } from "../src/config/promotions.js";
+import { fieldOptions } from "../src/config/fieldOptions.js"; // 👈 new import
 
 dotenv.config();
 
@@ -62,7 +63,7 @@ const safeJSON = (value, fallback = {}) => {
 
 const parseDurationDays = (duration) => {
   if (!duration) return 0;
-  const match = String(duration).match(/(\d+)/);
+  const match = String(duration).match(/(d+)/);
   return match ? parseInt(match[1], 10) : 0;
 };
 
@@ -153,7 +154,8 @@ router.get("/payment/verify/:reference", async (req, res) => {
       customer: data.customer,
       reference: data.reference,
     });
-  } catch {
+  } catch (err) {
+    console.error("Paystack verify failed:", err);
     res.status(500).json({ message: "Verification failed" });
   }
 });
@@ -205,7 +207,8 @@ router.post("/payments/initiate", async (req, res) => {
     );
 
     res.json(paystack.data);
-  } catch {
+  } catch (err) {
+    console.error("Payment init failed:", err);
     res.status(500).json({ message: "Payment init failed" });
   }
 });
@@ -266,7 +269,8 @@ router.post("/webhooks/paystack", async (req, res) => {
     );
 
     res.sendStatus(200);
-  } catch {
+  } catch (err) {
+    console.error("Paystack webhook failed:", err);
     res.sendStatus(500);
   }
 });
@@ -310,7 +314,8 @@ router.get("/products", async (req, res) => {
       .filter((p) => !trendingIds.has(p.id));
 
     res.json({ trending, products: [...trending, ...products] });
-  } catch {
+  } catch (err) {
+    console.error("Failed to fetch products:", err);
     res.status(500).json({ message: "Failed to fetch products" });
   }
 });
@@ -337,13 +342,14 @@ router.get("/products/:id", async (req, res) => {
       return res.status(404).json({ message: "Product not found" });
     }
 
-    pool.query(
+    await pool.query(
       "UPDATE products SET views = COALESCE(views,0)+1 WHERE id=$1",
       [id]
-    ).catch(() => {});
+    );
 
     res.json(normalizeProduct(rows[0]));
-  } catch {
+  } catch (err) {
+    console.error("Failed to fetch product:", err);
     res.status(500).json({ message: "Failed to fetch product" });
   }
 });
@@ -414,8 +420,9 @@ router.post("/products", upload.array("images", 10), async (req, res) => {
     await client.query("COMMIT");
 
     res.status(201).json({ product: normalizeProduct(product) });
-  } catch {
+  } catch (err) {
     await client.query("ROLLBACK");
+    console.error("Failed to create product:", err);
     res.status(500).json({ message: "Failed to create product" });
   } finally {
     client.release();
@@ -439,7 +446,10 @@ router.get("/categories", async (req, res) => {
 
       map[cat.id] = {
         ...cat,
+        // 👇 this is what AddProduct.js expects
         dynamicOptions: {
+          fields: categoryFields[key] || [],
+
           brands: brands[key] || [],
           models: models[key] || {},
           colors: colors[key] || [],
@@ -447,12 +457,20 @@ router.get("/categories", async (req, res) => {
           usedDetails,
           ram: ramOptions,
           storage: storageOptions,
-          sims,
+          sim: sims,
           features: featuresByCategory[key] || [],
           years,
           engines,
           fuel_types: fuelTypes,
           location: Object.keys(locationsByState),
+
+          // 👇 new stuff from fieldOptions.js
+          size: fieldOptions.size,                    // shared for all categories
+          age_range: fieldOptions.age_range,          // shared
+          bedrooms: fieldOptions.bedrooms,            // shared
+          bathrooms: fieldOptions.bathrooms,          // shared
+          experience_level: fieldOptions.experience_level, // shared
+          skills: fieldOptions.skills,                // shared
         },
         subcategories: [],
       };
@@ -467,7 +485,8 @@ router.get("/categories", async (req, res) => {
     });
 
     res.json(tree);
-  } catch {
+  } catch (err) {
+    console.error("Failed to fetch categories:", err);
     res.status(500).json({ message: "Failed to fetch categories" });
   }
 });
