@@ -1,19 +1,15 @@
+// server.js
 import express from "express";
 import cors from "cors";
 import path from "path";
 import { fileURLToPath } from "url";
-import { Pool } from "pg";
-import dotenv from "dotenv";
 import http from "http";
 import { Server as SocketIOServer } from "socket.io";
+import dotenv from "dotenv";
 
-/* ================= CONFIG ================= */
 dotenv.config();
 
-/* ================= CRON ================= */
-import "./jobs/expirePromotions.js";
-
-/* ================= APP ================= */
+/* ================= CONFIG ================= */
 const app = express();
 const PORT = process.env.PORT || 5000;
 
@@ -24,6 +20,8 @@ const io = new SocketIOServer(server, {
 });
 
 /* ================= DATABASE ================= */
+import { Pool } from "pg";
+
 export const pool = new Pool({
   connectionString: process.env.COCKROACH_URI,
   ssl: { rejectUnauthorized: false },
@@ -110,16 +108,23 @@ app.use((req, res, next) => {
   next();
 });
 
+/* ================= CRON ================= */
+import "./jobs/expirePromotions.js";
+
 /* =========================================================
    🔥 PAYSTACK WEBHOOK (MUST COME BEFORE express.json)
+   Uses ONE payment.js (webhookRouter)
 ========================================================= */
-import paystackWebhook from "./routes/paystackWebhook.js";
+import paymentRouter, { webhookRouter } from "./routes/payment.js";
 
+// Raw body for webhook
 app.use(
   "/api/payment/webhook",
   express.raw({ type: "application/json" }),
-  paystackWebhook
+  webhookRouter
 );
+
+app.use("/api/payment", paymentRouter);
 
 /* ================= NORMAL BODY PARSERS ================= */
 app.use(express.json({ limit: "10mb" }));
@@ -132,7 +137,6 @@ import messagesRouter from "./routes/messages.js";
 import adminRouter from "./routes/admin.js";
 import searchRouter from "./routes/search.js";
 import productDetailRouter from "./routes/productDetail.js";
-import paymentRouter from "./routes/payment.js";
 import homepageRouter from "./routes/homepage.js";
 import sellerProfileRouter from "./routes/sellerprofile.js";
 
@@ -142,7 +146,6 @@ app.use("/api/messages", messagesRouter);
 app.use("/api/admin", adminRouter);
 app.use("/api/search", searchRouter);
 app.use("/api/product", productDetailRouter);
-app.use("/api/payment", paymentRouter);
 app.use("/api", homepageRouter);
 app.use("/api/marketplace/sellers", sellerProfileRouter);
 
