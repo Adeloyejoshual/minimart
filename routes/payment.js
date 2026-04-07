@@ -14,18 +14,25 @@ export const pool = new Pool({
   ssl: { rejectUnauthorized: false },
 });
 
+/* ================= JSON PARSER For /api/payment ================= */
+router.use(express.json({ limit: "10mb" }));
+router.use(express.urlencoded({ extended: true }));
+
 /* ================= PAYSTACK INIT (Frontend) ================= */
 router.post("/initialize", async (req, res) => {
+  console.log("🔸 PAYMENT INIT body:", req.body);
+  console.log("🔸 content-type:", req.get("content-type"));
+
+  const { email, amount, planId, productId } = req.body;
+
+  if (!email || typeof amount !== "number" || !planId || !productId) {
+    return res.status(400).json({
+      success: false,
+      message: "Missing required fields: email, amount, planId, productId",
+    });
+  }
+
   try {
-    const { email, amount, planId, productId } = req.body;
-
-    if (!email || typeof amount !== "number" || !planId || !productId) {
-      return res.status(400).json({
-        success: false,
-        message: "Missing required fields: email, amount, planId, productId",
-      });
-    }
-
     const response = await fetch(
       "https://api.paystack.co/transaction/initialize",
       {
@@ -36,7 +43,7 @@ router.post("/initialize", async (req, res) => {
         },
         body: JSON.stringify({
           email,
-          amount: amount * 100, // kobo
+          amount: amount * 100, // in kobo
           callback_url: `${process.env.FRONTEND_URL}/payment/callback`,
           metadata: {
             planId,
