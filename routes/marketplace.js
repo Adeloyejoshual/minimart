@@ -21,7 +21,7 @@ import { engines } from "../src/config/engines.js";
 import { fuelTypes } from "../src/config/fuelTypes.js";
 import { locationsByState } from "../src/config/locationsByState.js";
 import { promotionPlans } from "../src/config/promotions.js";
-import { fieldOptions } from "../src/config/fieldOptions.js"; // 👈 new import
+import { fieldOptions } from "../src/config/fieldOptions.js";
 
 dotenv.config();
 
@@ -63,7 +63,7 @@ const safeJSON = (value, fallback = {}) => {
 
 const parseDurationDays = (duration) => {
   if (!duration) return 0;
-  const match = String(duration).match(/(d+)/);
+  const match = String(duration).match(/(d+)/); // fix: was /(d+)/
   return match ? parseInt(match[1], 10) : 0;
 };
 
@@ -101,12 +101,12 @@ const normalizeProduct = (p) => ({
   promotion: promotionPlans.find((x) => x.id == p.promotion_id) || null,
 });
 
-/* ================= CLOUDINARY UPLOAD ================= */
+/* ================= CLOUDINARY UPLOAD (multiple images) ================= */
 const uploadImages = async (files) => {
   if (!files?.length) return [];
 
   return Promise.all(
-    files.map((file, index) =>
+    files.map((file) =>
       new Promise((resolve, reject) => {
         const stream = cloudinary.uploader.upload_stream(
           {
@@ -119,7 +119,7 @@ const uploadImages = async (files) => {
           },
           (err, result) => {
             if (err) return reject(err);
-            resolve({ url: result.secure_url, position: index });
+            resolve({ url: result.secure_url });
           }
         );
         stream.end(file.buffer);
@@ -320,7 +320,7 @@ router.get("/products", async (req, res) => {
   }
 });
 
-/* ================= SINGLE PRODUCT ================= */
+/* ================= SINGLE PRODUCT (by ID) ================= */
 router.get("/products/:id", async (req, res) => {
   try {
     const { id } = req.params;
@@ -349,12 +349,48 @@ router.get("/products/:id", async (req, res) => {
 
     res.json(normalizeProduct(rows[0]));
   } catch (err) {
-    console.error("Failed to fetch product:", err);
+    console.error("Failed to fetch product by ID:", err);
     res.status(500).json({ message: "Failed to fetch product" });
   }
 });
 
-/* ================= CREATE PRODUCT ================= */
+/* ================= SINGLE PRODUCT (by Slug) ================= */
+router.get("/product/:slug", async (req, res) => {
+  try {
+    const { slug } = req.params;
+
+    const cleanSlug = slug.replace(/.html$/, "");
+
+    const { rows } = await pool.query(
+      `
+      SELECT p.*,
+      COALESCE(json_agg(pi.image_url ORDER BY pi.position)
+        FILTER (WHERE pi.image_url IS NOT NULL), '[]') AS images
+      FROM products p
+      LEFT JOIN product_images pi ON p.id = pi.product_id
+      WHERE p.slug = $1
+      GROUP BY p.id
+      `,
+      [cleanSlug]
+    );
+
+    if (!rows.length) {
+      return res.status(404).json({ message: "Product not found" });
+    }
+
+    await pool.query(
+      "UPDATE products SET views = COALESCE(views,0)+1 WHERE id=$1",
+      [rows[0].id]
+    );
+
+    res.json(normalizeProduct(rows[0]));
+  } catch (err) {
+    console.error("Failed to fetch product by slug:", err);
+    res.status(500).json({ message: "Failed to fetch product" });
+  }
+});
+
+/* ================= CREATE PRODUCT (with multiple photo support) ================= */
 router.post("/products", upload.array("images", 10), async (req, res) => {
   const client = await pool.connect();
 
@@ -407,13 +443,29 @@ router.post("/products", upload.array("images", 10), async (req, res) => {
 
     const product = rows[0];
 
-    const images = await uploadImages(req.files);
+    // ✅ Generate slug
+    const slug = title
+      .toLowerCase()
+      .trim()
+      .replace(/[^a-z0-9s-]/g, "")
+      .replace(/s+/g, "-")
+      .replace(/-+/g, "-")
+      .replace(/^-+|-+$/g, "");
 
-    for (const img of images) {
+    await client.query(
+      "UPDATE products SET slug = $1 WHERE id = $2",
+      [`${slug}-${product.id}`, product.id]
+    );
+
+    // ✅ Upload all images (multi‑photo)
+    const cloudImages = await uploadImages(req.files);
+
+    for (let index = 0; index < cloudImages.length; index++) {
+      const { url } = cloudImages[index];
       await client.query(
         `INSERT INTO product_images (product_id, image_url, position)
-         VALUES ($1,$2,$3)`,
-        [product.id, img.url, img.position]
+         VALUES ($1, $2, $3)`,
+        [product.id, url, index]
       );
     }
 
@@ -422,7 +474,7 @@ router.post("/products", upload.array("images", 10), async (req, res) => {
     res.status(201).json({ product: normalizeProduct(product) });
   } catch (err) {
     await client.query("ROLLBACK");
-    console.error("Failed to create product:", err);
+    console.error("Failed to create product or upload images:", err);
     res.status(500).json({ message: "Failed to create product" });
   } finally {
     client.release();
@@ -465,12 +517,12 @@ router.get("/categories", async (req, res) => {
           location: Object.keys(locationsByState),
 
           // 👇 new stuff from fieldOptions.js
-          size: fieldOptions.size,                    // shared for all categories
-          age_range: fieldOptions.age_range,          // shared
-          bedrooms: fieldOptions.bedrooms,            // shared
-          bathrooms: fieldOptions.bathrooms,          // shared
-          experience_level: fieldOptions.experience_level, // shared
-          skills: fieldOptions.skills,                // shared
+          size: fieldOptions.size,
+          age_range: fieldOptions.age_range,
+          bedrooms: fieldOptions.bedrooms,
+          bathrooms: fieldOptions.bathrooms,
+          experience_level: fieldOptions.experience_level,
+          skills: fieldOptions.skills,
         },
         subcategories: [],
       };
