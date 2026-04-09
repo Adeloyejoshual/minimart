@@ -5,7 +5,7 @@ import axios from "axios";
 const API_BASE = "https://minimart-ivrm.onrender.com";
 
 export default function ProductDetail({ user }) {
-  const { id } = useParams();
+  const { slug } = useParams();  // ← now from /product/:slug
   const navigate = useNavigate();
 
   const [product, setProduct] = useState(null);
@@ -16,7 +16,8 @@ export default function ProductDetail({ user }) {
   useEffect(() => {
     const fetchProduct = async () => {
       try {
-        const res = await axios.get(`${API_BASE}/api/product/${id}`);
+        // ✅ Use slug in the API
+        const res = await axios.get(`${API_BASE}/api/product/${slug}`);
 
         const data = res.data?.product;
 
@@ -24,7 +25,7 @@ export default function ProductDetail({ user }) {
 
         setProduct(data);
 
-        // 🔥 SAFE IMAGE NORMALIZATION (IMPORTANT FIX)
+        // 🔥 SAFE IMAGE NORMALIZATION
         let images = data.images;
 
         if (!Array.isArray(images)) {
@@ -38,7 +39,6 @@ export default function ProductDetail({ user }) {
         images = images.filter(Boolean);
 
         setMainImage(images.length > 0 ? images[0] : "");
-
       } catch (err) {
         setError(
           err.response?.data?.message ||
@@ -50,20 +50,27 @@ export default function ProductDetail({ user }) {
       }
     };
 
-    if (id) fetchProduct();
-  }, [id]);
+    if (slug) fetchProduct();
+  }, [slug]); // ← react on slug, not id
 
-  if (loading) return <div style={{ padding: 20 }}>Loading...</div>;
-  if (error) return <div style={{ padding: 20, color: "red" }}>{error}</div>;
+  if (loading)
+    return <div style={{ padding: 20 }}>Loading...</div>;
+
+  if (error)
+    return <div style={{ padding: 20, color: "red" }}>{error}</div>;
+
   if (!product) return null;
 
-  const images = Array.isArray(product.images)
-    ? product.images
-    : [];
+  const images = Array.isArray(product.images) ? product.images : [];
 
   return (
-    <div style={{ maxWidth: 1000, margin: "0 auto", padding: 20 }}>
-
+    <div
+      style={{
+        maxWidth: 1000,
+        margin: "0 auto",
+        padding: 20,
+      }}
+    >
       {/* HEADER */}
       <div style={styles.header}>
         <div>
@@ -74,13 +81,17 @@ export default function ProductDetail({ user }) {
         </div>
 
         <div style={{ display: "flex", gap: 10 }}>
-          <button onClick={() => navigate(`/seller/${product.seller_id}`)}>
+          <button
+            onClick={() => navigate(`/seller/${product.seller_id}`)}
+          >
             View Seller
           </button>
 
           <button
             onClick={() =>
-              navigate(`/conversations?userId=${product.seller_id}`)
+              navigate(
+                `/conversations?userId=${product.seller_id}`
+              )
             }
           >
             Chat Seller
@@ -89,22 +100,42 @@ export default function ProductDetail({ user }) {
       </div>
 
       {/* IMAGE SECTION */}
-      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 20 }}>
-
+      <div
+        style={{
+          display: "grid",
+          gridTemplateColumns: "1fr 1fr",
+          gap: 20,
+        }}
+      >
         <div>
-          <div style={{ height: 350, background: "#f5f5f5" }}>
+          <div
+            style={{
+              height: 350,
+              background: "#f5f5f5",
+            }}
+          >
             {mainImage ? (
               <img
                 src={mainImage}
                 alt={product.title}
-                style={{ width: "100%", height: "100%", objectFit: "cover" }}
+                style={{
+                  width: "100%",
+                  height: "100%",
+                  objectFit: "cover",
+                }}
               />
             ) : (
               <div style={{ padding: 20 }}>No Image Available</div>
             )}
           </div>
 
-          <div style={{ display: "flex", gap: 10, marginTop: 10 }}>
+          <div
+            style={{
+              display: "flex",
+              gap: 10,
+              marginTop: 10,
+            }}
+          >
             {images.map((img, i) => (
               <img
                 key={i}
@@ -115,7 +146,10 @@ export default function ProductDetail({ user }) {
                   width: 60,
                   height: 60,
                   objectFit: "cover",
-                  border: mainImage === img ? "2px solid blue" : "1px solid #ddd",
+                  border:
+                    mainImage === img
+                      ? "2px solid blue"
+                      : "1px solid #ddd",
                   cursor: "pointer",
                 }}
               />
@@ -127,7 +161,9 @@ export default function ProductDetail({ user }) {
         <div>
           <h2>₦{Number(product.price).toLocaleString()}</h2>
           <p>{product.description}</p>
-          <p><b>Seller:</b> {product.seller_name}</p>
+          <p>
+            <b>Seller:</b> {product.seller_name}
+          </p>
         </div>
       </div>
     </div>
