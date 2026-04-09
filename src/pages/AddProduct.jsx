@@ -447,13 +447,11 @@ export default function AddProduct() {
     let tempProductId = null;
 
     try {
-      // ✅ ALWAYS create draft first (both free & paid)
       const product = await createProductDraft();
       tempProductId = product?.id;
       if (!tempProductId) throw new Error("Failed to create product draft");
 
       if (finalPlan.price === 0) {
-        // ✅ Free plan: activate immediately
         const activateRes = await fetch(
           `https://minimart-ivrm.onrender.com/api/payment/products/${tempProductId}/activate`,
           {
@@ -474,12 +472,11 @@ export default function AddProduct() {
         return;
       }
 
-      // ✅ Paid plan: create draft → send to payment initialize
       const payload = {
         email: form.contact.email,
         amount: Number(finalPlan.price),
         planId: finalPlan.id,
-        productId: tempProductId,  // ✅ Required by backend
+        productId: tempProductId,
       };
 
       const res = await fetch(
@@ -533,7 +530,6 @@ export default function AddProduct() {
     clearDraft,
   ]);
 
-  // Cleanup images on unmount
   useEffect(() => {
     return () => {
       images.forEach((img) => {
@@ -550,7 +546,9 @@ export default function AddProduct() {
       <section className="section form-card">
         <h3 className="section-title">Basic Information</h3>
         <div className="form-group">
-          <label>Product Title <span className="required">*</span></label>
+          <label>
+            Product Title <span className="required">*</span>
+          </label>
           <input
             placeholder="Enter product title (min 10 chars)"
             value={form.title}
@@ -558,16 +556,20 @@ export default function AddProduct() {
           />
         </div>
         <div className="form-group">
-          <label>Description <span className="required">*</span></label>
+          <label>
+            Description <span className="required">*</span>
+          </label>
           <textarea
             placeholder="Detailed product description (min 20 chars)"
-            rows="4"
+            rows={4}
             value={form.description}
             onChange={(e) => updateForm("description", e.target.value)}
           />
         </div>
         <div className="form-group">
-          <label>Price (₦) <span className="required">*</span></label>
+          <label>
+            Price (₦) <span className="required">*</span>
+          </label>
           <input
             type="text"
             inputMode="numeric"
@@ -578,11 +580,13 @@ export default function AddProduct() {
         </div>
       </section>
 
-      {/* Category & Attributes */}
+            {/* Category & Attributes */}
       <section className="section form-card">
         <h3 className="section-title">Product Details</h3>
         <div className="form-group">
-          <label>Category <span className="required">*</span></label>
+          <label>
+            Category <span className="required">*</span>
+          </label>
           <DropdownModal
             value={form.category_id}
             onChange={(v) => {
@@ -652,12 +656,12 @@ export default function AddProduct() {
                 .sort((a, b) => (a || "").localeCompare(b || ""))
                 .map((feature) => (
                   <label key={feature} className="checkbox-inline">
+                    <span>{formatLabel(feature)}</span>
                     <input
                       type="checkbox"
                       checked={attributes.features?.includes(feature) || false}
                       onChange={() => toggleFeature(feature)}
                     />
-                    <span>{formatLabel(feature)}</span>
                   </label>
                 ))}
             </div>
@@ -669,7 +673,9 @@ export default function AddProduct() {
       <section className="section form-card">
         <h3 className="section-title">Contact Information</h3>
         <div className="form-group">
-          <label>Email <span className="required">*</span></label>
+          <label>
+            Email <span className="required">*</span>
+          </label>
           <input
             type="email"
             placeholder="your@email.com"
@@ -678,7 +684,9 @@ export default function AddProduct() {
           />
         </div>
         <div className="form-group">
-          <label>Phone <span className="required">*</span></label>
+          <label>
+            Phone <span className="required">*</span>
+          </label>
           <input
             type="tel"
             placeholder="08012345678"
@@ -687,7 +695,9 @@ export default function AddProduct() {
           />
         </div>
         <div className="form-group">
-          <label>WhatsApp <span className="required">*</span></label>
+          <label>
+            WhatsApp <span className="required">*</span>
+          </label>
           <input
             type="tel"
             placeholder="08012345678"
@@ -710,7 +720,9 @@ export default function AddProduct() {
       <section className="section form-card">
         <h3 className="section-title">Location & Delivery</h3>
         <div className="form-group">
-          <label>State <span className="required">*</span></label>
+          <label>
+            State <span className="required">*</span>
+          </label>
           <DropdownModal
             value={state}
             onChange={setState}
@@ -719,7 +731,9 @@ export default function AddProduct() {
         </div>
         {state && (
           <div className="form-group">
-            <label>City <span className="required">*</span></label>
+            <label>
+              City <span className="required">*</span>
+            </label>
             <DropdownModal
               value={city}
               onChange={setCity}
@@ -741,7 +755,9 @@ export default function AddProduct() {
         {form.delivery.available && (
           <div className="delivery-grid sub-grid">
             <div className="form-group">
-              <label>From Day <span className="required">*</span></label>
+              <label>
+                From Day <span className="required">*</span>
+              </label>
               <input
                 type="text"
                 inputMode="numeric"
@@ -751,7 +767,9 @@ export default function AddProduct() {
               />
             </div>
             <div className="form-group">
-              <label>To Day <span className="required">*</span></label>
+              <label>
+                To Day <span className="required">*</span>
+              </label>
               <input
                 type="text"
                 inputMode="numeric"
@@ -761,7 +779,9 @@ export default function AddProduct() {
               />
             </div>
             <div className="form-group">
-              <label>Fee (₦) <span className="required">*</span></label>
+              <label>
+                Fee (₦) <span className="required">*</span>
+              </label>
               <input
                 type="text"
                 inputMode="numeric"
