@@ -391,6 +391,7 @@ router.get("/product/:slug", async (req, res) => {
 });
 
 /* ================= CREATE PRODUCT (with multiple photo support) ================= */
+/* ================= CREATE PRODUCT (with multiple photo support) ================= */
 router.post("/products", upload.array("images", 10), async (req, res) => {
   const client = await pool.connect();
 
@@ -460,12 +461,12 @@ router.post("/products", upload.array("images", 10), async (req, res) => {
     // ✅ Upload all images (multi‑photo)
     const cloudImages = await uploadImages(req.files);
 
-    for (let index = 0; index < cloudImages.length; index++) {
-      const { url } = cloudImages[index];
+    for (let i = 0; i < cloudImages.length; i++) {
+      const { url } = cloudImages[i];
       await client.query(
-        `INSERT INTO product_images (product_id, image_url, position)
+        `INSERT INTO product_images (product_id, image_url, position_order)
          VALUES ($1, $2, $3)`,
-        [product.id, url, index]
+        [product.id, url, i]  // `i` = 0, 1, 2, ...
       );
     }
 
