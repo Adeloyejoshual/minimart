@@ -1,14 +1,14 @@
 /* =========================================================
-   ADD PRODUCT - SCOPED STYLES ONLY (No Global Impact) - FIXED
+   ADD PRODUCT - SCOPED STYLES ONLY (No Global Impact)
 ========================================================= */
 
-/* ✅ FIXED: Container - Prevents layout collapse */
+/* Container */
 .add-product-container {
   max-width: 860px;
   margin: 0 auto;
   padding: clamp(1.2rem, 3vw, 2rem) clamp(1rem, 3vw, 2rem) clamp(3rem, 8vw, 5rem);
   min-height: 100vh;
-  height: auto;                    /* ✅ ADDED: Prevents flex collapse */
+  height: auto;
   display: flex;
   flex-direction: column;
   gap: clamp(1.5rem, 3vw, 24px);
@@ -18,14 +18,14 @@
   line-height: 1.6;
   color: #222;
   scroll-padding-top: 2rem;
-  overflow-x: hidden;             /* ✅ ADDED: Mobile WebView safety */
+  overflow-x: hidden;
 }
 
-/* ✅ FIXED: Consistent Z-Index System */
+/* Glass Header */
 .add-product-container .glass-header {
   position: sticky;
   top: 0;
-  z-index: 10;                    /* ✅ LOWER: 10 (header only) */
+  z-index: 10;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -39,7 +39,6 @@
   box-shadow: 0 4px 18px rgba(0, 119, 255, 0.08);
 }
 
-/* Scoped Glass Header */
 .add-product-container .glass-back-btn {
   position: absolute;
   left: clamp(12px, 3vw, 16px);
@@ -58,9 +57,10 @@
   background: #f0f7ff;
 }
 
-/* Scoped Light Blue Cards */
+/* Form Cards */
 .add-product-container .form-card,
 .add-product-container .section {
+  position: relative;
   background: linear-gradient(135deg, #f0f7ff 0%, #e3f0ff 100%);
   border-radius: clamp(20px, 4vw, 28px);
   padding: clamp(20px, 4vw, 28px);
@@ -72,10 +72,10 @@
   flex-direction: column;
   gap: clamp(16px, 3vw, 20px);
   transition: all 0.4s cubic-bezier(0.4, 0, 0.2, 1);
-  position: relative;
-  overflow: visible;              /* ✅ CHANGED: visible prevents clipping */
+  overflow: visible;
 }
 
+/* Card header line */
 .add-product-container .form-card::before,
 .add-product-container .section::before {
   content: '';
@@ -108,7 +108,7 @@
   z-index: 2;
 }
 
-/* Scoped Form Groups */
+/* Form Groups */
 .add-product-container .form-group {
   display: flex;
   flex-direction: column;
@@ -143,7 +143,7 @@
   50% { opacity: 0.7; }
 }
 
-/* Scoped Inputs - NON-TRANSPARENT backgrounds */
+/* Inputs */
 .add-product-container input,
 .add-product-container textarea,
 .add-product-container select {
@@ -152,7 +152,7 @@
   min-height: clamp(56px, 13vw, 64px);
   border: 1px solid rgba(0, 119, 255, 0.2);
   border-radius: clamp(14px, 3vw, 20px);
-  background: #ffffff;            /* ✅ FIXED: Solid white (no transparency issues) */
+  background: #ffffff;
   font-size: clamp(0.95rem, 2.25vw, 1rem);
   font-family: inherit;
   color: #1e1e1e;
@@ -170,7 +170,7 @@
 .add-product-container textarea:focus,
 .add-product-container select:focus {
   border-color: #0077ff;
-  background: #ffffff;            /* ✅ FIXED: Solid white on focus */
+  background: #ffffff;
   box-shadow: 
     0 0 0 4px rgba(0, 119, 255, 0.15),
     0 8px 32px rgba(0, 119, 255, 0.2);
@@ -183,7 +183,7 @@
   resize: vertical;
 }
 
-/* Scoped Grids */
+/* Grids */
 .add-product-container .delivery-grid,
 .add-product-container .sub-grid,
 .add-product-container .checkbox-grid-inline,
@@ -193,7 +193,7 @@
   gap: clamp(1rem, 2.25vw, 1.25rem);
 }
 
-.add-product-container .delivery-grid { 
+.add-product-container .delivery-grid {
   grid-template-columns: repeat(auto-fit, minmax(clamp(160px, 22vw, 200px), 1fr));
   margin-top: clamp(1.25rem, 3vw, 1.5rem);
   padding-top: clamp(1.25rem, 3vw, 1.5rem);
@@ -202,39 +202,33 @@
   border: 1px solid rgba(0, 119, 255, 0.1);
 }
 
-.add-product-container .checkbox-grid-inline { 
+.add-product-container .checkbox-grid-inline {
   grid-template-columns: repeat(auto-fill, minmax(clamp(160px, 24vw, 200px), 1fr));
   margin-top: clamp(1.25rem, 3vw, 1.5rem);
 }
 
-.add-product-container .preview-grid-modern { 
+.add-product-container .preview-grid-modern {
   grid-template-columns: repeat(auto-fit, minmax(clamp(110px, 20vw, 140px), 1fr));
   margin-top: clamp(1.5rem, 3.5vw, 1.75rem);
 }
 
-.add-product-container .plans-grid { 
+.add-product-container .plans-grid {
   grid-template-columns: repeat(auto-fit, minmax(clamp(300px, 48vw, 360px), 1fr));
   margin-top: clamp(1.75rem, 4vw, 2rem);
 }
 
-/* ✅ FIXED: CRITICAL MODAL SAFETY */
+/* Image Modal */
 .add-product-container .image-modal {
   position: fixed;
   inset: 0;
   background: rgba(0, 0, 0, 0.6);
   backdrop-filter: blur(20px);
-  z-index: 200;                   /* ✅ FIXED: Higher z-index */
-  display: flex !important;       /* ✅ FORCE display:flex */
+  z-index: 200;
+  display: flex;
   align-items: center;
   justify-content: center;
   padding: clamp(2rem, 8vw, 3rem);
   cursor: pointer;
-}
-
-/* ✅ EMERGENCY DEBUG: Temporarily disable modal */
-.add-product-container .image-modal[style*="display: none"],
-.add-product-container .image-modal.hidden {
-  display: none !important;       /* ✅ SAFETY: Prevents stuck overlay */
 }
 
 .add-product-container .image-modal img {
@@ -246,7 +240,7 @@
     0 0 0 1px rgba(255, 255, 255, 0.2);
 }
 
-/* Scoped Image Previews */
+/* Image Previews */
 .add-product-container .preview-thumb {
   position: relative;
   aspect-ratio: 1;
@@ -308,7 +302,7 @@
     0 0 0 4px rgba(255, 255, 255, 0.9);
 }
 
-/* Scoped Promotion Plans */
+/* Promotion Plans */
 .add-product-container .plan-card {
   padding: clamp(1.75rem, 4vw, 2.25rem) clamp(1.5rem, 3.5vw, 2rem);
   border-radius: clamp(20px, 4vw, 28px);
@@ -387,7 +381,7 @@
   font-size: 0.875rem;
 }
 
-/* ✅ FIXED: Button Section - SPECIFIC selectors only */
+/* Button Section */
 .add-product-container .button-section {
   flex-direction: row !important;
   align-items: stretch;
@@ -402,7 +396,7 @@
     0 2px 8px rgba(0, 0, 0, 0.05);
 }
 
-/* ✅ FIXED: SPECIFIC BUTTONS ONLY - No generic 'button' selector */
+/* Primary / Secondary / Retry Buttons (scoped only) */
 .add-product-container .primary-btn,
 .add-product-container .secondary-btn,
 .add-product-container .retry-btn {
@@ -433,7 +427,7 @@
   left: -100%;
   width: 100%;
   height: 100%;
-  background: linear-gradient(90deg, transparent, rgba(255,255,255,0.3), transparent);
+  background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.3), transparent);
   transition: left 0.6s;
 }
 
@@ -462,7 +456,7 @@
   cursor: not-allowed;
 }
 
-/* Scoped Error/Success Messages */
+/* Error / Success Messages */
 .add-product-container .form-error,
 .add-product-container .form-success {
   padding: clamp(1rem, 2.5vw, 1.25rem) clamp(1.5rem, 3.5vw, 2rem);
@@ -488,7 +482,7 @@
   color: #059669;
 }
 
-/* Scoped Shake Animation */
+/* Shake Animation */
 .add-product-container .shake {
   animation: shake 0.4s ease-in-out;
   border-color: #ef4444 !important;
@@ -501,7 +495,7 @@
   75% { transform: translateX(4px); }
 }
 
-/* Scoped Sub-grid for delivery */
+/* Sub-grid for delivery */
 .add-product-container .sub-grid {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
@@ -509,13 +503,13 @@
   margin-top: 1rem;
 }
 
-/* Scoped Loading Overlay */
+/* Loading Overlay */
 .add-product-container .loading-overlay {
   position: fixed;
   inset: 0;
   background: rgba(0, 0, 0, 0.5);
   backdrop-filter: blur(8px);
-  z-index: 150;                   /* ✅ Between header and image modal */
+  z-index: 150;
   display: flex;
   flex-direction: column;
   align-items: center;
@@ -537,35 +531,78 @@
   100% { transform: rotate(360deg); }
 }
 
-/* Responsive - Scoped */
+/* DropdownModal dropdown (appears above cards on laptop and mobile) */
+.add-product-container .dropdown-menu,
+.add-product-container .dropdown-options,
+.add-product-container .dropdown-list {
+  position: fixed;
+  top: 1%;
+  left: 3.5%;
+  right: 3.5%;
+  z-index: 1000;
+  background: #ffffff;
+  border: 1px solid rgba(0, 119, 255, 0.25);
+  border-radius: 16px;
+  box-shadow: 
+    0 16px 64px rgba(0, 119, 255, 0.3),
+    0 4px 16px rgba(0, 0, 0, 0.15);
+  max-height: clamp(300px, 40vh, 400px);
+  overflow-y: auto;
+  margin-top: 4px;
+  scrollbar-width: thin;
+}
+
+.add-product-container .dropdown-menu li,
+.add-product-container .dropdown-options li,
+.add-product-container .dropdown-list li {
+  padding: clamp(0.75rem, 2vw, 0.875rem) clamp(1rem, 2.5vw, 1.25rem);
+  cursor: pointer;
+  color: #1e293b;
+  font-size: clamp(0.9rem, 2.25vw, 1rem);
+  transition: background 0.2s;
+}
+
+.add-product-container .dropdown-menu li:hover,
+.add-product-container .dropdown-options li:hover,
+.add-product-container .dropdown-list li:hover {
+  background: rgba(0, 119, 255, 0.1);
+}
+
+/* Prevent clipping by form cards */
+.add-product-container .form-card,
+.add-product-container .section {
+  overflow: visible;
+}
+
+/* Responsive - Desktop and Mobile */
 @media (max-width: 1024px) {
-  .add-product-container .preview-grid-modern { 
-    grid-template-columns: repeat(4, 1fr); 
+  .add-product-container .preview-grid-modern {
+    grid-template-columns: repeat(4, 1fr);
   }
 }
 
 @media (max-width: 768px) {
-  .add-product-container .preview-grid-modern { 
-    grid-template-columns: repeat(3, 1fr); 
+  .add-product-container .preview-grid-modern {
+    grid-template-columns: repeat(3, 1fr);
   }
   .add-product-container .checkbox-grid-inline,
   .add-product-container .delivery-grid,
-  .add-product-container .sub-grid { 
-    grid-template-columns: repeat(2, 1fr); 
+  .add-product-container .sub-grid {
+    grid-template-columns: repeat(2, 1fr);
   }
-  .add-product-container .button-section { 
-    flex-direction: column !important; 
-    gap: clamp(1.25rem, 3vw, 1.5rem); 
+  .add-product-container .button-section {
+    flex-direction: column !important;
+    gap: clamp(1.25rem, 3vw, 1.5rem);
   }
 }
 
 @media (max-width: 600px) {
-  .add-product-container .preview-grid-modern { 
-    grid-template-columns: repeat(2, 1fr); 
+  .add-product-container .preview-grid-modern {
+    grid-template-columns: repeat(2, 1fr);
   }
   .add-product-container .delivery-grid,
   .add-product-container .checkbox-grid-inline,
-  .add-product-container .sub-grid { 
-    grid-template-columns: 1fr; 
+  .add-product-container .sub-grid {
+    grid-template-columns: 1fr;
   }
 }
