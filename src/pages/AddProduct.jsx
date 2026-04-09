@@ -94,7 +94,7 @@ export default function AddProduct() {
   };
 
   const formatLabel = (t) =>
-    t.replace(/_/g, " ").replace(/\bw/g, (l) => l.toUpperCase());
+    t.replace(/_/g, " ").replace(/\bw\b/g, (l) => l.toUpperCase());
 
   const showError = useCallback((msg) => {
     console.error("❌ Error:", msg);
@@ -381,19 +381,26 @@ export default function AddProduct() {
   const states = Object.keys(locationsByState || {});
   const cities = state ? (locationsByState[state] || []) : [];
 
-  const createProductDraft = async () => {
+  const createProduct = async () => {
     const fd = new FormData();
     fd.append("title", form.title.trim());
     fd.append("description", form.description.trim());
     fd.append("price", Number(form.price).toString());
     fd.append("category_id", form.category_id);
+    fd.append("subCategory_id", form.subcategory_id || "");
     fd.append("attributes", JSON.stringify(attributes));
     fd.append("delivery", JSON.stringify(form.delivery));
     fd.append("contact", JSON.stringify(form.contact));
     fd.append("location_state", state);
     fd.append("location_city", city);
-    fd.append("promotion_id", selectedPlan?.id || "");
 
+    // Include promotion_id if selected
+    const finalPlan = selectedPlan || promotionPlans.find((p) => p.price === 0);
+    if (finalPlan && finalPlan.id) {
+      fd.append("promotion_id", finalPlan.id);
+    }
+
+    // Add images
     const imageFiles = images.map((img) => img.file);
     const compressedFiles = await Promise.all(
       imageFiles.map(compressImage)
@@ -413,10 +420,18 @@ export default function AddProduct() {
       throw new Error(data.message || `HTTP ${res.status}`);
     }
 
-    return (await res.json()).product;
+    const { product } = await res.json();
+
+    // ✅ Use slug for frontend navigation
+    const slug = product.slug;
+
+    // On success, you can navigate or deep‑link to:
+    // /product/${slug}
+
+    return product;
   };
 
-  const deleteProductDraft = async (productId) => {
+  const deleteProduct = async (productId) => {
     try {
       const res = await fetch(
         `https://minimart-ivrm.onrender.com/api/marketplace/products/${productId}`,
@@ -424,7 +439,7 @@ export default function AddProduct() {
       );
       return res.ok;
     } catch (err) {
-      console.error("Draft cleanup failed:", err);
+      console.error("Product cleanup failed:", err);
       return false;
     }
   };
@@ -444,43 +459,35 @@ export default function AddProduct() {
     setLoading(true);
     setError("");
 
-    let tempProductId = null;
+    let product = null;
 
     try {
-      const product = await createProductDraft();
-      tempProductId = product?.id;
-      if (!tempProductId) throw new Error("Failed to create product draft");
+      // ✅ Upload product + images ONCE
+      product = await createProduct();
 
+      if (!product.id) {
+        throw new Error("Failed to create product");
+      }
+
+      // If free plan, it's already active
       if (finalPlan.price === 0) {
-        const activateRes = await fetch(
-          `https://minimart-ivrm.onrender.com/api/payment/products/${tempProductId}/activate`,
-          {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ promotion_id: null }),
-          }
-        );
-
-        if (!activateRes.ok) {
-          const errData = await activateRes.json().catch(() => ({}));
-          await deleteProductDraft(tempProductId);
-          throw new Error(errData.message || "Activation failed");
-        }
-
         clearDraft();
         showSuccess("✅ Product created and published!");
+        // You can redirect to:
+        // window.location.href = `/product/${product.slug}`;
         return;
       }
 
+      // ✅ Paid plan → pay now
       const payload = {
         email: form.contact.email,
         amount: Number(finalPlan.price),
-        planId: finalPlan.id,
-        productId: tempProductId,
+        plan_id: finalPlan.id,
+        product_id: product.id,
       };
 
       const res = await fetch(
-        "https://minimart-ivrm.onrender.com/api/payment/initialize",
+        "https://minimart-ivrm.onrender.com/api/payment/initiate",
         {
           method: "POST",
           headers: { "Content-Type": "application/json" },
@@ -490,7 +497,7 @@ export default function AddProduct() {
 
       const data = await res.json();
       if (!res.ok || !data.success || !data.authorization_url) {
-        await deleteProductDraft(tempProductId);
+        await deleteProduct(product.id);
         throw new Error(data.message || "Payment initialization failed");
       }
 
@@ -511,8 +518,8 @@ export default function AddProduct() {
       }
     } catch (err) {
       console.error("Submit error:", err);
-      if (tempProductId) {
-        await deleteProductDraft(tempProductId);
+      if (product?.id) {
+        await deleteProduct(product.id);
       }
       showError(err.message || "Something went wrong");
     } finally {
@@ -542,7 +549,7 @@ export default function AddProduct() {
     <div className="add-product-container">
       <AddProductHeader title="Add Product" onClearDraft={clearDraft} />
 
-      {/* Basic Info */}
+            {/* Basic Info */}
       <section className="section form-card">
         <h3 className="section-title">Basic Information</h3>
         <div className="form-group">
@@ -580,7 +587,7 @@ export default function AddProduct() {
         </div>
       </section>
 
-            {/* Category & Attributes */}
+      {/* Category & Attributes */}
       <section className="section form-card">
         <h3 className="section-title">Product Details</h3>
         <div className="form-group">
@@ -625,7 +632,7 @@ export default function AddProduct() {
         )}
 
         {/* Dynamic fields */}
-        {options.fields?.map((field) => {
+        {fields?.map((field) => {
           if (field === "brand" || field === "model") return null;
 
           const fieldOptions = normalizeOptions(options[field]);
@@ -847,7 +854,9 @@ export default function AddProduct() {
             </label>
           )}
         </div>
-        {images.length > 0 && <small>{images.length}/6 images</small>}
+        {images.length > 0 && (
+          <small>{images.length}/6 images</small>
+        )}
       </section>
 
       {/* Promotion Plans */}
@@ -866,7 +875,7 @@ export default function AddProduct() {
               </div>
               <div className="plan-duration">{plan.duration}</div>
               <ul className="plan-features">
-                {plan.features.map((feat, i) => (
+                {plan.features?.map((feat, i) => (
                   <li key={i}>{feat}</li>
                 ))}
               </ul>
@@ -894,8 +903,16 @@ export default function AddProduct() {
         )}
       </div>
 
-      {error && <div className="form-error"><span>⚠️</span> {error}</div>}
-      {success && <div className="form-success"><span>✅</span> {success}</div>}
+      {error && (
+        <div className="form-error">
+          <span>⚠️</span> {error}
+        </div>
+      )}
+      {success && (
+        <div className="form-success">
+          <span>✅</span> {success}
+        </div>
+      )}
 
       {activeImage && (
         <div className="image-modal" onClick={() => setActiveImage(null)}>
@@ -912,3 +929,5 @@ export default function AddProduct() {
     </div>
   );
 }
+
+export default AddProduct;
