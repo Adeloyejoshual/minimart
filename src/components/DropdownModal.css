@@ -32,7 +32,7 @@
 
 .dropdown-header:hover {
   border-color: #0077ff;
-  box-shadow: 0 2px 8px rgba(0,0,0,0.12);
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.12);
 }
 
 /* ----------------- ARROW ----------------- */
@@ -54,15 +54,18 @@
   position: absolute;
   top: 110%;
   left: 0;
+  right: 0;
   width: 100%;
   max-height: 240px;
   overflow-y: auto;
   background: #fff;
   border: 1px solid #ccc;
   border-radius: 12px;
-  box-shadow: 0 6px 16px rgba(0,0,0,0.12);
+  box-shadow: 0 6px 16px rgba(0, 0, 0, 0.12);
   z-index: 1000;
   padding: 0.3rem 0;
+  /* Keep it on top in desktop */
+  will-change: transform;
 }
 
 /* ----------------- INDIVIDUAL OPTION ----------------- */
@@ -101,6 +104,22 @@
 
 .dropdown-options::-webkit-scrollbar-track {
   background: #f9f9f9;
+}
+
+/* ----------------- FIX: never clip inside cards on laptop */
+.add-product-container .dropdown-modal,
+.add-product-container .dropdown-header,
+.add-product-container .dropdown-options {
+  /* Avoid overflow: hidden clipping the dropdown */
+  overflow: visible !important;
+}
+
+/* For desktop if you ever portal it outside .add-product-container */
+.add-product-container .dropdown-options {
+  /* Keep it aligned with the card’s edge (no wrapping issues) */
+  box-sizing: border-box;
+  /* Optional: slight damping of scroll‑jump on large screens */
+  overscroll-behavior: contain;
 }
 
 /* ----------------- RESPONSIVE ----------------- */
