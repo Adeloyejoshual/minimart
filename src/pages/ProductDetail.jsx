@@ -1,48 +1,45 @@
-import { useEffect, useState } from "react";
+/* ================= FINAL UPGRADED ProductDetail.js (CSS VERSION) ================= */
+import { useEffect, useState, useMemo } from "react";
 import { useParams, useNavigate } from "react-router-dom";
 import axios from "axios";
+import "./styles/ProductDetail.css"; // ✅ EXTERNAL CSS
 
-const API_BASE = "https://minimart-ivrm.onrender.com";
+const API_BASE = import.meta.env.VITE_API_BASE || "https://minimart-ivrm.onrender.com";
 
-export default function ProductDetail({ user }) {
-  const { slug } = useParams();  // ← now from /product/:slug
+export default function ProductDetail() {
+  const { slug } = useParams();
   const navigate = useNavigate();
 
+  // States
   const [product, setProduct] = useState(null);
   const [mainImage, setMainImage] = useState("");
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
+  const [zoom, setZoom] = useState(false);
+  const [related, setRelated] = useState([]);
 
+  /* ================= FETCH PRODUCT (CACHED API) ================= */
   useEffect(() => {
+    if (!slug) return;
+
     const fetchProduct = async () => {
       try {
-        // ✅ Use slug in the API
-        const res = await axios.get(`${API_BASE}/api/product/${slug}`);
+        setLoading(true);
+        setError("");
 
-        const data = res.data?.product;
+        const res = await axios.get(`${API_BASE}/api/products/${slug}`, {
+          headers: { "Cache-Control": "no-cache" } // Force fresh on first load
+        });
 
-        if (!data) throw new Error("Invalid product response");
-
-        setProduct(data);
-
-        // 🔥 SAFE IMAGE NORMALIZATION
-        let images = data.images;
-
-        if (!Array.isArray(images)) {
-          try {
-            images = JSON.parse(images || "[]");
-          } catch {
-            images = [];
-          }
+        if (!res.data?.success || !res.data.product) {
+          throw new Error("Product not found");
         }
 
-        images = images.filter(Boolean);
-
-        setMainImage(images.length > 0 ? images[0] : "");
+        setProduct(res.data.product);
       } catch (err) {
         setError(
-          err.response?.data?.message ||
-          err.message ||
+          err.response?.data?.message || 
+          err.message || 
           "Failed to load product"
         );
       } finally {
@@ -50,130 +47,238 @@ export default function ProductDetail({ user }) {
       }
     };
 
-    if (slug) fetchProduct();
-  }, [slug]); // ← react on slug, not id
+    fetchProduct();
+  }, [slug]);
 
-  if (loading)
-    return <div style={{ padding: 20 }}>Loading...</div>;
+  /* ================= FETCH RELATED PRODUCTS ================= */
+  useEffect(() => {
+    if (!product?.id) return;
 
-  if (error)
-    return <div style={{ padding: 20, color: "red" }}>{error}</div>;
+    const fetchRelated = async () => {
+      try {
+        const res = await axios.get(`${API_BASE}/api/products/${product.id}/related`);
+        setRelated(res.data?.products || []);
+      } catch (err) {
+        console.log("Related products fetch failed:", err.message);
+      }
+    };
 
-  if (!product) return null;
+    fetchRelated();
+  }, [product?.id]);
 
-  const images = Array.isArray(product.images) ? product.images : [];
+  /* ================= IMAGE PROCESSING ================= */
+  const images = useMemo(() => {
+    if (!product?.images) return [];
 
-  return (
-    <div
-      style={{
-        maxWidth: 1000,
-        margin: "0 auto",
-        padding: 20,
-      }}
-    >
-      {/* HEADER */}
-      <div style={styles.header}>
-        <div>
-          <h2 style={{ margin: 0 }}>{product.title}</h2>
-          <p style={{ fontSize: 12, color: "#666" }}>
-            {product.category_name} • {product.subcategory_name}
-          </p>
+    let imgs = product.images;
+    
+    // Handle stringified JSON from backend
+    if (typeof imgs === "string") {
+      try {
+        imgs = JSON.parse(imgs);
+      } catch {
+        imgs = [];
+      }
+    }
+
+    if (!Array.isArray(imgs)) return [];
+
+    // Filter valid URLs only
+    return imgs
+      .filter(img => img && typeof img === 'string')
+      .slice(0, 10); // Max 10 images
+  }, [product?.images]);
+
+  // Set main image
+  useEffect(() => {
+    if (images.length > 0 && !mainImage) {
+      setMainImage(images[0]);
+    }
+  }, [images, mainImage]);
+
+  /* ================= WHATSAPP LINK ================= */
+  const whatsappLink = useMemo(() => {
+    if (!product?.whatsapp && product?.contact) {
+      // Fallback if backend didn't provide it
+      const phone = product.contact.replace(/D/g, "");
+      return `https://wa.me/${phone}?text=Hi%20I'm%20interested%20in%20${encodeURIComponent(product.title)}`;
+    }
+    return product?.whatsapp || null;
+  }, [product]);
+
+  /* ================= LOADING STATE ================= */
+  if (loading) {
+    return (
+      <div className="product-detail-container">
+        <div className="skeleton-loading">
+          <div className="skeleton-header" />
+          <div className="skeleton-grid">
+            <div className="skeleton-image-large" />
+            <div className="skeleton-details">
+              <div className="skeleton-price" />
+              <div className="skeleton-text" />
+              <div className="skeleton-text-small" />
+            </div>
+          </div>
         </div>
+      </div>
+    );
+  }
 
-        <div style={{ display: "flex", gap: 10 }}>
-          <button
-            onClick={() => navigate(`/seller/${product.seller_id}`)}
-          >
-            View Seller
-          </button>
-
-          <button
-            onClick={() =>
-              navigate(
-                `/conversations?userId=${product.seller_id}`
-              )
-            }
-          >
-            Chat Seller
+  /* ================= ERROR STATE ================= */
+  if (error) {
+    return (
+      <div className="product-detail-container">
+        <div className="error-message">
+          <h2>Product Not Found</h2>
+          <p>{error}</p>
+          <button onClick={() => navigate(-1)} className="btn-secondary">
+            ← Back to Products
           </button>
         </div>
       </div>
+    );
+  }
 
-      {/* IMAGE SECTION */}
-      <div
-        style={{
-          display: "grid",
-          gridTemplateColumns: "1fr 1fr",
-          gap: 20,
-        }}
-      >
-        <div>
-          <div
-            style={{
-              height: 350,
-              background: "#f5f5f5",
-            }}
+  if (!product) return null;
+
+  return (
+    <div className="product-detail-container">
+      {/* 🏷️ PRODUCT HEADER */}
+      <header className="product-header">
+        <div className="product-info">
+          <h1 className="product-title">{product.title}</h1>
+          <p className="product-meta">
+            {product.category_name} {product.subcategory_name && `• ${product.subcategory_name}`}
+          </p>
+          {product.views && <p className="product-views">👁️ {product.views.toLocaleString()} views</p>}
+        </div>
+
+        <div className="seller-actions">
+          <button 
+            onClick={() => navigate(`/seller/${product.seller_id}`)}
+            className="btn-primary"
           >
+            👤 View Seller
+          </button>
+          <button 
+            onClick={() => navigate(`/conversations?userId=${product.seller_id}`)}
+            className="btn-outline"
+          >
+            💬 Message
+          </button>
+        </div>
+      </header>
+
+      {/* 📱 MAIN CONTENT GRID */}
+      <div className="product-main-grid">
+        {/* 🖼️ IMAGES SECTION */}
+        <div className="images-section">
+          <div className="main-image-container">
             {mainImage ? (
               <img
                 src={mainImage}
                 alt={product.title}
-                style={{
-                  width: "100%",
-                  height: "100%",
-                  objectFit: "cover",
-                }}
+                className="main-image"
+                onClick={() => setZoom(true)}
+                loading="lazy"
               />
             ) : (
-              <div style={{ padding: 20 }}>No Image Available</div>
+              <div className="no-image">No Image Available</div>
             )}
           </div>
 
-          <div
-            style={{
-              display: "flex",
-              gap: 10,
-              marginTop: 10,
-            }}
-          >
-            {images.map((img, i) => (
-              <img
-                key={i}
-                src={img}
-                onClick={() => setMainImage(img)}
-                onError={(e) => (e.target.style.display = "none")}
-                style={{
-                  width: 60,
-                  height: 60,
-                  objectFit: "cover",
-                  border:
-                    mainImage === img
-                      ? "2px solid blue"
-                      : "1px solid #ddd",
-                  cursor: "pointer",
-                }}
-              />
-            ))}
-          </div>
+          {/* Thumbnails */}
+          {images.length > 1 && (
+            <div className="thumbnails-container">
+              {images.map((img, index) => (
+                <img
+                  key={index}
+                  src={img}
+                  alt={`${product.title} ${index + 1}`}
+                  className={`thumbnail ${mainImage === img ? 'active' : ''}`}
+                  onClick={() => setMainImage(img)}
+                  loading="lazy"
+                />
+              ))}
+            </div>
+          )}
         </div>
 
-        {/* DETAILS */}
-        <div>
-          <h2>₦{Number(product.price).toLocaleString()}</h2>
-          <p>{product.description}</p>
-          <p>
-            <b>Seller:</b> {product.seller_name}
-          </p>
+        {/* ℹ️ PRODUCT DETAILS */}
+        <div className="details-section">
+          <div className="price-container">
+            <h2 className="price">₦{Number(product.price).toLocaleString()}</h2>
+          </div>
+
+          <div className="description">
+            <h3>Description</h3>
+            <p>{product.description || "No description available."}</p>
+          </div>
+
+          <div className="seller-info">
+            <h4>Seller: {product.seller_name}</h4>
+            {product.location_state && (
+              <p>📍 {product.location_state}, {product.location_city}</p>
+            )}
+          </div>
+
+          {/* 💬 WHATSAPP BUTTON */}
+          {whatsappLink && (
+            <a 
+              href={whatsappLink} 
+              target="_blank" 
+              rel="noreferrer noopener"
+              className="whatsapp-button"
+            >
+              💬 Chat Seller on WhatsApp
+            </a>
+          )}
+
+          {/* 🚚 DELIVERY INFO */}
+          {product.delivery && (
+            <div className="delivery-info">
+              <h4>Delivery</h4>
+              <p>{JSON.stringify(product.delivery)}</p>
+            </div>
+          )}
         </div>
       </div>
+
+      {/* 🔗 RELATED PRODUCTS */}
+      {related.length > 0 && (
+        <section className="related-section">
+          <h2>Related Products</h2>
+          <div className="related-grid">
+            {related.map((item) => (
+              <div
+                key={item.id}
+                className="related-card"
+                onClick={() => navigate(`/product/${item.slug}`)}
+              >
+                <img 
+                  src={item.image || '/placeholder.jpg'} 
+                  alt={item.title}
+                  className="related-image"
+                  loading="lazy"
+                />
+                <h4 className="related-title">{item.title}</h4>
+                <p className="related-price">₦{Number(item.price).toLocaleString()}</p>
+              </div>
+            ))}
+          </div>
+        </section>
+      )}
+
+      {/* 🔍 IMAGE ZOOM MODAL (JUMIA STYLE) */}
+      {zoom && (
+        <div className="zoom-modal" onClick={(e) => e.target === e.currentTarget && setZoom(false)}>
+          <img src={mainImage} alt="Zoomed" className="zoom-image" />
+          <button className="zoom-close" onClick={() => setZoom(false)}>
+            ×
+          </button>
+        </div>
+      )}
     </div>
   );
 }
-
-const styles = {
-  header: {
-    display: "flex",
-    justifyContent: "space-between",
-    marginBottom: 20,
-  },
-};
