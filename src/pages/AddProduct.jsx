@@ -74,7 +74,7 @@ export default function AddProduct() {
   );
 
   const options = selectedCategory?.dynamicOptions || {};
-  const attributes = form.attributes;
+  const attributes = form.attributes || INITIAL_FORM.attributes;
 
   const normalizeOptions = useCallback((list) => {
     if (!list) return [];
@@ -140,7 +140,35 @@ export default function AddProduct() {
       const saved = localStorage.getItem(STORAGE_DRAFT);
       if (saved) {
         const draft = JSON.parse(saved);
-        setForm(draft.form || INITIAL_FORM);
+
+        const safeForm = {
+          title: draft.form?.title ?? "",
+          description: draft.form?.description ?? "",
+          price: draft.form?.price ?? "",
+          category_id: draft.form?.category_id ?? "",
+          attributes: {
+            ...INITIAL_FORM.attributes,
+            ...draft.form?.attributes,
+          },
+          delivery: {
+            available: draft.form?.delivery?.available ?? false,
+            duration: {
+              from: draft.form?.delivery?.duration?.from ?? "",
+              to: draft.form?.delivery?.duration?.to ?? "",
+            },
+            fee: draft.form?.delivery?.fee ?? "",
+            note: draft.form?.delivery?.note ?? "",
+          },
+          contact: {
+            phone: draft.form?.contact?.phone ?? "",
+            whatsapp: draft.form?.contact?.whatsapp ?? "",
+            whatsapp_link: draft.form?.contact?.whatsapp_link ?? "",
+            email: draft.form?.contact?.email ?? "",
+            preferred: draft.form?.contact?.preferred ?? "chat",
+          },
+        };
+
+        setForm(safeForm);
         setState(draft.state || "");
         setCity(draft.city || "");
         setSelectedPlan(
@@ -222,7 +250,7 @@ export default function AddProduct() {
 
   const toggleFeature = useCallback((feature) => {
     setForm((prev) => {
-      const features = prev.attributes.features || [];
+      const features = prev.attributes?.features || [];
       const exists = features.includes(feature);
       return {
         ...prev,
@@ -243,18 +271,18 @@ export default function AddProduct() {
       return "Description must be at least 20 characters";
     if (!form.price || Number(form.price) <= 0) return "Valid price required";
     if (!form.category_id) return "Please select a category";
-    if (!form.contact.phone || form.contact.phone.length < 10)
+    if (!form.contact?.phone || form.contact.phone.length < 10)
       return "Valid phone required";
-    if (!form.contact.email?.includes("@"))
+    if (!form.contact?.email?.includes("@"))
       return "Valid email required";
-    if (!form.contact.whatsapp || form.contact.whatsapp.length < 10)
+    if (!form.contact?.whatsapp || form.contact.whatsapp.length < 10)
       return "WhatsApp required";
     if (images.length === 0) return "Upload at least 1 image";
     if (!state || !city) return "Select state and city";
 
-    if (form.delivery.available) {
-      const from = Number(form.delivery.duration.from);
-      const to = Number(form.delivery.duration.to);
+    if (form.delivery?.available) {
+      const from = Number(form.delivery.duration?.from);
+      const to = Number(form.delivery.duration?.to);
       if (Number.isNaN(from) || Number.isNaN(to))
         return "Enter valid delivery duration";
       if (to < from) return "End day must be after start day";
@@ -369,14 +397,17 @@ export default function AddProduct() {
     [options.fields]
   );
 
+  // Safely compute modelOptions even when attributes / options are not ready
   const modelOptions = useMemo(() => {
+    if (!options.models || !attributes) return [];
     const brand = attributes.brand;
-    if (!brand || !options.models) return [];
+    if (!brand) return [];
+
     const matchKey = Object.keys(options.models).find(
       (k) => k.toLowerCase() === brand.toLowerCase()
     );
-    return normalizeOptions(matchKey ? options.models[matchKey] : []);
-  }, [attributes.brand, options.models, normalizeOptions]);
+    return normalizeOptions(matchKey ? options.models[matchKey] || [] : []);
+  }, [attributes, options.models, normalizeOptions]);
 
   const states = Object.keys(locationsByState || {});
   const cities = state ? (locationsByState[state] || []) : [];
@@ -422,12 +453,6 @@ export default function AddProduct() {
 
     const { product } = await res.json();
 
-    // ✅ Use slug for frontend navigation
-    const slug = product.slug;
-
-    // On success, you can navigate or deep‑link to:
-    // /product/${slug}
-
     return product;
   };
 
@@ -462,23 +487,20 @@ export default function AddProduct() {
     let product = null;
 
     try {
-      // ✅ Upload product + images ONCE
+      // Upload product + images
       product = await createProduct();
 
       if (!product.id) {
         throw new Error("Failed to create product");
       }
 
-      // If free plan, it's already active
       if (finalPlan.price === 0) {
         clearDraft();
         showSuccess("✅ Product created and published!");
-        // You can redirect to:
-        // window.location.href = `/product/${product.slug}`;
         return;
       }
 
-      // ✅ Paid plan → pay now
+      // Paid plan → pay now
       const payload = {
         email: form.contact.email,
         amount: Number(finalPlan.price),
@@ -610,7 +632,7 @@ export default function AddProduct() {
           <div className="form-group">
             <label>{formatLabel("brand")}</label>
             <DropdownModal
-              value={attributes.brand}
+              value={attributes?.brand || ""}
               onChange={(v) => updateAttribute("brand", v)}
               options={normalizeOptions(options.brands)}
             />
@@ -618,11 +640,11 @@ export default function AddProduct() {
         )}
 
         {/* Model (brand dependent) */}
-        {options.models && attributes.brand && (
+        {options.models && attributes?.brand && (
           <div className="form-group">
             <label>{formatLabel("model")}</label>
             <DropdownModal
-              value={attributes.model}
+              value={attributes?.model || ""}
               onChange={(v) => updateAttribute("model", v)}
               options={normalizeOptions(
                 options.models[attributes.brand] || []
@@ -638,14 +660,14 @@ export default function AddProduct() {
           const fieldOptions = normalizeOptions(options[field]);
           if (!fieldOptions?.length) return null;
 
-          if (field === "used_detail" && attributes.condition !== "Used") 
+          if (field === "used_detail" && attributes?.condition !== "Used") 
             return null;
 
           return (
             <div key={field} className="form-group">
               <label>{formatLabel(field)}</label>
               <DropdownModal
-                value={attributes[field] || ""}
+                value={attributes?.[field] || ""}
                 onChange={(v) => updateAttribute(field, v)}
                 options={fieldOptions}
               />
@@ -666,7 +688,7 @@ export default function AddProduct() {
                     <span>{formatLabel(feature)}</span>
                     <input
                       type="checkbox"
-                      checked={attributes.features?.includes(feature) || false}
+                      checked={attributes?.features?.includes(feature) || false}
                       onChange={() => toggleFeature(feature)}
                     />
                   </label>
