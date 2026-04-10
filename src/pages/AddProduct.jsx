@@ -3,7 +3,6 @@ import DropdownModal from "../components/DropdownModal.jsx";
 import AddProductHeader from "../components/AddProductHeader.jsx";
 import { locationsByState } from "../config/locationsByState.js";
 import { promotionPlans } from "../config/promotions.js";
-import { fieldOptions } from "../config/fieldOptions.js";
 import "../styles/AddProduct.css";
 import imageCompression from "browser-image-compression";
 
@@ -369,45 +368,43 @@ export default function AddProduct() {
     setDragIndex(null);
   }, [dragIndex]);
 
-  const optionsMap = useMemo(() => {
-    return {
-      brand: normalizeOptions(options.brands),
-      model: options.models || {},
-      color: normalizeOptions(options.colors),
-      condition: normalizeOptions(options.conditions),
-      used_detail: normalizeOptions(options.usedDetails),
-      ram: normalizeOptions(options.ram),
-      storage: normalizeOptions(options.storage),
-      sim: normalizeOptions(options.sim),
-      features: Array.isArray(options.features) ? options.features : [],
-      year: normalizeOptions(options.years),
-      engine: normalizeOptions(options.engines),
-      fuel_type: normalizeOptions(options.fuel_types),
-      size: normalizeOptions(options.size),
-      age_range: normalizeOptions(options.age_range),
-      bedrooms: normalizeOptions(options.bedrooms),
-      bathrooms: normalizeOptions(options.bathrooms),
-      experience_level: normalizeOptions(options.experience_level),
-      skills: normalizeOptions(options.skills),
-    };
-  }, [options, normalizeOptions]);
+  // ✅ FIX 1: Robust optionsMap with backend key fallbacks
+  const optionsMap = useMemo(() => ({
+    brand: normalizeOptions(options.brands),
+    model: options.models || {},
+    color: normalizeOptions(options.colors),
+    condition: normalizeOptions(options.conditions),
+    used_detail: normalizeOptions(options.usedDetails || options.used_details),
+    ram: normalizeOptions(options.ram),
+    storage: normalizeOptions(options.storage),
+    sim: normalizeOptions(options.sim),
+    features: Array.isArray(options.features) ? options.features : [],
+    year: normalizeOptions(options.years),
+    engine: normalizeOptions(options.engines || options.engine),
+    fuel_type: normalizeOptions(options.fuel_types || options.fuelType),
+    size: normalizeOptions(options.size),
+    age_range: normalizeOptions(options.age_range),
+    bedrooms: normalizeOptions(options.bedrooms),
+    bathrooms: normalizeOptions(options.bathrooms),
+    experience_level: normalizeOptions(options.experience_level),
+    skills: normalizeOptions(options.skills),
+  }), [options, normalizeOptions]);
 
-  const fields = useMemo(
-    () => Array.isArray(options.fields) ? options.fields : [],
-    [options.fields]
-  );
+  // ✅ FIX 2: Force common fields + backend fields
+  const fields = useMemo(() => {
+    const allFields = Array.isArray(options.fields) ? options.fields : [];
+    return [...allFields, 'color', 'engine', 'fuel_type', 'ram']
+      .filter((field, index, self) => self.indexOf(field) === index); // Unique
+  }, [options.fields]);
 
-  // Safely compute modelOptions even when attributes / options are not ready
+  // ✅ FIX 3: Safe modelOptions (no crashes)
   const modelOptions = useMemo(() => {
-    if (!options.models || !attributes) return [];
-    const brand = attributes.brand;
-    if (!brand) return [];
-
+    if (!options.models || !attributes?.brand) return [];
     const matchKey = Object.keys(options.models).find(
-      (k) => k.toLowerCase() === brand.toLowerCase()
+      (k) => k.toLowerCase() === attributes.brand.toLowerCase()
     );
     return normalizeOptions(matchKey ? options.models[matchKey] || [] : []);
-  }, [attributes, options.models, normalizeOptions]);
+  }, [attributes?.brand, options.models, normalizeOptions]);
 
   const states = Object.keys(locationsByState || {});
   const cities = state ? (locationsByState[state] || []) : [];
@@ -425,13 +422,11 @@ export default function AddProduct() {
     fd.append("location_state", state);
     fd.append("location_city", city);
 
-    // Include promotion_id if selected
     const finalPlan = selectedPlan || promotionPlans.find((p) => p.price === 0);
     if (finalPlan && finalPlan.id) {
       fd.append("promotion_id", finalPlan.id);
     }
 
-    // Add images
     const imageFiles = images.map((img) => img.file);
     const compressedFiles = await Promise.all(
       imageFiles.map(compressImage)
@@ -440,10 +435,7 @@ export default function AddProduct() {
 
     const res = await fetch(
       "https://minimart-ivrm.onrender.com/api/marketplace/products",
-      {
-        method: "POST",
-        body: fd,
-      }
+      { method: "POST", body: fd }
     );
 
     if (!res.ok) {
@@ -452,7 +444,6 @@ export default function AddProduct() {
     }
 
     const { product } = await res.json();
-
     return product;
   };
 
@@ -487,7 +478,6 @@ export default function AddProduct() {
     let product = null;
 
     try {
-      // Upload product + images
       product = await createProduct();
 
       if (!product.id) {
@@ -500,7 +490,7 @@ export default function AddProduct() {
         return;
       }
 
-      // Paid plan → pay now
+      // ✅ FIX 4: Payment payload with plan_id
       const payload = {
         email: form.contact.email,
         amount: Number(finalPlan.price),
@@ -571,7 +561,7 @@ export default function AddProduct() {
     <div className="add-product-container">
       <AddProductHeader title="Add Product" onClearDraft={clearDraft} />
 
-            {/* Basic Info */}
+      {/* Basic Info */}
       <section className="section form-card">
         <h3 className="section-title">Basic Information</h3>
         <div className="form-group">
@@ -628,37 +618,35 @@ export default function AddProduct() {
         </div>
 
         {/* Brand */}
-        {options.brands && options.brands.length > 0 && (
+        {optionsMap.brand.length > 0 && (
           <div className="form-group">
             <label>{formatLabel("brand")}</label>
             <DropdownModal
               value={attributes?.brand || ""}
               onChange={(v) => updateAttribute("brand", v)}
-              options={normalizeOptions(options.brands)}
+              options={optionsMap.brand}
             />
           </div>
         )}
 
         {/* Model (brand dependent) */}
-        {options.models && attributes?.brand && (
+        {optionsMap.model && attributes?.brand && modelOptions.length > 0 && (
           <div className="form-group">
             <label>{formatLabel("model")}</label>
             <DropdownModal
               value={attributes?.model || ""}
               onChange={(v) => updateAttribute("model", v)}
-              options={normalizeOptions(
-                options.models[attributes.brand] || []
-              )}
+              options={modelOptions}
             />
           </div>
         )}
 
         {/* Dynamic fields */}
-        {fields?.map((field) => {
+        {fields.map((field) => {
           if (field === "brand" || field === "model") return null;
 
-          const fieldOptions = normalizeOptions(options[field]);
-          if (!fieldOptions?.length) return null;
+          const fieldOptions = optionsMap[field] || [];
+          if (!fieldOptions.length) return null;
 
           if (field === "used_detail" && attributes?.condition !== "Used") 
             return null;
@@ -676,11 +664,11 @@ export default function AddProduct() {
         })}
 
         {/* Features */}
-        {options.features?.length > 0 && (
+        {optionsMap.features.length > 0 && (
           <div className="form-group">
             <label>Features</label>
             <div className="checkbox-grid-inline">
-              {options.features
+              {optionsMap.features
                 .slice()
                 .sort((a, b) => (a || "").localeCompare(b || ""))
                 .map((feature) => (
