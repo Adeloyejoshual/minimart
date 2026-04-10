@@ -2,7 +2,7 @@
 import { useEffect, useState, useMemo } from "react";
 import { useParams, useNavigate } from "react-router-dom";
 import axios from "axios";
-import "./styles/ProductDetail.css"; // ✅ EXTERNAL CSS
+import "../styles/ProductDetail.css"; // ✅ EXTERNAL CSS
 
 const API_BASE = import.meta.env.VITE_API_BASE || "https://minimart-ivrm.onrender.com";
 
