@@ -1,13 +1,8 @@
 // routes/productDetail.js
 import express from "express";
-import { Pool } from "pg";
+import { pool } from "../server.js";  // 👈 reuse the shared pool
 
 const router = express.Router();
-
-const pool = new Pool({
-  connectionString: process.env.COCKROACH_URI,
-  ssl: { rejectUnauthorized: false },
-});
 
 // Helper function to normalize product data
 const normalizeProduct = (p) => {
