@@ -141,3 +141,4 @@ const ProductDetail = ({ id, slug }) => {
   );
 };
 
+export default ProductDetail;
