@@ -1,4 +1,4 @@
-/* ================= PRODUCT DETAIL ROUTES (FULL PRODUCTION UPGRADE) ================= */
+// routes/productDetail.js
 import express from "express";
 import { Pool } from "pg";
 
@@ -9,244 +9,108 @@ const pool = new Pool({
   ssl: { rejectUnauthorized: false },
 });
 
-/* ================= PRODUCTION FEATURES ================= */
-/* 1. In-memory caching (60s TTL) */
-const productCache = new Map();
-const CACHE_TTL = 60 * 1000; // 60 seconds
+// Helper function to normalize product data
+const normalizeProduct = (p) => {
+  const attributes = p.attributes || {};
+  return {
+    ...p,
+    images: p.images || [],
+    attributes,
+    location: {
+      state: p.location_state,
+      city: p.location_city,
+    },
+    contact: p.contact || {},
+    delivery: {
+      available: p.delivery?.available ?? false,
+      duration: {
+        from: Number(p.delivery?.duration?.from ?? 0),
+        to: Number(p.delivery?.duration?.to ?? 0),
+      },
+      fee: p.delivery?.fee ?? null,
+      note: p.delivery?.note || "",
+    },
+  };
+};
 
-function setCache(key, data) {
-  productCache.set(key, { data, expiry: Date.now() + CACHE_TTL });
-}
-
-function getCache(key) {
-  const cached = productCache.get(key);
-  if (!cached || Date.now() > cached.expiry) {
-    if (cached) productCache.delete(key);
-    return null;
-  }
-  return cached.data;
-}
-
-/* 2. View counter (non-blocking) */
-async function incrementViews(productId) {
+// GET /product/:id → by UUID
+router.get("/product/:id", async (req, res) => {
   try {
+    const { id } = req.params;
+
+    const result = await pool.query(
+      `
+      SELECT p.*,
+             COALESCE(
+               json_agg(pi.image_url ORDER BY pi.position_order)
+               FILTER (WHERE pi.image_url IS NOT NULL),
+               '[]'
+             ) AS images
+      FROM products p
+      LEFT JOIN product_images pi ON p.id = pi.product_id
+      WHERE p.id = $1
+      GROUP BY p.id
+    `,
+      [id]
+    );
+
+    if (!result.rows.length) {
+      return res.status(404).json({ message: "Product not found" });
+    }
+
+    const product = normalizeProduct(result.rows[0]);
+
+    // Increment views
     await pool.query(
-      `UPDATE products SET views = COALESCE(views, 0) + 1 WHERE id = $1`,
-      [productId]
-    );
-  } catch (err) {
-    console.error("View increment failed:", err);
-  }
-}
-
-/* 3. WhatsApp link generator */
-function generateWhatsAppLink(product) {
-  if (!product.contact) return null;
-  const phone = product.contact.replace(/D/g, "");
-  return `https://wa.me/${phone}?text=Hi%20I'm%20interested%20in%20${encodeURIComponent(product.title)}`;
-}
-
-/* ================= MAIN ROUTE: PRODUCT BY SLUG (CACHED + VIEWS + WHATSAPP) ================= */
-router.get("/:slug", async (req, res) => {
-  const { slug } = req.params;
-
-  try {
-    /* ---------- CACHE FIRST ---------- */
-    const cached = getCache(slug);
-    if (cached) {
-      return res.json({ 
-        success: true, 
-        product: cached, 
-        cached: true,
-        performance: "cache hit"
-      });
-    }
-
-    /* ---------- DB QUERY ---------- */
-    const result = await pool.query(
-      `
-      SELECT 
-        p.id, p.slug, p.title, p.description, p.price, p.created_at, p.views,
-        p.is_active, p.is_promoted, p.promotion_type, p.promotion_priority,
-        p.promotion_start, p.promotion_end, p.location_state, p.location_city,
-        p.attributes, p.delivery, p.contact,
-        
-        u.id AS seller_id, u.name AS seller_name, u.email AS seller_email,
-        
-        c.name AS category_name,
-        sc.name AS subcategory_name,
-
-        COALESCE(
-          json_agg(pi.image_url ORDER BY pi.position)
-          FILTER (WHERE pi.image_url IS NOT NULL),
-          '[]'
-        ) AS images
-
-      FROM products p
-      LEFT JOIN users u ON p.seller_id = u.id
-      LEFT JOIN categories c ON p.category_id = c.id
-      LEFT JOIN categories sc ON p.subcategory_id = sc.id
-      LEFT JOIN product_images pi ON p.id = pi.product_id
-
-      WHERE p.slug = $1 AND COALESCE(p.is_active, false) = true
-
-      GROUP BY 
-        p.id, u.id, u.name, u.email, c.name, sc.name
-      `,
-      [slug]
-    );
-
-    if (result.rows.length === 0) {
-      return res.status(404).json({
-        success: false,
-        message: "Product not found",
-      });
-    }
-
-    const product = result.rows[0];
-
-    /* ---------- ENHANCEMENTS ---------- */
-    // 1. Increment views (async - non-blocking)
-    incrementViews(product.id).catch(console.error);
-    
-    // 2. WhatsApp integration
-    product.whatsapp = generateWhatsAppLink(product);
-    
-    // 3. Ensure images array
-    product.images = product.images || [];
-
-    /* ---------- CACHE & RESPOND ---------- */
-    setCache(slug, product);
-
-    return res.json({
-      success: true,
-      product,
-      cached: false,
-      performance: "db + cache set"
-    });
-
-  } catch (err) {
-    console.error("PRODUCT DETAIL ERROR:", err);
-    return res.status(500).json({
-      success: false,
-      message: "Server error",
-    });
-  }
-});
-
-/* ================= RELATED PRODUCTS ALGORITHM ================= */
-router.get("/:id/related", async (req, res) => {
-  const { id } = req.params;
-
-  try {
-    const result = await pool.query(
-      `
-      SELECT 
-        p.id, p.slug, p.title, p.price,
-        (SELECT image_url FROM product_images 
-         WHERE product_id = p.id 
-         ORDER BY position LIMIT 1) AS image,
-        p.views
-      FROM products p
-      WHERE p.category_id = (SELECT category_id FROM products WHERE id = $1)
-        AND p.id != $1
-        AND COALESCE(p.is_active, false) = true
-      ORDER BY p.created_at DESC, p.views DESC
-      LIMIT 8
-      `,
+      "UPDATE products SET views = COALESCE(views, 0) + 1 WHERE id = $1",
       [id]
     );
 
-    return res.json({
-      success: true,
-      products: result.rows,
-    });
+    res.json({ product });
   } catch (err) {
-    console.error("RELATED PRODUCTS ERROR:", err);
-    return res.status(500).json({
-      success: false,
-      message: "Server error",
-    });
+    console.error("Failed to fetch product by ID:", err);
+    res.status(500).json({ message: "Failed to fetch product" });
   }
 });
 
-/* ================= BY ID (INTERNAL LINKS + FALLBACK) ================= */
-router.get("/id/:id", async (req, res) => {
-  const { id } = req.params;
-
+// GET /product/:slug → by slug
+router.get("/product/:slug", async (req, res) => {
   try {
-    /* ---------- CACHE CHECK (using ID as key) ---------- */
-    const cached = getCache(`id:${id}`);
-    if (cached) {
-      return res.json({ 
-        success: true, 
-        product: cached, 
-        cached: true 
-      });
-    }
+    const { slug } = req.params;
+    const cleanSlug = slug.replace(/.html$/, "");
 
     const result = await pool.query(
       `
-      SELECT 
-        p.id, p.slug, p.title, p.description, p.price, p.created_at, p.views,
-        p.is_active, p.is_promoted, p.promotion_type, p.promotion_priority,
-        p.promotion_start, p.promotion_end, p.location_state, p.location_city,
-        p.attributes, p.delivery, p.contact,
-        
-        u.id AS seller_id, u.name AS seller_name, u.email AS seller_email,
-        
-        c.name AS category_name,
-        sc.name AS subcategory_name,
-
-        COALESCE(
-          json_agg(pi.image_url ORDER BY pi.position)
-          FILTER (WHERE pi.image_url IS NOT NULL),
-          '[]'
-        ) AS images
-
+      SELECT p.*,
+             COALESCE(
+               json_agg(pi.image_url ORDER BY pi.position_order)
+               FILTER (WHERE pi.image_url IS NOT NULL),
+               '[]'
+             ) AS images
       FROM products p
-      LEFT JOIN users u ON p.seller_id = u.id
-      LEFT JOIN categories c ON p.category_id = c.id
-      LEFT JOIN categories sc ON p.subcategory_id = sc.id
       LEFT JOIN product_images pi ON p.id = pi.product_id
-
-      WHERE p.id = $1 AND COALESCE(p.is_active, false) = true
-
-      GROUP BY 
-        p.id, u.id, u.name, u.email, c.name, sc.name
-      `,
-      [id]
+      WHERE p.slug = $1
+      GROUP BY p.id
+    `,
+      [cleanSlug]
     );
 
-    if (result.rows.length === 0) {
-      return res.status(404).json({
-        success: false,
-        message: "Product not found",
-      });
+    if (!result.rows.length) {
+      return res.status(404).json({ message: "Product not found" });
     }
 
-    const product = result.rows[0];
+    const product = normalizeProduct(result.rows[0]);
 
-    /* ---------- SAME ENHANCEMENTS ---------- */
-    incrementViews(product.id).catch(console.error);
-    product.whatsapp = generateWhatsAppLink(product);
-    product.images = product.images || [];
+    // Increment views
+    await pool.query(
+      "UPDATE products SET views = COALESCE(views, 0) + 1 WHERE id = $1",
+      [product.id]
+    );
 
-    /* ---------- CACHE BY ID TOO ---------- */
-    setCache(`id:${id}`, product);
-    setCache(product.slug, product); // Also cache by slug
-
-    return res.json({
-      success: true,
-      product,
-      cached: false,
-    });
+    res.json({ product });
   } catch (err) {
-    console.error("PRODUCT DETAIL BY ID ERROR:", err);
-    return res.status(500).json({
-      success: false,
-      message: "Server error",
-    });
+    console.error("Failed to fetch product by slug:", err);
+    res.status(500).json({ message: "Failed to fetch product" });
   }
 });
 
