@@ -1,6 +1,6 @@
 // routes/productDetail.js
 import express from "express";
-import { pool } from "../server.js";  // 👈 reuse the shared pool
+import { pool } from "../server.js"; // reuse shared pool
 
 const router = express.Router();
 
@@ -28,38 +28,79 @@ const normalizeProduct = (p) => {
   };
 };
 
+// Helper: fetch product by ID
+const fetchProductById = async (id) => {
+  const result = await pool.query(
+    `
+    SELECT p.*,
+           COALESCE(
+             json_agg(pi.image_url ORDER BY pi.position_order)
+             FILTER (WHERE pi.image_url IS NOT NULL),
+             '[]'
+           ) AS images
+    FROM products p
+    LEFT JOIN product_images pi ON p.id = pi.product_id
+    WHERE p.id = $1
+    GROUP BY p.id
+  `,
+    [id]
+  );
+
+  if (!result.rows.length) return null;
+
+  return normalizeProduct(result.rows[0]);
+};
+
+// Helper: fetch product by slug
+const fetchProductBySlug = async (slug) => {
+  const cleanSlug = slug.replace(/.html$/, "");
+
+  const result = await pool.query(
+    `
+    SELECT p.*,
+           COALESCE(
+             json_agg(pi.image_url ORDER BY pi.position_order)
+             FILTER (WHERE pi.image_url IS NOT NULL),
+             '[]'
+           ) AS images
+    FROM products p
+    LEFT JOIN product_images pi ON p.id = pi.product_id
+    WHERE p.slug = $1
+    GROUP BY p.id
+  `,
+    [cleanSlug]
+  );
+
+  if (!result.rows.length) return null;
+
+  return normalizeProduct(result.rows[0]);
+};
+
+// Increment views (shared)
+const incrementView = async (id) => {
+  try {
+    await pool.query(
+      "UPDATE products SET views = COALESCE(views, 0) + 1 WHERE id = $1",
+      [id]
+    );
+  } catch (err) {
+    console.error("Failed to increment product view count:", err);
+  }
+};
+
 // GET /product/:id → by UUID
 router.get("/product/:id", async (req, res) => {
   try {
     const { id } = req.params;
 
-    const result = await pool.query(
-      `
-      SELECT p.*,
-             COALESCE(
-               json_agg(pi.image_url ORDER BY pi.position_order)
-               FILTER (WHERE pi.image_url IS NOT NULL),
-               '[]'
-             ) AS images
-      FROM products p
-      LEFT JOIN product_images pi ON p.id = pi.product_id
-      WHERE p.id = $1
-      GROUP BY p.id
-    `,
-      [id]
-    );
+    console.log("GET /product/:id", { id });
 
-    if (!result.rows.length) {
+    const product = await fetchProductById(id);
+    if (!product) {
       return res.status(404).json({ message: "Product not found" });
     }
 
-    const product = normalizeProduct(result.rows[0]);
-
-    // Increment views
-    await pool.query(
-      "UPDATE products SET views = COALESCE(views, 0) + 1 WHERE id = $1",
-      [id]
-    );
+    await incrementView(id);
 
     res.json({ product });
   } catch (err) {
@@ -72,35 +113,15 @@ router.get("/product/:id", async (req, res) => {
 router.get("/product/:slug", async (req, res) => {
   try {
     const { slug } = req.params;
-    const cleanSlug = slug.replace(/.html$/, "");
 
-    const result = await pool.query(
-      `
-      SELECT p.*,
-             COALESCE(
-               json_agg(pi.image_url ORDER BY pi.position_order)
-               FILTER (WHERE pi.image_url IS NOT NULL),
-               '[]'
-             ) AS images
-      FROM products p
-      LEFT JOIN product_images pi ON p.id = pi.product_id
-      WHERE p.slug = $1
-      GROUP BY p.id
-    `,
-      [cleanSlug]
-    );
+    console.log("GET /product/:slug", { slug });
 
-    if (!result.rows.length) {
+    const product = await fetchProductBySlug(slug);
+    if (!product) {
       return res.status(404).json({ message: "Product not found" });
     }
 
-    const product = normalizeProduct(result.rows[0]);
-
-    // Increment views
-    await pool.query(
-      "UPDATE products SET views = COALESCE(views, 0) + 1 WHERE id = $1",
-      [product.id]
-    );
+    await incrementView(product.id);
 
     res.json({ product });
   } catch (err) {
