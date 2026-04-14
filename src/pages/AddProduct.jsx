@@ -1,6 +1,3 @@
-// ✅ COMPLETE PRODUCTION-READY AddProduct.jsx
-// All backend mismatches fixed + DELETE route ready
-
 import { useEffect, useMemo, useState, useCallback, useRef } from "react";
 import DropdownModal from "../components/DropdownModal.jsx";
 import AddProductHeader from "../components/AddProductHeader.jsx";
@@ -18,6 +15,7 @@ const INITIAL_FORM = {
   description: "",
   price: "",
   category_id: "",
+  subcategory_id: "",
   attributes: {
     brand: "",
     model: "",
@@ -148,6 +146,7 @@ export default function AddProduct() {
           description: draft.form?.description ?? "",
           price: draft.form?.price ?? "",
           category_id: draft.form?.category_id ?? "",
+          subcategory_id: draft.form?.subcategory_id ?? "",
           attributes: {
             ...INITIAL_FORM.attributes,
             ...draft.form?.attributes,
@@ -206,6 +205,7 @@ export default function AddProduct() {
     form.description,
     form.price,
     form.category_id,
+    form.subcategory_id,
     state,
     city,
     selectedPlan?.id,
@@ -266,7 +266,7 @@ export default function AddProduct() {
     });
   }, []);
 
-    const validateForm = useCallback(() => {
+  const validateForm = useCallback(() => {
     if (!form.title?.trim() || form.title.length < 10)
       return "Title must be at least 10 characters";
     if (!form.description?.trim() || form.description.length < 20)
@@ -463,7 +463,6 @@ export default function AddProduct() {
     }
   };
 
-  // ✅ BACKEND-EXACT PAYLOAD (snake_case)
   const handleSubmit = useCallback(async () => {
     if (loading || submitRef.current) return;
     submitRef.current = true;
@@ -499,12 +498,12 @@ export default function AddProduct() {
       const payload = {
         email: form.contact.email,
         amount: Number(finalPlan.price),
-        plan_id: finalPlan.id,      // ✅ Matches marketplace.js
-        product_id: product.id,     // ✅ Matches marketplace.js
+        plan_id: finalPlan.id,
+        product_id: product.id,
       };
 
       const res = await fetch(
-        "https://minimart-ivrm.onrender.com/api/marketplace/payments/initiate",  // ✅ Correct endpoint
+        "https://minimart-ivrm.onrender.com/api/payment/initiate",
         {
           method: "POST",
           headers: { "Content-Type": "application/json" },
@@ -557,7 +556,7 @@ export default function AddProduct() {
     <div className="add-product-container">
       <AddProductHeader title="Add Product" onClearDraft={clearDraft} />
 
-      {/* Basic Info */}
+            {/* Basic Info */}
       <section className="section form-card">
         <h3 className="section-title">Basic Information</h3>
         <div className="form-group">
@@ -790,7 +789,7 @@ export default function AddProduct() {
         )}
       </section>
 
-            {/* Images */}
+      {/* Images */}
       <section className="section form-card">
         <h3 className="section-title">Product Images</h3>
         <label className="form-group-label">
