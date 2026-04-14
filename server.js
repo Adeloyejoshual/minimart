@@ -1,4 +1,3 @@
-// server.js
 import express from "express";
 import cors from "cors";
 import path from "path";
@@ -117,13 +116,10 @@ import "./jobs/expirePromotions.js";
 ========================================================= */
 import paymentRouter, { webhookRouter } from "./routes/payment.js";
 
-// Raw body for webhook
-app.use(
-  "/api/payment/webhook",
-  express.raw({ type: "application/json" }),
-  webhookRouter
-);
+// Raw body only for webhook route
+app.use("/api/payment/webhook", express.raw({ type: "application/json" }), webhookRouter);
 
+// Main payment routes (JSON‑parsed body)
 app.use("/api/payment", paymentRouter);
 
 /* ================= NORMAL BODY PARSERS ================= */
@@ -184,7 +180,7 @@ io.on("connection", (socket) => {
       const { rows } = await pool.query(
         `INSERT INTO messages 
          (sender_id, receiver_id, product_id, message, created_at)
-         VALUES ($1,$2,$3,$4,NOW())
+         VALUES ($1, $2, $3, $4, NOW())
          RETURNING *`,
         [senderId, receiverId, productId, message]
       );
