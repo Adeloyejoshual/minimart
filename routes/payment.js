@@ -1,4 +1,3 @@
-// routes/payment.js - FULLY REWRITTEN & FIELD MISMATCH FIXED
 import express from "express";
 import { Pool } from "pg";
 import crypto from "crypto";
@@ -251,8 +250,6 @@ router.get("/verify/:reference", async (req, res) => {
 /* ================= WEBHOOK ROUTER (Raw body required) ================= */
 const webhookRouter = express.Router({ mergeParams: true });
 
-webhookRouter.use(express.raw({ type: "application/json" }));
-
 webhookRouter.post("/", async (req, res) => {
   try {
     const secret = process.env.PAYSTACK_SECRET_KEY;
@@ -262,7 +259,11 @@ webhookRouter.post("/", async (req, res) => {
     }
 
     const rawBody = req.body.toString("utf-8");
-    const hash = crypto.createHmac("sha512", secret).update(rawBody).digest("hex");
+    const hash = crypto
+      .createHmac("sha512", secret)
+      .update(rawBody)
+      .digest("hex");
+
     const signature = req.headers["x-paystack-signature"];
 
     if (hash !== signature) {
@@ -271,7 +272,6 @@ webhookRouter.post("/", async (req, res) => {
     }
 
     const event = JSON.parse(rawBody);
-
     console.log("🔸 WEBHOOK:", event.event);
 
     if (event.event !== "charge.success") {
