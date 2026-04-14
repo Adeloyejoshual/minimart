@@ -1,59 +1,165 @@
-// ProductDetail.jsx
-import React, { useState, useEffect } from "react";
+import { useEffect, useState } from "react";
+import { useParams, useNavigate } from "react-router-dom";
 
-const ProductDetail = ({ id: propId, slug: propSlug }) => {
+export default function ProductDetail() {
+  const { id, slug } = useParams();
+  const navigate = useNavigate();
+
   const [product, setProduct] = useState(null);
   const [loading, setLoading] = useState(true);
-  const [error, setError] = useState(null);
+  const [error, setError] = useState("");
+
+  const endpoint = slug
+    ? `https://minimart-ivrm.onrender.com/api/marketplace/product/${slug}`
+    : `https://minimart-ivrm.onrender.com/api/marketplace/products/${id}`;
 
   useEffect(() => {
-    async function fetchProduct() {
+    const fetchProduct = async () => {
       try {
         setLoading(true);
-        setError(null);
+        setError("");
 
-        // 👇 force a test ID for debugging
-        const id = propId || "8bf8294e-d117-4cbb-bd97-0ebc3e79a500";
-        const slug = propSlug;
-
-        const base = process.env.REACT_APP_API_URL || "";
-        const endpoint = id
-          ? `${base}/api/product/${id}`
-          : `${base}/api/product/${encodeURIComponent(slug)}`;
-
-        console.log("Fetching:", endpoint);
         const res = await fetch(endpoint);
-        const data = await res.json();
 
-        if (!res.ok || !data.product) {
-          throw new Error(data.message || "Product load failed");
+        if (!res.ok) {
+          throw new Error("Product not found");
         }
 
-        setProduct(data.product);
+        const data = await res.json();
+
+        // 🚨 BLOCK UNPAID / INACTIVE PRODUCTS
+        if (data.status !== "active" || data.is_active !== true) {
+          setError("This product is not available or still pending payment.");
+          setProduct(null);
+          return;
+        }
+
+        setProduct(data);
       } catch (err) {
-        console.error("ProductDetail error:", err);
-        setError(err.message);
+        setError(err.message || "Failed to load product");
+        setProduct(null);
       } finally {
         setLoading(false);
       }
-    }
+    };
 
     fetchProduct();
-  }, [propId, propSlug]);
+  }, [endpoint]);
 
-  if (error) return <div className="p-4 text-red-600">{error}</div>;
-  if (loading) return <div className="p-4">Loading product…</div>;
-  if (!product) return <div className="p-4">No product data.</div>;
+  if (loading) {
+    return (
+      <div style={{ padding: 20 }}>
+        <h3>Loading product...</h3>
+      </div>
+    );
+  }
+
+  if (error) {
+    return (
+      <div style={{ padding: 20 }}>
+        <h3>⚠️ {error}</h3>
+        <button onClick={() => navigate(-1)}>Go Back</button>
+      </div>
+    );
+  }
+
+  if (!product) return null;
+
+  // Merge image sources safely
+  const images =
+    product.images ||
+    product.media?.images ||
+    [];
 
   return (
-    <div className="max-w-3xl mx-auto p-4">
-      <h1 className="text-2xl font-bold">{product.title}</h1>
-      <div className="text-xl text-green-600">
-        ₦{product.price?.toFixed(2)?.toLocaleString?.()}
+    <div style={{ padding: 20, maxWidth: 800, margin: "0 auto" }}>
+      {/* TITLE */}
+      <h1>{product.title}</h1>
+
+      {/* PRICE */}
+      <h2 style={{ color: "green" }}>
+        ₦{Number(product.price).toLocaleString()}
+      </h2>
+
+      {/* IMAGES */}
+      <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
+        {images.length > 0 ? (
+          images.map((img, i) => (
+            <img
+              key={i}
+              src={typeof img === "string" ? img : img?.url}
+              alt={`product-${i}`}
+              style={{
+                width: 130,
+                height: 130,
+                objectFit: "cover",
+                borderRadius: 8,
+                border: "1px solid #ddd",
+              }}
+            />
+          ))
+        ) : (
+          <p>No images available</p>
+        )}
       </div>
-      {/* ... rest of your UI */}
+
+      {/* DESCRIPTION */}
+      <p style={{ marginTop: 20 }}>
+        {product.description || "No description provided"}
+      </p>
+
+      {/* LOCATION */}
+      <p>
+        📍 {product.location_state} - {product.location_city}
+      </p>
+
+      {/* ATTRIBUTES */}
+      {product.attributes && (
+        <div style={{ marginTop: 20 }}>
+          <h3>Details</h3>
+          <pre
+            style={{
+              background: "#f4f4f4",
+              padding: 10,
+              borderRadius: 8,
+              overflowX: "auto",
+            }}
+          >
+            {JSON.stringify(product.attributes, null, 2)}
+          </pre>
+        </div>
+      )}
+
+      {/* CONTACT */}
+      <div style={{ marginTop: 20 }}>
+        <h3>Contact Seller</h3>
+
+        <p>📞 {product.phone || product.contact?.phone}</p>
+        <p>💬 WhatsApp: {product.whatsapp || product.contact?.whatsapp}</p>
+
+        {product.contact?.whatsapp_link && (
+          <a
+            href={product.contact.whatsapp_link}
+            target="_blank"
+            rel="noreferrer"
+            style={{ color: "blue" }}
+          >
+            Chat on WhatsApp
+          </a>
+        )}
+      </div>
+
+      {/* BACK BUTTON */}
+      <button
+        onClick={() => navigate(-1)}
+        style={{
+          marginTop: 30,
+          padding: "10px 15px",
+          cursor: "pointer",
+        }}
+      >
+        ← Go Back
+      </button>
     </div>
   );
-};
-
-export default ProductDetail;
+}
