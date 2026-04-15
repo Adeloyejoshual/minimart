@@ -1,4 +1,11 @@
-import { useEffect, useState, useMemo, useCallback, memo, useRef } from "react";
+import {
+  useEffect,
+  useState,
+  useMemo,
+  useCallback,
+  memo,
+  useRef,
+} from "react";
 import { useNavigate } from "react-router-dom";
 import TopNav from "../components/TopNav";
 import BottomNav from "../components/BottomNav";
@@ -19,20 +26,20 @@ const Card = memo(function Card({ product, onClick }) {
   const formattedPrice = new Intl.NumberFormat("en-NG", {
     style: "currency",
     currency: "NGN",
-  }).format(product.price || 0);
+  }).format(product?.price || 0);
 
   return (
     <div
       className="card"
       role="button"
       tabIndex={0}
-      onClick={() => onClick(product.id)}
-      onKeyDown={(e) => e.key === "Enter" && onClick(product.id)}
+      onClick={() => onClick(product?.id)}
+      onKeyDown={(e) => e.key === "Enter" && onClick(product?.id)}
     >
       <div className="card-image">
         <img
           src={image}
-          alt={product.title}
+          alt={product?.title || "product"}
           loading="lazy"
           onError={(e) => {
             e.target.src =
@@ -45,12 +52,11 @@ const Card = memo(function Card({ product, onClick }) {
         <div className="price">{formattedPrice}</div>
 
         <div className="title">
-          {product.title?.length > 55
+          {product?.title?.length > 55
             ? product.title.slice(0, 55) + "..."
-            : product.title}
+            : product?.title}
         </div>
 
-        {/* PROFESSIONAL LOCATION */}
         <div className="location">{location}</div>
       </div>
     </div>
@@ -69,12 +75,15 @@ export default function Homepage() {
   } = useProductCache();
 
   const [loading, setLoading] = useState(false);
-  const [error, setError] = useState(null);
+  const [error, setError] = useState("");
   const [visibleCount, setVisibleCount] = useState(12);
 
   const navigate = useNavigate();
   const observerRef = useRef(null);
   const PAGE_SIZE = 12;
+
+  const API_BASE =
+    import.meta.env.VITE_API_URL || "http://localhost:5000/api";
 
   /* ================= FETCH DATA ================= */
   useEffect(() => {
@@ -85,14 +94,16 @@ export default function Homepage() {
     const fetchHome = async () => {
       try {
         setLoading(true);
-        setError(null);
+        setError("");
 
-        const res = await fetch(
-          "https://minimart-ivrm.onrender.com/api/homepage",
-          { signal: controller.signal }
-        );
+        const res = await fetch(`${API_BASE}/homepage`, {
+          signal: controller.signal,
+        });
 
-        if (!res.ok) throw new Error("Failed to fetch");
+        if (!res.ok) {
+          const errText = await res.text();
+          throw new Error(errText || "Failed to fetch homepage");
+        }
 
         const data = await res.json();
 
@@ -100,16 +111,12 @@ export default function Homepage() {
         const promoted = Array.isArray(data?.promoted) ? data.promoted : [];
 
         setProducts(latest);
-
-        setTrending(
-          promoted.length ? promoted.slice(0, 10) : latest.slice(0, 10)
-        );
-
+        setTrending(promoted.length ? promoted.slice(0, 10) : latest.slice(0, 10));
         setLoaded(true);
       } catch (err) {
         if (err.name !== "AbortError") {
-          console.error(err);
-          setError("Unable to load products. Please try again.");
+          console.error("Homepage fetch error:", err);
+          setError(err.message || "Unable to load products");
         }
       } finally {
         setLoading(false);
@@ -118,11 +125,11 @@ export default function Homepage() {
 
     fetchHome();
     return () => controller.abort();
-  }, [loaded, setProducts, setTrending, setLoaded]);
+  }, [loaded, API_BASE, setProducts, setTrending, setLoaded]);
 
   /* ================= DERIVED DATA ================= */
   const cheapDeals = useMemo(
-    () => products.filter((p) => Number(p.price || 0) < 50000).slice(0, 10),
+    () => products.filter((p) => Number(p?.price || 0) < 50000).slice(0, 10),
     [products]
   );
 
@@ -135,27 +142,27 @@ export default function Homepage() {
 
   /* ================= NAVIGATION ================= */
   const goToProduct = useCallback(
-    (id) => navigate(`/product/${id}`),
+    (id) => {
+      if (!id) return;
+      navigate(`/product/${id}`);
+    },
     [navigate]
   );
 
-  /* ================= INFINITE SCROLL (FIXED) ================= */
-  const loadMoreRef = useCallback(
-    (node) => {
-      if (observerRef.current) observerRef.current.disconnect();
+  /* ================= INFINITE SCROLL ================= */
+  const loadMoreRef = useCallback((node) => {
+    if (observerRef.current) observerRef.current.disconnect();
 
-      observerRef.current = new IntersectionObserver((entries) => {
-        if (entries[0].isIntersecting) {
-          setVisibleCount((v) => v + PAGE_SIZE);
-        }
-      });
+    observerRef.current = new IntersectionObserver((entries) => {
+      if (entries[0].isIntersecting) {
+        setVisibleCount((v) => v + PAGE_SIZE);
+      }
+    });
 
-      if (node) observerRef.current.observe(node);
-    },
-    []
-  );
+    if (node) observerRef.current.observe(node);
+  }, []);
 
-  /* ================= SECTION COMPONENT ================= */
+  /* ================= SECTION ================= */
   const Section = ({ title, items }) => {
     if (!items?.length) return null;
 
@@ -165,7 +172,7 @@ export default function Homepage() {
 
         <div className="horizontal-scroll">
           {items.map((p) => (
-            <div key={p.id} className="scroll-item">
+            <div key={p?.id} className="scroll-item">
               <Card product={p} onClick={goToProduct} />
             </div>
           ))}
@@ -180,7 +187,6 @@ export default function Homepage() {
       <TopNav />
 
       <div className="homepage-container">
-        {/* FLOAT SELL BUTTON */}
         <button
           className="floating-btn"
           onClick={() => navigate("/minimart/add")}
@@ -188,21 +194,18 @@ export default function Homepage() {
           Sell Item
         </button>
 
-        {/* HERO */}
         <div className="hero">
           <h1>Marketplace for Everyone</h1>
           <p>Buy, sell, and discover products seamlessly</p>
         </div>
 
-        {/* ERROR */}
+        {/* REAL ERROR DISPLAY */}
         {error && <p className="error">{error}</p>}
 
-        {/* SECTIONS */}
         <Section title="Trending" items={trending} />
         <Section title="Affordable Deals" items={cheapDeals} />
         <Section title="Recommended for You" items={recommended} />
 
-        {/* ALL PRODUCTS */}
         <div className="section">
           <h2>All Products</h2>
 
@@ -214,7 +217,7 @@ export default function Homepage() {
 
           <div className="grid">
             {visibleProducts.map((p) => (
-              <Card key={p.id} product={p} onClick={goToProduct} />
+              <Card key={p?.id} product={p} onClick={goToProduct} />
             ))}
           </div>
 
