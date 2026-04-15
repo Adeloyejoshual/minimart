@@ -1,130 +1,184 @@
-import { useEffect, useState } from "react";
+import {
+  useEffect,
+  useState,
+  useMemo,
+  useCallback,
+  memo,
+  useRef,
+} from "react";
+import { useNavigate } from "react-router-dom";
+import TopNav from "../components/TopNav";
+import BottomNav from "../components/BottomNav";
+import { useProductCache } from "../context/ProductCacheContext";
+import "../styles/Homepage.css";
 
+/* ================= API ================= */
+const API_BASE =
+  import.meta.env.VITE_API_URL ||
+  "https://minimart-ivrm.onrender.com/api";
+
+/* ================= CARD ================= */
+const Card = memo(({ product, onClick }) => {
+  const image =
+    product?.images?.[0] ||
+    "https://via.placeholder.com/300x200?text=No+Image";
+
+  const location =
+    product?.location?.city && product?.location?.state
+      ? `${product.location.city}, ${product.location.state}`
+      : product?.location?.state || "Nigeria";
+
+  const price = Number(product?.price || 0).toLocaleString("en-NG");
+
+  return (
+    <div className="card" onClick={() => onClick(product.id)}>
+      <img src={image} alt="" loading="lazy" />
+      <div className="card-body">
+        <div className="price">₦{price}</div>
+        <div className="title">{product.title}</div>
+        <div className="location">{location}</div>
+      </div>
+    </div>
+  );
+});
+
+/* ================= HOMEPAGE ================= */
 export default function Homepage() {
-  const [products, setProducts] = useState([]);
-  const [loading, setLoading] = useState(true);
+  const {
+    products,
+    setProducts,
+    trending,
+    setTrending,
+    loaded,
+    setLoaded,
+  } = useProductCache();
+
+  const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
+  const [visible, setVisible] = useState(12);
 
-  const API_BASE = "https://minimart-ivrm.onrender.com/api";
+  const navigate = useNavigate();
+  const observer = useRef(null);
 
+  /* ================= FETCH ================= */
   useEffect(() => {
-    const fetchData = async () => {
+    if (loaded && products.length) return;
+
+    const controller = new AbortController();
+
+    const load = async () => {
       try {
         setLoading(true);
+        setError("");
 
         const res = await fetch(`${API_BASE}/homepage`, {
+          signal: controller.signal,
           headers: { Accept: "application/json" },
         });
 
-        const data = await res.json();
+        const text = await res.text();
+
+        let data;
+        try {
+          data = JSON.parse(text);
+        } catch {
+          throw new Error("Invalid API response (not JSON)");
+        }
 
         if (!res.ok) throw new Error(data.message || "Failed");
 
         setProducts(data.latest || []);
-      } catch (err) {
-        setError(err.message);
+        setTrending(data.promoted?.slice(0, 10) || []);
+        setLoaded(true);
+      } catch (e) {
+        if (e.name !== "AbortError") setError(e.message);
       } finally {
         setLoading(false);
       }
     };
 
-    fetchData();
+    load();
+    return () => controller.abort();
+  }, []);
+
+  /* ================= DATA ================= */
+  const visibleProducts = useMemo(
+    () => products.slice(0, visible),
+    [products, visible]
+  );
+
+  const cheapDeals = useMemo(
+    () => products.filter((p) => p.price < 50000).slice(0, 10),
+    [products]
+  );
+
+  /* ================= NAV ================= */
+  const go = useCallback(
+    (id) => navigate(`/product/${id}`),
+    [navigate]
+  );
+
+  /* ================= SCROLL ================= */
+  const lastRef = useCallback((node) => {
+    if (observer.current) observer.current.disconnect();
+
+    observer.current = new IntersectionObserver((entries) => {
+      if (entries[0].isIntersecting) {
+        setVisible((v) => v + 12);
+      }
+    });
+
+    if (node) observer.current.observe(node);
   }, []);
 
   /* ================= UI ================= */
-
   return (
-    <div style={styles.page}>
-      <h1 style={styles.header}>MiniMart</h1>
+    <>
+      <TopNav />
 
-      {loading && <p style={styles.text}>Loading products...</p>}
+      <div className="homepage-container">
+        <button onClick={() => navigate("/minimart/add")}>
+          Sell Item
+        </button>
 
-      {error && <p style={{ ...styles.text, color: "red" }}>{error}</p>}
+        <div className="hero">
+          <h1>Marketplace</h1>
+          <p>Buy & Sell Easily</p>
+        </div>
 
-      <div style={styles.grid}>
-        {products.map((p) => (
-          <div key={p.id} style={styles.card}>
-            <img
-              src={p.images?.[0] || "https://via.placeholder.com/300"}
-              alt={p.title}
-              style={styles.image}
-            />
+        {error && <p style={{ color: "red" }}>{error}</p>}
 
-            <div style={styles.body}>
-              <h3 style={styles.title}>
-                {p.title?.length > 40
-                  ? p.title.slice(0, 40) + "..."
-                  : p.title}
-              </h3>
+        {loading && <p>Loading...</p>}
 
-              <p style={styles.price}>₦{Number(p.price).toLocaleString()}</p>
+        {/* TRENDING */}
+        <div className="row">
+          {trending.map((p) => (
+            <Card key={p.id} product={p} onClick={go} />
+          ))}
+        </div>
 
-              <p style={styles.location}>
-                📍 {p.location_city}, {p.location_state}
-              </p>
-            </div>
-          </div>
-        ))}
+        {/* PRODUCTS */}
+        <div className="grid">
+          {visibleProducts.map((p, i) => {
+            if (i === visibleProducts.length - 1) {
+              return (
+                <div ref={lastRef} key={p.id}>
+                  <Card product={p} onClick={go} />
+                </div>
+              );
+            }
+            return (
+              <Card key={p.id} product={p} onClick={go} />
+            );
+          })}
+        </div>
+
+        {!loading && !products.length && (
+          <p>No products found</p>
+        )}
       </div>
-    </div>
+
+      <BottomNav />
+    </>
   );
 }
-
-/* ================= SIMPLE STYLES ================= */
-
-const styles = {
-  page: {
-    padding: "15px",
-    fontFamily: "Arial",
-    background: "#f6f6f6",
-    minHeight: "100vh",
-  },
-
-  header: {
-    textAlign: "center",
-    marginBottom: "15px",
-  },
-
-  text: {
-    textAlign: "center",
-  },
-
-  grid: {
-    display: "grid",
-    gridTemplateColumns: "repeat(auto-fill, minmax(160px, 1fr))",
-    gap: "10px",
-  },
-
-  card: {
-    background: "#fff",
-    borderRadius: "10px",
-    overflow: "hidden",
-    boxShadow: "0 2px 6px rgba(0,0,0,0.1)",
-    cursor: "pointer",
-  },
-
-  image: {
-    width: "100%",
-    height: "120px",
-    objectFit: "cover",
-  },
-
-  body: {
-    padding: "10px",
-  },
-
-  title: {
-    fontSize: "14px",
-    margin: "0 0 5px",
-  },
-
-  price: {
-    fontWeight: "bold",
-    margin: "0 0 5px",
-  },
-
-  location: {
-    fontSize: "12px",
-    color: "#555",
-  },
-};
