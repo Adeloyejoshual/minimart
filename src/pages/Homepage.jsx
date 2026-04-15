@@ -39,10 +39,9 @@ export default function Homepage() {
 
         const data = await res.json();
 
-        if (!res.ok) throw new Error(data.message || "Failed");
+        if (!res.ok) throw new Error(data.message || "Failed to load products");
 
         const latest = data.latest || [];
-
         setProducts(latest);
         setLoaded(true);
       } catch (err) {
@@ -53,7 +52,7 @@ export default function Homepage() {
     };
 
     fetchData();
-  }, []);
+  }, [loaded, products.length, setProducts, setLoaded]);
 
   /* ================= SEARCH FILTER ================= */
   const filteredProducts = useMemo(() => {
@@ -65,16 +64,14 @@ export default function Homepage() {
   }, [search, products]);
 
   /* ================= UI ================= */
-
   return (
     <>
       <TopNav />
 
       <div className="homepage-container">
-
         {/* SELL BUTTON */}
         <button
-          className="sell-btn"
+          className="floating-btn"
           onClick={() => navigate("/minimart/add")}
         >
           Sell Item
@@ -89,38 +86,39 @@ export default function Homepage() {
         />
 
         {/* STATUS */}
-        {loading && <p className="status">Loading products...</p>}
+        {loading && <p className="loading">Loading products...</p>}
         {error && <p className="error">{error}</p>}
 
-        {/* GRID */}
-        <div className="product-grid">
+        {/* MASONRY GRID */}
+        <div className="grid">
           {filteredProducts.map((p) => (
-            <div key={p.id} className="product-card">
+            <div key={p.id} className="card" tabIndex={0}>
+              <div className="card-image">
+                <img
+                  src={p.images?.[0] || "https://via.placeholder.com/300"}
+                  alt={p.title}
+                  loading="lazy"
+                />
+              </div>
 
-              <img
-                src={p.images?.[0] || "https://via.placeholder.com/300"}
-                alt={p.title}
-                className="product-image"
-              />
-
-              <div className="product-body">
-                <h3 className="product-title">
-                  {p.title.length > 45
-                    ? p.title.slice(0, 45) + "..."
-                    : p.title}
-                </h3>
-
-                <p className="product-price">
+              <div className="card-body">
+                <h3 className="title">{p.title}</h3>
+                
+                <p className="price">
                   ₦{Number(p.price).toLocaleString()}
                 </p>
 
-                <p className="product-location">
+                <p className="location">
                   📍 {p.location_city}, {p.location_state}
                 </p>
               </div>
             </div>
           ))}
         </div>
+
+        {filteredProducts.length === 0 && !loading && !error && (
+          <p className="empty">No products found</p>
+        )}
       </div>
 
       <BottomNav />
