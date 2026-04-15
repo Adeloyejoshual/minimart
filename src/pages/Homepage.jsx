@@ -1,268 +1,66 @@
-import {
-  useEffect,
-  useState,
-  useMemo,
-  useCallback,
-  memo,
-  useRef,
-} from "react";
-import { useNavigate } from "react-router-dom";
-import TopNav from "../components/TopNav";
-import BottomNav from "../components/BottomNav";
-import { useProductCache } from "../context/ProductCacheContext";
-import "../styles/Homepage.css";
+import { useEffect, useState } from "react";
 
-/* ================= API CONFIG (PRODUCTION ONLY) ================= */
-const API_BASE =
-  import.meta.env.VITE_API_URL ||
-  "https://minimart-ivrm.onrender.com/api";
-
-/* ================= PRODUCT CARD ================= */
-const Card = memo(function Card({ product, onClick }) {
-  const image =
-    product?.images?.[0] ||
-    "https://via.placeholder.com/300x200?text=No+Image";
-
-  const location =
-    product?.location?.city && product?.location?.state
-      ? `${product.location.city}, ${product.location.state}`
-      : product?.location?.state || "Nigeria";
-
-  const formattedPrice = new Intl.NumberFormat("en-NG", {
-    style: "currency",
-    currency: "NGN",
-  }).format(Number(product?.price || 0));
-
-  return (
-    <div
-      className="card"
-      role="button"
-      tabIndex={0}
-      onClick={() => onClick(product?.id)}
-      onKeyDown={(e) => e.key === "Enter" && onClick(product?.id)}
-    >
-      <div className="card-image">
-        <img
-          src={image}
-          alt={product?.title || "Product"}
-          loading="lazy"
-          onError={(e) => {
-            e.target.src =
-              "https://via.placeholder.com/300x200?text=No+Image";
-          }}
-        />
-      </div>
-
-      <div className="card-body">
-        <div className="price">{formattedPrice}</div>
-        <div className="title">
-          {product?.title?.length > 55
-            ? product.title.slice(0, 55) + "..."
-            : product?.title}
-        </div>
-        <div className="location">{location}</div>
-      </div>
-    </div>
-  );
-});
-
-/* ================= HOMEPAGE ================= */
 export default function Homepage() {
-  const {
-    products,
-    setProducts,
-    trending,
-    setTrending,
-    loaded,
-    setLoaded,
-  } = useProductCache();
-
-  const [loading, setLoading] = useState(false);
+  const [products, setProducts] = useState([]);
   const [error, setError] = useState("");
-  const [visibleCount, setVisibleCount] = useState(12);
+  const [loading, setLoading] = useState(true);
 
-  const navigate = useNavigate();
-  const observerRef = useRef(null);
-  const PAGE_SIZE = 12;
+  const API_BASE = "https://minimart-ivrm.onrender.com/api";
 
-  /* ================= FETCH DATA ================= */
   useEffect(() => {
-    if (loaded && products.length > 0) return;
-
-    const controller = new AbortController();
-
-    const fetchHomepage = async () => {
+    const fetchData = async () => {
       try {
         setLoading(true);
-        setError("");
 
         const res = await fetch(`${API_BASE}/homepage`, {
-          signal: controller.signal,
           headers: {
             Accept: "application/json",
           },
         });
 
-        const contentType = res.headers.get("content-type");
-
-        // Ensure the response is JSON
-        if (!contentType || !contentType.includes("application/json")) {
-          const text = await res.text();
-          console.error("Non-JSON Response:", text);
-          throw new Error(
-            "Server returned HTML instead of JSON. Check API configuration."
-          );
-        }
-
         const data = await res.json();
 
         if (!res.ok) {
-          throw new Error(data.message || "Failed to load homepage");
+          throw new Error(data.message || "Error loading data");
         }
 
-        const latest = Array.isArray(data?.latest) ? data.latest : [];
-        const promoted = Array.isArray(data?.promoted)
-          ? data.promoted
-          : [];
-
-        setProducts(latest);
-        setTrending(
-          promoted.length
-            ? promoted.slice(0, 10)
-            : latest.slice(0, 10)
-        );
-        setLoaded(true);
+        setProducts(data.latest || []);
       } catch (err) {
-        if (err.name !== "AbortError") {
-          console.error("Homepage fetch error:", err);
-          setError(err.message || "Unable to load products");
-          setLoaded(false);
-        }
+        console.error(err);
+        setError(err.message);
       } finally {
         setLoading(false);
       }
     };
 
-    fetchHomepage();
-    return () => controller.abort();
-  }, [
-    loaded,
-    products.length,
-    setProducts,
-    setTrending,
-    setLoaded,
-  ]);
-
-  /* ================= DERIVED DATA ================= */
-  const cheapDeals = useMemo(
-    () =>
-      products
-        .filter((p) => Number(p?.price || 0) < 50000)
-        .slice(0, 10),
-    [products]
-  );
-
-  const recommended = useMemo(
-    () => products.slice(0, 10),
-    [products]
-  );
-
-  const visibleProducts = useMemo(
-    () => products.slice(0, visibleCount),
-    [products, visibleCount]
-  );
-
-  /* ================= NAVIGATION ================= */
-  const goToProduct = useCallback(
-    (id) => {
-      if (!id) return;
-      navigate(`/product/${id}`);
-    },
-    [navigate]
-  );
-
-  /* ================= INFINITE SCROLL ================= */
-  const loadMoreRef = useCallback((node) => {
-    if (observerRef.current) observerRef.current.disconnect();
-
-    observerRef.current = new IntersectionObserver((entries) => {
-      if (entries[0].isIntersecting) {
-        setVisibleCount((prev) => prev + PAGE_SIZE);
-      }
-    });
-
-    if (node) observerRef.current.observe(node);
+    fetchData();
   }, []);
 
-  /* ================= SECTION COMPONENT ================= */
-  const Section = ({ title, items }) => {
-    if (!items?.length) return null;
+  if (loading) return <p>Loading...</p>;
 
-    return (
-      <div className="mini-section">
-        <h3 className="mini-title">{title}</h3>
-        <div className="horizontal-scroll">
-          {items.map((p) => (
-            <div key={p.id} className="scroll-item">
-              <Card product={p} onClick={goToProduct} />
-            </div>
-          ))}
-        </div>
-      </div>
-    );
-  };
+  if (error) return <p style={{ color: "red" }}>{error}</p>;
 
-  /* ================= UI ================= */
   return (
-    <>
-      <TopNav />
+    <div style={{ padding: "20px" }}>
+      <h1>Homepage Test</h1>
 
-      <div className="homepage-container">
-        <button
-          className="floating-btn"
-          onClick={() => navigate("/minimart/add")}
-        >
-          Sell Item
-        </button>
-
-        <div className="hero">
-          <h1>Marketplace for Everyone</h1>
-          <p>Buy, sell, and discover products seamlessly</p>
-        </div>
-
-        {error && <p className="error">{error}</p>}
-
-        <Section title="Trending" items={trending} />
-        <Section title="Affordable Deals" items={cheapDeals} />
-        <Section title="Recommended for You" items={recommended} />
-
-        <div className="section">
-          <h2>All Products</h2>
-
-          {loading && (
-            <p className="loading">Loading products...</p>
-          )}
-
-          {!loading && visibleProducts.length === 0 && !error && (
-            <p className="empty">No products available</p>
-          )}
-
-          <div className="grid">
-            {visibleProducts.map((p) => (
-              <Card
-                key={p.id}
-                product={p}
-                onClick={goToProduct}
-              />
-            ))}
+      {products.length === 0 ? (
+        <p>No products found</p>
+      ) : (
+        products.map((p) => (
+          <div
+            key={p.id}
+            style={{
+              border: "1px solid #ccc",
+              margin: "10px",
+              padding: "10px",
+            }}
+          >
+            <h3>{p.title}</h3>
+            <p>₦{p.price}</p>
           </div>
-
-          {/* Infinite Scroll Trigger */}
-          <div ref={loadMoreRef} style={{ height: "40px" }} />
-        </div>
-      </div>
-
-      <BottomNav />
-    </>
+        ))
+      )}
+    </div>
   );
 }
