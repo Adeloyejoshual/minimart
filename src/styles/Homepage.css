@@ -1,265 +1,127 @@
-/* =======================================================
-   🌐 BASE
-======================================================= */
+import { useEffect, useState, useMemo } from "react";
+import { useNavigate } from "react-router-dom";
 
-html, body {
-  margin: 0;
-  padding: 0;
-  font-family: Inter, system-ui, sans-serif;
-  background: #f6f8fc;
-  color: #111;
-  scroll-behavior: smooth;
-  -webkit-font-smoothing: antialiased;
-}
+import TopNav from "../components/TopNav";
+import BottomNav from "../components/BottomNav";
+import { useProductCache } from "../context/ProductCacheContext";
+import "../styles/Homepage.css";
 
-#root {
-  min-height: 100%;
-}
+export default function Homepage() {
+  const navigate = useNavigate();
 
-/* =======================================================
-   📦 CONTAINER
-======================================================= */
+  const {
+    products,
+    setProducts,
+    loaded,
+    setLoaded,
+  } = useProductCache();
 
-.homepage-container {
-  max-width: 1200px;
-  margin: 0 auto;
-  padding: 12px;
-}
+  const [search, setSearch] = useState("");
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState("");
 
-/* =======================================================
-   🧠 SECTION TITLES
-======================================================= */
+  const API_BASE = "https://minimart-ivrm.onrender.com/api";
 
-.section h2 {
-  font-size: 1.05rem;
-  font-weight: 700;
-  margin: 16px 0 12px;
-  color: #1e3a8a;
-  letter-spacing: -0.2px;
-}
+  /* ================= FETCH DATA ================= */
+  useEffect(() => {
+    if (loaded && products.length > 0) {
+      setLoading(false);
+      return;
+    }
 
-/* =======================================================
-   🧱 MASONRY GRID
-======================================================= */
+    const fetchData = async () => {
+      try {
+        setLoading(true);
 
-.grid {
-  column-count: 2;
-  column-gap: 10px;
-}
+        const res = await fetch(`${API_BASE}/homepage`, {
+          headers: { Accept: "application/json" },
+        });
 
-@media (min-width: 768px) {
-  .grid { column-count: 3; }
-}
+        const data = await res.json();
 
-@media (min-width: 1024px) {
-  .grid { column-count: 4; }
-}
+        if (!res.ok) throw new Error(data.message || "Failed to load products");
 
-@media (min-width: 1400px) {
-  .grid { column-count: 5; }
-}
+        const latest = data.latest || [];
+        setProducts(latest);
+        setLoaded(true);
+      } catch (err) {
+        setError(err.message);
+      } finally {
+        setLoading(false);
+      }
+    };
 
-/* =======================================================
-   🪪 PRODUCT CARD (UPGRADED)
-======================================================= */
+    fetchData();
+  }, [loaded, products.length, setProducts, setLoaded]);
 
-.card {
-  break-inside: avoid;
-  margin-bottom: 12px;
+  /* ================= SEARCH FILTER ================= */
+  const filteredProducts = useMemo(() => {
+    if (!search.trim()) return products;
 
-  background: #fff;
-  border-radius: 16px;
-  overflow: hidden;
+    return products.filter((p) =>
+      p.title.toLowerCase().includes(search.toLowerCase())
+    );
+  }, [search, products]);
 
-  display: inline-block;
-  width: 100%;
+  /* ================= UI ================= */
+  return (
+    <>
+      <TopNav />
 
-  box-shadow: 0 2px 10px rgba(0,0,0,0.05);
-  transition: transform 0.15s ease, box-shadow 0.2s ease;
-  cursor: pointer;
-}
+      <div className="homepage-container">
+        {/* SELL BUTTON */}
+        <button
+          className="floating-btn"
+          onClick={() => navigate("/minimart/add")}
+        >
+          Sell Item
+        </button>
 
-.card:hover {
-  transform: translateY(-2px);
-  box-shadow: 0 8px 20px rgba(0,0,0,0.08);
-}
+        {/* SEARCH */}
+        <input
+          className="search-bar"
+          placeholder="Search products..."
+          value={search}
+          onChange={(e) => setSearch(e.target.value)}
+        />
 
-.card:active {
-  transform: scale(0.97);
-}
+        {/* STATUS */}
+        {loading && <p className="loading">Loading products...</p>}
+        {error && <p className="error">{error}</p>}
 
-/* Accessibility focus */
-.card:focus {
-  outline: 2px solid #2563eb;
-  outline-offset: 2px;
-}
+        {/* MASONRY GRID */}
+        <div className="grid">
+          {filteredProducts.map((p) => (
+            <div key={p.id} className="card" tabIndex={0}>
+              <div className="card-image">
+                <img
+                  src={p.images?.[0] || "https://via.placeholder.com/300"}
+                  alt={p.title}
+                  loading="lazy"
+                />
+              </div>
 
-/* =======================================================
-   🖼️ IMAGE
-======================================================= */
+              <div className="card-body">
+                <h3 className="title">{p.title}</h3>
+                
+                <p className="price">
+                  ₦{Number(p.price).toLocaleString()}
+                </p>
 
-.card-image {
-  background: #eef2ff;
-  position: relative;
-}
+                <p className="location">
+                  📍 {p.location_city}, {p.location_state}
+                </p>
+              </div>
+            </div>
+          ))}
+        </div>
 
-.card-image img {
-  width: 100%;
-  height: auto;
-  display: block;
-}
+        {filteredProducts.length === 0 && !loading && !error && (
+          <p className="empty">No products found</p>
+        )}
+      </div>
 
-/* subtle overlay for premium feel */
-.card-image::after {
-  content: "";
-  position: absolute;
-  inset: 0;
-  background: linear-gradient(to bottom, transparent 70%, rgba(0,0,0,0.04));
-}
-
-/* =======================================================
-   📦 CARD CONTENT
-======================================================= */
-
-.card-body {
-  padding: 10px;
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-}
-
-/* PRICE */
-.price {
-  font-weight: 800;
-  font-size: 0.95rem;
-  color: #1d4ed8;
-  letter-spacing: -0.2px;
-}
-
-/* TITLE */
-.title {
-  font-size: 0.82rem;
-  font-weight: 600;
-  line-height: 1.25;
-  color: #111827;
-
-  display: -webkit-box;
-  -webkit-line-clamp: 2;
-  -webkit-box-orient: vertical;
-  overflow: hidden;
-}
-
-/* LOCATION (PROFESSIONAL LOOK) */
-.location {
-  font-size: 0.72rem;
-  color: #6b7280;
-  font-weight: 500;
-}
-
-/* =======================================================
-   📱 HORIZONTAL SECTIONS
-======================================================= */
-
-.horizontal-scroll {
-  display: flex;
-  overflow-x: auto;
-  gap: 10px;
-  padding-bottom: 6px;
-
-  scroll-snap-type: x mandatory;
-  -webkit-overflow-scrolling: touch;
-}
-
-.horizontal-scroll::-webkit-scrollbar {
-  display: none;
-}
-
-.scroll-item {
-  flex: 0 0 160px;
-  scroll-snap-align: start;
-}
-
-/* compact cards */
-.scroll-item .card {
-  border-radius: 14px;
-}
-
-.scroll-item .card-image img {
-  height: 110px;
-  object-fit: cover;
-}
-
-/* =======================================================
-   🔥 MINI SECTION HEADER
-======================================================= */
-
-.mini-title {
-  font-size: 0.95rem;
-  font-weight: 700;
-  margin: 12px 0;
-  color: #111827;
-}
-
-/* =======================================================
-   ⚡ FLOATING BUTTON
-======================================================= */
-
-.floating-btn {
-  position: fixed;
-  bottom: 75px;
-  right: 14px;
-
-  background: linear-gradient(135deg, #2563eb, #3b82f6);
-  color: white;
-
-  border: none;
-  padding: 12px 16px;
-  border-radius: 999px;
-
-  font-weight: 600;
-  font-size: 0.85rem;
-
-  box-shadow: 0 10px 24px rgba(0,0,0,0.2);
-  z-index: 1000;
-  transition: transform 0.15s ease, box-shadow 0.2s ease;
-}
-
-.floating-btn:hover {
-  box-shadow: 0 12px 28px rgba(0,0,0,0.25);
-}
-
-.floating-btn:active {
-  transform: scale(0.94);
-}
-
-/* =======================================================
-   ⚡ STATES
-======================================================= */
-
-.loading,
-.empty {
-  text-align: center;
-  font-size: 0.85rem;
-  color: #6b7280;
-  padding: 20px;
-}
-
-.error {
-  text-align: center;
-  font-size: 0.85rem;
-  color: #dc2626;
-  padding: 10px;
-}
-
-/* =======================================================
-   ⚡ PERFORMANCE
-======================================================= */
-
-.card {
-  will-change: transform;
-  contain: content;
-}
-
-img {
-  content-visibility: auto;
+      <BottomNav />
+    </>
+  );
 }
