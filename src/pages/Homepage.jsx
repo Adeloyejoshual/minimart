@@ -12,7 +12,7 @@ import BottomNav from "../components/BottomNav";
 import { useProductCache } from "../context/ProductCacheContext";
 import "../styles/Homepage.css";
 
-/* ================= API CONFIG ================= */
+/* ================= API CONFIG (PRODUCTION ONLY) ================= */
 const API_BASE =
   import.meta.env.VITE_API_URL ||
   "https://minimart-ivrm.onrender.com/api";
@@ -44,7 +44,7 @@ const Card = memo(function Card({ product, onClick }) {
       <div className="card-image">
         <img
           src={image}
-          alt={product?.title || "product"}
+          alt={product?.title || "Product"}
           loading="lazy"
           onError={(e) => {
             e.target.src =
@@ -103,18 +103,18 @@ export default function Homepage() {
           },
         });
 
-        // Read response as text first to prevent JSON parsing errors
-        const text = await res.text();
+        const contentType = res.headers.get("content-type");
 
-        let data;
-        try {
-          data = JSON.parse(text);
-        } catch {
-          console.error("Non-JSON response:", text);
+        // Ensure the response is JSON
+        if (!contentType || !contentType.includes("application/json")) {
+          const text = await res.text();
+          console.error("Non-JSON Response:", text);
           throw new Error(
             "Server returned HTML instead of JSON. Check API configuration."
           );
         }
+
+        const data = await res.json();
 
         if (!res.ok) {
           throw new Error(data.message || "Failed to load homepage");
@@ -182,23 +182,20 @@ export default function Homepage() {
   );
 
   /* ================= INFINITE SCROLL ================= */
-  const loadMoreRef = useCallback(
-    (node) => {
-      if (observerRef.current) observerRef.current.disconnect();
+  const loadMoreRef = useCallback((node) => {
+    if (observerRef.current) observerRef.current.disconnect();
 
-      observerRef.current = new IntersectionObserver((entries) => {
-        if (entries[0].isIntersecting) {
-          setVisibleCount((prev) => prev + PAGE_SIZE);
-        }
-      });
+    observerRef.current = new IntersectionObserver((entries) => {
+      if (entries[0].isIntersecting) {
+        setVisibleCount((prev) => prev + PAGE_SIZE);
+      }
+    });
 
-      if (node) observerRef.current.observe(node);
-    },
-    []
-  );
+    if (node) observerRef.current.observe(node);
+  }, []);
 
   /* ================= SECTION COMPONENT ================= */
-  const Section = memo(({ title, items }) => {
+  const Section = ({ title, items }) => {
     if (!items?.length) return null;
 
     return (
@@ -213,7 +210,7 @@ export default function Homepage() {
         </div>
       </div>
     );
-  });
+  };
 
   /* ================= UI ================= */
   return (
