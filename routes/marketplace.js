@@ -444,19 +444,28 @@ router.post("/products", upload.array("images", 10), async (req, res) => {
 
     const product = rows[0];
 
-    // ✅ Generate slug
-    const slug = title
-      .toLowerCase()
-      .trim()
-      .replace(/[^a-z0-9s-]/g, "")
-      .replace(/s+/g, "-")
-      .replace(/-+/g, "-")
-      .replace(/^-+|-+$/g, "");
+    const baseSlug = title
+  .toLowerCase()
+  .trim()
+  .replace(/[^a-z0-9\s-]/g, "")
+  .replace(/\s+/g, "-")
+  .replace(/-+/g, "-")
+  .replace(/^-+|-+$/g, "");
 
-    await client.query(
-      "UPDATE products SET slug = $1 WHERE id = $2",
-      [`${slug}-${product.id}`, product.id]
-    );
+const existing = await client.query(
+  "SELECT slug FROM products WHERE slug LIKE $1",
+  [`${baseSlug}%`]
+);
+
+const slug =
+  existing.rows.length > 0
+    ? `${baseSlug}-${existing.rows.length + 1}`
+    : baseSlug;
+
+await client.query(
+  "UPDATE products SET slug = $1 WHERE id = $2",
+  [slug, product.id]
+);
 
     // ✅ Upload all images (multi‑photo)
     const cloudImages = await uploadImages(req.files);
