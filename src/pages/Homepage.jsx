@@ -1,181 +1,126 @@
-import {
-  useEffect,
-  useState,
-  useMemo,
-  useCallback,
-  memo,
-  useRef,
-} from "react";
+import { useEffect, useState, useMemo } from "react";
 import { useNavigate } from "react-router-dom";
+
 import TopNav from "../components/TopNav";
 import BottomNav from "../components/BottomNav";
 import { useProductCache } from "../context/ProductCacheContext";
 import "../styles/Homepage.css";
 
-/* ================= API ================= */
-const API_BASE =
-  import.meta.env.VITE_API_URL ||
-  "https://minimart-ivrm.onrender.com/api";
-
-/* ================= CARD ================= */
-const Card = memo(({ product, onClick }) => {
-  const image =
-    product?.images?.[0] ||
-    "https://via.placeholder.com/300x200?text=No+Image";
-
-  const location =
-    product?.location?.city && product?.location?.state
-      ? `${product.location.city}, ${product.location.state}`
-      : product?.location?.state || "Nigeria";
-
-  const price = Number(product?.price || 0).toLocaleString("en-NG");
-
-  return (
-    <div className="card" onClick={() => onClick(product.id)}>
-      <img src={image} alt="" loading="lazy" />
-      <div className="card-body">
-        <div className="price">₦{price}</div>
-        <div className="title">{product.title}</div>
-        <div className="location">{location}</div>
-      </div>
-    </div>
-  );
-});
-
-/* ================= HOMEPAGE ================= */
 export default function Homepage() {
+  const navigate = useNavigate();
+
   const {
     products,
     setProducts,
-    trending,
-    setTrending,
     loaded,
     setLoaded,
   } = useProductCache();
 
-  const [loading, setLoading] = useState(false);
+  const [search, setSearch] = useState("");
+  const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
-  const [visible, setVisible] = useState(12);
 
-  const navigate = useNavigate();
-  const observer = useRef(null);
+  const API_BASE = "https://minimart-ivrm.onrender.com/api";
 
-  /* ================= FETCH ================= */
+  /* ================= FETCH DATA ================= */
   useEffect(() => {
-    if (loaded && products.length) return;
+    if (loaded && products.length > 0) {
+      setLoading(false);
+      return;
+    }
 
-    const controller = new AbortController();
-
-    const load = async () => {
+    const fetchData = async () => {
       try {
         setLoading(true);
-        setError("");
 
         const res = await fetch(`${API_BASE}/homepage`, {
-          signal: controller.signal,
           headers: { Accept: "application/json" },
         });
 
-        const text = await res.text();
-
-        let data;
-        try {
-          data = JSON.parse(text);
-        } catch {
-          throw new Error("Invalid API response (not JSON)");
-        }
+        const data = await res.json();
 
         if (!res.ok) throw new Error(data.message || "Failed");
 
-        setProducts(data.latest || []);
-        setTrending(data.promoted?.slice(0, 10) || []);
+        const latest = data.latest || [];
+
+        setProducts(latest);
         setLoaded(true);
-      } catch (e) {
-        if (e.name !== "AbortError") setError(e.message);
+      } catch (err) {
+        setError(err.message);
       } finally {
         setLoading(false);
       }
     };
 
-    load();
-    return () => controller.abort();
+    fetchData();
   }, []);
 
-  /* ================= DATA ================= */
-  const visibleProducts = useMemo(
-    () => products.slice(0, visible),
-    [products, visible]
-  );
+  /* ================= SEARCH FILTER ================= */
+  const filteredProducts = useMemo(() => {
+    if (!search.trim()) return products;
 
-  const cheapDeals = useMemo(
-    () => products.filter((p) => p.price < 50000).slice(0, 10),
-    [products]
-  );
-
-  /* ================= NAV ================= */
-  const go = useCallback(
-    (id) => navigate(`/product/${id}`),
-    [navigate]
-  );
-
-  /* ================= SCROLL ================= */
-  const lastRef = useCallback((node) => {
-    if (observer.current) observer.current.disconnect();
-
-    observer.current = new IntersectionObserver((entries) => {
-      if (entries[0].isIntersecting) {
-        setVisible((v) => v + 12);
-      }
-    });
-
-    if (node) observer.current.observe(node);
-  }, []);
+    return products.filter((p) =>
+      p.title.toLowerCase().includes(search.toLowerCase())
+    );
+  }, [search, products]);
 
   /* ================= UI ================= */
+
   return (
     <>
       <TopNav />
 
       <div className="homepage-container">
-        <button onClick={() => navigate("/minimart/add")}>
+
+        {/* SELL BUTTON */}
+        <button
+          className="sell-btn"
+          onClick={() => navigate("/minimart/add")}
+        >
           Sell Item
         </button>
 
-        <div className="hero">
-          <h1>Marketplace</h1>
-          <p>Buy & Sell Easily</p>
-        </div>
+        {/* SEARCH */}
+        <input
+          className="search-bar"
+          placeholder="Search products..."
+          value={search}
+          onChange={(e) => setSearch(e.target.value)}
+        />
 
-        {error && <p style={{ color: "red" }}>{error}</p>}
+        {/* STATUS */}
+        {loading && <p className="status">Loading products...</p>}
+        {error && <p className="error">{error}</p>}
 
-        {loading && <p>Loading...</p>}
+        {/* GRID */}
+        <div className="product-grid">
+          {filteredProducts.map((p) => (
+            <div key={p.id} className="product-card">
 
-        {/* TRENDING */}
-        <div className="row">
-          {trending.map((p) => (
-            <Card key={p.id} product={p} onClick={go} />
+              <img
+                src={p.images?.[0] || "https://via.placeholder.com/300"}
+                alt={p.title}
+                className="product-image"
+              />
+
+              <div className="product-body">
+                <h3 className="product-title">
+                  {p.title.length > 45
+                    ? p.title.slice(0, 45) + "..."
+                    : p.title}
+                </h3>
+
+                <p className="product-price">
+                  ₦{Number(p.price).toLocaleString()}
+                </p>
+
+                <p className="product-location">
+                  📍 {p.location_city}, {p.location_state}
+                </p>
+              </div>
+            </div>
           ))}
         </div>
-
-        {/* PRODUCTS */}
-        <div className="grid">
-          {visibleProducts.map((p, i) => {
-            if (i === visibleProducts.length - 1) {
-              return (
-                <div ref={lastRef} key={p.id}>
-                  <Card product={p} onClick={go} />
-                </div>
-              );
-            }
-            return (
-              <Card key={p.id} product={p} onClick={go} />
-            );
-          })}
-        </div>
-
-        {!loading && !products.length && (
-          <p>No products found</p>
-        )}
       </div>
 
       <BottomNav />
