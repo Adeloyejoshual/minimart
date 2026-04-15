@@ -4,7 +4,6 @@ import { useProductCache } from "../context/ProductCacheContext";
 
 import TopNav from "../components/TopNav";
 import BottomNav from "../components/BottomNav";
-import SkeletonGrid from "../components/SkeletonGrid";
 import "../styles/Homepage.css";
 
 export default function Homepage() {
@@ -19,7 +18,6 @@ export default function Homepage() {
     "🛍️ June Mega Sale Live!"
   ]);
   const [currentBanner, setCurrentBanner] = useState(0);
-  const [timeoutReached, setTimeoutReached] = useState(false);
   const [sections, setSections] = useState({
     recommended: [],
     cheapDeals: [],
@@ -37,15 +35,15 @@ export default function Homepage() {
     return () => clearInterval(interval);
   }, [banners.length]);
 
-  /* ================= TIMEOUT LOADER ================= */
+  /* ================= FETCH ONCE & CACHE ================= */
   useEffect(() => {
-    const timer = setTimeout(() => setTimeoutReached(true), 5000);
-    return () => clearTimeout(timer);
-  }, []);
-
-  /* ================= FETCH & CATEGORIZE ================= */
-  useEffect(() => {
-    if (loaded && products.length > 0) return;
+    // Only fetch if we don't have cached data
+    if (loaded && products.length > 0) {
+      // Use cached data to populate sections
+      const categorized = categorizeProducts(products);
+      setSections(categorized);
+      return;
+    }
 
     const fetchHomepageData = async () => {
       try {
@@ -59,16 +57,22 @@ export default function Homepage() {
         const allProducts = data.latest || [];
         const categorized = categorizeProducts(allProducts);
         
-        setSections(categorized);
+        // Cache products and sections
         setProducts(allProducts);
+        setSections(categorized);
         setLoaded(true);
       } catch (err) {
         console.error("Homepage fetch error:", err);
+        // Keep showing cached data if available
+        if (products.length > 0) {
+          const categorized = categorizeProducts(products);
+          setSections(categorized);
+        }
       }
     };
 
     fetchHomepageData();
-  }, [loaded, products.length, setProducts, setLoaded]);
+  }, []); // Empty dependency array - fetch only ONCE
 
   /* ================= SMART CATEGORIZATION ================= */
   const categorizeProducts = useCallback((allProducts) => {
@@ -124,49 +128,24 @@ export default function Homepage() {
     </section>
   );
 
-  /* ================= LOADING STATES ================= */
-  const isLoading = !loaded || Object.values(sections).some(arr => arr.length === 0);
-  const showTimeoutMessage = isLoading && timeoutReached;
-
+  // Always render content - no loading states
   return (
     <>
       <TopNav />
 
       <div className="homepage-container">
-        {/* TIMEOUT OVERLAY */}
-        {showTimeoutMessage && (
-          <div className="global-loader-overlay">
-            <div className="global-loader">
-              <div className="logo">Minimart</div>
-              <div className="spinner"></div>
-              <p>Waking up server... please wait</p>
-            </div>
-          </div>
-        )}
-
         {/* 🔥 ROTATING BANNER */}
-        {!isLoading && (
-          <div className="banner">
-            <div className="banner-text">{banners[currentBanner]}</div>
-          </div>
-        )}
+        <div className="banner">
+          <div className="banner-text">{banners[currentBanner]}</div>
+        </div>
 
         {/* 🎯 SMART SECTIONS */}
-        {isLoading ? (
-          <>
-            <SkeletonGrid count={8} isHorizontal />
-            <SkeletonGrid count={12} />
-            <SkeletonGrid count={10} isHorizontal />
-            <SkeletonGrid count={16} />
-          </>
-        ) : (
-          <>
-            {renderSection("🎯 Recommended for you", sections.recommended, true)}
-            {renderSection("💸 Cheap Deals", sections.cheapDeals)}
-            {renderSection("🔥 Trending Now", sections.trending, true)}
-            {renderSection("🆕 Latest Uploads", sections.latest)}
-          </>
-        )}
+        <>
+          {renderSection("🎯 Recommended for you", sections.recommended, true)}
+          {renderSection("💸 Cheap Deals", sections.cheapDeals)}
+          {renderSection("🔥 Trending Now", sections.trending, true)}
+          {renderSection("🆕 Latest Uploads", sections.latest)}
+        </>
       </div>
 
       {/* 🚀 SELL BUTTON */}
