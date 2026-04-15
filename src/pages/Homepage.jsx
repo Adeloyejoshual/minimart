@@ -9,10 +9,16 @@ import {
 import { useNavigate } from "react-router-dom";
 import TopNav from "../components/TopNav";
 import BottomNav from "../components/BottomNav";
+import { useProductCache } from "../context/ProductCacheContext";
 import "../styles/Homepage.css";
 
+/* ================= API CONFIG ================= */
+const API_BASE =
+  import.meta.env.VITE_API_URL ||
+  "https://minimart-ivrm.onrender.com/api";
+
 /* ================= PRODUCT CARD ================= */
-const Card = memo(({ product, onClick }) => {
+const Card = memo(function Card({ product, onClick }) {
   const image =
     product?.images?.[0] ||
     "https://via.placeholder.com/300x200?text=No+Image";
@@ -22,7 +28,7 @@ const Card = memo(({ product, onClick }) => {
       ? `${product.location.city}, ${product.location.state}`
       : product?.location?.state || "Nigeria";
 
-  const price = new Intl.NumberFormat("en-NG", {
+  const formattedPrice = new Intl.NumberFormat("en-NG", {
     style: "currency",
     currency: "NGN",
   }).format(Number(product?.price || 0));
@@ -38,7 +44,7 @@ const Card = memo(({ product, onClick }) => {
       <div className="card-image">
         <img
           src={image}
-          alt={product?.title || "Product"}
+          alt={product?.title || "product"}
           loading="lazy"
           onError={(e) => {
             e.target.src =
@@ -48,7 +54,7 @@ const Card = memo(({ product, onClick }) => {
       </div>
 
       <div className="card-body">
-        <div className="price">{price}</div>
+        <div className="price">{formattedPrice}</div>
         <div className="title">
           {product?.title?.length > 55
             ? product.title.slice(0, 55) + "..."
@@ -62,9 +68,16 @@ const Card = memo(({ product, onClick }) => {
 
 /* ================= HOMEPAGE ================= */
 export default function Homepage() {
-  const [products, setProducts] = useState([]);
-  const [trending, setTrending] = useState([]);
-  const [loading, setLoading] = useState(true);
+  const {
+    products,
+    setProducts,
+    trending,
+    setTrending,
+    loaded,
+    setLoaded,
+  } = useProductCache();
+
+  const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
   const [visibleCount, setVisibleCount] = useState(12);
 
@@ -72,12 +85,10 @@ export default function Homepage() {
   const observerRef = useRef(null);
   const PAGE_SIZE = 12;
 
-  const API_BASE =
-    import.meta.env.VITE_API_URL ||
-    "https://minimart-ivrm.onrender.com/api";
-
   /* ================= FETCH DATA ================= */
   useEffect(() => {
+    if (loaded && products.length > 0) return;
+
     const controller = new AbortController();
 
     const fetchHomepage = async () => {
@@ -87,11 +98,23 @@ export default function Homepage() {
 
         const res = await fetch(`${API_BASE}/homepage`, {
           signal: controller.signal,
+          headers: {
+            Accept: "application/json",
+          },
         });
 
-        // Read response only once
+        // Read response as text first to prevent JSON parsing errors
         const text = await res.text();
-        const data = text ? JSON.parse(text) : {};
+
+        let data;
+        try {
+          data = JSON.parse(text);
+        } catch {
+          console.error("Non-JSON response:", text);
+          throw new Error(
+            "Server returned HTML instead of JSON. Check API configuration."
+          );
+        }
 
         if (!res.ok) {
           throw new Error(data.message || "Failed to load homepage");
@@ -108,10 +131,12 @@ export default function Homepage() {
             ? promoted.slice(0, 10)
             : latest.slice(0, 10)
         );
+        setLoaded(true);
       } catch (err) {
         if (err.name !== "AbortError") {
           console.error("Homepage fetch error:", err);
           setError(err.message || "Unable to load products");
+          setLoaded(false);
         }
       } finally {
         setLoading(false);
@@ -120,7 +145,13 @@ export default function Homepage() {
 
     fetchHomepage();
     return () => controller.abort();
-  }, [API_BASE]);
+  }, [
+    loaded,
+    products.length,
+    setProducts,
+    setTrending,
+    setLoaded,
+  ]);
 
   /* ================= DERIVED DATA ================= */
   const cheapDeals = useMemo(
@@ -151,20 +182,23 @@ export default function Homepage() {
   );
 
   /* ================= INFINITE SCROLL ================= */
-  const loadMoreRef = useCallback((node) => {
-    if (observerRef.current) observerRef.current.disconnect();
+  const loadMoreRef = useCallback(
+    (node) => {
+      if (observerRef.current) observerRef.current.disconnect();
 
-    observerRef.current = new IntersectionObserver((entries) => {
-      if (entries[0].isIntersecting) {
-        setVisibleCount((prev) => prev + PAGE_SIZE);
-      }
-    });
+      observerRef.current = new IntersectionObserver((entries) => {
+        if (entries[0].isIntersecting) {
+          setVisibleCount((prev) => prev + PAGE_SIZE);
+        }
+      });
 
-    if (node) observerRef.current.observe(node);
-  }, []);
+      if (node) observerRef.current.observe(node);
+    },
+    []
+  );
 
   /* ================= SECTION COMPONENT ================= */
-  const Section = ({ title, items }) => {
+  const Section = memo(({ title, items }) => {
     if (!items?.length) return null;
 
     return (
@@ -179,7 +213,7 @@ export default function Homepage() {
         </div>
       </div>
     );
-  };
+  });
 
   /* ================= UI ================= */
   return (
@@ -226,7 +260,8 @@ export default function Homepage() {
             ))}
           </div>
 
-          <div ref={loadMoreRef} style={{ height: 40 }} />
+          {/* Infinite Scroll Trigger */}
+          <div ref={loadMoreRef} style={{ height: "40px" }} />
         </div>
       </div>
 
