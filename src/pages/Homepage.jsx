@@ -25,14 +25,20 @@ const Card = memo(({ product, onClick }) => {
   const price = new Intl.NumberFormat("en-NG", {
     style: "currency",
     currency: "NGN",
-  }).format(product?.price || 0);
+  }).format(Number(product?.price || 0));
 
   return (
-    <div className="card" onClick={() => onClick(product.id)}>
+    <div
+      className="card"
+      role="button"
+      tabIndex={0}
+      onClick={() => onClick(product?.id)}
+      onKeyDown={(e) => e.key === "Enter" && onClick(product?.id)}
+    >
       <div className="card-image">
         <img
           src={image}
-          alt={product?.title}
+          alt={product?.title || "Product"}
           loading="lazy"
           onError={(e) => {
             e.target.src =
@@ -44,8 +50,8 @@ const Card = memo(({ product, onClick }) => {
       <div className="card-body">
         <div className="price">{price}</div>
         <div className="title">
-          {product?.title?.length > 50
-            ? product.title.slice(0, 50) + "..."
+          {product?.title?.length > 55
+            ? product.title.slice(0, 55) + "..."
             : product?.title}
         </div>
         <div className="location">{location}</div>
@@ -60,17 +66,17 @@ export default function Homepage() {
   const [trending, setTrending] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
-
   const [visibleCount, setVisibleCount] = useState(12);
 
   const navigate = useNavigate();
   const observerRef = useRef(null);
+  const PAGE_SIZE = 12;
 
-  const API =
+  const API_BASE =
     import.meta.env.VITE_API_URL ||
     "https://minimart-ivrm.onrender.com/api";
 
-  /* ================= FETCH ================= */
+  /* ================= FETCH DATA ================= */
   useEffect(() => {
     const controller = new AbortController();
 
@@ -79,24 +85,17 @@ export default function Homepage() {
         setLoading(true);
         setError("");
 
-        const res = await fetch(`${API}/homepage`, {
+        const res = await fetch(`${API_BASE}/homepage`, {
           signal: controller.signal,
         });
 
+        // Read response only once
+        const text = await res.text();
+        const data = text ? JSON.parse(text) : {};
+
         if (!res.ok) {
-          let msg = "Failed to load homepage";
-          try {
-            const err = await res.json();
-            msg = err.message || msg;
-          } catch {
-            msg = await res.text();
-          }
-          throw new Error(msg);
+          throw new Error(data.message || "Failed to load homepage");
         }
-
-        const data = await res.json();
-
-        console.log("Homepage API:", data); // DEBUG
 
         const latest = Array.isArray(data?.latest) ? data.latest : [];
         const promoted = Array.isArray(data?.promoted)
@@ -105,12 +104,14 @@ export default function Homepage() {
 
         setProducts(latest);
         setTrending(
-          promoted.length ? promoted.slice(0, 10) : latest.slice(0, 10)
+          promoted.length
+            ? promoted.slice(0, 10)
+            : latest.slice(0, 10)
         );
       } catch (err) {
         if (err.name !== "AbortError") {
-          console.error("Homepage error:", err);
-          setError(err.message);
+          console.error("Homepage fetch error:", err);
+          setError(err.message || "Unable to load products");
         }
       } finally {
         setLoading(false);
@@ -118,13 +119,15 @@ export default function Homepage() {
     };
 
     fetchHomepage();
-
     return () => controller.abort();
-  }, [API]);
+  }, [API_BASE]);
 
-  /* ================= FILTERS ================= */
+  /* ================= DERIVED DATA ================= */
   const cheapDeals = useMemo(
-    () => products.filter((p) => Number(p.price) < 50000).slice(0, 10),
+    () =>
+      products
+        .filter((p) => Number(p?.price || 0) < 50000)
+        .slice(0, 10),
     [products]
   );
 
@@ -153,24 +156,25 @@ export default function Homepage() {
 
     observerRef.current = new IntersectionObserver((entries) => {
       if (entries[0].isIntersecting) {
-        setVisibleCount((prev) => prev + 12);
+        setVisibleCount((prev) => prev + PAGE_SIZE);
       }
     });
 
     if (node) observerRef.current.observe(node);
   }, []);
 
-  /* ================= SECTION ================= */
+  /* ================= SECTION COMPONENT ================= */
   const Section = ({ title, items }) => {
     if (!items?.length) return null;
 
     return (
       <div className="mini-section">
         <h3 className="mini-title">{title}</h3>
-
         <div className="horizontal-scroll">
           {items.map((p) => (
-            <Card key={p.id} product={p} onClick={goToProduct} />
+            <div key={p.id} className="scroll-item">
+              <Card product={p} onClick={goToProduct} />
+            </div>
           ))}
         </div>
       </div>
@@ -204,15 +208,21 @@ export default function Homepage() {
         <div className="section">
           <h2>All Products</h2>
 
-          {loading && <p className="loading">Loading...</p>}
+          {loading && (
+            <p className="loading">Loading products...</p>
+          )}
 
-          {!loading && visibleProducts.length === 0 && (
-            <p className="empty">No products found</p>
+          {!loading && visibleProducts.length === 0 && !error && (
+            <p className="empty">No products available</p>
           )}
 
           <div className="grid">
             {visibleProducts.map((p) => (
-              <Card key={p.id} product={p} onClick={goToProduct} />
+              <Card
+                key={p.id}
+                product={p}
+                onClick={goToProduct}
+              />
             ))}
           </div>
 
