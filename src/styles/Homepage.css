@@ -1,5 +1,5 @@
 /* =======================================================
-   🌐 BASE
+   🌐 BASE (UPGRADED)
 ======================================================= */
 
 html, body {
@@ -18,18 +18,19 @@ html, body {
 }
 
 /* =======================================================
-   📦 CONTAINER
+   📦 CONTAINER (PINNED HEADER SUPPORT)
 ======================================================= */
 
 .homepage-container {
   max-width: 1200px;
   margin: 0 auto;
   padding: 12px;
+  padding-top: 80px; /* Space for TopNav */
   padding-bottom: 100px; /* Space for floating button */
 }
 
 /* =======================================================
-   🔥 BANNER (NEW)
+   🔥 BANNER (ENHANCED)
 ======================================================= */
 
 .banner {
@@ -75,18 +76,49 @@ html, body {
 }
 
 /* =======================================================
-   🧠 SECTION TITLES (UPGRADED)
+   📌 PINNED SECTION HEADERS (NEW)
+======================================================= */
+
+.section-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin: 24px 0 16px 0;
+  padding: 12px 0;
+  position: sticky;
+  top: 90px; /* Below TopNav + padding */
+  background: rgba(255, 255, 255, 0.98);
+  backdrop-filter: blur(20px);
+  z-index: 20;
+  border-bottom: 1px solid rgba(0, 0, 0, 0.06);
+  box-shadow: 0 2px 20px rgba(0, 0, 0, 0.08);
+}
+
+.section-header::before {
+  content: "";
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: linear-gradient(to bottom, rgba(255,255,255,0.9), transparent);
+  z-index: -1;
+}
+
+/* =======================================================
+   🎯 SECTION TITLES (PERFECTED)
 ======================================================= */
 
 .mini-title {
   font-size: 1.05rem;
   font-weight: 800;
-  margin: 24px 0 16px;
+  margin: 0;
   color: #1e293b;
   letter-spacing: -0.3px;
   display: flex;
   align-items: center;
   gap: 8px;
+  flex: 1;
 }
 
 .mini-title::before {
@@ -95,6 +127,35 @@ html, body {
   height: 24px;
   background: linear-gradient(135deg, #3b82f6, #1d4ed8);
   border-radius: 2px;
+  flex-shrink: 0;
+}
+
+/* =======================================================
+   🚀 SCROLL BUTTONS (NEW)
+======================================================= */
+
+.scroll-btn {
+  background: linear-gradient(135deg, #3b82f6 0%, #1d4ed8 100%);
+  color: white;
+  border: none;
+  padding: 8px 16px;
+  border-radius: 20px;
+  font-size: 0.85rem;
+  font-weight: 700;
+  cursor: pointer;
+  transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1);
+  box-shadow: 0 4px 12px rgba(59, 130, 246, 0.3);
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+
+.scroll-btn:hover {
+  transform: translateY(-2px) scale(1.05);
+  box-shadow: 0 8px 20px rgba(59, 130, 246, 0.4);
+}
+
+.scroll-btn:active {
+  transform: scale(0.98);
 }
 
 /* =======================================================
@@ -104,7 +165,7 @@ html, body {
 .grid {
   column-count: 2;
   column-gap: 12px;
-  margin-bottom: 8px;
+  margin-bottom: 24px;
 }
 
 @media (min-width: 480px) {
@@ -131,11 +192,12 @@ html, body {
   display: flex;
   overflow-x: auto;
   gap: 12px;
-  padding-bottom: 12px;
+  padding-bottom: 16px;
   scroll-snap-type: x mandatory;
   -webkit-overflow-scrolling: touch;
   scrollbar-width: none;
   -ms-overflow-style: none;
+  margin-bottom: 24px;
 }
 
 .horizontal-scroll::-webkit-scrollbar {
@@ -183,7 +245,7 @@ html, body {
 }
 
 /* =======================================================
-   🏷️ BADGES (NEW)
+   🏷️ BADGES
 ======================================================= */
 
 .hot-badge, .new-badge {
@@ -250,7 +312,7 @@ html, body {
 }
 
 /* =======================================================
-   📦 CARD CONTENT (UPGRADED)
+   📦 CARD CONTENT
 ======================================================= */
 
 .card-body {
@@ -260,7 +322,6 @@ html, body {
   gap: 8px;
 }
 
-/* Horizontal scroll compact */
 .scroll-item .card-body {
   padding: 10px;
   gap: 6px;
@@ -271,7 +332,7 @@ html, body {
   -webkit-line-clamp: 1;
 }
 
-/* PRICE (ENHANCED) */
+/* PRICE */
 .price {
   font-weight: 900;
   font-size: 1rem;
@@ -284,7 +345,7 @@ html, body {
   font-size: 0.95rem;
 }
 
-/* TITLE (PERFECTED) */
+/* TITLE */
 .title {
   font-size: 0.88rem;
   font-weight: 700;
@@ -297,7 +358,7 @@ html, body {
   overflow: hidden;
 }
 
-/* LOCATION */
+/* LOCATION (📍 REMOVED) */
 .location {
   font-size: 0.75rem;
   color: #6b7280;
@@ -305,7 +366,7 @@ html, body {
   margin: 0 0 4px 0;
 }
 
-/* CARD META (NEW) */
+/* CARD META */
 .card-meta {
   display: flex;
   justify-content: space-between;
@@ -320,13 +381,8 @@ html, body {
   font-weight: 600;
 }
 
-.time {
-  font-size: 0.7rem;
-  color: #9ca3af;
-}
-
 /* =======================================================
-   ⚡ FLOATING BUTTON (PERFECTED)
+   ⚡ FLOATING BUTTON
 ======================================================= */
 
 .floating-btn {
@@ -356,45 +412,18 @@ html, body {
 }
 
 /* =======================================================
-   ⚡ STATES & SKELETONS
-======================================================= */
-
-.loading, .empty {
-  text-align: center;
-  font-size: 0.9rem;
-  color: #6b7280;
-  padding: 40px 20px;
-}
-
-.error {
-  text-align: center;
-  font-size: 0.9rem;
-  color: #dc2626;
-  padding: 20px;
-  background: #fef2f2;
-  border-radius: 12px;
-  border-left: 4px solid #dc2626;
-}
-
-/* Skeleton styles */
-.skeleton {
-  background: linear-gradient(90deg, #f0f0f0 25%, #e0e0e0 50%, #f0f0f0 75%);
-  background-size: 200% 100%;
-  animation: loading 1.5s infinite;
-}
-
-@keyframes loading {
-  0% { background-position: 200% 0; }
-  100% { background-position: -200% 0; }
-}
-
-/* =======================================================
    🎨 RESPONSIVE PERFECTION
 ======================================================= */
 
 @media (max-width: 480px) {
   .homepage-container {
     padding: 8px;
+    padding-top: 70px;
+  }
+  
+  .section-header {
+    top: 75px;
+    padding: 10px 0;
   }
   
   .floating-btn {
@@ -402,6 +431,22 @@ html, body {
     right: 12px;
     padding: 14px 18px;
     font-size: 0.85rem;
+  }
+  
+  .scroll-btn {
+    padding: 6px 12px;
+    font-size: 0.8rem;
+  }
+}
+
+@media (min-width: 768px) {
+  .homepage-container {
+    padding: 20px;
+    padding-top: 90px;
+  }
+  
+  .section-header {
+    top: 100px;
   }
 }
 
