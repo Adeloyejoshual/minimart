@@ -8,19 +8,25 @@ const pool = new Pool({
   ssl: { rejectUnauthorized: false },
 });
 
-/* ================= NORMALIZER ================= */
+/* ================= NORMALIZER (REAL VIEWS) ================= */
 const normalizeProduct = (p) => ({
   ...p,
   images: p.images || [],
-  views: Number(p.views_count || p.views || 0), // Real views fallback
+  attributes: p.attributes || {},
+  delivery: p.delivery || {},
+  contact: p.contact || {},
+  location: {
+    state: p.location_state,
+    city: p.location_city,
+  },
+  views: Number(p.views || 0), // Real from products.views
   clicks_count: Number(p.clicks_count || 0),
   createdAt: p.created_at,
-  location_city: p.location_city,
 });
 
-/* ================= FIXED BASE QUERY ================= */
+/* ================= BASE QUERY (COMPATIBLE + VIEWS) ================= */
 const baseQuery = `
-  SELECT DISTINCT ON (p.id)
+  SELECT 
     p.id,
     p.title,
     p.description,
@@ -28,41 +34,92 @@ const baseQuery = `
     p.created_at,
     p.views,
     p.clicks_count,
-    p.location_city,
+    p.is_active,
     p.is_promoted,
+    p.promotion_end,
     p.promotion_priority,
+    p.location_state,
+    p.location_city,
+    p.attributes,
+    p.delivery,
+    p.contact,
     COALESCE(
-      json_agg(pi.image_url ORDER BY pi.position LIMIT 1)
+      json_agg(pi.image_url ORDER BY pi.position)
       FILTER (WHERE pi.image_url IS NOT NULL),
       '[]'
     ) AS images
   FROM products p
   LEFT JOIN product_images pi ON p.id = pi.product_id
-  LEFT JOIN product_views pv ON p.id = pv.product_id 
-    AND pv.created_at >= NOW() - INTERVAL '30 days'
-  WHERE p.is_active = true 
-    AND p.status = 'active'
-  GROUP BY p.id, p.title, p.description, p.price, p.created_at, p.views, 
-           p.clicks_count, p.location_city, p.is_promoted, p.promotion_priority, pi.image_url
+  WHERE COALESCE(p.is_active, false) = true
 `;
 
-/* ================= FIXED HOMEPAGE ================= */
+/* ================= HOMEPAGE (FRONTEND READY) ================= */
 router.get("/homepage", async (req, res) => {
   try {
-    // BACKWARD COMPATIBLE - return 'latest' like before
-    const latestQuery = `
+    /* 🎯 RECOMMENDED */
+    const recommendedQuery = `
       ${baseQuery}
+      GROUP BY 
+        p.id, p.title, p.description, p.price, p.created_at, p.views, p.clicks_count,
+        p.is_active, p.is_promoted, p.promotion_end, p.promotion_priority,
+        p.location_state, p.location_city, p.attributes, p.delivery, p.contact
       ORDER BY 
         COALESCE(p.promotion_priority, 0) DESC,
         COALESCE(p.views, 0) DESC,
         p.created_at DESC
-      LIMIT 50
+      LIMIT 24
     `;
 
-    const result = await pool.query(latestQuery);
+    /* 💸 CHEAP DEALS */
+    const cheapDealsQuery = `
+      ${baseQuery}
+      GROUP BY 
+        p.id, p.title, p.description, p.price, p.created_at, p.views, p.clicks_count,
+        p.is_active, p.is_promoted, p.promotion_end, p.promotion_priority,
+        p.location_state, p.location_city, p.attributes, p.delivery, p.contact
+      HAVING p.price <= 20000
+      ORDER BY 
+        COALESCE(p.promotion_priority, 0) DESC,
+        COALESCE(p.views, 0) DESC,
+        p.created_at DESC
+      LIMIT 24
+    `;
+
+    /* 🔥 TRENDING (High Views) */
+    const trendingQuery = `
+      ${baseQuery}
+      GROUP BY 
+        p.id, p.title, p.description, p.price, p.created_at, p.views, p.clicks_count,
+        p.is_active, p.is_promoted, p.promotion_end, p.promotion_priority,
+        p.location_state, p.location_city, p.attributes, p.delivery, p.contact
+      HAVING COALESCE(p.views, 0) > 5
+      ORDER BY p.views DESC, p.clicks_count DESC
+      LIMIT 20
+    `;
+
+    /* 🆕 LATEST */
+    const latestQuery = `
+      ${baseQuery}
+      GROUP BY 
+        p.id, p.title, p.description, p.price, p.created_at, p.views, p.clicks_count,
+        p.is_active, p.is_promoted, p.promotion_end, p.promotion_priority,
+        p.location_state, p.location_city, p.attributes, p.delivery, p.contact
+      ORDER BY p.created_at DESC
+      LIMIT 30
+    `;
+
+    const [recommended, cheapDeals, trending, latest] = await Promise.all([
+      pool.query(recommendedQuery),
+      pool.query(cheapDealsQuery),
+      pool.query(trendingQuery),
+      pool.query(latestQuery),
+    ]);
 
     return res.json({
-      latest: result.rows.map(normalizeProduct), // Frontend expects this!
+      recommended: recommended.rows.map(normalizeProduct),
+      cheapDeals: cheapDeals.rows.map(normalizeProduct),
+      trending: trending.rows.map(normalizeProduct),
+      latest: latest.rows.map(normalizeProduct),
     });
 
   } catch (err) {
@@ -71,6 +128,36 @@ router.get("/homepage", async (req, res) => {
       message: "Failed to load homepage",
       error: err.message,
     });
+  }
+});
+
+/* ================= VIEW TRACKING ================= */
+router.post("/products/:id/view", async (req, res) => {
+  try {
+    const { id } = req.params;
+    const userId = req.user?.id;
+
+    // Track in product_views
+    await pool.query(
+      `INSERT INTO product_views (product_id, user_id) 
+       VALUES ($1, $2) 
+       ON CONFLICT DO NOTHING`,
+      [id, userId]
+    );
+
+    // Increment products.views counter
+    await pool.query(
+      `UPDATE products 
+       SET views = COALESCE(views, 0) + 1,
+           updated_at = NOW()
+       WHERE id = $1 AND is_active = true`,
+      [id]
+    );
+
+    res.json({ success: true });
+  } catch (err) {
+    console.error("VIEW TRACK ERROR:", err);
+    res.status(500).json({ error: "Failed to track view" });
   }
 });
 
