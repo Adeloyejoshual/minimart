@@ -1,201 +1,202 @@
 import { useEffect, useState, useRef, useCallback } from "react";
 import { useSearchParams, useNavigate } from "react-router-dom";
+import { useProductCache } from "../context/ProductCacheContext";
 import TopNav from "../components/TopNav";
+import BottomNav from "../components/BottomNav";
+import ProductCard from "../components/ProductCard"; // Same as homepage
+import ProductCardMini from "../components/ProductCardMini"; // Same as homepage
 import "../styles/SearchPage.css";
 
 export default function SearchPage() {
-  const [params] = useSearchParams();
+  const [searchParams] = useSearchParams();
   const navigate = useNavigate();
+  const { products: cachedProducts, setProducts } = useProductCache();
 
-  const urlQuery = params.get("q") || "";
-
-  /* ================= STATE ================= */
+  /* ================= STATES (Same as Homepage) ================= */
+  const urlQuery = searchParams.get("q") || "";
   const [searchQuery, setSearchQuery] = useState(urlQuery);
-  const [products, setProducts] = useState([]);
-  const [trending, setTrending] = useState([]);
-  const [recent, setRecent] = useState([]);
-
+  const [sections, setSections] = useState({
+    results: [],
+    cheapDeals: [],
+    recommended: [],
+    trending: []
+  });
   const [loading, setLoading] = useState(false);
-
-  const [page, setPage] = useState(1);
-  const [hasMore, setHasMore] = useState(true);
+  const [cheapVisible, setCheapVisible] = useState(8);
 
   const debounceRef = useRef(null);
+  const API_BASE = "/api";
 
-  /* ================= FETCH SEARCH ================= */
-  const fetchSearch = useCallback(
-    async (reset = false, queryOverride = null) => {
-      const q = (queryOverride ?? searchQuery).trim();
+  /* ================= FETCH SEARCH (Full Support) ================= */
+  const fetchSearch = useCallback(async (reset = false, queryOverride = null) => {
+    const q = (queryOverride ?? searchQuery).trim();
+    if (!q && !searchParams.get("price_max") && !searchParams.get("promoted")) return;
 
-      if (!q) return;
+    try {
+      setLoading(true);
+      
+      // Build full query from URL params
+      const params = new URLSearchParams(searchParams);
+      if (q) params.set("q", q);
+      
+      const url = `${API_BASE}/search?${params.toString()}`;
+      const res = await fetch(url);
+      const data = await res.json();
 
-      try {
-        setLoading(true);
-
-        const res = await fetch(
-          `/api/search?q=${encodeURIComponent(q)}&page=${reset ? 1 : page}`
-        );
-
-        const data = await res.json();
-        const safe = Array.isArray(data?.products) ? data.products : [];
-
-        setProducts((prev) => (reset ? safe : [...prev, ...safe]));
-        setHasMore(safe.length > 0);
-      } catch (err) {
-        console.error(err);
-        setProducts([]);
-        setHasMore(false);
-      } finally {
-        setLoading(false);
+      // Cache results
+      if (data.products) {
+        setProducts(data.products);
       }
-    },
-    [searchQuery, page]
-  );
 
-  /* ================= FETCH TRENDING ================= */
-  const fetchTrending = useCallback(async () => {
-    try {
-      const res = await fetch(`/api/trending-products`);
-      const data = await res.json();
+      // Format like homepage
+      const formatted = {
+        results: data.products || [],
+        cheapDeals: data.products?.filter(p => Number(p.price) <= 20000) || [],
+        recommended: data.products?.slice(0, 12) || [],
+        trending: data.products?.slice(0, 15) || []
+      };
 
-      setTrending(Array.isArray(data?.products) ? data.products : []);
+      setSections(formatted);
+      
     } catch (err) {
-      console.error(err);
-      setTrending([]);
+      console.error("Search failed:", err);
+      setSections({ results: [], cheapDeals: [], recommended: [], trending: [] });
+    } finally {
+      setLoading(false);
     }
-  }, []);
+  }, [searchQuery, searchParams, setProducts]);
 
-  /* ================= FETCH RECENT ================= */
-  const fetchRecent = useCallback(async () => {
-    try {
-      const res = await fetch(`/api/recent-products`);
-      const data = await res.json();
-
-      setRecent(Array.isArray(data?.products) ? data.products : []);
-    } catch (err) {
-      console.error(err);
-      setRecent([]);
+  /* ================= BANNER SUPPORT ================= */
+  useEffect(() => {
+    const hasBannerParams = searchParams.get("price_max") || 
+                           searchParams.get("promoted") || 
+                           searchParams.get("sort");
+    
+    if (hasBannerParams || urlQuery) {
+      fetchSearch(true, urlQuery);
     }
-  }, []);
-
-  /* ================= INIT LOAD ================= */
-  useEffect(() => {
-    fetchTrending();
-    fetchRecent();
-  }, []);
-
-  /* ================= URL SYNC ================= */
-  useEffect(() => {
-    setSearchQuery(urlQuery);
-    setProducts([]);
-    setPage(1);
-
-    if (urlQuery) fetchSearch(true, urlQuery);
-  }, [urlQuery]);
+  }, [searchParams]);
 
   /* ================= LIVE SEARCH ================= */
   useEffect(() => {
     clearTimeout(debounceRef.current);
-
     debounceRef.current = setTimeout(() => {
-      setProducts([]);
-      setPage(1);
-
       if (searchQuery.trim()) {
-        fetchSearch(true);
+        navigate(`?q=${encodeURIComponent(searchQuery.trim())}`);
+      } else {
+        navigate("/search");
       }
-    }, 350);
+    }, 400);
 
     return () => clearTimeout(debounceRef.current);
-  }, [searchQuery]);
+  }, [searchQuery, navigate]);
 
-  /* ================= PAGINATION ================= */
-  useEffect(() => {
-    if (page === 1) return;
-    fetchSearch(false);
-  }, [page]);
+  /* ================= RENDER SECTION (Exact Homepage Style) ================= */
+  const renderSection = (title, items, isHorizontal = false, loadMore = false) => (
+    <section>
+      <div className="section-header">
+        <h2 className="mini-title">{title}</h2>
+      </div>
+      
+      {items.length > 0 ? (
+        <>
+          {isHorizontal ? (
+            <div className="horizontal-scroll">
+              {items.slice(0, loadMore ? cheapVisible : items.length).map((p) => (
+                <div key={p.id} className="scroll-item">
+                  <ProductCardMini 
+                    product={p} 
+                    onClick={() => navigate(`/product/${p.id}`)} 
+                  />
+                </div>
+              ))}
+            </div>
+          ) : (
+            <div className="grid">
+              {items.slice(0, loadMore ? cheapVisible : items.length).map((p) => (
+                <ProductCard 
+                  key={p.id} 
+                  product={p} 
+                  onClick={() => navigate(`/product/${p.id}`)} 
+                />
+              ))}
+            </div>
+          )}
+          
+          {loadMore && cheapVisible < items.length && (
+            <div className="load-more-container">
+              <button 
+                className="load-more-btn"
+                onClick={() => setCheapVisible(prev => Math.min(prev + 8, items.length))}
+              >
+                Load More ({items.length - cheapVisible} left)
+              </button>
+            </div>
+          )}
+        </>
+      ) : null}
+    </section>
+  );
 
-  /* ================= SCROLL ================= */
-  useEffect(() => {
-    const onScroll = () => {
-      if (
-        window.innerHeight + window.scrollY >=
-        document.body.offsetHeight - 300
-      ) {
-        if (!loading && hasMore && searchQuery.trim()) {
-          setPage((p) => p + 1);
-        }
-      }
-    };
+  /* ================= SEARCH TITLE ================= */
+  const getTitle = () => {
+    const q = searchQuery.trim();
+    const priceMax = searchParams.get("price_max");
+    const promoted = searchParams.get("promoted");
 
-    window.addEventListener("scroll", onScroll);
-    return () => window.removeEventListener("scroll", onScroll);
-  }, [loading, hasMore, searchQuery]);
-
-  const openProduct = (p) => {
-    navigate(`/product/${p.id}`);
+    if (priceMax === "10000") return "🔥 Hot Deals Under ₦10K";
+    if (promoted === "true") return "⚡ Flash Sale Products";
+    if (searchParams.get("sort") === "price") return "💸 Cheapest Prices";
+    
+    return q ? `Search Results for "${q}"` : "Explore Products";
   };
 
-  /* ================= DATA DECISION ENGINE ================= */
-  const hasSearch = searchQuery.trim().length > 0;
-
-  const displayProducts = hasSearch
-    ? products
-    : trending.length > 0
-    ? trending
-    : recent;
-
-  const title = hasSearch
-    ? `Results for "${searchQuery}"`
-    : trending.length > 0
-    ? "🔥 Trending Products"
-    : "🆕 Recent Products";
-
   return (
-    <div className="search-page">
-
-      {/* ================= GLOBAL NAV ================= */}
+    <>
+      {/* 📌 TOPNAV */}
       <TopNav />
-
-      {/* ================= RESULTS ================= */}
-      <main className="results">
-
-        <h1 className="results-title">
-          {title}
-        </h1>
-
-        <div className="products-grid">
-          {displayProducts.map((p) => (
-            <div
-              key={p.id}
-              className="product-card"
-              onClick={() => openProduct(p)}
-            >
-              <img
-                src={p?.images?.[0] || "/placeholder.png"}
-                alt={p.title}
-              />
-
-              <div className="info">
-                <p className="title">{p.title}</p>
-                <p className="price">
-                  ₦{Number(p.price).toLocaleString()}
-                </p>
-              </div>
-            </div>
-          ))}
-        </div>
-
-        {/* ================= LOADING ================= */}
-        {loading && <div className="spinner" />}
-
-        {/* ================= EMPTY ================= */}
-        {!loading && displayProducts.length === 0 && (
-          <div className="empty-state">
-            No products available
+      
+      <div className="page-content">
+        <div className="homepage-container">
+          
+          {/* 🎯 DYNAMIC TITLE */}
+          <div className="banner search-banner">
+            <div className="banner-text">{getTitle()}</div>
+            <input
+              type="text"
+              className="search-input-top"
+              placeholder="Search products..."
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+            />
           </div>
-        )}
-      </main>
-    </div>
+
+          {/* ✅ SAME SECTIONS AS HOMEPAGE */}
+          {renderSection("🎯 Search Results", sections.results, false)}
+          {renderSection("💸 Cheap Deals (≤₦20K)", sections.cheapDeals, false, true)}
+          {renderSection("⭐ Recommended", sections.recommended, true)}
+          {renderSection("🔥 Trending", sections.trending, true)}
+
+          {/* LOADING */}
+          {loading && (
+            <div className="loading-state">
+              <div className="spinner" />
+              <p>Loading more products...</p>
+            </div>
+          )}
+
+        </div>
+      </div>
+
+      {/* 🚀 SELL BUTTON */}
+      <button
+        className="floating-btn"
+        onClick={() => navigate("/minimart/add")}
+      >
+        + Sell Item
+      </button>
+
+      <BottomNav />
+    </>
   );
 }
