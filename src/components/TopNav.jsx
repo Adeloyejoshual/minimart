@@ -35,7 +35,7 @@ export default function TopNav() {
 
   /* ================= NORMALIZE ================= */
   const normalize = (str = "") =>
-    str.toLowerCase().replace(/[^a-z0-9\s]/g, "").trim();
+    str.toLowerCase().replace(/[^a-z0-9s]/g, "").trim();
 
   /* ================= SIMPLE SCORING ================= */
   const scoreMatch = (a, b) => {
@@ -77,88 +77,99 @@ export default function TopNav() {
 
       setSearch("");
       setOpen(false);
-
       navigate(`/search?q=${encodeURIComponent(q)}`);
     },
     [navigate]
   );
 
   return (
-    <div className="sticky-header">
-
-      {/* ================= HEADER ================= */}
-      <header className="top-nav">
+    <div className="topnav-wrapper">
+      {/* 📌 STICKY HEADER */}
+      <header className="top-nav sticky-header">
         <div className="nav-container">
-
           <button className="menu-dots" onClick={() => navigate("/menu")}>
-            ⋮
+            ⋮⋮⋮
           </button>
 
           <div className="nav-brand" onClick={() => navigate("/")}>
             🛒 MiniMart
           </div>
-
         </div>
       </header>
 
-      {/* ================= SEARCH ================= */}
-      <div className="search-wrapper">
+      {/* 🔍 STICKY SEARCH BAR */}
+      <div className="search-section sticky-search">
+        <div className="search-wrapper">
+          <div className="search-box">
+            <input
+              className="search-input"
+              value={search}
+              placeholder="Search 10,000+ products..."
+              onChange={(e) => {
+                setSearch(e.target.value);
+                setOpen(true);
+              }}
+              onFocus={() => setOpen(true)}
+              onKeyDown={(e) => {
+                if (e.key === "Enter") goSearch(search);
+              }}
+            />
 
-        <div className="search-box">
-
-          <input
-            className="search-input"
-            value={search}
-            placeholder="Search products..."
-            onChange={(e) => {
-              setSearch(e.target.value);
-              setOpen(true);
-            }}
-            onFocus={() => setOpen(true)}
-            onKeyDown={(e) => {
-              if (e.key === "Enter") goSearch(search);
-            }}
-          />
-
-          <button
-            className="search-btn"
-            onClick={() => goSearch(search)}
-          >
-            Search
-          </button>
-
-        </div>
-
-        {/* ================= DROPDOWN ================= */}
-        {open && (search || results.length > 0) && (
-          <div className="search-dropdown">
-
-            <p className="dropdown-title">Smart Results</p>
-
-            {results.map((p, i) => (
-              <div
-                key={p.id}
-                className="dropdown-item"
-                onClick={() => goSearch(p.title)}
-              >
-                <img src={p?.images?.[0]} alt="" />
-
-                <div>
-                  <p className="title">
-                    {i === 0 && "⭐ "}
-                    {p.title}
-                  </p>
-
-                  <span className="meta">
-                    {p.category} • ₦{Number(p.price).toLocaleString()}
-                  </span>
-                </div>
-              </div>
-            ))}
-
+            <button
+              className="search-btn"
+              onClick={() => goSearch(search)}
+            >
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor">
+                <circle cx="11" cy="11" r="8"/>
+                <path d="M21 21l-4.35-4.35"/>
+              </svg>
+            </button>
           </div>
-        )}
 
+          {/* 📋 SEARCH DROPDOWN */}
+          {open && (search || results.length > 0) && (
+            <div className="search-dropdown">
+              <p className="dropdown-title">
+                {results.length ? `${results.length} results` : "No results"}
+              </p>
+
+              {results.map((p, i) => (
+                <div
+                  key={p.id}
+                  className="dropdown-item"
+                  onClick={() => {
+                    navigate(`/product/${p.id}`);
+                    setOpen(false);
+                  }}
+                >
+                  <img 
+                    src={p?.images?.[0] || "https://via.placeholder.com/48x48/eee?text=?"} 
+                    alt="" 
+                    loading="lazy"
+                  />
+
+                  <div className="item-content">
+                    <p className="title">
+                      {i === 0 && "⭐ "}
+                      {p.title}
+                    </p>
+
+                    <span className="meta">
+                      ₦{Number(p.price).toLocaleString()}
+                      {p.location_city && ` • ${p.location_city}`}
+                    </span>
+                  </div>
+                </div>
+              ))}
+
+              {search && results.length === 0 && (
+                <div className="dropdown-item empty">
+                  <p>Try "{search}" in search</p>
+                </div>
+              )}
+            </div>
+          )}
+        </div>
       </div>
     </div>
   );
