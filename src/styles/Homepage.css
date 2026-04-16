@@ -18,15 +18,15 @@ html, body {
 }
 
 /* =======================================================
-   📦 CONTAINER (PINNED HEADER SUPPORT)
+   📦 CONTAINER (TopNav PINNED)
 ======================================================= */
 
 .homepage-container {
   max-width: 1200px;
   margin: 0 auto;
   padding: 12px;
-  padding-top: 80px; /* Space for TopNav */
   padding-bottom: 100px; /* Space for floating button */
+  /* No padding-top - TopNav handles its own positioning */
 }
 
 /* =======================================================
@@ -76,7 +76,7 @@ html, body {
 }
 
 /* =======================================================
-   📌 PINNED SECTION HEADERS (NEW)
+   🎯 SECTION TITLES (NORMAL - NO PINNING)
 ======================================================= */
 
 .section-header {
@@ -84,30 +84,9 @@ html, body {
   justify-content: space-between;
   align-items: center;
   margin: 24px 0 16px 0;
-  padding: 12px 0;
-  position: sticky;
-  top: 90px; /* Below TopNav + padding */
-  background: rgba(255, 255, 255, 0.98);
-  backdrop-filter: blur(20px);
-  z-index: 20;
-  border-bottom: 1px solid rgba(0, 0, 0, 0.06);
-  box-shadow: 0 2px 20px rgba(0, 0, 0, 0.08);
+  padding: 12px 0; /* Just normal padding */
+  /* NO sticky positioning for section headers */
 }
-
-.section-header::before {
-  content: "";
-  position: absolute;
-  top: 0;
-  left: 0;
-  right: 0;
-  bottom: 0;
-  background: linear-gradient(to bottom, rgba(255,255,255,0.9), transparent);
-  z-index: -1;
-}
-
-/* =======================================================
-   🎯 SECTION TITLES (PERFECTED)
-======================================================= */
 
 .mini-title {
   font-size: 1.05rem;
@@ -131,7 +110,7 @@ html, body {
 }
 
 /* =======================================================
-   🚀 SCROLL BUTTONS (NEW)
+   🚀 SCROLL BUTTONS
 ======================================================= */
 
 .scroll-btn {
@@ -185,7 +164,7 @@ html, body {
 }
 
 /* =======================================================
-   📱 HORIZONTAL SECTIONS (ENHANCED)
+   📱 HORIZONTAL SECTIONS (FIXED IMAGES)
 ======================================================= */
 
 .horizontal-scroll {
@@ -205,13 +184,13 @@ html, body {
 }
 
 .scroll-item {
-  flex: 0 0 175px;
+  flex: 0 0 160px; /* Slightly smaller for better fit */
   scroll-snap-align: start;
-  max-width: 175px;
+  max-width: 160px;
 }
 
 /* =======================================================
-   🪪 PRODUCT CARD (FULL UPGRADE)
+   🪪 PRODUCT CARD
 ======================================================= */
 
 .card {
@@ -250,36 +229,40 @@ html, body {
 
 .hot-badge, .new-badge {
   position: absolute;
-  top: 12px;
-  padding: 6px 10px;
-  border-radius: 16px;
-  font-size: 0.7rem;
+  top: 8px;
+  padding: 4px 8px;
+  border-radius: 12px;
+  font-size: 0.65rem;
   font-weight: 700;
   z-index: 3;
   box-shadow: 0 2px 8px rgba(0,0,0,0.15);
 }
 
 .hot-badge {
-  right: 12px;
+  right: 8px;
   background: linear-gradient(135deg, #ef4444, #dc2626);
   color: white;
 }
 
 .new-badge {
-  left: 12px;
+  left: 8px;
   background: linear-gradient(135deg, #10b981, #059669);
   color: white;
 }
 
 /* =======================================================
-   🖼️ IMAGE (ENHANCED)
+   🖼️ IMAGES (MODERATED SIZES)
 ======================================================= */
 
 .card-image {
   background: linear-gradient(135deg, #f8fafc, #e2e8f0);
   position: relative;
-  aspect-ratio: 1;
   overflow: hidden;
+}
+
+/* MAIN GRID IMAGES - Perfect 1:1 */
+.card-image {
+  aspect-ratio: 1;
 }
 
 .card-image img {
@@ -301,13 +284,14 @@ html, body {
   background: linear-gradient(to bottom, transparent 60%, rgba(0,0,0,0.08));
 }
 
-/* Horizontal scroll images */
+/* 🎯 HORIZONTAL SCROLL - MODERATED SIZE (FIXED) */
 .scroll-item .card-image {
-  height: 120px;
+  height: 100px; /* Moderate height - not too tall */
 }
 
 .scroll-item .card-image img {
-  height: 120px;
+  height: 100px; /* Fixed moderate height */
+  width: 100%;
   object-fit: cover;
 }
 
@@ -323,13 +307,14 @@ html, body {
 }
 
 .scroll-item .card-body {
-  padding: 10px;
-  gap: 6px;
+  padding: 10px 8px 12px; /* Tighter padding */
+  gap: 4px;
 }
 
 .scroll-item .card-body.mini .title {
-  font-size: 0.78rem;
+  font-size: 0.75rem; /* Smaller for horizontal */
   -webkit-line-clamp: 1;
+  line-height: 1.2;
 }
 
 /* PRICE */
@@ -342,7 +327,7 @@ html, body {
 }
 
 .scroll-item .price {
-  font-size: 0.95rem;
+  font-size: 0.9rem;
 }
 
 /* TITLE */
@@ -358,7 +343,7 @@ html, body {
   overflow: hidden;
 }
 
-/* LOCATION (📍 REMOVED) */
+/* LOCATION */
 .location {
   font-size: 0.75rem;
   color: #6b7280;
@@ -412,18 +397,25 @@ html, body {
 }
 
 /* =======================================================
-   🎨 RESPONSIVE PERFECTION
+   🎨 RESPONSIVE
 ======================================================= */
 
 @media (max-width: 480px) {
   .homepage-container {
     padding: 8px;
-    padding-top: 70px;
   }
   
-  .section-header {
-    top: 75px;
-    padding: 10px 0;
+  .scroll-item {
+    flex: 0 0 145px;
+    max-width: 145px;
+  }
+  
+  .scroll-item .card-image {
+    height: 95px;
+  }
+  
+  .scroll-item .card-image img {
+    height: 95px;
   }
   
   .floating-btn {
@@ -442,16 +434,11 @@ html, body {
 @media (min-width: 768px) {
   .homepage-container {
     padding: 20px;
-    padding-top: 90px;
-  }
-  
-  .section-header {
-    top: 100px;
   }
 }
 
 /* =======================================================
-   ⚡ ULTRA PERFORMANCE
+   ⚡ PERFORMANCE
 ======================================================= */
 
 .card {
@@ -463,17 +450,4 @@ html, body {
 img {
   content-visibility: auto;
   contain-intrinsic-size: 200px 200px;
-}
-
-.horizontal-scroll {
-  scroll-behavior: smooth;
-}
-
-/* Reduce motion for accessibility */
-@media (prefers-reduced-motion: reduce) {
-  * {
-    animation-duration: 0.01ms !important;
-    animation-iteration-count: 1 !important;
-    transition-duration: 0.01ms !important;
-  }
 }
