@@ -22,21 +22,18 @@ export default function Homepage() {
 
   const API_BASE = "https://minimart-ivrm.onrender.com/api";
 
-  /* ================= DYNAMIC BANNERS BY MONTH ================= */
+  /* ================= PROFESSIONAL BANNERS (CLICKABLE) ================= */
   useEffect(() => {
-    const monthNames = [
-      "January", "February", "March", "April", "May", "June",
-      "July", "August", "September", "October", "November", "December"
-    ];
+    const monthNames = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"];
     const currentMonth = monthNames[new Date().getMonth()];
     
     setBanners([
-      "🔥 Hot Deals Under ₦10K!",
-      "⚡ Flash Sale - 50% OFF!",
-      "💸 Cheapest Prices Today", 
-      `🛍️ ${currentMonth} Mega Sale Live!`
+      { text: "🔥 Hot Deals Under ₦10,000", action: () => navigate("/search?price_max=10000") },
+      { text: "⚡ Flash Sale - Up to 50% OFF", action: () => navigate("/search?discount=true") },
+      { text: "💸 Cheapest Prices Today", action: () => navigate("/search?sort=price_asc") },
+      { text: `🛍️ ${currentMonth} Mega Sale Live!`, action: () => navigate("/search") }
     ]);
-  }, []);
+  }, [navigate]);
 
   /* ================= BANNER ROTATION ================= */
   useEffect(() => {
@@ -64,9 +61,21 @@ export default function Homepage() {
         const data = await res.json();
         if (!res.ok) throw new Error(data.message || "Failed to load");
 
-        const allProducts = data.latest || [];
-        const categorized = categorizeProducts(allProducts);
+        // Use ALL sections from API directly
+        const categorized = {
+          recommended: data.recommended || [],
+          cheapDeals: data.cheapDeals || [],
+          trending: data.trending || [],
+          latest: data.latest || []
+        };
         
+        // Cache all products
+        const allProducts = [
+          ...categorized.recommended,
+          ...categorized.cheapDeals,
+          ...categorized.trending,
+          ...categorized.latest
+        ];
         setProducts(allProducts);
         setSections(categorized);
         setLoaded(true);
@@ -80,15 +89,14 @@ export default function Homepage() {
     };
 
     fetchHomepageData();
-  }, []);
+  }, [loaded, products.length, setProducts, setLoaded]);
 
-  /* ================= REAL CATEGORIZATION (USE DB VIEWS) ================= */
+  /* ================= REAL CATEGORIZATION (BACKUP) ================= */
   const categorizeProducts = useCallback((allProducts) => {
-    // Use REAL views/clicks from DB - no faking!
     const withMetrics = allProducts.map((p) => ({
       ...p,
-      views: p.views || 0, // REAL from products.views
-      clicks: p.clicks_count || p.clicks || 0, // REAL from DB
+      views: p.views || 0,
+      clicks: p.clicks_count || p.clicks || 0,
       postedAt: p.createdAt || p.created_at || new Date().toISOString(),
       isNew: !p.createdAt || (Date.now() - new Date(p.createdAt)) < 7 * 24 * 60 * 60 * 1000,
       isHot: (p.views || 0) > 100 || (p.promotion_priority || 0) > 0
@@ -103,40 +111,46 @@ export default function Homepage() {
     const sorted = withMetrics.sort((a, b) => scoreProduct(b) - scoreProduct(a));
 
     return {
-      recommended: sorted.slice(0, 12), // SHOW ALL - more items
-      cheapDeals: sorted
-        .filter(p => Number(p.price) <= 20000)
-        .sort((a, b) => scoreProduct(b) - scoreProduct(a))
-        .slice(0, 20), // SHOW MORE
-      trending: sorted
-        .filter(p => (p.views || 0) > 10) // Use real threshold
-        .sort((a, b) => (b.views || 0) - (a.views || 0))
-        .slice(0, 15), // SHOW MORE
-      latest: sorted.slice(0, 24) // SHOW ALL latest
+      recommended: sorted.slice(0, 12),
+      cheapDeals: sorted.filter(p => Number(p.price) <= 20000).sort((a, b) => scoreProduct(b) - scoreProduct(a)).slice(0, 20),
+      trending: sorted.filter(p => (p.views || 0) > 10).sort((a, b) => (b.views || 0) - (a.views || 0)).slice(0, 15),
+      latest: sorted.slice(0, 24)
     };
   }, []);
 
-  /* ================= SECTION RENDERER (NO View All) ================= */
+  /* ================= CLICK HANDLER ================= */
+  const handleBannerClick = () => {
+    if (banners[currentBanner]?.action) {
+      banners[currentBanner].action();
+    }
+  };
+
+  /* ================= SECTION RENDERER ================= */
   const renderSection = (title, items, isHorizontal = false) => (
     <section>
       <div className="section-header">
         <h2 className="mini-title">{title}</h2>
-        {/* REMOVED View All buttons */}
       </div>
       
-      {isHorizontal ? (
-        <div className="horizontal-scroll">
-          {items.map((p) => (
-            <div key={p.id} className="scroll-item">
-              <ProductCardMini product={p} onClick={() => navigate(`/product/${p.id}`)} />
-            </div>
-          ))}
-        </div>
+      {items.length > 0 ? (
+        isHorizontal ? (
+          <div className="horizontal-scroll">
+            {items.map((p) => (
+              <div key={p.id} className="scroll-item">
+                <ProductCardMini product={p} onClick={() => navigate(`/product/${p.id}`)} />
+              </div>
+            ))}
+          </div>
+        ) : (
+          <div className="grid">
+            {items.map((p) => (
+              <ProductCard key={p.id} product={p} onClick={() => navigate(`/product/${p.id}`)} />
+            ))}
+          </div>
+        )
       ) : (
-        <div className="grid">
-          {items.map((p) => (
-            <ProductCard key={p.id} product={p} onClick={() => navigate(`/product/${p.id}`)} />
-          ))}
+        <div className="empty-state">
+          <p>No products yet. Be the first to sell!</p>
         </div>
       )}
     </section>
@@ -144,23 +158,31 @@ export default function Homepage() {
 
   return (
     <>
+      {/* 📌 PINNED TOPNAV */}
       <TopNav />
       
-      <div className="homepage-container">
-        {/* 🔥 ROTATING BANNER */}
-        {banners.length > 0 && (
-          <div className="banner">
-            <div className="banner-text">{banners[currentBanner]}</div>
-          </div>
-        )}
+      <div className="page-content">
+        <div className="homepage-container">
+          {/* 🔥 CLICKABLE BANNER */}
+          {banners.length > 0 && (
+            <div 
+              className="banner clickable" 
+              onClick={handleBannerClick}
+              role="button"
+              tabIndex={0}
+              onKeyDown={(e) => e.key === 'Enter' && handleBannerClick()}
+            >
+              <div className="banner-text">{banners[currentBanner]?.text}</div>
+              <div className="banner-arrow">→</div>
+            </div>
+          )}
 
-        {/* 🎯 SHOW ALL PRODUCTS IN SECTIONS */}
-        <>
+          {/* 🎯 SECTIONS */}
           {renderSection("🎯 Recommended for you", sections.recommended, true)}
           {renderSection("💸 Cheap Deals (≤₦20K)", sections.cheapDeals, false)}
           {renderSection("🔥 Trending Now", sections.trending, true)}
           {renderSection("🆕 Latest Uploads", sections.latest, false)}
-        </>
+        </div>
       </div>
 
       {/* 🚀 SELL BUTTON */}
@@ -176,12 +198,12 @@ export default function Homepage() {
   );
 }
 
-/* ================= PRODUCT CARDS (REAL DATA) ================= */
+/* ================= PRODUCT CARDS ================= */
 const ProductCard = ({ product, onClick }) => (
   <div className="card" tabIndex={0} onClick={onClick} role="button">
     <div className="card-image">
       <img
-        src={product.media?.images?.[0] || product.images?.[0] || "https://via.placeholder.com/300"}
+        src={product.images?.[0] || "https://via.placeholder.com/300x300/eee?text=No+Image"}
         alt={product.title}
         loading="lazy"
       />
@@ -192,7 +214,7 @@ const ProductCard = ({ product, onClick }) => (
     <div className="card-body">
       <h3 className="title">{product.title}</h3>
       <p className="price">₦{Number(product.price).toLocaleString()}</p>
-      <p className="location">{product.location_city}</p>
+      <p className="location">{product.location?.city || 'Lagos'}</p>
       <div className="card-meta">
         <span className="views">{(product.views || 0).toLocaleString()} views</span>
       </div>
@@ -204,7 +226,7 @@ const ProductCardMini = ({ product, onClick }) => (
   <div className="card scroll-item-card" onClick={onClick} role="button">
     <div className="card-image">
       <img
-        src={product.media?.images?.[0] || product.images?.[0] || "https://via.placeholder.com/300"}
+        src={product.images?.[0] || "https://via.placeholder.com/160x100/eee?text=No+Image"}
         alt={product.title}
         loading="lazy"
       />
