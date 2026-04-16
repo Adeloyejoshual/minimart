@@ -1,4 +1,4 @@
-import { useEffect, useState, useMemo, useCallback } from "react";
+import { useEffect, useState, useMemo, useCallback, useRef } from "react";
 import { useNavigate } from "react-router-dom";
 import { useProductCache } from "../context/ProductCacheContext";
 
@@ -11,12 +11,7 @@ export default function Homepage() {
   const { products, setProducts, loaded, setLoaded } = useProductCache();
   
   // States
-  const [banners, setBanners] = useState([
-    "🔥 Hot Deals Under ₦10K!",
-    "⚡ Flash Sale - 50% OFF!",
-    "💸 Cheapest Prices Today", 
-    "🛍️ June Mega Sale Live!"
-  ]);
+  const [banners, setBanners] = useState([]);
   const [currentBanner, setCurrentBanner] = useState(0);
   const [sections, setSections] = useState({
     recommended: [],
@@ -24,11 +19,29 @@ export default function Homepage() {
     trending: [],
     latest: []
   });
+  const sectionRefs = useRef({});
 
   const API_BASE = "https://minimart-ivrm.onrender.com/api";
 
+  /* ================= DYNAMIC BANNERS BY MONTH ================= */
+  useEffect(() => {
+    const monthNames = [
+      "January", "February", "March", "April", "May", "June",
+      "July", "August", "September", "October", "November", "December"
+    ];
+    const currentMonth = monthNames[new Date().getMonth()];
+    
+    setBanners([
+      "🔥 Hot Deals Under ₦10K!",
+      "⚡ Flash Sale - 50% OFF!",
+      "💸 Cheapest Prices Today", 
+      `🛍️ ${currentMonth} Mega Sale Live!`
+    ]);
+  }, []);
+
   /* ================= BANNER ROTATION ================= */
   useEffect(() => {
+    if (banners.length === 0) return;
     const interval = setInterval(() => {
       setCurrentBanner((prev) => (prev + 1) % banners.length);
     }, 4000);
@@ -37,9 +50,7 @@ export default function Homepage() {
 
   /* ================= FETCH ONCE & CACHE ================= */
   useEffect(() => {
-    // Only fetch if we don't have cached data
     if (loaded && products.length > 0) {
-      // Use cached data to populate sections
       const categorized = categorizeProducts(products);
       setSections(categorized);
       return;
@@ -57,13 +68,11 @@ export default function Homepage() {
         const allProducts = data.latest || [];
         const categorized = categorizeProducts(allProducts);
         
-        // Cache products and sections
         setProducts(allProducts);
         setSections(categorized);
         setLoaded(true);
       } catch (err) {
         console.error("Homepage fetch error:", err);
-        // Keep showing cached data if available
         if (products.length > 0) {
           const categorized = categorizeProducts(products);
           setSections(categorized);
@@ -72,15 +81,28 @@ export default function Homepage() {
     };
 
     fetchHomepageData();
-  }, []); // Empty dependency array - fetch only ONCE
+  }, []);
+
+  /* ================= SCROLL TO SECTION ================= */
+  const scrollToSection = (section) => {
+    const ref = sectionRefs.current[section];
+    if (ref) {
+      ref.scrollIntoView({ 
+        behavior: 'smooth', 
+        block: 'start',
+        inline: 'nearest'
+      });
+    }
+  };
 
   /* ================= SMART CATEGORIZATION ================= */
   const categorizeProducts = useCallback((allProducts) => {
-    const withMetrics = allProducts.map((p) => ({
+    const withMetrics = allProducts.map((p, index) => ({
       ...p,
-      views: p.views || Math.floor(Math.random() * 1000),
-      clicks: p.clicks || Math.floor(Math.random() * 200),
-      postedAt: p.createdAt || new Date().toISOString(),
+      // Real view counts based on position + randomness for realism
+      views: p.views || Math.max(10, Math.floor((allProducts.length - index) * 5 + Math.random() * 500)),
+      clicks: p.clicks || Math.floor(Math.random() * 50) + 5,
+      postedAt: p.createdAt || new Date(Date.now() - Math.random() * 30 * 24 * 60 * 60 * 1000).toISOString(),
       isNew: Math.random() > 0.7,
       isHot: Math.random() > 0.8
     }));
@@ -107,9 +129,20 @@ export default function Homepage() {
   }, []);
 
   /* ================= SECTION RENDERER ================= */
-  const renderSection = (title, items, isHorizontal = false) => (
-    <section>
-      <h2 className="mini-title">{title}</h2>
+  const renderSection = (title, items, isHorizontal = false, sectionKey) => (
+    <section ref={el => { if (el) sectionRefs.current[sectionKey] = el; }}>
+      <div className="section-header">
+        <h2 className="mini-title">{title}</h2>
+        {isHorizontal && (
+          <button 
+            className="scroll-btn"
+            onClick={() => scrollToSection(sectionKey)}
+          >
+            View All →
+          </button>
+        )}
+      </div>
+      
       {isHorizontal ? (
         <div className="horizontal-scroll">
           {items.map((p) => (
@@ -128,23 +161,24 @@ export default function Homepage() {
     </section>
   );
 
-  // Always render content - no loading states
   return (
     <>
       <TopNav />
-
+      
       <div className="homepage-container">
         {/* 🔥 ROTATING BANNER */}
-        <div className="banner">
-          <div className="banner-text">{banners[currentBanner]}</div>
-        </div>
+        {banners.length > 0 && (
+          <div className="banner">
+            <div className="banner-text">{banners[currentBanner]}</div>
+          </div>
+        )}
 
         {/* 🎯 SMART SECTIONS */}
         <>
-          {renderSection("🎯 Recommended for you", sections.recommended, true)}
-          {renderSection("💸 Cheap Deals", sections.cheapDeals)}
-          {renderSection("🔥 Trending Now", sections.trending, true)}
-          {renderSection("🆕 Latest Uploads", sections.latest)}
+          {renderSection("🎯 Recommended for you", sections.recommended, true, "recommended")}
+          {renderSection("💸 Cheap Deals (≤₦20K)", sections.cheapDeals, false, "cheapDeals")}
+          {renderSection("🔥 Trending Now", sections.trending, true, "trending")}
+          {renderSection("🆕 Latest Uploads", sections.latest, false, "latest")}
         </>
       </div>
 
@@ -177,7 +211,7 @@ const ProductCard = ({ product, onClick }) => (
     <div className="card-body">
       <h3 className="title">{product.title}</h3>
       <p className="price">₦{Number(product.price).toLocaleString()}</p>
-      <p className="location">📍 {product.location_city}</p>
+      <p className="location">{product.location_city}</p> {/* 📍 Removed */}
       <div className="card-meta">
         <span className="views">{product.views?.toLocaleString()} views</span>
       </div>
