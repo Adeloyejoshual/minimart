@@ -18,11 +18,11 @@ html, body {
 }
 
 /* =======================================================
-   📌 PINNED TOPNAV SUPPORT
+   📌 PINNED TOPNAV SUPPORT (FIXED)
 ======================================================= */
 
 .page-content {
-  padding-top: 70px; /* TopNav height */
+  padding-top: 116px; /* TopNav (58px) + Search (58px) */
   min-height: 100vh;
 }
 
@@ -33,8 +33,8 @@ html, body {
 .homepage-container {
   max-width: 1200px;
   margin: 0 auto;
-  padding: 12px;
-  padding-bottom: 100px; /* Space for floating button */
+  padding: 20px 12px;
+  padding-bottom: 120px; /* Space for floating button */
 }
 
 /* =======================================================
@@ -47,7 +47,7 @@ html, body {
   text-align: center;
   padding: 24px 20px;
   border-radius: 20px;
-  margin-bottom: 24px;
+  margin-bottom: 32px;
   position: relative;
   overflow: hidden;
   box-shadow: 0 12px 32px rgba(255, 107, 107, 0.3);
@@ -57,8 +57,8 @@ html, body {
 }
 
 .banner.clickable:hover {
-  transform: translateY(-2px);
-  box-shadow: 0 16px 40px rgba(255, 107, 107, 0.4);
+  transform: translateY(-4px);
+  box-shadow: 0 20px 48px rgba(255, 107, 107, 0.4);
 }
 
 .banner.clickable:focus {
@@ -73,7 +73,7 @@ html, body {
   left: -100%;
   width: 100%;
   height: 100%;
-  background: linear-gradient(90deg, transparent, rgba(255,255,255,0.2), transparent);
+  background: linear-gradient(90deg, transparent, rgba(255,255,255,0.3), transparent);
   animation: shimmer 3s infinite;
 }
 
@@ -81,26 +81,20 @@ html, body {
   font-size: clamp(1.1rem, 4vw, 1.4rem);
   font-weight: 800;
   letter-spacing: -0.5px;
-  animation: fadeInOut 4s infinite ease-in-out;
   position: relative;
   z-index: 2;
-  padding-right: 40px; /* Space for arrow */
+  padding-right: 50px;
 }
 
 .banner-arrow {
   position: absolute;
-  right: 20px;
+  right: 24px;
   top: 50%;
   transform: translateY(-50%);
-  font-size: 1.4rem;
+  font-size: 1.5rem;
   font-weight: bold;
-  opacity: 0.9;
+  opacity: 0.95;
   animation: pulse 2s infinite;
-}
-
-@keyframes fadeInOut {
-  0%, 100% { opacity: 1; transform: scale(1); }
-  50% { opacity: 0.8; transform: scale(1.02); }
 }
 
 @keyframes shimmer {
@@ -110,40 +104,71 @@ html, body {
 
 @keyframes pulse {
   0%, 100% { opacity: 0.9; transform: translateY(-50%) translateX(0); }
-  50% { opacity: 1; transform: translateY(-50%) translateX(5px); }
+  50% { opacity: 1; transform: translateY(-50%) translateX(6px); }
 }
 
 /* =======================================================
-   🎯 SECTION TITLES (CLEAN)
+   🎯 SECTION TITLES
 ======================================================= */
 
 .section-header {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  margin: 24px 0 16px 0;
-  padding: 12px 0;
+  margin: 32px 0 20px 0;
+  padding: 0;
 }
 
 .mini-title {
-  font-size: 1.05rem;
+  font-size: 1.1rem;
   font-weight: 800;
   margin: 0;
   color: #1e293b;
   letter-spacing: -0.3px;
   display: flex;
   align-items: center;
-  gap: 8px;
-  flex: 1;
+  gap: 10px;
 }
 
 .mini-title::before {
   content: "";
-  width: 4px;
-  height: 24px;
+  width: 5px;
+  height: 28px;
   background: linear-gradient(135deg, #3b82f6, #1d4ed8);
-  border-radius: 2px;
+  border-radius: 3px;
   flex-shrink: 0;
+}
+
+/* =======================================================
+   ✅ LOAD MORE BUTTON (NEW)
+======================================================= */
+
+.load-more-container {
+  text-align: center;
+  padding: 32px 0;
+}
+
+.load-more-btn {
+  background: linear-gradient(135deg, #3b82f6 0%, #1d4ed8 100%);
+  color: white;
+  border: none;
+  padding: 14px 36px;
+  border-radius: 30px;
+  font-weight: 700;
+  font-size: 1rem;
+  cursor: pointer;
+  box-shadow: 0 10px 30px rgba(59, 130, 246, 0.35);
+  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+  letter-spacing: -0.2px;
+}
+
+.load-more-btn:hover {
+  transform: translateY(-4px);
+  box-shadow: 0 16px 40px rgba(59, 130, 246, 0.45);
+}
+
+.load-more-btn:active {
+  transform: scale(0.97);
 }
 
 /* =======================================================
@@ -152,16 +177,16 @@ html, body {
 
 .grid {
   column-count: 2;
-  column-gap: 12px;
-  margin-bottom: 24px;
+  column-gap: 16px;
+  margin-bottom: 8px;
 }
 
 @media (min-width: 480px) {
-  .grid { column-count: 3; }
+  .grid { column-count: 2; }
 }
 
 @media (min-width: 768px) {
-  .grid { column-count: 3; }
+  .grid { column-count: 3; column-gap: 20px; }
 }
 
 @media (min-width: 1024px) {
@@ -173,19 +198,19 @@ html, body {
 }
 
 /* =======================================================
-   📱 HORIZONTAL SCROLL
+   📱 HORIZONTAL SCROLL (FIXED)
 ======================================================= */
 
 .horizontal-scroll {
   display: flex;
   overflow-x: auto;
-  gap: 12px;
-  padding-bottom: 16px;
+  gap: 14px;
+  padding: 8px 0;
   scroll-snap-type: x mandatory;
   -webkit-overflow-scrolling: touch;
   scrollbar-width: none;
   -ms-overflow-style: none;
-  margin-bottom: 24px;
+  margin-bottom: 32px;
 }
 
 .horizontal-scroll::-webkit-scrollbar {
@@ -193,43 +218,38 @@ html, body {
 }
 
 .scroll-item {
-  flex: 0 0 160px;
+  flex: 0 0 165px;
   scroll-snap-align: start;
-  max-width: 160px;
+  max-width: 165px;
 }
 
 /* =======================================================
-   🪪 PRODUCT CARDS
+   🪪 PERFECT PRODUCT CARDS (FIXED IMAGES)
 ======================================================= */
 
 .card {
   break-inside: avoid;
-  margin-bottom: 16px;
+  margin-bottom: 20px;
   background: #fff;
-  border-radius: 20px;
+  border-radius: 24px;
   overflow: hidden;
   display: inline-block;
   width: 100%;
-  box-shadow: 0 4px 20px rgba(0,0,0,0.06);
-  transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+  box-shadow: 0 6px 24px rgba(0,0,0,0.08);
+  transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1);
   cursor: pointer;
   position: relative;
-  border: 1px solid rgba(0,0,0,0.03);
+  border: 1px solid rgba(0,0,0,0.04);
 }
 
 .card:hover {
-  transform: translateY(-4px) scale(1.02);
-  box-shadow: 0 20px 40px rgba(0,0,0,0.12);
+  transform: translateY(-6px);
+  box-shadow: 0 24px 48px rgba(0,0,0,0.15);
   border-color: rgba(59, 130, 246, 0.2);
 }
 
 .card:active {
   transform: scale(0.98);
-}
-
-.card:focus {
-  outline: none;
-  box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.3);
 }
 
 /* =======================================================
@@ -238,69 +258,61 @@ html, body {
 
 .hot-badge, .new-badge {
   position: absolute;
-  top: 8px;
-  padding: 4px 8px;
-  border-radius: 12px;
-  font-size: 0.65rem;
-  font-weight: 700;
+  top: 10px;
+  padding: 6px 10px;
+  border-radius: 16px;
+  font-size: 0.7rem;
+  font-weight: 800;
   z-index: 3;
-  box-shadow: 0 2px 8px rgba(0,0,0,0.15);
+  box-shadow: 0 4px 12px rgba(0,0,0,0.2);
 }
 
 .hot-badge {
-  right: 8px;
+  right: 10px;
   background: linear-gradient(135deg, #ef4444, #dc2626);
   color: white;
 }
 
 .new-badge {
-  left: 8px;
+  left: 10px;
   background: linear-gradient(135deg, #10b981, #059669);
   color: white;
 }
 
 /* =======================================================
-   🖼️ IMAGES
+   🖼️ PERFECT IMAGES (100% FIXED)
 ======================================================= */
 
 .card-image {
-  background: linear-gradient(135deg, #f8fafc, #e2e8f0);
   position: relative;
   overflow: hidden;
-}
-
-.card-image {
-  aspect-ratio: 1;
+  background: linear-gradient(135deg, #f1f5f9 0%, #e2e8f0 100%);
+  height: 220px; /* FIXED height for grid cards */
 }
 
 .card-image img {
-  width: 100%;
-  height: 100%;
-  object-fit: cover;
-  display: block;
-  transition: transform 0.3s ease;
+  width: 100% !important;
+  height: 100% !important;
+  object-fit: cover !important;
+  object-position: center !important;
+  display: block !important;
+  transition: transform 0.4s cubic-bezier(0.4, 0, 0.2, 1);
 }
 
 .card:hover .card-image img {
-  transform: scale(1.05);
+  transform: scale(1.08);
 }
 
-.card-image::after {
-  content: "";
-  position: absolute;
-  inset: 0;
-  background: linear-gradient(to bottom, transparent 60%, rgba(0,0,0,0.08));
+/* ✅ FIXED HORIZONTAL SCROLL IMAGES */
+.scroll-item-card .card-image {
+  height: 120px !important; /* FIXED perfect height */
 }
 
-/* Horizontal scroll images */
-.scroll-item .card-image {
-  height: 100px;
-}
-
-.scroll-item .card-image img {
-  height: 100px;
-  width: 100%;
-  object-fit: cover;
+.scroll-item-card .card-image img {
+  height: 120px !important;
+  width: 100% !important;
+  object-fit: cover !important;
+  object-position: center !important;
 }
 
 /* =======================================================
@@ -308,41 +320,22 @@ html, body {
 ======================================================= */
 
 .card-body {
-  padding: 14px;
+  padding: 16px;
   display: flex;
   flex-direction: column;
-  gap: 8px;
+  gap: 10px;
 }
 
 .scroll-item-card .card-body {
-  padding: 10px 8px 12px;
-  gap: 4px;
+  padding: 12px 10px 14px;
+  gap: 6px;
 }
 
-.scroll-item-card .card-body .title {
-  font-size: 0.75rem;
-  -webkit-line-clamp: 1;
-  line-height: 1.2;
-}
-
-/* PRICE */
-.price {
-  font-weight: 900;
-  font-size: 1rem;
-  color: #1d4ed8;
-  letter-spacing: -0.3px;
-  margin: 0;
-}
-
-.scroll-item-card .price {
-  font-size: 0.9rem;
-}
-
-/* TITLE */
+/* MAIN GRID TITLES */
 .title {
-  font-size: 0.88rem;
-  font-weight: 700;
-  line-height: 1.3;
+  font-size: 0.95rem;
+  font-weight: 800;
+  line-height: 1.35;
   color: #111827;
   margin: 0;
   display: -webkit-box;
@@ -351,12 +344,32 @@ html, body {
   overflow: hidden;
 }
 
+/* SCROLL TITLES (Smaller) */
+.scroll-item-card .title {
+  font-size: 0.8rem !important;
+  -webkit-line-clamp: 1 !important;
+  line-height: 1.25 !important;
+}
+
+/* PRICE */
+.price {
+  font-weight: 900;
+  font-size: 1.1rem;
+  color: #1d4ed8;
+  letter-spacing: -0.4px;
+  margin: 0;
+}
+
+.scroll-item-card .price {
+  font-size: 0.95rem;
+}
+
 /* LOCATION */
 .location {
-  font-size: 0.75rem;
+  font-size: 0.8rem;
   color: #6b7280;
   font-weight: 600;
-  margin: 0 0 4px 0;
+  margin: 0 0 6px 0;
 }
 
 /* CARD META */
@@ -364,12 +377,13 @@ html, body {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  padding-top: 6px;
-  border-top: 1px solid rgba(0,0,0,0.05);
+  padding-top: 8px;
+  border-top: 1px solid rgba(0,0,0,0.06);
+  margin-top: auto;
 }
 
 .views {
-  font-size: 0.72rem;
+  font-size: 0.75rem;
   color: #6b7280;
   font-weight: 600;
 }
@@ -380,13 +394,13 @@ html, body {
 
 .empty-state {
   text-align: center;
-  padding: 60px 20px;
+  padding: 80px 24px;
   color: #6b7280;
-  font-size: 0.95rem;
 }
 
 .empty-state p {
   margin: 0;
+  font-size: 1rem;
 }
 
 /* =======================================================
@@ -395,82 +409,71 @@ html, body {
 
 .floating-btn {
   position: fixed;
-  bottom: 85px;
-  right: 16px;
+  bottom: 90px;
+  right: 20px;
   background: linear-gradient(135deg, #3b82f6 0%, #1d4ed8 100%);
   color: white;
   border: none;
-  padding: 16px 20px;
+  padding: 18px 24px;
   border-radius: 50px;
-  font-weight: 700;
-  font-size: 0.9rem;
-  box-shadow: 0 16px 32px rgba(59, 130, 246, 0.4);
-  z-index: 1000;
-  transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1);
-  backdrop-filter: blur(20px);
+  font-weight: 800;
+  font-size: 0.95rem;
+  box-shadow: 0 20px 40px rgba(59, 130, 246, 0.4);
+  z-index: 999;
+  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
 }
 
 .floating-btn:hover {
-  transform: translateY(-2px) scale(1.05);
-  box-shadow: 0 20px 40px rgba(59, 130, 246, 0.5);
-}
-
-.floating-btn:active {
-  transform: scale(0.96);
+  transform: translateY(-4px) scale(1.06);
+  box-shadow: 0 24px 48px rgba(59, 130, 246, 0.5);
 }
 
 /* =======================================================
-   🎨 RESPONSIVE
+   📱 RESPONSIVE
 ======================================================= */
 
 @media (max-width: 480px) {
   .page-content {
-    padding-top: 65px;
+    padding-top: 110px;
   }
   
   .homepage-container {
-    padding: 8px;
+    padding: 12px 8px;
   }
   
   .scroll-item {
-    flex: 0 0 145px;
-    max-width: 145px;
+    flex: 0 0 150px;
+    max-width: 150px;
   }
   
-  .scroll-item .card-image {
-    height: 95px;
-  }
-  
-  .scroll-item .card-image img {
-    height: 95px;
+  .scroll-item-card .card-image {
+    height: 110px !important;
   }
   
   .floating-btn {
-    bottom: 75px;
-    right: 12px;
-    padding: 14px 18px;
-    font-size: 0.85rem;
+    bottom: 80px;
+    right: 16px;
+    padding: 16px 20px;
   }
 }
 
 @media (min-width: 768px) {
-  .homepage-container {
-    padding: 20px;
+  .page-content {
+    padding-top: 120px;
   }
   
-  .page-content {
-    padding-top: 80px;
+  .homepage-container {
+    padding: 24px 20px;
   }
 }
 
 /* =======================================================
-   ⚡ PERFORMANCE & ACCESSIBILITY
+   ⚡ PERFORMANCE
 ======================================================= */
 
 .card {
   will-change: transform;
   contain: layout style paint;
-  transform: translateZ(0);
 }
 
 img {
@@ -482,7 +485,6 @@ img {
 @media (prefers-reduced-motion: reduce) {
   * {
     animation-duration: 0.01ms !important;
-    animation-iteration-count: 1 !important;
     transition-duration: 0.01ms !important;
   }
 }
