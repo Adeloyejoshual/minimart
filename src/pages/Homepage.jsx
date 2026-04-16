@@ -19,7 +19,6 @@ export default function Homepage() {
     trending: [],
     latest: []
   });
-  const sectionRefs = useRef({});
 
   const API_BASE = "https://minimart-ivrm.onrender.com/api";
 
@@ -48,7 +47,7 @@ export default function Homepage() {
     return () => clearInterval(interval);
   }, [banners.length]);
 
-  /* ================= FETCH ONCE & CACHE ================= */
+  /* ================= FETCH WITH REAL VIEWS ================= */
   useEffect(() => {
     if (loaded && products.length > 0) {
       const categorized = categorizeProducts(products);
@@ -83,64 +82,46 @@ export default function Homepage() {
     fetchHomepageData();
   }, []);
 
-  /* ================= SCROLL TO SECTION ================= */
-  const scrollToSection = (section) => {
-    const ref = sectionRefs.current[section];
-    if (ref) {
-      ref.scrollIntoView({ 
-        behavior: 'smooth', 
-        block: 'start',
-        inline: 'nearest'
-      });
-    }
-  };
-
-  /* ================= SMART CATEGORIZATION ================= */
+  /* ================= REAL CATEGORIZATION (USE DB VIEWS) ================= */
   const categorizeProducts = useCallback((allProducts) => {
-    const withMetrics = allProducts.map((p, index) => ({
+    // Use REAL views/clicks from DB - no faking!
+    const withMetrics = allProducts.map((p) => ({
       ...p,
-      // Real view counts based on position + randomness for realism
-      views: p.views || Math.max(10, Math.floor((allProducts.length - index) * 5 + Math.random() * 500)),
-      clicks: p.clicks || Math.floor(Math.random() * 50) + 5,
-      postedAt: p.createdAt || new Date(Date.now() - Math.random() * 30 * 24 * 60 * 60 * 1000).toISOString(),
-      isNew: Math.random() > 0.7,
-      isHot: Math.random() > 0.8
+      views: p.views || 0, // REAL from products.views
+      clicks: p.clicks_count || p.clicks || 0, // REAL from DB
+      postedAt: p.createdAt || p.created_at || new Date().toISOString(),
+      isNew: !p.createdAt || (Date.now() - new Date(p.createdAt)) < 7 * 24 * 60 * 60 * 1000,
+      isHot: (p.views || 0) > 100 || (p.promotion_priority || 0) > 0
     }));
 
     const scoreProduct = (p) => {
       const recencyBoost = Date.now() - new Date(p.postedAt) < 7 * 24 * 60 * 60 * 1000 ? 50 : 0;
-      return p.views + (p.clicks * 3) + recencyBoost;
+      const promoBoost = (p.promotion_priority || 0) * 10;
+      return (p.views || 0) + ((p.clicks_count || p.clicks || 0) * 3) + recencyBoost + promoBoost;
     };
 
     const sorted = withMetrics.sort((a, b) => scoreProduct(b) - scoreProduct(a));
 
     return {
-      recommended: sorted.slice(0, 8),
+      recommended: sorted.slice(0, 12), // SHOW ALL - more items
       cheapDeals: sorted
         .filter(p => Number(p.price) <= 20000)
         .sort((a, b) => scoreProduct(b) - scoreProduct(a))
-        .slice(0, 12),
+        .slice(0, 20), // SHOW MORE
       trending: sorted
-        .filter(p => p.views > 50)
-        .sort((a, b) => b.views - a.views)
-        .slice(0, 10),
-      latest: sorted.slice(0, 16)
+        .filter(p => (p.views || 0) > 10) // Use real threshold
+        .sort((a, b) => (b.views || 0) - (a.views || 0))
+        .slice(0, 15), // SHOW MORE
+      latest: sorted.slice(0, 24) // SHOW ALL latest
     };
   }, []);
 
-  /* ================= SECTION RENDERER ================= */
-  const renderSection = (title, items, isHorizontal = false, sectionKey) => (
-    <section ref={el => { if (el) sectionRefs.current[sectionKey] = el; }}>
+  /* ================= SECTION RENDERER (NO View All) ================= */
+  const renderSection = (title, items, isHorizontal = false) => (
+    <section>
       <div className="section-header">
         <h2 className="mini-title">{title}</h2>
-        {isHorizontal && (
-          <button 
-            className="scroll-btn"
-            onClick={() => scrollToSection(sectionKey)}
-          >
-            View All →
-          </button>
-        )}
+        {/* REMOVED View All buttons */}
       </div>
       
       {isHorizontal ? (
@@ -173,12 +154,12 @@ export default function Homepage() {
           </div>
         )}
 
-        {/* 🎯 SMART SECTIONS */}
+        {/* 🎯 SHOW ALL PRODUCTS IN SECTIONS */}
         <>
-          {renderSection("🎯 Recommended for you", sections.recommended, true, "recommended")}
-          {renderSection("💸 Cheap Deals (≤₦20K)", sections.cheapDeals, false, "cheapDeals")}
-          {renderSection("🔥 Trending Now", sections.trending, true, "trending")}
-          {renderSection("🆕 Latest Uploads", sections.latest, false, "latest")}
+          {renderSection("🎯 Recommended for you", sections.recommended, true)}
+          {renderSection("💸 Cheap Deals (≤₦20K)", sections.cheapDeals, false)}
+          {renderSection("🔥 Trending Now", sections.trending, true)}
+          {renderSection("🆕 Latest Uploads", sections.latest, false)}
         </>
       </div>
 
@@ -195,12 +176,12 @@ export default function Homepage() {
   );
 }
 
-/* ================= PRODUCT CARDS ================= */
+/* ================= PRODUCT CARDS (REAL DATA) ================= */
 const ProductCard = ({ product, onClick }) => (
   <div className="card" tabIndex={0} onClick={onClick} role="button">
     <div className="card-image">
       <img
-        src={product.images?.[0] || "https://via.placeholder.com/300"}
+        src={product.media?.images?.[0] || product.images?.[0] || "https://via.placeholder.com/300"}
         alt={product.title}
         loading="lazy"
       />
@@ -211,9 +192,9 @@ const ProductCard = ({ product, onClick }) => (
     <div className="card-body">
       <h3 className="title">{product.title}</h3>
       <p className="price">₦{Number(product.price).toLocaleString()}</p>
-      <p className="location">{product.location_city}</p> {/* 📍 Removed */}
+      <p className="location">{product.location_city}</p>
       <div className="card-meta">
-        <span className="views">{product.views?.toLocaleString()} views</span>
+        <span className="views">{(product.views || 0).toLocaleString()} views</span>
       </div>
     </div>
   </div>
@@ -223,7 +204,7 @@ const ProductCardMini = ({ product, onClick }) => (
   <div className="card scroll-item-card" onClick={onClick} role="button">
     <div className="card-image">
       <img
-        src={product.images?.[0] || "https://via.placeholder.com/300"}
+        src={product.media?.images?.[0] || product.images?.[0] || "https://via.placeholder.com/300"}
         alt={product.title}
         loading="lazy"
       />
