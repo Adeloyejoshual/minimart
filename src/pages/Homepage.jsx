@@ -10,7 +10,7 @@ export default function Homepage() {
   const navigate = useNavigate();
   const { products, setProducts, loaded, setLoaded } = useProductCache();
   
-  // States
+  // FIXED STATES
   const [banners, setBanners] = useState([]);
   const [currentBanner, setCurrentBanner] = useState(0);
   const [sections, setSections] = useState({
@@ -19,18 +19,19 @@ export default function Homepage() {
     trending: [],
     latest: []
   });
+  const [cheapVisible, setCheapVisible] = useState(8); // ✅ FIXED: Load More
 
   const API_BASE = "https://minimart-ivrm.onrender.com/api";
 
-  /* ================= PROFESSIONAL BANNERS (CLICKABLE) ================= */
+  /* ================= FIXED BANNERS (Working Search Params) ================= */
   useEffect(() => {
     const monthNames = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"];
     const currentMonth = monthNames[new Date().getMonth()];
     
     setBanners([
-      { text: "🔥 Hot Deals Under ₦10,000", action: () => navigate("/search?price_max=10000") },
-      { text: "⚡ Flash Sale - Up to 50% OFF", action: () => navigate("/search?discount=true") },
-      { text: "💸 Cheapest Prices Today", action: () => navigate("/search?sort=price_asc") },
+      { text: "🔥 Hot Deals Under ₦10,000", action: () => navigate("/search?price_max=10000&sort=price") }, // ✅ FIXED
+      { text: "⚡ Flash Sale - Up to 50% OFF", action: () => navigate("/search?promoted=true") }, // ✅ FIXED
+      { text: "💸 Cheapest Prices Today", action: () => navigate("/search?sort=price&price_max=50000") }, // ✅ FIXED
       { text: `🛍️ ${currentMonth} Mega Sale Live!`, action: () => navigate("/search") }
     ]);
   }, [navigate]);
@@ -61,7 +62,7 @@ export default function Homepage() {
         const data = await res.json();
         if (!res.ok) throw new Error(data.message || "Failed to load");
 
-        // Use ALL sections from API directly
+        // ✅ FIXED: Use API sections directly
         const categorized = {
           recommended: data.recommended || [],
           cheapDeals: data.cheapDeals || [],
@@ -69,13 +70,14 @@ export default function Homepage() {
           latest: data.latest || []
         };
         
-        // Cache all products
+        // Cache all unique products
         const allProducts = [
           ...categorized.recommended,
           ...categorized.cheapDeals,
           ...categorized.trending,
           ...categorized.latest
-        ];
+        ].filter((p, index, self) => index === self.findIndex(t => t.id === p.id)); // Remove duplicates
+        
         setProducts(allProducts);
         setSections(categorized);
         setLoaded(true);
@@ -89,9 +91,9 @@ export default function Homepage() {
     };
 
     fetchHomepageData();
-  }, [loaded, products.length, setProducts, setLoaded]);
+  }, []); // ✅ FIXED: Empty deps - only fetch once
 
-  /* ================= REAL CATEGORIZATION (BACKUP) ================= */
+  /* ================= BACKUP CATEGORIZATION ================= */
   const categorizeProducts = useCallback((allProducts) => {
     const withMetrics = allProducts.map((p) => ({
       ...p,
@@ -112,7 +114,7 @@ export default function Homepage() {
 
     return {
       recommended: sorted.slice(0, 12),
-      cheapDeals: sorted.filter(p => Number(p.price) <= 20000).sort((a, b) => scoreProduct(b) - scoreProduct(a)).slice(0, 20),
+      cheapDeals: sorted.filter(p => Number(p.price) <= 20000).sort((a, b) => scoreProduct(b) - scoreProduct(a)),
       trending: sorted.filter(p => (p.views || 0) > 10).sort((a, b) => (b.views || 0) - (a.views || 0)).slice(0, 15),
       latest: sorted.slice(0, 24)
     };
@@ -125,29 +127,43 @@ export default function Homepage() {
     }
   };
 
-  /* ================= SECTION RENDERER ================= */
-  const renderSection = (title, items, isHorizontal = false) => (
+  /* ================= FIXED SECTION RENDERER (Load More) ================= */
+  const renderSection = (title, items, isHorizontal = false, loadMore = false) => (
     <section>
       <div className="section-header">
         <h2 className="mini-title">{title}</h2>
       </div>
       
       {items.length > 0 ? (
-        isHorizontal ? (
-          <div className="horizontal-scroll">
-            {items.map((p) => (
-              <div key={p.id} className="scroll-item">
-                <ProductCardMini product={p} onClick={() => navigate(`/product/${p.id}`)} />
-              </div>
-            ))}
-          </div>
-        ) : (
-          <div className="grid">
-            {items.map((p) => (
-              <ProductCard key={p.id} product={p} onClick={() => navigate(`/product/${p.id}`)} />
-            ))}
-          </div>
-        )
+        <>
+          {isHorizontal ? (
+            <div className="horizontal-scroll">
+              {items.slice(0, loadMore ? cheapVisible : items.length).map((p) => (
+                <div key={p.id} className="scroll-item">
+                  <ProductCardMini product={p} onClick={() => navigate(`/product/${p.id}`)} />
+                </div>
+              ))}
+            </div>
+          ) : (
+            <div className="grid">
+              {items.slice(0, loadMore ? cheapVisible : items.length).map((p) => (
+                <ProductCard key={p.id} product={p} onClick={() => navigate(`/product/${p.id}`)} />
+              ))}
+            </div>
+          )}
+          
+          {/* ✅ FIXED: Load More Button */}
+          {loadMore && cheapVisible < items.length && (
+            <div className="load-more-container">
+              <button 
+                className="load-more-btn"
+                onClick={() => setCheapVisible(prev => Math.min(prev + 8, items.length))}
+              >
+                Load More ({items.length - cheapVisible} left)
+              </button>
+            </div>
+          )}
+        </>
       ) : (
         <div className="empty-state">
           <p>No products yet. Be the first to sell!</p>
@@ -177,9 +193,9 @@ export default function Homepage() {
             </div>
           )}
 
-          {/* 🎯 SECTIONS */}
+          {/* 🎯 SECTIONS - ✅ FIXED Cheap Deals Load More */}
           {renderSection("🎯 Recommended for you", sections.recommended, true)}
-          {renderSection("💸 Cheap Deals (≤₦20K)", sections.cheapDeals, false)}
+          {renderSection("💸 Cheap Deals (≤₦20K)", sections.cheapDeals, false, true)} {/* ✅ 8 + Load More */}
           {renderSection("🔥 Trending Now", sections.trending, true)}
           {renderSection("🆕 Latest Uploads", sections.latest, false)}
         </div>
@@ -198,12 +214,12 @@ export default function Homepage() {
   );
 }
 
-/* ================= PRODUCT CARDS ================= */
+/* ================= FIXED PRODUCT CARDS (Perfect Images) ================= */
 const ProductCard = ({ product, onClick }) => (
   <div className="card" tabIndex={0} onClick={onClick} role="button">
     <div className="card-image">
       <img
-        src={product.images?.[0] || "https://via.placeholder.com/300x300/eee?text=No+Image"}
+        src={product.images?.[0] || "https://via.placeholder.com/300x300/eee/6366f1?text=No+Image"}
         alt={product.title}
         loading="lazy"
       />
@@ -214,7 +230,7 @@ const ProductCard = ({ product, onClick }) => (
     <div className="card-body">
       <h3 className="title">{product.title}</h3>
       <p className="price">₦{Number(product.price).toLocaleString()}</p>
-      <p className="location">{product.location?.city || 'Lagos'}</p>
+      <p className="location">{product.location?.city || product.location_city || 'Nationwide'}</p>
       <div className="card-meta">
         <span className="views">{(product.views || 0).toLocaleString()} views</span>
       </div>
@@ -226,7 +242,7 @@ const ProductCardMini = ({ product, onClick }) => (
   <div className="card scroll-item-card" onClick={onClick} role="button">
     <div className="card-image">
       <img
-        src={product.images?.[0] || "https://via.placeholder.com/160x100/eee?text=No+Image"}
+        src={product.images?.[0] || "https://via.placeholder.com/160x120/eee/6366f1?text=??"}
         alt={product.title}
         loading="lazy"
       />
