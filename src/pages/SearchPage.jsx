@@ -1,78 +1,60 @@
 import { useEffect, useState, useRef, useCallback } from "react";
 import { useSearchParams, useNavigate } from "react-router-dom";
-import { useProductCache } from "../context/ProductCacheContext";
 import TopNav from "../components/TopNav";
-import BottomNav from "../components/BottomNav";
-import ProductCard from "../components/ProductCard"; // Same as homepage
-import ProductCardMini from "../components/ProductCardMini"; // Same as homepage
 import "../styles/SearchPage.css";
 
 export default function SearchPage() {
   const [searchParams] = useSearchParams();
   const navigate = useNavigate();
-  const { products: cachedProducts, setProducts } = useProductCache();
 
-  /* ================= STATES (Same as Homepage) ================= */
+  /* ================= STATES ================= */
   const urlQuery = searchParams.get("q") || "";
   const [searchQuery, setSearchQuery] = useState(urlQuery);
-  const [sections, setSections] = useState({
-    results: [],
-    cheapDeals: [],
-    recommended: [],
-    trending: []
-  });
+  const [products, setProducts] = useState([]);
   const [loading, setLoading] = useState(false);
-  const [cheapVisible, setCheapVisible] = useState(8);
+  const [total, setTotal] = useState(0);
+  const [page, setPage] = useState(1);
+  const [hasMore, setHasMore] = useState(true);
 
   const debounceRef = useRef(null);
-  const API_BASE = "/api";
+  const observerRef = useRef();
 
-  /* ================= FETCH SEARCH (Full Support) ================= */
+  /* ================= FETCH ================= */
   const fetchSearch = useCallback(async (reset = false, queryOverride = null) => {
     const q = (queryOverride ?? searchQuery).trim();
-    if (!q && !searchParams.get("price_max") && !searchParams.get("promoted")) return;
-
+    
     try {
       setLoading(true);
       
-      // Build full query from URL params
+      // Build params
       const params = new URLSearchParams(searchParams);
       if (q) params.set("q", q);
+      if (!reset) params.set("page", page.toString());
       
-      const url = `${API_BASE}/search?${params.toString()}`;
+      const url = `/api/search?${params.toString()}`;
       const res = await fetch(url);
       const data = await res.json();
 
-      // Cache results
-      if (data.products) {
-        setProducts(data.products);
-      }
-
-      // Format like homepage
-      const formatted = {
-        results: data.products || [],
-        cheapDeals: data.products?.filter(p => Number(p.price) <= 20000) || [],
-        recommended: data.products?.slice(0, 12) || [],
-        trending: data.products?.slice(0, 15) || []
-      };
-
-      setSections(formatted);
+      const safeProducts = Array.isArray(data?.products) ? data.products : [];
+      
+      setProducts(prev => reset ? safeProducts : [...prev, ...safeProducts]);
+      setTotal(data.total || 0);
+      setHasMore(safeProducts.length === (reset ? data.perPage || 24 : 24));
       
     } catch (err) {
       console.error("Search failed:", err);
-      setSections({ results: [], cheapDeals: [], recommended: [], trending: [] });
     } finally {
       setLoading(false);
     }
-  }, [searchQuery, searchParams, setProducts]);
+  }, [searchQuery, searchParams, page]);
 
-  /* ================= BANNER SUPPORT ================= */
+  /* ================= INIT ================= */
   useEffect(() => {
-    const hasBannerParams = searchParams.get("price_max") || 
-                           searchParams.get("promoted") || 
-                           searchParams.get("sort");
+    setSearchQuery(urlQuery);
+    setProducts([]);
+    setPage(1);
     
-    if (hasBannerParams || urlQuery) {
+    if (urlQuery || searchParams.get("price_max") || searchParams.get("promoted")) {
       fetchSearch(true, urlQuery);
     }
   }, [searchParams]);
@@ -82,63 +64,42 @@ export default function SearchPage() {
     clearTimeout(debounceRef.current);
     debounceRef.current = setTimeout(() => {
       if (searchQuery.trim()) {
-        navigate(`?q=${encodeURIComponent(searchQuery.trim())}`);
-      } else {
-        navigate("/search");
+        navigate(`?q=${encodeURIComponent(searchQuery.trim())}`, { replace: true });
       }
     }, 400);
 
     return () => clearTimeout(debounceRef.current);
   }, [searchQuery, navigate]);
 
-  /* ================= RENDER SECTION (Exact Homepage Style) ================= */
-  const renderSection = (title, items, isHorizontal = false, loadMore = false) => (
-    <section>
-      <div className="section-header">
-        <h2 className="mini-title">{title}</h2>
-      </div>
-      
-      {items.length > 0 ? (
-        <>
-          {isHorizontal ? (
-            <div className="horizontal-scroll">
-              {items.slice(0, loadMore ? cheapVisible : items.length).map((p) => (
-                <div key={p.id} className="scroll-item">
-                  <ProductCardMini 
-                    product={p} 
-                    onClick={() => navigate(`/product/${p.id}`)} 
-                  />
-                </div>
-              ))}
-            </div>
-          ) : (
-            <div className="grid">
-              {items.slice(0, loadMore ? cheapVisible : items.length).map((p) => (
-                <ProductCard 
-                  key={p.id} 
-                  product={p} 
-                  onClick={() => navigate(`/product/${p.id}`)} 
-                />
-              ))}
-            </div>
-          )}
-          
-          {loadMore && cheapVisible < items.length && (
-            <div className="load-more-container">
-              <button 
-                className="load-more-btn"
-                onClick={() => setCheapVisible(prev => Math.min(prev + 8, items.length))}
-              >
-                Load More ({items.length - cheapVisible} left)
-              </button>
-            </div>
-          )}
-        </>
-      ) : null}
-    </section>
-  );
+  /* ================= INFINITE SCROLL ================= */
+  useEffect(() => {
+    if (page === 1) return;
 
-  /* ================= SEARCH TITLE ================= */
+    fetchSearch(false);
+  }, [page]);
+
+  useEffect(() => {
+    const observer = new IntersectionObserver(
+      ([entry]) => {
+        if (entry.isIntersecting && !loading && hasMore) {
+          setPage(p => p + 1);
+        }
+      },
+      { threshold: 0.1 }
+    );
+
+    if (observerRef.current) {
+      observer.observe(observerRef.current);
+    }
+
+    return () => observer.disconnect();
+  }, [loading, hasMore]);
+
+  const openProduct = (p) => {
+    navigate(`/product/${p.id}`);
+  };
+
+  /* ================= TITLE ================= */
   const getTitle = () => {
     const q = searchQuery.trim();
     const priceMax = searchParams.get("price_max");
@@ -146,57 +107,90 @@ export default function SearchPage() {
 
     if (priceMax === "10000") return "🔥 Hot Deals Under ₦10K";
     if (promoted === "true") return "⚡ Flash Sale Products";
-    if (searchParams.get("sort") === "price") return "💸 Cheapest Prices";
+    if (searchParams.get("sort") === "price") return "💸 Cheapest First";
     
-    return q ? `Search Results for "${q}"` : "Explore Products";
+    return q ? `"${q}"` : "Search Products";
   };
 
+  const resultCount = products.length === 1 ? "result" : "results";
+
   return (
-    <>
-      {/* 📌 TOPNAV */}
+    <div className="search-page">
       <TopNav />
-      
-      <div className="page-content">
-        <div className="homepage-container">
+
+      <main className="search-main">
+        {/* 🎯 HEADER */}
+        <div className="search-header">
+          <div className="search-title">
+            <h1>{getTitle()}</h1>
+            <p className="count">{total} {resultCount} found</p>
+          </div>
           
-          {/* 🎯 DYNAMIC TITLE */}
-          <div className="banner search-banner">
-            <div className="banner-text">{getTitle()}</div>
+          <div className="search-input-container">
             <input
               type="text"
-              className="search-input-top"
-              placeholder="Search products..."
+              className="search-input"
+              placeholder="Search anything..."
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
             />
           </div>
-
-          {/* ✅ SAME SECTIONS AS HOMEPAGE */}
-          {renderSection("🎯 Search Results", sections.results, false)}
-          {renderSection("💸 Cheap Deals (≤₦20K)", sections.cheapDeals, false, true)}
-          {renderSection("⭐ Recommended", sections.recommended, true)}
-          {renderSection("🔥 Trending", sections.trending, true)}
-
-          {/* LOADING */}
-          {loading && (
-            <div className="loading-state">
-              <div className="spinner" />
-              <p>Loading more products...</p>
-            </div>
-          )}
-
         </div>
-      </div>
 
-      {/* 🚀 SELL BUTTON */}
-      <button
-        className="floating-btn"
-        onClick={() => navigate("/minimart/add")}
-      >
-        + Sell Item
-      </button>
+        {/* 📱 RESULTS */}
+        <div className="search-results">
+          {products.length > 0 ? (
+            products.map((product) => (
+              <div
+                key={product.id}
+                className="search-card"
+                onClick={() => openProduct(product)}
+              >
+                <div className="card-image">
+                  <img
+                    src={product.images?.[0] || "/placeholder.png"}
+                    alt={product.title}
+                    loading="lazy"
+                  />
+                  {product.is_promoted && (
+                    <span className="promo-badge">🔥</span>
+                  )}
+                </div>
+                
+                <div className="card-content">
+                  <h3 className="card-title">{product.title}</h3>
+                  <div className="card-price">₦{Number(product.price).toLocaleString()}</div>
+                  <div className="card-meta">
+                    <span>{product.location_city || 'Nationwide'}</span>
+                    <span>{product.views?.toLocaleString() || 0} views</span>
+                  </div>
+                </div>
+              </div>
+            ))
+          ) : !loading ? (
+            <div className="empty-search">
+              <div className="empty-icon">🔍</div>
+              <h3>No results found</h3>
+              <p>Try different keywords or check spelling</p>
+            </div>
+          ) : null}
+        </div>
 
-      <BottomNav />
-    </>
+        {/* 🔄 LOADING */}
+        {loading && (
+          <div className="loading-container">
+            <div className="spinner" />
+            <p>Loading more results...</p>
+          </div>
+        )}
+
+        {/* 📈 LOAD MORE TRIGGER */}
+        {hasMore && !loading && (
+          <div ref={observerRef} className="load-trigger">
+            ↓ Load more ↓
+          </div>
+        )}
+      </main>
+    </div>
   );
 }
