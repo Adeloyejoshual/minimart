@@ -1,4 +1,4 @@
-import { useEffect, useState, useRef, useCallback, useMemo } from "react";
+import { useEffect, useState, useRef, useCallback } from "react";
 import { useSearchParams, useNavigate } from "react-router-dom";
 import TopNav from "../components/TopNav";
 import "../styles/SearchPage.css";
@@ -10,18 +10,16 @@ export default function SearchPage() {
   // States
   const [searchQuery, setSearchQuery] = useState(searchParams.get("q") || "");
   const [products, setProducts] = useState([]);
-  const [total, setTotal] = useState(0);
   const [loading, setLoading] = useState(false);
   const [page, setPage] = useState(1);
   const [hasMore, setHasMore] = useState(true);
   const [error, setError] = useState(null);
 
-  const debounceRef = useRef();
   const observerRef = useRef();
 
   // Stable fetcher
-  const fetchSearch = useCallback(async (reset = false, overrideQuery = null) => {
-    const query = (overrideQuery || searchQuery).trim();
+  const fetchSearch = useCallback(async (reset = false) => {
+    const query = searchQuery.trim();
     if (!query && !searchParams.has("price_max") && !searchParams.has("promoted")) return;
 
     try {
@@ -42,12 +40,11 @@ export default function SearchPage() {
       const safeProducts = Array.isArray(data.products) ? data.products : [];
 
       setProducts(prev => reset ? safeProducts : [...prev, safeProducts]);
-      setTotal(data.total || safeProducts.length);
       setHasMore(safeProducts.length === 24);
       setPage(reset ? 2 : page);
     } catch (err) {
       console.error("Search error:", err);
-      setError("Failed to load results. Check connection.");
+      setError("Failed to load results.");
     } finally {
       setLoading(false);
     }
@@ -61,16 +58,9 @@ export default function SearchPage() {
     setPage(1);
     setHasMore(true);
     if (q || searchParams.get("price_max") || searchParams.get("promoted")) {
-      fetchSearch(true, q);
+      fetchSearch(true);
     }
   }, [searchParams, fetchSearch]);
-
-  // Live search - Enter only
-  const handleKeyDown = (e) => {
-    if (e.key === "Enter") {
-      navigate(`?q=${encodeURIComponent(searchQuery.trim())}`, { replace: true });
-    }
-  };
 
   // Load next page
   useEffect(() => {
@@ -97,33 +87,15 @@ export default function SearchPage() {
     navigate(`/product/${product.id}`);
   }, [navigate]);
 
-  const title = useMemo(() => {
-    const q = searchQuery.trim();
-    if (searchParams.get("price_max") === "10000") return "🔥 Hot Deals Under ₦10K";
-    if (searchParams.get("promoted") === "true") return "⚡ Flash Sales";
-    if (searchParams.get("sort") === "price") return "💸 Cheapest First";
-    return q ? `"${q}" (${total} results)` : "Recent Searches";
-  }, [searchQuery, searchParams, total]);
+  const resultCount = products.length === 1 ? "result" : "results";
 
   return (
     <div className="search-page">
       <TopNav />
       <main className="search-main">
-        {/* Minimal Header - Like Jiji/Konga */}
-        <div className="search-bar">
-          <input
-            className="search-input-full"
-            placeholder="Search products, brands, categories..."
-            value={searchQuery}
-            onChange={(e) => setSearchQuery(e.target.value)}
-            onKeyDown={handleKeyDown}
-            autoFocus
-          />
-        </div>
-
-        {/* Results Header */}
+        {/* Results count only */}
         <div className="results-header">
-          <h1>{title}</h1>
+          <h1>{products.length} {resultCount} found</h1>
         </div>
 
         {/* Results */}
@@ -149,26 +121,20 @@ export default function SearchPage() {
         {loading && (
           <div className="loading">
             <div className="spinner" />
-            {page === 1 ? "Finding products..." : "Loading more..."}
+            {page === 1 ? "Loading products..." : "Loading more..."}
           </div>
         )}
         {error && <div className="error">{error}</div>}
-        {!loading && products.length === 0 && !searchQuery && (
+        {!loading && products.length === 0 && (
           <div className="empty">
             <div>🔍</div>
-            <p>Type and hit Enter to search</p>
-          </div>
-        )}
-        {!loading && products.length === 0 && searchQuery && (
-          <div className="empty">
-            <div>❌</div>
-            <p>No results for "{searchQuery}"</p>
-            <p>Try different keywords</p>
+            <h3>No results found</h3>
+            <p>Use TopNav search or try different keywords</p>
           </div>
         )}
 
         <div ref={observerRef} className="load-trigger">
-          {hasMore ? "↓ Scroll for more ↓" : `${total} results loaded`}
+          {hasMore ? "↓ Scroll for more ↓" : "All results loaded"}
         </div>
       </main>
     </div>
