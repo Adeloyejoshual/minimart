@@ -6,6 +6,7 @@ import dotenv from "dotenv";
 import axios from "axios";
 import crypto from "crypto";
 
+/* ================= CONFIG ================= */
 import { brands } from "../src/config/brands.js";
 import { colors } from "../src/config/colors.js";
 import { categoryFields } from "../src/config/categoryFields.js";
@@ -26,17 +27,20 @@ dotenv.config();
 
 const router = express.Router();
 
+/* ================= DB ================= */
 const pool = new Pool({
   connectionString: process.env.COCKROACH_URI,
   ssl: { rejectUnauthorized: false },
 });
 
+/* ================= CLOUDINARY ================= */
 cloudinary.config({
   cloud_name: process.env.CLOUDINARY_CLOUD_NAME,
   api_key: process.env.CLOUDINARY_API_KEY,
   api_secret: process.env.CLOUDINARY_API_SECRET,
 });
 
+/* ================= MULTER ================= */
 const upload = multer({
   storage: multer.memoryStorage(),
   limits: { fileSize: 5 * 1024 * 1024, files: 10 },
@@ -48,6 +52,7 @@ const upload = multer({
   },
 });
 
+/* ================= HELPERS ================= */
 const safeJSON = (value, fallback = {}) => {
   try {
     return value ? JSON.parse(value) : fallback;
@@ -58,13 +63,14 @@ const safeJSON = (value, fallback = {}) => {
 
 const parseDurationDays = (duration) => {
   if (!duration) return 0;
-  const match = String(duration).match(/(d+)d?/);
+  const match = String(duration).match(/(d+)/); // fix: was /(d+)/
   return match ? parseInt(match[1], 10) : 0;
 };
 
 const getPlan = (id) => {
   const plan = promotionPlans.find((p) => p.id == id);
   if (!plan) return null;
+
   return {
     ...plan,
     durationDays: parseDurationDays(plan.duration),
@@ -85,9 +91,9 @@ const normalizeDelivery = (d = {}) => ({
 const normalizeProduct = (p) => ({
   ...p,
   images: p.images || [],
-  attributes: safeJSON(p.attributes) || {},
-  delivery: normalizeDelivery(safeJSON(p.delivery)),
-  contact: safeJSON(p.contact) || {},
+  attributes: p.attributes || {},
+  delivery: normalizeDelivery(p.delivery),
+  contact: p.contact || {},
   location: {
     state: p.location_state,
     city: p.location_city,
@@ -95,8 +101,10 @@ const normalizeProduct = (p) => ({
   promotion: promotionPlans.find((x) => x.id == p.promotion_id) || null,
 });
 
+/* ================= CLOUDINARY UPLOAD (multiple images) ================= */
 const uploadImages = async (files) => {
   if (!files?.length) return [];
+
   return Promise.all(
     files.map((file) =>
       new Promise((resolve, reject) => {
@@ -120,39 +128,22 @@ const uploadImages = async (files) => {
   );
 };
 
-const generateUniqueSlug = async (client, title) => {
-  const baseSlug = title
-    .toLowerCase()
-    .trim()
-    .replace(/[^a-z0-9s-]/g, "")
-    .replace(/s+/g, "-")
-    .replace(/-+/g, "-")
-    .replace(/^-+|-+$/g, "")
-    .substring(0, 80);
-
-  let slug = baseSlug;
-  let counter = 1;
-  
-  while (await slugExists(client, slug)) {
-    slug = `${baseSlug}-${counter++}`;
-  }
-  
-  return slug;
-};
-
-const slugExists = async (client, slug) => {
-  const { rowCount } = await client.query("SELECT 1 FROM products WHERE slug = $1", [slug]);
-  return rowCount > 0;
-};
-
+/* ================= PAYSTACK VERIFY ================= */
 router.get("/payment/verify/:reference", async (req, res) => {
   try {
     const { reference } = req.params;
-    const response = await axios.get(`https://api.paystack.co/transaction/verify/${reference}`, {
-      headers: { Authorization: `Bearer ${process.env.PAYSTACK_SECRET_KEY}` },
-    });
+
+    const response = await axios.get(
+      `https://api.paystack.co/transaction/verify/${reference}`,
+      {
+        headers: {
+          Authorization: `Bearer ${process.env.PAYSTACK_SECRET_KEY}`,
+        },
+      }
+    );
 
     const data = response.data.data;
+
     if (data.status !== "success") {
       return res.status(400).json({ success: false });
     }
@@ -169,30 +160,50 @@ router.get("/payment/verify/:reference", async (req, res) => {
   }
 });
 
+/* ================= INIT PAYMENT ================= */
 router.post("/payments/initiate", async (req, res) => {
   try {
     const { plan_id, product_id, email } = req.body;
+
     const plan = getPlan(plan_id);
     if (!plan) return res.status(400).json({ message: "Invalid plan" });
 
+    /* FREE PLAN → skip Paystack */
     if (plan.price === 0) {
       await pool.query(
-        `UPDATE products SET is_promoted = false, promotion_priority = 0 WHERE id = $1`,
+        `UPDATE products
+         SET is_promoted = false,
+             promotion_priority = 0
+         WHERE id = $1`,
         [product_id]
       );
-      return res.json({ success: true, message: "Free plan applied" });
+
+      return res.json({
+        success: true,
+        message: "Free plan applied",
+      });
     }
 
     const reference = `PSK_${Date.now()}`;
+
     await pool.query(
-      `INSERT INTO payments (reference, plan_id, product_id, status) VALUES ($1,$2,$3,'pending')`,
+      `INSERT INTO payments (reference, plan_id, product_id, status)
+       VALUES ($1,$2,$3,'pending')`,
       [reference, plan_id, product_id]
     );
 
     const paystack = await axios.post(
       "https://api.paystack.co/transaction/initialize",
-      { email, amount: plan.price * 100, reference },
-      { headers: { Authorization: `Bearer ${process.env.PAYSTACK_SECRET_KEY}` } }
+      {
+        email,
+        amount: plan.price * 100,
+        reference,
+      },
+      {
+        headers: {
+          Authorization: `Bearer ${process.env.PAYSTACK_SECRET_KEY}`,
+        },
+      }
     );
 
     res.json(paystack.data);
@@ -202,6 +213,7 @@ router.post("/payments/initiate", async (req, res) => {
   }
 });
 
+/* ================= PAYSTACK WEBHOOK ================= */
 router.post("/webhooks/paystack", async (req, res) => {
   try {
     const hash = crypto
@@ -214,10 +226,16 @@ router.post("/webhooks/paystack", async (req, res) => {
     }
 
     const event = req.body;
+
     if (event.event !== "charge.success") return res.sendStatus(200);
 
     const data = event.data;
-    const paymentRes = await pool.query("SELECT * FROM payments WHERE reference=$1", [data.reference]);
+
+    const paymentRes = await pool.query(
+      "SELECT * FROM payments WHERE reference=$1",
+      [data.reference]
+    );
+
     const payment = paymentRes.rows[0];
     if (!payment) return res.sendStatus(200);
 
@@ -229,12 +247,27 @@ router.post("/webhooks/paystack", async (req, res) => {
     end.setDate(end.getDate() + plan.durationDays);
 
     await pool.query(
-      `UPDATE products SET is_promoted = true, promotion_type = $1, promotion_priority = $2,
-       promotion_start = $3, promotion_end = $4 WHERE id = $5`,
-      [plan.id, plan.boostScore, start, end, payment.product_id]
+      `UPDATE products
+       SET is_promoted = true,
+           promotion_type = $1,
+           promotion_priority = $2,
+           promotion_start = $3,
+           promotion_end = $4
+       WHERE id = $5`,
+      [
+        plan.id,
+        plan.boostScore,
+        start,
+        end,
+        payment.product_id,
+      ]
     );
 
-    await pool.query("UPDATE payments SET status='success' WHERE reference=$1", [data.reference]);
+    await pool.query(
+      "UPDATE payments SET status='success' WHERE reference=$1",
+      [data.reference]
+    );
+
     res.sendStatus(200);
   } catch (err) {
     console.error("Paystack webhook failed:", err);
@@ -242,26 +275,43 @@ router.post("/webhooks/paystack", async (req, res) => {
   }
 });
 
+/* ================= PRODUCTS ================= */
 router.get("/products", async (req, res) => {
   try {
     let { skip = 0, limit = 20 } = req.query;
+
     skip = Math.max(+skip || 0, 0);
     limit = Math.min(+limit || 20, 50);
 
     const baseQuery = `
-      SELECT p.*, COALESCE(json_agg(pi.image_url ORDER BY pi.position) FILTER (WHERE pi.image_url IS NOT NULL), '[]') AS images
-      FROM products p LEFT JOIN product_images pi ON p.id = pi.product_id
-      WHERE p.is_active = true GROUP BY p.id
+      SELECT p.*,
+      COALESCE(json_agg(pi.image_url ORDER BY pi.position)
+      FILTER (WHERE pi.image_url IS NOT NULL), '[]') AS images
+      FROM products p
+      LEFT JOIN product_images pi ON p.id = pi.product_id
+      WHERE p.is_active = true
+      GROUP BY p.id
     `;
 
     const [trendingRes, productsRes] = await Promise.all([
       pool.query(`${baseQuery} ORDER BY p.views DESC NULLS LAST LIMIT 6`),
-      pool.query(`${baseQuery} ORDER BY p.is_promoted DESC, COALESCE(p.promotion_priority, 0) DESC, p.created_at DESC OFFSET $1 LIMIT $2`, [skip, limit]),
+      pool.query(
+        `${baseQuery}
+         ORDER BY
+           p.is_promoted DESC,
+           COALESCE(p.promotion_priority, 0) DESC,
+           p.created_at DESC
+         OFFSET $1 LIMIT $2`,
+        [skip, limit]
+      ),
     ]);
 
     const trending = trendingRes.rows.map(normalizeProduct);
     const trendingIds = new Set(trending.map((p) => p.id));
-    const products = productsRes.rows.map(normalizeProduct).filter((p) => !trendingIds.has(p.id));
+
+    const products = productsRes.rows
+      .map(normalizeProduct)
+      .filter((p) => !trendingIds.has(p.id));
 
     res.json({ trending, products: [...trending, ...products] });
   } catch (err) {
@@ -270,76 +320,198 @@ router.get("/products", async (req, res) => {
   }
 });
 
+/* ================= SINGLE PRODUCT (by ID) ================= */
+router.get("/products/:id", async (req, res) => {
+  try {
+    const { id } = req.params;
+
+    const { rows } = await pool.query(
+      `
+      SELECT p.*,
+      COALESCE(json_agg(pi.image_url ORDER BY pi.position)
+      FILTER (WHERE pi.image_url IS NOT NULL), '[]') AS images
+      FROM products p
+      LEFT JOIN product_images pi ON p.id = pi.product_id
+      WHERE p.id = $1
+      GROUP BY p.id
+      `,
+      [id]
+    );
+
+    if (!rows.length) {
+      return res.status(404).json({ message: "Product not found" });
+    }
+
+    await pool.query(
+      "UPDATE products SET views = COALESCE(views,0)+1 WHERE id=$1",
+      [id]
+    );
+
+    res.json(normalizeProduct(rows[0]));
+  } catch (err) {
+    console.error("Failed to fetch product by ID:", err);
+    res.status(500).json({ message: "Failed to fetch product" });
+  }
+});
+
+/* ================= SINGLE PRODUCT (by Slug) ================= */
+router.get("/product/:slug", async (req, res) => {
+  try {
+    const { slug } = req.params;
+
+    const cleanSlug = slug.replace(/.html$/, "");
+
+    const { rows } = await pool.query(
+      `
+      SELECT p.*,
+      COALESCE(json_agg(pi.image_url ORDER BY pi.position)
+        FILTER (WHERE pi.image_url IS NOT NULL), '[]') AS images
+      FROM products p
+      LEFT JOIN product_images pi ON p.id = pi.product_id
+      WHERE p.slug = $1
+      GROUP BY p.id
+      `,
+      [cleanSlug]
+    );
+
+    if (!rows.length) {
+      return res.status(404).json({ message: "Product not found" });
+    }
+
+    await pool.query(
+      "UPDATE products SET views = COALESCE(views,0)+1 WHERE id=$1",
+      [rows[0].id]
+    );
+
+    res.json(normalizeProduct(rows[0]));
+  } catch (err) {
+    console.error("Failed to fetch product by slug:", err);
+    res.status(500).json({ message: "Failed to fetch product" });
+  }
+});
+
+/* ================= CREATE PRODUCT (with multiple photo support) ================= */
+/* ================= CREATE PRODUCT (with multiple photo support) ================= */
 router.post("/products", upload.array("images", 10), async (req, res) => {
   const client = await pool.connect();
-  
+
   try {
     await client.query("BEGIN");
 
     const { title, price, category_id } = req.body;
+
     if (!title || !price || !category_id) {
-      return res.status(400).json({ message: "Missing required fields" });
+      return res.status(400).json({ message: "Missing fields" });
     }
 
     const attributes = safeJSON(req.body.attributes);
     const delivery = normalizeDelivery(safeJSON(req.body.delivery, {}));
 
     const { rows } = await client.query(
-      `INSERT INTO products (
-        title, description, price, category_id, subcategory_id, attributes, delivery, contact,
-        location_state, location_city, created_at, updated_at
-      ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,NOW(),NOW()) RETURNING *`,
+      `
+      INSERT INTO products (
+        title, description, price, category_id, subcategory_id,
+        attributes, delivery, contact,
+        promotion_id,
+        promotion_start,
+        promotion_end,
+        is_promoted,
+        promotion_type,
+        promotion_priority,
+        location_state, location_city,
+        created_at, updated_at
+      )
+      VALUES (
+        $1,$2,$3,$4,$5,$6,$7,$8,
+        NULL,NULL,NULL,false,NULL,0,
+        $9,$10,now(),now()
+      )
+      RETURNING *
+      `,
       [
         title,
         req.body.description || "",
         price,
         category_id,
         req.body.subcategory_id || null,
-        JSON.stringify(attributes),
-        JSON.stringify(delivery),
-        JSON.stringify(safeJSON(req.body.contact)),
+        attributes,
+        delivery,
+        safeJSON(req.body.contact),
         req.body.location_state,
         req.body.location_city,
       ]
     );
 
     const product = rows[0];
-    const slug = await generateUniqueSlug(client, title);
-    await client.query("UPDATE products SET slug = $1 WHERE id = $2", [slug, product.id]);
 
+    const baseSlug = title
+  .toLowerCase()
+  .trim()
+  .replace(/[^a-z0-9\s-]/g, "")
+  .replace(/\s+/g, "-")
+  .replace(/-+/g, "-")
+  .replace(/^-+|-+$/g, "");
+
+const existing = await client.query(
+  "SELECT slug FROM products WHERE slug LIKE $1",
+  [`${baseSlug}%`]
+);
+
+const slug =
+  existing.rows.length > 0
+    ? `${baseSlug}-${existing.rows.length + 1}`
+    : baseSlug;
+
+await client.query(
+  "UPDATE products SET slug = $1 WHERE id = $2",
+  [slug, product.id]
+);
+
+    // ✅ Upload all images (multi‑photo)
     const cloudImages = await uploadImages(req.files);
+
     for (let i = 0; i < cloudImages.length; i++) {
       const { url } = cloudImages[i];
       await client.query(
-        `INSERT INTO product_images (product_id, image_url, position_order) VALUES ($1, $2, $3)`,
-        [product.id, url, i]
+        `INSERT INTO product_images (product_id, image_url, position_order)
+         VALUES ($1, $2, $3)`,
+        [product.id, url, i]  // `i` = 0, 1, 2, ...
       );
     }
 
     await client.query("COMMIT");
-    res.status(201).json({ product: normalizeProduct({ ...product, slug }) });
+
+    res.status(201).json({ product: normalizeProduct(product) });
   } catch (err) {
     await client.query("ROLLBACK");
-    console.error("Failed to create product:", err);
+    console.error("Failed to create product or upload images:", err);
     res.status(500).json({ message: "Failed to create product" });
   } finally {
     client.release();
   }
 });
 
+/* ================= CATEGORIES ================= */
 router.get("/categories", async (req, res) => {
   try {
-    const { rows } = await pool.query(`SELECT id, name, parent_id, fields_key FROM categories ORDER BY name ASC`);
-    
+    const { rows } = await pool.query(`
+      SELECT id, name, parent_id, fields_key
+      FROM categories
+      ORDER BY name ASC
+    `);
+
     const map = {};
     const tree = [];
 
     rows.forEach((cat) => {
       const key = cat.fields_key || "";
+
       map[cat.id] = {
         ...cat,
+        // 👇 this is what AddProduct.js expects
         dynamicOptions: {
           fields: categoryFields[key] || [],
+
           brands: brands[key] || [],
           models: models[key] || {},
           colors: colors[key] || [],
@@ -353,6 +525,8 @@ router.get("/categories", async (req, res) => {
           engines,
           fuel_types: fuelTypes,
           location: Object.keys(locationsByState),
+
+          // 👇 new stuff from fieldOptions.js
           size: fieldOptions.size,
           age_range: fieldOptions.age_range,
           bedrooms: fieldOptions.bedrooms,
@@ -362,6 +536,7 @@ router.get("/categories", async (req, res) => {
         },
         subcategories: [],
       };
+
       if (!cat.parent_id) tree.push(map[cat.id]);
     });
 
