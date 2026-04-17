@@ -1,4 +1,4 @@
-import { useEffect, useState, useRef, useCallback } from "react";
+import { useEffect, useState, useRef, useCallback, useMemo } from "react";
 import { useSearchParams, useNavigate } from "react-router-dom";
 import TopNav from "../components/TopNav";
 import "../styles/SearchPage.css";
@@ -7,8 +7,6 @@ export default function SearchPage() {
   const [searchParams] = useSearchParams();
   const navigate = useNavigate();
 
-  // States
-  const [searchQuery, setSearchQuery] = useState(searchParams.get("q") || "");
   const [products, setProducts] = useState([]);
   const [loading, setLoading] = useState(false);
   const [page, setPage] = useState(1);
@@ -17,52 +15,54 @@ export default function SearchPage() {
 
   const observerRef = useRef();
 
-  // Stable fetcher
-  const fetchSearch = useCallback(async (reset = false) => {
-    const query = searchQuery.trim();
-    if (!query && !searchParams.has("price_max") && !searchParams.has("promoted")) return;
+  // ✅ STABLE QUERY PARAMS
+  const queryParams = useMemo(() => Object.fromEntries(searchParams), [searchParams]);
+  const urlQuery = searchParams.get("q") || "";
 
+  // ✅ FIXED FETCHER - No searchQuery dep!
+  const fetchSearch = useCallback(async (reset = false) => {
     try {
       setLoading(true);
       setError(null);
 
       const params = new URLSearchParams({
-        q: query || "",
+        q: urlQuery,
         page: reset ? "1" : page.toString(),
         limit: "24",
-        ...Object.fromEntries(searchParams)
+        ...queryParams
       });
 
+      console.log("🔍 Fetching:", `/api/search?${params}`); // DEBUG
+
       const res = await fetch(`/api/search?${params}`);
-      if (!res.ok) throw new Error(`API: ${res.status}`);
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
 
       const data = await res.json();
-      const safeProducts = Array.isArray(data.products) ? data.products : [];
+      console.log("📦 API Response:", { products: data.products?.length, total: data.total }); // DEBUG
 
+      const safeProducts = Array.isArray(data.products) ? data.products : [];
       setProducts(prev => reset ? safeProducts : [...prev, safeProducts]);
       setHasMore(safeProducts.length === 24);
-      setPage(reset ? 2 : page);
+      if (reset) setPage(2);
     } catch (err) {
-      console.error("Search error:", err);
-      setError("Failed to load results.");
+      console.error("❌ Search error:", err);
+      setError(`Failed: ${err.message}`);
     } finally {
       setLoading(false);
     }
-  }, [searchQuery, searchParams, page]);
+  }, [urlQuery, queryParams, page]); // ✅ Stable!
 
-  // Initial load
+  // ✅ SINGLE INIT EFFECT
   useEffect(() => {
-    const q = searchParams.get("q") || "";
-    setSearchQuery(q);
     setProducts([]);
     setPage(1);
     setHasMore(true);
-    if (q || searchParams.get("price_max") || searchParams.get("promoted")) {
+    if (urlQuery || queryParams.price_max || queryParams.promoted) {
       fetchSearch(true);
     }
-  }, [searchParams, fetchSearch]);
+  }, [urlQuery, queryParams, fetchSearch]); // Only real changes
 
-  // Load next page
+  // ✅ PAGE LOAD
   useEffect(() => {
     if (page > 1) fetchSearch(false);
   }, [page, fetchSearch]);
@@ -71,34 +71,27 @@ export default function SearchPage() {
   useEffect(() => {
     const node = observerRef.current;
     if (!node) return;
-
     const observer = new IntersectionObserver(
-      ([entry]) => {
-        if (entry.isIntersecting && hasMore && !loading) setPage(p => p + 1);
-      },
+      ([entry]) => entry.isIntersecting && hasMore && !loading && setPage(p => p + 1),
       { threshold: 0.1 }
     );
-
     observer.observe(node);
     return () => observer.disconnect();
   }, [hasMore, loading]);
 
   const openProduct = useCallback((product) => {
-    navigate(`/product/${product.id}`);
+    navigate(`/product/${product.slug || product.id}`);
   }, [navigate]);
-
-  const resultCount = products.length === 1 ? "result" : "results";
 
   return (
     <div className="search-page">
       <TopNav />
       <main className="search-main">
-        {/* Results count only */}
         <div className="results-header">
-          <h1>{products.length} {resultCount} found</h1>
+          <h1>{products.length} results found</h1>
+          <p>Query: "{urlQuery}" (Page {page})</p>
         </div>
 
-        {/* Results */}
         <div className="search-results">
           {products.map((product) => (
             <div key={product.id} className="search-card" onClick={() => openProduct(product)}>
@@ -117,24 +110,23 @@ export default function SearchPage() {
           ))}
         </div>
 
-        {/* States */}
         {loading && (
           <div className="loading">
             <div className="spinner" />
-            {page === 1 ? "Loading products..." : "Loading more..."}
+            {page === 1 ? "Loading..." : "Loading more..."}
           </div>
         )}
         {error && <div className="error">{error}</div>}
-        {!loading && products.length === 0 && (
+        {!loading && !products.length && (
           <div className="empty">
             <div>🔍</div>
-            <h3>No results found</h3>
-            <p>Use TopNav search or try different keywords</p>
+            <h3>No results</h3>
+            <p>Check Console for API details</p>
           </div>
         )}
 
         <div ref={observerRef} className="load-trigger">
-          {hasMore ? "↓ Scroll for more ↓" : "All results loaded"}
+          {hasMore ? "↓ Scroll for more ↓" : "End"}
         </div>
       </main>
     </div>
