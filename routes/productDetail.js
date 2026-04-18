@@ -1,7 +1,8 @@
 // routes/productDetail.js
 
-const express = require("express");
-const { Pool } = require("pg");
+import express from "express";
+import { Pool } from "pg";
+
 const router = express.Router();
 
 const pool = new Pool({
@@ -41,19 +42,22 @@ router.get("/:key", async (req, res) => {
 
     const product = rows[0];
 
-    // safely parse JSONB fields
-    const media = typeof product.media === "string"
-      ? JSON.parse(product.media)
-      : product.media || { images: [], videos: [] };
-    const attributes = typeof product.attributes === "string"
-      ? JSON.parse(product.attributes)
-      : product.attributes || {};
-    const contact = typeof product.contact === "string"
-      ? JSON.parse(product.contact)
-      : product.contact || {};
-    const delivery = typeof product.delivery === "string"
-      ? JSON.parse(product.delivery)
-      : product.delivery || {};
+    const media =
+      typeof product.media === "string"
+        ? JSON.parse(product.media)
+        : product.media || { images: [], videos: [] };
+    const attributes =
+      typeof product.attributes === "string"
+        ? JSON.parse(product.attributes)
+        : product.attributes || {};
+    const contact =
+      typeof product.contact === "string"
+        ? JSON.parse(product.contact)
+        : product.contact || {};
+    const delivery =
+      typeof product.delivery === "string"
+        ? JSON.parse(product.delivery)
+        : product.delivery || {};
 
     return res.json({
       id: product.id,
@@ -97,4 +101,4 @@ router.get("/:key", async (req, res) => {
   }
 });
 
-module.exports = router;
+export default router;
