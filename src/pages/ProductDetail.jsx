@@ -1,172 +1,107 @@
-// src/pages/ProductDetail.jsx
+import { useEffect, useState } from "react";
+import { useParams, Link } from "react-router-dom";
 
-import React, { useState, useEffect } from "react";
-import { useParams } from "react-router-dom";
-import axios from "axios";
-
-const ProductDetail = ({ user }) => {
-  const { key } = useParams(); // key = UUID from URL
+export default function ProductDetail({ user }) {
+  const { slug } = useParams();
   const [product, setProduct] = useState(null);
   const [loading, setLoading] = useState(true);
-  const [error, setError] = useState(null);
+  const [error, setError] = useState("");
 
   useEffect(() => {
+    const controller = new AbortController();
+
     const fetchProduct = async () => {
       try {
-        const { data } = await axios.get(`/api/product/${encodeURIComponent(key)}`);
-        console.log("Product data:", data);
+        setLoading(true);
+        setError("");
+
+        const res = await fetch(
+          `${import.meta.env.VITE_API_URL || ""}/api/products/slug/${slug}`,
+          { signal: controller.signal }
+        );
+
+        if (!res.ok) {
+          throw new Error("Product not found");
+        }
+
+        const data = await res.json();
         setProduct(data);
       } catch (err) {
-        const msg =
-          err.response?.data?.message ||
-          err.message ||
-          "Failed to load product";
-        console.error("Fetch error:", err);
-        setError(msg);
+        if (err.name !== "AbortError") {
+          setError(err.message || "Failed to load product");
+        }
       } finally {
         setLoading(false);
       }
     };
 
-    fetchProduct();
-  }, [key]);
+    if (slug) fetchProduct();
 
-  if (loading) {
-    return (
-      <div className="flex justify-center items-center h-64">
-        <span className="text-lg text-gray-600">Loading product...</span>
-      </div>
-    );
-  }
+    return () => controller.abort();
+  }, [slug]);
 
-  if (error || !product) {
-    return (
-      <div className="p-6 text-center">
-        <h2 className="text-lg font-semibold text-red-600">Product not found</h2>
-        <p className="text-sm text-gray-500">{error}</p>
-        <button
-          onClick={() => window.history.back()}
-          className="mt-4 px-4 py-2 text-sm bg-blue-600 text-white rounded hover:bg-blue-700"
-        >
-          Go back
-        </button>
-      </div>
-    );
-  }
-
-  const images = product.media?.images || [];
-  const primaryImage = images[0] || "/placeholder.jpg";
+  if (loading) return <p>Loading...</p>;
+  if (error) return <p>{error}</p>;
+  if (!product) return <p>Product not found</p>;
 
   return (
-    <div className="container mx-auto px-4 py-8">
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
-        {/* Image */}
-        <div>
-          <img
-            src={primaryImage}
-            alt={product.title}
-            className="w-full h-96 object-cover rounded-lg"
-          />
-          {images.length > 1 && (
-            <div className="mt-4 grid grid-cols-4 gap-2">
-              {images.map((img, idx) => (
-                <img
-                  key={idx}
-                  src={img}
-                  alt={`${product.title} ${idx + 1}`}
-                  className="h-20 w-full object-cover rounded"
-                />
-              ))}
-            </div>
-          )}
-        </div>
-
-        {/* Info */}
-        <div>
-          <h1 className="text-3xl font-bold">{product.title}</h1>
-
-          <div className="mt-2 text-2xl font-bold text-green-600">
-            ₦{product.price.toFixed(2)}
-          </div>
-
-          <p className="mt-4 text-gray-700">{product.description}</p>
-
-          <div className="mt-6">
-            <div className="text-sm text-gray-600">
-              <span>Category: </span>
-              <span className="font-medium">{product.category?.name}</span>
-            </div>
-            <div className="text-sm text-gray-600">
-              <span>Location: </span>
-              <span className="font-medium">
-                {product.location_city ? `${product.location_city}, ` : ""}
-                {product.location_state}
-              </span>
-            </div>
-          </div>
-
-          <div className="mt-6 space-y-2">
-            {product.phone && (
-              <button
-                className="w-full py-3 bg-blue-600 text-white rounded-lg"
-                onClick={() => window.open(`tel:${product.phone}`)}
-              >
-                Call Seller
-              </button>
-            )}
-            {product.whatsapp_link && (
-              <button
-                className="w-full py-3 bg-green-600 text-white rounded-lg"
-                onClick={() => window.open(product.whatsapp_link, "_blank")}
-              >
-                Chat on WhatsApp
-              </button>
-            )}
-            {user && (
-              <button
-                className="w-full py-3 bg-gray-600 text-white rounded-lg"
-                onClick={() => {
-                  console.log("Add to wishlist/cart:", product.id);
-                }}
-              >
-                {user.id === product.user_id
-                  ? "Edit Product"
-                  : "Add to Wishlist"}
-              </button>
-            )}
-          </div>
-        </div>
+    <div className="product-detail">
+      <div>
+        <Link to="/">Back</Link>
       </div>
 
-      {/* Extra details */}
-      <div className="mt-10">
-        <h3 className="text-lg font-medium">Product info</h3>
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mt-2 text-sm">
-          {product.attributes?.brand && (
-            <div>
-              <span className="font-medium">Brand:</span> {product.attributes.brand}
-            </div>
-          )}
-          {product.attributes?.model && (
-            <div>
-              <span className="font-medium">Model:</span> {product.attributes.model}
-            </div>
-          )}
-          {product.attributes?.condition && (
-            <div>
-              <span className="font-medium">Condition:</span> {product.attributes.condition}
-            </div>
-          )}
-          <div>
-            <span className="font-medium">Views:</span> {product.views}
-          </div>
-          <div>
-            <span className="font-medium">Status:</span> {product.status}
-          </div>
+      <h1>{product.title}</h1>
+      <p>{product.price}</p>
+
+      {product.images?.length > 0 && (
+        <div className="product-images">
+          {product.images.map((img, index) => (
+            <img
+              key={index}
+              src={img.url}
+              alt={product.title}
+              style={{ width: "100%", maxWidth: "500px", marginBottom: "12px" }}
+            />
+          ))}
         </div>
+      )}
+
+      <p>{product.description}</p>
+
+      <div>
+        <strong>Category:</strong> {product.category_id}
       </div>
+
+      <div>
+        <strong>Location:</strong>{" "}
+        {product.location?.city}, {product.location?.state}
+      </div>
+
+      {product.attributes && Object.keys(product.attributes).length > 0 && (
+        <div>
+          <h3>Attributes</h3>
+          <pre>{JSON.stringify(product.attributes, null, 2)}</pre>
+        </div>
+      )}
+
+      {product.delivery && (
+        <div>
+          <h3>Delivery</h3>
+          <p>
+            {product.delivery.available ? "Available" : "Not available"}
+          </p>
+          <p>
+            {product.delivery.duration?.from} - {product.delivery.duration?.to} days
+          </p>
+          {product.delivery.note && <p>{product.delivery.note}</p>}
+        </div>
+      )}
+
+      {user && (
+        <div>
+          <p>Signed in as {user.email}</p>
+        </div>
+      )}
     </div>
   );
-};
-
-export default ProductDetail;
+}
