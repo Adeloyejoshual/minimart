@@ -1,11 +1,11 @@
-// src/pages/ProductDetail.jsx (using slug in URL, still fetches by id)
+// src/pages/ProductDetail.jsx
 
 import React, { useState, useEffect } from "react";
 import { useParams } from "react-router-dom";
 import axios from "axios";
 
 const ProductDetail = ({ user }) => {
-  const { key } = useParams(); // key = slug from URL
+  const { slug } = useParams(); // now from /product/:slug
   const [product, setProduct] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
@@ -13,9 +13,9 @@ const ProductDetail = ({ user }) => {
   useEffect(() => {
     const fetchProduct = async () => {
       try {
-        // you can still call by id if you want; backend unchanged
-        // or change backend to /api/product/slug/:slug
-        const { data } = await axios.get(`/api/product/${encodeURIComponent(key)}`);
+        const { data } = await axios.get(
+          `/api/product/slug/${encodeURIComponent(slug)}`
+        );
         console.log("Product data:", data);
         setProduct(data);
       } catch (err) {
@@ -31,7 +31,7 @@ const ProductDetail = ({ user }) => {
     };
 
     fetchProduct();
-  }, [key]);
+  }, [slug]);
 
   if (loading) {
     return (
@@ -56,7 +56,7 @@ const ProductDetail = ({ user }) => {
     );
   }
 
-  const images = product.media?.images || [];
+  const images = (product.images || []).map((img) => img.url);
   const primaryImage = images[0] || "/placeholder.jpg";
 
   return (
@@ -95,31 +95,27 @@ const ProductDetail = ({ user }) => {
 
           <div className="mt-6">
             <div className="text-sm text-gray-600">
-              <span>Category: </span>
-              <span className="font-medium">{product.category?.name}</span>
-            </div>
-            <div className="text-sm text-gray-600">
               <span>Location: </span>
               <span className="font-medium">
-                {product.location_city ? `${product.location_city}, ` : ""}
-                {product.location_state}
+                {product.location?.city ? `${product.location.city}, ` : ""}
+                {product.location?.state}
               </span>
             </div>
           </div>
 
           <div className="mt-6 space-y-2">
-            {product.phone && (
+            {product.contact?.phone && (
               <button
                 className="w-full py-3 bg-blue-600 text-white rounded-lg"
-                onClick={() => window.open(`tel:${product.phone}`)}
+                onClick={() => window.open(`tel:${product.contact.phone}`)}
               >
                 Call Seller
               </button>
             )}
-            {product.whatsapp_link && (
+            {product.contact?.whatsapp_link && (
               <button
                 className="w-full py-3 bg-green-600 text-white rounded-lg"
-                onClick={() => window.open(product.whatsapp_link, "_blank")}
+                onClick={() => window.open(product.contact.whatsapp_link, "_blank")}
               >
                 Chat on WhatsApp
               </button>
