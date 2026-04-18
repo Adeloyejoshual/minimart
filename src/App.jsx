@@ -165,7 +165,7 @@ export default function App() {
         {/* ================= PUBLIC ================= */}
         <Route path="/" element={<Homepage user={user} />} />
         <Route path="/search" element={<SearchPage user={user} />} />
-        <Route path="/product/:key" element={<ProductDetail user={user} />} />
+        <Route path="/product/:slug" element={<ProductDetail user={user} />} />
         <Route path="/seller/:id" element={<SellerProfile user={user} />} />
         <Route path="/auth" element={<AuthPage setUser={handleAuthSuccess} />} />
         <Route path="/terms" element={<TermsAndConditions />} />
