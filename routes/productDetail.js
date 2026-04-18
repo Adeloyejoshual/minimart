@@ -1,7 +1,7 @@
-// src/routes/productDetail.js
+// routes/productDetail.js
 
 const express = require("express");
-const { Pool } = require("pg"); // assuming you use node‑pg for CockroachDB
+const { Pool } = require("pg");
 const router = express.Router();
 
 const pool = new Pool({
@@ -41,7 +41,7 @@ router.get("/:key", async (req, res) => {
 
     const product = rows[0];
 
-    // Parse JSONB fields safely
+    // safely parse JSONB fields
     const media = typeof product.media === "string"
       ? JSON.parse(product.media)
       : product.media || { images: [], videos: [] };
@@ -51,6 +51,9 @@ router.get("/:key", async (req, res) => {
     const contact = typeof product.contact === "string"
       ? JSON.parse(product.contact)
       : product.contact || {};
+    const delivery = typeof product.delivery === "string"
+      ? JSON.parse(product.delivery)
+      : product.delivery || {};
 
     return res.json({
       id: product.id,
@@ -60,6 +63,9 @@ router.get("/:key", async (req, res) => {
       description: product.description,
       category: { name: product.categoryName },
       subcategory_id: product.subcategory_id,
+      seller_id: product.seller_id,
+      user_id: product.user_id,
+      category_id: product.category_id,
       promotion_id: product.promotion_id,
       promotion_type: product.promotion_type,
       is_promoted: product.is_promoted,
@@ -69,9 +75,7 @@ router.get("/:key", async (req, res) => {
       promotion_expires_at: product.promotion_expires_at,
       location_state: product.location_state,
       location_city: product.location_city,
-      delivery: typeof product.delivery === "string"
-        ? JSON.parse(product.delivery)
-        : product.delivery || {},
+      delivery,
       contact,
       media,
       whatsapp: product.whatsapp,
@@ -83,6 +87,7 @@ router.get("/:key", async (req, res) => {
       clicks_count: parseInt(product.clicks_count) || 0,
       created_at: product.created_at,
       updated_at: product.updated_at,
+      views: parseInt(product.views) || 0,
     });
   } catch (err) {
     console.error("Error fetching product:", err);
