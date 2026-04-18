@@ -1,3 +1,5 @@
+// routes/productDetail.js
+
 import express from "express";
 import { Pool } from "pg";
 import dotenv from "dotenv";
@@ -20,7 +22,7 @@ const safeJSON = (value, fallback = {}) => {
 };
 
 const normalizeDelivery = (d = {}) => ({
-  available: d?.available ?? false,
+  available: Boolean(d?.available) || false,
   duration: {
     from: Number(d?.duration?.from ?? 0),
     to: Number(d?.duration?.to ?? 0),
@@ -30,21 +32,35 @@ const normalizeDelivery = (d = {}) => ({
 });
 
 const normalizeProduct = (p) => ({
-  ...p,
-  images: p.images || [],
-  attributes: safeJSON(p.attributes) || {},
+  id: p.id,
+  title: p.title,
+  description: p.description,
+  price: parseFloat(p.price),
+  slug: p.slug,
+  attributes: safeJSON(p.attributes, {}),
   delivery: normalizeDelivery(safeJSON(p.delivery)),
-  contact: safeJSON(p.contact) || {},
+  contact: safeJSON(p.contact, {}),
   location: {
     state: p.location_state,
     city: p.location_city,
   },
+  images: Array.isArray(p.images) ? p.images : [],
+  views: Number(p.views || 0),
+  clicks_count: Number(p.clicks_count || 0),
+  is_active: Boolean(p.is_active),
+  is_promoted: Boolean(p.is_promoted),
+  promotion_end: p.promotion_end,
+  promotion_priority: Number(p.promotion_priority || 0),
+  status: p.status,
+  createdAt: p.created_at,
+  updatedAt: p.updated_at,
 });
 
+// GET /api/product/slug/:slug
 router.get("/slug/:slug", async (req, res) => {
-  try {
-    const { slug } = req.params;
+  const { slug } = req.params;
 
+  try {
     const { rows } = await pool.query(
       `
       SELECT
@@ -58,7 +74,9 @@ router.get("/slug/:slug", async (req, res) => {
         ) AS images
       FROM products p
       LEFT JOIN product_images pi ON p.id = pi.product_id
-      WHERE p.slug = $1
+      WHERE
+        p.slug = $1
+        AND COALESCE(p.is_active, false) = true
       GROUP BY p.id
       LIMIT 1
       `,
@@ -69,10 +87,13 @@ router.get("/slug/:slug", async (req, res) => {
       return res.status(404).json({ message: "Product not found" });
     }
 
-    res.json(normalizeProduct(rows[0]));
+    const product = normalizeProduct(rows[0]);
+    res.json(product);
   } catch (err) {
     console.error("Failed to fetch product by slug:", err);
-    res.status(500).json({ message: "Failed to fetch product" });
+    res.status(500).json({
+      message: "Failed to fetch product",
+    });
   }
 });
 
