@@ -122,13 +122,13 @@ const uploadImages = async (files) => {
 
 const generateUniqueSlug = async (client, title) => {
   const baseSlug = title
-    .toLowerCase()
-    .trim()
-    .replace(/[^a-z0-9s-]/g, "")
-    .replace(/s+/g, "-")
-    .replace(/-+/g, "-")
-    .replace(/^-+|-+$/g, "")
-    .substring(0, 80);
+  .toLowerCase()
+  .trim()
+  .replace(/[^a-z0-9\s-]/g, "")
+  .replace(/\s+/g, "-")
+  .replace(/-+/g, "-")
+  .replace(/^-+|-+$/g, "")
+  .substring(0, 80);
 
   let slug = baseSlug;
   let counter = 1;
