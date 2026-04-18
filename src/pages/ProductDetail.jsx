@@ -1,11 +1,11 @@
-// src/pages/ProductDetail.jsx
+// src/pages/ProductDetail.jsx (using slug in URL, still fetches by id)
 
 import React, { useState, useEffect } from "react";
 import { useParams } from "react-router-dom";
 import axios from "axios";
 
 const ProductDetail = ({ user }) => {
-  const { key } = useParams(); // key = UUID from URL
+  const { key } = useParams(); // key = slug from URL
   const [product, setProduct] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
@@ -13,6 +13,8 @@ const ProductDetail = ({ user }) => {
   useEffect(() => {
     const fetchProduct = async () => {
       try {
+        // you can still call by id if you want; backend unchanged
+        // or change backend to /api/product/slug/:slug
         const { data } = await axios.get(`/api/product/${encodeURIComponent(key)}`);
         console.log("Product data:", data);
         setProduct(data);
