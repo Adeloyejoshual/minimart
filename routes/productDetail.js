@@ -12,7 +12,7 @@ const pool = new Pool({
   },
 });
 
-// GET /api/product/:key
+// GET /api/product/:key   where :key = id (UUID)
 router.get("/:key", async (req, res) => {
   const { key } = req.params;
 
@@ -27,7 +27,7 @@ router.get("/:key", async (req, res) => {
       LEFT JOIN categories c ON c.id = p.category_id
       LEFT JOIN users u ON u.id = p.user_id
       WHERE
-        p.slug = $1
+        p.id::text = $1
         AND p.is_active = true
         AND p.status = 'active'
       `,
