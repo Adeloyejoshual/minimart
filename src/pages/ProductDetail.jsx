@@ -5,7 +5,7 @@ import { useParams } from "react-router-dom";
 import axios from "axios";
 
 const ProductDetail = ({ user }) => {
-  const { key } = useParams();
+  const { key } = useParams(); // key = UUID from URL
   const [product, setProduct] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
@@ -14,12 +14,14 @@ const ProductDetail = ({ user }) => {
     const fetchProduct = async () => {
       try {
         const { data } = await axios.get(`/api/product/${encodeURIComponent(key)}`);
+        console.log("Product data:", data);
         setProduct(data);
       } catch (err) {
         const msg =
           err.response?.data?.message ||
           err.message ||
           "Failed to load product";
+        console.error("Fetch error:", err);
         setError(msg);
       } finally {
         setLoading(false);
@@ -124,7 +126,6 @@ const ProductDetail = ({ user }) => {
               <button
                 className="w-full py-3 bg-gray-600 text-white rounded-lg"
                 onClick={() => {
-                  // e.g. addToWishlist / addToCart if you implement
                   console.log("Add to wishlist/cart:", product.id);
                 }}
               >
@@ -137,7 +138,7 @@ const ProductDetail = ({ user }) => {
         </div>
       </div>
 
-      {/* Extra details (optional) */}
+      {/* Extra details */}
       <div className="mt-10">
         <h3 className="text-lg font-medium">Product info</h3>
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mt-2 text-sm">
