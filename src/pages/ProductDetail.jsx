@@ -56,7 +56,7 @@ const ProductDetail = ({ user }) => {
     );
   }
 
-  const images = (product.images || []).map((img) => img.url);
+  const images = product.images || [];
   const primaryImage = images[0] || "/placeholder.jpg";
 
   return (
