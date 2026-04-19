@@ -1,22 +1,34 @@
 // src/pages/ProductDetail.jsx
 
 import React, { useState, useEffect } from "react";
-import { useParams } from "react-router-dom";
+import { useParams, useNavigate } from "react-router-dom";
 import axios from "axios";
+
+const API = "https://minimart-ivrm.onrender.com/api";
 
 const ProductDetail = ({ user }) => {
   const { slug } = useParams();
+  const navigate = useNavigate();
   const [product, setProduct] = useState(null);
+  const [similar, setSimilar] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
 
   useEffect(() => {
-    const fetchProduct = async () => {
+    const fetch = async () => {
+      setLoading(true);
+
       try {
         const { data } = await axios.get(
           `/api/product/slug/${encodeURIComponent(slug)}`
         );
         setProduct(data);
+
+        // Fetch similar products (same category)
+        const similarRes = await axios.get(
+          `/api/products?category_id=${data.category_id}&limit=12`
+        );
+        setSimilar(similarRes.data.products || []);
       } catch (err) {
         const msg =
           err.response?.data?.message ||
@@ -28,7 +40,7 @@ const ProductDetail = ({ user }) => {
       }
     };
 
-    fetchProduct();
+    fetch();
   }, [slug]);
 
   if (loading) {
@@ -57,75 +69,154 @@ const ProductDetail = ({ user }) => {
   const images = product.images || [];
   const primaryImage = images[0] || "/placeholder.jpg";
 
+  // ----------------------
+  // Similar products grid
+  // ----------------------
+
+  const renderSimilar = () => {
+    if (!similar.length) return null;
+
+    return (
+      <section className="mt-10">
+        <h3 className="text-lg font-medium mb-4">Similar products</h3>
+        <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-4">
+          {similar
+            .filter((p) => p.id !== product.id)
+            .map((p) => (
+              <div
+                key={p.id}
+                className="card cursor-pointer hover:shadow-md transition-shadow"
+                onClick={() => navigate(`/product/${p.slug}`)}
+              >
+                <div className="card-image">
+                  <img
+                    src={
+                      p.images?.[0] ||
+                      "https://via.placeholder.com/160x120/eee/6366f1?text=??"
+                    }
+                    alt={p.title}
+                    className="w-full h-32 object-cover rounded-t"
+                  />
+                </div>
+                <div className="card-body px-2 py-2">
+                  <h3 className="title text-sm line-clamp-2">{p.title}</h3>
+                  <p className="price text-sm">
+                    ₦{Number(p.price).toLocaleString()}
+                  </p>
+                  <p className="location text-xs text-gray-600">
+                    {p.location?.city || "Nationwide"}
+                  </p>
+                  <div className="card-meta text-xs text-gray-500">
+                    {p.views} views
+                  </div>
+                </div>
+              </div>
+            ))}
+        </div>
+      </section>
+    );
+  };
+
+  // ----------------------
+  // Main product view (marketplace.js style)
+  // ----------------------
+
   return (
-    <div className="container mx-auto px-4 py-8">
+    <div className="container mx-auto px-4 py-6">
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
-        {/* Image */}
-        <div>
-          <img
-            src={primaryImage}
-            alt={product.title}
-            className="w-full h-96 object-cover rounded-lg"
-          />
+        {/* Left: Image */}
+        <div className="flex flex-col space-y-4">
+          <div className="relative overflow-hidden rounded-lg">
+            <img
+              src={primaryImage}
+              alt={product.title}
+              className="w-full h-80 object-cover"
+            />
+          </div>
+
           {images.length > 1 && (
-            <div className="mt-4 grid grid-cols-4 gap-2">
+            <div className="grid grid-cols-4 gap-2 mt-2">
               {images.map((img, idx) => (
-                <img
-                  key={idx}
-                  src={img}
-                  alt={`${product.title} ${idx + 1}`}
-                  className="h-20 w-full object-cover rounded"
-                />
+                <div key={idx} className="overflow-hidden rounded">
+                  <img
+                    src={img}
+                    alt={`${product.title} ${idx + 1}`}
+                    className="w-full h-16 object-cover cursor-pointer"
+                    onClick={() => {
+                      // You can hook this up to a lightbox / modal if you want
+                    }}
+                  />
+                </div>
               ))}
             </div>
           )}
         </div>
 
-        {/* Info */}
+        {/* Right: Product info (marketplace.js style) */}
         <div>
-          <h1 className="text-3xl font-bold">{product.title}</h1>
+          <h1 className="text-2xl font-bold mb-2">{product.title}</h1>
 
-          <div className="mt-2 text-2xl font-bold text-green-600">
+          <div className="text-xl font-bold text-green-600 mb-2">
             ₦{Number(product.price).toFixed(2)}
           </div>
 
-          <p className="mt-4 text-gray-700">{product.description}</p>
+          <p className="text-gray-700 mb-4">{product.description}</p>
 
-          <div className="mt-6">
-            <div className="text-sm text-gray-600">
-              <span>Location: </span>
-              <span className="font-medium">
-                {product.location?.city ? `${product.location.city}, ` : ""}
-                {product.location?.state}
-              </span>
+          <div className="text-sm text-gray-600 mb-4">
+            <div className="mb-1">
+              <span className="font-medium">Condition:</span>{" "}
+              {product.attributes?.condition || "N/A"}
             </div>
-            <div className="text-sm text-gray-600">
-              <span>Views: </span>
-              <span className="font-medium">{product.views}</span>
+            {product.attributes?.brand && (
+              <div className="mb-1">
+                <span className="font-medium">Brand:</span>{" "}
+                {product.attributes.brand}
+              </div>
+            )}
+            {product.attributes?.model && (
+              <div className="mb-1">
+                <span className="font-medium">Model:</span>{" "}
+                {product.attributes.model}
+              </div>
+            )}
+            <div>
+              <span className="font-medium">Location:</span>{" "}
+              {product.location?.city ? `${product.location.city}, ` : ""}
+              {product.location?.state || "Nigeria"}
             </div>
           </div>
 
-          <div className="mt-6 space-y-2">
+          <div className="mb-4 text-sm text-gray-600">
+            <span className="font-medium">Views:</span> {product.views}
+          </div>
+
+          <div className="flex space-x-3">
             {user && (
               <button
-                className="w-full py-3 bg-blue-600 text-white rounded-lg"
+                className="flex-1 py-2.5 text-sm bg-blue-600 text-white rounded-lg hover:bg-blue-700"
                 onClick={() => {
-                  console.log("Add to wishlist/cart:", product.id);
+                  console.log("Add to wishlist:", product.id);
                 }}
               >
-                {user.id === product.user_id
-                  ? "Edit Product"
-                  : "Add to Wishlist"}
+                Add to Wishlist
               </button>
             )}
+            <button
+              className="flex-1 py-2.5 text-sm bg-green-600 text-white rounded-lg hover:bg-green-700"
+              onClick={() => {
+                console.log("Start chat:", product.id);
+              }}
+            >
+              Send Message
+            </button>
           </div>
         </div>
       </div>
 
-      {/* Extra details */}
-      <div className="mt-10">
-        <h3 className="text-lg font-medium">Product info</h3>
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mt-2 text-sm">
+      {/* Extra details section */}
+      <div className="mt-8">
+        <h3 className="text-lg font-medium mb-2">Product info</h3>
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-sm">
           {product.attributes?.brand && (
             <div>
               <span className="font-medium">Brand:</span>{" "}
@@ -147,8 +238,21 @@ const ProductDetail = ({ user }) => {
           <div>
             <span className="font-medium">Status:</span> {product.status}
           </div>
+          {product.location?.state && (
+            <div>
+              <span className="font-medium">State:</span> {product.location.state}
+            </div>
+          )}
+          {product.location?.city && (
+            <div>
+              <span className="font-medium">City:</span> {product.location.city}
+            </div>
+          )}
         </div>
       </div>
+
+      {/* Similar products */}
+      {renderSimilar()}
     </div>
   );
 };
