@@ -1,3 +1,6 @@
+
+// server.js
+
 import express from "express";
 import cors from "cors";
 import path from "path";
@@ -126,6 +129,42 @@ app.use("/api/payment", paymentRouter);
 app.use(express.json({ limit: "10mb" }));
 app.use(express.urlencoded({ extended: true }));
 
+/* ================= HELPERS (for routes) ================= */
+const safeJSON = (value, fallback = {}) => {
+  try {
+    return value ? JSON.parse(value) : fallback;
+  } catch {
+    return fallback;
+  }
+};
+
+export const normalizeProduct = (p) => ({
+  id: p.id,
+  slug: p.slug,
+  title: p.title,
+  description: p.description,
+  price: parseFloat(p.price),
+  images: Array.isArray(p.images)
+    ? p.images.map((img) => img.url)
+    : [],
+  attributes: safeJSON(p.attributes, {}),
+  delivery: safeJSON(p.delivery, {}),
+  contact: safeJSON(p.contact, {}),
+  location: {
+    state: p.location_state,
+    city: p.location_city,
+  },
+  views: Number(p.views || 0),
+  clicks_count: Number(p.clics_count || 0),
+  is_active: Boolean(p.is_active),
+  is_promoted: Boolean(p.is_promoted),
+  promotion_end: p.promotion_end,
+  promotion_priority: Number(p.promotion_priority || 0),
+  status: p.status,
+  createdAt: p.created_at,
+  updatedAt: p.updated_at,
+});
+
 /* ================= ROUTES ================= */
 import marketplaceRouter from "./routes/marketplace.js";
 import userRouter from "./routes/users.js";
@@ -136,6 +175,7 @@ import productDetailRouter from "./routes/productDetail.js";
 import homepageRouter from "./routes/homepage.js";
 import sellerProfileRouter from "./routes/sellerprofile.js";
 
+// Existing routes (keep these exactly as you had)
 app.use("/api/marketplace", marketplaceRouter);
 app.use("/api/users", userRouter);
 app.use("/api/messages", messagesRouter);
@@ -144,6 +184,10 @@ app.use("/api/search", searchRouter);
 app.use("/api/product", productDetailRouter);
 app.use("/api", homepageRouter);
 app.use("/api/marketplace/sellers", sellerProfileRouter);
+
+/* ================= PRODUCTS LIST (Similar products) ================= */
+import productsRouter from "./routes/products.js";
+app.use("/api/products", productsRouter);
 
 /* ================= HEALTH ================= */
 app.get("/api/health", async (req, res) => {
