@@ -1,3 +1,5 @@
+// routes/homepage.js
+
 import express from "express";
 import { Pool } from "pg";
 
@@ -8,10 +10,14 @@ const pool = new Pool({
   ssl: { rejectUnauthorized: false },
 });
 
-/* ================= NORMALIZER (REAL VIEWS) ================= */
+/* ================= NORMALIZER (REAL VIEWS + SLUG) ================= */
 const normalizeProduct = (p) => ({
-  ...p,
-  images: p.images || [],
+  id: p.id,
+  slug: p.slug,
+  title: p.title,
+  description: p.description,
+  price: parseFloat(p.price),
+  images: Array.isArray(p.images) ? p.images : [],
   attributes: p.attributes || {},
   delivery: p.delivery || {},
   contact: p.contact || {},
@@ -19,15 +25,21 @@ const normalizeProduct = (p) => ({
     state: p.location_state,
     city: p.location_city,
   },
-  views: Number(p.views || 0), // Real from products.views
+  views: Number(p.views || 0),
   clicks_count: Number(p.clicks_count || 0),
   createdAt: p.created_at,
+  is_active: Boolean(p.is_active),
+  is_promoted: Boolean(p.is_promoted),
+  promotion_end: p.promotion_end,
+  promotion_priority: Number(p.promotion_priority || 0),
+  status: p.status,
 });
 
-/* ================= BASE QUERY (COMPATIBLE + VIEWS) ================= */
+/* ================= BASE QUERY (COMPATIBLE + VIEWS + SLUG) ================= */
 const baseQuery = `
   SELECT 
     p.id,
+    p.slug,
     p.title,
     p.description,
     p.price,
@@ -38,6 +50,7 @@ const baseQuery = `
     p.is_promoted,
     p.promotion_end,
     p.promotion_priority,
+    p.status,
     p.location_state,
     p.location_city,
     p.attributes,
@@ -60,9 +73,11 @@ router.get("/homepage", async (req, res) => {
     const recommendedQuery = `
       ${baseQuery}
       GROUP BY 
-        p.id, p.title, p.description, p.price, p.created_at, p.views, p.clicks_count,
+        p.id, p.slug, p.title, p.description, p.price, p.created_at,
+        p.views, p.clicks_count,
         p.is_active, p.is_promoted, p.promotion_end, p.promotion_priority,
-        p.location_state, p.location_city, p.attributes, p.delivery, p.contact
+        p.status, p.location_state, p.location_city,
+        p.attributes, p.delivery, p.contact
       ORDER BY 
         COALESCE(p.promotion_priority, 0) DESC,
         COALESCE(p.views, 0) DESC,
@@ -74,9 +89,11 @@ router.get("/homepage", async (req, res) => {
     const cheapDealsQuery = `
       ${baseQuery}
       GROUP BY 
-        p.id, p.title, p.description, p.price, p.created_at, p.views, p.clicks_count,
+        p.id, p.slug, p.title, p.description, p.price, p.created_at,
+        p.views, p.clicks_count,
         p.is_active, p.is_promoted, p.promotion_end, p.promotion_priority,
-        p.location_state, p.location_city, p.attributes, p.delivery, p.contact
+        p.status, p.location_state, p.location_city,
+        p.attributes, p.delivery, p.contact
       HAVING p.price <= 20000
       ORDER BY 
         COALESCE(p.promotion_priority, 0) DESC,
@@ -89,9 +106,11 @@ router.get("/homepage", async (req, res) => {
     const trendingQuery = `
       ${baseQuery}
       GROUP BY 
-        p.id, p.title, p.description, p.price, p.created_at, p.views, p.clicks_count,
+        p.id, p.slug, p.title, p.description, p.price, p.created_at,
+        p.views, p.clicks_count,
         p.is_active, p.is_promoted, p.promotion_end, p.promotion_priority,
-        p.location_state, p.location_city, p.attributes, p.delivery, p.contact
+        p.status, p.location_state, p.location_city,
+        p.attributes, p.delivery, p.contact
       HAVING COALESCE(p.views, 0) > 5
       ORDER BY p.views DESC, p.clicks_count DESC
       LIMIT 20
@@ -101,9 +120,11 @@ router.get("/homepage", async (req, res) => {
     const latestQuery = `
       ${baseQuery}
       GROUP BY 
-        p.id, p.title, p.description, p.price, p.created_at, p.views, p.clicks_count,
+        p.id, p.slug, p.title, p.description, p.price, p.created_at,
+        p.views, p.clicks_count,
         p.is_active, p.is_promoted, p.promotion_end, p.promotion_priority,
-        p.location_state, p.location_city, p.attributes, p.delivery, p.contact
+        p.status, p.location_state, p.location_city,
+        p.attributes, p.delivery, p.contact
       ORDER BY p.created_at DESC
       LIMIT 30
     `;
@@ -121,7 +142,6 @@ router.get("/homepage", async (req, res) => {
       trending: trending.rows.map(normalizeProduct),
       latest: latest.rows.map(normalizeProduct),
     });
-
   } catch (err) {
     console.error("HOMEPAGE ERROR:", err);
     return res.status(500).json({
