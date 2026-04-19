@@ -20,10 +20,10 @@ const safeJSON = (value, fallback = {}) => {
 
 const normalizeProduct = (p) => ({
   id: p.id,
+  slug: p.slug,
   title: p.title,
   description: p.description,
   price: parseFloat(p.price),
-  slug: p.slug,
   attributes: safeJSON(p.attributes, {}),
   delivery: safeJSON(p.delivery, {}),
   contact: safeJSON(p.contact, {}),
@@ -31,7 +31,7 @@ const normalizeProduct = (p) => ({
     state: p.location_state,
     city: p.location_city,
   },
-  images: Array.isArray(p.images) ? p.images : [],
+  images: Array.isArray(p.images) ? p.images.map((img) => img.url) : [],
   views: Number(p.views || 0),
   clicks_count: Number(p.clicks_count || 0),
   is_active: Boolean(p.is_active),
@@ -41,13 +41,8 @@ const normalizeProduct = (p) => ({
   status: p.status,
   createdAt: p.created_at,
   updatedAt: p.updated_at,
-  engagement_score: Number(p.engagement_score || 0),
-  whatsapp: p.whatsapp || null,
-  whatsapp_link: p.whatsapp_link || null,
-  phone: p.phone || null,
 });
 
-// GET /api/product/slug/:slug
 router.get("/slug/:slug", async (req, res) => {
   const { slug } = req.params;
 
@@ -82,9 +77,7 @@ router.get("/slug/:slug", async (req, res) => {
     res.json(product);
   } catch (err) {
     console.error("Failed to fetch product by slug:", err);
-    res.status(500).json({
-      message: "Failed to fetch product",
-    });
+    res.status(500).json({ message: "Failed to fetch product" });
   }
 });
 
