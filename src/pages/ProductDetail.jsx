@@ -5,7 +5,7 @@ import { useParams } from "react-router-dom";
 import axios from "axios";
 
 const ProductDetail = ({ user }) => {
-  const { slug } = useParams(); // from /product/:slug
+  const { slug } = useParams();
   const [product, setProduct] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
@@ -16,14 +16,12 @@ const ProductDetail = ({ user }) => {
         const { data } = await axios.get(
           `/api/product/slug/${encodeURIComponent(slug)}`
         );
-        console.log("Product data:", data);
         setProduct(data);
       } catch (err) {
         const msg =
           err.response?.data?.message ||
           err.message ||
           "Failed to load product";
-        console.error("Fetch error:", err);
         setError(msg);
       } finally {
         setLoading(false);
@@ -88,7 +86,7 @@ const ProductDetail = ({ user }) => {
           <h1 className="text-3xl font-bold">{product.title}</h1>
 
           <div className="mt-2 text-2xl font-bold text-green-600">
-            ₦{product.price.toFixed(2)}
+            ₦{Number(product.price).toFixed(2)}
           </div>
 
           <p className="mt-4 text-gray-700">{product.description}</p>
@@ -108,27 +106,9 @@ const ProductDetail = ({ user }) => {
           </div>
 
           <div className="mt-6 space-y-2">
-            {product.contact?.phone && (
-              <button
-                className="w-full py-3 bg-blue-600 text-white rounded-lg"
-                onClick={() => window.open(`tel:${product.contact.phone}`)}
-              >
-                Call Seller
-              </button>
-            )}
-            {product.contact?.whatsapp_link && (
-              <button
-                className="w-full py-3 bg-green-600 text-white rounded-lg"
-                onClick={() =>
-                  window.open(product.contact.whatsapp_link, "_blank")
-                }
-              >
-                Chat on WhatsApp
-              </button>
-            )}
             {user && (
               <button
-                className="w-full py-3 bg-gray-600 text-white rounded-lg"
+                className="w-full py-3 bg-blue-600 text-white rounded-lg"
                 onClick={() => {
                   console.log("Add to wishlist/cart:", product.id);
                 }}
