@@ -1,3 +1,5 @@
+// src/pages/Homepage.jsx
+
 import React, {
   useEffect,
   useState,
@@ -274,7 +276,7 @@ export default function Homepage({ user }) {
   );
 }
 
-// ProductGrid (uses id now, can switch to slug later)
+// ProductGrid (NOW USES SLUG)
 const ProductGrid = ({ items, loadMore, cheapVisible, setCheapVisible }) => {
   const navigate = useNavigate();
 
@@ -287,7 +289,7 @@ const ProductGrid = ({ items, loadMore, cheapVisible, setCheapVisible }) => {
           <ProductCard
             key={p.id}
             product={p}
-            onClick={() => navigate(`/product/${p.id}`)}
+            onClick={() => navigate(`/product/${p.slug}`)}
           />
         ))}
       </div>
@@ -308,7 +310,7 @@ const ProductGrid = ({ items, loadMore, cheapVisible, setCheapVisible }) => {
   );
 };
 
-// Horizontal scroll for featured rows
+// Horizontal scroll (NOW USES SLUG)
 const HorizontalScroll = ({ items }) => {
   const navigate = useNavigate();
 
@@ -318,7 +320,7 @@ const HorizontalScroll = ({ items }) => {
         <div key={p.id} className="scroll-item">
           <ProductCardMini
             product={p}
-            onClick={() => navigate(`/product/${p.id}`)}
+            onClick={() => navigate(`/product/${p.slug}`)}
           />
         </div>
       ))}
