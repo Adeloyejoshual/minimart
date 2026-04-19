@@ -24,7 +24,9 @@ const normalizeProduct = (p) => ({
   title: p.title,
   description: p.description,
   price: parseFloat(p.price),
-  images: Array.isArray(p.images) ? p.images.map((img) => img.url) : [],
+  images: Array.isArray(p.images)
+    ? p.images.map((img) => img.url)
+    : [],
   attributes: safeJSON(p.attributes, {}),
   delivery: safeJSON(p.delivery, {}),
   contact: safeJSON(p.contact, {}),
@@ -65,17 +67,19 @@ router.get("/slug/:slug", async (req, res) => {
         p.slug = $1
         AND COALESCE(p.is_active, false) = true
       GROUP BY p.id
-      LIMIT 1
+      LIMIT 1;
       `,
       [slug]
     );
 
     if (!rows.length) {
-      return res.status(404).json({ message: "Product not found" });
+      return res.status(404).json({
+        message: "Product not found",
+      });
     }
 
     const product = normalizeProduct(rows[0]);
-    res.json(product);
+    res.status(200).json(product);
   } catch (err) {
     console.error("Failed to fetch product by slug:", err);
     res.status(500).json({
