@@ -47,6 +47,7 @@ const normalizeProduct = (p) => ({
   phone: p.phone || null,
 });
 
+// GET /api/product/slug/:slug
 router.get("/slug/:slug", async (req, res) => {
   const { slug } = req.params;
 
