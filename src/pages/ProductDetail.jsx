@@ -5,7 +5,7 @@ import { useParams } from "react-router-dom";
 import axios from "axios";
 
 const ProductDetail = ({ user }) => {
-  const { slug } = useParams(); // now from /product/:slug
+  const { slug } = useParams(); // from /product/:slug
   const [product, setProduct] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
@@ -56,7 +56,7 @@ const ProductDetail = ({ user }) => {
     );
   }
 
-  const images = (product.images || []).map((img) => img.url);
+  const images = product.images.map((img) => img.url);
   const primaryImage = images[0] || "/placeholder.jpg";
 
   return (
@@ -101,6 +101,10 @@ const ProductDetail = ({ user }) => {
                 {product.location?.state}
               </span>
             </div>
+            <div className="text-sm text-gray-600">
+              <span>Views: </span>
+              <span className="font-medium">{product.views}</span>
+            </div>
           </div>
 
           <div className="mt-6 space-y-2">
@@ -115,7 +119,9 @@ const ProductDetail = ({ user }) => {
             {product.contact?.whatsapp_link && (
               <button
                 className="w-full py-3 bg-green-600 text-white rounded-lg"
-                onClick={() => window.open(product.contact.whatsapp_link, "_blank")}
+                onClick={() =>
+                  window.open(product.contact.whatsapp_link, "_blank")
+                }
               >
                 Chat on WhatsApp
               </button>
@@ -142,22 +148,22 @@ const ProductDetail = ({ user }) => {
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mt-2 text-sm">
           {product.attributes?.brand && (
             <div>
-              <span className="font-medium">Brand:</span> {product.attributes.brand}
+              <span className="font-medium">Brand:</span>{" "}
+              {product.attributes.brand}
             </div>
           )}
           {product.attributes?.model && (
             <div>
-              <span className="font-medium">Model:</span> {product.attributes.model}
+              <span className="font-medium">Model:</span>{" "}
+              {product.attributes.model}
             </div>
           )}
           {product.attributes?.condition && (
             <div>
-              <span className="font-medium">Condition:</span> {product.attributes.condition}
+              <span className="font-medium">Condition:</span>{" "}
+              {product.attributes.condition}
             </div>
           )}
-          <div>
-            <span className="font-medium">Views:</span> {product.views}
-          </div>
           <div>
             <span className="font-medium">Status:</span> {product.status}
           </div>
