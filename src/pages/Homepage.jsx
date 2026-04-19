@@ -1,4 +1,8 @@
-import { useEffect, useState, useCallback, useMemo } from "react";
+import React, {
+  useEffect,
+  useState,
+  useCallback,
+} from "react";
 import { useNavigate } from "react-router-dom";
 import { useProductCache } from "../context/ProductCacheContext";
 
@@ -9,47 +13,61 @@ import "../styles/Homepage.css";
 export default function Homepage({ user }) {
   const navigate = useNavigate();
   const { products, setProducts, loaded, setLoaded } = useProductCache();
-  
-  // Core states
+
   const [banners, setBanners] = useState([]);
   const [currentBanner, setCurrentBanner] = useState(0);
   const [sections, setSections] = useState({
     recommended: [],
     cheapDeals: [],
     trending: [],
-    latest: []
+    latest: [],
   });
   const [cheapVisible, setCheapVisible] = useState(8);
   const [isLoading, setIsLoading] = useState(true);
 
   const API_BASE = "https://minimart-ivrm.onrender.com/api";
 
-  // Dynamic banners with search params
+  // Build dynamic banners
   useEffect(() => {
-    const monthNames = ["January", "February", "March", "April", "May", "June", 
-                       "July", "August", "September", "October", "November", "December"];
-    const currentMonth = monthNames[new Date().getMonth()];
-    
+    const months = [
+      "January", "February", "March", "April", "May", "June",
+      "July", "August", "September", "October", "November", "December",
+    ];
+    const currentMonth = months[new Date().getMonth()];
+
     setBanners([
-      { text: "🔥 Hot Deals Under ₦10,000", action: () => navigate("/search?price_max=10000&sort=price") },
-      { text: "⚡ Flash Sale - Up to 50% OFF", action: () => navigate("/search?promoted=true") },
-      { text: "💸 Cheapest Prices Today", action: () => navigate("/search?sort=price&price_max=50000") },
-      { text: `🛍️ ${currentMonth} Mega Sale Live!`, action: () => navigate("/search") }
+      {
+        text: "🔥 Hot Deals Under ₦10,000",
+        action: () => navigate("/search?price_max=10000&sort=price"),
+      },
+      {
+        text: "⚡ Flash Sale - Up to 50% OFF",
+        action: () => navigate("/search?promoted=true"),
+      },
+      {
+        text: "💸 Cheapest Prices Today",
+        action: () => navigate("/search?sort=price&price_max=50000"),
+      },
+      {
+        text: `🛍️ ${currentMonth} Mega Sale Live!`,
+        action: () => navigate("/search"),
+      },
     ]);
   }, [navigate]);
 
-  // Auto-rotate banners
+  // Auto‑rotate banner
   useEffect(() => {
-    if (banners.length === 0) return;
+    if (!banners.length) return;
+
     const interval = setInterval(() => {
       setCurrentBanner((prev) => (prev + 1) % banners.length);
     }, 4000);
+
     return () => clearInterval(interval);
   }, [banners.length]);
 
-  // Fetch and categorize products
+  // Fetch homepage data
   useEffect(() => {
-    // Skip if we have cached data
     if (loaded && products.length > 0) {
       setSections(categorizeProducts(products));
       setIsLoading(false);
@@ -57,42 +75,51 @@ export default function Homepage({ user }) {
     }
 
     const fetchData = async () => {
+      setIsLoading(true);
+
       try {
-        setIsLoading(true);
         const controller = new AbortController();
         const timeout = setTimeout(() => controller.abort(), 10000);
 
         const res = await fetch(`${API_BASE}/homepage`, {
           headers: { Accept: "application/json" },
-          signal: controller.signal
+          signal: controller.signal,
         });
 
         clearTimeout(timeout);
-        const data = await res.json();
 
-        if (!res.ok) throw new Error(data.message || "Failed to load homepage");
+        if (!res.ok) {
+          const fallback = await res.json().catch(() => ({}));
+          throw new Error(fallback.message || "Failed to load homepage");
+        }
+
+        const data = await res.json();
 
         const categorized = {
           recommended: data.recommended || [],
           cheapDeals: data.cheapDeals || [],
           trending: data.trending || [],
-          latest: data.latest || []
+          latest: data.latest || [],
         };
 
-        // Deduplicate and cache all products
+        // Deduplicate by id
         const allProducts = [
           ...categorized.recommended,
           ...categorized.cheapDeals,
           ...categorized.trending,
-          ...categorized.latest
-        ].filter((p, i, self) => i === self.findIndex(t => t.id === p.id));
+          ...categorized.latest,
+        ].filter((p, i, self) => i === self.findIndex((t) => t.id === p.id));
 
         setProducts(allProducts);
         setSections(categorized);
         setLoaded(true);
       } catch (err) {
-        console.error("Homepage fetch error:", err);
-        // Fallback to cache if available
+        if (err.name === "AbortError") {
+          console.warn("Homepage request timed out");
+        } else {
+          console.error("Homepage fetch error:", err);
+        }
+
         if (products.length > 0) {
           setSections(categorizeProducts(products));
         }
@@ -102,44 +129,49 @@ export default function Homepage({ user }) {
     };
 
     fetchData();
-  }, []);
+  }, [loaded, products.length]);
 
-  // Smart product categorization
+  // Add metrics / enrich homepage products
   const categorizeProducts = useCallback((allProducts) => {
     const withMetrics = allProducts.map((p) => ({
       ...p,
-      views: p.views || 0,
-      clicks: p.clicks_count || p.clicks || 0,
+      views: Number(p.views || 0),
+      clicks: Number(p.clicks_count || p.clicks || 0),
       postedAt: p.createdAt || p.created_at || new Date().toISOString(),
-      isNew: !p.createdAt || (Date.now() - new Date(p.createdAt)) < 7 * 24 * 60 * 60 * 1000,
-      isHot: (p.views || 0) > 100 || (p.promotion_priority || 0) > 0
+      isNew:
+        !p.createdAt ||
+        Date.now() - new Date(p.createdAt) < 7 * 24 * 60 * 60 * 1000,
+      isHot:
+        (p.views || 0) > 100 ||
+        (p.promotion_priority || 0) > 0,
     }));
 
-    const scoreProduct = (p) => {
-      const recencyBoost = Date.now() - new Date(p.postedAt) < 7 * 24 * 60 * 60 * 1000 ? 50 : 0;
+    const score = (p) => {
+      const recencyBoost =
+        Date.now() - new Date(p.postedAt) < 7 * 24 * 60 * 60 * 1000 ? 50 : 0;
       const promoBoost = (p.promotion_priority || 0) * 10;
-      return (p.views || 0) + ((p.clicks || 0) * 3) + recencyBoost + promoBoost;
+      return (p.views || 0) + (p.clicks || 0) * 3 + recencyBoost + promoBoost;
     };
 
-    const sorted = withMetrics.sort((a, b) => scoreProduct(b) - scoreProduct(a));
+    const sorted = withMetrics.sort((a, b) => score(b) - score(a));
 
     return {
       recommended: sorted.slice(0, 12),
-      cheapDeals: sorted.filter(p => Number(p.price) <= 20000)
-                        .sort((a, b) => scoreProduct(b) - scoreProduct(a)),
-      trending: sorted.filter(p => (p.views || 0) > 10)
-                      .sort((a, b) => (b.views || 0) - (a.views || 0))
-                      .slice(0, 15),
-      latest: sorted.slice(0, 24)
+      cheapDeals: sorted
+        .filter((p) => Number(p.price) <= 20000)
+        .sort((a, b) => score(b) - score(a)),
+      trending: sorted
+        .filter((p) => (p.views || 0) > 10)
+        .sort((a, b) => (b.views || 0) - (a.views || 0))
+        .slice(0, 15),
+      latest: sorted.slice(0, 24),
     };
   }, []);
 
-  // Banner click handler
   const handleBannerClick = () => {
     banners[currentBanner]?.action?.();
   };
 
-  // Universal section renderer
   const renderSection = (title, items, isHorizontal = false, loadMore = false) => {
     if (isLoading) {
       return (
@@ -148,15 +180,17 @@ export default function Homepage({ user }) {
             <h2 className="mini-title">{title}</h2>
           </div>
           <div className="skeleton-grid">
-            {Array(isHorizontal ? 8 : 6).fill().map((_, i) => (
-              <div key={i} className="skeleton-card"></div>
-            ))}
+            {Array(isHorizontal ? 8 : 6)
+              .fill()
+              .map((_, i) => (
+                <div key={i} className="skeleton-card"></div>
+              ))}
           </div>
         </section>
       );
     }
 
-    if (items.length === 0) {
+    if (!items.length) {
       return (
         <section>
           <div className="section-header">
@@ -177,13 +211,18 @@ export default function Homepage({ user }) {
         {isHorizontal ? (
           <HorizontalScroll items={items} />
         ) : (
-          <ProductGrid items={items} loadMore={loadMore} cheapVisible={cheapVisible} />
+          <ProductGrid
+            items={items}
+            loadMore={loadMore}
+            cheapVisible={cheapVisible}
+            setCheapVisible={setCheapVisible}
+          />
         )}
       </section>
     );
   };
 
-  // Global loading state
+  // Global loader when not loaded and not signed in
   if (!loaded && !user) {
     return (
       <div className="global-loader">
@@ -197,17 +236,17 @@ export default function Homepage({ user }) {
   return (
     <>
       <TopNav />
-      
+
       <div className="page-content">
         <div className="homepage-container">
           {/* Clickable rotating banner */}
           {banners.length > 0 && (
-            <div 
-              className="banner clickable" 
+            <div
+              className="banner clickable"
               onClick={handleBannerClick}
               role="button"
               tabIndex={0}
-              onKeyDown={(e) => e.key === 'Enter' && handleBannerClick()}
+              onKeyDown={(e) => e.key === "Enter" && handleBannerClick()}
             >
               <div className="banner-text">{banners[currentBanner]?.text}</div>
               <div className="banner-arrow">→</div>
@@ -223,7 +262,10 @@ export default function Homepage({ user }) {
       </div>
 
       {/* Floating sell button */}
-      <button className="floating-btn" onClick={() => navigate("/minimart/add")}>
+      <button
+        className="floating-btn"
+        onClick={() => navigate("/minimart/add")}
+      >
         + Sell Item
       </button>
 
@@ -232,22 +274,31 @@ export default function Homepage({ user }) {
   );
 }
 
-// Product grid with load more
-const ProductGrid = ({ items, loadMore, cheapVisible }) => {
+// ProductGrid (uses id now, can switch to slug later)
+const ProductGrid = ({ items, loadMore, cheapVisible, setCheapVisible }) => {
   const navigate = useNavigate();
-  
+
+  const visibleItems = items.slice(0, loadMore ? cheapVisible : items.length);
+
   return (
     <>
       <div className="grid">
-        {items.slice(0, loadMore ? cheapVisible : items.length).map((p) => (
-          <ProductCard key={p.id} product={p} onClick={() => navigate(`/product/${p.id}`)} />
+        {visibleItems.map((p) => (
+          <ProductCard
+            key={p.id}
+            product={p}
+            onClick={() => navigate(`/product/${p.id}`)}
+          />
         ))}
       </div>
+
       {loadMore && cheapVisible < items.length && (
         <div className="load-more-container">
-          <button 
+          <button
             className="load-more-btn"
-            onClick={() => {/* Handled by parent state */}}
+            onClick={() => {
+              setCheapVisible((v) => Math.min(v + 8, items.length));
+            }}
           >
             Load More ({items.length - cheapVisible} left)
           </button>
@@ -257,14 +308,18 @@ const ProductGrid = ({ items, loadMore, cheapVisible }) => {
   );
 };
 
-// Horizontal scroll container
+// Horizontal scroll for featured rows
 const HorizontalScroll = ({ items }) => {
   const navigate = useNavigate();
+
   return (
     <div className="horizontal-scroll">
       {items.map((p) => (
         <div key={p.id} className="scroll-item">
-          <ProductCardMini product={p} onClick={() => navigate(`/product/${p.id}`)} />
+          <ProductCardMini
+            product={p}
+            onClick={() => navigate(`/product/${p.id}`)}
+          />
         </div>
       ))}
     </div>
@@ -273,10 +328,19 @@ const HorizontalScroll = ({ items }) => {
 
 // Full product card
 const ProductCard = ({ product, onClick }) => (
-  <div className="card" tabIndex={0} onClick={onClick} role="button">
+  <div
+    className="card"
+    tabIndex={0}
+    onClick={onClick}
+    role="button"
+    onKeyDown={(e) => e.key === "Enter" && onClick()}
+  >
     <div className="card-image">
       <img
-        src={product.images?.[0] || "https://via.placeholder.com/300x300/eee/6366f1?text=No+Image"}
+        src={
+          product.images?.[0] ||
+          "https://via.placeholder.com/300x300/eee/6366f1?text=No+Image"
+        }
         alt={product.title}
         loading="lazy"
       />
@@ -286,9 +350,13 @@ const ProductCard = ({ product, onClick }) => (
     <div className="card-body">
       <h3 className="title">{product.title}</h3>
       <p className="price">₦{Number(product.price).toLocaleString()}</p>
-      <p className="location">{product.location?.city || product.location_city || 'Nationwide'}</p>
+      <p className="location">
+        {product.location?.city || product.location_city || "Nationwide"}
+      </p>
       <div className="card-meta">
-        <span className="views">{(product.views || 0).toLocaleString()} views</span>
+        <span className="views">
+          {(product.views || 0).toLocaleString()} views
+        </span>
       </div>
     </div>
   </div>
@@ -296,10 +364,17 @@ const ProductCard = ({ product, onClick }) => (
 
 // Compact horizontal card
 const ProductCardMini = ({ product, onClick }) => (
-  <div className="card scroll-item-card" onClick={onClick} role="button">
+  <div
+    className="card scroll-item-card"
+    onClick={onClick}
+    role="button"
+  >
     <div className="card-image">
       <img
-        src={product.images?.[0] || "https://via.placeholder.com/160x120/eee/6366f1?text=??"}
+        src={
+          product.images?.[0] ||
+          "https://via.placeholder.com/160x120/eee/6366f1?text=??"
+        }
         alt={product.title}
         loading="lazy"
       />
