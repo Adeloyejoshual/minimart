@@ -43,7 +43,6 @@ export default function App() {
 
   const [loadingUser, setLoadingUser] = useState(true);
   const [loadingAdmin, setLoadingAdmin] = useState(true);
-
   const [timeoutReached, setTimeoutReached] = useState(false);
 
   const API = "https://minimart-ivrm.onrender.com/api/users";
@@ -116,7 +115,6 @@ export default function App() {
   /* ================= ROUTE GUARDS ================= */
   const ProtectedRoute = ({ children }) => {
     if (!isAuthReady) {
-      // Still loading auth → don’t redirect yet
       return <div className="global-loader">Loading auth...</div>;
     }
 
@@ -165,7 +163,7 @@ export default function App() {
         {/* ================= PUBLIC ================= */}
         <Route path="/" element={<Homepage user={user} />} />
         <Route path="/search" element={<SearchPage user={user} />} />
-        <Route path="/product/:key" element={<ProductDetail user={user} />} />
+        <Route path="/product/:slug" element={<ProductDetail user={user} />} />
         <Route path="/seller/:id" element={<SellerProfile user={user} />} />
         <Route path="/auth" element={<AuthPage setUser={handleAuthSuccess} />} />
         <Route path="/terms" element={<TermsAndConditions />} />
@@ -328,7 +326,7 @@ export default function App() {
           element={
             <AdminProtectedRoute>
               <AdminDashboard />
-            </AdminProtectedRoute>
+            </ProtectedRoute>
           }
         />
 
