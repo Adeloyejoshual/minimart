@@ -1,4 +1,4 @@
-// routes/productDetail.js
+// routes/products.js
 
 import express from "express";
 import { Pool } from "pg";
@@ -45,13 +45,31 @@ const normalizeProduct = (p) => ({
   updatedAt: p.updated_at,
 });
 
-// GET /api/product/slug/:slug
-router.get("/slug/:slug", async (req, res) => {
-  const { slug } = req.params;
+/**
+ * GET /api/products
+ *
+ * Query params:
+ *   - category_id
+ *   - limit
+ *   - offset
+ */
+router.get("/", async (req, res) => {
+  const { category_id, limit = 12, offset = 0 } = req.query;
+
+  const parsedLimit = Math.min(Math.max(Number(limit), 1), 100) || 12;
+  const parsedOffset = Math.max(Number(offset), 0);
 
   try {
-    const { rows } = await pool.query(
-      `
+    // Build dynamic WHERE clause
+    let where = "COALESCE(p.is_active, false) = true";
+    const params = [];
+
+    if (category_id) {
+      params.push(category_id);
+      where += ` AND p.category_id = $${params.length}`;
+    }
+
+    const sql = `
       SELECT
         p.*,
         COALESCE(
@@ -63,28 +81,29 @@ router.get("/slug/:slug", async (req, res) => {
         ) AS images
       FROM products p
       LEFT JOIN product_images pi ON p.id = pi.product_id
-      WHERE
-        p.slug = $1
-        AND COALESCE(p.is_active, false) = true
+      WHERE ${where}
       GROUP BY p.id
-      LIMIT 1;
-      `,
-      [slug]
-    );
+      ORDER BY p.created_at DESC
+      LIMIT $${params.length + 1} OFFSET $${params.length + 2};
+    `;
 
-    if (!rows.length) {
-      return res.status(404).json({
-        message: "Product not found",
-      });
-    }
+    const { rows } = await pool.query(sql, [
+      ...params,
+      parsedLimit,
+      parsedOffset,
+    ]);
 
-    const product = normalizeProduct(rows[0]);
-    res.status(200).json(product);
-  } catch (err) {
-    console.error("Failed to fetch product by slug:", err);
-    res.status(500).json({
-      message: "Failed to fetch product",
+    const products = rows.map(normalizeProduct);
+
+    res.status(200).json({
+      products,
+      total: products.length,
+      limit: parsedLimit,
+      offset: parsedOffset,
     });
+  } catch (err) {
+    console.error("Failed to fetch products:", err);
+    res.status(500).json({ message: "Failed to fetch products" });
   }
 });
 
