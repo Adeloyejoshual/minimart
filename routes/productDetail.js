@@ -2,9 +2,6 @@
 
 import express from "express";
 import { Pool } from "pg";
-import dotenv from "dotenv";
-
-dotenv.config();
 
 const router = express.Router();
 
@@ -54,6 +51,16 @@ const normalizeProduct = (p) => ({
   status: p.status,
   createdAt: p.created_at,
   updatedAt: p.updated_at,
+  engagement_score: Number(p.engagement_score || 0),
+  whatsapp: p.whatsapp || null,
+  whatsapp_link: p.whatsapp_link || null,
+  phone: p.phone || null,
+  category_id: p.category_id,
+  subcategory_id: p.subcategory_id,
+  user_id: p.user_id,
+  seller_id: p.seller_id,
+  promotion_id: p.promotion_id,
+  promotion_type: p.promotion_type,
 });
 
 // GET /api/product/slug/:slug
@@ -68,7 +75,7 @@ router.get("/slug/:slug", async (req, res) => {
         COALESCE(
           json_agg(
             json_build_object('url', pi.image_url)
-            ORDER BY pi.position_order
+            ORDER BY pi.position
           ) FILTER (WHERE pi.image_url IS NOT NULL),
           '[]'
         ) AS images
