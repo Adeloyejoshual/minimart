@@ -1,5 +1,3 @@
-// server.js
-
 import express from "express";
 import cors from "cors";
 import path from "path";
@@ -138,19 +136,12 @@ import productDetailRouter from "./routes/productDetail.js";
 import homepageRouter from "./routes/homepage.js";
 import sellerProfileRouter from "./routes/sellerprofile.js";
 
-// NEW LINE 1: import productsRouter
-import productsRouter from "./routes/products.js"; // ← new
-
 app.use("/api/marketplace", marketplaceRouter);
 app.use("/api/users", userRouter);
 app.use("/api/messages", messagesRouter);
 app.use("/api/admin", adminRouter);
 app.use("/api/search", searchRouter);
 app.use("/api/product", productDetailRouter);
-
-// NEW LINE 2: use /api/products
-app.use("/api/products", productsRouter);        // ← for Similar products
-
 app.use("/api", homepageRouter);
 app.use("/api/marketplace/sellers", sellerProfileRouter);
 
