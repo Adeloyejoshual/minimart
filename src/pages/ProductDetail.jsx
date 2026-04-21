@@ -1,258 +1,255 @@
-// src/pages/ProductDetail.jsx
+import React, { useState, useEffect } from 'react';
+import { useParams, useNavigate, Link } from 'react-router-dom';
+import { ArrowLeftIcon } from '@heroicons/react/24/outline';
 
-import React, { useState, useEffect } from "react";
-import { useParams, useNavigate } from "react-router-dom";
-import axios from "axios";
-
-const API = "https://minimart-ivrm.onrender.com/api";
-
-const ProductDetail = ({ user }) => {
+const ProductDetail = () => {
   const { slug } = useParams();
   const navigate = useNavigate();
   const [product, setProduct] = useState(null);
-  const [similar, setSimilar] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
 
   useEffect(() => {
-    const fetch = async () => {
-      setLoading(true);
+    if (!slug || slug === 'undefined') {
+      setError('Invalid product slug');
+      setLoading(false);
+      return;
+    }
 
+    const fetchProduct = async () => {
       try {
-        const { data } = await axios.get(
-          `/api/product/slug/${encodeURIComponent(slug)}`
-        );
+        setLoading(true);
+        const response = await fetch(`/api/product/slug/${slug}`);
+        
+        if (!response.ok) {
+          if (response.status === 404) {
+            throw new Error('Product not found');
+          }
+          throw new Error('Failed to fetch product');
+        }
+        
+        const data = await response.json();
         setProduct(data);
-
-        // Fetch similar products (same category)
-        const similarRes = await axios.get(
-          `/api/products?category_id=${data.category_id}&limit=12`
-        );
-        setSimilar(similarRes.data.products || []);
       } catch (err) {
-        const msg =
-          err.response?.data?.message ||
-          err.message ||
-          "Failed to load product";
-        setError(msg);
+        setError(err.message);
       } finally {
         setLoading(false);
       }
     };
 
-    fetch();
+    fetchProduct();
   }, [slug]);
+
+  const trackView = async () => {
+    if (product?.id) {
+      try {
+        await fetch(`/api/product/products/${product.id}/view`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+        });
+      } catch (err) {
+        console.error('View tracking failed:', err);
+      }
+    }
+  };
+
+  useEffect(() => {
+    if (product) {
+      trackView();
+    }
+  }, [product]);
 
   if (loading) {
     return (
-      <div className="flex justify-center items-center h-64">
-        <span className="text-lg text-gray-600">Loading product...</span>
+      <div className="min-h-screen bg-gray-50 py-12 px-4">
+        <div className="max-w-4xl mx-auto">
+          <div className="animate-pulse bg-white rounded-lg shadow p-8">
+            <div className="h-8 bg-gray-200 rounded w-48 mb-8"></div>
+            <div className="grid grid-cols-2 gap-8">
+              <div className="h-96 bg-gray-200 rounded-lg"></div>
+              <div>
+                <div className="h-6 bg-gray-200 rounded mb-4 w-3/4"></div>
+                <div className="h-8 bg-gray-200 rounded mb-6 w-1/2"></div>
+                <div className="space-y-4">
+                  <div className="h-4 bg-gray-200 rounded w-full"></div>
+                  <div className="h-4 bg-gray-200 rounded w-5/6"></div>
+                  <div className="h-4 bg-gray-200 rounded w-3/4"></div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
       </div>
     );
   }
 
   if (error || !product) {
     return (
-      <div className="p-6 text-center">
-        <h2 className="text-lg font-semibold text-red-600">Product not found</h2>
-        <p className="text-sm text-gray-500">{error}</p>
-        <button
-          onClick={() => window.history.back()}
-          className="mt-4 px-4 py-2 text-sm bg-blue-600 text-white rounded hover:bg-blue-700"
-        >
-          Go back
-        </button>
+      <div className="min-h-screen bg-gray-50 py-12 px-4">
+        <div className="max-w-md mx-auto bg-white rounded-lg shadow p-8 text-center">
+          <div className="w-24 h-24 bg-red-100 rounded-full mx-auto mb-6 flex items-center justify-center">
+            <svg className="w-12 h-12 text-red-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
+            </svg>
+          </div>
+          <h2 className="text-2xl font-bold text-gray-900 mb-4">{error || 'Product not found'}</h2>
+          <p className="text-gray-500 mb-8">The product you're looking for doesn't exist or has been removed.</p>
+          <div className="space-x-3">
+            <button
+              onClick={() => navigate(-1)}
+              className="inline-flex items-center px-6 py-2.5 bg-gray-900 text-white text-sm font-medium rounded-lg hover:bg-gray-800 transition-colors"
+            >
+              <ArrowLeftIcon className="w-4 h-4 mr-2" />
+              Go Back
+            </button>
+            <Link
+              to="/"
+              className="inline-flex items-center px-6 py-2.5 bg-blue-600 text-white text-sm font-medium rounded-lg hover:bg-blue-700 transition-colors"
+            >
+              Home
+            </Link>
+          </div>
+        </div>
       </div>
     );
   }
 
-  const images = product.images || [];
-  const primaryImage = images[0] || "/placeholder.jpg";
+  return (
+    <div className="min-h-screen bg-gray-50 py-8 px-4">
+      <div className="max-w-6xl mx-auto">
+        {/* Back Button */}
+        <button
+          onClick={() => navigate(-1)}
+          className="inline-flex items-center mb-8 px-4 py-2 bg-white border border-gray-200 rounded-lg hover:bg-gray-50 transition-colors text-sm font-medium"
+        >
+          <ArrowLeftIcon className="w-4 h-4 mr-2" />
+          Back to products
+        </button>
 
-  // ----------------------
-  // Similar products grid
-  // ----------------------
-
-  const renderSimilar = () => {
-    if (!similar.length) return null;
-
-    return (
-      <section className="mt-10">
-        <h3 className="text-lg font-medium mb-4">Similar products</h3>
-        <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-4">
-          {similar
-            .filter((p) => p.id !== product.id)
-            .map((p) => (
-              <div
-                key={p.id}
-                className="card cursor-pointer hover:shadow-md transition-shadow"
-                onClick={() => navigate(`/product/${p.slug}`)}
-              >
-                <div className="card-image">
-                  <img
-                    src={
-                      p.images?.[0] ||
-                      "https://via.placeholder.com/160x120/eee/6366f1?text=??"
-                    }
-                    alt={p.title}
-                    className="w-full h-32 object-cover rounded-t"
-                  />
+        <div className="bg-white rounded-2xl shadow-xl overflow-hidden">
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-8 p-8 lg:p-12">
+            {/* Images */}
+            <div className="space-y-4">
+              {product.images?.[0] && (
+                <img
+                  src={product.images[0]}
+                  alt={product.title}
+                  className="w-full h-96 lg:h-[500px] object-cover rounded-xl shadow-lg"
+                  onError={(e) => {
+                    e.target.src = '/placeholder-image.jpg';
+                  }}
+                />
+              )}
+              {product.images?.length > 1 && (
+                <div className="grid grid-cols-4 gap-2">
+                  {product.images.slice(1, 5).map((img, idx) => (
+                    <img
+                      key={idx}
+                      src={img}
+                      alt={`${product.title} ${idx + 1}`}
+                      className="w-full h-24 object-cover rounded-lg cursor-pointer hover:ring-2 hover:ring-blue-500"
+                      onError={(e) => {
+                        e.target.src = '/placeholder-image.jpg';
+                      }}
+                    />
+                  ))}
                 </div>
-                <div className="card-body px-2 py-2">
-                  <h3 className="title text-sm line-clamp-2">{p.title}</h3>
-                  <p className="price text-sm">
-                    ₦{Number(p.price).toLocaleString()}
-                  </p>
-                  <p className="location text-xs text-gray-600">
-                    {p.location?.city || "Nationwide"}
-                  </p>
-                  <div className="card-meta text-xs text-gray-500">
-                    {p.views} views
+              )}
+            </div>
+
+            {/* Product Info */}
+            <div className="space-y-6">
+              <div>
+                <h1 className="text-3xl lg:text-4xl font-bold text-gray-900 mb-2">
+                  {product.title}
+                </h1>
+                <div className="flex items-center text-sm text-gray-500 mb-4">
+                  <span>ID: {product.id.slice(0, 8)}...</span>
+                  <span className="mx-4">•</span>
+                  <span>{product.views} views • {product.clicks_count} clicks</span>
+                </div>
+                <div className={`px-3 py-1 rounded-full text-xs font-medium ${
+                  product.status === 'draft' 
+                    ? 'bg-yellow-100 text-yellow-800' 
+                    : product.status === 'active'
+                    ? 'bg-green-100 text-green-800'
+                    : 'bg-blue-100 text-blue-800'
+                }`}>
+                  {product.status}
+                </div>
+              </div>
+
+              <div className="p-6 bg-gray-50 rounded-xl">
+                <div className="text-4xl lg:text-5xl font-bold text-gray-900 mb-4">
+                  ₦{product.price.toLocaleString()}
+                </div>
+                <div className="space-y-2 text-sm">
+                  <div className="flex items-center">
+                    <span className="font-medium text-gray-900 w-24">Location:</span>
+                    <span>{product.location.state}, {product.location.city}</span>
+                  </div>
+                  {product.attributes.brand && (
+                    <div className="flex items-center">
+                      <span className="font-medium text-gray-900 w-24">Brand:</span>
+                      <span>{product.attributes.brand}</span>
+                    </div>
+                  )}
+                  {product.attributes.model && (
+                    <div className="flex items-center">
+                      <span className="font-medium text-gray-900 w-24">Model:</span>
+                      <span>{product.attributes.model}</span>
+                    </div>
+                  )}
+                </div>
+              </div>
+
+              <div className="prose max-w-none">
+                <p className="text-gray-900 leading-relaxed">{product.description}</p>
+              </div>
+
+              {product.attributes.features?.length > 0 && (
+                <div>
+                  <h3 className="font-bold text-lg mb-4">Features</h3>
+                  <div className="grid grid-cols-2 md:grid-cols-3 gap-2">
+                    {product.attributes.features.map((feature, idx) => (
+                      <div key={idx} className="px-3 py-2 bg-gray-100 rounded-lg text-sm">
+                        {feature}
+                      </div>
+                    ))}
                   </div>
                 </div>
-              </div>
-            ))}
-        </div>
-      </section>
-    );
-  };
+              )}
 
-  // ----------------------
-  // Main product view (marketplace.js style)
-  // ----------------------
-
-  return (
-    <div className="container mx-auto px-4 py-6">
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
-        {/* Left: Image */}
-        <div className="flex flex-col space-y-4">
-          <div className="relative overflow-hidden rounded-lg">
-            <img
-              src={primaryImage}
-              alt={product.title}
-              className="w-full h-80 object-cover"
-            />
-          </div>
-
-          {images.length > 1 && (
-            <div className="grid grid-cols-4 gap-2 mt-2">
-              {images.map((img, idx) => (
-                <div key={idx} className="overflow-hidden rounded">
-                  <img
-                    src={img}
-                    alt={`${product.title} ${idx + 1}`}
-                    className="w-full h-16 object-cover cursor-pointer"
-                    onClick={() => {
-                      // You can hook this up to a lightbox / modal if you want
-                    }}
-                  />
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4 pt-6 border-t">
+                <div>
+                  <h4 className="font-semibold mb-2">Contact Seller</h4>
+                  <div className="space-y-1 text-sm">
+                    <div>📱 {product.contact.phone}</div>
+                    {product.contact.whatsapp && (
+                      <a
+                        href={`https://wa.me/${product.contact.whatsapp.replace(/D/g, '')}`}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="font-semibold text-green-600 hover:text-green-700"
+                      >
+                        WhatsApp
+                      </a>
+                    )}
+                  </div>
                 </div>
-              ))}
-            </div>
-          )}
-        </div>
-
-        {/* Right: Product info (marketplace.js style) */}
-        <div>
-          <h1 className="text-2xl font-bold mb-2">{product.title}</h1>
-
-          <div className="text-xl font-bold text-green-600 mb-2">
-            ₦{Number(product.price).toFixed(2)}
-          </div>
-
-          <p className="text-gray-700 mb-4">{product.description}</p>
-
-          <div className="text-sm text-gray-600 mb-4">
-            <div className="mb-1">
-              <span className="font-medium">Condition:</span>{" "}
-              {product.attributes?.condition || "N/A"}
-            </div>
-            {product.attributes?.brand && (
-              <div className="mb-1">
-                <span className="font-medium">Brand:</span>{" "}
-                {product.attributes.brand}
+                {product.delivery.available && (
+                  <div>
+                    <h4 className="font-semibold mb-2">Delivery</h4>
+                    <div className="text-sm text-gray-600">
+                      Available - {product.delivery.duration?.from}-{product.delivery.duration?.to} days
+                    </div>
+                  </div>
+                )}
               </div>
-            )}
-            {product.attributes?.model && (
-              <div className="mb-1">
-                <span className="font-medium">Model:</span>{" "}
-                {product.attributes.model}
-              </div>
-            )}
-            <div>
-              <span className="font-medium">Location:</span>{" "}
-              {product.location?.city ? `${product.location.city}, ` : ""}
-              {product.location?.state || "Nigeria"}
             </div>
-          </div>
-
-          <div className="mb-4 text-sm text-gray-600">
-            <span className="font-medium">Views:</span> {product.views}
-          </div>
-
-          <div className="flex space-x-3">
-            {user && (
-              <button
-                className="flex-1 py-2.5 text-sm bg-blue-600 text-white rounded-lg hover:bg-blue-700"
-                onClick={() => {
-                  console.log("Add to wishlist:", product.id);
-                }}
-              >
-                Add to Wishlist
-              </button>
-            )}
-            <button
-              className="flex-1 py-2.5 text-sm bg-green-600 text-white rounded-lg hover:bg-green-700"
-              onClick={() => {
-                console.log("Start chat:", product.id);
-              }}
-            >
-              Send Message
-            </button>
           </div>
         </div>
       </div>
-
-      {/* Extra details section */}
-      <div className="mt-8">
-        <h3 className="text-lg font-medium mb-2">Product info</h3>
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-sm">
-          {product.attributes?.brand && (
-            <div>
-              <span className="font-medium">Brand:</span>{" "}
-              {product.attributes.brand}
-            </div>
-          )}
-          {product.attributes?.model && (
-            <div>
-              <span className="font-medium">Model:</span>{" "}
-              {product.attributes.model}
-            </div>
-          )}
-          {product.attributes?.condition && (
-            <div>
-              <span className="font-medium">Condition:</span>{" "}
-              {product.attributes.condition}
-            </div>
-          )}
-          <div>
-            <span className="font-medium">Status:</span> {product.status}
-          </div>
-          {product.location?.state && (
-            <div>
-              <span className="font-medium">State:</span> {product.location.state}
-            </div>
-          )}
-          {product.location?.city && (
-            <div>
-              <span className="font-medium">City:</span> {product.location.city}
-            </div>
-          )}
-        </div>
-      </div>
-
-      {/* Similar products */}
-      {renderSimilar()}
     </div>
   );
 };
