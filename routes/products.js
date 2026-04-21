@@ -10,27 +10,13 @@ const pool = new Pool({
   ssl: { rejectUnauthorized: false },
 });
 
-const safeJSON = (value, fallback = {}) => {
-  try {
-    return value ? JSON.parse(value) : fallback;
-  } catch {
-    return fallback;
-  }
-};
-
-/* ================= NORMALIZER (MATCHES /api/product/slug) ================= */
+/* ================= NORMALIZER (REAL VIEWS) ================= */
 const normalizeProduct = (p) => ({
-  id: p.id,
-  slug: p.slug,
-  title: p.title,
-  description: p.description,
-  price: parseFloat(p.price),
-  images: Array.isArray(p.images)
-    ? p.images
-    : [],
-  attributes: safeJSON(p.attributes, {}),
-  delivery: safeJSON(p.delivery, {}),
-  contact: safeJSON(p.contact, {}),
+  ...p,
+  images: p.images || [],
+  attributes: p.attributes || {},
+  delivery: p.delivery || {},
+  contact: p.contact || {},
   location: {
     state: p.location_state,
     city: p.location_city,
@@ -38,31 +24,22 @@ const normalizeProduct = (p) => ({
   views: Number(p.views || 0),
   clicks_count: Number(p.clicks_count || 0),
   createdAt: p.created_at,
-  updatedAt: p.updated_at,
-  is_active: Boolean(p.is_active),
-  is_promoted: Boolean(p.is_promoted),
-  promotion_end: p.promotion_end,
-  promotion_priority: Number(p.promotion_priority || 0),
-  status: p.status,
 });
 
-/* ================= BASE QUERY (WITH SLUG & VIEWS) ================= */
+/* ================= BASE QUERY (COMPATIBLE + VIEWS) ================= */
 const baseQuery = `
   SELECT 
     p.id,
-    p.slug,
     p.title,
     p.description,
     p.price,
     p.created_at,
-    p.updated_at,
     p.views,
     p.clicks_count,
     p.is_active,
     p.is_promoted,
     p.promotion_end,
     p.promotion_priority,
-    p.status,
     p.location_state,
     p.location_city,
     p.attributes,
@@ -78,7 +55,7 @@ const baseQuery = `
   WHERE COALESCE(p.is_active, false) = true
 `;
 
-/* ================= SIMILAR PRODUCTS (BY CATEGORY_ID) ================= */
+/* ================= SIMILAR PRODUCTS (BY CATEGORY) ================= */
 router.get("/", async (req, res) => {
   const { category_id, limit = 12, offset = 0 } = req.query;
 
@@ -96,14 +73,11 @@ router.get("/", async (req, res) => {
 
     const sql = `
       ${baseQuery}
-      GROUP BY p.id, p.slug, p.title, p.description, p.price,
-               p.created_at, p.updated_at,
-               p.views, p.clicks_count,
-               p.is_active, p.is_promoted, p.promotion_end,
-               p.promotion_priority, p.status,
-               p.location_state, p.location_city,
-               p.attributes, p.delivery, p.contact
-      ORDER BY
+      GROUP BY 
+        p.id, p.title, p.description, p.price, p.created_at, p.views, p.clicks_count,
+        p.is_active, p.is_promoted, p.promotion_end, p.promotion_priority,
+        p.location_state, p.location_city, p.attributes, p.delivery, p.contact
+      ORDER BY 
         COALESCE(p.promotion_priority, 0) DESC,
         COALESCE(p.views, 0) DESC,
         p.created_at DESC
@@ -125,7 +99,7 @@ router.get("/", async (req, res) => {
       offset: parsedOffset,
     });
   } catch (err) {
-    console.error("SIMILAR PRODUCTS ERROR:", err);
+    console.error("Failed to fetch similar products:", err);
     res.status(500).json({ message: "Failed to fetch similar products" });
   }
 });
