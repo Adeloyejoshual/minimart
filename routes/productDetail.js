@@ -1,5 +1,3 @@
-// routes/productDetail.js
-
 import express from "express";
 import { Pool } from "pg";
 
@@ -11,8 +9,9 @@ const pool = new Pool({
 });
 
 const safeJSON = (value, fallback = {}) => {
+  if (!value) return fallback;
   try {
-    return value ? JSON.parse(value) : fallback;
+    return typeof value === "string" ? JSON.parse(value) : value;
   } catch {
     return fallback;
   }
@@ -23,10 +22,8 @@ const normalizeProduct = (p) => ({
   slug: p.slug,
   title: p.title,
   description: p.description,
-  price: parseFloat(p.price),
-  images: Array.isArray(p.images)
-    ? p.images.map((img) => img.url)
-    : [],
+  price: Number(p.price),
+  images: Array.isArray(p.images) ? p.images.map((img) => img.url) : [],
   attributes: safeJSON(p.attributes, {}),
   delivery: safeJSON(p.delivery, {}),
   contact: safeJSON(p.contact, {}),
@@ -45,9 +42,14 @@ const normalizeProduct = (p) => ({
   updatedAt: p.updated_at,
 });
 
-// GET /api/product/slug/:slug
 router.get("/slug/:slug", async (req, res) => {
   const { slug } = req.params;
+
+  if (!slug || slug === "undefined") {
+    return res.status(400).json({
+      message: "Invalid product slug",
+    });
+  }
 
   try {
     const { rows } = await pool.query(
@@ -59,12 +61,11 @@ router.get("/slug/:slug", async (req, res) => {
             json_build_object('url', pi.image_url)
             ORDER BY pi.position
           ) FILTER (WHERE pi.image_url IS NOT NULL),
-          '[]'
+          '[]'::json
         ) AS images
       FROM products p
       LEFT JOIN product_images pi ON p.id = pi.product_id
-      WHERE
-        p.slug = $1
+      WHERE p.slug = $1
         AND COALESCE(p.is_active, false) = true
       GROUP BY p.id
       LIMIT 1;
@@ -78,11 +79,10 @@ router.get("/slug/:slug", async (req, res) => {
       });
     }
 
-    const product = normalizeProduct(rows[0]);
-    res.status(200).json(product);
+    return res.status(200).json(normalizeProduct(rows[0]));
   } catch (err) {
     console.error("Failed to fetch product by slug:", err);
-    res.status(500).json({
+    return res.status(500).json({
       message: "Failed to fetch product",
     });
   }
