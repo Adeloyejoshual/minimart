@@ -8,25 +8,17 @@ const pool = new Pool({
   ssl: { rejectUnauthorized: false },
 });
 
-const safeJSON = (value, fallback = {}) => {
-  if (!value) return fallback;
-  try {
-    return typeof value === "string" ? JSON.parse(value) : value;
-  } catch {
-    return fallback;
-  }
-};
-
+/* ================= NORMALIZER ================= */
 const normalizeProduct = (p) => ({
   id: p.id,
   slug: p.slug,
   title: p.title,
   description: p.description,
-  price: Number(p.price),
-  images: Array.isArray(p.images) ? p.images.map((img) => img.url) : [],
-  attributes: safeJSON(p.attributes, {}),
-  delivery: safeJSON(p.delivery, {}),
-  contact: safeJSON(p.contact, {}),
+  price: Number(p.price || 0),
+  images: Array.isArray(p.images) ? p.images : [],
+  attributes: p.attributes || {},
+  delivery: p.delivery || {},
+  contact: p.contact || {},
   location: {
     state: p.location_state,
     city: p.location_city,
@@ -42,12 +34,14 @@ const normalizeProduct = (p) => ({
   updatedAt: p.updated_at,
 });
 
+/* ================= DETAIL ROUTE ================= */
 router.get("/slug/:slug", async (req, res) => {
   const { slug } = req.params;
 
+  // Guard against undefined slugs from frontend
   if (!slug || slug === "undefined") {
-    return res.status(400).json({
-      message: "Invalid product slug",
+    return res.status(400).json({ 
+      message: "Invalid product slug provided" 
     });
   }
 
@@ -55,36 +49,62 @@ router.get("/slug/:slug", async (req, res) => {
     const { rows } = await pool.query(
       `
       SELECT
-        p.*,
+        p.id, p.slug, p.title, p.description, p.price, p.created_at, p.updated_at,
+        p.views, p.clicks_count, p.is_active, p.is_promoted, 
+        p.promotion_end, p.promotion_priority, p.status,
+        p.location_state, p.location_city,
+        p.attributes, p.delivery, p.contact,
         COALESCE(
-          json_agg(
-            json_build_object('url', pi.image_url)
-            ORDER BY pi.position
-          ) FILTER (WHERE pi.image_url IS NOT NULL),
+          json_agg(pi.image_url ORDER BY pi.position ASC) 
+          FILTER (WHERE pi.image_url IS NOT NULL),
           '[]'::json
         ) AS images
       FROM products p
       LEFT JOIN product_images pi ON p.id = pi.product_id
-      WHERE p.slug = $1
+      WHERE p.slug = $1 
         AND COALESCE(p.is_active, false) = true
-      GROUP BY p.id
+      GROUP BY 
+        p.id, p.slug, p.title, p.description, p.price, p.created_at, p.updated_at,
+        p.views, p.clicks_count, p.is_active, p.is_promoted, 
+        p.promotion_end, p.promotion_priority, p.status,
+        p.location_state, p.location_city,
+        p.attributes, p.delivery, p.contact
       LIMIT 1;
       `,
       [slug]
     );
 
     if (!rows.length) {
-      return res.status(404).json({
-        message: "Product not found",
+      return res.status(404).json({ 
+        message: "Product not found" 
       });
     }
 
     return res.status(200).json(normalizeProduct(rows[0]));
   } catch (err) {
-    console.error("Failed to fetch product by slug:", err);
-    return res.status(500).json({
-      message: "Failed to fetch product",
+    console.error("Product fetch error:", err);
+    return res.status(500).json({ 
+      message: "Failed to fetch product" 
     });
+  }
+});
+
+/* ================= REDIRECT BY ID (BONUS) ================= */
+router.get("/:id", async (req, res) => {
+  try {
+    const { rows } = await pool.query(
+      "SELECT slug FROM products WHERE id = $1 AND is_active = true LIMIT 1",
+      [req.params.id]
+    );
+
+    if (!rows.length) {
+      return res.status(404).json({ message: "Product not found" });
+    }
+
+    return res.redirect(301, `/api/product/slug/${rows[0].slug}`);
+  } catch (err) {
+    console.error("Product ID redirect error:", err);
+    return res.status(500).json({ message: "Redirect failed" });
   }
 });
 
