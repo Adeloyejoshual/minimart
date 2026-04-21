@@ -34,7 +34,7 @@ const normalizeProduct = (p) => ({
   updatedAt: p.updated_at,
 });
 
-/* ================= DETAIL ROUTE ================= */
+/* ================= DETAIL ROUTE - SHOWS ALL (draft + active + published) ================= */
 router.get("/slug/:slug", async (req, res) => {
   const { slug } = req.params;
 
@@ -61,8 +61,8 @@ router.get("/slug/:slug", async (req, res) => {
         ) AS images
       FROM products p
       LEFT JOIN product_images pi ON p.id = pi.product_id
-      WHERE p.slug = $1 
-        AND COALESCE(p.is_active, false) = true
+      WHERE p.slug = $1
+        -- ✅ SHOWS ALL: drafts, active, published - only requires slug match
       GROUP BY 
         p.id, p.slug, p.title, p.description, p.price, p.created_at, p.updated_at,
         p.views, p.clicks_count, p.is_active, p.is_promoted, 
@@ -89,11 +89,11 @@ router.get("/slug/:slug", async (req, res) => {
   }
 });
 
-/* ================= REDIRECT BY ID (BONUS) ================= */
+/* ================= REDIRECT BY ID ================= */
 router.get("/:id", async (req, res) => {
   try {
     const { rows } = await pool.query(
-      "SELECT slug FROM products WHERE id = $1 AND is_active = true LIMIT 1",
+      "SELECT slug FROM products WHERE id = $1 LIMIT 1",
       [req.params.id]
     );
 
