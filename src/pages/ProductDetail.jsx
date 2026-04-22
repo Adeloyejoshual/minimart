@@ -248,7 +248,7 @@ const ProductDetail = () => {
 
   return (
     <div className="product-detail-page">
-      {/* 🔥 PROFESSIONAL STICKY HEADER */}
+      {/* PROFESSIONAL STICKY HEADER */}
       <ProductHeader
         product={product}
         similarProductsCount={similarProducts.length}
@@ -258,7 +258,7 @@ const ProductDetail = () => {
       />
 
       <div className="homepage-container product-detail-container pt-0">
-        {/* Main Content */}
+        {/* Main Content Grid */}
         <div className="main-grid">
           {/* Product Gallery */}
           <div className="gallery">
@@ -458,6 +458,21 @@ const ProductDetail = () => {
                 )}
               </div>
             </div>
+
+            {/* Action Buttons */}
+            <div className="action-buttons pt-8 border-t">
+              <a
+                href={`https://wa.me/${contactInfo.whatsapp || contactInfo.phone}`}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="primary-action action-btn whatsapp-btn w-full mb-3"
+              >
+                💬 Contact Seller on WhatsApp
+              </a>
+              <button className="secondary-action action-btn unavailable-btn w-full">
+                ❌ Mark as Unavailable
+              </button>
+            </div>
           </div>
         </div>
 
@@ -469,229 +484,196 @@ const ProductDetail = () => {
                 <div className="seller-icon w-20 h-20 bg-gradient-to-br from-orange-500 to-orange-600 rounded-2xl flex items-center justify-center shadow-xl">
                   <UserIcon className="w-10 h-10 text-white" />
                 </div>
-                <div>
-                           <div className="seller-stats-grid">
-            {[
-              {
-                value: sellerStats.total_ads || 0,
-                label: "Total Ads",
-                color: "text-orange-600",
-              },
-              {
-                value: sellerStats.total_feedback || 0,
-                label: "Feedback",
-                color: "text-green-600",
-              },
-              {
-                value: sellerStats.followers || 0,
-                label: "Followers",
-                color: "text-blue-600",
-              },
-              {
-                value: sellerStats.avg_rating || 0,
-                label: "Avg Rating",
-                color: "text-purple-600",
-              },
-            ].map(({ value, label, color }, idx) => (
-              <div key={idx} className="seller-stat card group">
-                <div
-                  className={`seller-stat-number text-3xl font-black ${color} mb-2`}
-                >
-                  {Number(value).toLocaleString()}
-                </div>
-                <div className="stat-label text-sm font-semibold text-gray-700 uppercase tracking-wide">
-                  {label}
-                </div>
               </div>
-            ))}
-          </div>
-        </div>
-      )}
-
-      {/* Action Buttons */}
-      <div className="action-buttons">
-        <a
-          href={`https://wa.me/${
-            contactInfo.whatsapp || contactInfo.phone
-          }`}
-          target="_blank"
-          rel="noopener noreferrer"
-          className="primary-action action-btn whatsapp-btn"
-        >
-          💬 Contact Seller on WhatsApp
-        </a>
-        <button className="secondary-action action-btn unavailable-btn">
-          ❌ Mark as Unavailable
-        </button>
-      </div>
-
-      {/* Reviews */}
-      <div className="reviews-card card mb-16">
-        <div className="reviews-header section-header">
-          <div className="flex items-center gap-4">
-            <div className="w-16 h-16 bg-gradient-to-br from-purple-500 to-pink-600 rounded-2xl flex items-center justify-center shadow-xl">
-              <StarIcon className="w-8 h-8 text-white" />
             </div>
-            <div>
-              <h2 className="text-3xl font-black text-gray-900 mb-2">
-                Customer Reviews
-              </h2>
-              {reviewStats && (
-                <div className="reviews-stats">
-                  <span>
-                    {reviewStats.avg_rating?.toFixed(1) || 0} ★ Average
-                  </span>
-                  <span>•</span>
-                  <span>
-                    {reviewStats.total_reviews?.toLocaleString() || 0} Reviews
-                  </span>
+            <div className="seller-stats-grid">
+              {[
+                { value: sellerStats.total_ads || 0, label: "Total Ads", color: "text-orange-600" },
+                { value: sellerStats.total_feedback || 0, label: "Feedback", color: "text-green-600" },
+                { value: sellerStats.followers || 0, label: "Followers", color: "text-blue-600" },
+                { value: sellerStats.avg_rating || 0, label: "Avg Rating", color: "text-purple-600" },
+              ].map(({ value, label, color }, idx) => (
+                <div key={idx} className="seller-stat card group">
+                  <div className={`seller-stat-number text-3xl font-black ${color} mb-2`}>
+                    {Number(value).toLocaleString()}
+                  </div>
+                  <div className="stat-label text-sm font-semibold text-gray-700 uppercase tracking-wide">
+                    {label}
+                  </div>
                 </div>
-              )}
-            </div>
-          </div>
-        </div>
-        <div className="reviews-content p-8">
-          {reviewsLoading ? (
-            <div className="grid md:grid-cols-2 gap-6">
-              {[...Array(4)].map((_, i) => (
-                <div key={i} className="review-card card skeleton h-32" />
               ))}
             </div>
-          ) : reviews.length > 0 ? (
-            <div className="review-list space-y-6">
-              {reviews.map((review) => (
-                <div key={review.id} className="review-card card group">
-                  <div className="reviewer-avatar">
-                    <span className="font-bold text-lg">
-                      {review.reviewer_name?.charAt(0)?.toUpperCase() || "U"}
+          </div>
+        )}
+
+        {/* Reviews */}
+        <div className="reviews-card card mb-16">
+          <div className="reviews-header section-header">
+            <div className="flex items-center gap-4">
+              <div className="w-16 h-16 bg-gradient-to-br from-purple-500 to-pink-600 rounded-2xl flex items-center justify-center shadow-xl">
+                <StarIcon className="w-8 h-8 text-white" />
+              </div>
+              <div>
+                <h2 className="text-3xl font-black text-gray-900 mb-2">
+                  Customer Reviews
+                </h2>
+                {reviewStats && (
+                  <div className="reviews-stats">
+                    <span>
+                      {reviewStats.avg_rating?.toFixed(1) || 0} ★ Average
+                    </span>
+                    <span>•</span>
+                    <span>
+                      {reviewStats.total_reviews?.toLocaleString() || 0} Reviews
                     </span>
                   </div>
-                  <div className="review-content flex-1 min-w-0">
-                    <div className="review-header flex items-center justify-between mb-4">
-                      <div className="reviewer-name title font-bold text-lg text-gray-900 truncate">
-                        {review.reviewer_name}
-                      </div>
-                      <div className="text-sm text-gray-500">
-                        {new Date(review.created_at).toLocaleDateString(
-                          "en-US",
-                          { month: "short", day: "numeric" }
-                        )}
-                      </div>
+                )}
+              </div>
+            </div>
+          </div>
+          <div className="reviews-content p-8">
+            {reviewsLoading ? (
+              <div className="grid md:grid-cols-2 gap-6">
+                {[...Array(4)].map((_, i) => (
+                  <div key={i} className="review-card card skeleton h-32" />
+                ))}
+              </div>
+            ) : reviews.length > 0 ? (
+              <div className="review-list space-y-6">
+                {reviews.map((review) => (
+                  <div key={review.id} className="review-card card group">
+                    <div className="reviewer-avatar">
+                      <span className="font-bold text-lg">
+                        {review.reviewer_name?.charAt(0)?.toUpperCase() || "U"}
+                      </span>
                     </div>
-                    <div className="stars flex items-center gap-1 mb-4">
-                      {[...Array(5)].map((_, i) => (
-                        <StarIcon
-                          key={i}
-                          className={`w-5 h-5 ${
-                            i < review.rating
-                              ? "text-yellow-400 fill-current"
-                              : "text-gray-300"
-                          }`}
-                        />
-                      ))}
+                    <div className="review-content flex-1 min-w-0">
+                      <div className="review-header flex items-center justify-between mb-4">
+                        <div className="reviewer-name title font-bold text-lg text-gray-900 truncate">
+                          {review.reviewer_name}
+                        </div>
+                        <div className="text-sm text-gray-500">
+                          {new Date(review.created_at).toLocaleDateString(
+                            "en-US",
+                            { month: "short", day: "numeric" }
+                          )}
+                        </div>
+                      </div>
+                      <div className="stars flex items-center gap-1 mb-4">
+                        {[...Array(5)].map((_, i) => (
+                          <StarIcon
+                            key={i}
+                            className={`w-5 h-5 ${
+                              i < review.rating
+                                ? "text-yellow-400 fill-current"
+                                : "text-gray-300"
+                            }`}
+                          />
+                        ))}
+                      </div>
+                      {review.comment && (
+                        <p className="review-text text-gray-700 leading-relaxed text-base">
+                          {review.comment}
+                        </p>
+                      )}
                     </div>
-                    {review.comment && (
-                      <p className="review-text text-gray-700 leading-relaxed text-base">
-                        {review.comment}
-                      </p>
-                    )}
                   </div>
-                </div>
-              ))}
-            </div>
-          ) : (
-            <div className="empty-state">
-              <StarIcon className="empty-icon w-24 h-24 text-gray-300" />
-              <h3 className="text-2xl font-black text-gray-500 mb-3 title">
-                No Reviews Yet
-              </h3>
-              <p className="text-lg text-gray-500 mb-8 max-w-md mx-auto">
-                Be the first to share your experience with this product
-              </p>
-            </div>
-          )}
+                ))}
+              </div>
+            ) : (
+              <div className="empty-state">
+                <StarIcon className="empty-icon w-24 h-24 text-gray-300" />
+                <h3 className="text-2xl font-black text-gray-500 mb-3 title">
+                  No Reviews Yet
+                </h3>
+                <p className="text-lg text-gray-500 mb-8 max-w-md mx-auto">
+                  Be the first to share your experience with this product
+                </p>
+              </div>
+            )}
+          </div>
         </div>
-      </div>
 
-      {/* Similar Products */}
-      <div className="similar-card card">
-        <div className="similar-header section-header">
-          <h2 className="mini-title text-3xl">
-            {similarProducts.length > 0 ? "🔥 Similar Products" : "🌟 Explore More"}
-            <span className="ml-4 text-lg text-gray-500">
-              ({similarProducts.length || 0} items)
-            </span>
-          </h2>
-        </div>
-        <div className="similar-grid">
-          {similarLoading ? (
-            <div className="p-8 grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-6 gap-6">
-              {[...Array(6)].map((_, i) => (
-                <div key={i} className="card skeleton h-80" />
-              ))}
-            </div>
-          ) : similarProducts.length > 0 ? (
-            <div className="p-8 grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-6 gap-6">
-              {similarProducts.map((item) => (
-                <Link
-                  key={item.id}
-                  to={`/product/${item.slug}`}
-                  className="similar-card card group block h-80 lg:h-96"
-                >
-                  <div className="card-image h-[200px]">
-                    <img
-                      src={item.images?.[0] || "/api/placeholder/300/300"}
-                      alt={item.title}
-                      className="card-image img"
-                      onError={(e) => {
-                        e.target.src = "/api/placeholder/300/300";
-                      }}
-                    />
-                  </div>
-                  <div className="card-body">
-                    <h3 className="title mb-3">{item.title}</h3>
-                    <div className="price mb-2 text-xl">
-                      ₦{Number(item.price || 0).toLocaleString()}
+        {/* Similar Products */}
+        <div className="similar-card card">
+          <div className="similar-header section-header">
+            <h2 className="mini-title text-3xl">
+              {similarProducts.length > 0 ? "🔥 Similar Products" : "🌟 Explore More"}
+              <span className="ml-4 text-lg text-gray-500">
+                ({similarProducts.length || 0} items)
+              </span>
+            </h2>
+          </div>
+          <div className="similar-grid">
+            {similarLoading ? (
+              <div className="p-8 grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-6 gap-6">
+                {[...Array(6)].map((_, i) => (
+                  <div key={i} className="card skeleton h-80" />
+                ))}
+              </div>
+            ) : similarProducts.length > 0 ? (
+              <div className="p-8 grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-6 gap-6">
+                {similarProducts.map((item) => (
+                  <Link
+                    key={item.id}
+                    to={`/product/${item.slug}`}
+                    className="similar-card card group block h-80 lg:h-96"
+                  >
+                    <div className="card-image h-[200px]">
+                      <img
+                        src={item.images?.[0] || "/api/placeholder/300/300"}
+                        alt={item.title}
+                        className="card-image img"
+                        onError={(e) => {
+                          e.target.src = "/api/placeholder/300/300";
+                        }}
+                      />
                     </div>
-                    <div className="location">{item.location?.state}</div>
-                  </div>
-                </Link>
-              ))}
-            </div>
-          ) : (
-            <div className="empty-state">
-              <FunnelIcon className="empty-icon w-24 h-24 text-gray-300" />
-              <h3 className="text-2xl font-black text-gray-500 mb-4 title">
-                No Similar Products
-              </h3>
-              <p className="text-lg text-gray-500 mb-12 max-w-md mx-auto">
-                Check out these popular items instead
-              </p>
-              <Link
-                to="/"
-                className="load-more-btn inline-flex items-center gap-2 text-lg"
-              >
-                Browse Marketplace
-                <svg
-                  className="w-5 h-5"
-                  fill="none"
-                  stroke="currentColor"
-                  viewBox="0 0 24 24"
+                    <div className="card-body">
+                      <h3 className="title mb-3">{item.title}</h3>
+                      <div className="price mb-2 text-xl">
+                        ₦{Number(item.price || 0).toLocaleString()}
+                      </div>
+                      <div className="location">{item.location?.state}</div>
+                    </div>
+                  </Link>
+                ))}
+              </div>
+            ) : (
+              <div className="empty-state">
+                <FunnelIcon className="empty-icon w-24 h-24 text-gray-300" />
+                <h3 className="text-2xl font-black text-gray-500 mb-4 title">
+                  No Similar Products
+                </h3>
+                <p className="text-lg text-gray-500 mb-12 max-w-md mx-auto">
+                  Check out these popular items instead
+                </p>
+                <Link
+                  to="/"
+                  className="load-more-btn inline-flex items-center gap-2 text-lg"
                 >
-                  <path
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                    strokeWidth={2}
-                    d="M17 8l4 4m0 0l-4 4m4-4H3"
-                  />
-                </svg>
-              </Link>
-            </div>
-          )}
+                  Browse Marketplace
+                  <svg
+                    className="w-5 h-5"
+                    fill="none"
+                    stroke="currentColor"
+                    viewBox="0 0 24 24"
+                  >
+                    <path
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                      strokeWidth={2}
+                      d="M17 8l4 4m0 0l-4 4m4-4H3"
+                    />
+                  </svg>
+                </Link>
+              </div>
+            )}
+          </div>
         </div>
       </div>
-    </div> {/* closes homepage-container product-detail-container */}
-  </div>  {/* closes product-detail-page */}
-);
+    </div>
+  );
+};
 
 export default ProductDetail;
