@@ -1,24 +1,128 @@
-import React, { useState, useEffect, useCallback, useMemo } from "react";
-import { useParams, useNavigate, Link } from "react-router-dom";
-import {
-  ArrowLeftIcon,
-  FunnelIcon,
+import React, { useState, useEffect, useCallback, useMemo } from 'react';
+import { useParams, useNavigate, Link } from 'react-router-dom';
+import { 
+  ArrowLeftIcon, 
+  FunnelIcon, 
   StarIcon,
   UserIcon,
   ChatBubbleLeftIcon,
   ShieldCheckIcon,
   EyeIcon,
   ShareIcon,
-  HeartIcon,
-} from "@heroicons/react/24/outline";
-import { StarIcon as StarIconSolid } from "@heroicons/react/24/solid";
-import ProductHeader from "../components/ProductHeader";
+  HeartIcon
+} from '@heroicons/react/24/outline';
+import { StarIcon as StarIconSolid } from '@heroicons/react/24/solid';
 import "../styles/ProductDetail.css";
+
+// 🔥 PROFESSIONAL STICKY HEADER COMPONENT (INLINE)
+const ProductHeader = ({ 
+  product, 
+  similarProductsCount = 0,
+  reviewStats,
+  onFavorite,
+  isFavorited = false 
+}) => {
+  const navigate = useNavigate();
+
+  const handleShare = async () => {
+    if (navigator.share) {
+      await navigator.share({
+        title: product?.title,
+        url: window.location.href,
+      });
+    } else {
+      await navigator.clipboard.writeText(window.location.href);
+      alert('🔗 Link copied to clipboard!');
+    }
+  };
+
+  return (
+    <div className="product-header sticky top-116 z-50 bg-white/95 backdrop-blur-xl border-b border-gray-100 shadow-sm">
+      <div className="homepage-container product-detail-container">
+        <div className="flex items-center justify-between py-4 px-2">
+          {/* Left: Back + Product Info */}
+          <div className="flex items-center gap-4 flex-1 min-w-0">
+            <button
+              onClick={() => navigate(-1)}
+              className="p-3 rounded-xl bg-gray-50 hover:bg-gray-100 hover:shadow-md transition-all duration-200 flex-shrink-0 group"
+              aria-label="Go back"
+            >
+              <ArrowLeftIcon className="w-5 h-5 text-gray-700 group-hover:text-gray-900 group-hover:-translate-x-0.5 transition-all" />
+            </button>
+            
+            <div className="min-w-0 flex-1">
+              <h1 className="text-lg font-bold text-gray-900 truncate leading-tight line-clamp-1">
+                {product?.title}
+              </h1>
+              <div className="flex items-center gap-3 text-xs text-gray-500 mt-0.5">
+                <span className="flex items-center gap-1">
+                  <EyeIcon className="w-3.5 h-3.5" />
+                  {product?.views?.toLocaleString() || 0}
+                </span>
+                {reviewStats?.avg_rating && (
+                  <>
+                    <span>•</span>
+                    <span className="flex items-center gap-1">
+                      <StarIconSolid className="w-4 h-4 text-yellow-400 fill-current" />
+                      {reviewStats.avg_rating.toFixed(1)}
+                    </span>
+                  </>
+                )}
+                {similarProductsCount > 0 && (
+                  <>
+                    <span>•</span>
+                    <span className="text-blue-600 font-medium">{similarProductsCount} similar</span>
+                  </>
+                )}
+              </div>
+            </div>
+          </div>
+
+          {/* Right: Actions */}
+          <div className="flex items-center gap-1.5">
+            <button
+              onClick={handleShare}
+              className="p-2.5 rounded-xl bg-gray-50 hover:bg-gray-100 hover:shadow-md transition-all duration-200 flex items-center justify-center group"
+              title="Share product"
+            >
+              <ShareIcon className="w-5 h-5 text-gray-600 group-hover:text-gray-900 group-hover:scale-110 transition-all" />
+            </button>
+
+            <button
+              onClick={onFavorite}
+              className={`p-2.5 rounded-xl hover:shadow-md transition-all duration-200 flex items-center justify-center group relative ${
+                isFavorited
+                  ? 'bg-red-50 text-red-600 hover:bg-red-100 border border-red-200'
+                  : 'bg-gray-50 hover:bg-gray-100 text-gray-600'
+              }`}
+              title={isFavorited ? "Remove from favorites" : "Add to favorites"}
+            >
+              <HeartIcon className="w-5 h-5 group-hover:scale-110 transition-transform" />
+              {isFavorited && (
+                <div className="absolute -top-1 -right-1 w-4 h-4 bg-red-500 rounded-full flex items-center justify-center text-xs font-bold text-white shadow-lg">
+                  ★
+                </div>
+              )}
+            </button>
+
+            <Link
+              to="#contact"
+              className="load-more-btn bg-gradient-to-r from-green-500 to-emerald-600 hover:from-green-600 hover:to-emerald-700 text-white font-semibold py-2.5 px-5 rounded-xl shadow-lg hover:shadow-xl text-sm flex items-center gap-1.5 ml-1 transition-all duration-300"
+            >
+              <ChatBubbleLeftIcon className="w-4 h-4" />
+              Contact
+            </Link>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+};
 
 const ProductDetail = () => {
   const { slug } = useParams();
   const navigate = useNavigate();
-
+  
   // Enhanced state
   const [product, setProduct] = useState(null);
   const [sellerStats, setSellerStats] = useState(null);
@@ -33,13 +137,13 @@ const ProductDetail = () => {
 
   // Clean phone number
   const cleanPhoneNumber = useCallback((phone) => {
-    return phone ? phone.replace(/[^+0-9]/g, "") : "";
+    return phone ? phone.replace(/[^+d]/g, '') : '';
   }, []);
 
   // Fetch main product
   useEffect(() => {
-    if (!slug || slug === "undefined") {
-      setError("Invalid product slug");
+    if (!slug || slug === 'undefined') {
+      setError('Invalid product slug');
       setLoading(false);
       return;
     }
@@ -49,12 +153,12 @@ const ProductDetail = () => {
         setLoading(true);
         setError(null);
         const response = await fetch(`/api/product/slug/${slug}`);
-
+        
         if (!response.ok) {
-          if (response.status === 404) throw new Error("Product not found");
-          throw new Error("Failed to fetch product");
+          if (response.status === 404) throw new Error('Product not found');
+          throw new Error('Failed to fetch product');
         }
-
+        
         const data = await response.json();
         setProduct(data);
       } catch (err) {
@@ -77,7 +181,7 @@ const ProductDetail = () => {
         setSellerStats(data);
       }
     } catch (err) {
-      console.error("Seller stats fetch failed:", err);
+      console.error('Seller stats fetch failed:', err);
     }
   }, [product?.contact?.email, slug]);
 
@@ -91,7 +195,7 @@ const ProductDetail = () => {
         setReviewStats(data.stats);
       }
     } catch (err) {
-      console.error("Reviews fetch failed:", err);
+      console.error('Reviews fetch failed:', err);
     } finally {
       setReviewsLoading(false);
     }
@@ -101,21 +205,19 @@ const ProductDetail = () => {
     if (!product) return;
     setSimilarLoading(true);
     try {
-      let url = "/api/homepage?limit=6";
+      let url = '/api/homepage?limit=6';
       if (product.attributes?.brand) {
-        url = `/api/homepage?brand=${encodeURIComponent(
-          product.attributes.brand
-        )}&limit=6&exclude=${product.id}`;
+        url = `/api/homepage?brand=${encodeURIComponent(product.attributes.brand)}&limit=6&exclude=${product.id}`;
       }
       const response = await fetch(url);
       if (response.ok) {
         const data = await response.json();
         const products = (data.latest || data.recommended || [])
-          .filter((p) => p.id !== product.id && p.slug !== slug);
+          .filter(p => p.id !== product.id && p.slug !== slug);
         setSimilarProducts(products.slice(0, 6));
       }
     } catch (err) {
-      console.error("Related products fetch failed:", err);
+      console.error('Related products fetch failed:', err);
     } finally {
       setSimilarLoading(false);
     }
@@ -125,11 +227,11 @@ const ProductDetail = () => {
     if (product?.id) {
       try {
         await fetch(`/api/homepage/products/${product.id}/view`, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
         });
       } catch (err) {
-        console.error("View tracking failed:", err);
+        console.error('View tracking failed:', err);
       }
     }
   }, [product?.id]);
@@ -142,26 +244,12 @@ const ProductDetail = () => {
       fetchReviews();
       fetchRelatedProducts();
     }
-  }, [
-    product,
-    error,
-    trackView,
-    fetchSellerStats,
-    fetchReviews,
-    fetchRelatedProducts,
-  ]);
+  }, [product, error, trackView, fetchSellerStats, fetchReviews, fetchRelatedProducts]);
 
-  const contactInfo = useMemo(
-    () => ({
-      phone: cleanPhoneNumber(product?.contact?.phone),
-      whatsapp: cleanPhoneNumber(product?.contact?.whatsapp),
-    }),
-    [
-      product?.contact?.phone,
-      product?.contact?.whatsapp,
-      cleanPhoneNumber,
-    ]
-  );
+  const contactInfo = useMemo(() => ({
+    phone: cleanPhoneNumber(product?.contact?.phone),
+    whatsapp: cleanPhoneNumber(product?.contact?.whatsapp)
+  }), [product?.contact?.phone, product?.contact?.whatsapp, cleanPhoneNumber]);
 
   const handleFavorite = () => {
     setIsFavorited(!isFavorited);
@@ -179,7 +267,7 @@ const ProductDetail = () => {
             <div className="horizontal-scroll">
               {[...Array(4)].map((_, i) => (
                 <div key={i} className="scroll-item">
-                  <div className="card skeleton h-24"></div>
+                  <div className="card skeleton h-24" />
                 </div>
               ))}
             </div>
@@ -203,24 +291,12 @@ const ProductDetail = () => {
         <div className="homepage-container product-detail-container">
           <div className="card max-w-md mx-auto text-center p-12">
             <div className="w-24 h-24 bg-red-50 rounded-2xl mx-auto mb-8 flex items-center justify-center border-2 border-red-100">
-              <svg
-                className="w-12 h-12 text-red-500"
-                fill="none"
-                stroke="currentColor"
-                viewBox="0 0 24 24"
-              >
-                <path
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                  strokeWidth={2}
-                  d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"
-                />
+              <svg className="w-12 h-12 text-red-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
               </svg>
             </div>
             <h2 className="text-2xl font-bold text-gray-900 mb-4">{error}</h2>
-            <p className="text-gray-600 mb-8 leading-relaxed">
-              The product you're looking for doesn't exist or has been removed.
-            </p>
+            <p className="text-gray-600 mb-8 leading-relaxed">The product you're looking for doesn't exist or has been removed.</p>
             <div className="flex flex-col sm:flex-row gap-4 justify-center">
               <button
                 onClick={() => navigate(-1)}
@@ -229,10 +305,7 @@ const ProductDetail = () => {
                 <ArrowLeftIcon className="w-5 h-5" />
                 Go Back
               </button>
-              <Link
-                to="/"
-                className="load-more-btn max-w-xs bg-gradient-to-r from-orange-500 to-yellow-500 hover:from-orange-600 hover:to-yellow-600 flex items-center gap-2"
-              >
+              <Link to="/" className="load-more-btn max-w-xs bg-gradient-to-r from-orange-500 to-yellow-500 hover:from-orange-600 hover:to-yellow-600 flex items-center gap-2">
                 Browse Marketplace
               </Link>
             </div>
@@ -242,13 +315,11 @@ const ProductDetail = () => {
     );
   }
 
-  if (loading) {
-    return <LoadingSkeleton />;
-  }
+  if (loading) return <LoadingSkeleton />;
 
   return (
     <div className="product-detail-page">
-      {/* PROFESSIONAL STICKY HEADER */}
+      {/* 🔥 PROFESSIONAL STICKY HEADER */}
       <ProductHeader
         product={product}
         similarProductsCount={similarProducts.length}
@@ -258,21 +329,19 @@ const ProductDetail = () => {
       />
 
       <div className="homepage-container product-detail-container pt-0">
-        {/* Main Content Grid */}
+        {/* Main Content */}
         <div className="main-grid">
           {/* Product Gallery */}
           <div className="gallery">
             <div className="main-image-container card group">
               <img
-                src={product.images?.[0] || "/api/placeholder/600/400"}
+                src={product.images?.[0] || '/api/placeholder/600/400'}
                 alt={product.title}
                 className="main-image"
-                onError={(e) => {
-                  e.target.src = "/api/placeholder/600/400";
-                }}
+                onError={(e) => { e.target.src = '/api/placeholder/600/400'; }}
               />
             </div>
-
+            
             {product.images?.length > 1 && (
               <div className="thumbnail-scroll horizontal-scroll">
                 {product.images.slice(1, 9).map((img, idx) => (
@@ -283,9 +352,7 @@ const ProductDetail = () => {
                           src={img}
                           alt={`${product.title} ${idx + 2}`}
                           className="w-full h-full object-cover rounded-xl"
-                          onError={(e) => {
-                            e.target.src = "/api/placeholder/120/96";
-                          }}
+                          onError={(e) => { e.target.src = '/api/placeholder/120/96'; }}
                         />
                       </div>
                     </div>
@@ -304,16 +371,14 @@ const ProductDetail = () => {
                 <span className="w-px h-4 bg-gray-300" />
                 <span>{product.clicks_count?.toLocaleString() || 0} clicks</span>
               </div>
-              <div
-                className={`status-badge inline-flex px-4 py-2 rounded-full text-xs font-bold border ${
-                  product.status === "draft"
-                    ? "bg-yellow-50 text-yellow-800 border-yellow-200"
-                    : product.status === "active"
-                    ? "bg-green-50 text-green-800 border-green-200"
-                    : "bg-blue-50 text-blue-800 border-blue-200"
-                }`}
-              >
-                {product.status?.toUpperCase() || "UNKNOWN"}
+              <div className={`status-badge inline-flex px-4 py-2 rounded-full text-xs font-bold border ${
+                product.status === 'draft' 
+                  ? 'bg-yellow-50 text-yellow-800 border-yellow-200' 
+                  : product.status === 'active'
+                  ? 'bg-green-50 text-green-800 border-green-200'
+                  : 'bg-blue-50 text-blue-800 border-blue-200'
+              }`}>
+                {product.status?.toUpperCase() || 'UNKNOWN'}
               </div>
             </div>
 
@@ -326,15 +391,8 @@ const ProductDetail = () => {
                 <div className="space-y-4">
                   <div className="spec-row flex items-center">
                     <div className="spec-icon bg-gray-500">
-                      <svg
-                        className="w-4 h-4 text-white"
-                        fill="currentColor"
-                        viewBox="0 0 20 20"
-                      >
-                        <path
-                          fillRule="evenodd"
-                          d="M5.05 4.05a7 7 0 119.9 9.9L10 18.9l-4.95-4.95a7 7 0 010-9.9zM10 11a2 2 0 100-4 2 2 0 000 4z"
-                        />
+                      <svg className="w-4 h-4 text-white" fill="currentColor" viewBox="0 0 20 20">
+                        <path fillRule="evenodd" d="M5.05 4.05a7 7 0 119.9 9.9L10 18.9l-4.95-4.95a7 7 0 010-9.9zM10 11a2 2 0 100-4 2 2 0 000 4z" />
                       </svg>
                     </div>
                     <span className="spec-value font-bold text-gray-900">
@@ -344,9 +402,7 @@ const ProductDetail = () => {
                   {product.attributes?.brand && (
                     <div className="flex items-center gap-3">
                       <div className="w-1.5 h-10 bg-gray-400 rounded-full" />
-                      <span className="spec-value font-bold text-gray-900">
-                        {product.attributes.brand}
-                      </span>
+                      <span className="spec-value font-bold text-gray-900">{product.attributes.brand}</span>
                     </div>
                   )}
                 </div>
@@ -372,13 +428,11 @@ const ProductDetail = () => {
                   {product.attributes?.condition && (
                     <div className="spec-row">
                       <span className="spec-label">Condition</span>
-                      <span
-                        className={`spec-value px-3 py-1 rounded-full text-xs font-bold ${
-                          product.attributes.condition === "New"
-                            ? "bg-green-100 text-green-800"
-                            : "bg-blue-100 text-blue-800"
-                        }`}
-                      >
+                      <span className={`spec-value px-3 py-1 rounded-full text-xs font-bold ${
+                        product.attributes.condition === 'New' 
+                          ? 'bg-green-100 text-green-800' 
+                          : 'bg-blue-100 text-blue-800'
+                      }`}>
                         {product.attributes.condition}
                       </span>
                     </div>
@@ -399,26 +453,17 @@ const ProductDetail = () => {
                 <div className="contact-item card">
                   <div className="contact-header-row">
                     <div className="w-12 h-12 bg-green-500 rounded-2xl flex items-center justify-center">
-                      <svg
-                        className="w-6 h-6 text-white"
-                        fill="currentColor"
-                        viewBox="0 0 20 20"
-                      >
+                      <svg className="w-6 h-6 text-white" fill="currentColor" viewBox="0 0 20 20">
                         <path d="M2.003 5.884L10 9.882l7.997-3.998A2 2 0 0016 4H4a2 2 0 00-1.997 1.884z" />
                         <path d="M18 8.118l-8 4-8-4V14a2 2 0 002 2h12a2 2 0 002-2V8.118z" />
                       </svg>
                     </div>
                     <div>
-                      <div className="contact-title font-bold text-gray-900">
-                        Phone
-                      </div>
+                      <div className="contact-title font-bold text-gray-900">Phone</div>
                       <div className="contact-number">{product.contact.phone}</div>
                     </div>
                   </div>
-                  <a
-                    href={`tel:${contactInfo.phone}`}
-                    className="contact-btn load-more-btn"
-                  >
+                  <a href={`tel:${contactInfo.phone}`} className="contact-btn load-more-btn">
                     📞 Call Now
                   </a>
                 </div>
@@ -426,29 +471,18 @@ const ProductDetail = () => {
                   <div className="contact-item card">
                     <div className="contact-header-row">
                       <div className="w-12 h-12 bg-green-600 rounded-2xl flex items-center justify-center">
-                        <svg
-                          className="w-6 h-6 text-white"
-                          fill="currentColor"
-                          viewBox="0 0 20 20"
-                        >
-                          <path
-                            fillRule="evenodd"
-                            d="M17 9a1 1 0 010 2h-2v1a1 1 0 01-1 1h-4a1 1 0 01-1-1v-6a1 1 0 011-1h1V5a1 1 0 012 0v1h2a1 1 0 010 2h-2V9h2z"
-                          />
+                        <svg className="w-6 h-6 text-white" fill="currentColor" viewBox="0 0 20 20">
+                          <path fillRule="evenodd" d="M17 9a1 1 0 010 2h-2v1a1 1 0 01-1 1h-4a1 1 0 01-1-1v-6a1 1 0 011-1h1V5a1 1 0 012 0v1h2a1 1 0 010 2h-2V9h2z" />
                         </svg>
                       </div>
                       <div>
-                        <div className="contact-title font-bold text-gray-900">
-                          WhatsApp
-                        </div>
-                        <div className="contact-number">
-                          {product.contact.whatsapp}
-                        </div>
+                        <div className="contact-title font-bold text-gray-900">WhatsApp</div>
+                        <div className="contact-number">{product.contact.whatsapp}</div>
                       </div>
                     </div>
-                    <a
+                    <a 
                       href={`https://wa.me/${contactInfo.whatsapp}`}
-                      target="_blank"
+                      target="_blank" 
                       rel="noopener noreferrer"
                       className="contact-btn load-more-btn bg-green-600 hover:bg-green-700"
                     >
@@ -457,21 +491,6 @@ const ProductDetail = () => {
                   </div>
                 )}
               </div>
-            </div>
-
-            {/* Action Buttons */}
-            <div className="action-buttons pt-8 border-t">
-              <a
-                href={`https://wa.me/${contactInfo.whatsapp || contactInfo.phone}`}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="primary-action action-btn whatsapp-btn w-full mb-3"
-              >
-                💬 Contact Seller on WhatsApp
-              </a>
-              <button className="secondary-action action-btn unavailable-btn w-full">
-                ❌ Mark as Unavailable
-              </button>
             </div>
           </div>
         </div>
@@ -484,14 +503,28 @@ const ProductDetail = () => {
                 <div className="seller-icon w-20 h-20 bg-gradient-to-br from-orange-500 to-orange-600 rounded-2xl flex items-center justify-center shadow-xl">
                   <UserIcon className="w-10 h-10 text-white" />
                 </div>
+                <div>
+                  <h2 className="seller-name text-3xl lg:text-4xl font-black text-gray-900">
+                    {sellerStats.store_name || 'Trusted Seller'}
+                  </h2>
+                  <p className="seller-subtitle text-lg text-gray-600 mt-1">
+                    {sellerStats.years_on_platform || 0}+ years on Minimart
+                  </p>
+                </div>
               </div>
+              {sellerStats.verified_id && (
+                <div className="verified-badge">
+                  <ShieldCheckIcon className="w-5 h-5 inline mr-2" />
+                  Verified Seller
+                </div>
+              )}
             </div>
             <div className="seller-stats-grid">
               {[
-                { value: sellerStats.total_ads || 0, label: "Total Ads", color: "text-orange-600" },
-                { value: sellerStats.total_feedback || 0, label: "Feedback", color: "text-green-600" },
-                { value: sellerStats.followers || 0, label: "Followers", color: "text-blue-600" },
-                { value: sellerStats.avg_rating || 0, label: "Avg Rating", color: "text-purple-600" },
+                { value: sellerStats.total_ads || 0, label: 'Total Ads', color: 'text-orange-600' },
+                { value: sellerStats.total_feedback || 0, label: 'Feedback', color: 'text-green-600' },
+                { value: sellerStats.followers || 0, label: 'Followers', color: 'text-blue-600' },
+                { value: sellerStats.avg_rating || 0, label: 'Avg Rating', color: 'text-purple-600' }
               ].map(({ value, label, color }, idx) => (
                 <div key={idx} className="seller-stat card group">
                   <div className={`seller-stat-number text-3xl font-black ${color} mb-2`}>
@@ -506,6 +539,21 @@ const ProductDetail = () => {
           </div>
         )}
 
+        {/* Action Buttons */}
+        <div className="action-buttons">
+          <a
+            href={`https://wa.me/${contactInfo.whatsapp || contactInfo.phone}`}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="primary-action action-btn whatsapp-btn"
+          >
+            💬 Contact Seller on WhatsApp
+          </a>
+          <button className="secondary-action action-btn unavailable-btn">
+            ❌ Mark as Unavailable
+          </button>
+        </div>
+
         {/* Reviews */}
         <div className="reviews-card card mb-16">
           <div className="reviews-header section-header">
@@ -514,18 +562,12 @@ const ProductDetail = () => {
                 <StarIcon className="w-8 h-8 text-white" />
               </div>
               <div>
-                <h2 className="text-3xl font-black text-gray-900 mb-2">
-                  Customer Reviews
-                </h2>
+                <h2 className="text-3xl font-black text-gray-900 mb-2">Customer Reviews</h2>
                 {reviewStats && (
                   <div className="reviews-stats">
-                    <span>
-                      {reviewStats.avg_rating?.toFixed(1) || 0} ★ Average
-                    </span>
+                    <span>{reviewStats.avg_rating?.toFixed(1) || 0} ★ Average</span>
                     <span>•</span>
-                    <span>
-                      {reviewStats.total_reviews?.toLocaleString() || 0} Reviews
-                    </span>
+                    <span>{reviewStats.total_reviews?.toLocaleString() || 0} Reviews</span>
                   </div>
                 )}
               </div>
@@ -544,7 +586,7 @@ const ProductDetail = () => {
                   <div key={review.id} className="review-card card group">
                     <div className="reviewer-avatar">
                       <span className="font-bold text-lg">
-                        {review.reviewer_name?.charAt(0)?.toUpperCase() || "U"}
+                        {review.reviewer_name?.charAt(0)?.toUpperCase() || 'U'}
                       </span>
                     </div>
                     <div className="review-content flex-1 min-w-0">
@@ -553,22 +595,14 @@ const ProductDetail = () => {
                           {review.reviewer_name}
                         </div>
                         <div className="text-sm text-gray-500">
-                          {new Date(review.created_at).toLocaleDateString(
-                            "en-US",
-                            { month: "short", day: "numeric" }
-                          )}
+                          {new Date(review.created_at).toLocaleDateString('en-US', { 
+                            month: 'short', day: 'numeric' 
+                          })}
                         </div>
                       </div>
                       <div className="stars flex items-center gap-1 mb-4">
                         {[...Array(5)].map((_, i) => (
-                          <StarIcon
-                            key={i}
-                            className={`w-5 h-5 ${
-                              i < review.rating
-                                ? "text-yellow-400 fill-current"
-                                : "text-gray-300"
-                            }`}
-                          />
+                          <StarIcon key={i} className={`w-5 h-5 ${i < review.rating ? 'text-yellow-400 fill-current' : 'text-gray-300'}`} />
                         ))}
                       </div>
                       {review.comment && (
@@ -583,9 +617,7 @@ const ProductDetail = () => {
             ) : (
               <div className="empty-state">
                 <StarIcon className="empty-icon w-24 h-24 text-gray-300" />
-                <h3 className="text-2xl font-black text-gray-500 mb-3 title">
-                  No Reviews Yet
-                </h3>
+                <h3 className="text-2xl font-black text-gray-500 mb-3 title">No Reviews Yet</h3>
                 <p className="text-lg text-gray-500 mb-8 max-w-md mx-auto">
                   Be the first to share your experience with this product
                 </p>
@@ -598,10 +630,8 @@ const ProductDetail = () => {
         <div className="similar-card card">
           <div className="similar-header section-header">
             <h2 className="mini-title text-3xl">
-              {similarProducts.length > 0 ? "🔥 Similar Products" : "🌟 Explore More"}
-              <span className="ml-4 text-lg text-gray-500">
-                ({similarProducts.length || 0} items)
-              </span>
+              {similarProducts.length > 0 ? '🔥 Similar Products' : '🌟 Explore More'}
+              <span className="ml-4 text-lg text-gray-500">({similarProducts.length || 0} items)</span>
             </h2>
           </div>
           <div className="similar-grid">
@@ -614,19 +644,13 @@ const ProductDetail = () => {
             ) : similarProducts.length > 0 ? (
               <div className="p-8 grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-6 gap-6">
                 {similarProducts.map((item) => (
-                  <Link
-                    key={item.id}
-                    to={`/product/${item.slug}`}
-                    className="similar-card card group block h-80 lg:h-96"
-                  >
+                  <Link key={item.id} to={`/product/${item.slug}`} className="similar-card card group block h-80 lg:h-96">
                     <div className="card-image h-[200px]">
                       <img
-                        src={item.images?.[0] || "/api/placeholder/300/300"}
+                        src={item.images?.[0] || '/api/placeholder/300/300'}
                         alt={item.title}
                         className="card-image img"
-                        onError={(e) => {
-                          e.target.src = "/api/placeholder/300/300";
-                        }}
+                        onError={(e) => { e.target.src = '/api/placeholder/300/300'; }}
                       />
                     </div>
                     <div className="card-body">
@@ -642,29 +666,14 @@ const ProductDetail = () => {
             ) : (
               <div className="empty-state">
                 <FunnelIcon className="empty-icon w-24 h-24 text-gray-300" />
-                <h3 className="text-2xl font-black text-gray-500 mb-4 title">
-                  No Similar Products
-                </h3>
+                <h3 className="text-2xl font-black text-gray-500 mb-4 title">No Similar Products</h3>
                 <p className="text-lg text-gray-500 mb-12 max-w-md mx-auto">
                   Check out these popular items instead
                 </p>
-                <Link
-                  to="/"
-                  className="load-more-btn inline-flex items-center gap-2 text-lg"
-                >
+                <Link to="/" className="load-more-btn inline-flex items-center gap-2 text-lg">
                   Browse Marketplace
-                  <svg
-                    className="w-5 h-5"
-                    fill="none"
-                    stroke="currentColor"
-                    viewBox="0 0 24 24"
-                  >
-                    <path
-                      strokeLinecap="round"
-                      strokeLinejoin="round"
-                      strokeWidth={2}
-                      d="M17 8l4 4m0 0l-4 4m4-4H3"
-                    />
+                  <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 8l4 4m0 0l-4 4m4-4H3" />
                   </svg>
                 </Link>
               </div>
