@@ -12,7 +12,7 @@ import {
   HeartIcon,
 } from "@heroicons/react/24/outline";
 import { StarIcon as StarIconSolid } from "@heroicons/react/24/solid";
-import ProductHeader from "./components/ProductHeader";
+import ProductHeader from "../components/ProductHeader";
 import "../styles/ProductDetail.css";
 
 const ProductDetail = () => {
