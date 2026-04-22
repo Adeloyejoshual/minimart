@@ -1,14 +1,18 @@
 import React, { useState, useEffect } from 'react';
 import { useParams, useNavigate, Link } from 'react-router-dom';
-import { ArrowLeftIcon } from '@heroicons/react/24/outline';
+import { ArrowLeftIcon, FunnelIcon } from '@heroicons/react/24/outline';
 
 const ProductDetail = () => {
   const { slug } = useParams();
   const navigate = useNavigate();
   const [product, setProduct] = useState(null);
+  const [similarProducts, setSimilarProducts] = useState([]);
+  const [fallbackProducts, setFallbackProducts] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [similarLoading, setSimilarLoading] = useState(false);
   const [error, setError] = useState(null);
 
+  // Fetch main product
   useEffect(() => {
     if (!slug || slug === 'undefined') {
       setError('Invalid product slug');
@@ -40,10 +44,51 @@ const ProductDetail = () => {
     fetchProduct();
   }, [slug]);
 
+  // Fetch similar products OR latest as fallback
+  const fetchRelatedProducts = async () => {
+    if (!product) return;
+
+    setSimilarLoading(true);
+    try {
+      let url = '/api/homepage?limit=6';
+      
+      // Try similar first if brand/model available
+      if (product.attributes?.brand) {
+        url = `/api/homepage?brand=${encodeURIComponent(product.attributes.brand)}&limit=6&exclude=${product.id}`;
+      }
+
+      const response = await fetch(url);
+      if (response.ok) {
+        const data = await response.json();
+        const products = data.latest || data.recommended || [];
+        
+        if (products.length > 0 && products[0].id !== product.id) {
+          setSimilarProducts(products);
+        } else {
+          // Fallback to latest products
+          const fallbackResponse = await fetch('/api/homepage?limit=6');
+          const fallbackData = await fallbackResponse.json();
+          setFallbackProducts(fallbackData.latest || fallbackData.recommended || []);
+        }
+      }
+    } catch (err) {
+      console.error('Related products fetch failed:', err);
+      // Ultimate fallback - try homepage
+      try {
+        const fallbackResponse = await fetch('/api/homepage?limit=6');
+        const fallbackData = await fallbackResponse.json();
+        setFallbackProducts(fallbackData.latest || []);
+      } catch {}
+    } finally {
+      setSimilarLoading(false);
+    }
+  };
+
+  // Track view
   const trackView = async () => {
     if (product?.id) {
       try {
-        await fetch(`/api/product/products/${product.id}/view`, {
+        await fetch(`/api/homepage/products/${product.id}/view`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
         });
@@ -53,9 +98,12 @@ const ProductDetail = () => {
     }
   };
 
+  // Fetch related products after main product loads
   useEffect(() => {
     if (product) {
       trackView();
+      const timer = setTimeout(fetchRelatedProducts, 300);
+      return () => clearTimeout(timer);
     }
   }, [product]);
 
@@ -73,7 +121,6 @@ const ProductDetail = () => {
                 <div className="space-y-4">
                   <div className="h-4 bg-gray-200 rounded w-full"></div>
                   <div className="h-4 bg-gray-200 rounded w-5/6"></div>
-                  <div className="h-4 bg-gray-200 rounded w-3/4"></div>
                 </div>
               </div>
             </div>
@@ -97,15 +144,12 @@ const ProductDetail = () => {
           <div className="space-x-3">
             <button
               onClick={() => navigate(-1)}
-              className="inline-flex items-center px-6 py-2.5 bg-gray-900 text-white text-sm font-medium rounded-lg hover:bg-gray-800 transition-colors"
+              className="inline-flex items-center px-6 py-2.5 bg-gray-900 text-white text-sm font-medium rounded-lg hover:bg-gray-800"
             >
               <ArrowLeftIcon className="w-4 h-4 mr-2" />
               Go Back
             </button>
-            <Link
-              to="/"
-              className="inline-flex items-center px-6 py-2.5 bg-blue-600 text-white text-sm font-medium rounded-lg hover:bg-blue-700 transition-colors"
-            >
+            <Link to="/" className="inline-flex items-center px-6 py-2.5 bg-blue-600 text-white text-sm font-medium rounded-lg hover:bg-blue-700">
               Home
             </Link>
           </div>
@@ -126,7 +170,8 @@ const ProductDetail = () => {
           Back to products
         </button>
 
-        <div className="bg-white rounded-2xl shadow-xl overflow-hidden">
+        {/* Main Product */}
+        <div className="bg-white rounded-2xl shadow-xl overflow-hidden mb-12">
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-8 p-8 lg:p-12">
             {/* Images */}
             <div className="space-y-4">
@@ -135,9 +180,7 @@ const ProductDetail = () => {
                   src={product.images[0]}
                   alt={product.title}
                   className="w-full h-96 lg:h-[500px] object-cover rounded-xl shadow-lg"
-                  onError={(e) => {
-                    e.target.src = '/placeholder-image.jpg';
-                  }}
+                  onError={(e) => { e.target.src = '/placeholder-image.jpg'; }}
                 />
               )}
               {product.images?.length > 1 && (
@@ -148,9 +191,7 @@ const ProductDetail = () => {
                       src={img}
                       alt={`${product.title} ${idx + 1}`}
                       className="w-full h-24 object-cover rounded-lg cursor-pointer hover:ring-2 hover:ring-blue-500"
-                      onError={(e) => {
-                        e.target.src = '/placeholder-image.jpg';
-                      }}
+                      onError={(e) => { e.target.src = '/placeholder-image.jpg'; }}
                     />
                   ))}
                 </div>
@@ -160,9 +201,7 @@ const ProductDetail = () => {
             {/* Product Info */}
             <div className="space-y-6">
               <div>
-                <h1 className="text-3xl lg:text-4xl font-bold text-gray-900 mb-2">
-                  {product.title}
-                </h1>
+                <h1 className="text-3xl lg:text-4xl font-bold text-gray-900 mb-2">{product.title}</h1>
                 <div className="flex items-center text-sm text-gray-500 mb-4">
                   <span>ID: {product.id.slice(0, 8)}...</span>
                   <span className="mx-4">•</span>
@@ -194,31 +233,12 @@ const ProductDetail = () => {
                       <span>{product.attributes.brand}</span>
                     </div>
                   )}
-                  {product.attributes.model && (
-                    <div className="flex items-center">
-                      <span className="font-medium text-gray-900 w-24">Model:</span>
-                      <span>{product.attributes.model}</span>
-                    </div>
-                  )}
                 </div>
               </div>
 
               <div className="prose max-w-none">
                 <p className="text-gray-900 leading-relaxed">{product.description}</p>
               </div>
-
-              {product.attributes.features?.length > 0 && (
-                <div>
-                  <h3 className="font-bold text-lg mb-4">Features</h3>
-                  <div className="grid grid-cols-2 md:grid-cols-3 gap-2">
-                    {product.attributes.features.map((feature, idx) => (
-                      <div key={idx} className="px-3 py-2 bg-gray-100 rounded-lg text-sm">
-                        {feature}
-                      </div>
-                    ))}
-                  </div>
-                </div>
-              )}
 
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4 pt-6 border-t">
                 <div>
@@ -237,17 +257,108 @@ const ProductDetail = () => {
                     )}
                   </div>
                 </div>
-                {product.delivery.available && (
-                  <div>
-                    <h4 className="font-semibold mb-2">Delivery</h4>
-                    <div className="text-sm text-gray-600">
-                      Available - {product.delivery.duration?.from}-{product.delivery.duration?.to} days
-                    </div>
-                  </div>
-                )}
               </div>
             </div>
           </div>
+        </div>
+
+        {/* 🎯 SIMILAR PRODUCTS - ALWAYS SHOWS */}
+        <div className="bg-white rounded-2xl shadow-xl overflow-hidden">
+          <div className="p-8 border-b">
+            <h2 className="text-2xl font-bold text-gray-900">
+              {similarProducts.length > 0 ? 'Similar Products' : 'Explore More Products'}
+            </h2>
+            <p className="text-gray-500 mt-1">
+              {similarProducts.length > 0 
+                ? `${product.attributes?.brand} ${product.attributes?.model} and similar items`
+                : 'Check out these popular items'
+              }
+            </p>
+          </div>
+
+          {similarLoading ? (
+            <div className="p-8 grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-6 gap-4">
+              {[...Array(6)].map((_, i) => (
+                <div key={i} className="animate-pulse bg-gray-100 rounded-xl h-64" />
+              ))}
+            </div>
+          ) : similarProducts.length > 0 ? (
+            // Show similar products
+            <div className="p-8 grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-6 gap-6">
+              {similarProducts.map((item) => (
+                <Link
+                  key={item.id}
+                  to={`/product/${item.slug}`}
+                  className="group block overflow-hidden rounded-xl bg-gray-50 hover:bg-white hover:shadow-lg transition-all duration-300 hover:-translate-y-1"
+                >
+                  <div className="aspect-w-1 aspect-h-1 bg-gray-200 group-hover:bg-gray-100 overflow-hidden">
+                    {item.images?.[0] && (
+                      <img
+                        src={item.images[0]}
+                        alt={item.title}
+                        className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300"
+                      />
+                    )}
+                  </div>
+                  <div className="p-4">
+                    <h3 className="font-medium text-sm text-gray-900 line-clamp-2 group-hover:text-gray-700">
+                      {item.title}
+                    </h3>
+                    <p className="text-lg font-bold text-gray-900 mt-2">
+                      ₦{item.price.toLocaleString()}
+                    </p>
+                    <p className="text-xs text-gray-500 mt-1">
+                      {item.location.state}
+                    </p>
+                  </div>
+                </Link>
+              ))}
+            </div>
+          ) : fallbackProducts.length > 0 ? (
+            // Show fallback products
+            <div className="p-8 grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-6 gap-6">
+              {fallbackProducts.map((item) => (
+                <Link
+                  key={item.id}
+                  to={`/product/${item.slug}`}
+                  className="group block overflow-hidden rounded-xl bg-gray-50 hover:bg-white hover:shadow-lg transition-all duration-300 hover:-translate-y-1"
+                >
+                  <div className="aspect-w-1 aspect-h-1 bg-gray-200 group-hover:bg-gray-100 overflow-hidden">
+                    {item.images?.[0] && (
+                      <img
+                        src={item.images[0]}
+                        alt={item.title}
+                        className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300"
+                      />
+                    )}
+                  </div>
+                  <div className="p-4">
+                    <h3 className="font-medium text-sm text-gray-900 line-clamp-2 group-hover:text-gray-700">
+                      {item.title}
+                    </h3>
+                    <p className="text-lg font-bold text-gray-900 mt-2">
+                      ₦{item.price.toLocaleString()}
+                    </p>
+                    <p className="text-xs text-gray-500 mt-1">
+                      {item.location.state}
+                    </p>
+                  </div>
+                </Link>
+              ))}
+            </div>
+          ) : (
+            // Ultimate fallback - empty state
+            <div className="p-12 text-center">
+              <FunnelIcon className="w-12 h-12 text-gray-400 mx-auto mb-4" />
+              <p className="text-gray-500 text-lg">No products available right now</p>
+              <Link
+                to="/"
+                className="mt-4 inline-block px-6 py-2.5 bg-blue-600 text-white text-sm font-medium rounded-lg hover:bg-blue-700"
+              >
+                Browse all products
+              </Link>
+            </div>
+          )}
         </div>
       </div>
     </div>
