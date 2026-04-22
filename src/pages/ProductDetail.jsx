@@ -9,7 +9,7 @@ import {
   ShieldCheckIcon,
   ClockIcon 
 } from '@heroicons/react/24/outline';
-import "../styles/Homepage.css";
+import "../styles/ProductDetail.css";
 
 const ProductDetail = () => {
   const { slug } = useParams();
