@@ -89,6 +89,137 @@ router.get("/slug/:slug", async (req, res) => {
   }
 });
 
+/* ================= REVIEWS ROUTE ================= */
+router.get("/slug/:slug/reviews", async (req, res) => {
+  const { slug } = req.params;
+  const { limit = 10, offset = 0 } = req.query;
+
+  try {
+    const reviewsQuery = await pool.query(
+      `SELECT 
+        pr.id, pr.rating, pr.comment, pr.created_at,
+        u.name as reviewer_name,
+        u.profile_image
+       FROM product_reviews pr
+       JOIN users u ON pr.user_id = u.id
+       WHERE pr.product_id = (
+         SELECT id FROM products WHERE slug = $1
+       )
+       ORDER BY pr.created_at DESC
+       LIMIT $2 OFFSET $3`,
+      [slug, parseInt(limit), parseInt(offset)]
+    );
+
+    // Review stats
+    const statsQuery = await pool.query(
+      `SELECT 
+        COUNT(*) as total_reviews,
+        AVG(rating)::DECIMAL(3,1) as avg_rating,
+        COUNT(*) FILTER (WHERE rating = 5) as five_star,
+        COUNT(*) FILTER (WHERE rating = 1) as one_star
+       FROM product_reviews pr
+       WHERE pr.product_id = (
+         SELECT id FROM products WHERE slug = $1
+       )`,
+      [slug]
+    );
+
+    res.json({
+      reviews: reviewsQuery.rows,
+      stats: statsQuery.rows[0],
+      has_more: reviewsQuery.rows.length === parseInt(limit)
+    });
+  } catch (err) {
+    console.error("Reviews error:", err);
+    res.status(500).json({ error: "Failed to fetch reviews" });
+  }
+});
+
+/* ================= SELLER STATS ROUTE ================= */
+router.get("/slug/:slug/seller-stats", async (req, res) => {
+  const { slug } = req.params;
+
+  try {
+    // Get product seller contact
+    const { rows: [product] } = await pool.query(
+      `SELECT contact->>'email' as seller_email, contact->>'phone' as seller_phone 
+       FROM products WHERE slug = $1`,
+      [slug]
+    );
+
+    if (!product?.seller_email) {
+      return res.status(404).json({ message: "No seller found" });
+    }
+
+    const sellerEmail = product.seller_email;
+
+    // Real seller stats from users table
+    const sellerQuery = await pool.query(
+      `SELECT 
+        store_name, 
+        products_count,
+        total_sales,
+        rating,
+        store_verified,
+        EXTRACT(YEAR FROM age(created_at)) as years_active
+       FROM users 
+       WHERE email = $1`,
+      [sellerEmail]
+    );
+
+    // Real feedback count and recent reviews
+    const feedbackQuery = await pool.query(
+      `SELECT 
+        COUNT(*) as total_feedback,
+        AVG(rating) as avg_rating,
+        ARRAY_AGG(
+          json_build_object(
+            'user', u.name,
+            'comment', pr.comment,
+            'rating', pr.rating,
+            'date', age(pr.created_at)
+          )
+          ORDER BY pr.created_at DESC
+          LIMIT 3
+        ) as recent_feedback
+       FROM product_reviews pr
+       JOIN users u ON pr.user_id = u.id
+       WHERE pr.product_id IN (
+         SELECT id FROM products WHERE (contact->>'email') = $1
+       )`,
+      [sellerEmail]
+    );
+
+    // Seller followers count
+    const followersQuery = await pool.query(
+      `SELECT COUNT(*) as followers 
+       FROM seller_followers sf 
+       JOIN users u ON sf.seller_id = u.id 
+       WHERE u.email = $1`,
+      [sellerEmail]
+    );
+
+    const seller = sellerQuery.rows[0] || {};
+    const feedback = feedbackQuery.rows[0] || {};
+    const followers = followersQuery.rows[0] || { followers: 0 };
+
+    res.json({
+      total_ads: seller.products_count || 0,
+      years_on_platform: seller.years_active || 0,
+      verified_id: seller.store_verified || false,
+      total_feedback: Number(feedback.total_feedback) || 0,
+      avg_rating: Number(feedback.avg_rating)?.toFixed(1) || '0.0',
+      followers: Number(followers.followers) || 0,
+      recent_feedback: feedback.recent_feedback || [],
+      store_name: seller.store_name || 'Seller',
+      response_time: '1 hour' // Add to users table later
+    });
+  } catch (err) {
+    console.error("Seller stats error:", err);
+    res.status(500).json({ error: "Failed to fetch seller stats" });
+  }
+});
+
 /* ================= REDIRECT BY ID ================= */
 router.get("/:id", async (req, res) => {
   try {
