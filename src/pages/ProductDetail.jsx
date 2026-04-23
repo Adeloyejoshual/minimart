@@ -9,7 +9,7 @@ import {
   ShieldCheckIcon
 } from '@heroicons/react/24/outline';
 
-import ProductHeader from './ProductHeader';  // Import the separated header
+import ProductHeader from "../components/ProductHeader";
 import '../styles/ProductDetail.css';
 
 const ProductDetail = () => {
