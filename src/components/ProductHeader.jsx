@@ -2,11 +2,13 @@ import React from 'react';
 import { useNavigate, Link } from 'react-router-dom';
 import { 
   ArrowLeftIcon, 
+  StarIconSolid,
+  EyeIcon,
   ShareIcon,
   HeartIcon,
-  ChatBubbleLeftIcon
+  ChatBubbleLeftIcon 
 } from '@heroicons/react/24/outline';
-import { StarIcon as StarIconSolid } from '@heroicons/react/24/solid';
+import { StarIcon as StarIconSolidFilled } from '@heroicons/react/24/solid';
 
 const ProductHeader = ({ 
   product, 
@@ -33,47 +35,46 @@ const ProductHeader = ({
     <div className="product-header sticky top-116 z-50 bg-white/95 backdrop-blur-xl border-b border-gray-100 shadow-sm">
       <div className="homepage-container product-detail-container">
         <div className="flex items-center justify-between py-4 px-2">
-          {/* Left: Back Button Only */}
-          <div className="flex items-center flex-shrink-0">
+          {/* Left: Back + Product Info */}
+          <div className="flex items-center gap-4 flex-1 min-w-0">
             <button
               onClick={() => navigate(-1)}
-              className="p-3 rounded-xl bg-gray-50 hover:bg-gray-100 hover:shadow-md transition-all duration-200 group"
+              className="p-3 rounded-xl bg-gray-50 hover:bg-gray-100 hover:shadow-md transition-all duration-200 flex-shrink-0 group"
               aria-label="Go back"
             >
               <ArrowLeftIcon className="w-5 h-5 text-gray-700 group-hover:text-gray-900 group-hover:-translate-x-0.5 transition-all" />
             </button>
-          </div>
-
-          {/* Center: Product Info */}
-          <div className="flex-1 max-w-xs mx-4 min-w-0">
-            <h1 className="text-lg font-bold text-gray-900 truncate leading-tight line-clamp-1 text-center">
-              {product?.title}
-            </h1>
-            <div className="flex items-center justify-center gap-3 text-xs text-gray-500 mt-0.5">
-              <span className="flex items-center gap-1">
-                <EyeIcon className="w-3.5 h-3.5" />
-                {product?.views?.toLocaleString() || 0}
-              </span>
-              {reviewStats?.avg_rating && (
-                <>
-                  <span>•</span>
-                  <span className="flex items-center gap-1">
-                    <StarIconSolid className="w-4 h-4 text-yellow-400 fill-current" />
-                    {reviewStats.avg_rating.toFixed(1)}
-                  </span>
-                </>
-              )}
-              {similarProductsCount > 0 && (
-                <>
-                  <span>•</span>
-                  <span className="text-blue-600 font-medium">{similarProductsCount} similar</span>
-                </>
-              )}
+            
+            <div className="min-w-0 flex-1">
+              <h1 className="text-lg font-bold text-gray-900 truncate leading-tight line-clamp-1">
+                {product?.title}
+              </h1>
+              <div className="flex items-center gap-3 text-xs text-gray-500 mt-0.5">
+                <span className="flex items-center gap-1">
+                  <EyeIcon className="w-3.5 h-3.5" />
+                  {product?.views?.toLocaleString() || 0}
+                </span>
+                {reviewStats?.avg_rating && (
+                  <>
+                    <span>•</span>
+                    <span className="flex items-center gap-1">
+                      <StarIconSolidFilled className="w-4 h-4 text-yellow-400 fill-current" />
+                      {reviewStats.avg_rating.toFixed(1)}
+                    </span>
+                  </>
+                )}
+                {similarProductsCount > 0 && (
+                  <>
+                    <span>•</span>
+                    <span className="text-blue-600 font-medium">{similarProductsCount} similar</span>
+                  </>
+                )}
+              </div>
             </div>
           </div>
 
           {/* Right: Actions */}
-          <div className="flex items-center gap-1.5 flex-shrink-0">
+          <div className="flex items-center gap-1.5">
             <button
               onClick={handleShare}
               className="p-2.5 rounded-xl bg-gray-50 hover:bg-gray-100 hover:shadow-md transition-all duration-200 flex items-center justify-center group"
