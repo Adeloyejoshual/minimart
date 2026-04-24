@@ -19,15 +19,49 @@ const ProductHeader = ({
   const navigate = useNavigate();
 
   const handleShare = async () => {
-    if (navigator.share) {
-      await navigator.share({
-        title: product?.title,
-        url: window.location.href,
-      });
-    } else {
+    const imgSrc = product?.image; // ← your product image URL field
+
+    if (!navigator.share) {
       await navigator.clipboard.writeText(window.location.href);
       alert('🔗 Link copied to clipboard!');
+      return;
     }
+
+    // Try to share with image file
+    if (imgSrc) {
+      try {
+        const response = await fetch(imgSrc);
+        const blob = await response.blob();
+
+        const file = new File(
+          [blob],
+          product.title ? `${product.title}.jpg` : 'product.jpg',
+          { type: blob.type }
+        );
+
+        const data = {
+          title: product?.title,
+          // text: 'Check out this product!', // optional description
+          url: window.location.href,
+          files: [file],
+        };
+
+        if (navigator.canShare && navigator.canShare({ files: [file] })) {
+          await navigator.share(data);
+          return;
+        }
+      } catch (err) {
+        if (err.name !== 'AbortError') {
+          console.warn('Image share failed, falling back to URL only', err);
+        }
+      }
+    }
+
+    // Fallback: share URL + title only
+    await navigator.share({
+      title: product?.title,
+      url: window.location.href,
+    });
   };
 
   return (
