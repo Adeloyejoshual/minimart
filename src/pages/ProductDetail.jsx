@@ -19,7 +19,6 @@ const ProductDetail = () => {
   const navigate = useNavigate();
   const similarEndRef = useRef(null);
   
-  // Enhanced state
   const [product, setProduct] = useState(null);
   const [sellerStats, setSellerStats] = useState(null);
   const [reviews, setReviews] = useState([]);
@@ -33,12 +32,10 @@ const ProductDetail = () => {
   const [similarPage, setSimilarPage] = useState(1);
   const [hasMoreSimilar, setHasMoreSimilar] = useState(true);
 
-  // Clean phone number
   const cleanPhoneNumber = useCallback((phone) => {
     return phone ? phone.replace(/[^+d]/g, '') : '';
   }, []);
 
-  // Dynamic attributes configuration
   const attributeConfig = useMemo(() => ({
     category: { icon: '📱', label: 'Category' },
     brand: { icon: '🏷️', label: 'Brand' },
@@ -52,7 +49,6 @@ const ProductDetail = () => {
     model: { icon: '📝', label: 'Model' }
   }), []);
 
-  // Fetch main product
   useEffect(() => {
     if (!slug || slug === 'undefined') {
       setError('Invalid product slug');
@@ -83,7 +79,6 @@ const ProductDetail = () => {
     fetchProduct();
   }, [slug]);
 
-  // Fetch similar products with pagination
   const fetchSimilarProducts = useCallback(async (page = 1, append = false) => {
     if (!product) return;
     
@@ -116,7 +111,6 @@ const ProductDetail = () => {
     }
   }, [product, slug]);
 
-  // Infinite scroll observer
   useEffect(() => {
     const observer = new IntersectionObserver(
       (entries) => {
@@ -194,7 +188,6 @@ const ProductDetail = () => {
     setIsFavorited(!isFavorited);
   }, [isFavorited]);
 
-  // Attributes Display
   const renderAttributes = useMemo(() => {
     if (!product?.attributes) return null;
 
@@ -256,7 +249,6 @@ const ProductDetail = () => {
 
   return (
     <div className="product-detail min-h-screen bg-gradient-to-br from-slate-50 via-blue-50 to-indigo-100">
-      {/* Sticky Header */}
       <ProductHeader
         product={product}
         similarProductsCount={similarProducts.length}
@@ -266,10 +258,10 @@ const ProductDetail = () => {
       />
 
       <div className="homepage-container product-detail-container max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-        {/* Hero Product Section - Image First */}
+        {/* PRODUCT IMAGES / MEDIA */}
         <div className="hero-product-section mb-20">
-          {/* Image Gallery */}
-          <div className="gallery space-y-8 mb-20">
+          {/* Main image gallery / carousel / views */}
+          <div className="gallery mb-20">
             <div className="main-image-container rounded-3xl shadow-2xl overflow-hidden">
               <img
                 src={product.images?.[0] || '/api/placeholder/600/400'}
@@ -278,11 +270,30 @@ const ProductDetail = () => {
                 onError={(e) => { e.target.src = '/api/placeholder/600/400'; }}
               />
             </div>
-            
+
+            {/* Optional video / 360 view area */}
+            <div className="view-tabs grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-6">
+              {/* Example: 360 view / video placeholder */}
+              <div className="media-tab p-6 rounded-2xl border border-gray-200 flex flex-col items-center justify-center bg-white">
+                <svg className="w-12 h-12 text-indigo-500" fill="currentColor" viewBox="0 0 20 20">
+                  <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm0-2a6 6 0 110-12 6 6 0 010 12z" />
+                </svg>
+                <span className="mt-3 text-sm font-medium text-gray-700">360 View</span>
+              </div>
+
+              <div className="media-tab p-6 rounded-2xl border border-gray-200 flex flex-col items-center justify-center bg-white">
+                <svg className="w-12 h-12 text-indigo-500" fill="currentColor" viewBox="0 0 20 20">
+                  <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-8.293l-3-3a1 1 0 00-1.414 1.414L10.586 9H7a1 1 0 100 2h3.586l-1.293 1.293a1 1 0 101.414 1.414l3-3a1 1 0 000-1.414z" />
+                </svg>
+                <span className="mt-3 text-sm font-medium text-gray-700">Video</span>
+              </div>
+            </div>
+
+            {/* Thumbnail strip */}
             {product.images?.length > 1 && (
-              <div className="thumbnails flex gap-4 overflow-x-auto pb-4 px-4">
+              <div className="thumbnails flex gap-4 overflow-x-auto pb-4 px-4 mt-6">
                 {product.images.slice(1, 9).map((img, idx) => (
-                  <div key={idx} className="thumbnail-item flex-shrink-0 w-28 h-28 rounded-2xl overflow-hidden shadow-xl">
+                  <div key={idx} className="thumbnail-item flex-shrink-0 w-24 h-24 rounded-2xl overflow-hidden shadow-xl">
                     <img
                       src={img}
                       alt={`${product.title} ${idx + 2}`}
@@ -295,23 +306,35 @@ const ProductDetail = () => {
             )}
           </div>
 
-          {/* Product Info */}
+          {/* PRODUCT INFO */}
           <div className="product-info space-y-12">
+            {/* Product Name / Title */}
+            <h1 className="text-3xl lg:text-4xl font-bold text-gray-900 mb-2">
+              {product.title}
+            </h1>
+
+            {/* Seller Name & Profile */}
+            <div className="flex flex-col sm:flex-row items-start sm:items-center gap-6 text-sm font-medium text-gray-600 mb-6">
+              <span>ID: {product.id.slice(0, 8)}...</span>
+              <div className="h-5 w-px bg-gray-300 hidden sm:block"></div>
+              <span>Seller: {sellerStats?.store_name || 'N/A'}</span>
+              {sellerStats?.verified_id && (
+                <span className="bg-green-500 text-white px-3 py-1 rounded-full text-xs font-bold ml-2">
+                  Verified
+                </span>
+              )}
+            </div>
+
             {/* Status */}
-            <div className="product-meta">
-              <div className="flex flex-wrap items-center gap-4 text-sm font-medium text-gray-600 mb-6">
-                <span>ID: {product.id.slice(0, 8)}...</span>
-              </div>
+            <div className="product-meta mb-6">
               <div className={`status-badge inline-flex px-6 py-3 rounded-2xl text-sm font-bold shadow-lg ${
-                product.status === 'active' 
-                  ? 'bg-green-500 text-white' 
-                  : 'bg-yellow-500 text-white'
+                product.status === 'active' ? 'bg-green-500 text-white' : 'bg-yellow-500 text-white'
               }`}>
                 {product.status?.toUpperCase() || 'LIVE'}
               </div>
             </div>
 
-            {/* Price & Location */}
+            {/* PRICE & OFFERS */}
             <div className="price-section">
               <div className="price-display text-5xl lg:text-7xl font-bold text-gray-900 mb-8">
                 ₦{Number(product.price || 0).toLocaleString()}
@@ -322,61 +345,126 @@ const ProductDetail = () => {
               </div>
             </div>
 
-            {/* Attributes */}
+            {/* Attributes / Specifications */}
             {renderAttributes}
+
+            {/* FULL PRODUCT DESCRIPTION */}
+            {product.description && (
+              <div className="description-section mt-12">
+                <h3 className="text-xl font-bold text-gray-900 mb-4">Product Details</h3>
+                <p className="text-gray-700 text-lg leading-relaxed whitespace-pre-line">
+                  {product.description}
+                </p>
+              </div>
+            )}
           </div>
         </div>
 
-        {/* Seller Profile */}
-        {sellerStats && (
-          <div className="seller-profile mb-24 p-10 rounded-3xl shadow-lg">
-            <div className="seller-header flex flex-col lg:flex-row items-start lg:items-center justify-between gap-8 mb-12">
-              <div className="flex items-center gap-8">
-                <div className="seller-avatar w-24 h-24 bg-gradient-to-br from-orange-500 via-pink-500 to-purple-500 rounded-2xl flex items-center justify-center shadow-lg">
-                  <UserIcon className="w-12 h-12 text-white" />
+        {/* CONTACT / INTERACTION */}
+        <div className="actions-bar mb-16 p-8 bg-white rounded-3xl shadow-lg">
+          <div className="actions flex flex-wrap gap-4">
+            <button className="btn inline-flex items-center gap-3 px-8 py-4 rounded-xl font-bold text-lg shadow-lg bg-indigo-600 text-white hover:bg-indigo-700">
+              <ChatBubbleLeftIcon className="w-5 h-5" />
+              Chat with Seller
+            </button>
+            <button className="btn inline-flex items-center gap-3 px-8 py-4 rounded-xl font-bold text-lg shadow-lg bg-gray-100 text-gray-800 hover:bg-gray-200">
+              Send Offer
+            </button>
+            <button
+              onClick={handleFavorite}
+              className={`btn inline-flex items-center gap-3 px-8 py-4 rounded-xl font-bold text-lg shadow-lg transition-all ${
+                isFavorited
+                  ? 'bg-red-500 text-white hover:bg-red-600'
+                  : 'bg-gray-100 text-gray-800 hover:bg-gray-200'
+              }`}
+            >
+              ♥
+            </button>
+          </div>
+        </div>
+
+        {/* REVIEWS & RATINGS */}
+        {reviewsLoading ? (
+          <div className="p-10 animate-pulse">
+            <div className="h-6 w-80 bg-gray-200 rounded mb-6"></div>
+                        {[...Array(3)].map((_, i) => (
+              <div key={i} className="mb-6 p-6 bg-white rounded-2xl shadow">
+                <div className="h-4 w-40 bg-gray-200 rounded mb-3"></div>
+                <div className="h-3 w-60 bg-gray-200 rounded mb-2"></div>
+                <div className="h-3 w-52 bg-gray-200 rounded"></div>
+              </div>
+            ))}
+          </div>
+        ) : (
+          <div className="reviews-section mb-20">
+            <h2 className="text-3xl lg:text-4xl font-bold text-gray-900 mb-8">
+              Reviews & Ratings
+            </h2>
+
+            <div className="flex flex-wrap items-center gap-6 mb-8 text-lg text-gray-700">
+              <div className="text-3xl font-bold">
+                {Number(reviewStats?.avg_rating || 0).toFixed(1)}
+                <span className="text-2xl text-yellow-500 ml-1">★</span>
+              </div>
+              <div className="text-center">
+                <div className="text-xl font-bold text-gray-900">
+                  {Number(reviewStats?.total_reviews || 0).toLocaleString()}
                 </div>
-                <div>
-                  <h2 className="seller-name text-3xl lg:text-4xl font-bold text-gray-900">
-                    {sellerStats.store_name || 'Seller'}
-                  </h2>
-                  <p className="seller-subtitle text-lg text-gray-600 mt-2">
-                    {sellerStats.years_on_platform || 0}+ years trusted on Minimart
+                <div className="text-sm text-gray-600">Reviews</div>
+              </div>
+            </div>
+
+            <div className="reviews-list space-y-6">
+              {reviews.map((review, idx) => (
+                <div key={idx} className="review-card p-6 bg-white rounded-2xl shadow-lg">
+                  <div className="flex items-center gap-4 mb-3">
+                    <div className="w-10 h-10 bg-gradient-to-br from-blue-500 to-indigo-600 rounded-full flex items-center justify-center">
+                      <span className="text-sm text-white font-bold">
+                        {review.reviewer_name?.charAt(0)?.toUpperCase() || 'A'}
+                      </span>
+                    </div>
+                    <div>
+                      <div className="font-bold text-gray-900 text-sm">
+                        {review.reviewer_name || 'Anonymous'}
+                      </div>
+                      <div className="flex items-center gap-1">
+                        {[1, 2, 3, 4, 5].map((star) => (
+                          <StarIcon
+                            key={star}
+                            className={`w-4 h-4 ${
+                              star <= review.rating ? 'text-yellow-500' : 'text-gray-300'
+                            }`}
+                          />
+                        ))}
+                        <span className="text-sm text-gray-600 ml-2">
+                          {new Date(review.created_at).toLocaleDateString()}
+                        </span>
+                      </div>
+                    </div>
+                  </div>
+                  <p className="text-gray-700 leading-relaxed">
+                    {review.comment}
                   </p>
                 </div>
-              </div>
-              {sellerStats.verified_id && (
-                <div className="verified flex items-center gap-3 px-6 py-3 bg-green-500 rounded-xl font-bold text-white shadow-lg">
-                  <ShieldCheckIcon className="w-5 h-5" />
-                  VERIFIED SELLER
+              ))}
+
+              {reviews.length === 0 && (
+                <div className="text-center py-12 text-gray-500">
+                  <p>No reviews yet. Be the first to leave a review!</p>
                 </div>
               )}
-            </div>
-            <div className="seller-stats grid grid-cols-2 lg:grid-cols-4 gap-6">
-              {[
-                { value: sellerStats.total_ads || 0, label: 'Listings' },
-                { value: sellerStats.total_feedback || 0, label: 'Reviews' },
-                { value: sellerStats.followers || 0, label: 'Followers' },
-                { value: sellerStats.avg_rating || 0, label: 'Rating' }
-              ].map(({ value, label }, idx) => (
-                <div key={idx} className="stat-card p-6 rounded-2xl text-center">
-                  <div className="stat-number text-3xl lg:text-4xl font-bold text-gray-900 mb-3">
-                    {Number(value).toLocaleString()}
-                  </div>
-                  <div className="stat-label text-base font-bold text-gray-700 uppercase tracking-wider">
-                    {label}
-                  </div>
-                </div>
-              ))}
             </div>
           </div>
         )}
 
-        {/* Similar Products */}
-        <div className="similar-products rounded-3xl overflow-hidden shadow-lg">
+        {/* RECOMMENDED / SIMILAR LISTINGS */}
+        <div className="similar-products rounded-3xl overflow-hidden shadow-lg mb-20">
           <div className="similar-header p-10 border-b border-gray-200">
             <h2 className="text-3xl lg:text-4xl font-bold text-gray-900">
               Similar Products
-              <span className="text-xl text-gray-500 font-normal"> ({similarProducts.length} found)</span>
+              <span className="text-xl text-gray-500 font-normal">
+                {' '}({similarProducts.length} found)
+              </span>
             </h2>
           </div>
           
@@ -411,13 +499,15 @@ const ProductDetail = () => {
                       </div>
                     </div>
                     <div className="card-body p-5 h-[35%]">
-                      <h3 className="title font-bold text-lg text-gray-900 line-clamp-2 mb-3">{item.title}</h3>
+                      <h3 className="title font-bold text-lg text-gray-900 line-clamp-2 mb-3">
+                        {item.title}
+                      </h3>
                       <div className="price mb-3">
                         <div className="text-xl font-bold text-gray-900">
                           ₦{Number(item.price || 0).toLocaleString()}
                         </div>
                       </div>
-                                            <div className="location text-sm text-gray-600">
+                      <div className="location text-sm text-gray-600">
                         <div className="flex items-center gap-2 font-semibold">
                           <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 20 20">
                             <path fillRule="evenodd" d="M5.05 4.05a7 7 0 119.9 9.9L10 18.9l-4.95-4.95a7 7 0 010-9.9zM10 11a2 2 0 100-4 2 2 0 000 4z" />
@@ -432,7 +522,6 @@ const ProductDetail = () => {
               </div>
             )}
 
-            {/* Infinite Scroll Trigger */}
             {hasMoreSimilar && (
               <div ref={similarEndRef} className="infinite-scroll-trigger p-10 flex items-center justify-center">
                 {similarLoading ? (
@@ -452,6 +541,45 @@ const ProductDetail = () => {
             )}
           </div>
         </div>
+
+        {/* FOOTER (optional inline section) */}
+        <footer className="product-footer mb-20">
+          <div className="p-10 bg-white rounded-3xl shadow-lg">
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-8">
+              <div>
+                <h3 className="text-lg font-bold text-gray-900 mb-4">Browse Categories</h3>
+                <ul className="space-y-2">
+                  <li><Link to="/category/electronics" className="text-gray-600 hover:text-indigo-600">Electronics</Link></li>
+                  <li><Link to="/category/clothing" className="text-gray-600 hover:text-indigo-600">Fashion</Link></li>
+                  <li><Link to="/category/homes" className="text-gray-600 hover:text-indigo-600">Home & Appliances</Link></li>
+                </ul>
+              </div>
+              <div>
+                <h3 className="text-lg font-bold text-gray-900 mb-4">Support</h3>
+                <ul className="space-y-2">
+                  <li><Link to="/help" className="text-gray-600 hover:text-indigo-600">Help Center</Link></li>
+                  <li><Link to="/terms" className="text-gray-600 hover:text-indigo-600">Terms & Policies</Link></li>
+                  <li><Link to="/contact" className="text-gray-600 hover:text-indigo-600">Contact Us</Link></li>
+                </ul>
+              </div>
+              <div>
+                <h3 className="text-lg font-bold text-gray-900 mb-4">Company</h3>
+                <ul className="space-y-2">
+                  <li><Link to="/about" className="text-gray-600 hover:text-indigo-600">About Minimart</Link></li>
+                  <li><Link to="/blog" className="text-gray-600 hover:text-indigo-600">Blog</Link></li>
+                </ul>
+              </div>
+              <div>
+                <h3 className="text-lg font-bold text-gray-900 mb-4">Follow Us</h3>
+                <div className="flex gap-4 text-gray-600">
+                  <Link to="#" className="hover:text-indigo-600">Twitter</Link>
+                  <Link to="#" className="hover:text-indigo-600">Instagram</Link>
+                  <Link to="#" className="hover:text-indigo-600">Facebook</Link>
+                </div>
+              </div>
+            </div>
+          </div>
+        </footer>
       </div>
     </div>
   );
