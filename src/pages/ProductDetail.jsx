@@ -27,7 +27,7 @@ const ProductDetail = () => {
     return phone ? phone.replace(/[^+d]/g, '') : '';
   }, []);
 
-  // Attribute config – now only text labels, no icons
+  // Only text labels for attributes – no icons
   const attributeConfig = useMemo(() => ({
     category: { label: 'Category' },
     brand: { label: 'Brand' },
@@ -345,7 +345,15 @@ const ProductDetail = () => {
 
           <div className="review-list">
             {reviewsLoading ? (
-              <div className="skeleton h-24"></div>
+              <div className="p-10">
+                {Array.from({ length: 3 }, (_, i) => (
+                  <div key={i} className="mb-6 p-6 bg-white rounded-2xl shadow">
+                    <div className="h-4 w-40 bg-gray-200 rounded mb-3"></div>
+                    <div className="h-3 w-60 bg-gray-200 rounded mb-2"></div>
+                    <div className="h-3 w-52 bg-gray-200 rounded"></div>
+                  </div>
+                ))}
+              </div>
             ) : reviews.length === 0 ? (
               <div className="empty-state">No reviews yet.</div>
             ) : (
@@ -382,8 +390,8 @@ const ProductDetail = () => {
 
           <div className="similar-grid">
             {similarLoading && similarProducts.length === 0 ? (
-              {[...Array(12)].map((_, i) => (
-                <div key={i} className="similar-skeleton skeleton h-80"></div>
+              {Array.from({ length: 12 }, (_, i) => (
+                <div key={i} className="similar-skeleton skeleton h-80 rounded-2xl animate-pulse"></div>
               ))}
             ) : (
               similarProducts.map((item) => (
