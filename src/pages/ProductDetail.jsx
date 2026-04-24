@@ -27,7 +27,7 @@ const ProductDetail = () => {
     return phone ? phone.replace(/[^+d]/g, '') : '';
   }, []);
 
-  // Only text labels for attributes – no icons
+  // Only text labels, no icons
   const attributeConfig = useMemo(() => ({
     category: { label: 'Category' },
     brand: { label: 'Brand' },
@@ -390,9 +390,11 @@ const ProductDetail = () => {
 
           <div className="similar-grid">
             {similarLoading && similarProducts.length === 0 ? (
-              {Array.from({ length: 12 }, (_, i) => (
-                <div key={i} className="similar-skeleton skeleton h-80 rounded-2xl animate-pulse"></div>
-              ))}
+              <>
+                {Array.from({ length: 12 }, (_, i) => (
+                  <div key={i} className="similar-skeleton skeleton h-80 rounded-2xl animate-pulse"></div>
+                ))}
+              </>
             ) : (
               similarProducts.map((item) => (
                 <Link
