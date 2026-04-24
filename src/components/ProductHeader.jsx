@@ -4,9 +4,11 @@ import {
   ArrowLeftIcon,
   StarIconSolid,
   ShareIcon,
-  HeartIcon,
 } from '@heroicons/react/24/outline';
 import { StarIcon as StarIconSolidFilled } from '@heroicons/react/24/solid';
+
+// Import the CSS
+import './ProductHeader.css';
 
 const ProductHeader = ({
   product,
@@ -32,7 +34,7 @@ const ProductHeader = ({
     <>
       {/* Primary sticky header */}
       <header className="product-header-primary sticky-header z-[75]">
-        <div className="nav-container">
+        <div className="product-nav-wrapper">
           <button
             className="menu-dots"
             onClick={() => navigate(-1)}
@@ -41,49 +43,32 @@ const ProductHeader = ({
             ←
           </button>
 
+          {/* Title with CSS ellipsis */}
           <div className="nav-brand product-title-nav" title={product?.title}>
             {product?.title || 'Product Details'}
           </div>
+
+          <button
+            onClick={handleShare}
+            className="action-btn"
+            title="Share product"
+          >
+            <ShareIcon />
+          </button>
         </div>
       </header>
 
-      {/* Sticky rating and actions bar */}
-      <div className="product-info-section sticky-search z-[70]">
-        <div className="search-wrapper product-info-wrapper">
-          <div className="product-stats-box">
-            {/* Only average rating */}
-            {reviewStats?.avg_rating && (
-              <div className="stat-item">
-                <StarIconSolidFilled className="w-4 h-4 text-yellow-400 fill-current" />
-                <span className="stat-value">
-                  {reviewStats.avg_rating.toFixed(1)}
-                </span>
-              </div>
-            )}
-          </div>
-
-          {/* Quick actions (no Contact button) */}
-          <div className="actions-grid">
-            <button
-              onClick={handleShare}
-              className="action-btn"
-              title="Share product"
-            >
-              <ShareIcon className="w-5 h-5 text-gray-600 hover:text-gray-900 transition-colors" />
-            </button>
-
-            <button
-              onClick={onFavorite}
-              className={`action-btn ${
-                isFavorited
-                  ? 'text-red-500 hover:text-red-600'
-                  : 'text-gray-600 hover:text-gray-900'
-              }`}
-              title={isFavorited ? 'Remove from favorites' : 'Add to favorites'}
-            >
-              <HeartIcon className="w-5 h-5" />
-            </button>
-          </div>
+      {/* Sticky rating bar */}
+      <div className="product-info-section">
+        <div className="product-stats-box">
+          {reviewStats?.avg_rating && (
+            <div className="stat-item">
+              <StarIconSolidFilled />
+              <span className="stat-value">
+                {reviewStats.avg_rating.toFixed(1)}
+              </span>
+            </div>
+          )}
         </div>
       </div>
     </>
