@@ -38,7 +38,7 @@
   box-shadow: 0 12px 24px rgba(0, 0, 0, 0.15);
 }
 
-/* MAIN GRID */
+/* MAIN GRID (image + info) */
 .main-grid {
   display: grid;
   grid-template-columns: 1fr;
@@ -98,7 +98,6 @@
   -webkit-overflow-scrolling: touch;
 }
 
-/* Thumbnail item */
 .thumbnail-item {
   flex: 0 0 140px;
   max-width: 140px;
@@ -304,6 +303,8 @@
 }
 
 .review-list {
+  display: flex;
+  flex-direction: column;
   gap: 24px;
   padding: 32px !important;
 }
@@ -355,15 +356,21 @@
 }
 
 @media (min-width: 768px) {
-  .similar-grid { grid-template-columns: repeat(3, 1fr); }
+  .similar-grid {
+    grid-template-columns: repeat(3, 1fr);
+  }
 }
 
 @media (min-width: 1024px) {
-  .similar-grid { grid-template-columns: repeat(4, 1fr); }
+  .similar-grid {
+    grid-template-columns: repeat(4, 1fr);
+  }
 }
 
 @media (min-width: 1400px) {
-  .similar-grid { grid-template-columns: repeat(6, 1fr); }
+  .similar-grid {
+    grid-template-columns: repeat(6, 1fr);
+  }
 }
 
 /* SIMILAR CARD */
