@@ -32,85 +32,94 @@ const ProductHeader = ({
   };
 
   return (
-    <div className="product-header sticky top-116 z-50 bg-white/95 backdrop-blur-xl border-b border-gray-100 shadow-sm">
-      <div className="homepage-container product-detail-container">
-        <div className="flex items-center justify-between py-4 px-2">
-          {/* Left: Back + Product Info */}
-          <div className="flex items-center gap-4 flex-1 min-w-0">
-            <button
-              onClick={() => navigate(-1)}
-              className="p-3 rounded-xl bg-gray-50 hover:bg-gray-100 hover:shadow-md transition-all duration-200 flex-shrink-0 group"
-              aria-label="Go back"
-            >
-              <ArrowLeftIcon className="w-5 h-5 text-gray-700 group-hover:text-gray-900 group-hover:-translate-x-0.5 transition-all" />
-            </button>
-            
-            <div className="min-w-0 flex-1">
-              <h1 className="text-lg font-bold text-gray-900 truncate leading-tight line-clamp-1">
-                {product?.title}
-              </h1>
-              <div className="flex items-center gap-3 text-xs text-gray-500 mt-0.5">
-                <span className="flex items-center gap-1">
-                  <EyeIcon className="w-3.5 h-3.5" />
-                  {product?.views?.toLocaleString() || 0}
-                </span>
-                {reviewStats?.avg_rating && (
-                  <>
-                    <span>•</span>
-                    <span className="flex items-center gap-1">
-                      <StarIconSolidFilled className="w-4 h-4 text-yellow-400 fill-current" />
-                      {reviewStats.avg_rating.toFixed(1)}
-                    </span>
-                  </>
-                )}
-                {similarProductsCount > 0 && (
-                  <>
-                    <span>•</span>
-                    <span className="text-blue-600 font-medium">{similarProductsCount} similar</span>
-                  </>
-                )}
-              </div>
-            </div>
+    <>
+      {/* 📌 PRIMARY STICKY HEADER - Matches TopNav */}
+      <header className="product-header-primary sticky-header z-[75]">
+        <div className="nav-container">
+          <button 
+            className="menu-dots" 
+            onClick={() => navigate(-1)}
+            aria-label="Go back"
+          >
+            ←
+          </button>
+
+          <div className="nav-brand product-title-nav" title={product?.title}>
+            {product?.title || 'Product Details'}
           </div>
+        </div>
+      </header>
 
-          {/* Right: Actions */}
-          <div className="flex items-center gap-1.5">
-            <button
-              onClick={handleShare}
-              className="p-2.5 rounded-xl bg-gray-50 hover:bg-gray-100 hover:shadow-md transition-all duration-200 flex items-center justify-center group"
-              title="Share product"
-            >
-              <ShareIcon className="w-5 h-5 text-gray-600 group-hover:text-gray-900 group-hover:scale-110 transition-all" />
-            </button>
-
-            <button
-              onClick={onFavorite}
-              className={`p-2.5 rounded-xl hover:shadow-md transition-all duration-200 flex items-center justify-center group relative ${
-                isFavorited
-                  ? 'bg-red-50 text-red-600 hover:bg-red-100 border border-red-200'
-                  : 'bg-gray-50 hover:bg-gray-100 text-gray-600'
-              }`}
-              title={isFavorited ? "Remove from favorites" : "Add to favorites"}
-            >
-              <HeartIcon className="w-5 h-5 group-hover:scale-110 transition-transform" />
-              {isFavorited && (
-                <div className="absolute -top-1 -right-1 w-4 h-4 bg-red-500 rounded-full flex items-center justify-center text-xs font-bold text-white shadow-lg">
-                  ★
+      {/* 🔍 STICKY PRODUCT INFO BAR - Matches search-section */}
+      <div className="product-info-section sticky-search z-[70]">
+        <div className="search-wrapper product-info-wrapper">
+          <div className="product-stats-box">
+            {/* Views & Rating */}
+            <div className="stats-grid">
+              <div className="stat-item">
+                <EyeIcon className="w-4 h-4 text-gray-600" />
+                <span className="stat-value">
+                  {product?.views?.toLocaleString() || 0} views
+                </span>
+              </div>
+              
+              {reviewStats?.avg_rating && (
+                <div className="stat-item">
+                  <StarIconSolidFilled className="w-4 h-4 text-yellow-400 fill-current" />
+                  <span className="stat-value">
+                    {reviewStats.avg_rating.toFixed(1)}
+                  </span>
                 </div>
               )}
-            </button>
+              
+              {similarProductsCount > 0 && (
+                <div className="stat-item">
+                  <span className="stat-badge bg-blue-500/10 text-blue-600 border border-blue-200 px-2 py-1 rounded-full text-xs font-semibold">
+                    {similarProductsCount} similar
+                  </span>
+                </div>
+              )}
+            </div>
 
-            <Link
-              to="#contact"
-              className="load-more-btn bg-gradient-to-r from-green-500 to-emerald-600 hover:from-green-600 hover:to-emerald-700 text-white font-semibold py-2.5 px-5 rounded-xl shadow-lg hover:shadow-xl text-sm flex items-center gap-1.5 ml-1 transition-all duration-300"
-            >
-              <ChatBubbleLeftIcon className="w-4 h-4" />
-              Contact
-            </Link>
+            {/* Quick Actions */}
+            <div className="actions-grid">
+              <button
+                onClick={handleShare}
+                className="action-btn"
+                title="Share product"
+              >
+                <ShareIcon className="w-5 h-5 text-gray-600 hover:text-gray-900 transition-colors" />
+              </button>
+
+              <button
+                onClick={onFavorite}
+                className={`action-btn relative ${
+                  isFavorited
+                    ? 'text-red-500 hover:text-red-600'
+                    : 'text-gray-600 hover:text-gray-900'
+                }`}
+                title={isFavorited ? "Remove from favorites" : "Add to favorites"}
+              >
+                <HeartIcon className="w-5 h-5" />
+                {isFavorited && (
+                  <div className="absolute -top-1 -right-1 w-3 h-3 bg-red-500 rounded-full flex items-center justify-center text-xs font-bold text-white shadow-sm">
+                    ★
+                  </div>
+                )}
+              </button>
+
+              <Link
+                to="#contact"
+                className="contact-quick-btn bg-gradient-to-r from-green-500 to-emerald-600 hover:from-green-600 hover:to-emerald-700 text-white font-semibold py-1 px-4 rounded-lg shadow-lg hover:shadow-xl text-sm flex items-center gap-1.5 transition-all duration-300 whitespace-nowrap"
+              >
+                <ChatBubbleLeftIcon className="w-4 h-4" />
+                Contact
+              </Link>
+            </div>
           </div>
         </div>
       </div>
-    </div>
+    </>
   );
 };
 
