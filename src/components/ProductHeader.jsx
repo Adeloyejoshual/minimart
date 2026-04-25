@@ -1,4 +1,4 @@
-import React from "react";
+import React, { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import {
   ArrowLeftIcon,
@@ -8,14 +8,39 @@ import { StarIcon as StarIconSolid } from "@heroicons/react/24/solid";
 
 import "./ProductHeader.css";
 
-const ProductHeader = ({
-  product,
-  reviewStats,
-  onFavorite,
-  isFavorited = false,
-  rightSlot,
-}) => {
+const ProductHeader = ({ product, reviewStats, onFavorite, isFavorited }) => {
   const navigate = useNavigate();
+
+  const [visible, setVisible] = useState(true);
+  const [lastScrollY, setLastScrollY] = useState(0);
+
+  /* ================= SCROLL BEHAVIOR ================= */
+  useEffect(() => {
+    const handleScroll = () => {
+      const currentY = window.scrollY;
+
+      // Always show at top
+      if (currentY < 50) {
+        setVisible(true);
+        setLastScrollY(currentY);
+        return;
+      }
+
+      // scrolling down → hide
+      if (currentY > lastScrollY) {
+        setVisible(false);
+      } else {
+        // scrolling up → show
+        setVisible(true);
+      }
+
+      setLastScrollY(currentY);
+    };
+
+    window.addEventListener("scroll", handleScroll, { passive: true });
+
+    return () => window.removeEventListener("scroll", handleScroll);
+  }, [lastScrollY]);
 
   const handleBack = () => {
     if (window.history.length > 1) navigate(-1);
@@ -36,61 +61,51 @@ const ProductHeader = ({
         title: product?.title,
         url,
       });
-    } catch (err) {
-      console.warn("Share failed", err);
-    }
+    } catch (err) {}
   };
 
   return (
     <>
-      {/* MAIN HEADER */}
-      <header className="product-header-wrapper">
+      {/* SMART HEADER */}
+      <header className={`product-header-wrapper ${visible ? "show" : "hide"}`}>
+
         <div className="product-header">
 
           <div className="product-header-container">
 
             {/* LEFT */}
-            <div className="product-header-left">
-
-              <button className="product-btn" onClick={handleBack}>
-                <ArrowLeftIcon className="w-5 h-5 text-white" />
-              </button>
-
-            </div>
+            <button className="product-btn" onClick={handleBack}>
+              <ArrowLeftIcon className="w-5 h-5 text-white" />
+            </button>
 
             {/* TITLE */}
-            <div className="product-title" title={product?.title}>
-              {product?.title || "Product Details"}
+            <div className="product-title">
+              {product?.title || "Product"}
             </div>
 
             {/* RIGHT */}
             <div className="product-header-right">
 
-              {/* FAVORITE */}
               {onFavorite && (
-                <button className="product-btn" onClick={onFavorite}>
+                <button className="product-btn">
                   {isFavorited ? "❤️" : "🤍"}
                 </button>
               )}
 
-              {/* SHARE */}
               <button className="product-btn" onClick={handleShare}>
                 <ShareIcon className="w-5 h-5 text-white" />
               </button>
-
-              {/* SLOT */}
-              {rightSlot}
 
             </div>
 
           </div>
 
         </div>
+
       </header>
 
-      {/* STATS BAR */}
+      {/* SUB HEADER */}
       <div className="product-subnav">
-
         {reviewStats?.avg_rating && (
           <div className="product-stat">
             <StarIconSolid className="w-4 h-4 text-amber-500" />
@@ -99,7 +114,6 @@ const ProductHeader = ({
             </span>
           </div>
         )}
-
       </div>
     </>
   );
