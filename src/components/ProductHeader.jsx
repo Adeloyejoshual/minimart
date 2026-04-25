@@ -1,107 +1,105 @@
-import React from 'react';
-import { useNavigate } from 'react-router-dom';
+import React from "react";
+import { useNavigate } from "react-router-dom";
 import {
   ArrowLeftIcon,
-  StarIconSolid,
   ShareIcon,
-} from '@heroicons/react/24/outline';
-import { StarIcon as StarIconSolidFilled } from '@heroicons/react/24/solid';
+} from "@heroicons/react/24/outline";
+import { StarIcon as StarIconSolid } from "@heroicons/react/24/solid";
 
-import './ProductHeader.css';
+import "./ProductHeader.css";
 
 const ProductHeader = ({
   product,
   reviewStats,
   onFavorite,
   isFavorited = false,
+  rightSlot,
 }) => {
   const navigate = useNavigate();
 
+  const handleBack = () => {
+    if (window.history.length > 1) navigate(-1);
+    else navigate("/");
+  };
+
   const handleShare = async () => {
-    const imgSrc = product?.image;
+    const url = window.location.href;
 
     if (!navigator.share) {
-      await navigator.clipboard.writeText(window.location.href);
-      alert('🔗 Link copied to clipboard!');
+      await navigator.clipboard.writeText(url);
+      alert("Link copied!");
       return;
     }
 
-    if (imgSrc) {
-      try {
-        const response = await fetch(imgSrc);
-        const blob = await response.blob();
-
-        const file = new File(
-          [blob],
-          product.title ? `${product.title}.jpg` : 'product.jpg',
-          { type: blob.type }
-        );
-
-        const data = {
-          title: product?.title,
-          url: window.location.href,
-          files: [file],
-        };
-
-        if (navigator.canShare && navigator.canShare({ files: [file] })) {
-          await navigator.share(data);
-          return;
-        }
-      } catch (err) {
-        if (err.name !== 'AbortError') {
-          console.warn('Image share failed, falling back to URL only', err);
-        }
-      }
+    try {
+      await navigator.share({
+        title: product?.title,
+        url,
+      });
+    } catch (err) {
+      console.warn("Share failed", err);
     }
-
-    await navigator.share({
-      title: product?.title,
-      url: window.location.href,
-    });
   };
 
   return (
     <>
-      {/* Sticky header */}
-      <header className="product-header-primary sticky-header z-[75]">
-        <div className="product-nav-wrapper flex items-center justify-between w-full px-4 py-2">
-          <button
-            className="menu-dots transition hover:opacity-70"
-            onClick={() => navigate(-1)}
-            aria-label="Go back"
-          >
-            <ArrowLeftIcon className="h-5 w-5" />
-          </button>
+      {/* MAIN HEADER */}
+      <header className="product-header-wrapper">
+        <div className="product-header">
 
-          <div
-            className="nav-brand product-title-nav flex-1 mx-4 text-center truncate"
-            title={product?.title}
-          >
-            {product?.title || 'Product Details'}
+          <div className="product-header-container">
+
+            {/* LEFT */}
+            <div className="product-header-left">
+
+              <button className="product-btn" onClick={handleBack}>
+                <ArrowLeftIcon className="w-5 h-5 text-white" />
+              </button>
+
+            </div>
+
+            {/* TITLE */}
+            <div className="product-title" title={product?.title}>
+              {product?.title || "Product Details"}
+            </div>
+
+            {/* RIGHT */}
+            <div className="product-header-right">
+
+              {/* FAVORITE */}
+              {onFavorite && (
+                <button className="product-btn" onClick={onFavorite}>
+                  {isFavorited ? "❤️" : "🤍"}
+                </button>
+              )}
+
+              {/* SHARE */}
+              <button className="product-btn" onClick={handleShare}>
+                <ShareIcon className="w-5 h-5 text-white" />
+              </button>
+
+              {/* SLOT */}
+              {rightSlot}
+
+            </div>
+
           </div>
 
-          <button
-            onClick={handleShare}
-            className="action-btn transition hover:opacity-70"
-            title="Share product"
-          >
-            <ShareIcon className="h-5 w-5" />
-          </button>
         </div>
       </header>
 
-      {/* Sticky rating bar */}
-      <div className="product-info-section">
-        <div className="product-stats-box">
-          {reviewStats?.avg_rating && (
-            <div className="stat-item flex items-center gap-1">
-              <StarIconSolidFilled className="h-4 w-4 text-amber-500" />
-              <span className="stat-value text-sm font-medium">
-                {reviewStats.avg_rating.toFixed(1)}
-              </span>
-            </div>
-          )}
-        </div>
+      {/* STATS BAR */}
+      <div className="product-subnav">
+
+        {reviewStats?.avg_rating && (
+          <div className="product-stat">
+            <StarIconSolid className="w-4 h-4 text-amber-500" />
+            <span className="value">
+              {reviewStats.avg_rating.toFixed(1)}
+            </span>
+          </div>
+        )}
+
       </div>
     </>
   );
