@@ -1,86 +1,121 @@
-import React, { useCallback } from 'react';
-import { useNavigate } from 'react-router-dom';
-import { FiSettings, FiArrowLeft, FiHome } from 'react-icons/fi';
+import React from "react";
+import { useNavigate } from "react-router-dom";
+import {
+  ArrowLeftIcon,
+  ShareIcon,
+} from "@heroicons/react/24/outline";
+import { StarIcon as StarIconSolidFilled } from "@heroicons/react/24/solid";
 
-const ProHeader = ({
-  title = "Settings",
-  showBack = true,
-  onBack,
-  showHome = true,
-  showSettingsIcon = false,
-  onSettingsClick
+const ProductHeader = ({
+  product,
+  reviewStats,
+  onFavorite,
+  isFavorited = false,
+  rightSlot, // 🔥 extensibility
 }) => {
   const navigate = useNavigate();
 
-  /* ---------------- HANDLERS ---------------- */
-  const handleBack = useCallback(() => {
-    if (onBack) return onBack();
-    if (showBack) navigate(-1);
-  }, [onBack, showBack, navigate]);
+  /* ---------------- BACK ---------------- */
+  const handleBack = () => {
+    if (window.history.length > 1) {
+      navigate(-1);
+    } else {
+      navigate("/");
+    }
+  };
 
-  const handleSettings = useCallback(() => {
-    if (onSettingsClick) return onSettingsClick();
-    navigate('/settings');
-  }, [onSettingsClick, navigate]);
+  /* ---------------- SHARE ---------------- */
+  const handleShare = async () => {
+    const url = window.location.href;
 
-  const goHome = useCallback(() => {
-    navigate('/');
-  }, [navigate]);
+    if (!navigator.share) {
+      await navigator.clipboard.writeText(url);
+      alert("🔗 Link copied!");
+      return;
+    }
+
+    try {
+      await navigator.share({
+        title: product?.title,
+        url,
+      });
+    } catch (err) {
+      console.warn("Share failed", err);
+    }
+  };
 
   return (
-    <header className="bg-gradient-to-r from-slate-900 via-purple-900 to-slate-900 shadow-2xl border-b-4 border-indigo-500/50 sticky top-0 z-50">
+    <>
+      {/* HEADER */}
+      <header className="sticky top-0 z-50 bg-gradient-to-r from-slate-900 via-purple-900 to-slate-900 shadow-lg">
 
-      <div className="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8">
-        <div className="flex items-center justify-between h-20">
+        <div className="flex items-center justify-between px-4 h-16 md:h-20">
 
-          {/* LEFT SECTION */}
-          <div className="flex items-center gap-3">
+          {/* LEFT */}
+          <div className="flex items-center gap-2 min-w-0">
+            <button
+              onClick={handleBack}
+              aria-label="Go back"
+              title="Go back"
+              className="w-10 h-10 md:w-12 md:h-12 flex items-center justify-center rounded-xl bg-white/10 hover:bg-white/20"
+            >
+              <ArrowLeftIcon className="h-5 w-5 text-white" />
+            </button>
 
-            {/* BACK BUTTON */}
-            {showBack && (
+            <h1
+              className="text-sm md:text-xl font-bold text-white truncate max-w-[180px] md:max-w-xs"
+              title={product?.title}
+            >
+              {product?.title || "Product Details"}
+            </h1>
+          </div>
+
+          {/* RIGHT */}
+          <div className="flex items-center gap-2">
+
+            {/* FAVORITE */}
+            {onFavorite && (
               <button
-                onClick={handleBack}
-                aria-label="Go back"
-                className="p-3 w-12 h-12 flex items-center justify-center bg-white/10 backdrop-blur-sm rounded-2xl hover:bg-white/20 transition-all duration-200 hover:scale-110 shadow-lg"
+                onClick={onFavorite}
+                className="w-10 h-10 flex items-center justify-center rounded-xl bg-white/10 hover:bg-white/20"
               >
-                <FiArrowLeft className="w-6 h-6 text-white" />
+                <span className="text-lg">
+                  {isFavorited ? "❤️" : "🤍"}
+                </span>
               </button>
             )}
 
-            {/* TITLE + SETTINGS */}
-            <div className="flex items-center gap-2">
-              {showSettingsIcon && (
-                <button
-                  onClick={handleSettings}
-                  aria-label="Settings"
-                  className="w-10 h-10 flex items-center justify-center bg-gradient-to-br from-yellow-400 to-orange-500 rounded-2xl shadow-xl hover:scale-105 transition-transform"
-                >
-                  <FiSettings className="w-5 h-5 text-gray-900" />
-                </button>
-              )}
+            {/* SHARE */}
+            <button
+              onClick={handleShare}
+              title="Share product"
+              className="w-10 h-10 flex items-center justify-center rounded-xl bg-white/10 hover:bg-white/20"
+            >
+              <ShareIcon className="h-5 w-5 text-white" />
+            </button>
 
-              <h1 className="text-2xl md:text-3xl font-black bg-gradient-to-r from-white to-gray-200 bg-clip-text text-transparent">
-                {title}
-              </h1>
-            </div>
+            {/* SLOT (extra actions) */}
+            {rightSlot}
 
           </div>
-
-          {/* RIGHT SECTION */}
-          {showHome && (
-            <button
-              onClick={goHome}
-              aria-label="Go home"
-              className="p-3 w-12 h-12 flex items-center justify-center bg-emerald-500/20 backdrop-blur-sm rounded-2xl hover:bg-emerald-500/40 transition-all duration-200 hover:scale-110 shadow-lg group"
-            >
-              <FiHome className="w-6 h-6 text-emerald-300 group-hover:text-emerald-100 transition-colors" />
-            </button>
-          )}
-
         </div>
+      </header>
+
+      {/* STATS BAR */}
+      <div className="sticky top-[64px] md:top-[80px] z-40 bg-white border-b px-4 py-2 flex items-center gap-4">
+
+        {reviewStats?.avg_rating && (
+          <div className="flex items-center gap-1">
+            <StarIconSolidFilled className="h-4 w-4 text-amber-500" />
+            <span className="text-sm font-medium">
+              {reviewStats.avg_rating.toFixed(1)}
+            </span>
+          </div>
+        )}
+
       </div>
-    </header>
+    </>
   );
 };
 
-export default ProHeader;
+export default ProductHeader;
