@@ -550,3 +550,153 @@ const ProductDetail = () => {
               </div>
             </div>
           ))
+                  </div>
+      </div>
+
+      {/* SIMILAR PRODUCTS – first image big, others small under */}
+      <div className="similar-card card mt-6">
+        <div className="similar-header">
+          <h2>Similar Products ({similarProducts.length})</h2>
+        </div>
+
+        <div className="similar-grid">
+          {similarLoading && similarProducts.length === 0 ? (
+            <>
+              {Array.from({ length: 12 }, (_, i) => (
+                <div
+                  key={i}
+                  className="similar-skeleton skeleton h-80 rounded-2xl animate-pulse"
+                ></div>
+              ))}
+            </>
+          ) : (
+            similarProducts.map((item) => (
+              <Link
+                key={item.id}
+                to={`/product/${item.slug}`}
+                className="similar-card card"
+              >
+                {/* First image big */}
+                <div className="card-image">
+                  <img
+                    src={item.images?.[0] || '/api/placeholder/400/300'}
+                    alt={item.title}
+                    className="w-full h-full object-cover"
+                    onError={(e) => {
+                      e.target.src = '/api/placeholder/400/300';
+                    }}
+                  />
+                </div>
+
+                {/* Other small images under */}
+                {item.images?.length > 1 && (
+                  <div className="flex gap-1 mt-2">
+                    {item.images.slice(1, 4).map((thumb, idx) => (
+                      <img
+                        key={idx}
+                        src={thumb || '/api/placeholder/60/60'}
+                        alt={`${item.title} thumb ${idx + 1}`}
+                        className="w-8 h-8 object-cover rounded-md"
+                        onError={(e) => {
+                          e.target.src = '/api/placeholder/60/60';
+                        }}
+                      />
+                    ))}
+                  </div>
+                )}
+
+                {/* Title + state + city */}
+                <div className="mt-2">
+                  <div className="title text-sm font-bold text-gray-900 mb-1">
+                    {item.title}
+                  </div>
+                  <div className="text-xs text-gray-600 font-semibold">
+                    {item.location_state || "Nigeria"}
+                  </div>
+                  <div className="text-xs text-gray-500">
+                    {item.location_city || "Any city"}
+                  </div>
+                </div>
+              </Link>
+            ))
+          )}
+        </div>
+
+        {/* Infinite scroll trigger */}
+        {hasMoreSimilar && (
+          <div ref={similarEndRef} className="infinite-scroll-trigger">
+            {similarLoading ? (
+              <div className="skeleton h-10 w-40 mx-auto my-4"></div>
+            ) : (
+              <button
+                onClick={() => fetchSimilarProducts(similarPage + 1, true)}
+                className="w-full px-4 py-3 text-sm font-bold text-white bg-indigo-600 rounded-lg"
+              >
+                Load More Products
+              </button>
+            )}
+          </div>
+        )}
+      </div>
+
+      {/* Footer */}
+      <footer className="product-footer">
+        <div className="footer-content">
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-8">
+            <div>
+              <h3 className="text-lg font-bold text-gray-900 mb-4">
+                Browse Categories
+              </h3>
+              <ul className="space-y-2">
+                <li>
+                  <Link to="/category/electronics">Electronics</Link>
+                </li>
+                <li>
+                  <Link to="/category/clothing">Fashion</Link>
+                </li>
+                <li>
+                  <Link to="/category/homes">Home & Appliances</Link>
+                </li>
+              </ul>
+            </div>
+            <div>
+              <h3 className="text-lg font-bold text-gray-900 mb-4">Support</h3>
+              <ul className="space-y-2">
+                <li>
+                  <Link to="/help">Help Center</Link>
+                </li>
+                <li>
+                  <Link to="/terms">Terms & Policies</Link>
+                </li>
+                <li>
+                  <Link to="/contact">Contact Us</Link>
+                </li>
+              </ul>
+            </div>
+            <div>
+              <h3 className="text-lg font-bold text-gray-900 mb-4">Company</h3>
+              <ul className="space-y-2">
+                <li>
+                  <Link to="/about">About Minimart</Link>
+                </li>
+                <li>
+                  <Link to="/blog">Blog</Link>
+                </li>
+              </ul>
+            </div>
+            <div>
+              <h3 className="text-lg font-bold text-gray-900 mb-4">Follow Us</h3>
+              <div className="flex gap-4">
+                <Link to="#">Twitter</Link>
+                <Link to="#">Instagram</Link>
+                <Link to="#">Facebook</Link>
+              </div>
+            </div>
+          </div>
+        </div>
+      </footer>
+    </div>
+  );
+};
+
+export default ProductDetail;
