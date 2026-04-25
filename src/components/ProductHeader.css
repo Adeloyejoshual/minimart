@@ -1,6 +1,6 @@
-/* ===================== PRODUCT HEADER (USE GLOBAL VARIABLES) ===================== */
+/* ===================== PRODUCT HEADER (SAME COLORS & STYLES) ===================== */
 
-/* Primary sticky header (same pattern as topnav) */
+/* Re‑use top‑nav gradient and glass from :root */
 .product-header-primary {
   position: sticky;
   top: 0;
@@ -8,6 +8,7 @@
   backdrop-filter: blur(20px);
 }
 
+/* Make title bar look just like top-nav */
 .product-header-primary .top-nav {
   position: relative;
   z-index: 76;
@@ -20,14 +21,23 @@
   display: flex;
   align-items: center;
   overflow: hidden;
-  border-bottom: 1px solid rgba(255,255,255,0.1);
+  border-bottom: 1px solid rgba(255, 255, 255, 0.1);
 }
 
-/* Reuse your menu‑dots and nav‑brand from root */
+/* Wrapper that keeps back, title, share on one straight line */
+.product-header-primary .product-nav-wrapper {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  width: 100%;
+  gap: 12px;
+}
+
+/* Back button (same glass style) */
 .product-header-primary .menu-dots {
-  background: rgba(255,255,255,0.15);
+  background: rgba(255, 255, 255, 0.15);
   backdrop-filter: blur(20px);
-  border: 1px solid rgba(255,255,255,0.25);
+  border: 1px solid rgba(255, 255, 255, 0.25);
   color: white;
   font-size: 1.5rem;
   font-weight: 300;
@@ -44,8 +54,8 @@
 }
 
 .product-header-primary .menu-dots:hover {
-  background: rgba(255,255,255,0.25);
-  border-color: rgba(255,255,255,0.4);
+  background: rgba(255, 255, 255, 0.25);
+  border-color: rgba(255, 255, 255, 0.4);
   transform: translateY(-3px) scale(1.08);
   box-shadow: var(--shadow-md);
 }
@@ -54,6 +64,7 @@
   transform: scale(0.97);
 }
 
+/* Title bar (same glass‑brand style) */
 .product-header-primary .nav-brand {
   color: white;
   font-size: 1.45rem;
@@ -62,31 +73,64 @@
   cursor: pointer;
   padding: 12px 24px;
   border-radius: 20px;
-  background: rgba(255,255,255,0.12);
+  background: rgba(255, 255, 255, 0.12);
   backdrop-filter: blur(10px);
-  border: 1px solid rgba(255,255,255,0.2);
+  border: 1px solid rgba(255, 255, 255, 0.2);
   transition: var(--transition);
   box-shadow: var(--shadow-sm);
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
-  max-width: 70%;
+  flex: 1;
   text-align: center;
 }
 
 .product-header-primary .nav-brand:hover {
-  background: rgba(255,255,255,0.22);
+  background: rgba(255, 255, 255, 0.22);
   transform: translateY(-4px) scale(1.02);
   box-shadow: var(--shadow-lg);
-  border-color: rgba(255,255,255,0.35);
+  border-color: rgba(255, 255, 255, 0.35);
 }
 
-/* Sticky product info bar (same style as search‑wrapper) */
+/* Share button (same as nav buttons) */
+.product-header-primary .action-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 12px 16px;
+  border-radius: 16px;
+  border: none;
+  background: rgba(255, 255, 255, 0.15);
+  backdrop-filter: blur(20px);
+  border: 1px solid rgba(255, 255, 255, 0.25);
+  box-shadow: var(--shadow-sm);
+  cursor: pointer;
+  transition: var(--transition);
+  color: white;
+}
+
+.product-header-primary .action-btn svg {
+  width: 1.25rem;
+  height: 1.25rem;
+}
+
+.product-header-primary .action-btn:hover {
+  background: rgba(255, 255, 255, 0.25);
+  border-color: rgba(255, 255, 255, 0.4);
+  transform: translateY(-3px) scale(1.08);
+  box-shadow: var(--shadow-md);
+}
+
+.product-header-primary .action-btn:active {
+  transform: scale(0.97);
+}
+
+/* Sticky product info bar (same glass style as search wrapper) */
 .product-info-section {
   position: sticky;
   top: var(--nav-height);
   z-index: 70;
-  background: linear-gradient(180deg, var(--glass-bg), rgba(255,255,255,0.92));
+  background: linear-gradient(180deg, var(--glass-bg), rgba(255, 255, 255, 0.92));
   backdrop-filter: blur(30px);
   border-bottom: 1px solid var(--glass-border);
   padding: 16px 24px;
@@ -105,37 +149,4 @@
 .product-info-section .stat-item svg {
   width: 1rem;
   height: 1rem;
-}
-
-/* Share button at the right (same style as your nav buttons) */
-.product-header-primary .action-btn {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  padding: 12px 16px;
-  border-radius: 16px;
-  border: none;
-  background: rgba(255,255,255,0.15);
-  backdrop-filter: blur(20px);
-  border: 1px solid rgba(255,255,255,0.25);
-  box-shadow: var(--shadow-sm);
-  cursor: pointer;
-  transition: var(--transition);
-  color: white;
-}
-
-.product-header-primary .action-btn svg {
-  width: 1.25rem;
-  height: 1.25rem;
-}
-
-.product-header-primary .action-btn:hover {
-  background: rgba(255,255,255,0.25);
-  border-color: rgba(255,255,255,0.4);
-  transform: translateY(-3px) scale(1.08);
-  box-shadow: var(--shadow-md);
-}
-
-.product-header-primary .action-btn:active {
-  transform: scale(0.97);
 }
