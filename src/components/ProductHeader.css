@@ -1,23 +1,55 @@
-/* ===================== ROOT EXTENSIONS ===================== */
+/* =========================================================
+   DESIGN TOKENS (SYSTEM CORE)
+========================================================= */
 :root {
-  --product-header-height: var(--nav-height);
+  --product-header-height: 60px;
   --product-subnav-height: 52px;
+
+  --glass-bg: rgba(255, 255, 255, 0.97);
+  --glass-border: rgba(147, 197, 253, 0.4);
+
+  --primary-gradient: linear-gradient(135deg, #1e3a8a, #3b82f6, #60a5fa);
+  --primary-glow: linear-gradient(135deg, #1e40af, #3b82f6, #60a5fa);
+
+  --shadow-sm: 0 4px 16px rgba(0,0,0,0.08);
+  --shadow-md: 0 20px 40px rgba(30, 58, 138, 0.18);
+  --shadow-lg: 0 32px 64px rgba(30, 58, 138, 0.22);
+
+  --transition: all 0.3s ease;
 }
 
-/* ===================== HEADER WRAPPER ===================== */
+/* =========================================================
+   SMART STICKY WRAPPER
+========================================================= */
 .product-header-wrapper {
   position: sticky;
   top: 0;
   z-index: 2000;
-  backdrop-filter: blur(20px);
+
+  transition: transform 0.35s ease, opacity 0.35s ease;
+  will-change: transform, opacity;
 }
 
-/* ===================== MAIN HEADER ===================== */
+/* Scroll states (controlled by React) */
+.product-header-wrapper.show {
+  transform: translateY(0);
+  opacity: 1;
+}
+
+.product-header-wrapper.hide {
+  transform: translateY(-110%);
+  opacity: 0.95;
+  pointer-events: none;
+}
+
+/* =========================================================
+   MAIN HEADER (TOPNAV STYLE)
+========================================================= */
 .product-header {
-  position: relative;
   height: var(--product-header-height);
   display: flex;
   align-items: center;
+
   padding: 0 16px;
 
   background: var(--primary-gradient);
@@ -26,6 +58,8 @@
 
   box-shadow: var(--shadow-lg);
   border-bottom: 1px solid rgba(255,255,255,0.1);
+
+  position: relative;
   overflow: hidden;
 }
 
@@ -34,36 +68,43 @@
   content: "";
   position: absolute;
   inset: 0;
+
   background:
     radial-gradient(circle at 20% 80%, rgba(120,119,198,0.25), transparent 50%),
     radial-gradient(circle at 80% 20%, rgba(255,119,198,0.25), transparent 50%),
     linear-gradient(to bottom, rgba(255,255,255,0.12), transparent);
+
   pointer-events: none;
-  animation: shimmer 4s ease-in-out infinite;
 }
 
-/* ===================== NAV CONTENT ===================== */
+/* =========================================================
+   CONTENT LAYOUT
+========================================================= */
 .product-header-container {
   width: 100%;
   display: flex;
   align-items: center;
   justify-content: space-between;
+
   position: relative;
   z-index: 2;
 }
 
-/* ===================== LEFT SECTION ===================== */
-.product-header-left {
+/* LEFT / RIGHT GROUPS */
+.product-header-left,
+.product-header-right {
   display: flex;
   align-items: center;
   gap: 10px;
-  min-width: 0;
 }
 
-/* ===================== BUTTONS (GLASS STYLE) ===================== */
+/* =========================================================
+   GLASS BUTTON SYSTEM
+========================================================= */
 .product-btn {
   width: 44px;
   height: 44px;
+
   border-radius: 14px;
   border: 1px solid rgba(255,255,255,0.25);
 
@@ -76,22 +117,20 @@
 
   color: white;
   cursor: pointer;
+
   transition: var(--transition);
   box-shadow: var(--shadow-sm);
 }
 
 .product-btn:hover {
+  transform: translateY(-3px) scale(1.06);
   background: rgba(255,255,255,0.25);
-  border-color: rgba(255,255,255,0.4);
-  transform: translateY(-3px) scale(1.08);
   box-shadow: var(--shadow-md);
 }
 
-.product-btn:active {
-  transform: scale(0.96);
-}
-
-/* ===================== TITLE ===================== */
+/* =========================================================
+   TITLE (CENTER FOCUS)
+========================================================= */
 .product-title {
   flex: 1;
   text-align: center;
@@ -107,21 +146,15 @@
   backdrop-filter: blur(10px);
 
   border: 1px solid rgba(255,255,255,0.2);
-  box-shadow: var(--shadow-sm);
 
-  white-space: nowrap;
   overflow: hidden;
+  white-space: nowrap;
   text-overflow: ellipsis;
 }
 
-/* ===================== RIGHT SECTION ===================== */
-.product-header-right {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-}
-
-/* ===================== SUB HEADER (STATS BAR) ===================== */
+/* =========================================================
+   SUB HEADER (STATS BAR)
+========================================================= */
 .product-subnav {
   position: sticky;
   top: var(--product-header-height);
@@ -132,20 +165,17 @@
   display: flex;
   align-items: center;
   gap: 16px;
+
   padding: 0 16px;
 
-  background: linear-gradient(
-    180deg,
-    var(--glass-bg),
-    rgba(255,255,255,0.92)
-  );
-
+  background: var(--glass-bg);
   backdrop-filter: blur(30px);
+
   border-bottom: 1px solid var(--glass-border);
   box-shadow: var(--shadow-md);
 }
 
-/* ===================== STATS ===================== */
+/* STATS ITEM */
 .product-stat {
   display: flex;
   align-items: center;
@@ -163,20 +193,17 @@
   -webkit-text-fill-color: transparent;
 }
 
-/* ===================== ANIMATIONS ===================== */
+/* =========================================================
+   ANIMATIONS
+========================================================= */
 @keyframes gradientFlow {
   0%, 100% { background-position: 0% 50%; }
-  25% { background-position: 100% 50%; }
   50% { background-position: 100% 100%; }
-  75% { background-position: 0% 100%; }
 }
 
-@keyframes shimmer {
-  0%, 100% { opacity: 0.6; transform: translateY(-1px); }
-  50% { opacity: 0.3; transform: translateY(0); }
-}
-
-/* ===================== RESPONSIVE ===================== */
+/* =========================================================
+   RESPONSIVE
+========================================================= */
 @media (max-width: 768px) {
   :root {
     --product-header-height: 56px;
@@ -193,7 +220,9 @@
   }
 }
 
-/* ===================== PERFORMANCE ===================== */
+/* =========================================================
+   PERFORMANCE SAFETY
+========================================================= */
 @media (prefers-reduced-motion: reduce) {
   .product-header {
     animation: none;
