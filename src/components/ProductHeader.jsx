@@ -7,7 +7,6 @@ import {
 } from '@heroicons/react/24/outline';
 import { StarIcon as StarIconSolidFilled } from '@heroicons/react/24/solid';
 
-// Import the CSS
 import './ProductHeader.css';
 
 const ProductHeader = ({
@@ -19,7 +18,7 @@ const ProductHeader = ({
   const navigate = useNavigate();
 
   const handleShare = async () => {
-    const imgSrc = product?.image; // ← your product image URL field
+    const imgSrc = product?.image;
 
     if (!navigator.share) {
       await navigator.clipboard.writeText(window.location.href);
@@ -27,7 +26,6 @@ const ProductHeader = ({
       return;
     }
 
-    // Try to share with image file
     if (imgSrc) {
       try {
         const response = await fetch(imgSrc);
@@ -41,7 +39,6 @@ const ProductHeader = ({
 
         const data = {
           title: product?.title,
-          // text: 'Check out this product!', // optional description
           url: window.location.href,
           files: [file],
         };
@@ -57,7 +54,6 @@ const ProductHeader = ({
       }
     }
 
-    // Fallback: share URL + title only
     await navigator.share({
       title: product?.title,
       url: window.location.href,
@@ -66,28 +62,30 @@ const ProductHeader = ({
 
   return (
     <>
-      {/* Primary sticky header */}
+      {/* Sticky header */}
       <header className="product-header-primary sticky-header z-[75]">
-        <div className="product-nav-wrapper">
+        <div className="product-nav-wrapper flex items-center justify-between w-full px-4 py-2">
           <button
-            className="menu-dots"
+            className="menu-dots transition hover:opacity-70"
             onClick={() => navigate(-1)}
             aria-label="Go back"
           >
-            ←
+            <ArrowLeftIcon className="h-5 w-5" />
           </button>
 
-          {/* Title with CSS ellipsis */}
-          <div className="nav-brand product-title-nav" title={product?.title}>
+          <div
+            className="nav-brand product-title-nav flex-1 mx-4 text-center truncate"
+            title={product?.title}
+          >
             {product?.title || 'Product Details'}
           </div>
 
           <button
             onClick={handleShare}
-            className="action-btn"
+            className="action-btn transition hover:opacity-70"
             title="Share product"
           >
-            <ShareIcon />
+            <ShareIcon className="h-5 w-5" />
           </button>
         </div>
       </header>
@@ -96,9 +94,9 @@ const ProductHeader = ({
       <div className="product-info-section">
         <div className="product-stats-box">
           {reviewStats?.avg_rating && (
-            <div className="stat-item">
-              <StarIconSolidFilled />
-              <span className="stat-value">
+            <div className="stat-item flex items-center gap-1">
+              <StarIconSolidFilled className="h-4 w-4 text-amber-500" />
+              <span className="stat-value text-sm font-medium">
                 {reviewStats.avg_rating.toFixed(1)}
               </span>
             </div>
