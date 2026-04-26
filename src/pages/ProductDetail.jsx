@@ -7,6 +7,7 @@ import "../styles/ProductDetail.css";
 
 const ProductDetail = () => {
   const { slug } = useParams();
+  const navigate = useNavigate();
   const similarEndRef = useRef(null);
 
   const [product, setProduct] = useState(null);
@@ -23,7 +24,7 @@ const ProductDetail = () => {
   const [hasMoreSimilar, setHasMoreSimilar] = useState(true);
 
   const cleanPhoneNumber = useCallback((phone) => {
-    return phone ? phone.replace(/[^d+]/g, "") : "";
+    return phone ? phone.replace(/[^+d]/g, "") : "";
   }, []);
 
   const attributeConfig = useMemo(
@@ -59,9 +60,20 @@ const ProductDetail = () => {
           throw new Error("Failed to fetch product");
         }
         const data = await response.json();
+        
+        // DEBUG: Check if contact is a string that needs parsing
+        console.log("Raw Product Contact:", data.contact);
+        
+        // If it's a string (JSONB from DB), parse it:
+        if (typeof data.contact === 'string') {
+          data.contact = JSON.parse(data.contact);
+          console.log("Parsed Contact:", data.contact);
+        }
+        
         setProduct(data);
       } catch (err) {
         setError(err.message);
+        console.error("Product fetch error:", err);
       } finally {
         setLoading(false);
       }
@@ -103,8 +115,21 @@ const ProductDetail = () => {
     [product, slug]
   );
 
+  useEffect(() => {
+    const observer = new IntersectionObserver(
+      (entries) => {
+        if (entries[0].isIntersecting && hasMoreSimilar && !similarLoading) {
+          fetchSimilarProducts(similarPage + 1, true);
+        }
+      },
+      { threshold: 0.1 }
+    );
+    if (similarEndRef.current) observer.observe(similarEndRef.current);
+    return () => observer.disconnect();
+  }, [similarPage, hasMoreSimilar, similarLoading, fetchSimilarProducts]);
+
   const fetchSellerStats = useCallback(async () => {
-    const sellerId = product?.seller?.id;
+    const sellerId = product?.contact?.seller_id;
     if (!sellerId) return;
     try {
       const response = await fetch(`/api/seller/${sellerId}/stats`);
@@ -115,7 +140,7 @@ const ProductDetail = () => {
     } catch (err) {
       console.error("Seller stats fetch failed:", err);
     }
-  }, [product?.seller?.id]);
+  }, [product?.contact?.seller_id]);
 
   const fetchReviews = useCallback(async () => {
     try {
@@ -155,19 +180,6 @@ const ProductDetail = () => {
     }
   }, [product, error, trackView, fetchSellerStats, fetchReviews, fetchSimilarProducts]);
 
-  useEffect(() => {
-    const observer = new IntersectionObserver(
-      (entries) => {
-        if (entries[0].isIntersecting && hasMoreSimilar && !similarLoading) {
-          fetchSimilarProducts(similarPage + 1, true);
-        }
-      },
-      { threshold: 0.1 }
-    );
-    if (similarEndRef.current) observer.observe(similarEndRef.current);
-    return () => observer.disconnect();
-  }, [similarPage, hasMoreSimilar, similarLoading, fetchSimilarProducts]);
-
   const contactInfo = useMemo(
     () => ({
       phone: cleanPhoneNumber(product?.contact?.phone),
@@ -176,7 +188,9 @@ const ProductDetail = () => {
     [product?.contact?.phone, product?.contact?.whatsapp, cleanPhoneNumber]
   );
 
-  const handleFavorite = useCallback(() => setIsFavorited(!isFavorited), [isFavorited]);
+  const handleFavorite = useCallback(() => {
+    setIsFavorited(!isFavorited);
+  }, [isFavorited]);
 
   const renderAttributes = useMemo(() => {
     if (!product?.attributes) return null;
@@ -190,16 +204,19 @@ const ProductDetail = () => {
           <h3 className="mini-title">Product Specifications</h3>
         </div>
         <div className="attributes-grid">
-          {validAttributes.map(([key, value]) => (
-            <div key={key} className="attribute-item">
-              <div className="attribute-label text-xs font-medium uppercase text-gray-600">
-                {attributeConfig[key].label}
+          {validAttributes.map(([key, value]) => {
+            const { label } = attributeConfig[key];
+            return (
+              <div key={key} className="attribute-item">
+                <div className="attribute-label text-xs font-medium uppercase text-gray-600">
+                  {label}
+                </div>
+                <div className="attribute-value font-bold text-lg">
+                  {Array.isArray(value) ? value.join(", ") : String(value)}
+                </div>
               </div>
-              <div className="attribute-value font-bold text-lg">
-                {Array.isArray(value) ? value.join(", ") : String(value)}
-              </div>
-            </div>
-          ))}
+            );
+          })}
         </div>
       </div>
     );
@@ -240,41 +257,70 @@ const ProductDetail = () => {
                   onError={(e) => { e.target.src = "/api/placeholder/600/400"; }}
                 />
               </div>
+              {product.images?.length > 1 && (
+                <div className="thumbnail-scroll">
+                  {product.images.slice(1, 9).map((img, idx) => (
+                    <div key={idx} className="thumbnail-item">
+                      <div className="card">
+                        <img
+                          src={img}
+                          alt={`${product.title} ${idx + 2}`}
+                          className="w-full h-full object-cover rounded-lg"
+                          onError={(e) => { e.target.src = "/api/placeholder/120/96"; }}
+                        />
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
             </div>
           </div>
 
           <div className="product-info">
             <h1 className="product-title">{product.title}</h1>
-            
+            <div className="product-meta">
+              <span className={`status-badge ${product.status === "active" ? "bg-green-500 text-white" : "bg-yellow-500 text-white"}`}>
+                {product.status?.toUpperCase()}
+              </span>
+            </div>
+
             {sellerStats && (
               <div className="seller-card card mt-6 p-5 border border-gray-100 rounded-2xl bg-white shadow-sm">
                 <div className="flex items-center justify-between">
                   <div className="flex items-center gap-4">
                     <div className="w-14 h-14 bg-indigo-600 rounded-full flex items-center justify-center font-bold text-white text-xl">
-                      {product.seller?.name?.charAt(0)?.toUpperCase() || "S"}
+                      {product.contact?.seller_name?.charAt(0)?.toUpperCase() || "S"}
                     </div>
                     <div>
                       <h4 className="font-bold text-gray-900 text-lg">
-                        {product.seller?.store_name || product.seller?.name || "Marketplace Seller"}
+                        {product.contact?.seller_name || "Marketplace Seller"}
                       </h4>
                       <div className="flex items-center gap-2 text-sm text-gray-500">
                         <span>{sellerStats.total_listings} active ads</span>
+                        <span>•</span>
                         <span className="text-yellow-600 font-bold">★ {Number(sellerStats.avg_rating || 0).toFixed(1)}</span>
                       </div>
                     </div>
                   </div>
-                  <Link
-                    to={`/seller/${product.seller?.id}`}
-                    className="px-4 py-2 bg-indigo-50 text-indigo-700 font-bold rounded-lg hover:bg-indigo-100 transition"
-                  >
-                    View Profile
-                  </Link>
+                  {product.contact?.seller_id && (
+                    <Link
+                      to={`/seller/${product.contact.seller_id}`}
+                      className="px-4 py-2 bg-indigo-50 text-indigo-700 font-bold rounded-lg hover:bg-indigo-100 transition"
+                    >
+                      View Profile
+                    </Link>
+                  )}
                 </div>
               </div>
             )}
 
             <div className="price-specs-card card mt-4">
               <div className="product-price">₦{Number(product.price || 0).toLocaleString()}</div>
+            </div>
+            
+            <div className="location-display mt-2">
+              <div className="font-bold text-lg text-gray-900">{product.location_state}</div>
+              <div className="text-sm text-gray-600">{product.location_city}</div>
             </div>
             
             {renderAttributes}
@@ -304,7 +350,201 @@ const ProductDetail = () => {
           </div>
         </div>
 
-        {/* Similar Products and Footer sections... */}
+        <div className="reviews-card card">
+          <div className="reviews-header">
+            <h2>Reviews & Ratings</h2>
+            {reviewStats && (
+              <div className="reviews-stats">
+                <span>
+                  {Number(reviewStats.avg_rating || 0).toFixed(1)} ★
+                </span>
+                <span>{reviewStats.total_reviews} Reviews</span>
+              </div>
+            )}
+          </div>
+
+          <div className="review-list">
+            {reviewsLoading ? (
+              <div className="p-10">
+                {Array.from({ length: 3 }, (_, i) => (
+                  <div key={i} className="mb-6 p-6 bg-white rounded-2xl shadow">
+                    <div className="h-4 w-40 bg-gray-200 rounded mb-3"></div>
+                    <div className="h-3 w-60 bg-gray-200 rounded mb-2"></div>
+                    <div className="h-3 w-52 bg-gray-200 rounded"></div>
+                  </div>
+                ))}
+              </div>
+            ) : reviews.length === 0 ? (
+              <div className="empty-state">No reviews yet.</div>
+            ) : (
+              reviews.map((review, idx) => {
+                // Safely extract seller info with fallbacks
+                const sellerId = product?.contact?.seller_id;
+                const sellerName = product?.contact?.seller_name || "Marketplace Seller";
+
+                return (
+                  <div key={idx} className="review-card card">
+                    <div className="reviewer-avatar">
+                      {review.reviewer_name?.charAt(0)?.toUpperCase() || "U"}
+                    </div>
+                    <div>
+                      <div className="review-header">
+                        {sellerId ? (
+                          <Link 
+                            to={`/seller/${sellerId}`} 
+                            className="font-bold text-indigo-700 hover:underline"
+                          >
+                            {sellerName}
+                          </Link>
+                        ) : (
+                          <span className="font-bold text-gray-700">{sellerName}</span>
+                        )}
+                        <span className="text-gray-500 ml-2">
+                          (Rated {review.rating} ★)
+                        </span>
+                        <span className="ml-4 text-gray-500 text-sm">
+                          {new Date(review.created_at).toLocaleDateString()}
+                        </span>
+                      </div>
+                      <div className="text-sm text-gray-600 mb-2">
+                        {[1, 2, 3, 4, 5].map((star) => (
+                          <span key={star} style={{ color: star <= review.rating ? "#fbbf24" : "#d1d5db" }}>
+                            ★
+                          </span>
+                        ))}
+                      </div>
+                      <p className="text-gray-800">{review.comment}</p>
+                    </div>
+                  </div>
+                );
+              })
+            )}
+          </div>
+        </div>
+
+        <div className="similar-card card">
+          <div className="similar-header">
+            <h2>Similar Products ({similarProducts.length})</h2>
+          </div>
+
+          <div className="similar-grid">
+            {similarLoading && similarProducts.length === 0 ? (
+              <>
+                {Array.from({ length: 12 }, (_, i) => (
+                  <div
+                    key={i}
+                    className="similar-skeleton skeleton h-80 rounded-2xl animate-pulse"
+                  ></div>
+                ))}
+              </>
+            ) : (
+              similarProducts.map((item) => (
+                <Link
+                  key={item.id}
+                  to={`/product/${item.slug}`}
+                  className="similar-card card"
+                >
+                  <div className="card-image">
+                    <img
+                      src={item.images?.[0] || "/api/placeholder/400/300"}
+                      alt={item.title}
+                      className="w-full h-full object-cover"
+                      onError={(e) => {
+                        e.target.src = "/api/placeholder/400/300";
+                      }}
+                    />
+                  </div>
+
+                  {item.images?.length > 1 && (
+                    <div className="flex gap-1 mt-2">
+                      {item.images.slice(1, 4).map((thumb, idx) => (
+                        <img
+                          key={idx}
+                          src={thumb || "/api/placeholder/60/60"}
+                          alt={`${item.title} thumb ${idx + 1}`}
+                          className="w-8 h-8 object-cover rounded-md"
+                          onError={(e) => {
+                            e.target.src = "/api/placeholder/60/60";
+                          }}
+                        />
+                      ))}
+                    </div>
+                  )}
+
+                  <div className="mt-2">
+                    <div className="title text-sm font-bold text-gray-900 mb-1">
+                      {item.title}
+                    </div>
+                    <div className="text-xs text-gray-600 font-semibold">
+                      {item.location_state}
+                    </div>
+                    <div className="text-xs text-gray-500">
+                      {item.location_city}
+                    </div>
+                  </div>
+                </Link>
+              ))
+            )}
+          </div>
+
+          {hasMoreSimilar && (
+            <div ref={similarEndRef} className="infinite-scroll-trigger">
+              {similarLoading ? (
+                <div className="skeleton h-10 w-40 mx-auto my-4"></div>
+              ) : (
+                <button
+                  onClick={() => fetchSimilarProducts(similarPage + 1, true)}
+                  className="w-full px-4 py-3 text-sm font-bold text-white bg-indigo-600 rounded-lg"
+                >
+                  Load More Products
+                </button>
+              )}
+            </div>
+          )}
+        </div>
+
+        <footer className="product-footer">
+          <div className="footer-content">
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-8">
+              <div>
+                <h3 className="text-lg font-bold text-gray-900 mb-4">
+                  Browse Categories
+                </h3>
+                <ul className="space-y-2">
+                  <li><Link to="/category/electronics">Electronics</Link></li>
+                  <li><Link to="/category/clothing">Fashion</Link></li>
+                  <li><Link to="/category/homes">Home & Appliances</Link></li>
+                </ul>
+              </div>
+              <div>
+                <h3 className="text-lg font-bold text-gray-900 mb-4">Support</h3>
+                <ul className="space-y-2">
+                  <li><Link to="/help">Help Center</Link></li>
+                  <li><Link to="/terms">Terms & Policies</Link></li>
+                  <li><Link to="/contact">Contact Us</Link></li>
+                </ul>
+              </div>
+              <div>
+                <h3 className="text-lg font-bold text-gray-900 mb-4">Company</h3>
+                <ul className="space-y-2">
+                  <li><Link to="/about">About Minimart</Link></li>
+                  <li><Link to="/blog">Blog</Link></li>
+                </ul>
+              </div>
+              <div>
+                <h3 className="text-lg font-bold text-gray-900 mb-4">Follow Us</h3>
+                <div className="flex gap-4">
+                  <Link to="#" className="text-sm">Twitter</Link>
+                  <Link to="#" className="text-sm">Instagram</Link>
+                  <Link to="#" className="text-sm">Facebook</Link>
+                </div>
+              </div>
+            </div>
+          </div>
+          <div className="border-t border-gray-200 mt-8 pt-6 text-center text-sm text-gray-600">
+            &copy; {new Date().getFullYear()} Minimart Marketplace. All rights reserved.
+          </div>
+        </footer>
       </div>
     </div>
   );
