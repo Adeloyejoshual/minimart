@@ -118,9 +118,10 @@ const ProductDetail = () => {
   }, [similarPage, hasMoreSimilar, similarLoading, fetchSimilarProducts]);
 
   const fetchSellerStats = useCallback(async () => {
-    if (!product?.contact?.email) return;
+    const sellerId = product?.contact?.seller_id;
+    if (!sellerId) return;
     try {
-      const response = await fetch(`/api/product/slug/${slug}/seller-stats`);
+      const response = await fetch(`/api/seller/${sellerId}/stats`);
       if (response.ok) {
         const data = await response.json();
         setSellerStats(data);
@@ -128,7 +129,7 @@ const ProductDetail = () => {
     } catch (err) {
       console.error("Seller stats fetch failed:", err);
     }
-  }, [product?.contact?.email, slug]);
+  }, [product?.contact?.seller_id]);
 
   const fetchReviews = useCallback(async () => {
     try {
@@ -271,30 +272,55 @@ const ProductDetail = () => {
                 {product.status?.toUpperCase()}
               </span>
             </div>
-            <div className="price-specs-card card">
+
+            {/* SELLER INFO CARD */}
+            {sellerStats && (
+              <div className="seller-card card mt-6 p-5 border border-gray-100 rounded-2xl bg-white shadow-sm">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-4">
+                    <div className="w-14 h-14 bg-indigo-600 rounded-full flex items-center justify-center font-bold text-white text-xl">
+                      {product.contact?.seller_name?.charAt(0)?.toUpperCase() || "S"}
+                    </div>
+                    <div>
+                      <h4 className="font-bold text-gray-900 text-lg">
+                        {product.contact?.seller_name || "Marketplace Seller"}
+                      </h4>
+                      <div className="flex items-center gap-2 text-sm text-gray-500">
+                        <span>{sellerStats.total_listings} active ads</span>
+                        <span>•</span>
+                        <span className="text-yellow-600 font-bold">★ {Number(sellerStats.avg_rating || 0).toFixed(1)}</span>
+                      </div>
+                    </div>
+                  </div>
+                  <Link
+                    to={`/seller/${product.contact.seller_id}`}
+                    className="px-4 py-2 bg-indigo-50 text-indigo-700 font-bold rounded-lg hover:bg-indigo-100 transition"
+                  >
+                    View Profile
+                  </Link>
+                </div>
+              </div>
+            )}
+
+            <div className="price-specs-card card mt-4">
               <div className="product-price">₦{Number(product.price || 0).toLocaleString()}</div>
             </div>
-            <div className="location-display">
+            
+            <div className="location-display mt-2">
               <div className="font-bold text-lg text-gray-900">{product.location_state}</div>
               <div className="text-sm text-gray-600">{product.location_city}</div>
             </div>
+            
             {renderAttributes}
+            
             {product.description && (
               <div className="description-section">
                 <h3 className="text-xl font-bold text-gray-900">Product Details</h3>
                 <p className="text-gray-700 text-lg leading-relaxed">{product.description}</p>
               </div>
             )}
+            
             <div className="action-buttons">
-              {/* Navigate to SellerProfile using the ID from the product contact */}
-              {product.contact?.seller_id && (
-                <Link
-                  to={`/seller/${product.contact.seller_id}`}
-                  className="action-btn"
-                >
-                  View Seller Profile
-                </Link>
-              )}
               {contactInfo.whatsapp && (
                 <a
                   href={`https://wa.me/${contactInfo.whatsapp}`}
