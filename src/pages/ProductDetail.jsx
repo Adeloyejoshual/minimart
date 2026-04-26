@@ -1,9 +1,10 @@
-// src/components/ProductDetail.jsx
-import React, { useState, useEffect, useCallback, useRef, useMemo } from 'react';
-import { useParams, useNavigate, Link } from 'react-router-dom';
+// pages/ProductDetail.jsx
+import React, { useState, useEffect, useCallback, useRef, useMemo } from "react";
+import { useParams, useNavigate, Link } from "react-router-dom";
 
 import ProductHeader from "../components/ProductHeader";
-import '../styles/ProductDetail.css';
+import SellerProfile from "../components/SellerProfile"; // optional if you want to reuse styles
+import "../styles/ProductDetail.css";
 
 const ProductDetail = () => {
   const { slug } = useParams();
@@ -24,26 +25,29 @@ const ProductDetail = () => {
   const [hasMoreSimilar, setHasMoreSimilar] = useState(true);
 
   const cleanPhoneNumber = useCallback((phone) => {
-    return phone ? phone.replace(/[^+d]/g, '') : '';
+    return phone ? phone.replace(/[^+d]/g, "") : "";
   }, []);
 
   // Only text labels, no icons
-  const attributeConfig = useMemo(() => ({
-    category: { label: 'Category' },
-    brand: { label: 'Brand' },
-    condition: { label: 'Condition' },
-    ram: { label: 'RAM' },
-    storage: { label: 'Storage' },
-    sim: { label: 'SIM' },
-    features: { label: 'Features' },
-    color: { label: 'Color' },
-    warranty: { label: 'Warranty' },
-    model: { label: 'Model' }
-  }), []);
+  const attributeConfig = useMemo(
+    () => ({
+      category: { label: "Category" },
+      brand: { label: "Brand" },
+      condition: { label: "Condition" },
+      ram: { label: "RAM" },
+      storage: { label: "Storage" },
+      sim: { label: "SIM" },
+      features: { label: "Features" },
+      color: { label: "Color" },
+      warranty: { label: "Warranty" },
+      model: { label: "Model" }
+    }),
+    []
+  );
 
   useEffect(() => {
-    if (!slug || slug === 'undefined') {
-      setError('Invalid product slug');
+    if (!slug || slug === "undefined") {
+      setError("Invalid product slug");
       setLoading(false);
       return;
     }
@@ -52,11 +56,11 @@ const ProductDetail = () => {
       try {
         setLoading(true);
         setError(null);
-        const response = await fetch(`/api/product/slug/${slug}`);
 
+        const response = await fetch(`/api/product/slug/${slug}`);
         if (!response.ok) {
-          if (response.status === 404) throw new Error('Product not found');
-          throw new Error('Failed to fetch product');
+          if (response.status === 404) throw new Error("Product not found");
+          throw new Error("Failed to fetch product");
         }
 
         const data = await response.json();
@@ -71,37 +75,43 @@ const ProductDetail = () => {
     fetchProduct();
   }, [slug]);
 
-  const fetchSimilarProducts = useCallback(async (page = 1, append = false) => {
-    if (!product) return;
+  const fetchSimilarProducts = useCallback(
+    async (page = 1, append = false) => {
+      if (!product) return;
 
-    setSimilarLoading(true);
-    try {
-      let url = `/api/homepage?limit=12&page=${page}`;
-      if (product.attributes?.brand) {
-        url = `/api/homepage?brand=${encodeURIComponent(product.attributes.brand)}&limit=12&page=${page}&exclude=${product.id}`;
-      }
-
-      const response = await fetch(url);
-      if (response.ok) {
-        const data = await response.json();
-        const newProducts = (data.latest || data.recommended || [])
-          .filter(p => p.id !== product.id && p.slug !== slug);
-
-        if (append) {
-          setSimilarProducts(prev => [...prev, ...newProducts]);
-        } else {
-          setSimilarProducts(newProducts);
+      setSimilarLoading(true);
+      try {
+        let url = `/api/homepage?limit=12&page=${page}`;
+        if (product.attributes?.brand) {
+          url = `/api/homepage?brand=${encodeURIComponent(
+            product.attributes.brand
+          )}&limit=12&page=${page}&exclude=${product.id}`;
         }
 
-        setHasMoreSimilar(newProducts.length === 12);
-        setSimilarPage(page);
+        const response = await fetch(url);
+        if (response.ok) {
+          const data = await response.json();
+          const newProducts =
+            (data.latest || data.recommended || [])
+              .filter((p) => p.id !== product.id && p.slug !== slug);
+
+          if (append) {
+            setSimilarProducts((prev) => [...prev, ...newProducts]);
+          } else {
+            setSimilarProducts(newProducts);
+          }
+
+          setHasMoreSimilar(newProducts.length === 12);
+          setSimilarPage(page);
+        }
+      } catch (err) {
+        console.error("Related products fetch failed:", err);
+      } finally {
+        setSimilarLoading(false);
       }
-    } catch (err) {
-      console.error('Related products fetch failed:', err);
-    } finally {
-      setSimilarLoading(false);
-    }
-  }, [product, slug]);
+    },
+    [product, slug]
+  );
 
   useEffect(() => {
     const observer = new IntersectionObserver(
@@ -123,27 +133,31 @@ const ProductDetail = () => {
   const fetchSellerStats = useCallback(async () => {
     if (!product?.contact?.email) return;
     try {
-      const response = await fetch(`/api/product/slug/${slug}/seller-stats`);
+      const response = await fetch(
+        `/api/product/slug/${slug}/seller-stats`
+      );
       if (response.ok) {
         const data = await response.json();
         setSellerStats(data);
       }
     } catch (err) {
-      console.error('Seller stats fetch failed:', err);
+      console.error("Seller stats fetch failed:", err);
     }
   }, [product?.contact?.email, slug]);
 
   const fetchReviews = useCallback(async () => {
     try {
       setReviewsLoading(true);
-      const response = await fetch(`/api/product/slug/${slug}/reviews?limit=5`);
+      const response = await fetch(
+        `/api/product/slug/${slug}/reviews?limit=5`
+      );
       if (response.ok) {
         const data = await response.json();
         setReviews(data.reviews || []);
         setReviewStats(data.stats);
       }
     } catch (err) {
-      console.error('Reviews fetch failed:', err);
+      console.error("Reviews fetch failed:", err);
     } finally {
       setReviewsLoading(false);
     }
@@ -153,11 +167,11 @@ const ProductDetail = () => {
     if (product?.id) {
       try {
         await fetch(`/api/homepage/products/${product.id}/view`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
+          method: "POST",
+          headers: { "Content-Type": "application/json" }
         });
       } catch (err) {
-        console.error('View tracking failed:', err);
+        console.error("View tracking failed:", err);
       }
     }
   }, [product?.id]);
@@ -169,16 +183,22 @@ const ProductDetail = () => {
       fetchReviews();
       fetchSimilarProducts(1, false);
     }
-  }, [product, error, trackView, fetchSellerStats, fetchReviews, fetchSimilarProducts]);
-
-  const contactInfo = useMemo(() => ({
-    phone: cleanPhoneNumber(product?.contact?.phone),
-    whatsapp: cleanPhoneNumber(product?.contact?.whatsapp)
-  }), [
-    product?.contact?.phone,
-    product?.contact?.whatsapp,
-    cleanPhoneNumber
+  }, [
+    product,
+    error,
+    trackView,
+    fetchSellerStats,
+    fetchReviews,
+    fetchSimilarProducts
   ]);
+
+  const contactInfo = useMemo(
+    () => ({
+      phone: cleanPhoneNumber(product?.contact?.phone),
+      whatsapp: cleanPhoneNumber(product?.contact?.whatsapp)
+    }),
+    [product?.contact?.phone, product?.contact?.whatsapp, cleanPhoneNumber]
+  );
 
   const handleFavorite = useCallback(() => {
     setIsFavorited(!isFavorited);
@@ -206,7 +226,7 @@ const ProductDetail = () => {
                   {label}
                 </div>
                 <div className="attribute-value font-bold text-lg">
-                  {Array.isArray(value) ? value.join(', ') : String(value)}
+                  {Array.isArray(value) ? value.join(", ") : String(value)}
                 </div>
               </div>
             );
@@ -215,6 +235,15 @@ const ProductDetail = () => {
       </div>
     );
   }, [product?.attributes, attributeConfig]);
+
+  // Seller profile click handler (optional programmatic nav)
+  const goToSellerProfile = useCallback(() => {
+    if (!product?.contact?.seller_id) {
+      console.warn("seller_id not available on product.contact");
+      return;
+    }
+    navigate(`/seller/${product.contact.seller_id}`);
+  }, [product?.contact?.seller_id, navigate]);
 
   if (loading) {
     return <div className="loading-skeleton">Loading product...</div>;
@@ -254,10 +283,12 @@ const ProductDetail = () => {
               {/* Main image */}
               <div className="main-image-container">
                 <img
-                  src={product.images?.[0] || '/api/placeholder/600/400'}
+                  src={product.images?.[0] || "/api/placeholder/600/400"}
                   alt={product.title}
                   className="main-image"
-                  onError={(e) => { e.target.src = '/api/placeholder/600/400'; }}
+                  onError={(e) => {
+                    e.target.src = "/api/placeholder/600/400";
+                  }}
                 />
               </div>
 
@@ -271,7 +302,9 @@ const ProductDetail = () => {
                           src={img}
                           alt={`${product.title} ${idx + 2}`}
                           className="w-full h-full object-cover rounded-lg"
-                          onError={(e) => { e.target.src = '/api/placeholder/120/96'; }}
+                          onError={(e) => {
+                            e.target.src = "/api/placeholder/120/96";
+                          }}
                         />
                       </div>
                     </div>
@@ -287,22 +320,32 @@ const ProductDetail = () => {
 
             {/* Status */}
             <div className="product-meta">
-              <span className={`status-badge ${
-                product.status === 'active' ? 'bg-green-500 text-white' : 'bg-yellow-500 text-white'
-              }`}>
+              <span
+                className={`status-badge ${
+                  product.status === "active"
+                    ? "bg-green-500 text-white"
+                    : "bg-yellow-500 text-white"
+                }`}
+              >
                 {product.status?.toUpperCase()}
               </span>
             </div>
 
             {/* Price */}
             <div className="price-specs-card card">
-              <div className="product-price">₦{Number(product.price || 0).toLocaleString()}</div>
+              <div className="product-price">
+                ₦{Number(product.price || 0).toLocaleString()}
+              </div>
             </div>
 
-            {/* Location – state + state (state + city) */}
+            {/* Location */}
             <div className="location-display">
-              <div className="font-bold text-lg text-gray-900">{product.location_state}</div>
-              <div className="text-sm text-gray-600">{product.location_city}</div>
+              <div className="font-bold text-lg text-gray-900">
+                {product.location_state}
+              </div>
+              <div className="text-sm text-gray-600">
+                {product.location_city}
+              </div>
             </div>
 
             {/* Specs (attributes) */}
@@ -311,7 +354,9 @@ const ProductDetail = () => {
             {/* Full description */}
             {product.description && (
               <div className="description-section">
-                <h3 className="text-xl font-bold text-gray-900">Product Details</h3>
+                <h3 className="text-xl font-bold text-gray-900">
+                  Product Details
+                </h3>
                 <p className="text-gray-700 text-lg leading-relaxed">
                   {product.description}
                 </p>
@@ -320,12 +365,33 @@ const ProductDetail = () => {
 
             {/* Action buttons */}
             <div className="action-buttons">
-              <button className="action-btn whatsapp-btn">Chat with Seller</button>
+              {/* OPEN SELLER PROFILE PAGE */}
+              {product.contact?.seller_id && (
+                <Link
+                  to={`/seller/${product.contact.seller_id}`}
+                  className="action-btn whatsapp-btn"
+                >
+                  View Seller Profile
+                </Link>
+              )}
+
+              {/* Optional: open WhatsApp directly */}
+              {contactInfo.whatsapp && (
+                <a
+                  href={`https://wa.me/${contactInfo.whatsapp}`}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="action-btn whatsapp-btn"
+                >
+                  Chat with Seller on WhatsApp
+                </a>
+              )}
+
               <button
                 onClick={handleFavorite}
                 className="action-btn"
               >
-                {isFavorited ? '★ Favorited' : '☆ Save'}
+                {isFavorited ? "★ Favorited" : "☆ Save"}
               </button>
             </div>
           </div>
@@ -337,7 +403,9 @@ const ProductDetail = () => {
             <h2>Reviews & Ratings</h2>
             {reviewStats && (
               <div className="reviews-stats">
-                <span>{Number(reviewStats.avg_rating || 0).toFixed(1)} ★</span>
+                <span>
+                  {Number(reviewStats.avg_rating || 0).toFixed(1)} ★
+                </span>
                 <span>{reviewStats.total_reviews} Reviews</span>
               </div>
             )}
@@ -360,16 +428,25 @@ const ProductDetail = () => {
               reviews.map((review, idx) => (
                 <div key={idx} className="review-card card">
                   <div className="reviewer-avatar">
-                    {review.reviewer_name?.charAt(0)?.toUpperCase() || 'U'}
+                    {review.reviewer_name?.charAt(0)?.toUpperCase() || "U"}
                   </div>
                   <div>
                     <div className="review-header">
-                      <span className="font-bold">{review.reviewer_name || 'Anonymous'}</span>
-                      <span>{new Date(review.created_at).toLocaleDateString()}</span>
+                      <span className="font-bold">
+                        {review.reviewer_name || "Anonymous"}
+                      </span>
+                      <span>
+                        {new Date(review.created_at).toLocaleDateString()}
+                      </span>
                     </div>
                     <div className="text-sm text-gray-600 mb-2">
                       {[1, 2, 3, 4, 5].map((star) => (
-                        <span key={star} style={{ color: star <= review.rating ? '#fbbf24' : '#d1d5db' }}>
+                        <span
+                          key={star}
+                          style={{
+                            color: star <= review.rating ? "#fbbf24" : "#d1d5db"
+                          }}
+                        >
                           ★
                         </span>
                       ))}
@@ -392,7 +469,10 @@ const ProductDetail = () => {
             {similarLoading && similarProducts.length === 0 ? (
               <>
                 {Array.from({ length: 12 }, (_, i) => (
-                  <div key={i} className="similar-skeleton skeleton h-80 rounded-2xl animate-pulse"></div>
+                  <div
+                    key={i}
+                    className="similar-skeleton skeleton h-80 rounded-2xl animate-pulse"
+                  ></div>
                 ))}
               </>
             ) : (
@@ -405,10 +485,12 @@ const ProductDetail = () => {
                   {/* First image big */}
                   <div className="card-image">
                     <img
-                      src={item.images?.[0] || '/api/placeholder/400/300'}
+                      src={item.images?.[0] || "/api/placeholder/400/300"}
                       alt={item.title}
                       className="w-full h-full object-cover"
-                      onError={(e) => { e.target.src = '/api/placeholder/400/300'; }}
+                      onError={(e) => {
+                        e.target.src = "/api/placeholder/400/300";
+                      }}
                     />
                   </div>
 
@@ -418,10 +500,12 @@ const ProductDetail = () => {
                       {item.images.slice(1, 4).map((thumb, idx) => (
                         <img
                           key={idx}
-                          src={thumb || '/api/placeholder/60/60'}
+                          src={thumb || "/api/placeholder/60/60"}
                           alt={`${item.title} thumb ${idx + 1}`}
                           className="w-8 h-8 object-cover rounded-md"
-                          onError={(e) => { e.target.src = '/api/placeholder/60/60'; }}
+                          onError={(e) => {
+                            e.target.src = "/api/placeholder/60/60";
+                          }}
                         />
                       ))}
                     </div>
@@ -461,42 +545,75 @@ const ProductDetail = () => {
           )}
         </div>
 
-        {/* Footer */}
+                {/* Footer */}
         <footer className="product-footer">
           <div className="footer-content">
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-8">
               <div>
-                <h3 className="text-lg font-bold text-gray-900 mb-4">Browse Categories</h3>
+                <h3 className="text-lg font-bold text-gray-900 mb-4">
+                  Browse Categories
+                </h3>
                 <ul className="space-y-2">
-                  <li><Link to="/category/electronics">Electronics</Link></li>
-                  <li><Link to="/category/clothing">Fashion</Link></li>
-                  <li><Link to="/category/homes">Home & Appliances</Link></li>
+                  <li>
+                    <Link to="/category/electronics">Electronics</Link>
+                  </li>
+                  <li>
+                    <Link to="/category/clothing">Fashion</Link>
+                  </li>
+                  <li>
+                    <Link to="/category/homes">Home & Appliances</Link>
+                  </li>
                 </ul>
               </div>
               <div>
-                <h3 className="text-lg font-bold text-gray-900 mb-4">Support</h3>
+                <h3 className="text-lg font-bold text-gray-900 mb-4">
+                  Support
+                </h3>
                 <ul className="space-y-2">
-                  <li><Link to="/help">Help Center</Link></li>
-                  <li><Link to="/terms">Terms & Policies</Link></li>
-                  <li><Link to="/contact">Contact Us</Link></li>
+                  <li>
+                    <Link to="/help">Help Center</Link>
+                  </li>
+                  <li>
+                    <Link to="/terms">Terms & Policies</Link>
+                  </li>
+                  <li>
+                    <Link to="/contact">Contact Us</Link>
+                  </li>
                 </ul>
               </div>
               <div>
-                <h3 className="text-lg font-bold text-gray-900 mb-4">Company</h3>
+                <h3 className="text-lg font-bold text-gray-900 mb-4">
+                  Company
+                </h3>
                 <ul className="space-y-2">
-                  <li><Link to="/about">About Minimart</Link></li>
-                  <li><Link to="/blog">Blog</Link></li>
+                  <li>
+                    <Link to="/about">About Minimart</Link>
+                  </li>
+                  <li>
+                    <Link to="/blog">Blog</Link>
+                  </li>
                 </ul>
               </div>
               <div>
-                <h3 className="text-lg font-bold text-gray-900 mb-4">Follow Us</h3>
+                <h3 className="text-lg font-bold text-gray-900 mb-4">
+                  Follow Us
+                </h3>
                 <div className="flex gap-4">
-                  <Link to="#">Twitter</Link>
-                  <Link to="#">Instagram</Link>
-                  <Link to="#">Facebook</Link>
+                  <Link to="#" className="text-sm">
+                    Twitter
+                  </Link>
+                  <Link to="#" className="text-sm">
+                    Instagram
+                  </Link>
+                  <Link to="#" className="text-sm">
+                    Facebook
+                  </Link>
                 </div>
               </div>
             </div>
+          </div>
+          <div className="border-t border-gray-200 mt-8 pt-6 text-center text-sm text-gray-600">
+            &copy; {new Date().getFullYear()} Minimart Marketplace. All rights reserved.
           </div>
         </footer>
       </div>
