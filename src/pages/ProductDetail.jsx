@@ -3,7 +3,6 @@ import React, { useState, useEffect, useCallback, useRef, useMemo } from "react"
 import { useParams, useNavigate, Link } from "react-router-dom";
 
 import ProductHeader from "../components/ProductHeader";
-import SellerProfile from "../components/SellerProfile"; // optional if you want to reuse styles
 import "../styles/ProductDetail.css";
 
 const ProductDetail = () => {
