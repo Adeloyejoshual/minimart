@@ -27,7 +27,6 @@ const ProductDetail = () => {
     return phone ? phone.replace(/[^+d]/g, "") : "";
   }, []);
 
-  // Only text labels, no icons
   const attributeConfig = useMemo(
     () => ({
       category: { label: "Category" },
@@ -55,13 +54,11 @@ const ProductDetail = () => {
       try {
         setLoading(true);
         setError(null);
-
         const response = await fetch(`/api/product/slug/${slug}`);
         if (!response.ok) {
           if (response.status === 404) throw new Error("Product not found");
           throw new Error("Failed to fetch product");
         }
-
         const data = await response.json();
         setProduct(data);
       } catch (err) {
@@ -70,14 +67,12 @@ const ProductDetail = () => {
         setLoading(false);
       }
     };
-
     fetchProduct();
   }, [slug]);
 
   const fetchSimilarProducts = useCallback(
     async (page = 1, append = false) => {
       if (!product) return;
-
       setSimilarLoading(true);
       try {
         let url = `/api/homepage?limit=12&page=${page}`;
@@ -86,20 +81,17 @@ const ProductDetail = () => {
             product.attributes.brand
           )}&limit=12&page=${page}&exclude=${product.id}`;
         }
-
         const response = await fetch(url);
         if (response.ok) {
           const data = await response.json();
-          const newProducts =
-            (data.latest || data.recommended || [])
-              .filter((p) => p.id !== product.id && p.slug !== slug);
-
+          const newProducts = (data.latest || data.recommended || []).filter(
+            (p) => p.id !== product.id && p.slug !== slug
+          );
           if (append) {
             setSimilarProducts((prev) => [...prev, ...newProducts]);
           } else {
             setSimilarProducts(newProducts);
           }
-
           setHasMoreSimilar(newProducts.length === 12);
           setSimilarPage(page);
         }
@@ -121,20 +113,14 @@ const ProductDetail = () => {
       },
       { threshold: 0.1 }
     );
-
-    if (similarEndRef.current) {
-      observer.observe(similarEndRef.current);
-    }
-
+    if (similarEndRef.current) observer.observe(similarEndRef.current);
     return () => observer.disconnect();
   }, [similarPage, hasMoreSimilar, similarLoading, fetchSimilarProducts]);
 
   const fetchSellerStats = useCallback(async () => {
     if (!product?.contact?.email) return;
     try {
-      const response = await fetch(
-        `/api/product/slug/${slug}/seller-stats`
-      );
+      const response = await fetch(`/api/product/slug/${slug}/seller-stats`);
       if (response.ok) {
         const data = await response.json();
         setSellerStats(data);
@@ -147,9 +133,7 @@ const ProductDetail = () => {
   const fetchReviews = useCallback(async () => {
     try {
       setReviewsLoading(true);
-      const response = await fetch(
-        `/api/product/slug/${slug}/reviews?limit=5`
-      );
+      const response = await fetch(`/api/product/slug/${slug}/reviews?limit=5`);
       if (response.ok) {
         const data = await response.json();
         setReviews(data.reviews || []);
@@ -182,14 +166,7 @@ const ProductDetail = () => {
       fetchReviews();
       fetchSimilarProducts(1, false);
     }
-  }, [
-    product,
-    error,
-    trackView,
-    fetchSellerStats,
-    fetchReviews,
-    fetchSimilarProducts
-  ]);
+  }, [product, error, trackView, fetchSellerStats, fetchReviews, fetchSimilarProducts]);
 
   const contactInfo = useMemo(
     () => ({
@@ -205,12 +182,10 @@ const ProductDetail = () => {
 
   const renderAttributes = useMemo(() => {
     if (!product?.attributes) return null;
-
-    const validAttributes = Object.entries(product.attributes)
-      .filter(([key, value]) => value && attributeConfig[key]);
-
+    const validAttributes = Object.entries(product.attributes).filter(
+      ([key, value]) => value && attributeConfig[key]
+    );
     if (validAttributes.length === 0) return null;
-
     return (
       <div className="attributes-section">
         <div className="section-header">
@@ -235,29 +210,14 @@ const ProductDetail = () => {
     );
   }, [product?.attributes, attributeConfig]);
 
-  // Seller profile click handler (optional programmatic nav)
-  const goToSellerProfile = useCallback(() => {
-    if (!product?.contact?.seller_id) {
-      console.warn("seller_id not available on product.contact");
-      return;
-    }
-    navigate(`/seller/${product.contact.seller_id}`);
-  }, [product?.contact?.seller_id, navigate]);
-
-  if (loading) {
-    return <div className="loading-skeleton">Loading product...</div>;
-  }
+  if (loading) return <div className="loading-skeleton">Loading product...</div>;
 
   if (error && !loading) {
     return (
       <div className="error-state">
         <div className="error-content">
-          <h2 className="text-3xl font-bold text-gray-900 mb-4">
-            {error}
-          </h2>
-          <Link to="/" className="btn">
-            Browse Marketplace
-          </Link>
+          <h2 className="text-3xl font-bold text-gray-900 mb-4">{error}</h2>
+          <Link to="/" className="btn">Browse Marketplace</Link>
         </div>
       </div>
     );
@@ -274,24 +234,17 @@ const ProductDetail = () => {
       />
 
       <div className="homepage-container product-detail-container">
-        {/* MAIN GRID – Images first, then info */}
         <div className="main-grid">
-          {/* LEFT – Product Images First */}
           <div className="gallery-section">
             <div className="gallery">
-              {/* Main image */}
               <div className="main-image-container">
                 <img
                   src={product.images?.[0] || "/api/placeholder/600/400"}
                   alt={product.title}
                   className="main-image"
-                  onError={(e) => {
-                    e.target.src = "/api/placeholder/600/400";
-                  }}
+                  onError={(e) => { e.target.src = "/api/placeholder/600/400"; }}
                 />
               </div>
-
-              {/* Thumbnail strip – small under main image */}
               {product.images?.length > 1 && (
                 <div className="thumbnail-scroll">
                   {product.images.slice(1, 9).map((img, idx) => (
@@ -301,9 +254,7 @@ const ProductDetail = () => {
                           src={img}
                           alt={`${product.title} ${idx + 2}`}
                           className="w-full h-full object-cover rounded-lg"
-                          onError={(e) => {
-                            e.target.src = "/api/placeholder/120/96";
-                          }}
+                          onError={(e) => { e.target.src = "/api/placeholder/120/96"; }}
                         />
                       </div>
                     </div>
@@ -313,68 +264,37 @@ const ProductDetail = () => {
             </div>
           </div>
 
-          {/* RIGHT – Product info */}
           <div className="product-info">
             <h1 className="product-title">{product.title}</h1>
-
-            {/* Status */}
             <div className="product-meta">
-              <span
-                className={`status-badge ${
-                  product.status === "active"
-                    ? "bg-green-500 text-white"
-                    : "bg-yellow-500 text-white"
-                }`}
-              >
+              <span className={`status-badge ${product.status === "active" ? "bg-green-500 text-white" : "bg-yellow-500 text-white"}`}>
                 {product.status?.toUpperCase()}
               </span>
             </div>
-
-            {/* Price */}
             <div className="price-specs-card card">
-              <div className="product-price">
-                ₦{Number(product.price || 0).toLocaleString()}
-              </div>
+              <div className="product-price">₦{Number(product.price || 0).toLocaleString()}</div>
             </div>
-
-            {/* Location */}
             <div className="location-display">
-              <div className="font-bold text-lg text-gray-900">
-                {product.location_state}
-              </div>
-              <div className="text-sm text-gray-600">
-                {product.location_city}
-              </div>
+              <div className="font-bold text-lg text-gray-900">{product.location_state}</div>
+              <div className="text-sm text-gray-600">{product.location_city}</div>
             </div>
-
-            {/* Specs (attributes) */}
             {renderAttributes}
-
-            {/* Full description */}
             {product.description && (
               <div className="description-section">
-                <h3 className="text-xl font-bold text-gray-900">
-                  Product Details
-                </h3>
-                <p className="text-gray-700 text-lg leading-relaxed">
-                  {product.description}
-                </p>
+                <h3 className="text-xl font-bold text-gray-900">Product Details</h3>
+                <p className="text-gray-700 text-lg leading-relaxed">{product.description}</p>
               </div>
             )}
-
-            {/* Action buttons */}
             <div className="action-buttons">
-              {/* OPEN SELLER PROFILE PAGE */}
+              {/* Navigate to SellerProfile using the ID from the product contact */}
               {product.contact?.seller_id && (
                 <Link
                   to={`/seller/${product.contact.seller_id}`}
-                  className="action-btn whatsapp-btn"
+                  className="action-btn"
                 >
                   View Seller Profile
                 </Link>
               )}
-
-              {/* Optional: open WhatsApp directly */}
               {contactInfo.whatsapp && (
                 <a
                   href={`https://wa.me/${contactInfo.whatsapp}`}
@@ -382,21 +302,16 @@ const ProductDetail = () => {
                   rel="noopener noreferrer"
                   className="action-btn whatsapp-btn"
                 >
-                  Chat with Seller on WhatsApp
+                  Chat on WhatsApp
                 </a>
               )}
-
-              <button
-                onClick={handleFavorite}
-                className="action-btn"
-              >
+              <button onClick={handleFavorite} className="action-btn">
                 {isFavorited ? "★ Favorited" : "☆ Save"}
               </button>
             </div>
           </div>
         </div>
-
-        {/* REVIEWS */}
+                {/* REVIEWS */}
         <div className="reviews-card card">
           <div className="reviews-header">
             <h2>Reviews & Ratings</h2>
