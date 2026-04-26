@@ -273,7 +273,6 @@ const ProductDetail = () => {
               </span>
             </div>
 
-            {/* SELLER INFO CARD */}
             {sellerStats && (
               <div className="seller-card card mt-6 p-5 border border-gray-100 rounded-2xl bg-white shadow-sm">
                 <div className="flex items-center justify-between">
@@ -337,7 +336,7 @@ const ProductDetail = () => {
             </div>
           </div>
         </div>
-                {/* REVIEWS */}
+
         <div className="reviews-card card">
           <div className="reviews-header">
             <h2>Reviews & Ratings</h2>
@@ -372,10 +371,16 @@ const ProductDetail = () => {
                   </div>
                   <div>
                     <div className="review-header">
-                      <span className="font-bold">
-                        {review.reviewer_name || "Anonymous"}
+                      <Link 
+                        to={`/seller/${product.contact.seller_id}`} 
+                        className="font-bold text-indigo-700 hover:underline"
+                      >
+                        {product.contact.seller_name || "Marketplace Seller"}
+                      </Link>
+                      <span className="text-gray-500 ml-2">
+                        (Rated {review.rating} ★)
                       </span>
-                      <span>
+                      <span className="ml-4 text-gray-500">
                         {new Date(review.created_at).toLocaleDateString()}
                       </span>
                     </div>
@@ -399,7 +404,6 @@ const ProductDetail = () => {
           </div>
         </div>
 
-        {/* SIMILAR PRODUCTS – first image big, others small under */}
         <div className="similar-card card">
           <div className="similar-header">
             <h2>Similar Products ({similarProducts.length})</h2>
@@ -422,7 +426,6 @@ const ProductDetail = () => {
                   to={`/product/${item.slug}`}
                   className="similar-card card"
                 >
-                  {/* First image big */}
                   <div className="card-image">
                     <img
                       src={item.images?.[0] || "/api/placeholder/400/300"}
@@ -434,7 +437,6 @@ const ProductDetail = () => {
                     />
                   </div>
 
-                  {/* Other small images under */}
                   {item.images?.length > 1 && (
                     <div className="flex gap-1 mt-2">
                       {item.images.slice(1, 4).map((thumb, idx) => (
@@ -451,7 +453,6 @@ const ProductDetail = () => {
                     </div>
                   )}
 
-                  {/* Title + state + state */}
                   <div className="mt-2">
                     <div className="title text-sm font-bold text-gray-900 mb-1">
                       {item.title}
@@ -468,7 +469,6 @@ const ProductDetail = () => {
             )}
           </div>
 
-          {/* Infinite scroll trigger */}
           {hasMoreSimilar && (
             <div ref={similarEndRef} className="infinite-scroll-trigger">
               {similarLoading ? (
@@ -485,7 +485,6 @@ const ProductDetail = () => {
           )}
         </div>
 
-                {/* Footer */}
         <footer className="product-footer">
           <div className="footer-content">
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-8">
@@ -494,60 +493,32 @@ const ProductDetail = () => {
                   Browse Categories
                 </h3>
                 <ul className="space-y-2">
-                  <li>
-                    <Link to="/category/electronics">Electronics</Link>
-                  </li>
-                  <li>
-                    <Link to="/category/clothing">Fashion</Link>
-                  </li>
-                  <li>
-                    <Link to="/category/homes">Home & Appliances</Link>
-                  </li>
+                  <li><Link to="/category/electronics">Electronics</Link></li>
+                  <li><Link to="/category/clothing">Fashion</Link></li>
+                  <li><Link to="/category/homes">Home & Appliances</Link></li>
                 </ul>
               </div>
               <div>
-                <h3 className="text-lg font-bold text-gray-900 mb-4">
-                  Support
-                </h3>
+                <h3 className="text-lg font-bold text-gray-900 mb-4">Support</h3>
                 <ul className="space-y-2">
-                  <li>
-                    <Link to="/help">Help Center</Link>
-                  </li>
-                  <li>
-                    <Link to="/terms">Terms & Policies</Link>
-                  </li>
-                  <li>
-                    <Link to="/contact">Contact Us</Link>
-                  </li>
+                  <li><Link to="/help">Help Center</Link></li>
+                  <li><Link to="/terms">Terms & Policies</Link></li>
+                  <li><Link to="/contact">Contact Us</Link></li>
                 </ul>
               </div>
               <div>
-                <h3 className="text-lg font-bold text-gray-900 mb-4">
-                  Company
-                </h3>
+                <h3 className="text-lg font-bold text-gray-900 mb-4">Company</h3>
                 <ul className="space-y-2">
-                  <li>
-                    <Link to="/about">About Minimart</Link>
-                  </li>
-                  <li>
-                    <Link to="/blog">Blog</Link>
-                  </li>
+                  <li><Link to="/about">About Minimart</Link></li>
+                  <li><Link to="/blog">Blog</Link></li>
                 </ul>
               </div>
               <div>
-                <h3 className="text-lg font-bold text-gray-900 mb-4">
-                  Follow Us
-                </h3>
+                <h3 className="text-lg font-bold text-gray-900 mb-4">Follow Us</h3>
                 <div className="flex gap-4">
-                  <Link to="#" className="text-sm">
-                    Twitter
-                  </Link>
-                  <Link to="#" className="text-sm">
-                    Instagram
-                  </Link>
-                  <Link to="#" className="text-sm">
-                    Facebook
-                  </Link>
+                  <Link to="#" className="text-sm">Twitter</Link>
+                  <Link to="#" className="text-sm">Instagram</Link>
+                  <Link to="#" className="text-sm">Facebook</Link>
                 </div>
               </div>
             </div>
