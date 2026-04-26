@@ -60,9 +60,20 @@ const ProductDetail = () => {
           throw new Error("Failed to fetch product");
         }
         const data = await response.json();
+        
+        // DEBUG: Check if contact is a string that needs parsing
+        console.log("Raw Product Contact:", data.contact);
+        
+        // If it's a string (JSONB from DB), parse it:
+        if (typeof data.contact === 'string') {
+          data.contact = JSON.parse(data.contact);
+          console.log("Parsed Contact:", data.contact);
+        }
+        
         setProduct(data);
       } catch (err) {
         setError(err.message);
+        console.error("Product fetch error:", err);
       } finally {
         setLoading(false);
       }
@@ -291,12 +302,14 @@ const ProductDetail = () => {
                       </div>
                     </div>
                   </div>
-                  <Link
-                    to={`/seller/${product.contact.seller_id}`}
-                    className="px-4 py-2 bg-indigo-50 text-indigo-700 font-bold rounded-lg hover:bg-indigo-100 transition"
-                  >
-                    View Profile
-                  </Link>
+                  {product.contact?.seller_id && (
+                    <Link
+                      to={`/seller/${product.contact.seller_id}`}
+                      className="px-4 py-2 bg-indigo-50 text-indigo-700 font-bold rounded-lg hover:bg-indigo-100 transition"
+                    >
+                      View Profile
+                    </Link>
+                  )}
                 </div>
               </div>
             )}
@@ -364,42 +377,47 @@ const ProductDetail = () => {
             ) : reviews.length === 0 ? (
               <div className="empty-state">No reviews yet.</div>
             ) : (
-              reviews.map((review, idx) => (
-                <div key={idx} className="review-card card">
-                  <div className="reviewer-avatar">
-                    {review.reviewer_name?.charAt(0)?.toUpperCase() || "U"}
-                  </div>
-                  <div>
-                    <div className="review-header">
-                      <Link 
-                        to={`/seller/${product.contact.seller_id}`} 
-                        className="font-bold text-indigo-700 hover:underline"
-                      >
-                        {product.contact.seller_name || "Marketplace Seller"}
-                      </Link>
-                      <span className="text-gray-500 ml-2">
-                        (Rated {review.rating} ★)
-                      </span>
-                      <span className="ml-4 text-gray-500">
-                        {new Date(review.created_at).toLocaleDateString()}
-                      </span>
+              reviews.map((review, idx) => {
+                // Safely extract seller info with fallbacks
+                const sellerId = product?.contact?.seller_id;
+                const sellerName = product?.contact?.seller_name || "Marketplace Seller";
+
+                return (
+                  <div key={idx} className="review-card card">
+                    <div className="reviewer-avatar">
+                      {review.reviewer_name?.charAt(0)?.toUpperCase() || "U"}
                     </div>
-                    <div className="text-sm text-gray-600 mb-2">
-                      {[1, 2, 3, 4, 5].map((star) => (
-                        <span
-                          key={star}
-                          style={{
-                            color: star <= review.rating ? "#fbbf24" : "#d1d5db"
-                          }}
-                        >
-                          ★
+                    <div>
+                      <div className="review-header">
+                        {sellerId ? (
+                          <Link 
+                            to={`/seller/${sellerId}`} 
+                            className="font-bold text-indigo-700 hover:underline"
+                          >
+                            {sellerName}
+                          </Link>
+                        ) : (
+                          <span className="font-bold text-gray-700">{sellerName}</span>
+                        )}
+                        <span className="text-gray-500 ml-2">
+                          (Rated {review.rating} ★)
                         </span>
-                      ))}
+                        <span className="ml-4 text-gray-500 text-sm">
+                          {new Date(review.created_at).toLocaleDateString()}
+                        </span>
+                      </div>
+                      <div className="text-sm text-gray-600 mb-2">
+                        {[1, 2, 3, 4, 5].map((star) => (
+                          <span key={star} style={{ color: star <= review.rating ? "#fbbf24" : "#d1d5db" }}>
+                            ★
+                          </span>
+                        ))}
+                      </div>
+                      <p className="text-gray-800">{review.comment}</p>
                     </div>
-                    <p>{review.comment}</p>
                   </div>
-                </div>
-              ))
+                );
+              })
             )}
           </div>
         </div>
