@@ -34,15 +34,12 @@ const normalizeProduct = (p) => ({
   updatedAt: p.updated_at,
 });
 
-/* ================= DETAIL ROUTE - SHOWS ALL (draft + active + published) ================= */
+/* ================= DETAIL ROUTE ================= */
 router.get("/slug/:slug", async (req, res) => {
   const { slug } = req.params;
 
-  // Guard against undefined slugs from frontend
   if (!slug || slug === "undefined") {
-    return res.status(400).json({ 
-      message: "Invalid product slug provided" 
-    });
+    return res.status(400).json({ message: "Invalid product slug provided" });
   }
 
   try {
@@ -53,7 +50,9 @@ router.get("/slug/:slug", async (req, res) => {
         p.views, p.clicks_count, p.is_active, p.is_promoted, 
         p.promotion_end, p.promotion_priority, p.status,
         p.location_state, p.location_city,
-        p.attributes, p.delivery, p.contact,
+        (p.attributes)::jsonb AS attributes, 
+        (p.delivery)::jsonb AS delivery, 
+        (p.contact)::jsonb AS contact,
         COALESCE(
           json_agg(pi.image_url ORDER BY pi.position ASC) 
           FILTER (WHERE pi.image_url IS NOT NULL),
@@ -62,7 +61,6 @@ router.get("/slug/:slug", async (req, res) => {
       FROM products p
       LEFT JOIN product_images pi ON p.id = pi.product_id
       WHERE p.slug = $1
-        -- ✅ SHOWS ALL: drafts, active, published - only requires slug match
       GROUP BY 
         p.id, p.slug, p.title, p.description, p.price, p.created_at, p.updated_at,
         p.views, p.clicks_count, p.is_active, p.is_promoted, 
@@ -75,17 +73,13 @@ router.get("/slug/:slug", async (req, res) => {
     );
 
     if (!rows.length) {
-      return res.status(404).json({ 
-        message: "Product not found" 
-      });
+      return res.status(404).json({ message: "Product not found" });
     }
 
     return res.status(200).json(normalizeProduct(rows[0]));
   } catch (err) {
     console.error("Product fetch error:", err);
-    return res.status(500).json({ 
-      message: "Failed to fetch product" 
-    });
+    return res.status(500).json({ message: "Failed to fetch product" });
   }
 });
 
@@ -110,7 +104,6 @@ router.get("/slug/:slug/reviews", async (req, res) => {
       [slug, parseInt(limit), parseInt(offset)]
     );
 
-    // Review stats
     const statsQuery = await pool.query(
       `SELECT 
         COUNT(*) as total_reviews,
@@ -140,9 +133,8 @@ router.get("/slug/:slug/seller-stats", async (req, res) => {
   const { slug } = req.params;
 
   try {
-    // Get product seller contact
     const { rows: [product] } = await pool.query(
-      `SELECT contact->>'email' as seller_email, contact->>'phone' as seller_phone 
+      `SELECT (contact)::jsonb->>'email' as seller_email, (contact)::jsonb->>'phone' as seller_phone 
        FROM products WHERE slug = $1`,
       [slug]
     );
@@ -153,7 +145,6 @@ router.get("/slug/:slug/seller-stats", async (req, res) => {
 
     const sellerEmail = product.seller_email;
 
-    // Real seller stats from users table
     const sellerQuery = await pool.query(
       `SELECT 
         store_name, 
@@ -167,7 +158,6 @@ router.get("/slug/:slug/seller-stats", async (req, res) => {
       [sellerEmail]
     );
 
-    // Real feedback count and recent reviews
     const feedbackQuery = await pool.query(
       `SELECT 
         COUNT(*) as total_feedback,
@@ -185,12 +175,11 @@ router.get("/slug/:slug/seller-stats", async (req, res) => {
        FROM product_reviews pr
        JOIN users u ON pr.user_id = u.id
        WHERE pr.product_id IN (
-         SELECT id FROM products WHERE (contact->>'email') = $1
+         SELECT id FROM products WHERE (contact)::jsonb->>'email' = $1
        )`,
       [sellerEmail]
     );
 
-    // Seller followers count
     const followersQuery = await pool.query(
       `SELECT COUNT(*) as followers 
        FROM seller_followers sf 
@@ -212,7 +201,7 @@ router.get("/slug/:slug/seller-stats", async (req, res) => {
       followers: Number(followers.followers) || 0,
       recent_feedback: feedback.recent_feedback || [],
       store_name: seller.store_name || 'Seller',
-      response_time: '1 hour' // Add to users table later
+      response_time: '1 hour'
     });
   } catch (err) {
     console.error("Seller stats error:", err);
