@@ -15,58 +15,75 @@ const normalizeProduct = (p) => ({
   title: p.title,
   description: p.description,
   price: Number(p.price || 0),
-  images: Array.isArray(p.images) ? p.images : [],
+
+  images: p.images || [],
+
   attributes: p.attributes || {},
   delivery: p.delivery || {},
   contact: p.contact || {},
+
   location: {
     state: p.location_state,
     city: p.location_city,
   },
+
+  // ✅ SELLER (SOURCE OF TRUTH)
+  seller: {
+    id: p.seller_id,
+    name: p.seller_name,
+    profile_image: p.profile_image,
+    store_name: p.store_name,
+    verified: p.store_verified,
+    rating: Number(p.rating || 0),
+  },
+
   views: Number(p.views || 0),
   clicks_count: Number(p.clicks_count || 0),
-  is_active: Boolean(p.is_active),
-  is_promoted: Boolean(p.is_promoted),
+
+  is_active: p.is_active,
+  is_promoted: p.is_promoted,
   promotion_end: p.promotion_end,
-  promotion_priority: Number(p.promotion_priority || 0),
+  promotion_priority: p.promotion_priority,
+
   status: p.status,
+
   createdAt: p.created_at,
   updatedAt: p.updated_at,
 });
 
-/* ================= DETAIL ROUTE ================= */
+/* ================= PRODUCT DETAIL ================= */
 router.get("/slug/:slug", async (req, res) => {
   const { slug } = req.params;
 
   if (!slug || slug === "undefined") {
-    return res.status(400).json({ message: "Invalid product slug provided" });
+    return res.status(400).json({ message: "Invalid slug" });
   }
 
   try {
     const { rows } = await pool.query(
       `
       SELECT
-        p.id, p.slug, p.title, p.description, p.price, p.created_at, p.updated_at,
-        p.views, p.clicks_count, p.is_active, p.is_promoted, 
-        p.promotion_end, p.promotion_priority, p.status,
-        p.location_state, p.location_city,
-        (p.attributes)::jsonb AS attributes, 
-        (p.delivery)::jsonb AS delivery, 
-        (p.contact)::jsonb AS contact,
+        p.*,
+
+        u.name AS seller_name,
+        u.profile_image,
+        u.store_name,
+        u.store_verified,
+        u.rating,
+
         COALESCE(
-          json_agg(pi.image_url ORDER BY pi.position ASC) 
+          json_agg(pi.image_url ORDER BY pi.position ASC)
           FILTER (WHERE pi.image_url IS NOT NULL),
-          '[]'::json
+          '[]'
         ) AS images
+
       FROM products p
+      LEFT JOIN users u ON p.seller_id = u.id
       LEFT JOIN product_images pi ON p.id = pi.product_id
+
       WHERE p.slug = $1
-      GROUP BY 
-        p.id, p.slug, p.title, p.description, p.price, p.created_at, p.updated_at,
-        p.views, p.clicks_count, p.is_active, p.is_promoted, 
-        p.promotion_end, p.promotion_priority, p.status,
-        p.location_state, p.location_city,
-        p.attributes, p.delivery, p.contact
+
+      GROUP BY p.id, u.id
       LIMIT 1;
       `,
       [slug]
@@ -76,144 +93,128 @@ router.get("/slug/:slug", async (req, res) => {
       return res.status(404).json({ message: "Product not found" });
     }
 
-    return res.status(200).json(normalizeProduct(rows[0]));
+    res.json(normalizeProduct(rows[0]));
   } catch (err) {
-    console.error("Product fetch error:", err);
-    return res.status(500).json({ message: "Failed to fetch product" });
+    console.error("Product error:", err);
+    res.status(500).json({ message: "Failed to fetch product" });
   }
 });
 
-/* ================= REVIEWS ROUTE ================= */
+/* ================= REVIEWS ================= */
 router.get("/slug/:slug/reviews", async (req, res) => {
   const { slug } = req.params;
-  const { limit = 10, offset = 0 } = req.query;
+  const { limit = 5, offset = 0 } = req.query;
 
   try {
-    const reviewsQuery = await pool.query(
-      `SELECT 
-        pr.id, pr.rating, pr.comment, pr.created_at,
-        u.name as reviewer_name,
+    const reviews = await pool.query(
+      `
+      SELECT
+        r.id,
+        r.rating,
+        r.comment,
+        r.created_at,
+        u.name AS reviewer_name,
         u.profile_image
-       FROM product_reviews pr
-       JOIN users u ON pr.user_id = u.id
-       WHERE pr.product_id = (
-         SELECT id FROM products WHERE slug = $1
-       )
-       ORDER BY pr.created_at DESC
-       LIMIT $2 OFFSET $3`,
-      [slug, parseInt(limit), parseInt(offset)]
+      FROM reviews r
+      JOIN users u ON r.buyer_id = u.id
+      WHERE r.product_id = (
+        SELECT id FROM products WHERE slug = $1
+      )
+      ORDER BY r.created_at DESC
+      LIMIT $2 OFFSET $3;
+      `,
+      [slug, Number(limit), Number(offset)]
     );
 
-    const statsQuery = await pool.query(
-      `SELECT 
-        COUNT(*) as total_reviews,
-        AVG(rating)::DECIMAL(3,1) as avg_rating,
-        COUNT(*) FILTER (WHERE rating = 5) as five_star,
-        COUNT(*) FILTER (WHERE rating = 1) as one_star
-       FROM product_reviews pr
-       WHERE pr.product_id = (
-         SELECT id FROM products WHERE slug = $1
-       )`,
+    const stats = await pool.query(
+      `
+      SELECT
+        COUNT(*) AS total_reviews,
+        AVG(rating)::DECIMAL(3,1) AS avg_rating
+      FROM reviews
+      WHERE product_id = (
+        SELECT id FROM products WHERE slug = $1
+      );
+      `,
       [slug]
     );
 
     res.json({
-      reviews: reviewsQuery.rows,
-      stats: statsQuery.rows[0],
-      has_more: reviewsQuery.rows.length === parseInt(limit)
+      reviews: reviews.rows,
+      stats: stats.rows[0] || {},
+      has_more: reviews.rows.length === Number(limit),
     });
   } catch (err) {
     console.error("Reviews error:", err);
-    res.status(500).json({ error: "Failed to fetch reviews" });
+    res.status(500).json({ message: "Failed to fetch reviews" });
   }
 });
 
-/* ================= SELLER STATS ROUTE ================= */
+/* ================= SELLER STATS ================= */
 router.get("/slug/:slug/seller-stats", async (req, res) => {
   const { slug } = req.params;
 
   try {
-    const { rows: [product] } = await pool.query(
-      `SELECT (contact)::jsonb->>'email' as seller_email, (contact)::jsonb->>'phone' as seller_phone 
-       FROM products WHERE slug = $1`,
+    const { rows } = await pool.query(
+      `
+      SELECT
+        u.id,
+        u.store_name,
+        u.products_count,
+        u.total_sales,
+        u.rating,
+        u.store_verified,
+        EXTRACT(YEAR FROM age(u.created_at)) AS years_active
+      FROM users u
+      WHERE u.id = (
+        SELECT seller_id FROM products WHERE slug = $1
+      )
+      LIMIT 1;
+      `,
       [slug]
     );
 
-    if (!product?.seller_email) {
-      return res.status(404).json({ message: "No seller found" });
+    if (!rows.length) {
+      return res.status(404).json({ message: "Seller not found" });
     }
 
-    const sellerEmail = product.seller_email;
+    const seller = rows[0];
 
-    const sellerQuery = await pool.query(
-      `SELECT 
-        store_name, 
-        products_count,
-        total_sales,
-        rating,
-        store_verified,
-        EXTRACT(YEAR FROM age(created_at)) as years_active
-       FROM users 
-       WHERE email = $1`,
-      [sellerEmail]
+    // Feedback from all seller products
+    const feedback = await pool.query(
+      `
+      SELECT
+        COUNT(*) AS total_feedback,
+        AVG(r.rating) AS avg_rating
+      FROM reviews r
+      WHERE r.product_id IN (
+        SELECT id FROM products WHERE seller_id = $1
+      );
+      `,
+      [seller.id]
     );
-
-    const feedbackQuery = await pool.query(
-      `SELECT 
-        COUNT(*) as total_feedback,
-        AVG(rating) as avg_rating,
-        ARRAY_AGG(
-          json_build_object(
-            'user', u.name,
-            'comment', pr.comment,
-            'rating', pr.rating,
-            'date', age(pr.created_at)
-          )
-          ORDER BY pr.created_at DESC
-          LIMIT 3
-        ) as recent_feedback
-       FROM product_reviews pr
-       JOIN users u ON pr.user_id = u.id
-       WHERE pr.product_id IN (
-         SELECT id FROM products WHERE (contact)::jsonb->>'email' = $1
-       )`,
-      [sellerEmail]
-    );
-
-    const followersQuery = await pool.query(
-      `SELECT COUNT(*) as followers 
-       FROM seller_followers sf 
-       JOIN users u ON sf.seller_id = u.id 
-       WHERE u.email = $1`,
-      [sellerEmail]
-    );
-
-    const seller = sellerQuery.rows[0] || {};
-    const feedback = feedbackQuery.rows[0] || {};
-    const followers = followersQuery.rows[0] || { followers: 0 };
 
     res.json({
-      total_ads: seller.products_count || 0,
-      years_on_platform: seller.years_active || 0,
-      verified_id: seller.store_verified || false,
-      total_feedback: Number(feedback.total_feedback) || 0,
-      avg_rating: Number(feedback.avg_rating)?.toFixed(1) || '0.0',
-      followers: Number(followers.followers) || 0,
-      recent_feedback: feedback.recent_feedback || [],
-      store_name: seller.store_name || 'Seller',
-      response_time: '1 hour'
+      total_listings: seller.products_count || 0,
+      total_sales: seller.total_sales || 0,
+      avg_rating: Number(
+        feedback.rows[0]?.avg_rating || seller.rating || 0
+      ).toFixed(1),
+      verified: seller.store_verified,
+      years_active: seller.years_active,
+      store_name: seller.store_name || "Seller",
     });
   } catch (err) {
     console.error("Seller stats error:", err);
-    res.status(500).json({ error: "Failed to fetch seller stats" });
+    res.status(500).json({ message: "Failed to fetch seller stats" });
   }
 });
 
-/* ================= REDIRECT BY ID ================= */
+/* ================= REDIRECT ================= */
 router.get("/:id", async (req, res) => {
   try {
     const { rows } = await pool.query(
-      "SELECT slug FROM products WHERE id = $1 LIMIT 1",
+      `SELECT slug FROM products WHERE id = $1 LIMIT 1`,
       [req.params.id]
     );
 
@@ -221,10 +222,10 @@ router.get("/:id", async (req, res) => {
       return res.status(404).json({ message: "Product not found" });
     }
 
-    return res.redirect(301, `/api/product/slug/${rows[0].slug}`);
+    res.redirect(301, `/api/product/slug/${rows[0].slug}`);
   } catch (err) {
-    console.error("Product ID redirect error:", err);
-    return res.status(500).json({ message: "Redirect failed" });
+    console.error("Redirect error:", err);
+    res.status(500).json({ message: "Redirect failed" });
   }
 });
 
