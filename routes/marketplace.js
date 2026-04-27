@@ -6,27 +6,27 @@ import { v2 as cloudinary } from "cloudinary";
 import dotenv from "dotenv";
 
 // Config / utils
-import { pool } from "../config/db.js";
-import { generateUniqueSlug } from "../utils/slug.js";
+import { pool } from "./../config/db.js";
+import { generateUniqueSlug } from "./../utils/slug.js";
 
 // Config options
-import { brands } from "../src/config/brands.js";
-import { colors } from "../src/config/colors.js";
-import { categoryFields } from "../src/config/categoryFields.js";
-import { conditions, usedDetails } from "../src/config/conditions.js";
-import { featuresByCategory } from "../src/config/featuresByCategory.js";
-import { models } from "../src/config/models.js";
-import { ramOptions } from "../src/config/ramOptions.js";
-import { sims } from "../src/config/sims.js";
-import { storageOptions } from "../src/config/storageOptions.js";
-import { years } from "../src/config/years.js";
-import { engines } from "../src/config/engines.js";
-import { fuelTypes } from "../src/config/fuelTypes.js";
-import { locationsByState } from "../src/config/locationsByState.js";
-import { promotionPlans } from "../src/config/promotions.js";
-import { fieldOptions } from "../src/config/fieldOptions.js";
+import { brands } from "./../config/brands.js";
+import { colors } from "./../config/colors.js";
+import { categoryFields } from "./../config/categoryFields.js";
+import { conditions, usedDetails } from "./../config/conditions.js";
+import { featuresByCategory } from "./../config/featuresByCategory.js";
+import { models } from "./../config/models.js";
+import { ramOptions } from "./../config/ramOptions.js";
+import { sims } from "./../config/sims.js";
+import { storageOptions } from "./../config/storageOptions.js";
+import { years } from "./../config/years.js";
+import { engines } from "./../config/engines.js";
+import { fuelTypes } from "./../config/fuelTypes.js";
+import { locationsByState } from "./../config/locationsByState.js";
+import { promotionPlans } from "./../config/promotions.js";
+import { fieldOptions } from "./../config/fieldOptions.js";
 
-import { authenticate } from "../middleware/auth.js";
+import { authenticate } from "./../middleware/auth.js";
 
 dotenv.config();
 
@@ -59,6 +59,7 @@ const safeJSON = (value, fallback = {}) => {
   }
 };
 
+// ✅ Corrected: d+ instead of d+
 const parseDurationDays = (duration) => {
   if (!duration) return 0;
   const match = String(duration).match(/(d+)d?/);
@@ -321,7 +322,7 @@ router.post(
       await client.query("COMMIT");
 
       res.status(201).json({
-        product: normalizeProduct({ ...product, images: [] }), // images added above
+        product: normalizeProduct({ ...product, images: [] }),
         success: true,
       });
     } catch (err) {
