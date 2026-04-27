@@ -124,58 +124,6 @@ const uploadImages = async (files) => {
 };
 
 // ----------------
-// Products list (homepage / feed)
-// ----------------
-
-router.get("/products", async (req, res) => {
-  try {
-    const { skip = 0, limit = 20 } = req.query;
-    const offset = Math.max(+skip || 0, 0);
-    const take = Math.min(+limit || 20, 50);
-
-    const baseQuery = `
-      SELECT
-        p.*,
-        COALESCE(
-          json_agg(pi.image_url ORDER BY pi.position) FILTER (WHERE pi.image_url IS NOT NULL),
-          '[]'
-        ) AS images
-      FROM products p
-      LEFT JOIN product_images pi ON p.id = pi.product_id
-      WHERE p.is_active = true
-      GROUP BY p.id
-    `;
-
-    const [trendingRes, productsRes] = await Promise.all([
-      pool.query(`${baseQuery} ORDER BY p.views DESC NULLS LAST LIMIT 6`),
-      pool.query(
-        `${baseQuery}
-         ORDER BY
-           p.is_promoted DESC,
-           COALESCE(p.promotion_priority, 0) DESC,
-           p.created_at DESC
-         OFFSET $1 LIMIT $2`,
-        [offset, take]
-      ),
-    ]);
-
-    const trending = trendingRes.rows.map(normalizeProduct);
-    const trendingIds = new Set(trending.map((p) => p.id));
-    const products = productsRes.rows
-      .map(normalizeProduct)
-      .filter((p) => !trendingIds.has(p.id));
-
-    res.json({ trending, products: [...trending, ...products] });
-  } catch (err) {
-    console.error("Failed to fetch products:", err);
-    res.status(500).json({
-      message: "Failed to fetch products",
-      error: err.message,
-    });
-  }
-});
-
-// ----------------
 // CATEGORIES (for AddProduct.jsx dropdown)
 // ----------------
 
@@ -269,7 +217,6 @@ router.post(
       const delivery = normalizeDelivery(safeJSON(deliveryStr));
       const contact = safeJSON(contactStr);
 
-      // Validation (so you see real errors instead of only "Failed to create product")
       if (!title?.trim()) {
         return res.status(400).json({ message: "Title is required" });
       }
@@ -297,7 +244,6 @@ router.post(
         });
       }
 
-      // SEO search text
       const locationCity = location_city || "";
       const searchText = `
         ${title} ${description || ""}
@@ -360,7 +306,6 @@ router.post(
 
       const product = result.rows[0];
 
-      // Upload images
       const cloudImages = await uploadImages(req.files || []);
       for (let i = 0; i < cloudImages.length; i++) {
         const { url } = cloudImages[i];
@@ -376,7 +321,7 @@ router.post(
       await client.query("COMMIT");
 
       res.status(201).json({
-        product: normalizeProduct(product),
+        product: normalizeProduct({ ...product, images: [] }), // images added above
         success: true,
       });
     } catch (err) {
@@ -386,74 +331,10 @@ router.post(
       res.status(500).json({
         message: "Failed to create product",
         error: err.message,
-        stack: process.env.NODE_ENV !== "production" ? err.stack : undefined,
       });
     } finally {
       client.release();
     }
-  }
-});
-
-// ----------------
-// OPTIONAL: Product details by id
-// ----------------
-
-router.get("/products/:id", async (req, res) => {
-  try {
-    const { id } = req.params;
-
-    const query = `
-      SELECT
-        p.*,
-        COALESCE(
-          json_agg(pi.image_url ORDER BY pi.position) FILTER (WHERE pi.image_url IS NOT NULL),
-          '[]'
-        ) AS images
-      FROM products p
-      LEFT JOIN product_images pi ON p.id = pi.product_id
-      WHERE p.id = $1 AND p.is_active = true
-      GROUP BY p.id
-    `;
-
-    const { rows } = await pool.query(query, [id]);
-    if (!rows[0]) {
-      return res.status(404).json({ message: "Product not found" });
-    }
-
-    res.json(normalizeProduct(rows[0]));
-  } catch (err) {
-    console.error("Failed to fetch product:", err);
-    res.status(500).json({ message: "Failed to fetch product" });
-  }
-});
-
-// ----------------
-// OPTIONAL: User’s own products (list for dashboard)
-// ----------------
-
-router.get("/me/products", authenticate, async (req, res) => {
-  try {
-    const { rows } = await pool.query(
-      `
-      SELECT
-        p.*,
-        COALESCE(
-          json_agg(pi.image_url ORDER BY pi.position) FILTER (WHERE pi.image_url IS NOT NULL),
-          '[]'
-        ) AS images
-      FROM products p
-      LEFT JOIN product_images pi ON p.id = pi.product_id
-      WHERE p.seller_id = $1
-      GROUP BY p.id
-      ORDER BY p.created_at DESC
-      `,
-      [req.user.id]
-    );
-
-    res.json(rows.map(normalizeProduct));
-  } catch (err) {
-    console.error("Failed to fetch user products:", err);
-    res.status(500).json({ message: "Failed to fetch user products" });
   }
 });
 
