@@ -58,7 +58,7 @@ const safeJSON = (value, fallback = {}) => {
 
 const parseDurationDays = (duration) => {
   if (!duration) return 0;
-  const match = String(duration).match(/(d+)d?/);
+  const match = String(duration).match(/(d+)d?/); // ✅ regex fix
   return match ? parseInt(match[1], 10) : 0;
 };
 
@@ -122,35 +122,47 @@ const uploadImages = async (files) => {
 
 const generateUniqueSlug = async (client, title) => {
   const baseSlug = title
-  .toLowerCase()
-  .trim()
-  .replace(/[^a-z0-9\s-]/g, "")
-  .replace(/\s+/g, "-")
-  .replace(/-+/g, "-")
-  .replace(/^-+|-+$/g, "")
-  .substring(0, 80);
+    .toLowerCase()
+    .trim()
+    .replace(/[^a-z0-9s-]/g, "")
+    .replace(/s+/g, "-")
+    .replace(/-+/g, "-")
+    .replace(/^-+|-+$/g, "")
+    .substring(0, 80);
 
   let slug = baseSlug;
   let counter = 1;
-  
+
   while (await slugExists(client, slug)) {
     slug = `${baseSlug}-${counter++}`;
   }
-  
+
   return slug;
 };
 
 const slugExists = async (client, slug) => {
-  const { rowCount } = await client.query("SELECT 1 FROM products WHERE slug = $1", [slug]);
+  const { rowCount } = await client.query(
+    "SELECT 1 FROM products WHERE slug = $1",
+    [slug]
+  );
   return rowCount > 0;
 };
+
+// -----------------------------
+// Paystack helpers
+// -----------------------------
 
 router.get("/payment/verify/:reference", async (req, res) => {
   try {
     const { reference } = req.params;
-    const response = await axios.get(`https://api.paystack.co/transaction/verify/${reference}`, {
-      headers: { Authorization: `Bearer ${process.env.PAYSTACK_SECRET_KEY}` },
-    });
+    const response = await axios.get(
+      `https://api.paystack.co/transaction/verify/${reference}`,
+      {
+        headers: {
+          Authorization: `Bearer ${process.env.PAYSTACK_SECRET_KEY}`,
+        },
+      }
+    );
 
     const data = response.data.data;
     if (data.status !== "success") {
@@ -177,7 +189,10 @@ router.post("/payments/initiate", async (req, res) => {
 
     if (plan.price === 0) {
       await pool.query(
-        `UPDATE products SET is_promoted = false, promotion_priority = 0 WHERE id = $1`,
+        `UPDATE products
+         SET is_promoted = false, promotion_priority = 0, promotion_type = NULL,
+             promotion_start = NULL, promotion_end = NULL
+         WHERE id = $1`,
         [product_id]
       );
       return res.json({ success: true, message: "Free plan applied" });
@@ -185,14 +200,19 @@ router.post("/payments/initiate", async (req, res) => {
 
     const reference = `PSK_${Date.now()}`;
     await pool.query(
-      `INSERT INTO payments (reference, plan_id, product_id, status) VALUES ($1,$2,$3,'pending')`,
+      `INSERT INTO payments (reference, plan_id, product_id, status)
+       VALUES ($1, $2, $3, 'pending')`,
       [reference, plan_id, product_id]
     );
 
     const paystack = await axios.post(
       "https://api.paystack.co/transaction/initialize",
       { email, amount: plan.price * 100, reference },
-      { headers: { Authorization: `Bearer ${process.env.PAYSTACK_SECRET_KEY}` } }
+      {
+        headers: {
+          Authorization: `Bearer ${process.env.PAYSTACK_SECRET_KEY}`,
+        },
+      }
     );
 
     res.json(paystack.data);
@@ -217,7 +237,10 @@ router.post("/webhooks/paystack", async (req, res) => {
     if (event.event !== "charge.success") return res.sendStatus(200);
 
     const data = event.data;
-    const paymentRes = await pool.query("SELECT * FROM payments WHERE reference=$1", [data.reference]);
+    const paymentRes = await pool.query(
+      "SELECT * FROM payments WHERE reference = $1",
+      [data.reference]
+    );
     const payment = paymentRes.rows[0];
     if (!payment) return res.sendStatus(200);
 
@@ -229,18 +252,31 @@ router.post("/webhooks/paystack", async (req, res) => {
     end.setDate(end.getDate() + plan.durationDays);
 
     await pool.query(
-      `UPDATE products SET is_promoted = true, promotion_type = $1, promotion_priority = $2,
-       promotion_start = $3, promotion_end = $4 WHERE id = $5`,
+      `UPDATE products
+       SET is_promoted = true,
+           promotion_type = $1,
+           promotion_priority = $2,
+           promotion_start = $3,
+           promotion_end = $4,
+           promotion_expires_at = $4
+       WHERE id = $5`,
       [plan.id, plan.boostScore, start, end, payment.product_id]
     );
 
-    await pool.query("UPDATE payments SET status='success' WHERE reference=$1", [data.reference]);
+    await pool.query(
+      "UPDATE payments SET status = 'success' WHERE reference = $1",
+      [data.reference]
+    );
     res.sendStatus(200);
   } catch (err) {
     console.error("Paystack webhook failed:", err);
     res.sendStatus(500);
   }
 });
+
+// -----------------------------
+// Public product listing
+// -----------------------------
 
 router.get("/products", async (req, res) => {
   try {
@@ -249,19 +285,31 @@ router.get("/products", async (req, res) => {
     limit = Math.min(+limit || 20, 50);
 
     const baseQuery = `
-      SELECT p.*, COALESCE(json_agg(pi.image_url ORDER BY pi.position) FILTER (WHERE pi.image_url IS NOT NULL), '[]') AS images
-      FROM products p LEFT JOIN product_images pi ON p.id = pi.product_id
-      WHERE p.is_active = true GROUP BY p.id
+      SELECT p.*, COALESCE(
+        json_agg(pi.image_url ORDER BY pi.position) FILTER (WHERE pi.image_url IS NOT NULL),
+        '[]'
+      ) AS images
+      FROM products p
+      LEFT JOIN product_images pi ON p.id = pi.product_id
+      WHERE p.is_active = true
+      GROUP BY p.id
     `;
 
     const [trendingRes, productsRes] = await Promise.all([
       pool.query(`${baseQuery} ORDER BY p.views DESC NULLS LAST LIMIT 6`),
-      pool.query(`${baseQuery} ORDER BY p.is_promoted DESC, COALESCE(p.promotion_priority, 0) DESC, p.created_at DESC OFFSET $1 LIMIT $2`, [skip, limit]),
+      pool.query(
+        `${baseQuery}
+         ORDER BY p.is_promoted DESC, COALESCE(p.promotion_priority, 0) DESC, p.created_at DESC
+         OFFSET $1 LIMIT $2`,
+        [skip, limit]
+      ),
     ]);
 
     const trending = trendingRes.rows.map(normalizeProduct);
     const trendingIds = new Set(trending.map((p) => p.id));
-    const products = productsRes.rows.map(normalizeProduct).filter((p) => !trendingIds.has(p.id));
+    const products = productsRes.rows
+      .map(normalizeProduct)
+      .filter((p) => !trendingIds.has(p.id));
 
     res.json({ trending, products: [...trending, ...products] });
   } catch (err) {
@@ -270,67 +318,172 @@ router.get("/products", async (req, res) => {
   }
 });
 
-router.post("/products", upload.array("images", 10), async (req, res) => {
-  const client = await pool.connect();
-  
-  try {
-    await client.query("BEGIN");
+// -----------------------------
+// Protected product creation (seller only)
+// -----------------------------
 
-    const { title, price, category_id } = req.body;
-    if (!title || !price || !category_id) {
-      return res.status(400).json({ message: "Missing required fields" });
+router.post(
+  "/products",
+  upload.array("images", 10),
+  async (req, res) => {
+    const client = await pool.connect();
+    try {
+      await client.query("BEGIN");
+
+      const { title, price, category_id } = req.body;
+      if (!title || !price || !category_id) {
+        return res.status(400).json({ message: "Missing required fields" });
+      }
+
+      // ✅ MUST come from auth middleware
+      const sellerId = req.user?.id;
+      if (!sellerId) {
+        return res.status(401).json({ message: "Unauthorized: missing seller_id" });
+      }
+
+      const attributes = safeJSON(req.body.attributes);
+      const delivery = normalizeDelivery(safeJSON(req.body.delivery, {}));
+
+      const { rows } = await client.query(
+        `INSERT INTO products (
+          title,
+          description,
+          price,
+          category_id,
+          subcategory_id,
+          attributes,
+          delivery,
+          contact,
+          location_state,
+          location_city,
+          seller_id,
+          created_at,
+          updated_at,
+          status,
+          is_active
+        )
+        VALUES (
+          $1, $2, $3, $4, $5,
+          $6, $7, $8,
+          $9, $10,
+          $11,
+          NOW(), NOW(),
+          'active',
+          true
+        )
+        RETURNING *`,
+        [
+          title,
+          req.body.description || "",
+          price,
+          category_id,
+          req.body.subcategory_id || null,
+          JSON.stringify(attributes),
+          JSON.stringify(delivery),
+          JSON.stringify(safeJSON(req.body.contact)),
+          req.body.location_state,
+          req.body.location_city,
+          sellerId,
+        ]
+      );
+
+      const product = rows[0];
+      const slug = await generateUniqueSlug(client, title);
+      await client.query("UPDATE products SET slug = $1 WHERE id = $2", [slug, product.id]);
+
+      const cloudImages = await uploadImages(req.files);
+      for (let i = 0; i < cloudImages.length; i++) {
+        const { url } = cloudImages[i];
+        await client.query(
+          `INSERT INTO product_images (product_id, image_url, position_order)
+           VALUES ($1, $2, $3)`,
+          [product.id, url, i]
+        );
+      }
+
+      await client.query("COMMIT");
+      res.status(201).json({ product: normalizeProduct({ ...product, slug }) });
+    } catch (err) {
+      await client.query("ROLLBACK");
+      console.error("Failed to create product:", err);
+      res.status(500).json({ message: "Failed to create product" });
+    } finally {
+      client.release();
     }
+  }
+);
 
-    const attributes = safeJSON(req.body.attributes);
-    const delivery = normalizeDelivery(safeJSON(req.body.delivery, {}));
+// -----------------------------
+// Seller profile / stats
+// -----------------------------
 
-    const { rows } = await client.query(
-      `INSERT INTO products (
-        title, description, price, category_id, subcategory_id, attributes, delivery, contact,
-        location_state, location_city, created_at, updated_at
-      ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,NOW(),NOW()) RETURNING *`,
-      [
-        title,
-        req.body.description || "",
-        price,
-        category_id,
-        req.body.subcategory_id || null,
-        JSON.stringify(attributes),
-        JSON.stringify(delivery),
-        JSON.stringify(safeJSON(req.body.contact)),
-        req.body.location_state,
-        req.body.location_city,
-      ]
+router.get("/seller/:id", async (req, res) => {
+  const { id } = req.params;
+  try {
+    const { rows } = await pool.query(
+      `SELECT
+         u.*,
+         COALESCE(p_stats.product_count, 0) AS products_count,
+         COALESCE(r_stats.avg_rating, 0) AS avg_rating
+       FROM users u
+       LEFT JOIN (
+         SELECT seller_id, COUNT(*) AS product_count
+         FROM products
+         WHERE is_active = true AND status = 'active'
+         GROUP BY seller_id
+       ) p_stats ON p_stats.seller_id = u.id
+       LEFT JOIN (
+         SELECT target_user_id AS seller_id, AVG(rating) AS avg_rating
+         FROM reviews
+         GROUP BY target_user_id
+       ) r_stats ON r_stats.seller_id = u.id
+       WHERE u.id = $1
+       LIMIT 1`,
+      [id]
     );
 
-    const product = rows[0];
-    const slug = await generateUniqueSlug(client, title);
-    await client.query("UPDATE products SET slug = $1 WHERE id = $2", [slug, product.id]);
-
-    const cloudImages = await uploadImages(req.files);
-    for (let i = 0; i < cloudImages.length; i++) {
-      const { url } = cloudImages[i];
-      await client.query(
-        `INSERT INTO product_images (product_id, image_url, position_order) VALUES ($1, $2, $3)`,
-        [product.id, url, i]
-      );
+    if (rows.length === 0) {
+      return res.status(404).json({ message: "Seller not found" });
     }
 
-    await client.query("COMMIT");
-    res.status(201).json({ product: normalizeProduct({ ...product, slug }) });
+    res.json(rows[0]);
   } catch (err) {
-    await client.query("ROLLBACK");
-    console.error("Failed to create product:", err);
-    res.status(500).json({ message: "Failed to create product" });
-  } finally {
-    client.release();
+    console.error("Failed to fetch seller:", err);
+    res.status(500).json({ message: "Failed to fetch seller" });
   }
 });
 
+router.get("/seller/products/:sellerId", async (req, res) => {
+  const { sellerId } = req.params;
+  try {
+    const result = await pool.query(
+      `SELECT p.*
+       FROM products p
+       WHERE p.seller_id = $1 AND p.is_active = true AND p.status = 'active'
+       ORDER BY p.created_at DESC`,
+      [sellerId]
+    );
+
+    const products = result.rows.map(normalizeProduct);
+    res.json({ products });
+  } catch (err) {
+    console.error("Failed to fetch seller products:", err);
+    res.status(500).json({ message: "Failed to fetch seller products" });
+  }
+});
+
+// -----------------------------
+// Categories
+// -----------------------------
+
 router.get("/categories", async (req, res) => {
   try {
-    const { rows } = await pool.query(`SELECT id, name, parent_id, fields_key FROM categories ORDER BY name ASC`);
-    
+    const { rows } = await pool.query(
+      `SELECT id, name, parent_id, fields_key
+       FROM categories
+       ORDER BY name ASC`
+    );
+
     const map = {};
     const tree = [];
 
