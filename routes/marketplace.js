@@ -6,6 +6,11 @@ import dotenv from "dotenv";
 import axios from "axios";
 import crypto from "crypto";
 
+// Import your config and utils
+import { pool } from "../config/db.js";
+import { generateUniqueSlug } from "../utils/slug.js";
+
+// Import your static options
 import { brands } from "../src/config/brands.js";
 import { colors } from "../src/config/colors.js";
 import { categoryFields } from "../src/config/categoryFields.js";
@@ -22,7 +27,6 @@ import { locationsByState } from "../src/config/locationsByState.js";
 import { promotionPlans } from "../src/config/promotions.js";
 import { fieldOptions } from "../src/config/fieldOptions.js";
 
-import { pool } from "../server.js";
 import { authenticate } from "../middleware/auth.js";
 
 dotenv.config();
@@ -120,37 +124,6 @@ const uploadImages = async (files) => {
   );
 };
 
-// ✅ Fixed slug helpers (SEO‑grade)
-
-const generateBaseSlug = (text) =>
-  text
-    .toLowerCase()
-    .trim()
-    .replace(/[^a-z0-9s-]/g, "")
-    .replace(/s+/g, "-")
-    .replace(/-+/g, "-")
-    .replace(/^-+|-+$/g, "")
-    .substring(0, 80);
-
-const generateUniqueSlug = async (client, title) => {
-  const base = generateBaseSlug(title);
-
-  let slug = base;
-  let counter = 1;
-
-  while (true) {
-    const { rowCount } = await client.query(
-      "SELECT 1 FROM products WHERE slug = $1",
-      [slug]
-    );
-    if (rowCount === 0) break;
-
-    slug = `${base}-${counter++}`;
-  }
-
-  return slug;
-};
-
 // ----------------
 // Paystack / payments
 // ----------------
@@ -197,7 +170,8 @@ router.post("/payments/initiate", authenticate, async (req, res) => {
              promotion_priority = 0,
              promotion_type = NULL,
              promotion_start = NULL,
-             promotion_end = NULL
+             promotion_end = NULL,
+             promotion_expires_at = NULL
          WHERE id = $1`,
         [product_id]
       );
@@ -269,7 +243,10 @@ router.post("/webhooks/paystack", express.raw({ type: "application/json" }), asy
       [plan.id, plan.boostScore, start, end, payment.product_id]
     );
 
-    await pool.query("UPDATE payments SET status = 'success' WHERE reference = $1", [data.reference]);
+    await pool.query(
+      "UPDATE payments SET status = 'success' WHERE reference = $1",
+      [data.reference]
+    );
     res.sendStatus(200);
   } catch (err) {
     console.error("Paystack webhook failed:", err);
@@ -383,7 +360,7 @@ router.get("/categories", async (req, res) => {
 });
 
 // ----------------
-// ADD PRODUCT (core for AddProduct.jsx) — updated with SEO slug + search_text
+// ADD PRODUCT (core for AddProduct.jsx) — with config/db.js and utils/slug.js
 // ----------------
 
 router.post(
@@ -417,8 +394,8 @@ router.post(
         ${locationCity}
       `.toLowerCase();
 
-      // INSERT product with slug and search_text in one shot
-      const slug = await generateUniqueSlug(client, title);
+      // Use imported slug util
+      const slug = await generateUniqueSlug(title); // from utils/slug.js
 
       const { rows } = await client.query(
         `
