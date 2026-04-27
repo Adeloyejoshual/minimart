@@ -6,7 +6,6 @@ import dotenv from "dotenv";
 import axios from "axios";
 import crypto from "crypto";
 
-
 import { brands } from "../src/config/brands.js";
 import { colors } from "../src/config/colors.js";
 import { categoryFields } from "../src/config/categoryFields.js";
@@ -121,8 +120,10 @@ const uploadImages = async (files) => {
   );
 };
 
-const generateUniqueSlug = async (client, title) => {
-  const baseSlug = title
+// ✅ Fixed slug helpers (SEO‑grade)
+
+const generateBaseSlug = (text) =>
+  text
     .toLowerCase()
     .trim()
     .replace(/[^a-z0-9s-]/g, "")
@@ -131,20 +132,20 @@ const generateUniqueSlug = async (client, title) => {
     .replace(/^-+|-+$/g, "")
     .substring(0, 80);
 
-  let slug = baseSlug;
+const generateUniqueSlug = async (client, title) => {
+  const base = generateBaseSlug(title);
+
+  let slug = base;
   let counter = 1;
 
-  const { rowCount } = await client.query(
-    "SELECT 1 FROM products WHERE slug = $1",
-    [slug]
-  );
-  while (rowCount > 0) {
-    slug = `${baseSlug}-${counter++}`;
+  while (true) {
     const { rowCount } = await client.query(
       "SELECT 1 FROM products WHERE slug = $1",
       [slug]
     );
     if (rowCount === 0) break;
+
+    slug = `${base}-${counter++}`;
   }
 
   return slug;
@@ -382,7 +383,7 @@ router.get("/categories", async (req, res) => {
 });
 
 // ----------------
-// ADD PRODUCT (core for AddProduct.jsx)
+// ADD PRODUCT (core for AddProduct.jsx) — updated with SEO slug + search_text
 // ----------------
 
 router.post(
@@ -408,8 +409,20 @@ router.post(
         return res.status(401).json({ message: "Unauthorized: missing seller_id" });
       }
 
+      // SEO search text
+      const locationCity = req.body.location_city || "";
+      const searchText = `
+        ${title} ${req.body.description || ""}
+        ${(attributes?.brand || "")} ${(attributes?.model || "")}
+        ${locationCity}
+      `.toLowerCase();
+
+      // INSERT product with slug and search_text in one shot
+      const slug = await generateUniqueSlug(client, title);
+
       const { rows } = await client.query(
-        `INSERT INTO products (
+        `
+        INSERT INTO products (
           title,
           description,
           price,
@@ -421,6 +434,8 @@ router.post(
           location_state,
           location_city,
           seller_id,
+          slug,
+          search_text,
           created_at,
           updated_at,
           status,
@@ -430,12 +445,13 @@ router.post(
           $1, $2, $3, $4, $5,
           $6, $7, $8,
           $9, $10,
-          $11,
+          $11, $12, $13,
           NOW(), NOW(),
           'active',
           true
         )
-        RETURNING *`,
+        RETURNING *
+        `,
         [
           title,
           req.body.description || "",
@@ -446,15 +462,16 @@ router.post(
           JSON.stringify(delivery),
           JSON.stringify(contact),
           req.body.location_state,
-          req.body.location_city,
+          locationCity,
           sellerId,
+          slug,
+          searchText,
         ]
       );
 
       const product = rows[0];
-      const slug = await generateUniqueSlug(client, title);
-      await client.query("UPDATE products SET slug = $1 WHERE id = $2", [slug, product.id]);
 
+      // Upload images
       const cloudImages = await uploadImages(req.files);
       for (let i = 0; i < cloudImages.length; i++) {
         const { url } = cloudImages[i];
