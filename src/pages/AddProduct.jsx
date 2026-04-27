@@ -1,3 +1,4 @@
+// src/components/AddProduct.jsx
 import { useEffect, useMemo, useState, useCallback, useRef } from "react";
 import DropdownModal from "../components/DropdownModal.jsx";
 import AddProductHeader from "../components/AddProductHeader.jsx";
@@ -109,7 +110,7 @@ export default function AddProduct() {
     setTimeout(() => setSuccess(""), 5000);
   }, []);
 
-  // Load categories
+  // 1. Load categories
   useEffect(() => {
     fetch("https://minimart-ivrm.onrender.com/api/marketplace/categories")
       .then((r) => {
@@ -127,7 +128,7 @@ export default function AddProduct() {
       });
   }, [showError]);
 
-  // Clear payment retry on mount
+  // 2. Clear payment retry on mount
   useEffect(() => {
     const savedPayment = localStorage.getItem(STORAGE_PAYMENT);
     if (savedPayment) {
@@ -135,7 +136,7 @@ export default function AddProduct() {
     }
   }, []);
 
-  // Restore draft safely
+  // 3. Restore draft
   useEffect(() => {
     try {
       const saved = localStorage.getItem(STORAGE_DRAFT);
@@ -182,7 +183,7 @@ export default function AddProduct() {
     }
   }, [showSuccess]);
 
-  // Auto-save draft
+  // 4. Auto‑save draft
   useEffect(() => {
     if (loading) return;
     const timeout = setTimeout(() => {
@@ -307,7 +308,7 @@ export default function AddProduct() {
   }, [showSuccess]);
 
   const handleImages = useCallback(
-    (files) => {
+    async (files) => {
       if (images.length >= MAX_IMAGES) {
         showError("Maximum 6 images allowed");
         return;
@@ -371,7 +372,7 @@ export default function AddProduct() {
     setDragIndex(null);
   }, [dragIndex]);
 
-  // ✅ PERFECT CATEGORY-SPECIFIC FIELDS
+  // ✅ CATEGORY‑SPECIFIC FIELDS
   const fields = useMemo(() => {
     const backendFields = Array.isArray(options.fields) ? options.fields : [];
     const categoryName = selectedCategory?.name;
@@ -412,6 +413,7 @@ export default function AddProduct() {
   const states = Object.keys(locationsByState || {});
   const cities = state ? (locationsByState[state] || []) : [];
 
+  // 5. Create product (no payment when free plan)
   const createProduct = async () => {
     const fd = new FormData();
     fd.append("title", form.title.trim());
@@ -424,11 +426,6 @@ export default function AddProduct() {
     fd.append("contact", JSON.stringify(form.contact));
     fd.append("location_state", state);
     fd.append("location_city", city);
-
-    const finalPlan = selectedPlan || promotionPlans.find((p) => p.price === 0);
-    if (finalPlan && finalPlan.id) {
-      fd.append("promotion_id", finalPlan.id);
-    }
 
     const imageFiles = images.map((img) => img.file);
     const compressedFiles = await Promise.all(
@@ -450,17 +447,51 @@ export default function AddProduct() {
     return product;
   };
 
-  const deleteProduct = async (productId) => {
-    try {
-      const res = await fetch(
-        `https://minimart-ivrm.onrender.com/api/marketplace/products/${productId}`,
-        { method: "DELETE" }
-      );
-      return res.ok;
-    } catch (err) {
-      console.error("Product cleanup failed:", err);
-      return false;
+  // 6. POST to /api/payment/initiate (paid plan)
+  const initPayment = async (productId) => {
+    const payload = {
+      email: form.contact.email,
+      amount: Number(form.price), // Naira (backend converts to kobo)
+      plan_id: selectedPlan.id,
+      product_id: productId,
+    };
+
+    const res = await fetch(
+      "https://minimart-ivrm.onrender.com/api/payment/initiate",
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+      }
+    );
+
+    const data = await res.json();
+    if (!res.ok || !data.success || !data.authorization_url) {
+      throw new Error(data.message || "Payment initialization failed");
     }
+
+    return {
+      reference: data.reference,
+      authUrl: data.authorization_url,
+    };
+  };
+
+  // 7. POST /api/marketplace/products/:id/activate (free plan)
+  const activateFreePlan = async (productId) => {
+    const res = await fetch(
+      `https://minimart-ivrm.onrender.com/api/marketplace/products/${productId}/activate`,
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ promotion_id: selectedPlan?.id || null }),
+      }
+    );
+
+    const data = await res.json();
+    if (!res.ok || !data.success) {
+      throw new Error(data.message || "Product activation failed");
+    }
+    return data;
   };
 
   const handleSubmit = useCallback(async () => {
@@ -481,61 +512,55 @@ export default function AddProduct() {
     let product = null;
 
     try {
+      // 1. Create product
       product = await createProduct();
+      if (!product?.id) throw new Error("Failed to create product");
 
-      if (!product.id) {
-        throw new Error("Failed to create product");
-      }
-
-      // ✅ FREE PLAN → Direct success
+      // 2. FREE PLAN → activate directly
       if (finalPlan.price === 0) {
+        await activateFreePlan(product.id);
         clearDraft();
         showSuccess("✅ Product created and published!");
         return;
       }
 
-      // ✅ BACKEND-EXACT: snake_case fields
-      const payload = {
-        email: form.contact.email,
-        amount: Number(finalPlan.price),
-        plan_id: finalPlan.id,
-        product_id: product.id,
-      };
-
-      const res = await fetch(
-        "https://minimart-ivrm.onrender.com/api/payment/initiate",
-        {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify(payload),
-        }
-      );
-
-      const data = await res.json();
-      if (!res.ok || !data.status) {
-        await deleteProduct(product.id);
-        throw new Error(data.message || "Payment initialization failed");
-      }
+      // 3. PAID PLAN → init payment
+      const paymentRes = await initPayment(product.id);
+      const { reference, authUrl } = paymentRes;
 
       const paymentSession = {
-        ...payload,
-        reference: data.reference || data.data?.reference,
-        authUrl: data.authorization_url || data.data?.authorization_url,
+        reference,
+        authUrl,
+        planId: finalPlan.id,
+        productId: product.id,
+        email: form.contact.email,
+        amount: Number(finalPlan.price),
         createdAt: Date.now(),
       };
 
       localStorage.setItem(STORAGE_PAYMENT, JSON.stringify(paymentSession));
       setPaymentData(paymentSession);
 
-      showSuccess("💳 Redirecting to payment...");
-      const win = window.open(paymentSession.authUrl, "_blank");
+            showSuccess("💳 Redirecting to payment...");
+      const win = window.open(authUrl, "_blank");
       if (!win || win.closed) {
         showError("Popup blocked; allow popups and try again");
       }
     } catch (err) {
       console.error("Submit error:", err);
+      // If product exists but payment failed, delete it only if not already active
       if (product?.id) {
-        await deleteProduct(product.id);
+        try {
+          const res = await fetch(
+            `https://minimart-ivrm.onrender.com/api/marketplace/products/${product.id}`,
+            { method: "DELETE" }
+          );
+          if (!res.ok) {
+            console.warn("Failed to cleanup product:", await res.text());
+          }
+        } catch (cleanupErr) {
+          console.warn("Cleanup failed:", cleanupErr);
+        }
       }
       showError(err.message || "Something went wrong");
     } finally {
@@ -544,6 +569,7 @@ export default function AddProduct() {
     }
   }, [form, images, state, city, selectedPlan, validateForm, loading, clearDraft]);
 
+  // 8. Optional: cleanup object URLs
   useEffect(() => {
     return () => {
       images.forEach((img) => {
@@ -556,11 +582,13 @@ export default function AddProduct() {
     <div className="add-product-container">
       <AddProductHeader title="Add Product" onClearDraft={clearDraft} />
 
-            {/* Basic Info */}
+      {/* Basic Info */}
       <section className="section form-card">
         <h3 className="section-title">Basic Information</h3>
         <div className="form-group">
-          <label>Product Title <span className="required">*</span></label>
+          <label>
+            Product Title <span className="required">*</span>
+          </label>
           <input
             placeholder="Enter product title (min 10 chars)"
             value={form.title}
@@ -568,7 +596,9 @@ export default function AddProduct() {
           />
         </div>
         <div className="form-group">
-          <label>Description <span className="required">*</span></label>
+          <label>
+            Description <span className="required">*</span>
+          </label>
           <textarea
             placeholder="Detailed product description (min 20 chars)"
             rows={4}
@@ -577,7 +607,9 @@ export default function AddProduct() {
           />
         </div>
         <div className="form-group">
-          <label>Price (₦) <span className="required">*</span></label>
+          <label>
+            Price (₦) <span className="required">*</span>
+          </label>
           <input
             type="text"
             inputMode="numeric"
@@ -592,11 +624,14 @@ export default function AddProduct() {
       <section className="section form-card">
         <h3 className="section-title">Product Details</h3>
         <div className="form-group">
-          <label>Category <span className="required">*</span></label>
+          <label>
+            Category <span className="required">*</span>
+          </label>
           <DropdownModal
-            value={form.category_id}
+            value={String(form.category_id)}
             onChange={(v) => {
               updateForm("category_id", v);
+              updateForm("subcategory_id", "");
               updateForm("attributes", INITIAL_FORM.attributes);
             }}
             options={categories}
@@ -616,8 +651,8 @@ export default function AddProduct() {
           </div>
         )}
 
-        {/* Model */}
-        {optionsMap.model && attributes?.brand && modelOptions.length > 0 && (
+        {/* Model (only if brand chosen and models available) */}
+        {modelOptions.length > 0 && (
           <div className="form-group">
             <label>{formatLabel("model")}</label>
             <DropdownModal
@@ -628,14 +663,14 @@ export default function AddProduct() {
           </div>
         )}
 
-        {/* Dynamic Fields - CATEGORY SPECIFIC */}
+        {/* Dynamic fields from category fields */}
         {fields.map((field) => {
           if (field === "brand" || field === "model") return null;
-          
+
           const fieldOptions = optionsMap[field] || [];
           if (!fieldOptions.length) return null;
 
-          if (field === "used_detail" && attributes?.condition !== "Used") 
+          if (field === "used_detail" && attributes?.condition !== "Used")
             return null;
 
           return (
@@ -650,7 +685,7 @@ export default function AddProduct() {
           );
         })}
 
-        {/* Features */}
+        {/* Features (if any) */}
         {optionsMap.features.length > 0 && (
           <div className="form-group">
             <label>Features</label>
@@ -660,7 +695,7 @@ export default function AddProduct() {
                 .sort((a, b) => (a || "").localeCompare(b || ""))
                 .map((feature) => (
                   <label key={feature} className="checkbox-inline">
-                    <span>{formatLabel(feature)}</span>
+                    {formatLabel(feature)}
                     <input
                       type="checkbox"
                       checked={attributes?.features?.includes(feature) || false}
@@ -677,7 +712,9 @@ export default function AddProduct() {
       <section className="section form-card">
         <h3 className="section-title">Contact Information</h3>
         <div className="form-group">
-          <label>Email <span className="required">*</span></label>
+          <label>
+            Email <span className="required">*</span>
+          </label>
           <input
             type="email"
             placeholder="your@email.com"
@@ -686,21 +723,29 @@ export default function AddProduct() {
           />
         </div>
         <div className="form-group">
-          <label>Phone <span className="required">*</span></label>
+          <label>
+            Phone <span className="required">*</span>
+          </label>
           <input
             type="tel"
             placeholder="08012345678"
             value={form.contact.phone}
-            onChange={(e) => updateContact("phone", onlyDigits(e.target.value))}
+            onChange={(e) =>
+              updateContact("phone", onlyDigits(e.target.value))
+            }
           />
         </div>
         <div className="form-group">
-          <label>WhatsApp <span className="required">*</span></label>
+          <label>
+            WhatsApp <span className="required">*</span>
+          </label>
           <input
             type="tel"
             placeholder="08012345678"
             value={form.contact.whatsapp}
-            onChange={(e) => updateContact("whatsapp", onlyDigits(e.target.value))}
+            onChange={(e) =>
+              updateContact("whatsapp", onlyDigits(e.target.value))
+            }
           />
         </div>
         <div className="form-group">
@@ -709,7 +754,9 @@ export default function AddProduct() {
             type="url"
             placeholder="https://wa.me/2348012345678"
             value={form.contact.whatsapp_link}
-            onChange={(e) => updateContact("whatsapp_link", e.target.value.trim())}
+            onChange={(e) =>
+              updateContact("whatsapp_link", e.target.value.trim())
+            }
           />
         </div>
       </section>
@@ -718,7 +765,9 @@ export default function AddProduct() {
       <section className="section form-card">
         <h3 className="section-title">Location & Delivery</h3>
         <div className="form-group">
-          <label>State <span className="required">*</span></label>
+          <label>
+            State <span className="required">*</span>
+          </label>
           <DropdownModal
             value={state}
             onChange={setState}
@@ -727,7 +776,9 @@ export default function AddProduct() {
         </div>
         {state && (
           <div className="form-group">
-            <label>City <span className="required">*</span></label>
+            <label>
+              City <span className="required">*</span>
+            </label>
             <DropdownModal
               value={city}
               onChange={setCity}
@@ -741,7 +792,9 @@ export default function AddProduct() {
             <input
               type="checkbox"
               checked={form.delivery.available}
-              onChange={(e) => updateDelivery("available", e.target.checked)}
+              onChange={(e) =>
+                updateDelivery("available", e.target.checked)
+              }
             />
             <span className="slider"></span>
           </label>
@@ -749,32 +802,44 @@ export default function AddProduct() {
         {form.delivery.available && (
           <div className="delivery-grid sub-grid">
             <div className="form-group">
-              <label>From Day <span className="required">*</span></label>
+              <label>
+                From Day <span className="required">*</span>
+              </label>
               <input
                 type="text"
                 inputMode="numeric"
                 placeholder="1"
                 value={form.delivery.duration.from}
-                onChange={(e) => updateDeliveryDuration("from", onlyDigits(e.target.value))}
+                onChange={(e) =>
+                  updateDeliveryDuration("from", onlyDigits(e.target.value))
+                }
               />
             </div>
             <div className="form-group">
-              <label>To Day <span className="required">*</span></label>
+              <label>
+                To Day <span className="required">*</span>
+              </label>
               <input
                 type="text"
                 inputMode="numeric"
                 placeholder="3"
                 value={form.delivery.duration.to}
-                onChange={(e) => updateDeliveryDuration("to", onlyDigits(e.target.value))}
+                onChange={(e) =>
+                  updateDeliveryDuration("to", onlyDigits(e.target.value))
+                }
               />
             </div>
             <div className="form-group">
-              <label>Fee (₦) <span className="required">*</span></label>
+              <label>
+                Fee (₦) <span className="required">*</span>
+              </label>
               <input
                 type="text"
                 inputMode="numeric"
                 value={displayPrice(form.delivery.fee)}
-                onChange={(e) => updateDelivery("fee", onlyNumbers(e.target.value))}
+                onChange={(e) =>
+                  updateDelivery("fee", onlyNumbers(e.target.value))
+                }
               />
             </div>
             <div className="form-group full-width">
@@ -835,9 +900,7 @@ export default function AddProduct() {
             </label>
           )}
         </div>
-        {images.length > 0 && (
-          <small>{images.length}/6 images</small>
-        )}
+        {images.length > 0 && <small>{images.length}/6 images</small>}
       </section>
 
       {/* Promotion Plans */}
@@ -847,14 +910,16 @@ export default function AddProduct() {
           {promotionPlans.map((plan) => (
             <div
               key={plan.id}
-              className={`plan-card ${selectedPlan?.id === plan.id ? "selected" : ""}`}
+              className={`plan-card ${
+                selectedPlan?.id === plan.id ? "selected" : ""
+              }`}
               onClick={() => setSelectedPlan(plan)}
             >
               <div className="plan-header">
                 <strong>{plan.name}</strong>
                 <span className="plan-price">₦{displayPrice(plan.price)}</span>
               </div>
-              <div className="plan-duration">{plan.duration}</div>
+              <div className="plan-duration">{plan.duration || "Always"}</div>
               <ul className="plan-features">
                 {plan.features?.map((feat, i) => (
                   <li key={i}>{feat}</li>
