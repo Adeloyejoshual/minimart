@@ -1,4 +1,3 @@
-// src/components/AddProduct.jsx
 import { useEffect, useMemo, useState, useCallback, useRef } from "react";
 import DropdownModal from "../components/DropdownModal.jsx";
 import AddProductHeader from "../components/AddProductHeader.jsx";
@@ -110,7 +109,6 @@ export default function AddProduct() {
     setTimeout(() => setSuccess(""), 5000);
   }, []);
 
-  // 1. Load categories
   useEffect(() => {
     fetch("https://minimart-ivrm.onrender.com/api/marketplace/categories")
       .then((r) => {
@@ -128,7 +126,6 @@ export default function AddProduct() {
       });
   }, [showError]);
 
-  // 2. Clear payment retry on mount
   useEffect(() => {
     const savedPayment = localStorage.getItem(STORAGE_PAYMENT);
     if (savedPayment) {
@@ -136,7 +133,6 @@ export default function AddProduct() {
     }
   }, []);
 
-  // 3. Restore draft
   useEffect(() => {
     try {
       const saved = localStorage.getItem(STORAGE_DRAFT);
@@ -183,7 +179,6 @@ export default function AddProduct() {
     }
   }, [showSuccess]);
 
-  // 4. Auto‑save draft
   useEffect(() => {
     if (loading) return;
     const timeout = setTimeout(() => {
@@ -307,6 +302,19 @@ export default function AddProduct() {
     showSuccess("Draft cleared");
   }, [showSuccess]);
 
+  const compressImage = async (file) => {
+    try {
+      return await imageCompression(file, {
+        maxSizeMB: 1,
+        maxWidthOrHeight: 1280,
+        useWebWorker: true,
+      });
+    } catch (e) {
+      console.warn("Compression failed, using original:", e);
+      return file;
+    }
+  };
+
   const handleImages = useCallback(
     async (files) => {
       if (images.length >= MAX_IMAGES) {
@@ -336,19 +344,6 @@ export default function AddProduct() {
     },
     [images.length, showError, showSuccess]
   );
-
-  const compressImage = async (file) => {
-    try {
-      return await imageCompression(file, {
-        maxSizeMB: 1,
-        maxWidthOrHeight: 1280,
-        useWebWorker: true,
-      });
-    } catch (e) {
-      console.warn("Compression failed, using original:", e);
-      return file;
-    }
-  };
 
   const removeImage = useCallback((id) => {
     setImages((prev) => {
@@ -412,7 +407,6 @@ export default function AddProduct() {
   const states = Object.keys(locationsByState || {});
   const cities = state ? (locationsByState[state] || []) : [];
 
-  // 5. Create product with auth token
   const createProduct = async () => {
     const fd = new FormData();
     fd.append("title", form.title.trim());
@@ -449,15 +443,20 @@ export default function AddProduct() {
     );
 
     if (!res.ok) {
-      const data = await res.json().catch(() => ({}));
-      throw new Error(data.message || `HTTP ${res.status}`);
+      const text = await res.text().catch(() => "");
+      console.log("🔴 createProduct raw error:", text);
+      try {
+        const data = JSON.parse(text);
+        throw new Error(data.error || data.message || `HTTP ${res.status}`);
+      } catch {
+        throw new Error(`HTTP ${res.status}: ${text || "Unknown error"}`);
+      }
     }
 
-    const { product } = await res.json();
-    return product;
+    const data = await res.json();
+    return data.product;
   };
 
-  // 6. POST to /api/payment/initiate (paid plan)
   const initPayment = async (productId) => {
     const token = localStorage.getItem("token");
     if (!token) {
@@ -494,7 +493,6 @@ export default function AddProduct() {
     };
   };
 
-  // 7. POST /api/marketplace/products/:id/activate (free plan)
   const activateFreePlan = async (productId) => {
     const token = localStorage.getItem("token");
     if (!token) {
@@ -551,7 +549,7 @@ export default function AddProduct() {
       const paymentRes = await initPayment(product.id);
       const { reference, authUrl } = paymentRes;
 
-            const paymentSession = {
+      const paymentSession = {
         reference,
         authUrl,
         planId: finalPlan.id,
@@ -571,7 +569,6 @@ export default function AddProduct() {
       }
     } catch (err) {
       console.error("Submit error:", err);
-      // If product exists but payment failed, delete it only if not already active
       if (product?.id) {
         try {
           const token = localStorage.getItem("token");
@@ -599,7 +596,6 @@ export default function AddProduct() {
     }
   }, [form, images, state, city, selectedPlan, validateForm, loading, clearDraft]);
 
-  // 8. Optional: cleanup object URLs
   useEffect(() => {
     return () => {
       images.forEach((img) => {
@@ -612,7 +608,6 @@ export default function AddProduct() {
     <div className="add-product-container">
       <AddProductHeader title="Add Product" onClearDraft={clearDraft} />
 
-      {/* Basic Info */}
       <section className="section form-card">
         <h3 className="section-title">Basic Information</h3>
         <div className="form-group">
@@ -650,7 +645,6 @@ export default function AddProduct() {
         </div>
       </section>
 
-      {/* Category & Attributes */}
       <section className="section form-card">
         <h3 className="section-title">Product Details</h3>
         <div className="form-group">
@@ -669,7 +663,6 @@ export default function AddProduct() {
           />
         </div>
 
-        {/* Brand */}
         {optionsMap.brand.length > 0 && (
           <div className="form-group">
             <label>{formatLabel("brand")}</label>
@@ -681,7 +674,6 @@ export default function AddProduct() {
           </div>
         )}
 
-        {/* Model (only if brand chosen and models available) */}
         {modelOptions.length > 0 && (
           <div className="form-group">
             <label>{formatLabel("model")}</label>
@@ -693,7 +685,6 @@ export default function AddProduct() {
           </div>
         )}
 
-        {/* Dynamic fields from category fields */}
         {fields.map((field) => {
           if (field === "brand" || field === "model") return null;
 
@@ -715,7 +706,6 @@ export default function AddProduct() {
           );
         })}
 
-        {/* Features (if any) */}
         {optionsMap.features.length > 0 && (
           <div className="form-group">
             <label>Features</label>
@@ -738,7 +728,6 @@ export default function AddProduct() {
         )}
       </section>
 
-      {/* Contact */}
       <section className="section form-card">
         <h3 className="section-title">Contact Information</h3>
         <div className="form-group">
@@ -760,9 +749,7 @@ export default function AddProduct() {
             type="tel"
             placeholder="08012345678"
             value={form.contact.phone}
-            onChange={(e) =>
-              updateContact("phone", onlyDigits(e.target.value))
-            }
+            onChange={(e) => updateContact("phone", onlyDigits(e.target.value))}
           />
         </div>
         <div className="form-group">
@@ -791,7 +778,6 @@ export default function AddProduct() {
         </div>
       </section>
 
-      {/* Location & Delivery */}
       <section className="section form-card">
         <h3 className="section-title">Location & Delivery</h3>
         <div className="form-group">
@@ -822,9 +808,7 @@ export default function AddProduct() {
             <input
               type="checkbox"
               checked={form.delivery.available}
-              onChange={(e) =>
-                updateDelivery("available", e.target.checked)
-              }
+              onChange={(e) => updateDelivery("available", e.target.checked)}
             />
             <span className="slider"></span>
           </label>
@@ -884,7 +868,6 @@ export default function AddProduct() {
         )}
       </section>
 
-      {/* Images */}
       <section className="section form-card">
         <h3 className="section-title">Product Images</h3>
         <label className="form-group-label">
@@ -933,7 +916,6 @@ export default function AddProduct() {
         {images.length > 0 && <small>{images.length}/6 images</small>}
       </section>
 
-      {/* Promotion Plans */}
       <section className="section form-card">
         <h3 className="section-title">Promotion Plan (Optional)</h3>
         <div className="plans-grid">
@@ -960,7 +942,6 @@ export default function AddProduct() {
         </div>
       </section>
 
-      {/* Actions */}
       <div className="button-section section form-card">
         <button
           className="primary-btn"
