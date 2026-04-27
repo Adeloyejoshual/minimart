@@ -6,6 +6,7 @@ import dotenv from "dotenv";
 import axios from "axios";
 import crypto from "crypto";
 
+
 import { brands } from "../src/config/brands.js";
 import { colors } from "../src/config/colors.js";
 import { categoryFields } from "../src/config/categoryFields.js";
@@ -22,14 +23,12 @@ import { locationsByState } from "../src/config/locationsByState.js";
 import { promotionPlans } from "../src/config/promotions.js";
 import { fieldOptions } from "../src/config/fieldOptions.js";
 
+import { pool } from "../server.js";
+import { authenticate } from "../middleware/auth.js";
+
 dotenv.config();
 
 const router = express.Router();
-
-const pool = new Pool({
-  connectionString: process.env.COCKROACH_URI,
-  ssl: { rejectUnauthorized: false },
-});
 
 cloudinary.config({
   cloud_name: process.env.CLOUDINARY_CLOUD_NAME,
@@ -48,17 +47,19 @@ const upload = multer({
   },
 });
 
+// utils
 const safeJSON = (value, fallback = {}) => {
   try {
     return value ? JSON.parse(value) : fallback;
-  } catch {
+  } catch (err) {
+    console.warn("JSON parse failed:", err);
     return fallback;
   }
 };
 
 const parseDurationDays = (duration) => {
   if (!duration) return 0;
-  const match = String(duration).match(/(d+)d?/); // ✅ regex fix
+  const match = String(duration).match(/(d+)d?/);
   return match ? parseInt(match[1], 10) : 0;
 };
 
@@ -133,24 +134,25 @@ const generateUniqueSlug = async (client, title) => {
   let slug = baseSlug;
   let counter = 1;
 
-  while (await slugExists(client, slug)) {
+  const { rowCount } = await client.query(
+    "SELECT 1 FROM products WHERE slug = $1",
+    [slug]
+  );
+  while (rowCount > 0) {
     slug = `${baseSlug}-${counter++}`;
+    const { rowCount } = await client.query(
+      "SELECT 1 FROM products WHERE slug = $1",
+      [slug]
+    );
+    if (rowCount === 0) break;
   }
 
   return slug;
 };
 
-const slugExists = async (client, slug) => {
-  const { rowCount } = await client.query(
-    "SELECT 1 FROM products WHERE slug = $1",
-    [slug]
-  );
-  return rowCount > 0;
-};
-
-// -----------------------------
-// Paystack helpers
-// -----------------------------
+// ----------------
+// Paystack / payments
+// ----------------
 
 router.get("/payment/verify/:reference", async (req, res) => {
   try {
@@ -181,7 +183,7 @@ router.get("/payment/verify/:reference", async (req, res) => {
   }
 });
 
-router.post("/payments/initiate", async (req, res) => {
+router.post("/payments/initiate", authenticate, async (req, res) => {
   try {
     const { plan_id, product_id, email } = req.body;
     const plan = getPlan(plan_id);
@@ -190,8 +192,11 @@ router.post("/payments/initiate", async (req, res) => {
     if (plan.price === 0) {
       await pool.query(
         `UPDATE products
-         SET is_promoted = false, promotion_priority = 0, promotion_type = NULL,
-             promotion_start = NULL, promotion_end = NULL
+         SET is_promoted = false,
+             promotion_priority = 0,
+             promotion_type = NULL,
+             promotion_start = NULL,
+             promotion_end = NULL
          WHERE id = $1`,
         [product_id]
       );
@@ -222,18 +227,18 @@ router.post("/payments/initiate", async (req, res) => {
   }
 });
 
-router.post("/webhooks/paystack", async (req, res) => {
+router.post("/webhooks/paystack", express.raw({ type: "application/json" }), async (req, res) => {
   try {
     const hash = crypto
       .createHmac("sha512", process.env.PAYSTACK_SECRET_KEY)
-      .update(JSON.stringify(req.body))
+      .update(req.body)
       .digest("hex");
 
     if (hash !== req.headers["x-paystack-signature"]) {
       return res.sendStatus(401);
     }
 
-    const event = req.body;
+    const event = JSON.parse(req.body);
     if (event.event !== "charge.success") return res.sendStatus(200);
 
     const data = event.data;
@@ -263,10 +268,7 @@ router.post("/webhooks/paystack", async (req, res) => {
       [plan.id, plan.boostScore, start, end, payment.product_id]
     );
 
-    await pool.query(
-      "UPDATE payments SET status = 'success' WHERE reference = $1",
-      [data.reference]
-    );
+    await pool.query("UPDATE payments SET status = 'success' WHERE reference = $1", [data.reference]);
     res.sendStatus(200);
   } catch (err) {
     console.error("Paystack webhook failed:", err);
@@ -274,21 +276,23 @@ router.post("/webhooks/paystack", async (req, res) => {
   }
 });
 
-// -----------------------------
-// Public product listing
-// -----------------------------
+// ----------------
+// Products list (just for homepage / feed)
+// ----------------
 
 router.get("/products", async (req, res) => {
   try {
-    let { skip = 0, limit = 20 } = req.query;
-    skip = Math.max(+skip || 0, 0);
-    limit = Math.min(+limit || 20, 50);
+    const { skip = 0, limit = 20 } = req.query;
+    const offset = Math.max(+skip || 0, 0);
+    const take = Math.min(+limit || 20, 50);
 
     const baseQuery = `
-      SELECT p.*, COALESCE(
-        json_agg(pi.image_url ORDER BY pi.position) FILTER (WHERE pi.image_url IS NOT NULL),
-        '[]'
-      ) AS images
+      SELECT
+        p.*,
+        COALESCE(
+          json_agg(pi.image_url ORDER BY pi.position) FILTER (WHERE pi.image_url IS NOT NULL),
+          '[]'
+        ) AS images
       FROM products p
       LEFT JOIN product_images pi ON p.id = pi.product_id
       WHERE p.is_active = true
@@ -301,7 +305,7 @@ router.get("/products", async (req, res) => {
         `${baseQuery}
          ORDER BY p.is_promoted DESC, COALESCE(p.promotion_priority, 0) DESC, p.created_at DESC
          OFFSET $1 LIMIT $2`,
-        [skip, limit]
+        [offset, take]
       ),
     ]);
 
@@ -318,163 +322,9 @@ router.get("/products", async (req, res) => {
   }
 });
 
-// -----------------------------
-// Protected product creation (seller only)
-// -----------------------------
-
-router.post(
-  "/products",
-  upload.array("images", 10),
-  async (req, res) => {
-    const client = await pool.connect();
-    try {
-      await client.query("BEGIN");
-
-      const { title, price, category_id } = req.body;
-      if (!title || !price || !category_id) {
-        return res.status(400).json({ message: "Missing required fields" });
-      }
-
-      // ✅ MUST come from auth middleware
-      const sellerId = req.user?.id;
-      if (!sellerId) {
-        return res.status(401).json({ message: "Unauthorized: missing seller_id" });
-      }
-
-      const attributes = safeJSON(req.body.attributes);
-      const delivery = normalizeDelivery(safeJSON(req.body.delivery, {}));
-
-      const { rows } = await client.query(
-        `INSERT INTO products (
-          title,
-          description,
-          price,
-          category_id,
-          subcategory_id,
-          attributes,
-          delivery,
-          contact,
-          location_state,
-          location_city,
-          seller_id,
-          created_at,
-          updated_at,
-          status,
-          is_active
-        )
-        VALUES (
-          $1, $2, $3, $4, $5,
-          $6, $7, $8,
-          $9, $10,
-          $11,
-          NOW(), NOW(),
-          'active',
-          true
-        )
-        RETURNING *`,
-        [
-          title,
-          req.body.description || "",
-          price,
-          category_id,
-          req.body.subcategory_id || null,
-          JSON.stringify(attributes),
-          JSON.stringify(delivery),
-          JSON.stringify(safeJSON(req.body.contact)),
-          req.body.location_state,
-          req.body.location_city,
-          sellerId,
-        ]
-      );
-
-      const product = rows[0];
-      const slug = await generateUniqueSlug(client, title);
-      await client.query("UPDATE products SET slug = $1 WHERE id = $2", [slug, product.id]);
-
-      const cloudImages = await uploadImages(req.files);
-      for (let i = 0; i < cloudImages.length; i++) {
-        const { url } = cloudImages[i];
-        await client.query(
-          `INSERT INTO product_images (product_id, image_url, position_order)
-           VALUES ($1, $2, $3)`,
-          [product.id, url, i]
-        );
-      }
-
-      await client.query("COMMIT");
-      res.status(201).json({ product: normalizeProduct({ ...product, slug }) });
-    } catch (err) {
-      await client.query("ROLLBACK");
-      console.error("Failed to create product:", err);
-      res.status(500).json({ message: "Failed to create product" });
-    } finally {
-      client.release();
-    }
-  }
-);
-
-// -----------------------------
-// Seller profile / stats
-// -----------------------------
-
-router.get("/seller/:id", async (req, res) => {
-  const { id } = req.params;
-  try {
-    const { rows } = await pool.query(
-      `SELECT
-         u.*,
-         COALESCE(p_stats.product_count, 0) AS products_count,
-         COALESCE(r_stats.avg_rating, 0) AS avg_rating
-       FROM users u
-       LEFT JOIN (
-         SELECT seller_id, COUNT(*) AS product_count
-         FROM products
-         WHERE is_active = true AND status = 'active'
-         GROUP BY seller_id
-       ) p_stats ON p_stats.seller_id = u.id
-       LEFT JOIN (
-         SELECT target_user_id AS seller_id, AVG(rating) AS avg_rating
-         FROM reviews
-         GROUP BY target_user_id
-       ) r_stats ON r_stats.seller_id = u.id
-       WHERE u.id = $1
-       LIMIT 1`,
-      [id]
-    );
-
-    if (rows.length === 0) {
-      return res.status(404).json({ message: "Seller not found" });
-    }
-
-    res.json(rows[0]);
-  } catch (err) {
-    console.error("Failed to fetch seller:", err);
-    res.status(500).json({ message: "Failed to fetch seller" });
-  }
-});
-
-router.get("/seller/products/:sellerId", async (req, res) => {
-  const { sellerId } = req.params;
-  try {
-    const result = await pool.query(
-      `SELECT p.*
-       FROM products p
-       WHERE p.seller_id = $1 AND p.is_active = true AND p.status = 'active'
-       ORDER BY p.created_at DESC`,
-      [sellerId]
-    );
-
-    const products = result.rows.map(normalizeProduct);
-    res.json({ products });
-  } catch (err) {
-    console.error("Failed to fetch seller products:", err);
-    res.status(500).json({ message: "Failed to fetch seller products" });
-  }
-});
-
-// -----------------------------
-// Categories
-// -----------------------------
+// ----------------
+// CATEGORIES (for AddProduct.jsx dropdown)
+// ----------------
 
 router.get("/categories", async (req, res) => {
   try {
@@ -530,5 +380,101 @@ router.get("/categories", async (req, res) => {
     res.status(500).json({ message: "Failed to fetch categories" });
   }
 });
+
+// ----------------
+// ADD PRODUCT (core for AddProduct.jsx)
+// ----------------
+
+router.post(
+  "/products",
+  authenticate,
+  upload.array("images", 10),
+  async (req, res) => {
+    const client = await pool.connect();
+    try {
+      await client.query("BEGIN");
+
+      const { title, price, category_id } = req.body;
+      if (!title || !price || !category_id) {
+        return res.status(400).json({ message: "Missing required fields" });
+      }
+
+      const attributes = safeJSON(req.body.attributes);
+      const delivery = normalizeDelivery(safeJSON(req.body.delivery, {}));
+      const contact = safeJSON(req.body.contact);
+
+      const sellerId = req.user?.id;
+      if (!sellerId) {
+        return res.status(401).json({ message: "Unauthorized: missing seller_id" });
+      }
+
+      const { rows } = await client.query(
+        `INSERT INTO products (
+          title,
+          description,
+          price,
+          category_id,
+          subcategory_id,
+          attributes,
+          delivery,
+          contact,
+          location_state,
+          location_city,
+          seller_id,
+          created_at,
+          updated_at,
+          status,
+          is_active
+        )
+        VALUES (
+          $1, $2, $3, $4, $5,
+          $6, $7, $8,
+          $9, $10,
+          $11,
+          NOW(), NOW(),
+          'active',
+          true
+        )
+        RETURNING *`,
+        [
+          title,
+          req.body.description || "",
+          price,
+          category_id,
+          req.body.subcategory_id || null,
+          JSON.stringify(attributes),
+          JSON.stringify(delivery),
+          JSON.stringify(contact),
+          req.body.location_state,
+          req.body.location_city,
+          sellerId,
+        ]
+      );
+
+      const product = rows[0];
+      const slug = await generateUniqueSlug(client, title);
+      await client.query("UPDATE products SET slug = $1 WHERE id = $2", [slug, product.id]);
+
+      const cloudImages = await uploadImages(req.files);
+      for (let i = 0; i < cloudImages.length; i++) {
+        const { url } = cloudImages[i];
+        await client.query(
+          `INSERT INTO product_images (product_id, image_url, position_order)
+           VALUES ($1, $2, $3)`,
+          [product.id, url, i]
+        );
+      }
+
+      await client.query("COMMIT");
+      res.status(201).json({ product: normalizeProduct({ ...product, slug }) });
+    } catch (err) {
+      await client.query("ROLLBACK");
+      console.error("Failed to create product:", err);
+      res.status(500).json({ message: "Failed to create product" });
+    } finally {
+      client.release();
+    }
+  }
+);
 
 export default router;
