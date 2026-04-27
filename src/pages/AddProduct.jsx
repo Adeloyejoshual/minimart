@@ -319,7 +319,7 @@ export default function AddProduct() {
         .filter((f) => f.type.startsWith("image/") && f.size <= MAX_SIZE)
         .slice(0, remaining);
 
-      Promise.all(validFiles.map(compressImage))
+      Promise.all(validFiles.map((file) => compressImage(file)))
         .then((compressed) => {
           const newImages = compressed.map((file) => ({
             id: `${Date.now()}-${Math.random().toString(36).slice(2)}`,
@@ -372,7 +372,6 @@ export default function AddProduct() {
     setDragIndex(null);
   }, [dragIndex]);
 
-  // ✅ CATEGORY‑SPECIFIC FIELDS
   const fields = useMemo(() => {
     const backendFields = Array.isArray(options.fields) ? options.fields : [];
     const categoryName = selectedCategory?.name;
@@ -413,7 +412,7 @@ export default function AddProduct() {
   const states = Object.keys(locationsByState || {});
   const cities = state ? (locationsByState[state] || []) : [];
 
-  // 5. Create product (no payment when free plan)
+  // 5. Create product with auth token
   const createProduct = async () => {
     const fd = new FormData();
     fd.append("title", form.title.trim());
@@ -429,13 +428,24 @@ export default function AddProduct() {
 
     const imageFiles = images.map((img) => img.file);
     const compressedFiles = await Promise.all(
-      imageFiles.map(compressImage)
+      imageFiles.map((file) => compressImage(file))
     );
     compressedFiles.forEach((file) => fd.append("images", file));
 
+    const token = localStorage.getItem("token");
+    if (!token) {
+      throw new Error("No authentication token; please log in again");
+    }
+
     const res = await fetch(
       "https://minimart-ivrm.onrender.com/api/marketplace/products",
-      { method: "POST", body: fd }
+      {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${token}`,
+        },
+        body: fd,
+      }
     );
 
     if (!res.ok) {
@@ -449,9 +459,14 @@ export default function AddProduct() {
 
   // 6. POST to /api/payment/initiate (paid plan)
   const initPayment = async (productId) => {
+    const token = localStorage.getItem("token");
+    if (!token) {
+      throw new Error("No token; please log in before paying");
+    }
+
     const payload = {
       email: form.contact.email,
-      amount: Number(form.price), // Naira (backend converts to kobo)
+      amount: Number(form.price),
       plan_id: selectedPlan.id,
       product_id: productId,
     };
@@ -460,7 +475,10 @@ export default function AddProduct() {
       "https://minimart-ivrm.onrender.com/api/payment/initiate",
       {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${token}`,
+        },
         body: JSON.stringify(payload),
       }
     );
@@ -478,11 +496,19 @@ export default function AddProduct() {
 
   // 7. POST /api/marketplace/products/:id/activate (free plan)
   const activateFreePlan = async (productId) => {
+    const token = localStorage.getItem("token");
+    if (!token) {
+      throw new Error("No token; please log in before activating");
+    }
+
     const res = await fetch(
       `https://minimart-ivrm.onrender.com/api/marketplace/products/${productId}/activate`,
       {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${token}`,
+        },
         body: JSON.stringify({ promotion_id: selectedPlan?.id || null }),
       }
     );
@@ -512,11 +538,9 @@ export default function AddProduct() {
     let product = null;
 
     try {
-      // 1. Create product
       product = await createProduct();
       if (!product?.id) throw new Error("Failed to create product");
 
-      // 2. FREE PLAN → activate directly
       if (finalPlan.price === 0) {
         await activateFreePlan(product.id);
         clearDraft();
@@ -524,11 +548,10 @@ export default function AddProduct() {
         return;
       }
 
-      // 3. PAID PLAN → init payment
       const paymentRes = await initPayment(product.id);
       const { reference, authUrl } = paymentRes;
 
-      const paymentSession = {
+            const paymentSession = {
         reference,
         authUrl,
         planId: finalPlan.id,
@@ -541,7 +564,7 @@ export default function AddProduct() {
       localStorage.setItem(STORAGE_PAYMENT, JSON.stringify(paymentSession));
       setPaymentData(paymentSession);
 
-            showSuccess("💳 Redirecting to payment...");
+      showSuccess("💳 Redirecting to payment...");
       const win = window.open(authUrl, "_blank");
       if (!win || win.closed) {
         showError("Popup blocked; allow popups and try again");
@@ -551,12 +574,19 @@ export default function AddProduct() {
       // If product exists but payment failed, delete it only if not already active
       if (product?.id) {
         try {
+          const token = localStorage.getItem("token");
           const res = await fetch(
             `https://minimart-ivrm.onrender.com/api/marketplace/products/${product.id}`,
-            { method: "DELETE" }
+            {
+              method: "DELETE",
+              headers: {
+                Authorization: token ? `Bearer ${token}` : "",
+              },
+            }
           );
           if (!res.ok) {
-            console.warn("Failed to cleanup product:", await res.text());
+            const text = await res.text();
+            console.warn("Failed to cleanup product:", text);
           }
         } catch (cleanupErr) {
           console.warn("Cleanup failed:", cleanupErr);
@@ -975,3 +1005,5 @@ export default function AddProduct() {
     </div>
   );
 }
+
+export default AddProduct;
