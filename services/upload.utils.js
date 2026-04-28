@@ -1,5 +1,3 @@
-// upload.utils.js
-import fs from "fs/promises";
 import { v2 as cloudinary } from "cloudinary";
 
 export const uploadOne = async (filePath) => {
@@ -13,6 +11,8 @@ export const uploadOne = async (filePath) => {
     ],
   });
 
-  await fs.unlink(filePath).catch(() => {});
-  return { url: result.secure_url, public_id: result.public_id };
+  return {
+    url: result.secure_url,
+    public_id: result.public_id,
+  };
 };
