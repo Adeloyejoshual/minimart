@@ -1,33 +1,15 @@
-// src/utils/slug.js
-import { pool } from "../config/db.js";
+// utils/slug.js
 
-const generateBaseSlug = (text) =>
+export const generateBaseSlug = (text) =>
   text
     .toLowerCase()
     .trim()
-    .replace(/[^a-z0-9s-]/g, "")
-    .replace(/s+/g, "-")
-    .replace(/-+/g, "-")
-    .replace(/^-+|-+$/g, "")
-    .substring(0, 80);
+    .replace(/[^a-z0-9\s-]/g, "")   // keep letters, numbers, space, hyphen
+    .replace(/\s+/g, "-")           // spaces → hyphen
+    .replace(/-+/g, "-")            // remove duplicate hyphens
+    .replace(/^-+|-+$/g, "")        // trim hyphens
+    .substring(0, 70);              // limit length
 
-const generateUniqueSlug = async (title) => {
-  const base = generateBaseSlug(title);
-
-  let slug = base;
-  let counter = 1;
-
-  while (true) {
-    const { rowCount } = await pool.query(
-      "SELECT 1 FROM products WHERE slug = $1",
-      [slug]
-    );
-    if (rowCount === 0) break;
-
-    slug = `${base}-${counter++}`;
-  }
-
-  return slug;
+export const generateSlugWithId = (title, id) => {
+  return `${generateBaseSlug(title)}-${id}`;
 };
-
-export { generateBaseSlug, generateUniqueSlug }; // named exports
