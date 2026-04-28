@@ -23,7 +23,7 @@ import {
   fuelTypes,
   locationsByState,
   promotionPlans,
-} from "../src/config/index.js";
+} from "../config/index.js";
 
 dotenv.config();
 
