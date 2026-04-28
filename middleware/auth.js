@@ -1,12 +1,7 @@
-// middleware/auth.js
 import jwt from "jsonwebtoken";
 
 const JWT_SECRET = process.env.JWT_SECRET || "supersecretkey";
 
-/**
- * Middleware to authenticate requests using JWT.
- * Attaches decoded user info to req.user
- */
 export const authenticate = (req, res, next) => {
   try {
     const authHeader = req.headers.authorization;
@@ -16,13 +11,9 @@ export const authenticate = (req, res, next) => {
     }
 
     const token = authHeader.split(" ")[1];
-
-    // Verify token
     const decoded = jwt.verify(token, JWT_SECRET);
 
-    // Attach user info to request
-    req.user = decoded; // decoded usually contains { id, email, name }
-
+    req.user = decoded;
     next();
   } catch (err) {
     console.error("Authentication error:", err.message);
