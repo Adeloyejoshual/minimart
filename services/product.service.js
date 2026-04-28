@@ -1,7 +1,7 @@
 // services/product.service.js
 import fs from "fs/promises";
 import multer from "multer";
-import { uploadOne } from "./upload.utils.js"; // defined below
+import { uploadOne } from "./upload.utils.js"; // keep using this
 
 import { pool } from "../config/db.js";
 import { brands, colors, categoryFields, conditions, usedDetails, featuresByCategory, models, ramOptions, sims, storageOptions, years, engines, fuelTypes, locationsByState, promotionPlans } from "../src/config/index.js";
@@ -297,19 +297,3 @@ export const incrementViews = (id) => {
     .catch(() => {});
 };
 
-// --- helpers (could live in a separate utils file too) ---
-export const uploadOne = async (filePath) => {
-  const { v2 as cloudinary } = await import("cloudinary");
-  const result = await cloudinary.uploader.upload(filePath, {
-    folder: "products",
-    resource_type: "image",
-    transformation: [
-      { width: 1200, height: 1200, crop: "limit" },
-      { quality: "auto" },
-      { fetch_format: "auto" },
-    ],
-  });
-
-  await fs.unlink(filePath).catch(() => {});
-  return { url: result.secure_url, public_id: result.public_id };
-};
