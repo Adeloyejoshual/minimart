@@ -14,18 +14,13 @@ import { normalizeProduct } from "../utils/normalizeProduct.js";
 /* ===================== GET PRODUCTS ===================== */
 export const getProductsHandler = async (req, res) => {
   try {
-    const {
-      skip = 0,
-      limit = 20,
-      state,
-      category_id,
-    } = req.query;
+    const { skip = 0, limit = 20, state, category_id } = req.query;
 
     const result = await getProducts(
       Number(skip),
       Number(limit),
-      state,
-      category_id ? Number(category_id) : null
+      state || null,
+      category_id || null
     );
 
     return res.json(result);
@@ -71,8 +66,8 @@ export const getProductHandler = async (req, res) => {
     }
 
     // fire-and-forget view increment
-    incrementViews(id).catch((e) =>
-      console.error("incrementViews error:", e)
+    incrementViews(id).catch((err) =>
+      console.error("incrementViews error:", err)
     );
 
     return res.json(
@@ -97,8 +92,8 @@ export const getProductByIdHandler = async (req, res) => {
       return res.status(404).json({ message: "Product not found" });
     }
 
-    incrementViews(id).catch((e) =>
-      console.error("incrementViews error:", e)
+    incrementViews(id).catch((err) =>
+      console.error("incrementViews error:", err)
     );
 
     return res.json(normalizeProduct(product));
@@ -147,55 +142,26 @@ export const createProductHandler = async (req, res) => {
       return res.status(400).json({ message: "Category required" });
     }
 
-    if (!req.files || req.files.length === 0) {
+    if (!req.files?.length) {
       return res.status(400).json({
         message: "At least one image required",
       });
     }
 
-    /* ===================== TYPE FIXING ===================== */
-    price = Number(price);
-    category_id = Number(category_id);
-    subcategory_id = subcategory_id ? Number(subcategory_id) : null;
-
-    if (typeof attributes === "string") {
-      try {
-        attributes = JSON.parse(attributes);
-      } catch {
-        attributes = {};
-      }
-    }
-
-    if (typeof delivery === "string") {
-      try {
-        delivery = JSON.parse(delivery);
-      } catch {
-        delivery = {};
-      }
-    }
-
-    if (typeof contact === "string") {
-      try {
-        contact = JSON.parse(contact);
-      } catch {
-        contact = {};
-      }
-    }
-
     /* ===================== CREATE PRODUCT ===================== */
     const product = await createProduct({
       title,
-      price,
-      category_id,
+      price: Number(price),
+      category_id,       // ✅ KEEP UUID AS STRING
+      subcategory_id,    // ✅ KEEP UUID AS STRING
       attributes,
       delivery,
       contact,
       description,
-      subcategory_id,
       location_state,
       location_city,
       imagesFiles: req.files,
-      seller_id: sellerId, // 🔥 CRITICAL FIX
+      seller_id: sellerId,
     });
 
     return res.status(201).json({
@@ -205,11 +171,10 @@ export const createProductHandler = async (req, res) => {
   } catch (err) {
     console.error("POST /products error:", err);
 
-    // Better error exposure for debugging
     return res.status(500).json({
       message: err.message || "Failed to create product",
-      code: err.code,
-      detail: err.detail,
+      code: err.code || null,
+      detail: err.detail || null,
     });
   }
 };
