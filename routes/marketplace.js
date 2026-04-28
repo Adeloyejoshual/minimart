@@ -1,7 +1,9 @@
 // routes/marketplace.js
 import express from "express";
 import authenticate from "../middleware/auth.js";
-import { upload } from "../utils/multer.js"; // or inline multer config
+import { upload } from "../utils/multer.js";
+
+import { v2 as cloudinary } from "cloudinary"; // ✅ top‑level import
 
 import {
   getProductsHandler,
@@ -12,11 +14,9 @@ import {
 
 const router = express.Router();
 
-// Cloudinary signature (leave here or move to its own route file)
+// Cloudinary signature
 router.get("/cloudinary-signature", (req, res) => {
   try {
-    const { cloudinary } = await import("cloudinary");
-
     const timestamp = Math.round(Date.now() / 1000);
     const signature = cloudinary.utils.api_sign_request(
       {
@@ -45,7 +45,7 @@ router.get("/cloudinary-signature", (req, res) => {
 
 // --- Product routes ---
 router.get("/products", getProductsHandler);
-router.get("/product/:slug", getProductHandler);          // SEO slug route
+router.get("/product/:slug", getProductHandler); // SEO slug route
 router.get("/products/:id", getProductByIdHandler);
 router.post("/products", authenticate, upload.array("images", 6), createProductHandler);
 
