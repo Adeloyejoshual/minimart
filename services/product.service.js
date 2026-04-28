@@ -243,4 +243,57 @@ export const createProduct = async ({
     ]);
 
     if (imagesFiles && imagesFiles.length > 0) {
-      for (let i = 0; i < imagesFiles.length; i+
+      for (let i = 0; i < imagesFiles.length; i++) {
+        const file = imagesFiles[i];
+        const uploaded = await uploadOne(file.path);
+        await client.query(
+          `INSERT INTO product_images (product_id, image_url, position)
+           VALUES ($1, $2, $3)`,
+          [productId, uploaded.url, i]
+        );
+      }
+    }
+
+    await client.query("COMMIT");
+
+    const fullRows = await pool.query(
+      `
+        SELECT p.*,
+          COALESCE(
+            json_agg(pi.image_url ORDER BY pi.position)
+            FILTER (WHERE pi.image_url IS NOT NULL),
+            '[]'
+          ) AS images
+        FROM products p
+        LEFT JOIN product_images pi ON p.id = pi.product_id
+        WHERE p.id = $1
+        GROUP BY p.id
+      `,
+      [productId]
+    );
+
+    return normalizeProduct(fullRows.rows[0]);
+  } catch (err) {
+    await client.query("ROLLBACK").catch(() => {});
+    if (err.code === "23503") {
+      err.code = "INVALID_CATEGORY_OR_PROMOTION";
+    }
+    if (err.code === "23502") {
+      err.code = "MISSING_REQUIRED_FIELDS";
+    }
+    if (
+      err.code === "23505" &&
+      err.constraint?.includes("slug")
+    ) {
+      err.code = "SLUG_CONFLICT";
+    }
+    throw err;
+  } finally {
+    client.release();
+  }
+};
+
+export const incrementViews = (id) => {
+  pool.query("UPDATE products SET views = COALESCE(views, 0) + 1 WHERE id = $1", [id])
+    .catch(() => {});
+};
