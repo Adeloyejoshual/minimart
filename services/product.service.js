@@ -1,11 +1,22 @@
-// services/product.service.js
+// src/services/product.service.js
 import fs from "fs/promises";
-import multer from "multer";
-import { uploadOne } from "./upload.utils.js"; // defined below
+import { v2 as cloudinary } from "cloudinary";
 
 import { pool } from "../config/db.js";
 import { brands, colors, categoryFields, conditions, usedDetails, featuresByCategory, models, ramOptions, sims, storageOptions, years, engines, fuelTypes, locationsByState, promotionPlans } from "../src/config/index.js";
 import { generateBaseSlug, generateSlugWithId } from "../utils/slug.js";
+import { uploadOne } from "./upload.utils.js";
+
+// --- Internal helpers (no route logic) ---
+const safeJSON = (value, fallback = {}) => {
+  try {
+    if (value == null || value === "") return fallback;
+    if (typeof value === "object") return value;
+    return JSON.parse(value);
+  } catch {
+    return fallback;
+  }
+};
 
 const normalizeDelivery = (d = {}) => ({
   available: d?.available ?? false,
@@ -17,16 +28,6 @@ const normalizeDelivery = (d = {}) => ({
   type: d?.type || "optional",
   note: d?.note || "",
 });
-
-const safeJSON = (value, fallback = {}) => {
-  try {
-    if (value == null || value === "") return fallback;
-    if (typeof value === "object") return value;
-    return JSON.parse(value);
-  } catch {
-    return fallback;
-  }
-};
 
 const normalizeProduct = (p) => ({
   ...p,
@@ -69,24 +70,7 @@ const buildSearchText = (title = "", description = "", categoryName = "", attrs 
     .filter(Boolean)
     .join(" ");
 
-// --- DB helpers (no route logic here) ---
-export const getProductById = async (id) => {
-  const { rows } = await pool.query(
-    `SELECT p.*,
-      COALESCE(
-        json_agg(pi.image_url ORDER BY pi.position)
-          FILTER (WHERE pi.image_url IS NOT NULL),
-        '[]'
-      ) AS images
-     FROM products p
-     LEFT JOIN product_images pi ON p.id = pi.product_id
-     WHERE p.id = $1 AND p.is_active = true AND p.status = 'active'
-     GROUP BY p.id`,
-    [id]
-  );
-
-  return rows[0];
-};
+// --- Core service methods ---
 
 export const getProducts = async (skip = 0, limit = 20, state, category_id) => {
   const offset = Math.max(+skip || 0, 0);
@@ -151,6 +135,24 @@ export const getProducts = async (skip = 0, limit = 20, state, category_id) => {
   };
 };
 
+export const getProductById = async (id) => {
+  const { rows } = await pool.query(
+    `SELECT p.*,
+      COALESCE(
+        json_agg(pi.image_url ORDER BY pi.position)
+          FILTER (WHERE pi.image_url IS NOT NULL),
+        '[]'
+      ) AS images
+     FROM products p
+     LEFT JOIN product_images pi ON p.id = pi.product_id
+     WHERE p.id = $1 AND p.is_active = true AND p.status = 'active'
+     GROUP BY p.id`,
+    [id]
+  );
+
+  return normalizeProduct(rows[0] || null);
+};
+
 export const createProduct = async ({
   title,
   price,
@@ -164,6 +166,7 @@ export const createProduct = async ({
   location_state,
   location_city,
   imagesFiles,
+  sellerId,
 }) => {
   const client = await pool.connect();
 
@@ -183,9 +186,7 @@ export const createProduct = async ({
         parsedDelivery.available &&
         parsedDelivery.duration.from >= parsedDelivery.duration.to
       ) {
-        throw new Error(
-          "'To' days must be greater than 'From' days"
-        );
+        throw new Error("'To' days must be greater than 'From' days");
       }
 
       return { parsedAttributes, parsedDelivery, parsedContact };
@@ -222,7 +223,7 @@ export const createProduct = async ({
         parseFloat(price),
         category_id,
         subcategory_id || null,
-        req.user?.id,
+        sellerId,
         parsedAttributes,
         parsedDelivery,
         parsedContact,
@@ -242,74 +243,4 @@ export const createProduct = async ({
     ]);
 
     if (imagesFiles && imagesFiles.length > 0) {
-      for (let i = 0; i < imagesFiles.length; i++) {
-        const file = imagesFiles[i];
-        const uploaded = await uploadOne(file.path);
-        await client.query(
-          `INSERT INTO product_images (product_id, image_url, position)
-           VALUES ($1, $2, $3)`,
-          [productId, uploaded.url, i]
-        );
-      }
-    }
-
-    await client.query("COMMIT");
-
-    const fullRows = await pool.query(
-      `
-        SELECT p.*,
-          COALESCE(
-            json_agg(pi.image_url ORDER BY pi.position)
-            FILTER (WHERE pi.image_url IS NOT NULL),
-            '[]'
-          ) AS images
-        FROM products p
-        LEFT JOIN product_images pi ON p.id = pi.product_id
-        WHERE p.id = $1
-        GROUP BY p.id
-      `,
-      [productId]
-    );
-
-    return normalizeProduct(fullRows.rows[0]);
-  } catch (err) {
-    await client.query("ROLLBACK").catch(() => {});
-    if (err.code === "23503") {
-      err.code = "INVALID_CATEGORY_OR_PROMOTION";
-    }
-    if (err.code === "23502") {
-      err.code = "MISSING_REQUIRED_FIELDS";
-    }
-    if (
-      err.code === "23505" &&
-      err.constraint?.includes("slug")
-    ) {
-      err.code = "SLUG_CONFLICT";
-    }
-    throw err;
-  } finally {
-    client.release();
-  }
-};
-
-export const incrementViews = (id) => {
-  pool.query("UPDATE products SET views = COALESCE(views, 0) + 1 WHERE id = $1", [id])
-    .catch(() => {});
-};
-
-// --- helpers (could live in a separate utils file too) ---
-export const uploadOne = async (filePath) => {
-  const { v2 as cloudinary } = await import("cloudinary");
-  const result = await cloudinary.uploader.upload(filePath, {
-    folder: "products",
-    resource_type: "image",
-    transformation: [
-      { width: 1200, height: 1200, crop: "limit" },
-      { quality: "auto" },
-      { fetch_format: "auto" },
-    ],
-  });
-
-  await fs.unlink(filePath).catch(() => {});
-  return { url: result.secure_url, public_id: result.public_id };
-};
+      for (let i = 0; i < imagesFiles.length; i+
