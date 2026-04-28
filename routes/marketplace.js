@@ -3,9 +3,9 @@ import { Pool } from "pg";
 import { v2 as cloudinary } from "cloudinary";
 import multer from "multer";
 import fs from "fs/promises";
-import path from "path";
 import dotenv from "dotenv";
 
+import authenticate from "../middleware/auth.js";
 import { brands } from "../src/config/brands.js";
 import { colors } from "../src/config/colors.js";
 import { categoryFields } from "../src/config/categoryFields.js";
@@ -78,8 +78,8 @@ const normalizeProduct = (p) => ({
   promotion: promotionPlans.find((x) => x.id === p.promotion_id) || null,
 });
 
-const buildSearchVector = (title = "", description = "", categoryName = "", attrs = {}) => {
-  const parts = [
+const buildSearchText = (title = "", description = "", categoryName = "", attrs = {}) =>
+  [
     title,
     description,
     categoryName,
@@ -105,12 +105,10 @@ const buildSearchVector = (title = "", description = "", categoryName = "", attr
     .filter(Boolean)
     .join(" ");
 
-  return parts;
-};
-
-const uploadOneToCloudinary = async (filePath) => {
+const uploadOne = async (filePath) => {
   const result = await cloudinary.uploader.upload(filePath, {
     folder: "products",
+    resource_type: "image",
     transformation: [
       { width: 1200, height: 1200, crop: "limit" },
       { quality: "auto" },
@@ -119,16 +117,12 @@ const uploadOneToCloudinary = async (filePath) => {
   });
 
   await fs.unlink(filePath).catch(() => {});
-  return {
-    url: result.secure_url,
-    public_id: result.public_id,
-  };
+  return { url: result.secure_url, public_id: result.public_id };
 };
 
 router.get("/cloudinary-signature", (req, res) => {
   try {
     const timestamp = Math.round(Date.now() / 1000);
-
     const signature = cloudinary.utils.api_sign_request(
       {
         timestamp,
@@ -157,6 +151,7 @@ router.get("/cloudinary-signature", (req, res) => {
 router.get("/products", async (req, res) => {
   try {
     const { skip = 0, limit = 20, state, category_id } = req.query;
+
     const offset = Math.max(+skip || 0, 0);
     const take = Math.min(+limit || 20, 50);
 
@@ -247,10 +242,9 @@ router.get("/products/:id", async (req, res) => {
       return res.status(404).json({ message: "Product not found" });
     }
 
-    pool.query(
-      "UPDATE products SET views = COALESCE(views, 0) + 1 WHERE id = $1",
-      [id]
-    ).catch(console.error);
+    pool
+      .query("UPDATE products SET views = COALESCE(views, 0) + 1 WHERE id = $1", [id])
+      .catch(console.error);
 
     res.json(normalizeProduct(rows[0]));
   } catch (err) {
@@ -259,11 +253,16 @@ router.get("/products/:id", async (req, res) => {
   }
 });
 
-router.post("/products", upload.array("images", 6), async (req, res) => {
+router.post("/products", authenticate, upload.array("images", 6), async (req, res) => {
   const client = await pool.connect();
 
   try {
     await client.query("BEGIN");
+
+    const sellerId = req.user?.id;
+    if (!sellerId) {
+      return res.status(401).json({ message: "Unauthorized: missing seller_id" });
+    }
 
     const {
       title,
@@ -279,15 +278,11 @@ router.post("/products", upload.array("images", 6), async (req, res) => {
       location_city,
     } = req.body;
 
-    if (!title?.trim()) {
-      return res.status(400).json({ message: "Title required" });
-    }
+    if (!title?.trim()) return res.status(400).json({ message: "Title required" });
     if (!price || isNaN(price) || +price <= 0) {
       return res.status(400).json({ message: "Valid price required" });
     }
-    if (!category_id) {
-      return res.status(400).json({ message: "Category required" });
-    }
+    if (!category_id) return res.status(400).json({ message: "Category required" });
     if (!req.files || req.files.length === 0) {
       return res.status(400).json({ message: "At least one image required" });
     }
@@ -311,7 +306,7 @@ router.post("/products", upload.array("images", 6), async (req, res) => {
     );
     const categoryName = categoryRes.rows[0]?.name || "";
 
-    const searchText = buildSearchVector(
+    const searchText = buildSearchText(
       title.trim(),
       description?.trim() || "",
       categoryName,
@@ -322,10 +317,10 @@ router.post("/products", upload.array("images", 6), async (req, res) => {
       `
         INSERT INTO products (
           title, description, price, category_id, subcategory_id,
-          attributes, delivery, contact, promotion_id,
-          location_state, location_city, search_text
+          seller_id, attributes, delivery, contact, promotion_id,
+          location_state, location_city, search_text, status, is_active
         )
-        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
+        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, 'draft', true)
         RETURNING
           id, title, description, price, category_id, subcategory_id,
           attributes, delivery, contact, promotion_id,
@@ -338,6 +333,7 @@ router.post("/products", upload.array("images", 6), async (req, res) => {
         parseFloat(price),
         category_id,
         subcategory_id || null,
+        sellerId,
         parsedAttributes,
         parsedDelivery,
         parsedContact,
@@ -350,17 +346,15 @@ router.post("/products", upload.array("images", 6), async (req, res) => {
 
     const product = productRes.rows[0];
 
-    const uploaded = [];
     for (let i = 0; i < req.files.length; i++) {
       const file = req.files[i];
-      const result = await uploadOneToCloudinary(file.path);
-      uploaded.push(result);
+      const uploaded = await uploadOne(file.path);
       await client.query(
         `
           INSERT INTO product_images (product_id, image_url, position)
           VALUES ($1, $2, $3)
         `,
-        [product.id, result.url, i]
+        [product.id, uploaded.url, i]
       );
     }
 
@@ -381,10 +375,6 @@ router.post("/products", upload.array("images", 6), async (req, res) => {
       `,
       [product.id]
     );
-
-    if (!fullRows.rows.length) {
-      return res.status(500).json({ message: "Failed to fetch created product" });
-    }
 
     res.status(201).json({
       success: true,
@@ -409,14 +399,12 @@ router.post("/products", upload.array("images", 6), async (req, res) => {
 
 router.get("/categories", async (req, res) => {
   try {
-    const { rows: categoryRows } = await pool.query(
-      `
-        SELECT id, name, parent_id, fields_key
-        FROM categories
-        WHERE active = true
-        ORDER BY name ASC
-      `
-    );
+    const { rows: categoryRows } = await pool.query(`
+      SELECT id, name, parent_id, fields_key
+      FROM categories
+      WHERE active = true
+      ORDER BY name ASC
+    `);
 
     const categoryMap = {};
     const tree = [];
