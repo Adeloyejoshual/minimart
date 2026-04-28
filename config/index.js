@@ -1,21 +1,25 @@
 // config/index.js
 
-import { brands } from "./brands.js";
-import { colors } from "./colors.js";
-import { categoryFields } from "./categoryFields.js";
-import { conditions, usedDetails } from "./conditions.js";
-import { featuresByCategory } from "./featuresByCategory.js";
-import { models } from "./models.js";
-import { ramOptions } from "./ramOptions.js";
-import { sims } from "./sims.js";
-import { storageOptions } from "./storageOptions.js";
-import { years } from "./years.js";
-import { engines } from "./engines.js";
-import { fuelTypes } from "./fuelTypes.js";
-import { locationsByState } from "./locationsByState.js";
-import { promotionPlans } from "./promotions.js";
+import authenticate from "../middleware/auth.js";
+
+import { brands } from "../src/config/brands.js";
+import { colors } from "../src/config/colors.js";
+import { categoryFields } from "../src/config/categoryFields.js";
+import { conditions, usedDetails } from "../src/config/conditions.js";
+import { featuresByCategory } from "../src/config/featuresByCategory.js";
+import { models } from "../src/config/models.js";
+import { ramOptions } from "../src/config/ramOptions.js";
+import { sims } from "../src/config/sims.js";
+import { storageOptions } from "../src/config/storageOptions.js";
+import { years } from "../src/config/years.js";
+import { engines } from "../src/config/engines.js";
+import { fuelTypes } from "../src/config/fuelTypes.js";
+import { locationsByState } from "../src/config/locationsByState.js";
+import { promotionPlans } from "../src/config/promotions.js";
 
 export {
+  authenticate,
+
   brands,
   colors,
   categoryFields,
