@@ -28,7 +28,7 @@ const normalizeDelivery = (d = {}) => ({
 });
 
 /* ===================== PRODUCT NORMALIZER ===================== */
-const normalizeProduct = (p) => ({
+export const normalizeProduct = (p) => ({
   ...p,
   price: Number(p.price),
   images: p.images || [],
@@ -43,13 +43,8 @@ const normalizeProduct = (p) => ({
     promotionPlans.find((x) => x.id === p.promotion_id) || null,
 });
 
-/* ===================== SEARCH TEXT BUILDER ===================== */
-const buildSearchText = (
-  title = "",
-  description = "",
-  categoryName = "",
-  attrs = {}
-) =>
+/* ===================== SEARCH BUILDER ===================== */
+const buildSearchText = (title = "", description = "", categoryName = "", attrs = {}) =>
   [
     title,
     description,
@@ -65,9 +60,7 @@ const buildSearchText = (
     attrs?.year,
     attrs?.engine,
     attrs?.fuel_type,
-    Array.isArray(attrs?.features)
-      ? attrs.features.join(" ")
-      : "",
+    Array.isArray(attrs?.features) ? attrs.features.join(" ") : "",
   ]
     .filter(Boolean)
     .join(" ");
@@ -78,7 +71,7 @@ export const getProductById = async (id) => {
     `
     SELECT p.*,
       COALESCE(
-        json_agg(pi.image_url ORDER BY pi.position)
+        json_agg(pi.image_url ORDER BY pi.position_order)
         FILTER (WHERE pi.image_url IS NOT NULL),
         '[]'
       ) AS images
@@ -94,12 +87,7 @@ export const getProductById = async (id) => {
 };
 
 /* ===================== GET PRODUCTS ===================== */
-export const getProducts = async (
-  skip = 0,
-  limit = 20,
-  state,
-  category_id
-) => {
+export const getProducts = async (skip = 0, limit = 20, state, category_id) => {
   const offset = Math.max(Number(skip) || 0, 0);
   const take = Math.min(Number(limit) || 20, 50);
 
@@ -124,7 +112,7 @@ export const getProducts = async (
   const baseQuery = `
     SELECT p.*,
       COALESCE(
-        json_agg(pi.image_url ORDER BY pi.position)
+        json_agg(pi.image_url ORDER BY pi.position_order)
         FILTER (WHERE pi.image_url IS NOT NULL),
         '[]'
       ) AS images
@@ -176,23 +164,25 @@ export const createProduct = async ({
   location_state,
   location_city,
   imagesFiles,
-  seller_id, // ✅ FIXED (was missing before)
+  seller_id,
 }) => {
   const client = await pool.connect();
 
   try {
     await client.query("BEGIN");
 
-    /* ===================== PARSE SAFE INPUTS ===================== */
+    /* ===================== PARSE INPUT ===================== */
     const parsedAttributes = safeJSON(attributes, {});
     const parsedDelivery = normalizeDelivery(safeJSON(delivery, {}));
     const parsedContact = safeJSON(contact, {});
 
     const safePrice = Number(price);
-    if (!safePrice || isNaN(safePrice)) {
+
+    if (Number.isNaN(safePrice) || safePrice <= 0) {
       throw new Error("Invalid price");
     }
 
+    /* ===================== CATEGORY NAME ===================== */
     const categoryRes = await client.query(
       "SELECT name FROM categories WHERE id = $1",
       [category_id]
@@ -236,7 +226,7 @@ export const createProduct = async ({
         safePrice,
         category_id,
         subcategory_id || null,
-        seller_id, // ✅ FIXED
+        seller_id,
         parsedAttributes,
         parsedDelivery,
         parsedContact,
@@ -249,15 +239,15 @@ export const createProduct = async ({
 
     const productId = insert.rows[0].id;
 
-    /* ===================== FINAL SLUG ===================== */
-    const finalSlug = generateSlugWithId(title.trim(), productId);
+    /* ===================== SLUG ===================== */
+    const slug = generateSlugWithId(title.trim(), productId);
 
     await client.query(
       "UPDATE products SET slug = $1 WHERE id = $2",
-      [finalSlug, productId]
+      [slug, productId]
     );
 
-    /* ===================== IMAGES UPLOAD ===================== */
+    /* ===================== IMAGE UPLOAD ===================== */
     if (imagesFiles?.length) {
       for (let i = 0; i < imagesFiles.length; i++) {
         const file = imagesFiles[i];
@@ -265,7 +255,7 @@ export const createProduct = async ({
         const uploaded = await uploadOne(file.path);
 
         await client.query(
-          `INSERT INTO product_images (product_id, image_url, position)
+          `INSERT INTO product_images (product_id, image_url, position_order)
            VALUES ($1,$2,$3)`,
           [productId, uploaded.url, i]
         );
@@ -276,12 +266,12 @@ export const createProduct = async ({
 
     await client.query("COMMIT");
 
-    /* ===================== RETURN FULL PRODUCT ===================== */
+    /* ===================== RETURN PRODUCT ===================== */
     const full = await pool.query(
       `
       SELECT p.*,
         COALESCE(
-          json_agg(pi.image_url ORDER BY pi.position)
+          json_agg(pi.image_url ORDER BY pi.position_order)
           FILTER (WHERE pi.image_url IS NOT NULL),
           '[]'
         ) AS images
@@ -297,13 +287,8 @@ export const createProduct = async ({
   } catch (err) {
     await client.query("ROLLBACK").catch(() => {});
 
-    if (err.code === "23503") {
-      err.code = "INVALID_FOREIGN_KEY";
-    }
-
-    if (err.code === "23502") {
-      err.code = "MISSING_REQUIRED_FIELDS";
-    }
+    if (err.code === "23503") err.code = "FOREIGN_KEY_ERROR";
+    if (err.code === "23502") err.code = "MISSING_FIELDS";
 
     throw err;
   } finally {
