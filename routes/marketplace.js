@@ -1,10 +1,9 @@
 // routes/marketplace.js
 import express from "express";
 import authenticate from "../middleware/auth.js";
+
 import { upload } from "../utils/multer.js";
-
-import { v2 as cloudinary } from "cloudinary"; // ✅ top‑level import
-
+import { getCategoriesHandler } from "../controllers/category.controller.js";
 import {
   getProductsHandler,
   getProductHandler,
@@ -12,9 +11,11 @@ import {
   createProductHandler,
 } from "../controllers/product.controller.js";
 
+import { v2 as cloudinary } from "cloudinary";
+
 const router = express.Router();
 
-// Cloudinary signature
+// --- 1. Cloudinary upload signature (client‑side SDK) ---
 router.get("/cloudinary-signature", (req, res) => {
   try {
     const timestamp = Math.round(Date.now() / 1000);
@@ -43,10 +44,13 @@ router.get("/cloudinary-signature", (req, res) => {
   }
 });
 
-// --- Product routes ---
-router.get("/products", getProductsHandler);
-router.get("/product/:slug", getProductHandler); // SEO slug route
-router.get("/products/:id", getProductByIdHandler);
+// --- 2. Product API ---
+router.get("/products", getProductsHandler);                    // feed + trending
+router.get("/product/:slug", getProductHandler);                // SEO slug route
+router.get("/products/:id", getProductByIdHandler);             // direct by ID
 router.post("/products", authenticate, upload.array("images", 6), createProductHandler);
+
+// --- 3. Category API (for AddProduct.jsx dropdown) ---
+router.get("/categories", getCategoriesHandler);
 
 export default router;
