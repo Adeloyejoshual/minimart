@@ -1,6 +1,6 @@
 import DropdownModal from "../../components/DropdownModal.jsx";
 import AddProductHeader from "../../components/AddProductHeader.jsx";
-import { categoryFields } from "../../config/categoryFields.js";
+import { categoryFields, promotionPlans } from "../../config/categoryFields.js"; // ✅ Added promotionPlans
 
 function normalizeOptions(list) {
   if (!list) return [];
@@ -46,16 +46,20 @@ export default function ProductComponents({
 }) {
   const MAX_IMAGES = 6;
 
-  const fields = selectedCategory
-    ? [...new Set([
-        ...(Array.isArray(options.fields) ? options.fields : []),
-        ...(categoryFields[selectedCategory.name] || []),
-      ])].filter(Boolean)
+  // ✅ Fixed: Proper fields computation
+  const fields = selectedCategory ? [
+    ...(Array.isArray(options.fields) ? options.fields : []),
+    ...(categoryFields[selectedCategory.name] || [])
+  ].filter(Boolean) : [];
+
+  // ✅ Fixed: Proper model options logic
+  const modelOptions = attributes?.brand && options.models 
+    ? normalizeOptions(options.models[attributes.brand.toLowerCase()] || [])
     : [];
 
+  // ✅ Fixed: Complete optionsMap
   const optionsMap = {
     brand: normalizeOptions(options.brands),
-    model: options.models || {},
     color: normalizeOptions(options.colors),
     condition: normalizeOptions(options.conditions),
     used_detail: normalizeOptions(options.usedDetails || options.used_details),
@@ -74,18 +78,11 @@ export default function ProductComponents({
     skills: normalizeOptions(options.skills),
   };
 
-  const modelOptions = options.models && attributes?.brand
-    ? normalizeOptions(
-        Object.keys(options.models).find(
-          (k) => k.toLowerCase() === attributes.brand.toLowerCase()
-        ) ? options.models[attributes.brand.toLowerCase()] || [] : []
-      )
-    : [];
-
   return (
     <>
       <AddProductHeader title="Add Product" onClearDraft={clearDraft} />
 
+      {/* ✅ Basic Information */}
       <section className="section form-card">
         <h3 className="section-title">Basic Information</h3>
         <div className="form-group">
@@ -117,6 +114,7 @@ export default function ProductComponents({
         </div>
       </section>
 
+      {/* ✅ Product Details */}
       <section className="section form-card">
         <h3 className="section-title">Product Details</h3>
         <div className="form-group">
@@ -133,6 +131,7 @@ export default function ProductComponents({
           />
         </div>
 
+        {/* ✅ Brand dropdown */}
         {optionsMap.brand.length > 0 && (
           <div className="form-group">
             <label>{formatLabel("brand")}</label>
@@ -144,6 +143,7 @@ export default function ProductComponents({
           </div>
         )}
 
+        {/* ✅ Model dropdown (brand-dependent) */}
         {modelOptions.length > 0 && (
           <div className="form-group">
             <label>{formatLabel("model")}</label>
@@ -155,9 +155,10 @@ export default function ProductComponents({
           </div>
         )}
 
+        {/* ✅ Dynamic category fields */}
         {fields.map((field) => {
           if (field === "brand" || field === "model") return null;
-
+          
           const fieldOptions = optionsMap[field] || [];
           if (!fieldOptions.length) return null;
           if (field === "used_detail" && attributes?.condition !== "Used") return null;
@@ -174,18 +175,19 @@ export default function ProductComponents({
           );
         })}
 
+        {/* ✅ Features checkboxes */}
         {optionsMap.features.length > 0 && (
           <div className="form-group">
             <label>Features</label>
             <div className="checkbox-grid-inline">
-              {optionsMap.features.map((feature) => (
+              {optionsMap.features.slice(0, 12).map((feature) => ( // Limit to 12
                 <label key={feature} className="checkbox-inline">
-                  {formatLabel(feature)}
                   <input
                     type="checkbox"
                     checked={attributes?.features?.includes(feature) || false}
                     onChange={() => toggleFeature(feature)}
                   />
+                  <span>{formatLabel(feature)}</span>
                 </label>
               ))}
             </div>
@@ -193,66 +195,74 @@ export default function ProductComponents({
         )}
       </section>
 
+      {/* ✅ Contact Information */}
       <section className="section form-card">
         <h3 className="section-title">Contact Information</h3>
-        <div className="form-group">
-          <label>Email *</label>
-          <input
-            type="email"
-            placeholder="your@email.com"
-            value={form.contact.email}
-            onChange={(e) => updateContact("email", e.target.value)}
-          />
+        <div className="form-row">
+          <div className="form-group">
+            <label>Email *</label>
+            <input
+              type="email"
+              placeholder="your@email.com"
+              value={form.contact.email}
+              onChange={(e) => updateContact("email", e.target.value)}
+            />
+          </div>
+          <div className="form-group">
+            <label>Phone *</label>
+            <input
+              type="tel"
+              placeholder="08012345678"
+              value={form.contact.phone}
+              onChange={(e) => updateContact("phone", onlyDigits(e.target.value))}
+            />
+          </div>
         </div>
-        <div className="form-group">
-          <label>Phone *</label>
-          <input
-            type="tel"
-            placeholder="08012345678"
-            value={form.contact.phone}
-            onChange={(e) => updateContact("phone", onlyDigits(e.target.value))}
-          />
-        </div>
-        <div className="form-group">
-          <label>WhatsApp *</label>
-          <input
-            type="tel"
-            placeholder="08012345678"
-            value={form.contact.whatsapp}
-            onChange={(e) => updateContact("whatsapp", onlyDigits(e.target.value))}
-          />
-        </div>
-        <div className="form-group">
-          <label>WhatsApp Link</label>
-          <input
-            type="url"
-            placeholder="https://wa.me/2348012345678"
-            value={form.contact.whatsapp_link}
-            onChange={(e) => updateContact("whatsapp_link", e.target.value.trim())}
-          />
+        <div className="form-row">
+          <div className="form-group">
+            <label>WhatsApp *</label>
+            <input
+              type="tel"
+              placeholder="08012345678"
+              value={form.contact.whatsapp}
+              onChange={(e) => updateContact("whatsapp", onlyDigits(e.target.value))}
+            />
+          </div>
+          <div className="form-group">
+            <label>WhatsApp Link</label>
+            <input
+              type="url"
+              placeholder="https://wa.me/2348012345678"
+              value={form.contact.whatsapp_link}
+              onChange={(e) => updateContact("whatsapp_link", e.target.value.trim())}
+            />
+          </div>
         </div>
       </section>
 
+      {/* ✅ Location & Delivery */}
       <section className="section form-card">
         <h3 className="section-title">Location & Delivery</h3>
-        <div className="form-group">
-          <label>State *</label>
-          <DropdownModal
-            value={state}
-            onChange={setState}
-            options={states.map((s) => ({ id: s, name: s }))}
-          />
-        </div>
-        {state && (
+        <div className="form-row">
           <div className="form-group">
-            <label>City *</label>
+            <label>State *</label>
             <DropdownModal
-              value={city}
-              onChange={setCity}
-              options={cities.map((c) => ({ id: c, name: c }))}
+              value={state}
+              onChange={setState}
+              options={states.map((s) => ({ id: s, name: s }))}
             />
           </div>
-        )}
+          {state && (
+            <div className="form-group">
+              <label>City *</label>
+              <DropdownModal
+                value={city}
+                onChange={setCity}
+                options={cities.map((c) => ({ id: c, name: c }))}
+              />
+            </div>
+          )}
+        </div>
 
         <div className="form-group">
           <label>Delivery Available</label>
@@ -267,62 +277,73 @@ export default function ProductComponents({
         </div>
 
         {form.delivery.available && (
-          <div className="delivery-grid sub-grid">
-            <div className="form-group">
-              <label>From Day *</label>
-              <input
-                type="text"
-                inputMode="numeric"
-                placeholder="1"
-                value={form.delivery.duration.from}
-                onChange={(e) => updateDeliveryDuration("from", onlyDigits(e.target.value))}
-              />
+          <div className="delivery-grid">
+            <div className="form-row">
+              <div className="form-group">
+                <label>From Day *</label>
+                <input
+                  type="number"
+                  min="1"
+                  max="30"
+                  placeholder="1"
+                  value={form.delivery.duration.from}
+                  onChange={(e) => updateDeliveryDuration("from", onlyDigits(e.target.value))}
+                />
+              </div>
+              <div className="form-group">
+                <label>To Day *</label>
+                <input
+                  type="number"
+                  min="1"
+                  max="30"
+                  placeholder="3"
+                  value={form.delivery.duration.to}
+                  onChange={(e) => updateDeliveryDuration("to", onlyDigits(e.target.value))}
+                />
+              </div>
             </div>
-            <div className="form-group">
-              <label>To Day *</label>
-              <input
-                type="text"
-                inputMode="numeric"
-                placeholder="3"
-                value={form.delivery.duration.to}
-                onChange={(e) => updateDeliveryDuration("to", onlyDigits(e.target.value))}
-              />
-            </div>
-            <div className="form-group">
-              <label>Fee (₦) *</label>
-              <input
-                type="text"
-                inputMode="numeric"
-                value={displayPrice(form.delivery.fee)}
-                onChange={(e) => updateDelivery("fee", onlyNumbers(e.target.value))}
-              />
-            </div>
-            <div className="form-group full-width">
-              <label>Delivery Note</label>
-              <textarea
-                placeholder="e.g., Cash on delivery available"
-                value={form.delivery.note}
-                onChange={(e) => updateDelivery("note", e.target.value)}
-              />
+            <div className="form-row">
+              <div className="form-group">
+                <label>Fee (₦) *</label>
+                <input
+                  type="text"
+                  inputMode="numeric"
+                  placeholder="500"
+                  value={displayPrice(form.delivery.fee)}
+                  onChange={(e) => updateDelivery("fee", onlyNumbers(e.target.value))}
+                />
+              </div>
+              <div className="form-group">
+                <label>Delivery Note</label>
+                <textarea
+                  placeholder="e.g., Cash on delivery available"
+                  value={form.delivery.note}
+                  onChange={(e) => updateDelivery("note", e.target.value)}
+                  rows={2}
+                />
+              </div>
             </div>
           </div>
         )}
       </section>
 
+      {/* ✅ Images */}
       <section className="section form-card">
-        <h3 className="section-title">Product Images</h3>
-        <label className="form-group-label">
-          Max 6 images, 3MB each *
-        </label>
-
+        <h3 className="section-title">Product Images *</h3>
+        <label className="form-group-label">Max 6 images, 3MB each</label>
         <div className="preview-grid-modern image-upload-box">
           {images.map((img, i) => (
             <div key={img.id} className="preview-thumb">
               <img src={img.preview} alt={`Preview ${i + 1}`} />
-              <button type="button" onClick={() => removeImage(img.id)}>✕</button>
+              <button 
+                type="button" 
+                onClick={() => removeImage(img.id)}
+                title="Remove image"
+              >
+                ✕
+              </button>
             </div>
           ))}
-
           {images.length < MAX_IMAGES && (
             <label className="add-image-box add-image-btn">
               <input
@@ -336,21 +357,18 @@ export default function ProductComponents({
                 }}
               />
               <div>+</div>
-              <span>Add Image</span>
+              <span>Add Images</span>
             </label>
           )}
         </div>
-
-        {images.length > 0 && <small>{images.length}/6 images</small>}
+        {images.length > 0 && <small className="image-count">{images.length}/6 images</small>}
       </section>
 
+      {/* ✅ Promotion Plans - FIXED */}
       <section className="section form-card">
         <h3 className="section-title">Promotion Plan</h3>
         <div className="plans-grid">
-          {[
-            { id: "free", name: "Free", price: 0, duration: "7 days" },
-            // Add your promotionPlans import here or pass as prop
-          ].map((plan) => (
+          {promotionPlans.map((plan) => (
             <div
               key={plan.id}
               className={`plan-card ${selectedPlan?.id === plan.id ? "selected" : ""}`}
@@ -361,23 +379,34 @@ export default function ProductComponents({
                 <span className="plan-price">₦{displayPrice(plan.price)}</span>
               </div>
               <div className="plan-duration">{plan.duration || "Always"}</div>
+              {plan.description && <small>{plan.description}</small>}
             </div>
           ))}
         </div>
       </section>
 
+      {/* ✅ Action Buttons */}
       <div className="button-section section form-card">
-        <button className="primary-btn" type="button" onClick={handleSubmit} disabled={loading}>
-          {loading ? "Processing..." : "🚀 Create Product"}
+        <button 
+          className="primary-btn full-width" 
+          type="button" 
+          onClick={handleSubmit} 
+          disabled={loading}
+        >
+          {loading ? "⏳ Processing..." : "🚀 Create & Publish Product"}
         </button>
-
         {paymentData && (
-          <button className="secondary-btn" type="button" onClick={() => window.open(paymentData.authUrl, "_blank")}>
-            💳 Pay Now
+          <button 
+            className="secondary-btn full-width" 
+            type="button" 
+            onClick={() => window.open(paymentData.authUrl, "_blank")}
+          >
+            💳 Complete Payment
           </button>
         )}
       </div>
 
+      {/* ✅ Messages */}
       {error && <div className="form-error">⚠️ {error}</div>}
       {success && <div className="form-success">✅ {success}</div>}
     </>
