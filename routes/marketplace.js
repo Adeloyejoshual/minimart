@@ -1,8 +1,11 @@
 // routes/marketplace.js
+
 import express from "express";
 import authenticate from "../middleware/auth.js";
+import rateLimit from "express-rate-limit";
 
 import { upload } from "../utils/multer.js";
+
 import { getCategoriesHandler } from "../controllers/category.controller.js";
 import {
   getProductsHandler,
@@ -15,42 +18,61 @@ import { v2 as cloudinary } from "cloudinary";
 
 const router = express.Router();
 
-// --- 1. Cloudinary upload signature (client‑side SDK) ---
-router.get("/cloudinary-signature", (req, res) => {
+/* ===================== RATE LIMITING ===================== */
+const apiLimiter = rateLimit({
+  windowMs: 60 * 1000,
+  max: 120, // protect feed endpoints
+});
+
+const uploadLimiter = rateLimit({
+  windowMs: 60 * 1000,
+  max: 10, // protect upload spam
+});
+
+/* ===================== APPLY GLOBAL LIMITER ===================== */
+router.use(apiLimiter);
+
+/* ===================== CLOUDINARY SIGNATURE ===================== */
+router.get("/cloudinary-signature", authenticate, (req, res) => {
   try {
     const timestamp = Math.round(Date.now() / 1000);
+
     const signature = cloudinary.utils.api_sign_request(
       {
         timestamp,
         folder: "products",
-        transformation: [
-          { width: 900, height: 900, crop: "limit" },
-          { quality: "auto" },
-          { fetch_format: "auto" },
-        ],
       },
       process.env.CLOUDINARY_API_SECRET
     );
 
-    res.json({
+    return res.json({
       timestamp,
       signature,
       cloud_name: process.env.CLOUDINARY_CLOUD_NAME,
       api_key: process.env.CLOUDINARY_API_KEY,
     });
   } catch (err) {
-    console.error("Signature error:", err);
-    res.status(500).json({ error: "Signature generation failed" });
+    console.error("Cloudinary signature error:", err);
+    return res.status(500).json({ error: "Signature generation failed" });
   }
 });
 
-// --- 2. Product API ---
-router.get("/products", getProductsHandler);                    // feed + trending
-router.get("/product/:slug", getProductHandler);                // SEO slug route
-router.get("/products/:id", getProductByIdHandler);             // direct by ID
-router.post("/products", authenticate, upload.array("images", 6), createProductHandler);
+/* ===================== PRODUCT ROUTES ===================== */
+router.get("/products", getProductsHandler);
 
-// --- 3. Category API (for AddProduct.jsx dropdown) ---
+router.get("/product/:slug", getProductHandler);
+
+router.get("/products/:id", getProductByIdHandler);
+
+router.post(
+  "/products",
+  authenticate,
+  uploadLimiter,
+  upload.array("images", 6),
+  createProductHandler
+);
+
+/* ===================== CATEGORY ROUTES ===================== */
 router.get("/categories", getCategoriesHandler);
 
 export default router;
