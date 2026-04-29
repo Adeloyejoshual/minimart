@@ -8,8 +8,8 @@ import {
   deleteProduct,
 } from "../api/productApi.js";
 import { initPayment, activateFreeProduct } from "../api/paymentApi.js";
-import { promotionPlans } from "../../config/promotions.js";
-import { categoryFields } from "../../config/categoryFields.js";
+import { promotionPlans } from "../../../config/promotions.js";      // ✅ was ../../, now ../../../../config
+import { categoryFields } from "../../../config/categoryFields.js";   // ✅ same fix
 
 const INITIAL_FORM = {
   title: "",
@@ -150,7 +150,7 @@ export function useProductForm() {
     }
   }, [showError]);
 
-  // Run once
+  // Run once (runs in render, but not strictly a problem)
   if (categories.length === 0) {
     fetchCat();
   }
@@ -249,7 +249,8 @@ export function useProductForm() {
       let product = null;
 
       try {
-        const finalPlan = selectedPlan ?? promotionPlans.find((p) => Number(p.price) === 0);
+        const finalPlan =
+          selectedPlan ?? promotionPlans.find((p) => Number(p.price) === 0);
         if (!finalPlan) throw new Error("No promotion plan available");
 
         const fd = new FormData();
