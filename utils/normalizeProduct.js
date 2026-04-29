@@ -1,36 +1,76 @@
 // utils/normalizeProduct.js
 
+const safeObject = (val) => {
+  if (!val) return {};
+  if (typeof val === "object") return val;
+  try {
+    return JSON.parse(val);
+  } catch {
+    return {};
+  }
+};
+
+const safeNumber = (val, fallback = 0) => {
+  const num = Number(val);
+  return Number.isFinite(num) ? num : fallback;
+};
+
+const safeArray = (val) => {
+  if (Array.isArray(val)) return val;
+  return [];
+};
+
 export const normalizeProduct = (product) => {
   if (!product) return null;
 
   return {
+    /* ===================== CORE ===================== */
     id: product.id,
-    title: product.title,
+    title: product.title || "",
     description: product.description || "",
-    price: Number(product.price),
-    category_id: product.category_id,
-    subcategory_id: product.subcategory_id,
 
+    price: safeNumber(product.price),
+
+    slug: product.slug || null,
+
+    /* ===================== CATEGORY ===================== */
+    category_id: product.category_id || null,
+    subcategory_id: product.subcategory_id || null,
+
+    /* ===================== LOCATION ===================== */
     location: {
       state: product.location_state || null,
       city: product.location_city || null,
     },
 
-    media: product.media || { images: [], videos: [] },
+    /* ===================== MEDIA ===================== */
+    media: safeObject(product.media),
 
-    attributes: product.attributes || {},
+    /* ===================== ATTRIBUTES ===================== */
+    attributes: safeObject(product.attributes),
 
-    delivery: product.delivery || {},
+    /* ===================== DELIVERY ===================== */
+    delivery: safeObject(product.delivery),
 
-    contact: product.contact || {},
+    /* ===================== CONTACT ===================== */
+    contact: safeObject(product.contact),
 
-    views: product.views || 0,
-    slug: product.slug || null,
+    /* ===================== METRICS ===================== */
+    views: safeNumber(product.views),
+    clicks: safeNumber(product.clicks_count),
+    favorites: safeNumber(product.favorites_count),
+    shares: safeNumber(product.share_count),
+    impressions: safeNumber(product.impression_count),
 
-    is_active: product.is_active,
-    status: product.status,
+    engagement_score: safeNumber(product.engagement_score),
+    ranking_score: safeNumber(product.ranking_score),
 
-    created_at: product.created_at,
-    updated_at: product.updated_at,
+    /* ===================== STATUS ===================== */
+    is_active: Boolean(product.is_active),
+    status: product.status || "draft",
+
+    /* ===================== TIMESTAMPS ===================== */
+    created_at: product.created_at || null,
+    updated_at: product.updated_at || null,
   };
 };
