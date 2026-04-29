@@ -1,3 +1,5 @@
+// controllers/product.controller.js
+
 import {
   getProducts,
   getProductById,
@@ -5,6 +7,7 @@ import {
   incrementViews,
 } from "../services/product.service.js";
 
+import { generateSlugWithId } from "../utils/slug.js";
 import { pool } from "../config/db.js";
 
 /* ===================== RESPONSE HELPERS ===================== */
@@ -38,39 +41,43 @@ export const getProductHandler = async (req, res) => {
   try {
     const { slug } = req.params;
 
-    if (!slug) {
+    // Extract UUID safely from slug
+    const id = slug.match(/[0-9a-fA-F-]{36}$/)?.[0];
+
+    if (!id) {
       return sendError(res, "Invalid product slug", 400);
     }
 
-    // 🔥 SAFE: Resolve product directly by slug (NO regex)
-    const { rows } = await pool.query(
-      `
-      SELECT p.*,
-        COALESCE(
-          json_agg(pi.image_url ORDER BY pi.position_order)
-          FILTER (WHERE pi.image_url IS NOT NULL),
-          '[]'
-        ) AS images
-      FROM products p
-      LEFT JOIN product_images pi ON p.id = pi.product_id
-      WHERE p.slug = $1 AND p.is_active = true AND p.status = 'active'
-      GROUP BY p.id
-      `,
-      [slug]
-    );
-
-    const product = rows[0];
+    const product = await getProductById(id);
 
     if (!product) {
       return sendError(res, "Product not found", 404);
     }
 
-    // 🔥 Non-blocking engagement tracking
-    incrementViews(product.id).catch((err) =>
+    const canonicalSlug =
+      product.slug || generateSlugWithId(product.title, product.id);
+
+    // SEO redirect if slug mismatch
+    if (slug !== canonicalSlug) {
+      if (!product.slug) {
+        await pool.query(
+          "UPDATE products SET slug = $1 WHERE id = $2",
+          [canonicalSlug, id]
+        );
+      }
+
+      return res.redirect(301, `/product/${canonicalSlug}`);
+    }
+
+    // Non-blocking view increment
+    incrementViews(id).catch((err) =>
       console.error("incrementViews error:", err)
     );
 
-    return sendSuccess(res, product);
+    return sendSuccess(res, {
+      ...product,
+      slug: canonicalSlug,
+    });
   } catch (err) {
     console.error("GET /product/:slug error:", err);
     return sendError(res, "Failed to fetch product");
@@ -149,24 +156,24 @@ export const createProductHandler = async (req, res) => {
       location_state,
       location_city,
       imagesFiles: req.files,
-      seller_id: sellerId,
+      seller_id: sellerId, // secure injection from auth
     });
 
     return sendSuccess(res, product, 201);
   } catch (err) {
     console.error("POST /products error:", err);
 
-    /* ===================== STANDARD ERRORS ===================== */
-    const errorMap = {
-      INVALID_PRICE: [400, "Invalid price"],
-      MISSING_TITLE: [400, "Title is required"],
-      INVALID_CATEGORY: [400, "Invalid category"],
-      SLUG_CONFLICT: [409, "Slug conflict - try another title"],
-    };
+    /* ===================== KNOWN ERRORS ===================== */
+    if (err.code === "INVALID_CATEGORY_OR_PROMOTION") {
+      return sendError(res, "Invalid category or promotion", 400);
+    }
 
-    if (err?.code && errorMap[err.code]) {
-      const [status, message] = errorMap[err.code];
-      return sendError(res, message, status);
+    if (err.code === "MISSING_REQUIRED_FIELDS") {
+      return sendError(res, "Missing required fields", 400);
+    }
+
+    if (err.code === "SLUG_CONFLICT") {
+      return sendError(res, "Slug conflict - try another title", 409);
     }
 
     return sendError(res, "Failed to create product");
