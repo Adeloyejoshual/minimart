@@ -108,6 +108,19 @@ export default function AddProductPage() {
     setTimeout(() => setSuccess(""), 5000);
   }, []);
 
+  // Image compression utility
+  const compressImage = useCallback(async (file) => {
+    try {
+      return await imageCompression(file, {
+        maxSizeMB: 1,
+        maxWidthOrHeight: 1280,
+        useWebWorker: true,
+      });
+    } catch {
+      return file;
+    }
+  }, []);
+
   // Effects
   useEffect(() => {
     fetch("https://minimart-ivrm.onrender.com/api/marketplace/categories")
@@ -124,7 +137,14 @@ export default function AddProductPage() {
 
   useEffect(() => {
     const savedPayment = localStorage.getItem(STORAGE_PAYMENT);
-    if (savedPayment) localStorage.removeItem(STORAGE_PAYMENT);
+    if (savedPayment) {
+      try {
+        const paymentSession = JSON.parse(savedPayment);
+        setPaymentData(paymentSession);
+      } catch {
+        localStorage.removeItem(STORAGE_PAYMENT);
+      }
+    }
   }, []);
 
   useEffect(() => {
@@ -186,6 +206,15 @@ export default function AddProductPage() {
     return () => clearTimeout(timeout);
   }, [form, state, city, images.length, selectedPlan?.id]);
 
+  // Cleanup images on unmount
+  useEffect(() => {
+    return () => {
+      images.forEach((img) => {
+        if (img.preview) URL.revokeObjectURL(img.preview);
+      });
+    };
+  }, [images]);
+
   // Form update functions
   const updateForm = useCallback((key, value) => {
     setForm((prev) => ({ ...prev, [key]: value }));
@@ -245,7 +274,7 @@ export default function AddProductPage() {
         .slice(0, remaining);
 
       try {
-        const compressed = await Promise.all(validFiles.map((file) => compressImage(file)));
+        const compressed = await Promise.all(validFiles.map(compressImage));
         const newImages = compressed.map((file) => ({
           id: `${Date.now()}-${Math.random().toString(36).slice(2)}`,
           file,
@@ -257,7 +286,7 @@ export default function AddProductPage() {
         showError("Image processing failed");
       }
     },
-    [images.length, showError, showSuccess]
+    [images.length, showError, showSuccess, compressImage]
   );
 
   const removeImage = useCallback((id) => {
@@ -280,7 +309,112 @@ export default function AddProductPage() {
     showSuccess("Draft cleared");
   }, [showSuccess]);
 
-  // Computed values passed to components
+  // API Functions for SubmitSection
+  const validateForm = useCallback(() => {
+    if (!form.title?.trim() || form.title.length < 10) return "Title must be at least 10 characters";
+    if (!form.description?.trim() || form.description.length < 20) return "Description must be at least 20 characters";
+    if (!form.price || Number(form.price) <= 0) return "Valid price required";
+    if (!form.category_id) return "Please select a category";
+    if (!form.contact?.phone || form.contact.phone.length < 10) return "Valid phone required";
+    if (!form.contact?.email?.includes("@")) return "Valid email required";
+    if (!form.contact?.whatsapp || form.contact.whatsapp.length < 10) return "WhatsApp required";
+    if (images.length === 0) return "Upload at least 1 image";
+    if (!state || !city) return "Select state and city";
+
+    if (form.delivery?.available) {
+      const from = Number(form.delivery.duration?.from);
+      const to = Number(form.delivery.duration?.to);
+      if (Number.isNaN(from) || Number.isNaN(to)) return "Enter valid delivery duration";
+      if (to < from) return "End day must be after start day";
+      if (!form.delivery.fee || Number(form.delivery.fee) <= 0) return "Enter valid delivery fee";
+    }
+
+    return null;
+  }, [form, images.length, state, city]);
+
+  const createProduct = useCallback(async () => {
+    const fd = new FormData();
+    fd.append("title", form.title.trim());
+    fd.append("description", form.description.trim());
+    fd.append("price", Number(form.price).toString());
+    fd.append("category_id", form.category_id);
+    fd.append("subcategory_id", form.subcategory_id || "");
+    fd.append("attributes", JSON.stringify(attributes));
+    fd.append("delivery", JSON.stringify(form.delivery));
+    fd.append("contact", JSON.stringify(form.contact));
+    fd.append("location_state", state);
+    fd.append("location_city", city);
+
+    const compressedFiles = await Promise.all(images.map((img) => compressImage(img.file)));
+    compressedFiles.forEach((file) => fd.append("images", file));
+
+    const token = localStorage.getItem("token");
+    if (!token) throw new Error("No authentication token; please log in again");
+
+    const res = await fetch("https://minimart-ivrm.onrender.com/api/marketplace/products", {
+      method: "POST",
+      headers: { Authorization: `Bearer ${token}` },
+      body: fd,
+    });
+
+    const text = await res.text();
+    if (!res.ok) throw new Error(text || `HTTP ${res.status}`);
+
+    return JSON.parse(text).product;
+  }, [form, attributes, state, city, images, compressImage]);
+
+  const initPayment = useCallback(async (productId) => {
+    const token = localStorage.getItem("token");
+    if (!token) throw new Error("No token; please log in before paying");
+
+    const res = await fetch("https://minimart-ivrm.onrender.com/api/payment/initiate", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${token}`,
+      },
+      body: JSON.stringify({
+        email: form.contact.email,
+        amount: Number(form.price),
+        plan_id: selectedPlan?.id,
+        product_id: productId,
+      }),
+    });
+
+    const text = await res.text();
+    const data = JSON.parse(text);
+
+    if (!res.ok || !data.success || !data.authorization_url) {
+      throw new Error(data.message || "Payment initialization failed");
+    }
+
+    return { reference: data.reference, authUrl: data.authorization_url };
+  }, [form.contact.email, form.price, selectedPlan?.id]);
+
+  const activateFreePlan = useCallback(async (productId) => {
+    const token = localStorage.getItem("token");
+    if (!token) throw new Error("No token; please log in before activating");
+
+    const res = await fetch(`https://minimart-ivrm.onrender.com/api/marketplace/products/${productId}/activate`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${token}`,
+      },
+      body: JSON.stringify({ promotion_id: selectedPlan?.id || null }),
+    });
+
+    const text = await res.text();
+    const data = JSON.parse(text);
+
+    if (!res.ok || !data.success) {
+      throw new Error(data.message || "Product activation failed");
+    }
+
+    return data;
+  }, [selectedPlan?.id]);
+
+  // Computed values
   const states = Object.keys(locationsByState || {});
   const cities = state ? (locationsByState[state] || []) : [];
   const fields = useMemo(() => {
@@ -322,7 +456,7 @@ export default function AddProductPage() {
     return normalizeOptions(matchKey ? options.models[matchKey] || [] : []);
   }, [attributes?.brand, options.models, normalizeOptions]);
 
-  // Pass handlers and data to SubmitSection
+  // Handlers for SubmitSection
   const submitHandlers = useMemo(() => ({
     form,
     images,
@@ -331,18 +465,31 @@ export default function AddProductPage() {
     selectedPlan,
     loading,
     paymentData,
+    setPaymentData,
+    setLoading,
     validateForm,
     clearDraft,
     createProduct,
     initPayment,
     activateFreePlan,
-  }), [form, images, state, city, selectedPlan, loading, paymentData]);
+    showError,
+    showSuccess,
+    promotionPlans,
+  }), [
+    form, images, state, city, selectedPlan, loading, paymentData,
+    setPaymentData, setLoading, validateForm, clearDraft, createProduct,
+    initPayment, activateFreePlan, showError, showSuccess, promotionPlans
+  ]);
 
   return (
     <div className="add-product-container">
       <AddProductHeader title="Add Product" onClearDraft={clearDraft} />
 
-      <BasicInfoSection form={form} updateForm={updateForm} displayPrice={displayPrice} />
+      <BasicInfoSection 
+        form={form} 
+        updateForm={updateForm} 
+        displayPrice={displayPrice} 
+      />
       
       <ProductDetailsSection
         form={form}
@@ -393,27 +540,7 @@ export default function AddProductPage() {
         displayPrice={displayPrice}
       />
 
-      <SubmitSection
-        error={error}
-        success={success}
-        loading={loading}
-        paymentData={paymentData}
-        handlers={submitHandlers}
-      />
+      <SubmitSection handlers={submitHandlers} />
     </div>
   );
 }
-
-// Image compression utility
-const compressImage = async (file) => {
-  try {
-    return await imageCompression(file, {
-      maxSizeMB: 1,
-      maxWidthOrHeight: 1280,
-      useWebWorker: true,
-    });
-  } catch {
-    return file;
-  }
-};
-
