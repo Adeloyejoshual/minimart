@@ -1,12 +1,5 @@
 import { useEffect, useMemo, useState, useCallback } from "react";
-import AddProductHeader from "../components/AddProductHeader.jsx";
-import BasicInfoSection from "./product/BasicInfoSection.jsx";
-import ProductDetailsSection from "./product/ProductDetailsSection.jsx";
-import ContactSection from "./product/ContactSection.jsx";
-import LocationDeliverySection from "./product/LocationDeliverySection.jsx";
-import ImagesSection from "./product/ImagesSection.jsx";
-import PromotionSection from "./product/PromotionSection.jsx";
-import SubmitSection from "./product/SubmitSection.jsx";
+import ProductComponents from "./product/components.jsx";
 import { locationsByState } from "../config/locationsByState.js";
 import { promotionPlans } from "../config/promotions.js";
 import { categoryFields } from "../config/categoryFields.js";
@@ -80,22 +73,16 @@ export default function AddProductPage() {
   const options = selectedCategory?.dynamicOptions || {};
   const attributes = form.attributes || INITIAL_FORM.attributes;
 
-  // Utility functions
-  const normalizeOptions = useCallback((list) => {
-    if (!list) return [];
-    return Array.isArray(list)
-      ? list.map((x) => (typeof x === "string" ? { id: x, name: x } : x))
-      : [];
-  }, []);
+  const states = Object.keys(locationsByState || {});
+  const cities = state ? (locationsByState[state] || []) : [];
 
+  // Utility functions
   const onlyNumbers = (v = "") => v.replace(/[^0-9.]/g, "");
   const onlyDigits = (v = "") => v.replace(/[^0-9]/g, "");
-
   const displayPrice = (v) => {
     const num = Number(v);
     return Number.isNaN(num) || num <= 0 ? "" : new Intl.NumberFormat("en-NG").format(num);
   };
-
   const formatLabel = (t) => t.replace(/_/g, " ").replace(/\bw/g, (l) => l.toUpperCase());
 
   const showError = useCallback((msg) => {
@@ -106,19 +93,6 @@ export default function AddProductPage() {
   const showSuccess = useCallback((msg) => {
     setSuccess(msg);
     setTimeout(() => setSuccess(""), 5000);
-  }, []);
-
-  // Image compression utility
-  const compressImage = useCallback(async (file) => {
-    try {
-      return await imageCompression(file, {
-        maxSizeMB: 1,
-        maxWidthOrHeight: 1280,
-        useWebWorker: true,
-      });
-    } catch {
-      return file;
-    }
   }, []);
 
   // Effects
@@ -137,14 +111,7 @@ export default function AddProductPage() {
 
   useEffect(() => {
     const savedPayment = localStorage.getItem(STORAGE_PAYMENT);
-    if (savedPayment) {
-      try {
-        const paymentSession = JSON.parse(savedPayment);
-        setPaymentData(paymentSession);
-      } catch {
-        localStorage.removeItem(STORAGE_PAYMENT);
-      }
-    }
+    if (savedPayment) localStorage.removeItem(STORAGE_PAYMENT);
   }, []);
 
   useEffect(() => {
@@ -206,16 +173,7 @@ export default function AddProductPage() {
     return () => clearTimeout(timeout);
   }, [form, state, city, images.length, selectedPlan?.id]);
 
-  // Cleanup images on unmount
-  useEffect(() => {
-    return () => {
-      images.forEach((img) => {
-        if (img.preview) URL.revokeObjectURL(img.preview);
-      });
-    };
-  }, [images]);
-
-  // Form update functions
+  // Form update handlers
   const updateForm = useCallback((key, value) => {
     setForm((prev) => ({ ...prev, [key]: value }));
   }, []);
@@ -261,55 +219,7 @@ export default function AddProductPage() {
     });
   }, []);
 
-  // Image handlers
-  const handleImages = useCallback(
-    async (files) => {
-      const currentCount = images.length;
-      if (currentCount >= MAX_IMAGES) return showError("Maximum 6 images allowed");
-
-      const fileArray = Array.from(files || []);
-      const remaining = MAX_IMAGES - currentCount;
-      const validFiles = fileArray
-        .filter((f) => f.type.startsWith("image/") && f.size <= MAX_SIZE)
-        .slice(0, remaining);
-
-      try {
-        const compressed = await Promise.all(validFiles.map(compressImage));
-        const newImages = compressed.map((file) => ({
-          id: `${Date.now()}-${Math.random().toString(36).slice(2)}`,
-          file,
-          preview: URL.createObjectURL(file),
-        }));
-        setImages((prev) => [...prev, ...newImages]);
-        showSuccess(`${compressed.length} image(s) added`);
-      } catch {
-        showError("Image processing failed");
-      }
-    },
-    [images.length, showError, showSuccess, compressImage]
-  );
-
-  const removeImage = useCallback((id) => {
-    setImages((prev) => {
-      const target = prev.find((x) => x.id === id);
-      if (target?.preview) URL.revokeObjectURL(target.preview);
-      return prev.filter((x) => x.id !== id);
-    });
-  }, []);
-
-  const clearDraft = useCallback(() => {
-    setForm(INITIAL_FORM);
-    setImages([]);
-    setState("");
-    setCity("");
-    setSelectedPlan(null);
-    setPaymentData(null);
-    localStorage.removeItem(STORAGE_DRAFT);
-    localStorage.removeItem(STORAGE_PAYMENT);
-    showSuccess("Draft cleared");
-  }, [showSuccess]);
-
-  // API Functions for SubmitSection
+  // Validation and handlers
   const validateForm = useCallback(() => {
     if (!form.title?.trim() || form.title.length < 10) return "Title must be at least 10 characters";
     if (!form.description?.trim() || form.description.length < 20) return "Description must be at least 20 characters";
@@ -332,7 +242,67 @@ export default function AddProductPage() {
     return null;
   }, [form, images.length, state, city]);
 
-  const createProduct = useCallback(async () => {
+  const clearDraft = useCallback(() => {
+    setForm(INITIAL_FORM);
+    setImages([]);
+    setState("");
+    setCity("");
+    setSelectedPlan(null);
+    setPaymentData(null);
+    localStorage.removeItem(STORAGE_DRAFT);
+    localStorage.removeItem(STORAGE_PAYMENT);
+    showSuccess("Draft cleared");
+  }, [showSuccess]);
+
+  const compressImage = async (file) => {
+    try {
+      return await imageCompression(file, {
+        maxSizeMB: 1,
+        maxWidthOrHeight: 1280,
+        useWebWorker: true,
+      });
+    } catch {
+      return file;
+    }
+  };
+
+  const handleImages = useCallback(
+    async (files) => {
+      const currentCount = images.length;
+      if (currentCount >= MAX_IMAGES) return showError("Maximum 6 images allowed");
+
+      const fileArray = Array.from(files || []);
+      const remaining = MAX_IMAGES - currentCount;
+      const validFiles = fileArray
+        .filter((f) => f.type.startsWith("image/") && f.size <= MAX_SIZE)
+        .slice(0, remaining);
+
+      try {
+        const compressed = await Promise.all(validFiles.map((file) => compressImage(file)));
+        const newImages = compressed.map((file) => ({
+          id: `${Date.now()}-${Math.random().toString(36).slice(2)}`,
+          file,
+          preview: URL.createObjectURL(file),
+        }));
+        setImages((prev) => [...prev, ...newImages]);
+        showSuccess(`${compressed.length} image(s) added`);
+      } catch {
+        showError("Image processing failed");
+      }
+    },
+    [images.length, showError, showSuccess]
+  );
+
+  const removeImage = useCallback((id) => {
+    setImages((prev) => {
+      const target = prev.find((x) => x.id === id);
+      if (target?.preview) URL.revokeObjectURL(target.preview);
+      return prev.filter((x) => x.id !== id);
+    });
+  }, []);
+
+  // API functions
+  const createProduct = async () => {
     const fd = new FormData();
     fd.append("title", form.title.trim());
     fd.append("description", form.description.trim());
@@ -353,7 +323,9 @@ export default function AddProductPage() {
 
     const res = await fetch("https://minimart-ivrm.onrender.com/api/marketplace/products", {
       method: "POST",
-      headers: { Authorization: `Bearer ${token}` },
+      headers: {
+        Authorization: `Bearer ${token}`,
+      },
       body: fd,
     });
 
@@ -361,9 +333,9 @@ export default function AddProductPage() {
     if (!res.ok) throw new Error(text || `HTTP ${res.status}`);
 
     return JSON.parse(text).product;
-  }, [form, attributes, state, city, images, compressImage]);
+  };
 
-  const initPayment = useCallback(async (productId) => {
+  const initPayment = async (productId) => {
     const token = localStorage.getItem("token");
     if (!token) throw new Error("No token; please log in before paying");
 
@@ -376,7 +348,7 @@ export default function AddProductPage() {
       body: JSON.stringify({
         email: form.contact.email,
         amount: Number(form.price),
-        plan_id: selectedPlan?.id,
+        plan_id: selectedPlan.id,
         product_id: productId,
       }),
     });
@@ -389,9 +361,9 @@ export default function AddProductPage() {
     }
 
     return { reference: data.reference, authUrl: data.authorization_url };
-  }, [form.contact.email, form.price, selectedPlan?.id]);
+  };
 
-  const activateFreePlan = useCallback(async (productId) => {
+  const activateFreePlan = async (productId) => {
     const token = localStorage.getItem("token");
     if (!token) throw new Error("No token; please log in before activating");
 
@@ -412,135 +384,115 @@ export default function AddProductPage() {
     }
 
     return data;
-  }, [selectedPlan?.id]);
+  };
 
-  // Computed values
-  const states = Object.keys(locationsByState || {});
-  const cities = state ? (locationsByState[state] || []) : [];
-  const fields = useMemo(() => {
-    const backendFields = Array.isArray(options.fields) ? options.fields : [];
-    const categoryName = selectedCategory?.name;
-    const frontendFields = categoryFields[categoryName] || [];
-    return [...new Set([...backendFields, ...frontendFields])].filter(Boolean);
-  }, [options.fields, selectedCategory?.name]);
+  const handleSubmit = useCallback(async () => {
+    if (loading) return;
 
-  const optionsMap = useMemo(
-    () => ({
-      brand: normalizeOptions(options.brands),
-      model: options.models || {},
-      color: normalizeOptions(options.colors),
-      condition: normalizeOptions(options.conditions),
-      used_detail: normalizeOptions(options.usedDetails || options.used_details),
-      ram: normalizeOptions(options.ram),
-      storage: normalizeOptions(options.storage),
-      sim: normalizeOptions(options.sim),
-      features: Array.isArray(options.features) ? options.features : [],
-      year: normalizeOptions(options.years),
-      engine: normalizeOptions(options.engines || options.engine),
-      fuel_type: normalizeOptions(options.fuel_types || options.fuelType),
-      size: normalizeOptions(options.size),
-      age_range: normalizeOptions(options.age_range),
-      bedrooms: normalizeOptions(options.bedrooms),
-      bathrooms: normalizeOptions(options.bathrooms),
-      experience_level: normalizeOptions(options.experience_level),
-      skills: normalizeOptions(options.skills),
-    }),
-    [options, normalizeOptions]
-  );
+    const validationError = validateForm();
+    if (validationError) return showError(validationError);
 
-  const modelOptions = useMemo(() => {
-    if (!options.models || !attributes?.brand) return [];
-    const matchKey = Object.keys(options.models).find(
-      (k) => k.toLowerCase() === attributes.brand.toLowerCase()
-    );
-    return normalizeOptions(matchKey ? options.models[matchKey] || [] : []);
-  }, [attributes?.brand, options.models, normalizeOptions]);
+    setLoading(true);
+    setError("");
 
-  // Handlers for SubmitSection
-  const submitHandlers = useMemo(() => ({
+    let product = null;
+
+    try {
+      const finalPlan = selectedPlan || promotionPlans.find((p) => Number(p.price) === 0);
+      if (!finalPlan) throw new Error("No promotion plan available");
+
+      product = await createProduct();
+      if (!product?.id) throw new Error("Failed to create product");
+
+      if (Number(finalPlan.price) === 0) {
+        await activateFreePlan(product.id);
+        clearDraft();
+        showSuccess("Product created and published!");
+        return;
+      }
+
+      const paymentRes = await initPayment(product.id);
+      const paymentSession = {
+        reference: paymentRes.reference,
+        authUrl: paymentRes.authUrl,
+        planId: finalPlan.id,
+        productId: product.id,
+        email: form.contact.email,
+        amount: Number(finalPlan.price),
+        createdAt: Date.now(),
+      };
+
+      localStorage.setItem(STORAGE_PAYMENT, JSON.stringify(paymentSession));
+      setPaymentData(paymentSession);
+      showSuccess("Redirecting to payment...");
+      window.open(paymentRes.authUrl, "_blank");
+    } catch (err) {
+      if (product?.id) {
+        try {
+          const token = localStorage.getItem("token");
+          await fetch(`https://minimart-ivrm.onrender.com/api/marketplace/products/${product.id}`, {
+            method: "DELETE",
+            headers: {
+              Authorization: token ? `Bearer ${token}` : "",
+            },
+          });
+        } catch {}
+      }
+      showError(err.message || "Something went wrong");
+    } finally {
+      setLoading(false);
+    }
+  }, [loading, validateForm, selectedPlan, form.contact.email, clearDraft, showError, showSuccess]);
+
+  useEffect(() => {
+    return () => {
+      images.forEach((img) => {
+        if (img.preview) URL.revokeObjectURL(img.preview);
+      });
+    };
+  }, [images]);
+
+  // Props for components
+  const componentProps = {
     form,
+    attributes,
     images,
     state,
     city,
+    categories,
     selectedPlan,
-    loading,
     paymentData,
-    setPaymentData,
-    setLoading,
-    validateForm,
+    loading,
+    error,
+    success,
+    states,
+    cities,
+    options,
+    selectedCategory,
+    // Handlers
+    updateForm,
+    updateAttribute,
+    updateContact,
+    updateDelivery,
+    updateDeliveryDuration,
+    toggleFeature,
+    setState,
+    setCity,
+    setSelectedPlan,
+    handleImages,
+    removeImage,
+    handleSubmit,
     clearDraft,
-    createProduct,
-    initPayment,
-    activateFreePlan,
-    showError,
-    showSuccess,
-    promotionPlans,
-  }), [
-    form, images, state, city, selectedPlan, loading, paymentData,
-    setPaymentData, setLoading, validateForm, clearDraft, createProduct,
-    initPayment, activateFreePlan, showError, showSuccess, promotionPlans
-  ]);
+    // Utilities
+    displayPrice,
+    formatLabel,
+    onlyNumbers,
+    onlyDigits,
+  };
 
   return (
     <div className="add-product-container">
-      <AddProductHeader title="Add Product" onClearDraft={clearDraft} />
-
-      <BasicInfoSection 
-        form={form} 
-        updateForm={updateForm} 
-        displayPrice={displayPrice} 
-      />
-      
-      <ProductDetailsSection
-        form={form}
-        categories={categories}
-        selectedCategory={selectedCategory}
-        attributes={attributes}
-        fields={fields}
-        optionsMap={optionsMap}
-        modelOptions={modelOptions}
-        formatLabel={formatLabel}
-        updateForm={updateForm}
-        updateAttribute={updateAttribute}
-        toggleFeature={toggleFeature}
-        INITIAL_FORM={INITIAL_FORM}
-      />
-
-      <ContactSection
-        contact={form.contact}
-        updateContact={updateContact}
-        onlyDigits={onlyDigits}
-      />
-
-      <LocationDeliverySection
-        state={state}
-        city={city}
-        states={states}
-        cities={cities}
-        delivery={form.delivery}
-        setState={setState}
-        setCity={setCity}
-        updateDelivery={updateDelivery}
-        updateDeliveryDuration={updateDeliveryDuration}
-        onlyDigits={onlyDigits}
-        displayPrice={displayPrice}
-      />
-
-      <ImagesSection
-        images={images}
-        handleImages={handleImages}
-        removeImage={removeImage}
-        MAX_IMAGES={MAX_IMAGES}
-      />
-
-      <PromotionSection
-        selectedPlan={selectedPlan}
-        setSelectedPlan={setSelectedPlan}
-        promotionPlans={promotionPlans}
-        displayPrice={displayPrice}
-      />
-
-      <SubmitSection handlers={submitHandlers} />
+      <ProductComponents {...componentProps} />
     </div>
   );
 }
