@@ -7,7 +7,7 @@ import { promotionPlans } from "../src/config/index.js";
 /* ===================== SAFE JSON ===================== */
 const safeJSON = (value, fallback = {}) => {
   try {
-    if (value == null || value === "") return fallback;
+    if (!value) return fallback;
     if (typeof value === "object") return value;
     return JSON.parse(value);
   } catch {
@@ -44,7 +44,7 @@ export const normalizeProduct = (p) => ({
 });
 
 /* ===================== SEARCH BUILDER ===================== */
-const buildSearchText = (title = "", description = "", categoryName = "", attrs = {}) =>
+const buildSearchText = (title, description, categoryName, attrs = {}) =>
   [
     title,
     description,
@@ -56,11 +56,7 @@ const buildSearchText = (title = "", description = "", categoryName = "", attrs 
     attrs?.used_detail,
     attrs?.ram,
     attrs?.storage,
-    attrs?.sim,
-    attrs?.year,
-    attrs?.engine,
-    attrs?.fuel_type,
-    Array.isArray(attrs?.features) ? attrs.features.join(" ") : "",
+    attrs?.features?.join?.(" "),
   ]
     .filter(Boolean)
     .join(" ");
@@ -83,7 +79,7 @@ export const getProductById = async (id) => {
     [id]
   );
 
-  return rows[0];
+  return rows[0] || null;
 };
 
 /* ===================== GET PRODUCTS ===================== */
@@ -128,7 +124,6 @@ export const getProducts = async (skip = 0, limit = 20, state, category_id) => {
        ORDER BY p.views DESC NULLS LAST
        LIMIT 6`
     ),
-
     pool.query(
       `${baseQuery}
        ORDER BY p.created_at DESC
@@ -151,38 +146,35 @@ export const getProducts = async (skip = 0, limit = 20, state, category_id) => {
 };
 
 /* ===================== CREATE PRODUCT ===================== */
-export const createProduct = async ({
-  title,
-  price,
-  category_id,
-  attributes,
-  delivery,
-  contact,
-  description,
-  subcategory_id,
-  promotion_id,
-  location_state,
-  location_city,
-  imagesFiles,
-  seller_id,
-}) => {
+export const createProduct = async (data, sellerId) => {
   const client = await pool.connect();
 
   try {
     await client.query("BEGIN");
 
-    /* ===================== PARSE INPUT ===================== */
+    const {
+      title,
+      price,
+      category_id,
+      attributes,
+      delivery,
+      contact,
+      description,
+      subcategory_id,
+      promotion_id,
+      location_state,
+      location_city,
+      imagesFiles,
+    } = data;
+
     const parsedAttributes = safeJSON(attributes, {});
     const parsedDelivery = normalizeDelivery(safeJSON(delivery, {}));
     const parsedContact = safeJSON(contact, {});
-
     const safePrice = Number(price);
 
-    if (Number.isNaN(safePrice) || safePrice <= 0) {
-      throw new Error("Invalid price");
-    }
+    if (!title || !title.trim()) throw new Error("MISSING_FIELDS");
+    if (Number.isNaN(safePrice) || safePrice <= 0) throw new Error("INVALID_PRICE");
 
-    /* ===================== CATEGORY NAME ===================== */
     const categoryRes = await client.query(
       "SELECT name FROM categories WHERE id = $1",
       [category_id]
@@ -197,27 +189,21 @@ export const createProduct = async ({
       parsedAttributes
     );
 
-    /* ===================== INSERT PRODUCT ===================== */
     const insert = await client.query(
       `
       INSERT INTO products (
-        title,
-        description,
-        price,
-        category_id,
-        subcategory_id,
+        title, description, price,
+        category_id, subcategory_id,
         seller_id,
-        attributes,
-        delivery,
-        contact,
+        attributes, delivery, contact,
         promotion_id,
-        location_state,
-        location_city,
+        location_state, location_city,
         search_text,
-        status,
-        is_active
+        status, is_active
       )
-      VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,'draft',true)
+      VALUES (
+        $1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,'draft',true
+      )
       RETURNING id
       `,
       [
@@ -226,7 +212,7 @@ export const createProduct = async ({
         safePrice,
         category_id,
         subcategory_id || null,
-        seller_id,
+        sellerId,
         parsedAttributes,
         parsedDelivery,
         parsedContact,
@@ -239,7 +225,6 @@ export const createProduct = async ({
 
     const productId = insert.rows[0].id;
 
-    /* ===================== SLUG ===================== */
     const slug = generateSlugWithId(title.trim(), productId);
 
     await client.query(
@@ -247,26 +232,25 @@ export const createProduct = async ({
       [slug, productId]
     );
 
-    /* ===================== IMAGE UPLOAD ===================== */
-    if (imagesFiles?.length) {
-      for (let i = 0; i < imagesFiles.length; i++) {
-        const file = imagesFiles[i];
-
-        const uploaded = await uploadOne(file.path);
-
-        await client.query(
-          `INSERT INTO product_images (product_id, image_url, position_order)
-           VALUES ($1,$2,$3)`,
-          [productId, uploaded.url, i]
-        );
-
-        await fs.unlink(file.path).catch(() => {});
-      }
-    }
-
     await client.query("COMMIT");
 
-    /* ===================== RETURN PRODUCT ===================== */
+    /* ===================== IMAGE UPLOAD (POST COMMIT) ===================== */
+    if (imagesFiles?.length) {
+      await Promise.all(
+        imagesFiles.map(async (file, i) => {
+          const uploaded = await uploadOne(file.path);
+
+          await pool.query(
+            `INSERT INTO product_images (product_id, image_url, position_order)
+             VALUES ($1,$2,$3)`,
+            [productId, uploaded.url, i]
+          );
+
+          await fs.unlink(file.path).catch(() => {});
+        })
+      );
+    }
+
     const full = await pool.query(
       `
       SELECT p.*,
@@ -286,10 +270,6 @@ export const createProduct = async ({
     return normalizeProduct(full.rows[0]);
   } catch (err) {
     await client.query("ROLLBACK").catch(() => {});
-
-    if (err.code === "23503") err.code = "FOREIGN_KEY_ERROR";
-    if (err.code === "23502") err.code = "MISSING_FIELDS";
-
     throw err;
   } finally {
     client.release();
