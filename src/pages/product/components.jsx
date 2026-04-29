@@ -1,7 +1,6 @@
 import DropdownModal from "../../components/DropdownModal.jsx";
 import AddProductHeader from "../../components/AddProductHeader.jsx";
 import { categoryFields, promotionPlans } from "../../config/categoryFields.js"; // ✅ Added promotionPlans
-import { promotionPlans } from "../../config/promotions.js";
 
 function normalizeOptions(list) {
   if (!list) return [];
