@@ -1,12 +1,10 @@
-// utils/normalizeProduct.js
-
-const safeObject = (val) => {
-  if (!val) return {};
-  if (typeof val === "object") return val;
+const safeJSON = (val, fallback = {}) => {
   try {
+    if (!val) return fallback;
+    if (typeof val === "object") return val;
     return JSON.parse(val);
   } catch {
-    return {};
+    return fallback;
   }
 };
 
@@ -20,6 +18,7 @@ const safeArray = (val) => {
   return [];
 };
 
+/* ===================== PRODUCT NORMALIZER ===================== */
 export const normalizeProduct = (product) => {
   if (!product) return null;
 
@@ -28,9 +27,7 @@ export const normalizeProduct = (product) => {
     id: product.id,
     title: product.title || "",
     description: product.description || "",
-
     price: safeNumber(product.price),
-
     slug: product.slug || null,
 
     /* ===================== CATEGORY ===================== */
@@ -44,18 +41,17 @@ export const normalizeProduct = (product) => {
     },
 
     /* ===================== MEDIA ===================== */
-    media: safeObject(product.media),
+    media: safeJSON(product.media, {
+      images: [],
+      videos: [],
+    }),
 
-    /* ===================== ATTRIBUTES ===================== */
-    attributes: safeObject(product.attributes),
+    /* ===================== STRUCTURED DATA ===================== */
+    attributes: safeJSON(product.attributes, {}),
+    delivery: safeJSON(product.delivery, {}),
+    contact: safeJSON(product.contact, {}),
 
-    /* ===================== DELIVERY ===================== */
-    delivery: safeObject(product.delivery),
-
-    /* ===================== CONTACT ===================== */
-    contact: safeObject(product.contact),
-
-    /* ===================== METRICS ===================== */
+    /* ===================== ENGAGEMENT ===================== */
     views: safeNumber(product.views),
     clicks: safeNumber(product.clicks_count),
     favorites: safeNumber(product.favorites_count),
@@ -63,11 +59,18 @@ export const normalizeProduct = (product) => {
     impressions: safeNumber(product.impression_count),
 
     engagement_score: safeNumber(product.engagement_score),
-    ranking_score: safeNumber(product.ranking_score),
 
     /* ===================== STATUS ===================== */
     is_active: Boolean(product.is_active),
     status: product.status || "draft",
+
+    /* ===================== SEO ===================== */
+    seo: {
+      title: product.seo_title || null,
+      description: product.seo_description || null,
+      keywords: product.seo_keywords || null,
+      canonical_url: product.canonical_url || null,
+    },
 
     /* ===================== TIMESTAMPS ===================== */
     created_at: product.created_at || null,
