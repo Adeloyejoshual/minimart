@@ -2,7 +2,6 @@ import fs from "fs/promises";
 import { pool } from "../config/db.js";
 import { uploadOne } from "./upload.utils.js";
 import { generateSlugWithId } from "../utils/slug.js";
-import { promotionPlans } from "../src/config/index.js";
 
 /* ===================== SAFE JSON ===================== */
 const safeJSON = (value, fallback = {}) => {
@@ -31,7 +30,6 @@ const normalizeDelivery = (d = {}) => ({
 export const normalizeProduct = (p) => ({
   ...p,
   price: Number(p.price),
-  images: p.images || [],
   attributes: safeJSON(p.attributes, {}),
   delivery: normalizeDelivery(safeJSON(p.delivery, {})),
   contact: safeJSON(p.contact, {}),
@@ -39,27 +37,7 @@ export const normalizeProduct = (p) => ({
     state: p.location_state || null,
     city: p.location_city || null,
   },
-  promotion:
-    promotionPlans.find((x) => x.id === p.promotion_id) || null,
 });
-
-/* ===================== SEARCH BUILDER ===================== */
-const buildSearchText = (title, description, categoryName, attrs = {}) =>
-  [
-    title,
-    description,
-    categoryName,
-    attrs?.brand,
-    attrs?.model,
-    attrs?.color,
-    attrs?.condition,
-    attrs?.used_detail,
-    attrs?.ram,
-    attrs?.storage,
-    attrs?.features?.join?.(" "),
-  ]
-    .filter(Boolean)
-    .join(" ");
 
 /* ===================== GET PRODUCT BY ID ===================== */
 export const getProductById = async (id) => {
@@ -79,10 +57,10 @@ export const getProductById = async (id) => {
     [id]
   );
 
-  return rows[0] || null;
+  return rows[0] ? normalizeProduct(rows[0]) : null;
 };
 
-/* ===================== GET PRODUCTS ===================== */
+/* ===================== GET PRODUCTS (FEED) ===================== */
 export const getProducts = async (skip = 0, limit = 20, state, category_id) => {
   const offset = Math.max(Number(skip) || 0, 0);
   const take = Math.min(Number(limit) || 20, 50);
@@ -120,14 +98,18 @@ export const getProducts = async (skip = 0, limit = 20, state, category_id) => {
 
   const [trending, feed] = await Promise.all([
     pool.query(
-      `${baseQuery}
-       ORDER BY p.views DESC NULLS LAST
-       LIMIT 6`
+      `
+      ${baseQuery}
+      ORDER BY p.engagement_score DESC, p.views DESC
+      LIMIT 6
+      `
     ),
     pool.query(
-      `${baseQuery}
-       ORDER BY p.created_at DESC
-       OFFSET $${i} LIMIT $${i + 1}`,
+      `
+      ${baseQuery}
+      ORDER BY p.created_at DESC
+      OFFSET $${i} LIMIT $${i + 1}
+      `,
       [...params, offset, take]
     ),
   ]);
@@ -154,40 +136,27 @@ export const createProduct = async (data, sellerId) => {
 
     const {
       title,
+      description,
       price,
       category_id,
+      subcategory_id,
       attributes,
       delivery,
       contact,
-      description,
-      subcategory_id,
       promotion_id,
       location_state,
       location_city,
       imagesFiles,
     } = data;
 
+    const safePrice = Number(price);
+
+    if (!title?.trim()) throw new Error("MISSING_TITLE");
+    if (!safePrice || safePrice <= 0) throw new Error("INVALID_PRICE");
+
     const parsedAttributes = safeJSON(attributes, {});
     const parsedDelivery = normalizeDelivery(safeJSON(delivery, {}));
     const parsedContact = safeJSON(contact, {});
-    const safePrice = Number(price);
-
-    if (!title || !title.trim()) throw new Error("MISSING_FIELDS");
-    if (Number.isNaN(safePrice) || safePrice <= 0) throw new Error("INVALID_PRICE");
-
-    const categoryRes = await client.query(
-      "SELECT name FROM categories WHERE id = $1",
-      [category_id]
-    );
-
-    const categoryName = categoryRes.rows[0]?.name || "";
-
-    const searchText = buildSearchText(
-      title,
-      description || "",
-      categoryName,
-      parsedAttributes
-    );
 
     const insert = await client.query(
       `
@@ -198,11 +167,17 @@ export const createProduct = async (data, sellerId) => {
         attributes, delivery, contact,
         promotion_id,
         location_state, location_city,
-        search_text,
-        status, is_active
+        status, is_active,
+        search_vector
       )
       VALUES (
-        $1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,'draft',true
+        $1,$2,$3,
+        $4,$5,$6,
+        $7,$8,$9,
+        $10,
+        $11,$12,
+        'draft', true,
+        to_tsvector('english', $1 || ' ' || $2)
       )
       RETURNING id
       `,
@@ -219,7 +194,6 @@ export const createProduct = async (data, sellerId) => {
         promotion_id || null,
         location_state || null,
         location_city || null,
-        searchText,
       ]
     );
 
@@ -234,15 +208,17 @@ export const createProduct = async (data, sellerId) => {
 
     await client.query("COMMIT");
 
-    /* ===================== IMAGE UPLOAD (POST COMMIT) ===================== */
+    /* ===================== IMAGE UPLOAD ===================== */
     if (imagesFiles?.length) {
       await Promise.all(
         imagesFiles.map(async (file, i) => {
           const uploaded = await uploadOne(file.path);
 
           await pool.query(
-            `INSERT INTO product_images (product_id, image_url, position_order)
-             VALUES ($1,$2,$3)`,
+            `
+            INSERT INTO product_images (product_id, image_url, position_order)
+            VALUES ($1,$2,$3)
+            `,
             [productId, uploaded.url, i]
           );
 
@@ -280,7 +256,12 @@ export const createProduct = async (data, sellerId) => {
 export const incrementViews = (id) => {
   pool
     .query(
-      "UPDATE products SET views = COALESCE(views,0) + 1 WHERE id = $1",
+      `
+      UPDATE products 
+      SET views = views + 1,
+          engagement_score = engagement_score + 1
+      WHERE id = $1
+      `,
       [id]
     )
     .catch(() => {});
