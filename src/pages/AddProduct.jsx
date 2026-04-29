@@ -14,6 +14,9 @@ const displayPrice = (v) => {
   return Number.isNaN(num) || num <= 0 ? "" : new Intl.NumberFormat("en-NG").format(num);
 };
 
+const onlyNumbers = (v = "") => v.replace(/[^0-9.]/g, "");
+const onlyDigits = (v = "") => v.replace(/[^0-9]/g, "");
+
 export default function AddProduct() {
   const {
     form,
@@ -347,7 +350,7 @@ export default function AddProduct() {
         <button
           className="primary-btn"
           type="button"
-          onClick={handleSubmit}
+          onClick={() => handleSubmit(images, state, city)}
           disabled={loading}
         >
           {loading ? "Processing..." : "🚀 Create Product"}
@@ -364,11 +367,8 @@ export default function AddProduct() {
         )}
       </div>
 
-      {error && <div className="form-success">✅ {success}</div>}
+      {error && <div className="form-error">⚠️ {error}</div>}
+      {success && <div className="form-success">✅ {success}</div>}
     </div>
   );
 }
-
-// helpers for the page
-const onlyNumbers = (v = "") => v.replace(/[^0-9.]/g, "");
-const onlyDigits = (v = "") => v.replace(/[^0-9]/g, "");
