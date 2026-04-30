@@ -16,6 +16,7 @@ const pool = new Pool({
 router.use(express.json({ limit: "10mb" }));
 router.use(express.urlencoded({ extended: true }));
 
+// Logging middleware for /initiate
 router.use((req, res, next) => {
   if (req.method === "POST" && req.path.includes("initiate")) {
     console.log(`🔸 [${new Date().toISOString()}] ${req.path}:`, {
@@ -26,6 +27,7 @@ router.use((req, res, next) => {
   next();
 });
 
+/* ===================== PAYSTACK INITIATE ===================== */
 router.post("/initiate", async (req, res) => {
   const { email, amount, plan_id, product_id, planId, productId } = req.body;
 
@@ -57,6 +59,7 @@ router.post("/initiate", async (req, res) => {
     });
   }
 
+  // Ensure product exists and is in draft
   try {
     const productCheck = await pool.query(
       "SELECT id, status FROM products WHERE id = $1",
@@ -78,8 +81,13 @@ router.post("/initiate", async (req, res) => {
     }
   } catch (dbErr) {
     console.error("Product validation error:", dbErr);
+    return res.status(500).json({
+      success: false,
+      message: "Database validation failed",
+    });
   }
 
+  // Initiate Paystack payment
   try {
     if (!process.env.PAYSTACK_SECRET_KEY) {
       throw new Error("PAYSTACK_SECRET_KEY not configured");
@@ -129,7 +137,7 @@ router.post("/initiate", async (req, res) => {
       });
     }
 
-    res.json({
+    return res.json({
       success: true,
       status: true,
       reference: data.data.reference,
@@ -137,13 +145,14 @@ router.post("/initiate", async (req, res) => {
     });
   } catch (err) {
     console.error("💥 Payment init ERROR:", err.message);
-    res.status(500).json({
+    return res.status(500).json({
       success: false,
       message: err.message || "Payment service unavailable",
     });
   }
 });
 
+/* ===================== ACTIVATE PRODUCT ===================== */
 router.post("/products/:id/activate", async (req, res) => {
   try {
     const { id: productId } = req.params;
@@ -173,20 +182,21 @@ router.post("/products/:id/activate", async (req, res) => {
       });
     }
 
-    res.json({
+    return res.json({
       success: true,
       product_id: result.rows[0].id,
       new_status: result.rows[0].status,
     });
   } catch (err) {
     console.error("Activate error:", err);
-    res.status(500).json({
+    return res.status(500).json({
       success: false,
       message: "Activation failed",
     });
   }
 });
 
+/* ===================== VERIFY PAYMENT ===================== */
 router.get("/verify/:reference", async (req, res) => {
   try {
     const { reference } = req.params;
@@ -209,20 +219,21 @@ router.get("/verify/:reference", async (req, res) => {
       });
     }
 
-    res.json({
+    return res.json({
       success: true,
       data: data.data,
       message: "Payment verified successfully",
     });
   } catch (err) {
     console.error("Verify error:", err);
-    res.status(500).json({
+    return res.status(500).json({
       success: false,
       message: "Verification failed",
     });
   }
 });
 
+/* ===================== WEBHOOK HANDLER ===================== */
 webhookRouter.post("/", async (req, res) => {
   try {
     const secret = process.env.PAYSTACK_SECRET_KEY;
@@ -280,6 +291,7 @@ webhookRouter.post("/", async (req, res) => {
       return res.status(200).send("OK");
     }
 
+    // Promotion duration logic
     let expiresAt = null;
     if (planId) {
       const planRes = await pool.query(
@@ -312,10 +324,10 @@ webhookRouter.post("/", async (req, res) => {
       [planId || null, expiresAt, productId]
     );
 
-    res.status(200).send("OK");
+    return res.status(200).send("OK");
   } catch (err) {
     console.error("🔥 WEBHOOK ERROR:", err.message);
-    res.status(500).send("Internal error");
+    return res.status(500).send("Internal error");
   }
 });
 
