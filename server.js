@@ -2,70 +2,92 @@
 import express from "express";
 import cors from "cors";
 import path from "path";
-import { fileURLToPath } from "url";
 import http from "http";
-import { Server as SocketIOServer } from "socket.io";
 import dotenv from "dotenv";
+import { fileURLToPath } from "url";
+import { Server as SocketIOServer } from "socket.io";
+import { Pool } from "pg";
 
 dotenv.config();
 
-/* ================= CONFIG ================= */
+/* =========================================
+   APP + SERVER
+========================================= */
 const app = express();
 const PORT = process.env.PORT || 5000;
 
-/* ================= SERVER ================= */
 const server = http.createServer(app);
+
 const io = new SocketIOServer(server, {
-  cors: { origin: "*", methods: ["GET", "POST"] },
+  cors: {
+    origin: "*",
+    methods: ["GET", "POST", "PUT", "DELETE"],
+  },
 });
 
-/* ================= DATABASE ================= */
-import { Pool } from "pg";
-
+/* =========================================
+   DATABASE
+========================================= */
 export const pool = new Pool({
   connectionString: process.env.COCKROACH_URI,
-  ssl: { rejectUnauthorized: false },
+  ssl: {
+    rejectUnauthorized: false,
+  },
 });
 
-/* ================= DB CONNECT ================= */
+/* =========================================
+   TEST DATABASE
+========================================= */
 (async () => {
   try {
     await pool.query("SELECT 1");
-    console.log("✅ CockroachDB connected");
-  } catch (err) {
-    console.error("❌ DB ERROR:", err.message);
+    console.log("✅ Database connected");
+  } catch (error) {
+    console.error("❌ Database connection failed:", error.message);
     process.exit(1);
   }
 })();
 
-/* ================= CACHE ================= */
+/* =========================================
+   SIMPLE CACHE
+========================================= */
 export const cache = new Map();
+
 const CACHE_TTL = 60 * 1000; // 1 min
 
 const setCache = (key, value) => {
-  cache.set(key, { value, time: Date.now() });
+  cache.set(key, {
+    value,
+    time: Date.now(),
+  });
 };
 
 const getCache = (key) => {
-  const data = cache.get(key);
-  if (!data) return null;
+  const item = cache.get(key);
 
-  if (Date.now() - data.time > CACHE_TTL) {
+  if (!item) return null;
+
+  if (Date.now() - item.time > CACHE_TTL) {
     cache.delete(key);
     return null;
   }
 
-  return data.value;
+  return item.value;
 };
 
 setInterval(() => {
   const now = Date.now();
-  for (const [key, val] of cache.entries()) {
-    if (now - val.time > CACHE_TTL) cache.delete(key);
+
+  for (const [key, value] of cache.entries()) {
+    if (now - value.time > CACHE_TTL) {
+      cache.delete(key);
+    }
   }
 }, 60000);
 
-/* ================= SECURITY ================= */
+/* =========================================
+   MIDDLEWARE
+========================================= */
 app.use(cors());
 
 app.use((req, res, next) => {
@@ -75,54 +97,90 @@ app.use((req, res, next) => {
   next();
 });
 
-/* ================= LOGGER ================= */
+/* =========================================
+   REQUEST LOGGER
+========================================= */
 app.use((req, res, next) => {
-  console.log(`${new Date().toISOString()} | ${req.method} ${req.url}`);
+  console.log(
+    `${new Date().toISOString()} | ${req.method} ${req.originalUrl}`
+  );
   next();
 });
 
-/* ================= RATE LIMIT ================= */
-const rateLimitMap = new Map();
-const windowMs = 2000;   // 2s
-const maxReq = 60;
+/* =========================================
+   RATE LIMITER
+========================================= */
+const limiter = new Map();
+const WINDOW_MS = 2000;
+const MAX_REQ = 60;
 
 app.use((req, res, next) => {
-  const ip = req.headers["x-forwarded-for"] || req.socket.remoteAddress;
+  const ip =
+    req.headers["x-forwarded-for"] ||
+    req.socket.remoteAddress ||
+    "unknown";
+
   const now = Date.now();
 
-  let record = rateLimitMap.get(ip);
+  let data = limiter.get(ip);
 
-  if (!record || now - record.time > windowMs) {
-    record = { count: 1, time: now };
+  if (!data || now - data.time > WINDOW_MS) {
+    data = {
+      count: 1,
+      time: now,
+    };
   } else {
-    record.count++;
+    data.count++;
   }
 
-  rateLimitMap.set(ip, record);
+  limiter.set(ip, data);
 
-  if (record.count > maxReq) {
-    return res.status(429).json({ message: "Too many requests" });
+  if (data.count > MAX_REQ) {
+    return res.status(429).json({
+      success: false,
+      message: "Too many requests",
+    });
   }
 
   next();
 });
 
-/* ================= CRON ================= */
-import "./jobs/expirePromotions.js";
+/* =========================================
+   PAYSTACK WEBHOOK
+========================================= */
+import paymentRouter, {
+  webhookRouter,
+} from "./routes/payment.js";
 
-/* ================= PAYSTACK WEBHOOK ================= */
-import paymentRouter, { webhookRouter } from "./routes/payment.js";
+/* raw body only for webhook */
+app.use(
+  "/api/payment/webhook",
+  express.raw({ type: "application/json" }),
+  webhookRouter
+);
 
-// Raw body for webhook only
-app.use("/api/payment/webhook", express.raw({ type: "application/json" }), webhookRouter);
-// JSON body for main payment routes
+/* json routes */
 app.use("/api/payment", paymentRouter);
 
-/* ================= BODY PARSERS ================= */
+/* =========================================
+   BODY PARSER
+========================================= */
 app.use(express.json({ limit: "10mb" }));
-app.use(express.urlencoded({ extended: true }));
+app.use(
+  express.urlencoded({
+    extended: true,
+    limit: "10mb",
+  })
+);
 
-/* ================= ROUTES ================= */
+/* =========================================
+   CRON JOBS
+========================================= */
+import "./jobs/expirePromotions.js";
+
+/* =========================================
+   ROUTES
+========================================= */
 import marketplaceRouter from "./routes/addproduct.js";
 import userRouter from "./routes/users.js";
 import messagesRouter from "./routes/messages.js";
@@ -141,49 +199,93 @@ app.use("/api/product", productDetailRouter);
 app.use("/api", homepageRouter);
 app.use("/api/marketplace/sellers", sellerProfileRouter);
 
-/* ================= HEALTH CHECK ================= */
+/* =========================================
+   HEALTH CHECK
+========================================= */
 app.get("/api/health", async (req, res) => {
   try {
     const { rows } = await pool.query("SELECT 1");
-    res.json({
+
+    return res.json({
       success: true,
-      db: rows.length > 0,
+      database: rows.length > 0,
       uptime: process.uptime(),
       memory: process.memoryUsage().rss,
     });
-  } catch (err) {
-    res.status(500).json({ success: false, error: err.message });
+  } catch (error) {
+    return res.status(500).json({
+      success: false,
+      error: error.message,
+    });
   }
 });
 
-/* ================= SOCKET.IO ================= */
+/* =========================================
+   SOCKET.IO
+========================================= */
 io.on("connection", (socket) => {
-  console.log("🔌 Connected:", socket.id);
+  console.log("🔌 User connected:", socket.id);
 
-  socket.on("joinRoom", ({ senderId, receiverId, productId }) => {
-    if (!senderId || !receiverId || !productId) return;
-    const room = `${productId}_${[senderId, receiverId].sort().join("_")}`;
-    socket.join(room);
-  });
+  socket.on(
+    "joinRoom",
+    ({ senderId, receiverId, productId }) => {
+      if (!senderId || !receiverId || !productId) return;
+
+      const room = `${productId}_${[senderId, receiverId]
+        .sort()
+        .join("_")}`;
+
+      socket.join(room);
+    }
+  );
 
   socket.on("sendMessage", async (data) => {
     try {
-      const { senderId, receiverId, productId, message } = data;
-      if (!senderId || !receiverId || !productId || !message) return;
+      const {
+        senderId,
+        receiverId,
+        productId,
+        message,
+      } = data;
 
-      const room = `${productId}_${[senderId, receiverId].sort().join("_")}`;
+      if (
+        !senderId ||
+        !receiverId ||
+        !productId ||
+        !message
+      ) {
+        return;
+      }
+
+      const room = `${productId}_${[
+        senderId,
+        receiverId,
+      ]
+        .sort()
+        .join("_")}`;
 
       const { rows } = await pool.query(
-        `INSERT INTO messages 
-         (sender_id, receiver_id, product_id, message, created_at)
-         VALUES ($1, $2, $3, $4, NOW())
-         RETURNING *`,
+        `
+        INSERT INTO messages
+        (
+          sender_id,
+          receiver_id,
+          product_id,
+          message,
+          created_at
+        )
+        VALUES ($1,$2,$3,$4,NOW())
+        RETURNING *
+        `,
         [senderId, receiverId, productId, message]
       );
 
       io.to(room).emit("receiveMessage", rows[0]);
-    } catch (err) {
-      console.error("❌ Socket error:", err.message);
+    } catch (error) {
+      console.error(
+        "❌ Socket message error:",
+        error.message
+      );
     }
   });
 
@@ -192,33 +294,48 @@ io.on("connection", (socket) => {
   });
 });
 
-/* ================= STATIC FILES (PROD) ================= */
+/* =========================================
+   STATIC FILES
+========================================= */
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
 if (process.env.NODE_ENV === "production") {
-  app.use(express.static(path.join(__dirname, "dist")));
+  const distPath = path.join(__dirname, "dist");
+
+  app.use(express.static(distPath));
 
   app.get("*", (req, res) => {
     if (req.path.startsWith("/api/")) {
-      return res.status(404).json({ message: "API not found" });
+      return res.status(404).json({
+        success: false,
+        message: "API route not found",
+      });
     }
-    res.sendFile(path.join(__dirname, "dist", "index.html"));
+
+    res.sendFile(path.join(distPath, "index.html"));
   });
 }
 
-/* ================= ERROR HANDLER ================= */
+/* =========================================
+   GLOBAL ERROR HANDLER
+========================================= */
 app.use((err, req, res, next) => {
-  console.error("🔥 ERROR:", err);
-  res.status(500).json({
+  console.error("🔥 Server error:", err);
+
+  return res.status(500).json({
     success: false,
-    message: err.message || "Internal Server Error",
+    message:
+      err.message || "Internal Server Error",
   });
 });
 
-/* ================= START SERVER ================= */
+/* =========================================
+   START SERVER
+========================================= */
 server.listen(PORT, () => {
-  console.log(`🚀 Server running on port ${PORT}`);
+  console.log(`🚀 Server started on port ${PORT}`);
 });
 
+export { io, setCache, getCache };
 export default app;
