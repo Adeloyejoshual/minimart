@@ -1,3 +1,4 @@
+// server.js
 import express from "express";
 import cors from "cors";
 import path from "path";
@@ -39,13 +40,13 @@ export const pool = new Pool({
 
 /* ================= CACHE ================= */
 export const cache = new Map();
-const CACHE_TTL = 60 * 1000;
+const CACHE_TTL = 60 * 1000; // 1 min
 
-export const setCache = (key, value) => {
+const setCache = (key, value) => {
   cache.set(key, { value, time: Date.now() });
 };
 
-export const getCache = (key) => {
+const getCache = (key) => {
   const data = cache.get(key);
   if (!data) return null;
 
@@ -82,13 +83,12 @@ app.use((req, res, next) => {
 
 /* ================= RATE LIMIT ================= */
 const rateLimitMap = new Map();
+const windowMs = 2000;   // 2s
+const maxReq = 60;
 
 app.use((req, res, next) => {
   const ip = req.headers["x-forwarded-for"] || req.socket.remoteAddress;
   const now = Date.now();
-
-  const windowMs = 2000;
-  const maxReq = 60;
 
   let record = rateLimitMap.get(ip);
 
@@ -110,19 +110,15 @@ app.use((req, res, next) => {
 /* ================= CRON ================= */
 import "./jobs/expirePromotions.js";
 
-/* =========================================================
-   🔥 PAYSTACK WEBHOOK (MUST COME BEFORE express.json)
-   Uses ONE payment.js (webhookRouter)
-========================================================= */
+/* ================= PAYSTACK WEBHOOK ================= */
 import paymentRouter, { webhookRouter } from "./routes/payment.js";
 
-// Raw body only for webhook route
+// Raw body for webhook only
 app.use("/api/payment/webhook", express.raw({ type: "application/json" }), webhookRouter);
-
-// Main payment routes (JSON‑parsed body)
+// JSON body for main payment routes
 app.use("/api/payment", paymentRouter);
 
-/* ================= NORMAL BODY PARSERS ================= */
+/* ================= BODY PARSERS ================= */
 app.use(express.json({ limit: "10mb" }));
 app.use(express.urlencoded({ extended: true }));
 
@@ -145,7 +141,7 @@ app.use("/api/product", productDetailRouter);
 app.use("/api", homepageRouter);
 app.use("/api/marketplace/sellers", sellerProfileRouter);
 
-/* ================= HEALTH ================= */
+/* ================= HEALTH CHECK ================= */
 app.get("/api/health", async (req, res) => {
   try {
     const { rows } = await pool.query("SELECT 1");
@@ -160,7 +156,7 @@ app.get("/api/health", async (req, res) => {
   }
 });
 
-/* ================= SOCKET ================= */
+/* ================= SOCKET.IO ================= */
 io.on("connection", (socket) => {
   console.log("🔌 Connected:", socket.id);
 
@@ -196,7 +192,7 @@ io.on("connection", (socket) => {
   });
 });
 
-/* ================= STATIC ================= */
+/* ================= STATIC FILES (PROD) ================= */
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
@@ -211,7 +207,7 @@ if (process.env.NODE_ENV === "production") {
   });
 }
 
-/* ================= ERROR ================= */
+/* ================= ERROR HANDLER ================= */
 app.use((err, req, res, next) => {
   console.error("🔥 ERROR:", err);
   res.status(500).json({
@@ -220,7 +216,7 @@ app.use((err, req, res, next) => {
   });
 });
 
-/* ================= START ================= */
+/* ================= START SERVER ================= */
 server.listen(PORT, () => {
   console.log(`🚀 Server running on port ${PORT}`);
 });
