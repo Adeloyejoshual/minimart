@@ -1,15 +1,37 @@
+import { useMemo } from "react";
 import DropdownModal from "../../components/DropdownModal.jsx";
 import AddProductHeader from "../../components/AddProductHeader.jsx";
+import { promotionPlans } from "../../config/promotions.js";
 import { categoryFields } from "../../config/categoryFields.js";
-import { promotionPlans } from "../../config/promotions.js"; // ✅ from own file now
 
-function normalizeOptions(list) {
-  if (!list) return [];
-  return Array.isArray(list)
-    ? list.map((x) => (typeof x === "string" ? { id: x, name: x } : x))
-    : [];
-}
+/* ==================================================
+   HELPERS
+================================================== */
+const normalizeOptions = (list = []) => {
+  if (!Array.isArray(list)) return [];
 
+  return list.map((item) => {
+    if (typeof item === "string") {
+      return { id: item, name: item };
+    }
+
+    return {
+      id: item.id ?? item.value ?? item.name,
+      name: item.name ?? item.label ?? item.id,
+    };
+  });
+};
+
+const getCategoryList = (categories = []) => {
+  return categories.map((cat) => ({
+    id: String(cat.id),
+    name: cat.name,
+  }));
+};
+
+/* ==================================================
+   COMPONENT
+================================================== */
 export default function ProductComponents({
   form,
   attributes,
@@ -47,387 +69,658 @@ export default function ProductComponents({
 }) {
   const MAX_IMAGES = 6;
 
-  const fields = selectedCategory
-    ? [
-        ...(Array.isArray(options.fields) ? options.fields : []),
-        ...(categoryFields[selectedCategory.name] || []),
-      ]
-        .filter(Boolean)
-        .filter((f) => f !== "brand" && f !== "model")
-    : [];
+  /* ==========================================
+     CATEGORY OPTIONS
+  ========================================== */
+  const categoryOptions = useMemo(
+    () => getCategoryList(categories),
+    [categories]
+  );
 
-  const modelOptions = attributes?.brand && options.models
-    ? normalizeOptions(options.models[attributes.brand.toLowerCase()] || [])
-    : [];
+  /* ==========================================
+     DYNAMIC FIELDS
+  ========================================== */
+  const fields = useMemo(() => {
+    if (!selectedCategory) return [];
 
+    const backendFields = Array.isArray(options.fields)
+      ? options.fields
+      : [];
+
+    const staticFields =
+      categoryFields[selectedCategory.name] || [];
+
+    return [...backendFields, ...staticFields]
+      .filter(Boolean)
+      .filter(
+        (field, index, arr) =>
+          arr.indexOf(field) === index
+      )
+      .filter(
+        (field) =>
+          field !== "brand" &&
+          field !== "model"
+      );
+  }, [selectedCategory, options]);
+
+  /* ==========================================
+     MODELS
+  ========================================== */
+  const modelOptions = useMemo(() => {
+    if (!attributes?.brand) return [];
+
+    const key =
+      attributes.brand.toLowerCase();
+
+    return normalizeOptions(
+      options?.models?.[key] || []
+    );
+  }, [attributes?.brand, options]);
+
+  /* ==========================================
+     ALL OPTIONS MAP
+  ========================================== */
   const optionsMap = {
     brand: normalizeOptions(options.brands),
     color: normalizeOptions(options.colors),
-    condition: normalizeOptions(options.conditions),
-    used_detail: normalizeOptions(options.usedDetails || options.used_details),
+    condition: normalizeOptions(
+      options.conditions
+    ),
+    used_detail: normalizeOptions(
+      options.usedDetails ||
+        options.used_details
+    ),
     ram: normalizeOptions(options.ram),
-    storage: normalizeOptions(options.storage),
+    storage: normalizeOptions(
+      options.storage
+    ),
     sim: normalizeOptions(options.sim),
-    features: Array.isArray(options.features) ? options.features : [],
     year: normalizeOptions(options.years),
-    engine: normalizeOptions(options.engines || options.engine),
-    fuel_type: normalizeOptions(options.fuel_types || options.fuelType),
+    engine: normalizeOptions(
+      options.engines
+    ),
+    fuel_type: normalizeOptions(
+      options.fuel_types
+    ),
     size: normalizeOptions(options.size),
-    age_range: normalizeOptions(options.age_range),
-    bedrooms: normalizeOptions(options.bedrooms),
-    bathrooms: normalizeOptions(options.bathrooms),
-    experience_level: normalizeOptions(options.experience_level),
-    skills: normalizeOptions(options.skills),
+    age_range: normalizeOptions(
+      options.age_range
+    ),
+    bedrooms: normalizeOptions(
+      options.bedrooms
+    ),
+    bathrooms: normalizeOptions(
+      options.bathrooms
+    ),
+    experience_level:
+      normalizeOptions(
+        options.experience_level
+      ),
+    skills: normalizeOptions(
+      options.skills
+    ),
+    features: Array.isArray(
+      options.features
+    )
+      ? options.features
+      : [],
   };
 
   return (
     <>
-      <AddProductHeader title="Add Product" onClearDraft={clearDraft} />
+      <AddProductHeader
+        title="Create Product"
+        onClearDraft={clearDraft}
+      />
 
-      {/* Basic Information */}
+      {/* =====================================
+          BASIC INFO
+      ===================================== */}
       <section className="section form-card">
-        <h3 className="section-title">Basic Information</h3>
+        <h3 className="section-title">
+          Basic Information
+        </h3>
+
         <div className="form-group">
-          <label>Product Title *</label>
+          <label>
+            Product Title *
+          </label>
           <input
-            placeholder="Enter product title (min 10 chars)"
             value={form.title}
-            onChange={(e) => updateForm("title", e.target.value)}
+            placeholder="Enter product title"
+            onChange={(e) =>
+              updateForm(
+                "title",
+                e.target.value
+              )
+            }
           />
         </div>
+
         <div className="form-group">
-          <label>Description *</label>
+          <label>
+            Description *
+          </label>
           <textarea
-            placeholder="Detailed product description (min 20 chars)"
             rows={4}
             value={form.description}
-            onChange={(e) => updateForm("description", e.target.value)}
+            placeholder="Describe your product clearly"
+            onChange={(e) =>
+              updateForm(
+                "description",
+                e.target.value
+              )
+            }
           />
         </div>
+
         <div className="form-group">
-          <label>Price (₦) *</label>
+          <label>
+            Price (₦) *
+          </label>
           <input
             type="text"
             inputMode="numeric"
-            placeholder="Enter price"
-            value={displayPrice(form.price)}
-            onChange={(e) => updateForm("price", onlyNumbers(e.target.value))}
+            value={displayPrice(
+              form.price
+            )}
+            placeholder="Enter amount"
+            onChange={(e) =>
+              updateForm(
+                "price",
+                onlyNumbers(
+                  e.target.value
+                )
+              )
+            }
           />
         </div>
       </section>
 
-      {/* Product Details */}
+      {/* =====================================
+          PRODUCT DETAILS
+      ===================================== */}
       <section className="section form-card">
-        <h3 className="section-title">Product Details</h3>
+        <h3 className="section-title">
+          Product Details
+        </h3>
+
         <div className="form-group">
-          <label>Category *</label>
+          <label>
+            Category *
+          </label>
+
           <DropdownModal
-            value={String(form.category_id)}
-            onChange={(v) => {
-              updateForm("category_id", v);
-              updateForm("subcategory_id", "");
-              updateForm("attributes", INITIAL_FORM.attributes);
-            }}
-            options={categories}
+            value={String(
+              form.category_id || ""
+            )}
+            options={categoryOptions}
             placeholder="Select category"
+            onChange={(value) => {
+              updateForm(
+                "category_id",
+                value
+              );
+              updateForm(
+                "subcategory_id",
+                ""
+              );
+              updateForm(
+                "attributes",
+                INITIAL_FORM.attributes
+              );
+            }}
           />
         </div>
 
-        {optionsMap.brand.length > 0 && (
+        {optionsMap.brand.length >
+          0 && (
           <div className="form-group">
-            <label>{formatLabel("brand")}</label>
+            <label>
+              Brand
+            </label>
             <DropdownModal
-              value={attributes?.brand || ""}
-              onChange={(v) => updateAttribute("brand", v)}
-              options={optionsMap.brand}
+              value={
+                attributes?.brand ||
+                ""
+              }
+              options={
+                optionsMap.brand
+              }
+              onChange={(value) =>
+                updateAttribute(
+                  "brand",
+                  value
+                )
+              }
             />
           </div>
         )}
 
-        {modelOptions.length > 0 && (
+        {modelOptions.length >
+          0 && (
           <div className="form-group">
-            <label>{formatLabel("model")}</label>
+            <label>
+              Model
+            </label>
             <DropdownModal
-              value={attributes?.model || ""}
-              onChange={(v) => updateAttribute("model", v)}
-              options={modelOptions}
+              value={
+                attributes?.model ||
+                ""
+              }
+              options={
+                modelOptions
+              }
+              onChange={(value) =>
+                updateAttribute(
+                  "model",
+                  value
+                )
+              }
             />
           </div>
         )}
 
         {fields.map((field) => {
-          const fieldOptions = optionsMap[field] || [];
-          if (!fieldOptions.length) return null;
-          if (field === "used_detail" && attributes?.condition !== "Used")
+          const list =
+            optionsMap[field] ||
+            [];
+
+          if (!list.length)
             return null;
 
+          if (
+            field ===
+              "used_detail" &&
+            attributes?.condition !==
+              "Used"
+          ) {
+            return null;
+          }
+
           return (
-            <div key={field} className="form-group">
-              <label>{formatLabel(field)}</label>
+            <div
+              className="form-group"
+              key={field}
+            >
+              <label>
+                {formatLabel(
+                  field
+                )}
+              </label>
+
               <DropdownModal
-                value={attributes?.[field] || ""}
-                onChange={(v) => updateAttribute(field, v)}
-                options={fieldOptions}
+                value={
+                  attributes?.[
+                    field
+                  ] || ""
+                }
+                options={list}
+                onChange={(
+                  value
+                ) =>
+                  updateAttribute(
+                    field,
+                    value
+                  )
+                }
               />
             </div>
           );
         })}
 
-        {optionsMap.features.length > 0 && (
+        {optionsMap.features
+          .length > 0 && (
           <div className="form-group">
-            <label>Features</label>
+            <label>
+              Features
+            </label>
+
             <div className="checkbox-grid-inline">
-              {optionsMap.features.slice(0, 12).map((feature) => (
-                <label key={feature} className="checkbox-inline">
-                  <input
-                    type="checkbox"
-                    checked={attributes?.features?.includes(feature) || false}
-                    onChange={() => toggleFeature(feature)}
-                  />
-                  <span>{formatLabel(feature)}</span>
-                </label>
-              ))}
+              {optionsMap.features.map(
+                (
+                  feature
+                ) => (
+                  <label
+                    key={
+                      feature
+                    }
+                    className="checkbox-inline"
+                  >
+                    <input
+                      type="checkbox"
+                      checked={
+                        attributes?.features?.includes(
+                          feature
+                        ) ||
+                        false
+                      }
+                      onChange={() =>
+                        toggleFeature(
+                          feature
+                        )
+                      }
+                    />
+                    <span>
+                      {formatLabel(
+                        feature
+                      )}
+                    </span>
+                  </label>
+                )
+              )}
             </div>
           </div>
         )}
       </section>
 
-      {/* Contact Information */}
+      {/* =====================================
+          CONTACT
+      ===================================== */}
       <section className="section form-card">
-        <h3 className="section-title">Contact Information</h3>
+        <h3 className="section-title">
+          Contact Information
+        </h3>
+
         <div className="form-row">
           <div className="form-group">
-            <label>Email *</label>
+            <label>
+              Email *
+            </label>
             <input
               type="email"
-              placeholder="your@email.com"
-              value={form.contact.email}
-              onChange={(e) => updateContact("email", e.target.value)}
+              value={
+                form.contact
+                  .email
+              }
+              onChange={(e) =>
+                updateContact(
+                  "email",
+                  e.target.value
+                )
+              }
             />
           </div>
+
           <div className="form-group">
-            <label>Phone *</label>
+            <label>
+              Phone *
+            </label>
             <input
               type="tel"
-              placeholder="08012345678"
-              value={form.contact.phone}
+              value={
+                form.contact
+                  .phone
+              }
               onChange={(e) =>
-                updateContact("phone", onlyDigits(e.target.value))
+                updateContact(
+                  "phone",
+                  onlyDigits(
+                    e.target
+                      .value
+                  )
+                )
               }
             />
           </div>
         </div>
+
         <div className="form-row">
           <div className="form-group">
-            <label>WhatsApp *</label>
+            <label>
+              WhatsApp *
+            </label>
             <input
               type="tel"
-              placeholder="08012345678"
-              value={form.contact.whatsapp}
+              value={
+                form.contact
+                  .whatsapp
+              }
               onChange={(e) =>
-                updateContact("whatsapp", onlyDigits(e.target.value))
+                updateContact(
+                  "whatsapp",
+                  onlyDigits(
+                    e.target
+                      .value
+                  )
+                )
               }
             />
           </div>
+
           <div className="form-group">
-            <label>WhatsApp Link</label>
+            <label>
+              WhatsApp Link
+            </label>
             <input
               type="url"
-              placeholder="https://wa.me/2348012345678"
-              value={form.contact.whatsapp_link}
+              value={
+                form.contact
+                  .whatsapp_link
+              }
               onChange={(e) =>
-                updateContact("whatsapp_link", e.target.value.trim())
+                updateContact(
+                  "whatsapp_link",
+                  e.target.value
+                )
               }
             />
           </div>
         </div>
       </section>
 
-      {/* Location & Delivery */}
+      {/* =====================================
+          LOCATION
+      ===================================== */}
       <section className="section form-card">
-        <h3 className="section-title">Location & Delivery</h3>
+        <h3 className="section-title">
+          Location & Delivery
+        </h3>
+
         <div className="form-row">
           <div className="form-group">
-            <label>State *</label>
+            <label>
+              State *
+            </label>
+
             <DropdownModal
               value={state}
-              onChange={setState}
-              options={states.map((s) => ({ id: s, name: s }))}
+              options={states.map(
+                (
+                  item
+                ) => ({
+                  id: item,
+                  name: item,
+                })
+              )}
+              onChange={
+                setState
+              }
             />
           </div>
+
           {state && (
             <div className="form-group">
-              <label>City *</label>
+              <label>
+                City *
+              </label>
+
               <DropdownModal
                 value={city}
-                onChange={setCity}
-                options={cities.map((c) => ({ id: c, name: c }))}
+                options={cities.map(
+                  (
+                    item
+                  ) => ({
+                    id: item,
+                    name: item,
+                  })
+                )}
+                onChange={
+                  setCity
+                }
               />
             </div>
           )}
         </div>
-
-        <div className="form-group">
-          <label>Delivery Available</label>
-          <label className="toggle-switch">
-            <input
-              type="checkbox"
-              checked={form.delivery.available}
-              onChange={(e) =>
-                updateDelivery("available", e.target.checked)
-              }
-            />
-            <span className="slider" />
-          </label>
-        </div>
-
-        {form.delivery.available && (
-          <div className="delivery-grid">
-            <div className="form-row">
-              <div className="form-group">
-                <label>From Day *</label>
-                <input
-                  type="number"
-                  min="1"
-                  max="30"
-                  placeholder="1"
-                  value={form.delivery.duration.from}
-                  onChange={(e) =>
-                    updateDeliveryDuration("from", onlyDigits(e.target.value))
-                  }
-                />
-              </div>
-              <div className="form-group">
-                <label>To Day *</label>
-                <input
-                  type="number"
-                  min="1"
-                  max="30"
-                  placeholder="3"
-                  value={form.delivery.duration.to}
-                  onChange={(e) =>
-                    updateDeliveryDuration("to", onlyDigits(e.target.value))
-                  }
-                />
-              </div>
-            </div>
-            <div className="form-row">
-              <div className="form-group">
-                <label>Fee (₦) *</label>
-                <input
-                  type="text"
-                  inputMode="numeric"
-                  placeholder="500"
-                  value={displayPrice(form.delivery.fee)}
-                  onChange={(e) =>
-                    updateDelivery("fee", onlyNumbers(e.target.value))
-                  }
-                />
-              </div>
-              <div className="form-group">
-                <label>Delivery Note</label>
-                <textarea
-                  placeholder="e.g., Cash on delivery available"
-                  value={form.delivery.note}
-                  onChange={(e) => updateDelivery("note", e.target.value)}
-                  rows={2}
-                />
-              </div>
-            </div>
-          </div>
-        )}
       </section>
 
-      {/* Product Images */}
+      {/* =====================================
+          IMAGES
+      ===================================== */}
       <section className="section form-card">
-        <h3 className="section-title">Product Images *</h3>
-        <label className="form-group-label">Max 6 images, 3MB each</label>
-        <div className="preview-grid-modern image-upload-box">
+        <h3 className="section-title">
+          Product Images
+        </h3>
+
+        <div className="preview-grid-modern">
           {images.map((img) => (
-            <div key={img.id} className="preview-thumb">
-              <img src={img.preview} alt={`Preview ${img.id}`} />
+            <div
+              key={img.id}
+              className="preview-thumb"
+            >
+              <img
+                src={
+                  img.preview
+                }
+                alt="Preview"
+              />
+
               <button
                 type="button"
-                onClick={() => removeImage(img.id)}
-                title="Remove image"
+                onClick={() =>
+                  removeImage(
+                    img.id
+                  )
+                }
               >
                 ✕
               </button>
             </div>
           ))}
-          {images.length < MAX_IMAGES && (
-            <label className="add-image-box add-image-btn">
+
+          {images.length <
+            MAX_IMAGES && (
+            <label className="add-image-box">
               <input
                 type="file"
+                hidden
                 multiple
                 accept="image/*"
-                hidden
-                onChange={(e) => {
-                  handleImages(e.target.files);
-                  e.target.value = "";
+                onChange={(
+                  e
+                ) => {
+                  handleImages(
+                    e.target
+                      .files
+                  );
+                  e.target.value =
+                    "";
                 }}
               />
+
               <div>+</div>
-              <span>Add Images</span>
+              <span>
+                Add Images
+              </span>
             </label>
           )}
         </div>
-        {images.length > 0 && (
-          <small className="image-count">{images.length}/6 images</small>
-        )}
       </section>
 
-      {/* Promotion Plans */}
+      {/* =====================================
+          PROMOTION
+      ===================================== */}
       <section className="section form-card">
-        <h3 className="section-title">Promotion Plan</h3>
+        <h3 className="section-title">
+          Promotion Plan
+        </h3>
+
         <div className="plans-grid">
-          {promotionPlans.map((plan) => (
-            <div
-              key={plan.id}
-              className={`plan-card ${
-                selectedPlan?.id === plan.id ? "selected" : ""
-              }`}
-              onClick={() => setSelectedPlan(plan)}
-            >
-              <div className="plan-header">
-                <strong>{plan.name}</strong>
-                <span className="plan-price">₦{displayPrice(plan.price)}</span>
+          {promotionPlans.map(
+            (plan) => (
+              <div
+                key={plan.id}
+                className={`plan-card ${
+                  selectedPlan?.id ===
+                  plan.id
+                    ? "selected"
+                    : ""
+                }`}
+                onClick={() =>
+                  setSelectedPlan(
+                    plan
+                  )
+                }
+              >
+                <strong>
+                  {plan.name}
+                </strong>
+
+                <div className="plan-price">
+                  ₦
+                  {displayPrice(
+                    plan.price
+                  )}
+                </div>
+
+                <small>
+                  {
+                    plan.description
+                  }
+                </small>
               </div>
-              <div className="plan-duration">
-                {plan.duration || "Always"}
-              </div>
-              {plan.description && <small>{plan.description}</small>}
-            </div>
-          ))}
+            )
+          )}
         </div>
       </section>
 
-      {/* Action Buttons */}
-      <div className="button-section section form-card">
+      {/* =====================================
+          ACTION
+      ===================================== */}
+      <section className="section form-card">
         <button
-          className="primary-btn full-width"
           type="button"
-          onClick={handleSubmit}
           disabled={loading}
+          className="primary-btn full-width"
+          onClick={
+            handleSubmit
+          }
         >
-          {loading ? "⏳ Processing..." : "🚀 Create & Publish Product"}
+          {loading
+            ? "Processing..."
+            : "Create Product"}
         </button>
+
         {paymentData && (
           <button
-            className="secondary-btn full-width"
             type="button"
+            className="secondary-btn full-width"
             onClick={() =>
-              window.open(paymentData.authUrl, "_blank")
+              window.open(
+                paymentData.authUrl,
+                "_blank"
+              )
             }
           >
-            💳 Complete Payment
+            Complete Payment
           </button>
         )}
-      </div>
+      </section>
 
-      {/* Messages */}
-      {error && <div className="form-error">⚠️ {error}</div>}
-      {success && <div className="form-success">✅ {success}</div>}
+      {/* =====================================
+          FEEDBACK
+      ===================================== */}
+      {error && (
+        <div className="form-error">
+          {error}
+        </div>
+      )}
+
+      {success && (
+        <div className="form-success">
+          {success}
+        </div>
+      )}
     </>
   );
 }
