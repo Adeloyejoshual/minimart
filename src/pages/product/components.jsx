@@ -1,6 +1,7 @@
 import DropdownModal from "../../components/DropdownModal.jsx";
 import AddProductHeader from "../../components/AddProductHeader.jsx";
-import { categoryFields, promotionPlans } from "../../config/categoryFields.js"; // ✅ Added promotionPlans
+import { categoryFields } from "../../config/categoryFields.js";
+import { promotionPlans } from "../../config/promotions.js"; // ✅ from own file now
 
 function normalizeOptions(list) {
   if (!list) return [];
@@ -46,18 +47,19 @@ export default function ProductComponents({
 }) {
   const MAX_IMAGES = 6;
 
-  // ✅ Fixed: Proper fields computation
-  const fields = selectedCategory ? [
-    ...(Array.isArray(options.fields) ? options.fields : []),
-    ...(categoryFields[selectedCategory.name] || [])
-  ].filter(Boolean) : [];
+  const fields = selectedCategory
+    ? [
+        ...(Array.isArray(options.fields) ? options.fields : []),
+        ...(categoryFields[selectedCategory.name] || []),
+      ]
+        .filter(Boolean)
+        .filter((f) => f !== "brand" && f !== "model")
+    : [];
 
-  // ✅ Fixed: Proper model options logic
-  const modelOptions = attributes?.brand && options.models 
+  const modelOptions = attributes?.brand && options.models
     ? normalizeOptions(options.models[attributes.brand.toLowerCase()] || [])
     : [];
 
-  // ✅ Fixed: Complete optionsMap
   const optionsMap = {
     brand: normalizeOptions(options.brands),
     color: normalizeOptions(options.colors),
@@ -82,7 +84,7 @@ export default function ProductComponents({
     <>
       <AddProductHeader title="Add Product" onClearDraft={clearDraft} />
 
-      {/* ✅ Basic Information */}
+      {/* Basic Information */}
       <section className="section form-card">
         <h3 className="section-title">Basic Information</h3>
         <div className="form-group">
@@ -114,7 +116,7 @@ export default function ProductComponents({
         </div>
       </section>
 
-      {/* ✅ Product Details */}
+      {/* Product Details */}
       <section className="section form-card">
         <h3 className="section-title">Product Details</h3>
         <div className="form-group">
@@ -131,7 +133,6 @@ export default function ProductComponents({
           />
         </div>
 
-        {/* ✅ Brand dropdown */}
         {optionsMap.brand.length > 0 && (
           <div className="form-group">
             <label>{formatLabel("brand")}</label>
@@ -143,7 +144,6 @@ export default function ProductComponents({
           </div>
         )}
 
-        {/* ✅ Model dropdown (brand-dependent) */}
         {modelOptions.length > 0 && (
           <div className="form-group">
             <label>{formatLabel("model")}</label>
@@ -155,13 +155,11 @@ export default function ProductComponents({
           </div>
         )}
 
-        {/* ✅ Dynamic category fields */}
         {fields.map((field) => {
-          if (field === "brand" || field === "model") return null;
-          
           const fieldOptions = optionsMap[field] || [];
           if (!fieldOptions.length) return null;
-          if (field === "used_detail" && attributes?.condition !== "Used") return null;
+          if (field === "used_detail" && attributes?.condition !== "Used")
+            return null;
 
           return (
             <div key={field} className="form-group">
@@ -175,12 +173,11 @@ export default function ProductComponents({
           );
         })}
 
-        {/* ✅ Features checkboxes */}
         {optionsMap.features.length > 0 && (
           <div className="form-group">
             <label>Features</label>
             <div className="checkbox-grid-inline">
-              {optionsMap.features.slice(0, 12).map((feature) => ( // Limit to 12
+              {optionsMap.features.slice(0, 12).map((feature) => (
                 <label key={feature} className="checkbox-inline">
                   <input
                     type="checkbox"
@@ -195,7 +192,7 @@ export default function ProductComponents({
         )}
       </section>
 
-      {/* ✅ Contact Information */}
+      {/* Contact Information */}
       <section className="section form-card">
         <h3 className="section-title">Contact Information</h3>
         <div className="form-row">
@@ -214,7 +211,9 @@ export default function ProductComponents({
               type="tel"
               placeholder="08012345678"
               value={form.contact.phone}
-              onChange={(e) => updateContact("phone", onlyDigits(e.target.value))}
+              onChange={(e) =>
+                updateContact("phone", onlyDigits(e.target.value))
+              }
             />
           </div>
         </div>
@@ -225,7 +224,9 @@ export default function ProductComponents({
               type="tel"
               placeholder="08012345678"
               value={form.contact.whatsapp}
-              onChange={(e) => updateContact("whatsapp", onlyDigits(e.target.value))}
+              onChange={(e) =>
+                updateContact("whatsapp", onlyDigits(e.target.value))
+              }
             />
           </div>
           <div className="form-group">
@@ -234,13 +235,15 @@ export default function ProductComponents({
               type="url"
               placeholder="https://wa.me/2348012345678"
               value={form.contact.whatsapp_link}
-              onChange={(e) => updateContact("whatsapp_link", e.target.value.trim())}
+              onChange={(e) =>
+                updateContact("whatsapp_link", e.target.value.trim())
+              }
             />
           </div>
         </div>
       </section>
 
-      {/* ✅ Location & Delivery */}
+      {/* Location & Delivery */}
       <section className="section form-card">
         <h3 className="section-title">Location & Delivery</h3>
         <div className="form-row">
@@ -270,9 +273,11 @@ export default function ProductComponents({
             <input
               type="checkbox"
               checked={form.delivery.available}
-              onChange={(e) => updateDelivery("available", e.target.checked)}
+              onChange={(e) =>
+                updateDelivery("available", e.target.checked)
+              }
             />
-            <span className="slider"></span>
+            <span className="slider" />
           </label>
         </div>
 
@@ -287,7 +292,9 @@ export default function ProductComponents({
                   max="30"
                   placeholder="1"
                   value={form.delivery.duration.from}
-                  onChange={(e) => updateDeliveryDuration("from", onlyDigits(e.target.value))}
+                  onChange={(e) =>
+                    updateDeliveryDuration("from", onlyDigits(e.target.value))
+                  }
                 />
               </div>
               <div className="form-group">
@@ -298,7 +305,9 @@ export default function ProductComponents({
                   max="30"
                   placeholder="3"
                   value={form.delivery.duration.to}
-                  onChange={(e) => updateDeliveryDuration("to", onlyDigits(e.target.value))}
+                  onChange={(e) =>
+                    updateDeliveryDuration("to", onlyDigits(e.target.value))
+                  }
                 />
               </div>
             </div>
@@ -310,7 +319,9 @@ export default function ProductComponents({
                   inputMode="numeric"
                   placeholder="500"
                   value={displayPrice(form.delivery.fee)}
-                  onChange={(e) => updateDelivery("fee", onlyNumbers(e.target.value))}
+                  onChange={(e) =>
+                    updateDelivery("fee", onlyNumbers(e.target.value))
+                  }
                 />
               </div>
               <div className="form-group">
@@ -327,16 +338,16 @@ export default function ProductComponents({
         )}
       </section>
 
-      {/* ✅ Images */}
+      {/* Product Images */}
       <section className="section form-card">
         <h3 className="section-title">Product Images *</h3>
         <label className="form-group-label">Max 6 images, 3MB each</label>
         <div className="preview-grid-modern image-upload-box">
-          {images.map((img, i) => (
+          {images.map((img) => (
             <div key={img.id} className="preview-thumb">
-              <img src={img.preview} alt={`Preview ${i + 1}`} />
-              <button 
-                type="button" 
+              <img src={img.preview} alt={`Preview ${img.id}`} />
+              <button
+                type="button"
                 onClick={() => removeImage(img.id)}
                 title="Remove image"
               >
@@ -361,52 +372,60 @@ export default function ProductComponents({
             </label>
           )}
         </div>
-        {images.length > 0 && <small className="image-count">{images.length}/6 images</small>}
+        {images.length > 0 && (
+          <small className="image-count">{images.length}/6 images</small>
+        )}
       </section>
 
-      {/* ✅ Promotion Plans - FIXED */}
+      {/* Promotion Plans */}
       <section className="section form-card">
         <h3 className="section-title">Promotion Plan</h3>
         <div className="plans-grid">
           {promotionPlans.map((plan) => (
             <div
               key={plan.id}
-              className={`plan-card ${selectedPlan?.id === plan.id ? "selected" : ""}`}
+              className={`plan-card ${
+                selectedPlan?.id === plan.id ? "selected" : ""
+              }`}
               onClick={() => setSelectedPlan(plan)}
             >
               <div className="plan-header">
                 <strong>{plan.name}</strong>
                 <span className="plan-price">₦{displayPrice(plan.price)}</span>
               </div>
-              <div className="plan-duration">{plan.duration || "Always"}</div>
+              <div className="plan-duration">
+                {plan.duration || "Always"}
+              </div>
               {plan.description && <small>{plan.description}</small>}
             </div>
           ))}
         </div>
       </section>
 
-      {/* ✅ Action Buttons */}
+      {/* Action Buttons */}
       <div className="button-section section form-card">
-        <button 
-          className="primary-btn full-width" 
-          type="button" 
-          onClick={handleSubmit} 
+        <button
+          className="primary-btn full-width"
+          type="button"
+          onClick={handleSubmit}
           disabled={loading}
         >
           {loading ? "⏳ Processing..." : "🚀 Create & Publish Product"}
         </button>
         {paymentData && (
-          <button 
-            className="secondary-btn full-width" 
-            type="button" 
-            onClick={() => window.open(paymentData.authUrl, "_blank")}
+          <button
+            className="secondary-btn full-width"
+            type="button"
+            onClick={() =>
+              window.open(paymentData.authUrl, "_blank")
+            }
           >
             💳 Complete Payment
           </button>
         )}
       </div>
 
-      {/* ✅ Messages */}
+      {/* Messages */}
       {error && <div className="form-error">⚠️ {error}</div>}
       {success && <div className="form-success">✅ {success}</div>}
     </>
