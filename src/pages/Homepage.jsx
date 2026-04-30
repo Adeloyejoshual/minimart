@@ -1,14 +1,14 @@
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useState, useCallback } from "react";
 import { useNavigate } from "react-router-dom";
+import { useProductCache } from "../context/ProductCacheContext";
 
 import TopNav from "../components/TopNav";
 import BottomNav from "../components/BottomNav";
 import "../styles/Homepage.css";
 
-const API_BASE = "https://minimart-ivrm.onrender.com/api";
-
-export default function Homepage() {
+export default function Homepage({ user }) {
   const navigate = useNavigate();
+  const { products, setProducts, loaded, setLoaded } = useProductCache();
 
   const [sections, setSections] = useState({
     recommended: [],
@@ -17,115 +17,158 @@ export default function Homepage() {
     latest: [],
   });
 
-  const [loading, setLoading] = useState(true);
-  const [bannerIndex, setBannerIndex] = useState(0);
+  const [isLoading, setIsLoading] = useState(true);
+  const [cheapVisible, setCheapVisible] = useState(8);
 
-  // 🔥 Fetch homepage (single API)
+  const API_BASE = "https://minimart-ivrm.onrender.com/api";
+
+  // ✅ MUST BE ABOVE useEffect
+  const categorizeProducts = useCallback((allProducts) => {
+    const withMetrics = allProducts.map((p) => ({
+      ...p,
+      views: Number(p.views || 0),
+      clicks: Number(p.clicks_count || 0),
+      postedAt: p.createdAt || new Date().toISOString(),
+    }));
+
+    const score = (p) => {
+      const recencyBoost =
+        Date.now() - new Date(p.postedAt) < 7 * 24 * 60 * 60 * 1000
+          ? 50
+          : 0;
+
+      return (
+        (p.views || 0) +
+        (p.clicks || 0) * 3 +
+        recencyBoost +
+        (p.promotion_priority || 0) * 10
+      );
+    };
+
+    const sorted = [...withMetrics].sort((a, b) => score(b) - score(a));
+
+    return {
+      recommended: sorted.slice(0, 12),
+      cheapDeals: sorted.filter((p) => p.price <= 20000),
+      trending: sorted.filter((p) => p.views > 10).slice(0, 15),
+      latest: sorted.slice(0, 24),
+    };
+  }, []);
+
+  // ✅ FETCH DATA
   useEffect(() => {
-    const fetchHomepage = async () => {
+    if (loaded && products.length > 0) {
+      setSections(categorizeProducts(products));
+      setIsLoading(false);
+      return;
+    }
+
+    const fetchData = async () => {
+      setIsLoading(true);
+
       try {
         const res = await fetch(`${API_BASE}/homepage`);
+
+        if (!res.ok) throw new Error("Failed to load homepage");
+
         const data = await res.json();
 
-        setSections({
-          recommended: data.recommended || [],
-          cheapDeals: data.cheapDeals || [],
-          trending: data.trending || [],
-          latest: data.latest || [],
-        });
+        const allProducts = [
+          ...(data.recommended || []),
+          ...(data.cheapDeals || []),
+          ...(data.trending || []),
+          ...(data.latest || []),
+        ].filter(
+          (p, i, self) => i === self.findIndex((t) => t.id === p.id)
+        );
+
+        setProducts(allProducts);
+        setSections(data);
+        setLoaded(true);
       } catch (err) {
         console.error("Homepage error:", err);
+
+        if (products.length > 0) {
+          setSections(categorizeProducts(products));
+        }
       } finally {
-        setLoading(false);
+        setIsLoading(false);
       }
     };
 
-    fetchHomepage();
-  }, []);
+    fetchData();
+  }, [loaded, products, categorizeProducts]);
 
-  // 🔁 Banner rotation
-  const banners = [
-    { text: "🔥 Hot Deals Under ₦10,000", link: "/search?price_max=10000" },
-    { text: "⚡ Flash Sale - Up to 50% OFF", link: "/search?promoted=true" },
-    { text: "💸 Cheapest Prices Today", link: "/search?sort=price" },
-    { text: "🛍️ Mega Sale Live!", link: "/search" },
-  ];
+  // ✅ RENDER SECTION
+  const renderSection = (title, items, horizontal = false) => {
+    if (isLoading) {
+      return <p className="loading">Loading {title}...</p>;
+    }
 
-  useEffect(() => {
-    const interval = setInterval(() => {
-      setBannerIndex((i) => (i + 1) % banners.length);
-    }, 4000);
-    return () => clearInterval(interval);
-  }, []);
+    if (!items?.length) {
+      return (
+        <section>
+          <h2>{title}</h2>
+          <p>No products yet</p>
+        </section>
+      );
+    }
 
-  // 🔥 Components
+    return (
+      <section>
+        <h2>{title}</h2>
 
-  const ProductCard = ({ p }) => (
-    <div
-      className="card"
-      onClick={() => navigate(`/product/${p.slug}`)}
-    >
-      <img
-        src={p.images?.[0] || "https://via.placeholder.com/300"}
-        alt={p.title}
-      />
-      <h3>{p.title}</h3>
-      <p className="price">₦{Number(p.price || 0).toLocaleString()}</p>
-      <p className="location">
-        {p.location?.city || "Nationwide"}
-      </p>
-    </div>
-  );
-
-  const Section = ({ title, items }) => (
-    <section>
-      <h2>{title}</h2>
-
-      {loading ? (
-        <div className="grid">
-          {Array(6)
-            .fill()
-            .map((_, i) => (
-              <div key={i} className="skeleton"></div>
-            ))}
-        </div>
-      ) : items.length === 0 ? (
-        <p className="empty">No items</p>
-      ) : (
-        <div className="grid">
-          {items.map((p) => (
-            <ProductCard key={p.id} p={p} />
+        <div className={horizontal ? "scroll" : "grid"}>
+          {(horizontal ? items : items.slice(0, cheapVisible)).map((p) => (
+            <div
+              key={p.id}
+              className="card"
+              onClick={() => navigate(`/product/${p.slug}`)} // ✅ FIXED
+            >
+              <img
+                src={
+                  p.images?.[0] ||
+                  "https://via.placeholder.com/300x300?text=No+Image"
+                }
+                alt={p.title}
+              />
+              <h3>{p.title}</h3>
+              <p>₦{Number(p.price).toLocaleString()}</p>
+              <span>{p.location?.city || "Nationwide"}</span>
+            </div>
           ))}
         </div>
-      )}
-    </section>
-  );
+
+        {/* Load more (only cheap deals) */}
+        {title.includes("Cheap") &&
+          cheapVisible < items.length && (
+            <button onClick={() => setCheapVisible((v) => v + 8)}>
+              Load More
+            </button>
+          )}
+      </section>
+    );
+  };
+
+  // ✅ LOADING SCREEN
+  if (!loaded && !user) {
+    return <div className="loader">Loading Minimart...</div>;
+  }
 
   return (
     <>
       <TopNav />
 
-      <div className="homepage">
-
-        {/* 🔥 Banner */}
-        <div
-          className="banner"
-          onClick={() => navigate(banners[bannerIndex].link)}
-        >
-          {banners[bannerIndex].text}
-        </div>
-
-        {/* 🔥 Sections */}
-        <Section title="🎯 Recommended" items={sections.recommended} />
-        <Section title="💸 Cheap Deals" items={sections.cheapDeals} />
-        <Section title="🔥 Trending" items={sections.trending} />
-        <Section title="🆕 Latest" items={sections.latest} />
-
+      <div className="container">
+        {renderSection("🎯 Recommended", sections.recommended, true)}
+        {renderSection("💸 Cheap Deals", sections.cheapDeals)}
+        {renderSection("🔥 Trending", sections.trending, true)}
+        {renderSection("🆕 Latest", sections.latest)}
       </div>
 
-      {/* ➕ Floating Sell Button */}
+      {/* Floating Button */}
       <button
-        className="sell-btn"
+        className="floating-btn"
         onClick={() => navigate("/minimart/add")}
       >
         + Sell
