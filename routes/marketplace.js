@@ -1,35 +1,17 @@
+// routes/marketplace.js
 import express from "express";
-import { Pool } from "pg";
+import { pool } from "../config/db.js";
 import { v2 as cloudinary } from "cloudinary";
 import multer from "multer";
 import fs from "fs/promises";
-import dotenv from "dotenv";
-import slugify from "slugify";
 
 import authenticate from "../middleware/auth.js";
-import { brands } from "../src/config/brands.js";
-import { colors } from "../src/config/colors.js";
-import { categoryFields } from "../src/config/categoryFields.js";
-import { conditions, usedDetails } from "../src/config/conditions.js";
-import { featuresByCategory } from "../src/config/featuresByCategory.js";
-import { models } from "../src/config/models.js";
-import { ramOptions } from "../src/config/ramOptions.js";
-import { sims } from "../src/config/sims.js";
-import { storageOptions } from "../src/config/storageOptions.js";
-import { years } from "../src/config/years.js";
-import { engines } from "../src/config/engines.js";
-import { fuelTypes } from "../src/config/fuelTypes.js";
-import { locationsByState } from "../src/config/locationsByState.js";
+import { brands, colors, categoryFields, conditions, usedDetails, featuresByCategory, models, ramOptions, sims, storageOptions, years, engines, fuelTypes, locationsByState } from "../src/config/index.js";
 import { promotionPlans } from "../src/config/promotions.js";
 
-dotenv.config();
+import { generateBaseSlug, generateSlugWithId } from "../utils/slug.js";
 
 const router = express.Router();
-
-const pool = new Pool({
-  connectionString: process.env.COCKROACH_URI,
-  ssl: { rejectUnauthorized: false },
-});
 
 cloudinary.config({
   cloud_name: process.env.CLOUDINARY_CLOUD_NAME,
@@ -48,11 +30,6 @@ const upload = multer({
 // ———————————————————————————————————
 // Helpers
 // ———————————————————————————————————
-
-const generateBaseSlug = (text) =>
-  slugify(text, { lower: true, strict: true, trim: true }).substring(0, 70);
-
-const generateSlugWithId = (title, id) => `${generateBaseSlug(title)}-${id}`;
 
 const safeJSON = (value, fallback = {}) => {
   try {
@@ -589,7 +566,7 @@ router.post("/products", authenticate, upload.array("images", 6), async (req, re
     const product = productRes.rows[0];
     const finalSlug = generateSlugWithId(title.trim(), product.id);
 
-        await client.query(
+    await client.query(
       `UPDATE products
        SET slug = $1,
            search_vector = to_tsvector('english', $2)
@@ -613,6 +590,7 @@ router.post("/products", authenticate, upload.array("images", 6), async (req, re
 
     const fullRows = await pool.query(
       `
+              `
         SELECT p.*,
           COALESCE(
             json_agg(pi.image_url ORDER BY pi.position)
@@ -626,41 +604,5 @@ router.post("/products", authenticate, upload.array("images", 6), async (req, re
       `,
       [product.id]
     );
-
-    res.status(201).json({
-      success: true,
-      product: normalizeProduct(fullRows.rows[0]),
-    });
-  } catch (err) {
-    await client.query("ROLLBACK").catch(() => {});
-    console.error("POST /products error:", err);
-
-    if (err.code === "23503") {
-      return res.status(400).json({
-        success: false,
-        message: "Invalid category or promotion",
-      });
-    }
-    if (err.code === "23502") {
-      return res.status(400).json({
-        success: false,
-        message: "Missing required fields",
-      });
-    }
-    if (err.code === "23505" && err.constraint?.includes("slug")) {
-      return res.status(409).json({
-        success: false,
-        message: "Slug conflict - try a different title",
-      });
-    }
-
-    res.status(500).json({
-      success: false,
-      message: "Failed to create product",
-    });
-  } finally {
-    client.release();
-  }
-});
 
 export default router;
