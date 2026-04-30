@@ -123,7 +123,7 @@ app.use(express.json({ limit: "10mb" }));
 app.use(express.urlencoded({ extended: true }));
 
 /* ================= ROUTES ================= */
-import marketplaceRouter from "./routes/marketplace.js";
+import marketplaceRouter from "./routes/addproduct.js";
 import userRouter from "./routes/users.js";
 import messagesRouter from "./routes/messages.js";
 import adminRouter from "./routes/admin.js";
