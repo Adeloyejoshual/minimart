@@ -5,30 +5,30 @@ import streamifier from "streamifier";
 import { pool } from "../config/db.js";
 import { v2 as cloudinary } from "cloudinary";
 import { getCategoriesHandler } from "../controllers/category.controller.js";
-import { requireAuth } from "../middleware/auth.js";
+import authenticate from "../middleware/auth.js";
 
 const router = express.Router();
 
-/* ================================
-   MULTER CONFIG (MEMORY STORAGE)
-================================ */
+/* =====================================
+   MULTER CONFIG
+===================================== */
 const upload = multer({
   storage: multer.memoryStorage(),
   limits: {
-    fileSize: 3 * 1024 * 1024, // 3MB per image
+    fileSize: 3 * 1024 * 1024,
     files: 6,
   },
   fileFilter: (_, file, cb) => {
     if (!file.mimetype.startsWith("image/")) {
-      return cb(new Error("Only image uploads are allowed"));
+      return cb(new Error("Only images allowed"));
     }
     cb(null, true);
   },
 });
 
-/* ================================
+/* =====================================
    HELPERS
-================================ */
+===================================== */
 const safeParse = (value, fallback) => {
   try {
     if (!value) return fallback;
@@ -38,7 +38,16 @@ const safeParse = (value, fallback) => {
   }
 };
 
-const uploadToCloudinary = (fileBuffer, folder = "minimart/products") =>
+const generateSlug = (title = "") =>
+  title
+    .toLowerCase()
+    .trim()
+    .replace(/[^\w\s-]/g, "")
+    .replace(/\s+/g, "-")
+    .replace(/-+/g, "-")
+    .slice(0, 80);
+
+const uploadToCloudinary = (buffer, folder = "minimart/products") =>
   new Promise((resolve, reject) => {
     const stream = cloudinary.uploader.upload_stream(
       {
@@ -51,30 +60,20 @@ const uploadToCloudinary = (fileBuffer, folder = "minimart/products") =>
       }
     );
 
-    streamifier.createReadStream(fileBuffer).pipe(stream);
+    streamifier.createReadStream(buffer).pipe(stream);
   });
 
-const generateSlug = (title = "") =>
-  title
-    .toLowerCase()
-    .trim()
-    .replace(/[^\w\s-]/g, "")
-    .replace(/\s+/g, "-")
-    .replace(/-+/g, "-")
-    .slice(0, 80);
-
-/* ================================
+/* =====================================
    CATEGORY ROUTES
-================================ */
+===================================== */
 router.get("/categories", getCategoriesHandler);
 
-/* ================================
+/* =====================================
    CREATE PRODUCT
-   POST /api/marketplace/products
-================================ */
+===================================== */
 router.post(
   "/products",
-  requireAuth,
+  authenticate,
   upload.array("images[]", 6),
   async (req, res) => {
     const client = await pool.connect();
@@ -87,11 +86,17 @@ router.post(
       const price = Number(req.body.price);
 
       if (!title) {
-        return res.status(400).json({ message: "Title is required" });
+        return res.status(400).json({
+          success: false,
+          message: "Title is required",
+        });
       }
 
       if (!price || Number.isNaN(price) || price <= 0) {
-        return res.status(400).json({ message: "Valid price is required" });
+        return res.status(400).json({
+          success: false,
+          message: "Valid price is required",
+        });
       }
 
       const category_id = req.body.category_id || null;
@@ -104,6 +109,9 @@ router.post(
       const attributes = safeParse(req.body.attributes, {});
       const delivery = safeParse(req.body.delivery, {});
       const contact = safeParse(req.body.contact, {});
+      const highlights = safeParse(req.body.highlights, []);
+      const specifications = safeParse(req.body.specifications, {});
+      const faq = safeParse(req.body.faq, []);
       const incomingMedia = safeParse(req.body.media, {
         images: [],
         videos: [],
@@ -120,17 +128,13 @@ router.post(
       const canonical_url = req.body.canonical_url || null;
       const search_text = req.body.search_text || null;
 
-      const highlights = safeParse(req.body.highlights, []);
-      const specifications = safeParse(req.body.specifications, {});
-      const faq = safeParse(req.body.faq, []);
+      const files = req.files || [];
 
-      const uploadedFiles = req.files || [];
-
-      /* ================================
-         UPLOAD IMAGES TO CLOUDINARY
-      ================================ */
+      /* ===========================
+         UPLOAD IMAGES
+      =========================== */
       const uploadedImages = await Promise.all(
-        uploadedFiles.map(async (file, index) => {
+        files.map(async (file, index) => {
           const result = await uploadToCloudinary(file.buffer);
 
           return {
@@ -153,11 +157,14 @@ router.post(
         videos: incomingMedia.videos || [],
       };
 
+      /* ===========================
+         SLUG
+      =========================== */
       const baseSlug = generateSlug(title);
       let slug = baseSlug;
 
       const slugCheck = await client.query(
-        `SELECT slug FROM products WHERE slug = $1 LIMIT 1`,
+        `SELECT id FROM products WHERE slug = $1 LIMIT 1`,
         [slug]
       );
 
@@ -198,10 +205,15 @@ router.post(
           search_vector
         )
         VALUES (
-          $1,  $2,  $3,  $4,  $5,  $6,  $7,  $8,  $9,
-          $10, $11, $12, $13, $14, $15, $16, $17, $18,
-          $19, $20, $21, $22, $23, $24, $25, $26,
-          to_tsvector('english', coalesce($1,'') || ' ' || coalesce($2,'') || ' ' || coalesce($26,''))
+          $1,$2,$3,$4,$5,$6,$7,$8,$9,$10,
+          $11,$12,$13,$14,$15,$16,$17,$18,$19,$20,
+          $21,$22,$23,$24,$25,$26,
+          to_tsvector(
+            'english',
+            coalesce($1,'') || ' ' ||
+            coalesce($2,'') || ' ' ||
+            coalesce($26,'')
+          )
         )
         RETURNING *;
       `;
@@ -246,6 +258,7 @@ router.post(
       });
     } catch (error) {
       await client.query("ROLLBACK");
+
       console.error("Create product error:", error);
 
       return res.status(500).json({
@@ -259,98 +272,113 @@ router.post(
   }
 );
 
-/* ================================
+/* =====================================
    ACTIVATE PRODUCT
-   POST /api/marketplace/products/:id/activate
-================================ */
-router.post("/products/:id/activate", requireAuth, async (req, res) => {
-  try {
-    const { id } = req.params;
-    const { promotion_id = null } = req.body;
+===================================== */
+router.post(
+  "/products/:id/activate",
+  authenticate,
+  async (req, res) => {
+    try {
+      const { id } = req.params;
+      const { promotion_id = null } = req.body;
 
-    const existing = await pool.query(
-      `SELECT id FROM products WHERE id = $1 AND seller_id = $2 LIMIT 1`,
-      [id, req.user.id]
-    );
+      const existing = await pool.query(
+        `SELECT id
+         FROM products
+         WHERE id = $1 AND seller_id = $2
+         LIMIT 1`,
+        [id, req.user.id]
+      );
 
-    if (!existing.rows.length) {
-      return res.status(404).json({
+      if (!existing.rows.length) {
+        return res.status(404).json({
+          success: false,
+          message: "Product not found",
+        });
+      }
+
+      await pool.query(
+        `
+        UPDATE products
+        SET
+          status = 'active',
+          is_active = true,
+          promotion_id = $1,
+          updated_at = NOW()
+        WHERE id = $2
+        `,
+        [promotion_id, id]
+      );
+
+      return res.json({
+        success: true,
+        message: "Product activated successfully",
+      });
+    } catch (error) {
+      console.error("Activate error:", error);
+
+      return res.status(500).json({
         success: false,
-        message: "Product not found",
+        message: "Failed to activate product",
+        error: error.message,
       });
     }
-
-    await pool.query(
-      `
-      UPDATE products
-      SET
-        status = 'active',
-        is_active = true,
-        promotion_id = $1,
-        updated_at = now()
-      WHERE id = $2
-      `,
-      [promotion_id, id]
-    );
-
-    return res.json({
-      success: true,
-      message: "Product activated successfully",
-    });
-  } catch (error) {
-    console.error("Activate product error:", error);
-    return res.status(500).json({
-      success: false,
-      message: "Failed to activate product",
-      error: error.message,
-    });
   }
-});
+);
 
-/* ================================
+/* =====================================
    DELETE PRODUCT
-================================ */
-router.delete("/products/:id", requireAuth, async (req, res) => {
-  try {
-    const { id } = req.params;
+===================================== */
+router.delete(
+  "/products/:id",
+  authenticate,
+  async (req, res) => {
+    try {
+      const { id } = req.params;
 
-    const existing = await pool.query(
-      `SELECT media FROM products WHERE id = $1 AND seller_id = $2 LIMIT 1`,
-      [id, req.user.id]
-    );
+      const existing = await pool.query(
+        `SELECT media
+         FROM products
+         WHERE id = $1 AND seller_id = $2
+         LIMIT 1`,
+        [id, req.user.id]
+      );
 
-    if (!existing.rows.length) {
-      return res.status(404).json({
+      if (!existing.rows.length) {
+        return res.status(404).json({
+          success: false,
+          message: "Product not found",
+        });
+      }
+
+      const media = existing.rows[0].media || {};
+      const images = media.images || [];
+
+      await Promise.allSettled(
+        images.map((img) =>
+          img.public_id
+            ? cloudinary.uploader.destroy(img.public_id)
+            : Promise.resolve()
+        )
+      );
+
+      await pool.query(`DELETE FROM products WHERE id = $1`, [id]);
+
+      return res.json({
+        success: true,
+        message: "Product deleted successfully",
+      });
+    } catch (error) {
+      console.error("Delete error:", error);
+
+      return res.status(500).json({
         success: false,
-        message: "Product not found",
+        message: "Failed to delete product",
+        error: error.message,
       });
     }
-
-    const media = existing.rows[0].media || {};
-    const images = media.images || [];
-
-    await Promise.allSettled(
-      images.map((img) =>
-        img.public_id
-          ? cloudinary.uploader.destroy(img.public_id)
-          : Promise.resolve()
-      )
-    );
-
-    await pool.query(`DELETE FROM products WHERE id = $1`, [id]);
-
-    return res.json({
-      success: true,
-      message: "Product deleted successfully",
-    });
-  } catch (error) {
-    console.error("Delete product error:", error);
-    return res.status(500).json({
-      success: false,
-      message: "Failed to delete product",
-      error: error.message,
-    });
   }
-});
+);
 
 export default router;
