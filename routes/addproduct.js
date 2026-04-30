@@ -1,4 +1,3 @@
-// routes/addproduct.js
 import express from "express";
 import multer from "multer";
 import streamifier from "streamifier";
@@ -50,10 +49,7 @@ const generateSlug = (title = "") =>
 const uploadToCloudinary = (buffer, folder = "minimart/products") =>
   new Promise((resolve, reject) => {
     const stream = cloudinary.uploader.upload_stream(
-      {
-        folder,
-        resource_type: "image",
-      },
+      { folder, resource_type: "image" },
       (error, result) => {
         if (error) return reject(error);
         resolve(result);
@@ -69,7 +65,7 @@ const uploadToCloudinary = (buffer, folder = "minimart/products") =>
 router.get("/categories", getCategoriesHandler);
 
 /* =====================================
-   CREATE PRODUCT
+   CREATE PRODUCT (FIXED VERSION)
 ===================================== */
 router.post(
   "/products",
@@ -112,15 +108,10 @@ router.post(
       const highlights = safeParse(req.body.highlights, []);
       const specifications = safeParse(req.body.specifications, {});
       const faq = safeParse(req.body.faq, []);
-      const incomingMedia = safeParse(req.body.media, {
-        images: [],
-        videos: [],
-      });
 
       const phone = req.body.phone || contact.phone || null;
       const whatsapp = req.body.whatsapp || contact.whatsapp || null;
-      const whatsapp_link =
-        req.body.whatsapp_link || contact.whatsapp_link || null;
+      const whatsapp_link = req.body.whatsapp_link || contact.whatsapp_link || null;
 
       const seo_title = req.body.seo_title || null;
       const seo_description = req.body.seo_description || null;
@@ -130,36 +121,24 @@ router.post(
 
       const files = req.files || [];
 
-      /* ===========================
-         UPLOAD IMAGES
-      =========================== */
+      /* =====================================
+         UPLOAD IMAGES TO CLOUDINARY
+      ====================================== */
       const uploadedImages = await Promise.all(
         files.map(async (file, index) => {
           const result = await uploadToCloudinary(file.buffer);
 
           return {
-            id: `img_${Date.now()}_${index}`,
-            url: result.secure_url,
+            image_url: result.secure_url,
             public_id: result.public_id,
-            filename: file.originalname,
-            size: file.size,
-            mime_type: file.mimetype,
-            width: result.width,
-            height: result.height,
+            position_order: index,
           };
         })
       );
 
-      const media = {
-        images: uploadedImages.length
-          ? uploadedImages
-          : incomingMedia.images || [],
-        videos: incomingMedia.videos || [],
-      };
-
-      /* ===========================
+      /* =====================================
          SLUG
-      =========================== */
+      ====================================== */
       const baseSlug = generateSlug(title);
       let slug = baseSlug;
 
@@ -174,6 +153,9 @@ router.post(
 
       await client.query("BEGIN");
 
+      /* =====================================
+         INSERT PRODUCT
+      ====================================== */
       const insertQuery = `
         INSERT INTO products (
           title,
@@ -187,7 +169,6 @@ router.post(
           location_city,
           delivery,
           contact,
-          media,
           status,
           is_active,
           phone,
@@ -207,12 +188,11 @@ router.post(
         VALUES (
           $1,$2,$3,$4,$5,$6,$7,$8,$9,$10,
           $11,$12,$13,$14,$15,$16,$17,$18,$19,$20,
-          $21,$22,$23,$24,$25,$26,
-          to_tsvector(
-            'english',
+          $21,$22,$23,$24,$25,
+          to_tsvector('english',
             coalesce($1,'') || ' ' ||
             coalesce($2,'') || ' ' ||
-            coalesce($26,'')
+            coalesce($25,'')
           )
         )
         RETURNING *;
@@ -230,7 +210,6 @@ router.post(
         location_city,
         JSON.stringify(delivery),
         JSON.stringify(contact),
-        JSON.stringify(media),
         status,
         is_active,
         phone,
@@ -248,13 +227,29 @@ router.post(
       ];
 
       const { rows } = await client.query(insertQuery, values);
+      const product = rows[0];
+
+      /* =====================================
+         INSERT IMAGES INTO product_images
+      ====================================== */
+      if (uploadedImages.length > 0) {
+        await Promise.all(
+          uploadedImages.map((img) =>
+            pool.query(
+              `INSERT INTO product_images (product_id, image_url, position_order)
+               VALUES ($1, $2, $3)`,
+              [product.id, img.image_url, img.position_order]
+            )
+          )
+        );
+      }
 
       await client.query("COMMIT");
 
       return res.status(201).json({
         success: true,
         message: "Product created successfully",
-        product: rows[0],
+        product,
       });
     } catch (error) {
       await client.query("ROLLBACK");
@@ -268,115 +263,6 @@ router.post(
       });
     } finally {
       client.release();
-    }
-  }
-);
-
-/* =====================================
-   ACTIVATE PRODUCT
-===================================== */
-router.post(
-  "/products/:id/activate",
-  authenticate,
-  async (req, res) => {
-    try {
-      const { id } = req.params;
-      const { promotion_id = null } = req.body;
-
-      const existing = await pool.query(
-        `SELECT id
-         FROM products
-         WHERE id = $1 AND seller_id = $2
-         LIMIT 1`,
-        [id, req.user.id]
-      );
-
-      if (!existing.rows.length) {
-        return res.status(404).json({
-          success: false,
-          message: "Product not found",
-        });
-      }
-
-      await pool.query(
-        `
-        UPDATE products
-        SET
-          status = 'active',
-          is_active = true,
-          promotion_id = $1,
-          updated_at = NOW()
-        WHERE id = $2
-        `,
-        [promotion_id, id]
-      );
-
-      return res.json({
-        success: true,
-        message: "Product activated successfully",
-      });
-    } catch (error) {
-      console.error("Activate error:", error);
-
-      return res.status(500).json({
-        success: false,
-        message: "Failed to activate product",
-        error: error.message,
-      });
-    }
-  }
-);
-
-/* =====================================
-   DELETE PRODUCT
-===================================== */
-router.delete(
-  "/products/:id",
-  authenticate,
-  async (req, res) => {
-    try {
-      const { id } = req.params;
-
-      const existing = await pool.query(
-        `SELECT media
-         FROM products
-         WHERE id = $1 AND seller_id = $2
-         LIMIT 1`,
-        [id, req.user.id]
-      );
-
-      if (!existing.rows.length) {
-        return res.status(404).json({
-          success: false,
-          message: "Product not found",
-        });
-      }
-
-      const media = existing.rows[0].media || {};
-      const images = media.images || [];
-
-      await Promise.allSettled(
-        images.map((img) =>
-          img.public_id
-            ? cloudinary.uploader.destroy(img.public_id)
-            : Promise.resolve()
-        )
-      );
-
-      await pool.query(`DELETE FROM products WHERE id = $1`, [id]);
-
-      return res.json({
-        success: true,
-        message: "Product deleted successfully",
-      });
-    } catch (error) {
-      console.error("Delete error:", error);
-
-      return res.status(500).json({
-        success: false,
-        message: "Failed to delete product",
-        error: error.message,
-      });
     }
   }
 );
