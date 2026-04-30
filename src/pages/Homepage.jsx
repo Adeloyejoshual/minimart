@@ -22,12 +22,13 @@ export default function Homepage({ user }) {
 
   const API_BASE = "https://minimart-ivrm.onrender.com/api";
 
-  // ✅ MUST BE ABOVE useEffect
+  // ✅ Ranking logic
   const categorizeProducts = useCallback((allProducts) => {
     const withMetrics = allProducts.map((p) => ({
       ...p,
       views: Number(p.views || 0),
       clicks: Number(p.clicks_count || 0),
+      price: Number(p.price || 0),
       postedAt: p.createdAt || new Date().toISOString(),
     }));
 
@@ -68,7 +69,6 @@ export default function Homepage({ user }) {
 
       try {
         const res = await fetch(`${API_BASE}/homepage`);
-
         if (!res.ok) throw new Error("Failed to load homepage");
 
         const data = await res.json();
@@ -78,9 +78,7 @@ export default function Homepage({ user }) {
           ...(data.cheapDeals || []),
           ...(data.trending || []),
           ...(data.latest || []),
-        ].filter(
-          (p, i, self) => i === self.findIndex((t) => t.id === p.id)
-        );
+        ].filter((p, i, self) => i === self.findIndex((t) => t.id === p.id));
 
         setProducts(allProducts);
         setSections(data);
@@ -98,6 +96,18 @@ export default function Homepage({ user }) {
 
     fetchData();
   }, [loaded, products, categorizeProducts]);
+
+  // ✅ IMAGE SAFE EXTRACTOR (IMPORTANT)
+  const getImage = (product) => {
+    if (!product?.images) return null;
+
+    if (Array.isArray(product.images)) {
+      const first = product.images[0];
+      return typeof first === "string" ? first : first?.url;
+    }
+
+    return null;
+  };
 
   // ✅ RENDER SECTION
   const renderSection = (title, items, horizontal = false) => {
@@ -123,15 +133,17 @@ export default function Homepage({ user }) {
             <div
               key={p.id}
               className="card"
-              onClick={() => navigate(`/product/${p.slug}`)} // ✅ FIXED
+              onClick={() => navigate(`/product/${p.slug}`)}
             >
               <img
                 src={
-                  p.images?.[0] ||
+                  getImage(p) ||
                   "https://via.placeholder.com/300x300?text=No+Image"
                 }
                 alt={p.title}
+                loading="lazy"
               />
+
               <h3>{p.title}</h3>
               <p>₦{Number(p.price).toLocaleString()}</p>
               <span>{p.location?.city || "Nationwide"}</span>
@@ -139,18 +151,16 @@ export default function Homepage({ user }) {
           ))}
         </div>
 
-        {/* Load more (only cheap deals) */}
-        {title.includes("Cheap") &&
-          cheapVisible < items.length && (
-            <button onClick={() => setCheapVisible((v) => v + 8)}>
-              Load More
-            </button>
-          )}
+        {title.includes("Cheap") && cheapVisible < items.length && (
+          <button onClick={() => setCheapVisible((v) => v + 8)}>
+            Load More
+          </button>
+        )}
       </section>
     );
   };
 
-  // ✅ LOADING SCREEN
+  // ✅ LOADER
   if (!loaded && !user) {
     return <div className="loader">Loading Minimart...</div>;
   }
@@ -166,7 +176,6 @@ export default function Homepage({ user }) {
         {renderSection("🆕 Latest", sections.latest)}
       </div>
 
-      {/* Floating Button */}
       <button
         className="floating-btn"
         onClick={() => navigate("/minimart/add")}
