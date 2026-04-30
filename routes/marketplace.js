@@ -653,3 +653,5 @@ router.post("/products", authenticate, upload.array("images", 6), async (req, re
     client.release();
   }
 });
+
+export default router;
