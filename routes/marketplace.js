@@ -46,7 +46,7 @@ const upload = multer({
 });
 
 // ———————————————————————————————————
-// Utility helpers
+// Helpers
 // ———————————————————————————————————
 
 const generateBaseSlug = (text) =>
@@ -120,10 +120,21 @@ const buildSearchText = (
     attrs?.bathrooms,
     attrs?.experience_level,
     attrs?.skills,
-    attrs?.category,
   ]
     .filter(Boolean)
     .join(" ");
+
+const buildSearchTextFromProduct = (p) => {
+  const attrs = safeJSON(p.attributes, {});
+  const categoryName = p.category_name || "";
+
+  return buildSearchText(
+    p.title,
+    p.description,
+    categoryName,
+    attrs
+  );
+};
 
 const buildSearchVector = (text) =>
   `to_tsvector('english', coalesce(${text}::STRING, ''))`;
@@ -147,7 +158,7 @@ const uploadOne = async (filePath) => {
 // Routes
 // ———————————————————————————————————
 
-// Cloudinary upload signature (for signed uploads)
+// Cloudinary upload signature
 router.get("/cloudinary-signature", (req, res) => {
   try {
     const timestamp = Math.round(Date.now() / 1000);
@@ -182,7 +193,7 @@ router.get("/cloudinary-signature", (req, res) => {
   }
 });
 
-// Public feed: trending + catalog (with filters)
+// Public product feed
 router.get("/products", async (req, res) => {
   try {
     const { skip = 0, limit = 20, state, category_id } = req.query;
@@ -257,7 +268,7 @@ router.get("/products", async (req, res) => {
   }
 });
 
-// Search (full‑text via search_vector and search_text)
+// Search (full‑text)
 router.get("/search", async (req, res) => {
   try {
     const { q = "", state, category_id, skip = 0, limit = 20 } = req.query;
@@ -324,7 +335,7 @@ router.get("/search", async (req, res) => {
   }
 });
 
-// SEO‑friendly product detail by slug
+// Product detail by SEO slug
 router.get("/product/:slug", async (req, res) => {
   try {
     const { slug } = req.params;
@@ -363,7 +374,6 @@ router.get("/product/:slug", async (req, res) => {
     const canonicalSlug =
       product.slug || generateSlugWithId(product.title || "", product.id);
 
-    // Redirect if slug is outdated or missing
     if (product.slug !== slug) {
       if (!product.slug) {
         await pool.query(
@@ -378,7 +388,6 @@ router.get("/product/:slug", async (req, res) => {
       return res.redirect(301, `/product/${canonicalSlug}`);
     }
 
-    // Increment view count (non‑critical)
     pool
       .query(
         "UPDATE products SET views = COALESCE(views, 0) + 1 WHERE id = $1",
@@ -399,7 +408,7 @@ router.get("/product/:slug", async (req, res) => {
   }
 });
 
-// Direct product access by ID (internal / admin)
+// Direct product by ID (admin / internal)
 router.get("/products/:id", async (req, res) => {
   try {
     const { id } = req.params;
@@ -530,7 +539,9 @@ router.post("/products", authenticate, upload.array("images", 6), async (req, re
       categoryName,
       parsedAttributes
     );
-    const searchVector = buildSearchVector(`'${searchText.replace(/'/g, "''")}'`);
+    const searchVector = buildSearchVector(
+      `'${searchText.replace(/'/g, "''")}'`
+    );
 
     const productRes = await client.query(
       `
@@ -578,8 +589,7 @@ router.post("/products", authenticate, upload.array("images", 6), async (req, re
     const product = productRes.rows[0];
     const finalSlug = generateSlugWithId(title.trim(), product.id);
 
-    // Update slug + recompute search_vector once
-    await client.query(
+        await client.query(
       `UPDATE products
        SET slug = $1,
            search_vector = to_tsvector('english', $2)
@@ -587,17 +597,16 @@ router.post("/products", authenticate, upload.array("images", 6), async (req, re
       [finalSlug, buildSearchTextFromProduct(product), product.id]
     );
 
-          for (let i = 0; i < req.files.length; i++) {
-        const file = req.files[i];
-        const uploaded = await uploadOne(file.path);
-        await client.query(
-          `
-            INSERT INTO product_images (product_id, image_url, position)
-            VALUES ($1, $2, $3)
-          `,
-          [product.id, uploaded.url, i]
-        );
-      }
+    for (let i = 0; i < req.files.length; i++) {
+      const file = req.files[i];
+      const uploaded = await uploadOne(file.path);
+      await client.query(
+        `
+          INSERT INTO product_images (product_id, image_url, position)
+          VALUES ($1, $2, $3)
+        `,
+        [product.id, uploaded.url, i]
+      );
     }
 
     await client.query("COMMIT");
@@ -653,5 +662,3 @@ router.post("/products", authenticate, upload.array("images", 6), async (req, re
     client.release();
   }
 });
-
-export default router;
