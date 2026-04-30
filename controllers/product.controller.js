@@ -38,11 +38,11 @@ export const getProductHandler = async (req, res) => {
   try {
     const { slug } = req.params;
 
-    if (!slug) {
+    if (!slug || typeof slug !== "string" || !slug.trim()) {
       return sendError(res, "Invalid product slug", 400);
     }
 
-    // 🔥 SAFE: Resolve product directly by slug (NO regex)
+    // Direct slug lookup (no regex, safe)
     const { rows } = await pool.query(
       `
       SELECT p.*,
@@ -56,7 +56,7 @@ export const getProductHandler = async (req, res) => {
       WHERE p.slug = $1 AND p.is_active = true AND p.status = 'active'
       GROUP BY p.id
       `,
-      [slug]
+      [slug.trim()]
     );
 
     const product = rows[0];
@@ -65,7 +65,7 @@ export const getProductHandler = async (req, res) => {
       return sendError(res, "Product not found", 404);
     }
 
-    // 🔥 Non-blocking engagement tracking
+    // Fire view increment non‑blocking
     incrementViews(product.id).catch((err) =>
       console.error("incrementViews error:", err)
     );
@@ -81,6 +81,10 @@ export const getProductHandler = async (req, res) => {
 export const getProductByIdHandler = async (req, res) => {
   try {
     const { id } = req.params;
+
+    if (!id || !id.trim()) {
+      return sendError(res, "Invalid product ID", 400);
+    }
 
     const product = await getProductById(id);
 
@@ -117,14 +121,18 @@ export const createProductHandler = async (req, res) => {
       subcategory_id,
       location_state,
       location_city,
+      promotion_id,
     } = req.body;
 
+    const imagesFiles = req.files?.length ? req.files : null;
+
     /* ===================== VALIDATION ===================== */
-    if (!title?.trim()) {
+    if (!title || !title.trim()) {
       return sendError(res, "Title is required", 400);
     }
 
-    if (!price || isNaN(price) || Number(price) <= 0) {
+    const safePrice = Number(price);
+    if (!safePrice || Number.isNaN(safePrice) || safePrice <= 0) {
       return sendError(res, "Valid price is required", 400);
     }
 
@@ -132,25 +140,29 @@ export const createProductHandler = async (req, res) => {
       return sendError(res, "Category is required", 400);
     }
 
-    if (!req.files?.length) {
+    if (!imagesFiles) {
       return sendError(res, "At least one image is required", 400);
     }
 
     /* ===================== CREATE PRODUCT ===================== */
-    const product = await createProduct({
-      title,
-      price,
-      category_id,
-      attributes,
-      delivery,
-      contact,
-      description,
-      subcategory_id,
-      location_state,
-      location_city,
-      imagesFiles: req.files,
-      seller_id: sellerId,
-    });
+    const product = await createProduct(
+      {
+        title,
+        price: safePrice,
+        category_id,
+        attributes,
+        delivery,
+        contact,
+        description,
+        subcategory_id,
+        promotion_id,
+        location_state,
+        location_city,
+        imagesFiles,
+        seller_id: sellerId,
+      },
+      sellerId
+    );
 
     return sendSuccess(res, product, 201);
   } catch (err) {
@@ -159,13 +171,12 @@ export const createProductHandler = async (req, res) => {
     /* ===================== STANDARD ERRORS ===================== */
     const errorMap = {
       INVALID_PRICE: [400, "Invalid price"],
-      MISSING_TITLE: [400, "Title is required"],
-      INVALID_CATEGORY: [400, "Invalid category"],
+      MISSING_FIELDS: [400, "Missing required fields"],
       SLUG_CONFLICT: [409, "Slug conflict - try another title"],
     };
 
-    if (err?.code && errorMap[err.code]) {
-      const [status, message] = errorMap[err.code];
+    if (err.message && errorMap[err.message]) {
+      const [status, message] = errorMap[err.message];
       return sendError(res, message, status);
     }
 
