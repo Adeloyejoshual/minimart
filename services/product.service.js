@@ -2,7 +2,7 @@ import fs from "fs/promises";
 import { pool } from "../config/db.js";
 import { uploadOne } from "./upload.utils.js";
 import { generateSlugWithId } from "../utils/slug.js";
-import { promotionPlans } from "../src/config/index.js";
+import { promotionPlans } from "../config/promotions.js"; // ✅ from promotions.js, no index.js
 
 /* ===================== SAFE JSON ===================== */
 const safeJSON = (value, fallback = {}) => {
