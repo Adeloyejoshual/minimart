@@ -1,13 +1,13 @@
 import { useMemo } from "react";
 import DropdownModal from "../../components/DropdownModal.jsx";
 import AddProductHeader from "../../components/AddProductHeader.jsx";
-import { promotionPlans } from "../../config/promotions.js";
 import { categoryFields } from "../../config/categoryFields.js";
+import { promotionPlans } from "../../config/promotions.js";
 
-/* ==================================================
+/* ===================================================
    HELPERS
-================================================== */
-const normalizeOptions = (list = []) => {
+=================================================== */
+function normalizeOptions(list) {
   if (!Array.isArray(list)) return [];
 
   return list.map((item) => {
@@ -16,22 +16,25 @@ const normalizeOptions = (list = []) => {
     }
 
     return {
-      id: item.id ?? item.value ?? item.name,
+      id: String(item.id ?? item.value ?? item.name),
       name: item.name ?? item.label ?? item.id,
     };
   });
-};
+}
 
-const getCategoryList = (categories = []) => {
-  return categories.map((cat) => ({
-    id: String(cat.id),
-    name: cat.name,
-  }));
-};
+function getSelectedCategory(categories, id) {
+  if (!Array.isArray(categories)) return null;
 
-/* ==================================================
+  const found = categories.find(
+    (item) => String(item.id) === String(id)
+  );
+
+  return found || null;
+}
+
+/* ===================================================
    COMPONENT
-================================================== */
+=================================================== */
 export default function ProductComponents({
   form,
   attributes,
@@ -70,27 +73,34 @@ export default function ProductComponents({
   const MAX_IMAGES = 6;
 
   /* ==========================================
-     CATEGORY OPTIONS
+     CATEGORY OPTIONS FIX
   ========================================== */
-  const categoryOptions = useMemo(
-    () => getCategoryList(categories),
-    [categories]
-  );
+  const categoryOptions = useMemo(() => {
+    if (!Array.isArray(categories)) return [];
+
+    return categories.map((cat) => ({
+      id: String(cat.id),
+      name: cat.name,
+    }));
+  }, [categories]);
+
+  const activeCategory =
+    selectedCategory ||
+    getSelectedCategory(categories, form.category_id);
 
   /* ==========================================
      DYNAMIC FIELDS
   ========================================== */
   const fields = useMemo(() => {
-    if (!selectedCategory) return [];
+    if (!activeCategory) return [];
 
-    const backendFields = Array.isArray(options.fields)
-      ? options.fields
-      : [];
+    const backendFields =
+      Array.isArray(options?.fields) ? options.fields : [];
 
-    const staticFields =
-      categoryFields[selectedCategory.name] || [];
+    const localFields =
+      categoryFields[activeCategory.name] || [];
 
-    return [...backendFields, ...staticFields]
+    return [...backendFields, ...localFields]
       .filter(Boolean)
       .filter(
         (field, index, arr) =>
@@ -101,80 +111,84 @@ export default function ProductComponents({
           field !== "brand" &&
           field !== "model"
       );
-  }, [selectedCategory, options]);
+  }, [activeCategory, options]);
 
   /* ==========================================
-     MODELS
+     MODEL OPTIONS
   ========================================== */
   const modelOptions = useMemo(() => {
     if (!attributes?.brand) return [];
 
-    const key =
+    const brandKey =
       attributes.brand.toLowerCase();
 
     return normalizeOptions(
-      options?.models?.[key] || []
+      options?.models?.[brandKey] || []
     );
   }, [attributes?.brand, options]);
 
   /* ==========================================
-     ALL OPTIONS MAP
+     OPTIONS MAP
   ========================================== */
   const optionsMap = {
-    brand: normalizeOptions(options.brands),
-    color: normalizeOptions(options.colors),
+    brand: normalizeOptions(options?.brands),
+    color: normalizeOptions(options?.colors),
     condition: normalizeOptions(
-      options.conditions
+      options?.conditions
     ),
     used_detail: normalizeOptions(
-      options.usedDetails ||
-        options.used_details
+      options?.usedDetails ||
+        options?.used_details
     ),
-    ram: normalizeOptions(options.ram),
+    ram: normalizeOptions(options?.ram),
     storage: normalizeOptions(
-      options.storage
+      options?.storage
     ),
-    sim: normalizeOptions(options.sim),
-    year: normalizeOptions(options.years),
+    sim: normalizeOptions(options?.sim),
+    year: normalizeOptions(options?.years),
     engine: normalizeOptions(
-      options.engines
+      options?.engines ||
+        options?.engine
     ),
     fuel_type: normalizeOptions(
-      options.fuel_types
+      options?.fuel_types ||
+        options?.fuelType
     ),
-    size: normalizeOptions(options.size),
+    size: normalizeOptions(options?.size),
     age_range: normalizeOptions(
-      options.age_range
+      options?.age_range
     ),
     bedrooms: normalizeOptions(
-      options.bedrooms
+      options?.bedrooms
     ),
     bathrooms: normalizeOptions(
-      options.bathrooms
+      options?.bathrooms
     ),
-    experience_level:
-      normalizeOptions(
-        options.experience_level
-      ),
+    experience_level: normalizeOptions(
+      options?.experience_level
+    ),
     skills: normalizeOptions(
-      options.skills
+      options?.skills
     ),
     features: Array.isArray(
-      options.features
+      options?.features
     )
       ? options.features
       : [],
   };
 
+  /* ==========================================
+     JSX
+  ========================================== */
   return (
     <>
       <AddProductHeader
-        title="Create Product"
+        title="Add Product"
         onClearDraft={clearDraft}
       />
 
       {/* =====================================
-          BASIC INFO
+          BASIC INFORMATION
       ===================================== */}
       <section className="section form-card">
         <h3 className="section-title">
@@ -186,8 +200,8 @@ export default function ProductComponents({
             Product Title *
           </label>
           <input
-            value={form.title}
             placeholder="Enter product title"
+            value={form.title}
             onChange={(e) =>
               updateForm(
                 "title",
@@ -203,8 +217,8 @@ export default function ProductComponents({
           </label>
           <textarea
             rows={4}
+            placeholder="Describe your product"
             value={form.description}
-            placeholder="Describe your product clearly"
             onChange={(e) =>
               updateForm(
                 "description",
@@ -215,16 +229,14 @@ export default function ProductComponents({
         </div>
 
         <div className="form-group">
-          <label>
-            Price (₦) *
-          </label>
+          <label>Price (₦) *</label>
           <input
             type="text"
             inputMode="numeric"
+            placeholder="Enter price"
             value={displayPrice(
               form.price
             )}
-            placeholder="Enter amount"
             onChange={(e) =>
               updateForm(
                 "price",
@@ -245,26 +257,29 @@ export default function ProductComponents({
           Product Details
         </h3>
 
+        {/* CATEGORY FIXED */}
         <div className="form-group">
-          <label>
-            Category *
-          </label>
+          <label>Category *</label>
 
           <DropdownModal
             value={String(
               form.category_id || ""
             )}
-            options={categoryOptions}
+            options={
+              categoryOptions
+            }
             placeholder="Select category"
             onChange={(value) => {
               updateForm(
                 "category_id",
                 value
               );
+
               updateForm(
                 "subcategory_id",
                 ""
               );
+
               updateForm(
                 "attributes",
                 INITIAL_FORM.attributes
@@ -273,12 +288,16 @@ export default function ProductComponents({
           />
         </div>
 
+        {/* BRAND */}
         {optionsMap.brand.length >
           0 && (
           <div className="form-group">
             <label>
-              Brand
+              {formatLabel(
+                "brand"
+              )}
             </label>
+
             <DropdownModal
               value={
                 attributes?.brand ||
@@ -287,22 +306,26 @@ export default function ProductComponents({
               options={
                 optionsMap.brand
               }
-              onChange={(value) =>
+              onChange={(v) =>
                 updateAttribute(
                   "brand",
-                  value
+                  v
                 )
               }
             />
           </div>
         )}
 
+        {/* MODEL */}
         {modelOptions.length >
           0 && (
           <div className="form-group">
             <label>
-              Model
+              {formatLabel(
+                "model"
+              )}
             </label>
+
             <DropdownModal
               value={
                 attributes?.model ||
@@ -311,22 +334,25 @@ export default function ProductComponents({
               options={
                 modelOptions
               }
-              onChange={(value) =>
+              onChange={(v) =>
                 updateAttribute(
                   "model",
-                  value
+                  v
                 )
               }
             />
           </div>
         )}
 
+        {/* OTHER FIELDS */}
         {fields.map((field) => {
-          const list =
+          const fieldOptions =
             optionsMap[field] ||
             [];
 
-          if (!list.length)
+          if (
+            !fieldOptions.length
+          )
             return null;
 
           if (
@@ -340,8 +366,8 @@ export default function ProductComponents({
 
           return (
             <div
-              className="form-group"
               key={field}
+              className="form-group"
             >
               <label>
                 {formatLabel(
@@ -355,13 +381,13 @@ export default function ProductComponents({
                     field
                   ] || ""
                 }
-                options={list}
-                onChange={(
-                  value
-                ) =>
+                options={
+                  fieldOptions
+                }
+                onChange={(v) =>
                   updateAttribute(
                     field,
-                    value
+                    v
                   )
                 }
               />
@@ -369,6 +395,7 @@ export default function ProductComponents({
           );
         })}
 
+        {/* FEATURES */}
         {optionsMap.features
           .length > 0 && (
           <div className="form-group">
@@ -377,38 +404,41 @@ export default function ProductComponents({
             </label>
 
             <div className="checkbox-grid-inline">
-              {optionsMap.features.map(
-                (
-                  feature
-                ) => (
-                  <label
-                    key={
-                      feature
-                    }
-                    className="checkbox-inline"
-                  >
-                    <input
-                      type="checkbox"
-                      checked={
-                        attributes?.features?.includes(
-                          feature
-                        ) ||
-                        false
-                      }
-                      onChange={() =>
-                        toggleFeature(
-                          feature
-                        )
-                      }
-                    />
-                    <span>
-                      {formatLabel(
+              {optionsMap.features
+                .slice(0, 12)
+                .map(
+                  (
+                    feature
+                  ) => (
+                    <label
+                      key={
                         feature
-                      )}
-                    </span>
-                  </label>
-                )
-              )}
+                      }
+                      className="checkbox-inline"
+                    >
+                      <input
+                        type="checkbox"
+                        checked={
+                          attributes?.features?.includes(
+                            feature
+                          ) ||
+                          false
+                        }
+                        onChange={() =>
+                          toggleFeature(
+                            feature
+                          )
+                        }
+                      />
+
+                      <span>
+                        {formatLabel(
+                          feature
+                        )}
+                      </span>
+                    </label>
+                  )
+                )}
             </div>
           </div>
         )}
@@ -424,15 +454,14 @@ export default function ProductComponents({
 
         <div className="form-row">
           <div className="form-group">
-            <label>
-              Email *
-            </label>
+            <label>Email *</label>
             <input
               type="email"
               value={
                 form.contact
                   .email
               }
+              placeholder="your@email.com"
               onChange={(e) =>
                 updateContact(
                   "email",
@@ -443,15 +472,14 @@ export default function ProductComponents({
           </div>
 
           <div className="form-group">
-            <label>
-              Phone *
-            </label>
+            <label>Phone *</label>
             <input
               type="tel"
               value={
                 form.contact
                   .phone
               }
+              placeholder="08012345678"
               onChange={(e) =>
                 updateContact(
                   "phone",
@@ -476,6 +504,7 @@ export default function ProductComponents({
                 form.contact
                   .whatsapp
               }
+              placeholder="08012345678"
               onChange={(e) =>
                 updateContact(
                   "whatsapp",
@@ -498,10 +527,11 @@ export default function ProductComponents({
                 form.contact
                   .whatsapp_link
               }
+              placeholder="https://wa.me/234..."
               onChange={(e) =>
                 updateContact(
                   "whatsapp_link",
-                  e.target.value
+                  e.target.value.trim()
                 )
               }
             />
@@ -510,7 +540,7 @@ export default function ProductComponents({
       </section>
 
       {/* =====================================
-          LOCATION
+          DELIVERY (UNCHANGED)
       ===================================== */}
       <section className="section form-card">
         <h3 className="section-title">
@@ -519,23 +549,17 @@ export default function ProductComponents({
 
         <div className="form-row">
           <div className="form-group">
-            <label>
-              State *
-            </label>
+            <label>State *</label>
 
             <DropdownModal
               value={state}
+              onChange={setState}
               options={states.map(
-                (
-                  item
-                ) => ({
-                  id: item,
-                  name: item,
+                (s) => ({
+                  id: s,
+                  name: s,
                 })
               )}
-              onChange={
-                setState
-              }
             />
           </div>
 
@@ -547,21 +571,146 @@ export default function ProductComponents({
 
               <DropdownModal
                 value={city}
+                onChange={setCity}
                 options={cities.map(
-                  (
-                    item
-                  ) => ({
-                    id: item,
-                    name: item,
+                  (c) => ({
+                    id: c,
+                    name: c,
                   })
                 )}
-                onChange={
-                  setCity
-                }
               />
             </div>
           )}
         </div>
+
+        <div className="form-group">
+          <label>
+            Delivery Available
+          </label>
+
+          <label className="toggle-switch">
+            <input
+              type="checkbox"
+              checked={
+                form.delivery
+                  .available
+              }
+              onChange={(e) =>
+                updateDelivery(
+                  "available",
+                  e.target.checked
+                )
+              }
+            />
+            <span className="slider" />
+          </label>
+        </div>
+
+        {form.delivery
+          .available && (
+          <div className="delivery-grid">
+            <div className="form-row">
+              <div className="form-group">
+                <label>
+                  From Day *
+                </label>
+
+                <input
+                  type="number"
+                  min="1"
+                  max="30"
+                  value={
+                    form.delivery
+                      .duration
+                      .from
+                  }
+                  onChange={(e) =>
+                    updateDeliveryDuration(
+                      "from",
+                      onlyDigits(
+                        e.target
+                          .value
+                      )
+                    )
+                  }
+                />
+              </div>
+
+              <div className="form-group">
+                <label>
+                  To Day *
+                </label>
+
+                <input
+                  type="number"
+                  min="1"
+                  max="30"
+                  value={
+                    form.delivery
+                      .duration
+                      .to
+                  }
+                  onChange={(e) =>
+                    updateDeliveryDuration(
+                      "to",
+                      onlyDigits(
+                        e.target
+                          .value
+                      )
+                    )
+                  }
+                />
+              </div>
+            </div>
+
+            <div className="form-row">
+              <div className="form-group">
+                <label>
+                  Fee (₦) *
+                </label>
+
+                <input
+                  type="text"
+                  inputMode="numeric"
+                  value={displayPrice(
+                    form.delivery
+                      .fee
+                  )}
+                  onChange={(e) =>
+                    updateDelivery(
+                      "fee",
+                      onlyNumbers(
+                        e.target
+                          .value
+                      )
+                    )
+                  }
+                />
+              </div>
+
+              <div className="form-group">
+                <label>
+                  Delivery Note
+                </label>
+
+                <textarea
+                  rows={2}
+                  value={
+                    form.delivery
+                      .note
+                  }
+                  onChange={(e) =>
+                    updateDelivery(
+                      "note",
+                      e.target
+                        .value
+                    )
+                  }
+                />
+              </div>
+            </div>
+          </div>
+        )}
       </section>
 
       {/* =====================================
@@ -569,10 +718,14 @@ export default function ProductComponents({
       ===================================== */}
       <section className="section form-card">
         <h3 className="section-title">
-          Product Images
+          Product Images *
         </h3>
 
-        <div className="preview-grid-modern">
+        <label className="form-group-label">
+          Max 6 images
+        </label>
+
+        <div className="preview-grid-modern image-upload-box">
           {images.map((img) => (
             <div
               key={img.id}
@@ -582,7 +735,7 @@ export default function ProductComponents({
                 src={
                   img.preview
                 }
-                alt="Preview"
+                alt="preview"
               />
 
               <button
@@ -600,11 +753,11 @@ export default function ProductComponents({
 
           {images.length <
             MAX_IMAGES && (
-            <label className="add-image-box">
+            <label className="add-image-box add-image-btn">
               <input
-                type="file"
                 hidden
                 multiple
+                type="file"
                 accept="image/*"
                 onChange={(
                   e
@@ -625,6 +778,16 @@ export default function ProductComponents({
             </label>
           )}
         </div>
+
+        {images.length >
+          0 && (
+          <small className="image-count">
+            {
+              images.length
+            }
+            /6 images
+          </small>
+        )}
       </section>
 
       {/* =====================================
@@ -639,7 +802,9 @@ export default function ProductComponents({
           {promotionPlans.map(
             (plan) => (
               <div
-                key={plan.id}
+                key={
+                  plan.id
+                }
                 className={`plan-card ${
                   selectedPlan?.id ===
                   plan.id
@@ -652,22 +817,33 @@ export default function ProductComponents({
                   )
                 }
               >
-                <strong>
-                  {plan.name}
-                </strong>
+                <div className="plan-header">
+                  <strong>
+                    {
+                      plan.name
+                    }
+                  </strong>
 
-                <div className="plan-price">
-                  ₦
-                  {displayPrice(
-                    plan.price
-                  )}
+                  <span className="plan-price">
+                    ₦
+                    {displayPrice(
+                      plan.price
+                    )}
+                  </span>
                 </div>
 
-                <small>
-                  {
-                    plan.description
-                  }
-                </small>
+                <div className="plan-duration">
+                  {plan.duration ||
+                    "Always"}
+                </div>
+
+                {plan.description && (
+                  <small>
+                    {
+                      plan.description
+                    }
+                  </small>
+                )}
               </div>
             )
           )}
@@ -675,9 +851,9 @@ export default function ProductComponents({
       </section>
 
       {/* =====================================
-          ACTION
+          ACTIONS
       ===================================== */}
-      <section className="section form-card">
+      <div className="button-section section form-card">
         <button
           type="button"
           disabled={loading}
@@ -687,8 +863,8 @@ export default function ProductComponents({
           }
         >
           {loading
-            ? "Processing..."
-            : "Create Product"}
+            ? "⏳ Processing..."
+            : "🚀 Create & Publish Product"}
         </button>
 
         {paymentData && (
@@ -702,23 +878,23 @@ export default function ProductComponents({
               )
             }
           >
-            Complete Payment
+            💳 Complete Payment
           </button>
         )}
-      </section>
+      </div>
 
       {/* =====================================
-          FEEDBACK
+          STATUS
       ===================================== */}
       {error && (
         <div className="form-error">
-          {error}
+          ⚠️ {error}
         </div>
       )}
 
       {success && (
         <div className="form-success">
-          {success}
+          ✅ {success}
         </div>
       )}
     </>
