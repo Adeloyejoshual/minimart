@@ -20,16 +20,16 @@ await redis.connect();
 /* =====================================
    CONSTANTS - UPGRADED SLOTS
 ===================================== */
-const FEED_LIMIT   = 50;
-const CACHE_TTL_S  = 60;
+const FEED_LIMIT = 50;
+const CACHE_TTL_S = 60;
 
 const SLOTS = {
-  nearby:   15,  // 30% - reduced for personal
-  personal: 10,  // 🔥 NEW: user interests
-  trending: 10,  // 20%
-  latest:   8,   // 16%
-  promoted: 5,   // 10%
-  random:   2,   // 4%
+  nearby: 15,
+  personal: 10,
+  trending: 10,
+  latest: 8,
+  promoted: 5,
+  random: 2,
 };
 
 /* =====================================
@@ -41,11 +41,11 @@ const normalizeProduct = (p) => ({
   title: p.title,
   description: p.description,
   price: Number(p.price || 0),
-  thumbnail_url: p.thumbnail_url,  // 🔥 homepage perf
+  thumbnail_url: p.thumbnail_url,
   images: Array.isArray(p.images) ? p.images : [],
   views: Number(p.views || 0),
   clicks_count: Number(p.clicks_count || 0),
-  ctr: Number(p.ctr || 0),         // 🔥 new field
+  ctr: Number(p.ctr || 0),
   is_promoted: Boolean(p.is_promoted),
   boost_score: Number(p.boost_score || 0),
   location: { state: p.location_state, city: p.location_city },
@@ -69,7 +69,6 @@ const imageAgg = `
   COALESCE(json_agg(pi.image_url ORDER BY pi.position_order) FILTER (WHERE pi.image_url IS NOT NULL), '[]') AS images
 `;
 
-// 🔥 Homepage: thumbnail only (perf)
 const homepageSelect = `
   p.id, p.slug, p.title, p.description, p.price, p.thumbnail_url,
   p.created_at, p.views, p.clicks_count,
@@ -79,16 +78,14 @@ const homepageSelect = `
   p.seller_id, u.trust_score, u.verified
 `;
 
-// 🔥 Full: images + everything
 const fullSelect = homepageSelect.replace('p.thumbnail_url,', '') + `, ${imageAgg}`;
 
-// 🔥 Base fragments
 const baseJoins = `FROM products p LEFT JOIN product_images pi ON p.id = pi.product_id LEFT JOIN users u ON p.seller_id = u.id`;
 const baseWhere = `WHERE p.is_active = true AND p.status = 'active' AND p.fraud_score < 50 AND p.seller_id IS NOT NULL`;
 const baseGroup = `GROUP BY p.id, p.slug, p.title, p.description, p.price, p.thumbnail_url, p.created_at, p.views, p.clicks_count, p.ctr, p.is_promoted, p.boost_score, p.location_state, p.location_city, p.latitude, p.longitude, p.seller_id, u.trust_score, u.verified`;
 
 /* =====================================
-   HAVERSINE (unchanged)
+   HAVERSINE
 ===================================== */
 const haversine = (latParam, lngParam) => `
   (6371 * 2 * asin(sqrt(power(sin(radians((p.latitude - ${latParam}) / 2)), 2) + cos(radians(${latParam})) * cos(radians(p.latitude)) * power(sin(radians((p.longitude - ${lngParam}) / 2)), 2))))
@@ -97,7 +94,7 @@ const haversine = (latParam, lngParam) => `
 /* =====================================
    SPAM DETECTION - FINGERPRINT UPGRADE
 ===================================== */
-export const detectSpamListing = async (sellerId, title, fingerprint) => {
+const detectSpamListing = async (sellerId, title, fingerprint) => {
   const { rows } = await pool.query(
     `SELECT COUNT(*) AS count FROM products WHERE seller_id = $1 AND created_at > NOW() - INTERVAL '10 minutes'`,
     [sellerId]
@@ -110,7 +107,6 @@ export const detectSpamListing = async (sellerId, title, fingerprint) => {
   if (/(.)\u0001{4,}/.test(title)) score += 20;
   if (/cheap cheap|buy now buy now/i.test(title)) score += 20;
 
-  // 🔥 Fingerprint rate limit
   const fpKey = `spam:${fingerprint}:10m`;
   const fpCount = await redis.incr(fpKey);
   if (fpCount === 1) await redis.expire(fpKey, 600);
@@ -120,10 +116,9 @@ export const detectSpamListing = async (sellerId, title, fingerprint) => {
 };
 
 /* =====================================
-   SELLER TRUST (unchanged)
+   SELLER TRUST
 ===================================== */
-export const updateSellerTrust = async (sellerId) => {
-  // ... your exact existing logic
+const updateSellerTrust = async (sellerId) => {
   const [{ rows: u }, { rows: l }] = await Promise.all([
     pool.query(`SELECT verified, total_sales, total_reports FROM users WHERE id = $1`, [sellerId]),
     pool.query(
@@ -146,7 +141,7 @@ export const updateSellerTrust = async (sellerId) => {
 };
 
 /* =====================================
-   HELPERS (unchanged + fingerprint)
+   HELPERS
 ===================================== */
 const resolveLocation = async (req) => {
   const { lat, lng, city, state } = req.query;
@@ -167,16 +162,14 @@ const softShuffle = (arr, factor = 0.3) =>
     .map(({ item }) => item);
 
 /* =====================================
-   HOMEPAGE - FULLY UPGRADED
-   GPS → Personal → Multi-trending → Mix
-================================================ */
+   HOMEPAGE
+===================================== */
 router.get("/homepage", async (req, res) => {
   try {
     const loc = await resolveLocation(req);
     const identity = req.user?.id || getClientIP(req);
-    const fingerprint = `${req.headers["user-agent"]}:${identity}`; // 🔥 anti-bot
+    const fingerprint = `${req.headers["user-agent"]}:${identity}`;
 
-    // 🔥 PERSONAL: Top 3 user interests
     let interestCategories = [];
     try {
       interestCategories = await redis.zRange(`user:interest:${identity}`, 0, 2, { REV: true });
@@ -184,7 +177,6 @@ router.get("/homepage", async (req, res) => {
       console.error("Personal interests fetch failed:", e);
     }
 
-    // 1. NEARBY (GPS → city → state fallback, homepageSelect)
     let nearbyRows = [];
     let nearbySource = "global";
 
@@ -216,7 +208,6 @@ router.get("/homepage", async (req, res) => {
       nearbySource = "state";
     }
 
-    // 🔥 2. PERSONALIZED (user interests)
     let personalRows = [];
     if (interestCategories.length > 0) {
       const { rows } = await pool.query(
@@ -226,7 +217,6 @@ router.get("/homepage", async (req, res) => {
       personalRows = rows;
     }
 
-    // 🔥 3. MULTI-TIME TRENDING
     let trendingIds = [];
     try {
       trendingIds = await redis.zUnion(["trending:1h", "trending:24h", "trending:7d"], { WEIGHTS: [3, 2, 1] });
@@ -245,10 +235,8 @@ router.get("/homepage", async (req, res) => {
       trendingRows = rows.sort((a, b) => rankMap[a.id] - rankMap[b.id]);
     }
 
-    // 4-6. LATEST / PROMOTED / RANDOM (gen_random_uuid())
     const [{ rows: latestRows }] = await Promise.all([
       pool.query(`SELECT ${homepageSelect}, NULL AS distance_km ${baseJoins} ${baseWhere} ${baseGroup} ORDER BY p.created_at DESC LIMIT $1`, [SLOTS.latest]),
-      // ... promoted, random with gen_random_uuid()
     ]);
 
     const promotedRows = await pool.query(
@@ -261,7 +249,6 @@ router.get("/homepage", async (req, res) => {
       [SLOTS.random]
     ).then(r => r.rows);
 
-    // 🔥 MIX: promoted pinned + soft shuffle
     const body = softShuffle(dedup([...nearbyRows, ...personalRows, ...trendingRows, ...latestRows, ...randomRows]));
     const feed = dedup([...promotedRows, ...body]).slice(0, FEED_LIMIT);
 
@@ -269,7 +256,7 @@ router.get("/homepage", async (req, res) => {
       meta: {
         nearbySource,
         location: loc.city || loc.state || null,
-        interests: interestCategories.length,  // 🔥 debug
+        interests: interestCategories.length,
       },
       products: feed.map(normalizeProduct),
     });
@@ -280,8 +267,7 @@ router.get("/homepage", async (req, res) => {
 });
 
 /* =====================================
-   CLICK TRACKING - FULL UPGRADE
-   Multi-trending + user interest + fingerprint
+   CLICK TRACKING
 ===================================== */
 router.post("/products/:id/click", async (req, res) => {
   const { id } = req.params;
@@ -295,20 +281,17 @@ router.post("/products/:id/click", async (req, res) => {
 
     await redis.set(key, "1", { EX: 300 });
 
-    // 🔥 Multi-time trending (3x weight for clicks)
     await Promise.all([
       redis.zIncrBy("trending:1h", 3, id),
       redis.zIncrBy("trending:24h", 3, id),
       redis.zIncrBy("trending:7d", 3, id),
     ]);
 
-    // 🔥 Track user interest (category)
     const { rows } = await pool.query(`SELECT category_id FROM products WHERE id = $1`, [id]);
     if (rows[0]?.category_id) {
       await redis.zIncrBy(`user:interest:${identity}`, 3, rows[0].category_id);
     }
 
-    // Persist to DB (fire-and-forget)
     pool.query(`UPDATE products SET clicks_count = COALESCE(clicks_count, 0) + 1 WHERE id = $1`, [id])
       .catch(e => console.error("Click persist failed:", e));
 
@@ -320,7 +303,7 @@ router.post("/products/:id/click", async (req, res) => {
 });
 
 /* =====================================
-   VIEW TRACKING (fingerprint upgrade)
+   VIEW TRACKING
 ===================================== */
 router.post("/products/:id/view", async (req, res) => {
   const { id } = req.params;
@@ -348,8 +331,7 @@ router.post("/products/:id/view", async (req, res) => {
 });
 
 /* =====================================
-   SEARCH - FULL RANKING UPGRADE
-   CTR + Exp decay + Global geo boost
+   SEARCH
 ===================================== */
 router.get("/search", async (req, res) => {
   try {
@@ -361,7 +343,7 @@ router.get("/search", async (req, res) => {
     if (hasGeo) params.push(parseFloat(lat), parseFloat(lng));
 
     const geoBoost = hasGeo
-      ? `+ CASE WHEN ${haversine(`$${params.length-1}`, `$${params.length}`)} < 1 THEN 30 WHEN ${haversine(`$${params.length-1}`, `$${params.length}`)} < 5 THEN 15 ELSE 0 END`
+      ? `+ CASE WHEN ${haversine(`$${params.length - 1}`, `$${params.length}`)} < 1 THEN 30 WHEN ${haversine(`$${params.length - 1}`, `$${params.length}`)} < 5 THEN 15 ELSE 0 END`
       : "";
 
     const { rows } = await pool.query(
@@ -387,45 +369,6 @@ router.get("/search", async (req, res) => {
     res.status(500).json({ error: "Search failed" });
   }
 });
-
-// ... keep all your other routes exactly the same (geo, deals, etc.)
-
-/* =====================================
-   NEW DECAY CRON - workers/decay.js
-===================================== */
-export const startDecayCron = async () => {
-  const redis = createClient({ url: process.env.REDIS_URL });
-  await redis.connect();
-
-  setInterval(async () => {
-    // 🔥 Multi-time trending decay
-    for (const window of ['1h', '24h', '7d']) {
-      try {
-        const members = await redis.zRangeWithScores(`trending:${window}`, 0, -1);
-        for (const { value, score } of members) {
-          const next = score * 0.9;
-          if (next < 0.5) {
-            await redis.zRem(`trending:${window}`, value);
-          } else {
-            await redis.zAdd(`trending:${window}`, { score: next, value });
-          }
-        }
-      } catch (e) { console.error(`Decay ${window} failed:`, e); }
-    }
-
-    // 🔥 User interest decay (slower)
-    const keys = await redis.keys('user:interest:*');
-    for (const key of keys) {
-      try {
-        const members = await redis.zRangeWithScores(key, 0, -1);
-        for (const { value, score } of members) {
-          await redis.zAdd(key, { score: score * 0.95, value });
-        }
-      } catch (e) { console.error('Interest decay failed:', e); }
-    }
-    console.log("[decay] done at", new Date().toISOString());
-  }, 60 * 60 * 1000); // hourly
-};
 
 export { detectSpamListing, updateSellerTrust };
 export default router;
