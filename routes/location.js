@@ -1,122 +1,205 @@
 /**
- * location.js - Production IP Geolocation for Nigerian Marketplace
- * Fallback for when users don't share GPS (80% of mobile traffic).
+ * location.js - Production IP Geolocation (Optimized)
  * 
- * Providers (priority order for NG accuracy/cost):
- * 1. ipapi.co (free 1k/day, solid Lagos/Abuja) [web:25]
- * 2. ip-api.com (45/min, good fallback) [web:26]
- * 3. geo.kamero.ai (unlimited free, NG-focused) [web:30]
- * 
- * Rate limit: 1 req/sec per IP via Redis
+ * Goals:
+ * - Never block homepage
+ * - High success rate in Nigeria
+ * - Fast via caching
+ * - Safe under load
  */
 
-import { createClient } from "redis";  // shared with products router
+import { createClient } from "redis";
 
+/* =====================================
+   REDIS SETUP
+===================================== */
 const redis = createClient({ url: process.env.REDIS_URL });
-redis.on("error", (err) => console.error("Redis Geo error:", err));
+
+redis.on("error", (err) => {
+  console.error("Redis Geo error:", err.message);
+});
+
 await redis.connect();
 
-const GEO_APIS = [
-  `https://ipapi.co`,      // 95% NG accuracy [web:26]
-  `http://ip-api.com`,     // No HTTPS but fast fallback
-  `https://geo.kamero.ai`, // Unlimited free, NG-optimized [web:30]
+/* =====================================
+   GEO PROVIDERS (CORRECT FORMATS)
+===================================== */
+const GEO_PROVIDERS = [
+  {
+    name: "ipapi",
+    url: (ip) => `https://ipapi.co/${ip}/json/`,
+    parse: (d) => ({
+      lat: d.latitude,
+      lng: d.longitude,
+      city: d.city,
+      state: d.region,
+    }),
+  },
+  {
+    name: "ipapi_alt",
+    url: (ip) => `http://ip-api.com/json/${ip}`,
+    parse: (d) => ({
+      lat: d.lat,
+      lng: d.lon,
+      city: d.city,
+      state: d.regionName,
+    }),
+  },
+  {
+    name: "kamero",
+    url: (ip) => `https://geo.kamero.ai/${ip}`,
+    parse: (d) => ({
+      lat: d.latitude,
+      lng: d.longitude,
+      city: d.city_name,
+      state: d.region_name,
+    }),
+  },
 ];
 
-/**
- * @param {string} ip - Raw IP (x-forwarded-for or socket.remoteAddress)
- * @returns {Promise<{ lat: number, lng: number, city: string|null, state: string|null } | null>}
- */
+/* =====================================
+   MAIN GEO FUNCTION
+===================================== */
 export const getLocationFromIP = async (ip) => {
-  // Skip local/loopback (no geolocation needed)
-  if (!ip || ip === "::1" || ip === "127.0.0.1" || ip.startsWith("192.168") || ip.startsWith("10.")) {
-    return null;
-  }
-
-  // Parse x-forwarded-for chain (Cloudflare/Render/Nginx) [web:28][web:33]
-  const cleanIp = parseForwardedFor(ip);
-
-  // Redis rate limit: 1/sec per IP
-  const rateKey = `geo:${cleanIp}`;
-  const rate = await redis.incr(rateKey);
-  if (rate === 1) await redis.expire(rateKey, 1);  // 1s window
-  if (rate > 1) return null;  // throttle
-
-  const controller = new AbortController();
-  const timeoutId = setTimeout(() => controller.abort(), 2000);  // 2s max [web:29]
-
   try {
-    for (const apiUrl of GEO_APIS) {
-      try {
-        const url = `${apiUrl}/${cleanIp}/json/`;
-        const res = await fetch(url, { 
-          signal: controller.signal,
-          headers: { 'User-Agent': 'Minimart-Marketplace/1.0' } 
+    if (!ip) return null;
+
+    const cleanIp = extractClientIP(ip);
+
+    // Skip local/private IPs
+    if (isPrivateIP(cleanIp)) return null;
+
+    /* =============================
+       CACHE (CRITICAL)
+    ============================= */
+    const cacheKey = `geo:cache:${cleanIp}`;
+    const cached = await redis.get(cacheKey);
+    if (cached) return JSON.parse(cached);
+
+    /* =============================
+       RATE LIMIT (SOFT)
+    ============================= */
+    const rateKey = `geo:rate:${cleanIp}`;
+    const count = await redis.incr(rateKey);
+
+    if (count === 1) {
+      await redis.expire(rateKey, 2); // 2 sec window
+    }
+
+    if (count > 3) {
+      return null; // don't spam APIs
+    }
+
+    /* =============================
+       TRY PROVIDERS (SEQUENTIAL)
+    ============================= */
+    for (const provider of GEO_PROVIDERS) {
+      const result = await tryProvider(provider, cleanIp);
+
+      if (result) {
+        // Cache for 6 hours
+        await redis.set(cacheKey, JSON.stringify(result), {
+          EX: 60 * 60 * 6,
         });
 
-        if (!res.ok || res.headers.get('content-type')?.includes('application/json') === false) {
-          continue;  // try next API
-        }
-
-        const data = await res.json();
-        clearTimeout(timeoutId);
-
-        // Validate response
-        if (data.error || !data.latitude || !data.longitude) continue;
-
-        return {
-          lat: parseFloat(data.latitude),
-          lng: parseFloat(data.longitude),
-          city: data.city || data.city_name || null,
-          state: data.region || data.region_name || data.state || null,
-        };
-      } catch (apiErr) {
-        if (apiErr.name !== 'AbortError') console.error(`Geo API ${apiUrl} failed:`, apiErr.message);
-        continue;  // next API
+        return result;
       }
     }
 
-    return null;  // all APIs failed
+    return null;
   } catch (err) {
-    clearTimeout(timeoutId);
+    console.error("Geo lookup failed:", err.message);
     return null;
   }
 };
 
-/**
- * Parse x-forwarded-for respecting trusted proxies (Render/Cloudflare)
- * @param {string} forwardedHeader - x-forwarded-for value
- * @returns {string} Real client IP
- */
-export const getClientIP = (req) => {
-  // Check headers (proxy/load balancer)
-  const forwarded = req.headers["x-forwarded-for"] || req.headers["cf-connecting-ip"];
-  if (forwarded) {
-    // Take rightmost trusted IP (standard practice) [web:28]
-    const ips = forwarded.toString().split(',').map(ip => ip.trim());
-    // Skip known proxies (Cloudflare, Render)
-    const trustedProxies = ['127.0.0.1', '::1', '10.0.0.0/8', '198.41.128.0/17'];  // Cloudflare [web:33]
-    for (let i = ips.length - 1; i >= 0; i--) {
-      if (!trustedProxies.some(proxy => ips[i].startsWith(proxy))) {
-        return ips[i];
-      }
+/* =====================================
+   TRY SINGLE PROVIDER
+===================================== */
+const tryProvider = async (provider, ip) => {
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 1500);
+
+  try {
+    const res = await fetch(provider.url(ip), {
+      signal: controller.signal,
+      headers: {
+        "User-Agent": "Minimart/1.0",
+      },
+    });
+
+    if (!res.ok) return null;
+
+    const data = await res.json();
+    clearTimeout(timeout);
+
+    const parsed = provider.parse(data);
+
+    if (!parsed.lat || !parsed.lng) return null;
+
+    return {
+      lat: parseFloat(parsed.lat),
+      lng: parseFloat(parsed.lng),
+      city: parsed.city || null,
+      state: parsed.state || null,
+    };
+  } catch (err) {
+    if (err.name !== "AbortError") {
+      console.warn(`Geo provider ${provider.name} failed`);
     }
+    return null;
   }
-
-  // Direct socket IP
-  return req.socket.remoteAddress || req.connection.remoteAddress || null;
 };
 
-/**
- * Parse single IP from forwarded chain
- */
-const parseForwardedFor = (ipString) => {
+/* =====================================
+   GET CLIENT IP (SAFE)
+===================================== */
+export const getClientIP = (req) => {
+  try {
+    const forwarded = req.headers["x-forwarded-for"];
+    const cfIp = req.headers["cf-connecting-ip"];
+
+    if (cfIp) return cfIp;
+
+    if (forwarded) {
+      const ips = forwarded.split(",").map((ip) => ip.trim());
+      return ips[0]; // client IP is first
+    }
+
+    return (
+      req.socket?.remoteAddress ||
+      req.connection?.remoteAddress ||
+      null
+    );
+  } catch {
+    return null;
+  }
+};
+
+/* =====================================
+   HELPERS
+===================================== */
+const extractClientIP = (ipString) => {
   if (!ipString) return null;
-  const ips = ipString.split(',').map(ip => ip.trim());
-  return ips[0];  // leftmost is usually client [web:28]
+  return ipString.split(",")[0].trim();
 };
 
-// Graceful Redis disconnect
-process.on('SIGTERM', async () => {
-  await redis.quit();
+const isPrivateIP = (ip) => {
+  return (
+    ip === "::1" ||
+    ip.startsWith("127.") ||
+    ip.startsWith("10.") ||
+    ip.startsWith("192.168") ||
+    ip.startsWith("172.16")
+  );
+};
+
+/* =====================================
+   CLEAN SHUTDOWN
+===================================== */
+process.on("SIGTERM", async () => {
+  try {
+    await redis.quit();
+  } catch {}
   process.exit(0);
 });
