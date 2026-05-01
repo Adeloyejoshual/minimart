@@ -81,7 +81,6 @@ export default function AddProductPage() {
   const states = Object.keys(locationsByState || {});
   const cities = state ? (locationsByState[state] || []) : [];
 
-  // ✅ Utilities
   const onlyNumbers = (v = "") => v.replace(/[^0-9.]/g, "");
   const onlyDigits = (v = "") => v.replace(/[^0-9]/g, "");
   const displayPrice = (v) => {
@@ -103,7 +102,7 @@ export default function AddProductPage() {
     setTimeout(() => setSuccess(""), 5000);
   }, []);
 
-  // ✅ Effects
+  // Load categories
   useEffect(() => {
     fetch("https://minimart-ivrm.onrender.com/api/marketplace/categories")
       .then((r) => {
@@ -124,14 +123,12 @@ export default function AddProductPage() {
       });
   }, [showError]);
 
+  // Clear stale payment on mount
   useEffect(() => {
-    const savedPayment = localStorage.getItem(STORAGE_PAYMENT);
-    if (savedPayment) {
-      localStorage.removeItem(STORAGE_PAYMENT);
-    }
+    localStorage.removeItem(STORAGE_PAYMENT);
   }, []);
 
-  // ✅ Draft restore
+  // Restore draft
   useEffect(() => {
     try {
       const saved = localStorage.getItem(STORAGE_DRAFT);
@@ -177,7 +174,7 @@ export default function AddProductPage() {
     }
   }, [showSuccess, showError]);
 
-  // ✅ Auto-save draft
+  // Auto-save draft
   useEffect(() => {
     const timeout = setTimeout(() => {
       try {
@@ -199,7 +196,7 @@ export default function AddProductPage() {
     return () => clearTimeout(timeout);
   }, [form, state, city, images.length, selectedPlan?.id]);
 
-  // ✅ Form handlers
+  // Form handlers
   const updateForm = useCallback((key, value) => {
     setForm((prev) => ({ ...prev, [key]: value }));
   }, []);
@@ -253,12 +250,11 @@ export default function AddProductPage() {
     });
   }, []);
 
-  // ✅ Basic validation
+  // Validation
   const validateForm = useCallback(() => {
     if (!form.title?.trim()) return "Title required";
     if (!form.description?.trim()) return "Description required";
-    if (!form.price || Number(form.price) <= 0)
-      return "Enter a valid price";
+    if (!form.price || Number(form.price) <= 0) return "Enter a valid price";
     if (!form.category_id) return "Category required";
     if (!form.contact?.phone || form.contact.phone.length < 10)
       return "Phone number must be at least 10 digits";
@@ -293,7 +289,7 @@ export default function AddProductPage() {
     showSuccess("Draft cleared successfully");
   }, [showSuccess]);
 
-  // ✅ Image handling
+  // Image compression helper
   const compressImage = async (file) => {
     try {
       return await imageCompression(file, {
@@ -302,43 +298,47 @@ export default function AddProductPage() {
         useWebWorker: true,
       });
     } catch (err) {
-      console.warn("Image compression failed, falling back to original:", err);
+      console.warn("Compression failed, using original:", err);
       return file;
     }
   };
 
-  const handleImages = useCallback(async (files) => {
-    const currentCount = images.length;
-    if (currentCount >= MAX_IMAGES) {
-      showError("Maximum 6 images allowed");
-      return;
-    }
+  // Image handling
+  const handleImages = useCallback(
+    async (files) => {
+      const currentCount = images.length;
+      if (currentCount >= MAX_IMAGES) {
+        showError("Maximum 6 images allowed");
+        return;
+      }
 
-    const fileArray = Array.from(files);
-    const remaining = MAX_IMAGES - currentCount;
-    const validFiles = fileArray
-      .filter((f) => f.type.startsWith("image/") && f.size <= MAX_SIZE)
-      .slice(0, remaining);
+      const fileArray = Array.from(files);
+      const remaining = MAX_IMAGES - currentCount;
+      const validFiles = fileArray
+        .filter((f) => f.type.startsWith("image/") && f.size <= MAX_SIZE)
+        .slice(0, remaining);
 
-    if (validFiles.length === 0) {
-      showError("Please select valid images (under 3MB each)");
-      return;
-    }
+      if (validFiles.length === 0) {
+        showError("Please select valid images (under 3MB each)");
+        return;
+      }
 
-    try {
-      const compressed = await Promise.all(validFiles.map(compressImage));
-      const newImages = compressed.map((file) => ({
-        id: `${Date.now()}-${Math.random().toString(36).slice(2)}`,
-        file,
-        preview: URL.createObjectURL(file),
-      }));
-      setImages((prev) => [...prev, ...newImages]);
-      showSuccess(`${newImages.length} image(s) added`);
-    } catch (err) {
-      console.error("Image processing error:", err);
-      showError("Image processing failed");
-    }
-  }, [images.length, showError, showSuccess]);
+      try {
+        const compressed = await Promise.all(validFiles.map(compressImage));
+        const newImages = compressed.map((file) => ({
+          id: `${Date.now()}-${Math.random().toString(36).slice(2)}`,
+          file,
+          preview: URL.createObjectURL(file),
+        }));
+        setImages((prev) => [...prev, ...newImages]);
+        showSuccess(`${newImages.length} image(s) added`);
+      } catch (err) {
+        console.error("Image processing error:", err);
+        showError("Image processing failed");
+      }
+    },
+    [images.length, showError, showSuccess]
+  );
 
   const removeImage = useCallback((id) => {
     setImages((prev) => {
@@ -348,11 +348,10 @@ export default function AddProductPage() {
     });
   }, []);
 
-  // ✅ Post to product API
+  // Create product — sends files directly, backend handles Cloudinary + product_images
   const createProduct = async () => {
     const fd = new FormData();
 
-    // CockroachDB required fields
     fd.append("title", form.title.trim());
     fd.append("description", form.description.trim());
     fd.append("price", Number(form.price).toFixed(2));
@@ -363,31 +362,18 @@ export default function AddProductPage() {
     fd.append("status", "draft");
     fd.append("is_active", "true");
 
-    // JSONB fields
     fd.append("attributes", JSON.stringify(attributes));
     fd.append("delivery", JSON.stringify(form.delivery));
     fd.append("contact", JSON.stringify(form.contact));
 
-    // Extra top‑level contact fields
     fd.append("phone", form.contact.phone || "");
     fd.append("whatsapp", form.contact.whatsapp || "");
     fd.append("whatsapp_link", form.contact.whatsapp_link || "");
 
-    // Optional media metadata (JSONB)
-    const compressedFiles = await Promise.all(
-      images.map((img) => compressImage(img.file))
-    );
-    const media = {
-      images: compressedFiles.map((file, i) => ({
-        id: `img_${Date.now()}_${i}`,
-        filename: file.name,
-        size: file.size,
-        mime_type: file.type,
-      })),
-      videos: [],
-    };
-    fd.append("media", JSON.stringify(media));
-    compressedFiles.forEach((file) => fd.append("images[]", file));
+    // Send compressed files directly — no media JSONB
+    images.forEach((img) => {
+      fd.append("images[]", img.file);
+    });
 
     const token = localStorage.getItem("token");
     if (!token) throw new Error("Authentication required. Please log in.");
@@ -401,27 +387,20 @@ export default function AddProductPage() {
       }
     );
 
-    const text = await res.text();
+    const data = await res.json();
+
     if (!res.ok) {
-      let message;
-      try {
-        const err = JSON.parse(text);
-        message = err.message || err.error || `HTTP ${res.status}`;
-      } catch (_) {
-        message = text.substring(0, 100) || `HTTP ${res.status}`;
-      }
-      throw new Error(message);
+      throw new Error(data.message || data.error || `HTTP ${res.status}`);
     }
 
-    const { product } = JSON.parse(text);
-    if (!product || !product.id) {
+    if (!data.product?.id) {
       throw new Error("Product creation response invalid");
     }
 
-    return product;
+    return data.product;
   };
 
-  // ✅ Initiate payment (Paystack / Stripe)
+  // Initiate paid plan payment
   const initPayment = async (productId) => {
     const token = localStorage.getItem("token");
     if (!token) throw new Error("Authentication required");
@@ -443,8 +422,7 @@ export default function AddProductPage() {
       }
     );
 
-    const text = await res.text();
-    const data = JSON.parse(text);
+    const data = await res.json();
 
     if (!res.ok || !data.success || !data.authorization_url) {
       throw new Error(data.message || "Payment setup failed");
@@ -456,7 +434,7 @@ export default function AddProductPage() {
     };
   };
 
-  // ✅ Activate free plan (no payment)
+  // Activate free plan
   const activateFreePlan = async (productId) => {
     const token = localStorage.getItem("token");
     if (!token) throw new Error("Authentication required");
@@ -473,8 +451,7 @@ export default function AddProductPage() {
       }
     );
 
-    const text = await res.text();
-    const data = JSON.parse(text);
+    const data = await res.json();
 
     if (!res.ok || !data.success) {
       throw new Error(data.message || "Activation failed");
@@ -483,7 +460,7 @@ export default function AddProductPage() {
     return data;
   };
 
-  // ✅ Submit handler
+  // Submit handler
   const handleSubmit = useCallback(async () => {
     if (loading) return;
 
@@ -500,13 +477,14 @@ export default function AddProductPage() {
 
     try {
       const finalPlan =
-        selectedPlan ||
-        promotionPlans.find((p) => Number(p.price) === 0);
+        selectedPlan || promotionPlans.find((p) => Number(p.price) === 0);
+
       if (!finalPlan) {
         throw new Error("No promotion plan available");
       }
 
       product = await createProduct();
+
       if (!product?.id) {
         throw new Error("Product creation failed");
       }
@@ -536,7 +514,8 @@ export default function AddProductPage() {
       window.open(paymentRes.authUrl, "_blank");
     } catch (err) {
       console.error("Submit error:", err);
-      // Best effort cleanup
+
+      // Best effort cleanup on failure
       if (product?.id) {
         try {
           const token = localStorage.getItem("token");
@@ -551,6 +530,7 @@ export default function AddProductPage() {
           console.warn("Cleanup failed:", cleanupErr);
         }
       }
+
       showError(err.message || "Submission failed. Please try again.");
     } finally {
       setLoading(false);
@@ -565,7 +545,7 @@ export default function AddProductPage() {
     showSuccess,
   ]);
 
-  // ✅ Cleanup
+  // Cleanup object URLs on unmount
   useEffect(() => {
     return () => {
       images.forEach((img) => img.preview && URL.revokeObjectURL(img.preview));
