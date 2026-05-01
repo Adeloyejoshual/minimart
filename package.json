@@ -7,7 +7,7 @@
     "node": "20.x"
   },
   "scripts": {
-    "dev": "concurrently \"vite\" \"nodemon server.js\"",
+    "dev": "concurrently "vite" "nodemon server.js"",
     "build": "vite build",
     "preview": "vite preview",
     "start": "node server.js",
@@ -54,6 +54,7 @@
     "react-paystack": "^6.0.0",
     "react-quill": "^2.0.0",
     "react-router-dom": "^6.26.1",
+    "redis": "^4.7.1",
     "slugify": "^1.6.6",
     "socket.io": "^4.7.5",
     "socket.io-client": "^4.7.5",
