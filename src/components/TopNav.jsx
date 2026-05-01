@@ -1,176 +1,280 @@
-import React, { useState, useEffect, useMemo, useCallback } from "react";
+// src/components/TopNav.jsx
+import React, {
+  useState, useEffect, useMemo,
+  useCallback, useRef,
+} from "react";
 import { useNavigate } from "react-router-dom";
+import { useProductCache } from "../context/ProductCacheContext";
 import "../styles/TopNav.css";
 
+const API = import.meta.env.VITE_API_BASE || "https://minimart-ivrm.onrender.com/api";
+const PH  = "https://placehold.co/88x88/eae6e0/a8a39d?text=?";
+
+/* ─────────────────────────────────────────────
+   SEARCH SCORING
+   Uses trigram overlap — far better than
+   character-by-character comparison.
+───────────────────────────────────────────── */
+const norm = (s = "") => s.toLowerCase().trim();
+
+const trigrams = (s) => {
+  const t = new Set();
+  const n = norm(s);
+  for (let i = 0; i < n.length - 2; i++) t.add(n.slice(i, i + 3));
+  return t;
+};
+
+const trigramScore = (query, target) => {
+  if (!query || !target) return 0;
+  const q = trigrams(query);
+  const t = trigrams(target);
+  if (!q.size || !t.size) return 0;
+
+  let matches = 0;
+  q.forEach((g) => { if (t.has(g)) matches++; });
+  return matches / Math.max(q.size, t.size);
+};
+
+const scoreProduct = (query, product) => {
+  const q = norm(query);
+  const title = norm(product.title || "");
+
+  // Exact prefix match → top priority
+  if (title.startsWith(q)) return 1 + trigramScore(q, title);
+
+  // Word boundary match
+  if (title.split(" ").some((w) => w.startsWith(q))) return 0.8 + trigramScore(q, title);
+
+  // Contains match
+  if (title.includes(q)) return 0.6 + trigramScore(q, title);
+
+  // Trigram fallback
+  const ts = trigramScore(q, title);
+  return ts > 0.2 ? ts : 0;
+};
+
+/* ─────────────────────────────────────────────
+   IMAGE EXTRACTOR
+───────────────────────────────────────────── */
+const getImg = (p) => {
+  const f = Array.isArray(p?.images) ? p.images[0] : null;
+  if (!f) return PH;
+  return typeof f === "string" ? f : f.url || f.thumbnail_url || PH;
+};
+
+const naira = (n) => "₦" + Number(n || 0).toLocaleString("en-NG");
+
+/* ─────────────────────────────────────────────
+   COMPONENT
+───────────────────────────────────────────── */
 export default function TopNav() {
-  const navigate = useNavigate();
+  const navigate           = useNavigate();
+  const { products }       = useProductCache(); // instant search from cache
 
-  const [search, setSearch] = useState("");
+  const [query,   setQuery]   = useState("");
   const [debounced, setDebounced] = useState("");
-  const [products, setProducts] = useState([]);
-  const [open, setOpen] = useState(false);
+  const [apiHits, setApiHits] = useState([]);   // network search results
+  const [open,    setOpen]    = useState(false);
+  const [fetching,setFetching]= useState(false);
 
-  /* ================= FETCH PRODUCTS ================= */
+  const inputRef = useRef(null);
+
+  /* ── DEBOUNCE ─────────────────────────────── */
   useEffect(() => {
-    const load = async () => {
-      try {
-        const res = await fetch(
-          "https://minimart-ivrm.onrender.com/api/homepage"
-        );
-        const data = await res.json();
-        setProducts(data?.latest || []);
-      } catch (err) {
-        console.error(err);
-      }
-    };
-
-    load();
-  }, []);
-
-  /* ================= DEBOUNCE ================= */
-  useEffect(() => {
-    const t = setTimeout(() => setDebounced(search), 250);
+    const t = setTimeout(() => setDebounced(query.trim()), 250);
     return () => clearTimeout(t);
-  }, [search]);
+  }, [query]);
 
-  /* ================= NORMALIZE ================= */
-  const normalize = (str = "") =>
-    str.toLowerCase().replace(/[^a-z0-9s]/g, "").trim();
-
-  /* ================= SIMPLE SCORING ================= */
-  const scoreMatch = (a, b) => {
-    a = normalize(a);
-    b = normalize(b);
-
-    if (!a || !b) return 0;
-
-    let match = 0;
-    const len = Math.min(a.length, b.length);
-
-    for (let i = 0; i < len; i++) {
-      if (a[i] === b[i]) match++;
-    }
-
-    return match / Math.max(a.length, b.length);
-  };
-
-  /* ================= SEARCH ENGINE ================= */
-  const results = useMemo(() => {
-    if (!debounced) return [];
-
-    const q = normalize(debounced);
+  /* ── INSTANT RESULTS from cache ──────────── */
+  const cacheResults = useMemo(() => {
+    if (!debounced || debounced.length < 2) return [];
 
     return products
-      .map((p) => ({
-        ...p,
-        score: scoreMatch(q, normalize(p.title)),
-      }))
-      .sort((a, b) => b.score - a.score)
+      .map((p) => ({ ...p, _score: scoreProduct(debounced, p) }))
+      .filter((p) => p._score > 0)
+      .sort((a, b) => b._score - a._score)
       .slice(0, 6);
   }, [debounced, products]);
 
-  /* ================= SEARCH ACTION ================= */
-  const goSearch = useCallback(
-    (text) => {
-      const q = text.trim();
-      if (!q) return;
+  /* ── NETWORK SEARCH (when cache has < 3 hits) */
+  useEffect(() => {
+    if (!debounced || debounced.length < 2) {
+      setApiHits([]);
+      return;
+    }
+    if (cacheResults.length >= 3) {
+      setApiHits([]); // cache is good enough
+      return;
+    }
 
-      setSearch("");
-      setOpen(false);
-      navigate(`/search?q=${encodeURIComponent(q)}`);
-    },
-    [navigate]
-  );
+    let cancelled = false;
+    setFetching(true);
 
+    fetch(`${API}/search?q=${encodeURIComponent(debounced)}`)
+      .then((r) => r.ok ? r.json() : [])
+      .then((data) => {
+        if (!cancelled) {
+          const hits = Array.isArray(data) ? data : (data.products || []);
+          setApiHits(hits.slice(0, 6));
+        }
+      })
+      .catch(() => {})
+      .finally(() => { if (!cancelled) setFetching(false); });
+
+    return () => { cancelled = true; };
+  }, [debounced, cacheResults.length]);
+
+  /* ── MERGED RESULTS ───────────────────────── */
+  const results = useMemo(() => {
+    // Prefer cache hits; fill remaining slots from API hits
+    const seen = new Set(cacheResults.map((p) => p.id));
+    const extra = apiHits.filter((p) => !seen.has(p.id));
+    return [...cacheResults, ...extra].slice(0, 6);
+  }, [cacheResults, apiHits]);
+
+  /* ── ACTIONS ──────────────────────────────── */
+  const goSearch = useCallback((text) => {
+    const q = (text || query).trim();
+    if (!q) return;
+    setQuery("");
+    setOpen(false);
+    navigate(`/search?q=${encodeURIComponent(q)}`);
+  }, [query, navigate]);
+
+  const goProduct = useCallback((p) => {
+    setOpen(false);
+    setQuery("");
+    navigate(`/product/${p.slug || p.id}`);
+  }, [navigate]);
+
+  const close = useCallback(() => {
+    setOpen(false);
+  }, []);
+
+  const showDropdown = open && debounced.length >= 2;
+
+  /* ── RENDER ───────────────────────────────── */
   return (
-    <div className="topnav-wrapper">
-      {/* 📌 STICKY HEADER */}
-      <header className="top-nav sticky-header">
-        <div className="nav-container">
-          <button className="menu-dots" onClick={() => navigate("/menu")}>
-            ⋮⋮⋮
-          </button>
+    <div className="tn-wrap">
 
-          <div className="nav-brand" onClick={() => navigate("/")}>
-            🛒 MiniMart
-          </div>
-        </div>
-      </header>
-
-      {/* 🔍 STICKY SEARCH BAR */}
-      <div className="search-section sticky-search">
-        <div className="search-wrapper">
-          <div className="search-box">
-            <input
-              className="search-input"
-              value={search}
-              placeholder="Search 10,000+ products..."
-              onChange={(e) => {
-                setSearch(e.target.value);
-                setOpen(true);
-              }}
-              onFocus={() => setOpen(true)}
-              onKeyDown={(e) => {
-                if (e.key === "Enter") goSearch(search);
-              }}
-            />
-
-            <button
-              className="search-btn"
-              onClick={() => goSearch(search)}
-            >
-              <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor">
-                <circle cx="11" cy="11" r="8"/>
-                <path d="M21 21l-4.35-4.35"/>
-              </svg>
-            </button>
-          </div>
-
-          {/* 📋 SEARCH DROPDOWN */}
-          {open && (search || results.length > 0) && (
-            <div className="search-dropdown">
-              <p className="dropdown-title">
-                {results.length ? `${results.length} results` : "No results"}
-              </p>
-
-              {results.map((p, i) => (
-                <div
-                  key={p.id}
-                  className="dropdown-item"
-                  onClick={() => {
-                    navigate(`/product/${p.id}`);
-                    setOpen(false);
-                  }}
-                >
-                  <img 
-                    src={p?.images?.[0] || "https://via.placeholder.com/48x48/eee?text=?"} 
-                    alt="" 
-                    loading="lazy"
-                  />
-
-                  <div className="item-content">
-                    <p className="title">
-                      {i === 0 && "⭐ "}
-                      {p.title}
-                    </p>
-
-                    <span className="meta">
-                      ₦{Number(p.price).toLocaleString()}
-                      {p.location_city && ` • ${p.location_city}`}
-                    </span>
-                  </div>
-                </div>
-              ))}
-
-              {search && results.length === 0 && (
-                <div className="dropdown-item empty">
-                  <p>Try "{search}" in search</p>
-                </div>
-              )}
-            </div>
-          )}
+      {/* ── BRAND ROW ── */}
+      <div className="tn-header">
+        <div className="tn-brand" onClick={() => navigate("/")}>
+          🛒 Mini<span>Mart</span>
         </div>
       </div>
+
+      {/* ── SEARCH ROW ── */}
+      <div className="tn-search-row">
+        <div className="tn-search-box">
+          <input
+            ref={inputRef}
+            className="tn-input"
+            value={query}
+            placeholder="Search products, categories…"
+            onChange={(e) => { setQuery(e.target.value); setOpen(true); }}
+            onFocus={() => setOpen(true)}
+            onKeyDown={(e) => {
+              if (e.key === "Enter") goSearch();
+              if (e.key === "Escape") close();
+            }}
+            autoComplete="off"
+            spellCheck="false"
+          />
+          <button
+            className="tn-search-btn"
+            onClick={() => goSearch()}
+            aria-label="Search"
+          >
+            <svg width="17" height="17" viewBox="0 0 24 24" fill="none"
+              stroke="currentColor" strokeWidth="2.5"
+              strokeLinecap="round" strokeLinejoin="round"
+            >
+              <circle cx="11" cy="11" r="8" />
+              <line x1="21" y1="21" x2="16.65" y2="16.65" />
+            </svg>
+          </button>
+        </div>
+
+        {/* ── DROPDOWN ── */}
+        {showDropdown && (
+          <>
+            {/* invisible overlay to catch outside clicks */}
+            <div className="tn-overlay" onClick={close} />
+
+            <div className="tn-dropdown">
+              <div className="tn-drop-header">
+                <span className="tn-drop-count">
+                  {fetching
+                    ? "Searching…"
+                    : results.length
+                      ? `${results.length} result${results.length !== 1 ? "s" : ""}`
+                      : "No results"
+                  }
+                </span>
+                <button className="tn-drop-close" onClick={close}>✕ Close</button>
+              </div>
+
+              {results.length > 0 ? (
+                <>
+                  {results.map((p, i) => (
+                    <div
+                      key={p.id}
+                      className="tn-result"
+                      onClick={() => goProduct(p)}
+                      role="button"
+                      tabIndex={0}
+                      onKeyDown={(e) => e.key === "Enter" && goProduct(p)}
+                    >
+                      <img
+                        className="tn-result-img"
+                        src={getImg(p)}
+                        alt={p.title}
+                        loading="lazy"
+                      />
+                      <div className="tn-result-body">
+                        <div className="tn-result-title">{p.title}</div>
+                        <div className="tn-result-meta">
+                          <span className="tn-result-price">{naira(p.price)}</span>
+                          {(p.location?.city || p.location_city) && (
+                            <span className="tn-result-loc">
+                              · 📍 {p.location?.city || p.location_city}
+                            </span>
+                          )}
+                        </div>
+                      </div>
+                      <span className="tn-result-rank">#{i + 1}</span>
+                    </div>
+                  ))}
+
+                  <div className="tn-see-all-row">
+                    <button
+                      className="tn-see-all-btn"
+                      onClick={() => goSearch(debounced)}
+                    >
+                      See all results for "{debounced}" →
+                    </button>
+                  </div>
+                </>
+              ) : !fetching ? (
+                <div className="tn-no-results">
+                  <div className="tn-no-results-emoji">🔍</div>
+                  <div className="tn-no-results-text">
+                    No products found for "{debounced}"
+                  </div>
+                  <button
+                    className="tn-no-results-btn"
+                    onClick={() => goSearch(debounced)}
+                  >
+                    Search anyway →
+                  </button>
+                </div>
+              ) : null}
+            </div>
+          </>
+        )}
+      </div>
+
     </div>
   );
 }
