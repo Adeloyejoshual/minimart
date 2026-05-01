@@ -46,10 +46,19 @@ const generateSlug = (title = "") =>
     .replace(/-+/g, "-")
     .slice(0, 80);
 
+// FIX 4: Added Cloudinary transformation for auto-optimization
 const uploadToCloudinary = (buffer, folder = "minimart/products") =>
   new Promise((resolve, reject) => {
     const stream = cloudinary.uploader.upload_stream(
-      { folder, resource_type: "image" },
+      {
+        folder,
+        resource_type: "image",
+        transformation: [
+          { width: 1200, crop: "limit" },
+          { quality: "auto" },
+          { fetch_format: "auto" },
+        ],
+      },
       (error, result) => {
         if (error) return reject(error);
         resolve(result);
@@ -70,7 +79,7 @@ router.get("/categories", getCategoriesHandler);
 router.post(
   "/products",
   authenticate,
-  upload.array("images[]", 6),
+  upload.array("images", 6), // FIX 5: changed "images[]" → "images"
   async (req, res) => {
     const client = await pool.connect();
 
@@ -123,11 +132,11 @@ router.post(
 
       /* =====================================
          UPLOAD IMAGES TO CLOUDINARY
+         (parallel uploads are fine — this is external I/O, not DB writes)
       ====================================== */
       const uploadedImages = await Promise.all(
         files.map(async (file, index) => {
           const result = await uploadToCloudinary(file.buffer);
-
           return {
             image_url: result.secure_url,
             public_id: result.public_id,
@@ -136,20 +145,16 @@ router.post(
         })
       );
 
+      // FIX 3: Derive thumbnail from first uploaded image
+      const thumbnail_url = uploadedImages[0]?.image_url || null;
+
       /* =====================================
          SLUG
+         Always append Date.now() — eliminates the extra SELECT query and
+         the race condition window entirely. The UNIQUE constraint on slug
+         remains the final safety net for any edge cases.
       ====================================== */
-      const baseSlug = generateSlug(title);
-      let slug = baseSlug;
-
-      const slugCheck = await client.query(
-        `SELECT id FROM products WHERE slug = $1 LIMIT 1`,
-        [slug]
-      );
-
-      if (slugCheck.rows.length) {
-        slug = `${baseSlug}-${Date.now()}`;
-      }
+      const slug = `${generateSlug(title)}-${Date.now()}`;
 
       await client.query("BEGIN");
 
@@ -183,12 +188,13 @@ router.post(
           specifications,
           faq,
           search_text,
+          thumbnail_url,
           search_vector
         )
         VALUES (
           $1,$2,$3,$4,$5,$6,$7,$8,$9,$10,
           $11,$12,$13,$14,$15,$16,$17,$18,$19,$20,
-          $21,$22,$23,$24,$25,
+          $21,$22,$23,$24,$25,$26,
           to_tsvector('english',
             coalesce($1,'') || ' ' ||
             coalesce($2,'') || ' ' ||
@@ -205,11 +211,11 @@ router.post(
         category_id,
         subcategory_id,
         seller_id,
-        JSON.stringify(attributes),
+        attributes,        // FIX 6B: pass object directly — pg handles JSONB serialization
         location_state,
         location_city,
-        JSON.stringify(delivery),
-        JSON.stringify(contact),
+        delivery,          // FIX 6B: same
+        contact,           // FIX 6B: same
         status,
         is_active,
         phone,
@@ -220,27 +226,35 @@ router.post(
         seo_description,
         seo_keywords,
         canonical_url,
-        JSON.stringify(highlights),
-        JSON.stringify(specifications),
-        JSON.stringify(faq),
+        highlights,        // FIX 6B: same
+        specifications,    // FIX 6B: same
+        faq,               // FIX 6B: same
         search_text,
+        thumbnail_url,     // FIX 3: insert thumbnail
       ];
 
       const { rows } = await client.query(insertQuery, values);
       const product = rows[0];
 
       /* =====================================
-         INSERT IMAGES INTO product_images
+         INSERT IMAGES — BULK INSERT (single DB call)
+         FIX 1: use client (not pool) to stay inside the transaction
+         FIX 2: one bulk INSERT instead of N parallel queries
       ====================================== */
       if (uploadedImages.length > 0) {
-        await Promise.all(
-          uploadedImages.map((img) =>
-            pool.query(
-              `INSERT INTO product_images (product_id, image_url, position_order)
-               VALUES ($1, $2, $3)`,
-              [product.id, img.image_url, img.position_order]
-            )
-          )
+        const valuePlaceholders = uploadedImages
+          .map((_, i) => `($1, $${i * 2 + 2}, $${i * 2 + 3})`)
+          .join(", ");
+
+        const params = [product.id];
+        uploadedImages.forEach((img) => {
+          params.push(img.image_url, img.position_order);
+        });
+
+        await client.query(
+          `INSERT INTO product_images (product_id, image_url, position_order)
+           VALUES ${valuePlaceholders}`,
+          params
         );
       }
 
