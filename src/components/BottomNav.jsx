@@ -1,43 +1,39 @@
 // src/components/BottomNav.jsx
 import React from "react";
 import { useNavigate, useLocation } from "react-router-dom";
-import {
-  FaHome,
-  FaShoppingCart,
-  FaComments,
-  FaUser,
-  FaHandshake,
-} from "react-icons/fa";
+import { FaHome, FaShoppingCart, FaHandshake, FaComments, FaUser } from "react-icons/fa";
 import "../styles/BottomNav.css";
+
+const NAV_ITEMS = [
+  { label: "Home",     icon: <FaHome />,        path: "/" },
+  { label: "Market",   icon: <FaShoppingCart />, path: "/minimart" },
+  { label: "P2P",      icon: <FaHandshake />,    path: "/p2p" },
+  { label: "Messages", icon: <FaComments />,     path: "/conversations" },
+  { label: "Profile",  icon: <FaUser />,         path: "/profile" },
+];
 
 export default function BottomNav() {
   const navigate = useNavigate();
-  const location = useLocation();
-
-  const navItems = [
-    { label: "Home", icon: <FaHome />, path: "/" },
-    { label: "MiniMart", icon: <FaShoppingCart />, path: "/minimart" },
-    { label: "P2P", icon: <FaHandshake />, path: "/p2p" },
-    { label: "Messages", icon: <FaComments />, path: "/conversations" },
-    { label: "Profile", icon: <FaUser />, path: "/profile" },
-  ];
+  const { pathname } = useLocation();
 
   return (
-    <div className="bottom-nav">
-      {navItems.map((item) => {
-        const isActive = location.pathname === item.path;
+    <nav className="bn-wrap" aria-label="Main navigation">
+      {NAV_ITEMS.map(({ label, icon, path }) => {
+        const active = pathname === path || (path !== "/" && pathname.startsWith(path));
 
         return (
           <button
-            key={item.label}
-            onClick={() => navigate(item.path)}
-            className={`nav-item ${isActive ? "active" : ""}`}
+            key={path}
+            className={`bn-item${active ? " active" : ""}`}
+            onClick={() => navigate(path)}
+            aria-label={label}
+            aria-current={active ? "page" : undefined}
           >
-            <div className="icon">{item.icon}</div>
-            <span className="label">{item.label}</span>
+            <span className="bn-icon">{icon}</span>
+            <span className="bn-label">{label}</span>
           </button>
         );
       })}
-    </div>
+    </nav>
   );
 }
