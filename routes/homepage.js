@@ -168,101 +168,202 @@ router.get("/homepage", async (req, res) => {
   try {
     const loc = await resolveLocation(req);
     const identity = req.user?.id || getClientIP(req);
-    const fingerprint = `${req.headers["user-agent"]}:${identity}`;
 
-    let interestCategories = [];
+    /* =============================
+       FETCH USER INTERESTS
+    ============================= */
+    let interests = [];
     try {
-      interestCategories = await redis.zRange(`user:interest:${identity}`, 0, 2, { REV: true });
-    } catch (e) {
-      console.error("Personal interests fetch failed:", e);
-    }
+      interests = await redis.zRange(`user:interest:${identity}`, 0, 2, { REV: true });
+    } catch {}
 
-    let nearbyRows = [];
+    /* =============================
+       BASE QUERY BUILDER
+    ============================= */
+    const buildQuery = ({ where = "", order = "", limit, params = [] }) => ({
+      text: `
+        SELECT ${homepageSelect}, NULL AS distance_km
+        ${baseJoins}
+        ${baseWhere}
+        ${where}
+        ${baseGroup}
+        ${order}
+        LIMIT ${limit}
+      `,
+      values: params,
+    });
+
+    /* =============================
+       NEARBY (GPS → CITY → STATE)
+    ============================= */
+    let nearby = [];
     let nearbySource = "global";
 
     if (loc.lat && loc.lng) {
-      const radiusDeg = 0.05;
+      const radius = 0.05;
+
       const { rows } = await pool.query(
-        `SELECT ${homepageSelect}, ${haversine("$1", "$2")} AS distance_km ${baseJoins} ${baseWhere} AND p.latitude BETWEEN $3 AND $4 AND p.longitude BETWEEN $5 AND $6 AND p.latitude IS NOT NULL ${baseGroup} ORDER BY distance_km ASC, p.boost_score DESC LIMIT $7`,
-        [loc.lat, loc.lng, loc.lat - radiusDeg, loc.lat + radiusDeg, loc.lng - radiusDeg, loc.lng + radiusDeg, SLOTS.nearby]
+        `
+        SELECT ${homepageSelect},
+        ${haversine("$1", "$2")} AS distance_km
+        ${baseJoins}
+        ${baseWhere}
+        AND p.latitude BETWEEN $3 AND $4
+        AND p.longitude BETWEEN $5 AND $6
+        ${baseGroup}
+        ORDER BY distance_km ASC, p.boost_score DESC
+        LIMIT $7
+        `,
+        [loc.lat, loc.lng, loc.lat - radius, loc.lat + radius, loc.lng - radius, loc.lng + radius, SLOTS.nearby]
       );
-      nearbyRows = rows;
+
+      nearby = rows;
       nearbySource = "gps";
     }
 
-    if (nearbyRows.length < 5 && loc.city) {
-      const { rows } = await pool.query(
-        `SELECT ${homepageSelect}, NULL AS distance_km ${baseJoins} ${baseWhere} AND p.location_city = $1 ${baseGroup} ORDER BY p.boost_score DESC, p.created_at DESC LIMIT $2`,
-        [loc.city, SLOTS.nearby]
-      );
-      nearbyRows = rows;
+    if (nearby.length < 5 && loc.city) {
+      const q = buildQuery({
+        where: `AND p.location_city = $1`,
+        order: `ORDER BY p.boost_score DESC, p.created_at DESC`,
+        limit: SLOTS.nearby,
+        params: [loc.city],
+      });
+
+      nearby = (await pool.query(q)).rows;
       nearbySource = "city";
     }
 
-    if (nearbyRows.length < 5 && loc.state) {
-      const { rows } = await pool.query(
-        `SELECT ${homepageSelect}, NULL AS distance_km ${baseJoins} ${baseWhere} AND p.location_state = $1 ${baseGroup} ORDER BY p.boost_score DESC, p.created_at DESC LIMIT $2`,
-        [loc.state, SLOTS.nearby]
-      );
-      nearbyRows = rows;
+    if (nearby.length < 5 && loc.state) {
+      const q = buildQuery({
+        where: `AND p.location_state = $1`,
+        order: `ORDER BY p.boost_score DESC, p.created_at DESC`,
+        limit: SLOTS.nearby,
+        params: [loc.state],
+      });
+
+      nearby = (await pool.query(q)).rows;
       nearbySource = "state";
     }
 
-    let personalRows = [];
-    if (interestCategories.length > 0) {
-      const { rows } = await pool.query(
-        `SELECT ${homepageSelect}, NULL AS distance_km ${baseJoins} ${baseWhere} AND p.category_id = ANY($1::uuid[]) ${baseGroup} ORDER BY p.boost_score DESC, p.created_at DESC LIMIT $2`,
-        [interestCategories, SLOTS.personal]
-      );
-      personalRows = rows;
+    /* =============================
+       PERSONALIZED
+    ============================= */
+    let personal = [];
+    if (interests.length) {
+      const q = buildQuery({
+        where: `AND p.category_id = ANY($1::uuid[])`,
+        order: `ORDER BY p.boost_score DESC, p.created_at DESC`,
+        limit: SLOTS.personal,
+        params: [interests],
+      });
+
+      personal = (await pool.query(q)).rows;
     }
 
-    let trendingIds = [];
+    /* =============================
+       TRENDING
+    ============================= */
+    let trending = [];
+
     try {
-      trendingIds = await redis.zUnion(["trending:1h", "trending:24h", "trending:7d"], { WEIGHTS: [3, 2, 1] });
-      trendingIds = trendingIds.slice(0, SLOTS.trending);
-    } catch (e) {
-      trendingIds = await redis.zRange("trending", 0, SLOTS.trending - 1, { REV: true });
-    }
-
-    let trendingRows = [];
-    if (trendingIds.length) {
-      const { rows } = await pool.query(
-        `SELECT ${homepageSelect}, NULL AS distance_km ${baseJoins} ${baseWhere} AND p.id = ANY($1::uuid[]) ${baseGroup}`,
-        [trendingIds]
+      let ids = await redis.zUnion(
+        ["trending:1h", "trending:24h", "trending:7d"],
+        { WEIGHTS: [3, 2, 1] }
       );
-      const rankMap = Object.fromEntries(trendingIds.map((id, i) => [id, i]));
-      trendingRows = rows.sort((a, b) => rankMap[a.id] - rankMap[b.id]);
-    }
 
-    const [{ rows: latestRows }] = await Promise.all([
-      pool.query(`SELECT ${homepageSelect}, NULL AS distance_km ${baseJoins} ${baseWhere} ${baseGroup} ORDER BY p.created_at DESC LIMIT $1`, [SLOTS.latest]),
+      ids = ids.slice(0, SLOTS.trending);
+
+      if (ids.length) {
+        const { rows } = await pool.query(
+          `
+          SELECT ${homepageSelect}, NULL AS distance_km
+          ${baseJoins}
+          ${baseWhere}
+          AND p.id = ANY($1::uuid[])
+          ${baseGroup}
+          `,
+          [ids]
+        );
+
+        const map = Object.fromEntries(ids.map((id, i) => [id, i]));
+        trending = rows.sort((a, b) => map[a.id] - map[b.id]);
+      }
+    } catch {}
+
+    /* =============================
+       LATEST + PROMOTED + RANDOM
+    ============================= */
+    const [latest, promoted, random] = await Promise.all([
+      pool.query(
+        buildQuery({
+          order: `ORDER BY p.created_at DESC`,
+          limit: SLOTS.latest,
+        })
+      ).then(r => r.rows),
+
+      pool.query(
+        buildQuery({
+          where: `AND p.is_promoted = true`,
+          order: `ORDER BY p.boost_score DESC, p.created_at DESC`,
+          limit: SLOTS.promoted,
+        })
+      ).then(r => r.rows),
+
+      pool.query(
+        buildQuery({
+          where: `AND random() < 0.02`,
+          limit: SLOTS.random,
+        })
+      ).then(r => r.rows),
     ]);
 
-    const promotedRows = await pool.query(
-      `SELECT ${homepageSelect}, NULL AS distance_km ${baseJoins} ${baseWhere} AND p.is_promoted = true ${baseGroup} ORDER BY p.boost_score DESC, p.created_at DESC LIMIT $1`,
-      [SLOTS.promoted]
-    ).then(r => r.rows);
+    /* =============================
+       MERGE FEED
+    ============================= */
+    const merged = dedup([
+      ...promoted,
+      ...softShuffle([
+        ...nearby,
+        ...personal,
+        ...trending,
+        ...latest,
+        ...random,
+      ]),
+    ]).slice(0, FEED_LIMIT);
 
-    const randomRows = await pool.query(
-      `SELECT ${homepageSelect}, NULL AS distance_km ${baseJoins} ${baseWhere} ${baseGroup} ORDER BY gen_random_uuid() LIMIT $1`,
-      [SLOTS.random]
-    ).then(r => r.rows);
-
-    const body = softShuffle(dedup([...nearbyRows, ...personalRows, ...trendingRows, ...latestRows, ...randomRows]));
-    const feed = dedup([...promotedRows, ...body]).slice(0, FEED_LIMIT);
-
+    /* =============================
+       RESPONSE
+    ============================= */
     res.json({
       meta: {
         nearbySource,
         location: loc.city || loc.state || null,
-        interests: interestCategories.length,
+        interests: interests.length,
       },
-      products: feed.map(normalizeProduct),
+      products: merged.map(normalizeProduct),
     });
+
   } catch (err) {
     console.error("HOMEPAGE ERROR:", err);
-    res.status(500).json({ error: "Failed to load homepage" });
+
+    // ✅ HARD FALLBACK (never return empty)
+    try {
+      const { rows } = await pool.query(`
+        SELECT ${homepageSelect}, NULL AS distance_km
+        ${baseJoins}
+        ${baseWhere}
+        ${baseGroup}
+        ORDER BY p.created_at DESC
+        LIMIT 20
+      `);
+
+      return res.json({
+        meta: { nearbySource: "fallback", location: null, interests: 0 },
+        products: rows.map(normalizeProduct),
+      });
+    } catch {
+      res.status(500).json({ error: "Failed to load homepage" });
+    }
   }
 });
 
