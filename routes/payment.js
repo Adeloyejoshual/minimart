@@ -1,38 +1,31 @@
 import express from "express";
-import { Pool } from "pg";
-import crypto from "crypto";
-import dotenv from "dotenv";
+import crypto  from "crypto";
+import { pool } from "../config/db.js";   // shared pool — don't create a second one
 
-dotenv.config();
-
-const router = express.Router();
+const router        = express.Router();
 const webhookRouter = express.Router({ mergeParams: true });
 
-const pool = new Pool({
-  connectionString: process.env.COCKROACH_URI,
-  ssl: { rejectUnauthorized: false },
-});
+// ─── Helpers ──────────────────────────────────────────────────────────────────
 
-router.use(express.json({ limit: "10mb" }));
-router.use(express.urlencoded({ extended: true }));
+/**
+ * promotion_plans.id is INT8 — never treat it as a UUID.
+ * Returns a valid integer or null.
+ */
+const cleanInt = (value) => {
+  const n = parseInt(value, 10);
+  return Number.isFinite(n) && n > 0 ? n : null;
+};
 
-router.use((req, res, next) => {
-  if (req.method === "POST" && req.path.includes("initiate")) {
-    console.log(`🔸 [${new Date().toISOString()}] ${req.path}:`, {
-      body: req.body,
-      headers: { "content-type": req.get("content-type") },
-    });
-  }
-  next();
-});
-
+/**
+ * Products / users use UUID primary keys.
+ */
 const cleanUuid = (value) => {
-  const v = String(value || "").trim();
+  const v = String(value ?? "").trim();
   return v && v !== "null" && v !== "undefined" ? v : null;
 };
 
 const cleanString = (value) => {
-  const v = String(value || "").trim();
+  const v = String(value ?? "").trim();
   return v || null;
 };
 
@@ -43,59 +36,53 @@ const amountToNumber = (amount) => {
 
 const getWebhookSignature = (req) => {
   const header = req.headers["x-paystack-signature"];
-  return Array.isArray(header) ? header[0] : header;
+  return Array.isArray(header) ? header[0] : (header ?? null);
 };
 
 const verifyPaystackSignature = (rawBody, secret, signature) => {
-  const hash = crypto.createHmac("sha512", secret).update(rawBody).digest("hex");
+  const hash = crypto
+    .createHmac("sha512", secret)
+    .update(rawBody)
+    .digest("hex");
   return hash === signature;
 };
 
-/* ===================== PAYSTACK INITIATE ===================== */
+// ─── POST /initiate ────────────────────────────────────────────────────────────
+
 router.post("/initiate", async (req, res) => {
+  // Support both camelCase and snake_case keys from the frontend
   const { email, amount, plan_id, product_id, planId, productId } = req.body;
 
-  const finalPlanId = cleanUuid(plan_id || planId);
-  const finalProductId = cleanUuid(product_id || productId);
-  const paymentEmail = cleanString(email);
-  const paymentAmount = amountToNumber(amount);
+  const finalPlanId    = cleanInt(plan_id    ?? planId);     // INT8
+  const finalProductId = cleanUuid(product_id ?? productId); // UUID
+  const paymentEmail   = cleanString(email);
+  const paymentAmount  = amountToNumber(amount);
 
   if (!paymentEmail) {
     return res.status(400).json({ success: false, message: "Email is required" });
   }
-
   if (!paymentAmount || paymentAmount <= 0) {
-    return res.status(400).json({
-      success: false,
-      message: `Invalid amount: ${amount}`,
-    });
+    return res.status(400).json({ success: false, message: `Invalid amount: ${amount}` });
   }
-
   if (!finalPlanId) {
-    return res.status(400).json({
-      success: false,
-      message: "plan_id or planId required",
-    });
+    return res.status(400).json({ success: false, message: "Valid numeric plan_id required" });
+  }
+  if (!finalProductId) {
+    return res.status(400).json({ success: false, message: "Valid product_id required" });
   }
 
-  if (!finalProductId) {
-    return res.status(400).json({
-      success: false,
-      message: "product_id or productId required",
-    });
-  }
+  // ── Validate + lock product in DB ────────────────────────────────────────────
 
   const client = await pool.connect();
-
   try {
     await client.query("BEGIN");
 
-    const productCheck = await client.query(
-      "SELECT id, status, is_active FROM products WHERE id = $1 FOR UPDATE",
+    const { rows: productRows } = await client.query(
+      `SELECT id, status, is_active FROM products WHERE id = $1 FOR UPDATE`,
       [finalProductId]
     );
 
-    if (!productCheck.rows.length) {
+    if (!productRows.length) {
       await client.query("ROLLBACK");
       return res.status(404).json({
         success: false,
@@ -103,13 +90,13 @@ router.post("/initiate", async (req, res) => {
       });
     }
 
-    const currentStatus = productCheck.rows[0].status;
+    const { status: currentStatus, is_active } = productRows[0];
 
-    if (currentStatus === "active" && productCheck.rows[0].is_active) {
+    if (currentStatus === "active" && is_active) {
       await client.query("ROLLBACK");
       return res.status(409).json({
         success: false,
-        message: `Product ${finalProductId} is already active`,
+        message: "Product is already active",
       });
     }
 
@@ -117,281 +104,248 @@ router.post("/initiate", async (req, res) => {
       await client.query("ROLLBACK");
       return res.status(409).json({
         success: false,
-        message: `Product ${finalProductId} cannot be paid from status ${currentStatus}`,
+        message: `Product cannot be paid from status '${currentStatus}'`,
       });
     }
 
+    // Mark as pending so the user cannot submit twice
     await client.query(
-      `UPDATE products
-       SET status = 'pending_payment',
-           updated_at = NOW()
-       WHERE id = $1`,
+      `UPDATE products SET status = 'pending_payment', updated_at = NOW() WHERE id = $1`,
       [finalProductId]
     );
 
     await client.query("COMMIT");
-  } catch (dbErr) {
+  } catch (err) {
     await client.query("ROLLBACK");
-    console.error("Product validation error:", dbErr);
-    return res.status(500).json({
-      success: false,
-      message: "Database validation failed",
-    });
+    console.error("Product validation error:", err);
+    return res.status(500).json({ success: false, message: "Database validation failed" });
   } finally {
     client.release();
   }
+
+  // ── Call Paystack ─────────────────────────────────────────────────────────────
 
   try {
     if (!process.env.PAYSTACK_SECRET_KEY) {
       throw new Error("PAYSTACK_SECRET_KEY not configured");
     }
 
-    const callbackUrl = `${process.env.FRONTEND_URL || "http://localhost:5173"}/payment/success`;
+    const callbackUrl = `${process.env.FRONTEND_URL ?? "http://localhost:5173"}/payment/success`;
 
-    const paystackResponse = await fetch(
+    const paystackRes = await fetch(
       "https://api.paystack.co/transaction/initialize",
       {
-        method: "POST",
+        method:  "POST",
         headers: {
-          Authorization: `Bearer ${process.env.PAYSTACK_SECRET_KEY}`,
+          Authorization:  `Bearer ${process.env.PAYSTACK_SECRET_KEY}`,
           "Content-Type": "application/json",
         },
         body: JSON.stringify({
-          email: paymentEmail,
-          amount: Math.round(paymentAmount * 100),
+          email:        paymentEmail,
+          amount:       Math.round(paymentAmount * 100), // kobo
           callback_url: callbackUrl,
           metadata: {
-            planId: finalPlanId,
-            productId: finalProductId,
-            plan_id: finalPlanId,
+            // Store both shapes so the webhook can find them reliably
+            planId:     finalPlanId,
+            productId:  finalProductId,
+            plan_id:    finalPlanId,
             product_id: finalProductId,
             custom_fields: [
-              {
-                display_name: "Plan ID",
-                variable_name: "plan_id",
-                value: finalPlanId,
-              },
-              {
-                display_name: "Product ID",
-                variable_name: "product_id",
-                value: finalProductId,
-              },
+              { display_name: "Plan ID",    variable_name: "plan_id",    value: String(finalPlanId) },
+              { display_name: "Product ID", variable_name: "product_id", value: finalProductId },
             ],
           },
         }),
       }
     );
 
-    const data = await paystackResponse.json();
+    const data = await paystackRes.json();
 
-    if (!paystackResponse.ok || !data.status || !data.data?.authorization_url) {
+    if (!paystackRes.ok || !data.status || !data.data?.authorization_url) {
       console.error("Paystack response:", data);
-      return res.status(500).json({
+      return res.status(502).json({
         success: false,
-        message: data.message || "Paystack initialization failed",
+        message: data.message ?? "Paystack initialization failed",
       });
     }
 
     return res.json({
-      success: true,
-      status: true,
-      reference: data.data.reference,
+      success:           true,
+      reference:         data.data.reference,
       authorization_url: data.data.authorization_url,
     });
   } catch (err) {
-    console.error("💥 Payment init ERROR:", err.message);
+    console.error("Payment init error:", err.message);
     return res.status(500).json({
       success: false,
-      message: err.message || "Payment service unavailable",
+      message: err.message ?? "Payment service unavailable",
     });
   }
 });
 
-/* ===================== ACTIVATE PRODUCT ===================== */
-router.post("/products/:id/activate", async (req, res) => {
-  try {
-    const { id: productId } = req.params;
-    const planId = cleanUuid(req.body?.promotion_id);
+// ─── GET /verify/:reference ────────────────────────────────────────────────────
 
-    const result = await pool.query(
-      `
-      UPDATE products
-      SET
-        status = 'active',
-        is_active = true,
-        is_promoted = false,
-        promotion_id = $1,
-        promotion_start = NOW(),
-        promotion_expires_at = NULL,
-        updated_at = NOW()
-      WHERE id = $2
-        AND status IN ('draft', 'pending_payment')
-      RETURNING id, status
-      `,
-      [planId, productId]
-    );
-
-    if (result.rowCount === 0) {
-      return res.status(404).json({
-        success: false,
-        message: "No draft/pending product found",
-      });
-    }
-
-    return res.json({
-      success: true,
-      product_id: result.rows[0].id,
-      new_status: result.rows[0].status,
-    });
-  } catch (err) {
-    console.error("Activate error:", err);
-    return res.status(500).json({
-      success: false,
-      message: "Activation failed",
-    });
-  }
-});
-
-/* ===================== VERIFY PAYMENT ===================== */
 router.get("/verify/:reference", async (req, res) => {
+  const reference = cleanString(req.params.reference);
+
+  if (!reference) {
+    return res.status(400).json({ success: false, message: "Reference is required" });
+  }
+
   try {
-    const { reference } = req.params;
-
-    if (!reference?.trim()) {
-      return res.status(400).json({
-        success: false,
-        message: "Reference is required",
-      });
-    }
-
     const response = await fetch(
-      `https://api.paystack.co/transaction/verify/${reference}`,
-      {
-        headers: {
-          Authorization: `Bearer ${process.env.PAYSTACK_SECRET_KEY}`,
-        },
-      }
+      `https://api.paystack.co/transaction/verify/${encodeURIComponent(reference)}`,
+      { headers: { Authorization: `Bearer ${process.env.PAYSTACK_SECRET_KEY}` } }
     );
 
     const data = await response.json();
 
     if (!data.status || data.data?.status !== "success") {
-      return res.json({
-        success: false,
-        message: "Payment verification failed",
-      });
+      return res.json({ success: false, message: "Payment not successful" });
     }
 
-    return res.json({
-      success: true,
-      data: data.data,
-      message: "Payment verified successfully",
-    });
+    return res.json({ success: true, data: data.data });
   } catch (err) {
     console.error("Verify error:", err);
-    return res.status(500).json({
-      success: false,
-      message: "Verification failed",
-    });
+    return res.status(500).json({ success: false, message: "Verification failed" });
   }
 });
 
-/* ===================== WEBHOOK HANDLER ===================== */
+// ─── POST /webhook ─────────────────────────────────────────────────────────────
+//
+//  Mounted in server.js with express.raw() before any body parsers, so
+//  req.body is always a raw Buffer here.
+
 webhookRouter.post("/", async (req, res) => {
+  const secret = process.env.PAYSTACK_SECRET_KEY;
+  if (!secret) {
+    console.error("Missing PAYSTACK_SECRET_KEY");
+    return res.sendStatus(500);
+  }
+
+  const signature = getWebhookSignature(req);
+  const rawBody   = Buffer.isBuffer(req.body)
+    ? req.body.toString("utf-8")
+    : typeof req.body === "string"
+      ? req.body
+      : JSON.stringify(req.body ?? {});
+
+  if (!signature || !verifyPaystackSignature(rawBody, secret, signature)) {
+    console.warn("Invalid webhook signature");
+    return res.status(401).send("Unauthorized");
+  }
+
+  let event;
   try {
-    const secret = process.env.PAYSTACK_SECRET_KEY;
-    if (!secret) {
-      console.error("❌ Missing PAYSTACK_SECRET_KEY");
-      return res.sendStatus(500);
-    }
+    event = JSON.parse(rawBody);
+  } catch {
+    return res.status(400).send("Invalid JSON");
+  }
 
-    const signature = getWebhookSignature(req);
-    const rawBody =
-      typeof req.body === "string"
-        ? req.body
-        : Buffer.isBuffer(req.body)
-          ? req.body.toString("utf-8")
-          : JSON.stringify(req.body || {});
+  // Only handle successful charges — acknowledge everything else silently
+  if (event.event !== "charge.success") {
+    return res.status(200).send("OK");
+  }
 
-    if (!signature || !verifyPaystackSignature(rawBody, secret, signature)) {
-      console.log("❌ Invalid webhook signature");
-      return res.status(401).send("Unauthorized");
-    }
+  const metadata = event.data?.metadata ?? {};
+  const customFields = Array.isArray(metadata.custom_fields) ? metadata.custom_fields : [];
 
-    const event = JSON.parse(rawBody);
+  const findCustom = (name) =>
+    customFields.find((f) => f.variable_name === name)?.value ?? null;
 
-    if (event.event !== "charge.success") {
-      return res.status(200).send("OK");
-    }
+  const productId = cleanUuid(
+    metadata.productId   ??
+    metadata.product_id  ??
+    findCustom("product_id")
+  );
 
-    const data = event.data || {};
-    const metadata = data.metadata || {};
+  // INT8 plan id
+  const planId = cleanInt(
+    metadata.planId      ??
+    metadata.plan_id     ??
+    findCustom("plan_id")
+  );
 
-    const productId =
-      cleanUuid(metadata.productId) ||
-      cleanUuid(metadata.product_id) ||
-      cleanUuid(metadata.custom_fields?.find((f) => f.variable_name === "product_id")?.value);
+  if (!productId) {
+    console.warn("Webhook: no productId in metadata", metadata);
+    return res.status(200).send("OK");
+  }
 
-    const planId =
-      cleanUuid(metadata.planId) ||
-      cleanUuid(metadata.plan_id) ||
-      cleanUuid(metadata.custom_fields?.find((f) => f.variable_name === "plan_id")?.value);
-
-    if (!productId) {
-      return res.status(200).send("OK");
-    }
-
-    const existing = await pool.query(
-      "SELECT status, is_active, promotion_id FROM products WHERE id = $1",
+  try {
+    // ── Guard: skip if already active ──────────────────────────────────────
+    const { rows: existing } = await pool.query(
+      `SELECT status, is_active FROM products WHERE id = $1`,
       [productId]
     );
 
-    if (!existing.rows.length) {
+    if (!existing.length) {
+      console.warn("Webhook: product not found", productId);
       return res.status(200).send("OK");
     }
 
-    if (existing.rows[0].status === "active" && existing.rows[0].is_active) {
+    if (existing[0].status === "active" && existing[0].is_active) {
       return res.status(200).send("OK");
     }
 
-    let expiresAt = null;
+    // ── Look up plan to compute expiry ────────────────────────────────────
+    //    Use duration_days (INT8) directly — don't parse the duration STRING
+    let expiresAt          = null;
+    let promotionPriority  = 0;
+    let promotionType      = "standard";
 
     if (planId) {
-      const planRes = await pool.query(
-        "SELECT duration FROM promotion_plans WHERE id = $1",
+      const { rows: planRows } = await pool.query(
+        `SELECT name, duration_days, priority
+         FROM promotion_plans
+         WHERE id = $1 AND is_active = true`,
         [planId]
       );
 
-      const planDuration = planRes.rows[0]?.duration;
+      if (planRows.length) {
+        const plan = planRows[0];
+        promotionPriority = plan.priority ?? 0;
+        promotionType     = plan.name     ?? "standard";
 
-      if (planDuration && planDuration !== "Always") {
-        const days = parseInt(planDuration, 10);
-        if (!Number.isNaN(days) && days > 0) {
-          expiresAt = new Date(Date.now() + days * 24 * 60 * 60 * 1000);
+        if (plan.duration_days && plan.duration_days > 0) {
+          expiresAt = new Date(
+            Date.now() + plan.duration_days * 24 * 60 * 60 * 1000
+          );
         }
       }
     }
 
+    // ── Activate ──────────────────────────────────────────────────────────
     await pool.query(
-      `
-      UPDATE products
-      SET
-        status = 'active',
-        is_active = true,
-        is_promoted = true,
-        promotion_id = $1,
-        promotion_start = COALESCE(promotion_start, NOW()),
-        promotion_expires_at = $2,
-        updated_at = NOW()
-      WHERE id = $3
-      `,
-      [planId, expiresAt, productId]
+      `UPDATE products
+       SET
+         status               = 'active',
+         is_active            = true,
+         is_promoted          = $1,
+         promotion_id         = $2,
+         promotion_start      = COALESCE(promotion_start, NOW()),
+         promotion_end        = $3,
+         promotion_expires_at = $3,
+         promotion_priority   = $4,
+         promotion_type       = $5,
+         updated_at           = NOW()
+       WHERE id = $6`,
+      [
+        planId != null,   // $1 — is_promoted true only when there's a real paid plan
+        planId,           // $2
+        expiresAt,        // $3 — both promotion_end and promotion_expires_at
+        promotionPriority,// $4
+        promotionType,    // $5
+        productId,        // $6
+      ]
     );
 
+    console.log(`✅ Webhook activated product ${productId} with plan ${planId}`);
     return res.status(200).send("OK");
   } catch (err) {
-    console.error("🔥 WEBHOOK ERROR:", err.message);
-    return res.status(500).send("Internal error");
+    console.error("Webhook DB error:", err.message);
+    // Always return 200 to Paystack — retrying a DB error won't help
+    // and Paystack will keep retrying on non-200s causing duplicate activations.
+    return res.status(200).send("OK");
   }
 });
 
