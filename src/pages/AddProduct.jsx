@@ -2,57 +2,58 @@ import React, { useEffect, useMemo, useState, useCallback } from "react";
 import ProductComponents from "./product/components.jsx";
 import { locationsByState } from "../config/locationsByState.js";
 import { promotionPlans } from "../config/promotions.js";
+import { apiFetch, ApiError } from "../utils/apiFetch.js";
 import "../styles/AddProduct.css";
 import imageCompression from "browser-image-compression";
 
-const STORAGE_DRAFT = "product_draft";
+const STORAGE_DRAFT   = "product_draft";
 const STORAGE_PAYMENT = "payment_retry";
-const API_BASE = "https://minimart-ivrm.onrender.com/api";
-const MAX_IMAGES = 6;
-const MAX_SIZE = 3 * 1024 * 1024;
+const API_BASE        = "https://minimart-ivrm.onrender.com/api";
+const MAX_IMAGES      = 6;
+const MAX_SIZE        = 3 * 1024 * 1024; // 3 MB
 
 const INITIAL_FORM = {
-  title: "",
-  description: "",
-  price: "",
-  category_id: "",
+  title:          "",
+  description:    "",
+  price:          "",
+  category_id:    "",
   subcategory_id: "",
   attributes: {
-    brand: "",
-    model: "",
-    color: "",
-    condition: "",
-    used_detail: "",
-    ram: "",
-    storage: "",
-    sim: "",
-    year: "",
-    engine: "",
-    fuel_type: "",
-    features: [],
-    size: "",
-    age_range: "",
-    bedrooms: "",
-    bathrooms: "",
+    brand:            "",
+    model:            "",
+    color:            "",
+    condition:        "",
+    used_detail:      "",
+    ram:              "",
+    storage:          "",
+    sim:              "",
+    year:             "",
+    engine:           "",
+    fuel_type:        "",
+    features:         [],
+    size:             "",
+    age_range:        "",
+    bedrooms:         "",
+    bathrooms:        "",
     experience_level: "",
-    skills: "",
+    skills:           "",
   },
   delivery: {
     available: false,
-    duration: { from: "", to: "" },
-    fee: "",
-    note: "",
+    duration:  { from: "", to: "" },
+    fee:       "",
+    note:      "",
   },
   contact: {
-    phone: "",
-    whatsapp: "",
+    phone:         "",
+    whatsapp:      "",
     whatsapp_link: "",
-    email: "",
-    preferred: "chat",
+    email:         "",
+    preferred:     "chat",
   },
 };
 
-// ─── pure helpers ────────────────────────────────────────────────────────────
+// ─── Pure helpers (defined outside component — never recreated) ───────────────
 
 const onlyNumbers = (v = "") => v.replace(/[^0-9.]/g, "");
 const onlyDigits  = (v = "") => v.replace(/[^0-9]/g, "");
@@ -67,7 +68,9 @@ const displayPrice = (v) => {
 const formatLabel = (t) =>
   t.replace(/_/g, " ").replace(/\b\w/g, (l) => l.toUpperCase());
 
-// ─── component ───────────────────────────────────────────────────────────────
+const getToken = () => localStorage.getItem("token");
+
+// ─── Component ────────────────────────────────────────────────────────────────
 
 export default function AddProductPage() {
   const [form,         setForm]         = useState(INITIAL_FORM);
@@ -81,20 +84,19 @@ export default function AddProductPage() {
   const [error,        setError]        = useState("");
   const [success,      setSuccess]      = useState("");
 
-  // ── derived ────────────────────────────────────────────────────────────────
+  // ── Derived ────────────────────────────────────────────────────────────────
 
   const selectedCategory = useMemo(
     () => categories.find((c) => String(c.id) === String(form.category_id)) ?? null,
     [categories, form.category_id]
   );
 
-  const options = selectedCategory?.dynamicOptions ?? {};
+  const options    = selectedCategory?.dynamicOptions ?? {};
   const attributes = form.attributes ?? INITIAL_FORM.attributes;
+  const states     = Object.keys(locationsByState ?? {});
+  const cities     = state ? (locationsByState[state] ?? []) : [];
 
-  const states = Object.keys(locationsByState ?? {});
-  const cities = state ? (locationsByState[state] ?? []) : [];
-
-  // ── feedback helpers ───────────────────────────────────────────────────────
+  // ── Feedback helpers ───────────────────────────────────────────────────────
 
   const showError = useCallback((msg) => {
     setError(msg);
@@ -106,14 +108,10 @@ export default function AddProductPage() {
     setTimeout(() => setSuccess(""), 5000);
   }, []);
 
-  // ── load categories ────────────────────────────────────────────────────────
+  // ── Load categories ────────────────────────────────────────────────────────
 
   useEffect(() => {
-    fetch(`${API_BASE}/marketplace/categories`)
-      .then((r) => {
-        if (!r.ok) throw new Error(`HTTP ${r.status}`);
-        return r.json();
-      })
+    apiFetch(`${API_BASE}/marketplace/categories`)
       .then((data) => {
         if (Array.isArray(data)) {
           setCategories(data);
@@ -122,19 +120,19 @@ export default function AddProductPage() {
           showError("Categories data malformed");
         }
       })
-      .catch(() => {
+      .catch((err) => {
         setCategories([]);
-        showError("Failed to load categories");
+        showError(err.message);
       });
   }, [showError]);
 
-  // ── clear stale payment session on mount ──────────────────────────────────
+  // ── Clear stale payment session on mount ───────────────────────────────────
 
   useEffect(() => {
     localStorage.removeItem(STORAGE_PAYMENT);
   }, []);
 
-  // ── restore draft ──────────────────────────────────────────────────────────
+  // ── Restore draft ──────────────────────────────────────────────────────────
 
   useEffect(() => {
     try {
@@ -142,13 +140,17 @@ export default function AddProductPage() {
       if (!saved) return;
 
       const draft = JSON.parse(saved);
+
       setForm({
         title:          draft.form?.title          ?? "",
         description:    draft.form?.description    ?? "",
         price:          draft.form?.price          ?? "",
         category_id:    draft.form?.category_id    ?? "",
         subcategory_id: draft.form?.subcategory_id ?? "",
-        attributes: { ...INITIAL_FORM.attributes, ...(draft.form?.attributes ?? {}) },
+        attributes: {
+          ...INITIAL_FORM.attributes,
+          ...(draft.form?.attributes ?? {}),
+        },
         delivery: {
           available: draft.form?.delivery?.available ?? false,
           duration: {
@@ -166,6 +168,7 @@ export default function AddProductPage() {
           preferred:     draft.form?.contact?.preferred     ?? "chat",
         },
       });
+
       setState(draft.state ?? "");
       setCity(draft.city   ?? "");
       setSelectedPlan(
@@ -178,7 +181,7 @@ export default function AddProductPage() {
     }
   }, [showSuccess, showError]);
 
-  // ── auto-save draft ────────────────────────────────────────────────────────
+  // ── Auto-save draft ────────────────────────────────────────────────────────
 
   useEffect(() => {
     const timeout = setTimeout(() => {
@@ -189,7 +192,7 @@ export default function AddProductPage() {
             form,
             state,
             city,
-            imagesCount: images.length,
+            imagesCount:  images.length,
             selectedPlan: selectedPlan?.id ?? null,
           })
         );
@@ -201,7 +204,7 @@ export default function AddProductPage() {
     return () => clearTimeout(timeout);
   }, [form, state, city, images.length, selectedPlan]);
 
-  // ── revoke object URLs on unmount ──────────────────────────────────────────
+  // ── Revoke object URLs on unmount ──────────────────────────────────────────
 
   useEffect(() => {
     return () => {
@@ -209,7 +212,7 @@ export default function AddProductPage() {
     };
   }, [images]);
 
-  // ── form updaters ──────────────────────────────────────────────────────────
+  // ── Form updaters ──────────────────────────────────────────────────────────
 
   const updateForm = useCallback((key, value) => {
     setForm((prev) => ({ ...prev, [key]: value }));
@@ -263,7 +266,7 @@ export default function AddProductPage() {
     });
   }, []);
 
-  // ── clear draft ────────────────────────────────────────────────────────────
+  // ── Clear draft ────────────────────────────────────────────────────────────
 
   const clearDraft = useCallback(() => {
     setForm(INITIAL_FORM);
@@ -277,14 +280,14 @@ export default function AddProductPage() {
     showSuccess("Draft cleared successfully");
   }, [showSuccess]);
 
-  // ── image handling ─────────────────────────────────────────────────────────
+  // ── Image handling ─────────────────────────────────────────────────────────
 
   const compressImage = async (file) => {
     try {
       return await imageCompression(file, {
-        maxSizeMB: 1,
+        maxSizeMB:        1,
         maxWidthOrHeight: 1280,
-        useWebWorker: true,
+        useWebWorker:     true,
       });
     } catch (err) {
       console.warn("Compression failed, using original:", err);
@@ -305,7 +308,7 @@ export default function AddProductPage() {
         .slice(0, remaining);
 
       if (!validFiles.length) {
-        showError("Please select valid images (under 3MB each)");
+        showError("Please select valid images (under 3 MB each)");
         return;
       }
 
@@ -334,35 +337,47 @@ export default function AddProductPage() {
     });
   }, []);
 
-  // ── validation ─────────────────────────────────────────────────────────────
+  // ── Validation ─────────────────────────────────────────────────────────────
 
   const validateForm = useCallback(() => {
-    if (!form.title?.trim())                                return "Title required";
-    if (!form.description?.trim())                          return "Description required";
-    if (!form.price || Number(form.price) <= 0)             return "Enter a valid price";
-    if (!form.category_id)                                  return "Category required";
+    if (!form.title?.trim())
+      return "Title required";
+    if (!form.description?.trim())
+      return "Description required";
+    if (!form.price || Number(form.price) <= 0)
+      return "Enter a valid price";
+    if (!form.category_id)
+      return "Category required";
     if (!form.contact?.phone || form.contact.phone.length < 10)
-                                                            return "Phone number must be at least 10 digits";
-    if (!form.contact?.email?.includes("@"))                return "Enter a valid email address";
+      return "Phone number must be at least 10 digits";
+    if (!form.contact?.email?.includes("@"))
+      return "Enter a valid email address";
     if (!form.contact?.whatsapp || form.contact.whatsapp.length < 10)
-                                                            return "WhatsApp number required";
-    if (!images.length)                                     return "At least one image is required";
-    if (!state || !city)                                    return "Select your state and city";
+      return "WhatsApp number required";
+    if (!images.length)
+      return "At least one image is required";
+    if (!state || !city)
+      return "Select your state and city";
 
     if (form.delivery.available) {
       const from = Number(form.delivery.duration.from);
       const to   = Number(form.delivery.duration.to);
-      if (Number.isNaN(from) || Number.isNaN(to))          return "Enter valid delivery days";
-      if (to < from)                                        return "Delivery end must be after start";
+      if (Number.isNaN(from) || Number.isNaN(to))
+        return "Enter valid delivery days";
+      if (to < from)
+        return "Delivery end must be after start";
       if (!form.delivery.fee || Number(form.delivery.fee) <= 0)
-                                                            return "Enter valid delivery fee";
+        return "Enter valid delivery fee";
     }
 
     return null;
   }, [form, images.length, state, city]);
 
-  // ── API calls — defined inline inside handleSubmit so they always close ────
-  //    over the latest state values and never go stale                         
+  // ── Submit handler ─────────────────────────────────────────────────────────
+  //
+  //  createProduct / initPayment / activateFreePlan are defined INSIDE
+  //  handleSubmit so they always close over the current render's state
+  //  values (form, images, state, city, selectedPlan) and never go stale.
 
   const handleSubmit = async () => {
     if (loading) return;
@@ -373,9 +388,12 @@ export default function AddProductPage() {
       return;
     }
 
-    // ── createProduct ────────────────────────────────────────────────────────
+    // ── createProduct ──────────────────────────────────────────────────────
     const createProduct = async (status = "draft") => {
-      if (!images.length) throw new Error("At least one image is required");
+      if (!images.length) throw new ApiError("At least one image is required", 400);
+
+      const token = getToken();
+      if (!token) throw new ApiError("Authentication required. Please log in.", 401);
 
       const fd = new FormData();
       fd.append("title",       form.title.trim());
@@ -399,63 +417,60 @@ export default function AddProductPage() {
 
       images.forEach((img) => fd.append("images", img.file));
 
-      const token = localStorage.getItem("token");
-      if (!token) throw new Error("Authentication required. Please log in.");
-
-      const res  = await fetch(`${API_BASE}/marketplace/products`, {
+      // Note: do NOT manually set Content-Type when sending FormData.
+      // The browser must set it (with the multipart boundary) automatically.
+      const data = await apiFetch(`${API_BASE}/marketplace/products`, {
         method:  "POST",
         headers: { Authorization: `Bearer ${token}` },
         body:    fd,
       });
-      const data = await res.json();
 
-      if (!res.ok) throw new Error(data.message ?? data.error ?? `HTTP ${res.status}`);
-      if (!data.product?.id) throw new Error("Product creation response invalid");
-
+      if (!data.product?.id) throw new ApiError("Product creation response invalid", 500);
       return data.product;
     };
 
-    // ── initPayment ──────────────────────────────────────────────────────────
+    // ── initPayment ────────────────────────────────────────────────────────
     const initPayment = async (productId) => {
-      const token = localStorage.getItem("token");
-      if (!token) throw new Error("Authentication required");
+      const token = getToken();
+      if (!token) throw new ApiError("Authentication required", 401);
 
-      const res  = await fetch(`${API_BASE}/payment/initiate`, {
+      const data = await apiFetch(`${API_BASE}/payment/initiate`, {
         method:  "POST",
-        headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
-        body:    JSON.stringify({
+        headers: {
+          "Content-Type": "application/json",
+          Authorization:  `Bearer ${token}`,
+        },
+        body: JSON.stringify({
           email:      form.contact.email,
           amount:     Number(selectedPlan?.price ?? 0),
           plan_id:    selectedPlan?.id,
           product_id: productId,
         }),
       });
-      const data = await res.json();
 
-      if (!res.ok || !data.success || !data.authorization_url)
-        throw new Error(data.message ?? "Payment setup failed");
-
+      if (!data.authorization_url) throw new ApiError("Payment setup failed", 500);
       return { reference: data.reference, authUrl: data.authorization_url };
     };
 
-    // ── activateFreePlan ─────────────────────────────────────────────────────
+    // ── activateFreePlan ───────────────────────────────────────────────────
     const activateFreePlan = async (productId) => {
-      const token = localStorage.getItem("token");
-      if (!token) throw new Error("Authentication required");
+      const token = getToken();
+      if (!token) throw new ApiError("Authentication required", 401);
 
-      const res  = await fetch(`${API_BASE}/marketplace/products/${productId}/activate`, {
-        method:  "POST",
-        headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
-        body:    JSON.stringify({ promotion_id: selectedPlan?.id ?? null }),
-      });
-      const data = await res.json();
-
-      if (!res.ok || !data.success) throw new Error(data.message ?? "Activation failed");
-
-      return data;
+      return apiFetch(
+        `${API_BASE}/marketplace/products/${productId}/activate`,
+        {
+          method:  "POST",
+          headers: {
+            "Content-Type": "application/json",
+            Authorization:  `Bearer ${token}`,
+          },
+          body: JSON.stringify({ promotion_id: selectedPlan?.id ?? null }),
+        }
+      );
     };
 
-    // ── orchestration ────────────────────────────────────────────────────────
+    // ── Orchestration ──────────────────────────────────────────────────────
 
     setLoading(true);
     setError("");
@@ -465,12 +480,12 @@ export default function AddProductPage() {
       const finalPlan =
         selectedPlan ?? promotionPlans.find((p) => Number(p.price) === 0);
 
-      if (!finalPlan) throw new Error("No promotion plan available");
+      if (!finalPlan) throw new ApiError("No promotion plan available", 400);
 
       const isFreePlan = Number(finalPlan.price) === 0;
 
       product = await createProduct(isFreePlan ? "active" : "draft");
-      if (!product?.id) throw new Error("Product creation failed");
+      if (!product?.id) throw new ApiError("Product creation failed", 500);
 
       if (isFreePlan) {
         await activateFreePlan(product.id);
@@ -480,15 +495,15 @@ export default function AddProductPage() {
         return;
       }
 
-      const paymentRes    = await initPayment(product.id);
+      const paymentRes     = await initPayment(product.id);
       const paymentSession = {
-        reference:  paymentRes.reference,
-        authUrl:    paymentRes.authUrl,
-        planId:     finalPlan.id,
-        productId:  product.id,
-        email:      form.contact.email,
-        amount:     Number(finalPlan.price),
-        createdAt:  Date.now(),
+        reference: paymentRes.reference,
+        authUrl:   paymentRes.authUrl,
+        planId:    finalPlan.id,
+        productId: product.id,
+        email:     form.contact.email,
+        amount:    Number(finalPlan.price),
+        createdAt: Date.now(),
       };
 
       localStorage.setItem(STORAGE_PAYMENT, JSON.stringify(paymentSession));
@@ -499,16 +514,15 @@ export default function AddProductPage() {
     } catch (err) {
       console.error("Submit error:", err);
 
-      // best-effort cleanup: delete orphaned product if payment setup failed
+      // Best-effort cleanup — delete orphaned product if anything after
+      // createProduct threw (e.g. payment init failed).
       if (product?.id) {
-        try {
-          const token = localStorage.getItem("token");
-          await fetch(`${API_BASE}/marketplace/products/${product.id}`, {
+        const token = getToken();
+        if (token) {
+          fetch(`${API_BASE}/marketplace/products/${product.id}`, {
             method:  "DELETE",
             headers: { Authorization: `Bearer ${token}` },
-          });
-        } catch (cleanupErr) {
-          console.warn("Cleanup failed:", cleanupErr);
+          }).catch((cleanupErr) => console.warn("Cleanup failed:", cleanupErr));
         }
       }
 
@@ -518,7 +532,7 @@ export default function AddProductPage() {
     }
   };
 
-  // ── props passed to presentational layer ──────────────────────────────────
+  // ── Props passed to presentational layer ──────────────────────────────────
 
   const componentProps = {
     form,
