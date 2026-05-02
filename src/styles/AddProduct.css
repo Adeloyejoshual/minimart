@@ -1,5 +1,5 @@
 /* =========================================================
-   ADD PRODUCT - CLEAN SCOPED STYLES (NO CONFLICTS)
+   ADD PRODUCT – CLEAN SCOPED STYLES (NO CONFLICTS)
 ========================================================= */
 
 /* ================= CONTAINER ================= */
@@ -31,6 +31,7 @@
   display: flex;
   align-items: center;
   justify-content: center;
+  justify-content: space-between;
 
   padding: 14px 20px;
   margin-bottom: 1.5rem;
@@ -41,7 +42,9 @@
   border-radius: 16px;
   border-bottom: 1px solid #e3f0ff;
 
-  box-shadow: 0 4px 18px rgba(0, 119, 255, 0.08);
+  box-shadow:
+    0 4px 18px rgba(0, 119, 255, 0.08),
+    0 0 0 1px rgba(0, 119, 255, 0.1);
 }
 
 .add-product-container .glass-back-btn {
@@ -56,8 +59,17 @@
 
   font-weight: 600;
   color: #0077ff;
+  text-decoration: none;
 
   cursor: pointer;
+  user-select: none;
+
+  transition: 0.18s ease;
+}
+
+.add-product-container .glass-back-btn:hover {
+  border-color: #0077ff;
+  background: #f0f7ff;
 }
 
 /* ================= CARD ================= */
@@ -95,17 +107,19 @@
   flex-direction: column;
   gap: 8px;
 
-  position: relative; /* IMPORTANT for dropdown */
+  position: relative; /* for dropdowns / popovers */
 }
 
-.add-product-container label {
+.add-product-container .form-label {
   font-weight: 600;
   color: #1e3a8a;
+  font-size: 0.95rem;
 }
 
 /* ================= INPUTS ================= */
 .add-product-container input,
-.add-product-container textarea {
+.add-product-container textarea,
+.add-product-container select {
   width: 100%;
   padding: 14px 16px;
 
@@ -119,13 +133,38 @@
 }
 
 .add-product-container input:focus,
-.add-product-container textarea:focus {
+.add-product-container textarea:focus,
+.add-product-container select:focus {
   border-color: #0077ff;
   box-shadow: 0 0 0 3px rgba(0, 119, 255, 0.15);
   outline: none;
 }
 
+.add-product-container .error-input {
+  border-color: #dc2626;
+}
+.add-product-container .error-input:focus {
+  border-color: #dc2626;
+  box-shadow: 0 0 0 3px rgba(220, 38, 38, 0.15);
+}
+
 /* ================= GRID ================= */
+.add-product-container .delivery-grid {
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+}
+
+.add-product-container .checkbox-grid-inline {
+  grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+}
+
+.add-product-container .preview-grid-modern {
+  grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
+}
+
+.add-product-container .plans-grid {
+  grid-template-columns: repeat(2, 1fr);
+}
+
 .add-product-container .delivery-grid,
 .add-product-container .checkbox-grid-inline,
 .add-product-container .preview-grid-modern,
@@ -135,10 +174,6 @@
 }
 
 /* ================= IMAGES ================= */
-.add-product-container .preview-grid-modern {
-  grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
-}
-
 .add-product-container .preview-thumb {
   position: relative;
   border-radius: 16px;
@@ -166,9 +201,16 @@
   border-radius: 50%;
   border: none;
 
-  background: red;
+  background: #ef4444;
   color: white;
   cursor: pointer;
+
+  transition: 0.18s ease;
+}
+
+.add-product-container .preview-thumb button:hover {
+  transform: scale(1.08);
+  background: #dc2626;
 }
 
 /* ================= PLANS ================= */
@@ -191,6 +233,7 @@
 .add-product-container .plan-card.selected {
   background: rgba(0, 119, 255, 0.08);
   border-color: #0077ff;
+  box-shadow: 0 0 0 2px rgba(0, 119, 255, 0.12);
 }
 
 /* ================= BUTTONS ================= */
@@ -212,26 +255,56 @@
 
   font-weight: 700;
   cursor: pointer;
+
+  transition: 0.25s ease;
+}
+
+.add-product-container .primary-btn:hover:not(:disabled) {
+  transform: translateY(-2px);
+  box-shadow: 0 6px 20px rgba(0, 119, 255, 0.28);
 }
 
 .add-product-container .primary-btn:disabled {
   opacity: 0.6;
   cursor: not-allowed;
+  transform: none;
+}
+
+.add-product-container .outline-btn {
+  flex: 1;
+  padding: 16px;
+
+  border-radius: 16px;
+  border: 1px solid rgba(0, 119, 255, 0.4);
+
+  background: transparent;
+  color: #0077ff;
+
+  font-weight: 600;
+  cursor: pointer;
+
+  transition: 0.25s ease;
+}
+
+.add-product-container .outline-btn:hover {
+  background: rgba(0, 119, 255, 0.1);
 }
 
 /* ================= ALERTS ================= */
 .add-product-container .form-error {
-  background: rgba(255, 0, 0, 0.1);
+  background: rgba(220, 38, 38, 0.1);
   padding: 12px;
   border-radius: 10px;
   color: #dc2626;
+  border-left: 3px solid #dc2626;
 }
 
 .add-product-container .form-success {
-  background: rgba(0, 200, 0, 0.1);
+  background: rgba(5, 150, 105, 0.1);
   padding: 12px;
   border-radius: 10px;
   color: #059669;
+  border-left: 3px solid #059669;
 }
 
 /* ================= MODALS ================= */
@@ -244,7 +317,17 @@
   align-items: center;
   justify-content: center;
 
-  background: rgba(0,0,0,0.6);
+  background: rgba(0, 0, 0, 0.6);
+}
+
+.add-product-container .image-modal .modal-content {
+  position: relative;
+
+  border-radius: 16px;
+  overflow: hidden;
+
+  border: 1px solid rgba(255, 255, 255, 0.3);
+  box-shadow: 0 16px 48px rgba(0, 0, 0, 0.32);
 }
 
 .add-product-container .image-modal img {
@@ -263,7 +346,7 @@
   align-items: center;
   justify-content: center;
 
-  background: rgba(0,0,0,0.5);
+  background: rgba(0, 0, 0, 0.5);
 }
 
 .add-product-container .loader {
@@ -282,8 +365,18 @@
 
 /* ================= RESPONSIVE ================= */
 @media (max-width: 768px) {
+  .add-product-container .glass-header {
+    padding: 12px 16px;
+  }
+
   .add-product-container .button-section {
     flex-direction: column;
+  }
+
+  .add-product-container .delivery-grid,
+  .add-product-container .checkbox-grid-inline,
+  .add-product-container .plans-grid {
+    grid-template-columns: 1fr;
   }
 
   .add-product-container .preview-grid-modern {
