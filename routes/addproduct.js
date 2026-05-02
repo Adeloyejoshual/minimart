@@ -1,22 +1,26 @@
-import express from "express";
-import multer from "multer";
-import streamifier from "streamifier";
-import fetch from "node-fetch";
+import express          from "express";
+import multer           from "multer";
+import streamifier      from "streamifier";
+import fetch            from "node-fetch";
 import { v2 as cloudinary } from "cloudinary";
-import { pool } from "../config/db.js";
-import authenticate from "../middleware/auth.js";
+import { pool }         from "../config/db.js";
+import authenticate     from "../middleware/auth.js";
 import { detectSpamListing, updateSellerTrust } from "./homepage.js";
 import { createClient } from "redis";
 import { getCategoriesHandler } from "../controllers/category.controller.js";
 
 const router = express.Router();
 
+// ─── Redis ────────────────────────────────────────────────────────────────────
+
 const redis = createClient({ url: process.env.REDIS_URL });
 redis.connect().catch(console.error);
 
+// ─── Multer ───────────────────────────────────────────────────────────────────
+
 const upload = multer({
   storage: multer.memoryStorage(),
-  limits: { fileSize: 3 * 1024 * 1024, files: 6 },
+  limits:  { fileSize: 3 * 1024 * 1024, files: 6 },
   fileFilter: (_, file, cb) => {
     if (!file.mimetype.startsWith("image/")) {
       return cb(new Error("Only images allowed"));
@@ -24,6 +28,8 @@ const upload = multer({
     cb(null, true);
   },
 });
+
+// ─── Pure helpers ─────────────────────────────────────────────────────────────
 
 const safeParse = (value, fallback) => {
   try {
@@ -34,12 +40,12 @@ const safeParse = (value, fallback) => {
 };
 
 const cleanUuid = (value) => {
-  const v = String(value || "").trim();
+  const v = String(value ?? "").trim();
   return v && v !== "null" && v !== "undefined" ? v : null;
 };
 
 const cleanText = (value) => {
-  const v = String(value || "").trim();
+  const v = String(value ?? "").trim();
   return v || null;
 };
 
@@ -48,13 +54,24 @@ const toNumberOrNull = (value) => {
   return Number.isFinite(n) ? n : null;
 };
 
+/**
+ * Generate a URL-safe slug from a title.
+ *
+ * Fixed: original regexes were missing backslashes —
+ *   /[^ws-]/g  →  matched literal 'w' and 's', not \w and \s
+ *   /s+/g      →  matched literal 's', not whitespace
+ */
 const generateSlug = (title = "") =>
   `${title
     .toLowerCase()
     .trim()
-    .replace(/[^ws-]/g, "")
-    .replace(/s+/g, "-")
-    .slice(0, 70)}-${Date.now()}`;
+    .replace(/[^\w\s-]/g, "")   // strip everything except word-chars, spaces, hyphens
+    .replace(/\s+/g, "-")       // collapse whitespace runs into a single hyphen
+    .replace(/-+/g, "-")        // collapse consecutive hyphens
+    .slice(0, 70)
+  }-${Date.now()}`;
+
+// ─── Cloudinary upload ────────────────────────────────────────────────────────
 
 const uploadToCloudinary = (buffer) =>
   new Promise((resolve, reject) => {
@@ -76,6 +93,8 @@ const uploadToCloudinary = (buffer) =>
     streamifier.createReadStream(buffer).pipe(stream);
   });
 
+// ─── Routes ───────────────────────────────────────────────────────────────────
+
 router.get("/categories", getCategoriesHandler);
 
 router.post(
@@ -86,16 +105,18 @@ router.post(
     const client = await pool.connect();
 
     try {
-      const seller_id = req.user.id;
-      const title = req.body.title?.trim();
-      const description = req.body.description?.trim() || "";
-      const price = Number(req.body.price);
-      const category_id = cleanUuid(req.body.category_id);
+      // ── Parse & validate inputs ──────────────────────────────────────────
+
+      const seller_id      = req.user.id;
+      const title          = req.body.title?.trim();
+      const description    = req.body.description?.trim() ?? "";
+      const price          = Number(req.body.price);
+      const category_id    = cleanUuid(req.body.category_id);
       const subcategory_id = cleanUuid(req.body.subcategory_id);
       const location_state = cleanText(req.body.location_state);
-      const location_city = cleanText(req.body.location_city);
-      const status = cleanText(req.body.status) || "draft";
-      const is_active =
+      const location_city  = cleanText(req.body.location_city);
+      const status         = cleanText(req.body.status) ?? "draft";
+      const is_active      =
         req.body.is_active === true || req.body.is_active === "true";
 
       if (!title) {
@@ -106,7 +127,7 @@ router.post(
         return res.status(400).json({ success: false, message: "Invalid price" });
       }
 
-      const files = req.files || [];
+      const files = req.files ?? [];
       if (!files.length) {
         return res.status(400).json({
           success: false,
@@ -114,8 +135,10 @@ router.post(
         });
       }
 
-      const fingerprint = `${req.headers["user-agent"] || "unknown"}:${seller_id}`;
-      const fraudScore = await detectSpamListing(seller_id, title, fingerprint);
+      // ── Spam / fraud check ───────────────────────────────────────────────
+
+      const fingerprint = `${req.headers["user-agent"] ?? "unknown"}:${seller_id}`;
+      const fraudScore  = await detectSpamListing(seller_id, title, fingerprint);
 
       if (fraudScore >= 70) {
         return res.status(403).json({
@@ -124,42 +147,53 @@ router.post(
         });
       }
 
-      let latitude = toNumberOrNull(req.body.latitude);
+      // ── Geocode if lat/lon not supplied ──────────────────────────────────
+
+      let latitude  = toNumberOrNull(req.body.latitude);
       let longitude = toNumberOrNull(req.body.longitude);
 
       if (latitude == null && location_city) {
         try {
-          const geoRes = await fetch(
+          const geoRes  = await fetch(
             `https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(location_city)}`
           );
           const geoData = await geoRes.json();
           if (geoData?.[0]) {
-            latitude = Number(geoData[0].lat);
+            latitude  = Number(geoData[0].lat);
             longitude = Number(geoData[0].lon);
           }
-        } catch {}
+        } catch (geoErr) {
+          // non-fatal — continue without coordinates
+          console.warn("Geocoding failed:", geoErr.message);
+        }
       }
+
+      // ── Upload images to Cloudinary ──────────────────────────────────────
 
       const uploadedImages = await Promise.all(
         files.map(async (file, i) => {
           const result = await uploadToCloudinary(file.buffer);
           return {
-            image_url: result.secure_url,
+            image_url:      result.secure_url,
             position_order: i,
           };
         })
       );
 
-      const thumbnail_url = uploadedImages[0]?.image_url || null;
-      const main_image = thumbnail_url || null;
-      const slug = generateSlug(title);
+      const thumbnail_url = uploadedImages[0]?.image_url ?? null;
+      const main_image    = thumbnail_url;
+      const slug          = generateSlug(title);
 
-      const attributes = safeParse(req.body.attributes, {});
-      const delivery = safeParse(req.body.delivery, {});
-      const contact = safeParse(req.body.contact, {});
-      const highlights = safeParse(req.body.highlights, []);
+      // ── Parse JSON fields from multipart body ────────────────────────────
+
+      const attributes   = safeParse(req.body.attributes,   {});
+      const delivery     = safeParse(req.body.delivery,     {});
+      const contact      = safeParse(req.body.contact,      {});
+      const highlights   = safeParse(req.body.highlights,   []);
       const specifications = safeParse(req.body.specifications, {});
-      const faq = safeParse(req.body.faq, []);
+      const faq          = safeParse(req.body.faq,          []);
+
+      // ── DB transaction ───────────────────────────────────────────────────
 
       await client.query("BEGIN");
 
@@ -193,46 +227,50 @@ router.post(
           search_vector
         )
         VALUES (
-          $1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,
-          $12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24,
-          to_tsvector('english', coalesce($1,'') || ' ' || coalesce($2,''))
+          $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11,
+          $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24,
+          to_tsvector('english',
+            coalesce($1, '') || ' ' || coalesce($2, '')
+          )
         )
         RETURNING *
         `,
         [
-          title,
-          description,
-          price,
-          category_id,
-          subcategory_id,
-          seller_id,
-          attributes,
-          location_city,
-          location_state,
-          latitude,
-          longitude,
-          fraudScore,
-          10,
-          5,
-          thumbnail_url,
-          main_image,
-          slug,
-          delivery,
-          contact,
-          highlights,
-          specifications,
-          faq,
-          status,
-          is_active,
+          title,          // $1
+          description,    // $2
+          price,          // $3
+          category_id,    // $4
+          subcategory_id, // $5
+          seller_id,      // $6
+          JSON.stringify(attributes), // $7 — explicit serialisation for JSONB
+          location_city,  // $8
+          location_state, // $9
+          latitude,       // $10
+          longitude,      // $11
+          fraudScore,     // $12
+          10,             // $13  boost_score default
+          5,              // $14  engagement_score default
+          thumbnail_url,  // $15
+          main_image,     // $16
+          slug,           // $17
+          JSON.stringify(delivery),       // $18
+          JSON.stringify(contact),        // $19
+          JSON.stringify(highlights),     // $20
+          JSON.stringify(specifications), // $21
+          JSON.stringify(faq),            // $22
+          status,         // $23
+          is_active,      // $24
         ]
       );
 
       const product = rows[0];
 
+      // ── Insert product images ────────────────────────────────────────────
+
       if (uploadedImages.length > 0) {
         const values = uploadedImages
-          .map((_, i) => `($1,$${i * 2 + 2},$${i * 2 + 3})`)
-          .join(",");
+          .map((_, i) => `($1, $${i * 2 + 2}, $${i * 2 + 3})`)
+          .join(", ");
 
         const params = [product.id];
         uploadedImages.forEach((img) => {
@@ -248,8 +286,10 @@ router.post(
 
       await client.query("COMMIT");
 
+      // ── Post-commit side-effects (non-blocking) ──────────────────────────
+
       updateSellerTrust(seller_id).catch(console.error);
-      redis.zIncrBy("trending:1h", 5, product.id).catch(() => {});
+      redis.zIncrBy("trending:1h",  5, product.id).catch(() => {});
       redis.zIncrBy("trending:24h", 5, product.id).catch(() => {});
 
       return res.status(201).json({
@@ -257,9 +297,11 @@ router.post(
         message: "Product created successfully",
         product,
       });
+
     } catch (err) {
       await client.query("ROLLBACK");
-      console.error("CREATE ERROR:", err);
+      console.error("CREATE PRODUCT ERROR:", err);
+
       return res.status(500).json({
         success: false,
         message: "Failed to create product",
