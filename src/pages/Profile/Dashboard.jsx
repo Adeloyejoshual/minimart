@@ -1,81 +1,101 @@
-// Page/Profile/Dashboard.jsx
+// Dashboard.jsx
 import React, { useEffect, useState } from "react";
-import { Link } from "react-router-dom";
-import { FiPlus, FiUsers, FiMessageSquare, FiStar, FiSettings } from "react-icons/fi";
 import axios from "axios";
-import '../../style/Profile.css';
+import {
+  FiShoppingCart,
+  FiBox,
+  FiMessageSquare,
+  FiStar,
+} from "react-icons/fi";
+import "../../style/Profile.css";
 
 const Dashboard = () => {
-  const [stats, setStats] = useState({
-    products: 0,
-    followers: 0,
-    orders: 0,
-    messages: 0,
-    feedback: 0,
-  });
+  const [data, setData] = useState(null);
+  const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    // fetch dashboard stats from API
-    const fetchStats = async () => {
+    const fetch = async () => {
       try {
         const token = localStorage.getItem("token");
-        const res = await axios.get("/api/dashboard/stats", {
+
+        const res = await axios.get("/api/dashboard/overview", {
           headers: { Authorization: `Bearer ${token}` },
         });
-        setStats(res.data);
+
+        setData(res.data);
       } catch (err) {
-        console.error("Failed to fetch stats", err);
+        console.error(err);
+      } finally {
+        setLoading(false);
       }
     };
 
-    fetchStats();
+    fetch();
   }, []);
+
+  if (loading) {
+    return <div className="dashboard-loading">Loading dashboard...</div>;
+  }
+
+  if (!data) {
+    return <div className="dashboard-error">Failed to load dashboard</div>;
+  }
 
   return (
     <div className="dashboard-section p-6">
-      {/* Stats Row */}
-      <div className="stats-grid mb-6">
+
+      {/* KPI CARDS */}
+      <div className="stats-grid">
         <div className="stats-card">
-          <FiPlus className="stats-icon text-indigo-600" />
-          <div className="stats-value">{stats.products}</div>
-          <div className="stats-label">Products</div>
+          <FiShoppingCart />
+          <h3>{data.sales.orders}</h3>
+          <p>Orders</p>
         </div>
+
         <div className="stats-card">
-          <FiUsers className="stats-icon text-green-600" />
-          <div className="stats-value">{stats.followers}</div>
-          <div className="stats-label">Followers</div>
+          <FiBox />
+          <h3>{data.listings.products}</h3>
+          <p>Products</p>
         </div>
-        <Link to="/orders" className="stats-card">
-          <FiMessageSquare className="stats-icon text-purple-600" />
-          <div className="stats-value">{stats.orders}</div>
-          <div className="stats-label">Orders</div>
-        </Link>
+
         <div className="stats-card">
-          <FiStar className="stats-icon text-yellow-500" />
-          <div className="stats-value">{stats.feedback}</div>
-          <div className="stats-label">Rating</div>
+          <FiMessageSquare />
+          <h3>{data.engagement.messages}</h3>
+          <p>Messages</p>
+        </div>
+
+        <div className="stats-card">
+          <FiStar />
+          <h3>{data.trust.rating}</h3>
+          <p>Rating</p>
         </div>
       </div>
 
-      {/* Action Cards */}
+      {/* INSIGHTS */}
       <div className="dashboard-grid">
-        <Link to="/minimart/add" className="dashboard-card">
-          <FiPlus className="dashboard-icon" />
-          <span className="dashboard-label">Add Product</span>
-        </Link>
-        <Link to="/orders" className="dashboard-card" style={{background:'linear-gradient(to bottom right,#10b981,#14b8a6)'}}>
-          <FiUsers className="dashboard-icon" />
-          <span className="dashboard-label">Orders</span>
-        </Link>
-        <Link to="/conversations" className="dashboard-card" style={{background:'linear-gradient(to bottom right,#8b5cf6,#a78bfa)'}}>
-          <FiMessageSquare className="dashboard-icon" />
-          <span className="dashboard-label">Messages</span>
-        </Link>
-        <Link to="/settings" className="dashboard-card" style={{background:'linear-gradient(to bottom right,#f59e0b,#fbbf24)'}}>
-          <FiSettings className="dashboard-icon" />
-          <span className="dashboard-label">Settings</span>
-        </Link>
+
+        <div className="dashboard-card">
+          <h4>Revenue</h4>
+          <h2>₦{data.sales.revenue}</h2>
+        </div>
+
+        <div className="dashboard-card">
+          <h4>Conversion Rate</h4>
+          <h2>{data.sales.conversionRate}%</h2>
+        </div>
+
+        <div className="dashboard-card">
+          <h4>Active Listings</h4>
+          <h2>{data.listings.active}</h2>
+        </div>
+
+        <div className="dashboard-card">
+          <h4>Seller Score</h4>
+          <h2>{data.trust.sellerScore}</h2>
+        </div>
+
       </div>
+
     </div>
   );
 };
