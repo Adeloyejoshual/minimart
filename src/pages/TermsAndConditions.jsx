@@ -7,60 +7,89 @@ export default function TermsAndConditions() {
 
   return (
     <div className="terms-container">
-      {/* ---------------- HEADER ---------------- */}
+
+      {/* ── Header ── */}
       <div className="terms-header">
         <button className="back-btn" onClick={() => navigate(-1)}>← Back</button>
-        <h2>Terms & Conditions</h2>
+        <h2>Terms &amp; Conditions</h2>
       </div>
 
-      {/* ---------------- CONTENT ---------------- */}
+      {/* ── Content ── */}
       <div className="terms-content">
-        <p>Welcome to MiniMart. By using our platform, posting, or interacting with products, you agree to the following terms:</p>
+
+        <p className="terms-intro">
+          Welcome to <strong>MiniMart</strong>. By using our platform — posting, browsing,
+          or interacting with listings — you agree to the terms below.
+        </p>
 
         <h3>1. Acceptance of Terms</h3>
         <p>
-          By clicking "Post Ad", you accept these Terms of Use, confirm that you will follow our Safety Tips, 
-          and declare that your listing does not include any prohibited items.
+          By clicking <em>"Post Ad"</em> you accept these Terms of Use, confirm you will follow
+          our Safety Tips, and declare that your listing does not include any prohibited items.
         </p>
 
         <h3>2. Posting Guidelines</h3>
         <ul>
           <li>No illegal, stolen, or counterfeit items.</li>
           <li>Provide accurate descriptions, pricing, and delivery information.</li>
-          <li>Respect other users and avoid spam or misleading content.</li>
+          <li>Respect other users — no spam, misleading content, or duplicate listings.</li>
+          <li>Images must represent the actual item being sold.</li>
         </ul>
 
         <h3>3. Safety Tips</h3>
         <ul>
-          <li>Meet in public places when exchanging items.</li>
-          <li>Verify buyer or seller information before transactions.</li>
-          <li>Do not share sensitive personal information unnecessarily.</li>
+          <li>Meet in public, well-lit places when exchanging items.</li>
+          <li>Verify buyer or seller information before completing a transaction.</li>
+          <li>Never share sensitive personal or financial information unnecessarily.</li>
+          <li>MiniMart will never ask for your password or bank PIN.</li>
         </ul>
 
-        <h3>4. Delivery & Payment</h3>
+        <h3>4. Delivery &amp; Payment</h3>
         <p>
-          Users are responsible for delivery details. Any delivery fees, estimated days, and payment information must be accurate.
+          Users are solely responsible for the accuracy of delivery details, fees, and estimated
+          timelines. Payment disputes between users are not managed by MiniMart.
         </p>
 
-        <h3>5. Liability</h3>
+        <h3>5. Prohibited Items</h3>
+        <ul>
+          <li>Weapons, ammunition, or dangerous materials.</li>
+          <li>Drugs or prescription medicine without authorisation.</li>
+          <li>Content that infringes intellectual property rights.</li>
+          <li>Adult or explicit content.</li>
+        </ul>
+
+        <h3>6. Account &amp; Listing Suspension</h3>
         <p>
-          MiniMart is not responsible for disputes, damages, or losses between users. All listings are created and managed by the users themselves.
+          MiniMart reserves the right to remove any listing or suspend any account that violates
+          these terms, without prior notice.
         </p>
 
-        <h3>6. Changes to Terms</h3>
+        <h3>7. Liability</h3>
         <p>
-          We may update these terms at any time. Continued use of the platform constitutes acceptance of any updated terms.
+          MiniMart is a platform connecting buyers and sellers. We are not party to any
+          transaction and are not liable for disputes, damages, or losses between users.
         </p>
 
-        <p className="note">
-          By posting an ad, you confirm that you have read, understood, and agree to comply with these terms.
+        <h3>8. Changes to Terms</h3>
+        <p>
+          We may update these terms at any time. Continued use of the platform after an update
+          constitutes acceptance of the revised terms.
         </p>
+
+        <p className="terms-note">
+          By posting an ad you confirm that you have read, understood, and agree to comply
+          with these Terms &amp; Conditions.
+        </p>
+
       </div>
 
-      {/* ---------------- FOOTER LINK ---------------- */}
+      {/* ── Footer ── */}
       <div className="terms-footer">
-        <button className="back-btn" onClick={() => navigate(-1)}>← Back to Add Product</button>
+        <button className="back-btn" onClick={() => navigate(-1)}>
+          ← Back to Add Product
+        </button>
       </div>
+
     </div>
   );
 }
