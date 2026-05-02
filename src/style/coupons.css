@@ -1,0 +1,84 @@
+/* General dashboard */
+.dashboard-section {
+  background-color: #ffffff;
+  border-radius: 12px;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+  margin: 12px 0;
+}
+
+/* Coupons grid */
+.coupons-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+  gap: 16px;
+  margin-top: 16px;
+}
+
+/* Coupon card */
+.coupon-card {
+  border: 1px solid #e5e7eb;
+  border-radius: 8px;
+  padding: 16px;
+  background-color: #f9fafb;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.05);
+  transition: box-shadow 0.2s ease, transform 0.1s ease;
+}
+
+.coupon-card:hover {
+  box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+  transform: translateY(-1px);
+}
+
+/* Header (code + status) */
+.coupon-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 8px;
+}
+
+.coupon-code {
+  font-family: "Monaco", "Courier New", monospace;
+  font-size: 13px;
+  font-weight: 600;
+  color: #1f2937;
+  padding: 4px 8px;
+  background-color: #f3f4f6;
+  border-radius: 4px;
+}
+
+.coupon-status {
+  font-size: 11px;
+  font-weight: 500;
+  padding: 2px 6px;
+  border-radius: 12px;
+  text-transform: uppercase;
+}
+
+.coupon-status.active {
+  background-color: #16a34a;
+  color: #fff;
+}
+
+.coupon-status.inactive {
+  background-color: #991b1b;
+  color: #fff;
+}
+
+/* Description text */
+.coupon-desc {
+  font-size: 13px;
+  color: #4b5563;
+  margin: 3px 0;
+}
+
+/* Simple spinner if you don’t use Tailwind */
+.animate-spin {
+  animation: spin 1s linear infinite;
+}
+
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
