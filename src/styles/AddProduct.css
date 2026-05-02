@@ -1,5 +1,6 @@
 /* =========================================================
    ADD PRODUCT – CLEAN SCOPED STYLES (NO CONFLICTS)
+   Re‑skinned to use Minimart homepage colors (orange, ink, bg)
 ========================================================= */
 
 /* ================= CONTAINER ================= */
@@ -14,10 +15,11 @@
 
   min-height: 100vh;
 
-  background: #f8fbff;
-  font-family: "Segoe UI", sans-serif;
+  /* original: #f8fbff + blue accents → now use Minimart base */
+  background: var(--bg); /* #F7F4EF */
+  font-family: var(--fb); /* 'Plus Jakarta Sans', system‑ui, sans-serif */
   font-size: clamp(15px, 2.5vw, 16px);
-  color: #222;
+  color: var(--ink); /* #141210 */
 
   overflow-x: hidden;
 }
@@ -30,21 +32,21 @@
 
   display: flex;
   align-items: center;
-  justify-content: center;
   justify-content: space-between;
 
   padding: 14px 20px;
   margin-bottom: 1.5rem;
 
-  background: rgba(255, 255, 255, 0.95);
+  /* was light blue glass; now warm off‑white glass */
+  background: rgba(var(--wh), 0.95); /* #fff */
   backdrop-filter: blur(14px);
 
   border-radius: 16px;
-  border-bottom: 1px solid #e3f0ff;
+  border-bottom: 1px solid var(--bd); /* #EAE6E0 */
 
   box-shadow:
-    0 4px 18px rgba(0, 119, 255, 0.08),
-    0 0 0 1px rgba(0, 119, 255, 0.1);
+    0 4px 18px rgba(255, 92, 0, 0.08),
+    0 0 0 1px rgba(255, 92, 0, 0.1);
 }
 
 .add-product-container .glass-back-btn {
@@ -54,11 +56,11 @@
   padding: 8px 14px;
   border-radius: 10px;
 
-  background: #fff;
-  border: 1px solid #e3f0ff;
+  background: var(--wh);
+  border: 1px solid var(--bd);
 
   font-weight: 600;
-  color: #0077ff;
+  color: var(--o); /* #FF5C00 */
   text-decoration: none;
 
   cursor: pointer;
@@ -68,8 +70,8 @@
 }
 
 .add-product-container .glass-back-btn:hover {
-  border-color: #0077ff;
-  background: #f0f7ff;
+  border-color: var(--o);
+  background: var(--o-bg); /* #FFF3EE */
 }
 
 /* ================= CARD ================= */
@@ -77,14 +79,15 @@
 .add-product-container .section {
   position: relative;
 
-  background: linear-gradient(135deg, #f0f7ff, #e3f0ff);
+  /* was light blue gradient; now orange‑tinted */
+  background: linear-gradient(135deg, #fff3ee, #f7f4ef);
   border-radius: 24px;
   padding: clamp(20px, 4vw, 28px);
 
-  border: 1px solid rgba(0, 119, 255, 0.15);
+  border: 1px solid rgba(255, 92, 0, 0.15);
 
   box-shadow:
-    0 8px 32px rgba(0, 119, 255, 0.12),
+    0 8px 32px rgba(255, 92, 0, 0.12),
     0 2px 8px rgba(0, 0, 0, 0.05);
 
   display: flex;
@@ -96,9 +99,10 @@
 }
 
 .add-product-container .section-title {
+  font-family: var(--fd); /* 'Fraunces', serif */
   font-weight: 800;
   font-size: 1.1rem;
-  color: #1e3a8a;
+  color: var(--ink); /* #141210 */
 }
 
 /* ================= FORM ================= */
@@ -112,7 +116,7 @@
 
 .add-product-container .form-label {
   font-weight: 600;
-  color: #1e3a8a;
+  color: var(--ink2); /* #5A5650 */
   font-size: 0.95rem;
 }
 
@@ -124,9 +128,9 @@
   padding: 14px 16px;
 
   border-radius: 14px;
-  border: 1px solid rgba(0, 119, 255, 0.2);
+  border: 1px solid rgba(255, 92, 0, 0.2);
 
-  background: #fff;
+  background: var(--wh); /* #fff */
   font-size: 0.95rem;
 
   transition: 0.25s ease;
@@ -135,13 +139,13 @@
 .add-product-container input:focus,
 .add-product-container textarea:focus,
 .add-product-container select:focus {
-  border-color: #0077ff;
-  box-shadow: 0 0 0 3px rgba(0, 119, 255, 0.15);
+  border-color: var(--o); /* #FF5C00 */
+  box-shadow: 0 0 0 3px rgba(255, 92, 0, 0.15);
   outline: none;
 }
 
 .add-product-container .error-input {
-  border-color: #dc2626;
+  border-color: #dc2626; /* red still works for errors */
 }
 .add-product-container .error-input:focus {
   border-color: #dc2626;
@@ -180,7 +184,7 @@
   overflow: hidden;
   aspect-ratio: 1;
 
-  border: 2px solid rgba(0, 119, 255, 0.2);
+  border: 2px solid rgba(255, 92, 0, 0.2);
   cursor: pointer;
 }
 
@@ -218,8 +222,8 @@
   padding: 18px;
   border-radius: 20px;
 
-  border: 1px solid rgba(0, 119, 255, 0.2);
-  background: #fff;
+  border: 1px solid rgba(255, 92, 0, 0.2);
+  background: var(--wh);
 
   cursor: pointer;
   transition: 0.3s ease;
@@ -227,13 +231,13 @@
 
 .add-product-container .plan-card:hover {
   transform: translateY(-4px);
-  border-color: #0077ff;
+  border-color: var(--o);
 }
 
 .add-product-container .plan-card.selected {
-  background: rgba(0, 119, 255, 0.08);
-  border-color: #0077ff;
-  box-shadow: 0 0 0 2px rgba(0, 119, 255, 0.12);
+  background: rgba(255, 92, 0, 0.08);
+  border-color: var(--o);
+  box-shadow: 0 0 0 2px rgba(255, 92, 0, 0.12);
 }
 
 /* ================= BUTTONS ================= */
@@ -250,8 +254,8 @@
   border-radius: 16px;
   border: none;
 
-  background: linear-gradient(135deg, #0077ff, #1e40af);
-  color: #fff;
+  background: linear-gradient(135deg, var(--o), #d94c00); /* #FF5C00 → darker orange */
+  color: var(--wh);
 
   font-weight: 700;
   cursor: pointer;
@@ -261,7 +265,7 @@
 
 .add-product-container .primary-btn:hover:not(:disabled) {
   transform: translateY(-2px);
-  box-shadow: 0 6px 20px rgba(0, 119, 255, 0.28);
+  box-shadow: 0 6px 20px rgba(255, 92, 0, 0.28);
 }
 
 .add-product-container .primary-btn:disabled {
@@ -275,10 +279,10 @@
   padding: 16px;
 
   border-radius: 16px;
-  border: 1px solid rgba(0, 119, 255, 0.4);
+  border: 1px solid rgba(255, 92, 0, 0.4);
 
   background: transparent;
-  color: #0077ff;
+  color: var(--o);
 
   font-weight: 600;
   cursor: pointer;
@@ -287,7 +291,7 @@
 }
 
 .add-product-container .outline-btn:hover {
-  background: rgba(0, 119, 255, 0.1);
+  background: rgba(255, 92, 0, 0.1);
 }
 
 /* ================= ALERTS ================= */
@@ -300,11 +304,11 @@
 }
 
 .add-product-container .form-success {
-  background: rgba(5, 150, 105, 0.1);
+  background: rgba(21, 128, 61, 0.1); /* using Minimart green */
   padding: 12px;
   border-radius: 10px;
-  color: #059669;
-  border-left: 3px solid #059669;
+  color: var(--gn); /* #15803D */
+  border-left: 3px solid var(--gn);
 }
 
 /* ================= MODALS ================= */
@@ -317,7 +321,7 @@
   align-items: center;
   justify-content: center;
 
-  background: rgba(0, 0, 0, 0.6);
+  background: rgba(20, 18, 16, 0.7); /* darker ink overlay */
 }
 
 .add-product-container .image-modal .modal-content {
@@ -346,14 +350,14 @@
   align-items: center;
   justify-content: center;
 
-  background: rgba(0, 0, 0, 0.5);
+  background: rgba(20, 18, 16, 0.7);
 }
 
 .add-product-container .loader {
   width: 40px;
   height: 40px;
-  border: 4px solid #fff;
-  border-top: 4px solid #0077ff;
+  border: 4px solid var(--wh);
+  border-top: 4px solid var(--o); /* #FF5C00 */
   border-radius: 50%;
 
   animation: spin 1s linear infinite;
