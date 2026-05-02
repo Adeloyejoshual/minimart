@@ -1,24 +1,19 @@
 import express from "express";
 import crypto  from "crypto";
-import { pool } from "../config/db.js";   // shared pool — don't create a second one
+import { pool } from "../config/db.js"; // shared pool — never create a second Pool
 
 const router        = express.Router();
 const webhookRouter = express.Router({ mergeParams: true });
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
-/**
- * promotion_plans.id is INT8 — never treat it as a UUID.
- * Returns a valid integer or null.
- */
+/** promotion_plans.id is INT8 — always parse as integer, never as UUID. */
 const cleanInt = (value) => {
   const n = parseInt(value, 10);
   return Number.isFinite(n) && n > 0 ? n : null;
 };
 
-/**
- * Products / users use UUID primary keys.
- */
+/** Products / users use UUID primary keys. */
 const cleanUuid = (value) => {
   const v = String(value ?? "").trim();
   return v && v !== "null" && v !== "undefined" ? v : null;
@@ -47,13 +42,12 @@ const verifyPaystackSignature = (rawBody, secret, signature) => {
   return hash === signature;
 };
 
-// ─── POST /initiate ────────────────────────────────────────────────────────────
+// ─── POST /initiate ───────────────────────────────────────────────────────────
 
 router.post("/initiate", async (req, res) => {
-  // Support both camelCase and snake_case keys from the frontend
   const { email, amount, plan_id, product_id, planId, productId } = req.body;
 
-  const finalPlanId    = cleanInt(plan_id    ?? planId);     // INT8
+  const finalPlanId    = cleanInt(plan_id    ?? planId);    // INT8
   const finalProductId = cleanUuid(product_id ?? productId); // UUID
   const paymentEmail   = cleanString(email);
   const paymentAmount  = amountToNumber(amount);
@@ -68,10 +62,10 @@ router.post("/initiate", async (req, res) => {
     return res.status(400).json({ success: false, message: "Valid numeric plan_id required" });
   }
   if (!finalProductId) {
-    return res.status(400).json({ success: false, message: "Valid product_id required" });
+    return res.status(400).json({ success: false, message: "Valid product_id (UUID) required" });
   }
 
-  // ── Validate + lock product in DB ────────────────────────────────────────────
+  // ── Validate + lock product ────────────────────────────────────────────────
 
   const client = await pool.connect();
   try {
@@ -94,10 +88,7 @@ router.post("/initiate", async (req, res) => {
 
     if (currentStatus === "active" && is_active) {
       await client.query("ROLLBACK");
-      return res.status(409).json({
-        success: false,
-        message: "Product is already active",
-      });
+      return res.status(409).json({ success: false, message: "Product is already active" });
     }
 
     if (currentStatus !== "draft" && currentStatus !== "pending_payment") {
@@ -108,7 +99,7 @@ router.post("/initiate", async (req, res) => {
       });
     }
 
-    // Mark as pending so the user cannot submit twice
+    // Mark pending so the user cannot submit a second payment
     await client.query(
       `UPDATE products SET status = 'pending_payment', updated_at = NOW() WHERE id = $1`,
       [finalProductId]
@@ -123,7 +114,7 @@ router.post("/initiate", async (req, res) => {
     client.release();
   }
 
-  // ── Call Paystack ─────────────────────────────────────────────────────────────
+  // ── Call Paystack ──────────────────────────────────────────────────────────
 
   try {
     if (!process.env.PAYSTACK_SECRET_KEY) {
@@ -145,14 +136,21 @@ router.post("/initiate", async (req, res) => {
           amount:       Math.round(paymentAmount * 100), // kobo
           callback_url: callbackUrl,
           metadata: {
-            // Store both shapes so the webhook can find them reliably
             planId:     finalPlanId,
             productId:  finalProductId,
             plan_id:    finalPlanId,
             product_id: finalProductId,
             custom_fields: [
-              { display_name: "Plan ID",    variable_name: "plan_id",    value: String(finalPlanId) },
-              { display_name: "Product ID", variable_name: "product_id", value: finalProductId },
+              {
+                display_name:  "Plan ID",
+                variable_name: "plan_id",
+                value:         String(finalPlanId),
+              },
+              {
+                display_name:  "Product ID",
+                variable_name: "product_id",
+                value:         finalProductId,
+              },
             ],
           },
         }),
@@ -183,11 +181,10 @@ router.post("/initiate", async (req, res) => {
   }
 });
 
-// ─── GET /verify/:reference ────────────────────────────────────────────────────
+// ─── GET /verify/:reference ───────────────────────────────────────────────────
 
 router.get("/verify/:reference", async (req, res) => {
   const reference = cleanString(req.params.reference);
-
   if (!reference) {
     return res.status(400).json({ success: false, message: "Reference is required" });
   }
@@ -197,7 +194,6 @@ router.get("/verify/:reference", async (req, res) => {
       `https://api.paystack.co/transaction/verify/${encodeURIComponent(reference)}`,
       { headers: { Authorization: `Bearer ${process.env.PAYSTACK_SECRET_KEY}` } }
     );
-
     const data = await response.json();
 
     if (!data.status || data.data?.status !== "success") {
@@ -211,10 +207,10 @@ router.get("/verify/:reference", async (req, res) => {
   }
 });
 
-// ─── POST /webhook ─────────────────────────────────────────────────────────────
+// ─── POST /webhook ────────────────────────────────────────────────────────────
 //
-//  Mounted in server.js with express.raw() before any body parsers, so
-//  req.body is always a raw Buffer here.
+//  Mounted in server.js with express.raw() BEFORE any body parsers,
+//  so req.body is always a raw Buffer here.
 
 webhookRouter.post("/", async (req, res) => {
   const secret = process.env.PAYSTACK_SECRET_KEY;
@@ -242,37 +238,35 @@ webhookRouter.post("/", async (req, res) => {
     return res.status(400).send("Invalid JSON");
   }
 
-  // Only handle successful charges — acknowledge everything else silently
+  // Acknowledge all non-charge events silently
   if (event.event !== "charge.success") {
     return res.status(200).send("OK");
   }
 
-  const metadata = event.data?.metadata ?? {};
-  const customFields = Array.isArray(metadata.custom_fields) ? metadata.custom_fields : [];
+  const metadata   = event.data?.metadata ?? {};
+  const customFields = Array.isArray(metadata.custom_fields)
+    ? metadata.custom_fields
+    : [];
 
   const findCustom = (name) =>
     customFields.find((f) => f.variable_name === name)?.value ?? null;
 
   const productId = cleanUuid(
-    metadata.productId   ??
-    metadata.product_id  ??
-    findCustom("product_id")
+    metadata.productId ?? metadata.product_id ?? findCustom("product_id")
   );
 
-  // INT8 plan id
+  // INT8 plan id — cleanInt, not cleanUuid
   const planId = cleanInt(
-    metadata.planId      ??
-    metadata.plan_id     ??
-    findCustom("plan_id")
+    metadata.planId ?? metadata.plan_id ?? findCustom("plan_id")
   );
 
   if (!productId) {
-    console.warn("Webhook: no productId in metadata", metadata);
+    console.warn("Webhook: missing productId in metadata", metadata);
     return res.status(200).send("OK");
   }
 
   try {
-    // ── Guard: skip if already active ──────────────────────────────────────
+    // Skip if already active (idempotency guard)
     const { rows: existing } = await pool.query(
       `SELECT status, is_active FROM products WHERE id = $1`,
       [productId]
@@ -287,11 +281,11 @@ webhookRouter.post("/", async (req, res) => {
       return res.status(200).send("OK");
     }
 
-    // ── Look up plan to compute expiry ────────────────────────────────────
-    //    Use duration_days (INT8) directly — don't parse the duration STRING
-    let expiresAt          = null;
-    let promotionPriority  = 0;
-    let promotionType      = "standard";
+    // ── Resolve promotion details ───────────────────────────────────────────
+    //    Use duration_days (INT8) directly — never parseInt the duration STRING
+    let expiresAt         = null;
+    let promotionPriority = 0;
+    let promotionType     = "standard";
 
     if (planId) {
       const { rows: planRows } = await pool.query(
@@ -302,9 +296,9 @@ webhookRouter.post("/", async (req, res) => {
       );
 
       if (planRows.length) {
-        const plan = planRows[0];
-        promotionPriority = plan.priority ?? 0;
-        promotionType     = plan.name     ?? "standard";
+        const plan    = planRows[0];
+        promotionPriority = plan.priority      ?? 0;
+        promotionType     = plan.name          ?? "standard";
 
         if (plan.duration_days && plan.duration_days > 0) {
           expiresAt = new Date(
@@ -314,7 +308,7 @@ webhookRouter.post("/", async (req, res) => {
       }
     }
 
-    // ── Activate ──────────────────────────────────────────────────────────
+    // ── Activate ────────────────────────────────────────────────────────────
     await pool.query(
       `UPDATE products
        SET
@@ -330,21 +324,21 @@ webhookRouter.post("/", async (req, res) => {
          updated_at           = NOW()
        WHERE id = $6`,
       [
-        planId != null,   // $1 — is_promoted true only when there's a real paid plan
-        planId,           // $2
-        expiresAt,        // $3 — both promotion_end and promotion_expires_at
-        promotionPriority,// $4
-        promotionType,    // $5
-        productId,        // $6
+        planId != null,    // $1  is_promoted — true only for real paid plans
+        planId,            // $2
+        expiresAt,         // $3  both promotion_end and promotion_expires_at
+        promotionPriority, // $4
+        promotionType,     // $5
+        productId,         // $6
       ]
     );
 
-    console.log(`✅ Webhook activated product ${productId} with plan ${planId}`);
+    console.log(`✅ Webhook activated product ${productId} on plan ${planId}`);
     return res.status(200).send("OK");
+
   } catch (err) {
     console.error("Webhook DB error:", err.message);
-    // Always return 200 to Paystack — retrying a DB error won't help
-    // and Paystack will keep retrying on non-200s causing duplicate activations.
+    // Always return 200 — non-200 triggers Paystack retries → duplicate activations
     return res.status(200).send("OK");
   }
 });
