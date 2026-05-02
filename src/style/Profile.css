@@ -47,13 +47,14 @@
   overflow: hidden;
 }
 
+/* Changed list color: softer text, lighter background on hover */
 .menu-item {
   display: flex;
   align-items: center;
   padding: 1.5rem 2rem;
   font-size: 1.1rem;
   font-weight: 600;
-  color: var(--ink); /* #141210 */
+  color: var(--ink2); /* #5A5650 – softer than ink */
   border-bottom: 1px solid var(--bd); /* #EAE6E0 */
   transition: all 0.3s;
 }
@@ -63,33 +64,12 @@
 }
 
 .menu-item:hover {
-  background: linear-gradient(to right, var(--o), #d94c00); /* orange → darker orange */
-  color: #fff;
+  background: var(--o-bg); /* #FFF3EE – light orange‑tinted background */
+  color: var(--ink); /* #141210 – darker text for contrast */
 }
 
 .menu-icon {
   font-size: 1.5rem;
   margin-right: 1rem;
-  color: inherit;
-}
-
-/* Floating Support Button */
-.support-btn {
-  position: fixed;
-  bottom: 6rem;
-  right: 1.5rem;
-  background-color: var(--gn); /* #15803D */
-  color: #fff;
-  padding: 1.25rem;
-  border-radius: 9999px;
-  box-shadow: 0 10px 25px rgba(0, 0, 0, 0.1);
-  transition: all 0.3s;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-}
-
-.support-btn:hover {
-  background-color: #059669; /* slightly darker green, still in --gn family */
-  transform: translateY(-3px);
+  color: var(--ink3); /* #A8A39D – light gray */
 }
