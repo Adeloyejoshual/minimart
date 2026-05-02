@@ -1,27 +1,59 @@
-import React, { useEffect, useState } from "react";
-import axios from "axios";
-import "../../style/coupons.css"; // ← now uses coupons.css
+import React, { useState, useEffect } from "react";
+import "../../style/coupons.css";
 import { FiGift } from "react-icons/fi";
 
+// Fake coupons / rewards (what the user can win)
+const fakeCoupons = [
+  {
+    id: 1,
+    code: "WIN200",
+    label: "₦200 Airtime",
+    type: "airtime",
+    discount: 200,
+    active: true,
+    expiry: "2026-12-31T23:59:59Z",
+  },
+  {
+    id: 2,
+    code: "TRYAGAIN",
+    label: "Extra chance – Try again",
+    type: "try_again",
+    discount: 0,
+    active: true,
+    expiry: "2026-12-31T23:59:59Z",
+  },
+  {
+    id: 3,
+    code: "MENU100",
+    label: "*100# USSD code",
+    type: "ussd_code",
+    discount: 0,
+    active: true,
+    expiry: "2026-12-31T23:59:59Z",
+  },
+  {
+    id: 4,
+    code: "WIN1GB",
+    label: "1GB Data Bundle",
+    type: "data",
+    discount: 0,
+    active: true,
+    expiry: "2026-12-31T23:59:59Z",
+  },
+];
+
 const Coupons = () => {
-  const [coupons, setCoupons] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [coupons, setCoupons] = useState([]);
 
   useEffect(() => {
-    const fetchCoupons = async () => {
-      try {
-        const token = localStorage.getItem("token");
-        const res = await axios.get("/api/coupons", {
-          headers: { Authorization: `Bearer ${token}` },
-        });
-        setCoupons(res.data);
-      } catch (err) {
-        console.error("Failed to fetch coupons", err);
-      } finally {
-        setLoading(false);
-      }
-    };
-    fetchCoupons();
+    // FAKE SPIN: show spinner for 2 seconds, then reveal coupons
+    const timer = setTimeout(() => {
+      setCoupons(fakeCoupons);
+      setLoading(false);
+    }, 2000);
+
+    return () => clearTimeout(timer);
   }, []);
 
   return (
@@ -33,10 +65,10 @@ const Coupons = () => {
       {loading ? (
         <div className="flex justify-center items-center h-32">
           <div className="w-8 h-8 border-4 border-blue-300 border-t-blue-600 rounded-full animate-spin"></div>
-          <span className="ml-2 text-gray-600">Loading rewards...</span>
+          <span className="ml-2 text-gray-600">Spinning to win…</span>
         </div>
       ) : coupons.length === 0 ? (
-        <p className="text-gray-500">No coupons or rewards available.</p>
+        <p className="text-gray-500">No rewards yet.</p>
       ) : (
         <div className="coupons-grid">
           {coupons.map((coupon) => (
