@@ -1,22 +1,27 @@
 import express from "express";
 import multer from "multer";
 import streamifier from "streamifier";
-import { pool } from "../config/db.js";
+import fetch from "node-fetch";
 import { v2 as cloudinary } from "cloudinary";
-import { getCategoriesHandler } from "../controllers/category.controller.js";
+import { pool } from "../config/db.js";
 import authenticate from "../middleware/auth.js";
+import { detectSpamListing, updateSellerTrust } from "./homepage.js";
+import { createClient } from "redis";
 
 const router = express.Router();
+
+/* =====================================
+   REDIS
+===================================== */
+const redis = createClient({ url: process.env.REDIS_URL });
+redis.connect().catch(console.error);
 
 /* =====================================
    MULTER CONFIG
 ===================================== */
 const upload = multer({
   storage: multer.memoryStorage(),
-  limits: {
-    fileSize: 3 * 1024 * 1024,
-    files: 6,
-  },
+  limits: { fileSize: 3 * 1024 * 1024, files: 6 },
   fileFilter: (_, file, cb) => {
     if (!file.mimetype.startsWith("image/")) {
       return cb(new Error("Only images allowed"));
@@ -30,37 +35,36 @@ const upload = multer({
 ===================================== */
 const safeParse = (value, fallback) => {
   try {
-    if (!value) return fallback;
-    return typeof value === "string" ? JSON.parse(value) : value;
+    return value ? JSON.parse(value) : fallback;
   } catch {
     return fallback;
   }
 };
 
 const generateSlug = (title = "") =>
-  title
+  `${title
     .toLowerCase()
     .trim()
     .replace(/[^\w\s-]/g, "")
     .replace(/\s+/g, "-")
-    .replace(/-+/g, "-")
-    .slice(0, 80);
+    .slice(0, 70)}-${Date.now()}`;
 
-// FIX 4: Added Cloudinary transformation for auto-optimization
-const uploadToCloudinary = (buffer, folder = "minimart/products") =>
+/* =====================================
+   CLOUDINARY UPLOAD
+===================================== */
+const uploadToCloudinary = (buffer) =>
   new Promise((resolve, reject) => {
     const stream = cloudinary.uploader.upload_stream(
       {
-        folder,
-        resource_type: "image",
+        folder: "minimart/products",
         transformation: [
-          { width: 1200, crop: "limit" },
+          { width: 600, height: 600, crop: "fill" },
           { quality: "auto" },
           { fetch_format: "auto" },
         ],
       },
-      (error, result) => {
-        if (error) return reject(error);
+      (err, result) => {
+        if (err) return reject(err);
         resolve(result);
       }
     );
@@ -69,17 +73,12 @@ const uploadToCloudinary = (buffer, folder = "minimart/products") =>
   });
 
 /* =====================================
-   CATEGORY ROUTES
-===================================== */
-router.get("/categories", getCategoriesHandler);
-
-/* =====================================
-   CREATE PRODUCT (FIXED VERSION)
+   CREATE PRODUCT
 ===================================== */
 router.post(
   "/products",
   authenticate,
-  upload.array("images", 6), // FIX 5: changed "images[]" → "images"
+  upload.array("images", 6),
   async (req, res) => {
     const client = await pool.connect();
 
@@ -91,25 +90,81 @@ router.post(
       const price = Number(req.body.price);
 
       if (!title) {
+        return res.status(400).json({ message: "Title required" });
+      }
+
+      if (!price || price <= 0) {
+        return res.status(400).json({ message: "Invalid price" });
+      }
+
+      const files = req.files || [];
+
+      if (files.length === 0) {
         return res.status(400).json({
-          success: false,
-          message: "Title is required",
+          message: "At least one image required",
         });
       }
 
-      if (!price || Number.isNaN(price) || price <= 0) {
-        return res.status(400).json({
-          success: false,
-          message: "Valid price is required",
+      /* =====================================
+         SPAM DETECTION
+      ====================================== */
+      const fingerprint = req.headers["user-agent"] + ":" + seller_id;
+
+      const fraudScore = await detectSpamListing(
+        seller_id,
+        title,
+        fingerprint
+      );
+
+      if (fraudScore >= 70) {
+        return res.status(403).json({
+          message: "Listing flagged as spam",
         });
       }
 
-      const category_id = req.body.category_id || null;
-      const subcategory_id = req.body.subcategory_id || null;
-      const location_state = req.body.location_state || null;
+      /* =====================================
+         GEO DETECTION
+      ====================================== */
+      let latitude = req.body.latitude || null;
+      let longitude = req.body.longitude || null;
       const location_city = req.body.location_city || null;
-      const status = req.body.status || "draft";
-      const is_active = String(req.body.is_active) === "true";
+
+      if (!latitude && location_city) {
+        try {
+          const geoRes = await fetch(
+            `https://nominatim.openstreetmap.org/search?format=json&q=${location_city}`
+          );
+          const geoData = await geoRes.json();
+
+          if (geoData[0]) {
+            latitude = parseFloat(geoData[0].lat);
+            longitude = parseFloat(geoData[0].lon);
+          }
+        } catch {}
+      }
+
+      /* =====================================
+         IMAGE UPLOAD
+      ====================================== */
+      const uploadedImages = await Promise.all(
+        files.map(async (file, i) => {
+          const result = await uploadToCloudinary(file.buffer);
+          return {
+            image_url: result.secure_url,
+            position_order: i,
+          };
+        })
+      );
+
+      const thumbnail_url = uploadedImages[0].image_url;
+
+      /* =====================================
+         DEFAULT SCORES
+      ====================================== */
+      const boost_score = 10;
+      const engagement_score = 5;
+
+      const slug = generateSlug(title);
 
       const attributes = safeParse(req.body.attributes, {});
       const delivery = safeParse(req.body.delivery, {});
@@ -118,162 +173,102 @@ router.post(
       const specifications = safeParse(req.body.specifications, {});
       const faq = safeParse(req.body.faq, []);
 
-      const phone = req.body.phone || contact.phone || null;
-      const whatsapp = req.body.whatsapp || contact.whatsapp || null;
-      const whatsapp_link = req.body.whatsapp_link || contact.whatsapp_link || null;
-
-      const seo_title = req.body.seo_title || null;
-      const seo_description = req.body.seo_description || null;
-      const seo_keywords = req.body.seo_keywords || null;
-      const canonical_url = req.body.canonical_url || null;
-      const search_text = req.body.search_text || null;
-
-      const files = req.files || [];
-
-      /* =====================================
-         UPLOAD IMAGES TO CLOUDINARY
-         (parallel uploads are fine — this is external I/O, not DB writes)
-      ====================================== */
-      const uploadedImages = await Promise.all(
-        files.map(async (file, index) => {
-          const result = await uploadToCloudinary(file.buffer);
-          return {
-            image_url: result.secure_url,
-            public_id: result.public_id,
-            position_order: index,
-          };
-        })
-      );
-
-      // FIX 3: Derive thumbnail from first uploaded image
-      const thumbnail_url = uploadedImages[0]?.image_url || null;
-
-      /* =====================================
-         SLUG
-         Always append Date.now() — eliminates the extra SELECT query and
-         the race condition window entirely. The UNIQUE constraint on slug
-         remains the final safety net for any edge cases.
-      ====================================== */
-      const slug = `${generateSlug(title)}-${Date.now()}`;
-
       await client.query("BEGIN");
 
       /* =====================================
          INSERT PRODUCT
       ====================================== */
-      const insertQuery = `
+      const { rows } = await client.query(
+        `
         INSERT INTO products (
-          title,
-          description,
-          price,
-          category_id,
-          subcategory_id,
-          seller_id,
-          attributes,
-          location_state,
-          location_city,
-          delivery,
-          contact,
-          status,
-          is_active,
-          phone,
-          whatsapp,
-          whatsapp_link,
-          slug,
-          seo_title,
-          seo_description,
-          seo_keywords,
-          canonical_url,
-          highlights,
-          specifications,
-          faq,
-          search_text,
-          thumbnail_url,
+          title, description, price,
+          category_id, subcategory_id,
+          seller_id, attributes,
+          location_city, location_state,
+          latitude, longitude,
+          fraud_score, boost_score, engagement_score,
+          thumbnail_url, slug,
+          delivery, contact,
+          highlights, specifications, faq,
           search_vector
         )
         VALUES (
-          $1,$2,$3,$4,$5,$6,$7,$8,$9,$10,
-          $11,$12,$13,$14,$15,$16,$17,$18,$19,$20,
-          $21,$22,$23,$24,$25,$26,
-          to_tsvector('english',
-            coalesce($1,'') || ' ' ||
-            coalesce($2,'') || ' ' ||
-            coalesce($25,'')
-          )
+          $1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,
+          $12,$13,$14,$15,$16,$17,$18,$19,$20,$21,
+          to_tsvector('english', $1 || ' ' || $2)
         )
-        RETURNING *;
-      `;
+        RETURNING *
+        `,
+        [
+          title,
+          description,
+          price,
+          req.body.category_id || null,
+          req.body.subcategory_id || null,
+          seller_id,
+          attributes,
+          location_city,
+          req.body.location_state || null,
+          latitude,
+          longitude,
+          fraudScore,
+          boost_score,
+          engagement_score,
+          thumbnail_url,
+          slug,
+          delivery,
+          contact,
+          highlights,
+          specifications,
+          faq,
+        ]
+      );
 
-      const values = [
-        title,
-        description,
-        price,
-        category_id,
-        subcategory_id,
-        seller_id,
-        attributes,        // FIX 6B: pass object directly — pg handles JSONB serialization
-        location_state,
-        location_city,
-        delivery,          // FIX 6B: same
-        contact,           // FIX 6B: same
-        status,
-        is_active,
-        phone,
-        whatsapp,
-        whatsapp_link,
-        slug,
-        seo_title,
-        seo_description,
-        seo_keywords,
-        canonical_url,
-        highlights,        // FIX 6B: same
-        specifications,    // FIX 6B: same
-        faq,               // FIX 6B: same
-        search_text,
-        thumbnail_url,     // FIX 3: insert thumbnail
-      ];
-
-      const { rows } = await client.query(insertQuery, values);
       const product = rows[0];
 
       /* =====================================
-         INSERT IMAGES — BULK INSERT (single DB call)
-         FIX 1: use client (not pool) to stay inside the transaction
-         FIX 2: one bulk INSERT instead of N parallel queries
+         INSERT IMAGES (BULK)
       ====================================== */
-      if (uploadedImages.length > 0) {
-        const valuePlaceholders = uploadedImages
-          .map((_, i) => `($1, $${i * 2 + 2}, $${i * 2 + 3})`)
-          .join(", ");
+      const values = uploadedImages
+        .map((_, i) => `($1,$${i * 2 + 2},$${i * 2 + 3})`)
+        .join(",");
 
-        const params = [product.id];
-        uploadedImages.forEach((img) => {
-          params.push(img.image_url, img.position_order);
-        });
+      const params = [product.id];
+      uploadedImages.forEach((img) => {
+        params.push(img.image_url, img.position_order);
+      });
 
-        await client.query(
-          `INSERT INTO product_images (product_id, image_url, position_order)
-           VALUES ${valuePlaceholders}`,
-          params
-        );
-      }
+      await client.query(
+        `INSERT INTO product_images (product_id, image_url, position_order)
+         VALUES ${values}`,
+        params
+      );
 
       await client.query("COMMIT");
 
-      return res.status(201).json({
+      /* =====================================
+         POST-CREATE ASYNC TASKS
+      ====================================== */
+      updateSellerTrust(seller_id).catch(console.error);
+
+      redis.zIncrBy("trending:1h", 5, product.id).catch(() => {});
+      redis.zIncrBy("trending:24h", 5, product.id).catch(() => {});
+
+      /* =====================================
+         RESPONSE
+      ====================================== */
+      res.status(201).json({
         success: true,
-        message: "Product created successfully",
         product,
       });
-    } catch (error) {
+
+    } catch (err) {
       await client.query("ROLLBACK");
+      console.error("CREATE ERROR:", err);
 
-      console.error("Create product error:", error);
-
-      return res.status(500).json({
+      res.status(500).json({
         success: false,
         message: "Failed to create product",
-        error: error.message,
       });
     } finally {
       client.release();
