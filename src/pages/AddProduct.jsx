@@ -336,7 +336,7 @@ export default function AddProductPage() {
     });
   }, []);
 
-  const createProduct = async () => {
+  const createProduct = async (status = "draft") => {
     const fd = new FormData();
 
     if (!images.length) {
@@ -354,8 +354,8 @@ export default function AddProductPage() {
 
     fd.append("location_state", state || "");
     fd.append("location_city", city || "");
-    fd.append("status", "draft");
-    fd.append("is_active", "true");
+    fd.append("status", status);
+    fd.append("is_active", status === "active" ? "true" : "false");
 
     fd.append("attributes", JSON.stringify(attributes));
     fd.append("delivery", JSON.stringify(form.delivery));
@@ -474,17 +474,19 @@ export default function AddProductPage() {
         throw new Error("No promotion plan available");
       }
 
+      const isFreePlan = Number(finalPlan.price) === 0;
+
       if (!state || !city) {
         console.warn("No location selected");
       }
 
-      product = await createProduct();
+      product = await createProduct(isFreePlan ? "active" : "draft");
 
       if (!product?.id) {
         throw new Error("Product creation failed");
       }
 
-      if (Number(finalPlan.price) === 0) {
+      if (isFreePlan) {
         await activateFreePlan(product.id);
         clearDraft();
         showSuccess("✅ Product live! Redirecting...");
