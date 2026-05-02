@@ -1,15 +1,13 @@
-import "../../style/Dashboard.css";  // ✅ Primary styles
+import "../../style/Dashboard.css";
 import React, { useEffect, useState } from "react";
 import axios from "axios";
 import {
-  FiShoppingBag,
-  FiPackage,
-  FiEye,
-  FiStar,
-  FiAward,
-  FiTrendingUp,
+  FiPackage,    // 1st - Products (MOST IMPORTANT)
+  FiEye,        // 2nd - Views  
+  FiTrendingUp, // 3rd - CTR
+  FiAward,      // 4th - Seller Score
+  FiStar,       // 5th - Rating
 } from "react-icons/fi";
-// Removed "../../style/Profile.css" - Dashboard.css handles everything
 
 const Dashboard = () => {
   const [data, setData] = useState(null);
@@ -40,40 +38,45 @@ const Dashboard = () => {
   return (
     <div className="dashboard-section p-6 space-y-8">
       
-      {/* KPI CARDS - Pure CSS gradients */}
+      {/* KPI CARDS - PRODUCTS FIRST (your priority order) */}
       <div className="stats-grid">
-        <div className="stats-card"> {/* Products - Blue */}
+        {/* 1️⃣ PRODUCTS - TOP PRIORITY */}
+        <div className="stats-card">
           <FiPackage />
           <h3>{data.listings.products}</h3>
           <p>Active Products</p>
         </div>
 
-        <div className="stats-card"> {/* Views - Green */}
+        {/* 2️⃣ VIEWS */}
+        <div className="stats-card">
           <FiEye />
           <h3>{data.listings.views.toLocaleString()}</h3>
           <p>Total Views</p>
         </div>
 
-        <div className="stats-card"> {/* CTR - Purple */}
+        {/* 3️⃣ CTR */}
+        <div className="stats-card">
           <FiTrendingUp />
-          <h3>{data.engagement.ctr}%</h3>
+          <h3>{data.engagement.ctr?.toFixed(1)}%</h3>
           <p>Click Rate</p>
         </div>
 
-        <div className="stats-card"> {/* Seller Score - Yellow */}
+        {/* 4️⃣ SELLER SCORE */}
+        <div className="stats-card">
           <FiAward />
           <h3>{data.sellerScore}</h3>
           <p>Seller Score</p>
         </div>
 
-        <div className="stats-card"> {/* Rating - Indigo */}
+        {/* 5️⃣ RATING */}
+        <div className="stats-card">
           <FiStar />
           <h3>{data.trust.rating?.toFixed(1) || 0}</h3>
           <p>Rating</p>
         </div>
       </div>
 
-      {/* BUSINESS INSIGHTS */}
+      {/* BUSINESS INSIGHTS - Revenue first */}
       <div className="dashboard-grid">
         <div className="dashboard-card">
           <h4>Total Revenue</h4>
@@ -82,7 +85,7 @@ const Dashboard = () => {
 
         <div className="dashboard-card">
           <h4>Avg Response</h4>
-          <h2>{data.responseHours?.toFixed(1)}h</h2>
+          <h2>{data.responseHours?.toFixed(1) || 0}h</h2>
         </div>
 
         <div className="dashboard-card">
