@@ -181,6 +181,7 @@ import searchRouter        from "./routes/search.js";
 import productDetailRouter from "./routes/productDetail.js";
 import homepageRouter      from "./routes/homepage.js";
 import sellerProfileRouter from "./routes/sellerprofile.js";
+import dashboardRoutes from "./routes/dashboard.js";
 
 app.use("/api/marketplace/sellers", sellerProfileRouter); // ← more specific first
 app.use("/api/marketplace",         marketplaceRouter);
@@ -190,6 +191,8 @@ app.use("/api/admin",               adminRouter);
 app.use("/api/search",              searchRouter);
 app.use("/api/product",             productDetailRouter);
 app.use("/api",                     homepageRouter);
+app.use("/api/dashboard", 
+dashboardRoutes);
 
 /* =========================================
    HEALTH CHECK
