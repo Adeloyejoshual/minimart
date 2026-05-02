@@ -19,8 +19,8 @@ redis.connect().catch(console.error);
 // ─── Multer ───────────────────────────────────────────────────────────────────
 
 const upload = multer({
-  storage: multer.memoryStorage(),
-  limits:  { fileSize: 3 * 1024 * 1024, files: 6 },
+  storage:    multer.memoryStorage(),
+  limits:     { fileSize: 3 * 1024 * 1024, files: 6 },
   fileFilter: (_, file, cb) => {
     if (!file.mimetype.startsWith("image/")) {
       return cb(new Error("Only images allowed"));
@@ -29,7 +29,7 @@ const upload = multer({
   },
 });
 
-// ─── Pure helpers ─────────────────────────────────────────────────────────────
+// ─── Helpers ──────────────────────────────────────────────────────────────────
 
 const safeParse = (value, fallback) => {
   try {
@@ -37,6 +37,14 @@ const safeParse = (value, fallback) => {
   } catch {
     return fallback;
   }
+};
+
+/**
+ * promotion_plans.id is INT8 — never use cleanUuid for it.
+ */
+const cleanInt = (value) => {
+  const n = parseInt(value, 10);
+  return Number.isFinite(n) && n > 0 ? n : null;
 };
 
 const cleanUuid = (value) => {
@@ -55,23 +63,19 @@ const toNumberOrNull = (value) => {
 };
 
 /**
- * Generate a URL-safe slug from a title.
- *
  * Fixed: original regexes were missing backslashes —
- *   /[^ws-]/g  →  matched literal 'w' and 's', not \w and \s
- *   /s+/g      →  matched literal 's', not whitespace
+ *   /[^ws-]/g  kept only literal 'w', 's', '-'
+ *   /s+/g      replaced literal 's', not whitespace
  */
 const generateSlug = (title = "") =>
   `${title
     .toLowerCase()
     .trim()
-    .replace(/[^\w\s-]/g, "")   // strip everything except word-chars, spaces, hyphens
-    .replace(/\s+/g, "-")       // collapse whitespace runs into a single hyphen
-    .replace(/-+/g, "-")        // collapse consecutive hyphens
+    .replace(/[^\w\s-]/g, "")
+    .replace(/\s+/g, "-")
+    .replace(/-+/g, "-")
     .slice(0, 70)
   }-${Date.now()}`;
-
-// ─── Cloudinary upload ────────────────────────────────────────────────────────
 
 const uploadToCloudinary = (buffer) =>
   new Promise((resolve, reject) => {
@@ -84,18 +88,16 @@ const uploadToCloudinary = (buffer) =>
           { fetch_format: "auto" },
         ],
       },
-      (err, result) => {
-        if (err) return reject(err);
-        resolve(result);
-      }
+      (err, result) => (err ? reject(err) : resolve(result))
     );
-
     streamifier.createReadStream(buffer).pipe(stream);
   });
 
-// ─── Routes ───────────────────────────────────────────────────────────────────
+// ─── GET /categories ──────────────────────────────────────────────────────────
 
 router.get("/categories", getCategoriesHandler);
+
+// ─── POST /products ───────────────────────────────────────────────────────────
 
 router.post(
   "/products",
@@ -105,8 +107,6 @@ router.post(
     const client = await pool.connect();
 
     try {
-      // ── Parse & validate inputs ──────────────────────────────────────────
-
       const seller_id      = req.user.id;
       const title          = req.body.title?.trim();
       const description    = req.body.description?.trim() ?? "";
@@ -122,33 +122,24 @@ router.post(
       if (!title) {
         return res.status(400).json({ success: false, message: "Title required" });
       }
-
       if (!Number.isFinite(price) || price <= 0) {
         return res.status(400).json({ success: false, message: "Invalid price" });
       }
 
       const files = req.files ?? [];
       if (!files.length) {
-        return res.status(400).json({
-          success: false,
-          message: "At least one image required",
-        });
+        return res.status(400).json({ success: false, message: "At least one image required" });
       }
 
-      // ── Spam / fraud check ───────────────────────────────────────────────
-
+      // ── Spam check ──────────────────────────────────────────────────────────
       const fingerprint = `${req.headers["user-agent"] ?? "unknown"}:${seller_id}`;
       const fraudScore  = await detectSpamListing(seller_id, title, fingerprint);
 
       if (fraudScore >= 70) {
-        return res.status(403).json({
-          success: false,
-          message: "Listing flagged as spam",
-        });
+        return res.status(403).json({ success: false, message: "Listing flagged as spam" });
       }
 
-      // ── Geocode if lat/lon not supplied ──────────────────────────────────
-
+      // ── Geocode if coordinates not supplied ─────────────────────────────────
       let latitude  = toNumberOrNull(req.body.latitude);
       let longitude = toNumberOrNull(req.body.longitude);
 
@@ -163,20 +154,15 @@ router.post(
             longitude = Number(geoData[0].lon);
           }
         } catch (geoErr) {
-          // non-fatal — continue without coordinates
           console.warn("Geocoding failed:", geoErr.message);
         }
       }
 
-      // ── Upload images to Cloudinary ──────────────────────────────────────
-
+      // ── Upload images ───────────────────────────────────────────────────────
       const uploadedImages = await Promise.all(
         files.map(async (file, i) => {
           const result = await uploadToCloudinary(file.buffer);
-          return {
-            image_url:      result.secure_url,
-            position_order: i,
-          };
+          return { image_url: result.secure_url, position_order: i };
         })
       );
 
@@ -184,99 +170,91 @@ router.post(
       const main_image    = thumbnail_url;
       const slug          = generateSlug(title);
 
-      // ── Parse JSON fields from multipart body ────────────────────────────
-
-      const attributes   = safeParse(req.body.attributes,   {});
-      const delivery     = safeParse(req.body.delivery,     {});
-      const contact      = safeParse(req.body.contact,      {});
-      const highlights   = safeParse(req.body.highlights,   []);
+      // ── Parse JSON fields ───────────────────────────────────────────────────
+      const attributes     = safeParse(req.body.attributes,     {});
+      const delivery       = safeParse(req.body.delivery,       {});
+      const contact        = safeParse(req.body.contact,        {});
+      const highlights     = safeParse(req.body.highlights,     []);
       const specifications = safeParse(req.body.specifications, {});
-      const faq          = safeParse(req.body.faq,          []);
+      const faq            = safeParse(req.body.faq,            []);
 
-      // ── DB transaction ───────────────────────────────────────────────────
+      // Top-level contact columns (schema has dedicated STRING columns)
+      const phone         = cleanText(contact.phone         ?? req.body.phone)         ?? null;
+      const whatsapp      = cleanText(contact.whatsapp      ?? req.body.whatsapp)      ?? null;
+      const whatsapp_link = cleanText(contact.whatsapp_link ?? req.body.whatsapp_link) ?? null;
 
+      // ── DB transaction ──────────────────────────────────────────────────────
       await client.query("BEGIN");
 
       const { rows } = await client.query(
-        `
-        INSERT INTO products (
-          title,
-          description,
-          price,
-          category_id,
-          subcategory_id,
-          seller_id,
-          attributes,
-          location_city,
-          location_state,
-          latitude,
-          longitude,
-          fraud_score,
-          boost_score,
-          engagement_score,
-          thumbnail_url,
-          main_image,
-          slug,
-          delivery,
-          contact,
-          highlights,
-          specifications,
-          faq,
-          status,
-          is_active,
+        `INSERT INTO products (
+          title, description, price,
+          category_id, subcategory_id, seller_id,
+          attributes, location_city, location_state,
+          latitude, longitude,
+          fraud_score, boost_score, engagement_score,
+          thumbnail_url, main_image, slug,
+          delivery, contact,
+          highlights, specifications, faq,
+          status, is_active,
+          phone, whatsapp, whatsapp_link,
           search_vector
         )
         VALUES (
-          $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11,
-          $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24,
-          to_tsvector('english',
-            coalesce($1, '') || ' ' || coalesce($2, '')
-          )
+          $1,  $2,  $3,
+          $4,  $5,  $6,
+          $7,  $8,  $9,
+          $10, $11,
+          $12, $13, $14,
+          $15, $16, $17,
+          $18, $19,
+          $20, $21, $22,
+          $23, $24,
+          $25, $26, $27,
+          to_tsvector('english', coalesce($1,'') || ' ' || coalesce($2,''))
         )
-        RETURNING *
-        `,
+        RETURNING *`,
         [
-          title,          // $1
-          description,    // $2
-          price,          // $3
-          category_id,    // $4
-          subcategory_id, // $5
-          seller_id,      // $6
-          JSON.stringify(attributes), // $7 — explicit serialisation for JSONB
-          location_city,  // $8
-          location_state, // $9
-          latitude,       // $10
-          longitude,      // $11
-          fraudScore,     // $12
-          10,             // $13  boost_score default
-          5,              // $14  engagement_score default
-          thumbnail_url,  // $15
-          main_image,     // $16
-          slug,           // $17
-          JSON.stringify(delivery),       // $18
-          JSON.stringify(contact),        // $19
-          JSON.stringify(highlights),     // $20
+          title,                        // $1
+          description,                  // $2
+          price,                        // $3
+          category_id,                  // $4
+          subcategory_id,               // $5
+          seller_id,                    // $6
+          JSON.stringify(attributes),   // $7
+          location_city,                // $8
+          location_state,               // $9
+          latitude,                     // $10
+          longitude,                    // $11
+          fraudScore,                   // $12
+          10,                           // $13  boost_score
+          5,                            // $14  engagement_score
+          thumbnail_url,                // $15
+          main_image,                   // $16
+          slug,                         // $17
+          JSON.stringify(delivery),     // $18
+          JSON.stringify(contact),      // $19
+          JSON.stringify(highlights),   // $20
           JSON.stringify(specifications), // $21
-          JSON.stringify(faq),            // $22
-          status,         // $23
-          is_active,      // $24
+          JSON.stringify(faq),          // $22
+          status,                       // $23
+          is_active,                    // $24
+          phone,                        // $25
+          whatsapp,                     // $26
+          whatsapp_link,                // $27
         ]
       );
 
       const product = rows[0];
 
-      // ── Insert product images ────────────────────────────────────────────
-
       if (uploadedImages.length > 0) {
         const values = uploadedImages
           .map((_, i) => `($1, $${i * 2 + 2}, $${i * 2 + 3})`)
           .join(", ");
-
         const params = [product.id];
         uploadedImages.forEach((img) => {
           params.push(img.image_url, img.position_order);
         });
-
         await client.query(
           `INSERT INTO product_images (product_id, image_url, position_order)
            VALUES ${values}`,
@@ -286,8 +264,7 @@ router.post(
 
       await client.query("COMMIT");
 
-      // ── Post-commit side-effects (non-blocking) ──────────────────────────
-
+      // ── Non-blocking side-effects ────────────────────────────────────────────
       updateSellerTrust(seller_id).catch(console.error);
       redis.zIncrBy("trending:1h",  5, product.id).catch(() => {});
       redis.zIncrBy("trending:24h", 5, product.id).catch(() => {});
@@ -301,140 +278,134 @@ router.post(
     } catch (err) {
       await client.query("ROLLBACK");
       console.error("CREATE PRODUCT ERROR:", err);
-
-      return res.status(500).json({
-        success: false,
-        message: "Failed to create product",
-      });
+      return res.status(500).json({ success: false, message: "Failed to create product" });
     } finally {
       client.release();
     }
   }
 );
 
-/* ─── POST /products/:id/activate ───────────────────────────────────────────
-   Activates a product after creation.
-   - Free plan  → sets status = 'active', is_active = true
-   - Paid plan  → records the promotion and activates
-──────────────────────────────────────────────────────────────────────────── */
-router.post(
-  "/products/:id/activate",
-  authenticate,
-  async (req, res) => {
-    const client = await pool.connect();
+// ─── POST /products/:id/activate ─────────────────────────────────────────────
+//
+//  Called by the frontend after:
+//    (a) free plan  — immediately after createProduct
+//    (b) paid plan  — if the user wants manual activation (webhook also handles it)
 
-    try {
-      const product_id   = req.params.id;
-      const seller_id    = req.user.id;
-      const promotion_id = req.body.promotion_id ?? null;
+router.post("/products/:id/activate", authenticate, async (req, res) => {
+  const client = await pool.connect();
 
-      // ── Verify product exists and belongs to this seller ────────────────
-      const { rows: productRows } = await client.query(
-        `SELECT id, status, seller_id FROM products WHERE id = $1`,
-        [product_id]
-      );
+  try {
+    const product_id   = req.params.id;
+    const seller_id    = req.user.id;
+    // promotion_plans.id is INT8 — parse as integer, never as UUID
+    const promotion_id = cleanInt(req.body.promotion_id);
 
-      if (!productRows.length) {
-        return res.status(404).json({
-          success: false,
-          message: "Product not found",
-        });
-      }
+    // ── Verify product exists and belongs to this seller ──────────────────────
+    const { rows: productRows } = await client.query(
+      `SELECT id, status, seller_id FROM products WHERE id = $1`,
+      [product_id]
+    );
 
-      if (productRows[0].seller_id !== seller_id) {
-        return res.status(403).json({
-          success: false,
-          message: "Not authorised to activate this product",
-        });
-      }
+    if (!productRows.length) {
+      return res.status(404).json({ success: false, message: "Product not found" });
+    }
 
-      await client.query("BEGIN");
-
-      let promotionMeta = {};
-
-      if (promotion_id) {
-        // ── Look up the paid plan ──────────────────────────────────────────
-        const { rows: planRows } = await client.query(
-          `SELECT id, name, duration_days, type FROM promotion_plans WHERE id = $1`,
-          [promotion_id]
-        );
-
-        if (!planRows.length) {
-          await client.query("ROLLBACK");
-          return res.status(400).json({
-            success: false,
-            message: "Promotion plan not found",
-          });
-        }
-
-        const plan             = planRows[0];
-        const promotion_start  = new Date();
-        const promotion_end    = new Date(
-          promotion_start.getTime() + plan.duration_days * 24 * 60 * 60 * 1000
-        );
-
-        promotionMeta = {
-          promotion_id,
-          promotion_start,
-          promotion_end,
-          promotion_expires_at: promotion_end,
-          is_promoted:          true,
-          promotion_type:       plan.type ?? "standard",
-          promotion_priority:   10,
-        };
-      }
-
-      // ── Activate the product ───────────────────────────────────────────
-      const { rows } = await client.query(
-        `UPDATE products
-         SET
-           status               = 'active',
-           is_active            = true,
-           promotion_id         = COALESCE($2, promotion_id),
-           promotion_start      = COALESCE($3, promotion_start),
-           promotion_end        = COALESCE($4, promotion_end),
-           promotion_expires_at = COALESCE($5, promotion_expires_at),
-           is_promoted          = COALESCE($6, is_promoted),
-           promotion_type       = COALESCE($7, promotion_type),
-           promotion_priority   = COALESCE($8, promotion_priority),
-           updated_at           = NOW()
-         WHERE id = $1
-         RETURNING *`,
-        [
-          product_id,
-          promotionMeta.promotion_id         ?? null,
-          promotionMeta.promotion_start      ?? null,
-          promotionMeta.promotion_end        ?? null,
-          promotionMeta.promotion_expires_at ?? null,
-          promotionMeta.is_promoted          ?? null,
-          promotionMeta.promotion_type       ?? null,
-          promotionMeta.promotion_priority   ?? null,
-        ]
-      );
-
-      await client.query("COMMIT");
-
-      // ── Boost trending scores ──────────────────────────────────────────
-      redis.zIncrBy("trending:1h",  10, product_id).catch(() => {});
-      redis.zIncrBy("trending:24h", 10, product_id).catch(() => {});
-
-      return res.status(200).json({
-        success: true,
-        message: "Product activated successfully",
-        product: rows[0],
+    if (productRows[0].seller_id !== seller_id) {
+      return res.status(403).json({
+        success: false,
+        message: "Not authorised to activate this product",
       });
+    }
 
-    } catch (err) {
+    await client.query("BEGIN");
+
+    let promotionMeta = {};
+
+    if (promotion_id) {
+      // ── Look up paid plan ───────────────────────────────────────────────────
+      const { rows: planRows } = await client.query(
+        `SELECT id, name, duration_days, priority
+         FROM promotion_plans
+         WHERE id = $1 AND is_active = true`,
+        [promotion_id]
+      );
+
+      if (!planRows.length) {
+        await client.query("ROLLBACK");
+        return res.status(400).json({
+          success: false,
+          message: "Promotion plan not found or no longer active",
+        });
+      }
+
+      const plan            = planRows[0];
+      const promotion_start = new Date();
+      // duration_days is nullable (e.g. free / "always on" plans have null)
+      const promotion_end   = plan.duration_days
+        ? new Date(promotion_start.getTime() + plan.duration_days * 24 * 60 * 60 * 1000)
+        : null;
+
+      promotionMeta = {
+        promotion_id,
+        promotion_start,
+        promotion_end,
+        is_promoted:        true,
+        promotion_type:     plan.name     ?? "standard",
+        promotion_priority: plan.priority ?? 0,
+      };
+    }
+
+    // ── Activate ───────────────────────────────────────────────────────────────
+    const { rows } = await client.query(
+      `UPDATE products
+       SET
+         status               = 'active',
+         is_active            = true,
+         promotion_id         = COALESCE($2::INT8,      promotion_id),
+         promotion_start      = COALESCE($3,            promotion_start),
+         promotion_end        = COALESCE($4,            promotion_end),
+         promotion_expires_at = COALESCE($4,            promotion_expires_at),
+         is_promoted          = COALESCE($5,            is_promoted),
+         promotion_type       = COALESCE($6,            promotion_type),
+         promotion_priority   = COALESCE($7,            promotion_priority),
+         updated_at           = NOW()
+       WHERE id = $1 AND seller_id = $8
+       RETURNING *`,
+      [
+        product_id,                              // $1
+        promotionMeta.promotion_id      ?? null, // $2
+        promotionMeta.promotion_start   ?? null, // $3
+        promotionMeta.promotion_end     ?? null, // $4  used for both _end and _expires_at
+        promotionMeta.is_promoted       ?? null, // $5
+        promotionMeta.promotion_type    ?? null, // $6
+        promotionMeta.promotion_priority ?? null, // $7
+        seller_id,                               // $8
+      ]
+    );
+
+    if (!rows.length) {
       await client.query("ROLLBACK");
-      console.error("ACTIVATE ERROR:", err);
-      return res.status(500).json({
-        success: false,
-        message: "Failed to activate product",
-      });
-    } finally {
-      client.release();
+      return res.status(404).json({ success: false, message: "Product not found" });
     }
+
+    await client.query("COMMIT");
+
+    redis.zIncrBy("trending:1h",  10, product_id).catch(() => {});
+    redis.zIncrBy("trending:24h", 10, product_id).catch(() => {});
+
+    return res.status(200).json({
+      success: true,
+      message: "Product activated successfully",
+      product: rows[0],
+    });
+
+  } catch (err) {
+    await client.query("ROLLBACK");
+    console.error("ACTIVATE ERROR:", err);
+    return res.status(500).json({ success: false, message: "Failed to activate product" });
+  } finally {
+    client.release();
   }
-);
+});
 
 export default router;
