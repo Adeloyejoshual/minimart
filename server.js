@@ -33,6 +33,8 @@ const io = new SocketIOServer(server, {
 
 /* =========================================
    DATABASE
+   Exported so all route files share one pool
+   and don't create their own connections.
 ========================================= */
 export const pool = new Pool({
   connectionString: process.env.COCKROACH_URI,
@@ -50,30 +52,29 @@ export const pool = new Pool({
 })();
 
 /* =========================================
-   SIMPLE IN-MEMORY CACHE
+   IN-MEMORY CACHE
 ========================================= */
-const cache     = new Map();
-const CACHE_TTL = 60 * 1000; // 1 min
+const _cache    = new Map();
+const CACHE_TTL = 60 * 1000;
 
 export const setCache = (key, value) => {
-  cache.set(key, { value, time: Date.now() });
+  _cache.set(key, { value, time: Date.now() });
 };
 
 export const getCache = (key) => {
-  const item = cache.get(key);
+  const item = _cache.get(key);
   if (!item) return null;
   if (Date.now() - item.time > CACHE_TTL) {
-    cache.delete(key);
+    _cache.delete(key);
     return null;
   }
   return item.value;
 };
 
-// Evict stale entries every minute
 setInterval(() => {
   const now = Date.now();
-  for (const [key, item] of cache.entries()) {
-    if (now - item.time > CACHE_TTL) cache.delete(key);
+  for (const [key, item] of _cache.entries()) {
+    if (now - item.time > CACHE_TTL) _cache.delete(key);
   }
 }, 60_000);
 
@@ -100,24 +101,25 @@ app.use((req, _res, next) => {
 /* =========================================
    RATE LIMITER
 ========================================= */
-const limiter   = new Map();
-const WINDOW_MS = 60_000; // 1-minute sliding window
-const MAX_REQ   = 120;    // requests per window
+const _limiter  = new Map();
+const WINDOW_MS = 60_000;
+const MAX_REQ   = 120;
 
-// Evict stale IP buckets every 5 minutes to prevent unbounded growth
+// Evict stale buckets every 5 minutes — prevents unbounded Map growth
 setInterval(() => {
   const now = Date.now();
-  for (const [ip, data] of limiter.entries()) {
-    if (now - data.time > WINDOW_MS) limiter.delete(ip);
+  for (const [ip, data] of _limiter.entries()) {
+    if (now - data.time > WINDOW_MS) _limiter.delete(ip);
   }
 }, 5 * 60_000);
 
 app.use((req, res, next) => {
+  // x-forwarded-for may be comma-separated when behind multiple proxies
   const ip  = req.headers["x-forwarded-for"]?.split(",")[0].trim()
               ?? req.socket.remoteAddress
               ?? "unknown";
   const now = Date.now();
-  let data  = limiter.get(ip);
+  let data  = _limiter.get(ip);
 
   if (!data || now - data.time > WINDOW_MS) {
     data = { count: 1, time: now };
@@ -125,7 +127,7 @@ app.use((req, res, next) => {
     data.count++;
   }
 
-  limiter.set(ip, data);
+  _limiter.set(ip, data);
 
   if (data.count > MAX_REQ) {
     return res.status(429).json({ success: false, message: "Too many requests" });
@@ -135,10 +137,9 @@ app.use((req, res, next) => {
 });
 
 /* =========================================
-   PAYSTACK WEBHOOK  (must come before body-parser)
-   Webhook needs the raw Buffer; all other payment
-   routes use parsed JSON — so mount them here, in
-   this exact order, before express.json() runs.
+   PAYSTACK WEBHOOK
+   MUST come before express.json() — the webhook
+   handler needs the raw Buffer, not a parsed body.
 ========================================= */
 import paymentRouter, { webhookRouter } from "./routes/payment.js";
 
@@ -150,8 +151,8 @@ app.use(
 
 /* =========================================
    BODY PARSERS
-   Must be registered BEFORE any route that
-   reads req.body, and AFTER the raw webhook.
+   Registered AFTER the raw webhook and BEFORE
+   any route that reads req.body.
 ========================================= */
 app.use(express.json({ limit: "10mb" }));
 app.use(express.urlencoded({ extended: true, limit: "10mb" }));
@@ -168,6 +169,9 @@ import "./jobs/expirePromotions.js";
 
 /* =========================================
    API ROUTES
+   More-specific prefixes first — Express matches
+   the first prefix that fits, so /api/marketplace/sellers
+   must come before /api/marketplace.
 ========================================= */
 import marketplaceRouter   from "./routes/addproduct.js";
 import userRouter          from "./routes/users.js";
@@ -178,7 +182,7 @@ import productDetailRouter from "./routes/productDetail.js";
 import homepageRouter      from "./routes/homepage.js";
 import sellerProfileRouter from "./routes/sellerprofile.js";
 
-app.use("/api/marketplace/sellers", sellerProfileRouter); // more specific first
+app.use("/api/marketplace/sellers", sellerProfileRouter); // ← more specific first
 app.use("/api/marketplace",         marketplaceRouter);
 app.use("/api/users",               userRouter);
 app.use("/api/messages",            messagesRouter);
@@ -211,7 +215,7 @@ if (process.env.NODE_ENV === "production") {
   const distPath = path.join(__dirname, "dist");
   app.use(express.static(distPath));
 
-  // SPA fallback — serve index.html for every non-API GET
+  // SPA catch-all: serve index.html for every non-API route
   app.get("*", (req, res) => {
     if (req.path.startsWith("/api/")) {
       return res.status(404).json({
@@ -224,9 +228,9 @@ if (process.env.NODE_ENV === "production") {
 }
 
 /* =========================================
-   404 — unmatched routes  (dev + prod /api/*)
-   Must come after all routes, before the error
-   handler.
+   404 — unmatched routes
+   Must come after all app.use() routes and
+   before the error handler.
 ========================================= */
 app.use((req, res) => {
   res.status(404).json({
@@ -237,16 +241,19 @@ app.use((req, res) => {
 
 /* =========================================
    GLOBAL ERROR HANDLER
-   Must be the very last app.use() call and
-   must have exactly four parameters so Express
-   recognises it as an error handler.
+   Must be the absolute last middleware.
+   Four parameters required — Express uses
+   the arity to identify error handlers.
+   Always returns JSON — never the default
+   HTML error page that causes the client's
+   "Unexpected token '<'" crash.
 ========================================= */
 app.use((err, req, res, _next) => {
   console.error("🔥 Unhandled error:", err);
 
-  // ── Multer validation errors ──────────────────────────
+  // Multer validation errors
   if (err.code === "LIMIT_FILE_SIZE") {
-    return res.status(400).json({ success: false, message: "File too large (max 3 MB per file)" });
+    return res.status(400).json({ success: false, message: "File too large (max 3 MB)" });
   }
   if (err.code === "LIMIT_FILE_COUNT") {
     return res.status(400).json({ success: false, message: "Too many files (max 6)" });
@@ -258,17 +265,14 @@ app.use((err, req, res, _next) => {
     return res.status(400).json({ success: false, message: err.message });
   }
 
-  // ── HTTP errors with explicit status ─────────────────
   const status = err.status ?? err.statusCode ?? 500;
 
-  // Never leak stack traces or internal messages in production
+  // Never expose internal messages in production
   const message =
     process.env.NODE_ENV === "production" && status === 500
       ? "Internal server error"
-      : err.message ?? "Internal server error";
+      : (err.message ?? "Internal server error");
 
-  // Always return JSON, never HTML — prevents the
-  // "Unexpected token '<'" parse error on the client
   res.status(status).json({ success: false, message });
 });
 
@@ -276,7 +280,7 @@ app.use((err, req, res, _next) => {
    SOCKET.IO
 ========================================= */
 io.on("connection", (socket) => {
-  console.log("🔌 User connected:", socket.id);
+  console.log("🔌 Connected:", socket.id);
 
   socket.on("joinRoom", ({ senderId, receiverId, productId }) => {
     if (!senderId || !receiverId || !productId) return;
@@ -284,21 +288,19 @@ io.on("connection", (socket) => {
     socket.join(room);
   });
 
-  socket.on("sendMessage", async (data) => {
-    const { senderId, receiverId, productId, message } = data ?? {};
+  socket.on("sendMessage", async ({ senderId, receiverId, productId, message } = {}) => {
     if (!senderId || !receiverId || !productId || !message) return;
 
     try {
       const room = `${productId}_${[senderId, receiverId].sort().join("_")}`;
       const { rows } = await pool.query(
         `INSERT INTO messages (sender_id, receiver_id, product_id, message, created_at)
-         VALUES ($1, $2, $3, $4, NOW())
-         RETURNING *`,
+         VALUES ($1, $2, $3, $4, NOW()) RETURNING *`,
         [senderId, receiverId, productId, message]
       );
       io.to(room).emit("receiveMessage", rows[0]);
     } catch (err) {
-      console.error("❌ Socket message error:", err.message);
+      console.error("Socket message error:", err.message);
     }
   });
 
