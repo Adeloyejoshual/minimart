@@ -1,9 +1,4 @@
-import React, {
-  useEffect,
-  useMemo,
-  useState,
-  useCallback,
-} from "react";
+import React, { useEffect, useMemo, useState, useCallback } from "react";
 import ProductComponents from "./product/components.jsx";
 import { locationsByState } from "../config/locationsByState.js";
 import { promotionPlans } from "../config/promotions.js";
@@ -79,7 +74,7 @@ export default function AddProductPage() {
   const attributes = form.attributes || INITIAL_FORM.attributes;
 
   const states = Object.keys(locationsByState || {});
-  const cities = state ? (locationsByState[state] || []) : [];
+  const cities = state ? locationsByState[state] || [] : [];
 
   const onlyNumbers = (v = "") => v.replace(/[^0-9.]/g, "");
   const onlyDigits = (v = "") => v.replace(/[^0-9]/g, "");
@@ -102,7 +97,6 @@ export default function AddProductPage() {
     setTimeout(() => setSuccess(""), 5000);
   }, []);
 
-  // Load categories
   useEffect(() => {
     fetch("https://minimart-ivrm.onrender.com/api/marketplace/categories")
       .then((r) => {
@@ -123,12 +117,10 @@ export default function AddProductPage() {
       });
   }, [showError]);
 
-  // Clear stale payment on mount
   useEffect(() => {
     localStorage.removeItem(STORAGE_PAYMENT);
   }, []);
 
-  // Restore draft
   useEffect(() => {
     try {
       const saved = localStorage.getItem(STORAGE_DRAFT);
@@ -174,7 +166,6 @@ export default function AddProductPage() {
     }
   }, [showSuccess, showError]);
 
-  // Auto-save draft
   useEffect(() => {
     const timeout = setTimeout(() => {
       try {
@@ -196,7 +187,6 @@ export default function AddProductPage() {
     return () => clearTimeout(timeout);
   }, [form, state, city, images.length, selectedPlan?.id]);
 
-  // Form handlers
   const updateForm = useCallback((key, value) => {
     setForm((prev) => ({ ...prev, [key]: value }));
   }, []);
@@ -250,7 +240,6 @@ export default function AddProductPage() {
     });
   }, []);
 
-  // Validation
   const validateForm = useCallback(() => {
     if (!form.title?.trim()) return "Title required";
     if (!form.description?.trim()) return "Description required";
@@ -262,7 +251,7 @@ export default function AddProductPage() {
       return "Enter a valid email address";
     if (!form.contact?.whatsapp || form.contact.whatsapp.length < 10)
       return "WhatsApp number required";
-    if (images.length === 0) return "Upload at least 1 image";
+    if (!images.length) return "At least one image is required";
     if (!state || !city) return "Select your state and city";
 
     if (form.delivery.available) {
@@ -274,6 +263,7 @@ export default function AddProductPage() {
       if (!form.delivery.fee || Number(form.delivery.fee) <= 0)
         return "Enter valid delivery fee";
     }
+
     return null;
   }, [form, images.length, state, city]);
 
@@ -289,7 +279,6 @@ export default function AddProductPage() {
     showSuccess("Draft cleared successfully");
   }, [showSuccess]);
 
-  // Image compression helper
   const compressImage = async (file) => {
     try {
       return await imageCompression(file, {
@@ -303,7 +292,6 @@ export default function AddProductPage() {
     }
   };
 
-  // Image handling
   const handleImages = useCallback(
     async (files) => {
       const currentCount = images.length;
@@ -348,15 +336,22 @@ export default function AddProductPage() {
     });
   }, []);
 
-  // Create product — sends files directly, backend handles Cloudinary + product_images
   const createProduct = async () => {
     const fd = new FormData();
+
+    if (!images.length) {
+      throw new Error("At least one image is required");
+    }
 
     fd.append("title", form.title.trim());
     fd.append("description", form.description.trim());
     fd.append("price", Number(form.price).toFixed(2));
     fd.append("category_id", form.category_id);
-    fd.append("subcategory_id", form.subcategory_id || "");
+
+    if (form.subcategory_id) {
+      fd.append("subcategory_id", form.subcategory_id);
+    }
+
     fd.append("location_state", state || "");
     fd.append("location_city", city || "");
     fd.append("status", "draft");
@@ -370,9 +365,8 @@ export default function AddProductPage() {
     fd.append("whatsapp", form.contact.whatsapp || "");
     fd.append("whatsapp_link", form.contact.whatsapp_link || "");
 
-    // Send compressed files directly — no media JSONB
     images.forEach((img) => {
-      fd.append("images[]", img.file);
+      fd.append("images", img.file);
     });
 
     const token = localStorage.getItem("token");
@@ -400,7 +394,6 @@ export default function AddProductPage() {
     return data.product;
   };
 
-  // Initiate paid plan payment
   const initPayment = async (productId) => {
     const token = localStorage.getItem("token");
     if (!token) throw new Error("Authentication required");
@@ -434,7 +427,6 @@ export default function AddProductPage() {
     };
   };
 
-  // Activate free plan
   const activateFreePlan = async (productId) => {
     const token = localStorage.getItem("token");
     if (!token) throw new Error("Authentication required");
@@ -460,7 +452,6 @@ export default function AddProductPage() {
     return data;
   };
 
-  // Submit handler
   const handleSubmit = useCallback(async () => {
     if (loading) return;
 
@@ -483,6 +474,10 @@ export default function AddProductPage() {
         throw new Error("No promotion plan available");
       }
 
+      if (!state || !city) {
+        console.warn("No location selected");
+      }
+
       product = await createProduct();
 
       if (!product?.id) {
@@ -492,11 +487,13 @@ export default function AddProductPage() {
       if (Number(finalPlan.price) === 0) {
         await activateFreePlan(product.id);
         clearDraft();
-        showSuccess("✅ Product created and published successfully!");
+        showSuccess("✅ Product live! Redirecting...");
+        setTimeout(() => {
+          window.location.href = "/";
+        }, 1500);
         return;
       }
 
-      // Paid plan flow
       const paymentRes = await initPayment(product.id);
       const paymentSession = {
         reference: paymentRes.reference,
@@ -515,7 +512,6 @@ export default function AddProductPage() {
     } catch (err) {
       console.error("Submit error:", err);
 
-      // Best effort cleanup on failure
       if (product?.id) {
         try {
           const token = localStorage.getItem("token");
@@ -543,9 +539,10 @@ export default function AddProductPage() {
     clearDraft,
     showError,
     showSuccess,
+    state,
+    city,
   ]);
 
-  // Cleanup object URLs on unmount
   useEffect(() => {
     return () => {
       images.forEach((img) => img.preview && URL.revokeObjectURL(img.preview));
