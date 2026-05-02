@@ -1,18 +1,18 @@
 import { useMemo } from "react";
-import DropdownModal from "../../components/DropdownModal.jsx";
+import DropdownModal    from "../../components/DropdownModal.jsx";
 import AddProductHeader from "../../components/AddProductHeader.jsx";
 import { categoryFields } from "../../config/categoryFields.js";
 import { promotionPlans } from "../../config/promotions.js";
+
+// ─── Helpers ──────────────────────────────────────────────────────────────────
 
 function normalizeOptions(list) {
   if (!Array.isArray(list)) return [];
   return list
     .map((item) => {
-      if (typeof item === "string") {
-        return { id: item, name: item };
-      }
+      if (typeof item === "string") return { id: item, name: item };
       return {
-        id: String(item.id ?? item.value ?? item.name ?? ""),
+        id:   String(item.id    ?? item.value ?? item.name ?? ""),
         name: item.name ?? item.label ?? item.id ?? "",
       };
     })
@@ -21,10 +21,16 @@ function normalizeOptions(list) {
 
 function getSelectedCategory(categories, id) {
   if (!Array.isArray(categories)) return null;
-  return categories.find((item) => String(item.id) === String(id)) || null;
+  return categories.find((item) => String(item.id) === String(id)) ?? null;
 }
 
+/** Always returns a real array — guards against corrupted features state */
+const toArray = (v) => (Array.isArray(v) ? v : []);
+
+// ─── Component ────────────────────────────────────────────────────────────────
+
 export default function ProductComponents({
+  // State
   form,
   attributes,
   images,
@@ -40,6 +46,13 @@ export default function ProductComponents({
   cities,
   options,
   selectedCategory,
+  agreedToTerms,
+  TermsCheckbox,
+  detectedCoords,
+  detectingLocation,
+  MAX_IMAGES = 6,
+
+  // Updaters
   updateForm,
   updateAttribute,
   updateContact,
@@ -53,13 +66,16 @@ export default function ProductComponents({
   removeImage,
   handleSubmit,
   clearDraft,
+  detectLocation,
+
+  // Formatters
   displayPrice,
   formatLabel,
   onlyNumbers,
   onlyDigits,
   INITIAL_FORM,
 }) {
-  const MAX_IMAGES = 6;
+  // ── Category / subcategory ───────────────────────────────────────────────
 
   const categoryOptions = useMemo(() => {
     if (!Array.isArray(categories)) return [];
@@ -68,14 +84,15 @@ export default function ProductComponents({
       .filter((cat) => cat.id && cat.name);
   }, [categories]);
 
-  const activeCategory = selectedCategory || getSelectedCategory(categories, form.category_id);
-  const subcategories = activeCategory?.subcategories || [];
+  const activeCategory = selectedCategory ?? getSelectedCategory(categories, form.category_id);
+  const subcategories  = activeCategory?.subcategories ?? [];
+
+  // ── Dynamic fields ───────────────────────────────────────────────────────
 
   const fields = useMemo(() => {
     if (!activeCategory) return [];
-
     const backendFields = Array.isArray(options?.fields) ? options.fields : [];
-    const localFields = categoryFields[activeCategory.name] || [];
+    const localFields   = categoryFields[activeCategory.name] ?? [];
 
     return [...backendFields, ...localFields]
       .filter(Boolean)
@@ -83,51 +100,71 @@ export default function ProductComponents({
       .filter((field) => field !== "brand" && field !== "model");
   }, [activeCategory, options]);
 
+  // ── Model options ────────────────────────────────────────────────────────
+  //
+  //  modelOptions — dropdown list from backend (may be empty if brand not configured)
+  //  showModelDropdown — show dropdown when list exists
+  //  showModelInput    — fallback free-text when brand selected but no list
+
   const modelOptions = useMemo(() => {
     if (!attributes?.brand) return [];
     const brandKey = String(attributes.brand).toLowerCase();
-    return normalizeOptions(options?.models?.[brandKey] || []);
+    return normalizeOptions(options?.models?.[brandKey] ?? []);
   }, [attributes?.brand, options]);
+
+  const showModelDropdown = modelOptions.length > 0;
+  const showModelInput    = !!attributes?.brand && modelOptions.length === 0;
+
+  // ── Options map ──────────────────────────────────────────────────────────
 
   const optionsMap = useMemo(
     () => ({
-      brand: normalizeOptions(options?.brands),
-      color: normalizeOptions(options?.colors),
-      condition: normalizeOptions(options?.conditions),
-      used_detail: normalizeOptions(options?.used_details || options?.usedDetails || []),
-      ram: normalizeOptions(options?.ram),
-      storage: normalizeOptions(options?.storage),
-      sim: normalizeOptions(options?.sim),
-      year: normalizeOptions(options?.years),
-      engine: normalizeOptions(options?.engine || options?.engines || []),
-      fuel_type: normalizeOptions(options?.fuelType || options?.fuel_types || []),
-      size: normalizeOptions(options?.size),
-      age_range: normalizeOptions(options?.age_range),
-      bedrooms: normalizeOptions(options?.bedrooms),
-      bathrooms: normalizeOptions(options?.bathrooms),
+      brand:            normalizeOptions(options?.brands),
+      color:            normalizeOptions(options?.colors),
+      condition:        normalizeOptions(options?.conditions),
+      used_detail:      normalizeOptions(options?.used_details ?? options?.usedDetails ?? []),
+      ram:              normalizeOptions(options?.ram),
+      storage:          normalizeOptions(options?.storage),
+      sim:              normalizeOptions(options?.sim),
+      year:             normalizeOptions(options?.years),
+      engine:           normalizeOptions(options?.engine ?? options?.engines ?? []),
+      fuel_type:        normalizeOptions(options?.fuelType ?? options?.fuel_types ?? []),
+      size:             normalizeOptions(options?.size),
+      age_range:        normalizeOptions(options?.age_range),
+      bedrooms:         normalizeOptions(options?.bedrooms),
+      bathrooms:        normalizeOptions(options?.bathrooms),
       experience_level: normalizeOptions(options?.experience_level),
-      skills: normalizeOptions(options?.skills),
-      features: Array.isArray(options?.features) ? options.features : [],
+      skills:           normalizeOptions(options?.skills),
+      features:         Array.isArray(options?.features) ? options.features : [],
     }),
     [options]
   );
 
-  const isFreePlan = !selectedPlan || Number(selectedPlan?.price || 0) === 0;
+  const isFreePlan = !selectedPlan || Number(selectedPlan?.price ?? 0) === 0;
+
+  // Safe features array — never iterate a string
+  const currentFeatures = toArray(attributes?.features);
+
+  // ── Render ───────────────────────────────────────────────────────────────
 
   return (
     <>
       <AddProductHeader title="Add Product" onClearDraft={clearDraft} />
 
-      {error ? <div className="form-error">⚠️ {error}</div> : null}
-      {success ? <div className="form-success">✅ {success}</div> : null}
+      {/* ── Alerts ── */}
+      {error   && <div className="form-error">⚠️ {error}</div>}
+      {success && <div className="form-success">✅ {success}</div>}
 
+      {/* ══════════════════════════════════════════
+          BASIC INFORMATION
+      ══════════════════════════════════════════ */}
       <section className="section form-card">
         <h3 className="section-title">Basic Information</h3>
 
         <div className="form-group">
           <label>Product Title *</label>
           <input
-            placeholder="Enter product title"
+            placeholder="e.g. HP Pavilion 15 Laptop"
             value={form.title}
             onChange={(e) => updateForm("title", e.target.value)}
           />
@@ -137,7 +174,7 @@ export default function ProductComponents({
           <label>Description *</label>
           <textarea
             rows={4}
-            placeholder="Describe your product"
+            placeholder="Describe your product in detail"
             value={form.description}
             onChange={(e) => updateForm("description", e.target.value)}
           />
@@ -155,9 +192,13 @@ export default function ProductComponents({
         </div>
       </section>
 
+      {/* ══════════════════════════════════════════
+          PRODUCT DETAILS
+      ══════════════════════════════════════════ */}
       <section className="section form-card">
         <h3 className="section-title">Product Details</h3>
 
+        {/* Category */}
         <div className="form-group">
           <label>Category *</label>
           <DropdownModal
@@ -165,52 +206,69 @@ export default function ProductComponents({
             options={categoryOptions}
             placeholder="Select category"
             onChange={(value) => {
-              updateForm("category_id", value);
+              updateForm("category_id",    value);
               updateForm("subcategory_id", "");
-              updateForm("attributes", INITIAL_FORM.attributes);
+              updateForm("attributes",     INITIAL_FORM.attributes);
             }}
           />
         </div>
 
+        {/* Subcategory */}
         {subcategories.length > 0 && (
           <div className="form-group">
             <label>Subcategory</label>
             <DropdownModal
               value={String(form.subcategory_id || "")}
-              options={subcategories.map((sub) => ({
-                id: String(sub.id),
-                name: sub.name,
-              }))}
+              options={subcategories.map((sub) => ({ id: String(sub.id), name: sub.name }))}
               placeholder="Select subcategory"
               onChange={(value) => updateForm("subcategory_id", value)}
             />
           </div>
         )}
 
+        {/* Brand */}
         {optionsMap.brand.length > 0 && (
           <div className="form-group">
             <label>{formatLabel("brand")}</label>
             <DropdownModal
-              value={attributes?.brand || ""}
+              value={attributes?.brand ?? ""}
               options={optionsMap.brand}
               onChange={(v) => updateAttribute("brand", v)}
             />
           </div>
         )}
 
-        {modelOptions.length > 0 && (
+        {/* Model — dropdown when backend has a model list */}
+        {showModelDropdown && (
           <div className="form-group">
             <label>{formatLabel("model")}</label>
             <DropdownModal
-              value={attributes?.model || ""}
+              value={attributes?.model ?? ""}
               options={modelOptions}
               onChange={(v) => updateAttribute("model", v)}
             />
           </div>
         )}
 
+        {/* Model — free-text fallback when brand selected but no model list configured */}
+        {showModelInput && (
+          <div className="form-group">
+            <label>{formatLabel("model")}</label>
+            <input
+              type="text"
+              placeholder="e.g. Pavilion 15-eg3000, ThinkPad X1 Carbon"
+              value={attributes?.model ?? ""}
+              onChange={(e) => updateAttribute("model", e.target.value.trimStart())}
+            />
+            <small className="field-hint">
+              Type the exact model name as it appears on the device
+            </small>
+          </div>
+        )}
+
+        {/* Dynamic category fields */}
         {fields.map((field) => {
-          const fieldOptions = optionsMap[field] || [];
+          const fieldOptions = optionsMap[field] ?? [];
           if (!fieldOptions.length) return null;
           if (field === "used_detail" && attributes?.condition !== "Used") return null;
 
@@ -218,7 +276,7 @@ export default function ProductComponents({
             <div key={field} className="form-group">
               <label>{formatLabel(field)}</label>
               <DropdownModal
-                value={attributes?.[field] || ""}
+                value={attributes?.[field] ?? ""}
                 options={fieldOptions}
                 onChange={(v) => updateAttribute(field, v)}
               />
@@ -226,6 +284,7 @@ export default function ProductComponents({
           );
         })}
 
+        {/* Features checkboxes */}
         {optionsMap.features.length > 0 && (
           <div className="form-group">
             <label>Features</label>
@@ -234,7 +293,7 @@ export default function ProductComponents({
                 <label key={feature} className="checkbox-inline">
                   <input
                     type="checkbox"
-                    checked={attributes?.features?.includes(feature) || false}
+                    checked={currentFeatures.includes(feature)}
                     onChange={() => toggleFeature(feature)}
                   />
                   <span>{formatLabel(feature)}</span>
@@ -245,6 +304,9 @@ export default function ProductComponents({
         )}
       </section>
 
+      {/* ══════════════════════════════════════════
+          CONTACT INFORMATION
+      ══════════════════════════════════════════ */}
       <section className="section form-card">
         <h3 className="section-title">Contact Information</h3>
 
@@ -291,8 +353,37 @@ export default function ProductComponents({
         </div>
       </section>
 
+      {/* ══════════════════════════════════════════
+          LOCATION & DELIVERY
+      ══════════════════════════════════════════ */}
       <section className="section form-card">
-        <h3 className="section-title">Location & Delivery</h3>
+        <h3 className="section-title">Location &amp; Delivery</h3>
+
+        {/* Detect location button */}
+        {detectLocation && (
+          <div className="detect-location-row">
+            <button
+              type="button"
+              className="detect-location-btn"
+              onClick={detectLocation}
+              disabled={detectingLocation}
+            >
+              {detectingLocation ? (
+                <>
+                  <span className="detect-spinner" />
+                  Detecting…
+                </>
+              ) : (
+                <>
+                  📍 {detectedCoords ? "Location detected ✓" : "Detect my location"}
+                </>
+              )}
+            </button>
+            <small className="field-hint">
+              Auto-fills your state and city
+            </small>
+          </div>
+        )}
 
         <div className="form-row">
           <div className="form-group">
@@ -318,6 +409,7 @@ export default function ProductComponents({
           )}
         </div>
 
+        {/* Delivery toggle */}
         <div className="form-group">
           <label>Delivery Available</label>
           <label className="toggle-switch">
@@ -340,9 +432,7 @@ export default function ProductComponents({
                   min="1"
                   max="30"
                   value={form.delivery.duration.from}
-                  onChange={(e) =>
-                    updateDeliveryDuration("from", onlyDigits(e.target.value))
-                  }
+                  onChange={(e) => updateDeliveryDuration("from", onlyDigits(e.target.value))}
                 />
               </div>
               <div className="form-group">
@@ -352,9 +442,7 @@ export default function ProductComponents({
                   min="1"
                   max="30"
                   value={form.delivery.duration.to}
-                  onChange={(e) =>
-                    updateDeliveryDuration("to", onlyDigits(e.target.value))
-                  }
+                  onChange={(e) => updateDeliveryDuration("to", onlyDigits(e.target.value))}
                 />
               </div>
             </div>
@@ -382,17 +470,18 @@ export default function ProductComponents({
         )}
       </section>
 
+      {/* ══════════════════════════════════════════
+          PRODUCT IMAGES
+      ══════════════════════════════════════════ */}
       <section className="section form-card">
         <h3 className="section-title">Product Images *</h3>
-        <label className="form-group-label">Max {MAX_IMAGES} images</label>
+        <small className="field-hint">Max {MAX_IMAGES} images · up to 3 MB each</small>
 
         <div className="preview-grid-modern image-upload-box">
           {images.map((img) => (
             <div key={img.id} className="preview-thumb">
               <img src={img.preview} alt="preview" />
-              <button type="button" onClick={() => removeImage(img.id)}>
-                ✕
-              </button>
+              <button type="button" onClick={() => removeImage(img.id)}>✕</button>
             </div>
           ))}
 
@@ -416,11 +505,14 @@ export default function ProductComponents({
 
         {images.length > 0 && (
           <small className="image-count">
-            {images.length}/{MAX_IMAGES} images
+            {images.length}/{MAX_IMAGES} images added
           </small>
         )}
       </section>
 
+      {/* ══════════════════════════════════════════
+          PROMOTION PLAN
+      ══════════════════════════════════════════ */}
       <section className="section form-card">
         <h3 className="section-title">Promotion Plan</h3>
         <div className="plans-grid">
@@ -432,33 +524,43 @@ export default function ProductComponents({
             >
               <div className="plan-header">
                 <strong>{plan.name}</strong>
-                <span className="plan-price">₦{displayPrice(plan.price)}</span>
+                <span className="plan-price">
+                  {Number(plan.price) === 0 ? "Free" : `₦${displayPrice(plan.price)}`}
+                </span>
               </div>
-              <div className="plan-duration">{plan.duration || "Always"}</div>
+              <div className="plan-duration">{plan.duration || "Always active"}</div>
               {plan.description && <small>{plan.description}</small>}
             </div>
           ))}
         </div>
       </section>
 
+      {/* ══════════════════════════════════════════
+          TERMS + SUBMIT
+      ══════════════════════════════════════════ */}
       <div className="button-section section form-card">
+
+        {/* Terms & Conditions checkbox — rendered from AddProduct.jsx via prop */}
+        {TermsCheckbox}
+
         <button
           type="button"
-          disabled={loading}
+          disabled={loading || !agreedToTerms}
           className="primary-btn full-width"
           onClick={handleSubmit}
+          title={!agreedToTerms ? "Please accept the Terms & Conditions first" : undefined}
         >
           {loading
-            ? "⏳ Processing..."
+            ? "⏳ Processing…"
             : isFreePlan
-              ? "🚀 Create Product"
-              : "🚀 Create & Publish Product"}
+              ? "🚀 Post Ad"
+              : "🚀 Post Ad & Pay"}
         </button>
 
         {paymentData && (
           <button
             type="button"
-            className="secondary-btn full-width"
+            className="outline-btn full-width"
             onClick={() => window.open(paymentData.authUrl, "_blank")}
           >
             💳 Complete Payment
