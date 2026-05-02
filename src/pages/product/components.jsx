@@ -8,7 +8,9 @@ function normalizeOptions(list) {
   if (!Array.isArray(list)) return [];
   return list
     .map((item) => {
-      if (typeof item === "string") return { id: item, name: item };
+      if (typeof item === "string") {
+        return { id: item, name: item };
+      }
       return {
         id: String(item.id ?? item.value ?? item.name ?? ""),
         name: item.name ?? item.label ?? item.id ?? "",
@@ -67,11 +69,14 @@ export default function ProductComponents({
   }, [categories]);
 
   const activeCategory = selectedCategory || getSelectedCategory(categories, form.category_id);
+  const subcategories = activeCategory?.subcategories || [];
 
   const fields = useMemo(() => {
     if (!activeCategory) return [];
+
     const backendFields = Array.isArray(options?.fields) ? options.fields : [];
     const localFields = categoryFields[activeCategory.name] || [];
+
     return [...backendFields, ...localFields]
       .filter(Boolean)
       .filter((field, index, arr) => arr.indexOf(field) === index)
@@ -80,7 +85,8 @@ export default function ProductComponents({
 
   const modelOptions = useMemo(() => {
     if (!attributes?.brand) return [];
-    return normalizeOptions(options?.models?.[String(attributes.brand).toLowerCase()] || []);
+    const brandKey = String(attributes.brand).toLowerCase();
+    return normalizeOptions(options?.models?.[brandKey] || []);
   }, [attributes?.brand, options]);
 
   const optionsMap = useMemo(
@@ -165,6 +171,21 @@ export default function ProductComponents({
             }}
           />
         </div>
+
+        {subcategories.length > 0 && (
+          <div className="form-group">
+            <label>Subcategory</label>
+            <DropdownModal
+              value={String(form.subcategory_id || "")}
+              options={subcategories.map((sub) => ({
+                id: String(sub.id),
+                name: sub.name,
+              }))}
+              placeholder="Select subcategory"
+              onChange={(value) => updateForm("subcategory_id", value)}
+            />
+          </div>
+        )}
 
         {optionsMap.brand.length > 0 && (
           <div className="form-group">
@@ -319,7 +340,9 @@ export default function ProductComponents({
                   min="1"
                   max="30"
                   value={form.delivery.duration.from}
-                  onChange={(e) => updateDeliveryDuration("from", onlyDigits(e.target.value))}
+                  onChange={(e) =>
+                    updateDeliveryDuration("from", onlyDigits(e.target.value))
+                  }
                 />
               </div>
               <div className="form-group">
@@ -329,7 +352,9 @@ export default function ProductComponents({
                   min="1"
                   max="30"
                   value={form.delivery.duration.to}
-                  onChange={(e) => updateDeliveryDuration("to", onlyDigits(e.target.value))}
+                  onChange={(e) =>
+                    updateDeliveryDuration("to", onlyDigits(e.target.value))
+                  }
                 />
               </div>
             </div>
