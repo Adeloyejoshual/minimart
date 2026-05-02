@@ -14,7 +14,6 @@ function normalizeOptions(list) {
     if (typeof item === "string") {
       return { id: item, name: item };
     }
-
     return {
       id: String(item.id ?? item.value ?? item.name),
       name: item.name ?? item.label ?? item.id,
@@ -28,7 +27,6 @@ function getSelectedCategory(categories, id) {
   const found = categories.find(
     (item) => String(item.id) === String(id)
   );
-
   return found || null;
 }
 
@@ -73,7 +71,7 @@ export default function ProductComponents({
   const MAX_IMAGES = 6;
 
   /* ==========================================
-     CATEGORY OPTIONS FIX
+     CATEGORY OPTIONS
   ========================================== */
   const categoryOptions = useMemo(() => {
     if (!Array.isArray(categories)) return [];
@@ -96,7 +94,6 @@ export default function ProductComponents({
 
     const backendFields =
       Array.isArray(options?.fields) ? options.fields : [];
-
     const localFields =
       categoryFields[activeCategory.name] || [];
 
@@ -137,8 +134,9 @@ export default function ProductComponents({
       options?.conditions
     ),
     used_detail: normalizeOptions(
-      options?.usedDetails ||
-        options?.used_details
+      options?.used_details ||
+        options?.usedDetails ||
+        []
     ),
     ram: normalizeOptions(options?.ram),
     storage: normalizeOptions(
@@ -147,12 +145,14 @@ export default function ProductComponents({
     sim: normalizeOptions(options?.sim),
     year: normalizeOptions(options?.years),
     engine: normalizeOptions(
-      options?.engines ||
-        options?.engine
+      options?.engine ||
+        options?.engines ||
+        []
     ),
     fuel_type: normalizeOptions(
-      options?.fuel_types ||
-        options?.fuelType
+      options?.fuelType ||
+        options?.fuel_types ||
+        []
     ),
     size: normalizeOptions(options?.size),
     age_range: normalizeOptions(
@@ -177,9 +177,6 @@ export default function ProductComponents({
       : [],
   };
 
-  /* ==========================================
-     JSX
-  ========================================== */
   return (
     <>
       <AddProductHeader
@@ -196,9 +193,7 @@ export default function ProductComponents({
         </h3>
 
         <div className="form-group">
-          <label>
-            Product Title *
-          </label>
+          <label>Product Title *</label>
           <input
             placeholder="Enter product title"
             value={form.title}
@@ -212,9 +207,7 @@ export default function ProductComponents({
         </div>
 
         <div className="form-group">
-          <label>
-            Description *
-          </label>
+          <label>Description *</label>
           <textarea
             rows={4}
             placeholder="Describe your product"
@@ -257,88 +250,44 @@ export default function ProductComponents({
           Product Details
         </h3>
 
-        {/* CATEGORY FIXED */}
+        {/* CATEGORY */}
         <div className="form-group">
           <label>Category *</label>
-
           <DropdownModal
-            value={String(
-              form.category_id || ""
-            )}
-            options={
-              categoryOptions
-            }
+            value={String(form.category_id || "")}
+            options={categoryOptions}
             placeholder="Select category"
             onChange={(value) => {
-              updateForm(
-                "category_id",
-                value
-              );
-
-              updateForm(
-                "subcategory_id",
-                ""
-              );
-
-              updateForm(
-                "attributes",
-                INITIAL_FORM.attributes
-              );
+              updateForm("category_id", value);
+              updateForm("subcategory_id", "");
+              updateForm("attributes", INITIAL_FORM.attributes);
             }}
           />
         </div>
 
         {/* BRAND */}
-        {optionsMap.brand.length >
-          0 && (
+        {optionsMap.brand.length > 0 && (
           <div className="form-group">
-            <label>
-              {formatLabel(
-                "brand"
-              )}
-            </label>
-
+            <label>{formatLabel("brand")}</label>
             <DropdownModal
-              value={
-                attributes?.brand ||
-                ""
-              }
-              options={
-                optionsMap.brand
-              }
+              value={attributes?.brand || ""}
+              options={optionsMap.brand}
               onChange={(v) =>
-                updateAttribute(
-                  "brand",
-                  v
-                )
+                updateAttribute("brand", v)
               }
             />
           </div>
         )}
 
         {/* MODEL */}
-        {modelOptions.length >
-          0 && (
+        {modelOptions.length > 0 && (
           <div className="form-group">
-            <label>
-              {formatLabel(
-                "model"
-              )}
-            </label>
-
+            <label>{formatLabel("model")}</label>
             <DropdownModal
-              value={
-                attributes?.model ||
-                ""
-              }
-              options={
-                modelOptions
-              }
+              value={attributes?.model || ""}
+              options={modelOptions}
               onChange={(v) =>
-                updateAttribute(
-                  "model",
-                  v
-                )
+                updateAttribute("model", v)
               }
             />
           </div>
@@ -347,19 +296,13 @@ export default function ProductComponents({
         {/* OTHER FIELDS */}
         {fields.map((field) => {
           const fieldOptions =
-            optionsMap[field] ||
-            [];
+            optionsMap[field] || [];
+
+          if (!fieldOptions.length) return null;
 
           if (
-            !fieldOptions.length
-          )
-            return null;
-
-          if (
-            field ===
-              "used_detail" &&
-            attributes?.condition !==
-              "Used"
+            field === "used_detail" &&
+            attributes?.condition !== "Used"
           ) {
             return null;
           }
@@ -369,26 +312,12 @@ export default function ProductComponents({
               key={field}
               className="form-group"
             >
-              <label>
-                {formatLabel(
-                  field
-                )}
-              </label>
-
+              <label>{formatLabel(field)}</label>
               <DropdownModal
-                value={
-                  attributes?.[
-                    field
-                  ] || ""
-                }
-                options={
-                  fieldOptions
-                }
+                value={attributes?.[field] || ""}
+                options={fieldOptions}
                 onChange={(v) =>
-                  updateAttribute(
-                    field,
-                    v
-                  )
+                  updateAttribute(field, v)
                 }
               />
             </div>
@@ -396,49 +325,31 @@ export default function ProductComponents({
         })}
 
         {/* FEATURES */}
-        {optionsMap.features
-          .length > 0 && (
+        {optionsMap.features.length > 0 && (
           <div className="form-group">
-            <label>
-              Features
-            </label>
-
+            <label>Features</label>
             <div className="checkbox-grid-inline">
               {optionsMap.features
                 .slice(0, 12)
-                .map(
-                  (
-                    feature
-                  ) => (
-                    <label
-                      key={
-                        feature
-                      }
-                      className="checkbox-inline"
-                    >
-                      <input
-                        type="checkbox"
-                        checked={
-                          attributes?.features?.includes(
-                            feature
-                          ) ||
-                          false
-                        }
-                        onChange={() =>
-                          toggleFeature(
-                            feature
-                          )
-                        }
-                      />
-
-                      <span>
-                        {formatLabel(
+                .map((feature) => (
+                  <label
+                    key={feature}
+                    className="checkbox-inline"
+                  >
+                    <input
+                      type="checkbox"
+                      checked={
+                        attributes?.features?.includes(
                           feature
-                        )}
-                      </span>
-                    </label>
-                  )
-                )}
+                        ) || false
+                      }
+                      onChange={() =>
+                        toggleFeature(feature)
+                      }
+                    />
+                    <span>{formatLabel(feature)}</span>
+                  </label>
+                ))}
             </div>
           </div>
         )}
@@ -457,10 +368,7 @@ export default function ProductComponents({
             <label>Email *</label>
             <input
               type="email"
-              value={
-                form.contact
-                  .email
-              }
+              value={form.contact.email}
               placeholder="your@email.com"
               onChange={(e) =>
                 updateContact(
@@ -470,23 +378,16 @@ export default function ProductComponents({
               }
             />
           </div>
-
           <div className="form-group">
             <label>Phone *</label>
             <input
               type="tel"
-              value={
-                form.contact
-                  .phone
-              }
+              value={form.contact.phone}
               placeholder="08012345678"
               onChange={(e) =>
                 updateContact(
                   "phone",
-                  onlyDigits(
-                    e.target
-                      .value
-                  )
+                  onlyDigits(e.target.value)
                 )
               }
             />
@@ -495,38 +396,24 @@ export default function ProductComponents({
 
         <div className="form-row">
           <div className="form-group">
-            <label>
-              WhatsApp *
-            </label>
+            <label>WhatsApp *</label>
             <input
               type="tel"
-              value={
-                form.contact
-                  .whatsapp
-              }
+              value={form.contact.whatsapp}
               placeholder="08012345678"
               onChange={(e) =>
                 updateContact(
                   "whatsapp",
-                  onlyDigits(
-                    e.target
-                      .value
-                  )
+                  onlyDigits(e.target.value)
                 )
               }
             />
           </div>
-
           <div className="form-group">
-            <label>
-              WhatsApp Link
-            </label>
+            <label>WhatsApp Link</label>
             <input
               type="url"
-              value={
-                form.contact
-                  .whatsapp_link
-              }
+              value={form.contact.whatsapp_link}
               placeholder="https://wa.me/234..."
               onChange={(e) =>
                 updateContact(
@@ -540,7 +427,7 @@ export default function ProductComponents({
       </section>
 
       {/* =====================================
-          DELIVERY (UNCHANGED)
+          LOCATION & DELIVERY
       ===================================== */}
       <section className="section form-card">
         <h3 className="section-title">
@@ -550,51 +437,36 @@ export default function ProductComponents({
         <div className="form-row">
           <div className="form-group">
             <label>State *</label>
-
             <DropdownModal
               value={state}
               onChange={setState}
-              options={states.map(
-                (s) => ({
-                  id: s,
-                  name: s,
-                })
-              )}
+              options={states.map((s) => ({
+                id: s,
+                name: s,
+              }))}
             />
           </div>
-
           {state && (
             <div className="form-group">
-              <label>
-                City *
-              </label>
-
+              <label>City *</label>
               <DropdownModal
                 value={city}
                 onChange={setCity}
-                options={cities.map(
-                  (c) => ({
-                    id: c,
-                    name: c,
-                  })
-                )}
+                options={cities.map((c) => ({
+                  id: c,
+                  name: c,
+                }))}
               />
             </div>
           )}
         </div>
 
         <div className="form-group">
-          <label>
-            Delivery Available
-          </label>
-
+          <label>Delivery Available</label>
           <label className="toggle-switch">
             <input
               type="checkbox"
-              checked={
-                form.delivery
-                  .available
-              }
+              checked={form.delivery.available}
               onChange={(e) =>
                 updateDelivery(
                   "available",
@@ -606,57 +478,35 @@ export default function ProductComponents({
           </label>
         </div>
 
-        {form.delivery
-          .available && (
+        {form.delivery.available && (
           <div className="delivery-grid">
             <div className="form-row">
               <div className="form-group">
-                <label>
-                  From Day *
-                </label>
-
+                <label>From Day *</label>
                 <input
                   type="number"
                   min="1"
                   max="30"
-                  value={
-                    form.delivery
-                      .duration
-                      .from
-                  }
+                  value={form.delivery.duration.from}
                   onChange={(e) =>
                     updateDeliveryDuration(
                       "from",
-                      onlyDigits(
-                        e.target
-                          .value
-                      )
+                      onlyDigits(e.target.value)
                     )
                   }
                 />
               </div>
-
               <div className="form-group">
-                <label>
-                  To Day *
-                </label>
-
+                <label>To Day *</label>
                 <input
                   type="number"
                   min="1"
                   max="30"
-                  value={
-                    form.delivery
-                      .duration
-                      .to
-                  }
+                  value={form.delivery.duration.to}
                   onChange={(e) =>
                     updateDeliveryDuration(
                       "to",
-                      onlyDigits(
-                        e.target
-                          .value
-                      )
+                      onlyDigits(e.target.value)
                     )
                   }
                 />
@@ -665,45 +515,30 @@ export default function ProductComponents({
 
             <div className="form-row">
               <div className="form-group">
-                <label>
-                  Fee (₦) *
-                </label>
-
+                <label>Fee (₦) *</label>
                 <input
                   type="text"
                   inputMode="numeric"
                   value={displayPrice(
-                    form.delivery
-                      .fee
+                    form.delivery.fee
                   )}
                   onChange={(e) =>
                     updateDelivery(
                       "fee",
-                      onlyNumbers(
-                        e.target
-                          .value
-                      )
+                      onlyNumbers(e.target.value)
                     )
                   }
                 />
               </div>
-
               <div className="form-group">
-                <label>
-                  Delivery Note
-                </label>
-
+                <label>Delivery Note</label>
                 <textarea
                   rows={2}
-                  value={
-                    form.delivery
-                      .note
-                  }
+                  value={form.delivery.note}
                   onChange={(e) =>
                     updateDelivery(
                       "note",
-                      e.target
-                        .value
+                      e.target.value
                     )
                   }
                 />
@@ -720,10 +555,7 @@ export default function ProductComponents({
         <h3 className="section-title">
           Product Images *
         </h3>
-
-        <label className="form-group-label">
-          Max 6 images
-        </label>
+        <label className="form-group-label">Max 6 images</label>
 
         <div className="preview-grid-modern image-upload-box">
           {images.map((img) => (
@@ -732,18 +564,13 @@ export default function ProductComponents({
               className="preview-thumb"
             >
               <img
-                src={
-                  img.preview
-                }
+                src={img.preview}
                 alt="preview"
               />
-
               <button
                 type="button"
                 onClick={() =>
-                  removeImage(
-                    img.id
-                  )
+                  removeImage(img.id)
                 }
               >
                 ✕
@@ -751,40 +578,27 @@ export default function ProductComponents({
             </div>
           ))}
 
-          {images.length <
-            MAX_IMAGES && (
+          {images.length < MAX_IMAGES && (
             <label className="add-image-box add-image-btn">
               <input
                 hidden
                 multiple
                 type="file"
                 accept="image/*"
-                onChange={(
-                  e
-                ) => {
-                  handleImages(
-                    e.target
-                      .files
-                  );
-                  e.target.value =
-                    "";
+                onChange={(e) => {
+                  handleImages(e.target.files);
+                  e.target.value = "";
                 }}
               />
-
               <div>+</div>
-              <span>
-                Add Images
-              </span>
+              <span>Add Images</span>
             </label>
           )}
         </div>
 
-        {images.length >
-          0 && (
+        {images.length > 0 && (
           <small className="image-count">
-            {
-              images.length
-            }
+            {images.length}
             /6 images
           </small>
         )}
@@ -797,56 +611,31 @@ export default function ProductComponents({
         <h3 className="section-title">
           Promotion Plan
         </h3>
-
         <div className="plans-grid">
-          {promotionPlans.map(
-            (plan) => (
-              <div
-                key={
-                  plan.id
-                }
-                className={`plan-card ${
-                  selectedPlan?.id ===
-                  plan.id
-                    ? "selected"
-                    : ""
-                }`}
-                onClick={() =>
-                  setSelectedPlan(
-                    plan
-                  )
-                }
-              >
-                <div className="plan-header">
-                  <strong>
-                    {
-                      plan.name
-                    }
-                  </strong>
-
-                  <span className="plan-price">
-                    ₦
-                    {displayPrice(
-                      plan.price
-                    )}
-                  </span>
-                </div>
-
-                <div className="plan-duration">
-                  {plan.duration ||
-                    "Always"}
-                </div>
-
-                {plan.description && (
-                  <small>
-                    {
-                      plan.description
-                    }
-                  </small>
-                )}
+          {promotionPlans.map((plan) => (
+            <div
+              key={plan.id}
+              className={`plan-card ${
+                selectedPlan?.id === plan.id
+                  ? "selected"
+                  : ""
+              }`}
+              onClick={() => setSelectedPlan(plan)}
+            >
+              <div className="plan-header">
+                <strong>{plan.name}</strong>
+                <span className="plan-price">
+                  ₦{displayPrice(plan.price)}
+                </span>
               </div>
-            )
-          )}
+              <div className="plan-duration">
+                {plan.duration || "Always"}
+              </div>
+              {plan.description && (
+                <small>{plan.description}</small>
+              )}
+            </div>
+          ))}
         </div>
       </section>
 
@@ -858,9 +647,7 @@ export default function ProductComponents({
           type="button"
           disabled={loading}
           className="primary-btn full-width"
-          onClick={
-            handleSubmit
-          }
+          onClick={handleSubmit}
         >
           {loading
             ? "⏳ Processing..."
@@ -884,7 +671,7 @@ export default function ProductComponents({
       </div>
 
       {/* =====================================
-          STATUS
+          STATUS MESSAGES
       ===================================== */}
       {error && (
         <div className="form-error">
