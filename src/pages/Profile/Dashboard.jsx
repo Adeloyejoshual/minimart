@@ -1,3 +1,4 @@
+import "../../style/Dashboard.css";  // ✅ Primary styles
 import React, { useEffect, useState } from "react";
 import axios from "axios";
 import {
@@ -8,7 +9,7 @@ import {
   FiAward,
   FiTrendingUp,
 } from "react-icons/fi";
-import "../../style/Profile.css";
+// Removed "../../style/Profile.css" - Dashboard.css handles everything
 
 const Dashboard = () => {
   const [data, setData] = useState(null);
@@ -22,8 +23,6 @@ const Dashboard = () => {
         const res = await axios.get("/api/dashboard/overview", {
           headers: { Authorization: `Bearer ${token}` },
         });
-        
-        // Handle nested structure from new API
         setData(res.data.data);
       } catch (err) {
         console.error(err);
@@ -32,7 +31,6 @@ const Dashboard = () => {
         setLoading(false);
       }
     };
-
     fetchData();
   }, []);
 
@@ -42,33 +40,33 @@ const Dashboard = () => {
   return (
     <div className="dashboard-section p-6 space-y-8">
       
-      {/* KPI CARDS - Matches new API exactly */}
-      <div className="stats-grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-6">
-        <div className="stats-card bg-gradient-to-r from-blue-500 to-blue-600">
+      {/* KPI CARDS - Pure CSS gradients */}
+      <div className="stats-grid">
+        <div className="stats-card"> {/* Products - Blue */}
           <FiPackage />
           <h3>{data.listings.products}</h3>
           <p>Active Products</p>
         </div>
 
-        <div className="stats-card bg-gradient-to-r from-green-500 to-green-600">
+        <div className="stats-card"> {/* Views - Green */}
           <FiEye />
           <h3>{data.listings.views.toLocaleString()}</h3>
           <p>Total Views</p>
         </div>
 
-        <div className="stats-card bg-gradient-to-r from-purple-500 to-purple-600">
+        <div className="stats-card"> {/* CTR - Purple */}
           <FiTrendingUp />
           <h3>{data.engagement.ctr}%</h3>
           <p>Click Rate</p>
         </div>
 
-        <div className="stats-card bg-gradient-to-r from-yellow-500 to-yellow-600">
+        <div className="stats-card"> {/* Seller Score - Yellow */}
           <FiAward />
           <h3>{data.sellerScore}</h3>
           <p>Seller Score</p>
         </div>
 
-        <div className="stats-card bg-gradient-to-r from-indigo-500 to-indigo-600">
+        <div className="stats-card"> {/* Rating - Indigo */}
           <FiStar />
           <h3>{data.trust.rating?.toFixed(1) || 0}</h3>
           <p>Rating</p>
@@ -76,7 +74,7 @@ const Dashboard = () => {
       </div>
 
       {/* BUSINESS INSIGHTS */}
-      <div className="dashboard-grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
+      <div className="dashboard-grid">
         <div className="dashboard-card">
           <h4>Total Revenue</h4>
           <h2>₦{data.business.totalSales?.toLocaleString() || 0}</h2>
@@ -97,7 +95,6 @@ const Dashboard = () => {
           <h2>{data.trust.trustScore || 50}</h2>
         </div>
       </div>
-
     </div>
   );
 };
