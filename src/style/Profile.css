@@ -1,15 +1,20 @@
+/* =========================================================
+   PROFILE PAGE – MINIMART‑THEME (ORANGE + INK)
+========================================================= */
+
 /* Page background */
 .profile-page {
-  background: linear-gradient(to bottom right, var(--gray-50), var(--gray-100), var(--gray-100));
+  background: linear-gradient(to bottom right, var(--bg), var(--bg), #e8e8e8);
   min-height: 100vh;
-  font-family: 'Inter', sans-serif;
+  font-family: var(--fb); /* 'Plus Jakarta Sans', system-ui, sans-serif */
+  color: var(--ink); /* #141210 */
   padding-bottom: 6rem; /* space for bottom nav */
 }
 
 /* Profile Card */
 .profile-card {
   background: #fff;
-  border: 1px solid var(--gray-100);
+  border: 1px solid var(--bd); /* #EAE6E0 */
   border-radius: 2rem;
   padding: 2rem;
   display: flex;
@@ -17,7 +22,7 @@
   gap: 2rem;
   align-items: center;
   justify-content: space-between;
-  box-shadow: 0 10px 25px rgba(0,0,0,0.05);
+  box-shadow: 0 10px 25px rgba(0, 0, 0, 0.05);
 }
 
 /* Avatar */
@@ -25,20 +30,20 @@
   width: 7rem;
   height: 7rem;
   border-radius: 50%;
-  background-color: var(--primary);
+  background-color: var(--o); /* #FF5C00 */
   display: flex;
   align-items: center;
   justify-content: center;
   color: #fff;
   font-size: 2rem;
-  box-shadow: 0 8px 20px rgba(0,0,0,0.1);
+  box-shadow: 0 8px 20px rgba(0, 0, 0, 0.1);
 }
 
 /* Menu List */
 .menu-list {
   background: #fff;
   border-radius: 2rem;
-  box-shadow: 0 10px 25px rgba(0,0,0,0.05);
+  box-shadow: 0 10px 25px rgba(0, 0, 0, 0.05);
   overflow: hidden;
 }
 
@@ -48,21 +53,24 @@
   padding: 1.5rem 2rem;
   font-size: 1.1rem;
   font-weight: 600;
-  color: var(--gray-900);
-  border-bottom: 1px solid var(--gray-100);
+  color: var(--ink); /* #141210 */
+  border-bottom: 1px solid var(--bd); /* #EAE6E0 */
   transition: all 0.3s;
 }
 
-.menu-item:last-child { border-bottom: none; }
+.menu-item:last-child {
+  border-bottom: none;
+}
 
 .menu-item:hover {
-  background: linear-gradient(to right, var(--primary), var(--primary-dark));
+  background: linear-gradient(to right, var(--o), #d94c00); /* orange → darker orange */
   color: #fff;
 }
 
 .menu-icon {
   font-size: 1.5rem;
   margin-right: 1rem;
+  color: inherit;
 }
 
 /* Floating Support Button */
@@ -70,11 +78,11 @@
   position: fixed;
   bottom: 6rem;
   right: 1.5rem;
-  background-color: var(--success);
+  background-color: var(--gn); /* #15803D */
   color: #fff;
   padding: 1.25rem;
   border-radius: 9999px;
-  box-shadow: 0 10px 25px rgba(0,0,0,0.1);
+  box-shadow: 0 10px 25px rgba(0, 0, 0, 0.1);
   transition: all 0.3s;
   display: flex;
   align-items: center;
@@ -82,6 +90,6 @@
 }
 
 .support-btn:hover {
-  background-color: #047857; /* darker green for hover */
+  background-color: #059669; /* slightly darker green, still in --gn family */
   transform: translateY(-3px);
 }
