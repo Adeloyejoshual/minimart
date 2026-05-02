@@ -312,4 +312,129 @@ router.post(
   }
 );
 
+/* ─── POST /products/:id/activate ───────────────────────────────────────────
+   Activates a product after creation.
+   - Free plan  → sets status = 'active', is_active = true
+   - Paid plan  → records the promotion and activates
+──────────────────────────────────────────────────────────────────────────── */
+router.post(
+  "/products/:id/activate",
+  authenticate,
+  async (req, res) => {
+    const client = await pool.connect();
+
+    try {
+      const product_id   = req.params.id;
+      const seller_id    = req.user.id;
+      const promotion_id = req.body.promotion_id ?? null;
+
+      // ── Verify product exists and belongs to this seller ────────────────
+      const { rows: productRows } = await client.query(
+        `SELECT id, status, seller_id FROM products WHERE id = $1`,
+        [product_id]
+      );
+
+      if (!productRows.length) {
+        return res.status(404).json({
+          success: false,
+          message: "Product not found",
+        });
+      }
+
+      if (productRows[0].seller_id !== seller_id) {
+        return res.status(403).json({
+          success: false,
+          message: "Not authorised to activate this product",
+        });
+      }
+
+      await client.query("BEGIN");
+
+      let promotionMeta = {};
+
+      if (promotion_id) {
+        // ── Look up the paid plan ──────────────────────────────────────────
+        const { rows: planRows } = await client.query(
+          `SELECT id, name, duration_days, type FROM promotion_plans WHERE id = $1`,
+          [promotion_id]
+        );
+
+        if (!planRows.length) {
+          await client.query("ROLLBACK");
+          return res.status(400).json({
+            success: false,
+            message: "Promotion plan not found",
+          });
+        }
+
+        const plan             = planRows[0];
+        const promotion_start  = new Date();
+        const promotion_end    = new Date(
+          promotion_start.getTime() + plan.duration_days * 24 * 60 * 60 * 1000
+        );
+
+        promotionMeta = {
+          promotion_id,
+          promotion_start,
+          promotion_end,
+          promotion_expires_at: promotion_end,
+          is_promoted:          true,
+          promotion_type:       plan.type ?? "standard",
+          promotion_priority:   10,
+        };
+      }
+
+      // ── Activate the product ───────────────────────────────────────────
+      const { rows } = await client.query(
+        `UPDATE products
+         SET
+           status               = 'active',
+           is_active            = true,
+           promotion_id         = COALESCE($2, promotion_id),
+           promotion_start      = COALESCE($3, promotion_start),
+           promotion_end        = COALESCE($4, promotion_end),
+           promotion_expires_at = COALESCE($5, promotion_expires_at),
+           is_promoted          = COALESCE($6, is_promoted),
+           promotion_type       = COALESCE($7, promotion_type),
+           promotion_priority   = COALESCE($8, promotion_priority),
+           updated_at           = NOW()
+         WHERE id = $1
+         RETURNING *`,
+        [
+          product_id,
+          promotionMeta.promotion_id         ?? null,
+          promotionMeta.promotion_start      ?? null,
+          promotionMeta.promotion_end        ?? null,
+          promotionMeta.promotion_expires_at ?? null,
+          promotionMeta.is_promoted          ?? null,
+          promotionMeta.promotion_type       ?? null,
+          promotionMeta.promotion_priority   ?? null,
+        ]
+      );
+
+      await client.query("COMMIT");
+
+      // ── Boost trending scores ──────────────────────────────────────────
+      redis.zIncrBy("trending:1h",  10, product_id).catch(() => {});
+      redis.zIncrBy("trending:24h", 10, product_id).catch(() => {});
+
+      return res.status(200).json({
+        success: true,
+        message: "Product activated successfully",
+        product: rows[0],
+      });
+
+    } catch (err) {
+      await client.query("ROLLBACK");
+      console.error("ACTIVATE ERROR:", err);
+      return res.status(500).json({
+        success: false,
+        message: "Failed to activate product",
+      });
+    } finally {
+      client.release();
+    }
+  }
+);
+
 export default router;
