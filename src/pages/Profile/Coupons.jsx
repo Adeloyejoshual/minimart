@@ -1,106 +1,80 @@
-import React, { useState, useEffect } from "react";
+import React, { useState } from "react";
 import "../../style/coupons.css";
 import { FiGift } from "react-icons/fi";
 
-// Fake coupons / rewards (what the user can win)
-const fakeCoupons = [
-  {
-    id: 1,
-    code: "WIN200",
-    label: "₦200 Airtime",
-    type: "airtime",
-    discount: 200,
-    active: true,
-    expiry: "2026-12-31T23:59:59Z",
-  },
-  {
-    id: 2,
-    code: "TRYAGAIN",
-    label: "Extra chance – Try again",
-    type: "try_again",
-    discount: 0,
-    active: true,
-    expiry: "2026-12-31T23:59:59Z",
-  },
-  {
-    id: 3,
-    code: "MENU100",
-    label: "*100# USSD code",
-    type: "ussd_code",
-    discount: 0,
-    active: true,
-    expiry: "2026-12-31T23:59:59Z",
-  },
-  {
-    id: 4,
-    code: "WIN1GB",
-    label: "1GB Data Bundle",
-    type: "data",
-    discount: 0,
-    active: true,
-    expiry: "2026-12-31T23:59:59Z",
-  },
+// Rewards user can win
+const rewards = [
+  { id: 1, label: "₦200 Airtime", type: "airtime", value: 200 },
+  { id: 2, label: "Extra chance – Try again", type: "try_again" },
+  { id: 3, label: "USSD code: *100#", type: "ussd_code" },
+  { id: 4, label: "1GB Data Bundle", type: "data" },
 ];
 
 const Coupons = () => {
-  const [loading, setLoading] = useState(true);
-  const [coupons, setCoupons] = useState([]);
+  const [spinning, setSpinning] = useState(false);
+  const [result, setResult] = useState(null);
+  const [showResult, setShowResult] = useState(false);
 
-  useEffect(() => {
-    // FAKE SPIN: show spinner for 2 seconds, then reveal coupons
-    const timer = setTimeout(() => {
-      setCoupons(fakeCoupons);
-      setLoading(false);
-    }, 2000);
+  const handleSpin = () => {
+    if (spinning) return;
 
-    return () => clearTimeout(timer);
-  }, []);
+    setSpinning(true);
+    setResult(null);
+    setShowResult(false);
+
+    // Fake spin delay
+    setTimeout(() => {
+      const randomIndex = Math.floor(Math.random() * rewards.length);
+      const selected = rewards[randomIndex];
+      setResult(selected);
+      setSpinning(false);
+      setShowResult(true);
+    }, 2000); // 2‑second spin
+  };
 
   return (
     <div className="dashboard-section p-6">
       <h2 className="text-2xl font-bold mb-4 flex items-center gap-2">
-        <FiGift /> Coupons & Rewards
+        <FiGift /> Lucky Win Spin
       </h2>
 
-      {loading ? (
-        <div className="flex justify-center items-center h-32">
-          <div className="w-8 h-8 border-4 border-blue-300 border-t-blue-600 rounded-full animate-spin"></div>
-          <span className="ml-2 text-gray-600">Spinning to win…</span>
-        </div>
-      ) : coupons.length === 0 ? (
-        <p className="text-gray-500">No rewards yet.</p>
-      ) : (
-        <div className="coupons-grid">
-          {coupons.map((coupon) => (
-            <div key={coupon.id} className="coupon-card">
-              <div className="coupon-header">
-                <span className="coupon-code">{coupon.code}</span>
-                <span className={`coupon-status ${coupon.active ? "active" : "inactive"}`}>
-                  {coupon.active ? "Active" : "Expired"}
-                </span>
-              </div>
-              <p className="coupon-desc">
-                <strong>{coupon.label}</strong>
-              </p>
-              {coupon.type === "airtime" && (
-                <p className="coupon-desc text-green-600">You won: ₦{coupon.discount}</p>
-              )}
-              {coupon.type === "data" && (
-                <p className="coupon-desc text-blue-600">You won: {coupon.label}</p>
-              )}
-              {coupon.type === "try_again" && (
-                <p className="coupon-desc text-orange-600">Reward: Extra chance – Try again</p>
-              )}
-              {coupon.type === "ussd_code" && (
-                <p className="coupon-desc text-purple-600">Use code: {coupon.label}</p>
-              )}
-              <p className="coupon-desc text-gray-500">
-                Expires: {new Date(coupon.expiry).toLocaleDateString()}
-              </p>
-            </div>
-          ))}
+      {/* Spin wheel / button */}
+      <div className="flex justify-center my-6">
+        <button
+          onClick={handleSpin}
+          disabled={spinning}
+          className={`px-8 py-3 font-bold text-white rounded-full transition-all ${
+            spinning ? "bg-gray-400 cursor-not-allowed" : "bg-blue-600 hover:bg-blue-700"
+          }`}
+        >
+          {spinning ? "Spinning…" : "Spin to win"}
+        </button>
+      </div>
+
+      {/* Fake spinner during spin */}
+      {spinning && (
+        <div className="flex justify-center my-4">
+          <div className="w-10 h-10 border-4 border-blue-300 border-t-blue-600 rounded-full animate-spin"></div>
         </div>
       )}
+
+      {/* Show result after spin */}
+      {showResult && result && (
+        <div className="text-center mt-6 p-4 bg-blue-50 border border-blue-200 rounded-lg">
+          <h3 className="text-lg font-bold text-blue-800">You won:</h3>
+          <p className="text-xl font-semibold text-blue-900">{result.label}</p>
+        </div>
+      )}
+
+      {/* Optional: list of possible rewards */}
+      <div className="mt-8">
+        <h3 className="text-sm text-gray-500 mb-2">Possible rewards:</h3>
+        <ul className="text-sm text-gray-600 space-y-1">
+          {rewards.map((r) => (
+            <li key={r.id}>- {r.label}</li>
+          ))}
+        </ul>
+      </div>
     </div>
   );
 };
