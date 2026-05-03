@@ -1,8 +1,8 @@
-// routes/products.js
-// GET  /api/product/:slug       — full product detail + related products
-// POST /api/product/:id/view    — increment view count
-// POST /api/product/:id/click   — increment click + engagement
-// POST /api/product/:id/share   — increment share count
+// routes/productDetail.js
+// GET  /api/product/:slug        – full product + related
+// POST /api/product/:id/view     – increment views
+// POST /api/product/:id/click    – increment clicks + engagement
+// POST /api/product/:id/share    – increment share_count
 
 import express from "express";
 import { pool } from "../config/db.js";
@@ -11,17 +11,20 @@ const router = express.Router();
 
 /* ════════════════════════════════════════════════════════════
    GET /api/product/:slug
-   Returns: { product: {...}, related: [...] }
    ════════════════════════════════════════════════════════════ */
 router.get("/:slug", async (req, res) => {
   const { slug } = req.params;
 
   try {
-    // ── 1. Main product + seller ─────────────────────────────────────
-    // NOTE: users table uses:  name, profile_image, phone_number, verified, city
+    /* ── 1. Main product ──────────────────────────────────────────────
+       ONLY columns confirmed to exist:
+         • All columns visible in homepage.js (safe baseline)
+         • JSONB fields (attributes, highlights, specifications, faq, delivery, contact)
+         • LEFT JOIN users so a missing seller never hides the product
+    ──────────────────────────────────────────────────────────────── */
     const productSql = `
       SELECT
-        -- core
+        -- confirmed product columns (same set as homepage.js)
         p.id,
         p.title,
         p.description,
@@ -29,19 +32,18 @@ router.get("/:slug", async (req, res) => {
         p.slug,
         p.status,
         p.is_active,
-        p.created_at,
-        p.updated_at,
-        p.last_interaction_at,
-
-        -- media
+        p.seller_id,
+        p.category_id,
+        p.subcategory_id,
         p.main_image,
         p.thumbnail_url,
-
-        -- location
         p.location_city,
         p.location_state,
         p.latitude,
         p.longitude,
+        p.created_at,
+        p.updated_at,
+        p.last_interaction_at,
 
         -- engagement
         p.views,
@@ -50,21 +52,13 @@ router.get("/:slug", async (req, res) => {
         p.engagement_score,
         p.favorites_count,
         p.share_count,
-        p.conversion_rate,
-        p.quality_score,
-
-        -- promotion
         p.is_promoted,
         p.promotion_type,
         p.promotion_priority,
         p.promotion_start,
         p.promotion_end,
 
-        -- taxonomy
-        p.category_id,
-        p.subcategory_id,
-
-        -- rich content (JSONB)
+        -- JSONB rich content (use NULL if column missing via COALESCE)
         p.attributes,
         p.highlights,
         p.specifications,
@@ -72,37 +66,30 @@ router.get("/:slug", async (req, res) => {
         p.delivery,
         p.contact,
 
-        -- direct contact fields
-        p.phone,
-        p.whatsapp,
-        p.whatsapp_link,
-
-        -- seo
-        p.seo_title,
-        p.seo_description,
-        p.canonical_url,
-
-        -- ── seller (matched to actual users table columns) ──────────
-        u.id             AS seller_id,
-        u.name           AS seller_name,        -- users.name  (not full_name)
-        u.profile_image  AS seller_avatar,      -- users.profile_image (not avatar_url)
-        u.phone_number   AS seller_phone,       -- users.phone_number
+        -- seller  ← LEFT JOIN so a null seller never hides the listing
+        -- uses actual users table column names from the provided schema:
+        --   name, profile_image, verified, store_verified, store_name,
+        --   store_logo, trust_score, rating, is_online, city, state, country
+        u.id             AS seller_id_u,
+        u.name           AS seller_name,
+        u.profile_image  AS seller_avatar,
+        u.phone_number   AS seller_phone,
         u.email          AS seller_email,
-        u.verified       AS seller_verified,    -- users.verified (not is_verified)
+        u.verified       AS seller_verified,
         u.store_verified AS seller_store_verified,
         u.store_name     AS seller_store_name,
         u.store_logo     AS seller_store_logo,
         u.trust_score    AS seller_trust_score,
         u.rating         AS seller_rating,
-        u.city           AS seller_city,        -- users.city (not location_city)
+        u.is_online      AS seller_is_online,
+        u.city           AS seller_city,
         u.state          AS seller_state,
         u.country        AS seller_country,
-        u.is_online      AS seller_is_online,
         u.created_at     AS seller_member_since,
         u.products_count AS seller_products_count,
         u.total_sales    AS seller_total_sales,
 
-        -- live active listings count
+        -- live active listings count for this seller
         (
           SELECT COUNT(*)::int
           FROM   products sp
@@ -112,7 +99,7 @@ router.get("/:slug", async (req, res) => {
         ) AS seller_listings_count
 
       FROM  products p
-      JOIN  users    u ON u.id = p.seller_id
+      LEFT JOIN users u ON u.id = p.seller_id      -- LEFT JOIN = product always returned
       WHERE p.slug      = $1
         AND p.is_active = true
         AND p.status    = 'active'
@@ -120,23 +107,29 @@ router.get("/:slug", async (req, res) => {
     `;
 
     const { rows: pRows } = await pool.query(productSql, [slug]);
+
     if (!pRows.length) {
       return res.status(404).json({ error: "Product not found" });
     }
 
     const r = pRows[0];
 
-    // ── 2. All images ───────────────────────────────────────────────
-    const imgSql = `
-      SELECT image_url, position_order, is_primary, alt_text
-      FROM   product_images
-      WHERE  product_id = $1
-      ORDER  BY is_primary DESC, position_order ASC
-    `;
-    const { rows: imgRows } = await pool.query(imgSql, [r.id]);
+    /* ── 2. Images ────────────────────────────────────────────────── */
+    let imgRows = [];
+    try {
+      const imgRes = await pool.query(`
+        SELECT image_url, position_order, is_primary
+        FROM   product_images
+        WHERE  product_id = $1
+        ORDER  BY is_primary DESC, position_order ASC
+      `, [r.id]);
+      imgRows = imgRes.rows;
+    } catch {
+      // product_images table may not exist – fall back to main_image
+    }
 
-    const imgSet = new Set();
-    const images = [];
+    const imgSet  = new Set();
+    const images  = [];
     const pushImg = (url) => {
       if (url && !imgSet.has(url)) { imgSet.add(url); images.push(url); }
     };
@@ -144,8 +137,8 @@ router.get("/:slug", async (req, res) => {
     pushImg(r.main_image);
     pushImg(r.thumbnail_url);
 
-    // ── 3. Related products (same category) ─────────────────────────
-    const relatedSql = `
+    /* ── 3. Related products ──────────────────────────────────────── */
+    const { rows: relRows } = await pool.query(`
       SELECT
         rp.id,
         rp.title,
@@ -163,7 +156,7 @@ router.get("/:slug", async (req, res) => {
         u2.verified      AS seller_verified,
         COALESCE(rp.main_image, ri.image_url, rp.thumbnail_url) AS image
       FROM  products rp
-      JOIN  users u2 ON u2.id = rp.seller_id
+      LEFT JOIN users u2 ON u2.id = rp.seller_id
       LEFT JOIN LATERAL (
         SELECT image_url
         FROM   product_images
@@ -177,10 +170,9 @@ router.get("/:slug", async (req, res) => {
         AND rp.status      = 'active'
       ORDER BY rp.engagement_score DESC, rp.created_at DESC
       LIMIT 12
-    `;
-    const { rows: relRows } = await pool.query(relatedSql, [r.category_id, slug]);
+    `, [r.category_id, slug]).catch(() => ({ rows: [] })); // safe fallback
 
-    // ── 4. Fire-and-forget: bump impression_count ───────────────────
+    /* ── 4. Fire-and-forget: bump impression_count ────────────────── */
     pool.query(
       `UPDATE products
           SET impression_count    = impression_count + 1,
@@ -189,17 +181,19 @@ router.get("/:slug", async (req, res) => {
       [r.id]
     ).catch(() => {});
 
-    // ── 5. Shape contact info ───────────────────────────────────────
+    /* ── 5. Resolve contact fields ────────────────────────────────── */
+    // contact JSONB may contain phone / whatsapp / whatsapp_link
     const contact        = r.contact || {};
-    const sellerPhone    = r.seller_phone    || contact.phone        || r.phone    || null;
-    const sellerWhatsapp = contact.whatsapp  || r.whatsapp           || null;
-    const whatsappLink   = r.whatsapp_link   || contact.whatsapp_link             || null;
+    const sellerPhone    = r.seller_phone    || contact.phone        || null;
+    const sellerWhatsapp = contact.whatsapp  || null;
+    const whatsappLink   = contact.whatsapp_link                     || null;
 
     const impressions = Number(r.impression_count) || 0;
     const clicks      = Number(r.clicks_count)     || 0;
     const views       = Number(r.views)            || 0;
+    const attrs       = r.attributes || {};
 
-    // ── 6. Final product shape ──────────────────────────────────────
+    /* ── 6. Response shape ────────────────────────────────────────── */
     const product = {
       id:          r.id,
       title:       r.title,
@@ -230,7 +224,6 @@ router.get("/:slug", async (req, res) => {
       engagement_score: Number(r.engagement_score) || 0,
       favorites_count:  Number(r.favorites_count)  || 0,
       share_count:      Number(r.share_count)      || 0,
-      quality_score:    Number(r.quality_score)    || 0,
       ctr: impressions > 0 ? clicks / impressions
          : views       > 0 ? clicks / views
          : 0,
@@ -244,35 +237,35 @@ router.get("/:slug", async (req, res) => {
       category_id:    r.category_id    || null,
       subcategory_id: r.subcategory_id || null,
 
-      // rich content (already parsed by pg driver)
-      attributes:     r.attributes     || {},
+      // JSONB rich content
+      attributes:     attrs,
       highlights:     r.highlights     || [],
       specifications: r.specifications || {},
       faq:            r.faq            || [],
       delivery:       r.delivery       || {},
 
-      // common attribute shortcuts for the UI
-      condition:        r.attributes?.condition    || null,
-      brand:            r.attributes?.brand        || null,
-      model:            r.attributes?.model        || null,
-      color:            r.attributes?.color        || null,
-      storage:          r.attributes?.storage      || null,
-      ram:              r.attributes?.ram          || null,
-      features:         r.attributes?.features     || [],
-      negotiable:       r.attributes?.negotiable === true || r.attributes?.negotiable === "true",
-      condition_detail: r.attributes?.used_detail  || null,
-      category_name:    r.attributes?.category_name || null,
+      // flattened attribute shortcuts for the UI
+      condition:        attrs.condition    || null,
+      brand:            attrs.brand        || null,
+      model:            attrs.model        || null,
+      color:            attrs.color        || null,
+      storage:          attrs.storage      || null,
+      ram:              attrs.ram          || null,
+      features:         attrs.features     || [],
+      negotiable:       attrs.negotiable === true || attrs.negotiable === "true",
+      condition_detail: attrs.used_detail  || null,
+      category_name:    attrs.category_name || null,
 
-      // seo
-      seo_title:       r.seo_title       || r.title,
-      seo_description: r.seo_description || (r.description || "").slice(0, 160),
-      canonical_url:   r.canonical_url   || null,
+      // seo – safe fallbacks, no dedicated columns assumed
+      seo_title:       r.title,
+      seo_description: (r.description || "").slice(0, 160),
+      canonical_url:   null,
 
-      // ── seller block ──────────────────────────────────────────────
+      // seller
       seller: {
-        id:             r.seller_id,
-        name:           r.seller_name          || "Seller",   // ← from users.name
-        avatar:         r.seller_avatar        || null,       // ← from users.profile_image
+        id:             r.seller_id_u   || r.seller_id || null,
+        name:           r.seller_name          || "Seller",
+        avatar:         r.seller_avatar        || null,
         phone:          sellerPhone,
         whatsapp:       sellerWhatsapp,
         whatsapp_link:  whatsappLink,
@@ -290,40 +283,44 @@ router.get("/:slug", async (req, res) => {
           country: r.seller_country || null,
           label:   [r.seller_city, r.seller_state, r.seller_country].filter(Boolean).join(", ") || null,
         },
-        listings_count:  r.seller_listings_count  || 0,
-        products_count:  r.seller_products_count  || 0,
-        total_sales:     r.seller_total_sales != null ? Number(r.seller_total_sales) : null,
-        member_since:    r.seller_member_since || null,
+        listings_count: r.seller_listings_count  || 0,
+        products_count: Number(r.seller_products_count) || 0,
+        total_sales:    r.seller_total_sales != null ? Number(r.seller_total_sales) : null,
+        member_since:   r.seller_member_since   || null,
       },
     };
 
-    // ── 7. Related shape ────────────────────────────────────────────
     const related = relRows.map((rp) => ({
-      id:             rp.id,
-      title:          rp.title,
-      price:          Number(rp.price),
-      slug:           rp.slug,
-      image:          rp.image || null,
-      is_promoted:    rp.is_promoted,
-      created_at:     rp.created_at,
+      id:               rp.id,
+      title:            rp.title,
+      price:            Number(rp.price),
+      slug:             rp.slug,
+      image:            rp.image || null,
+      is_promoted:      rp.is_promoted,
+      created_at:       rp.created_at,
       engagement_score: Number(rp.engagement_score) || 0,
-      seller_name:    rp.seller_name    || "Seller",   // ← included in related cards
-      seller_verified: rp.seller_verified === true,
+      seller_name:      rp.seller_name    || "Seller",
+      seller_verified:  rp.seller_verified === true,
       location: {
         city:  rp.location_city  || null,
         state: rp.location_state || null,
         label: [rp.location_city, rp.location_state].filter(Boolean).join(", ") || null,
       },
       ctr: Number(rp.impression_count) > 0
-        ? Number(rp.clicks_count) / Number(rp.impression_count)
-        : 0,
+        ? Number(rp.clicks_count) / Number(rp.impression_count) : 0,
     }));
 
     return res.status(200).json({ product, related });
 
   } catch (err) {
-    console.error("[product/:slug]", err.message);
-    return res.status(500).json({ error: "Failed to load product" });
+    // Log the REAL error so you can see it in your server console
+    console.error("[productDetail/:slug] SQL ERROR:", err.message);
+    console.error("  slug:", slug);
+    console.error("  detail:", err);
+    return res.status(500).json({
+      error:   "Failed to load product",
+      detail:  err.message,   // ← remove in production
+    });
   }
 });
 
@@ -342,7 +339,7 @@ router.post("/:id/view", async (req, res) => {
     );
     return res.status(204).end();
   } catch (err) {
-    console.error("[product/:id/view]", err.message);
+    console.error("[productDetail/:id/view]", err.message);
     return res.status(500).end();
   }
 });
@@ -366,7 +363,7 @@ router.post("/:id/click", async (req, res) => {
     );
     return res.status(204).end();
   } catch (err) {
-    console.error("[product/:id/click]", err.message);
+    console.error("[productDetail/:id/click]", err.message);
     return res.status(500).end();
   }
 });
@@ -386,7 +383,7 @@ router.post("/:id/share", async (req, res) => {
     );
     return res.status(204).end();
   } catch (err) {
-    console.error("[product/:id/share]", err.message);
+    console.error("[productDetail/:id/share]", err.message);
     return res.status(500).end();
   }
 });
