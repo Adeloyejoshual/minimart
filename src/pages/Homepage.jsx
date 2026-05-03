@@ -402,12 +402,11 @@ export default function Homepage({ user }) {
       applyData(data, true);
       setPage(nextPage);
     } catch (e) {
-      // Silent fail
       console.error("Failed to load more", e);
     } finally {
       setLoadingMore(false);
     }
-  }, [loadingMore, hasMore, page, apply(Some, data]);
+  }, [loadingMore, hasMore, page, applyData]);
 
   useEffect(() => {
     loadHomepage();
@@ -439,7 +438,7 @@ export default function Homepage({ user }) {
 
     observer.observe(sentinel);
     return () => observer.disconnect();
-  }, [hasMore, loadMore]);
+  }, [loadingMore, hasMore, page, applyData]);
 
   const locationLabel =
     meta.location ||
@@ -447,11 +446,9 @@ export default function Homepage({ user }) {
       ? "Near you"
       : null);
 
-  // For now, keep “all” as default; enable category filtering only when backend supports it
+  // For now, keep “all” as default; enable category filtering when backend supports it
   const currentSections =
-    category === "all"
-      ? sections
-      : sections; // will add backend‑based filter later
+    category === "all" ? sections : sections;
 
   return (
     <>
