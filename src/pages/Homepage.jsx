@@ -1,6 +1,6 @@
 /**
  * Homepage.jsx — Minimart (Production Optimized)
- * Production‑ready Nigerian marketplace homepage
+ * Built for schema: public.products table
  */
 
 import React, {
@@ -17,10 +17,16 @@ import BottomNav from "../components/BottomNav";
 import "../styles/Homepage.css";
 
 /* ─── Constants ─── */
-const API = import.meta.env.VITE_API_BASE || "https://minimart-ivrm.onrender.com/api";
-const PH = "https://placehold.co/600x500/e8e4dc/b0a89e?text=No+Image";
+const API =
+  import.meta.env.VITE_API_BASE || "https://minimart-ivrm.onrender.com/api";
+const PH =
+  "https://placehold.co/600x500/e8e4dc/b0a89e?text=No+Image";
 const HOVER = 900;
-const GPS_O = { timeout: 5000, enableHighAccuracy: false, maximumAge: 300_000 };
+const GPS_O = {
+  timeout: 5000,
+  enableHighAccuracy: false,
+  maximumAge: 300_000,
+};
 
 const CATEGORIES = [
   { id: "all", label: "All", icon: "✦" },
@@ -40,18 +46,13 @@ const naira = (n) =>
 const fresh = (d) => d && Date.now() - new Date(d).getTime() < 86_400_000;
 
 const getImageUrl = (p) => {
-  // 1. Pre‑processed image field
   if (p?.image) return p.image;
-
-  // 2. images array
   if (Array.isArray(p?.images) && p.images.length > 0) {
     const first = p.images[0];
     return typeof first === "string"
       ? first
       : first?.url || first?.thumbnail_url || PH;
   }
-
-  // 3. Legacy fallbacks
   return p?.thumbnail_url || p?.main_image || PH;
 };
 
@@ -61,18 +62,26 @@ const dedup = (arr) => {
 };
 
 const splitProducts = (products) => ({
-  featured: products.filter((p) => p.is_promoted).slice(0, 3),
-  nearby: products.filter((p) => p.distance_km != null || p.location?.city).slice(0, 10),
+  featured: products
+    .filter((p) => p.is_promoted)
+    .slice(0, 3),
+  nearby: products
+    .filter((p) => p.distance_km != null || p.location?.city)
+    .slice(0, 10),
   trending: products.slice(0, 14),
   deals: products.filter((p) => p.price <= 50_000).slice(0, 20),
   latest: products.slice(0, 40),
 });
 
 const getBadge = (p) => {
-  if (p.is_promoted) return { text: "Sponsored", className: "bd-feat" };
-  if ((p.ctr || 0) > 0.15) return { text: "Hot", className: "bd-hot" };
-  if ((p.ctr || 0) > 0.08) return { text: "Trending", className: "bd-trnd" };
-  if (fresh(p.createdAt)) return { text: "New", className: "bd-new" };
+  if (p.is_promoted)
+    return { text: "Sponsored", className: "bd-feat" };
+  if ((p.ctr || 0) > 0.15)
+    return { text: "Hot", className: "bd-hot" };
+  if ((p.ctr || 0) > 0.08)
+    return { text: "Trending", className: "bd-trnd" };
+  if (fresh(p.created_at))
+    return { text: "New", className: "bd-new" };
   return null;
 };
 
@@ -94,64 +103,74 @@ const SkeletonGrid = () => (
 );
 
 /* ─── Product Cards ─── */
-const OverlayCard = memo(({ product, rank, priority, onView, onClick }) => {
-  const timerRef = useRef(null);
-  const badge = getBadge(product);
-  const imageUrl = getImageUrl(product);
+const OverlayCard = memo(
+  ({ product, rank, priority, onView, onClick }) => {
+    const timerRef = useRef(null);
+    const badge = getBadge(product);
+    const imageUrl = getImageUrl(product);
 
-  const handleMouseEnter = () => {
-    timerRef.current = setTimeout(() => onView(product.id), HOVER);
-  };
+    const handleMouseEnter = () => {
+      timerRef.current = setTimeout(() => onView(product.id), HOVER);
+    };
 
-  const handleMouseLeave = () => {
-    if (timerRef.current) {
-      clearTimeout(timerRef.current);
-      timerRef.current = null;
-    }
-  };
+    const handleMouseLeave = () => {
+      if (timerRef.current) {
+        clearTimeout(timerRef.current);
+        timerRef.current = null;
+      }
+    };
 
-  return (
-    <div
-      className="co"
-      role="button"
-      tabIndex={0}
-      onClick={() => onClick(product)}
-      onKeyDown={(e) => {
-        if (e.key === "Enter") onClick(product);
-      }}
-      onMouseEnter={handleMouseEnter}
-      onMouseLeave={handleMouseLeave}
-    >
-      {badge && <span className={`bd ${badge.className}`}>{badge.text}</span>}
-      {rank != null && <span className="rank">#{rank + 1}</span>}
-
-      <img
-        className="co-img"
-        src={imageUrl}
-        alt={product.title}
-        loading={priority ? "eager" : "lazy"}
-        decoding="async"
-        fetchPriority={priority ? "high" : "auto"}
-        onError={(e) => {
-          e.currentTarget.src = PH;
+    return (
+      <div
+        className="co"
+        role="button"
+        tabIndex={0}
+        onClick={() => onClick(product)}
+        onKeyDown={(e) => {
+          if (e.key === "Enter") onClick(product);
         }}
-      />
-
-      <div className="co-grad">
-        <div className="co-name">{product.title}</div>
-        <div className="co-price">{naira(product.price)}</div>
-        <div className="co-foot">
-          <span className="co-loc">
-            📍 {product.location?.city || "Nationwide"}
+        onMouseEnter={handleMouseEnter}
+        onMouseLeave={handleMouseLeave}
+      >
+        {badge && (
+          <span
+            className={`bd ${badge.className}`}
+          >
+            {badge.text}
           </span>
-          {product.distance_km != null && (
-            <span className="dist">{product.distance_km} km</span>
-          )}
+        )}
+        {rank != null && <span className="rank">#{rank + 1}</span>}
+
+        <img
+          className="co-img"
+          src={imageUrl}
+          alt={product.title}
+          loading={priority ? "eager" : "lazy"}
+          decoding="async"
+          fetchPriority={priority ? "high" : "auto"}
+          onError={(e) => {
+            e.currentTarget.src = PH;
+          }}
+        />
+
+        <div className="co-grad">
+          <div className="co-name">{product.title}</div>
+          <div className="co-price">{naira(product.price)}</div>
+          <div className="co-foot">
+            <span className="co-loc">
+              📍 {product.location?.city || "Nationwide"}
+            </span>
+            {product.distance_km != null && (
+              <span className="dist">
+                {product.distance_km} km
+              </span>
+            )}
+          </div>
         </div>
       </div>
-    </div>
-  );
-});
+    );
+  }
+);
 
 const GridTile = memo(({ product, onView, onClick }) => {
   const timerRef = useRef(null);
@@ -181,7 +200,13 @@ const GridTile = memo(({ product, onView, onClick }) => {
       onMouseEnter={handleMouseEnter}
       onMouseLeave={handleMouseLeave}
     >
-      {badge && <span className={`bd ${badge.className}`}>{badge.text}</span>}
+      {badge && (
+        <span
+          className={`bd ${badge.className}`}
+        >
+          {badge.text}
+        </span>
+      )}
 
       <img
         className="ct-img"
@@ -208,10 +233,14 @@ const GridTile = memo(({ product, onView, onClick }) => {
             <div className="trust-track">
               <div
                 className="trust-fill"
-                style={{ width: `${product.seller.trust_score}%` }}
+                style={{
+                  width: `${product.seller.trust_score}%`,
+                }}
               />
             </div>
-            <span className="trust-lbl">{product.seller.trust_score}%</span>
+            <span className="trust-lbl">
+              {product.seller.trust_score}%
+            </span>
           </div>
         )}
       </div>
@@ -281,7 +310,6 @@ export default function Homepage({ user }) {
   const [page, setPage] = useState(0);
 
   const productsRef = useRef([]);
-
   const sentinelRef = useRef(null);
 
   const trackView = useCallback((id) => {
@@ -290,9 +318,9 @@ export default function Homepage({ user }) {
 
   const handleProductClick = useCallback(
     (product) => {
-      fetch(`${API}/products/${product.id}/click`, { method: "POST" }).catch(
-        () => {}
-      );
+      fetch(`${API}/products/${product.id}/click`, {
+        method: "POST",
+      }).catch(() => {});
       navigate(`/product/${product.slug}`);
     },
     [navigate]
@@ -300,14 +328,15 @@ export default function Homepage({ user }) {
 
   const applyData = useCallback(
     (data, append = false) => {
-      const incoming = Array.isArray(data.products) && data.products.length > 0
-        ? data.products
-        : [
-            ...(data.recommended || []),
-            ...(data.cheapDeals || []),
-            ...(data.trending || []),
-            ...(data.latest || []),
-          ];
+      const incoming =
+        Array.isArray(data.products) && data.products.length > 0
+          ? data.products
+          : [
+              ...(data.recommended || []),
+              ...(data.cheapDeals || []),
+              ...(data.trending || []),
+              ...(data.latest || []),
+            ];
 
       const merged = append
         ? dedup([...productsRef.current, ...incoming])
@@ -317,7 +346,7 @@ export default function Homepage({ user }) {
       setProducts(merged);
       setSections(splitProducts(merged));
       setMeta(data.meta || {});
-      setHasMore(incoming.length >= 20);
+      setHasMore(incoming.length >= 40);
       setLoaded(true);
     },
     [setProducts, setLoaded]
@@ -331,9 +360,7 @@ export default function Homepage({ user }) {
 
     const fetchData = async (queryString = "") => {
       const response = await fetch(`${API}/homepage${queryString}`);
-      if (!response.ok) {
-        throw new Error(`HTTP ${response.status}`);
-      }
+      if (!response.ok) throw new Error(`HTTP ${response.status}`);
       return response.json();
     };
 
@@ -359,7 +386,9 @@ export default function Homepage({ user }) {
                   `?lat=${pos.coords.latitude}&lng=${pos.coords.longitude}`
                 )
                   .then(resolve)
-                  .catch(() => fetchData().then(resolve).catch(reject));
+                  .catch(() =>
+                    fetchData().then(resolve).catch(reject)
+                  );
               });
             },
             () => {
@@ -395,7 +424,9 @@ export default function Homepage({ user }) {
 
     try {
       const nextPage = page + 1;
-      const response = await fetch(`${API}/homepage?page=${nextPage}`);
+      const response = await fetch(
+        `${API}/homepage?page=${nextPage}`
+      );
       if (!response.ok) throw new Error();
 
       const data = await response.json();
@@ -420,9 +451,8 @@ export default function Homepage({ user }) {
     };
 
     document.addEventListener("visibilitychange", handleVisibility);
-    return () => {
+    return () =>
       document.removeEventListener("visibilitychange", handleVisibility);
-    };
   }, [loading, loadHomepage]);
 
   useEffect(() => {
@@ -442,20 +472,16 @@ export default function Homepage({ user }) {
 
   const locationLabel =
     meta.location ||
-    (meta.nearbySource === "gps"
-      ? "Near you"
-      : null);
+    (meta.nearbySource === "gps" ? "Near you" : null);
 
-  // For now, keep “all” as default; enable category filtering when backend supports it
-  const currentSections =
-    category === "all" ? sections : sections;
+  const currentSections = category === "all" ? sections : sections;
 
   return (
     <>
       <TopNav />
 
       <div className="pg">
-        {/* Hero Section */}
+        {/* Hero */}
         <div className="hero">
           <div className="hero-top anim">
             <div>
@@ -474,7 +500,7 @@ export default function Homepage({ user }) {
           </div>
 
           {locationLabel && (
-            <div
+                        <div
               className="hero-loc anim anim-1"
               onClick={() => navigate("/nearby")}
             >
@@ -482,28 +508,24 @@ export default function Homepage({ user }) {
               {locationLabel}
               {meta.nearbySource === "gps" && " · GPS"}
             </div>
-          )}
 
-          <div className="hero-stats anim anim-2">
-            <div className="hero-stat">
-              <div className="hero-stat-n">
-                {loading
-                  ? "—"
-                  : `${(productsRef.current.length || 0) + 1000}+`}
+            <div className="hero-stats anim anim-2">
+              <div className="hero-stat">
+                <div className="hero-stat-n">
+                  {loading
+                    ? "—"
+                    : `${(productsRef.current.length || 0) + 1000}+`}
+                </div>
+                <div className="hero-stat-l">Listings</div>
               </div>
-              <div className="hero-stat-l">Listings</div>
-            </div>
-            <div className="hero-stat">
-              <div className="hero-stat-n">
-                {loading ? "—" : "24/7"}
+              <div className="hero-stat">
+                <div className="hero-stat-n">{loading ? "—" : "24/7"}</div>
+                <div className="hero-stat-l">Live market</div>
               </div>
-              <div className="hero-stat-l">Live market</div>
-            </div>
-            <div className="hero-stat">
-              <div className="hero-stat-n">
-                {loading ? "—" : "Free"}
+              <div className="hero-stat">
+                <div className="hero-stat-n">{loading ? "—" : "Free"}</div>
+                <div className="hero-stat-l">To list</div>
               </div>
-              <div className="hero-stat-l">To list</div>
             </div>
           </div>
         </div>
@@ -531,7 +553,7 @@ export default function Homepage({ user }) {
                 category === cat.id ? " active" : ""
               }`}
               onClick={() => setCategory(cat.id)}
-              disabled={cat.id !== "all"} // backend not filtering yet
+              disabled={cat.id !== "all"}
             >
               <span className="cat-icon">{cat.icon}</span>
               {cat.label}
@@ -545,10 +567,7 @@ export default function Homepage({ user }) {
             <div className="err-icon">⚡</div>
             <div className="err-title">Marketplace unavailable</div>
             <div className="err-msg">{error}</div>
-            <button
-              className="err-btn"
-              onClick={loadHomepage}
-            >
+            <button className="err-btn" onClick={loadHomepage}>
               Try again
             </button>
           </div>
@@ -564,16 +583,13 @@ export default function Homepage({ user }) {
               <div className="empty-sub">
                 Enable location for nearby deals, or browse what's available across Nigeria.
               </div>
-              <button
-                className="empty-btn"
-                onClick={loadHomepage}
-              >
+              <button className="empty-btn" onClick={loadHomepage}>
                 Load Marketplace
               </button>
             </div>
           )}
 
-                {/* Featured */}
+        {/* Featured */}
         {(loading || currentSections.featured.length > 0) && (
           <div className="sec anim anim-3">
             <div className="sec-head">
@@ -657,7 +673,7 @@ export default function Homepage({ user }) {
           </div>
           {loading ? (
             <SkeletonRow />
-          ) : currentSections.trending.length === 0 ? (
+          ) : currentSections.trending.length === outube ? (
             <p className="inline-empty">Nothing trending yet</p>
           ) : (
             <div className="row">
@@ -773,3 +789,4 @@ export default function Homepage({ user }) {
     </>
   );
 }
+              
