@@ -499,35 +499,39 @@ export default function Homepage({ user }) {
             </button>
           </div>
 
+          {/* FIX 1: locationLabel conditional now properly closed with )}
+              hero-stats is inside a fragment so both elements share the gate */}
           {locationLabel && (
-                        <div
-              className="hero-loc anim anim-1"
-              onClick={() => navigate("/nearby")}
-            >
-              <span className="loc-dot" />
-              {locationLabel}
-              {meta.nearbySource === "gps" && " · GPS"}
-            </div>
+            <>
+              <div
+                className="hero-loc anim anim-1"
+                onClick={() => navigate("/nearby")}
+              >
+                <span className="loc-dot" />
+                {locationLabel}
+                {meta.nearbySource === "gps" && " · GPS"}
+              </div>
 
-            <div className="hero-stats anim anim-2">
-              <div className="hero-stat">
-                <div className="hero-stat-n">
-                  {loading
-                    ? "—"
-                    : `${(productsRef.current.length || 0) + 1000}+`}
+              <div className="hero-stats anim anim-2">
+                <div className="hero-stat">
+                  <div className="hero-stat-n">
+                    {loading
+                      ? "—"
+                      : `${(productsRef.current.length || 0) + 1000}+`}
+                  </div>
+                  <div className="hero-stat-l">Listings</div>
                 </div>
-                <div className="hero-stat-l">Listings</div>
+                <div className="hero-stat">
+                  <div className="hero-stat-n">{loading ? "—" : "24/7"}</div>
+                  <div className="hero-stat-l">Live market</div>
+                </div>
+                <div className="hero-stat">
+                  <div className="hero-stat-n">{loading ? "—" : "Free"}</div>
+                  <div className="hero-stat-l">To list</div>
+                </div>
               </div>
-              <div className="hero-stat">
-                <div className="hero-stat-n">{loading ? "—" : "24/7"}</div>
-                <div className="hero-stat-l">Live market</div>
-              </div>
-              <div className="hero-stat">
-                <div className="hero-stat-n">{loading ? "—" : "Free"}</div>
-                <div className="hero-stat-l">To list</div>
-              </div>
-            </div>
-          </div>
+            </>
+          )}
         </div>
 
         {/* Search Bar */}
@@ -673,7 +677,8 @@ export default function Homepage({ user }) {
           </div>
           {loading ? (
             <SkeletonRow />
-          ) : currentSections.trending.length === outube ? (
+          ) : currentSections.trending.length === 0 ? (
+            /* FIX 2: was `=== outube` (undefined), corrected to `=== 0` */
             <p className="inline-empty">Nothing trending yet</p>
           ) : (
             <div className="row">
@@ -789,4 +794,3 @@ export default function Homepage({ user }) {
     </>
   );
 }
-              
