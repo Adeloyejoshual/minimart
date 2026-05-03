@@ -1,93 +1,89 @@
+// routes/homepage.js
 import express from "express";
-import { Pool } from "pg";
-import { createClient } from "redis";
-import { getLocationFromIP, getClientIP } from "./location.js";
-import logger from "./logger.js"; // Assume a standard structured logger
+import { db } from "../db.js"; // your CockroachDB / SQL client
 
 const router = express.Router();
 
-const pool = new Pool({
-  connectionString: process.env.COCKROACH_URI,
-  ssl: { rejectUnauthorized: process.env.NODE_ENV === 'production' },
-  max: 25,
-  idleTimeoutMillis: 30000,
-  connectionTimeoutMillis: 5000,
-});
+// GET /api/homepage
+router.get("/", async (req, res) => {
+  const { lat, lng, page = 0 } = req.query;
 
-const redis = createClient({ url: process.env.REDIS_URL });
-redis.on("error", (err) => logger.error("Redis connection error:", err));
-await redis.connect();
-
-const FEED_SIZE = 40;
-
-const haversineDistance = (lat1, lon1, lat2, lon2) => {
-  const R = 6371;
-  const dLat = (lat2 - lat1) * Math.PI / 180;
-  const dLon = (lon2 - lon1) * Math.PI / 180;
-  const a = Math.sin(dLat/2)**2 + Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) * Math.sin(dLon/2)**2;
-  return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
-};
-
-const getLocation = async (req) => {
   try {
-    const { lat, lng, city, state } = req.query;
-    if (lat && lng) return { lat: parseFloat(lat), lng: parseFloat(lng), city, state };
-    const ip = getClientIP(req);
-    if (ip) {
-      const geo = await getLocationFromIP(ip);
-      if (geo?.lat && geo?.lng) return geo;
+    const limit = 40;
+    const offset = Number(page) * limit;
+
+    // Select fields that match your products table
+    const query = db
+      .selectFrom("products")
+      .select([
+        "id",
+        "title",
+        "price",
+        "slug",
+        "main_image",
+        "thumbnail_url",
+        "views",
+        "clicks_count",
+        "engagement_score",
+        "promotion_priority",
+        "is_promoted",
+        "location_city",
+        "location_state",
+        "latitude",
+        "longitude",
+        "created_at",
+      ])
+      .where("is_active", "=", true)
+      .where("status", "=", "active")
+      .orderBy("is_promoted", "desc")
+      .orderBy("promotion_priority", "desc")
+      .orderBy("engagement_score", "desc")
+      .orderBy("created_at", "desc")
+      .limit(limit + 1)
+      .offset(offset);
+
+    if (lat && lng) {
+      query
+        .$castTo<{ distance_km: number }>()
+        .select((eb) =>
+          eb
+            .fn("st_distance_sphere")
+            .args([
+              eb.fn("st_makepoint").args(lng, lat),
+              eb.ref("location"),
+            ])
+            .divide(1000)
+            .as("distance_km")
+        );
     }
-    return { lat: null, lng: null, city: city || "Lagos", state: state || "Lagos" };
-  } catch (err) {
-    logger.warn("Location detection failed, falling back to default:", err);
-    return { lat: null, lng: null, city: "Lagos", state: "Lagos" };
-  }
-};
 
-const normalizeProduct = (row, loc) => {
-  const images = [row.thumbnail_url, row.main_image].filter(Boolean);
-  const uniqueImages = [...new Set(images)];
-  if (uniqueImages.length === 0) uniqueImages.push("https://placehold.co/400x300/e8e4dc/b0a89e?text=Minimart");
+    const rows = await query.execute();
 
-  return {
-    id: row.id,
-    slug: row.slug || (row.title || "product").toLowerCase().replace(/[^a-z0-9]+/g, '-'),
-    title: row.title || "Product",
-    description: (row.description || "").substring(0, 160),
-    price: Number(row.price) || 0,
-    thumbnail_url: uniqueImages[0],
-    images: uniqueImages,
-    views: Number(row.views || 0),
-    clicks_count: Number(row.clicks_count || 0),
-    is_promoted: !!row.is_promoted,
-    location: { city: row.location_city || "Nationwide", state: row.location_state },
-    distance_km: (loc.lat && row.latitude && loc.lng && row.longitude) 
-      ? Math.round(haversineDistance(loc.lat, loc.lng, row.latitude, row.longitude)) : null,
-    createdAt: row.created_at
-  };
-};
+    const hasMore = rows.length > limit;
+    const products = rows.slice(0, limit).map((p) => ({
+      ...p,
+      discounted: false, // can be added by backend later
+      image: p.main_image || p.thumbnail_url,
+      images: p.main_image ? [p.main_image] : [],
+      location: {
+        city: p.location_city || null,
+        state: p.location_state || null,
+      },
+      distance_km: p.distance_km || null,
+      ctr: p.clicks_count > 0 ? p.clicks_count / (p.impressions_count || p.views || 1) : 0,
+    }));
 
-router.get("/homepage", async (req, res) => {
-  try {
-    const loc = await getLocation(req);
-    const { rows } = await pool.query(`
-      SELECT p.id, p.slug, p.title, p.description, p.price, p.thumbnail_url, p.main_image, 
-             p.latitude, p.longitude, p.location_city, p.location_state, p.created_at, 
-             p.views, p.clicks_count, p.is_promoted
-      FROM products p
-      WHERE p.is_active = true AND p.status = 'active' AND COALESCE(p.fraud_score, 0) < 50
-      ORDER BY p.is_promoted DESC, p.created_at DESC
-      LIMIT 60
-    `);
-
-    const products = rows.map(row => normalizeProduct(row, loc));
-    res.json({
-      meta: { source: loc.lat ? "gps" : "ip", location: loc.city, total: products.length },
-      products: products.slice(0, FEED_SIZE)
+    res.status(200).json({
+      products,
+      hasMore,
+      meta: {
+        location: p.location_city,
+        nearbySource: lat && lng ? "gps" : null,
+      },
     });
-  } catch (error) {
-    logger.error("Homepage critical error:", error);
-    res.status(500).json({ error: "Service temporarily unavailable" });
+  } catch (err) {
+    console.error("Homepage fetch error:", err);
+    res.status(500).json({ error: "Failed to load products" });
   }
 });
 
