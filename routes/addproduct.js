@@ -5,7 +5,7 @@ import fetch            from "node-fetch";
 import { v2 as cloudinary } from "cloudinary";
 import { pool }         from "../config/db.js";
 import authenticate     from "../middleware/auth.js";
-import { detectSpamListing, updateSellerTrust } from "./homepage.js";
+import { detectSpamListing, updateSellerTrust } from "../utils/listingUtils.js";
 import { createClient } from "redis";
 import { getCategoriesHandler } from "../controllers/category.controller.js";
 
