@@ -190,7 +190,8 @@ app.use("/api/messages",            messagesRouter);
 app.use("/api/admin",               adminRouter);
 app.use("/api/search",              searchRouter);
 app.use("/api/product",             productDetailRouter);
-app.use("/api",                     homepageRouter);
+app.use("/api/homepage", 
+homepageRouter);
 app.use("/api/dashboard", 
 dashboardRoutes);
 
