@@ -1,14 +1,15 @@
 /**
- * Homepage.jsx — Minimart (Production Optimized)
- * Features:
- * - State + City display
- * - Real category filtering from DB
- * - Masonry layout for feed
- * - Infinite scroll
- * - Section pages (Trending, Deals, etc.)
- * - No full refresh on tab switch (uses cached state)
- * - Modern location icon
- * - Categories from config/categories.js
+ * pages/Homepage.jsx — Minimart
+ *
+ * Fixes in this version:
+ * ✅ Location shows city + state from DB columns (location_city, location_state)
+ *    e.g. "Ile-Ife, Osun"
+ * ✅ Categories fetched from API to get real UUIDs → filters by category_id
+ * ✅ Masonry layout for feed sections
+ * ✅ No page refresh on tab switch (ProductCacheContext)
+ * ✅ Modern SVG location pins (no 📍 emoji)
+ * ✅ Section pages: Trending / Deals / New Arrivals / Nearby
+ * ✅ Shared MasonryCard, MasonryGrid, OverlayCard components
  */
 
 import React, {
@@ -23,232 +24,77 @@ import { useNavigate } from "react-router-dom";
 import { useProductCache } from "../context/ProductCacheContext";
 import TopNav from "../components/TopNav";
 import BottomNav from "../components/BottomNav";
-import categories from "../config/categories";
+import MasonryGrid from "../components/MasonryGrid";
+import OverlayCard from "../components/OverlayCard";
+import { PinIcon, naira, getBadge, getImageUrl, formatCity } from "../components/MasonryCard";
+import categories as CATEGORY_CONFIG from "../config/categories";
 import "../styles/Homepage.css";
 
 /* ─── Constants ─── */
 const API =
   import.meta.env.VITE_API_BASE || "https://minimart-ivrm.onrender.com/api";
-const PH =
-  "https://placehold.co/600x500/e8e4dc/b0a89e?text=No+Image";
-const HOVER = 900;
-const GPS_O = {
-  timeout: 5000,
-  enableHighAccuracy: false,
-  maximumAge: 300_000,
-};
+const PH = "https://placehold.co/600x500/e8e4dc/b0a89e?text=No+Image";
+const GPS_O = { timeout: 5000, enableHighAccuracy: false, maximumAge: 300_000 };
+const CAT_ALL = { name: "All", icon: "✦" };
 
-const CATEGORY_ALL = { name: "All", icon: "✦" };
-
-/* ─── Pure Helpers ─── */
-const naira = (n) =>
-  "₦" + Number(n || 0).toLocaleString("en-NG");
-
-const fresh = (d) =>
-  d && Date.now() - new Date(d).getTime() < 86_400_000;
-
-const getImageUrl = (p) => {
-  if (p?.image) return p.image;
-  if (Array.isArray(p?.images) && p.images.length > 0) {
-    const first = p.images[0];
-    return typeof first === "string"
-      ? first
-      : first?.url || first?.thumbnail_url || PH;
-  }
-  return p?.thumbnail_url || p?.main_image || PH;
-};
-
+/* ─── Helpers ─── */
 const dedup = (arr) => {
   const seen = new Set();
   return arr.filter((p) => !seen.has(p.id) && seen.add(p.id));
 };
 
-const getBadge = (p) => {
-  if (p.is_promoted) return { text: "Sponsored", className: "bd-feat" };
-  if ((p.ctr || 0) > 0.15) return { text: "Hot 🔥", className: "bd-hot" };
-  if ((p.ctr || 0) > 0.08) return { text: "Trending", className: "bd-trnd" };
-  if (fresh(p.created_at)) return { text: "New", className: "bd-new" };
-  return null;
-};
-
-const isJuneDeal = (p) => {
-  const now = new Date();
-  return now.getMonth() === 5 && p.price <= 80_000;
-};
-
 const splitProducts = (products) => ({
   featured: products.filter((p) => p.is_promoted).slice(0, 3),
   nearby: products
-    .filter((p) => p.distance_km != null || p.location?.city)
+    .filter((p) => p.distance_km != null || p.location_city)
     .slice(0, 10),
   trending: products
-    .filter((p) => (p.ctr || 0) > 0.05 || p.views > 100)
+    .filter((p) => (p.engagement_score || 0) > 20 || (p.clicks_count || 0) > 10)
+    .sort((a, b) => (b.engagement_score || 0) - (a.engagement_score || 0))
     .slice(0, 20),
-  deals: products.filter((p) => p.price <= 50_000).slice(0, 20),
-  juneDeals: products.filter((p) => isJuneDeal(p)).slice(0, 12),
-  recommended: products.slice(0, 40),
-  latest: [...products].sort(
-    (a, b) => new Date(b.created_at) - new Date(a.created_at)
-  ).slice(0, 40),
+  deals: products.filter((p) => Number(p.price) <= 50_000).slice(0, 20),
+  juneDeals: (() => {
+    const now = new Date();
+    return now.getMonth() === 5
+      ? products.filter((p) => Number(p.price) <= 80_000).slice(0, 12)
+      : [];
+  })(),
+  recommended: [...products].slice(0, 60),
+  latest: [...products]
+    .sort((a, b) => new Date(b.created_at) - new Date(a.created_at))
+    .slice(0, 40),
 });
 
-/* ─── Location Helper ─── */
-const formatLocation = (meta) => {
-  if (!meta) return null;
-  const parts = [];
-  if (meta.city) parts.push(meta.city);
-  if (meta.state) parts.push(meta.state);
-  return parts.length > 0 ? parts.join(", ") : meta.location || null;
+/** City, State from DB columns — e.g. "Ile-Ife, Osun" */
+const heroLocation = (meta) => {
+  const city = meta?.location_city || meta?.city;
+  const state = meta?.location_state || meta?.state;
+  if (city && state) return `${city}, ${state}`;
+  if (city) return city;
+  if (state) return state;
+  return meta?.location || null;
 };
 
-/* ─── Skeleton Components ─── */
+/* ─── Skeletons ─── */
 const SkeletonRow = () => (
   <div className="row">
-    {[...Array(5)].map((_, i) => (
-      <div key={i} className="sk sk-co" />
-    ))}
+    {[...Array(5)].map((_, i) => <div key={i} className="sk sk-co" />)}
   </div>
 );
 
 const SkeletonMasonry = () => (
   <div className="masonry">
     {[...Array(8)].map((_, i) => (
-      <div
-        key={i}
-        className="sk sk-masonry"
-        style={{ height: `${180 + (i % 3) * 60}px` }}
-      />
+      <div key={i} className="sk sk-masonry" style={{ height: `${160 + (i % 4) * 55}px` }} />
     ))}
   </div>
 );
 
-/* ─── Masonry Grid (CSS columns approach) ─── */
-const MasonryGrid = memo(({ products, onView, onClick }) => {
-  return (
-    <div className="masonry">
-      {products.map((product, i) => (
-        <MasonryCard
-          key={product.id}
-          product={product}
-          priority={i < 4}
-          onView={onView}
-          onClick={onClick}
-        />
-      ))}
-    </div>
-  );
-});
-
-const MasonryCard = memo(({ product, priority, onView, onClick }) => {
-  const timerRef = useRef(null);
-  const badge = getBadge(product);
+/* ─── Featured Card ─── */
+const FeaturedCard = memo(function FeaturedCard({ product, onClick }) {
   const imageUrl = getImageUrl(product);
+  const city = formatCity(product);
 
-  const handleMouseEnter = () => {
-    timerRef.current = setTimeout(() => onView(product.id), HOVER);
-  };
-  const handleMouseLeave = () => {
-    if (timerRef.current) {
-      clearTimeout(timerRef.current);
-      timerRef.current = null;
-    }
-  };
-
-  return (
-    <div
-      className="masonry-card"
-      role="button"
-      tabIndex={0}
-      onClick={() => onClick(product)}
-      onKeyDown={(e) => e.key === "Enter" && onClick(product)}
-      onMouseEnter={handleMouseEnter}
-      onMouseLeave={handleMouseLeave}
-    >
-      {badge && (
-        <span className={`bd ${badge.className}`}>{badge.text}</span>
-      )}
-      <img
-        className="masonry-img"
-        src={imageUrl}
-        alt={product.title}
-        loading={priority ? "eager" : "lazy"}
-        decoding="async"
-        fetchPriority={priority ? "high" : "auto"}
-        onError={(e) => { e.currentTarget.src = PH; }}
-      />
-      <div className="masonry-body">
-        <div className="masonry-name">{product.title}</div>
-        <div className="masonry-price">{naira(product.price)}</div>
-        <div className="masonry-loc">
-          <svg width="12" height="12" viewBox="0 0 24 24" fill="currentColor">
-            <path d="M12 2C8.13 2 5 5.13 5 9c0 5.25 7 13 7 13s7-7.75 7-13c0-3.87-3.13-7-7-7zm0 9.5c-1.38 0-2.5-1.12-2.5-2.5s1.12-2.5 2.5-2.5 2.5 1.12 2.5 2.5-1.12 2.5-2.5 2.5z"/>
-          </svg>
-          {product.location?.city || "Nigeria"}
-          {product.distance_km != null && (
-            <span className="dist"> · {product.distance_km}km</span>
-          )}
-        </div>
-        {product.seller?.verified && (
-          <div className="vfd">✓ Verified</div>
-        )}
-      </div>
-    </div>
-  );
-});
-
-/* ─── Overlay Card (horizontal row scroll) ─── */
-const OverlayCard = memo(({ product, rank, priority, onView, onClick }) => {
-  const timerRef = useRef(null);
-  const badge = getBadge(product);
-  const imageUrl = getImageUrl(product);
-
-  return (
-    <div
-      className="co"
-      role="button"
-      tabIndex={0}
-      onClick={() => onClick(product)}
-      onKeyDown={(e) => e.key === "Enter" && onClick(product)}
-      onMouseEnter={() => {
-        timerRef.current = setTimeout(() => onView(product.id), HOVER);
-      }}
-      onMouseLeave={() => {
-        clearTimeout(timerRef.current);
-      }}
-    >
-      {badge && <span className={`bd ${badge.className}`}>{badge.text}</span>}
-      {rank != null && <span className="rank">#{rank + 1}</span>}
-
-      <img
-        className="co-img"
-        src={imageUrl}
-        alt={product.title}
-        loading={priority ? "eager" : "lazy"}
-        decoding="async"
-        fetchPriority={priority ? "high" : "auto"}
-        onError={(e) => { e.currentTarget.src = PH; }}
-      />
-      <div className="co-grad">
-        <div className="co-name">{product.title}</div>
-        <div className="co-price">{naira(product.price)}</div>
-        <div className="co-foot">
-          <span className="co-loc">
-            <svg width="10" height="10" viewBox="0 0 24 24" fill="currentColor" style={{marginRight:3}}>
-              <path d="M12 2C8.13 2 5 5.13 5 9c0 5.25 7 13 7 13s7-7.75 7-13c0-3.87-3.13-7-7-7zm0 9.5c-1.38 0-2.5-1.12-2.5-2.5s1.12-2.5 2.5-2.5 2.5 1.12 2.5 2.5-1.12 2.5-2.5 2.5z"/>
-            </svg>
-            {product.location?.city || "Nationwide"}
-          </span>
-          {product.distance_km != null && (
-            <span className="dist">{product.distance_km}km</span>
-          )}
-        </div>
-      </div>
-    </div>
-  );
-});
-
-const FeaturedCard = memo(({ product, onClick }) => {
-  const imageUrl = getImageUrl(product);
   return (
     <div
       className="feat"
@@ -274,10 +120,8 @@ const FeaturedCard = memo(({ product, onClick }) => {
         <div>
           <div className="feat-price">{naira(product.price)}</div>
           <div className="feat-loc">
-            <svg width="11" height="11" viewBox="0 0 24 24" fill="currentColor" style={{marginRight:4}}>
-              <path d="M12 2C8.13 2 5 5.13 5 9c0 5.25 7 13 7 13s7-7.75 7-13c0-3.87-3.13-7-7-7zm0 9.5c-1.38 0-2.5-1.12-2.5-2.5s1.12-2.5 2.5-2.5 2.5 1.12 2.5 2.5-1.12 2.5-2.5 2.5z"/>
-            </svg>
-            {product.location?.city || "Nationwide"}
+            <PinIcon size={11} />
+            {city}
           </div>
         </div>
       </div>
@@ -285,31 +129,43 @@ const FeaturedCard = memo(({ product, onClick }) => {
   );
 });
 
-/* ─── Main Component ─── */
+/* ═══════════════════════════════════
+   MAIN HOMEPAGE COMPONENT
+═══════════════════════════════════ */
 export default function Homepage({ user }) {
   const navigate = useNavigate();
-  const { setProducts, setLoaded, products: cachedProducts, loaded: cacheLoaded } = useProductCache();
+  const {
+    setProducts,
+    setLoaded,
+    products: cachedProducts,
+    loaded: cacheLoaded,
+  } = useProductCache();
 
+  /* ── State ── */
   const [allProducts, setAllProducts] = useState([]);
   const [sections, setSections] = useState({
     featured: [], nearby: [], trending: [],
     deals: [], juneDeals: [], recommended: [], latest: [],
   });
   const [meta, setMeta] = useState({});
-  const [loading, setLoading] = useState(!cacheLoaded);
+  const [loading, setLoading] = useState(true);
   const [loadingMore, setLoadingMore] = useState(false);
   const [error, setError] = useState(null);
-  const [activeCategory, setActiveCategory] = useState("All");
-  const [isCategoryLoading, setIsCategoryLoading] = useState(false);
-  const [categoryProducts, setCategoryProducts] = useState(null); // null = show homepage sections
   const [hasMore, setHasMore] = useState(false);
   const [page, setPage] = useState(0);
 
+  /* ── Category state ── */
+  const [apiCategories, setApiCategories] = useState([]); // [{id, name, slug, ...}]
+  const [activeCategory, setActiveCategory] = useState("All");
+  const [catProducts, setCatProducts] = useState(null); // null = show sections
+  const [catLoading, setCatLoading] = useState(false);
+  const [catError, setCatError] = useState(null);
+
   const productsRef = useRef([]);
   const sentinelRef = useRef(null);
-  const abortRef = useRef(null);
+  const catAbortRef = useRef(null);
 
-  /* ── use cache on revisit, no full reload ── */
+  /* ── 1. Use cache on revisit — NO full reload ── */
   useEffect(() => {
     if (cacheLoaded && cachedProducts?.length > 0) {
       productsRef.current = cachedProducts;
@@ -319,21 +175,26 @@ export default function Homepage({ user }) {
     } else {
       loadHomepage();
     }
+    fetchApiCategories();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  const trackView = useCallback((id) => {
-    fetch(`${API}/products/${id}/view`, { method: "POST" }).catch(() => {});
+  /* ── 2. Fetch categories from API (to get real UUIDs) ── */
+  const fetchApiCategories = useCallback(async () => {
+    try {
+      const res = await fetch(`${API}/categories`);
+      if (!res.ok) return;
+      const data = await res.json();
+      const list = Array.isArray(data.categories)
+        ? data.categories
+        : Array.isArray(data) ? data : [];
+      setApiCategories(list);
+    } catch (e) {
+      console.warn("Could not fetch categories from API", e);
+    }
   }, []);
 
-  const handleProductClick = useCallback(
-    (product) => {
-      fetch(`${API}/products/${product.id}/click`, { method: "POST" }).catch(() => {});
-      navigate(`/product/${product.slug}`);
-    },
-    [navigate]
-  );
-
+  /* ── 3. Apply fetched data ── */
   const applyData = useCallback(
     (data, append = false) => {
       const incoming =
@@ -361,16 +222,17 @@ export default function Homepage({ user }) {
     [setProducts, setLoaded]
   );
 
+  /* ── 4. Load homepage feed ── */
   const loadHomepage = useCallback(async () => {
     setLoading(true);
     setError(null);
     setPage(0);
     productsRef.current = [];
 
-    const fetchData = async (queryString = "") => {
-      const response = await fetch(`${API}/homepage${queryString}`);
-      if (!response.ok) throw new Error(`HTTP ${response.status}`);
-      return response.json();
+    const fetchData = async (qs = "") => {
+      const res = await fetch(`${API}/homepage${qs}`);
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      return res.json();
     };
 
     try {
@@ -401,10 +263,7 @@ export default function Homepage({ user }) {
             GPS_O
           );
         } else {
-          finish(() => {
-            clearTimeout(timeout);
-            fetchData().then(resolve).catch(reject);
-          });
+          finish(() => { clearTimeout(timeout); fetchData().then(resolve).catch(reject); });
         }
       });
 
@@ -417,15 +276,15 @@ export default function Homepage({ user }) {
     }
   }, [applyData]);
 
+  /* ── 5. Load more (infinite scroll) ── */
   const loadMore = useCallback(async () => {
     if (loadingMore || !hasMore) return;
     setLoadingMore(true);
-
     try {
       const nextPage = page + 1;
-      const response = await fetch(`${API}/homepage?page=${nextPage}`);
-      if (!response.ok) throw new Error();
-      const data = await response.json();
+      const res = await fetch(`${API}/homepage?page=${nextPage}`);
+      if (!res.ok) throw new Error();
+      const data = await res.json();
       applyData(data, true);
       setPage(nextPage);
     } catch (e) {
@@ -435,74 +294,107 @@ export default function Homepage({ user }) {
     }
   }, [loadingMore, hasMore, page, applyData]);
 
-  /* ── Category Filter ── */
-  const handleCategorySelect = useCallback(async (categoryName) => {
-    if (categoryName === activeCategory) return;
-    setActiveCategory(categoryName);
+  /* ── 6. Category filter — uses real category_id from API ── */
+  const handleCategorySelect = useCallback(async (catName) => {
+    if (catName === activeCategory) return;
+    setActiveCategory(catName);
+    setCatError(null);
 
-    if (categoryName === "All") {
-      setCategoryProducts(null);
-      setIsCategoryLoading(false);
+    if (catName === "All") {
+      setCatProducts(null);
       return;
     }
 
-    setIsCategoryLoading(true);
-    setCategoryProducts([]);
+    // Cancel any in-flight request
+    if (catAbortRef.current) catAbortRef.current.abort();
+    catAbortRef.current = new AbortController();
 
-    // Cancel previous request
-    if (abortRef.current) abortRef.current.abort();
-    abortRef.current = new AbortController();
+    setCatLoading(true);
+    setCatProducts([]);
 
     try {
-      const res = await fetch(
-        `${API}/products?category=${encodeURIComponent(categoryName)}&limit=40`,
-        { signal: abortRef.current.signal }
+      // Try to find matching category UUID from API categories
+      const match = apiCategories.find(
+        (c) =>
+          c.name?.toLowerCase() === catName.toLowerCase() ||
+          c.slug?.toLowerCase() === catName.toLowerCase().replace(/\s+/g, "-") ||
+          c.id === catName
       );
+
+      let url;
+      if (match?.id) {
+        // Use category_id for accurate DB query
+        url = `${API}/products?category_id=${match.id}&status=active&limit=40`;
+      } else {
+        // Fallback: send name and let backend do the lookup
+        url = `${API}/products?category=${encodeURIComponent(catName)}&status=active&limit=40`;
+      }
+
+      const res = await fetch(url, { signal: catAbortRef.current.signal });
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       const data = await res.json();
-      const prods = Array.isArray(data.products) ? data.products : Array.isArray(data) ? data : [];
-      setCategoryProducts(dedup(prods));
+      const prods = Array.isArray(data.products)
+        ? data.products
+        : Array.isArray(data) ? data : [];
+      setCatProducts(dedup(prods));
     } catch (e) {
-      if (e.name !== "AbortError") {
-        console.error("Category load failed", e);
-        // Fallback: filter local products
-        const filtered = allProducts.filter(
-          (p) => p.category?.toLowerCase() === categoryName.toLowerCase()
-        );
-        setCategoryProducts(filtered);
+      if (e.name === "AbortError") return;
+      console.error("Category fetch failed", e);
+      // Fallback: filter from cached products by category name
+      const fallback = allProducts.filter(
+        (p) =>
+          p.category?.toLowerCase() === catName.toLowerCase() ||
+          p.category_name?.toLowerCase() === catName.toLowerCase()
+      );
+      setCatProducts(fallback);
+      if (fallback.length === 0) {
+        setCatError(`No listings found in "${catName}"`);
       }
     } finally {
-      setIsCategoryLoading(false);
+      setCatLoading(false);
     }
-  }, [activeCategory, allProducts]);
+  }, [activeCategory, apiCategories, allProducts]);
 
-  /* ── Infinite scroll observer ── */
+  /* ── 7. Infinite scroll (homepage feed) ── */
   useEffect(() => {
     const sentinel = sentinelRef.current;
-    if (!sentinel || !hasMore || categoryProducts !== null) return;
+    if (!sentinel || !hasMore || catProducts !== null) return;
 
     const observer = new IntersectionObserver(
       (entries) => { if (entries[0].isIntersecting) loadMore(); },
       { threshold: 0.1 }
     );
-
     observer.observe(sentinel);
     return () => observer.disconnect();
-  }, [loadMore, hasMore, categoryProducts]);
+  }, [loadMore, hasMore, catProducts]);
 
-  const locationLabel = useMemo(() => formatLocation(meta), [meta]);
+  const trackView = useCallback((id) => {
+    fetch(`${API}/products/${id}/view`, { method: "POST" }).catch(() => {});
+  }, []);
 
-  const allCats = [CATEGORY_ALL, ...categories];
+  const handleProductClick = useCallback(
+    (product) => {
+      fetch(`${API}/products/${product.id}/click`, { method: "POST" }).catch(() => {});
+      navigate(`/product/${product.slug}`);
+    },
+    [navigate]
+  );
 
-  /* ── Section navigation helpers ── */
-  const goToSection = (section) => navigate(`/${section}`);
+  /* ── Derived ── */
+  const locLabel = useMemo(() => heroLocation(meta), [meta]);
+  const allCats = [CAT_ALL, ...CATEGORY_CONFIG];
+  const activeCatObj = CATEGORY_CONFIG.find((c) => c.name === activeCategory);
 
+  /* ════════════════════════════════════════
+     RENDER
+  ════════════════════════════════════════ */
   return (
     <>
       <TopNav />
 
       <div className="pg">
-        {/* Hero */}
+
+        {/* ── Hero ── */}
         <div className="hero">
           <div className="hero-top anim">
             <div>
@@ -520,25 +412,14 @@ export default function Homepage({ user }) {
             </button>
           </div>
 
-          {locationLabel && (
+          {locLabel && (
             <>
               <div
                 className="hero-loc anim anim-1"
                 onClick={() => navigate("/nearby")}
-                style={{ cursor: "pointer" }}
               >
-                {/* Modern location pin SVG */}
-                <svg
-                  className="loc-icon"
-                  width="14"
-                  height="14"
-                  viewBox="0 0 24 24"
-                  fill="currentColor"
-                  aria-hidden="true"
-                >
-                  <path d="M12 2C8.13 2 5 5.13 5 9c0 5.25 7 13 7 13s7-7.75 7-13c0-3.87-3.13-7-7-7zm0 9.5c-1.38 0-2.5-1.12-2.5-2.5s1.12-2.5 2.5-2.5 2.5 1.12 2.5 2.5-1.12 2.5-2.5 2.5z" />
-                </svg>
-                {locationLabel}
+                <PinIcon size={14} />
+                <span>{locLabel}</span>
                 {meta.nearbySource === "gps" && (
                   <span className="gps-chip">GPS</span>
                 )}
@@ -564,11 +445,8 @@ export default function Homepage({ user }) {
           )}
         </div>
 
-        {/* Search Bar */}
-        <div
-          className="search-wrap anim anim-3"
-          onClick={() => navigate("/search")}
-        >
+        {/* ── Search Bar ── */}
+        <div className="search-wrap anim anim-3" onClick={() => navigate("/search")}>
           <div className="search">
             <span className="search-ic">🔍</span>
             <span className="search-txt">Search products, categories…</span>
@@ -576,7 +454,7 @@ export default function Homepage({ user }) {
           </div>
         </div>
 
-        {/* Category Strip */}
+        {/* ── Category Strip ── */}
         <div className="cat-strip anim anim-4">
           {allCats.map((cat) => {
             const name = cat.name;
@@ -594,7 +472,7 @@ export default function Homepage({ user }) {
           })}
         </div>
 
-        {/* Error State */}
+        {/* ── Error banner ── */}
         {error && (
           <div className="err-box">
             <div className="err-icon">⚡</div>
@@ -604,22 +482,27 @@ export default function Homepage({ user }) {
           </div>
         )}
 
-        {/* ═══════════════════════════════════
-            CATEGORY VIEW — when a category is selected
-        ═══════════════════════════════════ */}
+        {/* ══════════════════════════════════════
+            CATEGORY VIEW
+        ══════════════════════════════════════ */}
         {activeCategory !== "All" && (
-          <div className="sec">
+          <div className="sec cat-section">
             <div className="sec-head">
               <div className="sec-label">
                 <span className="sec-title">
-                  {allCats.find((c) => c.name === activeCategory)?.icon} {activeCategory}
+                  {activeCatObj?.icon} {activeCategory}
                 </span>
+                {catProducts !== null && !catLoading && (
+                  <span className="sec-chip">
+                    {catProducts.length} listing{catProducts.length !== 1 ? "s" : ""}
+                  </span>
+                )}
               </div>
             </div>
 
-            {isCategoryLoading ? (
-              <SkeletonMasonry />
-            ) : categoryProducts?.length === 0 ? (
+            {catLoading && <SkeletonMasonry />}
+
+            {!catLoading && catError && (
               <div className="empty">
                 <div className="empty-emoji">🔍</div>
                 <div className="empty-title">No listings found</div>
@@ -630,12 +513,30 @@ export default function Homepage({ user }) {
                   className="empty-btn"
                   onClick={() => navigate("/minimart/add")}
                 >
-                  Sell Now
+                  + Sell Now
                 </button>
               </div>
-            ) : (
+            )}
+
+            {!catLoading && !catError && catProducts?.length === 0 && (
+              <div className="empty">
+                <div className="empty-emoji">🛒</div>
+                <div className="empty-title">No listings yet</div>
+                <div className="empty-sub">
+                  Be the first to post in <strong>{activeCategory}</strong>!
+                </div>
+                <button
+                  className="empty-btn"
+                  onClick={() => navigate("/minimart/add")}
+                >
+                  + Sell Now
+                </button>
+              </div>
+            )}
+
+            {!catLoading && catProducts?.length > 0 && (
               <MasonryGrid
-                products={categoryProducts || []}
+                products={catProducts}
                 onView={trackView}
                 onClick={handleProductClick}
               />
@@ -643,12 +544,12 @@ export default function Homepage({ user }) {
           </div>
         )}
 
-        {/* ═══════════════════════════════════
-            HOMEPAGE SECTIONS — only when "All" is selected
-        ═══════════════════════════════════ */}
+        {/* ══════════════════════════════════════
+            HOMEPAGE SECTIONS (All tab)
+        ══════════════════════════════════════ */}
         {activeCategory === "All" && (
           <>
-            {/* Global Empty State */}
+            {/* Empty state */}
             {!loading && !error && sections.latest.length === 0 && (
               <div className="empty">
                 <div className="empty-emoji">🛍</div>
@@ -662,35 +563,31 @@ export default function Homepage({ user }) {
               </div>
             )}
 
-            {/* Featured */}
+            {/* ── Featured ── */}
             {(loading || sections.featured.length > 0) && (
               <div className="sec anim anim-3">
                 <div className="sec-head">
-                  <div className="sec-label">
-                    <span className="sec-title">💎 Featured</span>
-                  </div>
+                  <span className="sec-title">💎 Featured</span>
                 </div>
                 {loading ? (
                   <div className="feat-wrap"><div className="sk sk-ft" /></div>
                 ) : (
                   <div className="feat-wrap">
-                    {sections.featured.map((product) => (
-                      <FeaturedCard key={product.id} product={product} onClick={handleProductClick} />
+                    {sections.featured.map((p) => (
+                      <FeaturedCard key={p.id} product={p} onClick={handleProductClick} />
                     ))}
                   </div>
                 )}
               </div>
             )}
 
-            {/* Nearby Section */}
+            {/* ── Near You ── */}
             {(loading || sections.nearby.length > 0) && (
               <div className="sec anim anim-4">
                 <div className="sec-head">
                   <div className="sec-label">
                     <span className="sec-title">
-                      <svg width="13" height="13" viewBox="0 0 24 24" fill="currentColor" style={{marginRight:4,verticalAlign:'middle'}}>
-                        <path d="M12 2C8.13 2 5 5.13 5 9c0 5.25 7 13 7 13s7-7.75 7-13c0-3.87-3.13-7-7-7zm0 9.5c-1.38 0-2.5-1.12-2.5-2.5s1.12-2.5 2.5-2.5 2.5 1.12 2.5 2.5-1.12 2.5-2.5 2.5z"/>
-                      </svg>
+                      <PinIcon size={13} style={{ verticalAlign: "middle", marginRight: 4 }} />
                       Near You
                     </span>
                     {meta.nearbySource && (
@@ -701,14 +598,12 @@ export default function Homepage({ user }) {
                   </div>
                   <button className="see-all" onClick={() => navigate("/nearby")}>See all →</button>
                 </div>
-                {loading ? (
-                  <SkeletonRow />
-                ) : (
+                {loading ? <SkeletonRow /> : (
                   <div className="row">
-                    {sections.nearby.map((product, i) => (
+                    {sections.nearby.map((p, i) => (
                       <OverlayCard
-                        key={product.id}
-                        product={product}
+                        key={p.id}
+                        product={p}
                         priority={i === 0}
                         onView={trackView}
                         onClick={handleProductClick}
@@ -721,7 +616,7 @@ export default function Homepage({ user }) {
 
             <div className="divider" />
 
-            {/* June Deals – Limited Time 🔥 */}
+            {/* ── June Deals ── */}
             {(loading || sections.juneDeals.length > 0) && (
               <div className="sec">
                 <div className="sec-head">
@@ -729,22 +624,12 @@ export default function Homepage({ user }) {
                     <span className="sec-title">June Deals – Limited Time 🔥</span>
                     <span className="sec-chip urgent">Ends June 30</span>
                   </div>
-                  <button className="see-all" onClick={() => goToSection("deals/june")}>
-                    See all →
-                  </button>
+                  <button className="see-all" onClick={() => navigate("/deals")}>See all →</button>
                 </div>
-                {loading ? (
-                  <SkeletonRow />
-                ) : (
+                {loading ? <SkeletonRow /> : (
                   <div className="row">
-                    {sections.juneDeals.map((product, i) => (
-                      <OverlayCard
-                        key={product.id}
-                        product={product}
-                        priority={i === 0}
-                        onView={trackView}
-                        onClick={handleProductClick}
-                      />
+                    {sections.juneDeals.map((p, i) => (
+                      <OverlayCard key={p.id} product={p} priority={i === 0} onView={trackView} onClick={handleProductClick} />
                     ))}
                   </div>
                 )}
@@ -753,33 +638,20 @@ export default function Homepage({ user }) {
 
             <div className="divider" />
 
-            {/* Trending Section */}
+            {/* ── Trending ── */}
             <div className="sec anim anim-5">
               <div className="sec-head">
                 <div className="sec-label">
                   <span className="sec-title">🔥 Trending</span>
                 </div>
-                <button
-                  className="see-all"
-                  onClick={() => navigate("/trending")}
-                >
-                  See all →
-                </button>
+                <button className="see-all" onClick={() => navigate("/trending")}>See all →</button>
               </div>
-              {loading ? (
-                <SkeletonRow />
-              ) : sections.trending.length === 0 ? (
+              {loading ? <SkeletonRow /> : sections.trending.length === 0 ? (
                 <p className="inline-empty">Nothing trending yet</p>
               ) : (
                 <div className="row">
-                  {sections.trending.map((product, i) => (
-                    <OverlayCard
-                      key={product.id}
-                      product={product}
-                      rank={i}
-                      onView={trackView}
-                      onClick={handleProductClick}
-                    />
+                  {sections.trending.map((p, i) => (
+                    <OverlayCard key={p.id} product={p} rank={i} onView={trackView} onClick={handleProductClick} />
                   ))}
                 </div>
               )}
@@ -787,56 +659,38 @@ export default function Homepage({ user }) {
 
             <div className="divider" />
 
-            {/* Cheap Deals */}
+            {/* ── Cheap Deals — Masonry ── */}
             <div className="sec">
               <div className="sec-head">
                 <div className="sec-label">
                   <span className="sec-title">💸 Cheap Deals</span>
                   <span className="sec-chip">Under ₦50k</span>
                 </div>
-                <button className="see-all" onClick={() => navigate("/deals")}>
-                  See all →
-                </button>
+                <button className="see-all" onClick={() => navigate("/deals")}>See all →</button>
               </div>
-              {loading ? (
-                <SkeletonMasonry />
-              ) : sections.deals.length === 0 ? (
+              {loading ? <SkeletonMasonry /> : sections.deals.length === 0 ? (
                 <p className="inline-empty">No deals right now</p>
               ) : (
-                <MasonryGrid
-                  products={sections.deals}
-                  onView={trackView}
-                  onClick={handleProductClick}
-                />
+                <MasonryGrid products={sections.deals} onView={trackView} onClick={handleProductClick} />
               )}
             </div>
 
             <div className="divider" />
 
-            {/* New Arrivals */}
+            {/* ── New Arrivals ── */}
             <div className="sec">
               <div className="sec-head">
                 <div className="sec-label">
                   <span className="sec-title">🆕 New Arrivals</span>
                 </div>
-                <button className="see-all" onClick={() => navigate("/latest")}>
-                  See all →
-                </button>
+                <button className="see-all" onClick={() => navigate("/latest")}>See all →</button>
               </div>
-              {loading ? (
-                <SkeletonRow />
-              ) : sections.latest.length === 0 ? (
+              {loading ? <SkeletonRow /> : sections.latest.length === 0 ? (
                 <p className="inline-empty">No listings yet</p>
               ) : (
                 <div className="row">
-                  {sections.latest.map((product, i) => (
-                    <OverlayCard
-                      key={product.id}
-                      product={product}
-                      priority={i === 0}
-                      onView={trackView}
-                      onClick={handleProductClick}
-                    />
+                  {sections.latest.map((p, i) => (
+                    <OverlayCard key={p.id} product={p} priority={i === 0} onView={trackView} onClick={handleProductClick} />
                   ))}
                 </div>
               )}
@@ -844,16 +698,14 @@ export default function Homepage({ user }) {
 
             <div className="divider" />
 
-            {/* Recommended For You — Masonry */}
+            {/* ── Recommended For You — Full Masonry + Infinite Scroll ── */}
             <div className="sec">
               <div className="sec-head">
                 <div className="sec-label">
                   <span className="sec-title">✨ Recommended For You</span>
                 </div>
               </div>
-              {loading ? (
-                <SkeletonMasonry />
-              ) : sections.recommended.length === 0 ? (
+              {loading ? <SkeletonMasonry /> : sections.recommended.length === 0 ? (
                 <p className="inline-empty">Loading recommendations…</p>
               ) : (
                 <>
@@ -862,11 +714,8 @@ export default function Homepage({ user }) {
                     onView={trackView}
                     onClick={handleProductClick}
                   />
-                  {/* Infinite scroll sentinel */}
                   <div ref={sentinelRef} style={{ height: 1 }} />
-                  {loadingMore && (
-                    <p className="loading-more">Loading more…</p>
-                  )}
+                  {loadingMore && <p className="loading-more">Loading more…</p>}
                 </>
               )}
             </div>
