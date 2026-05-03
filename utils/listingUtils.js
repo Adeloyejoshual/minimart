@@ -1,8 +1,5 @@
 // utils/listingUtils.js
-// Shared utilities used by addproduct.js and any other route that needs
-// spam detection or seller trust recalculation.
-
-import { pool }         from "../config/db.js";
+import { pool } from "../config/db.js";
 
 /* ─────────────────────────────────────────────
    detectSpamListing
@@ -11,12 +8,12 @@ import { pool }         from "../config/db.js";
    Scoring (each flag adds to fraud_score):
      +30  price is suspiciously low  (< ₦100)
      +20  title is too short         (< 5 chars)
-     +20  description is missing / too short (< 20 chars)
+     +20  description missing / too short (< 20 chars)
      +15  duplicate title from same seller in last 24 h
-     +10  title or description contains blocked keywords
+     +10  title or description contains a blocked keyword
      +5   no image provided
 
-   isSpam = true when score >= 40
+   isSpam = true when total score >= 40
 ───────────────────────────────────────────── */
 const BLOCKED_KEYWORDS = [
   "free money", "send me", "whatsapp only", "pay first",
@@ -61,20 +58,22 @@ export async function detectSpamListing(product) {
 
   // Duplicate title from same seller in last 24 h
   try {
-    const { count } = await db
-      .selectFrom("products")
-      .select(db.fn.countAll().as("count"))
-      .where("seller_id", "=", product.seller_id)
-      .where("title", "=", product.title.trim())
-      .where("created_at", ">=", new Date(Date.now() - 86_400_000).toISOString())
-      .executeTakeFirst();
+    const { rows } = await pool.query(
+      `SELECT COUNT(*) AS count
+       FROM products
+       WHERE seller_id = $1
+         AND title = $2
+         AND created_at >= NOW() - INTERVAL '24 hours'`,
+      [product.seller_id, product.title.trim()]
+    );
 
-    if (Number(count) > 0) {
+    if (Number(rows[0]?.count) > 0) {
       score += 15;
       reasons.push("Duplicate title listed by this seller in the last 24 h");
     }
-  } catch {
+  } catch (err) {
     // Non-fatal — skip duplicate check if query fails
+    console.error("detectSpamListing duplicate check failed:", err.message);
   }
 
   return {
@@ -90,64 +89,55 @@ export async function detectSpamListing(product) {
    based on their active listings' aggregate stats.
 
    Formula (0–100):
-     base          = 50
-     + active listings bonus   (up to +20, capped at 10 listings)
-     + avg engagement bonus    (up to +15)
-     - avg fraud penalty       (up to -30)
-     - spam listing penalty    (up to -20, based on fraud_score > 50)
+     base                    = 50
+     + listing bonus         up to +20  (capped at 10 listings)
+     + avg engagement bonus  up to +15
+     - avg fraud penalty     up to -30
+     - spam listing penalty  up to -20  (listings with fraud_score > 50)
 
-   Updates public.users.trust_score if the column exists,
-   otherwise logs and returns without throwing.
+   Writes result to users.trust_score.
+   Swallows its own errors so it never crashes the calling route.
 ───────────────────────────────────────────── */
 export async function updateSellerTrust(sellerId) {
   try {
-    const stats = await db
-      .selectFrom("products")
-      .select([
-        db.fn.countAll().as("total"),
-        db.fn.avg("engagement_score").as("avg_engagement"),
-        db.fn.avg("fraud_score").as("avg_fraud"),
-        db.fn.sum(
-          db
-            .case()
-            .when("fraud_score", ">", 50)
-            .then(1)
-            .else(0)
-            .end()
-        ).as("spam_count"),
-      ])
-      .where("seller_id", "=", sellerId)
-      .where("is_active", "=", true)
-      .executeTakeFirst();
-
-    if (!stats) return;
-
-    const total       = Math.min(Number(stats.total ?? 0), 10);
-    const avgEngage   = Number(stats.avg_engagement ?? 0);
-    const avgFraud    = Number(stats.avg_fraud ?? 0);
-    const spamCount   = Number(stats.spam_count ?? 0);
-
-    const listingBonus    = (total / 10) * 20;           // 0 – 20
-    const engagementBonus = Math.min(avgEngage / 100, 1) * 15; // 0 – 15
-    const fraudPenalty    = Math.min(avgFraud / 100, 1) * 30;  // 0 – 30
-    const spamPenalty     = Math.min(spamCount, 4) * 5;        // 0 – 20
-
-    const trustScore = Math.round(
-      Math.min(
-        100,
-        Math.max(0, 50 + listingBonus + engagementBonus - fraudPenalty - spamPenalty)
-      )
+    const { rows } = await pool.query(
+      `SELECT
+         COUNT(*)                                        AS total,
+         COALESCE(AVG(engagement_score), 0)             AS avg_engagement,
+         COALESCE(AVG(fraud_score), 0)                  AS avg_fraud,
+         COUNT(*) FILTER (WHERE fraud_score > 50)       AS spam_count
+       FROM products
+       WHERE seller_id = $1
+         AND is_active = true`,
+      [sellerId]
     );
 
-    await db
-      .updateTable("users")
-      .set({ trust_score: trustScore, updated_at: new Date().toISOString() })
-      .where("id", "=", sellerId)
-      .execute();
+    const row = rows[0];
+    if (!row) return;
+
+    const total       = Math.min(Number(row.total), 10);
+    const avgEngage   = Number(row.avg_engagement);
+    const avgFraud    = Number(row.avg_fraud);
+    const spamCount   = Number(row.spam_count);
+
+    const listingBonus    = (total / 10) * 20;
+    const engagementBonus = Math.min(avgEngage / 100, 1) * 15;
+    const fraudPenalty    = Math.min(avgFraud  / 100, 1) * 30;
+    const spamPenalty     = Math.min(spamCount, 4) * 5;
+
+    const trustScore = Math.round(
+      Math.min(100, Math.max(0, 50 + listingBonus + engagementBonus - fraudPenalty - spamPenalty))
+    );
+
+    await pool.query(
+      `UPDATE users
+       SET trust_score = $1, updated_at = NOW()
+       WHERE id = $2`,
+      [trustScore, sellerId]
+    );
 
     return trustScore;
   } catch (err) {
-    // Log but never crash the calling route
     console.error(`updateSellerTrust failed for seller ${sellerId}:`, err.message);
   }
 }
