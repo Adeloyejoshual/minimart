@@ -27,7 +27,7 @@ import BottomNav from "../components/BottomNav";
 import MasonryGrid from "../components/MasonryGrid";
 import OverlayCard from "../components/OverlayCard";
 import { PinIcon, naira, getBadge, getImageUrl, formatCity } from "../components/MasonryCard";
-import categories as CATEGORY_CONFIG from "../config/categories";
+import CATEGORY_CONFIG from "../config/categories";
 import "../styles/Homepage.css";
 
 /* ─── Constants ─── */
