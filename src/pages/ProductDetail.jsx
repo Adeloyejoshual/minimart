@@ -5,7 +5,8 @@
 // Fires         POST /api/product/:id/share on share tap
 
 import { useEffect, useState, useCallback, useRef } from "react";
-import { useParams, useNavigate, Link } from "react-router-dom";
+import { useParams, useNavigate } from "react-router-dom";
+import "../styles/ProductDetail.css";
 
 /* ─── tiny helpers ─────────────────────────────────────────────────────────── */
 const fmt = (n) =>
@@ -127,33 +128,22 @@ const Icon = {
 
 /* ─── Skeleton ─────────────────────────────────────────────────────────────── */
 const Skeleton = ({ w = "100%", h = "16px", radius = "6px" }) => (
-  <div style={{ width: w, height: h, borderRadius: radius, background: "var(--sk)", animation: "pulse 1.6s ease-in-out infinite" }} />
+  <div className="pd-skeleton" style={{ width: w, height: h, borderRadius: radius }} />
 );
 
 /* ─── FAQ accordion item ───────────────────────────────────────────────────── */
 const FaqItem = ({ q, a }) => {
   const [open, setOpen] = useState(false);
   return (
-    <div className="pd-faq-item" style={{ borderBottom: "1px solid var(--border)" }}>
-      <button
-        onClick={() => setOpen(!open)}
-        style={{
-          width: "100%", display: "flex", justifyContent: "space-between",
-          alignItems: "center", padding: "14px 0", background: "none",
-          border: "none", cursor: "pointer", textAlign: "left",
-          color: "var(--text)", fontFamily: "inherit",
-        }}
-      >
-        <span style={{ fontWeight: 600, fontSize: "0.9rem", paddingRight: "16px" }}>{q}</span>
-        <span style={{ flexShrink: 0, transition: "transform .25s", transform: open ? "rotate(180deg)" : "none", color: "var(--accent)" }}>
+    <div className="pd-faq-item">
+      <button className="pd-faq-trigger" onClick={() => setOpen(!open)}>
+        <span className="pd-faq-question">{q}</span>
+        <span className={`pd-faq-icon ${open ? "pd-faq-icon--open" : ""}`}>
           <Icon.ChevronDown />
         </span>
       </button>
-      <div style={{
-        overflow: "hidden", maxHeight: open ? "400px" : "0",
-        transition: "max-height .3s ease", color: "var(--muted)", fontSize: "0.875rem", lineHeight: 1.7,
-      }}>
-        <div style={{ paddingBottom: "14px" }}>{a}</div>
+      <div className={`pd-faq-body ${open ? "pd-faq-body--open" : ""}`}>
+        <div className="pd-faq-answer">{a}</div>
       </div>
     </div>
   );
@@ -161,37 +151,24 @@ const FaqItem = ({ q, a }) => {
 
 /* ─── Related card ─────────────────────────────────────────────────────────── */
 const RelatedCard = ({ item, onClick }) => (
-  <div
-    className="pd-related-card"
-    onClick={() => onClick(item.slug)}
-    style={{ cursor: "pointer", borderRadius: "14px", overflow: "hidden",
-      background: "var(--card)", border: "1px solid var(--border)",
-      transition: "transform .2s, box-shadow .2s" }}
-  >
-    <div style={{ aspectRatio: "4/3", overflow: "hidden", background: "var(--skeleton)" }}>
+  <div className="pd-related-card" onClick={() => onClick(item.slug)}>
+    <div className="pd-related-img-wrap">
       {item.image
-        ? <img src={item.image} alt={item.title} loading="lazy"
-            style={{ width: "100%", height: "100%", objectFit: "cover", transition: "transform .35s" }}
-            className="pd-related-img" />
-        : <div style={{ width: "100%", height: "100%", display: "flex", alignItems: "center", justifyContent: "center", color: "var(--muted)", fontSize: "2rem" }}>🖼</div>
+        ? <img src={item.image} alt={item.title} loading="lazy" className="pd-related-img" />
+        : <div className="pd-related-img-placeholder">🖼</div>
       }
     </div>
-    <div style={{ padding: "12px" }}>
-      <p style={{ fontSize: "0.82rem", fontWeight: 700, color: "var(--accent)", marginBottom: "4px" }}>
-        {fmt(item.price)}
-      </p>
-      <p style={{ fontSize: "0.83rem", fontWeight: 500, color: "var(--text)", lineHeight: 1.4,
-        display: "-webkit-box", WebkitLineClamp: 2, WebkitBoxOrient: "vertical", overflow: "hidden" }}>
-        {item.title}
-      </p>
+    <div className="pd-related-body">
+      <p className="pd-related-price">{fmt(item.price)}</p>
+      <p className="pd-related-title">{item.title}</p>
       {item.seller_name && (
-        <p style={{ fontSize: "0.75rem", color: "var(--muted)", marginTop: "6px", display: "flex", alignItems: "center", gap: "4px" }}>
-          {item.seller_verified && <span style={{ color: "#3b82f6" }}>✓</span>}
+        <p className="pd-related-seller">
+          {item.seller_verified && <span className="pd-verified-check">✓</span>}
           {item.seller_name}
         </p>
       )}
       {item.location?.label && (
-        <p style={{ fontSize: "0.75rem", color: "var(--muted)", marginTop: "3px", display: "flex", alignItems: "center", gap: "3px" }}>
+        <p className="pd-related-location">
           <Icon.MapPin />{item.location.label}
         </p>
       )}
@@ -203,10 +180,10 @@ const RelatedCard = ({ item, onClick }) => (
    MAIN COMPONENT
 ══════════════════════════════════════════════════════════════════════════════ */
 export default function ProductDetail() {
-  const { slug } = useParams();
-  const navigate  = useNavigate();
+  const { slug }   = useParams();
+  const navigate   = useNavigate();
 
-  const [data,       setData]       = useState(null);   // { product, related }
+  const [data,       setData]       = useState(null);
   const [loading,    setLoading]    = useState(true);
   const [error,      setError]      = useState(null);
   const [imgIdx,     setImgIdx]     = useState(0);
@@ -223,7 +200,14 @@ export default function ProductDetail() {
     viewFired.current = false;
 
     fetch(`/api/product/${slug}`)
-      .then((r) => { if (!r.ok) throw new Error(r.status); return r.json(); })
+      .then(async (r) => {
+        if (!r.ok) {
+          let body = {};
+          try { body = await r.json(); } catch {}
+          throw new Error(body.detail || body.error || `HTTP ${r.status}`);
+        }
+        return r.json();
+      })
       .then((d) => {
         setData(d);
         setLoading(false);
@@ -261,16 +245,15 @@ export default function ProductDetail() {
 
   /* ─── LOADING ─────────────────────────────────────────────────────────────── */
   if (loading) return (
-    <div className="pd-root" style={{ minHeight: "100vh" }}>
-      <PdStyles />
-      <div className="pd-container pd-grid" style={{ paddingTop: "32px" }}>
+    <div className="pd-root pd-root--loading">
+      <div className="pd-container pd-grid">
         <div>
           <Skeleton w="100%" h="480px" radius="20px" />
-          <div style={{ display: "flex", gap: "8px", marginTop: "12px" }}>
+          <div className="pd-skeleton-thumbs">
             {[...Array(4)].map((_, i) => <Skeleton key={i} w="72px" h="72px" radius="10px" />)}
           </div>
         </div>
-        <div style={{ display: "flex", flexDirection: "column", gap: "16px", paddingTop: "8px" }}>
+        <div className="pd-skeleton-detail">
           <Skeleton w="60%" h="14px" />
           <Skeleton w="100%" h="36px" />
           <Skeleton w="40%" h="40px" />
@@ -285,12 +268,20 @@ export default function ProductDetail() {
 
   /* ─── ERROR ───────────────────────────────────────────────────────────────── */
   if (error || !data) return (
-    <div className="pd-root" style={{ minHeight: "100vh", display: "flex", alignItems: "center", justifyContent: "center" }}>
-      <PdStyles />
-      <div style={{ textAlign: "center" }}>
-        <div style={{ fontSize: "3rem", marginBottom: "16px" }}>😔</div>
-        <h2 style={{ color: "var(--text)", marginBottom: "8px" }}>Product not found</h2>
-        <p style={{ color: "var(--muted)", marginBottom: "24px" }}>This listing may have been removed or expired.</p>
+    <div className="pd-root pd-root--error">
+      <div className="pd-error-inner">
+        <div className="pd-error-emoji">😔</div>
+        <h2 className="pd-error-heading">
+          {error === "Product not found" ? "Product not found" : "Something went wrong"}
+        </h2>
+        <p className="pd-error-sub">
+          {error === "Product not found"
+            ? "This listing may have been removed or expired."
+            : "We couldn't load this product."}
+        </p>
+        {error && error !== "Product not found" && (
+          <pre className="pd-error-debug">{error}</pre>
+        )}
         <button onClick={() => navigate(-1)} className="pd-btn-outline">← Go back</button>
       </div>
     </div>
@@ -307,17 +298,15 @@ export default function ProductDetail() {
   /* ─── RENDER ──────────────────────────────────────────────────────────────── */
   return (
     <div className="pd-root">
-      <PdStyles />
 
-      {/* ── Page wrapper ───────────────────────────────────────────── */}
       <div className="pd-container" style={{ paddingTop: "20px", paddingBottom: "80px" }}>
 
         {/* Breadcrumb */}
-        <nav style={{ display: "flex", alignItems: "center", gap: "6px", marginBottom: "24px", fontSize: "0.8rem", color: "var(--muted)" }}>
-          <button onClick={() => navigate("/")} style={{ background: "none", border: "none", cursor: "pointer", color: "var(--accent)", fontFamily: "inherit", padding: 0, fontSize: "inherit" }}>Home</button>
+        <nav className="pd-breadcrumb">
+          <button onClick={() => navigate("/")} className="pd-breadcrumb-link">Home</button>
           <span>/</span>
           {product.category_name && <><span>{product.category_name}</span><span>/</span></>}
-          <span style={{ color: "var(--text)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", maxWidth: "200px" }}>{product.title}</span>
+          <span className="pd-breadcrumb-current">{product.title}</span>
         </nav>
 
         {/* Back */}
@@ -332,11 +321,7 @@ export default function ProductDetail() {
           <div className="pd-gallery-col">
 
             {/* Main image */}
-            <div
-              className="pd-main-img-wrap"
-              onClick={() => setImgZoomed(true)}
-              style={{ cursor: "zoom-in" }}
-            >
+            <div className="pd-main-img-wrap" onClick={() => setImgZoomed(true)}>
               {product.is_promoted && (
                 <div className="pd-badge-promoted">
                   ⚡ {product.promotion_type || "Featured"}
@@ -346,17 +331,21 @@ export default function ProductDetail() {
                 ? <img key={mainImg} src={mainImg} alt={product.title} className="pd-main-img" />
                 : <div className="pd-img-placeholder">🖼</div>
               }
-              {/* nav arrows */}
               {images.length > 1 && (
                 <>
-                  <button className="pd-img-arrow pd-img-arrow--l" onClick={(e) => { e.stopPropagation(); prevImg(); }}><Icon.ChevronLeft /></button>
-                  <button className="pd-img-arrow pd-img-arrow--r" onClick={(e) => { e.stopPropagation(); nextImg(); }}><Icon.ChevronRight /></button>
+                  <button className="pd-img-arrow pd-img-arrow--l" onClick={(e) => { e.stopPropagation(); prevImg(); }}>
+                    <Icon.ChevronLeft />
+                  </button>
+                  <button className="pd-img-arrow pd-img-arrow--r" onClick={(e) => { e.stopPropagation(); nextImg(); }}>
+                    <Icon.ChevronRight />
+                  </button>
                   <div className="pd-img-dots">
                     {images.map((_, i) => (
-                      <span key={i} onClick={(e) => { e.stopPropagation(); setImgIdx(i); }}
-                        style={{ width: i === imgIdx ? "22px" : "7px", height: "7px", borderRadius: "4px",
-                          background: i === imgIdx ? "var(--accent)" : "rgba(255,255,255,.5)",
-                          transition: "width .25s, background .25s", cursor: "pointer" }} />
+                      <span
+                        key={i}
+                        className={`pd-img-dot ${i === imgIdx ? "pd-img-dot--active" : ""}`}
+                        onClick={(e) => { e.stopPropagation(); setImgIdx(i); }}
+                      />
                     ))}
                   </div>
                 </>
@@ -385,7 +374,7 @@ export default function ProductDetail() {
               {product.share_count > 0 && (
                 <span>↗ {product.share_count} shares</span>
               )}
-              <span style={{ marginLeft: "auto", color: "var(--muted)" }}>{timeAgo(product.created_at)}</span>
+              <span className="pd-stats-time">{timeAgo(product.created_at)}</span>
             </div>
           </div>
 
@@ -393,9 +382,9 @@ export default function ProductDetail() {
           <div className="pd-detail-col">
 
             {/* Title + actions */}
-            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: "12px" }}>
+            <div className="pd-title-row">
               <h1 className="pd-title">{product.title}</h1>
-              <div style={{ display: "flex", gap: "8px", flexShrink: 0, marginTop: "4px" }}>
+              <div className="pd-action-btns">
                 <button
                   onClick={() => setWishlisted(!wishlisted)}
                   className={`pd-action-btn ${wishlisted ? "pd-action-btn--active" : ""}`}
@@ -404,13 +393,13 @@ export default function ProductDetail() {
                   <Icon.Heart filled={wishlisted} />
                 </button>
                 <button onClick={handleShare} className="pd-action-btn" title="Share">
-                  {copied ? <span style={{ fontSize: "0.7rem", fontWeight: 700 }}>✓</span> : <Icon.Share />}
+                  {copied ? <span className="pd-copied-check">✓</span> : <Icon.Share />}
                 </button>
               </div>
             </div>
 
             {/* Price row */}
-            <div style={{ display: "flex", alignItems: "baseline", gap: "12px", margin: "12px 0 20px" }}>
+            <div className="pd-price-row">
               <span className="pd-price">{fmt(product.price)}</span>
               {product.negotiable && (
                 <span className="pd-badge pd-badge--green">Negotiable</span>
@@ -422,7 +411,7 @@ export default function ProductDetail() {
 
             {/* Quick specs pills */}
             {(product.brand || product.model || product.color || product.ram || product.storage) && (
-              <div style={{ display: "flex", flexWrap: "wrap", gap: "8px", marginBottom: "20px" }}>
+              <div className="pd-spec-pills">
                 {[
                   product.brand   && { l: "Brand",   v: product.brand },
                   product.model   && { l: "Model",   v: product.model },
@@ -431,8 +420,8 @@ export default function ProductDetail() {
                   product.storage && { l: "Storage", v: product.storage },
                 ].filter(Boolean).map(({ l, v }) => (
                   <div key={l} className="pd-spec-pill">
-                    <span style={{ color: "var(--muted)", fontSize: "0.7rem" }}>{l}</span>
-                    <span style={{ fontWeight: 600, fontSize: "0.82rem" }}>{v}</span>
+                    <span className="pd-spec-pill-label">{l}</span>
+                    <span className="pd-spec-pill-value">{v}</span>
                   </div>
                 ))}
               </div>
@@ -440,19 +429,19 @@ export default function ProductDetail() {
 
             {/* Location */}
             {product.location?.label && (
-              <div style={{ display: "flex", alignItems: "center", gap: "5px", color: "var(--muted)", fontSize: "0.83rem", marginBottom: "16px" }}>
+              <div className="pd-location">
                 <Icon.MapPin />{product.location.label}
               </div>
             )}
 
             {/* Highlights */}
             {product.highlights?.length > 0 && (
-              <div style={{ marginBottom: "20px" }}>
-                <p style={{ fontSize: "0.75rem", fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.08em", color: "var(--muted)", marginBottom: "10px" }}>Highlights</p>
-                <div style={{ display: "flex", flexDirection: "column", gap: "7px" }}>
+              <div className="pd-highlights">
+                <p className="pd-label">Highlights</p>
+                <div className="pd-highlights-list">
                   {product.highlights.map((h, i) => (
-                    <div key={i} style={{ display: "flex", alignItems: "center", gap: "8px", fontSize: "0.875rem", color: "var(--text)" }}>
-                      <span style={{ color: "var(--accent)", flexShrink: 0 }}><Icon.Check /></span>{h}
+                    <div key={i} className="pd-highlight-item">
+                      <span className="pd-highlight-icon"><Icon.Check /></span>{h}
                     </div>
                   ))}
                 </div>
@@ -460,16 +449,16 @@ export default function ProductDetail() {
             )}
 
             {/* Description */}
-            <div style={{ marginBottom: "24px" }}>
-              <p style={{ fontSize: "0.75rem", fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.08em", color: "var(--muted)", marginBottom: "10px" }}>Description</p>
-              <p style={{ fontSize: "0.9rem", color: "var(--text)", lineHeight: 1.75, whiteSpace: "pre-line" }}>
+            <div className="pd-description">
+              <p className="pd-label">Description</p>
+              <p className="pd-description-text">
                 {product.description || "No description provided."}
               </p>
             </div>
 
             {/* ── Seller card ──────────────────────────────────────────── */}
             <div className="pd-seller-card">
-              <div style={{ display: "flex", alignItems: "center", gap: "12px" }}>
+              <div className="pd-seller-top">
                 <div className="pd-seller-avatar-wrap">
                   {seller.avatar
                     ? <img src={seller.avatar} alt={seller.name} style={{ width: "100%", height: "100%", objectFit: "cover" }} />
@@ -477,8 +466,8 @@ export default function ProductDetail() {
                   }
                   {seller.is_online && <span className="pd-online-dot" />}
                 </div>
-                <div style={{ flex: 1, minWidth: 0 }}>
-                  <div style={{ display: "flex", alignItems: "center", gap: "6px", flexWrap: "wrap" }}>
+                <div className="pd-seller-info">
+                  <div className="pd-seller-name-row">
                     <span className="pd-seller-name">{seller.name}</span>
                     {seller.verified && (
                       <span className="pd-badge pd-badge--blue" title="Verified seller">
@@ -490,32 +479,30 @@ export default function ProductDetail() {
                     )}
                   </div>
                   {seller.store_name && (
-                    <p style={{ fontSize: "0.78rem", color: "var(--muted)", marginTop: "2px" }}>{seller.store_name}</p>
+                    <p className="pd-seller-store">{seller.store_name}</p>
                   )}
-                  <div style={{ display: "flex", gap: "12px", marginTop: "5px", flexWrap: "wrap" }}>
+                  <div className="pd-seller-meta">
                     {seller.rating > 0 && (
-                      <span style={{ display: "flex", alignItems: "center", gap: "3px", fontSize: "0.78rem", color: "#f59e0b" }}>
+                      <span className="pd-seller-rating">
                         <Icon.Star />{Number(seller.rating).toFixed(1)}
                       </span>
                     )}
                     {seller.trust_score != null && (
-                      <span style={{ fontSize: "0.78rem", color: "var(--muted)" }}>
-                        Trust {seller.trust_score}%
-                      </span>
+                      <span className="pd-seller-trust">Trust {seller.trust_score}%</span>
                     )}
                     {seller.listings_count > 0 && (
-                      <span style={{ fontSize: "0.78rem", color: "var(--muted)" }}>
+                      <span className="pd-seller-listings">
                         <Icon.Package /> {seller.listings_count} listings
                       </span>
                     )}
                     {seller.location?.label && (
-                      <span style={{ display: "flex", alignItems: "center", gap: "3px", fontSize: "0.78rem", color: "var(--muted)" }}>
+                      <span className="pd-seller-location">
                         <Icon.MapPin />{seller.location.label}
                       </span>
                     )}
                   </div>
                   {seller.member_since && (
-                    <p style={{ fontSize: "0.73rem", color: "var(--muted)", marginTop: "3px" }}>
+                    <p className="pd-seller-since">
                       Member since {new Date(seller.member_since).getFullYear()}
                     </p>
                   )}
@@ -523,7 +510,7 @@ export default function ProductDetail() {
               </div>
 
               {/* Contact buttons */}
-              <div style={{ display: "flex", gap: "10px", marginTop: "16px" }}>
+              <div className="pd-contact-btns">
                 {seller.whatsapp && (
                   <button onClick={() => handleContact("whatsapp")} className="pd-btn-whatsapp">
                     <Icon.Whatsapp /> WhatsApp
@@ -539,23 +526,25 @@ export default function ProductDetail() {
 
             {/* Delivery */}
             {hasDel && (
-              <div className="pd-info-box" style={{ marginTop: "16px" }}>
-                <p style={{ fontWeight: 700, fontSize: "0.82rem", marginBottom: "8px", display: "flex", alignItems: "center", gap: "6px" }}>
+              <div className="pd-info-box pd-delivery">
+                <p className="pd-delivery-title">
                   <Icon.Package /> Delivery
                 </p>
                 {product.delivery.available !== undefined && (
-                  <p style={{ fontSize: "0.85rem", color: "var(--muted)" }}>
+                  <p className="pd-delivery-row">
                     {product.delivery.available ? "✓ Delivery available" : "✗ No delivery — pickup only"}
                   </p>
                 )}
                 {product.delivery.fee != null && (
-                  <p style={{ fontSize: "0.85rem", color: "var(--muted)" }}>Fee: {product.delivery.fee === 0 ? "Free" : fmt(product.delivery.fee)}</p>
+                  <p className="pd-delivery-row">
+                    Fee: {product.delivery.fee === 0 ? "Free" : fmt(product.delivery.fee)}
+                  </p>
                 )}
                 {product.delivery.duration && (
-                  <p style={{ fontSize: "0.85rem", color: "var(--muted)" }}>Duration: {product.delivery.duration}</p>
+                  <p className="pd-delivery-row">Duration: {product.delivery.duration}</p>
                 )}
                 {product.delivery.note && (
-                  <p style={{ fontSize: "0.85rem", color: "var(--muted)", marginTop: "4px", fontStyle: "italic" }}>{product.delivery.note}</p>
+                  <p className="pd-delivery-note">{product.delivery.note}</p>
                 )}
               </div>
             )}
@@ -581,7 +570,7 @@ export default function ProductDetail() {
         {product.features?.length > 0 && (
           <section className="pd-section">
             <h2 className="pd-section-title">Features</h2>
-            <div style={{ display: "flex", flexWrap: "wrap", gap: "10px" }}>
+            <div className="pd-features">
               {product.features.map((f, i) => (
                 <span key={i} className="pd-feature-tag">
                   <Icon.Check />{f}
@@ -595,7 +584,7 @@ export default function ProductDetail() {
         {faqs.length > 0 && (
           <section className="pd-section">
             <h2 className="pd-section-title">FAQ</h2>
-            <div style={{ borderTop: "1px solid var(--border)" }}>
+            <div className="pd-faq-list">
               {faqs.map((item, i) => (
                 <FaqItem key={i} q={item.q} a={item.a} />
               ))}
@@ -622,362 +611,25 @@ export default function ProductDetail() {
           <button className="pd-lightbox-close" onClick={() => setImgZoomed(false)}>✕</button>
           {images.length > 1 && (
             <>
-              <button className="pd-lightbox-arrow pd-lightbox-arrow--l" onClick={(e) => { e.stopPropagation(); prevImg(); }}><Icon.ChevronLeft /></button>
-              <button className="pd-lightbox-arrow pd-lightbox-arrow--r" onClick={(e) => { e.stopPropagation(); nextImg(); }}><Icon.ChevronRight /></button>
+              <button className="pd-lightbox-arrow pd-lightbox-arrow--l" onClick={(e) => { e.stopPropagation(); prevImg(); }}>
+                <Icon.ChevronLeft />
+              </button>
+              <button className="pd-lightbox-arrow pd-lightbox-arrow--r" onClick={(e) => { e.stopPropagation(); nextImg(); }}>
+                <Icon.ChevronRight />
+              </button>
             </>
           )}
           <img
-            src={mainImg} alt={product.title}
+            src={mainImg}
+            alt={product.title}
             onClick={(e) => e.stopPropagation()}
-            style={{ maxWidth: "92vw", maxHeight: "90vh", objectFit: "contain", borderRadius: "12px", boxShadow: "0 32px 80px rgba(0,0,0,.5)" }}
+            className="pd-lightbox-img"
           />
           {images.length > 1 && (
-            <p style={{ color: "rgba(255,255,255,.6)", marginTop: "12px", fontSize: "0.85rem" }}>{imgIdx + 1} / {images.length}</p>
+            <p className="pd-lightbox-counter">{imgIdx + 1} / {images.length}</p>
           )}
         </div>
       )}
     </div>
-  );
-}
-
-/* ══════════════════════════════════════════════════════════════════════════════
-   ALL STYLES — injected once as a <style> tag
-══════════════════════════════════════════════════════════════════════════════ */
-function PdStyles() {
-  return (
-    <style>{`
-      @import url('https://fonts.googleapis.com/css2?family=Cormorant+Garamond:wght@500;600;700&family=DM+Sans:wght@400;500;600;700&display=swap');
-
-      :root {
-        --accent:   #d4622a;
-        --accent2:  #f0874a;
-        --text:     #1a1a1a;
-        --muted:    #6b7280;
-        --border:   #e5e7eb;
-        --card:     #ffffff;
-        --bg:       #f8f7f5;
-        --sk:       #ebebeb;
-        --skeleton: #f0eeeb;
-        --seller-bg:#fdfaf7;
-        --info-bg:  #f9f9f9;
-        --shadow:   0 2px 16px rgba(0,0,0,.07);
-        --shadow-lg:0 8px 40px rgba(0,0,0,.12);
-      }
-
-      @keyframes pulse {
-        0%,100%{ opacity:1 } 50%{ opacity:.45 }
-      }
-      @keyframes fadeUp {
-        from{ opacity:0; transform:translateY(18px) }
-        to  { opacity:1; transform:translateY(0) }
-      }
-
-      .pd-root {
-        font-family: 'DM Sans', sans-serif;
-        background: var(--bg);
-        min-height: 100vh;
-        color: var(--text);
-      }
-
-      .pd-container {
-        max-width: 1200px;
-        margin: 0 auto;
-        padding: 0 20px;
-      }
-
-      /* ── Back button ──────────────────────────────────────────────── */
-      .pd-back-btn {
-        display: inline-flex; align-items: center; gap: 6px;
-        background: var(--card); border: 1px solid var(--border);
-        border-radius: 10px; padding: 7px 14px;
-        font-family: inherit; font-size: 0.83rem; font-weight: 500;
-        color: var(--text); cursor: pointer;
-        transition: background .15s, border-color .15s;
-      }
-      .pd-back-btn:hover { background: #f3f4f6; border-color: #d1d5db; }
-
-      /* ── 2-col grid ───────────────────────────────────────────────── */
-      .pd-grid {
-        display: grid;
-        grid-template-columns: 1fr 1fr;
-        gap: 40px;
-        align-items: start;
-      }
-      @media(max-width:900px) {
-        .pd-grid { grid-template-columns: 1fr; gap: 24px; }
-      }
-
-      /* ── Gallery ──────────────────────────────────────────────────── */
-      .pd-gallery-col { position: sticky; top: 20px; }
-      @media(max-width:900px){ .pd-gallery-col { position: static; } }
-
-      .pd-main-img-wrap {
-        position: relative; border-radius: 20px; overflow: hidden;
-        aspect-ratio: 1/1; background: #f0eeeb;
-        box-shadow: var(--shadow-lg);
-        animation: fadeUp .4s ease both;
-      }
-
-      .pd-main-img {
-        width: 100%; height: 100%; object-fit: cover;
-        transition: transform .4s ease;
-      }
-      .pd-main-img-wrap:hover .pd-main-img { transform: scale(1.03); }
-
-      .pd-img-placeholder {
-        width: 100%; height: 100%; display: flex;
-        align-items: center; justify-content: center;
-        font-size: 4rem; color: #c9c9c9;
-      }
-
-      .pd-badge-promoted {
-        position: absolute; top: 14px; left: 14px; z-index: 2;
-        background: var(--accent); color: #fff;
-        padding: 5px 12px; border-radius: 20px;
-        font-size: 0.75rem; font-weight: 700; letter-spacing: .03em;
-      }
-
-      .pd-img-arrow {
-        position: absolute; top: 50%; transform: translateY(-50%);
-        background: rgba(255,255,255,.9); border: none; border-radius: 50%;
-        width: 36px; height: 36px; display: flex; align-items: center;
-        justify-content: center; cursor: pointer; z-index: 3;
-        box-shadow: 0 2px 8px rgba(0,0,0,.15);
-        transition: background .15s, transform .15s;
-      }
-      .pd-img-arrow:hover { background: #fff; transform: translateY(-50%) scale(1.1); }
-      .pd-img-arrow--l { left: 12px; }
-      .pd-img-arrow--r { right: 12px; }
-
-      .pd-img-dots {
-        position: absolute; bottom: 14px; left: 50%; transform: translateX(-50%);
-        display: flex; gap: 5px; align-items: center; z-index: 3;
-      }
-
-      .pd-thumbs {
-        display: flex; gap: 8px; margin-top: 10px; overflow-x: auto;
-        scrollbar-width: none; padding-bottom: 4px;
-      }
-      .pd-thumbs::-webkit-scrollbar { display: none; }
-
-      .pd-thumb {
-        flex-shrink: 0; width: 68px; height: 68px; border-radius: 10px;
-        overflow: hidden; border: 2px solid transparent;
-        cursor: pointer; padding: 0;
-        transition: border-color .2s, transform .2s;
-      }
-      .pd-thumb:hover { transform: scale(1.05); }
-      .pd-thumb--active { border-color: var(--accent); }
-
-      .pd-stats-row {
-        display: flex; align-items: center; gap: 14px;
-        margin-top: 12px; font-size: 0.78rem; color: var(--muted);
-        flex-wrap: wrap;
-      }
-      .pd-stats-row span { display: flex; align-items: center; gap: 4px; }
-
-      /* ── Detail column ────────────────────────────────────────────── */
-      .pd-detail-col { animation: fadeUp .4s ease .1s both; }
-
-      .pd-title {
-        font-family: 'Cormorant Garamond', serif;
-        font-size: clamp(1.5rem, 3vw, 2.1rem);
-        font-weight: 700; line-height: 1.2;
-        color: var(--text); margin: 0;
-        letter-spacing: -.01em;
-      }
-
-      .pd-price {
-        font-size: clamp(1.6rem, 3.5vw, 2.2rem);
-        font-weight: 700; color: var(--accent);
-        font-variant-numeric: tabular-nums;
-        letter-spacing: -.02em;
-      }
-
-      /* Badges */
-      .pd-badge {
-        display: inline-flex; align-items: center; gap: 3px;
-        padding: 3px 9px; border-radius: 20px;
-        font-size: 0.72rem; font-weight: 600; letter-spacing: .02em;
-      }
-      .pd-badge--green  { background: #dcfce7; color: #15803d; }
-      .pd-badge--neutral{ background: #f1f5f9; color: #475569; }
-      .pd-badge--blue   { background: #dbeafe; color: #1d4ed8; }
-      .pd-badge--gold   { background: #fef3c7; color: #92400e; }
-
-      /* Spec pills */
-      .pd-spec-pill {
-        display: flex; flex-direction: column; gap: 2px;
-        padding: 8px 12px; background: var(--card);
-        border: 1px solid var(--border); border-radius: 10px;
-        min-width: 70px;
-      }
-
-      /* Action buttons */
-      .pd-action-btn {
-        width: 40px; height: 40px; border-radius: 12px;
-        border: 1px solid var(--border); background: var(--card);
-        display: flex; align-items: center; justify-content: center;
-        cursor: pointer; color: var(--muted);
-        transition: color .15s, border-color .15s, background .15s;
-      }
-      .pd-action-btn:hover { color: var(--accent); border-color: var(--accent); }
-      .pd-action-btn--active { color: #ef4444; border-color: #fca5a5; background: #fff1f1; }
-
-      /* Seller card */
-      .pd-seller-card {
-        background: var(--seller-bg);
-        border: 1px solid var(--border);
-        border-radius: 16px; padding: 18px;
-        box-shadow: var(--shadow);
-      }
-
-      .pd-seller-avatar-wrap {
-        width: 54px; height: 54px; border-radius: 50%; flex-shrink: 0;
-        background: #e5e7eb; overflow: hidden; position: relative;
-        display: flex; align-items: center; justify-content: center;
-        border: 2px solid var(--border);
-      }
-
-      .pd-online-dot {
-        position: absolute; bottom: 2px; right: 2px;
-        width: 11px; height: 11px; background: #22c55e;
-        border-radius: 50%; border: 2px solid #fff;
-      }
-
-      .pd-seller-name {
-        font-weight: 700; font-size: 0.95rem; color: var(--text);
-      }
-
-      /* Contact buttons */
-      .pd-btn-whatsapp {
-        flex: 1; display: flex; align-items: center; justify-content: center;
-        gap: 7px; padding: 11px 16px; border-radius: 12px;
-        background: #25d366; color: #fff; border: none;
-        font-family: inherit; font-size: 0.88rem; font-weight: 600;
-        cursor: pointer; transition: background .15s, transform .12s;
-      }
-      .pd-btn-whatsapp:hover { background: #20b558; transform: translateY(-1px); }
-      .pd-btn-whatsapp:active{ transform: translateY(0); }
-
-      .pd-btn-phone {
-        flex: 1; display: flex; align-items: center; justify-content: center;
-        gap: 7px; padding: 11px 16px; border-radius: 12px;
-        background: var(--card); color: var(--text);
-        border: 1.5px solid var(--border);
-        font-family: inherit; font-size: 0.88rem; font-weight: 600;
-        cursor: pointer; transition: background .15s, border-color .15s, transform .12s;
-      }
-      .pd-btn-phone:hover { background: #f3f4f6; border-color: #9ca3af; transform: translateY(-1px); }
-
-      .pd-btn-outline {
-        padding: 10px 22px; border-radius: 10px;
-        border: 1.5px solid var(--border); background: var(--card);
-        font-family: inherit; font-size: 0.88rem; font-weight: 600;
-        color: var(--text); cursor: pointer;
-        transition: background .15s;
-      }
-      .pd-btn-outline:hover { background: #f3f4f6; }
-
-      /* Info box */
-      .pd-info-box {
-        background: var(--info-bg);
-        border: 1px solid var(--border); border-radius: 12px;
-        padding: 14px 16px;
-        font-size: 0.85rem; color: var(--text);
-      }
-
-      /* ── Sections ─────────────────────────────────────────────────── */
-      .pd-section { margin-top: 48px; }
-
-      .pd-section-title {
-        font-family: 'Cormorant Garamond', serif;
-        font-size: 1.5rem; font-weight: 700;
-        color: var(--text); margin: 0 0 20px;
-        padding-bottom: 12px;
-        border-bottom: 2px solid var(--accent);
-        display: inline-block;
-      }
-
-      /* Specs grid */
-      .pd-specs-grid {
-        display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
-        gap: 1px; background: var(--border);
-        border: 1px solid var(--border); border-radius: 14px; overflow: hidden;
-      }
-
-      .pd-spec-row {
-        display: flex; flex-direction: column; gap: 2px;
-        padding: 12px 16px; background: var(--card);
-      }
-
-      .pd-spec-key {
-        font-size: 0.72rem; font-weight: 600;
-        text-transform: uppercase; letter-spacing: .06em;
-        color: var(--muted);
-      }
-
-      .pd-spec-val {
-        font-size: 0.9rem; font-weight: 500; color: var(--text);
-      }
-
-      /* Feature tags */
-      .pd-feature-tag {
-        display: inline-flex; align-items: center; gap: 5px;
-        padding: 7px 14px; border-radius: 20px;
-        background: var(--card); border: 1px solid var(--border);
-        font-size: 0.82rem; font-weight: 500; color: var(--text);
-      }
-      .pd-feature-tag svg { color: var(--accent); }
-
-      /* FAQ */
-      .pd-faq-item button:hover { color: var(--accent); }
-
-      /* Related grid */
-      .pd-related-grid {
-        display: grid;
-        grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
-        gap: 16px;
-      }
-
-      .pd-related-card:hover { transform: translateY(-4px); box-shadow: var(--shadow-lg); }
-      .pd-related-card:hover .pd-related-img { transform: scale(1.06); }
-
-      /* ── Lightbox ─────────────────────────────────────────────────── */
-      .pd-lightbox {
-        position: fixed; inset: 0; z-index: 1000;
-        background: rgba(0,0,0,.88); backdrop-filter: blur(6px);
-        display: flex; align-items: center; justify-content: center;
-        flex-direction: column;
-        animation: fadeUp .2s ease;
-      }
-
-      .pd-lightbox-close {
-        position: absolute; top: 18px; right: 22px;
-        background: rgba(255,255,255,.15); color: #fff;
-        border: none; border-radius: 50%; width: 40px; height: 40px;
-        font-size: 1rem; cursor: pointer; display: flex;
-        align-items: center; justify-content: center;
-        transition: background .15s;
-      }
-      .pd-lightbox-close:hover { background: rgba(255,255,255,.25); }
-
-      .pd-lightbox-arrow {
-        position: absolute; top: 50%; transform: translateY(-50%);
-        background: rgba(255,255,255,.15); color: #fff;
-        border: none; border-radius: 50%;
-        width: 44px; height: 44px; display: flex;
-        align-items: center; justify-content: center;
-        cursor: pointer; transition: background .15s;
-      }
-      .pd-lightbox-arrow:hover { background: rgba(255,255,255,.28); }
-      .pd-lightbox-arrow--l { left: 20px; }
-      .pd-lightbox-arrow--r { right: 20px; }
-
-      @media(max-width:640px) {
-        .pd-related-grid { grid-template-columns: repeat(2,1fr); gap: 12px; }
-        .pd-specs-grid   { grid-template-columns: 1fr; }
-      }
-    `}</style>
   );
 }
