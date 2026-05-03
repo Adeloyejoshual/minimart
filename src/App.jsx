@@ -1,8 +1,9 @@
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useState, useCallback } from "react";
 import {
   createBrowserRouter,
   RouterProvider,
   Navigate,
+  useLocation,
 } from "react-router-dom";
 import axios from "axios";
 import toast, { Toaster } from "react-hot-toast";
@@ -15,7 +16,6 @@ import NewArrivalsPage from "./pages/Homepage/NewArrivalsPage";
 import NearbyPage from "./pages/Homepage/NearbyPage";
 
 /* ================= OTHER PAGES ================= */
-// User
 import SearchPage from "./pages/SearchPage";
 import AddProduct from "./pages/AddProduct";
 import ProductDetail from "./pages/ProductDetail";
@@ -43,6 +43,35 @@ import Wallet from "./pages/Profile/Wallet";
 /* ================= ADMIN ================= */
 import AdminLogin from "./pages/admin/AdminLogin";
 import AdminDashboard from "./pages/admin/AdminDashboard";
+
+// ================= ROUTE GUARD COMPONENTS =================
+const ProtectedRoute = ({ children, user, isAuthReady }) => {
+  if (!isAuthReady) {
+    return <div className="global-loader">Loading auth...</div>;
+  }
+  if (!user) {
+    return <Navigate to="/auth" replace />;
+  }
+  return children;
+};
+
+const AdminProtectedRoute = ({ children, admin, isAuthReady }) => {
+  if (!isAuthReady) {
+    return <div className="global-loader">Loading auth...</div>;
+  }
+  if (!admin) {
+    return <Navigate to="/admin/login" replace />;
+  }
+  return children;
+};
+
+function AppContent({ user, admin, isAuthReady, handleAuthSuccess }) {
+  return (
+    <RouterProvider 
+      router={createRouter({ user, admin, isAuthReady, handleAuthSuccess })}
+    />
+  );
+}
 
 function AppLayout() {
   const [user, setUser] = useState(null);
@@ -104,6 +133,12 @@ function AppLayout() {
   const isAppLoading = loadingUser || loadingAdmin;
   const isAuthReady = !isAppLoading;
 
+  const handleAuthSuccess = useCallback((userData, token) => {
+    localStorage.setItem("token", token);
+    setUser(userData);
+    toast.success(`Welcome back, ${userData.name}`);
+  }, []);
+
   if (isAppLoading) {
     return (
       <div className="global-loader">
@@ -117,12 +152,6 @@ function AppLayout() {
       </div>
     );
   }
-
-  const handleAuthSuccess = (userData, token) => {
-    localStorage.setItem("token", token);
-    setUser(userData);
-    toast.success(`Welcome back, ${userData.name}`);
-  };
 
   return (
     <>
@@ -139,50 +168,27 @@ function AppLayout() {
           error: { style: { background: "#dc2626" } },
         }}
       />
-      <RouterProvider router={createRouter(user, admin, isAuthReady, handleAuthSuccess)} />
+      <AppContent 
+        user={user} 
+        admin={admin} 
+        isAuthReady={isAuthReady} 
+        handleAuthSuccess={handleAuthSuccess}
+      />
     </>
   );
 }
 
-/* ================= ROUTE GUARDS ================= */
-const ProtectedRoute = ({ children, user, isAuthReady }) => {
-  if (!isAuthReady) return <div className="global-loader">Loading auth...</div>;
-  if (!user) return <Navigate to="/auth" replace />;
-  return children;
-};
-
-const AdminProtectedRoute = ({ children, admin, isAuthReady }) => {
-  if (!isAuthReady) return <div className="global-loader">Loading auth...</div>;
-  if (!admin) return <Navigate to="/admin/login" replace />;
-  return children;
-};
-
-/* ================= ROUTER CONFIG ================= */
-const createRouter = (user, admin, isAuthReady, handleAuthSuccess) =>
+/* ================= ROUTER CONFIG - NO JSX IN OBJECT LITERALS ================= */
+const createRouter = ({ user, admin, isAuthReady, handleAuthSuccess }) =>
   createBrowserRouter([
-    // ================= HOMEPAGE & SUB-PAGES =================
-    {
-      path: "/",
-      element: <Homepage user={user} />,
-    },
-    {
-      path: "/trending",
-      element: <TrendingPage user={user} />,
-    },
-    {
-      path: "/deals",
-      element: <DealsPage user={user} />,
-    },
-    {
-      path: "/latest",
-      element: <NewArrivalsPage user={user} />,
-    },
-    {
-      path: "/nearby",
-      element: <NearbyPage user={user} />,
-    },
+    // HOMEPAGE SUB-PAGES (Your exact example)
+    { path: "/", element: <Homepage user={user} /> },
+    { path: "/trending", element: <TrendingPage user={user} /> },
+    { path: "/deals", element: <DealsPage user={user} /> },
+    { path: "/latest", element: <NewArrivalsPage user={user} /> },
+    { path: "/nearby", element: <NearbyPage user={user} /> },
 
-    // ================= PUBLIC ROUTES =================
+    // PUBLIC ROUTES
     { path: "/search", element: <SearchPage user={user} /> },
     { path: "/product/:slug", element: <ProductDetail user={user} /> },
     { path: "/seller/:id", element: <SellerProfile user={user} /> },
@@ -190,118 +196,99 @@ const createRouter = (user, admin, isAuthReady, handleAuthSuccess) =>
     { path: "/terms", element: <TermsAndConditions /> },
     { path: "/menu", element: <MenuPage /> },
 
-    // ================= PROTECTED ROUTES =================
+    // PROTECTED ROUTES - Using loader pattern for guards
     {
       path: "/profile",
-      element={
-        <ProtectedRoute user={user} isAuthReady={isAuthReady}>
-          <Profile user={user} />
-        </ProtectedRoute>
-      },
-      children: [
-        { index: true, element: <Navigate to="dashboard" /> },
-        { path: "dashboard", element: <Dashboard user={user} /> },
-        { path: "coupons", element: <Coupons user={user} /> },
-        { path: "leaderboard", element: <Leaderboard user={user} /> },
-        { path: "verification", element: <Verification user={user} /> },
-        { path: "wallet", element: <Wallet user={user} /> },
-      ],
+      element: <Profile user={user} />,
+      loader: () => ({ user, isAuthReady }),
     },
     {
+      path: "/profile/dashboard",
+      element: <Dashboard user={user} />,
+      loader: () => ({ user, isAuthReady }),
+    },
+    {
+      path: "/profile/coupons",
+      element: <Coupons user={user} />,
+      loader: () => ({ user, isAuthReady }),
+    },
+    {
+      path: "/profile/leaderboard",
+      element: <Leaderboard user={user} />,
+      loader: () => ({ user, isAuthReady }),
+    },
+    {
+      path: "/profile/verification",
+      element: <Verification user={user} />,
+      loader: () => ({ user, isAuthReady }),
+    },
+    {
+      path: "/profile/wallet",
+      element: <Wallet user={user} />,
+      loader: () => ({ user, isAuthReady }),
+    },
+
+    // OTHER PROTECTED
+    {
       path: "/settings",
-      element={
-        <ProtectedRoute user={user} isAuthReady={isAuthReady}>
-          <SettingsPage user={user} />
-        </ProtectedRoute>
-      },
+      element: <SettingsPage user={user} />,
+      loader: () => ({ user, isAuthReady }),
     },
     {
       path: "/minimart/add",
-      element={
-        <ProtectedRoute user={user} isAuthReady={isAuthReady}>
-          <AddProduct user={user} />
-        </ProtectedRoute>
-      },
+      element: <AddProduct user={user} />,
+      loader: () => ({ user, isAuthReady }),
     },
     {
       path: "/conversations",
-      element={
-        <ProtectedRoute user={user} isAuthReady={isAuthReady}>
-          <Conversations user={user} />
-        </ProtectedRoute>
-      },
+      element: <Conversations user={user} />,
+      loader: () => ({ user, isAuthReady }),
     },
     {
       path: "/chat/:productId",
-      element={
-        <ProtectedRoute user={user} isAuthReady={isAuthReady}>
-          <Chat user={user} />
-        </ProtectedRoute>
-      },
+      element: <Chat user={user} />,
+      loader: () => ({ user, isAuthReady }),
     },
     {
       path: "/become-seller",
-      element={
-        <ProtectedRoute user={user} isAuthReady={isAuthReady}>
-          <BecomeSeller user={user} />
-        </ProtectedRoute>
-      },
+      element: <BecomeSeller user={user} />,
+      loader: () => ({ user, isAuthReady }),
     },
     {
       path: "/faq",
-      element={
-        <ProtectedRoute user={user} isAuthReady={isAuthReady}>
-          <FAQ user={user} />
-        </ProtectedRoute>
-      },
+      element: <FAQ user={user} />,
+      loader: () => ({ user, isAuthReady }),
     },
     {
       path: "/complain",
-      element={
-        <ProtectedRoute user={user} isAuthReady={isAuthReady}>
-          <Complain user={user} />
-        </ProtectedRoute>
-      },
+      element: <Complain user={user} />,
+      loader: () => ({ user, isAuthReady }),
     },
     {
       path: "/support",
-      element={
-        <ProtectedRoute user={user} isAuthReady={isAuthReady}>
-          <Support user={user} />
-        </ProtectedRoute>
-      },
+      element: <Support user={user} />,
+      loader: () => ({ user, isAuthReady }),
     },
     {
       path: "/invitation",
-      element={
-        <ProtectedRoute user={user} isAuthReady={isAuthReady}>
-          <Invitation user={user} />
-        </ProtectedRoute>
-      },
+      element: <Invitation user={user} />,
+      loader: () => ({ user, isAuthReady }),
     },
 
-    // ================= ADMIN ROUTES =================
+    // ADMIN ROUTES
     {
       path: "/admin",
-      element={
-        admin ? (
-          <Navigate to="/admin/dashboard" replace />
-        ) : (
-          <Navigate to="/admin/login" replace />
-        )
-      },
+      loader: () => ({ admin }),
+      element: admin ? <Navigate to="/admin/dashboard" replace /> : <Navigate to="/admin/login" replace />,
     },
-    { path: "/admin/login", element: <AdminLogin setAdmin={() => {}} /> },
+    { path: "/admin/login", element: <AdminLogin /> },
     {
       path: "/admin/dashboard",
-      element={
-        <AdminProtectedRoute admin={admin} isAuthReady={isAuthReady}>
-          <AdminDashboard />
-        </AdminProtectedRoute>
-      },
+      element: <AdminDashboard />,
+      loader: () => ({ admin, isAuthReady }),
     },
 
-    // ================= FALLBACK =================
+    // FALLBACK
     { path: "*", element: <Navigate to="/" replace /> },
   ]);
 
