@@ -2,7 +2,7 @@
 // Shared utilities used by addproduct.js and any other route that needs
 // spam detection or seller trust recalculation.
 
-import { db } from "../db.js";
+import { pool }         from "../config/db.js";
 
 /* ─────────────────────────────────────────────
    detectSpamListing
