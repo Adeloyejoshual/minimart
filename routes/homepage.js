@@ -1,7 +1,7 @@
 // routes/homepage.js
 import express from "express";
 import { sql } from "kysely";
-import { db } from "../db.js"; // your CockroachDB / Kysely client
+import { pool }         from "../config/db.js";
 
 const router = express.Router();
 
