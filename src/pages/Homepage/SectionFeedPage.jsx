@@ -1,7 +1,7 @@
 /**
- * SectionFeedPage.jsx
- * Reusable page for /trending, /deals, /new
- * Accepts a `config` prop — thin wrapper pages pass it in.
+ * pages/SectionFeedPage.jsx
+ * Reusable feed page for /trending, /deals, /new.
+ * Accepts a `config` prop — Trend.jsx / Deals.jsx / New.jsx pass it in.
  */
 
 import React, {
@@ -9,122 +9,18 @@ import React, {
   useState,
   useCallback,
   useRef,
-  memo,
 } from "react";
 import { useNavigate } from "react-router-dom";
 import TopNav from "../components/TopNav";
 import BottomNav from "../components/BottomNav";
-import "./SectionFeed.css";
+import MasonryCard from "../components/MasonryCard";
+import { MasonrySkeleton } from "../components/Skeletons";
+import { dedup, applySortClient } from "../utils/productHelpers";
+import "../styles/SectionFeed.css";
 
 /* ─── Constants ─── */
 const API =
   import.meta.env.VITE_API_BASE || "https://minimart-ivrm.onrender.com/api";
-const PH = "https://placehold.co/600x500/e8e4dc/b0a89e?text=No+Image";
-const HOVER = 900;
-
-/* ─── Pure Helpers ─── */
-const naira  = (n) => "₦" + Number(n || 0).toLocaleString("en-NG");
-const fresh  = (d) => d && Date.now() - new Date(d).getTime() < 86_400_000;
-const dedup  = (arr) => {
-  const seen = new Set();
-  return arr.filter((p) => !seen.has(p.id) && seen.add(p.id));
-};
-
-const getImageUrl = (p) => {
-  if (p?.image) return p.image;
-  if (Array.isArray(p?.images) && p.images.length > 0) {
-    const f = p.images[0];
-    return typeof f === "string" ? f : f?.url || f?.thumbnail_url || PH;
-  }
-  return p?.thumbnail_url || p?.main_image || PH;
-};
-
-const locLabel = (loc) => {
-  if (!loc) return "Nationwide";
-  if (loc.label) return loc.label;
-  return [loc.city, loc.state].filter(Boolean).join(", ") || "Nationwide";
-};
-
-const getBadge = (p) => {
-  if (p.is_promoted)        return { text: "Sponsored", cls: "bd-feat" };
-  if ((p.ctr || 0) > 0.15) return { text: "Hot 🔥",    cls: "bd-hot" };
-  if ((p.ctr || 0) > 0.08) return { text: "Trending",  cls: "bd-trnd" };
-  if (fresh(p.created_at))  return { text: "New",       cls: "bd-new" };
-  return null;
-};
-
-/* ─── Client-side sort ─── */
-const applySortClient = (products, sortKey) => {
-  const arr = [...products];
-  switch (sortKey) {
-    case "price_asc":   return arr.sort((a, b) => a.price - b.price);
-    case "price_desc":  return arr.sort((a, b) => b.price - a.price);
-    case "newest":      return arr.sort((a, b) => new Date(b.created_at) - new Date(a.created_at));
-    case "engagement":  return arr.sort((a, b) => (b.engagement_score || 0) - (a.engagement_score || 0));
-    case "clicks":      return arr.sort((a, b) => (b.clicks_count || 0) - (a.clicks_count || 0));
-    default:            return arr;
-  }
-};
-
-/* ─── Masonry Card ─── */
-const MasonryCard = memo(({ product, priority, onView, onClick }) => {
-  const timerRef = useRef(null);
-  const badge    = getBadge(product);
-  const imgUrl   = getImageUrl(product);
-  const loc      = locLabel(product.location);
-
-  return (
-    <div
-      className="m-card"
-      role="button"
-      tabIndex={0}
-      onClick={() => onClick(product)}
-      onKeyDown={(e) => e.key === "Enter" && onClick(product)}
-      onMouseEnter={() => { timerRef.current = setTimeout(() => onView(product.id), HOVER); }}
-      onMouseLeave={() => { clearTimeout(timerRef.current); }}
-    >
-      {badge && <span className={`bd ${badge.cls}`}>{badge.text}</span>}
-
-      <div className="m-img-wrap">
-        <img
-          className="m-img"
-          src={imgUrl}
-          alt={product.title}
-          loading={priority ? "eager" : "lazy"}
-          decoding="async"
-          fetchPriority={priority ? "high" : "auto"}
-          onError={(e) => { e.currentTarget.src = PH; }}
-        />
-      </div>
-
-      <div className="m-body">
-        <div className="m-name">{product.title}</div>
-        <div className="m-price">{naira(product.price)}</div>
-        <div className="m-meta">
-          <span className="m-loc">
-            <span className="loc-pip" />
-            {loc}
-          </span>
-          {product.distance_km != null && (
-            <span className="m-dist">{product.distance_km} km</span>
-          )}
-        </div>
-        {product.seller?.verified && (
-          <span className="m-vfd">✓ Verified</span>
-        )}
-      </div>
-    </div>
-  );
-});
-
-/* ─── Skeletons ─── */
-const MasonrySkeleton = () => (
-  <div className="masonry-grid">
-    {[190, 240, 170, 210, 230, 180, 200, 160].map((h, i) => (
-      <div key={i} className="sk masonry-sk" style={{ height: h }} />
-    ))}
-  </div>
-);
 
 /* ═══════════════════════════════════════════════════════════
    SectionFeedPage
@@ -133,13 +29,13 @@ export default function SectionFeedPage({ config }) {
   const navigate = useNavigate();
 
   const {
-    section,        // "trending" | "deals" | "new"
-    title,          // "Trending Now"
-    subtitle,       // "Most popular right now"
-    icon,           // "🔥"
-    accent,         // CSS colour string
-    sortOptions,    // [{ label, value }]
-    emptyMsg,       // string shown when no results
+    section,      // "trending" | "deals" | "new"
+    title,        // "Trending Now"
+    subtitle,     // "Most popular right now"
+    icon,         // "🔥"
+    accent,       // CSS colour string
+    sortOptions,  // [{ label, value }]
+    emptyMsg,
   } = config;
 
   const [products,    setProducts]    = useState([]);
@@ -154,7 +50,7 @@ export default function SectionFeedPage({ config }) {
   const productsRef = useRef([]);
   const sentinelRef = useRef(null);
 
-  /* ─── Helpers ─── */
+  /* ─── Tracking ─── */
   const trackView = useCallback((id) => {
     fetch(`${API}/products/${id}/view`, { method: "POST" }).catch(() => {});
   }, []);
@@ -177,12 +73,12 @@ export default function SectionFeedPage({ config }) {
     const merged   = append
       ? dedup([...productsRef.current, ...incoming])
       : dedup(incoming);
-
     productsRef.current = merged;
     setProducts(merged);
     setHasMore(incoming.length >= 40);
   }, []);
 
+  /* ─── Initial load ─── */
   const load = useCallback(async () => {
     setLoading(true);
     setError(null);
@@ -199,6 +95,7 @@ export default function SectionFeedPage({ config }) {
     }
   }, [fetchPage, applyData]);
 
+  /* ─── Load more ─── */
   const loadMore = useCallback(async () => {
     if (loadingMore || !hasMore) return;
     setLoadingMore(true);
@@ -214,7 +111,7 @@ export default function SectionFeedPage({ config }) {
     }
   }, [loadingMore, hasMore, page, fetchPage, applyData]);
 
-  /* ─── Sort whenever products or sortKey changes ─── */
+  /* ─── Re-sort on products / sortKey change ─── */
   useEffect(() => {
     setSortedProds(applySortClient(products, sortKey));
   }, [products, sortKey]);
@@ -234,23 +131,16 @@ export default function SectionFeedPage({ config }) {
     return () => obs.disconnect();
   }, [hasMore, loadingMore, loadMore]);
 
-  /* ─── CSS accent injection ─── */
-  const accentStyle = { "--section-accent": accent };
-
+  /* ─── Render ─── */
   return (
     <>
       <TopNav />
 
-      <div className="sf-pg" style={accentStyle}>
+      <div className="sf-pg" style={{ "--section-accent": accent }}>
 
-        {/* ── Section Hero ── */}
+        {/* Hero */}
         <div className="sf-hero">
-          {/* Back */}
-          <button
-            className="sf-back"
-            onClick={() => navigate(-1)}
-            aria-label="Go back"
-          >
+          <button className="sf-back" onClick={() => navigate(-1)} aria-label="Go back">
             ←
           </button>
 
@@ -263,7 +153,6 @@ export default function SectionFeedPage({ config }) {
             </div>
           </div>
 
-          {/* Count badge */}
           {!loading && (
             <div className="sf-count">
               {sortedProds.length}{hasMore ? "+" : ""} listings
@@ -271,7 +160,7 @@ export default function SectionFeedPage({ config }) {
           )}
         </div>
 
-        {/* ── Sort Pills ── */}
+        {/* Sort pills */}
         {sortOptions.length > 1 && (
           <div className="sf-sort-wrap">
             <span className="sf-sort-label">Sort:</span>
@@ -289,7 +178,7 @@ export default function SectionFeedPage({ config }) {
           </div>
         )}
 
-        {/* ── Error ── */}
+        {/* Error */}
         {error && (
           <div className="err-box">
             <div className="err-icon">⚡</div>
@@ -299,7 +188,7 @@ export default function SectionFeedPage({ config }) {
           </div>
         )}
 
-        {/* ── Feed ── */}
+        {/* Feed */}
         {loading ? (
           <MasonrySkeleton />
         ) : !error && sortedProds.length === 0 ? (
@@ -324,7 +213,6 @@ export default function SectionFeedPage({ config }) {
                 />
               ))}
             </div>
-
             <div ref={sentinelRef} style={{ height: 1 }} />
             {loadingMore && <p className="loading-more">Loading more…</p>}
             {!hasMore && sortedProds.length > 0 && (
