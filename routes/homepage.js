@@ -1,19 +1,22 @@
 // routes/homepage.js
 import express from "express";
-import { db } from "../db.js"; // your CockroachDB / SQL client
+import { sql } from "kysely";
+import { db } from "../db.js"; // your CockroachDB / Kysely client
 
 const router = express.Router();
 
 // GET /api/homepage
 router.get("/", async (req, res) => {
   const { lat, lng, page = 0 } = req.query;
+  const hasCoords = !!(lat && lng);
 
   try {
     const limit = 40;
     const offset = Number(page) * limit;
 
-    // Select fields that match your products table
-    const query = db
+    // FIX 1: Use `let` so we can reassign when appending the distance select.
+    // FIX 4: `impressions_count` → `impression_count` (matches schema column name).
+    let query = db
       .selectFrom("products")
       .select([
         "id",
@@ -24,6 +27,7 @@ router.get("/", async (req, res) => {
         "thumbnail_url",
         "views",
         "clicks_count",
+        "impression_count",
         "engagement_score",
         "promotion_priority",
         "is_promoted",
@@ -42,19 +46,15 @@ router.get("/", async (req, res) => {
       .limit(limit + 1)
       .offset(offset);
 
-    if (lat && lng) {
-      query
-        .$castTo<{ distance_km: number }>()
-        .select((eb) =>
-          eb
-            .fn("st_distance_sphere")
-            .args([
-              eb.fn("st_makepoint").args(lng, lat),
-              eb.ref("location"),
-            ])
-            .divide(1000)
-            .as("distance_km")
-        );
+    // FIX 2: Reassign query so the extra select is actually included.
+    // FIX 1: Replaced .$castTo<{}>() (TypeScript-only) with a plain sql`` tag.
+    //        CockroachDB: ST_Distance on GEOGRAPHY columns returns metres → divide by 1000.
+    if (hasCoords) {
+      query = query.select(
+        sql`ST_Distance(location, ST_MakePoint(${Number(lng)}, ${Number(lat)})::geography) / 1000`.as(
+          "distance_km"
+        )
+      );
     }
 
     const rows = await query.execute();
@@ -62,23 +62,35 @@ router.get("/", async (req, res) => {
     const hasMore = rows.length > limit;
     const products = rows.slice(0, limit).map((p) => ({
       ...p,
-      discounted: false, // can be added by backend later
+      discounted: false,
       image: p.main_image || p.thumbnail_url,
       images: p.main_image ? [p.main_image] : [],
       location: {
         city: p.location_city || null,
         state: p.location_state || null,
       },
-      distance_km: p.distance_km || null,
-      ctr: p.clicks_count > 0 ? p.clicks_count / (p.impressions_count || p.views || 1) : 0,
+      distance_km:
+        p.distance_km != null
+          ? Math.round(Number(p.distance_km) * 10) / 10
+          : null,
+      // FIX 4: impression_count (no trailing 's') matches the schema
+      ctr:
+        p.clicks_count > 0
+          ? p.clicks_count / (p.impression_count || p.views || 1)
+          : 0,
     }));
+
+    // FIX 3: `p` only exists inside .map(). Derive the location label from
+    //        the mapped array instead (first product that has a city set).
+    const representativeCity =
+      products.find((p) => p.location?.city)?.location?.city || null;
 
     res.status(200).json({
       products,
       hasMore,
       meta: {
-        location: p.location_city,
-        nearbySource: lat && lng ? "gps" : null,
+        location: representativeCity,
+        nearbySource: hasCoords ? "gps" : null,
       },
     });
   } catch (err) {
