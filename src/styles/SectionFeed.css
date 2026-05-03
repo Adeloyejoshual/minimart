@@ -1,0 +1,215 @@
+/* ══════════════════════════════════════════════════════════
+   SectionFeed.css
+   Styles for TrendingPage / DealsPage / NewArrivalsPage
+   Reuses Homepage.css tokens — import BOTH files.
+   ══════════════════════════════════════════════════════════ */
+
+/* ── Page wrapper ── */
+.sf-pg {
+  padding-bottom: 92px;
+  --section-accent: var(--o);      /* overridden per-page via inline style */
+}
+
+/* ══════════════════════════════
+   Hero header
+   ══════════════════════════════ */
+.sf-hero {
+  background: var(--ink);
+  padding: 0 18px 20px;
+  position: relative;
+  overflow: hidden;
+}
+
+/* Radial accent glow — colour comes from CSS var set inline */
+.sf-hero::before {
+  content: '';
+  position: absolute;
+  top: -60px; right: -50px;
+  width: 220px; height: 220px;
+  background: radial-gradient(
+    circle,
+    color-mix(in srgb, var(--section-accent) 28%, transparent) 0%,
+    transparent 68%
+  );
+  border-radius: 50%;
+  pointer-events: none;
+}
+.sf-hero::after {
+  content: '';
+  position: absolute;
+  bottom: -30px; left: -10px;
+  width: 140px; height: 140px;
+  background: radial-gradient(
+    circle,
+    color-mix(in srgb, var(--section-accent) 12%, transparent) 0%,
+    transparent 70%
+  );
+  border-radius: 50%;
+  pointer-events: none;
+}
+
+/* Back button */
+.sf-back {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 36px; height: 36px;
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.08);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  color: #fff;
+  font-size: 18px;
+  cursor: pointer;
+  margin: 16px 0 14px;
+  transition: background 0.15s;
+  -webkit-tap-highlight-color: transparent;
+}
+.sf-back:hover { background: rgba(255, 255, 255, 0.15); }
+.sf-back:active { transform: scale(0.92); }
+
+/* Icon + text row */
+.sf-hero-inner {
+  display: flex;
+  align-items: flex-start;
+  gap: 14px;
+}
+
+.sf-icon {
+  font-size: 40px;
+  line-height: 1;
+  flex-shrink: 0;
+  filter: drop-shadow(0 4px 12px rgba(0,0,0,0.3));
+}
+
+.sf-kicker {
+  font-size: 9.5px;
+  font-weight: 700;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: var(--section-accent);
+  margin-bottom: 6px;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.sf-kicker::before {
+  content: '';
+  display: block;
+  width: 16px;
+  height: 2px;
+  background: var(--section-accent);
+  border-radius: 999px;
+}
+
+.sf-title {
+  font-family: var(--fd);
+  font-size: 26px;
+  font-weight: 700;
+  color: #fff;
+  line-height: 1.1;
+  margin-bottom: 5px;
+}
+
+.sf-sub {
+  font-size: 12.5px;
+  color: rgba(255, 255, 255, 0.5);
+  line-height: 1.45;
+  max-width: 220px;
+}
+
+/* Listings count badge */
+.sf-count {
+  display: inline-flex;
+  align-items: center;
+  margin-top: 14px;
+  background: rgba(255, 255, 255, 0.07);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 999px;
+  padding: 5px 12px;
+  font-size: 11.5px;
+  font-weight: 600;
+  color: rgba(255, 255, 255, 0.65);
+  letter-spacing: 0.02em;
+}
+
+/* ══════════════════════════════
+   Sort pills bar
+   ══════════════════════════════ */
+.sf-sort-wrap {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 14px 16px 10px;
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+.sf-sort-wrap::-webkit-scrollbar { display: none; }
+
+.sf-sort-label {
+  font-size: 11.5px;
+  font-weight: 700;
+  color: var(--ink3);
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+
+.sf-sort-pills {
+  display: flex;
+  gap: 7px;
+  flex-shrink: 0;
+}
+
+.sf-sort-pill {
+  padding: 6px 14px;
+  border-radius: 999px;
+  border: 1.5px solid var(--bd);
+  background: var(--wh);
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--ink2);
+  cursor: pointer;
+  white-space: nowrap;
+  transition: border-color 0.15s, background 0.15s, color 0.15s, transform 0.12s;
+  box-shadow: var(--s1);
+  -webkit-tap-highlight-color: transparent;
+}
+.sf-sort-pill:hover {
+  border-color: var(--section-accent);
+  color: var(--section-accent);
+  transform: translateY(-1px);
+  box-shadow: var(--s2);
+}
+.sf-sort-pill.active {
+  background: var(--section-accent);
+  border-color: var(--section-accent);
+  color: #fff;
+  box-shadow: 0 4px 14px color-mix(in srgb, var(--section-accent) 35%, transparent);
+}
+.sf-sort-pill:active { transform: scale(0.96); }
+
+/* ══════════════════════════════
+   Reuse masonry + card styles
+   from Homepage-additions.css:
+   .masonry-grid, .m-card,
+   .m-img-wrap, .m-img, .m-body,
+   .m-name, .m-price, .m-meta,
+   .m-loc, .m-dist, .m-vfd,
+   .masonry-sk, .loc-pip,
+   .feed-end, .loading-more,
+   .empty, .err-box, .sk
+   — all already defined there.
+   ══════════════════════════════ */
+
+/* Slight page animation */
+.sf-pg .masonry-grid {
+  animation: up 0.35s ease both;
+  animation-delay: 0.1s;
+}
+
+/* ── Responsive: tighten hero on small screens ── */
+@media (max-width: 360px) {
+  .sf-title { font-size: 22px; }
+  .sf-icon  { font-size: 32px; }
+}
