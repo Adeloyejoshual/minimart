@@ -6,8 +6,8 @@
  */
 
 import React, { useCallback } from "react";
-import PageShell from "../components/PageShell";
-import { useProductFeed } from "../hooks/useProductFeed";
+import PageShell from "../../components/PageShell";
+import { useProductFeed } from "../../hooks/useProductFeed";
 
 const API =
   import.meta.env.VITE_API_BASE || "https://minimart-ivrm.onrender.com/api";
