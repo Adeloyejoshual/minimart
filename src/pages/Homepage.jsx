@@ -16,16 +16,15 @@ import { useProductCache } from "../context/ProductCacheContext";
 import TopNav    from "../components/TopNav";
 import BottomNav from "../components/BottomNav";
 
-/* ─────────────────────────────────────────────
-   CONSTANTS
-───────────────────────────────────────────── */
+/* ─── Constants ──────────────────────────────────────────────────────────────*/
+
 const API   = import.meta.env.VITE_API_BASE || "https://minimart-ivrm.onrender.com/api";
 const PH    = "https://placehold.co/600x500/e8e4dc/b0a89e?text=Minimart";
-const HOVER = 900; // ms hover before counting as a view
+const HOVER = 900;
 const GPS_O = { timeout: 5000, enableHighAccuracy: false, maximumAge: 300_000 };
 
 const CATEGORIES = [
-  { id: "all",         label: "All",        icon: "✦" },
+  { id: "all",         label: "All",        icon: "✦"  },
   { id: "electronics", label: "Electronics", icon: "📱" },
   { id: "fashion",     label: "Fashion",     icon: "👗" },
   { id: "vehicles",    label: "Vehicles",    icon: "🚗" },
@@ -35,19 +34,26 @@ const CATEGORIES = [
   { id: "services",    label: "Services",    icon: "🔧" },
 ];
 
-/* ─────────────────────────────────────────────
-   PURE HELPERS
-───────────────────────────────────────────── */
-const naira = (n) =>
-  "₦" + Number(n || 0).toLocaleString("en-NG");
+/* ─── Pure helpers ───────────────────────────────────────────────────────────*/
 
-const img = (p) => {
-  const f = Array.isArray(p?.images) ? p.images[0] : null;
-  if (!f) return PH;
-  return typeof f === "string" ? f : f.url || f.thumbnail_url || PH;
+const naira = (n) => "₦" + Number(n || 0).toLocaleString("en-NG");
+
+/**
+ * FIX: Always try thumbnail_url first.
+ * Backend homepageSelect does NOT include image aggregation so images[] will
+ * be empty unless populated from thumbnail_url in normalizeProduct.
+ * Belt-and-suspenders: check both thumbnail_url and images[0].
+ */
+const getImg = (p) => {
+  if (p?.thumbnail_url) return p.thumbnail_url;
+  if (Array.isArray(p?.images) && p.images.length > 0) {
+    const f = p.images[0];
+    return typeof f === "string" ? f : f?.url || f?.thumbnail_url || PH;
+  }
+  return PH;
 };
 
-const fresh = (d) => Date.now() - new Date(d).getTime() < 86_400_000;
+const fresh = (d) => d && Date.now() - new Date(d).getTime() < 86_400_000;
 
 const dedup = (arr) => {
   const s = new Set();
@@ -64,14 +70,13 @@ const split = (products) => ({
 
 const ctrlBadge = (ctr) => {
   if (!ctr) return null;
-  if (ctr > 0.15) return { t: "Hot",     c: "bd-hot" };
-  if (ctr > 0.08) return { t: "Trending",c: "bd-trnd" };
+  if (ctr > 0.15) return { t: "Hot",      c: "bd-hot"  };
+  if (ctr > 0.08) return { t: "Trending", c: "bd-trnd" };
   return null;
 };
 
-/* ─────────────────────────────────────────────
-   STYLES
-───────────────────────────────────────────── */
+/* ─── Styles ─────────────────────────────────────────────────────────────────*/
+
 const CSS = `
   /* ── TOKENS ── */
   :root {
@@ -101,15 +106,12 @@ const CSS = `
   /* ── PAGE ── */
   .pg { padding-bottom:92px; }
 
-  /* ── ENTRANCE ANIMATION ── */
+  /* ── ANIMATIONS ── */
   @keyframes up {
     from { opacity:0; transform:translateY(16px); }
     to   { opacity:1; transform:translateY(0); }
   }
-  @keyframes fadeIn {
-    from { opacity:0; }
-    to   { opacity:1; }
-  }
+  @keyframes fadeIn { from{opacity:0} to{opacity:1} }
   @keyframes pulse-ring {
     0%   { transform:scale(1);   opacity:.6; }
     100% { transform:scale(1.9); opacity:0;  }
@@ -123,7 +125,7 @@ const CSS = `
     50%     { transform:translateY(-4px); }
   }
 
-  .anim { animation:up .4s ease both; }
+  .anim   { animation:up .4s ease both; }
   .anim-1 { animation-delay:.05s; }
   .anim-2 { animation-delay:.10s; }
   .anim-3 { animation-delay:.15s; }
@@ -136,27 +138,24 @@ const CSS = `
     padding:20px 18px 0;
     position:relative; overflow:hidden;
   }
-  /* warm glow blobs */
   .hero::before {
     content:''; position:absolute; top:-80px; right:-60px;
     width:260px; height:260px;
-    background:radial-gradient(circle, rgba(255,92,0,.20) 0%, transparent 65%);
+    background:radial-gradient(circle,rgba(255,92,0,.20) 0%,transparent 65%);
     border-radius:50%; pointer-events:none;
   }
   .hero::after {
     content:''; position:absolute; bottom:-40px; left:-20px;
     width:160px; height:160px;
-    background:radial-gradient(circle, rgba(255,92,0,.08) 0%, transparent 70%);
+    background:radial-gradient(circle,rgba(255,92,0,.08) 0%,transparent 70%);
     border-radius:50%; pointer-events:none;
   }
-
   .hero-top {
     display:flex; align-items:flex-start; justify-content:space-between;
     margin-bottom:14px;
   }
   .hero-kicker {
-    font-family:var(--fb); font-size:10px; font-weight:700;
-    letter-spacing:.16em; text-transform:uppercase;
+    font-size:10px; font-weight:700; letter-spacing:.16em; text-transform:uppercase;
     color:var(--o); margin-bottom:8px;
     display:flex; align-items:center; gap:6px;
   }
@@ -167,19 +166,15 @@ const CSS = `
   .hero-h1 {
     font-family:var(--fd); font-size:28px; font-weight:700;
     color:#fff; line-height:1.08; max-width:220px;
-    font-feature-settings:'dlig' 1;
   }
   .hero-h1 i { font-style:italic; color:var(--o2); font-weight:300; }
   .hero-notify {
     width:36px; height:36px; border-radius:50%;
     background:rgba(255,255,255,.08); border:1px solid rgba(255,255,255,.12);
     display:flex; align-items:center; justify-content:center;
-    font-size:16px; cursor:pointer; flex-shrink:0;
-    transition:background .15s;
+    font-size:16px; cursor:pointer; flex-shrink:0; transition:background .15s;
   }
   .hero-notify:hover { background:rgba(255,255,255,.15); }
-
-  /* location pill */
   .hero-loc {
     display:inline-flex; align-items:center; gap:7px;
     background:rgba(255,255,255,.07); border:1px solid rgba(255,255,255,.12);
@@ -197,8 +192,6 @@ const CSS = `
     border-radius:50%; background:rgba(255,92,0,.35);
     animation:pulse-ring .9s ease-out infinite;
   }
-
-  /* stats strip */
   .hero-stats {
     display:flex; gap:0;
     border-top:1px solid rgba(255,255,255,.08);
@@ -224,7 +217,7 @@ const CSS = `
     background:var(--wh); border:1.5px solid var(--bd);
     border-radius:var(--r2); padding:13px 15px;
     box-shadow:var(--s1); cursor:pointer;
-    transition:border-color .15s, box-shadow .15s;
+    transition:border-color .15s,box-shadow .15s;
   }
   .search:hover { border-color:var(--o2); box-shadow:var(--s2); }
   .search-ic  { font-size:15px; color:var(--ink3); flex-shrink:0; }
@@ -246,7 +239,7 @@ const CSS = `
     border-radius:999px; padding:7px 13px;
     font-size:12.5px; font-weight:600; color:var(--ink2);
     cursor:pointer; white-space:nowrap; flex-shrink:0;
-    transition:border-color .15s, background .15s, color .15s, transform .12s;
+    transition:border-color .15s,background .15s,color .15s,transform .12s;
     box-shadow:var(--s1);
   }
   .cat-btn:hover { border-color:var(--o); color:var(--o); transform:translateY(-1px); box-shadow:var(--s2); }
@@ -254,7 +247,6 @@ const CSS = `
     background:var(--o); border-color:var(--o); color:#fff;
     box-shadow:0 4px 14px rgba(255,92,0,.30);
   }
-  .cat-btn.active:hover { transform:translateY(-1px); }
   .cat-icon { font-size:13px; }
 
   /* ── SECTION ── */
@@ -263,17 +255,14 @@ const CSS = `
     display:flex; align-items:center; justify-content:space-between;
     padding:0 16px 12px;
   }
-  .sec-label {
-    display:flex; align-items:center; gap:10px;
-  }
+  .sec-label { display:flex; align-items:center; gap:10px; }
   .sec-title {
     font-family:var(--fd); font-size:19px; font-weight:700;
     color:var(--ink); line-height:1;
   }
   .sec-chip {
     font-size:9px; font-weight:700; letter-spacing:.08em;
-    text-transform:uppercase; border-radius:5px;
-    padding:3px 7px;
+    text-transform:uppercase; border-radius:5px; padding:3px 7px;
     background:var(--o); color:#fff;
   }
   .sec-chip.gn { background:var(--gn); }
@@ -296,14 +285,14 @@ const CSS = `
   /* ── GRID ── */
   .grid2 { display:grid; grid-template-columns:repeat(2,1fr); gap:12px; padding:3px 16px 10px; }
 
-  /* ── CARD — OVERLAY (hero image, info overlaid) ── */
+  /* ── CARD — OVERLAY ── */
   .co {
     width:158px; border-radius:var(--r2); overflow:hidden;
     cursor:pointer; flex-shrink:0; position:relative;
     box-shadow:var(--s1); background:var(--bd);
-    transition:transform .18s cubic-bezier(.34,1.56,.64,1), box-shadow .18s;
+    transition:transform .18s cubic-bezier(.34,1.56,.64,1),box-shadow .18s;
   }
-  .co:hover { transform:translateY(-4px) scale(1.01); box-shadow:var(--s3); }
+  .co:hover  { transform:translateY(-4px) scale(1.01); box-shadow:var(--s3); }
   .co:active { transform:scale(.96); }
   .co-img {
     width:100%; height:200px; object-fit:cover; display:block;
@@ -311,7 +300,7 @@ const CSS = `
   }
   .co-grad {
     position:absolute; bottom:0; left:0; right:0;
-    background:linear-gradient(to top, rgba(14,10,6,.92) 0%, rgba(14,10,6,.60) 45%, transparent 100%);
+    background:linear-gradient(to top,rgba(14,10,6,.92) 0%,rgba(14,10,6,.60) 45%,transparent 100%);
     padding:36px 10px 10px;
   }
   .co-name {
@@ -319,26 +308,21 @@ const CSS = `
     display:-webkit-box; -webkit-box-orient:vertical; -webkit-line-clamp:2; overflow:hidden;
     margin-bottom:5px;
   }
-  .co-price {
-    font-family:var(--fd); font-size:15px; font-weight:700; color:var(--o2);
-  }
-  .co-foot {
-    display:flex; align-items:center; justify-content:space-between;
-    margin-top:4px;
-  }
-  .co-loc { font-size:10px; color:rgba(255,255,255,.55); }
+  .co-price { font-family:var(--fd); font-size:15px; font-weight:700; color:var(--o2); }
+  .co-foot  { display:flex; align-items:center; justify-content:space-between; margin-top:4px; }
+  .co-loc   { font-size:10px; color:rgba(255,255,255,.55); }
 
   /* ── CARD — GRID TILE ── */
   .ct {
     border-radius:var(--r2); overflow:hidden; position:relative;
     cursor:pointer; background:var(--wh); border:1.5px solid var(--bd);
     box-shadow:var(--s1);
-    transition:transform .18s cubic-bezier(.34,1.56,.64,1), box-shadow .18s;
+    transition:transform .18s cubic-bezier(.34,1.56,.64,1),box-shadow .18s;
   }
-  .ct:hover { transform:translateY(-3px); box-shadow:var(--s2); }
+  .ct:hover  { transform:translateY(-3px); box-shadow:var(--s2); }
   .ct:active { transform:scale(.96); }
-  .ct-img { width:100%; height:130px; object-fit:cover; display:block; background:var(--bd); }
-  .ct-body { padding:9px 10px 11px; }
+  .ct-img    { width:100%; height:130px; object-fit:cover; display:block; background:var(--bd); }
+  .ct-body   { padding:9px 10px 11px; }
   .ct-name {
     font-size:12.5px; font-weight:600; color:var(--ink); line-height:1.35;
     display:-webkit-box; -webkit-box-orient:vertical; -webkit-line-clamp:2; overflow:hidden;
@@ -348,34 +332,36 @@ const CSS = `
   .ct-loc   { font-size:10px; color:var(--ink3); margin-top:3px; }
 
   /* ── TRUST BAR ── */
-  .trust { display:flex; align-items:center; gap:5px; margin-top:6px; }
+  .trust       { display:flex; align-items:center; gap:5px; margin-top:6px; }
   .trust-track { flex:1; height:3px; background:var(--bd); border-radius:999px; overflow:hidden; }
   .trust-fill  { height:100%; background:var(--gn); border-radius:999px; }
   .trust-lbl   { font-size:9.5px; color:var(--ink3); white-space:nowrap; }
 
-  /* ── FEATURED CARD (dark landscape) ── */
+  /* ── FEATURED CARD ── */
   .feat-wrap { padding:2px 16px 4px; }
   .feat {
     display:flex; height:128px; border-radius:var(--r3);
     overflow:hidden; cursor:pointer; position:relative;
     background:var(--ink); border:1px solid rgba(255,255,255,.06);
     box-shadow:var(--s2); margin-bottom:10px;
-    transition:transform .18s, box-shadow .18s;
+    transition:transform .18s,box-shadow .18s;
   }
-  .feat:hover { transform:scale(1.01); box-shadow:var(--s3); }
+  .feat:hover  { transform:scale(1.01); box-shadow:var(--s3); }
   .feat:active { transform:scale(.97); }
-  .feat-img { width:128px; flex-shrink:0; object-fit:cover; display:block; }
-  .feat-body { flex:1; padding:14px 15px; display:flex; flex-direction:column; justify-content:space-between; overflow:hidden; }
+  .feat-img  { width:128px; flex-shrink:0; object-fit:cover; display:block; }
+  .feat-body {
+    flex:1; padding:14px 15px;
+    display:flex; flex-direction:column; justify-content:space-between; overflow:hidden;
+  }
   .feat-tag {
-    font-size:8.5px; font-weight:700; letter-spacing:.14em;
-    text-transform:uppercase; color:var(--o);
-    display:flex; align-items:center; gap:5px;
+    font-size:8.5px; font-weight:700; letter-spacing:.14em; text-transform:uppercase;
+    color:var(--o); display:flex; align-items:center; gap:5px;
   }
   .feat-tag::before { content:''; display:block; width:12px; height:1.5px; background:var(--o); }
   .feat-name {
     font-family:var(--fd); font-size:14.5px; font-weight:700; color:#fff;
-    line-height:1.18; display:-webkit-box; -webkit-box-orient:vertical;
-    -webkit-line-clamp:2; overflow:hidden;
+    line-height:1.18;
+    display:-webkit-box; -webkit-box-orient:vertical; -webkit-line-clamp:2; overflow:hidden;
   }
   .feat-price { font-family:var(--fd); font-size:18px; font-weight:700; color:var(--o2); }
   .feat-loc   { font-size:10px; color:rgba(255,255,255,.38); margin-top:1px; }
@@ -386,26 +372,22 @@ const CSS = `
     font-size:8.5px; font-weight:700; letter-spacing:.08em;
     text-transform:uppercase; border-radius:5px; padding:3px 7px;
   }
-  .bd-feat  { background:var(--gn); color:#fff; }
-  .bd-new   { background:var(--o);  color:#fff; }
-  .bd-hot   { background:#DC2626; color:#fff; }
-  .bd-trnd  { background:#7C3AED; color:#fff; }
+  .bd-feat { background:var(--gn); color:#fff; }
+  .bd-new  { background:var(--o);  color:#fff; }
+  .bd-hot  { background:#DC2626;   color:#fff; }
+  .bd-trnd { background:#7C3AED;   color:#fff; }
 
-  /* rank number */
   .rank {
     position:absolute; top:8px; right:9px; z-index:3;
     font-family:var(--fd); font-size:24px; font-weight:700;
     color:rgba(255,255,255,.22); line-height:1;
     text-shadow:0 2px 8px rgba(0,0,0,.3);
   }
-
-  /* verified */
   .vfd {
     display:inline-flex; align-items:center; gap:3px;
     font-size:9.5px; font-weight:700; color:var(--gn);
     background:var(--gn2); border-radius:4px; padding:2px 6px; margin-top:4px;
   }
-  /* distance */
   .dist {
     font-size:9.5px; font-weight:600; color:var(--gn);
     background:var(--gn2); border-radius:4px; padding:2px 6px; flex-shrink:0;
@@ -420,28 +402,28 @@ const CSS = `
     padding:14px; border:1.5px solid var(--bd2); border-radius:var(--r2);
     background:var(--wh); font-size:13.5px; font-weight:700;
     color:var(--ink2); cursor:pointer; text-align:center;
-    transition:border-color .15s, color .15s, background .15s, transform .12s;
+    transition:border-color .15s,color .15s,background .15s,transform .12s;
     box-shadow:var(--s1);
   }
   .load-more:hover {
     border-color:var(--o); color:var(--o); background:var(--o-bg);
     transform:translateY(-1px); box-shadow:var(--s2);
   }
-  .load-more:active { transform:scale(.98); }
-  .load-more:disabled { opacity:.45; pointer-events:none; }
+  .load-more:active  { transform:scale(.98); }
+  .load-more:disabled{ opacity:.45; pointer-events:none; }
 
   /* ── SKELETON ── */
   .sk {
-    background:linear-gradient(90deg, var(--bd) 25%, #E8E4DC 50%, var(--bd) 75%);
+    background:linear-gradient(90deg,var(--bd) 25%,#E8E4DC 50%,var(--bd) 75%);
     background-size:1600px 100%;
     animation:shimmer 1.6s infinite linear;
     border-radius:var(--r2);
   }
-  .sk-co  { width:158px; height:200px; flex-shrink:0; }
-  .sk-ct  { height:210px; }
-  .sk-ft  { height:128px; border-radius:var(--r3); margin-bottom:10px; }
+  .sk-co { width:158px; height:200px; flex-shrink:0; }
+  .sk-ct { height:210px; }
+  .sk-ft { height:128px; border-radius:var(--r3); margin-bottom:10px; }
 
-  /* ── EMPTY STATE ── */
+  /* ── EMPTY ── */
   .empty {
     margin:36px 16px; padding:40px 24px;
     background:var(--wh); border:1.5px solid var(--bd);
@@ -462,16 +444,15 @@ const CSS = `
     border-radius:999px; padding:13px 32px;
     font-size:14px; font-weight:700; cursor:pointer;
     box-shadow:0 6px 20px rgba(255,92,0,.35);
-    transition:transform .15s, box-shadow .15s;
+    transition:transform .15s,box-shadow .15s;
   }
   .empty-btn:hover { transform:translateY(-2px); box-shadow:0 10px 28px rgba(255,92,0,.40); }
 
-  /* ── ERROR STATE ── */
+  /* ── ERROR ── */
   .err-box {
     margin:28px 16px; padding:24px;
     background:#FFF5F5; border:1.5px solid #FEC5C5;
-    border-radius:var(--r2); text-align:center;
-    animation:fadeIn .3s ease;
+    border-radius:var(--r2); text-align:center; animation:fadeIn .3s ease;
   }
   .err-icon  { font-size:32px; margin-bottom:10px; }
   .err-title { font-family:var(--fd); font-size:17px; font-weight:700; color:#991B1B; margin-bottom:6px; }
@@ -479,7 +460,7 @@ const CSS = `
   .err-btn {
     border:1.5px solid #EF4444; background:none; border-radius:999px;
     padding:9px 24px; font-size:13px; font-weight:700;
-    color:#EF4444; cursor:pointer; transition:background .15s, color .15s;
+    color:#EF4444; cursor:pointer; transition:background .15s,color .15s;
   }
   .err-btn:hover { background:#EF4444; color:#fff; }
 
@@ -498,22 +479,17 @@ const CSS = `
     border-radius:999px; padding:13px 22px;
     font-size:14px; font-weight:700; cursor:pointer;
     letter-spacing:.01em;
-    box-shadow:0 8px 28px rgba(255,92,0,.45), 0 2px 8px rgba(255,92,0,.25);
-    transition:transform .15s cubic-bezier(.34,1.56,.64,1), box-shadow .15s;
+    box-shadow:0 8px 28px rgba(255,92,0,.45),0 2px 8px rgba(255,92,0,.25);
+    transition:transform .15s cubic-bezier(.34,1.56,.64,1),box-shadow .15s;
     animation:fab-bounce 3.5s ease-in-out 1.5s infinite;
   }
-  .fab:hover {
-    transform:translateY(-3px) scale(1.04);
-    box-shadow:0 14px 36px rgba(255,92,0,.50);
-    animation:none;
-  }
+  .fab:hover  { transform:translateY(-3px) scale(1.04); box-shadow:0 14px 36px rgba(255,92,0,.50); animation:none; }
   .fab:active { transform:scale(.95); animation:none; }
-  .fab-ic { font-size:18px; font-weight:400; line-height:1; }
+  .fab-ic { font-size:18px; line-height:1; }
 `;
 
-/* ─────────────────────────────────────────────
-   SKELETON ROWS
-───────────────────────────────────────────── */
+/* ─── Skeletons ──────────────────────────────────────────────────────────────*/
+
 const SkelRow  = () => (
   <div className="row">
     {[...Array(5)].map((_, i) => <div key={i} className="sk sk-co" />)}
@@ -525,12 +501,12 @@ const SkelGrid = () => (
   </div>
 );
 
-/* ─────────────────────────────────────────────
-   CARD — OVERLAY (horizontal scroll)
-───────────────────────────────────────────── */
+/* ─── Card — Overlay ─────────────────────────────────────────────────────────*/
+
 const CardO = memo(({ p, rank, priority, onView, onClick }) => {
   const timer = useRef(null);
   const b     = ctrlBadge(p.ctr);
+  const src   = getImg(p);
 
   return (
     <div
@@ -541,18 +517,19 @@ const CardO = memo(({ p, rank, priority, onView, onClick }) => {
       onMouseEnter={() => { timer.current = setTimeout(() => onView(p.id), HOVER); }}
       onMouseLeave={() => clearTimeout(timer.current)}
     >
-      {/* badge priority: promoted > hot/trending > new */}
-      {p.is_promoted      && <span className="bd bd-feat">Sponsored</span>}
+      {p.is_promoted       && <span className="bd bd-feat">Sponsored</span>}
       {!p.is_promoted && b  && <span className={`bd ${b.c}`}>{b.t}</span>}
       {!p.is_promoted && !b && fresh(p.createdAt) && <span className="bd bd-new">New</span>}
       {rank != null         && <span className="rank">#{rank + 1}</span>}
 
       <img
         className="co-img"
-        src={img(p)} alt={p.title}
+        src={src}
+        alt={p.title}
         loading={priority ? "eager" : "lazy"}
         decoding="async"
         fetchPriority={priority ? "high" : "auto"}
+        onError={(e) => { e.currentTarget.src = PH; }}
       />
       <div className="co-grad">
         <div className="co-name">{p.title}</div>
@@ -566,12 +543,12 @@ const CardO = memo(({ p, rank, priority, onView, onClick }) => {
   );
 });
 
-/* ─────────────────────────────────────────────
-   CARD — GRID TILE
-───────────────────────────────────────────── */
+/* ─── Card — Grid Tile ───────────────────────────────────────────────────────*/
+
 const CardT = memo(({ p, onView, onClick }) => {
   const timer = useRef(null);
   const b     = ctrlBadge(p.ctr);
+  const src   = getImg(p);
 
   return (
     <div
@@ -582,11 +559,18 @@ const CardT = memo(({ p, onView, onClick }) => {
       onMouseEnter={() => { timer.current = setTimeout(() => onView(p.id), HOVER); }}
       onMouseLeave={() => clearTimeout(timer.current)}
     >
-      {p.is_promoted      && <span className="bd bd-feat">Sponsored</span>}
+      {p.is_promoted       && <span className="bd bd-feat">Sponsored</span>}
       {!p.is_promoted && b  && <span className={`bd ${b.c}`}>{b.t}</span>}
       {!p.is_promoted && !b && fresh(p.createdAt) && <span className="bd bd-new">New</span>}
 
-      <img className="ct-img" src={img(p)} alt={p.title} loading="lazy" decoding="async" />
+      <img
+        className="ct-img"
+        src={src}
+        alt={p.title}
+        loading="lazy"
+        decoding="async"
+        onError={(e) => { e.currentTarget.src = PH; }}
+      />
       <div className="ct-body">
         <div className="ct-name">{p.title}</div>
         <div className="ct-price">{naira(p.price)}</div>
@@ -605,15 +589,24 @@ const CardT = memo(({ p, onView, onClick }) => {
   );
 });
 
-/* ─────────────────────────────────────────────
-   FEATURED CARD (dark landscape banner)
-───────────────────────────────────────────── */
+/* ─── Featured Card ──────────────────────────────────────────────────────────*/
+
 const FeatCard = memo(({ p, onClick }) => (
-  <div className="feat" role="button" tabIndex={0}
+  <div
+    className="feat"
+    role="button" tabIndex={0}
     onClick={() => onClick(p)}
     onKeyDown={(e) => e.key === "Enter" && onClick(p)}
   >
-    <img className="feat-img" src={img(p)} alt={p.title} loading="eager" decoding="async" fetchPriority="high" />
+    <img
+      className="feat-img"
+      src={getImg(p)}
+      alt={p.title}
+      loading="eager"
+      decoding="async"
+      fetchPriority="high"
+      onError={(e) => { e.currentTarget.src = PH; }}
+    />
     <div className="feat-body">
       <div>
         <div className="feat-tag">Sponsored</div>
@@ -627,27 +620,26 @@ const FeatCard = memo(({ p, onClick }) => (
   </div>
 ));
 
-/* ─────────────────────────────────────────────
-   MAIN COMPONENT
-───────────────────────────────────────────── */
+/* ─── Main ───────────────────────────────────────────────────────────────────*/
+
 export default function Homepage({ user }) {
   const navigate = useNavigate();
   const { setProducts, setLoaded } = useProductCache();
 
-  const [sec,          setSec]          = useState({ featured:[], nearby:[], trending:[], deals:[], latest:[] });
-  const [meta,         setMeta]         = useState({});
-  const [loading,      setLoading]      = useState(true);
-  const [error,        setError]        = useState(null);
-  const [cat,          setCat]          = useState("all");
-  const [dealsVis,     setDealsVis]     = useState(6);
-  const [loadingMore,  setLoadingMore]  = useState(false);
-  const [hasMore,      setHasMore]      = useState(false);
-  const [page,         setPage]         = useState(0);
+  const [sec,         setSec]         = useState({ featured:[], nearby:[], trending:[], deals:[], latest:[] });
+  const [meta,        setMeta]        = useState({});
+  const [loading,     setLoading]     = useState(true);
+  const [error,       setError]       = useState(null);
+  const [cat,         setCat]         = useState("all");
+  const [dealsVis,    setDealsVis]    = useState(6);
+  const [loadingMore, setLoadingMore] = useState(false);
+  const [hasMore,     setHasMore]     = useState(false);
+  const [page,        setPage]        = useState(0);
 
-  const poolRef     = useRef([]);   // all products, accumulated
+  const poolRef     = useRef([]);
   const sentinelRef = useRef(null);
 
-  /* ── HANDLERS ── */
+  /* ── Handlers ── */
   const trackView = useCallback((id) => {
     fetch(`${API}/products/${id}/view`, { method: "POST" }).catch(() => {});
   }, []);
@@ -657,14 +649,17 @@ export default function Homepage({ user }) {
     navigate(`/product/${p.slug}`);
   }, [navigate]);
 
-  /* ── FEED PIPELINE ── */
+  /* ── Feed pipeline ── */
   const applyData = useCallback((data, append = false) => {
-    const incoming = data.products ?? [
-      ...(data.recommended || []),
-      ...(data.cheapDeals  || []),
-      ...(data.trending    || []),
-      ...(data.latest      || []),
-    ];
+    // Support both { products: [] } and legacy { recommended:[], trending:[], ... }
+    const incoming = Array.isArray(data.products) && data.products.length > 0
+      ? data.products
+      : [
+          ...(data.recommended || []),
+          ...(data.cheapDeals  || []),
+          ...(data.trending    || []),
+          ...(data.latest      || []),
+        ];
 
     const merged = append
       ? dedup([...poolRef.current, ...incoming])
@@ -678,7 +673,7 @@ export default function Homepage({ user }) {
     setLoaded(true);
   }, [setProducts, setLoaded]);
 
-  /* ── INITIAL LOAD ── */
+  /* ── Initial load ── */
   const load = useCallback(async () => {
     setLoading(true);
     setError(null);
@@ -692,18 +687,21 @@ export default function Homepage({ user }) {
     };
 
     try {
-      // GPS race against 5 s timeout
       const data = await new Promise((resolve, reject) => {
         let done = false;
         const finish = (fn) => { if (done) return; done = true; fn(); };
 
-        const timer = setTimeout(() => finish(() => go().then(resolve).catch(reject)), 5000);
+        const timer = setTimeout(
+          () => finish(() => go().then(resolve).catch(reject)),
+          5000
+        );
 
         navigator.geolocation?.getCurrentPosition(
           (pos) => finish(() => {
             clearTimeout(timer);
             go(`?lat=${pos.coords.latitude}&lng=${pos.coords.longitude}`)
-              .then(resolve).catch(() => go().then(resolve).catch(reject));
+              .then(resolve)
+              .catch(() => go().then(resolve).catch(reject));
           }),
           ()    => finish(() => { clearTimeout(timer); go().then(resolve).catch(reject); }),
           GPS_O
@@ -719,7 +717,7 @@ export default function Homepage({ user }) {
     }
   }, [applyData]);
 
-  /* ── LOAD MORE (infinite scroll on Latest) ── */
+  /* ── Load more ── */
   const loadMore = useCallback(async () => {
     if (loadingMore || !hasMore) return;
     setLoadingMore(true);
@@ -730,24 +728,19 @@ export default function Homepage({ user }) {
       const data = await res.json();
       applyData(data, true);
       setPage(next);
-    } catch {
-      /* silently ignore — user can scroll back */
-    } finally {
-      setLoadingMore(false);
-    }
+    } catch { /* silent */ }
+    finally { setLoadingMore(false); }
   }, [loadingMore, hasMore, page, applyData]);
 
-  /* ── EFFECTS ── */
+  /* ── Effects ── */
   useEffect(() => { load(); }, []); // eslint-disable-line
 
-  // Re-fetch when tab becomes visible again
   useEffect(() => {
     const h = () => { if (document.visibilityState === "visible" && !loading) load(); };
     document.addEventListener("visibilitychange", h);
     return () => document.removeEventListener("visibilitychange", h);
   }, [loading, load]);
 
-  // Infinite scroll sentinel
   useEffect(() => {
     if (!sentinelRef.current || !hasMore) return;
     const obs = new IntersectionObserver(
@@ -758,17 +751,16 @@ export default function Homepage({ user }) {
     return () => obs.disconnect();
   }, [hasMore, loadMore]);
 
-  /* ── DERIVED ── */
+  /* ── Derived ── */
   const locLabel = meta.location || (meta.nearbySource === "gps" ? "Near you" : null);
 
-  // Category filter (client-side on current pool)
   const filtered = useMemo(() => {
     if (cat === "all") return sec;
     const f = poolRef.current.filter((p) => p.category_id === cat || p.category === cat);
     return split(f);
   }, [cat, sec]);
 
-  /* ── RENDER ── */
+  /* ── Render ── */
   return (
     <>
       <style>{CSS}</style>
@@ -870,7 +862,9 @@ export default function Homepage({ user }) {
             {loading
               ? <div className="feat-wrap"><div className="sk sk-ft" /></div>
               : <div className="feat-wrap">
-                  {filtered.featured.map((p) => <FeatCard key={p.id} p={p} onClick={handleClick} />)}
+                  {filtered.featured.map((p) => (
+                    <FeatCard key={p.id} p={p} onClick={handleClick} />
+                  ))}
                 </div>
             }
           </div>
@@ -980,8 +974,12 @@ export default function Homepage({ user }) {
 
       </div>{/* /pg */}
 
-      {/* ═══ SELL FAB ═══ */}
-      <button className="fab" onClick={() => navigate("/minimart/add")} aria-label="Sell a product">
+      {/* ═══ FAB ═══ */}
+      <button
+        className="fab"
+        onClick={() => navigate("/minimart/add")}
+        aria-label="Sell a product"
+      >
         <span className="fab-ic">＋</span>
         Sell Now
       </button>
