@@ -1,646 +1,601 @@
-// ProductDetail.jsx
-import { useState, useEffect, useCallback, useRef } from "react";
+// pages/ProductDetail.jsx
+import React, { useState, useEffect, useCallback, useRef, useMemo } from "react";
+import { useParams, useNavigate, Link } from "react-router-dom";
 
-// ─── Constants ────────────────────────────────────────────────────────────────
+import ProductHeader from "../components/ProductHeader";
+import "../styles/ProductDetail.css";
 
-const API_BASE = import.meta.env?.VITE_API_BASE ?? "/api";
+const ProductDetail = () => {
+  const { slug } = useParams();
+  const navigate = useNavigate();
+  const similarEndRef = useRef(null);
 
-const formatPrice = (n) =>
-  new Intl.NumberFormat("en-NG", {
-    style:    "currency",
-    currency: "NGN",
-    maximumFractionDigits: 0,
-  }).format(n);
-
-const timeAgo = (dateStr) => {
-  const diff = Date.now() - new Date(dateStr).getTime();
-  const mins = Math.floor(diff / 60000);
-  if (mins < 60)   return `${mins}m ago`;
-  const hrs = Math.floor(mins / 60);
-  if (hrs < 24)    return `${hrs}h ago`;
-  const days = Math.floor(hrs / 24);
-  if (days < 30)   return `${days}d ago`;
-  const months = Math.floor(days / 30);
-  if (months < 12) return `${months}mo ago`;
-  return `${Math.floor(months / 12)}y ago`;
-};
-
-// ─── Skeleton ─────────────────────────────────────────────────────────────────
-
-function Skeleton({ className = "" }) {
-  return (
-    <div
-      className={`animate-pulse rounded bg-gray-100 ${className}`}
-      aria-hidden="true"
-    />
-  );
-}
-
-// ─── Image Gallery ────────────────────────────────────────────────────────────
-
-function ImageGallery({ images = [], title = "" }) {
-  const [active, setActive] = useState(0);
-  const [zoomed, setZoomed] = useState(false);
-  const touchStart = useRef(null);
-
-  const prev = () => setActive((i) => (i - 1 + images.length) % images.length);
-  const next = () => setActive((i) => (i + 1) % images.length);
-
-  const onTouchStart = (e) => {
-    touchStart.current = e.touches[0].clientX;
-  };
-  const onTouchEnd = (e) => {
-    if (touchStart.current === null) return;
-    const delta = touchStart.current - e.changedTouches[0].clientX;
-    if (Math.abs(delta) > 40) delta > 0 ? next() : prev();
-    touchStart.current = null;
-  };
-
-  if (!images.length) {
-    return (
-      <div className="aspect-square w-full rounded-2xl bg-gray-100 flex items-center justify-center text-gray-400 text-sm">
-        No image
-      </div>
-    );
-  }
-
-  return (
-    <div className="flex flex-col gap-3">
-      {/* Main image */}
-      <div
-        className="relative aspect-square w-full overflow-hidden rounded-2xl bg-gray-50 cursor-zoom-in select-none"
-        onTouchStart={onTouchStart}
-        onTouchEnd={onTouchEnd}
-        onClick={() => setZoomed(true)}
-      >
-        <img
-          key={active}
-          src={images[active]}
-          alt={`${title} – image ${active + 1}`}
-          className="absolute inset-0 w-full h-full object-cover transition-opacity duration-200"
-          loading="eager"
-        />
-
-        {images.length > 1 && (
-          <>
-            <button
-              onClick={(e) => { e.stopPropagation(); prev(); }}
-              className="absolute left-3 top-1/2 -translate-y-1/2 w-8 h-8 rounded-full bg-white/80 backdrop-blur flex items-center justify-center shadow text-gray-700 hover:bg-white transition"
-              aria-label="Previous image"
-            >
-              ‹
-            </button>
-            <button
-              onClick={(e) => { e.stopPropagation(); next(); }}
-              className="absolute right-3 top-1/2 -translate-y-1/2 w-8 h-8 rounded-full bg-white/80 backdrop-blur flex items-center justify-center shadow text-gray-700 hover:bg-white transition"
-              aria-label="Next image"
-            >
-              ›
-            </button>
-            <span className="absolute bottom-3 right-3 text-xs bg-black/50 text-white px-2 py-0.5 rounded-full">
-              {active + 1}/{images.length}
-            </span>
-          </>
-        )}
-      </div>
-
-      {/* Thumbnails */}
-      {images.length > 1 && (
-        <div className="flex gap-2 overflow-x-auto pb-1 scrollbar-hide">
-          {images.map((src, i) => (
-            <button
-              key={i}
-              onClick={() => setActive(i)}
-              className={`flex-shrink-0 w-16 h-16 rounded-xl overflow-hidden border-2 transition ${
-                i === active ? "border-orange-500" : "border-transparent"
-              }`}
-            >
-              <img
-                src={src}
-                alt={`thumb ${i + 1}`}
-                className="w-full h-full object-cover"
-                loading="lazy"
-              />
-            </button>
-          ))}
-        </div>
-      )}
-
-      {/* Lightbox */}
-      {zoomed && (
-        <div
-          className="fixed inset-0 z-50 bg-black/95 flex items-center justify-center p-4"
-          onClick={() => setZoomed(false)}
-        >
-          <img
-            src={images[active]}
-            alt={title}
-            className="max-w-full max-h-full object-contain rounded-lg"
-          />
-          <button
-            className="absolute top-4 right-4 text-white text-3xl leading-none"
-            onClick={() => setZoomed(false)}
-            aria-label="Close"
-          >
-            ×
-          </button>
-        </div>
-      )}
-    </div>
-  );
-}
-
-// ─── Spec Table ───────────────────────────────────────────────────────────────
-
-function SpecTable({ specs = {} }) {
-  const entries = Object.entries(specs).filter(
-    ([, v]) => v != null && v !== "" && !Array.isArray(v)
-  );
-  if (!entries.length) return null;
-
-  return (
-    <div className="rounded-2xl border border-gray-100 overflow-hidden text-sm">
-      {entries.map(([key, value], i) => (
-        <div
-          key={key}
-          className={`flex ${i % 2 === 0 ? "bg-gray-50" : "bg-white"}`}
-        >
-          <span className="w-2/5 px-4 py-2.5 text-gray-500 capitalize font-medium">
-            {key.replace(/_/g, " ")}
-          </span>
-          <span className="w-3/5 px-4 py-2.5 text-gray-800">{String(value)}</span>
-        </div>
-      ))}
-    </div>
-  );
-}
-
-// ─── FAQ ──────────────────────────────────────────────────────────────────────
-
-function FAQ({ items = [] }) {
-  const [open, setOpen] = useState(null);
-  if (!items.length) return null;
-
-  return (
-    <div className="divide-y divide-gray-100 rounded-2xl border border-gray-100 overflow-hidden">
-      {items.map((item, i) => (
-        <div key={i}>
-          <button
-            className="w-full flex justify-between items-start gap-3 px-4 py-3.5 text-left text-sm font-medium text-gray-800 hover:bg-gray-50 transition"
-            onClick={() => setOpen(open === i ? null : i)}
-          >
-            <span>{item.question ?? item.q}</span>
-            <span className="text-gray-400 mt-0.5 text-base leading-none flex-shrink-0">
-              {open === i ? "−" : "+"}
-            </span>
-          </button>
-          {open === i && (
-            <div className="px-4 pb-4 text-sm text-gray-600 leading-relaxed">
-              {item.answer ?? item.a}
-            </div>
-          )}
-        </div>
-      ))}
-    </div>
-  );
-}
-
-// ─── Seller Card ──────────────────────────────────────────────────────────────
-
-function SellerCard({ seller }) {
-  if (!seller) return null;
-
-  const initials = (seller.name ?? "S")
-    .split(" ")
-    .map((w) => w[0])
-    .slice(0, 2)
-    .join("")
-    .toUpperCase();
-
-  const trustColor =
-    seller.trust_score >= 80
-      ? "text-green-600 bg-green-50"
-      : seller.trust_score >= 50
-      ? "text-yellow-700 bg-yellow-50"
-      : "text-red-600 bg-red-50";
-
-  return (
-    <div className="flex items-center gap-3 p-4 rounded-2xl bg-gray-50 border border-gray-100">
-      <div className="w-11 h-11 rounded-full overflow-hidden flex-shrink-0 bg-orange-100 flex items-center justify-center text-orange-700 font-bold text-sm">
-        {seller.avatar ? (
-          <img
-            src={seller.avatar}
-            alt={seller.name}
-            className="w-full h-full object-cover"
-          />
-        ) : (
-          initials
-        )}
-      </div>
-      <div className="flex-1 min-w-0">
-        <p className="font-semibold text-gray-900 text-sm truncate">
-          {seller.name}
-        </p>
-        <p className="text-xs text-gray-500">
-          {seller.total_listings} listing{seller.total_listings !== 1 ? "s" : ""}{" "}
-          {seller.joined_at && `· joined ${timeAgo(seller.joined_at)}`}
-        </p>
-      </div>
-      <span className={`text-xs font-semibold px-2 py-1 rounded-full ${trustColor}`}>
-        {seller.trust_score}% trust
-      </span>
-    </div>
-  );
-}
-
-// ─── Related Products ─────────────────────────────────────────────────────────
-
-function RelatedCard({ product, onClick }) {
-  return (
-    <button
-      onClick={() => onClick(product.slug)}
-      className="flex-shrink-0 w-36 text-left"
-    >
-      <div className="aspect-square w-full rounded-xl overflow-hidden bg-gray-100 mb-2">
-        {product.image ? (
-          <img
-            src={product.image}
-            alt={product.title}
-            className="w-full h-full object-cover hover:scale-105 transition-transform duration-300"
-            loading="lazy"
-          />
-        ) : (
-          <div className="w-full h-full flex items-center justify-center text-gray-300 text-xs">
-            No image
-          </div>
-        )}
-      </div>
-      <p className="text-xs font-medium text-gray-800 line-clamp-2 leading-snug mb-0.5">
-        {product.title}
-      </p>
-      <p className="text-xs font-bold text-orange-600">
-        {formatPrice(product.price)}
-      </p>
-    </button>
-  );
-}
-
-// ─── Main Component ───────────────────────────────────────────────────────────
-
-export default function ProductDetail({ slug, onNavigate }) {
-  const [data, setData]       = useState(null);   // { product, related }
+  const [product, setProduct] = useState(null);
+  const [sellerStats, setSellerStats] = useState(null);
+  const [reviews, setReviews] = useState([]);
+  const [reviewStats, setReviewStats] = useState(null);
+  const [similarProducts, setSimilarProducts] = useState([]);
+  const [isFavorited, setIsFavorited] = useState(false);
   const [loading, setLoading] = useState(true);
-  const [error, setError]     = useState(null);
-  const [activeTab, setActiveTab] = useState("details");
-  const [ctaClicked, setCtaClicked] = useState(false);
+  const [similarLoading, setSimilarLoading] = useState(false);
+  const [reviewsLoading, setReviewsLoading] = useState(false);
+  const [error, setError] = useState(null);
+  const [similarPage, setSimilarPage] = useState(1);
+  const [hasMoreSimilar, setHasMoreSimilar] = useState(true);
 
-  // ── Fetch ─────────────────────────────────────────────────────────────────
-  useEffect(() => {
-    if (!slug) return;
-
-    setLoading(true);
-    setError(null);
-    setData(null);
-    setActiveTab("details");
-    setCtaClicked(false);
-
-    fetch(`${API_BASE}/products/${encodeURIComponent(slug)}`)
-      .then((r) => {
-        if (!r.ok) throw new Error(`HTTP ${r.status}`);
-        return r.json();
-      })
-      .then((json) => {
-        if (!json.success) throw new Error(json.message ?? "Not found");
-        setData({ product: json.product, related: json.related ?? [] });
-      })
-      .catch((e) => setError(e.message))
-      .finally(() => setLoading(false));
-  }, [slug]);
-
-  // ── Click tracking ────────────────────────────────────────────────────────
-  const trackClick = useCallback((productId) => {
-    fetch(`${API_BASE}/products/${productId}/click`, { method: "POST" }).catch(
-      () => {}
-    );
+  // FIX: was /[^+d]/ (literal "d") — correct regex is /[^+\d]/
+  const cleanPhoneNumber = useCallback((phone) => {
+    return phone ? phone.replace(/[^+\d]/g, "") : "";
   }, []);
 
-  const handleCTA = (type) => {
-    if (!data?.product) return;
-    const { id, phone, whatsapp, whatsapp_link, title } = data.product;
+  const attributeConfig = useMemo(
+    () => ({
+      category:  { label: "Category"  },
+      brand:     { label: "Brand"     },
+      condition: { label: "Condition" },
+      ram:       { label: "RAM"       },
+      storage:   { label: "Storage"   },
+      sim:       { label: "SIM"       },
+      features:  { label: "Features"  },
+      color:     { label: "Color"     },
+      warranty:  { label: "Warranty"  },
+      model:     { label: "Model"     },
+    }),
+    []
+  );
 
-    trackClick(id);
-    setCtaClicked(true);
-
-    if (type === "whatsapp") {
-      const link =
-        whatsapp_link ||
-        (whatsapp
-          ? `https://wa.me/${whatsapp.replace(/\D/g, "")}?text=${encodeURIComponent(
-              `Hi, I'm interested in "${title}"`
-            )}`
-          : null);
-      if (link) window.open(link, "_blank", "noopener,noreferrer");
-    } else if (type === "call") {
-      if (phone) window.location.href = `tel:${phone}`;
+  /* ── Fetch product by slug ── */
+  useEffect(() => {
+    if (!slug || slug === "undefined") {
+      setError("Invalid product slug");
+      setLoading(false);
+      return;
     }
-  };
 
-  // ── Render: Loading ───────────────────────────────────────────────────────
-  if (loading) {
+    const fetchProduct = async () => {
+      try {
+        setLoading(true);
+        setError(null);
+
+        const response = await fetch(`/api/product/slug/${slug}`);
+        if (!response.ok) {
+          throw new Error(response.status === 404 ? "Product not found" : "Failed to fetch product");
+        }
+        const data = await response.json();
+        setProduct(data);
+      } catch (err) {
+        setError(err.message);
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    fetchProduct();
+  }, [slug]);
+
+  /* ── Fetch similar products ── */
+  const fetchSimilarProducts = useCallback(
+    async (page = 1, append = false) => {
+      if (!product) return;
+      setSimilarLoading(true);
+      try {
+        let url = `/api/homepage?limit=12&page=${page}`;
+        if (product.attributes?.brand) {
+          url = `/api/homepage?brand=${encodeURIComponent(product.attributes.brand)}&limit=12&page=${page}&exclude=${product.id}`;
+        }
+
+        const response = await fetch(url);
+        if (response.ok) {
+          const data = await response.json();
+          const newProducts = (data.latest || data.recommended || []).filter(
+            (p) => p.id !== product.id && p.slug !== slug
+          );
+
+          setSimilarProducts((prev) => append ? [...prev, ...newProducts] : newProducts);
+          setHasMoreSimilar(newProducts.length === 12);
+          setSimilarPage(page);
+        }
+      } catch (err) {
+        console.error("Related products fetch failed:", err);
+      } finally {
+        setSimilarLoading(false);
+      }
+    },
+    [product, slug]
+  );
+
+  /* ── Infinite scroll observer ── */
+  useEffect(() => {
+    const node = similarEndRef.current;
+    if (!node) return;
+
+    const observer = new IntersectionObserver(
+      (entries) => {
+        if (entries[0].isIntersecting && hasMoreSimilar && !similarLoading) {
+          fetchSimilarProducts(similarPage + 1, true);
+        }
+      },
+      { threshold: 0.1 }
+    );
+
+    observer.observe(node);
+    return () => observer.disconnect();
+  }, [similarPage, hasMoreSimilar, similarLoading, fetchSimilarProducts]);
+
+  /* ── Fetch seller stats ── */
+  const fetchSellerStats = useCallback(async () => {
+    const sellerId = product?.contact?.seller_id;
+    if (!sellerId) return;
+    try {
+      const response = await fetch(`/api/seller/${sellerId}/stats`);
+      if (response.ok) {
+        const data = await response.json();
+        setSellerStats(data);
+      }
+    } catch (err) {
+      console.error("Seller stats fetch failed:", err);
+    }
+  }, [product?.contact?.seller_id]);
+
+  /* ── Fetch reviews ── */
+  const fetchReviews = useCallback(async () => {
+    try {
+      setReviewsLoading(true);
+      const response = await fetch(`/api/product/slug/${slug}/reviews?limit=5`);
+      if (response.ok) {
+        const data = await response.json();
+        setReviews(data.reviews || []);
+        setReviewStats(data.stats);
+      }
+    } catch (err) {
+      console.error("Reviews fetch failed:", err);
+    } finally {
+      setReviewsLoading(false);
+    }
+  }, [slug]);
+
+  /* ── Track view ── */
+  const trackView = useCallback(async () => {
+    if (!product?.id) return;
+    try {
+      await fetch(`/api/homepage/products/${product.id}/view`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+      });
+    } catch (err) {
+      console.error("View tracking failed:", err);
+    }
+  }, [product?.id]);
+
+  /* ── Fire all secondary fetches once product is ready ── */
+  useEffect(() => {
+    if (product && !error) {
+      trackView();
+      fetchSellerStats();
+      fetchReviews();
+      fetchSimilarProducts(1, false);
+    }
+  }, [product, error, trackView, fetchSellerStats, fetchReviews, fetchSimilarProducts]);
+
+  /* ── Derived contact info ── */
+  const contactInfo = useMemo(
+    () => ({
+      phone:    cleanPhoneNumber(product?.contact?.phone),
+      whatsapp: cleanPhoneNumber(product?.contact?.whatsapp),
+    }),
+    [product?.contact?.phone, product?.contact?.whatsapp, cleanPhoneNumber]
+  );
+
+  const handleFavorite = useCallback(() => {
+    setIsFavorited((prev) => !prev);
+  }, []);
+
+  /* ── Attributes grid ── */
+  const renderAttributes = useMemo(() => {
+    if (!product?.attributes) return null;
+    const validAttributes = Object.entries(product.attributes).filter(
+      ([key, value]) => value && attributeConfig[key]
+    );
+    if (validAttributes.length === 0) return null;
+
     return (
-      <div className="max-w-lg mx-auto p-4 space-y-4">
-        <Skeleton className="aspect-square w-full rounded-2xl" />
-        <Skeleton className="h-6 w-3/4" />
-        <Skeleton className="h-8 w-1/3" />
-        <Skeleton className="h-20 w-full" />
-        <Skeleton className="h-12 w-full rounded-2xl" />
-        <Skeleton className="h-12 w-full rounded-2xl" />
+      <div className="attributes-section">
+        <div className="section-header">
+          <h3 className="mini-title">Product Specifications</h3>
+        </div>
+        <div className="attributes-grid">
+          {validAttributes.map(([key, value]) => (
+            <div key={key} className="attribute-item">
+              <div className="attribute-label text-xs font-medium uppercase text-gray-600">
+                {attributeConfig[key].label}
+              </div>
+              <div className="attribute-value font-bold text-lg">
+                {Array.isArray(value) ? value.join(", ") : String(value)}
+              </div>
+            </div>
+          ))}
+        </div>
       </div>
     );
+  }, [product?.attributes, attributeConfig]);
+
+  /* ── Seller banner above reviews ── */
+  const sellerBanner = useMemo(() => {
+    const sellerId = product?.contact?.seller_id;
+    if (!sellerId) return null;
+
+    return (
+      <Link to={`/seller/${sellerId}`} className="seller-banner-link">
+        <div className="seller-banner">
+          <div className="seller-banner-avatar">
+            {product.contact?.seller_name?.charAt(0)?.toUpperCase() || "S"}
+          </div>
+          <div className="seller-banner-info">
+            <span className="seller-banner-name">
+              {product.contact?.seller_name || "Marketplace Seller"}
+            </span>
+            <span className="seller-banner-meta">
+              <span className="seller-banner-rating">
+                ★ {Number(sellerStats?.avg_rating || 0).toFixed(1)}
+              </span>
+              <span className="seller-banner-dot">·</span>
+              <span>{sellerStats?.rating_count || 0} reviews</span>
+              {sellerStats?.total_listings ? (
+                <>
+                  <span className="seller-banner-dot">·</span>
+                  <span>{sellerStats.total_listings} listings</span>
+                </>
+              ) : null}
+            </span>
+          </div>
+          <span className="seller-banner-cta">View Profile →</span>
+        </div>
+      </Link>
+    );
+  }, [product?.contact, sellerStats]);
+
+  /* ══════════════════════════════
+     RENDER STATES
+  ══════════════════════════════ */
+  if (loading) {
+    return <div className="loading-skeleton">Loading product...</div>;
   }
 
-  // ── Render: Error ─────────────────────────────────────────────────────────
   if (error) {
     return (
-      <div className="max-w-lg mx-auto p-8 text-center space-y-3">
-        <div className="text-5xl">😕</div>
-        <h2 className="font-semibold text-gray-800">Product not found</h2>
-        <p className="text-sm text-gray-500">{error}</p>
-        {onNavigate && (
-          <button
-            onClick={() => onNavigate("/")}
-            className="mt-4 text-sm text-orange-600 font-medium underline underline-offset-2"
-          >
-            ← Back to listings
-          </button>
-        )}
+      <div className="error-state">
+        <div className="error-content">
+          <h2 className="text-3xl font-bold text-gray-900 mb-4">{error}</h2>
+          <Link to="/" className="btn">Browse Marketplace</Link>
+        </div>
       </div>
     );
   }
 
-  if (!data) return null;
-
-  const { product, related } = data;
-
-  const {
-    title,
-    description,
-    price,
-    images = [],
-    attributes = {},
-    highlights = [],
-    specifications = {},
-    faq = [],
-    delivery = {},
-    location,
-    seller,
-    phone,
-    whatsapp,
-    whatsapp_link,
-    is_promoted,
-    category_name,
-    subcategory_name,
-    views,
-    created_at,
-  } = product;
-
-  const hasWhatsapp = !!(whatsapp || whatsapp_link);
-  const hasCall     = !!phone;
-
-  // Build tab list dynamically — only show tabs that have content
-  const tabs = [
-    { id: "details",  label: "Details"  },
-    Object.keys(specifications).length  ? { id: "specs",   label: "Specs"    } : null,
-    faq.length                          ? { id: "faq",     label: "FAQ"      } : null,
-    Object.keys(delivery).length        ? { id: "delivery", label: "Delivery" } : null,
-  ].filter(Boolean);
-
+  /* ══════════════════════════════
+     MAIN RENDER
+  ══════════════════════════════ */
   return (
-    <div className="max-w-lg mx-auto pb-36">
+    <div className="product-detail-page">
+      <ProductHeader
+        product={product}
+        similarProductsCount={similarProducts.length}
+        reviewStats={reviewStats}
+        onFavorite={handleFavorite}
+        isFavorited={isFavorited}
+      />
 
-      {/* ── Back / Breadcrumb ───────────────────────────────────────────── */}
-      {onNavigate && (
-        <div className="flex items-center gap-1 px-4 pt-4 pb-2 text-sm text-gray-500">
-          <button
-            onClick={() => onNavigate("/")}
-            className="hover:text-orange-600 transition"
-          >
-            Home
-          </button>
-          {category_name && (
-            <>
-              <span>/</span>
-              <span className="text-gray-700">{category_name}</span>
-            </>
-          )}
-          {subcategory_name && (
-            <>
-              <span>/</span>
-              <span className="text-gray-700">{subcategory_name}</span>
-            </>
-          )}
-        </div>
-      )}
+      <div className="homepage-container product-detail-container">
 
-      {/* ── Gallery ─────────────────────────────────────────────────────── */}
-      <div className="px-4 pb-4">
-        <ImageGallery images={images} title={title} />
-      </div>
+        {/* ── MAIN GRID: Gallery + Info ── */}
+        <div className="main-grid">
 
-      {/* ── Title + Price ────────────────────────────────────────────────── */}
-      <div className="px-4 pb-4 space-y-1">
-        {is_promoted && (
-          <span className="inline-block text-xs font-semibold bg-orange-100 text-orange-700 px-2 py-0.5 rounded-full mb-1">
-            ✦ Featured
-          </span>
-        )}
-        <h1 className="text-xl font-bold text-gray-900 leading-snug">{title}</h1>
-        <div className="flex items-baseline gap-2">
-          <span className="text-2xl font-extrabold text-orange-600">
-            {formatPrice(price)}
-          </span>
-        </div>
-        <div className="flex items-center gap-3 text-xs text-gray-400 pt-0.5">
-          {location?.label && (
-            <span className="flex items-center gap-1">
-              <span>📍</span>
-              {location.label}
-            </span>
-          )}
-          {views > 0 && <span>{views} views</span>}
-          {created_at && <span>{timeAgo(created_at)}</span>}
-        </div>
-      </div>
-
-      {/* ── Highlights ──────────────────────────────────────────────────── */}
-      {highlights.length > 0 && (
-        <div className="px-4 pb-4">
-          <ul className="space-y-1.5">
-            {highlights.map((h, i) => (
-              <li key={i} className="flex items-start gap-2 text-sm text-gray-700">
-                <span className="text-green-500 mt-0.5 flex-shrink-0">✓</span>
-                <span>{typeof h === "string" ? h : h.text ?? JSON.stringify(h)}</span>
-              </li>
-            ))}
-          </ul>
-        </div>
-      )}
-
-      {/* ── Attribute chips (RAM, storage, condition, etc.) ──────────────── */}
-      {Object.keys(attributes).length > 0 && (
-        <div className="px-4 pb-4">
-          <div className="flex flex-wrap gap-2">
-            {Object.entries(attributes)
-              .filter(([k, v]) =>
-                k !== "features" &&
-                v != null &&
-                v !== "" &&
-                typeof v !== "object"
-              )
-              .map(([key, value]) => (
-                <span
-                  key={key}
-                  className="text-xs bg-gray-100 text-gray-700 px-3 py-1 rounded-full capitalize"
-                >
-                  <span className="text-gray-400">{key.replace(/_/g, " ")}: </span>
-                  {String(value)}
-                </span>
-              ))}
+          {/* Gallery */}
+          <div className="gallery-section">
+            <div className="gallery">
+              <div className="main-image-container">
+                <img
+                  src={product.images?.[0] || "/api/placeholder/600/400"}
+                  alt={product.title}
+                  className="main-image"
+                  onError={(e) => { e.target.src = "/api/placeholder/600/400"; }}
+                />
+              </div>
+              {product.images?.length > 1 && (
+                <div className="thumbnail-scroll">
+                  {product.images.slice(1, 9).map((img, idx) => (
+                    <div key={idx} className="thumbnail-item">
+                      <div className="card">
+                        <img
+                          src={img}
+                          alt={`${product.title} ${idx + 2}`}
+                          className="w-full h-full object-cover rounded-lg"
+                          onError={(e) => { e.target.src = "/api/placeholder/120/96"; }}
+                        />
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
           </div>
-        </div>
-      )}
 
-      {/* ── Features list ────────────────────────────────────────────────── */}
-      {Array.isArray(attributes.features) && attributes.features.length > 0 && (
-        <div className="px-4 pb-4">
-          <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">
-            Features
-          </p>
-          <div className="flex flex-wrap gap-2">
-            {attributes.features.map((f, i) => (
+          {/* Product Info */}
+          <div className="product-info">
+            <h1 className="product-title">{product.title}</h1>
+
+            <div className="product-meta">
               <span
-                key={i}
-                className="text-xs bg-blue-50 text-blue-700 px-2.5 py-1 rounded-full"
-              >
-                {f}
-              </span>
-            ))}
-          </div>
-        </div>
-      )}
-
-      {/* ── Seller ──────────────────────────────────────────────────────── */}
-      <div className="px-4 pb-4">
-        <SellerCard seller={seller} />
-      </div>
-
-      {/* ── Tabs ────────────────────────────────────────────────────────── */}
-      {tabs.length > 1 && (
-        <div className="px-4 pb-0 sticky top-0 bg-white z-10 border-b border-gray-100">
-          <div className="flex gap-0 -mb-px">
-            {tabs.map((tab) => (
-              <button
-                key={tab.id}
-                onClick={() => setActiveTab(tab.id)}
-                className={`px-4 py-3 text-sm font-medium border-b-2 transition whitespace-nowrap ${
-                  activeTab === tab.id
-                    ? "border-orange-500 text-orange-600"
-                    : "border-transparent text-gray-500 hover:text-gray-800"
+                className={`status-badge ${
+                  product.status === "active"
+                    ? "bg-green-500 text-white"
+                    : "bg-yellow-500 text-white"
                 }`}
               >
-                {tab.label}
+                {product.status?.toUpperCase()}
+              </span>
+            </div>
+
+            {/* Seller info card */}
+            {sellerStats && product.contact?.seller_id && (
+              <div className="seller-card card mt-6 p-5 border border-gray-100 rounded-2xl bg-white shadow-sm">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-4">
+                    <div className="w-14 h-14 bg-indigo-600 rounded-full flex items-center justify-center font-bold text-white text-xl">
+                      {product.contact?.seller_name?.charAt(0)?.toUpperCase() || "S"}
+                    </div>
+                    <div>
+                      <h4 className="font-bold text-gray-900 text-lg">
+                        {product.contact?.seller_name || "Marketplace Seller"}
+                      </h4>
+                      <div className="flex items-center gap-2 text-sm text-gray-500">
+                        <span>{sellerStats.total_listings} active ads</span>
+                        <span>•</span>
+                        <span className="text-yellow-600 font-bold">
+                          ★ {Number(sellerStats.avg_rating || 0).toFixed(1)}
+                        </span>
+                      </div>
+                    </div>
+                  </div>
+                  <Link
+                    to={`/seller/${product.contact.seller_id}`}
+                    className="px-4 py-2 bg-indigo-50 text-indigo-700 font-bold rounded-lg hover:bg-indigo-100 transition"
+                  >
+                    View Profile
+                  </Link>
+                </div>
+              </div>
+            )}
+
+            {/* Price */}
+            <div className="price-specs-card card mt-4">
+              <div className="product-price">
+                ₦{Number(product.price || 0).toLocaleString()}
+              </div>
+            </div>
+
+            {/* Location */}
+            <div className="location-display mt-2">
+              <div className="font-bold text-lg text-gray-900">{product.location_state}</div>
+              <div className="text-sm text-gray-600">{product.location_city}</div>
+            </div>
+
+            {/* Attributes */}
+            {renderAttributes}
+
+            {/* Description */}
+            {product.description && (
+              <div className="description-section">
+                <h3 className="text-xl font-bold text-gray-900">Product Details</h3>
+                <p className="text-gray-700 text-lg leading-relaxed">{product.description}</p>
+              </div>
+            )}
+
+            {/* Action buttons */}
+            <div className="action-buttons">
+              {contactInfo.whatsapp && (
+                <a
+                  href={`https://wa.me/${contactInfo.whatsapp}`}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="action-btn whatsapp-btn"
+                >
+                  Chat on WhatsApp
+                </a>
+              )}
+              <button onClick={handleFavorite} className="action-btn">
+                {isFavorited ? "★ Favorited" : "☆ Save"}
               </button>
-            ))}
+            </div>
           </div>
         </div>
-      )}
 
-      {/* ── Tab content ─────────────────────────────────────────────────── */}
-      <div className="px-4 py-4">
-
-        {/* Details tab */}
-        {(activeTab === "details" || tabs.length <= 1) && (
-          <div className="space-y-2">
-            {description ? (
-              <p className="text-sm text-gray-700 leading-relaxed whitespace-pre-line">
-                {description}
-              </p>
-            ) : (
-              <p className="text-sm text-gray-400 italic">No description provided.</p>
+        {/* ── REVIEWS ── */}
+        <div className="reviews-card card">
+          <div className="reviews-header">
+            <h2>Reviews & Ratings</h2>
+            {reviewStats && (
+              <div className="reviews-stats">
+                <span>{Number(reviewStats.avg_rating || 0).toFixed(1)} ★</span>
+                <span>{reviewStats.total_reviews} Reviews</span>
+              </div>
             )}
           </div>
-        )}
 
-        {/* Specs tab */}
-        {activeTab === "specs" && (
-          <SpecTable specs={specifications} />
-        )}
+          {/* Seller banner — placed above review list, links to SellerProfile */}
+          {sellerBanner}
 
-        {/* FAQ tab */}
-        {activeTab === "faq" && (
-          <FAQ items={faq} />
-        )}
-
-        {/* Delivery tab */}
-        {activeTab === "delivery" && (
-          <div className="space-y-2 text-sm text-gray-700">
-            {Object.entries(delivery)
-              .filter(([, v]) => v != null && v !== "")
-              .map(([key, value]) => (
-                <div key={key} className="flex justify-between py-2 border-b border-gray-50">
-                  <span className="text-gray-500 capitalize">{key.replace(/_/g, " ")}</span>
-                  <span className="font-medium">{String(value)}</span>
+          <div className="review-list">
+            {reviewsLoading ? (
+              <div className="p-10">
+                {Array.from({ length: 3 }, (_, i) => (
+                  <div key={i} className="mb-6 p-6 bg-white rounded-2xl shadow">
+                    <div className="h-4 w-40 bg-gray-200 rounded mb-3 animate-pulse" />
+                    <div className="h-3 w-60 bg-gray-200 rounded mb-2 animate-pulse" />
+                    <div className="h-3 w-52 bg-gray-200 rounded animate-pulse" />
+                  </div>
+                ))}
+              </div>
+            ) : reviews.length === 0 ? (
+              <div className="empty-state">No reviews yet.</div>
+            ) : (
+              reviews.map((review, idx) => (
+                <div key={review.id ?? idx} className="review-card card">
+                  <div className="reviewer-avatar">
+                    {review.reviewer_name?.charAt(0)?.toUpperCase() || "U"}
+                  </div>
+                  <div>
+                    <div className="review-header">
+                      <span className="font-bold">
+                        {review.reviewer_name || "Anonymous"}
+                      </span>
+                      <span>
+                        {new Date(review.created_at).toLocaleDateString()}
+                      </span>
+                    </div>
+                    <div className="text-sm text-gray-600 mb-2">
+                      {[1, 2, 3, 4, 5].map((star) => (
+                        <span
+                          key={star}
+                          style={{ color: star <= review.rating ? "#fbbf24" : "#d1d5db" }}
+                        >
+                          ★
+                        </span>
+                      ))}
+                    </div>
+                    <p>{review.comment}</p>
+                  </div>
                 </div>
-              ))}
-          </div>
-        )}
-      </div>
-
-      {/* ── Related Products ─────────────────────────────────────────────── */}
-      {related.length > 0 && (
-        <div className="px-4 pb-4">
-          <p className="text-sm font-semibold text-gray-800 mb-3">Similar listings</p>
-          <div className="flex gap-3 overflow-x-auto pb-2 scrollbar-hide">
-            {related.map((p) => (
-              <RelatedCard
-                key={p.id}
-                product={p}
-                onClick={onNavigate ? (s) => onNavigate(`/products/${s}`) : () => {}}
-              />
-            ))}
+              ))
+            )}
           </div>
         </div>
-      )}
 
-      {/* ── Sticky CTA bar ──────────────────────────────────────────────── */}
-      <div className="fixed bottom-0 left-0 right-0 z-20 bg-white border-t border-gray-100 shadow-[0_-4px_24px_rgba(0,0,0,0.08)]">
-        <div className="max-w-lg mx-auto flex gap-3 p-4">
+        {/* ── SIMILAR PRODUCTS ── */}
+        <div className="similar-card card">
+          <div className="similar-header">
+            <h2>Similar Products ({similarProducts.length})</h2>
+          </div>
 
-          {hasCall && (
-            <button
-              onClick={() => handleCTA("call")}
-              className="flex-1 flex items-center justify-center gap-2 h-12 rounded-2xl border-2 border-gray-200 text-gray-800 font-semibold text-sm hover:border-gray-400 active:scale-[0.97] transition"
-            >
-              <span>📞</span> Call
-            </button>
-          )}
+          <div className="similar-grid">
+            {similarLoading && similarProducts.length === 0 ? (
+              Array.from({ length: 12 }, (_, i) => (
+                <div
+                  key={i}
+                  className="similar-skeleton skeleton h-80 rounded-2xl animate-pulse"
+                />
+              ))
+            ) : (
+              similarProducts.map((item) => (
+                // FIX: was className="similar-card card" — conflicted with outer wrapper class
+                <Link
+                  key={item.id}
+                  to={`/product/${item.slug}`}
+                  className="similar-item card"
+                >
+                  <div className="card-image">
+                    <img
+                      src={item.images?.[0] || "/api/placeholder/400/300"}
+                      alt={item.title}
+                      className="w-full h-full object-cover"
+                      onError={(e) => { e.target.src = "/api/placeholder/400/300"; }}
+                    />
+                  </div>
 
-          {hasWhatsapp && (
-            <button
-              onClick={() => handleCTA("whatsapp")}
-              className="flex-1 flex items-center justify-center gap-2 h-12 rounded-2xl bg-[#25D366] text-white font-semibold text-sm shadow hover:bg-[#1ebe5d] active:scale-[0.97] transition"
-            >
-              <span>💬</span> WhatsApp
-            </button>
-          )}
+                  {item.images?.length > 1 && (
+                    <div className="flex gap-1 mt-2">
+                      {item.images.slice(1, 4).map((thumb, i) => (
+                        <img
+                          key={i}
+                          src={thumb || "/api/placeholder/60/60"}
+                          alt={`${item.title} thumb ${i + 1}`}
+                          className="w-8 h-8 object-cover rounded-md"
+                          onError={(e) => { e.target.src = "/api/placeholder/60/60"; }}
+                        />
+                      ))}
+                    </div>
+                  )}
 
-          {!hasCall && !hasWhatsapp && (
-            <div className="flex-1 flex items-center justify-center h-12 rounded-2xl bg-gray-100 text-sm text-gray-400">
-              No contact info
+                  <div className="mt-2">
+                    <div className="text-sm font-bold text-gray-900 mb-1 line-clamp-2">
+                      {item.title}
+                    </div>
+                    {/* FIX: price was missing from similar product cards */}
+                    <div className="text-xs font-bold text-indigo-700 mb-1">
+                      ₦{Number(item.price || 0).toLocaleString()}
+                    </div>
+                    <div className="text-xs text-gray-600 font-medium">
+                      {item.location_state}
+                    </div>
+                    <div className="text-xs text-gray-400">{item.location_city}</div>
+                  </div>
+                </Link>
+              ))
+            )}
+          </div>
+
+          {/* Infinite scroll trigger */}
+          {hasMoreSimilar && (
+            <div ref={similarEndRef} className="infinite-scroll-trigger">
+              {similarLoading ? (
+                <div className="skeleton h-10 w-40 mx-auto my-4 animate-pulse" />
+              ) : (
+                <button
+                  onClick={() => fetchSimilarProducts(similarPage + 1, true)}
+                  className="w-full px-4 py-3 text-sm font-bold text-white bg-indigo-600 rounded-lg hover:bg-indigo-700 transition"
+                >
+                  Load More Products
+                </button>
+              )}
             </div>
           )}
         </div>
+
+        {/* ── FOOTER ── */}
+        <footer className="product-footer">
+          <div className="footer-content">
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-8">
+              <div>
+                <h3 className="text-lg font-bold text-gray-900 mb-4">Browse Categories</h3>
+                <ul className="space-y-2">
+                  <li><Link to="/category/electronics">Electronics</Link></li>
+                  <li><Link to="/category/clothing">Fashion</Link></li>
+                  <li><Link to="/category/homes">Home & Appliances</Link></li>
+                </ul>
+              </div>
+              <div>
+                <h3 className="text-lg font-bold text-gray-900 mb-4">Support</h3>
+                <ul className="space-y-2">
+                  <li><Link to="/help">Help Center</Link></li>
+                  <li><Link to="/terms">Terms & Policies</Link></li>
+                  <li><Link to="/contact">Contact Us</Link></li>
+                </ul>
+              </div>
+              <div>
+                <h3 className="text-lg font-bold text-gray-900 mb-4">Company</h3>
+                <ul className="space-y-2">
+                  <li><Link to="/about">About Minimart</Link></li>
+                  <li><Link to="/blog">Blog</Link></li>
+                </ul>
+              </div>
+              <div>
+                <h3 className="text-lg font-bold text-gray-900 mb-4">Follow Us</h3>
+                <div className="flex gap-4">
+                  <Link to="#" className="text-sm">Twitter</Link>
+                  <Link to="#" className="text-sm">Instagram</Link>
+                  <Link to="#" className="text-sm">Facebook</Link>
+                </div>
+              </div>
+            </div>
+          </div>
+          <div className="border-t border-gray-200 mt-8 pt-6 text-center text-sm text-gray-600">
+            &copy; {new Date().getFullYear()} Minimart Marketplace. All rights reserved.
+          </div>
+        </footer>
+
       </div>
     </div>
   );
-}
+};
+
+export default ProductDetail;
