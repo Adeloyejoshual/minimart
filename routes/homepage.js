@@ -1,70 +1,63 @@
 import express from "express";
-import { Pool } from "pg";
+import { pool } from "../server.js";          // ✅ shared pool — never create a second one
 import { createClient } from "redis";
 import { getLocationFromIP, getClientIP } from "./location.js";
 
 const router = express.Router();
 
 /* =====================================
-   CONNECTIONS
+   REDIS — single client for this module
 ===================================== */
-const pool = new Pool({
-  connectionString: process.env.COCKROACH_URI,
-  ssl: { rejectUnauthorized: false },
-});
-
 const redis = createClient({ url: process.env.REDIS_URL });
-redis.on("error", (err) => console.error("Redis error:", err));
-await redis.connect();
+redis.on("error", (err) => console.error("Redis homepage error:", err.message));
+redis.connect().catch(console.error);
 
 /* =====================================
    CONSTANTS
 ===================================== */
 const FEED_LIMIT = 50;
-const CACHE_TTL_S = 60;
 
 const SLOTS = {
-  nearby: 15,
+  nearby:   15,
   personal: 10,
   trending: 10,
-  latest: 8,
-  promoted: 5,
-  random: 2,
+  latest:    8,
+  promoted:  5,
+  random:    2,
 };
 
 /* =====================================
    NORMALIZE PRODUCT
-   FIX: populate images[] from thumbnail_url / main_image
-        so frontend getImg() always has something to work with
+   Always populates images[] so the frontend
+   getImg() helper always has a URL to display.
 ===================================== */
 const normalizeProduct = (p) => ({
-  id: p.id,
-  slug: p.slug,
-  title: p.title,
-  description: p.description,
-  price: Number(p.price || 0),
+  id:            p.id,
+  slug:          p.slug,
+  title:         p.title,
+  description:   p.description,
+  price:         Number(p.price  || 0),
   thumbnail_url: p.thumbnail_url || null,
-  // Always give images[] a usable URL even when there is no image aggregation
   images: (() => {
     if (Array.isArray(p.images) && p.images.length > 0) return p.images;
     if (p.thumbnail_url) return [p.thumbnail_url];
     if (p.main_image)    return [p.main_image];
     return [];
   })(),
-  views: Number(p.views || 0),
-  clicks_count: Number(p.clicks_count || 0),
-  ctr: Number(p.ctr || 0),
-  is_promoted: Boolean(p.is_promoted),
-  boost_score: Number(p.boost_score || 0),
-  location: { state: p.location_state, city: p.location_city },
+  views:         Number(p.views        || 0),
+  clicks_count:  Number(p.clicks_count || 0),
+  ctr:           Number(p.ctr          || 0),
+  is_promoted:   Boolean(p.is_promoted),
+  boost_score:   Number(p.boost_score  || 0),
+  location:      { state: p.location_state, city: p.location_city },
   ...(p.distance_km != null && {
     distance_km: Math.round(Number(p.distance_km) * 10) / 10,
   }),
   seller: p.seller_id
     ? {
-        id: p.seller_id,
+        id:          p.seller_id,
         trust_score: Number(p.trust_score || 50),
-        verified: Boolean(p.verified),
+        verified:    Boolean(p.verified),
       }
     : undefined,
   createdAt: p.created_at,
@@ -72,6 +65,12 @@ const normalizeProduct = (p) => ({
 
 /* =====================================
    SELECT FRAGMENTS
+
+   homepageSelect — no image aggregation (fast feed)
+   fullSelect     — includes image aggregation (search)
+
+   FIX: main_image added so normalizeProduct can
+        fall back to it when thumbnail_url is null.
 ===================================== */
 const imageAgg = `
   COALESCE(
@@ -81,7 +80,6 @@ const imageAgg = `
   ) AS images
 `;
 
-// FIX: include main_image so normalizeProduct can fall back to it
 const homepageSelect = `
   p.id, p.slug, p.title, p.description, p.price,
   p.thumbnail_url, p.main_image,
@@ -92,7 +90,6 @@ const homepageSelect = `
   p.seller_id, u.trust_score, u.verified
 `;
 
-// fullSelect adds image aggregation for search
 const fullSelect = `
   p.id, p.slug, p.title, p.description, p.price,
   p.thumbnail_url, p.main_image,
@@ -117,8 +114,13 @@ const baseWhere = `
     AND p.seller_id  IS NOT NULL
 `;
 
-// FIX: removed p.ctr from GROUP BY — it is a computed alias, not a column.
-// CockroachDB (and standard SQL) reject GROUP BY on SELECT aliases.
+/*
+  FIX: p.ctr removed from GROUP BY.
+  ctr is a computed SELECT alias — CockroachDB (and standard SQL)
+  throws "column ctr does not exist" on GROUP BY aliases,
+  crashing every query including the hard fallback → 500 error
+  → frontend shows "Marketplace unavailable".
+*/
 const baseGroup = `
   GROUP BY
     p.id, p.slug, p.title, p.description, p.price,
@@ -151,8 +153,7 @@ export const detectSpamListing = async (sellerId, title, fingerprint) => {
   );
 
   let score = 0;
-  const recentCount = Number(rows[0].count);
-  if (recentCount >= 5)                         score += 50;
+  if (Number(rows[0].count) >= 5)               score += 50;
   if (title.trim().length < 10)                 score += 10;
   if (/(.)\1{4,}/.test(title))                  score += 20;
   if (/cheap cheap|buy now buy now/i.test(title)) score += 20;
@@ -204,7 +205,10 @@ export const updateSellerTrust = async (sellerId) => {
 const resolveLocation = async (req) => {
   const { lat, lng, city, state } = req.query;
   if (lat && lng) {
-    return { lat: parseFloat(lat), lng: parseFloat(lng), city: city || null, state: state || null };
+    return {
+      lat: parseFloat(lat), lng: parseFloat(lng),
+      city: city || null, state: state || null,
+    };
   }
   const ip  = getClientIP(req);
   const loc = ip ? await getLocationFromIP(ip) : null;
@@ -223,7 +227,24 @@ const softShuffle = (arr, factor = 0.3) =>
     .map(({ item }) => item);
 
 /* =====================================
-   HOMEPAGE
+   BASE QUERY BUILDER
+   FIX: NULL::float so CockroachDB knows
+        the type of the distance_km column.
+===================================== */
+const buildQuery = ({ where = "", order = "", limit, params = [] }) => ({
+  text: `
+    SELECT ${homepageSelect}, NULL::float AS distance_km
+    ${baseJoins}
+    ${baseWhere} ${where}
+    ${baseGroup}
+    ${order}
+    LIMIT ${limit}
+  `,
+  values: params,
+});
+
+/* =====================================
+   GET /homepage
 ===================================== */
 router.get("/homepage", async (req, res) => {
   try {
@@ -233,28 +254,17 @@ router.get("/homepage", async (req, res) => {
     /* interests */
     let interests = [];
     try {
-      interests = await redis.zRange(`user:interest:${identity}`, 0, 2, { REV: true });
+      interests = await redis.zRange(
+        `user:interest:${identity}`, 0, 2, { REV: true }
+      );
     } catch { /* non-fatal */ }
 
-    /* ── base query builder ── */
-    const buildQuery = ({ where = "", order = "", limit, params = [] }) => ({
-      text: `
-        SELECT ${homepageSelect}, NULL::float AS distance_km
-        ${baseJoins}
-        ${baseWhere} ${where}
-        ${baseGroup}
-        ${order}
-        LIMIT ${limit}
-      `,
-      values: params,
-    });
-
-    /* ── nearby (GPS → city → state) ── */
-    let nearby      = [];
+    /* ── nearby (GPS → city → state → global) ── */
+    let nearby       = [];
     let nearbySource = "global";
 
     if (loc.lat && loc.lng) {
-      const radius = 0.5; // degrees ≈ 55 km
+      const radius = 0.5; // ≈ 55 km
       const { rows } = await pool.query(
         `
         SELECT ${homepageSelect},
@@ -279,37 +289,34 @@ router.get("/homepage", async (req, res) => {
     }
 
     if (nearby.length < 5 && loc.city) {
-      const q = buildQuery({
+      nearby = (await pool.query(buildQuery({
         where:  `AND p.location_city = $1`,
         order:  `ORDER BY p.boost_score DESC, p.created_at DESC`,
         limit:  SLOTS.nearby,
         params: [loc.city],
-      });
-      nearby       = (await pool.query(q)).rows;
+      }))).rows;
       nearbySource = "city";
     }
 
     if (nearby.length < 5 && loc.state) {
-      const q = buildQuery({
+      nearby = (await pool.query(buildQuery({
         where:  `AND p.location_state = $1`,
         order:  `ORDER BY p.boost_score DESC, p.created_at DESC`,
         limit:  SLOTS.nearby,
         params: [loc.state],
-      });
-      nearby       = (await pool.query(q)).rows;
+      }))).rows;
       nearbySource = "state";
     }
 
     /* ── personalized ── */
     let personal = [];
     if (interests.length) {
-      const q = buildQuery({
+      personal = (await pool.query(buildQuery({
         where:  `AND p.category_id = ANY($1::uuid[])`,
         order:  `ORDER BY p.boost_score DESC, p.created_at DESC`,
         limit:  SLOTS.personal,
         params: [interests],
-      });
-      personal = (await pool.query(q)).rows;
+      }))).rows;
     }
 
     /* ── trending (Redis scores) ── */
@@ -339,8 +346,10 @@ router.get("/homepage", async (req, res) => {
 
     /* ── latest + promoted + random ── */
     const [latest, promoted, random] = await Promise.all([
-      pool.query(buildQuery({ order: `ORDER BY p.created_at DESC`, limit: SLOTS.latest }))
-          .then((r) => r.rows),
+      pool.query(buildQuery({
+        order: `ORDER BY p.created_at DESC`,
+        limit: SLOTS.latest,
+      })).then((r) => r.rows),
 
       pool.query(buildQuery({
         where:  `AND p.is_promoted = true`,
@@ -348,11 +357,13 @@ router.get("/homepage", async (req, res) => {
         limit:  SLOTS.promoted,
       })).then((r) => r.rows),
 
-      pool.query(buildQuery({ where: `AND random() < 0.02`, limit: SLOTS.random }))
-          .then((r) => r.rows),
+      pool.query(buildQuery({
+        where:  `AND random() < 0.02`,
+        limit:  SLOTS.random,
+      })).then((r) => r.rows),
     ]);
 
-    /* ── merge ── */
+    /* ── merge & respond ── */
     const merged = dedup([
       ...promoted,
       ...softShuffle([...nearby, ...personal, ...trending, ...latest, ...random]),
@@ -370,7 +381,7 @@ router.get("/homepage", async (req, res) => {
   } catch (err) {
     console.error("HOMEPAGE ERROR:", err);
 
-    /* hard fallback — never return empty */
+    /* ── hard fallback — never return empty ── */
     try {
       const { rows } = await pool.query(`
         SELECT ${homepageSelect}, NULL::float AS distance_km
@@ -392,7 +403,7 @@ router.get("/homepage", async (req, res) => {
 });
 
 /* =====================================
-   CLICK TRACKING
+   POST /products/:id/click
 ===================================== */
 router.post("/products/:id/click", async (req, res) => {
   const { id }      = req.params;
@@ -413,8 +424,7 @@ router.post("/products/:id/click", async (req, res) => {
     ]);
 
     const { rows } = await pool.query(
-      `SELECT category_id FROM products WHERE id = $1`,
-      [id]
+      `SELECT category_id FROM products WHERE id = $1`, [id]
     );
     if (rows[0]?.category_id) {
       await redis.zIncrBy(`user:interest:${identity}`, 3, rows[0].category_id);
@@ -433,7 +443,7 @@ router.post("/products/:id/click", async (req, res) => {
 });
 
 /* =====================================
-   VIEW TRACKING
+   POST /products/:id/view
 ===================================== */
 router.post("/products/:id/view", async (req, res) => {
   const { id }      = req.params;
@@ -463,7 +473,7 @@ router.post("/products/:id/view", async (req, res) => {
 });
 
 /* =====================================
-   SEARCH
+   GET /search
 ===================================== */
 router.get("/search", async (req, res) => {
   try {
