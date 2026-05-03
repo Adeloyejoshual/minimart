@@ -8,9 +8,9 @@
 
 import React, { useCallback, useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
-import TopNav from "../components/TopNav";
-import BottomNav from "../components/BottomNav";
-import MasonryGrid from "../components/MasonryGrid";
+import TopNav from "../../components/TopNav";
+import BottomNav from "../../components/BottomNav";
+import MasonryGrid from "../../components/MasonryGrid";
 
 const API =
   import.meta.env.VITE_API_BASE || "https://minimart-ivrm.onrender.com/api";
