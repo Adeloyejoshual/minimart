@@ -1,0 +1,165 @@
+/* ─────────────────────────────────────────────
+   Footer.css — Minimart
+   ───────────────────────────────────────────── */
+
+.footer {
+  background: #111;
+  color: #ccc;
+  padding: 40px 20px 100px; /* bottom padding clears BottomNav */
+  margin-top: 32px;
+  font-family: inherit;
+}
+
+/* ── Brand ── */
+.footer-brand {
+  margin-bottom: 32px;
+}
+
+.footer-logo {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 10px;
+}
+
+.footer-logo-mark {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  border-radius: 8px;
+  background: #e8523a;
+  color: #fff;
+  font-size: 16px;
+  font-weight: 800;
+  letter-spacing: -0.5px;
+  flex-shrink: 0;
+}
+
+.footer-logo-name {
+  font-size: 18px;
+  font-weight: 700;
+  color: #fff;
+  letter-spacing: -0.3px;
+}
+
+.footer-tagline {
+  font-size: 13px;
+  line-height: 1.6;
+  color: #888;
+  max-width: 300px;
+  margin: 0;
+}
+
+/* ── Nav columns ── */
+.footer-nav {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 24px;
+  margin-bottom: 32px;
+}
+
+.footer-col-title {
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: #fff;
+  margin: 0 0 12px;
+}
+
+.footer-links {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 9px;
+}
+
+.footer-links li button {
+  all: unset;
+  font-size: 13px;
+  color: #888;
+  cursor: pointer;
+  transition: color 0.18s;
+  line-height: 1;
+}
+
+.footer-links li button:hover,
+.footer-links li button:focus-visible {
+  color: #fff;
+}
+
+/* ── Rule ── */
+.footer-rule {
+  height: 1px;
+  background: #222;
+  margin-bottom: 20px;
+}
+
+/* ── Bottom bar ── */
+.footer-bottom {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.footer-copy {
+  font-size: 12px;
+  color: #555;
+  margin: 0;
+}
+
+.footer-legal {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.footer-legal-link {
+  all: unset;
+  font-size: 12px;
+  color: #666;
+  cursor: pointer;
+  transition: color 0.18s;
+}
+
+.footer-legal-link:hover,
+.footer-legal-link:focus-visible {
+  color: #ddd;
+  text-decoration: underline;
+}
+
+.footer-dot {
+  color: #444;
+  font-size: 12px;
+  user-select: none;
+}
+
+/* ── Responsive: tablet+ ── */
+@media (min-width: 600px) {
+  .footer {
+    padding: 48px 32px 120px;
+  }
+
+  .footer-bottom {
+    flex-direction: row;
+    align-items: center;
+    justify-content: space-between;
+  }
+}
+
+@media (min-width: 900px) {
+  .footer {
+    padding: 56px 48px 80px;
+  }
+
+  .footer-nav {
+    grid-template-columns: repeat(3, auto);
+    gap: 48px;
+    justify-content: flex-start;
+  }
+}
