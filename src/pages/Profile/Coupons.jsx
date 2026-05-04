@@ -16,8 +16,17 @@ export default function PremiumSpinWheel() {
   const [spinning, setSpinning] = useState(false);
   const [reward, setReward] = useState(null);
   const [showModal, setShowModal] = useState(false);
+  const [hasClaimed, setHasClaimed] = useState(false);
+  const [message, setMessage] = useState("");
 
   const spin = () => {
+    // 🚫 Already claimed → show message instead of blocking button
+    if (hasClaimed) {
+      setMessage("You have already claimed your reward 🎁");
+      setTimeout(() => setMessage(""), 2500);
+      return;
+    }
+
     if (spinning) return;
 
     setSpinning(true);
@@ -38,9 +47,17 @@ export default function PremiumSpinWheel() {
     }, 4000);
   };
 
+  const handleClaim = () => {
+    setShowModal(false);
+    setHasClaimed(true); // 🔒 lock future spins
+  };
+
   return (
     <div style={styles.page}>
-      {/* Blur overlay */}
+      {/* Message Toast */}
+      {message && <div style={styles.toast}>{message}</div>}
+
+      {/* Blur */}
       {showModal && <div style={styles.blur} />}
 
       {/* Pointer */}
@@ -70,21 +87,17 @@ export default function PremiumSpinWheel() {
         })}
       </div>
 
-      {/* Spin Button */}
+      {/* Button (NOT disabled) */}
       <button onClick={spin} style={styles.button}>
         {spinning ? "Spinning..." : "Spin to Win"}
       </button>
 
-      {/* 🎉 Result Modal */}
+      {/* Modal */}
       {showModal && (
         <div style={styles.modal}>
-          <div style={styles.confetti} />
           <h2>You Won 🎉</h2>
           <p style={{ fontSize: "20px", fontWeight: "bold" }}>{reward}</p>
-          <button
-            style={styles.claimBtn}
-            onClick={() => setShowModal(false)}
-          >
+          <button style={styles.claimBtn} onClick={handleClaim}>
             Claim Reward
           </button>
         </div>
@@ -174,13 +187,13 @@ const styles = {
     color: "#fff",
     cursor: "pointer"
   },
-  confetti: {
+  toast: {
     position: "absolute",
-    width: "100%",
-    height: "100%",
-    background:
-      "radial-gradient(circle, rgba(255,0,150,0.3) 10%, transparent 10%), radial-gradient(circle, rgba(0,200,255,0.3) 10%, transparent 10%)",
-    backgroundSize: "20px 20px",
-    animation: "confetti 1s linear infinite"
+    top: "20px",
+    background: "#111",
+    color: "#fff",
+    padding: "10px 20px",
+    borderRadius: "999px",
+    fontSize: "14px"
   }
 };
