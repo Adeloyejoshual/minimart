@@ -102,9 +102,9 @@ export default function ProductComponents({
 
   // ── Model options ────────────────────────────────────────────────────────
   //
-  //  modelOptions — dropdown list from backend (may be empty if brand not configured)
-  //  showModelDropdown — show dropdown when list exists
-  //  showModelInput    — fallback free-text when brand selected but no list
+  // Always use DropdownModal for model.
+  // When the backend provides a model list for the selected brand → show those options.
+  // When no list is available → show an empty dropdown (DropdownModal supports free-text search).
 
   const modelOptions = useMemo(() => {
     if (!attributes?.brand) return [];
@@ -112,8 +112,8 @@ export default function ProductComponents({
     return normalizeOptions(options?.models?.[brandKey] ?? []);
   }, [attributes?.brand, options]);
 
-  const showModelDropdown = modelOptions.length > 0;
-  const showModelInput    = !!attributes?.brand && modelOptions.length === 0;
+  // Show the model field whenever a brand has been selected
+  const showModelField = !!attributes?.brand;
 
   // ── Options map ──────────────────────────────────────────────────────────
 
@@ -238,31 +238,27 @@ export default function ProductComponents({
           </div>
         )}
 
-        {/* Model — dropdown when backend has a model list */}
-        {showModelDropdown && (
+        {/* Model — always a DropdownModal once a brand is selected.
+            Passes modelOptions when the backend has a list for that brand,
+            or an empty array so the user can search / type freely. */}
+        {showModelField && (
           <div className="form-group">
             <label>{formatLabel("model")}</label>
             <DropdownModal
               value={attributes?.model ?? ""}
               options={modelOptions}
+              placeholder={
+                modelOptions.length > 0
+                  ? "Select model"
+                  : "Type model name (e.g. Pavilion 15-eg3000)"
+              }
               onChange={(v) => updateAttribute("model", v)}
             />
-          </div>
-        )}
-
-        {/* Model — free-text fallback when brand selected but no model list configured */}
-        {showModelInput && (
-          <div className="form-group">
-            <label>{formatLabel("model")}</label>
-            <input
-              type="text"
-              placeholder="e.g. Pavilion 15-eg3000, ThinkPad X1 Carbon"
-              value={attributes?.model ?? ""}
-              onChange={(e) => updateAttribute("model", e.target.value.trimStart())}
-            />
-            <small className="field-hint">
-              Type the exact model name as it appears on the device
-            </small>
+            {modelOptions.length === 0 && (
+              <small className="field-hint">
+                Type the exact model name as it appears on the device
+              </small>
+            )}
           </div>
         )}
 
@@ -359,7 +355,6 @@ export default function ProductComponents({
       <section className="section form-card">
         <h3 className="section-title">Location &amp; Delivery</h3>
 
-        {/* Detect location button */}
         {detectLocation && (
           <div className="detect-location-row">
             <button
@@ -374,14 +369,10 @@ export default function ProductComponents({
                   Detecting…
                 </>
               ) : (
-                <>
-                  📍 {detectedCoords ? "Location detected ✓" : "Detect my location"}
-                </>
+                <>📍 {detectedCoords ? "Location detected ✓" : "Detect my location"}</>
               )}
             </button>
-            <small className="field-hint">
-              Auto-fills your state and city
-            </small>
+            <small className="field-hint">Auto-fills your state and city</small>
           </div>
         )}
 
@@ -539,8 +530,6 @@ export default function ProductComponents({
           TERMS + SUBMIT
       ══════════════════════════════════════════ */}
       <div className="button-section section form-card">
-
-        {/* Terms & Conditions checkbox — rendered from AddProduct.jsx via prop */}
         {TermsCheckbox}
 
         <button
