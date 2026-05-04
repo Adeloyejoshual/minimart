@@ -15,6 +15,7 @@ import { useNavigate } from "react-router-dom";
 import { useProductCache } from "../context/ProductCacheContext";
 import TopNav       from "../components/TopNav";
 import BottomNav    from "../components/BottomNav";
+import Footer       from "../components/Footer";
 import MasonryGrid  from "../components/MasonryGrid";
 import OverlayCard  from "../components/OverlayCard";
 import { PinIcon, naira, getImageUrl, formatCity } from "../components/MasonryCard";
@@ -33,6 +34,7 @@ const GPS_O = {
   maximumAge: 300_000,
 };
 const CAT_ALL = { name: "All", icon: "✦" };
+const ALL_PRODUCTS_LIMIT = 40;
 
 /* ─── Helpers ────────────────────────────────────────────── */
 const fresh = (d) => d && Date.now() - new Date(d).getTime() < 86_400_000;
@@ -40,6 +42,14 @@ const fresh = (d) => d && Date.now() - new Date(d).getTime() < 86_400_000;
 const dedup = (arr) => {
   const seen = new Set();
   return arr.filter((p) => !seen.has(p.id) && seen.add(p.id));
+};
+
+/** Format large numbers: 1000 → +1k, 2500 → +2.5k, 1000000 → +1m */
+const formatCount = (n) => {
+  if (!n || n < 1000) return `${n}+`;
+  if (n >= 1_000_000) return `+${Math.floor(n / 1_000_000)}m`;
+  const k = n / 1000;
+  return `+${Number.isInteger(k) ? k : k.toFixed(1)}k`;
 };
 
 const splitProducts = (products) => ({
@@ -164,7 +174,7 @@ const FeaturedCard = memo(({ product, onClick }) => {
         <div>
           <div className="feat-price">{naira(product.price)}</div>
           <div className="feat-loc">
-            📍 {product.location?.city || product.location_city || "Nationwide"}
+            {product.location?.city || product.location_city || "Nationwide"}
           </div>
         </div>
       </div>
@@ -201,9 +211,8 @@ export default function Homepage({ user }) {
   const [catLoading, setCatLoading]         = useState(false);
   const [catError, setCatError]             = useState(null);
 
-  /* ── All-products toggle ── */
-  const [showAllProducts, setShowAllProducts] = useState(false);
-  const [allVisible, setAllVisible]           = useState(20);
+  /* ── All-products pagination ── */
+  const [allVisible, setAllVisible] = useState(ALL_PRODUCTS_LIMIT);
 
   const productsRef = useRef([]);
   const catAbortRef = useRef(null);
@@ -326,7 +335,6 @@ export default function Homepage({ user }) {
       if (catName === activeCategory) return;
       setActiveCategory(catName);
       setCatError(null);
-      setShowAllProducts(false);
 
       if (catName === "All") {
         setCatProducts(null);
@@ -391,6 +399,13 @@ export default function Homepage({ user }) {
   const allCats      = [CAT_ALL, ...CATEGORY_CONFIG];
   const activeCatObj = CATEGORY_CONFIG.find((c) => c.name === activeCategory);
 
+  /* ── Hero listing count ── */
+  const heroListingCount = useMemo(
+    () => formatCount((productsRef.current.length || 0) + 1000),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [allProducts]
+  );
+
   /* ════════════════════════════════════════════
      RENDER
   ════════════════════════════════════════════ */
@@ -434,9 +449,7 @@ export default function Homepage({ user }) {
               <div className="hero-stats anim anim-2">
                 <div className="hero-stat">
                   <div className="hero-stat-n">
-                    {loading
-                      ? "—"
-                      : `${(productsRef.current.length || 0) + 1000}+`}
+                    {loading ? "—" : heroListingCount}
                   </div>
                   <div className="hero-stat-l">Listings</div>
                 </div>
@@ -501,11 +514,6 @@ export default function Homepage({ user }) {
           <div className="sec cat-section">
             <SectionHead
               title={`${activeCatObj?.icon ?? ""} ${activeCategory}`}
-              chip={
-                catProducts !== null && !catLoading
-                  ? `${catProducts.length} listing${catProducts.length !== 1 ? "s" : ""}`
-                  : undefined
-              }
             />
 
             {catLoading && <SkeletonMasonry />}
@@ -558,7 +566,7 @@ export default function Homepage({ user }) {
             {/* ── Featured (Sponsored) ── */}
             {(loading || sections.featured.length > 0) && (
               <div className="sec anim anim-3">
-                <SectionHead title="💎 Featured" />
+                <SectionHead title="Featured" />
                 {loading ? (
                   <div className="feat-wrap">
                     <div className="sk sk-ft" />
@@ -617,7 +625,7 @@ export default function Homepage({ user }) {
             {/* ── Trending ── */}
             <div className="sec anim anim-5">
               <SectionHead
-                title="🔥 Trending"
+                title="Trending"
                 onSeeAll={() => navigate("/trending")}
               />
               {loading ? (
@@ -645,12 +653,7 @@ export default function Homepage({ user }) {
             {(loading || sections.recommended.length > 0) && (
               <div className="sec">
                 <SectionHead
-                  title="⭐ Recommended For You"
-                  chip={
-                    !loading && sections.recommended.length > 0
-                      ? `${sections.recommended.length} picks`
-                      : undefined
-                  }
+                  title="Recommended For You"
                   onSeeAll={() => navigate("/recommended")}
                 />
                 {loading ? (
@@ -676,7 +679,7 @@ export default function Homepage({ user }) {
             {/* ── Cheap Deals ── */}
             <div className="sec">
               <SectionHead
-                title="💸 Cheap Deals"
+                title="Cheap Deals"
                 chip="Under ₦50k"
                 onSeeAll={() => navigate("/deals")}
               />
@@ -698,7 +701,7 @@ export default function Homepage({ user }) {
             {/* ── New Arrivals ── */}
             <div className="sec">
               <SectionHead
-                title="🆕 New Arrivals"
+                title="New Arrivals"
                 onSeeAll={() => navigate("/latest")}
               />
               {loading ? (
@@ -725,47 +728,14 @@ export default function Homepage({ user }) {
             {/* ── All Products ── */}
             <div className="sec">
               <SectionHead
-                title="🛒 All Products"
-                chip={
-                  !loading && sections.all.length > 0
-                    ? `${sections.all.length} listings`
-                    : undefined
-                }
-                onSeeAll={
-                  !showAllProducts
-                    ? () => setShowAllProducts(true)
-                    : undefined
-                }
+                title="All Products"
+                onSeeAll={() => navigate("/products")}
               />
               {loading ? (
                 <SkeletonMasonry />
               ) : sections.all.length === 0 ? (
                 <InlineEmpty message="No products yet" />
-              ) : !showAllProducts ? (
-                /* Collapsed preview — first 6 in a row */
-                <>
-                  <div className="row">
-                    {sections.all.slice(0, 6).map((p, i) => (
-                      <OverlayCard
-                        key={p.id}
-                        product={p}
-                        priority={i === 0}
-                        onView={trackView}
-                        onClick={handleProductClick}
-                      />
-                    ))}
-                  </div>
-                  {sections.all.length > 6 && (
-                    <button
-                      className="load-more"
-                      onClick={() => setShowAllProducts(true)}
-                    >
-                      Show all {sections.all.length} products
-                    </button>
-                  )}
-                </>
               ) : (
-                /* Expanded — MasonryGrid with paginated "Load more" */
                 <>
                   <MasonryGrid
                     products={sections.all.slice(0, allVisible)}
@@ -775,14 +745,14 @@ export default function Homepage({ user }) {
                   {allVisible < sections.all.length && (
                     <button
                       className="load-more"
-                      onClick={() => setAllVisible((v) => v + 20)}
+                      onClick={() => setAllVisible((v) => v + ALL_PRODUCTS_LIMIT)}
                     >
                       Load more ({sections.all.length - allVisible} remaining)
                     </button>
                   )}
                   {allVisible >= sections.all.length && (
                     <p className="inline-empty">
-                      You've seen all {sections.all.length} listings 🎉
+                      You've seen all {sections.all.length} listings
                     </p>
                   )}
                 </>
@@ -803,6 +773,7 @@ export default function Homepage({ user }) {
         Sell Now
       </button>
 
+      <Footer />
       <BottomNav />
     </>
   );
