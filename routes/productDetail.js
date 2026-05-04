@@ -176,14 +176,6 @@ router.get("/slug/:slug", async (req, res) => {
       return res.status(404).json({ message: "Product not found" });
     }
 
-    pool.query(
-      `UPDATE products
-       SET views               = COALESCE(views, 0) + 1,
-           last_interaction_at = NOW()
-       WHERE id = $1`,
-      [rows[0].id]
-    ).catch((e) => console.error("View increment failed:", e.message));
-
     return res.json(normalizeProduct(rows[0]));
   } catch (err) {
     console.error("GET /api/product/slug/:slug →", err.message);
@@ -435,6 +427,28 @@ router.get("/users/:id/public", async (req, res) => {
   } catch (err) {
     console.error("GET /api/users/:id/public →", err.message);
     return res.status(500).json({ message: "Failed to load seller" });
+  }
+});
+
+/* ─────────────────────────────────────────────
+   POST /api/products/:id/view
+   Called once per session by the frontend.
+   sessionStorage on the client prevents re-counting on refresh.
+───────────────────────────────────────────── */
+router.post("/products/:id/view", async (req, res) => {
+  const { id } = req.params;
+  try {
+    await pool.query(
+      `UPDATE products
+       SET views               = COALESCE(views, 0) + 1,
+           last_interaction_at = NOW()
+       WHERE id = $1`,
+      [id]
+    );
+    return res.json({ success: true });
+  } catch (err) {
+    console.error("POST /api/products/:id/view →", err.message);
+    return res.status(500).json({ message: "Failed to track view" });
   }
 });
 
