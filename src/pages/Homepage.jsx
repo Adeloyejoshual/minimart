@@ -9,14 +9,19 @@ import React, {
   useCallback,
   useRef,
   memo,
+  useMemo,
 } from "react";
 import { useNavigate } from "react-router-dom";
 import { useProductCache } from "../context/ProductCacheContext";
-import TopNav from "../components/TopNav";
-import BottomNav from "../components/BottomNav";
+import TopNav       from "../components/TopNav";
+import BottomNav    from "../components/BottomNav";
+import MasonryGrid  from "../components/MasonryGrid";
+import OverlayCard  from "../components/OverlayCard";
+import { PinIcon, naira, getImageUrl, formatCity } from "../components/MasonryCard";
+import CATEGORY_CONFIG from "../config/categories";
 import "../styles/Homepage.css";
 
-/* ─── Constants ─── */
+/* ─── Constants ─────────────────────────────────────────── */
 const API =
   import.meta.env.VITE_API_BASE || "https://minimart-ivrm.onrender.com/api";
 const PH =
@@ -27,34 +32,10 @@ const GPS_O = {
   enableHighAccuracy: false,
   maximumAge: 300_000,
 };
+const CAT_ALL = { name: "All", icon: "✦" };
 
-const CATEGORIES = [
-  { id: "all", label: "All", icon: "✦" },
-  { id: "electronics", label: "Electronics", icon: "📱" },
-  { id: "fashion", label: "Fashion", icon: "👗" },
-  { id: "vehicles", label: "Vehicles", icon: "🚗" },
-  { id: "furniture", label: "Furniture", icon: "🛋" },
-  { id: "phones", label: "Phones", icon: "📞" },
-  { id: "food", label: "Food", icon: "🥘" },
-  { id: "services", label: "Services", icon: "🔧" },
-];
-
-/* ─── Pure Helpers ─── */
-const naira = (n) =>
-  "₦" + Number(n || 0).toLocaleString("en-NG");
-
+/* ─── Helpers ────────────────────────────────────────────── */
 const fresh = (d) => d && Date.now() - new Date(d).getTime() < 86_400_000;
-
-const getImageUrl = (p) => {
-  if (p?.image) return p.image;
-  if (Array.isArray(p?.images) && p.images.length > 0) {
-    const first = p.images[0];
-    return typeof first === "string"
-      ? first
-      : first?.url || first?.thumbnail_url || PH;
-  }
-  return p?.thumbnail_url || p?.main_image || PH;
-};
 
 const dedup = (arr) => {
   const seen = new Set();
@@ -62,34 +43,65 @@ const dedup = (arr) => {
 };
 
 const splitProducts = (products) => ({
-  featured: products
-    .filter((p) => p.is_promoted)
-    .slice(0, 3),
+  featured: products.filter((p) => p.is_promoted).slice(0, 3),
   nearby: products
-    .filter((p) => p.distance_km != null || p.location?.city)
+    .filter((p) => p.distance_km != null || p.location?.city || p.location_city)
     .slice(0, 10),
-  trending: products.slice(0, 14),
-  deals: products.filter((p) => p.price <= 50_000).slice(0, 20),
-  latest: products.slice(0, 40),
+  trending: products
+    .filter(
+      (p) => (p.engagement_score || 0) > 20 || (p.clicks_count || 0) > 10
+    )
+    .sort((a, b) => (b.engagement_score || 0) - (a.engagement_score || 0))
+    .slice(0, 20),
+  deals: products.filter((p) => Number(p.price) <= 50_000).slice(0, 20),
+  latest: [...products]
+    .sort((a, b) => new Date(b.created_at) - new Date(a.created_at))
+    .slice(0, 20),
+  recommended: products
+    .filter((p) => (p.recommendation_score || p.ctr || 0) > 0)
+    .sort(
+      (a, b) =>
+        (b.recommendation_score || b.ctr || 0) -
+        (a.recommendation_score || a.ctr || 0)
+    )
+    .slice(0, 20),
+  all: products,
 });
 
+const heroLocation = (meta) => {
+  const city  = meta?.location_city  || meta?.city;
+  const state = meta?.location_state || meta?.state;
+  if (city && state) return `${city}, ${state}`;
+  if (city)  return city;
+  if (state) return state;
+  return meta?.location || null;
+};
+
 const getBadge = (p) => {
-  if (p.is_promoted)
-    return { text: "Sponsored", className: "bd-feat" };
-  if ((p.ctr || 0) > 0.15)
-    return { text: "Hot", className: "bd-hot" };
-  if ((p.ctr || 0) > 0.08)
-    return { text: "Trending", className: "bd-trnd" };
-  if (fresh(p.created_at))
-    return { text: "New", className: "bd-new" };
+  if (p.is_promoted)       return { text: "Sponsored",  className: "bd-feat" };
+  if ((p.ctr || 0) > 0.15) return { text: "Hot",        className: "bd-hot"  };
+  if ((p.ctr || 0) > 0.08) return { text: "Trending",   className: "bd-trnd" };
+  if (fresh(p.created_at)) return { text: "New",        className: "bd-new"  };
   return null;
 };
 
-/* ─── Skeleton Components ─── */
+/* ─── Skeletons ──────────────────────────────────────────── */
 const SkeletonRow = () => (
   <div className="row">
     {[...Array(5)].map((_, i) => (
       <div key={i} className="sk sk-co" />
+    ))}
+  </div>
+);
+
+const SkeletonMasonry = () => (
+  <div className="masonry">
+    {[...Array(8)].map((_, i) => (
+      <div
+        key={i}
+        className="sk sk-masonry"
+        style={{ height: `${160 + (i % 4) * 55}px` }}
+      />
     ))}
   </div>
 );
@@ -102,164 +114,38 @@ const SkeletonGrid = () => (
   </div>
 );
 
-/* ─── Product Cards ─── */
-const OverlayCard = memo(
-  ({ product, rank, priority, onView, onClick }) => {
-    const timerRef = useRef(null);
-    const badge = getBadge(product);
-    const imageUrl = getImageUrl(product);
-
-    const handleMouseEnter = () => {
-      timerRef.current = setTimeout(() => onView(product.id), HOVER);
-    };
-
-    const handleMouseLeave = () => {
-      if (timerRef.current) {
-        clearTimeout(timerRef.current);
-        timerRef.current = null;
-      }
-    };
-
-    return (
-      <div
-        className="co"
-        role="button"
-        tabIndex={0}
-        onClick={() => onClick(product)}
-        onKeyDown={(e) => {
-          if (e.key === "Enter") onClick(product);
-        }}
-        onMouseEnter={handleMouseEnter}
-        onMouseLeave={handleMouseLeave}
-      >
-        {badge && (
-          <span
-            className={`bd ${badge.className}`}
-          >
-            {badge.text}
-          </span>
-        )}
-        {rank != null && <span className="rank">#{rank + 1}</span>}
-
-        <img
-          className="co-img"
-          src={imageUrl}
-          alt={product.title}
-          loading={priority ? "eager" : "lazy"}
-          decoding="async"
-          fetchPriority={priority ? "high" : "auto"}
-          onError={(e) => {
-            e.currentTarget.src = PH;
-          }}
-        />
-
-        <div className="co-grad">
-          <div className="co-name">{product.title}</div>
-          <div className="co-price">{naira(product.price)}</div>
-          <div className="co-foot">
-            <span className="co-loc">
-              📍 {product.location?.city || "Nationwide"}
-            </span>
-            {product.distance_km != null && (
-              <span className="dist">
-                {product.distance_km} km
-              </span>
-            )}
-          </div>
-        </div>
-      </div>
-    );
-  }
-);
-
-const GridTile = memo(({ product, onView, onClick }) => {
-  const timerRef = useRef(null);
-  const badge = getBadge(product);
-  const imageUrl = getImageUrl(product);
-
-  const handleMouseEnter = () => {
-    timerRef.current = setTimeout(() => onView(product.id), HOVER);
-  };
-
-  const handleMouseLeave = () => {
-    if (timerRef.current) {
-      clearTimeout(timerRef.current);
-      timerRef.current = null;
-    }
-  };
-
+/* ─── Section Header ─────────────────────────────────────── */
+const SectionHead = memo(function SectionHead({ title, chip, onSeeAll }) {
   return (
-    <div
-      className="ct"
-      role="button"
-      tabIndex={0}
-      onClick={() => onClick(product)}
-      onKeyDown={(e) => {
-        if (e.key === "Enter") onClick(product);
-      }}
-      onMouseEnter={handleMouseEnter}
-      onMouseLeave={handleMouseLeave}
-    >
-      {badge && (
-        <span
-          className={`bd ${badge.className}`}
-        >
-          {badge.text}
-        </span>
-      )}
-
-      <img
-        className="ct-img"
-        src={imageUrl}
-        alt={product.title}
-        loading="lazy"
-        decoding="async"
-        onError={(e) => {
-          e.currentTarget.src = PH;
-        }}
-      />
-
-      <div className="ct-body">
-        <div className="ct-name">{product.title}</div>
-        <div className="ct-price">{naira(product.price)}</div>
-        <div className="ct-loc">
-          📍 {product.location?.city || "Nationwide"}
-        </div>
-        {product.seller?.verified && (
-          <div className="vfd">✓ Verified seller</div>
-        )}
-        {product.seller?.trust_score != null && (
-          <div className="trust">
-            <div className="trust-track">
-              <div
-                className="trust-fill"
-                style={{
-                  width: `${product.seller.trust_score}%`,
-                }}
-              />
-            </div>
-            <span className="trust-lbl">
-              {product.seller.trust_score}%
-            </span>
-          </div>
-        )}
+    <div className="sec-head">
+      <div className="sec-label">
+        <span className="sec-title">{title}</span>
+        {chip && <span className="sec-chip">{chip}</span>}
       </div>
+      {onSeeAll && (
+        <button className="see-all" onClick={onSeeAll}>
+          See all →
+        </button>
+      )}
     </div>
   );
 });
 
+/* ─── Inline Empty ───────────────────────────────────────── */
+const InlineEmpty = ({ message }) => (
+  <p className="inline-empty">{message}</p>
+);
+
+/* ─── FeaturedCard (inline, kept from v1) ────────────────── */
 const FeaturedCard = memo(({ product, onClick }) => {
   const imageUrl = getImageUrl(product);
-
   return (
     <div
       className="feat"
       role="button"
       tabIndex={0}
       onClick={() => onClick(product)}
-      onKeyDown={(e) => {
-        if (e.key === "Enter") onClick(product);
-      }}
+      onKeyDown={(e) => { if (e.key === "Enter") onClick(product); }}
     >
       <img
         className="feat-img"
@@ -268,9 +154,7 @@ const FeaturedCard = memo(({ product, onClick }) => {
         loading="eager"
         decoding="async"
         fetchPriority="high"
-        onError={(e) => {
-          e.currentTarget.src = PH;
-        }}
+        onError={(e) => { e.currentTarget.src = PH; }}
       />
       <div className="feat-body">
         <div>
@@ -280,7 +164,7 @@ const FeaturedCard = memo(({ product, onClick }) => {
         <div>
           <div className="feat-price">{naira(product.price)}</div>
           <div className="feat-loc">
-            📍 {product.location?.city || "Nationwide"}
+            📍 {product.location?.city || product.location_city || "Nationwide"}
           </div>
         </div>
       </div>
@@ -288,90 +172,112 @@ const FeaturedCard = memo(({ product, onClick }) => {
   );
 });
 
-/* ─── Main Component ─── */
+/* ═══════════════════════════════════════════════════════════
+   HOMEPAGE
+═══════════════════════════════════════════════════════════ */
 export default function Homepage({ user }) {
   const navigate = useNavigate();
-  const { setProducts, setLoaded } = useProductCache();
+  const {
+    setProducts,
+    setLoaded,
+    products: cachedProducts,
+    loaded: cacheLoaded,
+  } = useProductCache();
 
+  /* ── State ── */
+  const [allProducts, setAllProducts] = useState([]);
   const [sections, setSections] = useState({
-    featured: [],
-    nearby: [],
-    trending: [],
-    deals: [],
-    latest: [],
+    featured: [], nearby: [], trending: [],
+    deals: [], latest: [], recommended: [], all: [],
   });
-  const [meta, setMeta] = useState({});
+  const [meta, setMeta]       = useState({});
   const [loading, setLoading] = useState(true);
-  const [loadingMore, setLoadingMore] = useState(false);
-  const [error, setError] = useState(null);
-  const [category, setCategory] = useState("all");
-  const [dealsVisible, setDealsVisible] = useState(6);
-  const [hasMore, setHasMore] = useState(false);
-  const [page, setPage] = useState(0);
+  const [error, setError]     = useState(null);
+
+  /* ── Category state ── */
+  const [apiCategories, setApiCategories] = useState([]);
+  const [activeCategory, setActiveCategory] = useState("All");
+  const [catProducts, setCatProducts]       = useState(null);
+  const [catLoading, setCatLoading]         = useState(false);
+  const [catError, setCatError]             = useState(null);
+
+  /* ── All-products toggle ── */
+  const [showAllProducts, setShowAllProducts] = useState(false);
+  const [allVisible, setAllVisible]           = useState(20);
 
   const productsRef = useRef([]);
+  const catAbortRef = useRef(null);
   const sentinelRef = useRef(null);
 
-  const trackView = useCallback((id) => {
-    fetch(`${API}/products/${id}/view`, { method: "POST" }).catch(() => {});
+  /* ── 1. Bootstrap ── */
+  useEffect(() => {
+    if (cacheLoaded && cachedProducts?.length > 0) {
+      productsRef.current = cachedProducts;
+      setAllProducts(cachedProducts);
+      setSections(splitProducts(cachedProducts));
+      setLoading(false);
+    } else {
+      loadHomepage();
+    }
+    fetchApiCategories();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  const handleProductClick = useCallback(
-    (product) => {
-      fetch(`${API}/products/${product.id}/click`, {
-        method: "POST",
-      }).catch(() => {});
-      navigate(`/product/${product.slug}`);
-    },
-    [navigate]
-  );
+  /* ── 2. Fetch categories ── */
+  const fetchApiCategories = useCallback(async () => {
+    try {
+      const res  = await fetch(`${API}/categories`);
+      if (!res.ok) return;
+      const data = await res.json();
+      const list = Array.isArray(data.categories)
+        ? data.categories
+        : Array.isArray(data) ? data : [];
+      setApiCategories(list);
+    } catch (e) {
+      console.warn("Could not fetch categories", e);
+    }
+  }, []);
 
+  /* ── 3. Apply fetched data ── */
   const applyData = useCallback(
-    (data, append = false) => {
+    (data) => {
       const incoming =
         Array.isArray(data.products) && data.products.length > 0
           ? data.products
           : [
               ...(data.recommended || []),
-              ...(data.cheapDeals || []),
-              ...(data.trending || []),
-              ...(data.latest || []),
+              ...(data.cheapDeals  || []),
+              ...(data.trending    || []),
+              ...(data.latest      || []),
             ];
 
-      const merged = append
-        ? dedup([...productsRef.current, ...incoming])
-        : dedup(incoming);
-
+      const merged = dedup(incoming);
       productsRef.current = merged;
+      setAllProducts(merged);
       setProducts(merged);
       setSections(splitProducts(merged));
       setMeta(data.meta || {});
-      setHasMore(incoming.length >= 40);
       setLoaded(true);
     },
     [setProducts, setLoaded]
   );
 
+  /* ── 4. Load homepage feed ── */
   const loadHomepage = useCallback(async () => {
     setLoading(true);
     setError(null);
-    setPage(0);
     productsRef.current = [];
 
-    const fetchData = async (queryString = "") => {
-      const response = await fetch(`${API}/homepage${queryString}`);
-      if (!response.ok) throw new Error(`HTTP ${response.status}`);
-      return response.json();
+    const fetchData = async (qs = "") => {
+      const res = await fetch(`${API}/homepage${qs}`);
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      return res.json();
     };
 
     try {
       const data = await new Promise((resolve, reject) => {
         let done = false;
-        const finish = (fn) => {
-          if (done) return;
-          done = true;
-          fn();
-        };
+        const finish = (fn) => { if (done) return; done = true; fn(); };
 
         const timeout = setTimeout(() => {
           finish(() => fetchData().then(resolve).catch(reject));
@@ -386,9 +292,7 @@ export default function Homepage({ user }) {
                   `?lat=${pos.coords.latitude}&lng=${pos.coords.longitude}`
                 )
                   .then(resolve)
-                  .catch(() =>
-                    fetchData().then(resolve).catch(reject)
-                  );
+                  .catch(() => fetchData().then(resolve).catch(reject));
               });
             },
             () => {
@@ -410,84 +314,99 @@ export default function Homepage({ user }) {
       applyData(data);
     } catch (e) {
       console.error(e);
-      setError(
-        "Could not reach the marketplace. Check your connection."
-      );
+      setError("Could not reach the marketplace. Check your connection.");
     } finally {
       setLoading(false);
     }
   }, [applyData]);
 
-  const loadMore = useCallback(async () => {
-    if (loadingMore || !hasMore) return;
-    setLoadingMore(true);
+  /* ── 5. Category filter ── */
+  const handleCategorySelect = useCallback(
+    async (catName) => {
+      if (catName === activeCategory) return;
+      setActiveCategory(catName);
+      setCatError(null);
+      setShowAllProducts(false);
 
-    try {
-      const nextPage = page + 1;
-      const response = await fetch(
-        `${API}/homepage?page=${nextPage}`
-      );
-      if (!response.ok) throw new Error();
-
-      const data = await response.json();
-      applyData(data, true);
-      setPage(nextPage);
-    } catch (e) {
-      console.error("Failed to load more", e);
-    } finally {
-      setLoadingMore(false);
-    }
-  }, [loadingMore, hasMore, page, applyData]);
-
-  useEffect(() => {
-    loadHomepage();
-  }, [loadHomepage]);
-
-  useEffect(() => {
-    const handleVisibility = () => {
-      if (document.visibilityState === "visible" && !loading) {
-        loadHomepage();
+      if (catName === "All") {
+        setCatProducts(null);
+        return;
       }
-    };
 
-    document.addEventListener("visibilitychange", handleVisibility);
-    return () =>
-      document.removeEventListener("visibilitychange", handleVisibility);
-  }, [loading, loadHomepage]);
+      if (catAbortRef.current) catAbortRef.current.abort();
+      catAbortRef.current = new AbortController();
+      setCatLoading(true);
+      setCatProducts([]);
 
-  useEffect(() => {
-    const sentinel = sentinelRef.current;
-    if (!sentinel || !hasMore) return;
+      try {
+        const match = apiCategories.find(
+          (c) =>
+            c.name?.toLowerCase() === catName.toLowerCase() ||
+            c.slug?.toLowerCase() === catName.toLowerCase().replace(/\s+/g, "-") ||
+            c.id === catName
+        );
 
-    const observer = new IntersectionObserver(
-      (entries) => {
-        if (entries[0].isIntersecting) loadMore();
-      },
-      { threshold: 0.1 }
-    );
+        const url = match?.id
+          ? `${API}/products?category_id=${match.id}&status=active&limit=40`
+          : `${API}/products?category=${encodeURIComponent(catName)}&status=active&limit=40`;
 
-    observer.observe(sentinel);
-    return () => observer.disconnect();
-  }, [loadingMore, hasMore, page, applyData]);
+        const res = await fetch(url, { signal: catAbortRef.current.signal });
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        const data = await res.json();
+        const prods = Array.isArray(data.products)
+          ? data.products
+          : Array.isArray(data) ? data : [];
+        setCatProducts(dedup(prods));
+      } catch (e) {
+        if (e.name === "AbortError") return;
+        console.error("Category fetch failed", e);
+        const fallback = allProducts.filter(
+          (p) =>
+            p.category?.toLowerCase()      === catName.toLowerCase() ||
+            p.category_name?.toLowerCase() === catName.toLowerCase()
+        );
+        setCatProducts(fallback);
+        if (fallback.length === 0) setCatError(`No listings found in "${catName}"`);
+      } finally {
+        setCatLoading(false);
+      }
+    },
+    [activeCategory, apiCategories, allProducts]
+  );
 
-  const locationLabel =
-    meta.location ||
-    (meta.nearbySource === "gps" ? "Near you" : null);
+  const trackView = useCallback((id) => {
+    fetch(`${API}/products/${id}/view`, { method: "POST" }).catch(() => {});
+  }, []);
 
-  const currentSections = category === "all" ? sections : sections;
+  const handleProductClick = useCallback(
+    (product) => {
+      fetch(`${API}/products/${product.id}/click`, { method: "POST" }).catch(() => {});
+      navigate(`/product/${product.slug}`);
+    },
+    [navigate]
+  );
 
+  /* ── Derived ── */
+  const locLabel     = useMemo(() => heroLocation(meta), [meta]);
+  const allCats      = [CAT_ALL, ...CATEGORY_CONFIG];
+  const activeCatObj = CATEGORY_CONFIG.find((c) => c.name === activeCategory);
+
+  /* ════════════════════════════════════════════
+     RENDER
+  ════════════════════════════════════════════ */
   return (
     <>
       <TopNav />
 
       <div className="pg">
-        {/* Hero */}
+
+        {/* ── Hero ── */}
         <div className="hero">
           <div className="hero-top anim">
             <div>
               <div className="hero-kicker">Minimart Marketplace</div>
               <div className="hero-h1">
-                Buy & sell<br /><i>near you</i>
+                Buy &amp; sell<br /><i>near you</i>
               </div>
             </div>
             <button
@@ -499,17 +418,17 @@ export default function Homepage({ user }) {
             </button>
           </div>
 
-          {/* FIX 1: locationLabel conditional now properly closed with )}
-              hero-stats is inside a fragment so both elements share the gate */}
-          {locationLabel && (
+          {locLabel && (
             <>
               <div
                 className="hero-loc anim anim-1"
                 onClick={() => navigate("/nearby")}
               >
-                <span className="loc-dot" />
-                {locationLabel}
-                {meta.nearbySource === "gps" && " · GPS"}
+                <PinIcon size={14} />
+                <span>{locLabel}</span>
+                {meta.nearbySource === "gps" && (
+                  <span className="gps-chip">GPS</span>
+                )}
               </div>
 
               <div className="hero-stats anim anim-2">
@@ -534,38 +453,36 @@ export default function Homepage({ user }) {
           )}
         </div>
 
-        {/* Search Bar */}
+        {/* ── Search Bar ── */}
         <div
           className="search-wrap anim anim-3"
           onClick={() => navigate("/search")}
         >
           <div className="search">
             <span className="search-ic">🔍</span>
-            <span className="search-txt">
-              Search products, categories…
-            </span>
+            <span className="search-txt">Search products, categories…</span>
             <span className="search-tag">⌘ K</span>
           </div>
         </div>
 
-        {/* Category Strip */}
+        {/* ── Category Strip ── */}
         <div className="cat-strip anim anim-4">
-          {CATEGORIES.map((cat) => (
-            <button
-              key={cat.id}
-              className={`cat-btn${
-                category === cat.id ? " active" : ""
-              }`}
-              onClick={() => setCategory(cat.id)}
-              disabled={cat.id !== "all"}
-            >
-              <span className="cat-icon">{cat.icon}</span>
-              {cat.label}
-            </button>
-          ))}
+          {allCats.map((cat) => {
+            const isActive = activeCategory === cat.name;
+            return (
+              <button
+                key={cat.name}
+                className={`cat-btn${isActive ? " active" : ""}`}
+                onClick={() => handleCategorySelect(cat.name)}
+              >
+                <span className="cat-icon">{cat.icon}</span>
+                {cat.name}
+              </button>
+            );
+          })}
         </div>
 
-        {/* Error State */}
+        {/* ── Error Banner ── */}
         {error && (
           <div className="err-box">
             <div className="err-icon">⚡</div>
@@ -577,210 +494,306 @@ export default function Homepage({ user }) {
           </div>
         )}
 
-        {/* Global Empty State */}
-        {!loading &&
-          !error &&
-          currentSections.latest.length === 0 && (
-            <div className="empty">
-              <div className="empty-emoji">🛍</div>
-              <div className="empty-title">Welcome to Minimart</div>
-              <div className="empty-sub">
-                Enable location for nearby deals, or browse what's available across Nigeria.
-              </div>
-              <button className="empty-btn" onClick={loadHomepage}>
-                Load Marketplace
-              </button>
-            </div>
-          )}
+        {/* ════════════════════════════════════
+            CATEGORY VIEW
+        ════════════════════════════════════ */}
+        {activeCategory !== "All" && (
+          <div className="sec cat-section">
+            <SectionHead
+              title={`${activeCatObj?.icon ?? ""} ${activeCategory}`}
+              chip={
+                catProducts !== null && !catLoading
+                  ? `${catProducts.length} listing${catProducts.length !== 1 ? "s" : ""}`
+                  : undefined
+              }
+            />
 
-        {/* Featured */}
-        {(loading || currentSections.featured.length > 0) && (
-          <div className="sec anim anim-3">
-            <div className="sec-head">
-              <div className="sec-label">
-                <span className="sec-title">💎 Featured</span>
+            {catLoading && <SkeletonMasonry />}
+
+            {!catLoading && (catError || catProducts?.length === 0) && (
+              <div className="empty">
+                <div className="empty-emoji">🛒</div>
+                <div className="empty-title">No listings yet</div>
+                <div className="empty-sub">
+                  Be the first to post in <strong>{activeCategory}</strong>!
+                </div>
+                <button
+                  className="empty-btn"
+                  onClick={() => navigate("/minimart/add")}
+                >
+                  + Sell Now
+                </button>
               </div>
-            </div>
-            {loading ? (
-              <div className="feat-wrap">
-                <div className="sk sk-ft" />
-              </div>
-            ) : (
-              <div className="feat-wrap">
-                {currentSections.featured.map((product) => (
-                  <FeaturedCard
-                    key={product.id}
-                    product={product}
-                    onClick={handleProductClick}
-                  />
-                ))}
-              </div>
+            )}
+
+            {!catLoading && catProducts?.length > 0 && (
+              <MasonryGrid
+                products={catProducts}
+                onView={trackView}
+                onClick={handleProductClick}
+              />
             )}
           </div>
         )}
 
-        {/* Nearby Section */}
-        {(loading || currentSections.nearby.length > 0) && (
-          <div className="sec anim anim-4">
-            <div className="sec-head">
-              <div className="sec-label">
-                <span className="sec-title">📍 Near You</span>
-                {meta.nearbySource && (
-                  <span
-                    className={`sec-chip${
-                      meta.nearbySource === "gps" ? " gn" : ""
-                    }`}
-                  >
-                    {meta.nearbySource === "gps" ? "GPS" : meta.nearbySource}
-                  </span>
+        {/* ════════════════════════════════════
+            HOMEPAGE SECTIONS (All tab)
+        ════════════════════════════════════ */}
+        {activeCategory === "All" && (
+          <>
+            {/* Global empty state */}
+            {!loading && !error && sections.latest.length === 0 && (
+              <div className="empty">
+                <div className="empty-emoji">🛍</div>
+                <div className="empty-title">Welcome to Minimart</div>
+                <div className="empty-sub">
+                  Enable location for nearby deals, or browse what's available across Nigeria.
+                </div>
+                <button className="empty-btn" onClick={loadHomepage}>
+                  Load Marketplace
+                </button>
+              </div>
+            )}
+
+            {/* ── Featured (Sponsored) ── */}
+            {(loading || sections.featured.length > 0) && (
+              <div className="sec anim anim-3">
+                <SectionHead title="💎 Featured" />
+                {loading ? (
+                  <div className="feat-wrap">
+                    <div className="sk sk-ft" />
+                  </div>
+                ) : (
+                  <div className="feat-wrap">
+                    {sections.featured.map((product) => (
+                      <FeaturedCard
+                        key={product.id}
+                        product={product}
+                        onClick={handleProductClick}
+                      />
+                    ))}
+                  </div>
                 )}
               </div>
-              <button
-                className="see-all"
-                onClick={() => navigate("/nearby")}
-              >
-                See all →
-              </button>
-            </div>
-            {loading ? (
-              <SkeletonRow />
-            ) : (
-              <div className="row">
-                {currentSections.nearby.map((product, i) => (
-                  <OverlayCard
-                    key={product.id}
-                    product={product}
-                    priority={i === 0}
-                    onView={trackView}
-                    onClick={handleProductClick}
-                  />
-                ))}
+            )}
+
+            {/* ── Near You ── */}
+            {(loading || sections.nearby.length > 0) && (
+              <div className="sec anim anim-4">
+                <SectionHead
+                  title={
+                    <>
+                      <PinIcon size={13} style={{ verticalAlign: "middle", marginRight: 4 }} />
+                      Near You
+                    </>
+                  }
+                  chip={
+                    meta.nearbySource
+                      ? meta.nearbySource === "gps" ? "GPS" : meta.nearbySource
+                      : undefined
+                  }
+                  onSeeAll={() => navigate("/nearby")}
+                />
+                {loading ? (
+                  <SkeletonRow />
+                ) : (
+                  <div className="row">
+                    {sections.nearby.map((p, i) => (
+                      <OverlayCard
+                        key={p.id}
+                        product={p}
+                        priority={i === 0}
+                        onView={trackView}
+                        onClick={handleProductClick}
+                      />
+                    ))}
+                  </div>
+                )}
               </div>
             )}
-          </div>
-        )}
 
-        <div className="divider" />
+            <div className="divider" />
 
-        {/* Trending Section */}
-        <div className="sec anim anim-5">
-          <div className="sec-head">
-            <div className="sec-label">
-              <span className="sec-title">🔥 Trending</span>
-            </div>
-            <button
-              className="see-all"
-              onClick={() => navigate("/trending")}
-            >
-              See all →
-            </button>
-          </div>
-          {loading ? (
-            <SkeletonRow />
-          ) : currentSections.trending.length === 0 ? (
-            /* FIX 2: was `=== outube` (undefined), corrected to `=== 0` */
-            <p className="inline-empty">Nothing trending yet</p>
-          ) : (
-            <div className="row">
-              {currentSections.trending.map((product, i) => (
-                <OverlayCard
-                  key={product.id}
-                  product={product}
-                  rank={i}
-                  onView={trackView}
-                  onClick={handleProductClick}
-                />
-              ))}
-            </div>
-          )}
-        </div>
-
-        <div className="divider" />
-
-        {/* Cheap Deals */}
-        <div className="sec">
-          <div className="sec-head">
-            <div className="sec-label">
-              <span className="sec-title">💸 Cheap Deals</span>
-              <span className="sec-chip">Under ₦50k</span>
-            </div>
-          </div>
-          {loading ? (
-            <SkeletonGrid />
-          ) : currentSections.deals.length === 0 ? (
-            <p className="inline-empty">
-              No deals in this category right now
-            </p>
-          ) : (
-            <>
-              <div className="grid2">
-                {currentSections.deals
-                  .slice(0, dealsVisible)
-                  .map((product) => (
-                    <GridTile
-                      key={product.id}
-                      product={product}
+            {/* ── Trending ── */}
+            <div className="sec anim anim-5">
+              <SectionHead
+                title="🔥 Trending"
+                onSeeAll={() => navigate("/trending")}
+              />
+              {loading ? (
+                <SkeletonRow />
+              ) : sections.trending.length === 0 ? (
+                <InlineEmpty message="Nothing trending yet" />
+              ) : (
+                <div className="row">
+                  {sections.trending.map((p, i) => (
+                    <OverlayCard
+                      key={p.id}
+                      product={p}
+                      rank={i}
                       onView={trackView}
                       onClick={handleProductClick}
                     />
                   ))}
-              </div>
-              {dealsVisible < currentSections.deals.length && (
-                <button
-                  className="load-more"
-                  onClick={() =>
-                    setDealsVisible((v) => v + 6)
-                  }
-                >
-                  Show more deals
-                </button>
+                </div>
               )}
-            </>
-          )}
-        </div>
-
-        <div className="divider" />
-
-        {/* Latest Listings */}
-        <div className="sec">
-          <div className="sec-head">
-            <div className="sec-label">
-              <span className="sec-title">🆕 Latest</span>
             </div>
-            <button
-              className="see-all"
-              onClick={() => navigate("/latest")}
-            >
-              See all →
-            </button>
-          </div>
-          {loading ? (
-            <SkeletonRow />
-          ) : currentSections.latest.length === 0 ? (
-            <p className="inline-empty">No listings yet</p>
-          ) : (
-            <>
-              <div className="row">
-                {currentSections.latest.map((product, i) => (
-                  <OverlayCard
-                    key={product.id}
-                    product={product}
-                    priority={i === 0}
+
+            <div className="divider" />
+
+            {/* ── Recommended For You ── */}
+            {(loading || sections.recommended.length > 0) && (
+              <div className="sec">
+                <SectionHead
+                  title="⭐ Recommended For You"
+                  chip={
+                    !loading && sections.recommended.length > 0
+                      ? `${sections.recommended.length} picks`
+                      : undefined
+                  }
+                  onSeeAll={() => navigate("/recommended")}
+                />
+                {loading ? (
+                  <SkeletonRow />
+                ) : (
+                  <div className="row">
+                    {sections.recommended.map((p, i) => (
+                      <OverlayCard
+                        key={p.id}
+                        product={p}
+                        priority={i === 0}
+                        onView={trackView}
+                        onClick={handleProductClick}
+                      />
+                    ))}
+                  </div>
+                )}
+              </div>
+            )}
+
+            <div className="divider" />
+
+            {/* ── Cheap Deals ── */}
+            <div className="sec">
+              <SectionHead
+                title="💸 Cheap Deals"
+                chip="Under ₦50k"
+                onSeeAll={() => navigate("/deals")}
+              />
+              {loading ? (
+                <SkeletonMasonry />
+              ) : sections.deals.length === 0 ? (
+                <InlineEmpty message="No deals right now" />
+              ) : (
+                <MasonryGrid
+                  products={sections.deals}
+                  onView={trackView}
+                  onClick={handleProductClick}
+                />
+              )}
+            </div>
+
+            <div className="divider" />
+
+            {/* ── New Arrivals ── */}
+            <div className="sec">
+              <SectionHead
+                title="🆕 New Arrivals"
+                onSeeAll={() => navigate("/latest")}
+              />
+              {loading ? (
+                <SkeletonRow />
+              ) : sections.latest.length === 0 ? (
+                <InlineEmpty message="No listings yet" />
+              ) : (
+                <div className="row">
+                  {sections.latest.map((p, i) => (
+                    <OverlayCard
+                      key={p.id}
+                      product={p}
+                      priority={i === 0}
+                      onView={trackView}
+                      onClick={handleProductClick}
+                    />
+                  ))}
+                </div>
+              )}
+            </div>
+
+            <div className="divider" />
+
+            {/* ── All Products ── */}
+            <div className="sec">
+              <SectionHead
+                title="🛒 All Products"
+                chip={
+                  !loading && sections.all.length > 0
+                    ? `${sections.all.length} listings`
+                    : undefined
+                }
+                onSeeAll={
+                  !showAllProducts
+                    ? () => setShowAllProducts(true)
+                    : undefined
+                }
+              />
+              {loading ? (
+                <SkeletonMasonry />
+              ) : sections.all.length === 0 ? (
+                <InlineEmpty message="No products yet" />
+              ) : !showAllProducts ? (
+                /* Collapsed preview — first 6 in a row */
+                <>
+                  <div className="row">
+                    {sections.all.slice(0, 6).map((p, i) => (
+                      <OverlayCard
+                        key={p.id}
+                        product={p}
+                        priority={i === 0}
+                        onView={trackView}
+                        onClick={handleProductClick}
+                      />
+                    ))}
+                  </div>
+                  {sections.all.length > 6 && (
+                    <button
+                      className="load-more"
+                      onClick={() => setShowAllProducts(true)}
+                    >
+                      Show all {sections.all.length} products
+                    </button>
+                  )}
+                </>
+              ) : (
+                /* Expanded — MasonryGrid with paginated "Load more" */
+                <>
+                  <MasonryGrid
+                    products={sections.all.slice(0, allVisible)}
                     onView={trackView}
                     onClick={handleProductClick}
                   />
-                ))}
-              </div>
-              <div ref={sentinelRef} style={{ height: 1 }} />
-              {loadingMore && (
-                <p className="loading-more">Loading more</p>
+                  {allVisible < sections.all.length && (
+                    <button
+                      className="load-more"
+                      onClick={() => setAllVisible((v) => v + 20)}
+                    >
+                      Load more ({sections.all.length - allVisible} remaining)
+                    </button>
+                  )}
+                  {allVisible >= sections.all.length && (
+                    <p className="inline-empty">
+                      You've seen all {sections.all.length} listings 🎉
+                    </p>
+                  )}
+                </>
               )}
-            </>
-          )}
-        </div>
+            </div>
+
+          </>
+        )}
       </div>
 
-      {/* FAB */}
+      {/* ── FAB ── */}
       <button
         className="fab"
         onClick={() => navigate("/minimart/add")}
