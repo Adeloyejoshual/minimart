@@ -1,12 +1,12 @@
-import express          from "express";
-import multer           from "multer";
-import streamifier      from "streamifier";
-import fetch            from "node-fetch";
+import express              from "express";
+import multer               from "multer";
+import streamifier          from "streamifier";
+import fetch                from "node-fetch";
 import { v2 as cloudinary } from "cloudinary";
-import { pool }         from "../config/db.js";
-import authenticate     from "../middleware/auth.js";
+import { pool }             from "../config/db.js";
+import authenticate         from "../middleware/auth.js";
 import { detectSpamListing, updateSellerTrust } from "../utils/listingUtils.js";
-import { createClient } from "redis";
+import { createClient }     from "redis";
 import { getCategoriesHandler } from "../controllers/category.controller.js";
 
 const router = express.Router();
@@ -22,7 +22,8 @@ const upload = multer({
   storage:    multer.memoryStorage(),
   limits:     { fileSize: 3 * 1024 * 1024, files: 6 },
   fileFilter: (_, file, cb) => {
-    if (!file.mimetype.startsWith("image/")) return cb(new Error("Only images allowed"));
+    if (!file.mimetype.startsWith("image/"))
+      return cb(new Error("Only images allowed"));
     cb(null, true);
   },
 });
@@ -30,11 +31,8 @@ const upload = multer({
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
 const safeParse = (value, fallback) => {
-  try {
-    return value ? JSON.parse(value) : fallback;
-  } catch {
-    return fallback;
-  }
+  try   { return value ? JSON.parse(value) : fallback; }
+  catch { return fallback; }
 };
 
 /** promotion_plans.id is INT8 — never treat as UUID */
@@ -58,10 +56,6 @@ const toNumberOrNull = (value) => {
   return Number.isFinite(n) ? n : null;
 };
 
-/**
- * Slugify a raw string segment.
- * "HP Pavilion 15!" → "hp-pavilion-15"
- */
 const slugify = (text = "") =>
   text
     .toLowerCase()
@@ -72,53 +66,37 @@ const slugify = (text = "") =>
     .replace(/^-+|-+$/g, "");
 
 /**
- * Build a human-readable, SEO-friendly base slug with NO timestamp.
+ * Build a human-readable, SEO-friendly base slug.
  *
- * Format (location variant):
- *   {title-slug}-{ram}-{storage}-{city}
- *
+ * Format:  {title-slug}-{ram?}-{storage?}-{year?}-{engine?}-{city?}
  * Examples:
- *   hp-pavilion-5-laptop-6gb-128gb-ile-ife
+ *   hp-pavilion-15-6gb-128gb-ile-ife
  *   iphone-14-pro-256gb-lagos
  *   toyota-corolla-2020-ibadan
- *
- * Falls back gracefully when optional fields are absent:
- *   hp-pavilion-5-laptop          ← no attributes, no city
- *   hp-pavilion-5-laptop-6gb      ← only RAM
- *   hp-pavilion-5-laptop-ile-ife  ← only city
  *
  * Title is capped at 60 chars so the full slug stays ≤ ~80 chars.
  */
 const buildBaseSlug = ({ title, attributes = {}, location_city = "" }) => {
   const parts = [slugify(title).slice(0, 60)];
 
-  // Append key spec attributes that make the slug more unique + useful
-  const ram     = attributes.ram     ? slugify(attributes.ram)     : "";
-  const storage = attributes.storage ? slugify(attributes.storage) : "";
-  const year    = attributes.year    ? slugify(attributes.year)    : "";
-  const engine  = attributes.engine  ? slugify(attributes.engine)  : "";
+  const ram     = attributes.ram     ? slugify(String(attributes.ram))     : "";
+  const storage = attributes.storage ? slugify(String(attributes.storage)) : "";
+  const year    = attributes.year    ? slugify(String(attributes.year))    : "";
+  const engine  = attributes.engine  ? slugify(String(attributes.engine))  : "";
 
   if (ram)     parts.push(ram);
   if (storage) parts.push(storage);
   if (year)    parts.push(year);
   if (engine)  parts.push(engine);
-
-  // Append city for locality uniqueness (e.g. same phone in Lagos vs Abuja)
   if (location_city) parts.push(slugify(location_city));
 
   return parts.filter(Boolean).join("-") || "product";
 };
 
 /**
- * Generate a unique, clean slug — no timestamp, no random suffix.
+ * Generate a unique slug — no timestamp, counter suffix only when needed.
  *
- * Uniqueness strategy:
- *   1. Bare slug:  "hp-pavilion-5-laptop-6gb-128gb-ile-ife"        → try first
- *   2. Counter:    "hp-pavilion-5-laptop-6gb-128gb-ile-ife-2"      → if taken
- *   3. Keep incrementing until the DB UNIQUE INDEX accepts it.
- *
- * The slug check + INSERT run inside one transaction so concurrent
- * requests don't race to the same slug.
+ * Runs inside the caller's open transaction so the check+insert is atomic.
  */
 const generateUniqueSlug = async (client, { title, attributes, location_city }) => {
   const base = buildBaseSlug({ title, attributes, location_city });
@@ -170,9 +148,10 @@ router.post(
     const client = await pool.connect();
 
     try {
+      // ── Basic fields ───────────────────────────────────────────────────────
       const seller_id      = req.user.id;
-      const title          = req.body.title?.trim();
-      const description    = req.body.description?.trim() ?? "";
+      const title          = cleanText(req.body.title);
+      const description    = cleanText(req.body.description) ?? "";
       const price          = Number(req.body.price);
       const category_id    = cleanUuid(req.body.category_id);
       const subcategory_id = cleanUuid(req.body.subcategory_id);
@@ -189,31 +168,46 @@ router.post(
       if (!Number.isFinite(price) || price <= 0) {
         return res.status(400).json({ success: false, message: "Invalid price" });
       }
+      if (!category_id) {
+        return res.status(400).json({ success: false, message: "Category required" });
+      }
 
       const files = req.files ?? [];
       if (!files.length) {
-        return res.status(400).json({ success: false, message: "At least one image required" });
+        return res.status(400).json({
+          success: false,
+          message: "At least one image required",
+        });
       }
 
-      // ── Spam check ─────────────────────────────────────────────────────────
-      const fingerprint = `${req.headers["user-agent"] ?? "unknown"}:${seller_id}`;
-      const fraudScore  = await detectSpamListing(seller_id, title, fingerprint);
+      // ── Spam check (non-fatal — default to 0 on error) ────────────────────
+      let fraudScore = 0;
+      try {
+        const fingerprint = `${req.headers["user-agent"] ?? "unknown"}:${seller_id}`;
+        fraudScore = await detectSpamListing(seller_id, title, fingerprint);
+      } catch (spamErr) {
+        console.warn("Spam check failed (defaulting to 0):", spamErr.message);
+      }
 
       if (fraudScore >= 70) {
-        return res.status(403).json({ success: false, message: "Listing flagged as spam" });
+        return res
+          .status(403)
+          .json({ success: false, message: "Listing flagged as spam" });
       }
 
-      // ── Geocode — skip if client sent coords directly ──────────────────────
+      // ── Geocode ────────────────────────────────────────────────────────────
+      // Prefer coords sent by the client (GPS-detected); fall back to city lookup.
       let latitude  = toNumberOrNull(req.body.latitude);
       let longitude = toNumberOrNull(req.body.longitude);
 
-      if (latitude == null && location_city) {
+      if ((latitude == null || longitude == null) && location_city) {
         try {
           const query   = encodeURIComponent(
-            `${location_city}${location_state ? `, ${location_state}` : ""}, Nigeria`
+            [location_city, location_state, "Nigeria"].filter(Boolean).join(", ")
           );
           const geoRes  = await fetch(
-            `https://nominatim.openstreetmap.org/search?format=json&q=${query}`
+            `https://nominatim.openstreetmap.org/search?format=json&limit=1&q=${query}`,
+            { headers: { "User-Agent": "minimart-app/1.0" } }
           );
           const geoData = await geoRes.json();
           if (geoData?.[0]) {
@@ -224,6 +218,8 @@ router.post(
           console.warn("Geocoding failed:", geoErr.message);
         }
       }
+
+      const hasCoords = latitude != null && longitude != null;
 
       // ── Upload images ──────────────────────────────────────────────────────
       const uploadedImages = await Promise.all(
@@ -244,12 +240,12 @@ router.post(
       const specifications = safeParse(req.body.specifications, {});
       const faq            = safeParse(req.body.faq,            []);
 
-      // Always normalise features to array — guard against corrupted client state
+      // Guard: features must always be an array
       if (!Array.isArray(attributes.features)) {
         attributes.features = [];
       }
 
-      // Top-level contact columns (schema has dedicated STRING columns)
+      // Dedicated contact columns
       const phone         = cleanText(contact.phone         ?? req.body.phone)         ?? null;
       const whatsapp      = cleanText(contact.whatsapp      ?? req.body.whatsapp)      ?? null;
       const whatsapp_link = cleanText(contact.whatsapp_link ?? req.body.whatsapp_link) ?? null;
@@ -257,20 +253,26 @@ router.post(
       // ── DB transaction ─────────────────────────────────────────────────────
       await client.query("BEGIN");
 
-      // Slug is generated inside the transaction so the uniqueness check
-      // and the INSERT are atomic — prevents races on concurrent submissions.
+      // Slug generation is inside the transaction — unique-check + INSERT are atomic.
       const slug = await generateUniqueSlug(client, {
         title,
         attributes,
         location_city,
       });
 
+      // ── INSERT ─────────────────────────────────────────────────────────────
+      //
+      // `location` and `geo` are both GEOGRAPHY(POINT,4326) columns.
+      // ST_MakePoint(longitude, latitude) matches the GeoJSON / PostGIS convention.
+      // CockroachDB supports the same ST_ functions.
+      //
       const { rows } = await client.query(
         `INSERT INTO products (
           title, description, price,
           category_id, subcategory_id, seller_id,
           attributes, location_city, location_state,
           latitude, longitude,
+          location, geo,
           fraud_score, boost_score, engagement_score,
           thumbnail_url, main_image, slug,
           delivery, contact,
@@ -284,13 +286,17 @@ router.post(
           $4,  $5,  $6,
           $7,  $8,  $9,
           $10, $11,
+          ${hasCoords ? "ST_SetSRID(ST_MakePoint($11, $10), 4326)::GEOGRAPHY" : "NULL"},
+          ${hasCoords ? "ST_SetSRID(ST_MakePoint($11, $10), 4326)::GEOGRAPHY" : "NULL"},
           $12, $13, $14,
           $15, $16, $17,
           $18, $19,
           $20, $21, $22,
           $23, $24,
           $25, $26, $27,
-          to_tsvector('english', coalesce($1,'') || ' ' || coalesce($2,''))
+          to_tsvector('english',
+            coalesce($1, '') || ' ' || coalesce($2, '')
+          )
         )
         RETURNING *`,
         [
@@ -303,11 +309,11 @@ router.post(
           JSON.stringify(attributes),     // $7
           location_city,                  // $8
           location_state,                 // $9
-          latitude,                       // $10
-          longitude,                      // $11
+          latitude,                       // $10  also used for geography
+          longitude,                      // $11  also used for geography
           fraudScore,                     // $12
-          10,                             // $13  boost_score default
-          5,                              // $14  engagement_score default
+          10,                             // $13  boost_score
+          5,                              // $14  engagement_score
           thumbnail_url,                  // $15
           main_image,                     // $16
           slug,                           // $17
@@ -326,18 +332,19 @@ router.post(
 
       const product = rows[0];
 
+      // ── Product images ─────────────────────────────────────────────────────
       if (uploadedImages.length > 0) {
-        const values = uploadedImages
+        const valuePlaceholders = uploadedImages
           .map((_, i) => `($1, $${i * 2 + 2}, $${i * 2 + 3})`)
           .join(", ");
-        const params = [product.id];
+        const imageParams = [product.id];
         uploadedImages.forEach(({ image_url, position_order }) => {
-          params.push(image_url, position_order);
+          imageParams.push(image_url, position_order);
         });
         await client.query(
           `INSERT INTO product_images (product_id, image_url, position_order)
-           VALUES ${values}`,
-          params
+           VALUES ${valuePlaceholders}`,
+          imageParams
         );
       }
 
@@ -355,9 +362,24 @@ router.post(
       });
 
     } catch (err) {
-      await client.query("ROLLBACK");
+      await client.query("ROLLBACK").catch(() => {});
       console.error("CREATE PRODUCT ERROR:", err);
-      return res.status(500).json({ success: false, message: "Failed to create product" });
+
+      // Surface multer errors (file size / type) as 400 instead of 500
+      if (err.code === "LIMIT_FILE_SIZE") {
+        return res
+          .status(400)
+          .json({ success: false, message: "Each image must be under 3 MB" });
+      }
+      if (err.message === "Only images allowed") {
+        return res
+          .status(400)
+          .json({ success: false, message: "Only image files are allowed" });
+      }
+
+      return res
+        .status(500)
+        .json({ success: false, message: "Failed to create product" });
     } finally {
       client.release();
     }
@@ -372,8 +394,9 @@ router.post("/products/:id/activate", authenticate, async (req, res) => {
   try {
     const product_id   = req.params.id;
     const seller_id    = req.user.id;
-    const promotion_id = cleanInt(req.body.promotion_id); // INT8, never UUID
+    const promotion_id = cleanInt(req.body.promotion_id); // INT8 — never UUID
 
+    // ── Ownership check ────────────────────────────────────────────────────
     const { rows: productRows } = await client.query(
       `SELECT id, status, seller_id FROM products WHERE id = $1`,
       [product_id]
@@ -383,10 +406,9 @@ router.post("/products/:id/activate", authenticate, async (req, res) => {
       return res.status(404).json({ success: false, message: "Product not found" });
     }
     if (productRows[0].seller_id !== seller_id) {
-      return res.status(403).json({
-        success: false,
-        message: "Not authorised to activate this product",
-      });
+      return res
+        .status(403)
+        .json({ success: false, message: "Not authorised to activate this product" });
     }
 
     await client.query("BEGIN");
@@ -412,7 +434,9 @@ router.post("/products/:id/activate", authenticate, async (req, res) => {
       const plan            = planRows[0];
       const promotion_start = new Date();
       const promotion_end   = plan.duration_days
-        ? new Date(promotion_start.getTime() + plan.duration_days * 24 * 60 * 60 * 1000)
+        ? new Date(
+            promotion_start.getTime() + plan.duration_days * 24 * 60 * 60 * 1000
+          )
         : null;
 
       promotionMeta = {
@@ -430,13 +454,13 @@ router.post("/products/:id/activate", authenticate, async (req, res) => {
        SET
          status               = 'active',
          is_active            = true,
-         promotion_id         = COALESCE($2::INT8,        promotion_id),
-         promotion_start      = COALESCE($3,              promotion_start),
-         promotion_end        = COALESCE($4,              promotion_end),
-         promotion_expires_at = COALESCE($4,              promotion_expires_at),
-         is_promoted          = COALESCE($5,              is_promoted),
-         promotion_type       = COALESCE($6,              promotion_type),
-         promotion_priority   = COALESCE($7,              promotion_priority),
+         promotion_id         = COALESCE($2::INT8,  promotion_id),
+         promotion_start      = COALESCE($3,        promotion_start),
+         promotion_end        = COALESCE($4,        promotion_end),
+         promotion_expires_at = COALESCE($4,        promotion_expires_at),
+         is_promoted          = COALESCE($5,        is_promoted),
+         promotion_type       = COALESCE($6,        promotion_type),
+         promotion_priority   = COALESCE($7,        promotion_priority),
          updated_at           = NOW()
        WHERE id = $1 AND seller_id = $8
        RETURNING *`,
@@ -444,7 +468,7 @@ router.post("/products/:id/activate", authenticate, async (req, res) => {
         product_id,
         promotionMeta.promotion_id       ?? null, // $2
         promotionMeta.promotion_start    ?? null, // $3
-        promotionMeta.promotion_end      ?? null, // $4  → both _end + _expires_at
+        promotionMeta.promotion_end      ?? null, // $4  → _end + _expires_at
         promotionMeta.is_promoted        ?? null, // $5
         promotionMeta.promotion_type     ?? null, // $6
         promotionMeta.promotion_priority ?? null, // $7
@@ -469,9 +493,54 @@ router.post("/products/:id/activate", authenticate, async (req, res) => {
     });
 
   } catch (err) {
-    await client.query("ROLLBACK");
+    await client.query("ROLLBACK").catch(() => {});
     console.error("ACTIVATE ERROR:", err);
-    return res.status(500).json({ success: false, message: "Failed to activate product" });
+    return res
+      .status(500)
+      .json({ success: false, message: "Failed to activate product" });
+  } finally {
+    client.release();
+  }
+});
+
+// ─── DELETE /products/:id ─────────────────────────────────────────────────────
+// Used by the frontend for cleanup when payment init fails.
+
+router.delete("/products/:id", authenticate, async (req, res) => {
+  const client = await pool.connect();
+
+  try {
+    const product_id = req.params.id;
+    const seller_id  = req.user.id;
+
+    await client.query("BEGIN");
+
+    // Only allow deletion of draft products (safety guard)
+    const { rows } = await client.query(
+      `DELETE FROM products
+       WHERE id = $1 AND seller_id = $2 AND status = 'draft'
+       RETURNING id`,
+      [product_id, seller_id]
+    );
+
+    if (!rows.length) {
+      await client.query("ROLLBACK");
+      return res.status(404).json({
+        success: false,
+        message: "Draft product not found or cannot be deleted",
+      });
+    }
+
+    await client.query("COMMIT");
+
+    return res.status(200).json({ success: true, message: "Draft product removed" });
+
+  } catch (err) {
+    await client.query("ROLLBACK").catch(() => {});
+    console.error("DELETE PRODUCT ERROR:", err);
+    return res
+      .status(500)
+      .json({ success: false, message: "Failed to delete product" });
   } finally {
     client.release();
   }
