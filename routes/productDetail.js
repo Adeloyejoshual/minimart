@@ -382,6 +382,55 @@ router.post("/slug/:slug/reviews", async (req, res) => {
 });
 
 /* ─────────────────────────────────────────────
+   GET /api/products/by-seller
+   All active products from a seller, excluding current.
+   Query params: seller_id, exclude (product id), limit
+───────────────────────────────────────────── */
+router.get("/products/by-seller", async (req, res) => {
+  const { seller_id, exclude, limit = 10 } = req.query;
+
+  if (!seller_id) {
+    return res.status(400).json({ message: "seller_id required" });
+  }
+
+  try {
+    const { rows } = await pool.query(
+      `
+      SELECT
+        p.id, p.slug, p.title, p.price,
+        p.location_city, p.location_state,
+        p.is_promoted, p.boost_score,
+        p.created_at,
+        ${IMAGE_AGG},
+        COUNT(pr.id)::int                    AS review_count,
+        ROUND(AVG(pr.rating)::numeric, 1)    AS avg_rating
+      FROM products p
+      LEFT JOIN product_images  pi ON pi.product_id = p.id
+      LEFT JOIN product_reviews pr ON pr.product_id = p.id
+      WHERE p.seller_id = $1
+        AND p.is_active = true
+        AND p.status    = 'active'
+        ${exclude ? "AND p.id != $3" : ""}
+      GROUP BY
+        p.id, p.slug, p.title, p.price,
+        p.location_city, p.location_state,
+        p.is_promoted, p.boost_score, p.created_at
+      ORDER BY p.boost_score DESC, p.created_at DESC
+      LIMIT $2
+      `,
+      exclude
+        ? [seller_id, Number(limit), exclude]
+        : [seller_id, Number(limit)]
+    );
+
+    return res.json(rows.map(normalizeProduct));
+  } catch (err) {
+    console.error("GET /api/products/by-seller →", err.message);
+    return res.status(500).json({ message: "Failed to load seller products" });
+  }
+});
+
+/* ─────────────────────────────────────────────
    GET /api/users/:id/public
 ───────────────────────────────────────────── */
 router.get("/users/:id/public", async (req, res) => {
