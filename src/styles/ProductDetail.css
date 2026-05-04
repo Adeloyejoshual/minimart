@@ -157,12 +157,6 @@
   transition: border-color .15s, opacity .15s;
   opacity: .65;
 }
-/*
-  ProductDetail.css — Minimart (COMPLETE REWRITE)
-  Fully consolidated: main + additional styles merged and optimized.
-  All rules scoped to .pd- prefix. Inherits :root design tokens.
-*/
-
 .pd-thumb.active  { border-color: var(--o); opacity: 1; }
 .pd-thumb:hover   { opacity: .90; }
 .pd-thumb img     { width: 100%; height: 100%; object-fit: cover; display: block; }
