@@ -13,32 +13,33 @@ const API = import.meta.env.VITE_API_BASE || "https://minimart-ivrm.onrender.com
 const PH  = "https://placehold.co/800x600/eae6e0/a8a39d?text=Minimart";
 
 /* ─────────────────────────────────────────────
-   PURE HELPERS
+   HELPERS
 ───────────────────────────────────────────── */
 const naira = (n) => "₦" + Number(n || 0).toLocaleString("en-NG");
 
 const getImages = (product) => {
   if (!product) return [];
   const imgs = [];
-
-  // Prefer product_images join (array of URLs from backend)
   if (Array.isArray(product.images) && product.images.length) {
     product.images.forEach((img) => {
       const url = typeof img === "string" ? img : img?.url || img?.image_url;
       if (url) imgs.push(url);
     });
   }
-
-  // Fallbacks from schema columns
-  if (!imgs.length && product.main_image) imgs.push(product.main_image);
+  if (!imgs.length && product.main_image)   imgs.push(product.main_image);
   if (!imgs.length && product.thumbnail_url) imgs.push(product.thumbnail_url);
-
   return imgs.length ? imgs : [PH];
 };
 
-const stars = (rating = 0) => {
-  const r = Math.round(Number(rating));
-  return "★".repeat(r) + "☆".repeat(5 - r);
+const stars = (rating = 0, size = "md") => {
+  const r   = Math.round(Number(rating));
+  const cls = size === "sm" ? "pd-star-sm" : "pd-star";
+  return (
+    <span className={`pd-stars ${cls}`}>
+      {"★".repeat(r)}
+      <span className="pd-star-empty">{"★".repeat(5 - r)}</span>
+    </span>
+  );
 };
 
 const formatAttrKey = (k) =>
@@ -47,21 +48,28 @@ const formatAttrKey = (k) =>
 const timeAgo = (date) => {
   if (!date) return "";
   const diff = Math.floor((Date.now() - new Date(date)) / 1000);
-  if (diff < 60)     return "just now";
-  if (diff < 3600)   return `${Math.floor(diff / 60)}m ago`;
-  if (diff < 86400)  return `${Math.floor(diff / 3600)}h ago`;
-  if (diff < 2592000)return `${Math.floor(diff / 86400)}d ago`;
+  if (diff < 60)      return "just now";
+  if (diff < 3600)    return `${Math.floor(diff / 60)}m ago`;
+  if (diff < 86400)   return `${Math.floor(diff / 3600)}h ago`;
+  if (diff < 2592000) return `${Math.floor(diff / 86400)}d ago`;
   return new Date(date).toLocaleDateString("en-NG", { month: "short", year: "numeric" });
 };
 
-/* Skeleton component */
-const Skel = ({ className = "" }) => (
-  <div className={`pd-skeleton ${className}`} />
-);
+/** Persist favorites in localStorage keyed by product id */
+const FAV_KEY = "minimart_favs";
+const loadFavs = () => {
+  try { return JSON.parse(localStorage.getItem(FAV_KEY) || "{}"); }
+  catch { return {}; }
+};
+const saveFavs = (favs) => {
+  try { localStorage.setItem(FAV_KEY, JSON.stringify(favs)); } catch {}
+};
 
 /* ─────────────────────────────────────────────
-   LOADING SKELETON
+   SKELETON
 ───────────────────────────────────────────── */
+const Skel = ({ className = "" }) => <div className={`pd-skeleton ${className}`} />;
+
 function LoadingSkeleton() {
   return (
     <div className="pd-page">
@@ -82,7 +90,7 @@ function LoadingSkeleton() {
 }
 
 /* ─────────────────────────────────────────────
-   FAQ ITEM (controlled accordion)
+   FAQ ITEM
 ───────────────────────────────────────────── */
 function FaqItem({ q, a }) {
   const [open, setOpen] = useState(false);
@@ -98,6 +106,87 @@ function FaqItem({ q, a }) {
 }
 
 /* ─────────────────────────────────────────────
+   REVIEW FORM
+───────────────────────────────────────────── */
+function ReviewForm({ slug, userId, onSubmitted }) {
+  const [rating,      setRating]      = useState(0);
+  const [hoverRating, setHoverRating] = useState(0);
+  const [comment,     setComment]     = useState("");
+  const [submitting,  setSubmitting]  = useState(false);
+  const [error,       setError]       = useState(null);
+
+  const handleSubmit = async () => {
+    if (!rating) { setError("Please select a rating"); return; }
+    if (!userId) { setError("Please log in to leave a review"); return; }
+    setSubmitting(true);
+    setError(null);
+    try {
+      const res = await fetch(`${API}/product/slug/${encodeURIComponent(slug)}/reviews`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ user_id: userId, rating, comment }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.message || "Failed to submit");
+      setRating(0);
+      setComment("");
+      onSubmitted?.();
+    } catch (e) {
+      setError(e.message);
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  return (
+    <div className="pd-review-form">
+      <div className="pd-review-form-title">Write a review</div>
+
+      {/* Star picker */}
+      <div className="pd-star-picker">
+        {[1,2,3,4,5].map((n) => (
+          <button
+            key={n}
+            className={`pd-star-pick${(hoverRating || rating) >= n ? " active" : ""}`}
+            onMouseEnter={() => setHoverRating(n)}
+            onMouseLeave={() => setHoverRating(0)}
+            onClick={() => setRating(n)}
+            aria-label={`${n} star`}
+          >
+            ★
+          </button>
+        ))}
+        {rating > 0 && (
+          <span className="pd-star-label">
+            {["","Poor","Fair","Good","Very Good","Excellent"][rating]}
+          </span>
+        )}
+      </div>
+
+      <textarea
+        className="pd-review-textarea"
+        placeholder="Share your experience with this product... (optional)"
+        value={comment}
+        onChange={(e) => setComment(e.target.value)}
+        rows={3}
+        maxLength={500}
+      />
+      <div className="pd-review-char">{comment.length}/500</div>
+
+      {error && <div className="pd-review-error">{error}</div>}
+
+      <button
+        className="pd-review-submit"
+        onClick={handleSubmit}
+        disabled={submitting || !rating}
+      >
+        {submitting ? "Submitting…" : "Submit Review"}
+      </button>
+    </div>
+  );
+}
+
+/* ─────────────────────────────────────────────
    MAIN COMPONENT
 ───────────────────────────────────────────── */
 export default function ProductDetail() {
@@ -106,22 +195,31 @@ export default function ProductDetail() {
   const { addSingleProduct } = useProductCache();
 
   /* ── state ── */
-  const [product,        setProduct]        = useState(null);
-  const [seller,         setSeller]         = useState(null);
-  const [similar,        setSimilar]        = useState([]);
-  const [reviews,        setReviews]        = useState([]);
-  const [reviewStats,    setReviewStats]    = useState(null);
-  const [loading,        setLoading]        = useState(true);
-  const [error,          setError]          = useState(null);
-  const [activeImg,      setActiveImg]      = useState(0);
-  const [lightbox,       setLightbox]       = useState(false);
-  const [descExpanded,   setDescExpanded]   = useState(false);
-  const [fav,            setFav]            = useState(false);
-  const [viewTracked,    setViewTracked]    = useState(false);
+  const [product,      setProduct]      = useState(null);
+  const [seller,       setSeller]       = useState(null);
+  const [similar,      setSimilar]      = useState([]);
+  const [reviews,      setReviews]      = useState([]);
+  const [reviewStats,  setReviewStats]  = useState(null);
+  const [loading,      setLoading]      = useState(true);
+  const [error,        setError]        = useState(null);
+  const [activeImg,    setActiveImg]    = useState(0);
+  const [lightbox,     setLightbox]     = useState(false);
+  const [descExpanded, setDescExpanded] = useState(false);
+  const [fav,          setFav]          = useState(false);
+  const [viewTracked,  setViewTracked]  = useState(false);
+  const [reviewPage,   setReviewPage]   = useState(1);
+  const [reviewTotal,  setReviewTotal]  = useState(0);
+
+  // Pull userId from your auth store — adjust as needed
+  const userId = useMemo(() => {
+    try { return JSON.parse(localStorage.getItem("minimart_user") || "null")?.id || null; }
+    catch { return null; }
+  }, []);
 
   /* ── derived ── */
-  const images    = useMemo(() => getImages(product), [product]);
-  const attrs     = useMemo(() => {
+  const images = useMemo(() => getImages(product), [product]);
+
+  const attrs = useMemo(() => {
     const raw = product?.attributes;
     if (!raw || typeof raw !== "object") return [];
     return Object.entries(raw).filter(([, v]) => v != null && v !== "");
@@ -150,18 +248,19 @@ export default function ProductDetail() {
       setLoading(false);
       return;
     }
-
     try {
       setLoading(true);
       setError(null);
-
       const res = await fetch(`${API}/product/slug/${encodeURIComponent(slug)}`);
       if (res.status === 404) throw new Error("Product not found");
       if (!res.ok)            throw new Error("Could not load product");
-
       const data = await res.json();
       setProduct(data);
-      addSingleProduct(data); // warm the homepage cache
+      addSingleProduct(data);
+
+      // Restore favorite state from localStorage
+      const favs = loadFavs();
+      setFav(!!favs[data.id]);
     } catch (e) {
       setError(e.message);
     } finally {
@@ -171,7 +270,7 @@ export default function ProductDetail() {
 
   useEffect(() => { fetchProduct(); }, [fetchProduct]);
 
-  /* ── TRACK VIEW (once per session) ── */
+  /* ── TRACK VIEW ── */
   useEffect(() => {
     if (!product?.id || viewTracked) return;
     fetch(`${API}/products/${product.id}/view`, { method: "POST" }).catch(() => {});
@@ -188,18 +287,23 @@ export default function ProductDetail() {
   }, [product?.seller_id]);
 
   /* ── FETCH REVIEWS ── */
-  useEffect(() => {
-    if (!product?.id) return;
-    fetch(`${API}/product/slug/${encodeURIComponent(slug)}/reviews?limit=5`)
-      .then((r) => r.ok ? r.json() : null)
-      .then((data) => {
-        if (data) {
-          setReviews(data.reviews || []);
-          setReviewStats(data.stats || null);
-        }
-      })
-      .catch(() => {});
-  }, [product?.id, slug]);
+  const fetchReviews = useCallback(async (page = 1) => {
+    if (!slug) return;
+    try {
+      const res  = await fetch(`${API}/product/slug/${encodeURIComponent(slug)}/reviews?limit=5&page=${page}`);
+      if (!res.ok) return;
+      const data = await res.json();
+      if (page === 1) {
+        setReviews(data.reviews || []);
+      } else {
+        setReviews((prev) => [...prev, ...(data.reviews || [])]);
+      }
+      setReviewStats(data.stats || null);
+      setReviewTotal(data.stats?.total || 0);
+    } catch {}
+  }, [slug]);
+
+  useEffect(() => { fetchReviews(1); }, [fetchReviews]);
 
   /* ── FETCH SIMILAR ── */
   useEffect(() => {
@@ -215,27 +319,49 @@ export default function ProductDetail() {
       .catch(() => {});
   }, [product?.id, product?.category_id]);
 
-  /* ── LIGHTBOX KEY HANDLER ── */
+  /* ── LIGHTBOX KEYS ── */
   useEffect(() => {
     if (!lightbox) return;
     const h = (e) => {
-      if (e.key === "Escape") setLightbox(false);
-      if (e.key === "ArrowRight") setActiveImg((i) => (i + 1) % images.length);
-      if (e.key === "ArrowLeft")  setActiveImg((i) => (i - 1 + images.length) % images.length);
+      if (e.key === "Escape")      setLightbox(false);
+      if (e.key === "ArrowRight")  setActiveImg((i) => (i + 1) % images.length);
+      if (e.key === "ArrowLeft")   setActiveImg((i) => (i - 1 + images.length) % images.length);
     };
     window.addEventListener("keydown", h);
     return () => window.removeEventListener("keydown", h);
   }, [lightbox, images.length]);
 
-  /* ── CONTACT ACTIONS ── */
+  /* ── TOGGLE FAVORITE ── */
+  const toggleFav = useCallback(async () => {
+    if (!product?.id) return;
+    const next = !fav;
+    setFav(next);
+
+    // Persist locally immediately
+    const favs = loadFavs();
+    if (next) { favs[product.id] = true; }
+    else      { delete favs[product.id]; }
+    saveFavs(favs);
+
+    // Sync with server if logged in
+    if (userId) {
+      fetch(`${API}/products/${product.id}/favorite`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ user_id: userId }),
+      }).catch(() => {});
+    }
+  }, [fav, product, userId]);
+
+  /* ── CONTACT ── */
   const contactPhone = product?.phone || product?.contact?.phone;
   const waNumber     = product?.whatsapp || product?.contact?.whatsapp;
   const waLink       = product?.whatsapp_link || product?.contact?.whatsapp_link;
 
   const openWhatsApp = () => {
     fetch(`${API}/products/${product.id}/click`, { method: "POST" }).catch(() => {});
-    const msg  = encodeURIComponent(`Hi, I'm interested in your listing: ${product.title} — ${window.location.href}`);
-    const url  = waLink || (waNumber ? `https://wa.me/${waNumber.replace(/\D/g, "")}?text=${msg}` : null);
+    const msg = encodeURIComponent(`Hi, I'm interested in your listing: ${product.title} — ${window.location.href}`);
+    const url = waLink || (waNumber ? `https://wa.me/${waNumber.replace(/\D/g, "")}?text=${msg}` : null);
     if (url) window.open(url, "_blank");
   };
 
@@ -246,14 +372,12 @@ export default function ProductDetail() {
   /* ── DELIVERY ── */
   const delivery = useMemo(() => {
     const d = product?.delivery;
-    if (!d || typeof d !== "object") return null;
-    if (!d.available) return null;
+    if (!d || typeof d !== "object" || !d.available) return null;
     return d;
   }, [product]);
 
   /* ─────────────── RENDER ─────────────────── */
-
-  if (loading) return <LoadingSkeleton />;
+  if (loading)  return <LoadingSkeleton />;
 
   if (error) {
     return (
@@ -272,10 +396,13 @@ export default function ProductDetail() {
 
   if (!product) return null;
 
-  const descWords    = (product.description || "").split(" ");
-  const descShort    = descWords.slice(0, 60).join(" ");
-  const descLong     = product.description || "";
-  const needsToggle  = descWords.length > 60;
+  const descWords   = (product.description || "").split(" ");
+  const descShort   = descWords.slice(0, 60).join(" ");
+  const descLong    = product.description || "";
+  const needsToggle = descWords.length > 60;
+
+  const REVIEW_PAGE_SIZE = 5;
+  const hasMoreReviews   = reviews.length < reviewTotal;
 
   return (
     <>
@@ -284,12 +411,11 @@ export default function ProductDetail() {
         <button className="pd-back" onClick={() => navigate(-1)} aria-label="Back">
           ←
         </button>
-
         <div className="pd-header-actions">
           <button
             className={`pd-action-btn${fav ? " fav-on" : ""}`}
-            onClick={() => setFav((v) => !v)}
-            aria-label="Save listing"
+            onClick={toggleFav}
+            aria-label={fav ? "Remove from saved" : "Save listing"}
           >
             {fav ? "♥" : "♡"}
           </button>
@@ -348,7 +474,7 @@ export default function ProductDetail() {
           <div className="pd-title-block">
             {product.category_name && (
               <div className="pd-category-crumb">
-                🏷 {product.category_name}
+                {product.category_name}
                 {product.subcategory_name && ` › ${product.subcategory_name}`}
               </div>
             )}
@@ -358,47 +484,59 @@ export default function ProductDetail() {
             <div className="pd-price-row">
               <span className="pd-price">{naira(product.price)}</span>
               {product.is_promoted && (
-                <span className="pd-price-note">✦ Promoted listing</span>
+                <span className="pd-price-note">Promoted listing</span>
               )}
             </div>
 
-            <div className="pd-stats-row">
-              <span className="pd-stat">
-                <span className="pd-stat-icon">👁</span>
-                {Number(product.views || 0).toLocaleString()} views
-              </span>
+            {/* Stats — vertical list, no icons */}
+            <div className="pd-stats-list">
+              <div className="pd-stat-item">
+                <span className="pd-stat-label">Views</span>
+                <span className="pd-stat-value">{Number(product.views || 0).toLocaleString()}</span>
+              </div>
               {product.clicks_count > 0 && (
-                <span className="pd-stat">
-                  <span className="pd-stat-icon">👆</span>
-                  {Number(product.clicks_count).toLocaleString()} clicks
-                </span>
+                <div className="pd-stat-item">
+                  <span className="pd-stat-label">Clicks</span>
+                  <span className="pd-stat-value">{Number(product.clicks_count).toLocaleString()}</span>
+                </div>
               )}
               {product.favorites_count > 0 && (
-                <span className="pd-stat">
-                  <span className="pd-stat-icon">♥</span>
-                  {product.favorites_count}
-                </span>
+                <div className="pd-stat-item">
+                  <span className="pd-stat-label">Saved</span>
+                  <span className="pd-stat-value">{product.favorites_count}</span>
+                </div>
               )}
-              <span className="pd-stat">
-                <span className="pd-stat-icon">🕐</span>
-                {timeAgo(product.created_at)}
-              </span>
+              <div className="pd-stat-item">
+                <span className="pd-stat-label">Posted</span>
+                <span className="pd-stat-value">{timeAgo(product.created_at)}</span>
+              </div>
             </div>
           </div>
 
           {/* ── DESCRIPTION ── */}
           {product.description && (
             <div className="pd-section">
-              <div className="pd-section-title">About this listing</div>
+              <div className="pd-section-title">About this product</div>
               <p className="pd-desc">
-                {needsToggle && !descExpanded ? `${descShort}…` : descLong}
+                {needsToggle && !descExpanded ? `${descShort}` : descLong}
+                {needsToggle && !descExpanded && (
+                  <span className="pd-desc-ellipsis">
+                    {"..."}
+                    <button
+                      className="pd-desc-toggle"
+                      onClick={() => setDescExpanded(true)}
+                    >
+                      read more
+                    </button>
+                  </span>
+                )}
               </p>
-              {needsToggle && (
+              {needsToggle && descExpanded && (
                 <button
                   className="pd-desc-toggle"
-                  onClick={() => setDescExpanded((v) => !v)}
+                  onClick={() => setDescExpanded(false)}
                 >
-                  {descExpanded ? "Show less ▲" : "Read more ▼"}
+                  Show less
                 </button>
               )}
             </div>
@@ -408,11 +546,11 @@ export default function ProductDetail() {
           {highlights.length > 0 && (
             <div className="pd-section">
               <div className="pd-section-title">Highlights</div>
-              <div className="pd-highlights">
+              <div className="pd-highlights-list">
                 {highlights.map((h, i) => (
-                  <div key={i} className="pd-highlight">
+                  <div key={i} className="pd-highlight-item">
                     <span className="pd-highlight-dot" />
-                    {typeof h === "string" ? h : h.text || JSON.stringify(h)}
+                    <span>{typeof h === "string" ? h : h.text || JSON.stringify(h)}</span>
                   </div>
                 ))}
               </div>
@@ -423,7 +561,7 @@ export default function ProductDetail() {
           {attrs.length > 0 && (
             <div className="pd-section">
               <div className="pd-section-title">Details</div>
-              <div className="pd-attrs">
+              <div className="pd-attrs-list">
                 {attrs.map(([k, v]) => (
                   <div key={k} className="pd-attr-row">
                     <span className="pd-attr-key">{formatAttrKey(k)}</span>
@@ -440,7 +578,7 @@ export default function ProductDetail() {
           {specs.length > 0 && (
             <div className="pd-section">
               <div className="pd-section-title">Specifications</div>
-              <div className="pd-attrs">
+              <div className="pd-attrs-list">
                 {specs.map(([k, v]) => (
                   <div key={k} className="pd-attr-row">
                     <span className="pd-attr-key">{formatAttrKey(k)}</span>
@@ -455,16 +593,16 @@ export default function ProductDetail() {
           {(product.location_city || product.location_state) && (
             <div className="pd-section">
               <div className="pd-section-title">Location</div>
-              <div className="pd-location">
-                <span className="pd-location-icon">📍</span>
-                <div className="pd-location-detail">
-                  <span className="pd-location-city">
-                    {product.location_city || product.location_state}
-                  </span>
-                  {product.location_city && product.location_state && (
-                    <span className="pd-location-state">{product.location_state}</span>
-                  )}
-                </div>
+              <div className="pd-location-text">
+                {product.location_city && (
+                  <span className="pd-location-city">{product.location_city}</span>
+                )}
+                {product.location_city && product.location_state && (
+                  <span className="pd-location-sep">, </span>
+                )}
+                {product.location_state && (
+                  <span className="pd-location-state">{product.location_state}</span>
+                )}
               </div>
             </div>
           )}
@@ -473,11 +611,10 @@ export default function ProductDetail() {
           {delivery && (
             <div className="pd-section">
               <div className="pd-section-title">Delivery</div>
-              <div className="pd-delivery">
+              <div className="pd-delivery-list">
                 <div className="pd-delivery-row">
-                  <span className="pd-delivery-icon">🚚</span>
-                  <span>
-                    <span className="pd-delivery-label">Delivery available</span>
+                  <span className="pd-delivery-label">Status</span>
+                  <span>Available
                     {delivery.duration?.from && delivery.duration?.to && (
                       <> — {delivery.duration.from}–{delivery.duration.to} days</>
                     )}
@@ -485,16 +622,13 @@ export default function ProductDetail() {
                 </div>
                 {delivery.fee != null && (
                   <div className="pd-delivery-row">
-                    <span className="pd-delivery-icon">💳</span>
-                    <span>
-                      <span className="pd-delivery-label">Fee:</span>
-                      {" "}{Number(delivery.fee) === 0 ? "Free" : naira(delivery.fee)}
-                    </span>
+                    <span className="pd-delivery-label">Fee</span>
+                    <span>{Number(delivery.fee) === 0 ? "Free" : naira(delivery.fee)}</span>
                   </div>
                 )}
                 {delivery.note && (
                   <div className="pd-delivery-row">
-                    <span className="pd-delivery-icon">📝</span>
+                    <span className="pd-delivery-label">Note</span>
                     <span>{delivery.note}</span>
                   </div>
                 )}
@@ -530,7 +664,7 @@ export default function ProductDetail() {
                   <div className="pd-seller-name">
                     {seller?.store_name || seller?.name || "Seller"}
                     {seller?.verified && (
-                      <span className="pd-seller-vfd">✓ Verified</span>
+                      <span className="pd-seller-vfd">Verified</span>
                     )}
                   </div>
 
@@ -542,7 +676,7 @@ export default function ProductDetail() {
                       <span>· {Number(seller.total_sales).toLocaleString()} sales</span>
                     )}
                     {seller?.rating > 0 && (
-                      <span>· ⭐ {Number(seller.rating).toFixed(1)}</span>
+                      <span>· {Number(seller.rating).toFixed(1)} rating</span>
                     )}
                   </div>
 
@@ -574,39 +708,100 @@ export default function ProductDetail() {
           )}
 
           {/* ── REVIEWS ── */}
-          {(reviews.length > 0 || reviewStats) && (
-            <div className="pd-section">
-              <div className="pd-section-title">Reviews</div>
-              <div className="pd-reviews">
-                {reviewStats && (
-                  <div className="pd-review-summary">
-                    <div>
-                      <div className="pd-review-score">
-                        {Number(reviewStats.average || 0).toFixed(1)}
-                      </div>
-                      <div className="pd-review-stars">
-                        {stars(reviewStats.average)}
-                      </div>
-                      <div className="pd-review-count">
-                        {reviewStats.total} review{reviewStats.total !== 1 ? "s" : ""}
-                      </div>
-                    </div>
-                  </div>
-                )}
+          <div className="pd-section">
+            <div className="pd-section-title">
+              Reviews
+              {reviewStats?.total > 0 && (
+                <span className="pd-reviews-count-badge">
+                  {reviewStats.total}
+                </span>
+              )}
+            </div>
 
+            {/* Summary */}
+            {reviewStats?.total > 0 && (
+              <div className="pd-review-summary">
+                <div className="pd-review-avg-block">
+                  <div className="pd-review-score">
+                    {Number(reviewStats.average || 0).toFixed(1)}
+                  </div>
+                  {stars(reviewStats.average)}
+                  <div className="pd-review-total-txt">
+                    {reviewStats.total} review{reviewStats.total !== 1 ? "s" : ""}
+                  </div>
+                </div>
+
+                {/* Rating breakdown bars */}
+                <div className="pd-review-bars">
+                  {[5,4,3,2,1].map((n) => {
+                    const count = reviewStats[`${["","one","two","three","four","five"][n]}_star`] || 0;
+                    const pct   = reviewStats.total > 0 ? (count / reviewStats.total) * 100 : 0;
+                    return (
+                      <div key={n} className="pd-review-bar-row">
+                        <span className="pd-review-bar-label">{n}</span>
+                        <div className="pd-review-bar-track">
+                          <div className="pd-review-bar-fill" style={{ width: `${pct}%` }} />
+                        </div>
+                        <span className="pd-review-bar-count">{count}</span>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
+
+            {/* Review list */}
+            {reviews.length > 0 ? (
+              <div className="pd-review-list">
                 {reviews.map((r, i) => (
-                  <div key={i} className="pd-review-item">
+                  <div key={r.id || i} className="pd-review-item">
                     <div className="pd-review-header">
-                      <span className="pd-review-author">{r.author || "Anonymous"}</span>
-                      <span className="pd-review-date">{timeAgo(r.created_at)}</span>
+                      <div className="pd-review-author-wrap">
+                        <div className="pd-review-avatar">
+                          {r.author_image ? (
+                            <img src={r.author_image} alt={r.author} />
+                          ) : (
+                            (r.author || "A").charAt(0).toUpperCase()
+                          )}
+                        </div>
+                        <div>
+                          <div className="pd-review-author">{r.author || "Anonymous"}</div>
+                          <div className="pd-review-date">{timeAgo(r.created_at)}</div>
+                        </div>
+                      </div>
+                      {stars(r.rating, "sm")}
                     </div>
-                    <div className="pd-review-stars-sm">{stars(r.rating)}</div>
                     {r.comment && <p className="pd-review-text">{r.comment}</p>}
                   </div>
                 ))}
+
+                {hasMoreReviews && (
+                  <button
+                    className="pd-reviews-load-more"
+                    onClick={() => {
+                      const next = reviewPage + 1;
+                      setReviewPage(next);
+                      fetchReviews(next);
+                    }}
+                  >
+                    Load more reviews
+                  </button>
+                )}
               </div>
-            </div>
-          )}
+            ) : (
+              <div className="pd-no-reviews">No reviews yet. Be the first!</div>
+            )}
+
+            {/* Review form */}
+            <ReviewForm
+              slug={slug}
+              userId={userId}
+              onSubmitted={() => {
+                setReviewPage(1);
+                fetchReviews(1);
+              }}
+            />
+          </div>
 
         </div>{/* /pd-body */}
 
@@ -614,26 +809,40 @@ export default function ProductDetail() {
         {similar.length > 0 && (
           <div className="pd-similar">
             <div className="pd-similar-title">You may also like</div>
-            <div className="pd-similar-row">
+            <div className="pd-similar-list">
               {similar.map((p) => {
-                const simImg = getImages(p)[0];
+                const simImg      = getImages(p)[0];
+                const avgRating   = Number(p.avg_rating || 0);
+                const reviewCount = Number(p.review_count || 0);
+
                 return (
                   <div
                     key={p.id}
                     className="pd-sim-card"
                     onClick={() => navigate(`/product/${p.slug || p.id}`)}
                   >
-                    <img
-                      className="pd-sim-img"
-                      src={simImg}
-                      alt={p.title}
-                      loading="lazy"
-                    />
+                    <div className="pd-sim-img-wrap">
+                      <img
+                        className="pd-sim-img"
+                        src={simImg}
+                        alt={p.title}
+                        loading="lazy"
+                      />
+                      {p.is_promoted && (
+                        <span className="pd-sim-promoted">Featured</span>
+                      )}
+                    </div>
                     <div className="pd-sim-body">
                       <div className="pd-sim-name">{p.title}</div>
                       <div className="pd-sim-price">{naira(p.price)}</div>
+                      {reviewCount > 0 && (
+                        <div className="pd-sim-rating">
+                          {stars(avgRating, "sm")}
+                          <span className="pd-sim-rating-count">({reviewCount})</span>
+                        </div>
+                      )}
                       {p.location_city && (
-                        <div className="pd-sim-loc">📍 {p.location_city}</div>
+                        <div className="pd-sim-loc">{p.location_city}</div>
                       )}
                     </div>
                   </div>
@@ -659,7 +868,7 @@ export default function ProductDetail() {
           )}
           {contactPhone && (
             <button className="pd-cta-call" onClick={openCall} aria-label="Call seller">
-              📞
+              Call
             </button>
           )}
         </div>
@@ -668,14 +877,9 @@ export default function ProductDetail() {
       {/* ── LIGHTBOX ── */}
       {lightbox && (
         <div className="pd-lightbox" onClick={() => setLightbox(false)}>
-          <button
-            className="pd-lightbox-close"
-            onClick={() => setLightbox(false)}
-            aria-label="Close"
-          >
+          <button className="pd-lightbox-close" onClick={() => setLightbox(false)} aria-label="Close">
             ✕
           </button>
-
           {images.length > 1 && (
             <button
               className="pd-lightbox-prev"
@@ -685,14 +889,12 @@ export default function ProductDetail() {
               ‹
             </button>
           )}
-
           <img
             className="pd-lightbox-img"
             src={images[activeImg]}
             alt={product.title}
             onClick={(e) => e.stopPropagation()}
           />
-
           {images.length > 1 && (
             <button
               className="pd-lightbox-next"
