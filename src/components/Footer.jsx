@@ -5,7 +5,7 @@
 
 import React, { memo } from "react";
 import { useNavigate } from "react-router-dom";
-import "./Footer.css";
+import "../styles/Footer.css";
 
 const YEAR = new Date().getFullYear();
 
