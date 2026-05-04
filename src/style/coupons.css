@@ -1,88 +1,90 @@
-/* General dashboard wrapper */
-.dashboard-section {
-  background-color: #ffffff;
-  border-radius: 12px;
-  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
-  padding: 16px;
-  margin: 16px 0;
-  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "Roboto", sans-serif;
+/* Container for the wheel and pointer */
+.wheel-container {
+  position: relative;
+  width: 300px;
+  height: 300px;
+  margin: 0 auto;
+  perspective: 1000px;
 }
 
-/* Ensure the spinner rotates */
-.animate-spin {
-  animation: spin 1s linear infinite;
+/* The actual colorful wheel */
+.wheel-visual {
+  width: 100%;
+  height: 100%;
+  border-radius: 50%;
+  border: 8px solid #fff;
+  box-shadow: 0 10px 25px rgba(0, 0, 0, 0.2);
+  position: relative;
+  overflow: hidden;
+  /* Matches the colors from your image in order */
+  background: conic-gradient(
+    #e5312e 0deg 45deg,    /* 1 - Red */
+    #9367b3 45deg 90deg,   /* 2 - Purple */
+    #7d5440 90deg 135deg,  /* 3 - Brown */
+    #f28eb2 135deg 180deg, /* 4 - Pink */
+    #818181 180deg 225deg, /* 5 - Gray */
+    #217dbb 225deg 270deg, /* 6 - Blue */
+    #f38627 270deg 315deg, /* 7 - Orange */
+    #39a04a 315deg 360deg  /* 8 - Green */
+  );
+  transition: transform 3s cubic-bezier(0.1, 0, 0.2, 1);
 }
 
-@keyframes spin {
-  0% {
-    transform: rotate(0deg);
-  }
-  100% {
-    transform: rotate(360deg);
-  }
-}
-
-/* Spin‑to‑win button */
-.dashboard-section button {
-  outline: none;
-  border: none;
-  cursor: pointer;
+/* Positioning the numbers inside the slices */
+.wheel-number {
+  position: absolute;
+  width: 50%;
+  height: 50%;
+  left: 50%;
+  top: 0;
+  transform-origin: 0% 100%;
   display: flex;
-  align-items: center;
   justify-content: center;
+  align-items: flex-start;
+  padding-top: 20px;
+  font-size: 1.5rem;
+  font-weight: 900;
+  color: white;
+  text-shadow: 1px 1px 3px rgba(0,0,0,0.3);
+  user-select: none;
 }
 
-/* Spin button text and style */
-.dashboard-section button span,
-.dashboard-section button {
-  font-size: 16px;
+/* Pointer (The white triangle at the top) */
+.wheel-pointer {
+  position: absolute;
+  top: -15px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 20;
+  width: 0;
+  height: 0;
+  border-left: 20px solid transparent;
+  border-right: 20px solid transparent;
+  border-top: 30px solid #ffffff;
+  filter: drop-shadow(0 4px 4px rgba(0,0,0,0.2));
 }
 
-/* Result notification box */
-.dashboard-section .result-box {
-  background-color: #dbeafe;
-  border: 1px solid #93c5fd;
-  border-radius: 8px;
-  padding: 12px;
-  text-align: center;
+/* Center Pin */
+.wheel-visual::after {
+  content: '';
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  width: 25px;
+  height: 25px;
+  background: white;
+  border-radius: 50%;
+  box-shadow: inset 0 2px 5px rgba(0,0,0,0.2);
+  z-index: 5;
 }
 
-.dashboard-section .result-box h3 {
-  margin: 0 0 4px 0;
-  font-size: 16px;
-  font-weight: 600;
-  color: #1e40af;
+/* Optional: Subtle animation when the wheel is ready to spin */
+.wheel-visual:not(.spinning) {
+  animation: hoverFloat 3s ease-in-out infinite;
 }
 
-.dashboard-section .result-box p {
-  margin: 0;
-  font-size: 18px;
-  font-weight: 500;
-  color: #1e3a8a;
-}
-
-/* Possible rewards list (optional) */
-.possible-rewards {
-  margin-top: 16px;
-  padding-top: 8px;
-  border-top: 1px solid #e5e7eb;
-  font-size: 14px;
-  color: #4b5563;
-}
-
-.possible-rewards h3 {
-  margin: 0 0 6px 0;
-  font-size: 13px;
-  font-weight: 500;
-  text-transform: uppercase;
-  letter-spacing: 0.5px;
-}
-
-.possible-rewards ul {
-  margin: 0;
-  padding: 0 0 0 16px;
-}
-
-.possible-rewards li {
-  margin-bottom: 4px;
+@keyframes hoverFloat {
+  0%, 100% { transform: translateY(0); }
+  50% { transform: translateY(-5px); }
 }
