@@ -11,7 +11,7 @@ const STORAGE_DRAFT   = "product_draft";
 const STORAGE_PAYMENT = "payment_retry";
 const API_BASE        = "https://minimart-ivrm.onrender.com/api";
 const MAX_IMAGES      = 6;
-const MAX_SIZE        = 3 * 1024 * 1024;
+const MAX_SIZE        = 3 * 1024 * 1024; // 3 MB
 
 const INITIAL_FORM = {
   title:          "",
@@ -74,6 +74,31 @@ const getToken = () => localStorage.getItem("token");
 /** Always returns a real array — guards against corrupted draft restoring a string */
 const toArray = (v) => (Array.isArray(v) ? v : []);
 
+/**
+ * Raw multipart POST — never use apiFetch for FormData because apiFetch
+ * typically hard-codes Content-Type: application/json, which overwrites the
+ * multipart/form-data boundary that the browser must set automatically.
+ */
+const multipartPost = async (url, formData, token) => {
+  const response = await fetch(url, {
+    method:  "POST",
+    headers: {
+      Authorization: `Bearer ${token}`,
+      // ← intentionally NO Content-Type — browser sets multipart boundary
+    },
+    body: formData,
+  });
+
+  const data = await response.json().catch(() => ({}));
+
+  if (!response.ok) {
+    const msg = data?.message ?? `Request failed (${response.status})`;
+    throw new ApiError(msg, response.status);
+  }
+
+  return data;
+};
+
 // ─── Component ────────────────────────────────────────────────────────────────
 
 export default function AddProductPage() {
@@ -89,7 +114,6 @@ export default function AddProductPage() {
   const [success,       setSuccess]       = useState("");
   const [agreedToTerms, setAgreedToTerms] = useState(false);
 
-  // Location detection
   const [detectingLocation, setDetectingLocation] = useState(false);
   const [detectedCoords,    setDetectedCoords]    = useState(null);
 
@@ -110,12 +134,14 @@ export default function AddProductPage() {
 
   const showError = useCallback((msg) => {
     setError(msg);
-    setTimeout(() => setError(""), 6000);
+    const t = setTimeout(() => setError(""), 6000);
+    return () => clearTimeout(t);
   }, []);
 
   const showSuccess = useCallback((msg) => {
     setSuccess(msg);
-    setTimeout(() => setSuccess(""), 5000);
+    const t = setTimeout(() => setSuccess(""), 5000);
+    return () => clearTimeout(t);
   }, []);
 
   // ── Load categories ────────────────────────────────────────────────────────
@@ -132,7 +158,7 @@ export default function AddProductPage() {
       })
       .catch((err) => {
         setCategories([]);
-        showError(err.message);
+        showError(err.message ?? "Failed to load categories");
       });
   }, [showError]);
 
@@ -262,8 +288,8 @@ export default function AddProductPage() {
   }, []);
 
   /**
-   * toggleFeature — coerces features to array before every mutation.
-   * Prevents character-split bug if state was somehow corrupted.
+   * Coerces features to array before every mutation — prevents character-split
+   * bug if state was somehow corrupted.
    */
   const toggleFeature = useCallback((feature) => {
     setForm((prev) => {
@@ -312,7 +338,8 @@ export default function AddProductPage() {
 
         try {
           const res  = await fetch(
-            `https://nominatim.openstreetmap.org/reverse?format=json&lat=${latitude}&lon=${longitude}`
+            `https://nominatim.openstreetmap.org/reverse?format=json&lat=${latitude}&lon=${longitude}`,
+            { headers: { "User-Agent": "minimart-app/1.0" } }
           );
           const data = await res.json();
           const addr = data.address ?? {};
@@ -332,7 +359,7 @@ export default function AddProductPage() {
               setLocationState(matched);
 
               if (rawCity) {
-                const cityList = locationsByState[matched] ?? [];
+                const cityList    = locationsByState[matched] ?? [];
                 const matchedCity = cityList.find(
                   (c) =>
                     c.toLowerCase().includes(rawCity.toLowerCase()) ||
@@ -346,7 +373,7 @@ export default function AddProductPage() {
           setDetectedCoords({ latitude, longitude });
           showSuccess("📍 Location detected");
         } catch {
-          // Reverse geocode failed — still store raw coords
+          // Reverse geocode failed — still store raw coords for backend
           setDetectedCoords({ latitude, longitude });
           showSuccess("📍 GPS captured — fill state/city manually");
         } finally {
@@ -439,10 +466,10 @@ export default function AddProductPage() {
     if (form.delivery.available) {
       const from = Number(form.delivery.duration.from);
       const to   = Number(form.delivery.duration.to);
-      if (Number.isNaN(from) || Number.isNaN(to)) return "Enter valid delivery days";
-      if (to < from)                               return "Delivery end must be after start";
+      if (!Number.isFinite(from) || !Number.isFinite(to)) return "Enter valid delivery days";
+      if (to < from)                                       return "Delivery end must be after start";
       if (!form.delivery.fee || Number(form.delivery.fee) <= 0)
-                                                   return "Enter valid delivery fee";
+                                                           return "Enter a valid delivery fee";
     }
 
     return null;
@@ -459,7 +486,7 @@ export default function AddProductPage() {
       return;
     }
 
-    // ── createProduct ────────────────────────────────────────────────────────
+    // ── createProduct ──────────────────────────────────────────────────────
     const createProduct = async (status = "draft") => {
       const token = getToken();
       if (!token) throw new ApiError("Authentication required. Please log in.", 401);
@@ -470,19 +497,20 @@ export default function AddProductPage() {
       };
 
       const fd = new FormData();
-      fd.append("title",       form.title.trim());
-      fd.append("description", form.description.trim());
-      fd.append("price",       Number(form.price).toFixed(2));
-      fd.append("category_id", form.category_id);
-      if (form.subcategory_id) fd.append("subcategory_id", form.subcategory_id);
+      fd.append("title",          form.title.trim());
+      fd.append("description",    form.description.trim());
+      fd.append("price",          Number(form.price).toFixed(2));
+      fd.append("category_id",    form.category_id);
+      if (form.subcategory_id)
+        fd.append("subcategory_id", form.subcategory_id);
       fd.append("location_state", locationState ?? "");
       fd.append("location_city",  city          ?? "");
       fd.append("status",         status);
       fd.append("is_active",      status === "active" ? "true" : "false");
 
       if (detectedCoords) {
-        fd.append("latitude",  detectedCoords.latitude);
-        fd.append("longitude", detectedCoords.longitude);
+        fd.append("latitude",  String(detectedCoords.latitude));
+        fd.append("longitude", String(detectedCoords.longitude));
       }
 
       fd.append("attributes",    JSON.stringify(safeAttributes));
@@ -494,17 +522,21 @@ export default function AddProductPage() {
 
       images.forEach((img) => fd.append("images", img.file));
 
-      const data = await apiFetch(`${API_BASE}/marketplace/products`, {
-        method:  "POST",
-        headers: { Authorization: `Bearer ${token}` },
-        body:    fd,
-      });
+      // ⚠️  Use raw fetch — NOT apiFetch — for multipart/form-data.
+      // apiFetch sets Content-Type: application/json, which destroys the
+      // multipart boundary that multer needs on the server.
+      const data = await multipartPost(
+        `${API_BASE}/marketplace/products`,
+        fd,
+        token
+      );
 
-      if (!data.product?.id) throw new ApiError("Product creation response invalid", 500);
+      if (!data.product?.id)
+        throw new ApiError("Product creation response invalid", 500);
       return data.product;
     };
 
-    // ── activateFreePlan ─────────────────────────────────────────────────────
+    // ── activateFreePlan ───────────────────────────────────────────────────
     const activateFreePlan = async (productId) => {
       const token = getToken();
       if (!token) throw new ApiError("Authentication required", 401);
@@ -522,7 +554,7 @@ export default function AddProductPage() {
       );
     };
 
-    // ── initPayment ──────────────────────────────────────────────────────────
+    // ── initPayment ────────────────────────────────────────────────────────
     const initPayment = async (productId) => {
       const token = getToken();
       if (!token) throw new ApiError("Authentication required", 401);
@@ -541,20 +573,30 @@ export default function AddProductPage() {
         }),
       });
 
-      if (!data.authorization_url) throw new ApiError("Payment setup failed", 500);
+      if (!data.authorization_url)
+        throw new ApiError("Payment setup failed — please try again", 500);
       return { reference: data.reference, authUrl: data.authorization_url };
     };
 
-    // ── Orchestration ────────────────────────────────────────────────────────
+    // ── Orchestration ──────────────────────────────────────────────────────
 
     setLoading(true);
     setError("");
     let product = null;
 
     try {
+      // Fall back to the free plan if the user hasn't explicitly chosen one
       const finalPlan =
-        selectedPlan ?? promotionPlans.find((p) => Number(p.price) === 0);
-      if (!finalPlan) throw new ApiError("No promotion plan available", 400);
+        selectedPlan ??
+        promotionPlans.find((p) => Number(p.price) === 0) ??
+        null;
+
+      if (!finalPlan) {
+        throw new ApiError(
+          "No promotion plan selected and no free plan is available",
+          400
+        );
+      }
 
       const isFreePlan = Number(finalPlan.price) === 0;
 
@@ -587,13 +629,14 @@ export default function AddProductPage() {
     } catch (err) {
       console.error("Submit error:", err);
 
+      // Best-effort cleanup: delete the draft product if payment setup failed
       if (product?.id) {
         const token = getToken();
         if (token) {
           fetch(`${API_BASE}/marketplace/products/${product.id}`, {
             method:  "DELETE",
             headers: { Authorization: `Bearer ${token}` },
-          }).catch((e) => console.warn("Cleanup failed:", e));
+          }).catch((e) => console.warn("Draft cleanup failed:", e));
         }
       }
 
@@ -603,10 +646,7 @@ export default function AddProductPage() {
     }
   };
 
-  // ── Terms checkbox — rendered inline in the submit section ────────────────
-  //
-  //  Passed as a prop so ProductComponents can place it just above the submit
-  //  button without needing to know about routing.
+  // ── Terms checkbox ─────────────────────────────────────────────────────────
 
   const TermsCheckbox = (
     <div className="terms-checkbox-row">
