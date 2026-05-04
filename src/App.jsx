@@ -203,27 +203,27 @@ const createRouter = ({ user, admin, isAuthReady, handleAuthSuccess }) =>
       loader: () => ({ user, isAuthReady }),
     },
     {
-      path: "/profile/dashboard",
+      path: "/dashboard",
       element: <Dashboard user={user} />,
       loader: () => ({ user, isAuthReady }),
     },
     {
-      path: "/profile/coupons",
+      path: "/coupons",
       element: <Coupons user={user} />,
       loader: () => ({ user, isAuthReady }),
     },
     {
-      path: "/profile/leaderboard",
+      path: "/leaderboard",
       element: <Leaderboard user={user} />,
       loader: () => ({ user, isAuthReady }),
     },
     {
-      path: "/profile/verification",
+      path: "/verification",
       element: <Verification user={user} />,
       loader: () => ({ user, isAuthReady }),
     },
     {
-      path: "/profile/wallet",
+      path: "/wallet",
       element: <Wallet user={user} />,
       loader: () => ({ user, isAuthReady }),
     },
