@@ -1,7 +1,10 @@
 /**
  * pages/Homepage/DealsPage.jsx
  * Route: /deals
- * Products priced under ₦50,000 — sorted cheapest first.
+ *
+ * Backend: GET /api/homepage?section=deals&page=N
+ * section=deals → WHERE price <= 50000, ORDER BY price ASC
+ * page is 0-based (offset = page * 40)
  */
 
 import React, { useCallback, useEffect, useRef, useState } from "react";
@@ -10,16 +13,12 @@ import TopNav      from "../../components/TopNav";
 import BottomNav   from "../../components/BottomNav";
 import MasonryGrid from "../../components/MasonryGrid";
 
-const API   = import.meta.env.VITE_API_BASE || "https://minimart-ivrm.onrender.com/api";
-const LIMIT = 40;
+const API = import.meta.env.VITE_API_BASE || "https://minimart-ivrm.onrender.com/api";
 
 const dedup = (arr) => {
   const seen = new Set();
   return arr.filter((p) => !seen.has(p.id) && seen.add(p.id));
 };
-
-/* Filter client-side as a safety net if API doesn't support max_price */
-const filterDeals = (arr) => arr.filter((p) => Number(p.price) <= 50_000);
 
 const SkeletonMasonry = () => (
   <div className="masonry">
@@ -41,30 +40,22 @@ export default function DealsPage({ user }) {
   const [loadingMore, setLoadingMore] = useState(false);
   const [error,       setError]       = useState(null);
   const [hasMore,     setHasMore]     = useState(false);
-  const [page,        setPage]        = useState(1);
+  const [page,        setPage]        = useState(0); // 0-based
 
   const productsRef = useRef([]);
   const sentinelRef = useRef(null);
 
-  const buildUrl = useCallback((pageNum) => {
-    const params = new URLSearchParams({
-      status:    "active",
-      limit:     String(LIMIT),
-      page:      String(pageNum),
-      max_price: "50000",
-      sort:      "price_asc",
-    });
-    return `${API}/products?${params.toString()}`;
-  }, []);
+  /* ── Correct endpoint: /api/homepage?section=deals ── */
+  const buildUrl = useCallback((pageNum) =>
+    `${API}/homepage?section=deals&page=${pageNum}`,
+  []);
 
   const fetchDeals = useCallback(async (pageNum, append = false) => {
     const res = await fetch(buildUrl(pageNum));
     if (!res.ok) throw new Error(`HTTP ${res.status}`);
     const data = await res.json();
 
-    const raw      = Array.isArray(data.products) ? data.products
-                   : Array.isArray(data) ? data : [];
-    const incoming = filterDeals(raw);
+    const incoming = Array.isArray(data.products) ? data.products : [];
 
     const merged = append
       ? dedup([...productsRef.current, ...incoming])
@@ -72,12 +63,12 @@ export default function DealsPage({ user }) {
 
     productsRef.current = merged;
     setProducts(merged);
-    setHasMore(raw.length >= LIMIT);
+    setHasMore(!!data.hasMore);
   }, [buildUrl]);
 
   /* ── Bootstrap ── */
   useEffect(() => {
-    fetchDeals(1)
+    fetchDeals(0)
       .catch(() => setError("Could not load listings."))
       .finally(() => setLoading(false));
   }, [fetchDeals]);
@@ -123,7 +114,8 @@ export default function DealsPage({ user }) {
     setLoading(true);
     productsRef.current = [];
     setProducts([]);
-    fetchDeals(1)
+    setPage(0);
+    fetchDeals(0)
       .catch(() => setError("Still failing. Check your connection."))
       .finally(() => setLoading(false));
   }, [fetchDeals]);
@@ -146,7 +138,6 @@ export default function DealsPage({ user }) {
           </div>
         </div>
 
-        {/* ── Error ── */}
         {error && (
           <div className="err-box">
             <div className="err-title">Could not load listings</div>
@@ -155,10 +146,8 @@ export default function DealsPage({ user }) {
           </div>
         )}
 
-        {/* ── Loading skeleton ── */}
         {loading && <SkeletonMasonry />}
 
-        {/* ── Empty state ── */}
         {!loading && !error && products.length === 0 && (
           <div className="empty">
             <div className="empty-emoji">🏷</div>
@@ -172,7 +161,6 @@ export default function DealsPage({ user }) {
           </div>
         )}
 
-        {/* ── Results ── */}
         {!loading && products.length > 0 && (
           <>
             <MasonryGrid
