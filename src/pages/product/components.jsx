@@ -183,16 +183,35 @@ export default function ProductComponents({
           </div>
         )}
 
+        {/* Model
+            Backend has model list  → DropdownModal (searchable).
+            No model list (common)  → plain text input (consistent with other fields).
+            key changes on brand change to force clean remount and clear stale value. */}
         {showModelField && (
           <div className="form-group">
             <label>{formatLabel("model")}</label>
-            <DropdownModal
-              key={"model-" + (attributes?.brand ?? "none")}
-              value={attributes?.model ?? ""}
-              options={modelOptions}
-              placeholder="Select or type model name"
-              onChange={(v) => updateAttribute("model", v)}
-            />
+            {modelOptions.length > 0 ? (
+              <DropdownModal
+                key={"model-dd-" + (attributes?.brand ?? "none")}
+                value={attributes?.model ?? ""}
+                options={modelOptions}
+                placeholder="Select model"
+                onChange={(v) => updateAttribute("model", v)}
+              />
+            ) : (
+              <input
+                key={"model-txt-" + (attributes?.brand ?? "none")}
+                type="text"
+                placeholder="e.g. Pavilion 15-eg3000, ThinkPad X1 Carbon"
+                value={attributes?.model ?? ""}
+                onChange={(e) => updateAttribute("model", e.target.value.trimStart())}
+              />
+            )}
+            <small className="field-hint">
+              {modelOptions.length > 0
+                ? "Select the model from the list"
+                : "Type the exact model name as it appears on the device"}
+            </small>
           </div>
         )}
 
