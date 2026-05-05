@@ -2,8 +2,14 @@
  * pages/Homepage/NearbyPage.jsx
  * Route: /nearby
  *
- * Backend: GET /api/homepage?section=nearby&lat=X&lng=Y&page=N
- * page is 0-based (offset = page * 40)
+ * Backend: GET /api/homepage?section=nearby&page=N
+ *
+ * NOTE: We intentionally do NOT forward lat/lng to the API.
+ * Sending coords triggers the PostGIS ST_Distance path on the backend
+ * (ORDER BY distance_km) which fails if location_geo is not fully
+ * populated. The section=nearby param alone orders by created_at DESC
+ * and returns all active products safely.
+ * GPS is still detected client-side and shown in the UI chip.
  */
 
 import React, { useCallback, useEffect, useRef, useState } from "react";
@@ -13,7 +19,7 @@ import BottomNav   from "../../components/BottomNav";
 import MasonryGrid from "../../components/MasonryGrid";
 
 const API   = import.meta.env.VITE_API_BASE || "https://minimart-ivrm.onrender.com/api";
-const GPS_O = { timeout: 6000, enableHighAccuracy: true, maximumAge: 60_000 };
+const GPS_O = { timeout: 6000, enableHighAccuracy: false, maximumAge: 300_000 };
 
 const dedup = (arr) => {
   const seen = new Set();
@@ -40,30 +46,22 @@ export default function NearbyPage({ user }) {
   const [loadingMore, setLoadingMore] = useState(false);
   const [error,       setError]       = useState(null);
   const [hasMore,     setHasMore]     = useState(false);
-  const [page,        setPage]        = useState(0); // 0-based
-  const [coords,      setCoords]      = useState(null);
+  const [page,        setPage]        = useState(0);
   const [locLabel,    setLocLabel]    = useState(null);
   const [gpsStatus,   setGpsStatus]   = useState("pending");
 
   const productsRef = useRef([]);
   const sentinelRef = useRef(null);
 
-  /* ── Correct endpoint: /api/homepage?section=nearby ── */
-  const buildUrl = useCallback((lat, lng, pageNum) => {
-    const params = new URLSearchParams({ section: "nearby", page: pageNum });
-    if (lat != null) params.set("lat", lat);
-    if (lng != null) params.set("lng", lng);
-    return `${API}/homepage?${params.toString()}`;
-  }, []);
-
-  const fetchNearby = useCallback(async (lat, lng, pageNum, append = false) => {
-    const res = await fetch(buildUrl(lat, lng, pageNum));
+  /* ── Fetch — no lat/lng forwarded to avoid PostGIS path ── */
+  const fetchNearby = useCallback(async (pageNum, append = false) => {
+    const url = `${API}/homepage?section=nearby&page=${pageNum}`;
+    const res = await fetch(url);
     if (!res.ok) throw new Error(`HTTP ${res.status}`);
     const data = await res.json();
 
     const incoming = Array.isArray(data.products) ? data.products : [];
-
-    const merged = append
+    const merged   = append
       ? dedup([...productsRef.current, ...incoming])
       : dedup(incoming);
 
@@ -71,42 +69,37 @@ export default function NearbyPage({ user }) {
     setProducts(merged);
     setHasMore(!!data.hasMore);
 
-    /* Location label from meta */
-    if (!append && data.meta) {
-      const loc = data.meta.location;
-      if (loc) setLocLabel(loc);
+    /* Location label from meta or first product */
+    if (!append) {
+      const loc = data.meta?.location;
+      if (loc) {
+        setLocLabel(loc);
+      } else if (merged[0]) {
+        const p = merged[0];
+        const c = p.location?.city  || p.location_city;
+        const s = p.location?.state || p.location_state;
+        if (c || s) setLocLabel([c, s].filter(Boolean).join(", "));
+      }
     }
-  }, [buildUrl]);
+  }, []);
 
-  /* ── Bootstrap: ask GPS, fall back gracefully ── */
+  /* ── Bootstrap: detect GPS for UI chip, but don't block load ── */
   useEffect(() => {
-    let resolved = false;
+    /* Start loading immediately — don't wait for GPS */
+    fetchNearby(0)
+      .catch(() => setError("Could not load nearby listings."))
+      .finally(() => setLoading(false));
 
-    const run = (lat, lng, status) => {
-      if (resolved) return;
-      resolved = true;
-      setGpsStatus(status);
-      fetchNearby(lat, lng, 0)
-        .catch(() => setError("Could not load nearby listings."))
-        .finally(() => setLoading(false));
-    };
-
-    if (!navigator.geolocation) { run(null, null, "denied"); return; }
-
-    const timer = setTimeout(() => run(null, null, "ip"), 6000);
-
-    navigator.geolocation.getCurrentPosition(
-      (pos) => {
-        clearTimeout(timer);
-        const { latitude: lat, longitude: lng } = pos.coords;
-        setCoords({ lat, lng });
-        run(lat, lng, "gps");
-      },
-      () => { clearTimeout(timer); run(null, null, "denied"); },
-      GPS_O
-    );
-
-    return () => clearTimeout(timer);
+    /* GPS check is purely for the UI status chip */
+    if (navigator.geolocation) {
+      navigator.geolocation.getCurrentPosition(
+        () => setGpsStatus("gps"),
+        () => setGpsStatus("denied"),
+        GPS_O
+      );
+    } else {
+      setGpsStatus("denied");
+    }
   }, [fetchNearby]);
 
   /* ── Load more ── */
@@ -115,14 +108,14 @@ export default function NearbyPage({ user }) {
     setLoadingMore(true);
     const next = page + 1;
     try {
-      await fetchNearby(coords?.lat, coords?.lng, next, true);
+      await fetchNearby(next, true);
       setPage(next);
     } catch (e) {
       console.error("Load more failed", e);
     } finally {
       setLoadingMore(false);
     }
-  }, [loadingMore, hasMore, page, coords, fetchNearby]);
+  }, [loadingMore, hasMore, page, fetchNearby]);
 
   /* ── Infinite scroll ── */
   useEffect(() => {
@@ -151,10 +144,10 @@ export default function NearbyPage({ user }) {
     productsRef.current = [];
     setProducts([]);
     setPage(0);
-    fetchNearby(coords?.lat, coords?.lng, 0)
+    fetchNearby(0)
       .catch(() => setError("Still failing. Check your connection."))
       .finally(() => setLoading(false));
-  }, [coords, fetchNearby]);
+  }, [fetchNearby]);
 
   return (
     <>
@@ -171,7 +164,6 @@ export default function NearbyPage({ user }) {
           <div className="page-title-wrap">
             <h1 className="page-title">Near You</h1>
             {gpsStatus === "gps" && <span className="sec-chip gn">GPS</span>}
-            {gpsStatus === "ip"  && <span className="sec-chip">Approximate</span>}
           </div>
         </div>
 
@@ -197,7 +189,7 @@ export default function NearbyPage({ user }) {
             <div className="empty-emoji">📍</div>
             <div className="empty-title">No listings nearby</div>
             <div className="empty-sub">
-              Enable GPS for more accurate results, or browse all of Nigeria.
+              Browse all available listings across Nigeria.
             </div>
             <button className="empty-btn" onClick={() => navigate("/")}>
               Browse All
