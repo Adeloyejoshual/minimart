@@ -1,142 +1,184 @@
-// routes/sellerprofile.js
-import express    from "express";
-import { pool } from "../config/db.js"; // shared pool — no second connection
+import express from "express";
+import { Pool } from "pg";
 
 const router = express.Router();
 
-const safeInt = (val) => {
-  const n = parseInt(val, 10);
-  return Number.isFinite(n) && n >= 0 ? n : 0;
-};
+const pool = new Pool({
+  connectionString: process.env.DATABASE_URL,
+});
 
-// GET /api/seller/:id
+/**
+ * GET /api/seller/:id
+ * Public seller profile
+ */
 router.get("/:id", async (req, res) => {
   const { id } = req.params;
-  if (!id) return res.status(400).json({ message: "Invalid seller ID" });
 
   try {
-    const { rows } = await pool.query(
-      `SELECT
-         u.id,
-         u.name,
-         u.email,
-         u.phone_number   AS phone,
-         u.whatsapp,
-         u.country,
-         u.state,
-         u.city,
-         u.profile_image  AS avatar,
-         u.store_name,
-         u.store_description,
-         u.store_logo,
-         u.store_verified,
-         u.is_online,
-         u.trust_score,
-         u.products_count AS total_listings,
-         u.created_at,
-         u.updated_at
-       FROM public.users u
-       WHERE u.id = $1`,
-      [id]
-    );
+    // 1. Get seller basic info
+    const userQuery = `
+      SELECT 
+        id,
+        name,
+        store_name,
+        store_description,
+        store_logo,
+        profile_image,
+        verified,
+        store_verified,
+        rating,
+        products_count,
+        total_sales,
+        created_at,
+        last_login,
+        is_online,
+        trust_score
+      FROM users
+      WHERE id = $1
+      LIMIT 1
+    `;
 
-    if (!rows.length) {
-      return res.status(404).json({ message: "Seller not found" });
+    const userResult = await pool.query(userQuery, [id]);
+
+    if (userResult.rows.length === 0) {
+      return res.status(404).json({ error: "Seller not found" });
     }
 
-    res.json(rows[0]);
-  } catch (err) {
-    console.error("[seller/:id]", err.message);
-    res.status(500).json({ message: "Failed to fetch seller", error: err.message });
-  }
-});
+    const seller = userResult.rows[0];
 
-// GET /api/seller/:id/stats
-router.get("/:id/stats", async (req, res) => {
-  const { id } = req.params;
-  if (!id) return res.status(400).json({ message: "Invalid seller ID" });
+    // 2. Get seller products
+    const productsQuery = `
+      SELECT 
+        id,
+        title,
+        price,
+        slug,
+        main_image,
+        thumbnail_url,
+        views,
+        created_at,
+        is_promoted,
+        promotion_priority
+      FROM products
+      WHERE seller_id = $1
+        AND is_active = true
+        AND status = 'active'
+      ORDER BY 
+        promotion_priority DESC,
+        created_at DESC
+      LIMIT 50
+    `;
 
-  try {
-    const { rows } = await pool.query(
-      `SELECT
-         u.products_count                       AS total_listings,
-         COALESCE(u.total_sales, 0)::int8       AS total_sales,
-         COALESCE(u.rating, 0.0)::numeric(3,2)  AS avg_rating,
-         COUNT(r.id)::int8                      AS rating_count
-       FROM public.users u
-       LEFT JOIN public.products p
-              ON p.seller_id = u.id
-             AND p.is_active = true
-             AND p.status    = 'active'
-       LEFT JOIN public.reviews r ON r.product_id = p.id
-       WHERE u.id = $1
-       GROUP BY u.id`,
-      [id]
-    );
+    const productsResult = await pool.query(productsQuery, [id]);
 
-    if (!rows.length) {
-      return res.status(404).json({ message: "Seller stats not found" });
-    }
+    // 3. Get aggregated stats
+    const statsQuery = `
+      SELECT 
+        COUNT(*) AS total_products,
+        COALESCE(SUM(views), 0) AS total_views,
+        COALESCE(SUM(clicks_count), 0) AS total_clicks,
+        COALESCE(AVG(conversion_rate), 0) AS avg_conversion
+      FROM products
+      WHERE seller_id = $1
+        AND is_active = true
+    `;
 
-    const s = rows[0];
-    res.json({
-      total_listings: safeInt(s.total_listings),
-      total_sales:    safeInt(s.total_sales),
-      avg_rating:     parseFloat(s.avg_rating) || 0,
-      rating_count:   safeInt(s.rating_count),
+    const statsResult = await pool.query(statsQuery, [id]);
+
+    const stats = statsResult.rows[0];
+
+    return res.json({
+      seller,
+      products: productsResult.rows,
+      stats: {
+        total_products: parseInt(stats.total_products, 10),
+        total_views: parseInt(stats.total_views, 10),
+        total_clicks: parseInt(stats.total_clicks, 10),
+        avg_conversion: parseFloat(stats.avg_conversion),
+      },
     });
-  } catch (err) {
-    console.error("[seller/:id/stats]", err.message);
-    res.status(500).json({ message: "Failed to fetch seller stats", error: err.message });
+
+  } catch (error) {
+    console.error("Seller Profile Error:", error);
+    res.status(500).json({ error: "Internal server error" });
   }
 });
 
-// GET /api/seller/:id/products
+
+/**
+ * GET /api/seller/:id/products (pagination support)
+ */
 router.get("/:id/products", async (req, res) => {
   const { id } = req.params;
-  if (!id) return res.status(400).json({ message: "Invalid seller ID" });
+  const { page = 1, limit = 20 } = req.query;
 
-  const limit  = Math.min(safeInt(req.query.limit) || 12, 24);
-  const offset = safeInt(req.query.offset);
+  const offset = (page - 1) * limit;
 
   try {
-    const { rows: products } = await pool.query(
-      `SELECT
-         p.id,
-         p.title,
-         p.slug,
-         p.price,
-         p.stock,
-         p.location_state,
-         p.location_city,
-         p.status,
-         p.views,
-         p.created_at,
-         COALESCE(
-           (
-             SELECT json_agg(pi.image_url ORDER BY pi.is_primary DESC, pi.position_order ASC)
-             FROM public.product_images pi
-             WHERE pi.product_id = p.id
-           ),
-           '[]'
-         ) AS images
-       FROM public.products p
-       WHERE p.seller_id = $1
-         AND p.is_active = true
-         AND p.status    = 'active'
-       ORDER BY p.created_at DESC
-       LIMIT $2 OFFSET $3`,
-      [id, limit, offset]
-    );
+    const query = `
+      SELECT 
+        id,
+        title,
+        price,
+        slug,
+        main_image,
+        thumbnail_url,
+        views,
+        created_at,
+        is_promoted,
+        promotion_priority
+      FROM products
+      WHERE seller_id = $1
+        AND is_active = true
+        AND status = 'active'
+      ORDER BY 
+        promotion_priority DESC,
+        created_at DESC
+      LIMIT $2 OFFSET $3
+    `;
+
+    const result = await pool.query(query, [id, limit, offset]);
 
     res.json({
-      products,
-      meta: { limit, offset, count: products.length },
+      page: Number(page),
+      limit: Number(limit),
+      products: result.rows,
     });
-  } catch (err) {
-    console.error("[seller/:id/products]", err.message);
-    res.status(500).json({ message: "Failed to fetch seller products", error: err.message });
+
+  } catch (error) {
+    console.error("Seller Products Error:", error);
+    res.status(500).json({ error: "Internal server error" });
   }
 });
+
+
+/**
+ * GET /api/seller/:id/stats (optional separate endpoint)
+ */
+router.get("/:id/stats", async (req, res) => {
+  const { id } = req.params;
+
+  try {
+    const statsQuery = `
+      SELECT 
+        COUNT(*) AS total_products,
+        COALESCE(SUM(views), 0) AS total_views,
+        COALESCE(SUM(clicks_count), 0) AS total_clicks,
+        COALESCE(SUM(favorites_count), 0) AS total_favorites,
+        COALESCE(SUM(share_count), 0) AS total_shares
+      FROM products
+      WHERE seller_id = $1
+    `;
+
+    const result = await pool.query(statsQuery, [id]);
+
+    res.json(result.rows[0]);
+
+  } catch (error) {
+    console.error("Seller Stats Error:", error);
+    res.status(500).json({ error: "Internal server error" });
+  }
+});
+
 
 export default router;
