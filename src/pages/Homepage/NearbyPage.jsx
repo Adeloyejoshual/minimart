@@ -1,19 +1,15 @@
 /**
- * pages/NearbyPage.jsx
+ * pages/Homepage/NearbyPage.jsx
  * Route: /nearby
- * Fetches user GPS then loads products by proximity.
- * Falls back to state-level filtering if GPS denied.
- * API: GET /api/products?lat=X&lng=Y&sort=distance&limit=40&page=N
  */
 
-import React, { useCallback, useEffect, useState } from "react";
+import React, { useCallback, useEffect, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
-import TopNav from "../../components/TopNav";
-import BottomNav from "../../components/BottomNav";
+import TopNav      from "../../components/TopNav";
+import BottomNav   from "../../components/BottomNav";
 import MasonryGrid from "../../components/MasonryGrid";
 
-const API =
-  import.meta.env.VITE_API_BASE || "https://minimart-ivrm.onrender.com/api";
+const API   = import.meta.env.VITE_API_BASE || "https://minimart-ivrm.onrender.com/api";
 const GPS_O = { timeout: 6000, enableHighAccuracy: true, maximumAge: 60_000 };
 
 const dedup = (arr) => {
@@ -33,26 +29,32 @@ const SkeletonMasonry = () => (
   </div>
 );
 
-export default function NearbyPage() {
+export default function NearbyPage({ user }) {
   const navigate = useNavigate();
 
-  const [products, setProducts] = useState([]);
-  const [loading, setLoading] = useState(true);
+  const [products,    setProducts]    = useState([]);
+  const [loading,     setLoading]     = useState(true);
   const [loadingMore, setLoadingMore] = useState(false);
-  const [error, setError] = useState(null);
-  const [hasMore, setHasMore] = useState(false);
-  const [page, setPage] = useState(1);
-  const [coords, setCoords] = useState(null);
-  const [locLabel, setLocLabel] = useState(null);
-  const [gpsStatus, setGpsStatus] = useState("pending"); // pending | gps | ip | denied
+  const [error,       setError]       = useState(null);
+  const [hasMore,     setHasMore]     = useState(false);
+  const [page,        setPage]        = useState(1);
+  const [coords,      setCoords]      = useState(null);
+  const [locLabel,    setLocLabel]    = useState(null);
+  const [gpsStatus,   setGpsStatus]   = useState("pending");
 
-  const productsRef = React.useRef([]);
-  const sentinelRef = React.useRef(null);
+  const productsRef = useRef([]);
+  const sentinelRef = useRef(null);
+
+  /* ── Build URL — no unsupported sort params ── */
+  const buildUrl = useCallback((lat, lng, pageNum) => {
+    const params = new URLSearchParams({ status: "active", limit: "40", page: pageNum });
+    if (lat != null) params.set("lat", lat);
+    if (lng != null) params.set("lng", lng);
+    return `${API}/products?${params.toString()}`;
+  }, []);
 
   const fetchNearby = useCallback(async (lat, lng, pageNum, append = false) => {
-    const sep = lat ? `?lat=${lat}&lng=${lng}&` : "?";
-    const url = `${API}/products${sep}sort=distance&status=active&limit=40&page=${pageNum}`;
-    const res = await fetch(url);
+    const res = await fetch(buildUrl(lat, lng, pageNum));
     if (!res.ok) throw new Error(`HTTP ${res.status}`);
     const data = await res.json();
 
@@ -68,58 +70,54 @@ export default function NearbyPage() {
     setProducts(merged);
     setHasMore(incoming.length >= 40);
 
-    // Extract location label from first product or meta
-    if (!append && data.meta?.city) {
-      const { city, state } = data.meta;
-      setLocLabel(city && state ? `${city}, ${state}` : city || state);
-    } else if (!append && merged[0]) {
-      const p = merged[0];
-      const city = p.location_city || p.location?.city;
-      const state = p.location_state || p.location?.state;
-      if (city || state) setLocLabel([city, state].filter(Boolean).join(", "));
+    /* Derive readable location label */
+    if (!append) {
+      const meta  = data.meta || {};
+      const city  = meta.city  || meta.location_city;
+      const state = meta.state || meta.location_state;
+      if (city || state) {
+        setLocLabel([city, state].filter(Boolean).join(", "));
+      } else if (merged[0]) {
+        const p = merged[0];
+        const c = p.location_city || p.location?.city;
+        const s = p.location_state || p.location?.state;
+        if (c || s) setLocLabel([c, s].filter(Boolean).join(", "));
+      }
     }
-  }, []);
+  }, [buildUrl]);
 
+  /* ── Bootstrap ── */
   useEffect(() => {
-    setLoading(true);
-    setError(null);
+    let resolved = false;
 
-    if (!navigator.geolocation) {
-      setGpsStatus("denied");
-      fetchNearby(null, null, 1)
+    const run = (lat, lng, status) => {
+      if (resolved) return;
+      resolved = true;
+      setGpsStatus(status);
+      fetchNearby(lat, lng, 1)
         .catch(() => setError("Could not load nearby listings."))
         .finally(() => setLoading(false));
-      return;
-    }
+    };
 
-    const timer = setTimeout(() => {
-      setGpsStatus("ip");
-      fetchNearby(null, null, 1)
-        .catch(() => setError("Could not load nearby listings."))
-        .finally(() => setLoading(false));
-    }, 6000);
+    if (!navigator.geolocation) { run(null, null, "denied"); return; }
+
+    const timer = setTimeout(() => run(null, null, "ip"), 6000);
 
     navigator.geolocation.getCurrentPosition(
       (pos) => {
         clearTimeout(timer);
         const { latitude: lat, longitude: lng } = pos.coords;
         setCoords({ lat, lng });
-        setGpsStatus("gps");
-        fetchNearby(lat, lng, 1)
-          .catch(() => setError("Could not load nearby listings."))
-          .finally(() => setLoading(false));
+        run(lat, lng, "gps");
       },
-      () => {
-        clearTimeout(timer);
-        setGpsStatus("denied");
-        fetchNearby(null, null, 1)
-          .catch(() => setError("Could not load nearby listings."))
-          .finally(() => setLoading(false));
-      },
+      () => { clearTimeout(timer); run(null, null, "denied"); },
       GPS_O
     );
+
+    return () => clearTimeout(timer);
   }, [fetchNearby]);
 
+  /* ── Load more ── */
   const loadMore = useCallback(async () => {
     if (loadingMore || !hasMore) return;
     setLoadingMore(true);
@@ -134,25 +132,43 @@ export default function NearbyPage() {
     }
   }, [loadingMore, hasMore, page, coords, fetchNearby]);
 
+  /* ── Infinite scroll ── */
   useEffect(() => {
-    const sentinel = sentinelRef.current;
-    if (!sentinel || !hasMore) return;
-    const observer = new IntersectionObserver(
-      (entries) => { if (entries[0].isIntersecting) loadMore(); },
+    const el = sentinelRef.current;
+    if (!el || !hasMore) return;
+    const io = new IntersectionObserver(
+      ([entry]) => { if (entry.isIntersecting) loadMore(); },
       { threshold: 0.1 }
     );
-    observer.observe(sentinel);
-    return () => observer.disconnect();
+    io.observe(el);
+    return () => io.disconnect();
   }, [loadMore, hasMore]);
 
   const trackView = useCallback((id) => {
     fetch(`${API}/products/${id}/view`, { method: "POST" }).catch(() => {});
   }, []);
 
+  const handleClick = useCallback((product) => {
+    fetch(`${API}/products/${product.id}/click`, { method: "POST" }).catch(() => {});
+    navigate(`/product/${product.slug}`);
+  }, [navigate]);
+
+  const retry = useCallback(() => {
+    setError(null);
+    setLoading(true);
+    productsRef.current = [];
+    setProducts([]);
+    fetchNearby(coords?.lat, coords?.lng, 1)
+      .catch(() => setError("Still failing. Check your connection."))
+      .finally(() => setLoading(false));
+  }, [coords, fetchNearby]);
+
   return (
     <>
       <TopNav />
       <div className="pg">
+
+        {/* ── Page header ── */}
         <div className="page-header">
           <button className="back-btn" onClick={() => navigate(-1)} aria-label="Go back">
             <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor">
@@ -160,39 +176,32 @@ export default function NearbyPage() {
             </svg>
           </button>
           <div className="page-title-wrap">
-            <span className="page-title-icon">
-              <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor">
-                <path d="M12 2C8.13 2 5 5.13 5 9c0 5.25 7 13 7 13s7-7.75 7-13c0-3.87-3.13-7-7-7zm0 9.5c-1.38 0-2.5-1.12-2.5-2.5s1.12-2.5 2.5-2.5 2.5 1.12 2.5 2.5-1.12 2.5-2.5 2.5z" />
-              </svg>
-            </span>
             <h1 className="page-title">Near You</h1>
-            {gpsStatus === "gps" && (
-              <span className="sec-chip gn">GPS</span>
-            )}
-            {gpsStatus === "ip" && (
-              <span className="sec-chip">Approximate</span>
-            )}
+            {gpsStatus === "gps" && <span className="sec-chip gn">GPS</span>}
+            {gpsStatus === "ip"  && <span className="sec-chip">Approximate</span>}
           </div>
         </div>
 
-        {locLabel && (
+        {/* ── Location banner ── */}
+        {locLabel && !loading && (
           <div className="nearby-loc-banner">
-            <svg width="13" height="13" viewBox="0 0 24 24" fill="currentColor">
-              <path d="M12 2C8.13 2 5 5.13 5 9c0 5.25 7 13 7 13s7-7.75 7-13c0-3.87-3.13-7-7-7zm0 9.5c-1.38 0-2.5-1.12-2.5-2.5s1.12-2.5 2.5-2.5 2.5 1.12 2.5 2.5-1.12 2.5-2.5 2.5z" />
-            </svg>
             Showing listings near <strong>{locLabel}</strong>
           </div>
         )}
 
+        {/* ── Error ── */}
         {error && (
           <div className="err-box">
-            <div className="err-icon">⚡</div>
+            <div className="err-title">Could not load listings</div>
             <div className="err-msg">{error}</div>
+            <button className="err-btn" onClick={retry}>Try again</button>
           </div>
         )}
 
+        {/* ── Loading skeleton ── */}
         {loading && <SkeletonMasonry />}
 
+        {/* ── Empty state ── */}
         {!loading && !error && products.length === 0 && (
           <div className="empty">
             <div className="empty-emoji">📍</div>
@@ -206,17 +215,19 @@ export default function NearbyPage() {
           </div>
         )}
 
+        {/* ── Results ── */}
         {!loading && products.length > 0 && (
           <>
             <MasonryGrid
               products={products}
               onView={trackView}
-              onClick={(product) => navigate(`/product/${product.slug}`)}
+              onClick={handleClick}
             />
             <div ref={sentinelRef} style={{ height: 1 }} />
             {loadingMore && <p className="loading-more">Loading more…</p>}
           </>
         )}
+
       </div>
       <BottomNav />
     </>
