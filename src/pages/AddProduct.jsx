@@ -147,7 +147,7 @@ export default function AddProductPage() {
   // ── Load categories ────────────────────────────────────────────────────────
 
   useEffect(() => {
-    apiFetch(`${API_BASE}/marketplace/categories`)
+    apiFetch(`${API_BASE}/addproduct/categories`)
       .then((data) => {
         if (Array.isArray(data)) {
           setCategories(data);
@@ -526,7 +526,7 @@ export default function AddProductPage() {
       // apiFetch sets Content-Type: application/json, which destroys the
       // multipart boundary that multer needs on the server.
       const data = await multipartPost(
-        `${API_BASE}/marketplace/products`,
+        `${API_BASE}/addproduct/products`,
         fd,
         token
       );
@@ -542,7 +542,7 @@ export default function AddProductPage() {
       if (!token) throw new ApiError("Authentication required", 401);
 
       return apiFetch(
-        `${API_BASE}/marketplace/products/${productId}/activate`,
+        `${API_BASE}/addproduct/products/${productId}/activate`,
         {
           method:  "POST",
           headers: {
@@ -633,7 +633,7 @@ export default function AddProductPage() {
       if (product?.id) {
         const token = getToken();
         if (token) {
-          fetch(`${API_BASE}/marketplace/products/${product.id}`, {
+          fetch(`${API_BASE}/addproduct/products/${product.id}`, {
             method:  "DELETE",
             headers: { Authorization: `Bearer ${token}` },
           }).catch((e) => console.warn("Draft cleanup failed:", e));
