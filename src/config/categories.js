@@ -12,7 +12,7 @@ const categories = [
   { id: "6609d41f-7fd5-469d-8155-9a7c0a7d05f3", name: "Health & Fitness", icon: "🏋️" },
   { id: "754e63f4-7e20-483c-a9c2-6782e615bd2d", name: "Babies & Kids", icon: "👶" },
   { id: "85d13ecd-a84a-4c39-8358-db890206e280", name: "Art & Collectibles", icon: "🎨" },
-  { id: "8ba64fb7-33a6-415a-a895-38d778a49075", name: "Fashion", icon: "👗" },
+  { id: "8ba64fb7-33a6-415e-a895-38d778a49075", name: "Fashion", icon: "👗" },
   { id: "947ce100-d961-4455-bfbf-c1d33537f11b", name: "Books & Stationery", icon: "📚" },
   { id: "b2345835-2bf3-4749-a1e9-760e8159ecc6", name: "Vehicles", icon: "🚗" },
   { id: "b236303d-3ccf-4169-8321-81243d796481", name: "Gaming", icon: "🎮" },
