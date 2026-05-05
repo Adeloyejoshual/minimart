@@ -147,7 +147,14 @@ export default function App() {
   const handleAuthSuccess = (userData, token) => {
     localStorage.setItem("token", token);
     setUser(userData);
+
+    // Clear stale location so Homepage re-fetches with fresh GPS
+    localStorage.removeItem("lastLocation");
+
     toast.success(`Welcome back, ${userData.name}`);
+
+    // Hard reload forces remount + fresh GPS + no stale cache
+    window.location.href = "/";
   };
 
   return (
@@ -168,7 +175,7 @@ export default function App() {
 
       <Routes>
         {/* ================= PUBLIC ================= */}
-        <Route path="/" element={<Homepage user={user} />} />
+        <Route path="/" element={<Homepage key={user?.id || "guest"} user={user} />} />
         <Route path="/search" element={<SearchPage user={user} />} />
         <Route path="/product/:slug" element={<ProductDetail user={user} />} />
         <Route path="/seller/:id" element={<SellerProfile user={user} />} />
