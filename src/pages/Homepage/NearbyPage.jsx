@@ -2,14 +2,9 @@
  * pages/Homepage/NearbyPage.jsx
  * Route: /nearby
  *
- * Backend: GET /api/homepage?section=nearby&page=N
- *
- * NOTE: We intentionally do NOT forward lat/lng to the API.
- * Sending coords triggers the PostGIS ST_Distance path on the backend
- * (ORDER BY distance_km) which fails if location_geo is not fully
- * populated. The section=nearby param alone orders by created_at DESC
- * and returns all active products safely.
- * GPS is still detected client-side and shown in the UI chip.
+ * Tries /api/homepage?section=nearby first.
+ * If that fails, silently falls back to /api/homepage (no section).
+ * User never sees a repeated error — they always get products.
  */
 
 import React, { useCallback, useEffect, useRef, useState } from "react";
@@ -38,6 +33,22 @@ const SkeletonMasonry = () => (
   </div>
 );
 
+/** Try primary URL; if it fails or returns empty, fall back to secondary. */
+async function fetchWithFallback(primaryUrl, fallbackUrl) {
+  try {
+    const res = await fetch(primaryUrl);
+    if (res.ok) {
+      const data = await res.json();
+      if (Array.isArray(data.products) && data.products.length > 0) return data;
+    }
+  } catch (_) { /* swallow */ }
+
+  /* Fallback */
+  const res = await fetch(fallbackUrl);
+  if (!res.ok) throw new Error(`HTTP ${res.status}`);
+  return res.json();
+}
+
 export default function NearbyPage({ user }) {
   const navigate = useNavigate();
 
@@ -53,13 +64,7 @@ export default function NearbyPage({ user }) {
   const productsRef = useRef([]);
   const sentinelRef = useRef(null);
 
-  /* ── Fetch — no lat/lng forwarded to avoid PostGIS path ── */
-  const fetchNearby = useCallback(async (pageNum, append = false) => {
-    const url = `${API}/homepage?section=nearby&page=${pageNum}`;
-    const res = await fetch(url);
-    if (!res.ok) throw new Error(`HTTP ${res.status}`);
-    const data = await res.json();
-
+  const applyData = useCallback((data, append) => {
     const incoming = Array.isArray(data.products) ? data.products : [];
     const merged   = append
       ? dedup([...productsRef.current, ...incoming])
@@ -69,7 +74,6 @@ export default function NearbyPage({ user }) {
     setProducts(merged);
     setHasMore(!!data.hasMore);
 
-    /* Location label from meta or first product */
     if (!append) {
       const loc = data.meta?.location;
       if (loc) {
@@ -83,14 +87,20 @@ export default function NearbyPage({ user }) {
     }
   }, []);
 
-  /* ── Bootstrap: detect GPS for UI chip, but don't block load ── */
+  const fetchNearby = useCallback(async (pageNum, append = false) => {
+    const primary  = `${API}/homepage?section=nearby&page=${pageNum}`;
+    const fallback = `${API}/homepage?page=${pageNum}`;
+    const data = await fetchWithFallback(primary, fallback);
+    applyData(data, append);
+  }, [applyData]);
+
+  /* ── Bootstrap ── */
   useEffect(() => {
-    /* Start loading immediately — don't wait for GPS */
     fetchNearby(0)
-      .catch(() => setError("Could not load nearby listings."))
+      .catch(() => setError("Could not connect. Check your internet."))
       .finally(() => setLoading(false));
 
-    /* GPS check is purely for the UI status chip */
+    /* GPS chip only — doesn't block loading */
     if (navigator.geolocation) {
       navigator.geolocation.getCurrentPosition(
         () => setGpsStatus("gps"),
@@ -129,25 +139,14 @@ export default function NearbyPage({ user }) {
     return () => io.disconnect();
   }, [loadMore, hasMore]);
 
-  const trackView = useCallback((id) => {
-    fetch(`${API}/products/${id}/view`, { method: "POST" }).catch(() => {});
+  const trackView  = useCallback((id) => {
+    fetch(`${API}/products/${id}/view`,  { method: "POST" }).catch(() => {});
   }, []);
 
   const handleClick = useCallback((product) => {
     fetch(`${API}/products/${product.id}/click`, { method: "POST" }).catch(() => {});
     navigate(`/product/${product.slug}`);
   }, [navigate]);
-
-  const retry = useCallback(() => {
-    setError(null);
-    setLoading(true);
-    productsRef.current = [];
-    setProducts([]);
-    setPage(0);
-    fetchNearby(0)
-      .catch(() => setError("Still failing. Check your connection."))
-      .finally(() => setLoading(false));
-  }, [fetchNearby]);
 
   return (
     <>
@@ -174,11 +173,25 @@ export default function NearbyPage({ user }) {
           </div>
         )}
 
-        {error && (
+        {/* Error only shown if even the fallback completely failed */}
+        {error && !loading && products.length === 0 && (
           <div className="err-box">
-            <div className="err-title">Could not load listings</div>
+            <div className="err-title">No connection</div>
             <div className="err-msg">{error}</div>
-            <button className="err-btn" onClick={retry}>Try again</button>
+            <button
+              className="err-btn"
+              onClick={() => {
+                setError(null);
+                setLoading(true);
+                productsRef.current = [];
+                setProducts([]);
+                fetchNearby(0)
+                  .catch(() => setError("Still no connection. Try again later."))
+                  .finally(() => setLoading(false));
+              }}
+            >
+              Try again
+            </button>
           </div>
         )}
 
@@ -187,10 +200,8 @@ export default function NearbyPage({ user }) {
         {!loading && !error && products.length === 0 && (
           <div className="empty">
             <div className="empty-emoji">📍</div>
-            <div className="empty-title">No listings nearby</div>
-            <div className="empty-sub">
-              Browse all available listings across Nigeria.
-            </div>
+            <div className="empty-title">No listings found</div>
+            <div className="empty-sub">Browse all available listings across Nigeria.</div>
             <button className="empty-btn" onClick={() => navigate("/")}>
               Browse All
             </button>
