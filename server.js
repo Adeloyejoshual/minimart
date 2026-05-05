@@ -183,7 +183,7 @@ import homepageRouter      from "./routes/homepage.js";
 import sellerProfileRouter from "./routes/sellerprofile.js";
 import dashboardRoutes from "./routes/dashboard.js";
 
-app.use("/api/marketplace/sellers", sellerProfileRouter); // ← more specific first
+app.use("/api/seller", sellerProfileRouter); // ← more specific first
 app.use("/api/addproduct",         addproductRouter);
 app.use("/api/users",               userRouter);
 app.use("/api/messages",            messagesRouter);
