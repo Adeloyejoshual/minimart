@@ -112,9 +112,9 @@ const SellerProfile = () => {
         setError(null);
 
         const [sellerRes, statsRes, productsRes] = await Promise.all([
-          fetch(`/api/seller/${id}`),
-          fetch(`/api/seller/${id}/stats`),
-          fetch(`/api/seller/${id}/products?limit=12`),
+          fetch(`/api/marketplace/sellers/${id}`),
+          fetch(`/api/marketplace/sellers/${id}/stats`),
+          fetch(`/api/marketplace/sellers/${id}/products?limit=12`),
         ]);
 
         if (!sellerRes.ok)   throw new Error("Seller not found");
