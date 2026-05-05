@@ -1,0 +1,266 @@
+/* ─────────────────────────────────────────────
+   HamburgerMenu.css — Minimart
+   Slide-in drawer from the left
+   ───────────────────────────────────────────── */
+
+/* ── BACKDROP ── */
+.hm-backdrop {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0);
+  z-index: 1100;
+  pointer-events: none;
+  transition: background 0.3s ease;
+}
+
+.hm-backdrop--open {
+  background: rgba(0, 0, 0, 0.55);
+  pointer-events: all;
+  backdrop-filter: blur(2px);
+  -webkit-backdrop-filter: blur(2px);
+}
+
+/* ── DRAWER ── */
+.hm-drawer {
+  position: fixed;
+  top: 0;
+  left: 0;
+  bottom: 0;
+  width: min(300px, 88vw);
+  background: #0e0e0e;
+  z-index: 1200;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  transform: translateX(-100%);
+  transition: transform 0.32s cubic-bezier(0.4, 0, 0.2, 1);
+  box-shadow: 4px 0 40px rgba(0, 0, 0, 0.5);
+}
+
+.hm-drawer--open {
+  transform: translateX(0);
+}
+
+/* ── HEADER ── */
+.hm-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 18px 18px 14px;
+  border-bottom: 1px solid #1e1e1e;
+  flex-shrink: 0;
+}
+
+.hm-brand {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+}
+
+.hm-brand-mark {
+  width: 30px;
+  height: 30px;
+  border-radius: 7px;
+  background: #e8523a;
+  color: #fff;
+  font-size: 15px;
+  font-weight: 800;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  letter-spacing: -0.5px;
+}
+
+.hm-brand-name {
+  font-size: 17px;
+  font-weight: 700;
+  color: #fff;
+  letter-spacing: -0.3px;
+}
+
+/* ── CLOSE BUTTON ── */
+.hm-close {
+  all: unset;
+  width: 32px;
+  height: 32px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 5px;
+  cursor: pointer;
+  border-radius: 6px;
+  transition: background 0.15s;
+  padding: 4px;
+}
+
+.hm-close:hover {
+  background: #1e1e1e;
+}
+
+.hm-close-line {
+  display: block;
+  width: 16px;
+  height: 1.5px;
+  background: #aaa;
+  border-radius: 2px;
+  transition: background 0.15s;
+}
+
+.hm-close:hover .hm-close-line {
+  background: #fff;
+}
+
+.hm-close-line:first-child {
+  transform: rotate(45deg) translate(2.5px, 2.5px);
+}
+
+.hm-close-line:last-child {
+  transform: rotate(-45deg) translate(2.5px, -2.5px);
+}
+
+/* ── SELL CTA ── */
+.hm-cta-wrap {
+  padding: 14px 16px 4px;
+  flex-shrink: 0;
+}
+
+.hm-cta {
+  all: unset;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+  width: 100%;
+  box-sizing: border-box;
+  padding: 11px 0;
+  border-radius: 10px;
+  background: #e8523a;
+  color: #fff;
+  font-size: 14px;
+  font-weight: 700;
+  cursor: pointer;
+  letter-spacing: 0.01em;
+  transition: background 0.15s, transform 0.12s;
+}
+
+.hm-cta:active {
+  background: #c94430;
+  transform: scale(0.98);
+}
+
+.hm-cta-plus {
+  font-size: 18px;
+  line-height: 1;
+  font-weight: 400;
+}
+
+/* ── NAV ── */
+.hm-nav {
+  flex: 1;
+  overflow-y: auto;
+  overflow-x: hidden;
+  padding: 8px 0 16px;
+  -webkit-overflow-scrolling: touch;
+  scrollbar-width: none;
+}
+
+.hm-nav::-webkit-scrollbar {
+  display: none;
+}
+
+/* ── SECTION ── */
+.hm-section {
+  padding: 10px 0 4px;
+}
+
+.hm-section-label {
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: #444;
+  padding: 0 18px;
+  margin-bottom: 4px;
+}
+
+/* ── ITEM ── */
+.hm-item {
+  all: unset;
+  display: flex;
+  align-items: center;
+  gap: 11px;
+  width: 100%;
+  box-sizing: border-box;
+  padding: 10px 18px;
+  cursor: pointer;
+  transition: background 0.13s;
+  position: relative;
+}
+
+.hm-item:hover,
+.hm-item:focus-visible {
+  background: #181818;
+}
+
+.hm-item--active {
+  background: #161616;
+}
+
+.hm-item-icon {
+  font-size: 14px;
+  color: #555;
+  width: 18px;
+  text-align: center;
+  flex-shrink: 0;
+  transition: color 0.13s;
+}
+
+.hm-item--active .hm-item-icon {
+  color: #e8523a;
+}
+
+.hm-item-label {
+  font-size: 14px;
+  color: #bbb;
+  font-weight: 500;
+  flex: 1;
+  transition: color 0.13s;
+}
+
+.hm-item--active .hm-item-label {
+  color: #fff;
+  font-weight: 600;
+}
+
+.hm-item:hover .hm-item-label {
+  color: #fff;
+}
+
+.hm-item-dot {
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: #e8523a;
+  flex-shrink: 0;
+}
+
+/* ── FOOTER ── */
+.hm-foot {
+  padding: 14px 18px 20px;
+  border-top: 1px solid #1a1a1a;
+  flex-shrink: 0;
+}
+
+.hm-foot-copy {
+  font-size: 11px;
+  color: #444;
+  margin: 0 0 2px;
+}
+
+.hm-foot-sub {
+  font-size: 11px;
+  color: #333;
+  margin: 0;
+}
