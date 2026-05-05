@@ -11,8 +11,8 @@ export const pool = new Pool({
   connectionString: process.env.COCKROACH_URI,
   ssl: { rejectUnauthorized: false },
   max: 10,
-  idleTimeoutMillis: 30_000,
-  connectionTimeoutMillis: 5_000,
+  idleTimeoutMillis: 30000,
+  connectionTimeoutMillis: 5000,
 });
 
 const safeInt = (val) => {
@@ -20,40 +20,34 @@ const safeInt = (val) => {
   return Number.isFinite(n) && n >= 0 ? n : 0;
 };
 
-/* ═══════════════════════════════════════════════
-   GET /api/seller/:id
-═══════════════════════════════════════════════ */
+// GET /api/seller/:id
 router.get("/:id", async (req, res) => {
   const { id } = req.params;
-
-  if (!id || !/^[0-9a-f-]{36}$/i.test(id)) {
-    return res.status(400).json({ message: "Invalid seller ID" });
-  }
+  if (!id) return res.status(400).json({ message: "Invalid seller ID" });
 
   try {
     const { rows } = await pool.query(
       `SELECT
-         u.id,
-         u.name,
-         u.email,
-         u.phone_number      AS phone,
-         u.whatsapp,
-         u.country,
-         u.state,
-         u.city,
-         u.profile_image     AS avatar,
-         u.store_name,
-         u.store_description,
-         u.store_logo,
-         u.store_verified,
-         u.is_online,
-         u.trust_score,
-         u.products_count    AS total_listings,
-         u.created_at,
-         u.updated_at
-       FROM public.users u
-       WHERE u.id = $1
-         AND u.status = 'active'`,
+        u.id,
+        u.name,
+        u.email,
+        u.phone_number   AS phone,
+        u.whatsapp,
+        u.country,
+        u.state,
+        u.city,
+        u.profile_image  AS avatar,
+        u.store_name,
+        u.store_description,
+        u.store_logo,
+        u.store_verified,
+        u.is_online,
+        u.trust_score,
+        u.products_count AS total_listings,
+        u.created_at,
+        u.updated_at
+      FROM public.users u
+      WHERE u.id = $1`,
       [id]
     );
 
@@ -68,31 +62,26 @@ router.get("/:id", async (req, res) => {
   }
 });
 
-/* ═══════════════════════════════════════════════
-   GET /api/seller/:id/stats
-═══════════════════════════════════════════════ */
+// GET /api/seller/:id/stats
 router.get("/:id/stats", async (req, res) => {
   const { id } = req.params;
-
-  if (!id || !/^[0-9a-f-]{36}$/i.test(id)) {
-    return res.status(400).json({ message: "Invalid seller ID" });
-  }
+  if (!id) return res.status(400).json({ message: "Invalid seller ID" });
 
   try {
     const { rows } = await pool.query(
       `SELECT
-         u.products_count                           AS total_listings,
-         COALESCE(u.total_sales, 0)::int8           AS total_sales,
-         COALESCE(u.rating,      0.0)::numeric(3,2) AS avg_rating,
-         COUNT(r.id)::int8                          AS rating_count
-       FROM public.users u
-       LEFT JOIN public.products p
-              ON p.seller_id = u.id
-             AND p.is_active = true
-             AND p.status    = 'active'
-       LEFT JOIN public.reviews r ON r.product_id = p.id
-       WHERE u.id = $1
-       GROUP BY u.id`,
+        u.products_count                            AS total_listings,
+        COALESCE(u.total_sales, 0)::int8            AS total_sales,
+        COALESCE(u.rating, 0.0)::numeric(3,2)       AS avg_rating,
+        COUNT(r.id)::int8                           AS rating_count
+      FROM public.users u
+      LEFT JOIN public.products p
+             ON p.seller_id = u.id
+            AND p.is_active = true
+            AND p.status = 'active'
+      LEFT JOIN public.reviews r ON r.product_id = p.id
+      WHERE u.id = $1
+      GROUP BY u.id`,
       [id]
     );
 
@@ -113,16 +102,10 @@ router.get("/:id/stats", async (req, res) => {
   }
 });
 
-/* ═══════════════════════════════════════════════
-   GET /api/seller/:id/products
-   Query params: limit (max 24, default 12), offset
-═══════════════════════════════════════════════ */
+// GET /api/seller/:id/products
 router.get("/:id/products", async (req, res) => {
   const { id } = req.params;
-
-  if (!id || !/^[0-9a-f-]{36}$/i.test(id)) {
-    return res.status(400).json({ message: "Invalid seller ID" });
-  }
+  if (!id) return res.status(400).json({ message: "Invalid seller ID" });
 
   const limit  = Math.min(safeInt(req.query.limit) || 12, 24);
   const offset = safeInt(req.query.offset);
@@ -130,25 +113,25 @@ router.get("/:id/products", async (req, res) => {
   try {
     const { rows: products } = await pool.query(
       `SELECT
-         p.id,
-         p.title,
-         p.slug,
-         p.description,
-         p.price,
-         p.stock,
-         p.main_image,
-         p.thumbnail_url,
-         p.location_state,
-         p.location_city,
-         p.status,
-         p.views,
-         p.created_at
-       FROM public.products p
-       WHERE p.seller_id = $1
-         AND p.is_active = true
-         AND p.status    = 'active'
-       ORDER BY p.created_at DESC
-       LIMIT $2 OFFSET $3`,
+        p.id,
+        p.title,
+        p.slug,
+        p.description,
+        p.price,
+        p.stock,
+        p.main_image,
+        p.thumbnail_url,
+        p.location_state,
+        p.location_city,
+        p.status,
+        p.views,
+        p.created_at
+      FROM public.products p
+      WHERE p.seller_id = $1
+        AND p.is_active = true
+        AND p.status = 'active'
+      ORDER BY p.created_at DESC
+      LIMIT $2 OFFSET $3`,
       [id, limit, offset]
     );
 
