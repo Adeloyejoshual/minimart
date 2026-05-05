@@ -173,7 +173,7 @@ import "./jobs/expirePromotions.js";
    the first prefix that fits, so /api/marketplace/sellers
    must come before /api/marketplace.
 ========================================= */
-import marketplaceRouter   from "./routes/addproduct.js";
+import addproductRouter   from "./routes/addproduct.js";
 import userRouter          from "./routes/users.js";
 import messagesRouter      from "./routes/messages.js";
 import adminRouter         from "./routes/admin.js";
@@ -184,7 +184,7 @@ import sellerProfileRouter from "./routes/sellerprofile.js";
 import dashboardRoutes from "./routes/dashboard.js";
 
 app.use("/api/marketplace/sellers", sellerProfileRouter); // ← more specific first
-app.use("/api/marketplace",         marketplaceRouter);
+app.use("/api/addproduct",         addproductRouter);
 app.use("/api/users",               userRouter);
 app.use("/api/messages",            messagesRouter);
 app.use("/api/admin",               adminRouter);
