@@ -1,6 +1,9 @@
 /**
  * pages/Homepage/NearbyPage.jsx
  * Route: /nearby
+ *
+ * Backend: GET /api/homepage?section=nearby&lat=X&lng=Y&page=N
+ * page is 0-based (offset = page * 40)
  */
 
 import React, { useCallback, useEffect, useRef, useState } from "react";
@@ -37,7 +40,7 @@ export default function NearbyPage({ user }) {
   const [loadingMore, setLoadingMore] = useState(false);
   const [error,       setError]       = useState(null);
   const [hasMore,     setHasMore]     = useState(false);
-  const [page,        setPage]        = useState(1);
+  const [page,        setPage]        = useState(0); // 0-based
   const [coords,      setCoords]      = useState(null);
   const [locLabel,    setLocLabel]    = useState(null);
   const [gpsStatus,   setGpsStatus]   = useState("pending");
@@ -45,12 +48,12 @@ export default function NearbyPage({ user }) {
   const productsRef = useRef([]);
   const sentinelRef = useRef(null);
 
-  /* ── Build URL — no unsupported sort params ── */
+  /* ── Correct endpoint: /api/homepage?section=nearby ── */
   const buildUrl = useCallback((lat, lng, pageNum) => {
-    const params = new URLSearchParams({ status: "active", limit: "40", page: pageNum });
+    const params = new URLSearchParams({ section: "nearby", page: pageNum });
     if (lat != null) params.set("lat", lat);
     if (lng != null) params.set("lng", lng);
-    return `${API}/products?${params.toString()}`;
+    return `${API}/homepage?${params.toString()}`;
   }, []);
 
   const fetchNearby = useCallback(async (lat, lng, pageNum, append = false) => {
@@ -58,9 +61,7 @@ export default function NearbyPage({ user }) {
     if (!res.ok) throw new Error(`HTTP ${res.status}`);
     const data = await res.json();
 
-    const incoming = Array.isArray(data.products)
-      ? data.products
-      : Array.isArray(data) ? data : [];
+    const incoming = Array.isArray(data.products) ? data.products : [];
 
     const merged = append
       ? dedup([...productsRef.current, ...incoming])
@@ -68,25 +69,16 @@ export default function NearbyPage({ user }) {
 
     productsRef.current = merged;
     setProducts(merged);
-    setHasMore(incoming.length >= 40);
+    setHasMore(!!data.hasMore);
 
-    /* Derive readable location label */
-    if (!append) {
-      const meta  = data.meta || {};
-      const city  = meta.city  || meta.location_city;
-      const state = meta.state || meta.location_state;
-      if (city || state) {
-        setLocLabel([city, state].filter(Boolean).join(", "));
-      } else if (merged[0]) {
-        const p = merged[0];
-        const c = p.location_city || p.location?.city;
-        const s = p.location_state || p.location?.state;
-        if (c || s) setLocLabel([c, s].filter(Boolean).join(", "));
-      }
+    /* Location label from meta */
+    if (!append && data.meta) {
+      const loc = data.meta.location;
+      if (loc) setLocLabel(loc);
     }
   }, [buildUrl]);
 
-  /* ── Bootstrap ── */
+  /* ── Bootstrap: ask GPS, fall back gracefully ── */
   useEffect(() => {
     let resolved = false;
 
@@ -94,7 +86,7 @@ export default function NearbyPage({ user }) {
       if (resolved) return;
       resolved = true;
       setGpsStatus(status);
-      fetchNearby(lat, lng, 1)
+      fetchNearby(lat, lng, 0)
         .catch(() => setError("Could not load nearby listings."))
         .finally(() => setLoading(false));
     };
@@ -158,7 +150,8 @@ export default function NearbyPage({ user }) {
     setLoading(true);
     productsRef.current = [];
     setProducts([]);
-    fetchNearby(coords?.lat, coords?.lng, 1)
+    setPage(0);
+    fetchNearby(coords?.lat, coords?.lng, 0)
       .catch(() => setError("Still failing. Check your connection."))
       .finally(() => setLoading(false));
   }, [coords, fetchNearby]);
@@ -189,7 +182,6 @@ export default function NearbyPage({ user }) {
           </div>
         )}
 
-        {/* ── Error ── */}
         {error && (
           <div className="err-box">
             <div className="err-title">Could not load listings</div>
@@ -198,10 +190,8 @@ export default function NearbyPage({ user }) {
           </div>
         )}
 
-        {/* ── Loading skeleton ── */}
         {loading && <SkeletonMasonry />}
 
-        {/* ── Empty state ── */}
         {!loading && !error && products.length === 0 && (
           <div className="empty">
             <div className="empty-emoji">📍</div>
@@ -215,7 +205,6 @@ export default function NearbyPage({ user }) {
           </div>
         )}
 
-        {/* ── Results ── */}
         {!loading && products.length > 0 && (
           <>
             <MasonryGrid
