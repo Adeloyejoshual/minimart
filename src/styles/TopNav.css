@@ -18,7 +18,7 @@
 .tn-header {
   display: flex;
   align-items: center;
-  justify-content: space-between;
+  justify-content: flex-start;
   padding: 11px 16px 10px;
   gap: 10px;
 }
@@ -37,6 +37,57 @@
   letter-spacing: -.01em;
 }
 .tn-brand span { color: #FF5C00; }
+
+/* ── HAMBURGER BUTTON ───────────────────────── */
+.tn-hamburger {
+  all: unset;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  align-items: flex-start;
+  gap: 5px;
+  width: 36px;
+  height: 36px;
+  border-radius: 8px;
+  cursor: pointer;
+  flex-shrink: 0;
+  padding: 6px;
+  box-sizing: border-box;
+  transition: background 0.15s;
+}
+
+.tn-hamburger:hover,
+.tn-hamburger:focus-visible {
+  background: #F7F4EF;
+}
+
+.tn-hamburger:active {
+  background: #EAE6E0;
+}
+
+.tn-ham-line {
+  display: block;
+  height: 2px;
+  background: #2a2a2a;
+  border-radius: 2px;
+  transition: width 0.2s ease;
+}
+
+/* Full-width top & bottom lines */
+.tn-ham-line:nth-child(1),
+.tn-ham-line:nth-child(3) {
+  width: 20px;
+}
+
+/* Shorter middle line — refined look */
+.tn-ham-line--mid {
+  width: 13px;
+}
+
+/* Middle line slides to full width on hover */
+.tn-hamburger:hover .tn-ham-line--mid {
+  width: 20px;
+}
 
 /* ── SEARCH ROW ──────────────────────────────── */
 .tn-search-row {
