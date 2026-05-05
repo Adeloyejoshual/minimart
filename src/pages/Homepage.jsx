@@ -13,27 +13,26 @@ import React, {
 } from "react";
 import { useNavigate } from "react-router-dom";
 import { useProductCache } from "../context/ProductCacheContext";
-import TopNav       from "../components/TopNav";
-import BottomNav    from "../components/BottomNav";
-import Footer       from "../components/Footer";
-import MasonryGrid  from "../components/MasonryGrid";
-import OverlayCard  from "../components/OverlayCard";
-import { PinIcon, naira, getImageUrl, formatCity } from "../components/MasonryCard";
+import TopNav      from "../components/TopNav";
+import BottomNav   from "../components/BottomNav";
+import Footer      from "../components/Footer";
+import MasonryGrid from "../components/MasonryGrid";
+import OverlayCard from "../components/OverlayCard";
+import { PinIcon, naira, getImageUrl } from "../components/MasonryCard";
 import CATEGORY_CONFIG from "../config/categories";
 import "../styles/Homepage.css";
 
 /* ─── Constants ─────────────────────────────────────────── */
-const API =
-  import.meta.env.VITE_API_BASE || "https://minimart-ivrm.onrender.com/api";
-const PH =
-  "https://placehold.co/600x500/e8e4dc/b0a89e?text=No+Image";
-const HOVER = 900;
+const API = import.meta.env.VITE_API_BASE || "https://minimart-ivrm.onrender.com/api";
+const PH  = "https://placehold.co/600x500/e8e4dc/b0a89e?text=No+Image";
+
 const GPS_O = {
-  timeout: 5000,
+  timeout:            5000,
   enableHighAccuracy: false,
-  maximumAge: 300_000,
+  maximumAge:         300_000,
 };
-const CAT_ALL = { name: "All", icon: "✦" };
+
+const CAT_ALL           = { name: "All", icon: "✦" };
 const ALL_PRODUCTS_LIMIT = 40;
 
 /* ─── Helpers ────────────────────────────────────────────── */
@@ -44,26 +43,12 @@ const dedup = (arr) => {
   return arr.filter((p) => !seen.has(p.id) && seen.add(p.id));
 };
 
-/** Format large numbers: 1000 → +1k, 2500 → +2.5k, 1000000 → +1m */
+/** Format large numbers: 1050 → +1k, 2500 → +2.5k, 1000000 → +1m */
 const formatCount = (n) => {
   if (!n || n < 1000) return `${n}+`;
   if (n >= 1_000_000) return `+${Math.floor(n / 1_000_000)}m`;
   const k = n / 1000;
   return `+${Number.isInteger(k) ? k : k.toFixed(1)}k`;
-};
-
-
-/** Haversine distance between two GPS coords — returns km */
-const getDistanceKm = (lat1, lon1, lat2, lon2) => {
-  const R = 6371;
-  const dLat = ((lat2 - lat1) * Math.PI) / 180;
-  const dLon = ((lon2 - lon1) * Math.PI) / 180;
-  const a =
-    Math.sin(dLat / 2) ** 2 +
-    Math.cos((lat1 * Math.PI) / 180) *
-      Math.cos((lat2 * Math.PI) / 180) *
-      Math.sin(dLon / 2) ** 2;
-  return R * (2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a)));
 };
 
 /** Fisher-Yates shuffle — returns a new array, never mutates */
@@ -76,6 +61,18 @@ const shuffle = (arr) => {
   return a;
 };
 
+/** Haversine distance between two GPS coords — returns km */
+const getDistanceKm = (lat1, lon1, lat2, lon2) => {
+  const R    = 6371;
+  const dLat = ((lat2 - lat1) * Math.PI) / 180;
+  const dLon = ((lon2 - lon1) * Math.PI) / 180;
+  const a =
+    Math.sin(dLat / 2) ** 2 +
+    Math.cos((lat1 * Math.PI) / 180) *
+      Math.cos((lat2 * Math.PI) / 180) *
+      Math.sin(dLon / 2) ** 2;
+  return R * (2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a)));
+};
 
 const splitProducts = (products) => ({
   featured: products.filter((p) => p.is_promoted).slice(0, 3),
@@ -83,25 +80,20 @@ const splitProducts = (products) => ({
     .filter((p) => p.distance_km != null || p.location?.city || p.location_city)
     .slice(0, 10),
   trending: products
-    .filter(
-      (p) => (p.engagement_score || 0) > 20 || (p.clicks_count || 0) > 10
-    )
+    .filter((p) => (p.engagement_score || 0) > 20 || (p.clicks_count || 0) > 10)
     .sort((a, b) => (b.engagement_score || 0) - (a.engagement_score || 0))
     .slice(0, 20),
   deals: shuffle(products.filter((p) => Number(p.price) <= 50_000)).slice(0, 20),
-  /* New Arrivals still respects recency — only real new items */
   latest: [...products]
     .sort((a, b) => new Date(b.created_at) - new Date(a.created_at))
     .slice(0, 20),
   recommended: products
     .filter((p) => (p.recommendation_score || p.ctr || 0) > 0)
-    .sort(
-      (a, b) =>
-        (b.recommendation_score || b.ctr || 0) -
-        (a.recommendation_score || a.ctr || 0)
+    .sort((a, b) =>
+      (b.recommendation_score || b.ctr || 0) -
+      (a.recommendation_score || a.ctr || 0)
     )
     .slice(0, 20),
-  /* All Products — randomised, not chronological */
   all: shuffle(products),
 });
 
@@ -114,20 +106,10 @@ const heroLocation = (meta) => {
   return meta?.location || null;
 };
 
-const getBadge = (p) => {
-  if (p.is_promoted)       return { text: "Sponsored",  className: "bd-feat" };
-  if ((p.ctr || 0) > 0.15) return { text: "Hot",        className: "bd-hot"  };
-  if ((p.ctr || 0) > 0.08) return { text: "Trending",   className: "bd-trnd" };
-  if (fresh(p.created_at)) return { text: "New",        className: "bd-new"  };
-  return null;
-};
-
 /* ─── Skeletons ──────────────────────────────────────────── */
 const SkeletonRow = () => (
   <div className="row">
-    {[...Array(5)].map((_, i) => (
-      <div key={i} className="sk sk-co" />
-    ))}
+    {[...Array(5)].map((_, i) => <div key={i} className="sk sk-co" />)}
   </div>
 );
 
@@ -139,14 +121,6 @@ const SkeletonMasonry = () => (
         className="sk sk-masonry"
         style={{ height: `${160 + (i % 4) * 55}px` }}
       />
-    ))}
-  </div>
-);
-
-const SkeletonGrid = () => (
-  <div className="grid2">
-    {[...Array(4)].map((_, i) => (
-      <div key={i} className="sk sk-ct" />
     ))}
   </div>
 );
@@ -168,12 +142,11 @@ const SectionHead = memo(function SectionHead({ title, chip, onSeeAll }) {
   );
 });
 
-/* ─── Inline Empty ───────────────────────────────────────── */
 const InlineEmpty = ({ message }) => (
   <p className="inline-empty">{message}</p>
 );
 
-/* ─── FeaturedCard (inline, kept from v1) ────────────────── */
+/* ─── FeaturedCard ───────────────────────────────────────── */
 const FeaturedCard = memo(({ product, onClick }) => {
   const imageUrl = getImageUrl(product);
   return (
@@ -218,90 +191,34 @@ export default function Homepage({ user }) {
     setProducts,
     setLoaded,
     products: cachedProducts,
-    loaded: cacheLoaded,
+    loaded:   cacheLoaded,
   } = useProductCache();
 
   /* ── State ── */
   const [allProducts, setAllProducts] = useState([]);
-  const [sections, setSections] = useState({
+  const [sections,    setSections]    = useState({
     featured: [], nearby: [], trending: [],
     deals: [], latest: [], recommended: [], all: [],
   });
-  const [meta, setMeta]       = useState({});
+  const [meta,    setMeta]    = useState({});
   const [loading, setLoading] = useState(true);
-  const [error, setError]     = useState(null);
+  const [error,   setError]   = useState(null);
 
   /* ── Category state ── */
   const [activeCategory, setActiveCategory] = useState("All");
-  const [catProducts, setCatProducts]       = useState(null);
-  const [catLoading, setCatLoading]         = useState(false);
-  const [catError, setCatError]             = useState(null);
+  const [catProducts,    setCatProducts]    = useState(null);
+  const [catLoading,     setCatLoading]     = useState(false);
+  const [catError,       setCatError]       = useState(null);
 
   /* ── All-products pagination ── */
   const [allVisible, setAllVisible] = useState(ALL_PRODUCTS_LIMIT);
 
-  const productsRef    = useRef([]);
-  const catAbortRef    = useRef(null);
-  const sentinelRef    = useRef(null);
-  const lastLocationRef = useRef(null); // for movement detection
+  const productsRef     = useRef([]);
+  const catAbortRef     = useRef(null);
+  const sentinelRef     = useRef(null);
+  const lastLocationRef = useRef(null); // for movement-aware refresh
 
-  /* ── 1. Bootstrap ── */
-  useEffect(() => {
-    if (cacheLoaded && cachedProducts?.length > 0) {
-      productsRef.current = cachedProducts;
-      setAllProducts(cachedProducts);
-      setSections(splitProducts(cachedProducts));
-      setLoading(false);
-    } else {
-      loadHomepage();
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
-
-  /* ── 2. 30-minute full refresh ── */
-  useEffect(() => {
-    const interval = setInterval(() => {
-      loadHomepage();
-    }, 1_800_000); // 30 min
-    return () => clearInterval(interval);
-  }, [loadHomepage]);
-
-  /* ── 3. Smart movement detection (every 5 min, reload only if moved > 2 km) ── */
-  useEffect(() => {
-    if (!navigator.geolocation) return;
-
-    const checkMovement = () => {
-      navigator.geolocation.getCurrentPosition(
-        (pos) => {
-          const { latitude, longitude } = pos.coords;
-
-          if (!lastLocationRef.current) {
-            lastLocationRef.current = { latitude, longitude };
-            return;
-          }
-
-          const prev = lastLocationRef.current;
-          const moved = getDistanceKm(
-            prev.latitude, prev.longitude,
-            latitude,      longitude
-          );
-
-          if (moved > 2) {
-            lastLocationRef.current = { latitude, longitude };
-            loadHomepage();
-          }
-        },
-        () => {}, // silently ignore GPS errors
-        { enableHighAccuracy: false, maximumAge: 300_000, timeout: 5000 }
-      );
-    };
-
-    const interval = setInterval(checkMovement, 300_000); // every 5 min
-    return () => clearInterval(interval);
-  }, [loadHomepage]);
-
-
-  /* ── 3. Apply fetched data ── */
+  /* ── Apply fetched data ── */
   const applyData = useCallback(
     (data) => {
       const incoming =
@@ -325,7 +242,7 @@ export default function Homepage({ user }) {
     [setProducts, setLoaded]
   );
 
-  /* ── 5. Load homepage feed ── */
+  /* ── Load homepage feed ── */
   const loadHomepage = useCallback(async () => {
     setLoading(true);
     setError(null);
@@ -351,9 +268,7 @@ export default function Homepage({ user }) {
             (pos) => {
               finish(() => {
                 clearTimeout(timeout);
-                fetchData(
-                  `?lat=${pos.coords.latitude}&lng=${pos.coords.longitude}`
-                )
+                fetchData(`?lat=${pos.coords.latitude}&lng=${pos.coords.longitude}`)
                   .then(resolve)
                   .catch(() => fetchData().then(resolve).catch(reject));
               });
@@ -383,7 +298,56 @@ export default function Homepage({ user }) {
     }
   }, [applyData]);
 
-  /* ── 6. Category filter ── */
+  /* ── 1. Bootstrap ── */
+  useEffect(() => {
+    if (cacheLoaded && cachedProducts?.length > 0) {
+      productsRef.current = cachedProducts;
+      setAllProducts(cachedProducts);
+      setSections(splitProducts(cachedProducts));
+      setLoading(false);
+    } else {
+      loadHomepage();
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  /* ── 2. 30-min full refresh ── */
+  useEffect(() => {
+    const id = setInterval(() => loadHomepage(), 1_800_000);
+    return () => clearInterval(id);
+  }, [loadHomepage]);
+
+  /* ── 3. Movement-aware refresh (every 5 min, reload only if moved > 2 km) ── */
+  useEffect(() => {
+    if (!navigator.geolocation) return;
+
+    const checkMovement = () => {
+      navigator.geolocation.getCurrentPosition(
+        ({ coords: { latitude, longitude } }) => {
+          const prev = lastLocationRef.current;
+          if (!prev) {
+            lastLocationRef.current = { latitude, longitude };
+            return;
+          }
+          const moved = getDistanceKm(
+            prev.latitude, prev.longitude,
+            latitude, longitude
+          );
+          if (moved > 2) {
+            lastLocationRef.current = { latitude, longitude };
+            loadHomepage();
+          }
+        },
+        () => {},
+        { enableHighAccuracy: false, maximumAge: 300_000, timeout: 5000 }
+      );
+    };
+
+    const id = setInterval(checkMovement, 300_000);
+    return () => clearInterval(id);
+  }, [loadHomepage]);
+
+  /* ── 4. Category filter ── */
   const handleCategorySelect = useCallback(
     async (catName) => {
       if (catName === activeCategory) return;
@@ -401,22 +365,18 @@ export default function Homepage({ user }) {
       setCatProducts([]);
 
       try {
-        /* Look up UUID directly from CATEGORY_CONFIG — matches DB exactly */
         const match = CATEGORY_CONFIG.find(
           (c) => c.name === catName || c.name?.toLowerCase() === catName.toLowerCase()
         );
 
         const url = match?.id
-          ? `${API}/products?category_id=${match.id}&status=active&limit=40`
-          : `${API}/products?category=${encodeURIComponent(catName)}&status=active&limit=40`;
+          ? `${API}/homepage?category_id=${match.id}&page=0`
+          : `${API}/homepage?page=0`;
 
-        const res = await fetch(url, { signal: catAbortRef.current.signal });
+        const res  = await fetch(url, { signal: catAbortRef.current.signal });
         if (!res.ok) throw new Error(`HTTP ${res.status}`);
         const data = await res.json();
-        const prods = Array.isArray(data.products)
-          ? data.products
-          : Array.isArray(data) ? data : [];
-        /* Shuffle so results are not ordered by insert time */
+        const prods = Array.isArray(data.products) ? data.products : [];
         setCatProducts(shuffle(dedup(prods)));
       } catch (e) {
         if (e.name === "AbortError") return;
@@ -452,7 +412,6 @@ export default function Homepage({ user }) {
   const allCats      = [CAT_ALL, ...CATEGORY_CONFIG];
   const activeCatObj = CATEGORY_CONFIG.find((c) => c.name === activeCategory);
 
-  /* ── Hero listing count ── */
   const heroListingCount = useMemo(
     () => formatCount((productsRef.current.length || 0) + 1000),
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -551,7 +510,6 @@ export default function Homepage({ user }) {
         {/* ── Error Banner ── */}
         {error && (
           <div className="err-box">
-            <div className="err-icon">⚡</div>
             <div className="err-title">Marketplace unavailable</div>
             <div className="err-msg">{error}</div>
             <button className="err-btn" onClick={loadHomepage}>
@@ -602,7 +560,6 @@ export default function Homepage({ user }) {
         ════════════════════════════════════ */}
         {activeCategory === "All" && (
           <>
-            {/* Global empty state */}
             {!loading && !error && sections.latest.length === 0 && (
               <div className="empty">
                 <div className="empty-emoji">🛍</div>
@@ -616,14 +573,12 @@ export default function Homepage({ user }) {
               </div>
             )}
 
-            {/* ── Featured (Sponsored) ── */}
+            {/* Featured */}
             {(loading || sections.featured.length > 0) && (
               <div className="sec anim anim-3">
                 <SectionHead title="Featured" />
                 {loading ? (
-                  <div className="feat-wrap">
-                    <div className="sk sk-ft" />
-                  </div>
+                  <div className="feat-wrap"><div className="sk sk-ft" /></div>
                 ) : (
                   <div className="feat-wrap">
                     {sections.featured.map((product) => (
@@ -638,7 +593,7 @@ export default function Homepage({ user }) {
               </div>
             )}
 
-            {/* ── Near You ── */}
+            {/* Near You */}
             {(loading || sections.nearby.length > 0) && (
               <div className="sec anim anim-4">
                 <SectionHead
@@ -655,17 +610,12 @@ export default function Homepage({ user }) {
                   }
                   onSeeAll={() => navigate("/nearby")}
                 />
-                {loading ? (
-                  <SkeletonRow />
-                ) : (
+                {loading ? <SkeletonRow /> : (
                   <div className="row">
                     {sections.nearby.map((p, i) => (
                       <OverlayCard
-                        key={p.id}
-                        product={p}
-                        priority={i === 0}
-                        onView={trackView}
-                        onClick={handleProductClick}
+                        key={p.id} product={p} priority={i === 0}
+                        onView={trackView} onClick={handleProductClick}
                       />
                     ))}
                   </div>
@@ -675,25 +625,17 @@ export default function Homepage({ user }) {
 
             <div className="divider" />
 
-            {/* ── Trending ── */}
+            {/* Trending */}
             <div className="sec anim anim-5">
-              <SectionHead
-                title="Trending"
-                onSeeAll={() => navigate("/trending")}
-              />
-              {loading ? (
-                <SkeletonRow />
-              ) : sections.trending.length === 0 ? (
+              <SectionHead title="Trending" onSeeAll={() => navigate("/trending")} />
+              {loading ? <SkeletonRow /> : sections.trending.length === 0 ? (
                 <InlineEmpty message="Nothing trending yet" />
               ) : (
                 <div className="row">
                   {sections.trending.map((p, i) => (
                     <OverlayCard
-                      key={p.id}
-                      product={p}
-                      rank={i}
-                      onView={trackView}
-                      onClick={handleProductClick}
+                      key={p.id} product={p} rank={i}
+                      onView={trackView} onClick={handleProductClick}
                     />
                   ))}
                 </div>
@@ -702,24 +644,19 @@ export default function Homepage({ user }) {
 
             <div className="divider" />
 
-            {/* ── Recommended For You ── */}
+            {/* Recommended */}
             {(loading || sections.recommended.length > 0) && (
               <div className="sec">
                 <SectionHead
                   title="Recommended For You"
                   onSeeAll={() => navigate("/recommended")}
                 />
-                {loading ? (
-                  <SkeletonRow />
-                ) : (
+                {loading ? <SkeletonRow /> : (
                   <div className="row">
                     {sections.recommended.map((p, i) => (
                       <OverlayCard
-                        key={p.id}
-                        product={p}
-                        priority={i === 0}
-                        onView={trackView}
-                        onClick={handleProductClick}
+                        key={p.id} product={p} priority={i === 0}
+                        onView={trackView} onClick={handleProductClick}
                       />
                     ))}
                   </div>
@@ -729,47 +666,29 @@ export default function Homepage({ user }) {
 
             <div className="divider" />
 
-            {/* ── Cheap Deals ── */}
+            {/* Cheap Deals */}
             <div className="sec">
-              <SectionHead
-                title="Cheap Deals"
-                chip="Under ₦50k"
-                onSeeAll={() => navigate("/deals")}
-              />
-              {loading ? (
-                <SkeletonMasonry />
-              ) : sections.deals.length === 0 ? (
+              <SectionHead title="Cheap Deals" chip="Under ₦50k" onSeeAll={() => navigate("/deals")} />
+              {loading ? <SkeletonMasonry /> : sections.deals.length === 0 ? (
                 <InlineEmpty message="No deals right now" />
               ) : (
-                <MasonryGrid
-                  products={sections.deals}
-                  onView={trackView}
-                  onClick={handleProductClick}
-                />
+                <MasonryGrid products={sections.deals} onView={trackView} onClick={handleProductClick} />
               )}
             </div>
 
             <div className="divider" />
 
-            {/* ── New Arrivals ── */}
+            {/* New Arrivals */}
             <div className="sec">
-              <SectionHead
-                title="New Arrivals"
-                onSeeAll={() => navigate("/latest")}
-              />
-              {loading ? (
-                <SkeletonRow />
-              ) : sections.latest.length === 0 ? (
+              <SectionHead title="New Arrivals" onSeeAll={() => navigate("/latest")} />
+              {loading ? <SkeletonRow /> : sections.latest.length === 0 ? (
                 <InlineEmpty message="No listings yet" />
               ) : (
                 <div className="row">
                   {sections.latest.map((p, i) => (
                     <OverlayCard
-                      key={p.id}
-                      product={p}
-                      priority={i === 0}
-                      onView={trackView}
-                      onClick={handleProductClick}
+                      key={p.id} product={p} priority={i === 0}
+                      onView={trackView} onClick={handleProductClick}
                     />
                   ))}
                 </div>
@@ -778,15 +697,10 @@ export default function Homepage({ user }) {
 
             <div className="divider" />
 
-            {/* ── All Products ── */}
+            {/* All Products */}
             <div className="sec">
-              <SectionHead
-                title="All Products"
-                onSeeAll={() => navigate("/products")}
-              />
-              {loading ? (
-                <SkeletonMasonry />
-              ) : sections.all.length === 0 ? (
+              <SectionHead title="All Products" onSeeAll={() => navigate("/products")} />
+              {loading ? <SkeletonMasonry /> : sections.all.length === 0 ? (
                 <InlineEmpty message="No products yet" />
               ) : (
                 <>
@@ -803,11 +717,9 @@ export default function Homepage({ user }) {
                       Load more ({sections.all.length - allVisible} remaining)
                     </button>
                   )}
-
                 </>
               )}
             </div>
-
           </>
         )}
       </div>
