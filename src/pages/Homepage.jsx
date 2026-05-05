@@ -216,7 +216,9 @@ export default function Homepage({ user }) {
   const productsRef     = useRef([]);
   const catAbortRef     = useRef(null);
   const sentinelRef     = useRef(null);
-  const lastLocationRef = useRef(null); // for movement-aware refresh
+  const lastLocationRef = useRef(
+    JSON.parse(localStorage.getItem("lastLocation") || "null")
+  ); // persisted across sessions
 
   /* ── Apply fetched data ── */
   const applyData = useCallback(
@@ -268,7 +270,10 @@ export default function Homepage({ user }) {
             (pos) => {
               finish(() => {
                 clearTimeout(timeout);
-                fetchData(`?lat=${pos.coords.latitude}&lng=${pos.coords.longitude}`)
+                const { latitude, longitude } = pos.coords;
+                lastLocationRef.current = { latitude, longitude };
+                localStorage.setItem("lastLocation", JSON.stringify({ latitude, longitude }));
+                fetchData(`?lat=${latitude}&lng=${longitude}`)
                   .then(resolve)
                   .catch(() => fetchData().then(resolve).catch(reject));
               });
@@ -334,7 +339,9 @@ export default function Homepage({ user }) {
             latitude, longitude
           );
           if (moved > 2) {
-            lastLocationRef.current = { latitude, longitude };
+            const newLoc = { latitude, longitude };
+            lastLocationRef.current = newLoc;
+            localStorage.setItem("lastLocation", JSON.stringify(newLoc));
             loadHomepage();
           }
         },
