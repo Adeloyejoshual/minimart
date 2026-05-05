@@ -52,6 +52,16 @@ const formatCount = (n) => {
   return `+${Number.isInteger(k) ? k : k.toFixed(1)}k`;
 };
 
+/** Fisher-Yates shuffle — returns a new array, never mutates */
+const shuffle = (arr) => {
+  const a = [...arr];
+  for (let i = a.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [a[i], a[j]] = [a[j], a[i]];
+  }
+  return a;
+};
+
 const splitProducts = (products) => ({
   featured: products.filter((p) => p.is_promoted).slice(0, 3),
   nearby: products
@@ -63,7 +73,8 @@ const splitProducts = (products) => ({
     )
     .sort((a, b) => (b.engagement_score || 0) - (a.engagement_score || 0))
     .slice(0, 20),
-  deals: products.filter((p) => Number(p.price) <= 50_000).slice(0, 20),
+  deals: shuffle(products.filter((p) => Number(p.price) <= 50_000)).slice(0, 20),
+  /* New Arrivals still respects recency — only real new items */
   latest: [...products]
     .sort((a, b) => new Date(b.created_at) - new Date(a.created_at))
     .slice(0, 20),
@@ -75,7 +86,8 @@ const splitProducts = (products) => ({
         (a.recommendation_score || a.ctr || 0)
     )
     .slice(0, 20),
-  all: products,
+  /* All Products — randomised, not chronological */
+  all: shuffle(products),
 });
 
 const heroLocation = (meta) => {
@@ -205,7 +217,6 @@ export default function Homepage({ user }) {
   const [error, setError]     = useState(null);
 
   /* ── Category state ── */
-  const [apiCategories, setApiCategories] = useState([]);
   const [activeCategory, setActiveCategory] = useState("All");
   const [catProducts, setCatProducts]       = useState(null);
   const [catLoading, setCatLoading]         = useState(false);
@@ -228,24 +239,9 @@ export default function Homepage({ user }) {
     } else {
       loadHomepage();
     }
-    fetchApiCategories();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  /* ── 2. Fetch categories ── */
-  const fetchApiCategories = useCallback(async () => {
-    try {
-      const res  = await fetch(`${API}/categories`);
-      if (!res.ok) return;
-      const data = await res.json();
-      const list = Array.isArray(data.categories)
-        ? data.categories
-        : Array.isArray(data) ? data : [];
-      setApiCategories(list);
-    } catch (e) {
-      console.warn("Could not fetch categories", e);
-    }
-  }, []);
 
   /* ── 3. Apply fetched data ── */
   const applyData = useCallback(
@@ -347,11 +343,9 @@ export default function Homepage({ user }) {
       setCatProducts([]);
 
       try {
-        const match = apiCategories.find(
-          (c) =>
-            c.name?.toLowerCase() === catName.toLowerCase() ||
-            c.slug?.toLowerCase() === catName.toLowerCase().replace(/\s+/g, "-") ||
-            c.id === catName
+        /* Look up UUID directly from CATEGORY_CONFIG — matches DB exactly */
+        const match = CATEGORY_CONFIG.find(
+          (c) => c.name === catName || c.name?.toLowerCase() === catName.toLowerCase()
         );
 
         const url = match?.id
@@ -364,7 +358,8 @@ export default function Homepage({ user }) {
         const prods = Array.isArray(data.products)
           ? data.products
           : Array.isArray(data) ? data : [];
-        setCatProducts(dedup(prods));
+        /* Shuffle so results are not ordered by insert time */
+        setCatProducts(shuffle(dedup(prods)));
       } catch (e) {
         if (e.name === "AbortError") return;
         console.error("Category fetch failed", e);
@@ -373,13 +368,13 @@ export default function Homepage({ user }) {
             p.category?.toLowerCase()      === catName.toLowerCase() ||
             p.category_name?.toLowerCase() === catName.toLowerCase()
         );
-        setCatProducts(fallback);
+        setCatProducts(shuffle(fallback));
         if (fallback.length === 0) setCatError(`No listings found in "${catName}"`);
       } finally {
         setCatLoading(false);
       }
     },
-    [activeCategory, apiCategories, allProducts]
+    [activeCategory, allProducts]
   );
 
   const trackView = useCallback((id) => {
@@ -750,11 +745,7 @@ export default function Homepage({ user }) {
                       Load more ({sections.all.length - allVisible} remaining)
                     </button>
                   )}
-                  {allVisible >= sections.all.length && (
-                    <p className="inline-empty">
-                      You've seen all {sections.all.length} listings
-                    </p>
-                  )}
+
                 </>
               )}
             </div>
