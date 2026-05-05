@@ -22,6 +22,12 @@ import Support from "./pages/Support";
 import Invitation from "./pages/Invitation";
 import TermsAndConditions from "./pages/TermsAndConditions";
 
+/* ================= HOMEPAGE SUB-PAGES ================= */
+import NearbyPage from "./pages/Homepage/NearbyPage";
+import DealsPage from "./pages/Homepage/DealsPage";
+import NewArrivalsPage from "./pages/Homepage/NewArrivalsPage";
+import TrendingPage from "./pages/Homepage/TrendingPage";
+
 /* ================= MENU PAGE (ADDED) ================= */
 import MenuPage from "./pages/MenuPage";
 
@@ -116,7 +122,6 @@ export default function App() {
   /* ================= ROUTE GUARDS ================= */
   const ProtectedRoute = ({ children }) => {
     if (!isAuthReady) {
-      // Still loading auth → don’t redirect yet
       return <div className="global-loader">Loading auth...</div>;
     }
 
@@ -169,6 +174,12 @@ export default function App() {
         <Route path="/seller/:id" element={<SellerProfile user={user} />} />
         <Route path="/auth" element={<AuthPage setUser={handleAuthSuccess} />} />
         <Route path="/terms" element={<TermsAndConditions />} />
+
+        {/* ================= HOMEPAGE SUB-PAGES ================= */}
+        <Route path="/nearby" element={<NearbyPage user={user} />} />
+        <Route path="/deals" element={<DealsPage user={user} />} />
+        <Route path="/latest" element={<NewArrivalsPage user={user} />} />
+        <Route path="/trending" element={<TrendingPage user={user} />} />
 
         {/* ================= MENU (NEW PAGE) ================= */}
         <Route path="/menu" element={<MenuPage />} />
@@ -337,4 +348,4 @@ export default function App() {
       </Routes>
     </Router>
   );
-} 
+}
