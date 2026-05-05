@@ -262,9 +262,13 @@ router.post(
 
       // ── INSERT ─────────────────────────────────────────────────────────────
       //
-      // `location` and `geo` are both GEOGRAPHY(POINT,4326) columns.
-      // ST_MakePoint(longitude, latitude) matches the GeoJSON / PostGIS convention.
-      // CockroachDB supports the same ST_ functions.
+      // `location` and `geo` are GEOGRAPHY(POINT,4326) columns.
+      // They are set in a separate UPDATE below so we avoid mixing
+      // ST_ function calls inside a VALUES clause — CockroachDB does not
+      // support reusing $N parameter references inside inline expressions
+      // within the same VALUES list, which caused the "Failed to create
+      // product" 500 error.  Both columns are nullable so omitting them
+      // from the INSERT is safe.
       //
       const { rows } = await client.query(
         `INSERT INTO products (
@@ -272,7 +276,6 @@ router.post(
           category_id, subcategory_id, seller_id,
           attributes, location_city, location_state,
           latitude, longitude,
-          location, geo,
           fraud_score, boost_score, engagement_score,
           thumbnail_url, main_image, slug,
           delivery, contact,
@@ -286,8 +289,6 @@ router.post(
           $4,  $5,  $6,
           $7,  $8,  $9,
           $10, $11,
-          ${hasCoords ? "ST_SetSRID(ST_MakePoint($11, $10), 4326)::GEOGRAPHY" : "NULL"},
-          ${hasCoords ? "ST_SetSRID(ST_MakePoint($11, $10), 4326)::GEOGRAPHY" : "NULL"},
           $12, $13, $14,
           $15, $16, $17,
           $18, $19,
@@ -309,8 +310,8 @@ router.post(
           JSON.stringify(attributes),     // $7
           location_city,                  // $8
           location_state,                 // $9
-          latitude,                       // $10  also used for geography
-          longitude,                      // $11  also used for geography
+          latitude,                       // $10
+          longitude,                      // $11
           fraudScore,                     // $12
           10,                             // $13  boost_score
           5,                              // $14  engagement_score
@@ -329,6 +330,20 @@ router.post(
           whatsapp_link,                  // $27
         ]
       );
+
+      // ── Set geography columns separately ───────────────────────────────────
+      // Done as a follow-up UPDATE so the ST_ expressions are never mixed
+      // into a VALUES clause alongside $N placeholders.
+      if (hasCoords) {
+        await client.query(
+          `UPDATE products
+           SET
+             location = ST_SetSRID(ST_MakePoint($2, $3), 4326)::GEOGRAPHY,
+             geo      = ST_SetSRID(ST_MakePoint($2, $3), 4326)::GEOGRAPHY
+           WHERE id = $1`,
+          [rows[0].id, longitude, latitude]  // ST_MakePoint(lon, lat)
+        );
+      }
 
       const product = rows[0];
 
