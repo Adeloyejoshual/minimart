@@ -52,6 +52,20 @@ const formatCount = (n) => {
   return `+${Number.isInteger(k) ? k : k.toFixed(1)}k`;
 };
 
+
+/** Haversine distance between two GPS coords — returns km */
+const getDistanceKm = (lat1, lon1, lat2, lon2) => {
+  const R = 6371;
+  const dLat = ((lat2 - lat1) * Math.PI) / 180;
+  const dLon = ((lon2 - lon1) * Math.PI) / 180;
+  const a =
+    Math.sin(dLat / 2) ** 2 +
+    Math.cos((lat1 * Math.PI) / 180) *
+      Math.cos((lat2 * Math.PI) / 180) *
+      Math.sin(dLon / 2) ** 2;
+  return R * (2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a)));
+};
+
 /** Fisher-Yates shuffle — returns a new array, never mutates */
 const shuffle = (arr) => {
   const a = [...arr];
@@ -60,6 +74,20 @@ const shuffle = (arr) => {
     [a[i], a[j]] = [a[j], a[i]];
   }
   return a;
+};
+
+
+/** Haversine distance between two GPS coords (km) */
+const getDistanceKm = (lat1, lon1, lat2, lon2) => {
+  const R = 6371;
+  const dLat = ((lat2 - lat1) * Math.PI) / 180;
+  const dLon = ((lon2 - lon1) * Math.PI) / 180;
+  const a =
+    Math.sin(dLat / 2) ** 2 +
+    Math.cos((lat1 * Math.PI) / 180) *
+      Math.cos((lat2 * Math.PI) / 180) *
+      Math.sin(dLon / 2) ** 2;
+  return R * (2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a)));
 };
 
 const splitProducts = (products) => ({
@@ -225,9 +253,10 @@ export default function Homepage({ user }) {
   /* ── All-products pagination ── */
   const [allVisible, setAllVisible] = useState(ALL_PRODUCTS_LIMIT);
 
-  const productsRef = useRef([]);
-  const catAbortRef = useRef(null);
-  const sentinelRef = useRef(null);
+  const productsRef    = useRef([]);
+  const catAbortRef    = useRef(null);
+  const sentinelRef    = useRef(null);
+  const lastLocationRef = useRef(null); // for movement detection
 
   /* ── 1. Bootstrap ── */
   useEffect(() => {
@@ -241,6 +270,48 @@ export default function Homepage({ user }) {
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  /* ── 2. 30-minute full refresh ── */
+  useEffect(() => {
+    const interval = setInterval(() => {
+      loadHomepage();
+    }, 1_800_000); // 30 min
+    return () => clearInterval(interval);
+  }, [loadHomepage]);
+
+  /* ── 3. Smart movement detection (every 5 min, reload only if moved > 2 km) ── */
+  useEffect(() => {
+    if (!navigator.geolocation) return;
+
+    const checkMovement = () => {
+      navigator.geolocation.getCurrentPosition(
+        (pos) => {
+          const { latitude, longitude } = pos.coords;
+
+          if (!lastLocationRef.current) {
+            lastLocationRef.current = { latitude, longitude };
+            return;
+          }
+
+          const prev = lastLocationRef.current;
+          const moved = getDistanceKm(
+            prev.latitude, prev.longitude,
+            latitude,      longitude
+          );
+
+          if (moved > 2) {
+            lastLocationRef.current = { latitude, longitude };
+            loadHomepage();
+          }
+        },
+        () => {}, // silently ignore GPS errors
+        { enableHighAccuracy: false, maximumAge: 300_000, timeout: 5000 }
+      );
+    };
+
+    const interval = setInterval(checkMovement, 300_000); // every 5 min
+    return () => clearInterval(interval);
+  }, [loadHomepage]);
 
 
   /* ── 3. Apply fetched data ── */
@@ -267,7 +338,7 @@ export default function Homepage({ user }) {
     [setProducts, setLoaded]
   );
 
-  /* ── 4. Load homepage feed ── */
+  /* ── 5. Load homepage feed ── */
   const loadHomepage = useCallback(async () => {
     setLoading(true);
     setError(null);
@@ -325,7 +396,7 @@ export default function Homepage({ user }) {
     }
   }, [applyData]);
 
-  /* ── 5. Category filter ── */
+  /* ── 6. Category filter ── */
   const handleCategorySelect = useCallback(
     async (catName) => {
       if (catName === activeCategory) return;
