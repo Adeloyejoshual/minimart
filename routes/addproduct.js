@@ -16,6 +16,19 @@ const router = express.Router();
 const redis = createClient({ url: process.env.REDIS_URL });
 redis.connect().catch(console.error);
 
+// ─── Cloudinary config check ──────────────────────────────────────────────────
+// Fail fast at startup if image upload credentials are missing.
+{
+  const { cloud_name, api_key, api_secret } = cloudinary.config();
+  if (!cloud_name || !api_key || !api_secret) {
+    console.error(
+      "⚠️  CLOUDINARY NOT CONFIGURED — set CLOUDINARY_URL (or CLOUDINARY_CLOUD_NAME / " +
+      "CLOUDINARY_API_KEY / CLOUDINARY_API_SECRET) in your environment variables. " +
+      "Product image uploads will fail until this is set."
+    );
+  }
+}
+
 // ─── Multer ───────────────────────────────────────────────────────────────────
 
 const upload = multer({
@@ -347,23 +360,44 @@ router.post(
 
       const product = rows[0];
 
-      // ── Product images ─────────────────────────────────────────────────────
-      if (uploadedImages.length > 0) {
-        const valuePlaceholders = uploadedImages
-          .map((_, i) => `($1, $${i * 2 + 2}, $${i * 2 + 3})`)
-          .join(", ");
-        const imageParams = [product.id];
-        uploadedImages.forEach(({ image_url, position_order }) => {
-          imageParams.push(image_url, position_order);
-        });
-        await client.query(
-          `INSERT INTO product_images (product_id, image_url, position_order)
-           VALUES ${valuePlaceholders}`,
-          imageParams
-        );
-      }
-
+      // ── COMMIT product first — images are secondary ────────────────────────
+      // The product INSERT is the critical operation. product_images is a
+      // supplementary table that may not exist in all environments.
+      // Committing before the image rows means a product_images failure never
+      // rolls back a successfully uploaded product.
       await client.query("COMMIT");
+
+      // ── Product images (outside transaction — non-fatal) ───────────────────
+      // All image URLs are already stored as thumbnail_url / main_image on the
+      // product row. This table stores the full gallery for the detail page.
+      // If the table does not exist yet, we log the warning and continue.
+      if (uploadedImages.length > 0) {
+        try {
+          const valuePlaceholders = uploadedImages
+            .map((_, i) => `($1, $${i * 2 + 2}, $${i * 2 + 3})`)
+            .join(", ");
+          const imageParams = [product.id];
+          uploadedImages.forEach(({ image_url, position_order }) => {
+            imageParams.push(image_url, position_order);
+          });
+          await pool.query(                    // pool, not client (already released after commit)
+            `INSERT INTO product_images (product_id, image_url, position_order)
+             VALUES ${valuePlaceholders}`,
+            imageParams
+          );
+        } catch (imgErr) {
+          // Non-fatal — product is already committed.
+          // If this says "relation product_images does not exist", run:
+          //   CREATE TABLE product_images (
+          //     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+          //     product_id UUID NOT NULL REFERENCES products(id) ON DELETE CASCADE,
+          //     image_url STRING NOT NULL,
+          //     position_order INT8 NOT NULL DEFAULT 0,
+          //     created_at TIMESTAMPTZ DEFAULT now()
+          //   );
+          console.warn("product_images insert skipped:", imgErr.message);
+        }
+      }
 
       // ── Non-blocking side-effects ──────────────────────────────────────────
       updateSellerTrust(seller_id).catch(console.error);
@@ -378,9 +412,16 @@ router.post(
 
     } catch (err) {
       await client.query("ROLLBACK").catch(() => {});
-      console.error("CREATE PRODUCT ERROR:", err);
 
-      // Surface multer errors (file size / type) as 400 instead of 500
+      // ── Log the FULL error so it appears in Render's log stream ───────────
+      console.error("CREATE PRODUCT ERROR:", {
+        message: err.message,
+        code:    err.code,
+        detail:  err.detail,
+        hint:    err.hint,
+        stack:   err.stack,
+      });
+
       if (err.code === "LIMIT_FILE_SIZE") {
         return res
           .status(400)
@@ -391,10 +432,33 @@ router.post(
           .status(400)
           .json({ success: false, message: "Only image files are allowed" });
       }
+      // FK violation (category_id / seller_id not found)
+      if (err.code === "23503" || err.code === "XXUUU") {
+        return res
+          .status(400)
+          .json({ success: false, message: "Invalid category or seller reference" });
+      }
+      // Unique constraint (duplicate slug — extremely rare with counter strategy)
+      if (err.code === "23505") {
+        return res
+          .status(409)
+          .json({ success: false, message: "A product with this slug already exists — try a different title" });
+      }
+      // Cloudinary
+      if (err.message?.includes("Must supply api_key") || err.http_code === 401) {
+        return res
+          .status(500)
+          .json({ success: false, message: "Image upload service not configured — contact support" });
+      }
 
-      return res
-        .status(500)
-        .json({ success: false, message: "Failed to create product" });
+      // Return real error message in non-production so you can see what failed
+      const isDev = process.env.NODE_ENV !== "production";
+      return res.status(500).json({
+        success: false,
+        message: isDev
+          ? `Server error: ${err.message}`
+          : "Failed to create product. Please try again.",
+      });
     } finally {
       client.release();
     }
