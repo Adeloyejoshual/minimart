@@ -3,11 +3,9 @@ import { useParams, Link } from "react-router-dom";
 import Footer from "../components/Footer";
 import "../styles/SellerProfile.css";
 
-/* ─────────────────────────────────────────────
-   Helpers
-───────────────────────────────────────────── */
+/* ── Helpers ─────────────────────────────────────── */
 function Stars({ rating = 0 }) {
-  const full = Math.round(rating);
+  const full = Math.round(Number(rating));
   return (
     <span className="sp-stars">
       {[1, 2, 3, 4, 5].map((i) => (
@@ -26,38 +24,26 @@ function TrustBar({ score = 0 }) {
         <span className="sp-trust-value">{score}/100</span>
       </div>
       <div className="sp-trust-track">
-        <div
-          className={`sp-trust-fill ${level}`}
-          style={{ width: `${score}%` }}
-        />
+        <div className={`sp-trust-fill ${level}`} style={{ width: `${score}%` }} />
       </div>
     </div>
   );
 }
 
-function formatNaira(num) {
-  return `₦${Number(num || 0).toLocaleString("en-NG")}`;
-}
+const formatNaira = (num) =>
+  `₦${Number(num || 0).toLocaleString("en-NG")}`;
 
-function initials(seller) {
-  if (seller?.name)  return seller.name.charAt(0).toUpperCase();
-  if (seller?.email) return seller.email.charAt(0).toUpperCase();
-  return "S";
-}
+const initials = (s) =>
+  s?.name?.charAt(0).toUpperCase() ||
+  s?.email?.charAt(0).toUpperCase() ||
+  "S";
 
-/* ─────────────────────────────────────────────
-   Loading skeleton
-───────────────────────────────────────────── */
+/* ── Skeleton ────────────────────────────────────── */
 function Skeleton() {
   return (
     <div className="sp-root">
       <div style={{ background: "#1a1a2e", padding: "56px 0 40px" }}>
-        <div
-          style={{
-            maxWidth: 1140, margin: "0 auto", padding: "0 32px",
-            display: "flex", gap: 24, alignItems: "flex-end",
-          }}
-        >
+        <div style={{ maxWidth: 1140, margin: "0 auto", padding: "0 32px", display: "flex", gap: 24, alignItems: "flex-end" }}>
           <div className="sp-skel sp-skel-circle" style={{ width: 108, height: 108, flexShrink: 0 }} />
           <div style={{ flex: 1 }}>
             <div className="sp-skel" style={{ height: 28, width: 220, marginBottom: 10 }} />
@@ -67,9 +53,7 @@ function Skeleton() {
       </div>
       <div className="sp-body">
         <div className="sp-layout">
-          <div>
-            <div className="sp-skel" style={{ height: 220, borderRadius: 14 }} />
-          </div>
+          <div><div className="sp-skel" style={{ height: 220, borderRadius: 14 }} /></div>
           <div>
             <div className="sp-skel" style={{ height: 28, width: 200, marginBottom: 20 }} />
             <div style={{ display: "grid", gridTemplateColumns: "repeat(3,1fr)", gap: 16 }}>
@@ -88,13 +72,11 @@ function Skeleton() {
   );
 }
 
-/* ─────────────────────────────────────────────
-   Main component
-───────────────────────────────────────────── */
-const SellerProfile = () => {
+/* ── Main Component ──────────────────────────────── */
+export default function SellerProfile() {
   const { id } = useParams();
+
   const [seller,   setSeller]   = useState(null);
-  const [stats,    setStats]    = useState(null);
   const [products, setProducts] = useState([]);
   const [loading,  setLoading]  = useState(true);
   const [error,    setError]    = useState(null);
@@ -106,41 +88,35 @@ const SellerProfile = () => {
       return;
     }
 
-    const fetchSeller = async () => {
+    (async () => {
       try {
         setLoading(true);
         setError(null);
 
-        const [sellerRes, statsRes, productsRes] = await Promise.all([
-          fetch(`/api/seller/${id}`),
-          fetch(`/api/seller/${id}/stats`),
-          fetch(`/api/seller/${id}/products?limit=12`),
+        // Both endpoints already exist and work in routes/product.js
+        const [sellerRes, productsRes] = await Promise.all([
+          fetch(`/api/product/users/${id}/public`),
+          fetch(`/api/product/products/by-seller?seller_id=${id}&limit=12`),
         ]);
 
-        if (!sellerRes.ok)   throw new Error("Seller not found");
-        if (!statsRes.ok)    throw new Error("Failed to load seller stats");
-        if (!productsRes.ok) throw new Error("Failed to load seller products");
+        if (!sellerRes.ok) throw new Error("Seller not found");
+        if (!productsRes.ok) throw new Error("Failed to load products");
 
-        const [sellerData, statsData, productsData] = await Promise.all([
+        const [sellerData, productsData] = await Promise.all([
           sellerRes.json(),
-          statsRes.json(),
           productsRes.json(),
         ]);
 
         setSeller(sellerData);
-        setStats(statsData);
-        setProducts(productsData.products || []);
+        setProducts(Array.isArray(productsData) ? productsData : (productsData.products || []));
       } catch (err) {
         setError(err.message || "Something went wrong.");
       } finally {
         setLoading(false);
       }
-    };
-
-    fetchSeller();
+    })();
   }, [id]);
 
-  /* ── Guards ──────────────────────────────── */
   if (loading) return <Skeleton />;
 
   if (error) {
@@ -157,62 +133,38 @@ const SellerProfile = () => {
   }
 
   const memberSince = seller.created_at
-    ? new Date(seller.created_at).toLocaleDateString("en-NG", {
-        month: "long",
-        year:  "numeric",
-      })
+    ? new Date(seller.created_at).toLocaleDateString("en-NG", { month: "long", year: "numeric" })
     : "—";
 
-  const avgRating = Number(stats?.avg_rating || 0);
+  const avgRating   = Number(seller.rating || 0);
+  const totalSales  = Number(seller.total_sales || 0);
+  const listings    = Number(seller.products_count || 0);
+  const trustScore  = Number(seller.trust_score || 50);
 
   return (
     <div className="sp-root">
 
-      {/* ── HERO ─────────────────────────────── */}
+      {/* ── HERO ──────────────────────────────── */}
       <header className="sp-hero">
         <div className="sp-hero-inner">
           <div className="sp-avatar-wrap">
-            {seller.avatar ? (
-              <img
-                src={seller.avatar}
-                alt={seller.name}
-                onError={(e) => { e.target.style.display = "none"; }}
-              />
-            ) : (
-              initials(seller)
-            )}
+            {seller.profile_image
+              ? <img src={seller.profile_image} alt={seller.name} onError={(e) => { e.target.style.display = "none"; }} />
+              : initials(seller)}
           </div>
-
           <div className="sp-hero-text">
-            <div
-              style={{
-                display: "flex", alignItems: "center",
-                gap: 10, flexWrap: "wrap", marginBottom: 6,
-              }}
-            >
+            <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap", marginBottom: 6 }}>
               <h1 className="sp-hero-name">{seller.name}</h1>
-              {seller.store_verified && (
-                <span className="sp-badge verified">✓ Verified</span>
-              )}
-              {seller.is_online && (
-                <span className="sp-badge online">● Online</span>
-              )}
+              {seller.store_verified && <span className="sp-badge verified">✓ Verified</span>}
+              {seller.is_online      && <span className="sp-badge online">● Online</span>}
             </div>
-
             <div className="sp-hero-sub">
               {seller.store_name && <span>{seller.store_name}</span>}
               {seller.store_name && <span className="sp-hero-dot" />}
               <span>Member since {memberSince}</span>
-              {(seller.state || seller.city) && (
-                <>
-                  <span className="sp-hero-dot" />
-                  <span>📍 {[seller.city, seller.state].filter(Boolean).join(", ")}</span>
-                </>
-              )}
             </div>
           </div>
         </div>
-
         <div className="sp-hero-tabs">
           <button className="sp-tab active">Listings</button>
           <button className="sp-tab">About</button>
@@ -220,22 +172,20 @@ const SellerProfile = () => {
         </div>
       </header>
 
-      {/* ── BODY ─────────────────────────────── */}
+      {/* ── BODY ──────────────────────────────── */}
       <div className="sp-body">
         <div className="sp-layout">
 
-          {/* ── LEFT SIDEBAR ───────────────── */}
+          {/* Sidebar */}
           <aside>
-
-            {/* Stats card */}
             <div className="sp-card">
               <div className="sp-stat-grid">
                 <div className="sp-stat-block">
-                  <div className="sp-stat-block-num">{stats?.total_listings ?? 0}</div>
+                  <div className="sp-stat-block-num">{listings}</div>
                   <div className="sp-stat-block-label">Listings</div>
                 </div>
                 <div className="sp-stat-block">
-                  <div className="sp-stat-block-num">{stats?.total_sales ?? 0}</div>
+                  <div className="sp-stat-block-num">{totalSales}</div>
                   <div className="sp-stat-block-label">Sales</div>
                 </div>
               </div>
@@ -243,62 +193,18 @@ const SellerProfile = () => {
                 <div className="sp-rating-row">
                   <span className="sp-rating-num">{avgRating.toFixed(1)}</span>
                   <Stars rating={avgRating} />
-                  <span className="sp-rating-count">({stats?.rating_count ?? 0} reviews)</span>
                 </div>
-                {seller.trust_score !== undefined && (
-                  <TrustBar score={seller.trust_score} />
-                )}
+                <TrustBar score={trustScore} />
               </div>
             </div>
 
-            {/* Contact card */}
-            {(seller.phone || seller.whatsapp) && (
-              <div className="sp-card">
-                <div className="sp-card-head"><h3>Contact Seller</h3></div>
-                <div className="sp-card-body">
-                  {seller.phone && (
-                    <div className="sp-contact-row">
-                      <div className="sp-contact-icon phone">📞</div>
-                      <div>
-                        <div className="sp-contact-label">Phone</div>
-                        <div className="sp-contact-val">
-                          <a href={`tel:${seller.phone}`}>{seller.phone}</a>
-                        </div>
-                      </div>
-                    </div>
-                  )}
-                  {seller.whatsapp && (
-                    <div className="sp-contact-row">
-                      <div className="sp-contact-icon wa">💬</div>
-                      <div>
-                        <div className="sp-contact-label">WhatsApp</div>
-                        <div className="sp-contact-val">
-                          <a
-                            href={`https://wa.me/${seller.whatsapp}`}
-                            target="_blank"
-                            rel="noopener noreferrer"
-                          >
-                            Chat on WhatsApp
-                          </a>
-                        </div>
-                      </div>
-                    </div>
-                  )}
-                </div>
-              </div>
-            )}
-
-            {/* About Store card */}
             {seller.store_description && (
               <div className="sp-card">
                 <div className="sp-card-head"><h3>About Store</h3></div>
                 <div className="sp-card-body">
                   {seller.store_logo && (
-                    <img
-                      src={seller.store_logo}
-                      alt="Store logo"
-                      style={{ height: 36, objectFit: "contain", marginBottom: 12, display: "block" }}
-                    />
+                    <img src={seller.store_logo} alt="Store logo"
+                      style={{ height: 36, objectFit: "contain", marginBottom: 12, display: "block" }} />
                   )}
                   <p style={{ fontSize: "0.84rem", color: "var(--sp-muted)", lineHeight: 1.65, margin: 0 }}>
                     {seller.store_description}
@@ -308,7 +214,7 @@ const SellerProfile = () => {
             )}
           </aside>
 
-          {/* ── PRODUCT GRID ───────────────── */}
+          {/* Products */}
           <main>
             <div className="sp-section-head">
               <div>
@@ -316,10 +222,10 @@ const SellerProfile = () => {
                   {seller.store_name || seller.name}'s Listings
                 </div>
                 <div className="sp-section-sub">
-                  Showing {products.length} of {stats?.total_listings ?? 0} total listings
+                  {products.length} of {listings} listings
                 </div>
               </div>
-              {(stats?.total_listings ?? 0) > 12 && (
+              {listings > 12 && (
                 <Link to={`/seller/${id}/all`} className="sp-view-all">View all →</Link>
               )}
             </div>
@@ -327,7 +233,7 @@ const SellerProfile = () => {
             {products.length === 0 ? (
               <div className="sp-empty">
                 <div className="sp-empty-icon">🏪</div>
-                <p className="sp-empty-text">This seller has no active listings yet.</p>
+                <p className="sp-empty-text">No active listings yet.</p>
               </div>
             ) : (
               <div className="sp-product-grid">
@@ -342,7 +248,7 @@ const SellerProfile = () => {
                         src={
                           Array.isArray(product.images) && product.images.length
                             ? product.images[0]
-                            : product.main_image || "/api/placeholder/400/300"
+                            : "/api/placeholder/400/300"
                         }
                         alt={product.title}
                         className="sp-product-img"
@@ -365,10 +271,7 @@ const SellerProfile = () => {
         </div>
       </div>
 
-      {/* ── FOOTER (shared component) ─────── */}
       <Footer />
     </div>
   );
-};
-
-export default SellerProfile;
+}
