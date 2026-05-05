@@ -64,8 +64,13 @@ export default function ProductComponents({
   // When no list (the common case) → plain text input.
   const modelOptions = useMemo(() => {
     if (!attributes?.brand) return [];
-    const key = String(attributes.brand).toLowerCase();
-    return normalizeOptions(options?.models?.[key] ?? []);
+    const brandModels = options?.models ?? {};
+    // Case-insensitive lookup — models.js uses "HP", "Apple" etc.
+    // but the brand value from the dropdown may differ in casing.
+    const matchedKey = Object.keys(brandModels).find(
+      (k) => k.toLowerCase() === String(attributes.brand).toLowerCase()
+    );
+    return normalizeOptions(matchedKey ? brandModels[matchedKey] : []);
   }, [attributes?.brand, options]);
 
   const showModelField = !!attributes?.brand;
@@ -183,35 +188,16 @@ export default function ProductComponents({
           </div>
         )}
 
-        {/* Model
-            Backend has model list  → DropdownModal (searchable).
-            No model list (common)  → plain text input (consistent with other fields).
-            key changes on brand change to force clean remount and clear stale value. */}
         {showModelField && (
           <div className="form-group">
             <label>{formatLabel("model")}</label>
-            {modelOptions.length > 0 ? (
-              <DropdownModal
-                key={"model-dd-" + (attributes?.brand ?? "none")}
-                value={attributes?.model ?? ""}
-                options={modelOptions}
-                placeholder="Select model"
-                onChange={(v) => updateAttribute("model", v)}
-              />
-            ) : (
-              <input
-                key={"model-txt-" + (attributes?.brand ?? "none")}
-                type="text"
-                placeholder="e.g. Pavilion 15-eg3000, ThinkPad X1 Carbon"
-                value={attributes?.model ?? ""}
-                onChange={(e) => updateAttribute("model", e.target.value.trimStart())}
-              />
-            )}
-            <small className="field-hint">
-              {modelOptions.length > 0
-                ? "Select the model from the list"
-                : "Type the exact model name as it appears on the device"}
-            </small>
+            <DropdownModal
+              key={"model-" + (attributes?.brand ?? "none")}
+              value={attributes?.model ?? ""}
+              options={modelOptions}
+              placeholder="Select or type model name"
+              onChange={(v) => updateAttribute("model", v)}
+            />
           </div>
         )}
 
@@ -438,7 +424,7 @@ export default function ProductComponents({
               <div className="plan-header">
                 <strong>{plan.name}</strong>
                 <span className="plan-price">
-                  {Number(plan.price) === 0 ? "Free" : "&#8358;" + displayPrice(plan.price)}
+                  {Number(plan.price) === 0 ? "Free" : "₦" + displayPrice(plan.price)}
                 </span>
               </div>
               <div className="plan-duration">{plan.duration || "Always active"}</div>
@@ -459,7 +445,7 @@ export default function ProductComponents({
           onClick={handleSubmit}
           title={!agreedToTerms ? "Please accept the Terms & Conditions first" : undefined}
         >
-          {loading ? "&#9203; Processing&#8230;" : isFreePlan ? "&#128640; Post Ad" : "&#128640; Post Ad & Pay"}
+          {loading ? "⏳ Processing…" : isFreePlan ? "🚀 Post Ad" : "🚀 Post Ad & Pay"}
         </button>
 
         {paymentData && (
