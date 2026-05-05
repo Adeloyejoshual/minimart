@@ -1,6 +1,6 @@
 // routes/sellerprofile.js
 import express    from "express";
-import { pool }   from "../server.js"; // shared pool — no second connection
+import { pool } from "../config/db.js"; // shared pool — no second connection
 
 const router = express.Router();
 
