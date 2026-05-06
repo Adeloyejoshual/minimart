@@ -1,0 +1,306 @@
+/* ─────────────────────────────────────────────
+   LocationPicker.css — Minimart
+   Bottom-sheet location selector
+   ───────────────────────────────────────────── */
+
+/* ── Backdrop ── */
+.lp-backdrop {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.45);
+  backdrop-filter: blur(3px);
+  -webkit-backdrop-filter: blur(3px);
+  z-index: 1300;
+  animation: lp-fade-in 0.2s ease;
+}
+
+@keyframes lp-fade-in {
+  from { opacity: 0; }
+  to   { opacity: 1; }
+}
+
+/* ── Sheet ── */
+.lp-sheet {
+  position: fixed;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 1400;
+  background: #fff;
+  border-radius: 20px 20px 0 0;
+  max-height: 88vh;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  animation: lp-slide-up 0.28s cubic-bezier(0.32, 0.72, 0, 1);
+  box-shadow: 0 -8px 40px rgba(0, 0, 0, 0.18);
+}
+
+@keyframes lp-slide-up {
+  from { transform: translateY(100%); }
+  to   { transform: translateY(0);    }
+}
+
+/* ── Handle ── */
+.lp-handle {
+  width: 36px;
+  height: 4px;
+  border-radius: 2px;
+  background: #ddd;
+  margin: 10px auto 0;
+  flex-shrink: 0;
+}
+
+/* ── Header ── */
+.lp-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 14px 16px 10px;
+  flex-shrink: 0;
+}
+
+.lp-title {
+  flex: 1;
+  font-size: 16px;
+  font-weight: 700;
+  color: #111;
+  letter-spacing: -0.3px;
+}
+
+.lp-back,
+.lp-close {
+  all: unset;
+  width: 32px;
+  height: 32px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 8px;
+  color: #555;
+  cursor: pointer;
+  transition: background 0.13s, color 0.13s;
+  flex-shrink: 0;
+}
+
+.lp-back:hover,
+.lp-close:hover {
+  background: #f2f2f2;
+  color: #111;
+}
+
+/* ── GPS Button ── */
+.lp-gps-btn {
+  all: unset;
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  padding: 6px 11px;
+  border-radius: 20px;
+  border: 1.5px solid #e8523a;
+  color: #e8523a;
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 0.15s, color 0.15s;
+  flex-shrink: 0;
+  white-space: nowrap;
+}
+
+.lp-gps-btn:hover {
+  background: #e8523a;
+  color: #fff;
+}
+
+.lp-gps-btn:disabled {
+  opacity: 0.7;
+  cursor: default;
+}
+
+.lp-gps-loading {
+  border-color: #aaa;
+  color: #aaa;
+}
+
+.lp-gps-ok {
+  border-color: #16a34a;
+  color: #16a34a;
+}
+
+.lp-gps-error {
+  border-color: #dc2626;
+  color: #dc2626;
+}
+
+/* spinner */
+.lp-spin {
+  display: inline-block;
+  width: 12px;
+  height: 12px;
+  border: 2px solid currentColor;
+  border-top-color: transparent;
+  border-radius: 50%;
+  animation: lp-spin 0.7s linear infinite;
+}
+
+@keyframes lp-spin {
+  to { transform: rotate(360deg); }
+}
+
+/* GPS label */
+.lp-gps-label {
+  font-size: 12px;
+  color: #16a34a;
+  padding: 0 16px 6px;
+  flex-shrink: 0;
+}
+
+.lp-gps-label--err {
+  color: #dc2626;
+}
+
+/* ── Search ── */
+.lp-search-wrap {
+  position: relative;
+  margin: 4px 16px 8px;
+  flex-shrink: 0;
+}
+
+.lp-search-ic {
+  position: absolute;
+  left: 12px;
+  top: 50%;
+  transform: translateY(-50%);
+  color: #aaa;
+  pointer-events: none;
+}
+
+.lp-search {
+  width: 100%;
+  box-sizing: border-box;
+  padding: 10px 36px 10px 36px;
+  border: 1.5px solid #ebebeb;
+  border-radius: 10px;
+  font-size: 14px;
+  color: #111;
+  background: #f8f8f8;
+  outline: none;
+  transition: border-color 0.15s;
+}
+
+.lp-search:focus {
+  border-color: #e8523a;
+  background: #fff;
+}
+
+.lp-search-clear {
+  all: unset;
+  position: absolute;
+  right: 10px;
+  top: 50%;
+  transform: translateY(-50%);
+  font-size: 12px;
+  color: #aaa;
+  cursor: pointer;
+  padding: 4px;
+  line-height: 1;
+}
+
+.lp-search-clear:hover {
+  color: #555;
+}
+
+/* ── List ── */
+.lp-list {
+  flex: 1;
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+  scrollbar-width: none;
+  padding: 0 0 40px;
+}
+
+.lp-list::-webkit-scrollbar { display: none; }
+
+/* ── Item ── */
+.lp-item {
+  all: unset;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  box-sizing: border-box;
+  padding: 13px 16px;
+  cursor: pointer;
+  border-bottom: 1px solid #f4f4f4;
+  transition: background 0.12s;
+}
+
+.lp-item:hover,
+.lp-item:focus-visible {
+  background: #fdf3f1;
+}
+
+.lp-item:active {
+  background: #fce9e6;
+}
+
+.lp-item--all {
+  background: #fdf8f7;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 2px;
+}
+
+.lp-item--all .lp-item-name {
+  font-weight: 700;
+  color: #e8523a;
+}
+
+.lp-item-name {
+  flex: 1;
+  font-size: 14px;
+  font-weight: 500;
+  color: #222;
+}
+
+.lp-item-sub {
+  font-size: 12px;
+  color: #999;
+}
+
+.lp-item-count {
+  font-size: 11px;
+  color: #bbb;
+  flex-shrink: 0;
+}
+
+.lp-item-chevron {
+  color: #ccc;
+  flex-shrink: 0;
+}
+
+/* ── Divider ── */
+.lp-divider {
+  height: 1px;
+  background: #eee;
+  margin: 4px 0;
+}
+
+/* ── Empty ── */
+.lp-empty {
+  font-size: 13px;
+  color: #aaa;
+  text-align: center;
+  padding: 32px 16px;
+}
+
+/* ── Tablet+ ── */
+@media (min-width: 600px) {
+  .lp-sheet {
+    left: 50%;
+    right: auto;
+    transform: translateX(-50%);
+    width: 420px;
+    border-radius: 20px 20px 0 0;
+  }
+}
