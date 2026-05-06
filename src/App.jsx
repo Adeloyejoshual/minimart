@@ -2,6 +2,7 @@ import React, { useEffect, useState } from "react";
 import { BrowserRouter as Router, Routes, Route, Navigate } from "react-router-dom";
 import axios from "axios";
 import toast, { Toaster } from "react-hot-toast";
+import { useProductCache } from "./context/ProductCacheContext";
 
 /* ================= PAGES ================= */
 // User
@@ -52,6 +53,7 @@ export default function App() {
 
   const [timeoutReached, setTimeoutReached] = useState(false);
 
+  const { resetCache } = useProductCache();
   const API = "https://minimart-ivrm.onrender.com/api/users";
 
   /* ================= USER AUTH ================= */
@@ -146,14 +148,17 @@ export default function App() {
 
   const handleAuthSuccess = (userData, token) => {
     localStorage.setItem("token", token);
-    setUser(userData);
 
-    // Clear stale location so Homepage re-fetches with fresh GPS
+    // Wipe stale cache + location from previous user
+    resetCache();
     localStorage.removeItem("lastLocation");
+    localStorage.removeItem("active_location");
+    localStorage.removeItem("cacheTime");
 
+    setUser(userData);
     toast.success(`Welcome back, ${userData.name}`);
 
-    // Hard reload forces remount + fresh GPS + no stale cache
+    // Hard reload — forces fresh GPS + clean homepage boot
     window.location.href = "/";
   };
 
