@@ -3,42 +3,27 @@ import { useNavigate } from "react-router-dom";
 import {
   ArrowLeftIcon,
   ShareIcon,
+  HeartIcon,
 } from "@heroicons/react/24/outline";
-import { StarIcon as StarIconSolid } from "@heroicons/react/24/solid";
+import { HeartIcon as HeartIconSolid, StarIcon as StarIconSolid } from "@heroicons/react/24/solid";
 
 import "./ProductHeader.css";
 
-const ProductHeader = ({ product, reviewStats, onFavorite, isFavorited }) => {
+const ProductHeader = ({ product, seller, reviewStats, onFavorite, isFavorited }) => {
   const navigate = useNavigate();
 
-  const [visible, setVisible] = useState(true);
+  const [visible,     setVisible]     = useState(true);
   const [lastScrollY, setLastScrollY] = useState(0);
 
-  /* ================= SCROLL BEHAVIOR ================= */
+  /* ── SCROLL BEHAVIOR ── */
   useEffect(() => {
     const handleScroll = () => {
       const currentY = window.scrollY;
-
-      // Always show at top
-      if (currentY < 50) {
-        setVisible(true);
-        setLastScrollY(currentY);
-        return;
-      }
-
-      // scrolling down → hide
-      if (currentY > lastScrollY) {
-        setVisible(false);
-      } else {
-        // scrolling up → show
-        setVisible(true);
-      }
-
+      if (currentY < 50) { setVisible(true); setLastScrollY(currentY); return; }
+      setVisible(currentY <= lastScrollY);
       setLastScrollY(currentY);
     };
-
     window.addEventListener("scroll", handleScroll, { passive: true });
-
     return () => window.removeEventListener("scroll", handleScroll);
   }, [lastScrollY]);
 
@@ -49,28 +34,22 @@ const ProductHeader = ({ product, reviewStats, onFavorite, isFavorited }) => {
 
   const handleShare = async () => {
     const url = window.location.href;
-
     if (!navigator.share) {
       await navigator.clipboard.writeText(url);
       alert("Link copied!");
       return;
     }
-
-    try {
-      await navigator.share({
-        title: product?.title,
-        url,
-      });
-    } catch (err) {}
+    try { await navigator.share({ title: product?.title, url }); } catch {}
   };
+
+  // Seller display name — store name takes priority over personal name
+  const sellerName = seller?.store_name || seller?.name || null;
 
   return (
     <>
       {/* SMART HEADER */}
       <header className={`product-header-wrapper ${visible ? "show" : "hide"}`}>
-
         <div className="product-header">
-
           <div className="product-header-container">
 
             {/* LEFT */}
@@ -78,30 +57,28 @@ const ProductHeader = ({ product, reviewStats, onFavorite, isFavorited }) => {
               <ArrowLeftIcon className="w-5 h-5 text-white" />
             </button>
 
-            {/* TITLE */}
+            {/* TITLE — seller name when available, product title as fallback */}
             <div className="product-title">
-              {product?.title || "Product"}
+              {sellerName || product?.title || "Product"}
             </div>
 
             {/* RIGHT */}
             <div className="product-header-right">
-
               {onFavorite && (
-                <button className="product-btn">
-                  {isFavorited ? "❤️" : "🤍"}
+                <button className="product-btn" onClick={onFavorite}>
+                  {isFavorited
+                    ? <HeartIconSolid className="w-5 h-5 text-red-500" />
+                    : <HeartIcon      className="w-5 h-5 text-white"   />
+                  }
                 </button>
               )}
-
               <button className="product-btn" onClick={handleShare}>
                 <ShareIcon className="w-5 h-5 text-white" />
               </button>
-
             </div>
 
           </div>
-
         </div>
-
       </header>
 
       {/* SUB HEADER */}
@@ -110,8 +87,11 @@ const ProductHeader = ({ product, reviewStats, onFavorite, isFavorited }) => {
           <div className="product-stat">
             <StarIconSolid className="w-4 h-4 text-amber-500" />
             <span className="value">
-              {reviewStats.avg_rating.toFixed(1)}
+              {Number(reviewStats.avg_rating).toFixed(1)}
             </span>
+            {reviewStats.total > 0 && (
+              <span className="product-stat-count">({reviewStats.total})</span>
+            )}
           </div>
         )}
       </div>
