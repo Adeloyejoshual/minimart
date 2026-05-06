@@ -58,18 +58,31 @@ const timeAgo = (date) => {
   return new Date(date).toLocaleDateString("en-NG", { month: "short", year: "numeric" });
 };
 
-/* ── Read userId from however your auth stores it ── */
+/* ── Auth helpers ── */
+const getToken = () =>
+  localStorage.getItem("token") ||
+  localStorage.getItem("authToken") ||
+  localStorage.getItem("minimart_token") ||
+  null;
+
 const readUserId = () => {
   try {
-    // Try common localStorage keys your app might use
-    const keys = ["minimart_user", "user", "currentUser", "authUser"];
-    for (const key of keys) {
+    // Try JSON user objects first
+    for (const key of ["user", "minimart_user", "currentUser", "authUser"]) {
       const raw = localStorage.getItem(key);
       if (!raw) continue;
-      const parsed = JSON.parse(raw);
-      // Handle { id } or { user: { id } } shapes
-      const id = parsed?.id || parsed?.user?.id || parsed?.data?.id;
-      if (id) return id;
+      try {
+        const p = JSON.parse(raw);
+        const id = p?.id || p?.user?.id || p?.data?.id;
+        if (id) return String(id);
+      } catch {}
+    }
+    // Decode JWT payload as fallback
+    const token = getToken();
+    if (token) {
+      const payload = JSON.parse(atob(token.split(".")[1]));
+      const id = payload?.id || payload?.sub || payload?.userId || payload?.user_id;
+      if (id) return String(id);
     }
     return null;
   } catch { return null; }
@@ -142,9 +155,13 @@ function ReviewForm({ slug, userId, onSubmitted }) {
     setSubmitting(true);
     setError(null);
     try {
+      const token = getToken();
+      const headers = { "Content-Type": "application/json" };
+      if (token) headers["Authorization"] = `Bearer ${token}`;
+
       const res  = await fetch(`${API}/product/slug/${encodeURIComponent(slug)}/reviews`, {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers,
         body: JSON.stringify({ user_id: userId, rating, comment }),
       });
       const data = await res.json();
@@ -322,21 +339,23 @@ export default function ProductDetail() {
 
   useEffect(() => { fetchProduct(); }, [fetchProduct]);
 
-  /* ── TRACK VIEW — once per session ── */
+  /* ── TRACK VIEW — every page load, no deduplication ── */
   useEffect(() => {
     if (!product?.id) return;
-    const key = `viewed_${product.id}`;
-    if (sessionStorage.getItem(key)) return;
-    fetch(`${API}/products/${product.id}/view`, { method: "POST" }).catch(() => {});
-    sessionStorage.setItem(key, "1");
+    fetch(`${API}/product/products/${product.id}/view`, { method: "POST" }).catch(() => {});
   }, [product?.id]);
 
-  /* ── FETCH SELLER ── */
+  /* ── FETCH SELLER — uses /api/seller/:id matching your existing seller route ── */
   useEffect(() => {
     if (!product?.seller_id) return;
-    fetch(`${API}/product/users/${product.seller_id}/public`)
+    fetch(`${API}/seller/${product.seller_id}`)
       .then((r) => r.ok ? r.json() : null)
-      .then((d) => { if (d) setSeller(d); })
+      .then((d) => {
+        if (!d) return;
+        // /api/seller/:id returns { seller, products, stats }
+        // /api/product/users/:id/public returns the object directly
+        setSeller(d.seller || d);
+      })
       .catch(() => {});
   }, [product?.seller_id]);
 
@@ -466,8 +485,13 @@ export default function ProductDetail() {
 
   return (
     <>
-      {/* PRODUCT HEADER — replaces old pd-header */}
-      <ProductHeader product={product} fav={fav} onToggleFav={toggleFav} />
+      {/* PRODUCT HEADER — shows seller name when scrolled */}
+      <ProductHeader
+        product={product}
+        seller={seller}
+        fav={fav}
+        onToggleFav={toggleFav}
+      />
 
       <div className="pd-page">
 
@@ -728,9 +752,6 @@ export default function ProductDetail() {
                       <path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07A19.5 19.5 0 0 1 4.69 12a19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 3.59 1.2h3a2 2 0 0 1 2 1.72 12.84 12.84 0 0 0 .7 2.81 2 2 0 0 1-.45 2.11L7.91 8.91a16 16 0 0 0 6 6l.92-.92a2 2 0 0 1 2.11-.45 12.84 12.84 0 0 0 2.81.7A2 2 0 0 1 21.73 16z"/>
                     </svg>
                     Call Seller
-                    {contactPhone && (
-                      <span className="pd-contact-phone-num">{contactPhone}</span>
-                    )}
                   </button>
                 )}
               </div>
