@@ -15,7 +15,8 @@ import { useNavigate } from "react-router-dom";
 import { useProductCache } from "../context/ProductCacheContext";
 import TopNav      from "../components/TopNav";
 import BottomNav   from "../components/BottomNav";
-import Footer      from "../components/Footer";
+import Footer         from "../components/Footer";
+import LocationPicker, { getActiveLocation, saveActiveLocation } from "../components/LocationPicker";
 import MasonryGrid from "../components/MasonryGrid";
 import OverlayCard from "../components/OverlayCard";
 import { PinIcon, naira, getImageUrl } from "../components/MasonryCard";
@@ -210,6 +211,9 @@ export default function Homepage({ user }) {
   const [catLoading,     setCatLoading]     = useState(false);
   const [catError,       setCatError]       = useState(null);
 
+  /* ── Location picker ── */
+  const [pickerOpen, setPickerOpen] = useState(false);
+
   /* ── All-products pagination ── */
   const [allVisible, setAllVisible] = useState(ALL_PRODUCTS_LIMIT);
 
@@ -322,6 +326,13 @@ export default function Homepage({ user }) {
     return () => clearInterval(id);
   }, [loadHomepage]);
 
+  /* ── Listen for manual location change → reload homepage ── */
+  useEffect(() => {
+    const handler = () => loadHomepage();
+    window.addEventListener("locationChanged", handler);
+    return () => window.removeEventListener("locationChanged", handler);
+  }, [loadHomepage]);
+
   /* ── 3. Movement-aware refresh (every 5 min, reload only if moved > 2 km) ── */
   useEffect(() => {
     if (!navigator.geolocation) return;
@@ -415,7 +426,12 @@ export default function Homepage({ user }) {
   );
 
   /* ── Derived ── */
-  const locLabel     = useMemo(() => heroLocation(meta), [meta]);
+  /* Prefer manually selected/GPS location over meta city */
+  const locLabel = useMemo(() => {
+    const active = getActiveLocation();
+    if (active?.label) return active.label;
+    return heroLocation(meta);
+  }, [meta]);
   const allCats      = [CAT_ALL, ...CATEGORY_CONFIG];
   const activeCatObj = CATEGORY_CONFIG.find((c) => c.name === activeCategory);
 
@@ -456,7 +472,9 @@ export default function Homepage({ user }) {
             <>
               <div
                 className="hero-loc anim anim-1"
-                onClick={() => navigate("/nearby")}
+                onClick={() => setPickerOpen(true)}
+                role="button"
+                title="Change location"
               >
                 <PinIcon size={14} />
                 <span>{locLabel}</span>
@@ -740,6 +758,15 @@ export default function Homepage({ user }) {
         <span className="fab-ic">＋</span>
         Sell Now
       </button>
+
+      <LocationPicker
+        open={pickerOpen}
+        onClose={() => setPickerOpen(false)}
+        onSelect={() => {
+          setPickerOpen(false);
+          loadHomepage();
+        }}
+      />
 
       <Footer />
       <BottomNav />
