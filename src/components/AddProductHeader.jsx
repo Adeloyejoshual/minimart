@@ -4,7 +4,7 @@ import "./AddProductHeader.css";
 export default function AddProductHeader({
   title = "Add Product",
   rightAction = null,
-  onClearDraft, // callback to clear auto‑save
+  onClearDraft,
 }) {
   const navigate = useNavigate();
 
@@ -12,7 +12,7 @@ export default function AddProductHeader({
     <div className="add-product-header">
       {/* LEFT */}
       <button
-        className="back-btn"
+        className="aph-back"
         onClick={() => navigate(-1)}
         aria-label="Go back"
       >
@@ -20,14 +20,14 @@ export default function AddProductHeader({
       </button>
 
       {/* CENTER */}
-      <h2 className="header-title">{title}</h2>
+      <h2 className="aph-title">{title}</h2>
 
       {/* RIGHT */}
-      <div className="header-right">
+      <div className="aph-right">
         {rightAction}
         {onClearDraft && (
           <button
-            className="clear-btn"
+            className="aph-clear"
             onClick={onClearDraft}
             aria-label="Clear saved draft"
           >
