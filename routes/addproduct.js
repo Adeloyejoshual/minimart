@@ -114,6 +114,9 @@ const buildBaseSlug = ({ title, attributes = {}, location_city = "" }) => {
 const generateUniqueSlug = async (client, { title, attributes, location_city }) => {
   const base = buildBaseSlug({ title, attributes, location_city });
 
+  // Fetch all slugs that are exactly `base` or `base-N` (numbered variants).
+  // Always emit a numbered slug (base-1, base-2, …) so every product URL
+  // carries an explicit counter — easier to manage and avoids bare clashes.
   const { rows } = await client.query(
     `SELECT slug FROM products
      WHERE slug = $1 OR slug LIKE $2
@@ -121,12 +124,10 @@ const generateUniqueSlug = async (client, { title, attributes, location_city }) 
     [base, `${base}-%`]
   );
 
-  if (!rows.length) return base;
-
   const existing = new Set(rows.map((r) => r.slug));
-  if (!existing.has(base)) return base;
 
-  let counter = 2;
+  // Start from 1 — first product gets base-1, second base-2, etc.
+  let counter = 1;
   while (existing.has(`${base}-${counter}`)) counter++;
   return `${base}-${counter}`;
 };
