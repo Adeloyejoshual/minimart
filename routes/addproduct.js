@@ -194,18 +194,32 @@ router.post(
       }
 
       // ── Spam check (non-fatal — default to 0 on error) ────────────────────
+      // detectSpamListing() expects a product object and returns
+      // { isSpam, score, reasons } — NOT a plain number.
+      // Passing wrong args before caused an object to be inserted into
+      // the INT8 fraud_score column, which crashed the entire INSERT.
       let fraudScore = 0;
       try {
-        const fingerprint = `${req.headers["user-agent"] ?? "unknown"}:${seller_id}`;
-        fraudScore = await detectSpamListing(seller_id, title, fingerprint);
+        const spamResult = await detectSpamListing({
+          seller_id,
+          title,
+          description,
+          price,
+          main_image:    null,   // not yet uploaded at this stage
+          thumbnail_url: null,
+        });
+        fraudScore = spamResult.score ?? 0;
+
+        if (spamResult.isSpam || fraudScore >= 70) {
+          return res.status(403).json({
+            success: false,
+            message: "Listing flagged as spam",
+            reasons: spamResult.reasons,
+          });
+        }
       } catch (spamErr) {
         console.warn("Spam check failed (defaulting to 0):", spamErr.message);
-      }
-
-      if (fraudScore >= 70) {
-        return res
-          .status(403)
-          .json({ success: false, message: "Listing flagged as spam" });
+        fraudScore = 0;
       }
 
       // ── Geocode ────────────────────────────────────────────────────────────
