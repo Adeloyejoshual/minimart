@@ -373,28 +373,23 @@ router.post(
       // If the table does not exist yet, we log the warning and continue.
       if (uploadedImages.length > 0) {
         try {
+          // Columns: product_id, image_url, position_order, is_primary
+          // is_primary = true only for the first image (position_order = 0)
+          // ON CONFLICT DO NOTHING — safe on retries (unique index on product_id+position_order)
           const valuePlaceholders = uploadedImages
-            .map((_, i) => `($1, $${i * 2 + 2}, $${i * 2 + 3})`)
+            .map((_, i) => `($1, $${i * 3 + 2}, $${i * 3 + 3}, $${i * 3 + 4})`)
             .join(", ");
           const imageParams = [product.id];
           uploadedImages.forEach(({ image_url, position_order }) => {
-            imageParams.push(image_url, position_order);
+            imageParams.push(image_url, position_order, position_order === 0);
           });
-          await pool.query(                    // pool, not client (already released after commit)
-            `INSERT INTO product_images (product_id, image_url, position_order)
-             VALUES ${valuePlaceholders}`,
+          await pool.query(
+            `INSERT INTO product_images (product_id, image_url, position_order, is_primary)
+             VALUES ${valuePlaceholders}
+             ON CONFLICT (product_id, position_order) DO NOTHING`,
             imageParams
           );
         } catch (imgErr) {
-          // Non-fatal — product is already committed.
-          // If this says "relation product_images does not exist", run:
-          //   CREATE TABLE product_images (
-          //     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-          //     product_id UUID NOT NULL REFERENCES products(id) ON DELETE CASCADE,
-          //     image_url STRING NOT NULL,
-          //     position_order INT8 NOT NULL DEFAULT 0,
-          //     created_at TIMESTAMPTZ DEFAULT now()
-          //   );
           console.warn("product_images insert skipped:", imgErr.message);
         }
       }
