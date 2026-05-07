@@ -7,7 +7,6 @@ import { apiFetch, ApiError } from "../utils/apiFetch.js";
 import "../styles/AddProduct.css";
 import imageCompression from "browser-image-compression";
 
-const STORAGE_DRAFT   = "product_draft";
 const STORAGE_PAYMENT = "payment_retry";
 const API_BASE        = "https://minimart-ivrm.onrender.com/api";
 const MAX_IMAGES      = 6;
@@ -101,7 +100,11 @@ const multipartPost = async (url, formData, token) => {
 
 // ─── Component ────────────────────────────────────────────────────────────────
 
-export default function AddProductPage() {
+export default function AddProductPage({ user }) {
+  // Scope draft to the logged-in user so switching accounts never leaks a
+  // previous user's draft into a new session.
+  const STORAGE_DRAFT = `product_draft_${user?.id ?? "anon"}`;
+
   const [form,          setForm]          = useState(INITIAL_FORM);
   const [categories,    setCategories]    = useState([]);
   const [locationState, setLocationState] = useState("");
