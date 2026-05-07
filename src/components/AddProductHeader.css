@@ -1,47 +1,86 @@
-/* ===================== ADD PRODUCT HEADER ===================== */
+/* AddProductHeader.css
+   The header is sticky so it stays visible while the user scrolls
+   the long add-product form. Stickiness lives here — not in a wrapper. */
+
 .add-product-header {
   position: sticky;
   top: 0;
-  z-index: 1000;
-
-  width: 100%;
-  height: var(--nav-height);
-
-  background: linear-gradient(90deg, #1e3a8a, #3b82f6, #60a5fa);
-  background-size: 300% 300%;
-  animation: gradientFlow 8s ease infinite;
-
-  box-shadow: 0 8px 20px rgba(0,0,0,0.15);
+  z-index: 200;
 
   display: flex;
   align-items: center;
   justify-content: space-between;
 
-  padding: 0 16px;
+  padding: 12px 16px;
+  background: var(--bg-surface, #ffffff);
+  border-bottom: 1px solid var(--border, #ebebeb);
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.06);
 
-  color: #ffffff;
+  /* Prevent any ancestor overflow:hidden from clipping the sticky bar */
+  -webkit-transform: translateZ(0);
+  transform: translateZ(0);
 }
 
-/* ===================== GRADIENT ANIMATION ===================== */
-@keyframes gradientFlow {
-  0% { background-position: 0% 50%; }
-  50% { background-position: 100% 50%; }
-  100% { background-position: 0% 50%; }
+/* ── Back button ── */
+.aph-back {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 36px;
+  height: 36px;
+  border: none;
+  border-radius: 50%;
+  background: var(--bg-muted, #f4f4f4);
+  font-size: 18px;
+  cursor: pointer;
+  color: var(--text-primary, #111);
+  transition: background 0.15s;
+  flex-shrink: 0;
 }
 
-/* ===================== OVERLAY EFFECT ===================== */
-.add-product-header::after {
-  content: "";
-  position: absolute;
-  inset: 0;
-
-  background: linear-gradient(to bottom, rgba(147,197,253,0.2), transparent);
-  pointer-events: none;
-  animation: dropBlue 3s ease-in-out infinite;
+.aph-back:hover {
+  background: var(--bg-hover, #e8e8e8);
 }
 
-@keyframes dropBlue {
-  0% { transform: translateY(-10px); opacity: 0.35; }
-  50% { transform: translateY(0px); opacity: 0.15; }
-  100% { transform: translateY(-10px); opacity: 0.35; }
+/* ── Title ── */
+.aph-title {
+  flex: 1;
+  text-align: center;
+  font-size: 16px;
+  font-weight: 600;
+  margin: 0;
+  color: var(--text-primary, #111);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* ── Right slot ── */
+.aph-right {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-shrink: 0;
+  min-width: 36px;
+  justify-content: flex-end;
+}
+
+/* ── Clear draft button ── */
+.aph-clear {
+  padding: 6px 12px;
+  border: 1px solid var(--border, #ddd);
+  border-radius: 8px;
+  background: transparent;
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--text-secondary, #555);
+  cursor: pointer;
+  transition: background 0.15s, color 0.15s;
+  white-space: nowrap;
+}
+
+.aph-clear:hover {
+  background: #fff0f0;
+  border-color: #e05252;
+  color: #c0392b;
 }
