@@ -1,4 +1,3 @@
-
 {
   "name": "minimart-marketplace",
   "version": "1.4.8",
@@ -18,8 +17,12 @@
     "prisma:generate": "prisma generate",
     "prisma:migrate": "prisma migrate dev"
   },
+  "overrides": {
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1"
+  },
   "dependencies": {
-    "@heroicons/react": "^2.1.5",
+    "@heroicons/react": "2.1.5",
     "@paystack/inline-js": "^2.14.0",
     "@prisma/client": "^5.7.0",
     "@vitejs/plugin-react": "^4.3.1",
@@ -30,7 +33,6 @@
     "chart.js": "^4.4.0",
     "cloudinary": "^2.9.0",
     "compression": "^1.8.0",
-    "kysely": "^0.x.x",
     "concurrently": "^8.2.0",
     "cors": "^2.8.5",
     "dotenv": "^16.4.5",
