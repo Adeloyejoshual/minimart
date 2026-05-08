@@ -182,6 +182,7 @@ import productDetailRouter from "./routes/productDetail.js";
 import homepageRouter      from "./routes/homepage.js";
 import sellerProfileRouter from "./routes/sellerprofile.js";
 import dashboardRoutes from "./routes/dashboard.js";
+import notificationsRouter from "./routes/notifications.js";
 
 app.use("/api/seller", sellerProfileRouter); // ← more specific first
 app.use("/api/addproduct",         addproductRouter);
@@ -194,7 +195,7 @@ app.use("/api/homepage",
 homepageRouter);
 app.use("/api/dashboard", 
 dashboardRoutes);
-
+app.use("/api/notifications", notificationsRouter);
 /* =========================================
    HEALTH CHECK
 ========================================= */
