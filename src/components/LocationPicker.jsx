@@ -24,22 +24,26 @@ export const saveActiveLocation = (loc) => {
 
 const ALL_STATES = Object.keys(locationsByState).sort();
 
-/* ── Reverse geocode via Nominatim (free, no key needed) ── */
-async function reverseGeocode(lat, lng) {
-  try {
-    const res = await fetch(
-      `https://nominatim.openstreetmap.org/reverse?lat=${lat}&lon=${lng}&format=json&addressdetails=1`,
-      { headers: { "Accept-Language": "en" } }
-    );
-    const data = await res.json();
-    const addr  = data.address || {};
-    const city  =
-      addr.city || addr.town || addr.village || addr.county || null;
-    const state = (addr.state || "").replace(" State", "").trim();
-    return { city, state };
-  } catch {
-    return { city: null, state: null };
-  }
+/* ── Reverse geocode via Nominatim — state only, matched against locationsByState ── */
+async function detectState(lat, lng) {
+  const res = await fetch(
+    `https://nominatim.openstreetmap.org/reverse?format=json&lat=${lat}&lon=${lng}`,
+    { headers: { "User-Agent": "minimart-app/1.0" } }
+  );
+  const data = await res.json();
+  const addr     = data.address ?? {};
+  const rawState = addr.state ?? addr.region ?? "";
+
+  /* Fuzzy match rawState against known states */
+  const matched = rawState
+    ? Object.keys(locationsByState).find(
+        (s) =>
+          s.toLowerCase().includes(rawState.toLowerCase()) ||
+          rawState.toLowerCase().includes(s.toLowerCase())
+      ) ?? null
+    : null;
+
+  return matched;
 }
 
 /* ═══════════════════════════════════════════════════
@@ -129,43 +133,44 @@ export default function LocationPicker({ open, onClose, onSelect }) {
     onClose();
   }, [selState, onSelect, onClose]);
 
-  /* GPS */
+  /* GPS — detects state only, auto-opens city list for that state */
   const handleGps = useCallback(() => {
     if (!navigator.geolocation) {
       setGpsStatus("error");
-      setGpsLabel("GPS not supported");
+      setGpsLabel("GPS not supported on this device");
       return;
     }
     setGpsStatus("loading");
-    setGpsLabel("Detecting location…");
+    setGpsLabel("Detecting your state…");
 
     navigator.geolocation.getCurrentPosition(
       async ({ coords: { latitude, longitude } }) => {
-        setGpsLabel("Resolving address…");
-        const { city, state } = await reverseGeocode(latitude, longitude);
+        try {
+          const matchedState = await detectState(latitude, longitude);
 
-        const loc = {
-          lat:    latitude,
-          lng:    longitude,
-          state:  state || null,
-          city:   city  || null,
-          source: "gps",
-          label:  [city, state].filter(Boolean).join(", ") || "Your location",
-          savedAt: Date.now(),
-        };
-        saveActiveLocation(loc);
-        setGpsStatus("ok");
-        setGpsLabel(loc.label);
-        onSelect?.(loc);
-        onClose();
+          if (matchedState) {
+            setGpsStatus("ok");
+            setGpsLabel(`Detected: ${matchedState}`);
+            /* Navigate to city list for that state — user picks city */
+            setSelState(matchedState);
+            setView("city");
+            setQuery("");
+          } else {
+            setGpsStatus("error");
+            setGpsLabel("State not recognised — please select manually");
+          }
+        } catch {
+          setGpsStatus("error");
+          setGpsLabel("Could not resolve location. Select manually.");
+        }
       },
       () => {
         setGpsStatus("error");
-        setGpsLabel("Could not get GPS. Check permissions.");
+        setGpsLabel("GPS denied. Allow location access and retry.");
       },
       GPS_O
     );
-  }, [onSelect, onClose]);
+  }, []);
 
   if (!open) return null;
 
