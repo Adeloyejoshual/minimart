@@ -28,6 +28,7 @@ import NearbyPage from "./pages/Homepage/NearbyPage";
 import DealsPage from "./pages/Homepage/DealsPage";
 import NewArrivalsPage from "./pages/Homepage/NewArrivalsPage";
 import TrendingPage from "./pages/Homepage/TrendingPage";
+import NotificationsPage from "./pages/NotificationsPage";
 
 /* ================= MENU PAGE (ADDED) ================= */
 import MenuPage from "./pages/MenuPage";
@@ -205,6 +206,15 @@ export default function App() {
             </ProtectedRoute>
           }
         />
+     
+        <Route
+  path="/notifications"
+  element={
+    <ProtectedRoute>
+      <NotificationsPage user={user} />
+    </ProtectedRoute>
+  }
+/>
 
         <Route
           path="/settings"
