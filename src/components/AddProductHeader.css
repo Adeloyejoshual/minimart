@@ -1,86 +1,153 @@
-/* AddProductHeader.css
-   The header is sticky so it stays visible while the user scrolls
-   the long add-product form. Stickiness lives here — not in a wrapper. */
+/* =========================================================
+   ProductHeader.css — matches ProductDetail design system
+   Tokens: warm beige (#f4f1ec, #ede9e3), gold (#b07d3a), near-black (#222)
+========================================================= */
+:root {
+  --product-header-height: 56px;
+  --product-subnav-height: 44px;
+}
 
-.add-product-header {
+/* =========================================================
+   SMART STICKY WRAPPER
+========================================================= */
+.product-header-wrapper {
   position: sticky;
   top: 0;
   z-index: 200;
+  transition: transform 0.3s ease, opacity 0.3s ease;
+  will-change: transform;
+}
 
+.product-header-wrapper.show {
+  transform: translateY(0);
+  opacity: 1;
+}
+
+.product-header-wrapper.hide {
+  transform: translateY(-110%);
+  opacity: 0;
+  pointer-events: none;
+}
+
+/* =========================================================
+   MAIN HEADER
+========================================================= */
+.product-header {
+  height: var(--product-header-height);
+  display: flex;
+  align-items: center;
+  padding: 0 12px;
+  background: #fff;
+  border-bottom: 1px solid #ede9e3;
+  box-shadow: 0 1px 0 rgba(0, 0, 0, 0.06);
+}
+
+/* =========================================================
+   CONTENT LAYOUT
+========================================================= */
+.product-header-container {
+  width: 100%;
   display: flex;
   align-items: center;
   justify-content: space-between;
-
-  padding: 12px 16px;
-  background: var(--bg-surface, #ffffff);
-  border-bottom: 1px solid var(--border, #ebebeb);
-  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.06);
-
-  /* Prevent any ancestor overflow:hidden from clipping the sticky bar */
-  -webkit-transform: translateZ(0);
-  transform: translateZ(0);
+  gap: 8px;
 }
 
-/* ── Back button ── */
-.aph-back {
+.product-header-left,
+.product-header-right {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-shrink: 0;
+}
+
+/* =========================================================
+   BUTTONS
+========================================================= */
+.product-btn {
+  width: 38px;
+  height: 38px;
+  border-radius: 50%;
+  border: none;
+  background: #f4f1ec;
   display: flex;
   align-items: center;
   justify-content: center;
-  width: 36px;
-  height: 36px;
-  border: none;
-  border-radius: 50%;
-  background: var(--bg-muted, #f4f4f4);
-  font-size: 18px;
+  color: #333;
   cursor: pointer;
-  color: var(--text-primary, #111);
-  transition: background 0.15s;
+  transition: background 0.15s, transform 0.1s;
   flex-shrink: 0;
 }
 
-.aph-back:hover {
-  background: var(--bg-hover, #e8e8e8);
+.product-btn:active {
+  transform: scale(0.94);
+  background: #ede9e3;
 }
 
-/* ── Title ── */
-.aph-title {
+/* =========================================================
+   TITLE
+========================================================= */
+.product-title {
   flex: 1;
   text-align: center;
-  font-size: 16px;
-  font-weight: 600;
-  margin: 0;
-  color: var(--text-primary, #111);
+  font-size: 14px;
+  font-weight: 700;
+  color: #222;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
+  padding: 0 4px;
 }
 
-/* ── Right slot ── */
-.aph-right {
+/* =========================================================
+   SUB HEADER — stats bar
+========================================================= */
+.product-subnav {
+  position: sticky;
+  top: var(--product-header-height);
+  z-index: 199;
+  height: var(--product-subnav-height);
   display: flex;
   align-items: center;
-  gap: 8px;
-  flex-shrink: 0;
-  min-width: 36px;
-  justify-content: flex-end;
+  gap: 14px;
+  padding: 0 16px;
+  background: #faf8f4;
+  border-bottom: 1px solid #ede9e3;
 }
 
-/* ── Clear draft button ── */
-.aph-clear {
-  padding: 6px 12px;
-  border: 1px solid var(--border, #ddd);
-  border-radius: 8px;
-  background: transparent;
+/* STAT ITEM */
+.product-stat {
+  display: flex;
+  align-items: center;
+  gap: 5px;
   font-size: 13px;
-  font-weight: 500;
-  color: var(--text-secondary, #555);
-  cursor: pointer;
-  transition: background 0.15s, color 0.15s;
-  white-space: nowrap;
+  font-weight: 600;
+  color: #444;
 }
 
-.aph-clear:hover {
-  background: #fff0f0;
-  border-color: #e05252;
-  color: #c0392b;
+.product-stat .value {
+  font-weight: 800;
+  color: #b07d3a;
+}
+
+.product-stat-count {
+  font-size: 12px;
+  font-weight: 400;
+  color: #aaa;
+}
+
+/* =========================================================
+   RESPONSIVE
+========================================================= */
+@media (max-width: 768px) {
+  :root {
+    --product-header-height: 52px;
+    --product-subnav-height: 40px;
+  }
+  .product-title { font-size: 13px; }
+  .product-btn   { width: 36px; height: 36px; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .product-header-wrapper { transition: none; }
 }
