@@ -1,28 +1,47 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState, useCallback } from "react";
 import { useParams } from "react-router-dom";
 import axios from "axios";
+import TopNav from "../../components/TopNav";
+import BottomNav from "../../components/BottomNav";
+import MasonryGrid from "../../components/MasonryGrid";
 
 const API_BASE = "https://minimart-ivrm.onrender.com";
+const LIMIT = 20;
 
 export default function SellerProfile() {
   const { id } = useParams();
 
-  const [seller, setSeller] = useState(null);
-  const [products, setProducts] = useState([]);
-  const [stats, setStats] = useState(null);
-  const [page, setPage] = useState(1);
-  const [loading, setLoading] = useState(true);
+  const [seller, setSeller]       = useState(null);
+  const [products, setProducts]   = useState([]);
+  const [stats, setStats]         = useState(null);
+  const [page, setPage]           = useState(1);
+  const [hasMore, setHasMore]     = useState(false);   // FIX: track when to stop
+  const [loading, setLoading]     = useState(true);
+  const [loadingMore, setLoadingMore] = useState(false);
+  const [error, setError]         = useState(null);
+  const [moreError, setMoreError] = useState(null);
 
-  // Fetch seller profile
+  const sentinelRef = useRef(null);
+
+  // ── Initial load ────────────────────────────────────────────────────────────
   useEffect(() => {
     const fetchSeller = async () => {
+      setLoading(true);
+      setError(null);
       try {
         const res = await axios.get(`${API_BASE}/api/seller/${id}`);
         setSeller(res.data.seller);
-        setProducts(res.data.products);
         setStats(res.data.stats);
+
+        const initial = res.data.products ?? [];
+        setProducts(initial);
+
+        // FIX: if the first batch is already a full page, there may be more
+        setHasMore(initial.length === LIMIT);
+        setPage(1);
       } catch (err) {
         console.error(err);
+        setError("Could not load seller. Please try again.");
       } finally {
         setLoading(false);
       }
@@ -31,28 +50,70 @@ export default function SellerProfile() {
     fetchSeller();
   }, [id]);
 
-  // Load more products
-  const loadMore = async () => {
+  // ── Load next page ───────────────────────────────────────────────────────────
+  const loadMore = useCallback(async () => {
+    if (loadingMore || !hasMore) return;
+
+    setLoadingMore(true);
+    setMoreError(null);
+
     try {
       const nextPage = page + 1;
       const res = await axios.get(
-        `${API_BASE}/api/seller/${id}/products?page=${nextPage}&limit=20`
+        `${API_BASE}/api/seller/${id}/products?page=${nextPage}&limit=${LIMIT}`
       );
 
-      setProducts((prev) => [...prev, ...res.data.products]);
+      const incoming = res.data.products ?? [];
+      setProducts((prev) => [...prev, ...incoming]);
       setPage(nextPage);
+
+      // FIX: use server-provided hasMore so we stop at the right time
+      setHasMore(res.data.hasMore ?? incoming.length === LIMIT);
     } catch (err) {
       console.error(err);
+      setMoreError("Failed to load more products.");
+    } finally {
+      setLoadingMore(false);
     }
+  }, [id, page, hasMore, loadingMore]);
+
+  // ── Infinite scroll via IntersectionObserver ─────────────────────────────────
+  // FIX: wire up the sentinel ref so the page scrolls automatically
+  useEffect(() => {
+    if (!sentinelRef.current) return;
+
+    const observer = new IntersectionObserver(
+      (entries) => {
+        if (entries[0].isIntersecting) loadMore();
+      },
+      { rootMargin: "200px" }
+    );
+
+    observer.observe(sentinelRef.current);
+    return () => observer.disconnect();
+  }, [loadMore]);
+
+  // ── Event handlers (kept from original pattern) ──────────────────────────────
+  const trackView = (product) => {
+    // e.g. POST /api/products/:id/view
   };
 
+  const handleClick = (product) => {
+    // e.g. navigate to product page
+  };
+
+  // ── Render ───────────────────────────────────────────────────────────────────
   if (loading) return <div className="p-4">Loading...</div>;
+
+  // FIX: show error state instead of blank screen
+  if (error)  return <div className="p-4 text-red-500">{error}</div>;
   if (!seller) return <div className="p-4">Seller not found</div>;
 
   return (
     <div className="seller-page">
-      
-      {/* ================= HEADER ================= */}
+      <TopNav />
+
+      {/* ── Header ── */}
       <div className="seller-header">
         <div className="seller-info">
           <img
@@ -72,69 +133,70 @@ export default function SellerProfile() {
             </p>
 
             <div className="meta">
-              <span>⭐ {seller.rating || 0}</span>
-              <span>
-                {seller.is_online ? "🟢 Online" : "⚪ Offline"}
-              </span>
+              <span>⭐ {seller.rating ?? 0}</span>
+              <span>{seller.is_online ? "🟢 Online" : "⚪ Offline"}</span>
               <span>Trust: {seller.trust_score}</span>
             </div>
           </div>
         </div>
       </div>
 
-      {/* ================= STATS ================= */}
+      {/* ── Stats ── */}
       <div className="seller-stats">
-        <div className="stat-box">
-          <h3>{stats?.total_products || 0}</h3>
-          <p>Products</p>
-        </div>
-
-        <div className="stat-box">
-          <h3>{stats?.total_views || 0}</h3>
-          <p>Views</p>
-        </div>
-
-        <div className="stat-box">
-          <h3>{seller.total_sales || 0}</h3>
-          <p>Sales</p>
-        </div>
-
-        <div className="stat-box">
-          <h3>{stats?.total_clicks || 0}</h3>
-          <p>Clicks</p>
-        </div>
+        {[
+          { label: "Products", value: stats?.total_products ?? 0 },
+          { label: "Views",    value: stats?.total_views    ?? 0 },
+          { label: "Sales",    value: seller.total_sales    ?? 0 },
+          { label: "Clicks",   value: stats?.total_clicks   ?? 0 },
+        ].map(({ label, value }) => (
+          <div className="stat-box" key={label}>
+            <h3>{value}</h3>
+            <p>{label}</p>
+          </div>
+        ))}
       </div>
 
-      {/* ================= PRODUCTS ================= */}
+      {/* ── Products ── */}
       <div className="products-section">
         <h3>Products</h3>
 
-        <div className="product-grid">
-          {products.map((p) => (
-            <div key={p.id} className="product-card">
-              <img
-                src={p.thumbnail_url || p.main_image}
-                alt={p.title}
-              />
+        {/* FIX: empty state when seller has no products */}
+        {products.length === 0 ? (
+          <p className="empty-state">This seller has no active products yet.</p>
+        ) : (
+          // FIX: use MasonryGrid consistently (matches rest of the app)
+          <MasonryGrid
+            products={products}
+            onView={trackView}
+            onClick={handleClick}
+          />
+        )}
 
-              <div className="product-info">
-                <h4>{p.title}</h4>
-                <p className="price">₦{p.price}</p>
-                <span className="views">{p.views} views</span>
-              </div>
+        {/* FIX: sentinel drives infinite scroll; hidden once nothing left */}
+        {hasMore && (
+          <div ref={sentinelRef} style={{ height: 1 }} />
+        )}
 
-              {p.is_promoted && (
-                <span className="promoted">Promoted</span>
-              )}
-            </div>
-          ))}
-        </div>
+        {/* Loading spinner while fetching next page */}
+        {loadingMore && (
+          <div className="load-more-spinner">Loading more…</div>
+        )}
 
-        {/* LOAD MORE */}
-        <div className="load-more">
-          <button onClick={loadMore}>Load More</button>
-        </div>
+        {/* FIX: surface load-more errors so the user can retry */}
+        {moreError && (
+          <div className="load-more-error">
+            <p>{moreError}</p>
+            <button onClick={loadMore}>Retry</button>
+          </div>
+        )}
+
+        {/* End-of-list message */}
+        {!hasMore && products.length > 0 && (
+          <p className="end-of-list">You've seen all products.</p>
+        )}
       </div>
+
+      <BottomNav />
     </div>
   );
 }
