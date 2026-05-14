@@ -1,9 +1,9 @@
 import { useEffect, useRef, useState, useCallback } from "react";
 import { useParams } from "react-router-dom";
 import axios from "axios";
-import TopNav from "../../components/TopNav";
-import BottomNav from "../../components/BottomNav";
-import MasonryGrid from "../../components/MasonryGrid";
+import TopNav from "../components/TopNav";
+import BottomNav from "../components/BottomNav";
+import MasonryGrid from "../components/MasonryGrid";
 
 const API_BASE = "https://minimart-ivrm.onrender.com";
 const LIMIT = 20;
