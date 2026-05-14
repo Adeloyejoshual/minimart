@@ -540,6 +540,10 @@ export default function AddProductPage({ user }) {
     };
 
     // ── activateFreePlan ───────────────────────────────────────────────────
+    // Free plans do NOT have a promotion_plans DB row — sending null tells
+    // the activate route to skip the plan lookup and just set status=active.
+    // Sending selectedPlan?.id caused "Promotion plan not found" because
+    // the frontend config ID never matched the DB table.
     const activateFreePlan = async (productId) => {
       const token = getToken();
       if (!token) throw new ApiError("Authentication required", 401);
@@ -552,7 +556,7 @@ export default function AddProductPage({ user }) {
             "Content-Type": "application/json",
             Authorization:  `Bearer ${token}`,
           },
-          body: JSON.stringify({ promotion_id: selectedPlan?.id ?? null }),
+          body: JSON.stringify({ promotion_id: null }),
         }
       );
     };
@@ -562,6 +566,13 @@ export default function AddProductPage({ user }) {
       const token = getToken();
       if (!token) throw new ApiError("Authentication required", 401);
 
+      // Apply discount if the plan has one — server re-validates this
+      const rawPrice = Number(selectedPlan?.price ?? 0);
+      const discount = Number(selectedPlan?.discount ?? 0);
+      const effectiveAmount = discount > 0
+        ? Math.round(rawPrice * (1 - discount / 100))
+        : rawPrice;
+
       const data = await apiFetch(`${API_BASE}/payment/initiate`, {
         method:  "POST",
         headers: {
@@ -570,7 +581,7 @@ export default function AddProductPage({ user }) {
         },
         body: JSON.stringify({
           email:      form.contact.email,
-          amount:     Number(selectedPlan?.price ?? 0),
+          amount:     effectiveAmount,
           plan_id:    selectedPlan?.id,
           product_id: productId,
         }),
