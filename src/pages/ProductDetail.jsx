@@ -5,6 +5,7 @@ import React, {
 import { useParams, useNavigate, Link } from "react-router-dom";
 import { useProductCache } from "../context/ProductCacheContext";
 import ProductHeader from "../components/ProductHeader";
+import MasonryGrid from "../components/MasonryGrid";
 import "../styles/ProductDetail.css";
 
 const API = import.meta.env.VITE_API_BASE || "https://minimart-ivrm.onrender.com/api";
@@ -386,7 +387,9 @@ export default function ProductDetail() {
       setReviews((prev) =>
         page === 1 ? (data.reviews || []) : [...prev, ...(data.reviews || [])]
       );
-      setReviewStats(data.stats || null);
+      // Normalize: backend returns `average`, ProductHeader expects `avg_rating`
+      const s = data.stats || null;
+      setReviewStats(s ? { ...s, avg_rating: s.average } : null);
       setReviewTotal(data.stats?.total || 0);
     } catch {}
   }, [slug]);
@@ -489,8 +492,12 @@ export default function ProductDetail() {
       <ProductHeader
         product={product}
         seller={seller}
-        fav={fav}
-        onToggleFav={toggleFav}
+        reviewStats={reviewStats ? {
+          avg_rating: reviewStats.average,
+          total:      reviewStats.total,
+        } : null}
+        onFavorite={toggleFav}
+        isFavorited={fav}
       />
 
       <div className="pd-page">
@@ -862,15 +869,11 @@ export default function ProductDetail() {
         {similar.length > 0 && (
           <div className="pd-similar">
             <div className="pd-similar-title">You may also like</div>
-            <div className="pd-similar-list">
-              {similar.map((p) => (
-                <ProductCard
-                  key={p.id}
-                  p={p}
-                  onClick={() => navigate(`/product/${p.slug || p.id}`)}
-                />
-              ))}
-            </div>
+            <MasonryGrid
+              products={similar}
+              onView={(p) => {}}
+              onClick={(p) => navigate(`/product/${p.slug || p.id}`)}
+            />
           </div>
         )}
 
@@ -880,15 +883,11 @@ export default function ProductDetail() {
             <div className="pd-similar-title">
               More from {seller?.store_name || seller?.name || "this seller"}
             </div>
-            <div className="pd-similar-list">
-              {sellerProducts.map((p) => (
-                <ProductCard
-                  key={p.id}
-                  p={p}
-                  onClick={() => navigate(`/product/${p.slug || p.id}`)}
-                />
-              ))}
-            </div>
+            <MasonryGrid
+              products={sellerProducts}
+              onView={(p) => {}}
+              onClick={(p) => navigate(`/product/${p.slug || p.id}`)}
+            />
             <button
               className="pd-seller-see-all"
               onClick={() => navigate(`/seller/${product.seller_id}`)}
