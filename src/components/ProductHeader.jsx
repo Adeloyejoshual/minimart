@@ -1,31 +1,58 @@
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import {
   ArrowLeftIcon,
   ShareIcon,
   HeartIcon,
 } from "@heroicons/react/24/outline";
-import { HeartIcon as HeartIconSolid, StarIcon as StarIconSolid } from "@heroicons/react/24/solid";
-
+import {
+  HeartIcon as HeartIconSolid,
+  StarIcon as StarIconSolid,
+} from "@heroicons/react/24/solid";
 import "./ProductHeader.css";
 
-const ProductHeader = ({ product, seller, reviewStats, onFavorite, isFavorited }) => {
-  const navigate = useNavigate();
+// 1432 → "1.4k" | 1000000 → "1m"
+const fmtViews = (n) => {
+  const v = Number(n || 0);
+  if (v >= 1_000_000) return (v / 1_000_000).toFixed(1).replace(/\.0$/, "") + "m";
+  if (v >= 1_000)     return (v / 1_000).toFixed(1).replace(/\.0$/, "") + "k";
+  return v.toLocaleString();
+};
 
+const ProductHeader = ({
+  product,
+  seller,
+  reviewStats,
+  onFavorite,
+  isFavorited = false,
+}) => {
+  const navigate      = useNavigate();
   const [visible,     setVisible]     = useState(true);
-  const [lastScrollY, setLastScrollY] = useState(0);
+  const lastScrollY   = useRef(0);
+  const ticking       = useRef(false);
 
-  /* ── SCROLL BEHAVIOR ── */
+  /* ── SCROLL: hide on down, show on up ── */
   useEffect(() => {
-    const handleScroll = () => {
-      const currentY = window.scrollY;
-      if (currentY < 50) { setVisible(true); setLastScrollY(currentY); return; }
-      setVisible(currentY <= lastScrollY);
-      setLastScrollY(currentY);
+    const onScroll = () => {
+      if (ticking.current) return;
+      ticking.current = true;
+      requestAnimationFrame(() => {
+        const currentY = window.scrollY;
+        if (currentY < 50) {
+          setVisible(true);
+        } else if (currentY > lastScrollY.current + 4) {
+          setVisible(false);          // scrolling down
+        } else if (currentY < lastScrollY.current - 4) {
+          setVisible(true);           // scrolling up
+        }
+        lastScrollY.current = currentY;
+        ticking.current     = false;
+      });
     };
-    window.addEventListener("scroll", handleScroll, { passive: true });
-    return () => window.removeEventListener("scroll", handleScroll);
-  }, [lastScrollY]);
+
+    window.addEventListener("scroll", onScroll, { passive: true });
+    return () => window.removeEventListener("scroll", onScroll);
+  }, []);
 
   const handleBack = () => {
     if (window.history.length > 1) navigate(-1);
@@ -42,58 +69,92 @@ const ProductHeader = ({ product, seller, reviewStats, onFavorite, isFavorited }
     try { await navigator.share({ title: product?.title, url }); } catch {}
   };
 
-  // Seller display name — store name takes priority over personal name
   const sellerName = seller?.store_name || seller?.name || null;
 
   return (
     <>
-      {/* SMART HEADER */}
-      <header className={`product-header-wrapper ${visible ? "show" : "hide"}`}>
-        <div className="product-header">
+      {/* ── MAIN HEADER ── */}
+      <div className={`product-header-wrapper ${visible ? "show" : "hide"}`}>
+        <header className="product-header">
           <div className="product-header-container">
 
-            {/* LEFT */}
-            <button className="product-btn" onClick={handleBack}>
-              <ArrowLeftIcon className="w-5 h-5 text-white" />
-            </button>
-
-            {/* TITLE — seller name when available, product title as fallback */}
-            <div className="product-title">
-              {sellerName || product?.title || "Product"}
+            {/* LEFT — back button */}
+            <div className="product-header-left">
+              <button
+                className="product-btn"
+                onClick={handleBack}
+                aria-label="Go back"
+              >
+                <ArrowLeftIcon style={{ width: 20, height: 20 }} />
+              </button>
             </div>
 
-            {/* RIGHT */}
+            {/* CENTER — product title only (seller name goes in subnav) */}
+            <div className="product-title" title={product?.title}>
+              {product?.title || "Product"}
+            </div>
+
+            {/* RIGHT — favorite + share */}
             <div className="product-header-right">
               {onFavorite && (
-                <button className="product-btn" onClick={onFavorite}>
+                <button
+                  className="product-btn"
+                  onClick={onFavorite}
+                  aria-label={isFavorited ? "Remove from favorites" : "Save"}
+                >
                   {isFavorited
-                    ? <HeartIconSolid className="w-5 h-5 text-red-500" />
-                    : <HeartIcon      className="w-5 h-5 text-white"   />
+                    ? <HeartIconSolid style={{ width: 20, height: 20, color: "#e53935" }} />
+                    : <HeartIcon      style={{ width: 20, height: 20 }} />
                   }
                 </button>
               )}
-              <button className="product-btn" onClick={handleShare}>
-                <ShareIcon className="w-5 h-5 text-white" />
+
+              <button
+                className="product-btn"
+                onClick={handleShare}
+                aria-label="Share"
+              >
+                <ShareIcon style={{ width: 20, height: 20 }} />
               </button>
             </div>
 
           </div>
-        </div>
-      </header>
+        </header>
 
-      {/* SUB HEADER */}
-      <div className="product-subnav">
-        {reviewStats?.avg_rating && (
-          <div className="product-stat">
-            <StarIconSolid className="w-4 h-4 text-amber-500" />
-            <span className="value">
-              {Number(reviewStats.avg_rating).toFixed(1)}
-            </span>
-            {reviewStats.total > 0 && (
-              <span className="product-stat-count">({reviewStats.total})</span>
-            )}
-          </div>
-        )}
+        {/* ── STATS BAR ── */}
+        <div className="product-subnav">
+
+          {/* Star rating */}
+          {reviewStats?.avg_rating > 0 && (
+            <div className="product-stat">
+              <StarIconSolid style={{ width: 15, height: 15, color: "#f59e0b" }} />
+              <span className="value">
+                {Number(reviewStats.avg_rating).toFixed(1)}
+              </span>
+              {reviewStats?.total > 0 && (
+                <span className="product-stat-count">
+                  ({reviewStats.total})
+                </span>
+              )}
+            </div>
+          )}
+
+          {/* Views */}
+          {product?.views > 0 && (
+            <div className="product-stat">
+              <span className="value">{fmtViews(product.views)}</span>
+              <span className="product-stat-count">views</span>
+            </div>
+          )}
+
+          {/* Seller name — right side of subnav */}
+          {sellerName && (
+            <div className="product-stat" style={{ marginLeft: "auto" }}>
+              <span className="product-stat-count">{sellerName}</span>
+            </div>
+          )}
+
+        </div>
       </div>
     </>
   );
