@@ -51,7 +51,7 @@ const safeParse = (value, fallback) => {
 /** promotion_plans.id is INT8 — never treat as UUID */
 const cleanInt = (value) => {
   const n = parseInt(value, 10);
-  return Number.isFinite(n) && n > 0 ? n : null;
+  return Number.isFinite(n) && n >= 0 ? n : null;
 };
 
 const cleanUuid = (value) => {
@@ -504,7 +504,13 @@ router.post("/products/:id/activate", authenticate, async (req, res) => {
 
     let promotionMeta = {};
 
-    if (promotion_id) {
+    // Debug log — helps trace what the frontend actually sent
+    console.log("[activate] product_id:", product_id, "| promotion_id received:", req.body.promotion_id, "| cleaned:", promotion_id);
+
+    // promotion_id === null  → free listing (no plan lookup needed)
+    // promotion_id === 0     → free plan id:0 (also skip — no DB row for free)
+    // promotion_id >= 1      → paid plan → validate in DB
+    if (promotion_id !== null && promotion_id > 0) {
       const { rows: planRows } = await client.query(
         `SELECT id, name, duration_days, priority
          FROM promotion_plans
@@ -514,9 +520,10 @@ router.post("/products/:id/activate", authenticate, async (req, res) => {
 
       if (!planRows.length) {
         await client.query("ROLLBACK");
+        console.error("[activate] Plan not found — id:", promotion_id, "| Check: SELECT * FROM promotion_plans WHERE id =", promotion_id);
         return res.status(400).json({
           success: false,
-          message: "Promotion plan not found or no longer active",
+          message: `Promotion plan ${promotion_id} not found or inactive — run seed_promotion_plans.sql`,
         });
       }
 
