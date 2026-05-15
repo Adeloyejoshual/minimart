@@ -5,7 +5,7 @@ import React, {
 import { useParams, useNavigate, Link } from "react-router-dom";
 import { useProductCache } from "../context/ProductCacheContext";
 import ProductHeader from "../components/ProductHeader";
-import MasonryGrid from "../../components/MasonryGrid";
+import MasonryGrid from "../components/MasonryGrid";
 import "../styles/ProductDetail.css";
 
 const API = import.meta.env.VITE_API_BASE || "https://minimart-ivrm.onrender.com/api";
