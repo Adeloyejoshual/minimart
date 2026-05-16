@@ -22,6 +22,7 @@ import Complain from "./pages/Complain";
 import Support from "./pages/Support";
 import Invitation from "./pages/Invitation";
 import TermsAndConditions from "./pages/TermsAndConditions";
+import MinimartPage from "./pages/MinimartPage";
 
 /* ================= HOMEPAGE SUB-PAGES ================= */
 import NearbyPage from "./pages/Homepage/NearbyPage";
