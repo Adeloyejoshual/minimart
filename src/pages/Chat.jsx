@@ -3,35 +3,34 @@ import { useParams, useSearchParams, useNavigate } from "react-router-dom";
 import { io } from "socket.io-client";
 import axios from "axios";
 
-const SOCKET_URL = "https://minimart-ivrm.onrender.com";
-const API        = "https://minimart-ivrm.onrender.com/api";
+const BASE        = "https://minimart-ivrm.onrender.com";
+const API         = `${BASE}/api`;
+const SOCKET_URL  = BASE;
 
 function formatTime(dateStr) {
-  const d = new Date(dateStr);
-  return d.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+  return new Date(dateStr).toLocaleTimeString([], {
+    hour: "2-digit", minute: "2-digit",
+  });
 }
 
 function formatDateLabel(dateStr) {
-  const d     = new Date(dateStr);
-  const today = new Date();
+  const d         = new Date(dateStr);
+  const today     = new Date();
   const yesterday = new Date();
   yesterday.setDate(today.getDate() - 1);
-
   if (d.toDateString() === today.toDateString())     return "Today";
   if (d.toDateString() === yesterday.toDateString()) return "Yesterday";
   return d.toLocaleDateString([], { month: "short", day: "numeric", year: "numeric" });
 }
 
-// Group messages by date
 function groupByDate(messages) {
   const groups = [];
-  let lastDate  = null;
-
+  let lastLabel = null;
   for (const m of messages) {
-    const label = formatDateLabel(m.created_at || new Date());
-    if (label !== lastDate) {
+    const label = formatDateLabel(m.created_at);
+    if (label !== lastLabel) {
       groups.push({ type: "date", label });
-      lastDate = label;
+      lastLabel = label;
     }
     groups.push({ type: "message", data: m });
   }
@@ -39,35 +38,34 @@ function groupByDate(messages) {
 }
 
 export default function Chat({ user }) {
-  const { productId }    = useParams();
-  const [searchParams]   = useSearchParams();
-  const navigate         = useNavigate();
-  const receiverId       = searchParams.get("receiver");
+  const { productId }  = useParams();
+  const [searchParams] = useSearchParams();
+  const navigate       = useNavigate();
+  const receiverId     = searchParams.get("receiver");
 
-  const [messages,    setMessages]    = useState([]);
-  const [newMsg,      setNewMsg]      = useState("");
-  const [otherUser,   setOtherUser]   = useState(null);
-  const [product,     setProduct]     = useState(null);
-  const [loading,     setLoading]     = useState(true);
-  const [sending,     setSending]     = useState(false);
+  const [messages,  setMessages]  = useState([]);
+  const [newMsg,    setNewMsg]    = useState("");
+  const [otherUser, setOtherUser] = useState(null);
+  const [product,   setProduct]   = useState(null);
+  const [loading,   setLoading]   = useState(true);
 
   const messagesEndRef = useRef(null);
-  const socketRef      = useRef();
-  const inputRef       = useRef();
+  const socketRef      = useRef(null);
+  const inputRef       = useRef(null);
 
-  // Fetch other user info + product info
+  // Fetch other user + product info
   useEffect(() => {
     if (!receiverId || !productId) return;
     Promise.all([
       axios.get(`${API}/users/${receiverId}`).catch(() => null),
-      axios.get(`${API}/products/${productId}`).catch(() => null),
+      axios.get(`${API}/product/${productId}`).catch(() => null),
     ]).then(([userRes, productRes]) => {
       if (userRes)    setOtherUser(userRes.data);
       if (productRes) setProduct(productRes.data);
     });
   }, [receiverId, productId]);
 
-  // Socket setup
+  // Socket — connect once
   useEffect(() => {
     if (!user) return;
 
@@ -77,11 +75,18 @@ export default function Chat({ user }) {
       senderId: user.id, receiverId, productId,
     });
 
+    // Server saves to DB then broadcasts to whole room — including sender
     socketRef.current.on("receiveMessage", (msg) => {
-      setMessages((prev) => [...prev, msg]);
+      setMessages((prev) => {
+        // Avoid duplicates if the same socket event fires twice
+        if (prev.find((m) => m.id === msg.id)) return prev;
+        return [...prev, msg];
+      });
     });
 
-    return () => socketRef.current.disconnect();
+    return () => {
+      socketRef.current?.disconnect();
+    };
   }, [user, receiverId, productId]);
 
   // Fetch message history
@@ -97,52 +102,25 @@ export default function Chat({ user }) {
       .finally(() => setLoading(false));
   }, [user, receiverId, productId]);
 
-  // Scroll to bottom on new messages
+  // Scroll to bottom
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [messages]);
 
-  const sendMessage = async () => {
+  const sendMessage = () => {
     const text = newMsg.trim();
-    if (!text || sending) return;
+    if (!text || !socketRef.current) return;
 
-    const msgObj = {
-      sender_id:   user.id,
-      receiver_id: receiverId,
-      product_id:  productId,
-      message:     text,
-      created_at:  new Date().toISOString(),
-      id:          Date.now(),
-      _pending:    true,
-    };
+    // Emit to server — server saves + broadcasts receiveMessage back
+    socketRef.current.emit("sendMessage", {
+      senderId:   user.id,
+      receiverId,
+      productId,
+      message:    text,
+    });
 
-    setMessages((prev) => [...prev, msgObj]);
     setNewMsg("");
-    setSending(true);
-
-    try {
-      const { data } = await axios.post(`${API}/messages`, {
-        senderId:   user.id,
-        receiverId,
-        productId,
-        message:    text,
-      });
-
-      // Replace the optimistic message with the real one
-      setMessages((prev) =>
-        prev.map((m) => (m.id === msgObj.id ? data : m))
-      );
-
-      // Emit to socket so the other person receives it
-      socketRef.current.emit("sendMessage", data);
-    } catch (err) {
-      console.error("Send failed", err);
-      // Remove the failed optimistic message
-      setMessages((prev) => prev.filter((m) => m.id !== msgObj.id));
-    } finally {
-      setSending(false);
-      inputRef.current?.focus();
-    }
+    inputRef.current?.focus();
   };
 
   const handleKeyDown = (e) => {
@@ -152,8 +130,8 @@ export default function Chat({ user }) {
     }
   };
 
+  const isMine  = (m) => m.sender_id === user?.id;
   const grouped = groupByDate(messages);
-  const isMine  = (m) => (m.sender_id || m.senderId) === user?.id;
 
   return (
     <div style={{
@@ -181,7 +159,6 @@ export default function Chat({ user }) {
           </svg>
         </button>
 
-        {/* Avatar */}
         <div style={{ position: "relative" }}>
           <img
             src={
@@ -200,10 +177,9 @@ export default function Chat({ user }) {
           )}
         </div>
 
-        {/* Name + product */}
         <div style={{ flex: 1, minWidth: 0 }}>
           <div style={{ fontWeight: 600, fontSize: 14 }}>
-            {otherUser?.name || "Loading…"}
+            {otherUser?.name || "…"}
           </div>
           {product && (
             <div style={{
@@ -215,7 +191,6 @@ export default function Chat({ user }) {
           )}
         </div>
 
-        {/* Product thumbnail */}
         {product?.images?.[0] && (
           <img
             src={product.images[0]}
@@ -244,14 +219,16 @@ export default function Chat({ user }) {
           <div style={{
             flex: 1, display: "flex", flexDirection: "column",
             alignItems: "center", justifyContent: "center",
-            gap: 10, color: "#bbb", paddingTop: 60,
+            gap: 10, paddingTop: 80,
           }}>
-            <svg width="48" height="48" fill="none" viewBox="0 0 24 24"
+            <svg width="52" height="52" fill="none" viewBox="0 0 24 24"
               stroke="#ddd" strokeWidth={1.2}>
               <path strokeLinecap="round" strokeLinejoin="round"
                 d="M8 10h.01M12 10h.01M16 10h.01M21 12c0 4.418-4.03 8-9 8a9.77 9.77 0 01-4-.85L3 20l1.09-3.27C3.4 15.56 3 13.82 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z" />
             </svg>
-            <p style={{ margin: 0, fontSize: 14, color: "#999" }}>No messages yet</p>
+            <p style={{ margin: 0, fontSize: 14, color: "#999", fontWeight: 500 }}>
+              No messages yet
+            </p>
             <p style={{ margin: 0, fontSize: 12, color: "#bbb" }}>
               Say hello to start the conversation!
             </p>
@@ -260,43 +237,39 @@ export default function Chat({ user }) {
           grouped.map((item, i) =>
             item.type === "date" ? (
               <div key={i} style={{
-                textAlign: "center", fontSize: 11, color: "#aaa",
-                margin: "10px 0 4px",
+                textAlign: "center", fontSize: 11,
+                color: "#aaa", margin: "10px 0 4px",
               }}>
                 {item.label}
               </div>
             ) : (
-              <div
-                key={item.data.id}
-                style={{
-                  display: "flex",
-                  justifyContent: isMine(item.data) ? "flex-end" : "flex-start",
-                  marginBottom: 2,
-                }}
-              >
+              <div key={item.data.id} style={{
+                display: "flex",
+                justifyContent: isMine(item.data) ? "flex-end" : "flex-start",
+                marginBottom: 2,
+              }}>
                 <div style={{
-                  maxWidth: "70%",
-                  background:    isMine(item.data) ? "#000" : "#fff",
-                  color:         isMine(item.data) ? "#fff" : "#111",
-                  border:        isMine(item.data) ? "none" : "1px solid #ececec",
-                  padding:       "9px 13px",
-                  borderRadius:  isMine(item.data)
+                  maxWidth:     "70%",
+                  background:   isMine(item.data) ? "#000" : "#fff",
+                  color:        isMine(item.data) ? "#fff" : "#111",
+                  border:       isMine(item.data) ? "none" : "1px solid #ececec",
+                  padding:      "9px 13px",
+                  borderRadius: isMine(item.data)
                     ? "18px 18px 4px 18px"
                     : "18px 18px 18px 4px",
-                  fontSize:      14,
-                  lineHeight:    1.45,
-                  wordBreak:     "break-word",
-                  opacity:       item.data._pending ? 0.6 : 1,
-                  boxShadow:     "0 1px 2px rgba(0,0,0,0.04)",
+                  fontSize:     14,
+                  lineHeight:   1.45,
+                  wordBreak:    "break-word",
+                  boxShadow:    "0 1px 2px rgba(0,0,0,0.04)",
                 }}>
                   {item.data.message}
                   <div style={{
                     fontSize: 10,
-                    color: isMine(item.data) ? "rgba(255,255,255,0.55)" : "#bbb",
+                    color: isMine(item.data) ? "rgba(255,255,255,0.5)" : "#bbb",
                     marginTop: 4,
                     textAlign: "right",
                   }}>
-                    {item.data._pending ? "Sending…" : formatTime(item.data.created_at)}
+                    {formatTime(item.data.created_at)}
                   </div>
                 </div>
               </div>
@@ -327,7 +300,7 @@ export default function Chat({ user }) {
         />
         <button
           onClick={sendMessage}
-          disabled={!newMsg.trim() || sending}
+          disabled={!newMsg.trim()}
           style={{
             width: 42, height: 42, borderRadius: "50%",
             background: newMsg.trim() ? "#000" : "#e5e5e5",
