@@ -281,47 +281,46 @@ app.use((err, req, res, _next) => {
 });
 
 /* =========================================
-   SOCKET.IO — normalized room: productId + '_' + sorted sender/receiver
+   SOCKET.IO
 ========================================= */
-const makeRoom = (a, b, productId) =>
-  `${productId}_${[String(a), String(b)].sort().join("_")}`;
-
 io.on("connection", (socket) => {
   console.log("🔌 Connected:", socket.id);
 
-  socket.on("joinRoom", ({ senderId, receiverId, productId } = {}) => {
-    if (!senderId || !receiverId || !productId) return;
-    const room = makeRoom(senderId, receiverId, productId);
-    socket.join(room);
-    console.log(`📦 ${socket.id} joined room: ${room}`);
+  // Join a thread room
+  socket.on("joinThread", ({ threadId, userId }) => {
+    if (!threadId || !userId) return;
+    socket.join(threadId);
+    console.log(`📦 ${userId} joined thread: ${threadId}`);
+
+    // Mark messages as delivered when user joins
+    pool.query(
+      `UPDATE chat_messages
+       SET status = 'delivered'
+       WHERE thread_id = $1
+         AND sender_id != $2
+         AND status = 'sent'`,
+      [threadId, userId]
+    ).catch(() => {});
   });
 
-  socket.on("sendMessage", async (msg) => {
-    if (!msg) return;
+  // Relay already-saved message to other person in thread
+  socket.on("sendMessage", (msg) => {
+    if (!msg?.thread_id) return;
+    socket.to(msg.thread_id).emit("receiveMessage", msg);
+  });
 
-    // If payload looks like an already-saved DB row, just relay
-    const hasSavedRow = msg.id && msg.sender_id && msg.receiver_id && msg.product_id;
-    if (hasSavedRow) {
-      const room = makeRoom(msg.sender_id, msg.receiver_id, msg.product_id);
-      socket.to(room).emit("receiveMessage", msg);
-      return;
-    }
+  // Typing indicators
+  socket.on("typing", ({ threadId, userId }) => {
+    socket.to(threadId).emit("userTyping", { userId });
+  });
 
-    // Otherwise it's a plain message object to persist
-    const { senderId, receiverId, productId, message } = msg;
-    if (!senderId || !receiverId || !productId || !message) return;
+  socket.on("stopTyping", ({ threadId, userId }) => {
+    socket.to(threadId).emit("userStopTyping", { userId });
+  });
 
-    try {
-      const room = makeRoom(senderId, receiverId, productId);
-      const { rows } = await pool.query(
-        `INSERT INTO messages (sender_id, receiver_id, product_id, message, created_at)
-         VALUES ($1, $2, $3, $4, NOW()) RETURNING *`,
-        [senderId, receiverId, productId, message]
-      );
-      io.to(room).emit("receiveMessage", rows[0]);
-    } catch (err) {
-      console.error("Socket message error:", err.message);
-    }
+  // Read receipt — broadcast to thread so sender sees ticks update
+  socket.on("markRead", ({ threadId, userId }) => {
+    socket.to(threadId).emit("messagesRead", { threadId, userId });
   });
 
   socket.on("disconnect", () => {
