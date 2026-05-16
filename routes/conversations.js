@@ -4,7 +4,6 @@ import { pool } from "../config/db.js";
 const router = express.Router();
 
 // GET /api/conversations?userId=
-// Returns all threads for a user with other party info
 router.get("/", async (req, res) => {
   const { userId } = req.query;
   if (!userId) return res.status(400).json({ error: "userId required" });
@@ -12,28 +11,25 @@ router.get("/", async (req, res) => {
   try {
     const { rows } = await pool.query(
       `SELECT
-         t.id              AS thread_id,
+         t.id                AS thread_id,
          t.product_id,
          t.last_message,
          t.last_message_at,
          t.is_archived,
          t.is_blocked,
-         -- who is the other person?
-         CASE WHEN t.buyer_id = $1 THEN t.seller_id ELSE t.buyer_id END AS other_user_id,
-         u.name            AS other_user_name,
-         u.profile_image   AS other_user_avatar,
-         u.is_online       AS other_user_online,
-         p.title           AS product_title,
-         p.images          AS product_images,
-         -- unread count
-         (
-           SELECT COUNT(*)
-           FROM chat_messages m
-           WHERE m.thread_id = t.id
-             AND m.sender_id != $1
-             AND m.status != 'read'
-             AND m.deleted = false
-         ) AS unread_count
+         -- precomputed unread (no COUNT subquery)
+         CASE WHEN t.buyer_id = $1 THEN t.unread_buyer
+              ELSE t.unread_seller
+         END                AS unread_count,
+         -- other party
+         CASE WHEN t.buyer_id = $1 THEN t.seller_id
+              ELSE t.buyer_id
+         END                AS other_user_id,
+         u.name             AS other_user_name,
+         u.profile_image    AS other_user_avatar,
+         u.is_online        AS other_user_online,
+         p.title            AS product_title,
+         p.images           AS product_images
        FROM chat_threads t
        JOIN users u
          ON u.id = CASE WHEN t.buyer_id = $1 THEN t.seller_id ELSE t.buyer_id END
@@ -51,18 +47,14 @@ router.get("/", async (req, res) => {
 });
 
 // POST /api/conversations/start
-// Find or create a thread between buyer → seller for a product
 router.post("/start", async (req, res) => {
   const { buyerId, sellerId, productId } = req.body;
   if (!buyerId || !sellerId)
     return res.status(400).json({ error: "buyerId and sellerId required" });
-
-  // Prevent seller chatting with themselves
   if (buyerId === sellerId)
     return res.status(400).json({ error: "Cannot start chat with yourself" });
 
   try {
-    // Upsert — if thread exists return it, else create
     const { rows } = await pool.query(
       `INSERT INTO chat_threads (buyer_id, seller_id, product_id)
        VALUES ($1, $2, $3)
@@ -85,11 +77,11 @@ router.patch("/:threadId/read", async (req, res) => {
   if (!userId) return res.status(400).json({ error: "userId required" });
 
   try {
-    // Get latest message id in thread
+    // Get latest message id
     const { rows: latest } = await pool.query(
       `SELECT id FROM chat_messages
        WHERE thread_id = $1 AND deleted = false
-       ORDER BY created_at DESC LIMIT 1`,
+       ORDER BY seq DESC LIMIT 1`,
       [threadId]
     );
     const lastId = latest[0]?.id || null;
@@ -104,13 +96,23 @@ router.patch("/:threadId/read", async (req, res) => {
       [threadId, userId, lastId]
     );
 
-    // Mark messages as read
+    // Mark messages read
     await pool.query(
       `UPDATE chat_messages
        SET status = 'read'
        WHERE thread_id = $1
          AND sender_id != $2
-         AND status != 'read'`,
+         AND status != 'read'
+         AND deleted = false`,
+      [threadId, userId]
+    );
+
+    // Reset precomputed unread counter
+    await pool.query(
+      `UPDATE chat_threads
+       SET unread_buyer  = CASE WHEN buyer_id  = $2 THEN 0 ELSE unread_buyer  END,
+           unread_seller = CASE WHEN seller_id = $2 THEN 0 ELSE unread_seller END
+       WHERE id = $1`,
       [threadId, userId]
     );
 
