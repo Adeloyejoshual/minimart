@@ -5,7 +5,7 @@ import axios from "axios";
 import { io } from "socket.io-client";
 
 const API = "/api/messages";
-const socket = io(import.meta.env.VITE_API_URL || "http://localhost:3000", {
+const socket = io(import.meta.env.VITE_API_URL || "https://minimart-ivrm.onrender.com", {
   withCredentials: true,
 });
 
