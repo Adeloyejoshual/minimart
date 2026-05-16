@@ -40,24 +40,29 @@ function groupByDate(messages) {
 }
 
 export default function Chat({ user }) {
-  const { threadId } = useParams();   // /chat/:threadId
+  const { threadId } = useParams();
   const navigate     = useNavigate();
 
   const [messages,    setMessages]    = useState([]);
   const [newMsg,      setNewMsg]      = useState("");
-  const [thread,      setThread]      = useState(null); // thread meta
   const [otherUser,   setOtherUser]   = useState(null);
   const [product,     setProduct]     = useState(null);
   const [loading,     setLoading]     = useState(true);
   const [sending,     setSending]     = useState(false);
   const [isTyping,    setIsTyping]    = useState(false);
+  const [hasMore,     setHasMore]     = useState(false);
+  const [loadingMore, setLoadingMore] = useState(false);
+  const [cursor,      setCursor]      = useState(null);
   const [typingTimer, setTypingTimer] = useState(null);
 
-  const messagesEndRef = useRef(null);
-  const socketRef      = useRef(null);
-  const inputRef       = useRef(null);
+  const messagesEndRef  = useRef(null);
+  const messagesTopRef  = useRef(null);
+  const socketRef       = useRef(null);
+  const inputRef        = useRef(null);
 
-  // Fetch thread metadata → other user + product
+  const LIMIT = 40;
+
+  // Fetch thread meta → other user + product
   useEffect(() => {
     if (!threadId || !user?.id) return;
     axios
@@ -65,28 +70,26 @@ export default function Chat({ user }) {
       .then(({ data }) => {
         const t = data.find((x) => x.thread_id === threadId);
         if (!t) return;
-        setThread(t);
 
-        // Fetch full other user profile
-        axios.get(`${API}/users/${t.other_user_id}`).then(({ data: u }) => setOtherUser(u)).catch(() => {});
+        axios.get(`${API}/users/${t.other_user_id}`)
+          .then(({ data: u }) => setOtherUser(u)).catch(() => {});
 
-        // Fetch product
         if (t.product_id) {
           axios.get(`${API}/product/${t.product_id}`)
             .catch(() => axios.get(`${API}/products/${t.product_id}`).catch(() => null))
             .then((r) => r && setProduct(r.data));
         }
-      })
-      .catch(console.error);
+      }).catch(console.error);
   }, [threadId, user?.id]);
 
-  // Socket
+  // Socket — pass userId in query so server knows who connected
   useEffect(() => {
     if (!user?.id || !threadId) return;
 
     socketRef.current = io(SOCKET_URL, {
-      transports: ["websocket", "polling"],
-      withCredentials: false,
+      transports:       ["websocket", "polling"],
+      withCredentials:  false,
+      query:            { userId: user.id },   // ← presence
     });
 
     socketRef.current.on("connect", () => {
@@ -95,64 +98,80 @@ export default function Chat({ user }) {
       });
     });
 
-    // Message from the other person
+    // Incoming message from the other person
     socketRef.current.on("receiveMessage", (msg) => {
-      if (!msg?.id) return;
-      if (msg.sender_id === user.id) return;
+      if (!msg?.id)                  return;
+      if (msg.sender_id === user.id) return; // ignore own echo
       setMessages((prev) => {
         if (prev.some((m) => m.id === msg.id)) return prev;
         return [...prev, msg];
       });
-      // Mark as read immediately since chat is open
+      // Auto-mark read since chat is open
       socketRef.current.emit("markRead", { threadId, userId: user.id });
       axios.patch(`${API}/conversations/${threadId}/read`, { userId: user.id }).catch(() => {});
     });
 
-    // Other person read our messages → update ticks
+    // Other person read our messages → blue ticks
     socketRef.current.on("messagesRead", ({ userId }) => {
       if (userId === user.id) return;
       setMessages((prev) =>
-        prev.map((m) => m.sender_id === user.id && m.status !== "read"
-          ? { ...m, status: "read" }
-          : m
+        prev.map((m) =>
+          m.sender_id === user.id && m.status !== "read"
+            ? { ...m, status: "read" }
+            : m
         )
       );
     });
 
-    // Typing
     socketRef.current.on("userTyping",     () => setIsTyping(true));
     socketRef.current.on("userStopTyping", () => setIsTyping(false));
-
-    socketRef.current.on("connect_error", (err) => {
-      console.error("Socket error:", err.message);
-    });
+    socketRef.current.on("connect_error",  (e) => console.error("Socket:", e.message));
 
     return () => socketRef.current?.disconnect();
   }, [user?.id, threadId]);
 
-  // Fetch message history
+  // Fetch initial history
   useEffect(() => {
     if (!user?.id || !threadId) return;
     setLoading(true);
     axios
       .get(`${API}/messages`, {
-        params: { threadId, userId: user.id },
+        params: { threadId, userId: user.id, limit: LIMIT },
       })
       .then(({ data }) => {
         setMessages(data);
-        // Mark as read on open
+        setHasMore(data.length === LIMIT);
+        if (data.length) setCursor(data[0].seq); // oldest seq at top
         axios.patch(`${API}/conversations/${threadId}/read`, { userId: user.id }).catch(() => {});
       })
       .catch(console.error)
       .finally(() => setLoading(false));
   }, [user?.id, threadId]);
 
-  // Scroll to bottom
+  // Load older messages
+  const loadMore = () => {
+    if (!cursor || loadingMore) return;
+    setLoadingMore(true);
+    axios
+      .get(`${API}/messages`, {
+        params: { threadId, userId: user.id, cursor, limit: LIMIT },
+      })
+      .then(({ data }) => {
+        setMessages((prev) => [...data, ...prev]);
+        setHasMore(data.length === LIMIT);
+        if (data.length) setCursor(data[0].seq);
+      })
+      .catch(console.error)
+      .finally(() => setLoadingMore(false));
+  };
+
+  // Scroll to bottom on new messages
   useEffect(() => {
-    messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
+    if (!loadingMore)
+      messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [messages, isTyping]);
 
-  // Typing handler
+  // Typing
   const handleTyping = () => {
     socketRef.current?.emit("typing", { threadId, userId: user.id });
     clearTimeout(typingTimer);
@@ -167,15 +186,15 @@ export default function Chat({ user }) {
 
     const clientMessageId = `${user.id}_${Date.now()}`;
     const temp = {
-      id:               `temp_${clientMessageId}`,
-      thread_id:        threadId,
-      sender_id:        user.id,
-      message:          text,
-      message_type:     "text",
-      created_at:       new Date().toISOString(),
-      status:           "sending",
+      id:                `temp_${clientMessageId}`,
+      thread_id:         threadId,
+      sender_id:         user.id,
+      message:           text,
+      message_type:      "text",
+      created_at:        new Date().toISOString(),
+      status:            "sending",
       client_message_id: clientMessageId,
-      _temp:            true,
+      _temp:             true,
     };
 
     setMessages((prev) => [...prev, temp]);
@@ -184,7 +203,6 @@ export default function Chat({ user }) {
     socketRef.current?.emit("stopTyping", { threadId, userId: user.id });
 
     try {
-      // Save to DB
       const { data: saved } = await axios.post(`${API}/messages`, {
         threadId,
         senderId:        user.id,
@@ -192,12 +210,12 @@ export default function Chat({ user }) {
         clientMessageId,
       });
 
-      // Swap temp with real
+      // Swap temp → real DB row
       setMessages((prev) =>
-        prev.map((m) => m.id === temp.id ? saved : m)
+        prev.map((m) => (m.id === temp.id ? saved : m))
       );
 
-      // Notify other person via socket
+      // Notify other person
       socketRef.current?.emit("sendMessage", saved);
 
     } catch (err) {
@@ -221,18 +239,13 @@ export default function Chat({ user }) {
   const grouped = groupByDate(messages);
 
   const statusTick = (status) => {
-    if (status === "read") {
-      return (
-        <svg width="14" height="10" viewBox="0 0 16 10" fill="none">
-          <path d="M1 5l3 3L10 1" stroke="#60a5fa" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round"/>
-          <path d="M6 5l3 3 6-7" stroke="#60a5fa" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round"/>
-        </svg>
-      );
-    }
+    const color = status === "read" ? "#60a5fa" : "rgba(255,255,255,0.5)";
     return (
       <svg width="14" height="10" viewBox="0 0 16 10" fill="none">
-        <path d="M1 5l3 3L10 1" stroke="rgba(255,255,255,0.5)" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round"/>
-        <path d="M6 5l3 3 6-7" stroke="rgba(255,255,255,0.5)" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round"/>
+        <path d="M1 5l3 3L10 1" stroke={color} strokeWidth="1.6"
+          strokeLinecap="round" strokeLinejoin="round"/>
+        <path d="M6 5l3 3 6-7" stroke={color} strokeWidth="1.6"
+          strokeLinecap="round" strokeLinejoin="round"/>
       </svg>
     );
   };
@@ -251,13 +264,10 @@ export default function Chat({ user }) {
         background: "#fff", position: "sticky", top: 0, zIndex: 10,
         boxShadow: "0 1px 4px rgba(0,0,0,0.05)",
       }}>
-        <button
-          onClick={() => navigate(-1)}
-          style={{
-            background: "none", border: "none", cursor: "pointer",
-            padding: 4, display: "flex", alignItems: "center", flexShrink: 0,
-          }}
-        >
+        <button onClick={() => navigate(-1)} style={{
+          background: "none", border: "none", cursor: "pointer",
+          padding: 4, display: "flex", alignItems: "center", flexShrink: 0,
+        }}>
           <svg width="20" height="20" fill="none" viewBox="0 0 24 24"
             stroke="#000" strokeWidth={2}>
             <path strokeLinecap="round" strokeLinejoin="round" d="M15 19l-7-7 7-7"/>
@@ -288,6 +298,8 @@ export default function Chat({ user }) {
           </div>
           {isTyping ? (
             <div style={{ fontSize: 11, color: "#22c55e" }}>typing…</div>
+          ) : otherUser?.is_online ? (
+            <div style={{ fontSize: 11, color: "#22c55e" }}>Online</div>
           ) : product?.title ? (
             <div style={{
               fontSize: 11, color: "#888", marginTop: 1,
@@ -295,23 +307,14 @@ export default function Chat({ user }) {
             }}>
               re: {product.title}
             </div>
-          ) : (
-            otherUser?.is_online && (
-              <div style={{ fontSize: 11, color: "#22c55e" }}>Online</div>
-            )
-          )}
+          ) : null}
         </div>
 
         {product?.images?.[0] && (
-          <img
-            src={product.images[0]}
-            alt={product.title}
-            style={{
-              width: 38, height: 38, borderRadius: 6,
-              objectFit: "cover", flexShrink: 0,
-              border: "1px solid #f0f0f0",
-            }}
-          />
+          <img src={product.images[0]} alt={product.title} style={{
+            width: 38, height: 38, borderRadius: 6,
+            objectFit: "cover", flexShrink: 0, border: "1px solid #f0f0f0",
+          }}/>
         )}
       </div>
 
@@ -321,6 +324,24 @@ export default function Chat({ user }) {
         display: "flex", flexDirection: "column", gap: 2,
         background: "#f7f7f7",
       }}>
+
+        {/* Load more */}
+        {hasMore && (
+          <div style={{ textAlign: "center", padding: "8px 0" }}>
+            <button
+              onClick={loadMore}
+              disabled={loadingMore}
+              style={{
+                background: "none", border: "1px solid #e0e0e0",
+                borderRadius: 20, padding: "5px 16px",
+                fontSize: 12, color: "#666", cursor: "pointer",
+              }}
+            >
+              {loadingMore ? "Loading…" : "Load older messages"}
+            </button>
+          </div>
+        )}
+
         {loading ? (
           <div style={{ display: "flex", justifyContent: "center", paddingTop: 40 }}>
             <div style={{
@@ -379,11 +400,11 @@ export default function Chat({ user }) {
                     borderRadius: isMine(item.data)
                       ? "18px 18px 4px 18px"
                       : "18px 18px 18px 4px",
-                    fontSize:     14, lineHeight: 1.45,
-                    wordBreak:    "break-word",
-                    boxShadow:    "0 1px 2px rgba(0,0,0,0.06)",
-                    opacity:      item.data._temp ? 0.6 : 1,
-                    transition:   "opacity 0.2s",
+                    fontSize:   14, lineHeight: 1.45,
+                    wordBreak:  "break-word",
+                    boxShadow:  "0 1px 2px rgba(0,0,0,0.06)",
+                    opacity:    item.data._temp ? 0.6 : 1,
+                    transition: "opacity 0.2s",
                   }}>
                     {item.data.message}
                     <div style={{
@@ -414,14 +435,14 @@ export default function Chat({ user }) {
               )
             )}
 
-            {/* Typing indicator */}
+            {/* Typing bubble */}
             {isTyping && (
               <div style={{ display: "flex", justifyContent: "flex-start", marginBottom: 4 }}>
                 <div style={{
                   background: "#fff", border: "1px solid #e8e8e8",
                   borderRadius: "18px 18px 18px 4px",
-                  padding: "10px 14px",
-                  display: "flex", gap: 4, alignItems: "center",
+                  padding: "10px 14px", display: "flex",
+                  gap: 4, alignItems: "center",
                 }}>
                   {[0, 1, 2].map((n) => (
                     <div key={n} style={{
