@@ -7,6 +7,10 @@ const BASE       = "https://minimart-ivrm.onrender.com";
 const API        = `${BASE}/api`;
 const SOCKET_URL = BASE;
 
+// Same normalization as server
+const getRoom = (a, b, productId) =>
+  [String(a), String(b)].sort().join("_") + "_" + productId;
+
 function formatTime(dateStr) {
   return new Date(dateStr).toLocaleTimeString([], {
     hour: "2-digit", minute: "2-digit",
@@ -61,47 +65,65 @@ export default function Chat({ user }) {
     if (!receiverId || !productId) return;
     Promise.all([
       axios.get(`${API}/users/${receiverId}`).catch(() => null),
-      axios.get(`${API}/product/${productId}`).catch(() => null),
+      // try both routes — /product/:id and /products/:id
+      axios.get(`${API}/product/${productId}`)
+        .catch(() => axios.get(`${API}/products/${productId}`).catch(() => null)),
     ]).then(([uRes, pRes]) => {
       if (uRes) setOtherUser(uRes.data);
       if (pRes) setProduct(pRes.data);
     });
   }, [receiverId, productId]);
 
-  // Socket — only used to RECEIVE messages from the other person
+  // Socket — only for receiving the other person's messages
   useEffect(() => {
-    if (!user) return;
+    if (!user?.id || !receiverId || !productId) return;
 
-    socketRef.current = io(SOCKET_URL, { transports: ["websocket"] });
-
-    socketRef.current.emit("joinRoom", {
-      senderId: user.id, receiverId, productId,
+    socketRef.current = io(SOCKET_URL, {
+      transports: ["websocket", "polling"], // polling as fallback for Render
+      withCredentials: false,
     });
 
-    // Only handle messages sent by the OTHER person
+    socketRef.current.on("connect", () => {
+      console.log("✅ Socket connected:", socketRef.current.id);
+      // Join after confirmed connect
+      socketRef.current.emit("joinRoom", {
+        senderId:   user.id,
+        receiverId,
+        productId,
+      });
+    });
+
+    socketRef.current.on("connect_error", (err) => {
+      console.error("Socket connect error:", err.message);
+    });
+
+    // Only handle incoming messages from the other person
     socketRef.current.on("receiveMessage", (msg) => {
-      if (msg.sender_id === user.id) return; // ignore own echo
+      if (!msg?.id) return;
+      if (msg.sender_id === user.id) return; // ignore own echo if any
       setMessages((prev) => {
-        if (prev.find((m) => m.id === msg.id)) return prev;
+        if (prev.some((m) => m.id === msg.id)) return prev; // dedupe
         return [...prev, msg];
       });
     });
 
-    return () => socketRef.current?.disconnect();
-  }, [user, receiverId, productId]);
+    return () => {
+      socketRef.current?.disconnect();
+    };
+  }, [user?.id, receiverId, productId]);
 
-  // Fetch history
+  // Fetch message history
   useEffect(() => {
-    if (!user) return;
+    if (!user?.id) return;
     setLoading(true);
     axios
       .get(`${API}/messages`, {
         params: { senderId: user.id, receiverId, productId },
       })
       .then((res) => setMessages(res.data))
-      .catch(console.error)
+      .catch((err) => console.error("History fetch failed:", err.message))
       .finally(() => setLoading(false));
-  }, [user, receiverId, productId]);
+  }, [user?.id, receiverId, productId]);
 
   // Scroll to bottom
   useEffect(() => {
@@ -123,14 +145,14 @@ export default function Chat({ user }) {
       _temp:       true,
     };
 
-    // 1. Show immediately
+    // 1. Show instantly
     setMessages((prev) => [...prev, temp]);
     setNewMsg("");
     setSending(true);
     inputRef.current?.focus();
 
     try {
-      // 2. Save to DB via HTTP — reliable, returns real row
+      // 2. Save to DB via HTTP
       const { data: saved } = await axios.post(`${API}/messages`, {
         senderId:   user.id,
         receiverId,
@@ -138,17 +160,19 @@ export default function Chat({ user }) {
         message:    text,
       });
 
-      // 3. Swap temp with real DB row
+      // 3. Swap temp with confirmed DB row
       setMessages((prev) =>
         prev.map((m) => (m.id === tempId ? saved : m))
       );
 
-      // 4. Notify the other person via socket
-      socketRef.current?.emit("sendMessage", saved);
+      // 4. Notify other person via socket (send real DB row)
+      if (socketRef.current?.connected) {
+        socketRef.current.emit("sendMessage", saved);
+      }
 
     } catch (err) {
-      console.error("Send failed:", err);
-      // Remove failed temp message and restore input
+      console.error("Send failed:", err.message);
+      // Remove temp + restore input
       setMessages((prev) => prev.filter((m) => m.id !== tempId));
       setNewMsg(text);
     } finally {
@@ -189,7 +213,7 @@ export default function Chat({ user }) {
         >
           <svg width="20" height="20" fill="none" viewBox="0 0 24 24"
             stroke="#000" strokeWidth={2}>
-            <path strokeLinecap="round" strokeLinejoin="round" d="M15 19l-7-7 7-7" />
+            <path strokeLinecap="round" strokeLinejoin="round" d="M15 19l-7-7 7-7"/>
           </svg>
         </button>
 
@@ -207,7 +231,7 @@ export default function Chat({ user }) {
               position: "absolute", bottom: 1, right: 1,
               width: 9, height: 9, background: "#22c55e",
               borderRadius: "50%", border: "2px solid white",
-            }} />
+            }}/>
           )}
         </div>
 
@@ -250,7 +274,7 @@ export default function Chat({ user }) {
               width: 28, height: 28, border: "3px solid #eee",
               borderTop: "3px solid #000", borderRadius: "50%",
               animation: "spin 0.8s linear infinite",
-            }} />
+            }}/>
             <style>{`@keyframes spin { to { transform: rotate(360deg); } }`}</style>
           </div>
 
@@ -263,7 +287,7 @@ export default function Chat({ user }) {
             <svg width="52" height="52" fill="none" viewBox="0 0 24 24"
               stroke="#ddd" strokeWidth={1.2}>
               <path strokeLinecap="round" strokeLinejoin="round"
-                d="M8 10h.01M12 10h.01M16 10h.01M21 12c0 4.418-4.03 8-9 8a9.77 9.77 0 01-4-.85L3 20l1.09-3.27C3.4 15.56 3 13.82 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z" />
+                d="M8 10h.01M12 10h.01M16 10h.01M21 12c0 4.418-4.03 8-9 8a9.77 9.77 0 01-4-.85L3 20l1.09-3.27C3.4 15.56 3 13.82 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z"/>
             </svg>
             <p style={{ margin: 0, fontSize: 14, fontWeight: 500, color: "#999" }}>
               No messages yet
@@ -281,8 +305,7 @@ export default function Chat({ user }) {
                 margin: "10px 0 6px", userSelect: "none",
               }}>
                 <span style={{
-                  background: "#e8e8e8", borderRadius: 10,
-                  padding: "2px 10px",
+                  background: "#e8e8e8", borderRadius: 10, padding: "2px 10px",
                 }}>
                   {item.label}
                 </span>
@@ -345,7 +368,7 @@ export default function Chat({ user }) {
             )
           )
         )}
-        <div ref={messagesEndRef} />
+        <div ref={messagesEndRef}/>
       </div>
 
       {/* ── Input ── */}
@@ -376,7 +399,8 @@ export default function Chat({ user }) {
           style={{
             width: 42, height: 42, borderRadius: "50%", flexShrink: 0,
             background: newMsg.trim() && !sending ? "#000" : "#e5e5e5",
-            border: "none", cursor: newMsg.trim() && !sending ? "pointer" : "default",
+            border: "none",
+            cursor: newMsg.trim() && !sending ? "pointer" : "default",
             display: "flex", alignItems: "center", justifyContent: "center",
             transition: "background 0.2s",
           }}
@@ -384,7 +408,7 @@ export default function Chat({ user }) {
           <svg width="18" height="18" viewBox="0 0 24 24" fill="none"
             stroke={newMsg.trim() && !sending ? "#fff" : "#aaa"} strokeWidth={2}>
             <path strokeLinecap="round" strokeLinejoin="round"
-              d="M22 2L11 13M22 2L15 22l-4-9-9-4 20-7z" />
+              d="M22 2L11 13M22 2L15 22l-4-9-9-4 20-7z"/>
           </svg>
         </button>
       </div>
