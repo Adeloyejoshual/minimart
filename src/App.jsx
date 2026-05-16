@@ -188,6 +188,7 @@ export default function App() {
         <Route path="/seller/:id" element={<SellerProfile user={user} />} />
         <Route path="/auth" element={<AuthPage setUser={handleAuthSuccess} />} />
         <Route path="/terms" element={<TermsAndConditions />} />
+<Route path="/minimart" element={<MinimartPage user={user} />} />
 
         {/* ================= HOMEPAGE SUB-PAGES ================= */}
         <Route path="/nearby" element={<NearbyPage user={user} />} />
