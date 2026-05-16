@@ -3,26 +3,37 @@ import { pool } from "../config/db.js";
 
 const router = express.Router();
 
-// GET /api/messages?senderId=&receiverId=&productId=
+// GET /api/messages?threadId=&userId=&cursor=&limit=
 router.get("/", async (req, res) => {
-  const { senderId, receiverId, productId } = req.query;
-  if (!senderId || !receiverId || !productId)
-    return res.status(400).json({ error: "senderId, receiverId, productId required" });
+  const { threadId, userId, cursor, limit = 40 } = req.query;
+  if (!threadId || !userId)
+    return res.status(400).json({ error: "threadId and userId required" });
 
   try {
+    const params = [threadId, Math.min(Number(limit), 100)];
+    let cursorClause = "";
+    if (cursor) {
+      cursorClause = `AND m.created_at < $3`;
+      params.push(cursor);
+    }
+
     const { rows } = await pool.query(
-      `SELECT id, sender_id, receiver_id, product_id, message, created_at
-       FROM messages
-       WHERE product_id = $1
-         AND (
-           (sender_id = $2 AND receiver_id = $3)
-           OR
-           (sender_id = $3 AND receiver_id = $2)
-         )
-       ORDER BY created_at ASC`,
-      [productId, senderId, receiverId]
+      `SELECT
+         m.id, m.thread_id, m.sender_id, m.message,
+         m.message_type, m.media_url, m.created_at,
+         m.status, m.edited, m.deleted,
+         m.client_message_id
+       FROM chat_messages m
+       WHERE m.thread_id = $1
+         AND m.deleted = false
+         ${cursorClause}
+       ORDER BY m.created_at DESC
+       LIMIT $2`,
+      params
     );
-    res.json(rows);
+
+    // Return oldest-first for rendering
+    res.json(rows.reverse());
   } catch (err) {
     console.error("GET /messages error:", err.message);
     res.status(500).json({ error: err.message });
@@ -31,18 +42,45 @@ router.get("/", async (req, res) => {
 
 // POST /api/messages
 router.post("/", async (req, res) => {
-  const { senderId, receiverId, productId, message } = req.body;
-  if (!senderId || !receiverId || !productId || !message)
-    return res.status(400).json({ error: "All fields required" });
+  const {
+    threadId, senderId, message,
+    messageType = "text", mediaUrl = null,
+    clientMessageId = null,
+  } = req.body;
+
+  if (!threadId || !senderId || !message)
+    return res.status(400).json({ error: "threadId, senderId, message required" });
 
   try {
+    // Idempotency — don't insert the same client message twice
+    if (clientMessageId) {
+      const { rows: existing } = await pool.query(
+        `SELECT id FROM chat_messages WHERE client_message_id = $1 LIMIT 1`,
+        [clientMessageId]
+      );
+      if (existing.length) return res.status(200).json(existing[0]);
+    }
+
     const { rows } = await pool.query(
-      `INSERT INTO messages (sender_id, receiver_id, product_id, message)
-       VALUES ($1, $2, $3, $4)
-       RETURNING id, sender_id, receiver_id, product_id, message, created_at`,
-      [senderId, receiverId, productId, message]
+      `INSERT INTO chat_messages
+         (thread_id, sender_id, message, message_type, media_url, client_message_id)
+       VALUES ($1, $2, $3, $4, $5, $6)
+       RETURNING id, thread_id, sender_id, message, message_type,
+                 media_url, created_at, status, edited, deleted, client_message_id`,
+      [threadId, senderId, message, messageType, mediaUrl, clientMessageId]
     );
-    res.status(201).json(rows[0]);
+
+    const saved = rows[0];
+
+    // Update thread last_message
+    await pool.query(
+      `UPDATE chat_threads
+       SET last_message = $1, last_message_at = now()
+       WHERE id = $2`,
+      [message.slice(0, 200), threadId]
+    );
+
+    res.status(201).json(saved);
   } catch (err) {
     console.error("POST /messages error:", err.message);
     res.status(500).json({ error: err.message });
