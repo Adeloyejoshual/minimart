@@ -1,22 +1,22 @@
-import express          from "express";
-import cors             from "cors";
-import path             from "path";
-import http             from "http";
-import dotenv           from "dotenv";
+import express from "express";
+import cors from "cors";
+import path from "path";
+import http from "http";
+import dotenv from "dotenv";
 import { fileURLToPath } from "url";
 import { Server as SocketIOServer } from "socket.io";
-import { Pool }         from "pg";
+import { Pool } from "pg";
 
 dotenv.config();
 
 const __filename = fileURLToPath(import.meta.url);
-const __dirname  = path.dirname(__filename);
+const __dirname = path.dirname(__filename);
 
 /* =========================================
    APP + SERVER
 ========================================= */
-const app    = express();
-const PORT   = process.env.PORT || 5000;
+const app = express();
+const PORT = process.env.PORT || 5000;
 const server = http.createServer(app);
 
 /* =========================================
@@ -26,7 +26,7 @@ const ALLOWED_ORIGIN = process.env.CLIENT_ORIGIN || "*";
 
 const io = new SocketIOServer(server, {
   cors: {
-    origin:  ALLOWED_ORIGIN,
+    origin: ALLOWED_ORIGIN,
     methods: ["GET", "POST", "PUT", "DELETE"],
   },
 });
@@ -54,7 +54,7 @@ export const pool = new Pool({
 /* =========================================
    IN-MEMORY CACHE
 ========================================= */
-const _cache    = new Map();
+const _cache = new Map();
 const CACHE_TTL = 60 * 1000;
 
 export const setCache = (key, value) => {
@@ -101,11 +101,10 @@ app.use((req, _res, next) => {
 /* =========================================
    RATE LIMITER
 ========================================= */
-const _limiter  = new Map();
+const _limiter = new Map();
 const WINDOW_MS = 60_000;
-const MAX_REQ   = 120;
+const MAX_REQ = 120;
 
-// Evict stale buckets every 5 minutes — prevents unbounded Map growth
 setInterval(() => {
   const now = Date.now();
   for (const [ip, data] of _limiter.entries()) {
@@ -114,12 +113,12 @@ setInterval(() => {
 }, 5 * 60_000);
 
 app.use((req, res, next) => {
-  // x-forwarded-for may be comma-separated when behind multiple proxies
-  const ip  = req.headers["x-forwarded-for"]?.split(",")[0].trim()
-              ?? req.socket.remoteAddress
-              ?? "unknown";
+  const ip =
+    req.headers["x-forwarded-for"]?.split(",")[0].trim() ??
+    req.socket.remoteAddress ??
+    "unknown";
   const now = Date.now();
-  let data  = _limiter.get(ip);
+  let data = _limiter.get(ip);
 
   if (!data || now - data.time > WINDOW_MS) {
     data = { count: 1, time: now };
@@ -173,31 +172,30 @@ import "./jobs/expirePromotions.js";
    the first prefix that fits, so /api/marketplace/sellers
    must come before /api/marketplace.
 ========================================= */
-import addproductRouter   from "./routes/addproduct.js";
-import userRouter          from "./routes/users.js";
-import messagesRouter      from "./routes/messages.js";
-import adminRouter         from "./routes/admin.js";
-import searchRouter        from "./routes/search.js";
+import addproductRouter from "./routes/addproduct.js";
+import userRouter from "./routes/users.js";
+import messagesRouter from "./routes/messages.js";
+import adminRouter from "./routes/admin.js";
+import searchRouter from "./routes/search.js";
 import conversationsRouter from "./routes/conversations.js";
 import productDetailRouter from "./routes/productDetail.js";
-import homepageRouter      from "./routes/homepage.js";
+import homepageRouter from "./routes/homepage.js";
 import sellerProfileRouter from "./routes/sellerprofile.js";
 import dashboardRoutes from "./routes/dashboard.js";
 import notificationsRouter from "./routes/notifications.js";
 
-app.use("/api/seller", sellerProfileRouter); // ← more specific first
-app.use("/api/addproduct",         addproductRouter);
-app.use("/api/users",               userRouter);
+app.use("/api/seller", sellerProfileRouter);
+app.use("/api/addproduct", addproductRouter);
+app.use("/api/users", userRouter);
 app.use("/api/conversations", conversationsRouter);
-app.use("/api/messages",            messagesRouter);
-app.use("/api/admin",               adminRouter);
-app.use("/api/search",              searchRouter);
-app.use("/api/product",             productDetailRouter);
-app.use("/api/homepage", 
-homepageRouter);
-app.use("/api/dashboard", 
-dashboardRoutes);
+app.use("/api/messages", messagesRouter);
+app.use("/api/admin", adminRouter);
+app.use("/api/search", searchRouter);
+app.use("/api/product", productDetailRouter);
+app.use("/api/homepage", homepageRouter);
+app.use("/api/dashboard", dashboardRoutes);
 app.use("/api/notifications", notificationsRouter);
+
 /* =========================================
    HEALTH CHECK
 ========================================= */
@@ -205,10 +203,10 @@ app.get("/api/health", async (_req, res) => {
   try {
     const { rows } = await pool.query("SELECT 1");
     return res.json({
-      success:  true,
+      success: true,
       database: rows.length > 0,
-      uptime:   process.uptime(),
-      memory:   process.memoryUsage().rss,
+      uptime: process.uptime(),
+      memory: process.memoryUsage().rss,
     });
   } catch (err) {
     return res.status(500).json({ success: false, error: err.message });
@@ -274,32 +272,47 @@ app.use((err, req, res, _next) => {
 
   const status = err.status ?? err.statusCode ?? 500;
 
-  // Never expose internal messages in production
   const message =
     process.env.NODE_ENV === "production" && status === 500
       ? "Internal server error"
-      : (err.message ?? "Internal server error");
+      : err.message ?? "Internal server error";
 
   res.status(status).json({ success: false, message });
 });
 
 /* =========================================
-   SOCKET.IO
+   SOCKET.IO — normalized room: productId + '_' + sorted sender/receiver
 ========================================= */
+const makeRoom = (a, b, productId) =>
+  `${productId}_${[String(a), String(b)].sort().join("_")}`;
+
 io.on("connection", (socket) => {
   console.log("🔌 Connected:", socket.id);
 
-  socket.on("joinRoom", ({ senderId, receiverId, productId }) => {
+  socket.on("joinRoom", ({ senderId, receiverId, productId } = {}) => {
     if (!senderId || !receiverId || !productId) return;
-    const room = `${productId}_${[senderId, receiverId].sort().join("_")}`;
+    const room = makeRoom(senderId, receiverId, productId);
     socket.join(room);
+    console.log(`📦 ${socket.id} joined room: ${room}`);
   });
 
-  socket.on("sendMessage", async ({ senderId, receiverId, productId, message } = {}) => {
+  socket.on("sendMessage", async (msg) => {
+    if (!msg) return;
+
+    // If payload looks like an already-saved DB row, just relay
+    const hasSavedRow = msg.id && msg.sender_id && msg.receiver_id && msg.product_id;
+    if (hasSavedRow) {
+      const room = makeRoom(msg.sender_id, msg.receiver_id, msg.product_id);
+      socket.to(room).emit("receiveMessage", msg);
+      return;
+    }
+
+    // Otherwise it's a plain message object to persist
+    const { senderId, receiverId, productId, message } = msg;
     if (!senderId || !receiverId || !productId || !message) return;
 
     try {
-      const room = `${productId}_${[senderId, receiverId].sort().join("_")}`;
+      const room = makeRoom(senderId, receiverId, productId);
       const { rows } = await pool.query(
         `INSERT INTO messages (sender_id, receiver_id, product_id, message, created_at)
          VALUES ($1, $2, $3, $4, NOW()) RETURNING *`,
