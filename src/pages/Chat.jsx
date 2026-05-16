@@ -3,10 +3,11 @@ import { useParams, useSearchParams, useNavigate } from "react-router-dom";
 import { io } from "socket.io-client";
 import axios from "axios";
 
-const BASE        = "https://minimart-ivrm.onrender.com";
-const API         = `${BASE}/api`;
-const SOCKET_URL  = BASE;
+const BASE       = "https://minimart-ivrm.onrender.com";
+const API        = `${BASE}/api`;
+const SOCKET_URL = BASE;
 
+/* ── helpers ── */
 function formatTime(dateStr) {
   return new Date(dateStr).toLocaleTimeString([], {
     hour: "2-digit", minute: "2-digit",
@@ -20,11 +21,13 @@ function formatDateLabel(dateStr) {
   yesterday.setDate(today.getDate() - 1);
   if (d.toDateString() === today.toDateString())     return "Today";
   if (d.toDateString() === yesterday.toDateString()) return "Yesterday";
-  return d.toLocaleDateString([], { month: "short", day: "numeric", year: "numeric" });
+  return d.toLocaleDateString([], {
+    month: "short", day: "numeric", year: "numeric",
+  });
 }
 
 function groupByDate(messages) {
-  const groups = [];
+  const groups  = [];
   let lastLabel = null;
   for (const m of messages) {
     const label = formatDateLabel(m.created_at);
@@ -37,6 +40,9 @@ function groupByDate(messages) {
   return groups;
 }
 
+/* ══════════════════════════════════════
+   COMPONENT
+══════════════════════════════════════ */
 export default function Chat({ user }) {
   const { productId }  = useParams();
   const [searchParams] = useSearchParams();
@@ -53,19 +59,19 @@ export default function Chat({ user }) {
   const socketRef      = useRef(null);
   const inputRef       = useRef(null);
 
-  // Fetch other user + product info
+  /* ── fetch other user + product ── */
   useEffect(() => {
     if (!receiverId || !productId) return;
     Promise.all([
       axios.get(`${API}/users/${receiverId}`).catch(() => null),
       axios.get(`${API}/product/${productId}`).catch(() => null),
-    ]).then(([userRes, productRes]) => {
-      if (userRes)    setOtherUser(userRes.data);
-      if (productRes) setProduct(productRes.data);
+    ]).then(([uRes, pRes]) => {
+      if (uRes) setOtherUser(uRes.data);
+      if (pRes) setProduct(pRes.data);
     });
   }, [receiverId, productId]);
 
-  // Socket — connect once
+  /* ── socket ── */
   useEffect(() => {
     if (!user) return;
 
@@ -75,21 +81,27 @@ export default function Chat({ user }) {
       senderId: user.id, receiverId, productId,
     });
 
-    // Server saves to DB then broadcasts to whole room — including sender
     socketRef.current.on("receiveMessage", (msg) => {
       setMessages((prev) => {
-        // Avoid duplicates if the same socket event fires twice
+        // Replace matching temp message with confirmed DB row
+        const tempIdx = prev.findIndex(
+          (m) => m._temp && m.sender_id === msg.sender_id
+        );
+        if (tempIdx !== -1) {
+          const next = [...prev];
+          next[tempIdx] = msg;   // swap temp → real
+          return next;
+        }
+        // Incoming message from the other person — guard duplicates
         if (prev.find((m) => m.id === msg.id)) return prev;
         return [...prev, msg];
       });
     });
 
-    return () => {
-      socketRef.current?.disconnect();
-    };
+    return () => socketRef.current?.disconnect();
   }, [user, receiverId, productId]);
 
-  // Fetch message history
+  /* ── fetch history ── */
   useEffect(() => {
     if (!user) return;
     setLoading(true);
@@ -102,25 +114,37 @@ export default function Chat({ user }) {
       .finally(() => setLoading(false));
   }, [user, receiverId, productId]);
 
-  // Scroll to bottom
+  /* ── scroll to bottom ── */
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [messages]);
 
+  /* ── send ── */
   const sendMessage = () => {
     const text = newMsg.trim();
     if (!text || !socketRef.current) return;
 
-    // Emit to server — server saves + broadcasts receiveMessage back
+    // Show immediately — optimistic
+    const temp = {
+      id:          `temp_${Date.now()}`,
+      sender_id:   user.id,
+      receiver_id: receiverId,
+      product_id:  productId,
+      message:     text,
+      created_at:  new Date().toISOString(),
+      _temp:       true,
+    };
+
+    setMessages((prev) => [...prev, temp]);
+    setNewMsg("");
+    inputRef.current?.focus();
+
     socketRef.current.emit("sendMessage", {
       senderId:   user.id,
       receiverId,
       productId,
       message:    text,
     });
-
-    setNewMsg("");
-    inputRef.current?.focus();
   };
 
   const handleKeyDown = (e) => {
@@ -133,6 +157,7 @@ export default function Chat({ user }) {
   const isMine  = (m) => m.sender_id === user?.id;
   const grouped = groupByDate(messages);
 
+  /* ══ RENDER ══ */
   return (
     <div style={{
       display: "flex", flexDirection: "column",
@@ -145,12 +170,13 @@ export default function Chat({ user }) {
         display: "flex", alignItems: "center", gap: 12,
         padding: "12px 16px", borderBottom: "1px solid #f0f0f0",
         background: "#fff", position: "sticky", top: 0, zIndex: 10,
+        boxShadow: "0 1px 4px rgba(0,0,0,0.05)",
       }}>
         <button
           onClick={() => navigate(-1)}
           style={{
             background: "none", border: "none", cursor: "pointer",
-            padding: 4, display: "flex", alignItems: "center",
+            padding: 4, display: "flex", alignItems: "center", flexShrink: 0,
           }}
         >
           <svg width="20" height="20" fill="none" viewBox="0 0 24 24"
@@ -159,13 +185,14 @@ export default function Chat({ user }) {
           </svg>
         </button>
 
-        <div style={{ position: "relative" }}>
+        {/* Avatar */}
+        <div style={{ position: "relative", flexShrink: 0 }}>
           <img
             src={
               otherUser?.profile_image ||
               `https://ui-avatars.com/api/?name=${encodeURIComponent(otherUser?.name || "U")}&background=000&color=fff`
             }
-            alt={otherUser?.name}
+            alt={otherUser?.name || "User"}
             style={{ width: 40, height: 40, borderRadius: "50%", objectFit: "cover" }}
           />
           {otherUser?.is_online && (
@@ -177,13 +204,14 @@ export default function Chat({ user }) {
           )}
         </div>
 
+        {/* Name + product */}
         <div style={{ flex: 1, minWidth: 0 }}>
-          <div style={{ fontWeight: 600, fontSize: 14 }}>
+          <div style={{ fontWeight: 600, fontSize: 14, lineHeight: 1.3 }}>
             {otherUser?.name || "…"}
           </div>
-          {product && (
+          {product?.title && (
             <div style={{
-              fontSize: 11, color: "#888",
+              fontSize: 11, color: "#888", marginTop: 1,
               whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis",
             }}>
               re: {product.title}
@@ -191,11 +219,16 @@ export default function Chat({ user }) {
           )}
         </div>
 
+        {/* Product thumbnail */}
         {product?.images?.[0] && (
           <img
             src={product.images[0]}
             alt={product.title}
-            style={{ width: 40, height: 40, borderRadius: 6, objectFit: "cover", flexShrink: 0 }}
+            style={{
+              width: 38, height: 38, borderRadius: 6,
+              objectFit: "cover", flexShrink: 0,
+              border: "1px solid #f0f0f0",
+            }}
           />
         )}
       </div>
@@ -203,9 +236,10 @@ export default function Chat({ user }) {
       {/* ── Messages ── */}
       <div style={{
         flex: 1, overflowY: "auto", padding: "16px 12px",
-        display: "flex", flexDirection: "column", gap: 4,
-        background: "#fafafa",
+        display: "flex", flexDirection: "column", gap: 2,
+        background: "#f7f7f7",
       }}>
+
         {loading ? (
           <div style={{ display: "flex", justifyContent: "center", paddingTop: 40 }}>
             <div style={{
@@ -215,61 +249,100 @@ export default function Chat({ user }) {
             }} />
             <style>{`@keyframes spin { to { transform: rotate(360deg); } }`}</style>
           </div>
+
         ) : messages.length === 0 ? (
           <div style={{
-            flex: 1, display: "flex", flexDirection: "column",
+            display: "flex", flexDirection: "column",
             alignItems: "center", justifyContent: "center",
-            gap: 10, paddingTop: 80,
+            flex: 1, gap: 10, paddingTop: 80,
           }}>
             <svg width="52" height="52" fill="none" viewBox="0 0 24 24"
               stroke="#ddd" strokeWidth={1.2}>
               <path strokeLinecap="round" strokeLinejoin="round"
                 d="M8 10h.01M12 10h.01M16 10h.01M21 12c0 4.418-4.03 8-9 8a9.77 9.77 0 01-4-.85L3 20l1.09-3.27C3.4 15.56 3 13.82 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z" />
             </svg>
-            <p style={{ margin: 0, fontSize: 14, color: "#999", fontWeight: 500 }}>
+            <p style={{ margin: 0, fontSize: 14, fontWeight: 500, color: "#999" }}>
               No messages yet
             </p>
             <p style={{ margin: 0, fontSize: 12, color: "#bbb" }}>
               Say hello to start the conversation!
             </p>
           </div>
+
         ) : (
           grouped.map((item, i) =>
             item.type === "date" ? (
-              <div key={i} style={{
-                textAlign: "center", fontSize: 11,
-                color: "#aaa", margin: "10px 0 4px",
+
+              /* date label */
+              <div key={`d_${i}`} style={{
+                textAlign: "center", fontSize: 11, color: "#aaa",
+                margin: "10px 0 6px", userSelect: "none",
               }}>
-                {item.label}
+                <span style={{
+                  background: "#ebebeb", borderRadius: 10,
+                  padding: "2px 10px",
+                }}>
+                  {item.label}
+                </span>
               </div>
+
             ) : (
+
+              /* bubble */
               <div key={item.data.id} style={{
                 display: "flex",
                 justifyContent: isMine(item.data) ? "flex-end" : "flex-start",
                 marginBottom: 2,
               }}>
                 <div style={{
-                  maxWidth:     "70%",
+                  maxWidth:     "72%",
                   background:   isMine(item.data) ? "#000" : "#fff",
                   color:        isMine(item.data) ? "#fff" : "#111",
-                  border:       isMine(item.data) ? "none" : "1px solid #ececec",
-                  padding:      "9px 13px",
+                  border:       isMine(item.data) ? "none" : "1px solid #e8e8e8",
+                  padding:      "9px 13px 7px",
                   borderRadius: isMine(item.data)
                     ? "18px 18px 4px 18px"
                     : "18px 18px 18px 4px",
                   fontSize:     14,
                   lineHeight:   1.45,
                   wordBreak:    "break-word",
-                  boxShadow:    "0 1px 2px rgba(0,0,0,0.04)",
+                  boxShadow:    "0 1px 2px rgba(0,0,0,0.06)",
+                  // dim while temp
+                  opacity: item.data._temp ? 0.65 : 1,
+                  transition: "opacity 0.2s",
                 }}>
                   {item.data.message}
                   <div style={{
-                    fontSize: 10,
-                    color: isMine(item.data) ? "rgba(255,255,255,0.5)" : "#bbb",
+                    fontSize:  10,
+                    color:     isMine(item.data) ? "rgba(255,255,255,0.5)" : "#bbb",
                     marginTop: 4,
                     textAlign: "right",
+                    display:   "flex",
+                    alignItems: "center",
+                    justifyContent: "flex-end",
+                    gap: 4,
                   }}>
-                    {formatTime(item.data.created_at)}
+                    {item.data._temp ? (
+                      <>
+                        <svg width="10" height="10" viewBox="0 0 24 24" fill="none"
+                          stroke="currentColor" strokeWidth={2}>
+                          <circle cx="12" cy="12" r="10"/>
+                          <path d="M12 6v6l4 2" strokeLinecap="round"/>
+                        </svg>
+                        Sending
+                      </>
+                    ) : (
+                      <>
+                        {formatTime(item.data.created_at)}
+                        {isMine(item.data) && (
+                          /* double tick */
+                          <svg width="14" height="10" viewBox="0 0 16 10" fill="none">
+                            <path d="M1 5l3 3L10 1" stroke="rgba(255,255,255,0.6)" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round"/>
+                            <path d="M6 5l3 3 6-7" stroke="rgba(255,255,255,0.6)" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round"/>
+                          </svg>
+                        )}
+                      </>
+                    )}
                   </div>
                 </div>
               </div>
@@ -282,7 +355,7 @@ export default function Chat({ user }) {
       {/* ── Input ── */}
       <div style={{
         display: "flex", alignItems: "center", gap: 10,
-        padding: "12px 16px", borderTop: "1px solid #f0f0f0",
+        padding: "10px 14px", borderTop: "1px solid #f0f0f0",
         background: "#fff",
       }}>
         <input
@@ -295,18 +368,21 @@ export default function Chat({ user }) {
           style={{
             flex: 1, padding: "10px 14px", borderRadius: 24,
             border: "1px solid #e5e5e5", fontSize: 14,
-            background: "#fafafa", outline: "none",
+            background: "#f7f7f7", outline: "none",
+            transition: "border-color 0.2s",
           }}
+          onFocus={(e)  => (e.target.style.borderColor = "#aaa")}
+          onBlur={(e)   => (e.target.style.borderColor = "#e5e5e5")}
         />
         <button
           onClick={sendMessage}
           disabled={!newMsg.trim()}
           style={{
-            width: 42, height: 42, borderRadius: "50%",
+            width: 42, height: 42, borderRadius: "50%", flexShrink: 0,
             background: newMsg.trim() ? "#000" : "#e5e5e5",
             border: "none", cursor: newMsg.trim() ? "pointer" : "default",
             display: "flex", alignItems: "center", justifyContent: "center",
-            transition: "background 0.2s", flexShrink: 0,
+            transition: "background 0.2s",
           }}
         >
           <svg width="18" height="18" viewBox="0 0 24 24" fill="none"
