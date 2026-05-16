@@ -244,13 +244,13 @@ export default function App() {
         />
 
         <Route
-          path="/chat/:productId"
-          element={
-            <ProtectedRoute>
-              <Chat user={user} />
-            </ProtectedRoute>
-          }
-        />
+  path="/chat/:threadId"
+  element={
+    <ProtectedRoute>
+      <Chat user={user} />
+    </ProtectedRoute>
+  }
+/>
 
         <Route
           path="/coupons"
