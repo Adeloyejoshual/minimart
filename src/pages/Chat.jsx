@@ -4,19 +4,51 @@ import React, { useEffect, useState, useRef } from "react";
 import axios from "axios";
 import { io } from "socket.io-client";
 
-const API = "/api/messages";
-const socket = io(import.meta.env.VITE_API_URL || "https://minimart-ivrm.onrender.com", {
-  withCredentials: true,
-});
+const API_BASE = "https://minimart-ivrm.onrender.com";
 
 export default function Chat() {
   const [threads, setThreads] = useState([]);
   const [activeThread, setActiveThread] = useState(null);
   const [messages, setMessages] = useState([]);
   const [input, setInput] = useState("");
-  const messagesEndRef = useRef();
 
+  const messagesEndRef = useRef(null);
+  const socketRef = useRef(null);
+
+  const token = localStorage.getItem("token");
   const userId = localStorage.getItem("userId");
+
+  // -------------------------------
+  // Axios instance (auth)
+  // -------------------------------
+  const api = axios.create({
+    baseURL: `${API_BASE}/api/messages`,
+    headers: {
+      Authorization: `Bearer ${token}`,
+    },
+  });
+
+  // -------------------------------
+  // INIT SOCKET (IMPORTANT FIX)
+  // -------------------------------
+  useEffect(() => {
+    socketRef.current = io(API_BASE, {
+      auth: { userId },
+      transports: ["websocket"], // 🔥 important for Render
+    });
+
+    socketRef.current.on("connect", () => {
+      console.log("Socket connected");
+    });
+
+    socketRef.current.on("connect_error", (err) => {
+      console.error("Socket error:", err.message);
+    });
+
+    return () => {
+      socketRef.current.disconnect();
+    };
+  }, []);
 
   // -------------------------------
   // Load threads
@@ -26,40 +58,52 @@ export default function Chat() {
   }, []);
 
   const fetchThreads = async () => {
-    const res = await axios.get(`${API}/threads`);
-    setThreads(res.data);
+    try {
+      const res = await api.get("/threads");
+      setThreads(res.data);
+    } catch (err) {
+      console.error("Threads error:", err.response?.data || err.message);
+    }
   };
 
   // -------------------------------
-  // Load messages when thread changes
+  // Load messages
   // -------------------------------
   useEffect(() => {
     if (!activeThread) return;
 
     fetchMessages(activeThread.id);
 
-    socket.emit("join_thread", activeThread.id);
+    socketRef.current.emit("join_thread", activeThread.id);
 
   }, [activeThread]);
 
   const fetchMessages = async (threadId) => {
-    const res = await axios.get(`${API}/${threadId}`);
-    setMessages(res.data);
+    try {
+      const res = await api.get(`/${threadId}`);
+      setMessages(res.data);
 
-    // mark as read
-    socket.emit("mark_read", { threadId });
+      socketRef.current.emit("mark_read", { threadId });
+
+    } catch (err) {
+      console.error("Messages error:", err.response?.data || err.message);
+    }
   };
 
   // -------------------------------
-  // Socket listeners
+  // SOCKET EVENTS
   // -------------------------------
   useEffect(() => {
+    if (!socketRef.current) return;
+
+    const socket = socketRef.current;
+
     socket.on("message:new", (msg) => {
       if (msg.thread_id === activeThread?.id) {
         setMessages((prev) => [...prev, msg]);
       }
 
-      fetchThreads(); // update sidebar
+      fetchThreads();
     });
 
     socket.on("message:delivered", ({ messageId }) => {
@@ -86,14 +130,14 @@ export default function Chat() {
   }, [activeThread]);
 
   // -------------------------------
-  // Send message
+  // SEND MESSAGE
   // -------------------------------
   const sendMessage = async () => {
-    if (!input.trim()) return;
+    if (!input.trim() || !activeThread) return;
 
     const tempId = Date.now().toString();
 
-    const tempMessage = {
+    const tempMsg = {
       id: tempId,
       thread_id: activeThread.id,
       sender_id: userId,
@@ -101,28 +145,27 @@ export default function Chat() {
       status: "sent",
     };
 
-    setMessages((prev) => [...prev, tempMessage]);
+    setMessages((prev) => [...prev, tempMsg]);
     setInput("");
 
     try {
-      const res = await axios.post(`${API}/send`, {
+      const res = await api.post("/send", {
         threadId: activeThread.id,
         message: input,
         clientMessageId: tempId,
       });
 
-      // replace temp message with real one
       setMessages((prev) =>
         prev.map((m) => (m.id === tempId ? res.data : m))
       );
 
     } catch (err) {
-      console.error(err);
+      console.error("Send error:", err.response?.data || err.message);
     }
   };
 
   // -------------------------------
-  // Auto scroll
+  // AUTO SCROLL
   // -------------------------------
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
@@ -133,7 +176,7 @@ export default function Chat() {
   // -------------------------------
   return (
     <div style={{ display: "flex", height: "100vh" }}>
-      
+
       {/* Sidebar */}
       <div style={{ width: "30%", borderRight: "1px solid #ddd" }}>
         <h3 style={{ padding: 10 }}>Chats</h3>
@@ -155,17 +198,15 @@ export default function Chat() {
         ))}
       </div>
 
-      {/* Chat area */}
+      {/* Chat */}
       <div style={{ width: "70%", display: "flex", flexDirection: "column" }}>
-        
+
         {activeThread ? (
           <>
-            {/* Header */}
             <div style={{ padding: 10, borderBottom: "1px solid #ddd" }}>
               <b>{activeThread.other_user_name}</b>
             </div>
 
-            {/* Messages */}
             <div style={{ flex: 1, overflowY: "auto", padding: 10 }}>
               {messages.map((msg) => (
                 <div
@@ -182,9 +223,7 @@ export default function Chat() {
                       padding: 10,
                       borderRadius: 10,
                       background:
-                        msg.sender_id === userId
-                          ? "#DCF8C6"
-                          : "#eee",
+                        msg.sender_id === userId ? "#DCF8C6" : "#eee",
                     }}
                   >
                     {msg.message}
@@ -194,7 +233,7 @@ export default function Chat() {
                     {msg.status === "read"
                       ? "✓✓"
                       : msg.status === "delivered"
-                      ? "✓✓ (delivered)"
+                      ? "✓✓"
                       : "✓"}
                   </div>
                 </div>
@@ -203,7 +242,6 @@ export default function Chat() {
               <div ref={messagesEndRef} />
             </div>
 
-            {/* Input */}
             <div style={{ display: "flex", padding: 10 }}>
               <input
                 value={input}
