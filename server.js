@@ -4,8 +4,8 @@ import path               from "path";
 import http               from "http";
 import dotenv             from "dotenv";
 import { fileURLToPath }  from "url";
-import { Server as SocketIOServer } from "socket.io";
 import { Pool }           from "pg";
+import { initSocket, getOnlineCount } from "./socket.js";
 
 dotenv.config();
 
@@ -20,20 +20,7 @@ const PORT   = process.env.PORT || 5000;
 const server = http.createServer(app);
 
 /* =========================================
-   SOCKET.IO
-========================================= */
-const ALLOWED_ORIGIN = process.env.CLIENT_ORIGIN || "*";
-
-const io = new SocketIOServer(server, {
-  cors: {
-    origin:  ALLOWED_ORIGIN,
-    methods: ["GET", "POST", "PUT", "DELETE", "PATCH"],
-  },
-});
-
-/* =========================================
    DATABASE
-   Exported so all route files share one pool.
 ========================================= */
 export const pool = new Pool({
   connectionString: process.env.COCKROACH_URI,
@@ -49,6 +36,12 @@ export const pool = new Pool({
     process.exit(1);
   }
 })();
+
+/* =========================================
+   SOCKET.IO — init with server
+========================================= */
+const ALLOWED_ORIGIN = process.env.CLIENT_ORIGIN || "*";
+export const io = initSocket(server, ALLOWED_ORIGIN);
 
 /* =========================================
    IN-MEMORY CACHE
@@ -76,40 +69,6 @@ setInterval(() => {
     if (now - item.time > CACHE_TTL) _cache.delete(key);
   }
 }, 60_000);
-
-/* =========================================
-   IN-MEMORY PRESENCE
-   userId → Set of socketIds (multi-tab safe)
-   Replace with Redis at 1M+ users.
-========================================= */
-const onlineUsers = new Map(); // userId → Set<socketId>
-
-const userOnline = (userId, socketId) => {
-  const s = onlineUsers.get(String(userId)) || new Set();
-  s.add(socketId);
-  onlineUsers.set(String(userId), s);
-  // Write to DB only on first connection (not every tab)
-  if (s.size === 1) {
-    pool.query(
-      `UPDATE users SET is_online = true WHERE id = $1`,
-      [userId]
-    ).catch(() => {});
-  }
-};
-
-const userOffline = (userId, socketId) => {
-  const s = onlineUsers.get(String(userId));
-  if (!s) return;
-  s.delete(socketId);
-  if (s.size === 0) {
-    onlineUsers.delete(String(userId));
-    // Only mark offline when ALL tabs/devices disconnect
-    pool.query(
-      `UPDATE users SET is_online = false WHERE id = $1`,
-      [userId]
-    ).catch(() => {});
-  }
-};
 
 /* =========================================
    SECURITY HEADERS
@@ -168,8 +127,7 @@ app.use((req, res, next) => {
 });
 
 /* =========================================
-   PAYSTACK WEBHOOK
-   MUST come before express.json()
+   PAYSTACK WEBHOOK — before express.json()
 ========================================= */
 import paymentRouter, { webhookRouter } from "./routes/payment.js";
 
@@ -233,7 +191,7 @@ app.get("/api/health", async (_req, res) => {
       database:     rows.length > 0,
       uptime:       process.uptime(),
       memory:       process.memoryUsage().rss,
-      online_users: onlineUsers.size,
+      online_users: getOnlineCount(),
     });
   } catch (err) {
     return res.status(500).json({ success: false, error: err.message });
@@ -241,7 +199,7 @@ app.get("/api/health", async (_req, res) => {
 });
 
 /* =========================================
-   STATIC FILES  (production only)
+   STATIC FILES (production only)
 ========================================= */
 if (process.env.NODE_ENV === "production") {
   const distPath = path.join(__dirname, "dist");
@@ -292,102 +250,10 @@ app.use((err, req, res, _next) => {
 });
 
 /* =========================================
-   SOCKET.IO
-========================================= */
-io.on("connection", (socket) => {
-  // userId passed from frontend: io(URL, { query: { userId } })
-  const userId = socket.handshake.query.userId || null;
-
-  if (userId) {
-    userOnline(userId, socket.id);
-    console.log(`🔌 Connected: ${socket.id} | user: ${userId}`);
-  } else {
-    console.log(`🔌 Connected: ${socket.id} | guest`);
-  }
-
-  /* ── Join thread room ── */
-  socket.on("joinThread", ({ threadId, userId: uid }) => {
-    if (!threadId || !uid) return;
-    socket.join(threadId);
-    console.log(`📦 ${uid} joined thread: ${threadId}`);
-
-    // Mark other person's messages as delivered
-    pool.query(
-      `UPDATE chat_messages
-       SET status = 'delivered'
-       WHERE thread_id = $1
-         AND sender_id != $2
-         AND status = 'sent'
-         AND deleted = false`,
-      [threadId, uid]
-    ).catch(() => {});
-  });
-
-  /* ── Relay saved message to the other person ──
-     Frontend saves via HTTP POST first, then emits
-     the returned DB row here. No double-save. */
-  socket.on("sendMessage", (msg) => {
-    if (!msg?.thread_id) return;
-    socket.to(msg.thread_id).emit("receiveMessage", msg);
-  });
-
-  /* ── Typing indicators ── */
-  socket.on("typing", ({ threadId, userId: uid }) => {
-    if (!threadId) return;
-    socket.to(threadId).emit("userTyping", { userId: uid });
-  });
-
-  socket.on("stopTyping", ({ threadId, userId: uid }) => {
-    if (!threadId) return;
-    socket.to(threadId).emit("userStopTyping", { userId: uid });
-  });
-
-  /* ── Read receipts ── */
-  socket.on("markRead", ({ threadId, userId: uid }) => {
-    if (!threadId || !uid) return;
-
-    // Mark messages as read in DB
-    pool.query(
-      `UPDATE chat_messages
-       SET status = 'read'
-       WHERE thread_id = $1
-         AND sender_id != $2
-         AND status != 'read'
-         AND deleted = false`,
-      [threadId, uid]
-    ).then(() => {
-      // Reset precomputed unread counter for this user
-      pool.query(
-        `UPDATE chat_threads
-         SET
-           unread_buyer  = CASE WHEN buyer_id  = $2 THEN 0 ELSE unread_buyer  END,
-           unread_seller = CASE WHEN seller_id = $2 THEN 0 ELSE unread_seller END
-         WHERE id = $1`,
-        [threadId, uid]
-      ).catch(() => {});
-    }).catch(() => {});
-
-    // Tell the sender their messages were read (blue ticks)
-    socket.to(threadId).emit("messagesRead", { threadId, userId: uid });
-  });
-
-  /* ── Presence — clean up on disconnect ── */
-  socket.on("disconnect", () => {
-    if (userId) {
-      userOffline(userId, socket.id);
-      console.log(`❌ Disconnected: ${socket.id} | user: ${userId}`);
-    } else {
-      console.log(`❌ Disconnected: ${socket.id} | guest`);
-    }
-  });
-});
-
-/* =========================================
    START
 ========================================= */
 server.listen(PORT, () => {
   console.log(`🚀 Server started on port ${PORT}`);
 });
 
-export { io };
 export default app;
