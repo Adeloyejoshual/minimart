@@ -5,7 +5,7 @@ import http               from "http";
 import dotenv             from "dotenv";
 import { fileURLToPath }  from "url";
 import { Pool }           from "pg";
-import { initSocket, getOnlineCount } from "./socket.js";
+import { initSocket } from "./socket.js";
 
 dotenv.config();
 
