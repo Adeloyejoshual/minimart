@@ -178,6 +178,7 @@ import userRouter          from "./routes/users.js";
 import messagesRouter      from "./routes/messages.js";
 import adminRouter         from "./routes/admin.js";
 import searchRouter        from "./routes/search.js";
+import conversationsRouter from "./routes/conversations.js";
 import productDetailRouter from "./routes/productDetail.js";
 import homepageRouter      from "./routes/homepage.js";
 import sellerProfileRouter from "./routes/sellerprofile.js";
@@ -187,6 +188,7 @@ import notificationsRouter from "./routes/notifications.js";
 app.use("/api/seller", sellerProfileRouter); // ← more specific first
 app.use("/api/addproduct",         addproductRouter);
 app.use("/api/users",               userRouter);
+app.use("/api/conversations", conversationsRouter);
 app.use("/api/messages",            messagesRouter);
 app.use("/api/admin",               adminRouter);
 app.use("/api/search",              searchRouter);
