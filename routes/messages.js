@@ -1,11 +1,12 @@
-import express    from "express";
-import { pool }             from "../config/db.js";
+import express  from "express";
+import { pool } from "../server.js";
 
 const router = express.Router();
 
 // GET /api/messages?senderId=&receiverId=&productId=
 router.get("/", async (req, res) => {
   const { senderId, receiverId, productId } = req.query;
+
   if (!senderId || !receiverId || !productId)
     return res.status(400).json({ error: "senderId, receiverId, productId required" });
 
