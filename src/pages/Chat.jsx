@@ -7,7 +7,6 @@ const BASE       = "https://minimart-ivrm.onrender.com";
 const API        = `${BASE}/api`;
 const SOCKET_URL = BASE;
 
-/* ── helpers ── */
 function formatTime(dateStr) {
   return new Date(dateStr).toLocaleTimeString([], {
     hour: "2-digit", minute: "2-digit",
@@ -40,9 +39,6 @@ function groupByDate(messages) {
   return groups;
 }
 
-/* ══════════════════════════════════════
-   COMPONENT
-══════════════════════════════════════ */
 export default function Chat({ user }) {
   const { productId }  = useParams();
   const [searchParams] = useSearchParams();
@@ -54,12 +50,13 @@ export default function Chat({ user }) {
   const [otherUser, setOtherUser] = useState(null);
   const [product,   setProduct]   = useState(null);
   const [loading,   setLoading]   = useState(true);
+  const [sending,   setSending]   = useState(false);
 
   const messagesEndRef = useRef(null);
   const socketRef      = useRef(null);
   const inputRef       = useRef(null);
 
-  /* ── fetch other user + product ── */
+  // Fetch other user + product
   useEffect(() => {
     if (!receiverId || !productId) return;
     Promise.all([
@@ -71,7 +68,7 @@ export default function Chat({ user }) {
     });
   }, [receiverId, productId]);
 
-  /* ── socket ── */
+  // Socket — only used to RECEIVE messages from the other person
   useEffect(() => {
     if (!user) return;
 
@@ -81,18 +78,10 @@ export default function Chat({ user }) {
       senderId: user.id, receiverId, productId,
     });
 
+    // Only handle messages sent by the OTHER person
     socketRef.current.on("receiveMessage", (msg) => {
+      if (msg.sender_id === user.id) return; // ignore own echo
       setMessages((prev) => {
-        // Replace matching temp message with confirmed DB row
-        const tempIdx = prev.findIndex(
-          (m) => m._temp && m.sender_id === msg.sender_id
-        );
-        if (tempIdx !== -1) {
-          const next = [...prev];
-          next[tempIdx] = msg;   // swap temp → real
-          return next;
-        }
-        // Incoming message from the other person — guard duplicates
         if (prev.find((m) => m.id === msg.id)) return prev;
         return [...prev, msg];
       });
@@ -101,7 +90,7 @@ export default function Chat({ user }) {
     return () => socketRef.current?.disconnect();
   }, [user, receiverId, productId]);
 
-  /* ── fetch history ── */
+  // Fetch history
   useEffect(() => {
     if (!user) return;
     setLoading(true);
@@ -114,19 +103,18 @@ export default function Chat({ user }) {
       .finally(() => setLoading(false));
   }, [user, receiverId, productId]);
 
-  /* ── scroll to bottom ── */
+  // Scroll to bottom
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [messages]);
 
-  /* ── send ── */
-  const sendMessage = () => {
+  const sendMessage = async () => {
     const text = newMsg.trim();
-    if (!text || !socketRef.current) return;
+    if (!text || sending) return;
 
-    // Show immediately — optimistic
-    const temp = {
-      id:          `temp_${Date.now()}`,
+    const tempId = `temp_${Date.now()}`;
+    const temp   = {
+      id:          tempId,
       sender_id:   user.id,
       receiver_id: receiverId,
       product_id:  productId,
@@ -135,16 +123,37 @@ export default function Chat({ user }) {
       _temp:       true,
     };
 
+    // 1. Show immediately
     setMessages((prev) => [...prev, temp]);
     setNewMsg("");
+    setSending(true);
     inputRef.current?.focus();
 
-    socketRef.current.emit("sendMessage", {
-      senderId:   user.id,
-      receiverId,
-      productId,
-      message:    text,
-    });
+    try {
+      // 2. Save to DB via HTTP — reliable, returns real row
+      const { data: saved } = await axios.post(`${API}/messages`, {
+        senderId:   user.id,
+        receiverId,
+        productId,
+        message:    text,
+      });
+
+      // 3. Swap temp with real DB row
+      setMessages((prev) =>
+        prev.map((m) => (m.id === tempId ? saved : m))
+      );
+
+      // 4. Notify the other person via socket
+      socketRef.current?.emit("sendMessage", saved);
+
+    } catch (err) {
+      console.error("Send failed:", err);
+      // Remove failed temp message and restore input
+      setMessages((prev) => prev.filter((m) => m.id !== tempId));
+      setNewMsg(text);
+    } finally {
+      setSending(false);
+    }
   };
 
   const handleKeyDown = (e) => {
@@ -157,7 +166,6 @@ export default function Chat({ user }) {
   const isMine  = (m) => m.sender_id === user?.id;
   const grouped = groupByDate(messages);
 
-  /* ══ RENDER ══ */
   return (
     <div style={{
       display: "flex", flexDirection: "column",
@@ -185,7 +193,6 @@ export default function Chat({ user }) {
           </svg>
         </button>
 
-        {/* Avatar */}
         <div style={{ position: "relative", flexShrink: 0 }}>
           <img
             src={
@@ -204,7 +211,6 @@ export default function Chat({ user }) {
           )}
         </div>
 
-        {/* Name + product */}
         <div style={{ flex: 1, minWidth: 0 }}>
           <div style={{ fontWeight: 600, fontSize: 14, lineHeight: 1.3 }}>
             {otherUser?.name || "…"}
@@ -219,7 +225,6 @@ export default function Chat({ user }) {
           )}
         </div>
 
-        {/* Product thumbnail */}
         {product?.images?.[0] && (
           <img
             src={product.images[0]}
@@ -239,7 +244,6 @@ export default function Chat({ user }) {
         display: "flex", flexDirection: "column", gap: 2,
         background: "#f7f7f7",
       }}>
-
         {loading ? (
           <div style={{ display: "flex", justifyContent: "center", paddingTop: 40 }}>
             <div style={{
@@ -272,23 +276,18 @@ export default function Chat({ user }) {
         ) : (
           grouped.map((item, i) =>
             item.type === "date" ? (
-
-              /* date label */
               <div key={`d_${i}`} style={{
                 textAlign: "center", fontSize: 11, color: "#aaa",
                 margin: "10px 0 6px", userSelect: "none",
               }}>
                 <span style={{
-                  background: "#ebebeb", borderRadius: 10,
+                  background: "#e8e8e8", borderRadius: 10,
                   padding: "2px 10px",
                 }}>
                   {item.label}
                 </span>
               </div>
-
             ) : (
-
-              /* bubble */
               <div key={item.data.id} style={{
                 display: "flex",
                 justifyContent: isMine(item.data) ? "flex-end" : "flex-start",
@@ -307,20 +306,16 @@ export default function Chat({ user }) {
                   lineHeight:   1.45,
                   wordBreak:    "break-word",
                   boxShadow:    "0 1px 2px rgba(0,0,0,0.06)",
-                  // dim while temp
-                  opacity: item.data._temp ? 0.65 : 1,
-                  transition: "opacity 0.2s",
+                  opacity:      item.data._temp ? 0.6 : 1,
+                  transition:   "opacity 0.2s",
                 }}>
                   {item.data.message}
                   <div style={{
-                    fontSize:  10,
-                    color:     isMine(item.data) ? "rgba(255,255,255,0.5)" : "#bbb",
-                    marginTop: 4,
-                    textAlign: "right",
-                    display:   "flex",
-                    alignItems: "center",
-                    justifyContent: "flex-end",
-                    gap: 4,
+                    fontSize: 10,
+                    color: isMine(item.data) ? "rgba(255,255,255,0.5)" : "#bbb",
+                    marginTop: 4, textAlign: "right",
+                    display: "flex", alignItems: "center",
+                    justifyContent: "flex-end", gap: 4,
                   }}>
                     {item.data._temp ? (
                       <>
@@ -329,16 +324,17 @@ export default function Chat({ user }) {
                           <circle cx="12" cy="12" r="10"/>
                           <path d="M12 6v6l4 2" strokeLinecap="round"/>
                         </svg>
-                        Sending
+                        Sending…
                       </>
                     ) : (
                       <>
                         {formatTime(item.data.created_at)}
                         {isMine(item.data) && (
-                          /* double tick */
                           <svg width="14" height="10" viewBox="0 0 16 10" fill="none">
-                            <path d="M1 5l3 3L10 1" stroke="rgba(255,255,255,0.6)" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round"/>
-                            <path d="M6 5l3 3 6-7" stroke="rgba(255,255,255,0.6)" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round"/>
+                            <path d="M1 5l3 3L10 1" stroke="rgba(255,255,255,0.6)"
+                              strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round"/>
+                            <path d="M6 5l3 3 6-7" stroke="rgba(255,255,255,0.6)"
+                              strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round"/>
                           </svg>
                         )}
                       </>
@@ -371,22 +367,22 @@ export default function Chat({ user }) {
             background: "#f7f7f7", outline: "none",
             transition: "border-color 0.2s",
           }}
-          onFocus={(e)  => (e.target.style.borderColor = "#aaa")}
-          onBlur={(e)   => (e.target.style.borderColor = "#e5e5e5")}
+          onFocus={(e) => (e.target.style.borderColor = "#aaa")}
+          onBlur={(e)  => (e.target.style.borderColor = "#e5e5e5")}
         />
         <button
           onClick={sendMessage}
-          disabled={!newMsg.trim()}
+          disabled={!newMsg.trim() || sending}
           style={{
             width: 42, height: 42, borderRadius: "50%", flexShrink: 0,
-            background: newMsg.trim() ? "#000" : "#e5e5e5",
-            border: "none", cursor: newMsg.trim() ? "pointer" : "default",
+            background: newMsg.trim() && !sending ? "#000" : "#e5e5e5",
+            border: "none", cursor: newMsg.trim() && !sending ? "pointer" : "default",
             display: "flex", alignItems: "center", justifyContent: "center",
             transition: "background 0.2s",
           }}
         >
           <svg width="18" height="18" viewBox="0 0 24 24" fill="none"
-            stroke={newMsg.trim() ? "#fff" : "#aaa"} strokeWidth={2}>
+            stroke={newMsg.trim() && !sending ? "#fff" : "#aaa"} strokeWidth={2}>
             <path strokeLinecap="round" strokeLinejoin="round"
               d="M22 2L11 13M22 2L15 22l-4-9-9-4 20-7z" />
           </svg>
