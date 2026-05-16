@@ -1,9 +1,8 @@
 import express from "express";
-import { pool }             from "../config/db.js";
+import pool from "../db.js";
 
 const router = express.Router();
 
-// GET /api/conversations?userId=
 router.get("/", async (req, res) => {
   const { userId } = req.query;
   if (!userId) return res.status(400).json({ error: "userId required" });
@@ -11,9 +10,7 @@ router.get("/", async (req, res) => {
   try {
     const result = await pool.query(
       `
-      SELECT DISTINCT ON (
-        LEAST(m.sender_id::text, m.receiver_id::text) || m.product_id::text
-      )
+      SELECT
         m.id,
         m.product_id,
         m.message        AS last_message,
@@ -22,27 +19,35 @@ router.get("/", async (req, res) => {
         u.name           AS other_user_name,
         u.profile_image  AS other_user_avatar,
         u.is_online      AS other_user_online,
-        p.title          AS product_title,
-        p.images[1]      AS product_image
+        p.title          AS product_title
       FROM messages m
-      JOIN users   u ON u.id = CASE WHEN m.sender_id = $1 THEN m.receiver_id ELSE m.sender_id END
+      JOIN users u ON u.id = CASE
+        WHEN m.sender_id = $1 THEN m.receiver_id
+        ELSE m.sender_id
+      END
       LEFT JOIN products p ON p.id = m.product_id
-      WHERE m.sender_id = $1 OR m.receiver_id = $1
-      ORDER BY
-        LEAST(m.sender_id::text, m.receiver_id::text) || m.product_id::text,
-        m.created_at DESC
+      WHERE (m.sender_id = $1 OR m.receiver_id = $1)
+        AND m.created_at = (
+          SELECT MAX(m2.created_at)
+          FROM messages m2
+          WHERE m2.product_id = m.product_id
+            AND (
+              (m2.sender_id = m.sender_id AND m2.receiver_id = m.receiver_id)
+              OR
+              (m2.sender_id = m.receiver_id AND m2.receiver_id = m.sender_id)
+            )
+        )
+      ORDER BY m.created_at DESC
       `,
       [userId]
     );
     res.json(result.rows);
   } catch (err) {
-    console.error(err);
+    console.error("Conversations error:", err.message);
     res.status(500).json({ error: err.message });
   }
 });
 
-// POST /api/conversations/start  { senderId, receiverId, productId }
-// Idempotent — just returns redirect info; messages table is the source of truth
 router.post("/start", async (req, res) => {
   const { senderId, receiverId, productId } = req.body;
   if (!senderId || !receiverId || !productId)
@@ -58,6 +63,7 @@ router.post("/start", async (req, res) => {
     );
     res.json({ exists: rows.length > 0, receiverId, productId });
   } catch (err) {
+    console.error("Start error:", err.message);
     res.status(500).json({ error: err.message });
   }
 });
