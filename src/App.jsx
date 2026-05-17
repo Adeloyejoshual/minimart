@@ -23,7 +23,7 @@ import Support from "./pages/Support";
 import Invitation from "./pages/Invitation";
 import TermsAndConditions from "./pages/TermsAndConditions";
 import MinimartPage from "./pages/MinimartPage";
-
+import PostAds from "./pages/PostAds";
 /* ================= HOMEPAGE SUB-PAGES ================= */
 import NearbyPage from "./pages/Homepage/NearbyPage";
 import DealsPage from "./pages/Homepage/DealsPage";
