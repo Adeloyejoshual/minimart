@@ -116,8 +116,19 @@ export default function PostAds({ user, onClose, onPosted }) {
   const [specs, setSpecs]                 = useState([{ key: "", value: "" }]);
   const [price, setPrice]                 = useState("");
   const [originalPrice, setOriginalPrice] = useState("");
+  const [discount, setDiscount]           = useState("");
   const [negotiable, setNegotiable]       = useState(false);
+  const [quantity, setQuantity]           = useState(1);
   const [draftRestored, setDraftRestored] = useState(false);
+
+  /* ── Auto-calculate original price from discount % ── */
+  const calculateOriginalPrice = (discountVal, priceVal) => {
+    const d = Number(discountVal);
+    const p = Number(priceVal);
+    if (!p || !d || d <= 0 || d >= 100) { setOriginalPrice(""); return; }
+    const op = Math.round(p / (1 - d / 100));
+    setOriginalPrice(String(op));
+  };
 
   /* ── Load draft on mount ── */
   useEffect(() => {
@@ -135,13 +146,14 @@ export default function PostAds({ user, onClose, onPosted }) {
       if (d.price)       setPrice(d.price);
       if (d.originalPrice) setOriginalPrice(d.originalPrice);
       if (typeof d.negotiable === "boolean") setNegotiable(d.negotiable);
+      if (d.discount) setDiscount(d.discount);
       setDraftRestored(true);
     } catch {}
   }, []);
 
   /* ── Auto-save draft on every change (images excluded — can't serialise File) ── */
   useEffect(() => {
-    const draft = { title, description, category, condition, conditionNotes, features, specs, price, originalPrice, negotiable };
+    const draft = { title, description, category, condition, conditionNotes, features, specs, price, originalPrice, discount, negotiable };
     localStorage.setItem("adDraft", JSON.stringify(draft));
   }, [title, description, category, condition, conditionNotes, features, specs, price, originalPrice, negotiable]);
 
@@ -150,22 +162,24 @@ export default function PostAds({ user, onClose, onPosted }) {
       toast.error("Only image files are allowed");
       return;
     }
-    if (file.size > 5 * 1024 * 1024) {
-      toast.error("Image must be under 5MB");
+    if (file.size > 3 * 1024 * 1024) {
+      toast.error("Image must be under 3MB");
       return;
     }
-    const reader = new FileReader();
-    reader.onload = (e) => {
-      setImages((prev) => {
-        const next = [...prev];
-        next[index] = { file, preview: e.target.result };
-        return next;
-      });
-    };
-    reader.readAsDataURL(file);
+    const preview = URL.createObjectURL(file);
+    setImages((prev) => {
+      const next = [...prev];
+      next[index] = { file, preview };
+      return next;
+    });
   };
   const handleRemoveImage = (index) => {
-    setImages((prev) => { const next = [...prev]; next[index] = null; return next; });
+    setImages((prev) => {
+      const next = [...prev];
+      if (next[index]?.preview) URL.revokeObjectURL(next[index].preview);
+      next[index] = null;
+      return next;
+    });
   };
   const filledImages = images.filter(Boolean);
 
@@ -181,7 +195,8 @@ export default function PostAds({ user, onClose, onPosted }) {
     if (step === 1) return filledImages.length > 0;
     if (step === 2) return title.trim().length >= 3 && category && condition;
     if (step === 3) return true;
-    if (step === 4) return price && Number(price) > 0;
+    const priceNum = Number(price);
+    if (step === 4) return !isNaN(priceNum) && priceNum > 0;
     return true;
   };
 
@@ -218,6 +233,7 @@ export default function PostAds({ user, onClose, onPosted }) {
 
   const handleSubmit = async () => {
     if (!user) { toast.error("Please log in first"); return; }
+    if (filledImages.length === 0) { toast.error("Add at least one photo"); return; }
     setPosting(true);
     try {
       const token = localStorage.getItem("token");
@@ -229,7 +245,9 @@ export default function PostAds({ user, onClose, onPosted }) {
       if (conditionNotes.trim()) formData.append("conditionNotes", conditionNotes.trim());
       formData.append("price", price);
       if (originalPrice) formData.append("originalPrice", originalPrice);
+      if (discount)      formData.append("discount", discount);
       formData.append("negotiable", negotiable);
+      formData.append("quantity", quantity);
       const cleanFeatures = features.filter((f) => f.trim());
       if (cleanFeatures.length) formData.append("features", JSON.stringify(cleanFeatures));
       const cleanSpecs = specs.filter((s) => s.key.trim() && s.value.trim());
@@ -242,7 +260,16 @@ export default function PostAds({ user, onClose, onPosted }) {
       setPosted(true);
       onPosted?.();
     } catch (err) {
-      toast.error(err?.response?.data?.message || "Failed to post ad. Try again.");
+      if (!err.response) {
+        toast.error("Network error. Check your internet connection.");
+      } else if (err.response.status === 401) {
+        toast.error("Session expired. Please log in again.");
+        localStorage.removeItem("token");
+      } else if (err.response.status === 413) {
+        toast.error("Images too large. Try smaller files.");
+      } else {
+        toast.error(err.response.data?.message || "Failed to post ad. Try again.");
+      }
     } finally {
       setPosting(false);
     }
@@ -567,6 +594,51 @@ export default function PostAds({ user, onClose, onPosted }) {
         }
         .pa-quality-tip-icon { font-size: 13px; flex-shrink: 0; }
 
+        /* ── Discount Badge ── */
+        .pa-discount-badge {
+          background: #dc2626; color: #fff;
+          font-size: 11px; font-weight: 800;
+          padding: 3px 8px; border-radius: 6px;
+          letter-spacing: 0.3px;
+        }
+
+        /* ── Discount Preview (Pricing step) ── */
+        .pa-discount-preview {
+          display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
+          background: #fff5f5; border: 1px solid #fecaca;
+          border-radius: 10px; padding: 10px 14px;
+          font-size: 13px; color: #555;
+          margin-top: -4px;
+        }
+        .pa-discount-preview strong { font-size: 15px; }
+
+        /* ── Quantity Picker ── */
+        .pa-qty-row {
+          display: flex; align-items: center; gap: 12px;
+        }
+        .pa-qty-btn {
+          width: 36px; height: 36px; border-radius: 50%;
+          border: 1.5px solid #e8e6e0; background: #fafaf8;
+          font-size: 18px; font-weight: 700; color: #333;
+          cursor: pointer; display: flex; align-items: center; justify-content: center;
+          transition: all .15s; line-height: 1;
+        }
+        .pa-qty-btn:hover { border-color: #ff5722; color: #ff5722; background: #fff4f0; }
+        .pa-qty-value {
+          font-size: 22px; font-weight: 900; color: #1a1a1a;
+          min-width: 32px; text-align: center;
+        }
+        .pa-qty-label { font-size: 12px; font-weight: 700; }
+
+        /* ── Delivery Note ── */
+        .pa-delivery-note {
+          display: flex; align-items: flex-start; gap: 8px;
+          background: #f0fdf4; border: 1px solid #bbf7d0;
+          border-radius: 10px; padding: 11px 14px;
+          font-size: 12px; color: #166534; line-height: 1.5;
+          margin-bottom: 16px;
+        }
+
         /* ── Draft Banner ── */
         .pa-draft-banner {
           display: flex; align-items: center; justify-content: space-between;
@@ -582,7 +654,7 @@ export default function PostAds({ user, onClose, onPosted }) {
         }
       `}</style>
 
-      <div className="pa-overlay" onClick={(e) => e.target === e.currentTarget && onClose?.()}>
+      <div className="pa-overlay" style={{ pointerEvents: posting ? "none" : "auto" }} onClick={(e) => e.target === e.currentTarget && onClose?.()}>
         <div className="pa-sheet">
           <div className="pa-header">
             <h2>Post an Ad</h2>
@@ -815,22 +887,42 @@ export default function PostAds({ user, onClose, onPosted }) {
                       <label className="pa-label"><FiDollarSign size={13} /> Selling Price (₦) *</label>
                       <div className="pa-price-wrap">
                         <span className="pa-price-symbol">₦</span>
-                        <input className="pa-price-input" type="number" placeholder="0"
-                          value={price} min={0} onChange={(e) => setPrice(e.target.value)} />
+                        <input className="pa-price-input" type="text" inputMode="numeric"
+                          placeholder="0"
+                          value={price ? Number(price).toLocaleString() : ""}
+                          onChange={(e) => {
+                            const raw = e.target.value.replace(/\D/g, "");
+                            setPrice(raw);
+                            setTimeout(() => calculateOriginalPrice(discount, raw), 0);
+                          }} />
                       </div>
                     </div>
 
                     <div className="pa-field">
-                      <label className="pa-label" style={{ color:"#aaa" }}>
-                        <FiDollarSign size={13} /> Original Price (₦) — optional
-                      </label>
-                      <div className="pa-price-wrap">
-                        <span className="pa-price-symbol" style={{ color:"#bbb" }}>₦</span>
-                        <input className="pa-price-input" type="number" placeholder="0"
-                          value={originalPrice} min={0} style={{ fontSize:16, fontWeight:600 }}
-                          onChange={(e) => setOriginalPrice(e.target.value)} />
-                      </div>
-                      <p style={{ fontSize:12, color:"#888", marginTop:6 }}>Shows a strikethrough discount badge on your listing.</p>
+                      <label className="pa-label">Discount (%)</label>
+                      <input
+                        className="pa-input"
+                        type="number"
+                        placeholder="e.g. 20"
+                        min={0} max={90}
+                        value={discount}
+                        onChange={(e) => {
+                          const val = e.target.value;
+                          setDiscount(val);
+                          setTimeout(() => calculateOriginalPrice(val, price), 0);
+                        }}
+                      />
+                      {originalPrice && discount ? (
+                        <div className="pa-discount-preview" style={{ marginTop:8 }}>
+                          <span>🏷️ Original price auto-set:</span>
+                          <strong>₦{Number(originalPrice).toLocaleString()}</strong>
+                          <span style={{ color:"#dc2626", fontWeight:700 }}>-{discount}% off</span>
+                        </div>
+                      ) : (
+                        <p style={{ fontSize:12, color:"#888", marginTop:6 }}>
+                          Auto-calculates the original price and shows a discount badge.
+                        </p>
+                      )}
                     </div>
 
                     <div className="pa-field">
@@ -843,6 +935,34 @@ export default function PostAds({ user, onClose, onPosted }) {
                           onClick={() => setNegotiable((p) => !p)} />
                       </div>
                     </div>
+
+                    <div className="pa-field">
+                      <label className="pa-label">Quantity Available</label>
+                      <div className="pa-qty-row">
+                        <button className="pa-qty-btn" onClick={() => setQuantity((q) => Math.max(0, q - 1))}>−</button>
+                        <span className="pa-qty-value">{quantity}</span>
+                        <button className="pa-qty-btn" onClick={() => setQuantity((q) => q + 1)}>+</button>
+                        <span className="pa-qty-label" style={{ color: quantity === 0 ? "#dc2626" : quantity === 1 ? "#f59e0b" : "#16a34a" }}>
+                          {quantity === 0 ? "Out of stock" : quantity === 1 ? "Last one!" : `${quantity} available`}
+                        </span>
+                      </div>
+                    </div>
+
+                    <div className="pa-delivery-note">
+                      🚚 <strong>Delivery handled at checkout</strong> — buyers select their preferred delivery method when ordering.
+                    </div>
+
+                    {originalPrice && price && Number(originalPrice) > Number(price) && (
+                      <div className="pa-discount-preview">
+                        <span>🏷️ Discount applied:</span>
+                        <strong style={{ color:"#dc2626" }}>
+                          -{Math.round(((Number(originalPrice) - Number(price)) / Number(originalPrice)) * 100)}% off
+                        </strong>
+                        <span style={{ color:"#888", fontSize:12 }}>
+                          Buyer saves ₦{(Number(originalPrice) - Number(price)).toLocaleString()}
+                        </span>
+                      </div>
+                    )}
                   </>
                 )}
 
@@ -857,7 +977,29 @@ export default function PostAds({ user, onClose, onPosted }) {
                       </div>
                       <div className="pa-review-body">
                         <div className="pa-review-title">{title || "—"}</div>
-                        <div className="pa-review-price">₦{Number(price || 0).toLocaleString()}</div>
+                        {(() => {
+                          const discountPct = originalPrice && price
+                            ? Math.round(((Number(originalPrice) - Number(price)) / Number(originalPrice)) * 100)
+                            : 0;
+                          return (
+                            <div style={{ marginBottom: 8 }}>
+                              <div style={{ display:"flex", alignItems:"center", gap:10, flexWrap:"wrap" }}>
+                                <span className="pa-review-price">₦{Number(price || 0).toLocaleString()}</span>
+                                {originalPrice && (
+                                  <span style={{ textDecoration:"line-through", color:"#bbb", fontSize:13 }}>
+                                    ₦{Number(originalPrice).toLocaleString()}
+                                  </span>
+                                )}
+                                {discountPct > 0 && (
+                                  <span className="pa-discount-badge">-{discountPct}%</span>
+                                )}
+                              </div>
+                              <div style={{ fontSize:12, color: quantity > 0 ? "#16a34a" : "#dc2626", fontWeight:700, marginTop:4 }}>
+                                {quantity > 1 ? `${quantity} in stock` : quantity === 1 ? "Last one!" : "Out of stock"}
+                              </div>
+                            </div>
+                          );
+                        })()}
 
 
                         {description && (
