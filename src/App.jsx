@@ -343,6 +343,14 @@ export default function App() {
             </ProtectedRoute>
           }
         />
+         <Route
+  path="/minimart/post-ad"
+  element={
+    <ProtectedRoute>
+      <PostAds user={user} />
+    </ProtectedRoute>
+  }
+/>
 
         {/* ================= ADMIN ================= */}
         <Route
