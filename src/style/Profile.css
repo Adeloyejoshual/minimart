@@ -1,75 +1,141 @@
 /* =========================================================
-   PROFILE PAGE – MINIMART‑THEME (ORANGE + INK)
+   PROFILE PAGE – MINIMART THEME (PROFESSIONAL UPGRADE)
 ========================================================= */
 
-/* Page background */
+/* Page */
 .profile-page {
-  background: linear-gradient(to bottom right, var(--bg), var(--bg), #e8e8e8);
+  background: linear-gradient(135deg, var(--bg), #f6f6f6 60%, #ececec);
   min-height: 100vh;
-  font-family: var(--fb); /* 'Plus Jakarta Sans', system-ui, sans-serif */
-  color: var(--ink); /* #141210 */
-  padding-bottom: 6rem; /* space for bottom nav */
+  font-family: var(--fb);
+  color: var(--ink);
+  padding-bottom: 6rem;
+  -webkit-font-smoothing: antialiased;
 }
 
-/* Profile Card */
+/* ================= PROFILE CARD ================= */
+
 .profile-card {
   background: #fff;
-  border: 1px solid var(--bd); /* #EAE6E0 */
-  border-radius: 2rem;
-  padding: 2rem;
+  border: 1px solid var(--bd);
+  border-radius: 1.75rem;
+  padding: 1.75rem;
   display: flex;
-  flex-direction: row;
-  gap: 2rem;
   align-items: center;
   justify-content: space-between;
-  box-shadow: 0 10px 25px rgba(0, 0, 0, 0.05);
+  gap: 1.5rem;
+
+  box-shadow: 0 6px 18px rgba(0, 0, 0, 0.06);
+  transition: transform 0.2s ease, box-shadow 0.2s ease;
 }
 
-/* Avatar */
+.profile-card:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 10px 25px rgba(0, 0, 0, 0.08);
+}
+
+/* ================= AVATAR ================= */
+
 .profile-avatar {
-  width: 7rem;
-  height: 7rem;
+  width: 6.5rem;
+  height: 6.5rem;
   border-radius: 50%;
-  background-color: var(--o); /* #FF5C00 */
+  background: linear-gradient(135deg, var(--o), #ff7a2f);
   display: flex;
   align-items: center;
   justify-content: center;
+
   color: #fff;
-  font-size: 2rem;
-  box-shadow: 0 8px 20px rgba(0, 0, 0, 0.1);
+  font-size: 1.75rem;
+
+  box-shadow: 0 10px 20px rgba(255, 92, 0, 0.25);
+  flex-shrink: 0;
 }
 
-/* Menu List */
+/* ================= TEXT BLOCK ================= */
+
+.profile-card h1 {
+  font-size: 1.35rem;
+  font-weight: 700;
+  letter-spacing: -0.02em;
+}
+
+.profile-card p {
+  line-height: 1.4;
+}
+
+/* ================= MENU CONTAINER ================= */
+
 .menu-list {
   background: #fff;
-  border-radius: 2rem;
-  box-shadow: 0 10px 25px rgba(0, 0, 0, 0.05);
+  border-radius: 1.75rem;
+  border: 1px solid var(--bd);
+
+  box-shadow: 0 8px 20px rgba(0, 0, 0, 0.05);
   overflow: hidden;
 }
 
-/* Changed list color: softer text, lighter background on hover */
+/* ================= MENU ITEM ================= */
+
 .menu-item {
   display: flex;
   align-items: center;
-  padding: 1.5rem 2rem;
-  font-size: 1.1rem;
+  gap: 0.9rem;
+
+  padding: 1.25rem 1.5rem;
+  font-size: 1rem;
   font-weight: 600;
-  color: var(--ink2); /* #5A5650 – softer than ink */
-  border-bottom: 1px solid var(--bd); /* #EAE6E0 */
-  transition: all 0.3s;
+
+  color: var(--ink2);
+  border-bottom: 1px solid var(--bd);
+
+  transition: all 0.25s ease;
+  position: relative;
 }
 
 .menu-item:last-child {
   border-bottom: none;
 }
 
+/* Hover state (more premium feel) */
 .menu-item:hover {
-  background: var(--o-bg); /* #FFF3EE – light orange‑tinted background */
-  color: var(--ink); /* #141210 – darker text for contrast */
+  background: var(--o-bg);
+  color: var(--ink);
+  padding-left: 1.75rem;
 }
 
+/* Active / tap feedback */
+.menu-item:active {
+  transform: scale(0.99);
+}
+
+/* ================= ICON ================= */
+
 .menu-icon {
-  font-size: 1.5rem;
-  margin-right: 1rem;
-  color: var(--ink3); /* #A8A39D – light gray */
+  font-size: 1.25rem;
+  color: var(--ink3);
+  transition: color 0.2s ease;
+}
+
+.menu-item:hover .menu-icon {
+  color: var(--o);
+}
+
+/* ================= RESPONSIVE ================= */
+
+@media (max-width: 768px) {
+  .profile-card {
+    flex-direction: row;
+    padding: 1.25rem;
+    border-radius: 1.5rem;
+  }
+
+  .profile-avatar {
+    width: 5.5rem;
+    height: 5.5rem;
+  }
+
+  .menu-item {
+    padding: 1rem 1.25rem;
+    font-size: 0.95rem;
+  }
 }
