@@ -13,7 +13,9 @@ import {
   FiTag,
   FiX,
   FiSliders,
+  FiPlus,
 } from "react-icons/fi";
+import PostAds from "./PostAds";
 
 const API = "https://minimart-ivrm.onrender.com/api";
 
@@ -137,7 +139,7 @@ export default function MinimartPage({ user }) {
   const [products, setProducts] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
-
+  const [showPostAds, setShowPostAds] = useState(false);
   const [category, setCategory] = useState("");
   const [sort, setSort] = useState("newest");
   const [search, setSearch] = useState("");
@@ -882,6 +884,54 @@ export default function MinimartPage({ user }) {
           transition: opacity .15s;
         }
         .mm-btn-apply:hover { opacity: .9; }
+
+        /* ── Post Ad FAB ──────────────────────────────── */
+        .mm-fab {
+          position: fixed;
+          bottom: 84px;
+          right: 18px;
+          z-index: 90;
+          display: flex;
+          align-items: center;
+          gap: 8px;
+          height: 52px;
+          padding: 0 20px;
+          border-radius: 999px;
+          border: none;
+          background: linear-gradient(135deg, #ff5722, #ff8a00);
+          color: #fff;
+          font-size: 15px;
+          font-weight: 800;
+          cursor: pointer;
+          box-shadow: 0 6px 24px rgba(255,87,34,.45);
+          transition: transform .2s, box-shadow .2s;
+          letter-spacing: -0.2px;
+        }
+        .mm-fab:hover {
+          transform: translateY(-3px) scale(1.03);
+          box-shadow: 0 10px 32px rgba(255,87,34,.55);
+        }
+        .mm-fab:active { transform: scale(.97); }
+
+        /* ── Post Ad top-bar button ───────────────────── */
+        .mm-post-btn {
+          display: flex;
+          align-items: center;
+          gap: 6px;
+          height: 40px;
+          padding: 0 14px;
+          border-radius: 10px;
+          border: none;
+          background: #ff5722;
+          color: #fff;
+          font-size: 13px;
+          font-weight: 700;
+          cursor: pointer;
+          flex-shrink: 0;
+          transition: opacity .15s, transform .15s;
+          white-space: nowrap;
+        }
+        .mm-post-btn:hover { opacity: .9; transform: translateY(-1px); }
       `}</style>
 
       <div className="mm-page">
@@ -916,6 +966,13 @@ export default function MinimartPage({ user }) {
                 <span className="mm-filter-dot">{activeFiltersCount}</span>
               )}
             </button>
+
+            {user && (
+              <button className="mm-post-btn" onClick={() => navigate("/minimart/add")}>
+                <FiPlus size={15} />
+                Sell
+              </button>
+            )}
           </div>
 
           {/* Category tabs */}
@@ -1099,6 +1156,29 @@ export default function MinimartPage({ user }) {
             </div>
           </div>
         </>
+      )}
+
+      {/* ── Floating Post Ad Button ── */}
+      <button
+        className="mm-fab"
+        onClick={() => user ? setShowPostAds(true) : navigate("/auth")}
+      >
+        <FiPlus size={18} />
+        Post Ad
+      </button>
+
+      {/* ── PostAds Bottom Sheet ── */}
+      {showPostAds && (
+        <PostAds
+          user={user}
+          onClose={() => setShowPostAds(false)}
+          onPosted={() => {
+            setShowPostAds(false);
+            setPage(1);
+            setProducts([]);
+            setHasMore(true);
+          }}
+        />
       )}
     </>
   );
