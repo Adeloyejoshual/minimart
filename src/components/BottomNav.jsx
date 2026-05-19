@@ -7,7 +7,7 @@ import "../styles/BottomNav.css";
 const NAV_ITEMS = [
   { label: "Home",     icon: <FaHome />,        path: "/" },
   { label: "Market",   icon: <FaShoppingCart />, path: "/minimart" },
-  { label: "P2P",      icon: <FaHandshake />,    path: "/p2p" },
+  { label: "P2P",      icon: <FaHandshake />,    path: "/P2P" },
   { label: "Messages", icon: <FaComments />,     path: "/conversations" },
   { label: "Profile",  icon: <FaUser />,         path: "/profile" },
 ];
