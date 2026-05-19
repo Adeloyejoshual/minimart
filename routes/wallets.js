@@ -1,7 +1,7 @@
 // src/routes/wallets.js
-const { Router } = require("express");
-const { body, param, query: qv, validationResult } = require("express-validator");
-const walletService = require("../services/walletService");
+import { Router } from "express";
+import { body, param, query as qv, validationResult } from "express-validator";
+import walletService from "../services/walletService.js";
 
 const router = Router();
 
