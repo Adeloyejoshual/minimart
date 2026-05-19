@@ -138,12 +138,3 @@ export default function SellerProfile() {
     </div>
   );
 }
-import TopNav      from "../../components/TopNav";
-import BottomNav   from "../../components/BottomNav";
-import MasonryGrid from "../../components/MasonryGrid";
-            <MasonryGrid
-              products={products}
-              onView={trackView}
-              onClick={handleClick}
-            />
-            <div ref={sentinelRef} style={{ height: 1 }} />
