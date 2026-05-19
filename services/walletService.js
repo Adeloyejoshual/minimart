@@ -1,5 +1,5 @@
 // src/services/walletService.js
-const { query, getClient } = require("../db/pool");
+import { pool } from "../config/db.js";
 
 // ─── Queries ─────────────────────────────────────────────────────────────────
 
