@@ -380,28 +380,14 @@ export default function SellerProfile() {
 
         if (sellerRes.status === "fulfilled") {
           const { data } = sellerRes.value;
-
-          // Normalise: support both new shape { data, stats, pagination }
-          // and old deployed shape { seller, stats } so a backend deploy
-          // lag never breaks the page.
-          const sellerObj = data.data ?? data.seller ?? null;
-          const statsObj  = data.stats ?? null;
-          const initial   = data.products ?? [];
-
-          if (!sellerObj) throw new Error("Unexpected API response shape");
-
-          setSeller(sellerObj);
-          setStats(statsObj);
+          setSeller(data.data);
+          setStats(data.stats);
+          const initial = data.products ?? [];
           setProducts(initial);
           setHasMore(data.pagination?.hasMore ?? initial.length === LIMIT);
-          setCursor(data.pagination?.nextCursor
-            ?? (initial.length > 0 ? initial[initial.length - 1].created_at : null));
+          setCursor(data.pagination?.nextCursor ?? null);
         } else {
-          // Surface the real HTTP error message so it's easier to debug
-          const msg = sellerRes.reason?.response?.data?.error
-            ?? sellerRes.reason?.message
-            ?? "Network error";
-          throw new Error(msg);
+          throw sellerRes.reason;
         }
 
         // FIX: sync real follow state from backend
@@ -410,8 +396,8 @@ export default function SellerProfile() {
         } else {
           setFollowing(false); // unauthenticated — default safe
         }
-      } catch (err) {
-        setError(err.message || "Could not load this seller. Please try again.");
+      } catch {
+        setError("Could not load this seller. Please try again.");
       } finally {
         setLoading(false);
       }
@@ -497,13 +483,7 @@ export default function SellerProfile() {
     <><style>{css}</style>
     <div className="sp-root">
       <TopNav />
-      <div className="sp-center">
-        <div style={{ fontSize: 36 }}>⚠️</div>
-        <p style={{ textAlign: "center", maxWidth: 260, lineHeight: 1.5 }}>{error}</p>
-        <button className="sp-retry" style={{ marginTop: 8 }} onClick={() => window.location.reload()}>
-          Retry
-        </button>
-      </div>
+      <div className="sp-center"><div style={{ fontSize: 36 }}>⚠️</div><p>{error}</p></div>
       <BottomNav />
     </div></>
   );
