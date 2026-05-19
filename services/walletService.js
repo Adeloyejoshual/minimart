@@ -402,3 +402,5 @@ module.exports = {
   getTransactions,
   getPlatformSummary,
 };
+
+export default walletService;
