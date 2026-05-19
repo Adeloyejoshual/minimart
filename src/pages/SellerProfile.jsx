@@ -8,6 +8,14 @@ import MasonryGrid from "../components/MasonryGrid";
 const API_BASE = "https://minimart-ivrm.onrender.com";
 const LIMIT = 20;
 
+/* ─── Sort tabs config ───────────────────────────────────────────────────────*/
+const SORT_TABS = [
+  { key: "created_at", label: "Products", icon: "📦", statKey: "total_products" },
+  { key: "views",      label: "Views",    icon: "👁",  statKey: "total_views"    },
+  { key: "sales",      label: "Sales",    icon: "🛒",  statKey: "total_sales"    },
+  { key: "clicks",     label: "Clicks",   icon: "⚡",  statKey: "total_clicks"   },
+];
+
 /* ─── Styles ─────────────────────────────────────────────────────────────────*/
 const css = `
   @import url('https://fonts.googleapis.com/css2?family=Syne:wght@400;600;700;800&family=DM+Sans:opsz,wght@9..40,300;9..40,400;9..40,500&display=swap');
@@ -45,31 +53,20 @@ const css = `
     align-items: center;
     gap: 10px;
     padding: 10px 16px;
-    background: rgba(10,10,15,0.85);
+    background: rgba(10,10,15,0.88);
     backdrop-filter: blur(20px);
     border-bottom: 1px solid var(--border);
     transform: translateY(-100%);
     transition: transform 0.3s cubic-bezier(0.16,1,0.3,1);
   }
   .sp-sticky.visible { transform: translateY(0); }
-  .sp-sticky-avatar {
-    width: 32px; height: 32px;
-    border-radius: 10px;
-    object-fit: cover;
-  }
-  .sp-sticky-name {
-    font-family: 'Syne', sans-serif;
-    font-size: 15px; font-weight: 700;
-    flex: 1;
-  }
-  .sp-sticky-chat {
+  .sp-sticky-avatar  { width: 32px; height: 32px; border-radius: 10px; object-fit: cover; }
+  .sp-sticky-name    { font-family: 'Syne', sans-serif; font-size: 15px; font-weight: 700; flex: 1; }
+  .sp-sticky-chat    {
     font-size: 12px; font-weight: 600;
-    background: var(--accent);
-    color: #000;
-    border: none;
-    border-radius: 8px;
-    padding: 6px 14px;
-    cursor: pointer;
+    background: var(--accent); color: #000;
+    border: none; border-radius: 8px;
+    padding: 6px 14px; cursor: pointer;
   }
 
   /* ── Hero ── */
@@ -77,13 +74,15 @@ const css = `
     position: relative;
     height: 210px;
     overflow: hidden;
-    background: linear-gradient(135deg, #1a0a00 0%, #0d0d1a 60%, #000d1a 100%);
+    /* FIX: banner set via CSS custom property — keeps cascade clean */
+    background-color: #0d0d1a;
     background-size: cover;
     background-position: center;
   }
+  /* FIX: class toggle for banner instead of inline style */
+  .sp-hero.has-banner { background-image: var(--hero-banner); }
   .sp-hero-overlay {
     position: absolute; inset: 0;
-    backdrop-filter: blur(0px);
     background: linear-gradient(to bottom, rgba(0,0,0,0.15) 0%, #0a0a0f 100%);
   }
   .sp-hero-glow {
@@ -91,7 +90,6 @@ const css = `
     background:
       radial-gradient(ellipse 60% 80% at 20% 50%, rgba(249,115,22,0.2) 0%, transparent 70%),
       radial-gradient(ellipse 40% 60% at 80% 30%, rgba(251,146,60,0.1) 0%, transparent 70%);
-    pointer-events: none;
   }
 
   /* ── Profile card ── */
@@ -109,29 +107,18 @@ const css = `
   .sp-profile-card:hover { transform: translateY(-3px); }
 
   /* ── Avatar ── */
-  .sp-avatar-row {
-    display: flex;
-    align-items: flex-end;
-    gap: 14px;
-    margin-bottom: 14px;
-  }
-  .sp-avatar-wrap {
-    position: relative;
-    flex-shrink: 0;
-  }
-  /* outer glow ring */
+  .sp-avatar-row { display: flex; align-items: flex-end; gap: 14px; margin-bottom: 14px; }
+  .sp-avatar-wrap { position: relative; flex-shrink: 0; }
   .sp-avatar-wrap::after {
     content: '';
-    position: absolute;
-    inset: -3px;
+    position: absolute; inset: -3px;
     border-radius: 22px;
     border: 1px solid rgba(249,115,22,0.3);
     pointer-events: none;
   }
   .sp-avatar {
     width: 76px; height: 76px;
-    border-radius: 20px;
-    object-fit: cover;
+    border-radius: 20px; object-fit: cover;
     border: 2px solid var(--border);
     background: var(--surface);
     box-shadow: 0 8px 25px rgba(0,0,0,0.6);
@@ -140,8 +127,7 @@ const css = `
   .sp-dot {
     position: absolute; bottom: 4px; right: 4px;
     width: 12px; height: 12px;
-    border-radius: 50%;
-    border: 2px solid var(--card);
+    border-radius: 50%; border: 2px solid var(--card);
   }
   .sp-dot.on  { background: var(--online);  box-shadow: 0 0 8px var(--online); }
   .sp-dot.off { background: var(--offline); }
@@ -160,15 +146,8 @@ const css = `
     border-radius: 20px; padding: 3px 8px;
     margin-left: 7px; vertical-align: middle;
   }
-  .sp-sub {
-    font-size: 12px; color: var(--muted); margin-top: 4px;
-  }
-
-  /* ── Description ── */
-  .sp-desc {
-    font-size: 13.5px; color: var(--muted);
-    line-height: 1.55; margin-bottom: 14px;
-  }
+  .sp-sub { font-size: 12px; color: var(--muted); margin-top: 4px; }
+  .sp-desc { font-size: 13.5px; color: var(--muted); line-height: 1.55; margin-bottom: 14px; }
 
   /* ── Chips ── */
   .sp-chips { display: flex; gap: 6px; flex-wrap: wrap; margin-bottom: 14px; }
@@ -187,14 +166,9 @@ const css = `
   .sp-trust-wrap { margin-bottom: 16px; }
   .sp-trust-label {
     display: flex; justify-content: space-between;
-    font-size: 11px; color: var(--muted);
-    margin-bottom: 5px;
+    font-size: 11px; color: var(--muted); margin-bottom: 5px;
   }
-  .sp-trust-bar {
-    height: 6px;
-    background: var(--surface);
-    border-radius: 10px; overflow: hidden;
-  }
+  .sp-trust-bar { height: 6px; background: var(--surface); border-radius: 10px; overflow: hidden; }
   .sp-trust-fill {
     height: 100%;
     background: linear-gradient(90deg, #34d399, #22c55e);
@@ -202,13 +176,16 @@ const css = `
     transition: width 0.8s cubic-bezier(0.16,1,0.3,1);
   }
 
+  /* ── Followers ── */
+  .sp-followers { font-size: 12px; color: var(--muted); margin-bottom: 14px; }
+  .sp-followers strong { color: var(--text); font-weight: 600; }
+
   /* ── Action buttons ── */
   .sp-actions { display: flex; gap: 10px; }
   .sp-btn-primary {
     flex: 1;
     display: flex; align-items: center; justify-content: center; gap: 6px;
-    background: var(--accent);
-    color: #000;
+    background: var(--accent); color: #000;
     border: none; border-radius: var(--r-sm);
     padding: 11px 10px;
     font-family: 'DM Sans', sans-serif;
@@ -218,53 +195,39 @@ const css = `
   }
   .sp-btn-primary:hover  { background: #fb923c; transform: translateY(-1px); }
   .sp-btn-primary:active { transform: translateY(0); }
+
   .sp-btn-secondary {
     flex: 1;
     display: flex; align-items: center; justify-content: center; gap: 6px;
-    background: transparent;
-    color: var(--text);
-    border: 1px solid var(--border);
-    border-radius: var(--r-sm);
+    background: transparent; color: var(--text);
+    border: 1px solid var(--border); border-radius: var(--r-sm);
     padding: 11px 10px;
     font-family: 'DM Sans', sans-serif;
     font-size: 14px; font-weight: 500;
     cursor: pointer;
     transition: border-color 0.15s, transform 0.15s, background 0.15s;
   }
-  .sp-btn-secondary:hover { border-color: rgba(249,115,22,0.4); background: rgba(249,115,22,0.05); transform: translateY(-1px); }
-  .sp-btn-secondary.following {
-    border-color: rgba(249,115,22,0.4);
-    color: var(--accent);
-    background: rgba(249,115,22,0.06);
-  }
+  .sp-btn-secondary:hover      { border-color: rgba(249,115,22,0.4); background: rgba(249,115,22,0.05); transform: translateY(-1px); }
+  .sp-btn-secondary.following  { border-color: rgba(249,115,22,0.4); color: var(--accent); background: rgba(249,115,22,0.06); }
+  .sp-btn-secondary:disabled   { opacity: 0.5; cursor: default; transform: none; }
 
-  /* ── Stats ── */
+  /* ── Stats / sort tabs ── */
   .sp-stats {
     display: grid; grid-template-columns: repeat(4, 1fr);
     gap: 8px; margin: 12px 16px 0;
     animation: slideUp 0.5s 0.08s cubic-bezier(0.16,1,0.3,1) both;
   }
   .sp-stat {
-    background: var(--card);
-    border: 1px solid var(--border);
-    border-radius: var(--r-sm);
-    padding: 14px 6px; text-align: center;
+    background: var(--card); border: 1px solid var(--border);
+    border-radius: var(--r-sm); padding: 14px 6px; text-align: center;
     cursor: pointer;
     transition: border-color 0.2s, transform 0.2s, background 0.2s;
   }
-  .sp-stat:hover       { border-color: rgba(249,115,22,0.3); transform: translateY(-2px); }
+  .sp-stat:hover      { border-color: rgba(249,115,22,0.3); transform: translateY(-2px); }
   .sp-stat.active-tab { border-color: var(--accent); background: rgba(249,115,22,0.06); }
-  .sp-stat-icon { font-size: 14px; margin-bottom: 5px; }
-  .sp-stat-val {
-    font-family: 'Syne', sans-serif;
-    font-size: 16px; font-weight: 800;
-    color: var(--text); line-height: 1; margin-bottom: 4px;
-  }
-  .sp-stat-lbl {
-    font-size: 10px; font-weight: 500;
-    color: var(--muted);
-    text-transform: uppercase; letter-spacing: 0.7px;
-  }
+  .sp-stat-icon  { font-size: 14px; margin-bottom: 5px; }
+  .sp-stat-val   { font-family: 'Syne', sans-serif; font-size: 16px; font-weight: 800; color: var(--text); line-height: 1; margin-bottom: 4px; }
+  .sp-stat-lbl   { font-size: 10px; font-weight: 500; color: var(--muted); text-transform: uppercase; letter-spacing: 0.7px; }
 
   /* ── Section header ── */
   .sp-sec-head {
@@ -272,15 +235,10 @@ const css = `
     padding: 20px 16px 12px;
     animation: slideUp 0.5s 0.16s cubic-bezier(0.16,1,0.3,1) both;
   }
-  .sp-sec-title {
-    font-family: 'Syne', sans-serif;
-    font-size: 18px; font-weight: 700;
-  }
+  .sp-sec-title { font-family: 'Syne', sans-serif; font-size: 18px; font-weight: 700; }
   .sp-count {
-    font-size: 12px; font-weight: 600;
-    color: var(--accent);
-    background: rgba(249,115,22,0.1);
-    border: 1px solid rgba(249,115,22,0.2);
+    font-size: 12px; font-weight: 600; color: var(--accent);
+    background: rgba(249,115,22,0.1); border: 1px solid rgba(249,115,22,0.2);
     border-radius: 20px; padding: 3px 10px;
   }
 
@@ -289,78 +247,50 @@ const css = `
     padding: 0 16px;
     animation: slideUp 0.5s 0.22s cubic-bezier(0.16,1,0.3,1) both;
   }
-
-  /* ── Empty ── */
-  .sp-empty {
-    text-align: center; padding: 60px 20px;
-    color: var(--muted); font-size: 14px;
-  }
+  .sp-empty { text-align: center; padding: 60px 20px; color: var(--muted); font-size: 14px; }
   .sp-empty-icon { font-size: 40px; margin-bottom: 12px; opacity: 0.4; }
 
   /* ── Load states ── */
   .sp-loading-more {
     display: flex; align-items: center; justify-content: center;
-    gap: 8px; padding: 20px;
-    color: var(--muted); font-size: 13px;
+    gap: 8px; padding: 20px; color: var(--muted); font-size: 13px;
   }
   .sp-spinner {
     width: 16px; height: 16px;
-    border: 2px solid var(--border);
-    border-top-color: var(--accent);
-    border-radius: 50%;
-    animation: spin 0.7s linear infinite;
+    border: 2px solid var(--border); border-top-color: var(--accent);
+    border-radius: 50%; animation: spin 0.7s linear infinite;
   }
-  .sp-end {
-    text-align: center; padding: 24px;
-    font-size: 12px; color: var(--offline); letter-spacing: 0.5px;
-  }
+  .sp-end { text-align: center; padding: 24px; font-size: 12px; color: var(--offline); letter-spacing: 0.5px; }
   .sp-more-err {
-    margin: 8px 0;
-    background: rgba(239,68,68,0.1);
-    border: 1px solid rgba(239,68,68,0.25);
-    border-radius: var(--r-sm);
-    padding: 12px 16px;
-    display: flex; align-items: center;
-    justify-content: space-between; gap: 12px;
+    margin: 8px 0; background: rgba(239,68,68,0.1); border: 1px solid rgba(239,68,68,0.25);
+    border-radius: var(--r-sm); padding: 12px 16px;
+    display: flex; align-items: center; justify-content: space-between; gap: 12px;
     font-size: 13px; color: #f87171;
   }
   .sp-retry {
-    font-size: 12px; font-weight: 600;
-    color: var(--accent);
-    background: rgba(249,115,22,0.1);
-    border: 1px solid rgba(249,115,22,0.25);
-    border-radius: 20px; padding: 4px 12px;
-    cursor: pointer;
+    font-size: 12px; font-weight: 600; color: var(--accent);
+    background: rgba(249,115,22,0.1); border: 1px solid rgba(249,115,22,0.25);
+    border-radius: 20px; padding: 4px 12px; cursor: pointer;
     transition: background 0.15s;
   }
   .sp-retry:hover { background: rgba(249,115,22,0.2); }
 
   /* ── Full-page states ── */
   .sp-center {
-    display: flex; flex-direction: column;
-    align-items: center; justify-content: center;
-    min-height: 60vh; gap: 14px;
-    color: var(--muted); font-size: 14px;
+    display: flex; flex-direction: column; align-items: center; justify-content: center;
+    min-height: 60vh; gap: 14px; color: var(--muted); font-size: 14px;
   }
 
-  /* ── Skeleton shimmer ── */
+  /* ── Skeleton ── */
   .skel {
     background: linear-gradient(90deg, var(--card) 25%, var(--surface) 50%, var(--card) 75%);
     background-size: 200% 100%;
-    animation: shimmer 1.4s infinite;
-    border-radius: var(--r-sm);
+    animation: shimmer 1.4s infinite; border-radius: var(--r-sm);
   }
 
-  /* ── Keyframes ── */
-  @keyframes slideUp {
-    from { opacity: 0; transform: translateY(20px); }
-    to   { opacity: 1; transform: translateY(0); }
-  }
+  @keyframes slideUp { from { opacity: 0; transform: translateY(20px); } to { opacity: 1; transform: translateY(0); } }
   @keyframes spin    { to { transform: rotate(360deg); } }
-  @keyframes shimmer {
-    0%   { background-position:  200% 0; }
-    100% { background-position: -200% 0; }
-  }
+  @keyframes shimmer { 0% { background-position: 200% 0; } 100% { background-position: -200% 0; } }
 `;
 
 /* ─── Skeleton ─────────────────────────────────────────────────────────────── */
@@ -395,13 +325,13 @@ function Skeleton() {
   );
 }
 
-/* ─── Stat box ─────────────────────────────────────────────────────────────── */
+/* ─── Stat / sort tab ──────────────────────────────────────────────────────── */
 function Stat({ value, label, icon, active, onClick }) {
   const fmt = n => n >= 1000 ? `${(n / 1000).toFixed(1)}k` : n;
   return (
     <div className={`sp-stat${active ? " active-tab" : ""}`} onClick={onClick}>
       <div className="sp-stat-icon">{icon}</div>
-      <div className="sp-stat-val">{fmt(value)}</div>
+      <div className="sp-stat-val">{fmt(value ?? 0)}</div>
       <div className="sp-stat-lbl">{label}</div>
     </div>
   );
@@ -411,44 +341,60 @@ function Stat({ value, label, icon, active, onClick }) {
 export default function SellerProfile() {
   const { id } = useParams();
 
-  const [seller, setSeller]           = useState(null);
-  const [products, setProducts]       = useState([]);
-  const [stats, setStats]             = useState(null);
-  const [cursor, setCursor]           = useState(null);
-  const [hasMore, setHasMore]         = useState(false);
-  const [loading, setLoading]         = useState(true);
-  const [loadingMore, setLoadingMore] = useState(false);
-  const [error, setError]             = useState(null);
-  const [moreError, setMoreError]     = useState(null);
-  const [following, setFollowing]     = useState(false);
+  const [seller, setSeller]               = useState(null);
+  const [products, setProducts]           = useState([]);
+  const [stats, setStats]                 = useState(null);
+  const [cursor, setCursor]               = useState(null);
+  const [hasMore, setHasMore]             = useState(false);
+  const [sortKey, setSortKey]             = useState("created_at");
+  const [loading, setLoading]             = useState(true);
+  const [loadingMore, setLoadingMore]     = useState(false);
+  const [sortLoading, setSortLoading]     = useState(false);
+  const [error, setError]                 = useState(null);
+  const [moreError, setMoreError]         = useState(null);
+  // FIX: follow state starts null (unknown) until synced from backend
+  const [following, setFollowing]         = useState(null);
   const [followLoading, setFollowLoading] = useState(false);
-  const [scrolled, setScrolled]       = useState(false);
-  const [activeTab, setActiveTab]     = useState("products");
+  const [scrolled, setScrolled]           = useState(false);
 
-  const sentinelRef  = useRef(null);
-  const productsRef  = useRef(null);
+  const sentinelRef = useRef(null);
+  const productsRef = useRef(null);
 
-  /* scroll watcher for sticky header */
+  /* scroll → sticky header */
   useEffect(() => {
     const onScroll = () => setScrolled(window.scrollY > 220);
     window.addEventListener("scroll", onScroll, { passive: true });
     return () => window.removeEventListener("scroll", onScroll);
   }, []);
 
-  /* initial fetch — new unified response shape */
+  /* initial seller + follow-status fetch */
   useEffect(() => {
     (async () => {
       setLoading(true); setError(null);
       try {
-        const { data } = await axios.get(`${API_BASE}/api/seller/${id}`);
-        setSeller(data.data);
-        setStats(data.stats);
-        const initial = data.products ?? [];
-        setProducts(initial);
-        setHasMore(data.pagination?.hasMore ?? initial.length === LIMIT);
-        // seed cursor from last item's created_at
-        if (initial.length > 0) {
-          setCursor(initial[initial.length - 1].created_at);
+        // FIX: fetch seller + follow-status concurrently
+        const [sellerRes, followRes] = await Promise.allSettled([
+          axios.get(`${API_BASE}/api/seller/${id}`),
+          axios.get(`${API_BASE}/api/seller/${id}/follow-status`),
+        ]);
+
+        if (sellerRes.status === "fulfilled") {
+          const { data } = sellerRes.value;
+          setSeller(data.data);
+          setStats(data.stats);
+          const initial = data.products ?? [];
+          setProducts(initial);
+          setHasMore(data.pagination?.hasMore ?? initial.length === LIMIT);
+          setCursor(data.pagination?.nextCursor ?? null);
+        } else {
+          throw sellerRes.reason;
+        }
+
+        // FIX: sync real follow state from backend
+        if (followRes.status === "fulfilled") {
+          setFollowing(followRes.value.data.following ?? false);
+        } else {
+          setFollowing(false); // unauthenticated — default safe
         }
       } catch {
         setError("Could not load this seller. Please try again.");
@@ -458,26 +404,46 @@ export default function SellerProfile() {
     })();
   }, [id]);
 
-  /* cursor-based load more */
+  /* load more products (cursor-based) */
   const loadMore = useCallback(async () => {
     if (loadingMore || !hasMore || !cursor) return;
     setLoadingMore(true); setMoreError(null);
     try {
       const { data } = await axios.get(
-        `${API_BASE}/api/seller/${id}/products?cursor=${encodeURIComponent(cursor)}&limit=${LIMIT}`
+        `${API_BASE}/api/seller/${id}/products` +
+        `?cursor=${encodeURIComponent(cursor)}&limit=${LIMIT}&sort=${sortKey}`
       );
       const incoming = data.products ?? [];
       setProducts(p => [...p, ...incoming]);
       setHasMore(data.pagination?.hasMore ?? false);
-      if (incoming.length > 0) {
-        setCursor(incoming[incoming.length - 1].created_at);
-      }
+      setCursor(data.pagination?.nextCursor ?? null);
     } catch {
       setMoreError("Failed to load more products.");
     } finally {
       setLoadingMore(false);
     }
-  }, [id, cursor, hasMore, loadingMore]);
+  }, [id, cursor, hasMore, loadingMore, sortKey]);
+
+  /* FIX: functional sort tab — reload products with new sort */
+  const handleSortChange = useCallback(async (key) => {
+    if (key === sortKey || sortLoading) return;
+    setSortKey(key);
+    setSortLoading(true);
+    productsRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
+    try {
+      const { data } = await axios.get(
+        `${API_BASE}/api/seller/${id}/products?limit=${LIMIT}&sort=${key}`
+      );
+      const fresh = data.products ?? [];
+      setProducts(fresh);
+      setHasMore(data.pagination?.hasMore ?? false);
+      setCursor(data.pagination?.nextCursor ?? null);
+    } catch {
+      setMoreError("Failed to reload products.");
+    } finally {
+      setSortLoading(false);
+    }
+  }, [id, sortKey, sortLoading]);
 
   /* intersection observer */
   useEffect(() => {
@@ -491,28 +457,22 @@ export default function SellerProfile() {
     return () => obs.disconnect();
   }, [loadMore]);
 
-  /* follow toggle */
+  /* FIX: optimistic follow with rollback on failure */
   const toggleFollow = async () => {
+    if (followLoading || following === null) return;
+    const prev = following;
+    setFollowing(!prev);        // optimistic
     setFollowLoading(true);
     try {
-      if (following) {
+      if (prev) {
         await axios.delete(`${API_BASE}/api/seller/${id}/follow`);
       } else {
         await axios.post(`${API_BASE}/api/seller/${id}/follow`);
       }
-      setFollowing(f => !f);
     } catch {
-      /* silently fail — could add toast here */
+      setFollowing(prev);       // rollback on failure
     } finally {
       setFollowLoading(false);
-    }
-  };
-
-  /* stat tab click — scroll to products section */
-  const handleStatClick = (tab) => {
-    setActiveTab(tab);
-    if (tab === "products") {
-      productsRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
     }
   };
 
@@ -537,16 +497,16 @@ export default function SellerProfile() {
     </div></>
   );
 
-  const year      = new Date(seller.created_at).getFullYear();
-  const isGold    = (seller.rating ?? 0) > 4.5;
-  const trustPct  = Math.min(100, Math.max(0, Number(seller.trust_score) || 0));
-  const avatar    = seller.store_logo || seller.profile_image || "/default.png";
+  const year     = new Date(seller.created_at).getFullYear();
+  const isGold   = (seller.rating ?? 0) > 4.5;
+  const trustPct = Math.min(100, Math.max(0, Number(seller.trust_score) || 0));
+  const avatar   = seller.store_logo || seller.profile_image || "/default.png";
 
   return (
     <><style>{css}</style>
     <div className="sp-root">
 
-      {/* ── Sticky mini-header ── */}
+      {/* ── Sticky header ── */}
       <div className={`sp-sticky${scrolled ? " visible" : ""}`}>
         <img className="sp-sticky-avatar" src={avatar} alt="" loading="lazy" />
         <span className="sp-sticky-name">{seller.store_name || seller.name}</span>
@@ -555,13 +515,10 @@ export default function SellerProfile() {
 
       <TopNav />
 
-      {/* ── Hero — uses real banner if available ── */}
+      {/* FIX: banner via CSS variable + class toggle — no inline backgroundImage */}
       <div
-        className="sp-hero"
-        style={seller.banner
-          ? { backgroundImage: `url(${seller.banner})`, backgroundSize: "cover", backgroundPosition: "center" }
-          : undefined
-        }
+        className={`sp-hero${seller.banner ? " has-banner" : ""}`}
+        style={seller.banner ? { "--hero-banner": `url(${seller.banner})` } : undefined}
       >
         <div className="sp-hero-glow" />
         <div className="sp-hero-overlay" />
@@ -569,16 +526,9 @@ export default function SellerProfile() {
 
       {/* ── Profile card ── */}
       <div className="sp-profile-card">
-
-        {/* Avatar + name */}
         <div className="sp-avatar-row">
           <div className="sp-avatar-wrap">
-            <img
-              className="sp-avatar"
-              src={avatar}
-              alt={seller.store_name || seller.name}
-              loading="lazy"
-            />
+            <img className="sp-avatar" src={avatar} alt={seller.store_name || seller.name} loading="lazy" />
             <span className={`sp-dot ${seller.is_online ? "on" : "off"}`} />
           </div>
           <div>
@@ -593,87 +543,75 @@ export default function SellerProfile() {
           </div>
         </div>
 
-        {/* Description */}
-        <p className="sp-desc">
-          {seller.store_description || "No description provided."}
-        </p>
+        <p className="sp-desc">{seller.store_description || "No description provided."}</p>
 
-        {/* Chips */}
         <div className="sp-chips">
-          <span className={`sp-chip ${isGold ? "gold" : "hi"}`}>
-            ⭐ {seller.rating ?? 0} rating
-          </span>
+          <span className={`sp-chip ${isGold ? "gold" : "hi"}`}>⭐ {seller.rating ?? 0} rating</span>
           <span className="sp-chip">📅 Since {year}</span>
-          <span className="sp-chip">🛒 {seller.total_sales ?? 0} sales</span>
+          {/* FIX: total_sales now read from unified stats object */}
+          <span className="sp-chip">🛒 {stats?.total_sales ?? 0} sales</span>
         </div>
+
+        {/* Followers count */}
+        {seller.followers_count > 0 && (
+          <p className="sp-followers">
+            <strong>{seller.followers_count.toLocaleString()}</strong> followers
+          </p>
+        )}
 
         {/* Trust bar */}
         <div className="sp-trust-wrap">
           <div className="sp-trust-label">
             <span>Trust Score</span>
-            <span style={{ color: trustPct > 70 ? "#34d399" : "var(--muted)" }}>
-              {trustPct}%
-            </span>
+            <span style={{ color: trustPct > 70 ? "#34d399" : "var(--muted)" }}>{trustPct}%</span>
           </div>
           <div className="sp-trust-bar">
             <div className="sp-trust-fill" style={{ width: `${trustPct}%` }} />
           </div>
         </div>
 
-        {/* Action buttons */}
+        {/* Actions */}
         <div className="sp-actions">
-          <button className="sp-btn-primary" onClick={() => {}}>
-            💬 Chat
-          </button>
+          <button className="sp-btn-primary" onClick={() => {}}>💬 Chat</button>
           <button
             className={`sp-btn-secondary${following ? " following" : ""}`}
             onClick={toggleFollow}
-            disabled={followLoading}
+            disabled={followLoading || following === null}
           >
-            {following ? "✓ Following" : "+ Follow"}
+            {following === null ? "…" : following ? "✓ Following" : "+ Follow"}
           </button>
         </div>
       </div>
 
-      {/* ── Stats (clickable tabs) ── */}
+      {/* ── Stats / sort tabs ── */}
       <div className="sp-stats">
-        <Stat
-          value={stats?.total_products ?? 0}
-          label="Products" icon="📦"
-          active={activeTab === "products"}
-          onClick={() => handleStatClick("products")}
-        />
-        <Stat
-          value={stats?.total_views ?? 0}
-          label="Views" icon="👁"
-          active={activeTab === "views"}
-          onClick={() => handleStatClick("views")}
-        />
-        <Stat
-          value={seller.total_sales ?? 0}
-          label="Sales" icon="🛒"
-          active={activeTab === "sales"}
-          onClick={() => handleStatClick("sales")}
-        />
-        <Stat
-          value={stats?.total_clicks ?? 0}
-          label="Clicks" icon="⚡"
-          active={activeTab === "clicks"}
-          onClick={() => handleStatClick("clicks")}
-        />
+        {SORT_TABS.map(tab => (
+          <Stat
+            key={tab.key}
+            value={stats?.[tab.statKey]}
+            label={tab.label}
+            icon={tab.icon}
+            active={sortKey === tab.key}
+            onClick={() => handleSortChange(tab.key)}
+          />
+        ))}
       </div>
 
-      {/* ── Products section ── */}
+      {/* ── Products ── */}
       <div ref={productsRef}>
         <div className="sp-sec-head">
-          <span className="sp-sec-title">Products</span>
+          <span className="sp-sec-title">
+            {SORT_TABS.find(t => t.key === sortKey)?.label ?? "Products"}
+          </span>
           {stats?.total_products > 0 && (
             <span className="sp-count">{stats.total_products}</span>
           )}
         </div>
 
         <div className="sp-products">
-          {products.length === 0 ? (
+          {sortLoading ? (
+            <div className="sp-loading-more"><div className="sp-spinner" /> Loading…</div>
+          ) : products.length === 0 ? (
             <div className="sp-empty">
               <div className="sp-empty-icon">📦</div>
               <p>No active products yet.</p>
@@ -682,12 +620,10 @@ export default function SellerProfile() {
             <MasonryGrid products={products} onView={() => {}} onClick={() => {}} />
           )}
 
-          {hasMore && <div ref={sentinelRef} style={{ height: 1 }} />}
+          {hasMore && !sortLoading && <div ref={sentinelRef} style={{ height: 1 }} />}
 
           {loadingMore && (
-            <div className="sp-loading-more">
-              <div className="sp-spinner" /> Loading more…
-            </div>
+            <div className="sp-loading-more"><div className="sp-spinner" /> Loading more…</div>
           )}
 
           {moreError && (
@@ -697,7 +633,7 @@ export default function SellerProfile() {
             </div>
           )}
 
-          {!hasMore && products.length > 0 && (
+          {!hasMore && !sortLoading && products.length > 0 && (
             <div className="sp-end">· All products loaded ·</div>
           )}
         </div>
