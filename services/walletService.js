@@ -1,7 +1,16 @@
 // src/services/walletService.js
 import { pool } from "../config/db.js";
 
-// ─── Queries ─────────────────────────────────────────────────────────────────
+// ─────────────────────────────────────────────
+// DB Helpers
+// ─────────────────────────────────────────────
+
+const query = (text, params) => pool.query(text, params);
+const getClient = () => pool.connect();
+
+// ─────────────────────────────────────────────
+// Base Query
+// ─────────────────────────────────────────────
 
 const WALLET_WITH_USER = `
   SELECT
@@ -24,10 +33,13 @@ const WALLET_WITH_USER = `
   JOIN public.users u ON u.id = sw.user_id
 `;
 
-// ─── Helpers ─────────────────────────────────────────────────────────────────
+// ─────────────────────────────────────────────
+// Helpers
+// ─────────────────────────────────────────────
 
 function formatWallet(row) {
   if (!row) return null;
+
   return {
     id: row.id,
     user_id: row.user_id,
@@ -49,22 +61,30 @@ function formatWallet(row) {
   };
 }
 
-async function recordTransaction(client, { walletId, userId, type, amount, balanceAfter, description, referenceId }) {
+async function recordTransaction(
+  client,
+  { walletId, userId, type, amount, balanceAfter, description, referenceId }
+) {
   await client.query(
     `INSERT INTO public.wallet_transactions
-       (wallet_id, user_id, type, amount, balance_after, description, reference_id)
+      (wallet_id, user_id, type, amount, balance_after, description, reference_id)
      VALUES ($1, $2, $3, $4, $5, $6, $7)`,
     [walletId, userId, type, amount, balanceAfter, description || null, referenceId || null]
   );
 }
 
-// ─── Service Methods ──────────────────────────────────────────────────────────
+// ─────────────────────────────────────────────
+// Service Methods
+// ─────────────────────────────────────────────
 
-/**
- * List all wallets with optional filters.
- * @param {{ search, status, verified, hasPending, limit, offset }} opts
- */
-async function listWallets({ search, status, verified, hasPending, limit = 50, offset = 0 } = {}) {
+export async function listWallets({
+  search,
+  status,
+  verified,
+  hasPending,
+  limit = 50,
+  offset = 0,
+} = {}) {
   const conditions = [];
   const params = [];
   let i = 1;
@@ -76,62 +96,62 @@ async function listWallets({ search, status, verified, hasPending, limit = 50, o
     params.push(`%${search}%`);
     i++;
   }
+
   if (status) {
     conditions.push(`u.status = $${i++}`);
     params.push(status);
   }
+
   if (verified !== undefined) {
     conditions.push(`u.store_verified = $${i++}`);
     params.push(verified === "true" || verified === true);
   }
+
   if (hasPending === "true" || hasPending === true) {
     conditions.push(`sw.pending_balance > 0`);
   }
 
   const where = conditions.length ? `WHERE ${conditions.join(" AND ")}` : "";
 
-  params.push(limit, offset);
+  const dataParams = [...params, limit, offset];
+
   const rows = await query(
-    `${WALLET_WITH_USER}
-     ${where}
-     ORDER BY sw.updated_at DESC
-     LIMIT $${i++} OFFSET $${i}`,
-    params
+    `
+    ${WALLET_WITH_USER}
+    ${where}
+    ORDER BY sw.updated_at DESC
+    LIMIT $${i++} OFFSET $${i}
+    `,
+    dataParams
   );
 
-  const countResult = await query(
-    `SELECT COUNT(*) FROM public.seller_wallets sw
-     JOIN public.users u ON u.id = sw.user_id
-     ${where}`,
-    params.slice(0, -2) // remove limit/offset
+  const countRows = await query(
+    `
+    SELECT COUNT(*) 
+    FROM public.seller_wallets sw
+    JOIN public.users u ON u.id = sw.user_id
+    ${where}
+    `,
+    params
   );
 
   return {
     wallets: rows.rows.map(formatWallet),
-    total: parseInt(countResult.rows[0].count),
+    total: parseInt(countRows.rows[0].count),
   };
 }
 
-/**
- * Get a single wallet by wallet ID.
- */
-async function getWalletById(id) {
+export async function getWalletById(id) {
   const result = await query(`${WALLET_WITH_USER} WHERE sw.id = $1`, [id]);
   return formatWallet(result.rows[0]);
 }
 
-/**
- * Get wallet by user ID.
- */
-async function getWalletByUserId(userId) {
+export async function getWalletByUserId(userId) {
   const result = await query(`${WALLET_WITH_USER} WHERE sw.user_id = $1`, [userId]);
   return formatWallet(result.rows[0]);
 }
 
-/**
- * Create a wallet for a user (idempotent — returns existing if already created).
- */
-async function createWallet(userId) {
+export async function createWallet(userId) {
   const existing = await getWalletByUserId(userId);
   if (existing) return { wallet: existing, created: false };
 
@@ -141,27 +161,39 @@ async function createWallet(userId) {
      RETURNING *`,
     [userId]
   );
-  return { wallet: result.rows[0], created: true };
+
+  return {
+    wallet: formatWallet(result.rows[0]),
+    created: true,
+  };
 }
 
-/**
- * Credit pending balance (e.g. order completed, funds held).
- * Atomically increments pending_balance and total_earned.
- */
-async function creditPending(walletId, amount, { description, referenceId } = {}) {
+// ─────────────────────────────────────────────
+// Transactions (SAFE)
+// ─────────────────────────────────────────────
+
+export async function creditPending(
+  walletId,
+  amount,
+  { description, referenceId } = {}
+) {
   const client = await getClient();
+
   try {
     await client.query("BEGIN");
 
     const { rows } = await client.query(
-      `UPDATE public.seller_wallets
-       SET pending_balance = pending_balance + $1,
-           total_earned    = total_earned    + $1,
-           updated_at      = now()
-       WHERE id = $2
-       RETURNING *`,
+      `
+      UPDATE public.seller_wallets
+      SET pending_balance = pending_balance + $1,
+          total_earned    = total_earned + $1,
+          updated_at      = now()
+      WHERE id = $2
+      RETURNING *
+      `,
       [amount, walletId]
     );
+
     if (!rows[0]) throw new Error("Wallet not found");
 
     await recordTransaction(client, {
@@ -184,37 +216,40 @@ async function creditPending(walletId, amount, { description, referenceId } = {}
   }
 }
 
-/**
- * Release pending balance to available (e.g. dispute window passed).
- * @param {string} walletId
- * @param {number|null} amount  Pass null to release entire pending balance.
- */
-async function releasePending(walletId, amount = null, { description, referenceId } = {}) {
+export async function releasePending(
+  walletId,
+  amount = null,
+  { description, referenceId } = {}
+) {
   const client = await getClient();
+
   try {
     await client.query("BEGIN");
 
-    // Lock the row
     const { rows: locked } = await client.query(
       `SELECT * FROM public.seller_wallets WHERE id = $1 FOR UPDATE`,
       [walletId]
     );
+
     if (!locked[0]) throw new Error("Wallet not found");
 
-    const releaseAmt = amount !== null ? amount : parseFloat(locked[0].pending_balance);
+    const releaseAmt =
+      amount !== null ? amount : parseFloat(locked[0].pending_balance);
 
     if (releaseAmt <= 0) throw new Error("No pending balance to release");
     if (releaseAmt > parseFloat(locked[0].pending_balance)) {
-      throw new Error(`Release amount ${releaseAmt} exceeds pending balance ${locked[0].pending_balance}`);
+      throw new Error("Release amount exceeds pending balance");
     }
 
     const { rows } = await client.query(
-      `UPDATE public.seller_wallets
-       SET available_balance = available_balance + $1,
-           pending_balance   = pending_balance   - $1,
-           updated_at        = now()
-       WHERE id = $2
-       RETURNING *`,
+      `
+      UPDATE public.seller_wallets
+      SET available_balance = available_balance + $1,
+          pending_balance   = pending_balance - $1,
+          updated_at        = now()
+      WHERE id = $2
+      RETURNING *
+      `,
       [releaseAmt, walletId]
     );
 
@@ -224,7 +259,7 @@ async function releasePending(walletId, amount = null, { description, referenceI
       type: "release",
       amount: releaseAmt,
       balanceAfter: parseFloat(rows[0].available_balance),
-      description: description || "Pending funds released to available",
+      description: description || "Pending funds released",
       referenceId,
     });
 
@@ -238,11 +273,9 @@ async function releasePending(walletId, amount = null, { description, referenceI
   }
 }
 
-/**
- * Withdraw from available balance (seller requests payout).
- */
-async function withdraw(walletId, amount, { description, referenceId } = {}) {
+export async function withdraw(walletId, amount, opts = {}) {
   const client = await getClient();
+
   try {
     await client.query("BEGIN");
 
@@ -250,18 +283,21 @@ async function withdraw(walletId, amount, { description, referenceId } = {}) {
       `SELECT * FROM public.seller_wallets WHERE id = $1 FOR UPDATE`,
       [walletId]
     );
+
     if (!locked[0]) throw new Error("Wallet not found");
 
     if (amount > parseFloat(locked[0].available_balance)) {
-      throw new Error(`Insufficient available balance. Available: ${locked[0].available_balance}`);
+      throw new Error("Insufficient available balance");
     }
 
     const { rows } = await client.query(
-      `UPDATE public.seller_wallets
-       SET available_balance = available_balance - $1,
-           updated_at        = now()
-       WHERE id = $2
-       RETURNING *`,
+      `
+      UPDATE public.seller_wallets
+      SET available_balance = available_balance - $1,
+          updated_at = now()
+      WHERE id = $2
+      RETURNING *
+      `,
       [amount, walletId]
     );
 
@@ -271,8 +307,8 @@ async function withdraw(walletId, amount, { description, referenceId } = {}) {
       type: "withdrawal",
       amount,
       balanceAfter: parseFloat(rows[0].available_balance),
-      description: description || "Seller withdrawal request",
-      referenceId,
+      description: opts.description || "Withdrawal",
+      referenceId: opts.referenceId,
     });
 
     await client.query("COMMIT");
@@ -285,11 +321,13 @@ async function withdraw(walletId, amount, { description, referenceId } = {}) {
   }
 }
 
-/**
- * Refund — deduct from available (or pending) when an order is refunded.
- */
-async function refund(walletId, amount, { fromPending = false, description, referenceId } = {}) {
+export async function refund(
+  walletId,
+  amount,
+  { fromPending = false, description, referenceId } = {}
+) {
   const client = await getClient();
+
   try {
     await client.query("BEGIN");
 
@@ -297,19 +335,23 @@ async function refund(walletId, amount, { fromPending = false, description, refe
       `SELECT * FROM public.seller_wallets WHERE id = $1 FOR UPDATE`,
       [walletId]
     );
+
     if (!locked[0]) throw new Error("Wallet not found");
 
     const col = fromPending ? "pending_balance" : "available_balance";
     const current = parseFloat(locked[0][col]);
-    if (amount > current) throw new Error(`Insufficient ${col}: ${current}`);
+
+    if (amount > current) throw new Error(`Insufficient ${col}`);
 
     const { rows } = await client.query(
-      `UPDATE public.seller_wallets
-       SET ${col}      = ${col}    - $1,
-           total_earned = total_earned - $1,
-           updated_at   = now()
-       WHERE id = $2
-       RETURNING *`,
+      `
+      UPDATE public.seller_wallets
+      SET ${col} = ${col} - $1,
+          total_earned = total_earned - $1,
+          updated_at = now()
+      WHERE id = $2
+      RETURNING *
+      `,
       [amount, walletId]
     );
 
@@ -333,10 +375,7 @@ async function refund(walletId, amount, { fromPending = false, description, refe
   }
 }
 
-/**
- * Get transaction history for a wallet.
- */
-async function getTransactions(walletId, { limit = 20, offset = 0, type } = {}) {
+export async function getTransactions(walletId, { limit = 20, offset = 0, type } = {}) {
   const conditions = [`wallet_id = $1`];
   const params = [walletId];
   let i = 2;
@@ -346,40 +385,46 @@ async function getTransactions(walletId, { limit = 20, offset = 0, type } = {}) 
     params.push(type);
   }
 
-  params.push(limit, offset);
+  const dataParams = [...params, limit, offset];
 
   const { rows } = await query(
-    `SELECT * FROM public.wallet_transactions
-     WHERE ${conditions.join(" AND ")}
-     ORDER BY created_at DESC
-     LIMIT $${i++} OFFSET $${i}`,
+    `
+    SELECT * FROM public.wallet_transactions
+    WHERE ${conditions.join(" AND ")}
+    ORDER BY created_at DESC
+    LIMIT $${i++} OFFSET $${i}
+    `,
+    dataParams
+  );
+
+  const countRows = await query(
+    `
+    SELECT COUNT(*) FROM public.wallet_transactions
+    WHERE ${conditions.join(" AND ")}
+    `,
     params
   );
 
-  const { rows: countRows } = await query(
-    `SELECT COUNT(*) FROM public.wallet_transactions
-     WHERE ${conditions.slice(0, -0).join(" AND ")}`,
-    params.slice(0, -2)
-  );
-
-  return { transactions: rows, total: parseInt(countRows[0].count) };
+  return {
+    transactions: rows,
+    total: parseInt(countRows.rows[0].count),
+  };
 }
 
-/**
- * Platform-wide wallet summary (admin dashboard stats).
- */
-async function getPlatformSummary() {
+export async function getPlatformSummary() {
   const { rows } = await query(`
     SELECT
-      COUNT(*)                          AS total_wallets,
-      SUM(available_balance)            AS total_available,
-      SUM(pending_balance)              AS total_pending,
-      SUM(total_earned)                 AS total_earned,
+      COUNT(*) AS total_wallets,
+      SUM(available_balance) AS total_available,
+      SUM(pending_balance) AS total_pending,
+      SUM(total_earned) AS total_earned,
       COUNT(*) FILTER (WHERE available_balance > 0) AS wallets_with_balance,
-      COUNT(*) FILTER (WHERE pending_balance > 0)   AS wallets_with_pending
+      COUNT(*) FILTER (WHERE pending_balance > 0) AS wallets_with_pending
     FROM public.seller_wallets
   `);
+
   const r = rows[0];
+
   return {
     total_wallets: parseInt(r.total_wallets),
     total_available: parseFloat(r.total_available || 0),
@@ -389,18 +434,3 @@ async function getPlatformSummary() {
     wallets_with_pending: parseInt(r.wallets_with_pending),
   };
 }
-
-module.exports = {
-  listWallets,
-  getWalletById,
-  getWalletByUserId,
-  createWallet,
-  creditPending,
-  releasePending,
-  withdraw,
-  refund,
-  getTransactions,
-  getPlatformSummary,
-};
-
-export default walletService;
