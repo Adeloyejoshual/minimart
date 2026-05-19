@@ -1,86 +1,112 @@
 /**
  * jobs/expirePromotions.js
  *
- * Cron job — expires paid promotions whose promotion_end has passed.
- * Runs every 10 minutes (Africa/Lagos timezone).
+ * Automatically expires promoted products whose promotion_end has passed.
+ * Runs every 10 minutes using Africa/Lagos timezone.
  *
- * Imported once in server.js:
+ * Usage in server.js:
  *   import "./jobs/expirePromotions.js";
  *
- * Uses the shared pool from config/db.js — never creates its own Pool.
- * Creating a second Pool wastes connections and bypasses the shared SSL config.
+ * IMPORTANT:
+ * - Uses shared PostgreSQL pool from config/db.js
+ * - Never creates a new Pool instance
+ * - Safe against crashes
+ * - Full stack trace logging
+ * - Startup execution included
  */
 
-import cron       from "node-cron";
-import { pool }   from "../config/db.js";   // ← shared pool, not new Pool()
+import cron from "node-cron";
+import { pool } from "../config/db.js";
 
-const SCHEDULE = "*/10 * * * *";            // every 10 minutes
-const TZ       = "Africa/Lagos";
+const SCHEDULE = "*/10 * * * *";
+const TIMEZONE = "Africa/Lagos";
 
-/* ─── Core expiry logic ──────────────────────────────────────────────────────
-
-   Single UPDATE:
-     - Sets is_promoted = false
-     - Clears promotion fields
-     - Keeps status = 'active' and is_active = true
-       (the listing stays live, it just loses its boost)
-
-   Only touches rows where:
-     - is_promoted = true         (currently boosted)
-     - promotion_end IS NOT NULL  (has a defined expiry)
-     - promotion_end <= NOW()     (that expiry has passed)
-*/
+/* ──────────────────────────────────────────────────────────────
+   Expire Promotions
+────────────────────────────────────────────────────────────── */
 
 const expirePromotions = async () => {
-  const client = await pool.connect();
+  let client;
+
   try {
-    await client.query("BEGIN");
+    client = await pool.connect();
 
-    const { rows: expired } = await client.query(
-      `UPDATE products
-       SET
-         is_promoted        = false,
-         promotion_type     = NULL,
-         promotion_priority = 0,
-         promotion_id       = NULL,
-         promotion_start    = NULL,
-         promotion_end      = NULL,
-         promotion_expires_at = NULL,
-         updated_at         = NOW()
-       WHERE is_promoted = true
-         AND promotion_end IS NOT NULL
-         AND promotion_end <= NOW()
-       RETURNING id, title, seller_id`
-    );
+    console.log("[CRON] Checking for expired promotions...");
 
-    await client.query("COMMIT");
+    const query = `
+      UPDATE products
+      SET
+        is_promoted = false,
+        promotion_type = NULL,
+        promotion_priority = 0,
+        promotion_id = NULL,
+        promotion_start = NULL,
+        promotion_end = NULL,
+        promotion_expires_at = NULL,
+        updated_at = NOW()
+      WHERE is_promoted = true
+        AND promotion_end IS NOT NULL
+        AND promotion_end <= NOW()
+      RETURNING id, title, seller_id
+    `;
+
+    const { rows: expired } = await client.query(query);
 
     if (expired.length === 0) {
-      console.log("[CRON] expirePromotions — nothing to expire");
+      console.log("[CRON] No expired promotions found");
       return;
     }
 
     console.log(
-      `[CRON] expirePromotions — expired ${expired.length} promotion(s):`,
-      expired.map((p) => `${p.title} (${p.id})`).join(", ")
+      `[CRON] Successfully expired ${expired.length} promotion(s)`
     );
 
+    expired.forEach((product) => {
+      console.log(
+        `[EXPIRED] ${product.title} | Product ID: ${product.id} | Seller ID: ${product.seller_id}`
+      );
+    });
+
   } catch (err) {
-    await client.query("ROLLBACK").catch(() => {});
-    console.error("[CRON] expirePromotions failed:", err.message);
+    console.error("[CRON ERROR] expirePromotions failed:");
+    console.error(err);
+
   } finally {
-    client.release();
+    if (client) {
+      client.release();
+    }
   }
 };
 
-/* ─── Schedule ───────────────────────────────────────────────────────────── */
+/* ──────────────────────────────────────────────────────────────
+   Schedule Cron
+────────────────────────────────────────────────────────────── */
 
-cron.schedule(SCHEDULE, expirePromotions, { timezone: TZ });
-
-// Run once immediately on startup to catch any expirations that happened
-// while the server was down (e.g. after a Render cold start).
-expirePromotions().catch((err) =>
-  console.error("[CRON] expirePromotions startup run failed:", err.message)
+cron.schedule(
+  SCHEDULE,
+  async () => {
+    await expirePromotions();
+  },
+  {
+    timezone: TIMEZONE,
+  }
 );
 
-console.log(`[CRON] expirePromotions scheduled — every 10 min (${TZ})`);
+console.log(
+  `[CRON] expirePromotions scheduled — every 10 minutes (${TIMEZONE})`
+);
+
+/* ──────────────────────────────────────────────────────────────
+   Run Immediately On Startup
+────────────────────────────────────────────────────────────── */
+
+(async () => {
+  try {
+    console.log("[CRON] Running startup promotion expiry check...");
+    await expirePromotions();
+
+  } catch (err) {
+    console.error("[CRON STARTUP ERROR]");
+    console.error(err);
+  }
+})();
