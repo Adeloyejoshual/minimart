@@ -168,7 +168,7 @@ import sellerProfileRouter from "./routes/sellerprofile.js";
 import dashboardRoutes     from "./routes/dashboard.js";
 import notificationsRouter from "./routes/notifications.js";
 import postAdsRouter from "./routes/postAds.js";
-const walletRoutes from "./routes/wallets.js";
+import walletRoutes from "./routes/wallets.js";
 import p2pRouter from "./routes/p2p.js";
 
 app.use("/api/seller",        sellerProfileRouter);
