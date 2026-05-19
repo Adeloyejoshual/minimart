@@ -168,6 +168,7 @@ import sellerProfileRouter from "./routes/sellerprofile.js";
 import dashboardRoutes     from "./routes/dashboard.js";
 import notificationsRouter from "./routes/notifications.js";
 import postAdsRouter from "./routes/postAds.js";
+const walletRoutes from "./routes/wallets.js";
 
 app.use("/api/seller",        sellerProfileRouter);
 app.use("/api/addproduct",    addproductRouter);
@@ -181,7 +182,7 @@ app.use("/api/homepage",      homepageRouter);
 app.use("/api/dashboard",     dashboardRoutes);
 app.use("/api/notifications", notificationsRouter);
 app.use("/api/products",       postAdsRouter);
-
+app.use("/api/v1/wallets",      walletRoutes);
 /* =========================================
    HEALTH CHECK
 ========================================= */
