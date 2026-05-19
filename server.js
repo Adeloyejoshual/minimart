@@ -185,6 +185,7 @@ app.use("/api/notifications", notificationsRouter);
 app.use("/api/products",       postAdsRouter);
 app.use("/api/v1/wallets",      walletRoutes);
 app.use("/api/p2p", p2pRouter);
+
 /* =========================================
    HEALTH CHECK
 ========================================= */
