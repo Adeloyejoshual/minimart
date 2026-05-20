@@ -3,34 +3,27 @@ import DropdownModal from "../../components/DropdownModal.jsx";
 import AddProductHeader from "../../components/AddProductHeader.jsx";
 import { categoryFields } from "../../config/categoryFields.js";
 
-/* ─────────────────────────────────────────────────────────────
-   Helpers
-────────────────────────────────────────────────────────────── */
+function normalizeOptions(list) {
+  if (!Array.isArray(list)) return [];
+  return list
+    .map((item) => {
+      if (typeof item === "string") return { id: item, name: item };
+      return {
+        id: String(item.id ?? item.value ?? item.name ?? ""),
+        name: item.name ?? item.label ?? item.id ?? "",
+      };
+    })
+    .filter((item) => item.id && item.name);
+}
 
-const normalizeOptions = (list = []) =>
-  Array.isArray(list)
-    ? list
-        .map((item) =>
-          typeof item === "string"
-            ? { id: item, name: item }
-            : {
-                id: String(item.id ?? item.value ?? item.name ?? ""),
-                name: item.name ?? item.label ?? item.id ?? "",
-              }
-        )
-        .filter((item) => item.id && item.name)
-    : [];
-
-const getSelectedCategory = (categories, id) =>
-  Array.isArray(categories)
-    ? categories.find((c) => String(c.id) === String(id)) ?? null
-    : null;
+function getSelectedCategory(categories, id) {
+  if (!Array.isArray(categories)) return null;
+  return categories.find(
+    (item) => String(item.id) === String(id)
+  ) ?? null;
+}
 
 const toArray = (v) => (Array.isArray(v) ? v : []);
-
-/* ─────────────────────────────────────────────────────────────
-   Component
-────────────────────────────────────────────────────────────── */
 
 export default function ProductComponents({
   form,
@@ -75,31 +68,26 @@ export default function ProductComponents({
   INITIAL_FORM,
 }) {
 
-  /* ────────────────────────────────────────────────────────────
-     Category Logic
-  ──────────────────────────────────────────────────────────── */
-
-  const categoryOptions = useMemo(
-    () =>
-      Array.isArray(categories)
-        ? categories
-            .map((c) => ({ id: String(c.id), name: c.name }))
-            .filter((c) => c.id && c.name)
-        : [],
-    [categories]
-  );
+  const categoryOptions = useMemo(() => {
+    if (!Array.isArray(categories)) return [];
+    return categories.map((cat) => ({
+      id: String(cat.id),
+      name: cat.name,
+    }));
+  }, [categories]);
 
   const activeCategory =
-    selectedCategory ?? getSelectedCategory(categories, form.category_id);
+    selectedCategory ??
+    getSelectedCategory(categories, form.category_id);
 
   const subcategories = activeCategory?.subcategories ?? [];
 
   const fields = useMemo(() => {
     if (!activeCategory) return [];
-    const backendFields = Array.isArray(options?.fields)
-      ? options.fields
-      : [];
-    const localFields = categoryFields[activeCategory.name] ?? [];
+    const backendFields =
+      Array.isArray(options?.fields) ? options.fields : [];
+    const localFields =
+      categoryFields[activeCategory.name] ?? [];
 
     return [...backendFields, ...localFields]
       .filter(Boolean)
@@ -112,8 +100,6 @@ export default function ProductComponents({
     const key = String(attributes.brand).toLowerCase();
     return normalizeOptions(options?.models?.[key] ?? []);
   }, [attributes?.brand, options]);
-
-  const showModelField = !!attributes?.brand;
 
   const optionsMap = useMemo(() => ({
     brand: normalizeOptions(options?.brands),
@@ -132,93 +118,124 @@ export default function ProductComponents({
     bathrooms: normalizeOptions(options?.bathrooms),
     experience_level: normalizeOptions(options?.experience_level),
     skills: normalizeOptions(options?.skills),
-    features: Array.isArray(options?.features) ? options.features : [],
+    features: Array.isArray(options?.features)
+      ? options.features
+      : [],
   }), [options]);
 
-  const currentFeatures = toArray(attributes?.features);
-  const isFreePlan = !selectedPlan || Number(selectedPlan?.price ?? 0) === 0;
+  const isFreePlan =
+    !selectedPlan ||
+    Number(selectedPlan?.effective_price ?? selectedPlan?.price ?? 0) === 0;
 
-  /* ────────────────────────────────────────────────────────────
-     UI
-  ──────────────────────────────────────────────────────────── */
+  const currentFeatures = toArray(attributes?.features);
 
   return (
     <>
-      {/* Sticky Header */}
-      <div className="sticky-header">
-        <AddProductHeader title="Add Product" onClearDraft={clearDraft} />
+      {/* HEADER */}
+      <div style={{
+        position: "sticky",
+        top: 0,
+        zIndex: 100,
+        backgroundColor: "#fff",
+        boxShadow: "0 1px 4px rgba(0,0,0,.1)",
+      }}>
+        <AddProductHeader
+          title="Add Product"
+          onClearDraft={clearDraft}
+        />
       </div>
 
-      {error && <div className="form-error">⚠️ {error}</div>}
+      {error && <div className="form-error">⚠ {error}</div>}
       {success && <div className="form-success">✅ {success}</div>}
 
-      {/* BASIC INFO */}
-      <Section title="Basic Information">
-        <Input
-          label="Product Title *"
-          value={form.title}
-          onChange={(v) => updateForm("title", v)}
+      {/* ───────────────────────────────────── */}
+      {/* PRODUCT DETAILS */}
+      {/* ───────────────────────────────────── */}
+
+      <section className="section form-card">
+        <h3 className="section-title">Product Details</h3>
+
+        <DropdownModal
+          value={String(form.category_id || "")}
+          options={categoryOptions}
+          placeholder="Select category"
+          onChange={(value) => {
+            updateForm("category_id", value);
+            updateForm("subcategory_id", "");
+            updateForm("attributes", INITIAL_FORM.attributes);
+          }}
         />
 
-        <Textarea
-          label="Description *"
-          value={form.description}
-          onChange={(v) => updateForm("description", v)}
-        />
+        {subcategories.length > 0 && (
+          <DropdownModal
+            value={String(form.subcategory_id || "")}
+            options={subcategories.map((s) => ({
+              id: String(s.id),
+              name: s.name,
+            }))}
+            placeholder="Select subcategory"
+            onChange={(value) =>
+              updateForm("subcategory_id", value)
+            }
+          />
+        )}
 
-        <Input
-          label="Price (₦) *"
-          value={displayPrice(form.price)}
-          onChange={(v) => updateForm("price", onlyNumbers(v))}
-        />
-      </Section>
+        {fields.map((field) => {
+          const fieldOptions = optionsMap[field] ?? [];
+          if (!fieldOptions.length) return null;
+          return (
+            <DropdownModal
+              key={field}
+              value={attributes?.[field] ?? ""}
+              options={fieldOptions}
+              placeholder={formatLabel(field)}
+              onChange={(v) =>
+                updateAttribute(field, v)
+              }
+            />
+          );
+        })}
+      </section>
 
+      {/* ───────────────────────────────────── */}
       {/* PROMOTION PLANS */}
-      <Section title="Promotion Plan">
-        <div className="plans-grid">
+      {/* ───────────────────────────────────── */}
 
+      <section className="section form-card">
+        <h3 className="section-title">Promotion Plan</h3>
+        <div className="plans-grid">
           {promotionPlans.map((plan) => {
-            const isSelected = selectedPlan?.id === plan.id;
-            const isFree = Number(plan.price) === 0;
+            const effective =
+              Number(plan.effective_price ?? plan.price ?? 0);
 
             return (
               <div
                 key={plan.id}
-                className={`plan-card ${isSelected ? "selected" : ""}`}
+                className={
+                  "plan-card" +
+                  (selectedPlan?.id === plan.id
+                    ? " selected"
+                    : "")
+                }
                 onClick={() => setSelectedPlan(plan)}
               >
-                <div className="plan-header">
-                  <strong>{plan.name}</strong>
-                  <span className="plan-price">
-                    {isFree
-                      ? "Free"
-                      : `₦${displayPrice(plan.price)}`}
-                  </span>
+                <strong>{plan.name}</strong>
+                <div>
+                  {effective === 0
+                    ? "Free"
+                    : `₦${displayPrice(effective)}`}
                 </div>
-
-                <div className="plan-duration">
-                  {plan.duration ?? "Limited time"}
-                </div>
-
-                {!isFree && (
-                  <small className="plan-priority">
-                    Boost Priority: {plan.priority}
-                  </small>
-                )}
-
-                {isSelected && (
-                  <div className="selected-indicator">
-                    ✓ Selected
-                  </div>
-                )}
               </div>
             );
           })}
         </div>
-      </Section>
+      </section>
 
-      {/* TERMS + SUBMIT */}
-      <div className="button-section">
+      {/* ───────────────────────────────────── */}
+      {/* SUBMIT */}
+      {/* ───────────────────────────────────── */}
+
+      <div className="button-section section form-card">
         {TermsCheckbox}
 
         <button
@@ -236,44 +253,16 @@ export default function ProductComponents({
 
         {paymentData && (
           <button
+            type="button"
             className="outline-btn full-width"
-            onClick={() => window.open(paymentData.authUrl, "_blank")}
+            onClick={() =>
+              window.open(paymentData.authUrl, "_blank")
+            }
           >
             💳 Complete Payment
           </button>
         )}
       </div>
     </>
-  );
-}
-
-/* ─────────────────────────────────────────────────────────────
-   Small Reusable UI Components
-────────────────────────────────────────────────────────────── */
-
-function Section({ title, children }) {
-  return (
-    <section className="section form-card">
-      <h3 className="section-title">{title}</h3>
-      {children}
-    </section>
-  );
-}
-
-function Input({ label, value, onChange }) {
-  return (
-    <div className="form-group">
-      <label>{label}</label>
-      <input value={value} onChange={(e) => onChange(e.target.value)} />
-    </div>
-  );
-}
-
-function Textarea({ label, value, onChange }) {
-  return (
-    <div className="form-group">
-      <label>{label}</label>
-      <textarea rows={4} value={value} onChange={(e) => onChange(e.target.value)} />
-    </div>
   );
 }
