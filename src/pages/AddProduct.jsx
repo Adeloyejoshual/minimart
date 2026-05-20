@@ -1,20 +1,29 @@
-import React, { useEffect, useState, useCallback } from "react";
+import React, {
+  useEffect,
+  useMemo,
+  useState,
+  useCallback,
+  useRef,
+} from "react";
 import { Link } from "react-router-dom";
 import ProductComponents from "./product/components.jsx";
 import { locationsByState } from "../config/locationsByState.js";
 import { apiFetch, ApiError } from "../utils/apiFetch.js";
+import imageCompression from "browser-image-compression";
 import "../styles/AddProduct.css";
 
-/* =========================================================
-   CONSTANTS
-========================================================= */
+/* ─────────────────────────────────────────────
+   Constants
+───────────────────────────────────────────── */
 
 const API_BASE = "https://minimart-ivrm.onrender.com/api";
+const STORAGE_PAYMENT = "payment_retry";
 const MAX_IMAGES = 6;
+const MAX_SIZE = 3 * 1024 * 1024;
 
-/* =========================================================
-   INITIAL FORM
-========================================================= */
+/* ─────────────────────────────────────────────
+   Initial Form
+───────────────────────────────────────────── */
 
 const INITIAL_FORM = {
   title: "",
@@ -35,6 +44,12 @@ const INITIAL_FORM = {
     engine: "",
     fuel_type: "",
     features: [],
+    size: "",
+    age_range: "",
+    bedrooms: "",
+    bathrooms: "",
+    experience_level: "",
+    skills: "",
   },
   delivery: {
     available: false,
@@ -47,99 +62,122 @@ const INITIAL_FORM = {
     whatsapp: "",
     whatsapp_link: "",
     email: "",
+    preferred: "chat",
   },
 };
 
-/* =========================================================
-   HELPERS
-========================================================= */
-
-const getToken = () => localStorage.getItem("token");
+/* ─────────────────────────────────────────────
+   Helpers
+───────────────────────────────────────────── */
 
 const onlyNumbers = (v = "") => v.replace(/[^0-9.]/g, "");
 const onlyDigits = (v = "") => v.replace(/[^0-9]/g, "");
+const toArray = (v) => (Array.isArray(v) ? v : []);
+const getToken = () => localStorage.getItem("token");
 
 const displayPrice = (v) =>
   Number(v) > 0 ? new Intl.NumberFormat("en-NG").format(v) : "";
 
-/* =========================================================
-   COMPONENT
-========================================================= */
+const formatLabel = (t) =>
+  t.replace(/_/g, " ").replace(/\b\w/g, (l) => l.toUpperCase());
+
+const generateIdempotencyKey = () =>
+  crypto?.randomUUID?.() ??
+  `${Date.now()}-${Math.random().toString(36).slice(2)}`;
+
+/* ─────────────────────────────────────────────
+   Component
+───────────────────────────────────────────── */
 
 export default function AddProductPage({ user }) {
   const STORAGE_DRAFT = `product_draft_${user?.id ?? "anon"}`;
 
+  /* ───── State ───── */
+
   const [form, setForm] = useState(INITIAL_FORM);
   const [categories, setCategories] = useState([]);
   const [promotionPlans, setPromotionPlans] = useState([]);
-  const [plansLoading, setPlansLoading] = useState(true);
-
-  const [images, setImages] = useState([]);
   const [locationState, setLocationState] = useState("");
   const [city, setCity] = useState("");
+  const [images, setImages] = useState([]);
   const [selectedPlan, setSelectedPlan] = useState(null);
-
+  const [paymentData, setPaymentData] = useState(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
   const [success, setSuccess] = useState("");
   const [agreedToTerms, setAgreedToTerms] = useState(false);
-  const [paymentData, setPaymentData] = useState(null);
+  const [detectedCoords, setDetectedCoords] = useState(null);
+  const [detectingLocation, setDetectingLocation] = useState(false);
+
+  const isSubmittingRef = useRef(false);
 
   /* ─────────────────────────────────────────────
-     LOAD CATEGORIES
+     Derived
+  ───────────────────────────────────────────── */
+
+  const selectedCategory = useMemo(
+    () =>
+      categories.find((c) => String(c.id) === String(form.category_id)) ??
+      null,
+    [categories, form.category_id]
+  );
+
+  const options = selectedCategory?.dynamicOptions ?? {};
+  const states = Object.keys(locationsByState ?? {});
+  const cities =
+    locationState ? locationsByState[locationState] ?? [] : [];
+
+  /* ─────────────────────────────────────────────
+     Load Categories
   ───────────────────────────────────────────── */
 
   useEffect(() => {
     apiFetch(`${API_BASE}/addproduct/categories`)
-      .then(setCategories)
+      .then((data) =>
+        setCategories(Array.isArray(data) ? data : [])
+      )
       .catch(() => setCategories([]));
   }, []);
 
   /* ─────────────────────────────────────────────
-     LOAD PROMOTION PLANS
+     Load Promotion Plans
   ───────────────────────────────────────────── */
 
   useEffect(() => {
-    let mounted = true;
-
-    const loadPlans = async () => {
-      try {
-        const res = await apiFetch(`${API_BASE}/payment/plans`);
-
-        if (!mounted) return;
-
+    apiFetch(`${API_BASE}/payment/plans`)
+      .then((res) => {
         if (res.success && Array.isArray(res.plans)) {
           setPromotionPlans([
-            { id: 0, name: "Free", price: 0, effective_price: 0 },
+            { id: 0, name: "Free", price: 0 },
             ...res.plans,
           ]);
         }
-      } catch (err) {
-        console.error("Failed to load plans:", err);
-      } finally {
-        if (mounted) setPlansLoading(false);
-      }
-    };
-
-    loadPlans();
-    return () => (mounted = false);
+      })
+      .catch(() => setPromotionPlans([]));
   }, []);
 
   /* ─────────────────────────────────────────────
-     RESTORE DRAFT
+     Draft Restore
   ───────────────────────────────────────────── */
 
   useEffect(() => {
-    const saved = localStorage.getItem(STORAGE_DRAFT);
-    if (!saved) return;
-
     try {
-      const draft = JSON.parse(saved);
+      const raw = localStorage.getItem(STORAGE_DRAFT);
+      if (!raw) return;
+      const draft = JSON.parse(raw);
 
-      setForm(draft.form ?? INITIAL_FORM);
+      setForm({
+        ...INITIAL_FORM,
+        ...draft.form,
+        attributes: {
+          ...INITIAL_FORM.attributes,
+          ...(draft.form?.attributes ?? {}),
+          features: toArray(draft.form?.attributes?.features),
+        },
+      });
+
       setLocationState(draft.locationState ?? "");
       setCity(draft.city ?? "");
-
       if (draft.selectedPlan && promotionPlans.length) {
         const match = promotionPlans.find(
           (p) => Number(p.id) === Number(draft.selectedPlan)
@@ -147,14 +185,14 @@ export default function AddProductPage({ user }) {
         if (match) setSelectedPlan(match);
       }
     } catch {}
-  }, [promotionPlans]);
+  }, [promotionPlans, STORAGE_DRAFT]);
 
   /* ─────────────────────────────────────────────
-     AUTO SAVE DRAFT
+     Auto Save Draft
   ───────────────────────────────────────────── */
 
   useEffect(() => {
-    const timeout = setTimeout(() => {
+    const t = setTimeout(() => {
       localStorage.setItem(
         STORAGE_DRAFT,
         JSON.stringify({
@@ -165,95 +203,97 @@ export default function AddProductPage({ user }) {
         })
       );
     }, 1000);
-
-    return () => clearTimeout(timeout);
-  }, [form, locationState, city, selectedPlan]);
+    return () => clearTimeout(t);
+  }, [form, locationState, city, selectedPlan, STORAGE_DRAFT]);
 
   /* ─────────────────────────────────────────────
-     VALIDATION
+     Validation
   ───────────────────────────────────────────── */
 
-  const validateForm = () => {
+  const validateForm = useCallback(() => {
     if (!form.title.trim()) return "Title required";
     if (!form.description.trim()) return "Description required";
-    if (!form.price || Number(form.price) <= 0) return "Valid price required";
+    if (!form.price || Number(form.price) <= 0)
+      return "Valid price required";
     if (!form.category_id) return "Category required";
     if (!images.length) return "At least one image required";
-    if (!locationState || !city) return "Location required";
-    if (!agreedToTerms) return "Accept Terms & Conditions";
+    if (!locationState || !city)
+      return "Select state and city";
+    if (!agreedToTerms)
+      return "Accept Terms & Conditions";
     return null;
-  };
+  }, [form, images, locationState, city, agreedToTerms]);
 
   /* ─────────────────────────────────────────────
-     SUBMIT
+     Submit
   ───────────────────────────────────────────── */
 
-  const handleSubmit = async () => {
-    if (loading) return;
+  const handleSubmit = useCallback(async () => {
+    if (loading || isSubmittingRef.current) return;
+    isSubmittingRef.current = true;
 
     const validationError = validateForm();
     if (validationError) {
       setError(validationError);
+      isSubmittingRef.current = false;
       return;
     }
-
-    if (plansLoading) {
-      setError("Plans still loading...");
-      return;
-    }
-
-    const finalPlan =
-      selectedPlan ||
-      promotionPlans.find(
-        (p) => Number(p.effective_price ?? p.price ?? 0) === 0
-      );
-
-    if (!finalPlan) {
-      setError("No promotion plan available.");
-      return;
-    }
-
-    const effectivePrice =
-      Number(finalPlan.effective_price ?? finalPlan.price ?? 0);
-
-    const isFree = effectivePrice === 0;
 
     setLoading(true);
     setError("");
-    setSuccess("");
+
+    let product = null;
 
     try {
       const token = getToken();
       if (!token) throw new ApiError("Login required", 401);
 
+      const finalPlan =
+        selectedPlan ||
+        promotionPlans.find((p) => Number(p.price) === 0);
+
+      if (!finalPlan)
+        throw new ApiError("No plan available");
+
+      const isFree = Number(finalPlan.price) === 0;
+
       /* ───── Create Product ───── */
 
       const fd = new FormData();
-      fd.append("title", form.title);
-      fd.append("description", form.description);
-      fd.append("price", Number(form.price));
+      fd.append("title", form.title.trim());
+      fd.append("description", form.description.trim());
+      fd.append("price", Number(form.price).toFixed(2));
       fd.append("category_id", form.category_id);
       fd.append("location_state", locationState);
       fd.append("location_city", city);
-      fd.append("attributes", JSON.stringify(form.attributes));
+      fd.append(
+        "attributes",
+        JSON.stringify({
+          ...form.attributes,
+          features: toArray(form.attributes.features),
+        })
+      );
       fd.append("delivery", JSON.stringify(form.delivery));
       fd.append("contact", JSON.stringify(form.contact));
+      fd.append("idempotency_key", generateIdempotencyKey());
+      fd.append("seller_name", user?.store_name || user?.name || "Minimart");
 
       images.forEach((img) => fd.append("images", img.file));
 
-      const res = await fetch(`${API_BASE}/addproduct/products`, {
-        method: "POST",
-        headers: { Authorization: `Bearer ${token}` },
-        body: fd,
-      });
+      const res = await fetch(
+        `${API_BASE}/addproduct/products`,
+        {
+          method: "POST",
+          headers: { Authorization: `Bearer ${token}` },
+          body: fd,
+        }
+      );
 
-      const productData = await res.json();
+      const data = await res.json();
+      if (!res.ok)
+        throw new ApiError(data?.message || "Product creation failed");
 
-      if (!res.ok) {
-        throw new Error(productData?.message || "Failed to create product");
-      }
-
-      const product = productData.product;
+      product = data.product;
 
       /* ───── Free Plan ───── */
 
@@ -271,31 +311,36 @@ export default function AddProductPage({ user }) {
         );
 
         localStorage.removeItem(STORAGE_DRAFT);
-        setSuccess("Product posted successfully!");
-        setTimeout(() => (window.location.href = "/"), 1200);
+        window.location.href = "/";
         return;
       }
 
       /* ───── Paid Plan ───── */
 
-      const payment = await apiFetch(`${API_BASE}/payment/initiate`, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${token}`,
-        },
-        body: JSON.stringify({
-          email: form.contact.email,
-          plan_id: finalPlan.id,
-          product_id: product.id,
-        }),
-      });
+      const payment = await apiFetch(
+        `${API_BASE}/payment/initiate`,
+        {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: `Bearer ${token}`,
+          },
+          body: JSON.stringify({
+            email: form.contact.email,
+            plan_id: finalPlan.id,
+            product_id: product.id,
+          }),
+        }
+      );
 
-      if (!payment.authorization_url) {
-        throw new Error("Payment initialization failed");
-      }
+      if (!payment.authorization_url)
+        throw new ApiError("Payment setup failed");
 
-      setPaymentData(payment);
+      localStorage.setItem(
+        STORAGE_PAYMENT,
+        JSON.stringify(payment)
+      );
+
       window.open(payment.authorization_url, "_blank");
 
     } catch (err) {
@@ -303,11 +348,23 @@ export default function AddProductPage({ user }) {
       setError(err.message || "Submission failed");
     } finally {
       setLoading(false);
+      isSubmittingRef.current = false;
     }
-  };
+  }, [
+    loading,
+    validateForm,
+    selectedPlan,
+    promotionPlans,
+    form,
+    images,
+    locationState,
+    city,
+    user,
+    STORAGE_DRAFT,
+  ]);
 
   /* ─────────────────────────────────────────────
-     RENDER
+     Render
   ───────────────────────────────────────────── */
 
   return (
@@ -315,24 +372,25 @@ export default function AddProductPage({ user }) {
       <ProductComponents
         form={form}
         categories={categories}
-        promotionPlans={promotionPlans}
-        selectedPlan={selectedPlan}
-        setSelectedPlan={setSelectedPlan}
+        options={options}
+        selectedCategory={selectedCategory}
+        states={states}
+        cities={cities}
         images={images}
         setImages={setImages}
-        locationState={locationState}
-        setLocationState={setLocationState}
-        city={city}
-        setCity={setCity}
-        handleSubmit={handleSubmit}
+        selectedPlan={selectedPlan}
+        setSelectedPlan={setSelectedPlan}
+        promotionPlans={promotionPlans}
         loading={loading}
         error={error}
         success={success}
         agreedToTerms={agreedToTerms}
         setAgreedToTerms={setAgreedToTerms}
+        handleSubmit={handleSubmit}
         displayPrice={displayPrice}
         onlyNumbers={onlyNumbers}
         onlyDigits={onlyDigits}
+        formatLabel={formatLabel}
         MAX_IMAGES={MAX_IMAGES}
       />
     </div>
