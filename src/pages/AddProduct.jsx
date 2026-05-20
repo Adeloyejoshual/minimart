@@ -111,36 +111,25 @@ export default function AddProductPage({ user }) {
   const STORAGE_DRAFT = `product_draft_${user?.id ?? "anon"}`;
 
   // ── State ──────────────────────────────────────────────────────────────────
-  const [form,            setForm]            = useState(INITIAL_FORM);
-  const [categories,      setCategories]      = useState([]);
-  const [locationState,   setLocationState]   = useState("");
-  const [city,            setCity]            = useState("");
-  const [images,          setImages]          = useState([]);
-  const [loading,         setLoading]         = useState(false);
-  const [selectedPlan,    setSelectedPlan]    = useState(null);
-  const [paymentData,     setPaymentData]     = useState(null);
-  const [error,           setError]           = useState("");
-  const [success,         setSuccess]         = useState("");
-  const [agreedToTerms,   setAgreedToTerms]   = useState(false);
-  // Hard ref-based lock — prevents double-submit even when React batching
-  // allows multiple clicks before setLoading(true) re-renders the button.
-  const isSubmittingRef = useRef(false);
-
+  const [form,             setForm]             = useState(INITIAL_FORM);
+  const [categories,       setCategories]       = useState([]);
+  const [locationState,    setLocationState]    = useState("");
+  const [city,             setCity]             = useState("");
+  const [images,           setImages]           = useState([]);
+  const [loading,          setLoading]          = useState(false);
+  const [selectedPlan,     setSelectedPlan]     = useState(null);
+  const [paymentData,      setPaymentData]      = useState(null);
+  const [error,            setError]            = useState("");
+  const [success,          setSuccess]          = useState("");
+  const [agreedToTerms,    setAgreedToTerms]    = useState(false);
   const [detectingLocation, setDetectingLocation] = useState(false);
+  const [detectedCoords,   setDetectedCoords]   = useState(null);
 
-  // Hard submit lock — blocks double-click/race even if React re-renders between clicks
+  // Hard submit lock — survives React re-renders unlike the `loading` state.
+  // Prevents double-submit even if the button is clicked twice before loading renders.
   const isSubmittingRef = useRef(false);
   // Always-current images ref — needed for safe cleanup on unmount
   const imagesRef       = useRef([]);
-  const [detectedCoords,    setDetectedCoords]    = useState(null);
-
-  // Hard submit lock — prevents double-click even if loading state hasn't
-  // re-rendered yet. useRef is synchronous, useState is not.
-  const isSubmittingRef = useRef(false);
-
-  // Hard submission lock — survives React re-renders unlike the `loading` state.
-  // Prevents double-submit even if the button is clicked twice before loading renders.
-  const isSubmittingRef = useRef(false);
 
   // ── Derived ────────────────────────────────────────────────────────────────
   const selectedCategory = useMemo(
@@ -176,7 +165,7 @@ export default function AddProductPage({ user }) {
       });
   }, [showError]);
 
-  // ── Resume or clear stale payment session ────────────────────────────────
+  // ── Resume or clear stale payment session ─────────────────────────────────
   // If the user navigated away mid-payment, restore the session (≤30 min old)
   // so they can complete it without restarting. Otherwise clear it.
   useEffect(() => {
@@ -259,7 +248,7 @@ export default function AddProductPage({ user }) {
     return () => clearTimeout(t);
   }, [form, locationState, city, images.length, selectedPlan, STORAGE_DRAFT]);
 
-  // ── Revoke object URLs on unmount — ref-based (no stale closure) ────────────
+  // ── Revoke object URLs on unmount ─────────────────────────────────────────
   // imagesRef always points to the latest array, so the [] cleanup captures
   // all images that existed at unmount, not just those at mount time.
   useEffect(() => { imagesRef.current = images; }, [images]);
@@ -428,16 +417,16 @@ export default function AddProductPage({ user }) {
 
   // ── Validation ─────────────────────────────────────────────────────────────
   const validateForm = useCallback(() => {
-    if (!form.title?.trim())                                     return "Title required";
-    if (!form.description?.trim())                               return "Description required";
-    if (!form.price || Number(form.price) <= 0)                  return "Enter a valid price";
-    if (!form.category_id)                                       return "Category required";
-    if (!form.contact?.email?.includes("@"))                     return "Enter a valid email";
-    if (!form.contact?.phone || form.contact.phone.length < 10)  return "Phone must be at least 10 digits";
+    if (!form.title?.trim())                                          return "Title required";
+    if (!form.description?.trim())                                    return "Description required";
+    if (!form.price || Number(form.price) <= 0)                       return "Enter a valid price";
+    if (!form.category_id)                                            return "Category required";
+    if (!form.contact?.email?.includes("@"))                          return "Enter a valid email";
+    if (!form.contact?.phone || form.contact.phone.length < 10)       return "Phone must be at least 10 digits";
     if (!form.contact?.whatsapp || form.contact.whatsapp.length < 10) return "WhatsApp number required";
-    if (!images.length)                                          return "At least one image required";
-    if (!locationState || !city)                                 return "Select your state and city";
-    if (!agreedToTerms)                                          return "Please accept the Terms & Conditions";
+    if (!images.length)                                               return "At least one image required";
+    if (!locationState || !city)                                      return "Select your state and city";
+    if (!agreedToTerms)                                               return "Please accept the Terms & Conditions";
 
     if (form.delivery.available) {
       const from = Number(form.delivery.duration.from);
@@ -451,8 +440,6 @@ export default function AddProductPage({ user }) {
 
   // ── Submit orchestration ───────────────────────────────────────────────────
   const handleSubmit = useCallback(async () => {
-    // Hard ref lock — prevents double-submit even when React batching
-    // delays the loading state re-render between rapid clicks.
     if (loading || isSubmittingRef.current) return;
     isSubmittingRef.current = true;
 
@@ -503,9 +490,8 @@ export default function AddProductPage({ user }) {
         fd.append("phone",           form.contact.phone         ?? "");
         fd.append("whatsapp",        form.contact.whatsapp      ?? "");
         fd.append("whatsapp_link",   form.contact.whatsapp_link ?? "");
-        // Idempotency key — generated once per submit attempt.
-        // If the network drops and the user retries, the server returns
-        // the already-created product instead of creating a duplicate row.
+        // Idempotency key — if the network drops and the user retries, the
+        // server returns the already-created product instead of a duplicate row.
         fd.append("idempotency_key", crypto.randomUUID());
         // Seller name — used by Cloudinary watermark transformation.
         fd.append("seller_name",     user?.store_name || user?.name || "Minimart");
@@ -522,7 +508,7 @@ export default function AddProductPage({ user }) {
         await apiFetch(`${API_BASE}/addproduct/products/${product.id}/activate`, {
           method:  "POST",
           headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
-          // null = free listing, no DB plan row needed — skip plan lookup in activate route
+          // null = free listing, no DB plan row needed
           body: JSON.stringify({ promotion_id: null }),
         });
         clearDraft();
@@ -534,14 +520,10 @@ export default function AddProductPage({ user }) {
       // ── Step 2b: Paid plan — initiate Paystack payment ──────────────────
       {
         const token = getToken();
-        // Apply discount — server re-validates against its own DB
-        const rawPrice      = Number(finalPlan.price);
-        const discount      = Number(finalPlan.discount ?? 0);
+        const rawPrice     = Number(finalPlan.price);
+        const discount     = Number(finalPlan.discount ?? 0);
         // toFixed(2) matches DECIMAL(10,2) DB precision exactly.
-        // Math.round() was causing silent rejection on fractional amounts.
-        const effectiveAmt = Number(
-          (rawPrice * (1 - discount / 100)).toFixed(2)
-        );
+        const effectiveAmt = Number((rawPrice * (1 - discount / 100)).toFixed(2));
 
         const data = await apiFetch(`${API_BASE}/payment/initiate`, {
           method:  "POST",
@@ -655,6 +637,7 @@ export default function AddProductPage({ user }) {
         handleSubmit={handleSubmit}
         clearDraft={clearDraft}
         detectLocation={detectLocation}
+        resumePayment={resumePayment}
         displayPrice={displayPrice}
         formatLabel={formatLabel}
         onlyNumbers={onlyNumbers}
