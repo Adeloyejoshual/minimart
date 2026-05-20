@@ -1,40 +1,33 @@
+// routes/payment.js
 import express from "express";
-import crypto  from "crypto";
-import { pool } from "../config/db.js"; // shared pool — never create a second Pool
+import crypto from "crypto";
+import fetch from "node-fetch";
+import { pool } from "../config/db.js";
+import authenticate from "../middleware/auth.js";
 
-const router        = express.Router();
-const webhookRouter = express.Router({ mergeParams: true });
+const router = express.Router();
+const webhookRouter = express.Router();
 
-// ─── Helpers ──────────────────────────────────────────────────────────────────
+/* =========================================================
+   HELPERS
+========================================================= */
 
-/** promotion_plans.id is INT8 — always parse as integer, never as UUID. */
-const cleanInt = (value) => {
-  const n = parseInt(value, 10);
+const cleanInt = (v) => {
+  const n = parseInt(v, 10);
   return Number.isFinite(n) && n > 0 ? n : null;
 };
 
-/** Products / users use UUID primary keys. */
-const cleanUuid = (value) => {
-  const v = String(value ?? "").trim();
-  return v && v !== "null" && v !== "undefined" ? v : null;
+const cleanUuid = (v) => {
+  const s = String(v ?? "").trim();
+  return s && s !== "null" && s !== "undefined" ? s : null;
 };
 
-const cleanString = (value) => {
-  const v = String(value ?? "").trim();
-  return v || null;
+const cleanEmail = (v) => {
+  const s = String(v ?? "").trim().toLowerCase();
+  return s.includes("@") ? s : null;
 };
 
-const amountToNumber = (amount) => {
-  const n = Number(amount);
-  return Number.isFinite(n) ? n : null;
-};
-
-const getWebhookSignature = (req) => {
-  const header = req.headers["x-paystack-signature"];
-  return Array.isArray(header) ? header[0] : (header ?? null);
-};
-
-const verifyPaystackSignature = (rawBody, secret, signature) => {
+const verifySignature = (rawBody, secret, signature) => {
   const hash = crypto
     .createHmac("sha512", secret)
     .update(rawBody)
@@ -42,158 +35,221 @@ const verifyPaystackSignature = (rawBody, secret, signature) => {
   return hash === signature;
 };
 
-// ─── POST /initiate ───────────────────────────────────────────────────────────
+/* =========================================================
+   GET /plans  → Fetch all active promotion plans
+========================================================= */
 
-router.post("/initiate", async (req, res) => {
-  const { email, amount, plan_id, product_id, planId, productId } = req.body;
+router.get("/plans", async (_, res) => {
+  try {
+    const { rows } = await pool.query(`
+      SELECT 
+        id,
+        name,
+        price,
+        duration,
+        duration_days,
+        priority,
+        features
+      FROM promotion_plans
+      WHERE is_active = true
+      ORDER BY sort_order ASC, price ASC
+    `);
 
-  const finalPlanId    = cleanInt(plan_id    ?? planId);    // INT8
-  const finalProductId = cleanUuid(product_id ?? productId); // UUID
-  const paymentEmail   = cleanString(email);
-  const paymentAmount  = amountToNumber(amount);
-
-  if (!paymentEmail) {
-    return res.status(400).json({ success: false, message: "Email is required" });
+    return res.json({ success: true, plans: rows });
+  } catch (err) {
+    console.error("[PAYMENT] Load plans error:", err.message);
+    return res.status(500).json({ success: false, message: "Failed to load plans" });
   }
-  if (!paymentAmount || paymentAmount <= 0) {
-    return res.status(400).json({ success: false, message: `Invalid amount: ${amount}` });
-  }
-  if (!finalPlanId) {
-    return res.status(400).json({ success: false, message: "Valid numeric plan_id required" });
-  }
-  if (!finalProductId) {
-    return res.status(400).json({ success: false, message: "Valid product_id (UUID) required" });
+});
+
+/* =========================================================
+   POST /initiate  → Start payment for a product
+========================================================= */
+
+router.post("/initiate", authenticate, async (req, res) => {
+  const sellerId = cleanUuid(req.user.id);
+  const productId = cleanUuid(req.body.product_id);
+  const planId = cleanInt(req.body.plan_id);
+  const email = cleanEmail(req.body.email);
+
+  // ── Validation ──────────────────────────────────────
+  if (!sellerId) {
+    return res.status(401).json({ success: false, message: "Authentication required" });
   }
 
-  // ── Validate + lock product ────────────────────────────────────────────────
+  if (!productId) {
+    return res.status(400).json({ success: false, message: "Product ID required" });
+  }
 
+  if (!planId) {
+    return res.status(400).json({ success: false, message: "Plan ID required" });
+  }
+
+  if (!email) {
+    return res.status(400).json({ success: false, message: "Valid email required" });
+  }
+
+  // ── Get plan price from DB (never trust frontend price) ──
+  let planPrice;
+  try {
+    const { rows: planRows } = await pool.query(
+      `SELECT id, price FROM promotion_plans WHERE id = $1 AND is_active = true`,
+      [planId]
+    );
+
+    if (!planRows.length) {
+      return res.status(400).json({ success: false, message: "Promotion plan not found" });
+    }
+
+    planPrice = Number(planRows[0].price);
+  } catch (err) {
+    console.error("[PAYMENT] Plan lookup error:", err.message);
+    return res.status(500).json({ success: false, message: "Failed to verify plan" });
+  }
+
+  // ── Lock + validate product ─────────────────────────
   const client = await pool.connect();
+
   try {
     await client.query("BEGIN");
 
+    // Verify ownership + status
     const { rows: productRows } = await client.query(
-      `SELECT id, status, is_active FROM products WHERE id = $1 FOR UPDATE`,
-      [finalProductId]
+      `SELECT id, seller_id, status, is_active
+       FROM products
+       WHERE id = $1
+       AND seller_id = $2
+       FOR UPDATE`,
+      [productId, sellerId]
     );
 
     if (!productRows.length) {
       await client.query("ROLLBACK");
       return res.status(404).json({
         success: false,
-        message: `Product ${finalProductId} not found`,
+        message: "Product not found or not owned by you",
       });
     }
 
-    const { status: currentStatus, is_active } = productRows[0];
+    const product = productRows[0];
 
-    if (currentStatus === "active" && is_active) {
-      await client.query("ROLLBACK");
-      return res.status(409).json({ success: false, message: "Product is already active" });
-    }
-
-    if (currentStatus !== "draft" && currentStatus !== "pending_payment") {
+    if (product.status === "active" && product.is_active) {
       await client.query("ROLLBACK");
       return res.status(409).json({
         success: false,
-        message: `Product cannot be paid from status '${currentStatus}'`,
+        message: "Product is already active",
       });
     }
 
-    // Mark pending so the user cannot submit a second payment
+    if (!["draft", "pending_payment"].includes(product.status)) {
+      await client.query("ROLLBACK");
+      return res.status(409).json({
+        success: false,
+        message: `Cannot pay for product in '${product.status}' status`,
+      });
+    }
+
+    // Mark as pending payment
     await client.query(
-      `UPDATE products SET status = 'pending_payment', updated_at = NOW() WHERE id = $1`,
-      [finalProductId]
+      `UPDATE products
+       SET status = 'pending_payment', updated_at = NOW()
+       WHERE id = $1`,
+      [productId]
     );
 
+    // Create payment record (pending)
+    const { rows: paymentRows } = await client.query(
+      `INSERT INTO payments
+         (seller_id, product_id, plan_id, amount, email, status, type)
+       VALUES ($1, $2, $3, $4, $5, 'pending', 'promotion')
+       RETURNING id, reference`,
+      [sellerId, productId, planId, planPrice, email]
+    );
+
+    const paymentId = paymentRows[0].id;
+
     await client.query("COMMIT");
-  } catch (err) {
-    await client.query("ROLLBACK");
-    console.error("Product validation error:", err);
-    return res.status(500).json({ success: false, message: "Database validation failed" });
-  } finally {
-    client.release();
-  }
 
-  // ── Call Paystack ──────────────────────────────────────────────────────────
-
-  try {
+    // ── Call Paystack ──────────────────────────────────
     if (!process.env.PAYSTACK_SECRET_KEY) {
       throw new Error("PAYSTACK_SECRET_KEY not configured");
     }
 
-    const callbackUrl = `${process.env.FRONTEND_URL ?? "http://localhost:5173"}/payment/success`;
-
     const paystackRes = await fetch(
       "https://api.paystack.co/transaction/initialize",
       {
-        method:  "POST",
+        method: "POST",
         headers: {
-          Authorization:  `Bearer ${process.env.PAYSTACK_SECRET_KEY}`,
+          Authorization: `Bearer ${process.env.PAYSTACK_SECRET_KEY}`,
           "Content-Type": "application/json",
         },
         body: JSON.stringify({
-          email:        paymentEmail,
-          amount:       Math.round(paymentAmount * 100), // kobo
-          callback_url: callbackUrl,
+          email,
+          amount: Math.round(planPrice * 100), // kobo
+          callback_url: `${process.env.FRONTEND_URL}/payment/success`,
+          reference: paymentRows[0].reference,
           metadata: {
-            planId:     finalPlanId,
-            productId:  finalProductId,
-            plan_id:    finalPlanId,
-            product_id: finalProductId,
-            custom_fields: [
-              {
-                display_name:  "Plan ID",
-                variable_name: "plan_id",
-                value:         String(finalPlanId),
-              },
-              {
-                display_name:  "Product ID",
-                variable_name: "product_id",
-                value:         finalProductId,
-              },
-            ],
+            paymentId,
+            productId,
+            sellerId,
+            planId,
           },
+          custom_fields: [
+            { display_name: "Seller ID", variable_name: "seller_id", value: sellerId },
+            { display_name: "Product ID", variable_name: "product_id", value: productId },
+            { display_name: "Plan ID", variable_name: "plan_id", value: String(planId) },
+          ],
         }),
       }
     );
 
-    const data = await paystackRes.json();
+    const paystackData = await paystackRes.json();
 
-    if (!paystackRes.ok || !data.status || !data.data?.authorization_url) {
-      console.error("Paystack response:", data);
+    if (!paystackRes.ok || !paystackData.status) {
+      console.error("[PAYMENT] Paystack error:", paystackData);
       return res.status(502).json({
         success: false,
-        message: data.message ?? "Paystack initialization failed",
+        message: paystackData.message ?? "Payment gateway failed",
       });
     }
 
     return res.json({
-      success:           true,
-      reference:         data.data.reference,
-      authorization_url: data.data.authorization_url,
+      success: true,
+      reference: paystackData.data.reference,
+      authorization_url: paystackData.data.authorization_url,
     });
+
   } catch (err) {
-    console.error("Payment init error:", err.message);
+    await client.query("ROLLBACK").catch(() => {});
+    console.error("[PAYMENT] Initiate error:", err.message);
     return res.status(500).json({
       success: false,
-      message: err.message ?? "Payment service unavailable",
+      message: err.message ?? "Payment initiation failed",
     });
+  } finally {
+    client.release();
   }
 });
 
-// ─── GET /verify/:reference ───────────────────────────────────────────────────
+/* =========================================================
+   GET /verify/:reference  → Manual verification
+========================================================= */
 
-router.get("/verify/:reference", async (req, res) => {
-  const reference = cleanString(req.params.reference);
+router.get("/verify/:reference", authenticate, async (req, res) => {
+  const reference = cleanUuid(req.params.reference);
+
   if (!reference) {
-    return res.status(400).json({ success: false, message: "Reference is required" });
+    return res.status(400).json({ success: false, message: "Reference required" });
   }
 
   try {
     const response = await fetch(
       `https://api.paystack.co/transaction/verify/${encodeURIComponent(reference)}`,
-      { headers: { Authorization: `Bearer ${process.env.PAYSTACK_SECRET_KEY}` } }
+      {
+        headers: { Authorization: `Bearer ${process.env.PAYSTACK_SECRET_KEY}` },
+      }
     );
+
     const data = await response.json();
 
     if (!data.status || data.data?.status !== "success") {
@@ -202,144 +258,238 @@ router.get("/verify/:reference", async (req, res) => {
 
     return res.json({ success: true, data: data.data });
   } catch (err) {
-    console.error("Verify error:", err);
+    console.error("[PAYMENT] Verify error:", err);
     return res.status(500).json({ success: false, message: "Verification failed" });
   }
 });
 
-// ─── POST /webhook ────────────────────────────────────────────────────────────
-//
-//  Mounted in server.js with express.raw() BEFORE any body parsers,
-//  so req.body is always a raw Buffer here.
+/* =========================================================
+   GET /seller/history  → Seller's payment history
+========================================================= */
+
+router.get("/seller/history", authenticate, async (req, res) => {
+  const sellerId = cleanUuid(req.user.id);
+
+  try {
+    const { rows } = await pool.query(
+      `SELECT 
+         p.id,
+         p.reference,
+         p.amount,
+         p.status,
+         p.created_at,
+         p.updated_at,
+         pl.name AS plan_name,
+         pr.title AS product_title
+       FROM payments p
+       LEFT JOIN promotion_plans pl ON pl.id = p.plan_id
+       LEFT JOIN products pr ON pr.id = p.product_id
+       WHERE p.seller_id = $1
+       ORDER BY p.created_at DESC
+       LIMIT 50`,
+      [sellerId]
+    );
+
+    return res.json({ success: true, history: rows });
+  } catch (err) {
+    console.error("[PAYMENT] History error:", err);
+    return res.status(500).json({ success: false, message: "Failed to load history" });
+  }
+});
+
+/* =========================================================
+   GET /seller/stats  → Seller's promotion stats
+========================================================= */
+
+router.get("/seller/stats", authenticate, async (req, res) => {
+  const sellerId = cleanUuid(req.user.id);
+
+  try {
+    // Active promotions count
+    const { rows: activeRows } = await pool.query(
+      `SELECT COUNT(*) AS active_count
+       FROM products
+       WHERE seller_id = $1 AND is_promoted = true AND status = 'active'`,
+      [sellerId]
+    );
+
+    // Total paid promotions
+    const { rows: totalRows } = await pool.query(
+      `SELECT COUNT(*) AS total_paid, COALESCE(SUM(amount), 0) AS total_spent
+       FROM payments
+       WHERE seller_id = $1 AND status = 'success'`,
+      [sellerId]
+    );
+
+    // Currently promoted products
+    const { rows: promotedProducts } = await pool.query(
+      `SELECT 
+         id, title, slug, promotion_end, promotion_type
+       FROM products
+       WHERE seller_id = $1 AND is_promoted = true AND status = 'active'
+       ORDER BY promotion_end DESC`,
+      [sellerId]
+    );
+
+    return res.json({
+      success: true,
+      stats: {
+        activePromotions: Number(activeRows[0].active_count),
+        totalPaidPromotions: Number(totalRows[0].total_paid),
+        totalSpent: Number(totalRows[0].total_spent),
+        promotedProducts,
+      },
+    });
+  } catch (err) {
+    console.error("[PAYMENT] Stats error:", err);
+    return res.status(500).json({ success: false, message: "Failed to load stats" });
+  }
+});
+
+/* =========================================================
+   WEBHOOK — /webhook (mounted with express.raw)
+========================================================= */
 
 webhookRouter.post("/", async (req, res) => {
   const secret = process.env.PAYSTACK_SECRET_KEY;
+
   if (!secret) {
-    console.error("Missing PAYSTACK_SECRET_KEY");
+    console.error("[WEBHOOK] Missing PAYSTACK_SECRET_KEY");
     return res.sendStatus(500);
   }
 
-  const signature = getWebhookSignature(req);
-  const rawBody   = Buffer.isBuffer(req.body)
-    ? req.body.toString("utf-8")
-    : typeof req.body === "string"
-      ? req.body
-      : JSON.stringify(req.body ?? {});
+  const signature = req.headers["x-paystack-signature"];
 
-  if (!signature || !verifyPaystackSignature(rawBody, secret, signature)) {
-    console.warn("Invalid webhook signature");
-    return res.status(401).send("Unauthorized");
+  if (!signature || !verifySignature(req.body, secret, signature)) {
+    console.warn("[WEBHOOK] Invalid signature");
+    return res.status(401).send("Invalid signature");
   }
 
   let event;
   try {
-    event = JSON.parse(rawBody);
+    event = JSON.parse(req.body.toString("utf-8"));
   } catch {
     return res.status(400).send("Invalid JSON");
   }
 
-  // Acknowledge all non-charge events silently
+  // Only process successful charges
   if (event.event !== "charge.success") {
     return res.status(200).send("OK");
   }
 
-  const metadata   = event.data?.metadata ?? {};
-  const customFields = Array.isArray(metadata.custom_fields)
-    ? metadata.custom_fields
-    : [];
+  const reference = cleanUuid(event.data.reference);
+  const metadata = event.data.metadata || {};
+  const paymentId = cleanUuid(metadata.paymentId);
+  const productId = cleanUuid(metadata.productId);
+  const sellerId = cleanUuid(metadata.sellerId);
+  const planId = cleanInt(metadata.planId);
 
-  const findCustom = (name) =>
-    customFields.find((f) => f.variable_name === name)?.value ?? null;
-
-  const productId = cleanUuid(
-    metadata.productId ?? metadata.product_id ?? findCustom("product_id")
-  );
-
-  // INT8 plan id — cleanInt, not cleanUuid
-  const planId = cleanInt(
-    metadata.planId ?? metadata.plan_id ?? findCustom("plan_id")
-  );
-
-  if (!productId) {
-    console.warn("Webhook: missing productId in metadata", metadata);
+  // Validate required fields
+  if (!reference || !paymentId || !productId || !sellerId || !planId) {
+    console.warn("[WEBHOOK] Missing metadata:", metadata);
     return res.status(200).send("OK");
   }
 
+  const client = await pool.connect();
+
   try {
-    // Skip if already active (idempotency guard)
-    const { rows: existing } = await pool.query(
-      `SELECT status, is_active FROM products WHERE id = $1`,
+    await client.query("BEGIN");
+
+    // ── Idempotency: Check if already processed ───────
+    const { rows: existingPayment } = await client.query(
+      `SELECT id, status FROM payments WHERE id = $1 FOR UPDATE`,
+      [paymentId]
+    );
+
+    if (!existingPayment.length) {
+      await client.query("ROLLBACK");
+      console.warn("[WEBHOOK] Payment record not found:", paymentId);
+      return res.status(200).send("OK");
+    }
+
+    if (existingPayment[0].status === "success") {
+      await client.query("COMMIT");
+      console.log("[WEBHOOK] Already processed, skipping:", reference);
+      return res.status(200).send("OK");
+    }
+
+    // ── Verify product ownership ──────────────────────
+    const { rows: productRows } = await client.query(
+      `SELECT id, seller_id, status FROM products WHERE id = $1 FOR UPDATE`,
       [productId]
     );
 
-    if (!existing.length) {
-      console.warn("Webhook: product not found", productId);
+    if (!productRows.length || productRows[0].seller_id !== sellerId) {
+      await client.query("ROLLBACK");
+      console.warn("[WEBHOOK] Product not found or ownership mismatch");
       return res.status(200).send("OK");
     }
 
-    if (existing[0].status === "active" && existing[0].is_active) {
-      return res.status(200).send("OK");
-    }
-
-    // ── Resolve promotion details ───────────────────────────────────────────
-    //    Use duration_days (INT8) directly — never parseInt the duration STRING
-    let expiresAt         = null;
-    let promotionPriority = 0;
-    let promotionType     = "standard";
-
-    if (planId) {
-      const { rows: planRows } = await pool.query(
-        `SELECT name, duration_days, priority
-         FROM promotion_plans
-         WHERE id = $1 AND is_active = true`,
-        [planId]
-      );
-
-      if (planRows.length) {
-        const plan    = planRows[0];
-        promotionPriority = plan.priority      ?? 0;
-        promotionType     = plan.name          ?? "standard";
-
-        if (plan.duration_days && plan.duration_days > 0) {
-          expiresAt = new Date(
-            Date.now() + plan.duration_days * 24 * 60 * 60 * 1000
-          );
-        }
-      }
-    }
-
-    // ── Activate ────────────────────────────────────────────────────────────
-    await pool.query(
-      `UPDATE products
-       SET
-         status               = 'active',
-         is_active            = true,
-         is_promoted          = $1,
-         promotion_id         = $2,
-         promotion_start      = COALESCE(promotion_start, NOW()),
-         promotion_end        = $3,
-         promotion_expires_at = $3,
-         promotion_priority   = $4,
-         promotion_type       = $5,
-         updated_at           = NOW()
-       WHERE id = $6`,
-      [
-        planId != null,    // $1  is_promoted — true only for real paid plans
-        planId,            // $2
-        expiresAt,         // $3  both promotion_end and promotion_expires_at
-        promotionPriority, // $4
-        promotionType,     // $5
-        productId,         // $6
-      ]
+    // ── Get plan details ──────────────────────────────
+    const { rows: planRows } = await client.query(
+      `SELECT id, name, duration_days, priority
+       FROM promotion_plans
+       WHERE id = $1 AND is_active = true`,
+      [planId]
     );
 
-    console.log(`✅ Webhook activated product ${productId} on plan ${planId}`);
+    if (!planRows.length) {
+      await client.query("ROLLBACK");
+      console.warn("[WEBHOOK] Plan not found:", planId);
+      return res.status(200).send("OK");
+    }
+
+    const plan = planRows[0];
+    const expiresAt = new Date(Date.now() + (plan.duration_days * 24 * 60 * 60 * 1000));
+
+    // ── Update payment record ─────────────────────────
+    await client.query(
+      `UPDATE payments
+       SET status = 'success',
+           updated_at = NOW(),
+           metadata = $1
+       WHERE id = $2`,
+      [JSON.stringify({ paystack: event.data }), paymentId]
+    );
+
+    // ── Activate product ──────────────────────────────
+    await client.query(
+      `UPDATE products
+       SET status = 'active',
+           is_active = true,
+           is_promoted = true,
+           promotion_id = $1,
+           promotion_start = NOW(),
+           promotion_end = $2,
+           promotion_expires_at = $2,
+           promotion_type = $3,
+           promotion_priority = $4,
+           boost_score = COALESCE(boost_score, 0) + 50,
+           updated_at = NOW()
+       WHERE id = $5`,
+      [planId, expiresAt, plan.name, plan.priority, productId]
+    );
+
+    // ── Increment seller's promoted count ─────────────
+    await client.query(
+      `UPDATE users
+       SET products_count = COALESCE(products_count, 0) + 1
+       WHERE id = $1`,
+      [sellerId]
+    );
+
+    await client.query("COMMIT");
+
+    console.log(`✅ [WEBHOOK] Activated: product=${productId} plan=${planId} seller=${sellerId}`);
+
     return res.status(200).send("OK");
 
   } catch (err) {
-    console.error("Webhook DB error:", err.message);
-    // Always return 200 — non-200 triggers Paystack retries → duplicate activations
-    return res.status(200).send("OK");
+    await client.query("ROLLBACK").catch(() => {});
+    console.error("[WEBHOOK] Error:", err.message, err.stack);
+    return res.status(200).send("OK"); // Always 200 to prevent retries
+  } finally {
+    client.release();
   }
 });
 
