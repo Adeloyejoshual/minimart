@@ -1,153 +1,182 @@
-/* =========================================================
-   ProductHeader.css — matches ProductDetail design system
-   Tokens: warm beige (#f4f1ec, #ede9e3), gold (#b07d3a), near-black (#222)
-========================================================= */
-:root {
-  --product-header-height: 56px;
-  --product-subnav-height: 44px;
+/* ── AddProductHeader.css ────────────────────────────────
+   Sticky top header — Minimart theme
+   Orange #FF5C00 · Ink #141210 · BG #F7F4EF
+──────────────────────────────────────────────────────── */
+
+/* ── Variables ──────────────────────────────────────────── */
+.aph {
+  --o:    #FF5C00;
+  --od:   #d94c00;
+  --ink:  #141210;
+  --ink2: #5A5650;
+  --bd:   #EAE6E0;
+  --font: 'Plus Jakarta Sans', system-ui, sans-serif;
 }
 
-/* =========================================================
-   SMART STICKY WRAPPER
-========================================================= */
-.product-header-wrapper {
+/* ── Wrapper ────────────────────────────────────────────── */
+.aph {
+  /* Sticky to the very top of the viewport */
   position: sticky;
   top: 0;
   z-index: 200;
-  transition: transform 0.3s ease, opacity 0.3s ease;
-  will-change: transform;
-}
 
-.product-header-wrapper.show {
-  transform: translateY(0);
-  opacity: 1;
-}
-
-.product-header-wrapper.hide {
-  transform: translateY(-110%);
-  opacity: 0;
-  pointer-events: none;
-}
-
-/* =========================================================
-   MAIN HEADER
-========================================================= */
-.product-header {
-  height: var(--product-header-height);
-  display: flex;
-  align-items: center;
-  padding: 0 12px;
-  background: #fff;
-  border-bottom: 1px solid #ede9e3;
-  box-shadow: 0 1px 0 rgba(0, 0, 0, 0.06);
-}
-
-/* =========================================================
-   CONTENT LAYOUT
-========================================================= */
-.product-header-container {
-  width: 100%;
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 8px;
+  gap: 10px;
+
+  padding: 12px 16px;
+  min-height: 58px;
+
+  /* Frosted glass */
+  background: rgba(247, 244, 239, 0.92);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+
+  /* Bottom border that appears as a divider */
+  border-bottom: 1px solid rgba(255, 92, 0, 0.1);
+  box-shadow:
+    0 2px 12px rgba(0, 0, 0, 0.06),
+    0 1px 3px rgba(255, 92, 0, 0.08);
+
+  font-family: var(--font);
 }
 
-.product-header-left,
-.product-header-right {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  flex-shrink: 0;
-}
-
-/* =========================================================
-   BUTTONS
-========================================================= */
-.product-btn {
-  width: 38px;
-  height: 38px;
-  border-radius: 50%;
-  border: none;
-  background: #f4f1ec;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  color: #333;
-  cursor: pointer;
-  transition: background 0.15s, transform 0.1s;
-  flex-shrink: 0;
-}
-
-.product-btn:active {
-  transform: scale(0.94);
-  background: #ede9e3;
-}
-
-/* =========================================================
-   TITLE
-========================================================= */
-.product-title {
-  flex: 1;
-  text-align: center;
-  font-size: 14px;
-  font-weight: 700;
-  color: #222;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  padding: 0 4px;
-}
-
-/* =========================================================
-   SUB HEADER — stats bar
-========================================================= */
-.product-subnav {
-  position: sticky;
-  top: var(--product-header-height);
-  z-index: 199;
-  height: var(--product-subnav-height);
-  display: flex;
-  align-items: center;
-  gap: 14px;
-  padding: 0 16px;
-  background: #faf8f4;
-  border-bottom: 1px solid #ede9e3;
-}
-
-/* STAT ITEM */
-.product-stat {
-  display: flex;
+/* ── Back button ────────────────────────────────────────── */
+.aph-back {
+  display: inline-flex;
   align-items: center;
   gap: 5px;
-  font-size: 13px;
+
+  padding: 7px 12px 7px 8px;
+  border-radius: 10px;
+  border: 1.5px solid var(--bd);
+  background: #fff;
+
+  color: var(--ink);
+  font-size: 0.82rem;
   font-weight: 600;
-  color: #444;
+  font-family: var(--font);
+  cursor: pointer;
+  white-space: nowrap;
+  flex-shrink: 0;
+
+  transition: background 0.18s ease, border-color 0.18s ease, color 0.18s ease;
 }
 
-.product-stat .value {
+.aph-back:hover {
+  background: #FFF3EE;
+  border-color: var(--o);
+  color: var(--o);
+}
+
+.aph-back:active {
+  transform: scale(0.97);
+}
+
+.aph-back-label {
+  /* Hide label on very small screens — keep only the arrow */
+  display: inline;
+}
+
+/* ── Title ──────────────────────────────────────────────── */
+.aph-title {
+  flex: 1;
+  text-align: center;
+
+  font-family: 'Fraunces', serif;
   font-weight: 800;
-  color: #b07d3a;
+  font-size: clamp(0.95rem, 3vw, 1.1rem);
+  color: var(--ink);
+  letter-spacing: -0.02em;
+  line-height: 1.2;
+
+  /* Prevent long titles from pushing the buttons out */
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  padding: 0 6px;
+  margin: 0;
 }
 
-.product-stat-count {
-  font-size: 12px;
-  font-weight: 400;
-  color: #aaa;
+/* ── Right slot ─────────────────────────────────────────── */
+.aph-right {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-shrink: 0;
 }
 
-/* =========================================================
-   RESPONSIVE
-========================================================= */
-@media (max-width: 768px) {
-  :root {
-    --product-header-height: 52px;
-    --product-subnav-height: 40px;
+/* ── Clear draft button ─────────────────────────────────── */
+.aph-clear {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+
+  padding: 7px 12px;
+  border-radius: 10px;
+  border: 1.5px solid rgba(220, 38, 38, 0.25);
+  background: rgba(220, 38, 38, 0.05);
+
+  color: #dc2626;
+  font-size: 0.8rem;
+  font-weight: 600;
+  font-family: var(--font);
+  cursor: pointer;
+  white-space: nowrap;
+
+  transition: background 0.18s ease, border-color 0.18s ease;
+}
+
+.aph-clear:hover {
+  background: rgba(220, 38, 38, 0.1);
+  border-color: rgba(220, 38, 38, 0.5);
+}
+
+.aph-clear:active {
+  transform: scale(0.97);
+}
+
+/* ── Scroll shadow — appears when page is scrolled ──────────
+   Uses a pseudo-element that fades in via a CSS custom
+   property driven by a tiny IntersectionObserver sentinel
+   (see AddProductHeader.jsx sentinel pattern), or you can
+   just rely on the box-shadow on .aph which is always on.
+──────────────────────────────────────────────────────── */
+.aph::after {
+  content: "";
+  position: absolute;
+  bottom: -10px;
+  left: 0;
+  right: 0;
+  height: 10px;
+  background: linear-gradient(
+    to bottom,
+    rgba(0, 0, 0, 0.04),
+    transparent
+  );
+  pointer-events: none;
+}
+
+/* ── Responsive ─────────────────────────────────────────── */
+@media (max-width: 400px) {
+  .aph {
+    padding: 10px 12px;
+    min-height: 52px;
   }
-  .product-title { font-size: 13px; }
-  .product-btn   { width: 36px; height: 36px; }
-}
 
-@media (prefers-reduced-motion: reduce) {
-  .product-header-wrapper { transition: none; }
+  /* Only show the arrow, hide the "Back" label text */
+  .aph-back-label {
+    display: none;
+  }
+
+  .aph-back {
+    padding: 7px 9px;
+  }
+
+  /* Make clear button text shorter */
+  .aph-clear {
+    font-size: 0.75rem;
+    padding: 7px 10px;
+  }
 }
