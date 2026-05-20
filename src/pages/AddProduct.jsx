@@ -4,7 +4,7 @@ import React, {
 import { Link } from "react-router-dom";
 import ProductComponents    from "./product/components.jsx";
 import { locationsByState } from "../config/locationsByState.js";
-// ✅ promotions.js import removed — plans loaded dynamically from /payment/plans
+import { promotionPlans }   from "../config/promotions.js";
 import { apiFetch, ApiError } from "../utils/apiFetch.js";
 import imageCompression      from "browser-image-compression";
 import "../styles/AddProduct.css";
@@ -74,11 +74,6 @@ const displayPrice = (v) => {
 const formatLabel = (t) =>
   t.replace(/_/g, " ").replace(/\b\w/g, (l) => l.toUpperCase());
 
-// ✅ Safe idempotency key — falls back for older browsers without crypto.randomUUID
-const generateId = () =>
-  crypto?.randomUUID?.() ??
-  `${Date.now()}-${Math.random().toString(36).slice(2)}`;
-
 /**
  * multipartPost — raw fetch for FormData.
  * Never use apiFetch here: apiFetch sets Content-Type: application/json
@@ -116,26 +111,36 @@ export default function AddProductPage({ user }) {
   const STORAGE_DRAFT = `product_draft_${user?.id ?? "anon"}`;
 
   // ── State ──────────────────────────────────────────────────────────────────
-  const [form,              setForm]              = useState(INITIAL_FORM);
-  const [categories,        setCategories]        = useState([]);
-  const [promotionPlans,    setPromotionPlans]    = useState([]); // ✅ dynamic
-  const [locationState,     setLocationState]     = useState("");
-  const [city,              setCity]              = useState("");
-  const [images,            setImages]            = useState([]);
-  const [loading,           setLoading]           = useState(false);
-  const [selectedPlan,      setSelectedPlan]      = useState(null);
-  const [paymentData,       setPaymentData]       = useState(null);
-  const [error,             setError]             = useState("");
-  const [success,           setSuccess]           = useState("");
-  const [agreedToTerms,     setAgreedToTerms]     = useState(false);
-  const [detectingLocation, setDetectingLocation] = useState(false);
-  const [detectedCoords,    setDetectedCoords]    = useState(null);
+  const [form,            setForm]            = useState(INITIAL_FORM);
+  const [categories,      setCategories]      = useState([]);
+  const [locationState,   setLocationState]   = useState("");
+  const [city,            setCity]            = useState("");
+  const [images,          setImages]          = useState([]);
+  const [loading,         setLoading]         = useState(false);
+  const [selectedPlan,    setSelectedPlan]    = useState(null);
+  const [paymentData,     setPaymentData]     = useState(null);
+  const [error,           setError]           = useState("");
+  const [success,         setSuccess]         = useState("");
+  const [agreedToTerms,   setAgreedToTerms]   = useState(false);
+  // Hard ref-based lock — prevents double-submit even when React batching
+  // allows multiple clicks before setLoading(true) re-renders the button.
+  const isSubmittingRef = useRef(false);
 
-  // ✅ Single hard ref-based submit lock — prevents double-submit even when
-  // React batching delays the setLoading(true) re-render between rapid clicks.
+  const [detectingLocation, setDetectingLocation] = useState(false);
+
+  // Hard submit lock — blocks double-click/race even if React re-renders between clicks
   const isSubmittingRef = useRef(false);
   // Always-current images ref — needed for safe cleanup on unmount
   const imagesRef       = useRef([]);
+  const [detectedCoords,    setDetectedCoords]    = useState(null);
+
+  // Hard submit lock — prevents double-click even if loading state hasn't
+  // re-rendered yet. useRef is synchronous, useState is not.
+  const isSubmittingRef = useRef(false);
+
+  // Hard submission lock — survives React re-renders unlike the `loading` state.
+  // Prevents double-submit even if the button is clicked twice before loading renders.
+  const isSubmittingRef = useRef(false);
 
   // ── Derived ────────────────────────────────────────────────────────────────
   const selectedCategory = useMemo(
@@ -171,20 +176,7 @@ export default function AddProductPage({ user }) {
       });
   }, [showError]);
 
-  // ── Load promotion plans dynamically ──────────────────────────────────────
-  useEffect(() => {
-    apiFetch(`${API_BASE}/payment/plans`)
-      .then((data) => {
-        setPromotionPlans(Array.isArray(data) ? data : []);
-        if (!Array.isArray(data)) showError("Plans failed to load");
-      })
-      .catch((err) => {
-        setPromotionPlans([]);
-        showError(err.message ?? "Failed to load promotion plans");
-      });
-  }, [showError]);
-
-  // ── Resume or clear stale payment session ─────────────────────────────────
+  // ── Resume or clear stale payment session ────────────────────────────────
   // If the user navigated away mid-payment, restore the session (≤30 min old)
   // so they can complete it without restarting. Otherwise clear it.
   useEffect(() => {
@@ -205,8 +197,6 @@ export default function AddProductPage({ user }) {
 
   // ── Restore draft ──────────────────────────────────────────────────────────
   useEffect(() => {
-    // Plans may not be loaded yet when this runs — re-attempt match once plans arrive
-    if (!promotionPlans.length) return;
     try {
       const raw = localStorage.getItem(STORAGE_DRAFT);
       if (!raw) return;
@@ -243,21 +233,15 @@ export default function AddProductPage({ user }) {
       });
       setLocationState(draft.locationState ?? "");
       setCity(draft.city ?? "");
-
-      // ✅ Numeric-safe plan match against dynamically loaded plans
-      if (draft.selectedPlan) {
-        const match = promotionPlans.find(
-          (p) => Number(p.id) === Number(draft.selectedPlan)
-        );
-        if (match) setSelectedPlan(match);
-      }
+      setSelectedPlan(
+        promotionPlans.find((p) => p.id === draft.selectedPlan) ?? null
+      );
       showSuccess("Draft restored");
     } catch {
       showError("Draft restore failed");
     }
-  // Re-runs once promotionPlans are available so the plan can be matched
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [promotionPlans]);
+  }, []);
 
   // ── Auto-save draft ────────────────────────────────────────────────────────
   useEffect(() => {
@@ -275,7 +259,7 @@ export default function AddProductPage({ user }) {
     return () => clearTimeout(t);
   }, [form, locationState, city, images.length, selectedPlan, STORAGE_DRAFT]);
 
-  // ── Revoke object URLs on unmount — ref-based (no stale closure) ──────────
+  // ── Revoke object URLs on unmount — ref-based (no stale closure) ────────────
   // imagesRef always points to the latest array, so the [] cleanup captures
   // all images that existed at unmount, not just those at mount time.
   useEffect(() => { imagesRef.current = images; }, [images]);
@@ -331,6 +315,12 @@ export default function AddProductPage({ user }) {
       };
     });
   }, []);
+
+  // ── Resume payment ─────────────────────────────────────────────────────────
+  const resumePayment = useCallback(() => {
+    if (!paymentData?.authUrl) return;
+    window.open(paymentData.authUrl, "_blank");
+  }, [paymentData]);
 
   // ── Clear draft ────────────────────────────────────────────────────────────
   const clearDraft = useCallback(() => {
@@ -461,6 +451,8 @@ export default function AddProductPage({ user }) {
 
   // ── Submit orchestration ───────────────────────────────────────────────────
   const handleSubmit = useCallback(async () => {
+    // Hard ref lock — prevents double-submit even when React batching
+    // delays the loading state re-render between rapid clicks.
     if (loading || isSubmittingRef.current) return;
     isSubmittingRef.current = true;
 
@@ -472,17 +464,15 @@ export default function AddProductPage({ user }) {
     let product = null;
 
     try {
-      // Resolve final plan — fall back to free plan if none selected
+      // Resolve final plan — fall back to free if none selected
       const finalPlan =
         selectedPlan ??
-        promotionPlans.find((p) => Number(p.effective_price ?? p.price ?? 0) === 0) ??
+        promotionPlans.find((p) => Number(p.price) === 0) ??
         null;
 
       if (!finalPlan) throw new ApiError("No promotion plan available", 400);
 
-      // ✅ Discount-safe free plan detection — effective_price wins over price
-      const isFreePlan =
-        Number(finalPlan.effective_price ?? finalPlan.price ?? 0) === 0;
+      const isFreePlan = Number(finalPlan.price) === 0;
 
       // ── Step 1: Create product ───────────────────────────────────────────
       {
@@ -513,8 +503,11 @@ export default function AddProductPage({ user }) {
         fd.append("phone",           form.contact.phone         ?? "");
         fd.append("whatsapp",        form.contact.whatsapp      ?? "");
         fd.append("whatsapp_link",   form.contact.whatsapp_link ?? "");
-        // ✅ Safe idempotency key — falls back for older browsers
-        fd.append("idempotency_key", generateId());
+        // Idempotency key — generated once per submit attempt.
+        // If the network drops and the user retries, the server returns
+        // the already-created product instead of creating a duplicate row.
+        fd.append("idempotency_key", crypto.randomUUID());
+        // Seller name — used by Cloudinary watermark transformation.
         fd.append("seller_name",     user?.store_name || user?.name || "Minimart");
         images.forEach((img) => fd.append("images", img.file));
 
@@ -529,7 +522,7 @@ export default function AddProductPage({ user }) {
         await apiFetch(`${API_BASE}/addproduct/products/${product.id}/activate`, {
           method:  "POST",
           headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
-          // null = free listing, no DB plan row needed
+          // null = free listing, no DB plan row needed — skip plan lookup in activate route
           body: JSON.stringify({ promotion_id: null }),
         });
         clearDraft();
@@ -539,15 +532,23 @@ export default function AddProductPage({ user }) {
       }
 
       // ── Step 2b: Paid plan — initiate Paystack payment ──────────────────
-      // ✅ Amount intentionally omitted — backend calculates effective price
-      // from its own DB using plan_id, so frontend discount is never trusted.
       {
         const token = getToken();
+        // Apply discount — server re-validates against its own DB
+        const rawPrice      = Number(finalPlan.price);
+        const discount      = Number(finalPlan.discount ?? 0);
+        // toFixed(2) matches DECIMAL(10,2) DB precision exactly.
+        // Math.round() was causing silent rejection on fractional amounts.
+        const effectiveAmt = Number(
+          (rawPrice * (1 - discount / 100)).toFixed(2)
+        );
+
         const data = await apiFetch(`${API_BASE}/payment/initiate`, {
           method:  "POST",
           headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
           body: JSON.stringify({
             email:      form.contact.email,
+            amount:     effectiveAmt,
             plan_id:    finalPlan.id,
             product_id: product.id,
           }),
@@ -562,6 +563,7 @@ export default function AddProductPage({ user }) {
           planId:    finalPlan.id,
           productId: product.id,
           email:     form.contact.email,
+          amount:    effectiveAmt,
           createdAt: Date.now(),
         };
         localStorage.setItem(STORAGE_PAYMENT, JSON.stringify(session));
@@ -589,9 +591,9 @@ export default function AddProductPage({ user }) {
       isSubmittingRef.current = false;
     }
   }, [
-    loading, validateForm, selectedPlan, promotionPlans, form, attributes,
-    images, locationState, city, detectedCoords, clearDraft,
-    showError, showSuccess, STORAGE_DRAFT,
+    loading, validateForm, selectedPlan, form, attributes, images,
+    locationState, city, detectedCoords, clearDraft, showError, showSuccess,
+    STORAGE_DRAFT,
   ]);
 
   // ── Terms checkbox ─────────────────────────────────────────────────────────
