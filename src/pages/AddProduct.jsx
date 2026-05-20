@@ -1,6 +1,3 @@
-// FRONTEND
-import { promotionPlans } from "../config/promotions.js";
-
 import React, {
   useEffect, useMemo, useState, useCallback, useRef,
 } from "react";
@@ -81,14 +78,14 @@ const formatLabel = (t) =>
  * Never use apiFetch here: apiFetch sets Content-Type: application/json
  * which destroys the multipart boundary multer needs to read files.
  */
-const multipartPost = async (url, formData, token, timeoutMs = 30_000) => {
+const multipartPost = async (url, formData, token, timeoutMs = 120_000) => {
   const ctrl = new AbortController();
   const tid  = setTimeout(() => ctrl.abort(), timeoutMs);
   let res;
   try {
     res = await fetch(url, {
       method:  "POST",
-      headers: { Authorization: `Bearer ${token}` }, // NO Content-Type
+      headers: { Authorization: `Bearer ${token}` },
       body:    formData,
       signal:  ctrl.signal,
     });
@@ -109,28 +106,26 @@ const multipartPost = async (url, formData, token, timeoutMs = 30_000) => {
 // ─── Component ────────────────────────────────────────────────────────────────
 
 export default function AddProductPage({ user }) {
-  // Draft key scoped to user — switching accounts never leaks a previous draft
   const STORAGE_DRAFT = `product_draft_${user?.id ?? "anon"}`;
 
   // ── State ──────────────────────────────────────────────────────────────────
-  const [form,             setForm]             = useState(INITIAL_FORM);
-  const [categories,       setCategories]       = useState([]);
-  const [locationState,    setLocationState]    = useState("");
-  const [city,             setCity]             = useState("");
-  const [images,           setImages]           = useState([]);
-  const [loading,          setLoading]          = useState(false);
-  const [selectedPlan,     setSelectedPlan]     = useState(null);
-  const [paymentData,      setPaymentData]      = useState(null);
-  const [error,            setError]            = useState("");
-  const [success,          setSuccess]          = useState("");
-  const [agreedToTerms,    setAgreedToTerms]    = useState(false);
+  const [form,              setForm]              = useState(INITIAL_FORM);
+  const [categories,        setCategories]        = useState([]);
+  const [promotionPlans,    setPromotionPlans]    = useState([]);  // ← FROM DB
+  const [plansLoading,      setPlansLoading]      = useState(true);
+  const [locationState,     setLocationState]     = useState("");
+  const [city,              setCity]              = useState("");
+  const [images,            setImages]            = useState([]);
+  const [loading,           setLoading]           = useState(false);
+  const [selectedPlan,      setSelectedPlan]      = useState(null);
+  const [paymentData,       setPaymentData]       = useState(null);
+  const [error,             setError]             = useState("");
+  const [success,           setSuccess]           = useState("");
+  const [agreedToTerms,     setAgreedToTerms]     = useState(false);
   const [detectingLocation, setDetectingLocation] = useState(false);
-  const [detectedCoords,   setDetectedCoords]   = useState(null);
+  const [detectedCoords,    setDetectedCoords]    = useState(null);
 
-  // Hard submit lock — survives React re-renders unlike the `loading` state.
-  // Prevents double-submit even if the button is clicked twice before loading renders.
   const isSubmittingRef = useRef(false);
-  // Always-current images ref — needed for safe cleanup on unmount
   const imagesRef       = useRef([]);
 
   // ── Derived ────────────────────────────────────────────────────────────────
@@ -167,9 +162,28 @@ export default function AddProductPage({ user }) {
       });
   }, [showError]);
 
+  // ── Load promotion plans FROM DATABASE ────────────────────────────────────
+  // This is the single source of truth.
+  // The DB returns id::text so BigInt IDs are safe strings.
+  useEffect(() => {
+    setPlansLoading(true);
+    apiFetch(`${API_BASE}/payment/plans`)
+      .then((data) => {
+        if (data.success && Array.isArray(data.plans) && data.plans.length > 0) {
+          setPromotionPlans(data.plans);
+        } else {
+          setPromotionPlans([]);
+          showError("No promotion plans available");
+        }
+      })
+      .catch((err) => {
+        setPromotionPlans([]);
+        showError(err.message ?? "Failed to load promotion plans");
+      })
+      .finally(() => setPlansLoading(false));
+  }, [showError]);
+
   // ── Resume or clear stale payment session ─────────────────────────────────
-  // If the user navigated away mid-payment, restore the session (≤30 min old)
-  // so they can complete it without restarting. Otherwise clear it.
   useEffect(() => {
     try {
       const saved = localStorage.getItem(STORAGE_PAYMENT);
@@ -187,7 +201,11 @@ export default function AddProductPage({ user }) {
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   // ── Restore draft ──────────────────────────────────────────────────────────
+  // We restore the selected plan AFTER promotionPlans loads from the DB
+  // so we can match by the real DB id string.
   useEffect(() => {
+    if (plansLoading) return; // wait until plans are loaded from DB
+
     try {
       const raw = localStorage.getItem(STORAGE_DRAFT);
       if (!raw) return;
@@ -224,17 +242,21 @@ export default function AddProductPage({ user }) {
       });
       setLocationState(draft.locationState ?? "");
       setCity(draft.city ?? "");
-      
-      // Look up the exact plan from our static promotionPlans file based on saved ID
-      const savedPlan = promotionPlans.find((p) => String(p.id) === String(draft.selectedPlan));
-      setSelectedPlan(savedPlan ?? null);
-      
+
+      // Match saved plan ID against the freshly loaded DB plans
+      if (draft.selectedPlan) {
+        const matched = promotionPlans.find(
+          (p) => String(p.id) === String(draft.selectedPlan)
+        );
+        setSelectedPlan(matched ?? null);
+      }
+
       showSuccess("Draft restored");
     } catch {
       showError("Draft restore failed");
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [plansLoading]); // Runs once when plansLoading flips to false
 
   // ── Auto-save draft ────────────────────────────────────────────────────────
   useEffect(() => {
@@ -245,16 +267,14 @@ export default function AddProductPage({ user }) {
           locationState,
           city,
           imagesCount:  images.length,
-          selectedPlan: selectedPlan?.id ?? null,
+          selectedPlan: selectedPlan?.id ?? null, // save the DB string id
         }));
-      } catch { /* storage full — ignore */ }
+      } catch { /* storage full */ }
     }, 1000);
     return () => clearTimeout(t);
   }, [form, locationState, city, images.length, selectedPlan, STORAGE_DRAFT]);
 
   // ── Revoke object URLs on unmount ─────────────────────────────────────────
-  // imagesRef always points to the latest array, so the [] cleanup captures
-  // all images that existed at unmount, not just those at mount time.
   useEffect(() => { imagesRef.current = images; }, [images]);
   useEffect(() => {
     return () => {
@@ -375,7 +395,11 @@ export default function AddProductPage({ user }) {
       },
       (err) => {
         setDetectingLocation(false);
-        const msgs = { 1: "Permission denied", 2: "Location unavailable", 3: "Request timed out" };
+        const msgs = {
+          1: "Permission denied",
+          2: "Location unavailable",
+          3: "Request timed out",
+        };
         showError(msgs[err.code] ?? "Location detection failed");
       },
       { timeout: 10_000, maximumAge: 60_000 }
@@ -384,13 +408,19 @@ export default function AddProductPage({ user }) {
 
   // ── Image handling ─────────────────────────────────────────────────────────
   const handleImages = useCallback(async (files) => {
-    if (images.length >= MAX_IMAGES) { showError("Maximum 6 images allowed"); return; }
+    if (images.length >= MAX_IMAGES) {
+      showError("Maximum 6 images allowed");
+      return;
+    }
     const remaining  = MAX_IMAGES - images.length;
     const validFiles = Array.from(files)
       .filter((f) => f.type.startsWith("image/") && f.size <= MAX_SIZE)
       .slice(0, remaining);
 
-    if (!validFiles.length) { showError("Images must be under 3 MB each"); return; }
+    if (!validFiles.length) {
+      showError("Images must be under 3 MB each");
+      return;
+    }
 
     try {
       const compressed = await Promise.all(
@@ -421,23 +451,24 @@ export default function AddProductPage({ user }) {
 
   // ── Validation ─────────────────────────────────────────────────────────────
   const validateForm = useCallback(() => {
-    if (!form.title?.trim())                                          return "Title required";
-    if (!form.description?.trim())                                    return "Description required";
-    if (!form.price || Number(form.price) <= 0)                       return "Enter a valid price";
-    if (!form.category_id)                                            return "Category required";
-    if (!form.contact?.email?.includes("@"))                          return "Enter a valid email";
-    if (!form.contact?.phone || form.contact.phone.length < 10)       return "Phone must be at least 10 digits";
-    if (!form.contact?.whatsapp || form.contact.whatsapp.length < 10) return "WhatsApp number required";
-    if (!images.length)                                               return "At least one image required";
-    if (!locationState || !city)                                      return "Select your state and city";
-    if (!agreedToTerms)                                               return "Please accept the Terms & Conditions";
+    if (!form.title?.trim())                                           return "Title required";
+    if (!form.description?.trim())                                     return "Description required";
+    if (!form.price || Number(form.price) <= 0)                        return "Enter a valid price";
+    if (!form.category_id)                                             return "Category required";
+    if (!form.contact?.email?.includes("@"))                           return "Enter a valid email";
+    if (!form.contact?.phone || form.contact.phone.length < 10)        return "Phone must be at least 10 digits";
+    if (!form.contact?.whatsapp || form.contact.whatsapp.length < 10)  return "WhatsApp number required";
+    if (!images.length)                                                return "At least one image required";
+    if (!locationState || !city)                                       return "Select your state and city";
+    if (!agreedToTerms)                                                return "Please accept the Terms & Conditions";
 
     if (form.delivery.available) {
       const from = Number(form.delivery.duration.from);
       const to   = Number(form.delivery.duration.to);
       if (!Number.isFinite(from) || !Number.isFinite(to)) return "Enter valid delivery days";
       if (to < from)                                       return "Delivery end must be after start";
-      if (!form.delivery.fee || Number(form.delivery.fee) <= 0) return "Enter a valid delivery fee";
+      if (!form.delivery.fee || Number(form.delivery.fee) <= 0)
+        return "Enter a valid delivery fee";
     }
     return null;
   }, [form, images.length, locationState, city, agreedToTerms]);
@@ -447,31 +478,38 @@ export default function AddProductPage({ user }) {
     if (loading || isSubmittingRef.current) return;
     isSubmittingRef.current = true;
 
-    const err = validateForm();
-    if (err) { showError(err); isSubmittingRef.current = false; return; }
+    const validationError = validateForm();
+    if (validationError) {
+      showError(validationError);
+      isSubmittingRef.current = false;
+      return;
+    }
 
     setLoading(true);
     setError("");
     let product = null;
 
     try {
-      // Resolve final plan — fall back to free if none selected
+      // Resolve plan — fall back to the free plan from DB
       const finalPlan =
         selectedPlan ??
         promotionPlans.find((p) => Number(p.price) === 0) ??
         null;
 
-      if (!finalPlan) throw new ApiError("No promotion plan available in config", 400);
-
-      // Force integer parsing so it passes backend's `cleanInt` verification
-      const planIdInt = parseInt(finalPlan.id, 10);
-      if (Number.isNaN(planIdInt)) {
-        throw new ApiError("Invalid Plan ID in config. IDs must be numeric.", 400);
+      if (!finalPlan) {
+        throw new ApiError(
+          plansLoading
+            ? "Plans are still loading — please wait"
+            : "No promotion plan available. Please select a plan.",
+          400
+        );
       }
 
+      // The id coming from the DB is already a safe string (id::text in SQL)
+      const planId     = String(finalPlan.id);
       const isFreePlan = Number(finalPlan.price) === 0;
 
-      // ── Step 1: Create product ───────────────────────────────────────────
+      // ── Step 1: Create product ─────────────────────────────────────────
       {
         const token = getToken();
         if (!token) throw new ApiError("Authentication required — please log in", 401);
@@ -493,7 +531,10 @@ export default function AddProductPage({ user }) {
           fd.append("longitude", String(detectedCoords.longitude));
         }
 
-        const safeAttributes = { ...attributes, features: toArray(attributes.features) };
+        const safeAttributes = {
+          ...attributes,
+          features: toArray(attributes.features),
+        };
         fd.append("attributes",      JSON.stringify(safeAttributes));
         fd.append("delivery",        JSON.stringify(form.delivery));
         fd.append("contact",         JSON.stringify(form.contact));
@@ -509,12 +550,15 @@ export default function AddProductPage({ user }) {
         product = data.product;
       }
 
-      // ── Step 2a: Free plan — activate with null promotion_id ────────────
+      // ── Step 2a: Free plan — activate immediately ──────────────────────
       if (isFreePlan) {
         const token = getToken();
         await apiFetch(`${API_BASE}/addproduct/products/${product.id}/activate`, {
           method:  "POST",
-          headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+          headers: {
+            "Content-Type": "application/json",
+            Authorization:  `Bearer ${token}`,
+          },
           body: JSON.stringify({ promotion_id: null }),
         });
         clearDraft();
@@ -523,20 +567,23 @@ export default function AddProductPage({ user }) {
         return;
       }
 
-      // ── Step 2b: Paid plan — initiate Paystack payment ──────────────────
+      // ── Step 2b: Paid plan — initiate Paystack ─────────────────────────
       {
-        const token = getToken();
+        const token        = getToken();
         const rawPrice     = Number(finalPlan.price);
-        const discount     = Number(finalPlan.discount ?? 0);
+        const discount     = Number(finalPlan.discount_percent ?? 0);
         const effectiveAmt = Number((rawPrice * (1 - discount / 100)).toFixed(2));
 
         const data = await apiFetch(`${API_BASE}/payment/initiate`, {
           method:  "POST",
-          headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+          headers: {
+            "Content-Type": "application/json",
+            Authorization:  `Bearer ${token}`,
+          },
           body: JSON.stringify({
             email:      form.contact.email,
             amount:     effectiveAmt,
-            plan_id:    planIdInt, // CRITICAL: This is now safely parsed as an Integer
+            plan_id:    planId,    // ← Safe DB string ID, e.g. "1176943648836550657"
             product_id: product.id,
           }),
         });
@@ -547,7 +594,7 @@ export default function AddProductPage({ user }) {
         const session = {
           reference: data.reference,
           authUrl:   data.authorization_url,
-          planId:    planIdInt,
+          planId,
           productId: product.id,
           email:     form.contact.email,
           amount:    effectiveAmt,
@@ -562,6 +609,7 @@ export default function AddProductPage({ user }) {
     } catch (err) {
       console.error("Submit error:", err);
 
+      // Best-effort cleanup of orphaned draft product
       if (product?.id) {
         const token = getToken();
         if (token) {
@@ -577,9 +625,9 @@ export default function AddProductPage({ user }) {
       isSubmittingRef.current = false;
     }
   }, [
-    loading, validateForm, selectedPlan, form, attributes, images,
-    locationState, city, detectedCoords, clearDraft, showError, showSuccess,
-    STORAGE_DRAFT, user
+    loading, validateForm, selectedPlan, promotionPlans, plansLoading,
+    form, attributes, images, locationState, city, detectedCoords,
+    clearDraft, showError, showSuccess, user,
   ]);
 
   // ── Terms checkbox ─────────────────────────────────────────────────────────
@@ -625,7 +673,8 @@ export default function AddProductPage({ user }) {
         agreedToTerms={agreedToTerms}
         TermsCheckbox={TermsCheckbox}
         INITIAL_FORM={INITIAL_FORM}
-        promotionPlans={promotionPlans}
+        promotionPlans={promotionPlans}   // ← from DB, not static file
+        plansLoading={plansLoading}       // ← so UI can show a spinner
         MAX_IMAGES={MAX_IMAGES}
         updateForm={updateForm}
         updateAttribute={updateAttribute}
