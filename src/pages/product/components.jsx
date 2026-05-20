@@ -1,6 +1,6 @@
 import { useMemo } from "react";
-import DropdownModal    from "../../components/DropdownModal.jsx";
-import AddProductHeader from "../../components/AddProductHeader.jsx";
+import DropdownModal     from "../../components/DropdownModal.jsx";
+import AddProductHeader  from "../../components/AddProductHeader.jsx";
 import { categoryFields } from "../../config/categoryFields.js";
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
@@ -95,7 +95,6 @@ export default function ProductComponents({
   }), [options]);
 
   // ── Plan price label ───────────────────────────────────────────────────────
-  // Reads discount_percent and effective_price directly from DB columns.
   const planPriceLabel = (plan) => {
     const price    = Number(plan.price ?? 0);
     const discount = Number(plan.discount_percent ?? 0);
@@ -139,30 +138,31 @@ export default function ProductComponents({
       </div>
 
       {/* ── Feedback banners ──────────────────────────────────────────────── */}
-      {error   && (
+      {error && (
         <div className="form-error" role="alert">
-          &#9888;&#65039; {error}
+          {/* Warning triangle — safe HTML entity, no emoji */}
+          &#9888; {error}
         </div>
       )}
       {success && (
         <div className="form-success" role="status">
-          &#9989; {success}
+          {/* Check mark — safe HTML entity, no emoji */}
+          &#10003; {success}
         </div>
       )}
 
-      {/* ── Incomplete payment banner ──────────────────────────────────────
-           Shown when the user has a payment session in localStorage.
-           Offers two actions:
-           1. Complete Payment  — reopens the Paystack tab
-           2. Cancel & Save Draft — calls /verify, reverts product to draft
-      ──────────────────────────────────────────────────────────────────── */}
+      {/* ── Incomplete payment banner ──────────────────────────────────────── */}
       {paymentData?.authUrl && (
         <div className="payment-resume-banner" role="alert">
           <div className="payment-resume-info">
-            <span className="payment-resume-icon">&#128179;</span>
+            {/* Card icon via CSS class — no emoji */}
+            <span className="payment-resume-icon" aria-hidden="true" />
             <div>
               <strong>Incomplete Payment</strong>
-              <p>You have an unfinished payment. Complete it to make your listing live.</p>
+              <p>
+                You have an unfinished payment.
+                Complete it to make your listing live.
+              </p>
             </div>
           </div>
           <div className="payment-resume-actions">
@@ -171,14 +171,14 @@ export default function ProductComponents({
               className="primary-btn"
               onClick={resumePayment}
             >
-              &#9989; Complete Payment
+              Complete Payment
             </button>
             <button
               type="button"
               className="outline-btn"
               onClick={cancelPendingPayment}
             >
-              &#10005; Cancel &amp; Save Draft
+              Cancel &amp; Save Draft
             </button>
           </div>
         </div>
@@ -395,10 +395,14 @@ export default function ProductComponents({
               disabled={detectingLocation}
             >
               {detectingLocation ? (
-                <><span className="detect-spinner" /> Detecting&#8230;</>
+                <>
+                  <span className="detect-spinner" aria-hidden="true" />
+                  {" "}Detecting location&#8230;
+                </>
               ) : (
                 <>
-                  &#128205;{" "}
+                  {/* Pin icon via CSS — no emoji */}
+                  <span className="location-pin-icon" aria-hidden="true" />
                   {detectedCoords ? "Location detected" : "Detect my location"}
                 </>
               )}
@@ -506,7 +510,8 @@ export default function ProductComponents({
                 aria-label="Remove image"
                 onClick={() => removeImage(img.id)}
               >
-                &#10005;
+                {/* Times / close symbol — safe entity, no emoji */}
+                &#215;
               </button>
             </div>
           ))}
@@ -519,7 +524,8 @@ export default function ProductComponents({
                   e.target.value = "";
                 }}
               />
-              <div>+</div>
+              {/* Plus sign — plain text, universally supported */}
+              <div aria-hidden="true">+</div>
               <span>Add Images</span>
             </label>
           )}
@@ -536,7 +542,7 @@ export default function ProductComponents({
       <section className="section form-card">
         <h3 className="section-title">Promotion Plan</h3>
 
-        {/* Loading skeleton */}
+        {/* Loading state */}
         {plansLoading && (
           <div className="plans-loading" aria-live="polite">
             <span className="detect-spinner" aria-hidden="true" />
@@ -547,7 +553,7 @@ export default function ProductComponents({
         {/* No plans loaded */}
         {!plansLoading && promotionPlans.length === 0 && (
           <div className="form-error" role="alert">
-            &#9888;&#65039; Could not load promotion plans. Please refresh the page.
+            &#9888; Could not load promotion plans. Please refresh the page.
           </div>
         )}
 
@@ -583,7 +589,10 @@ export default function ProductComponents({
                   {Array.isArray(plan.features) && plan.features.length > 0 && (
                     <ul className="plan-features">
                       {plan.features.map((f, i) => (
-                        <li key={i}>&#10003; {f}</li>
+                        <li key={i}>
+                          {/* Check mark entity — no emoji */}
+                          &#10003; {f}
+                        </li>
                       ))}
                     </ul>
                   )}
@@ -611,11 +620,17 @@ export default function ProductComponents({
               : undefined
           }
         >
-          {loading
-            ? "⏳ Processing…"
-            : isFreePlan
-            ? "🚀 Post Ad"
-            : "🚀 Post Ad & Pay"}
+          {loading ? (
+            <>
+              {/* Spinner replaces the hourglass emoji */}
+              <span className="btn-spinner" aria-hidden="true" />
+              {" "}Processing&#8230;
+            </>
+          ) : isFreePlan ? (
+            "Post Ad"
+          ) : (
+            "Post Ad &amp; Pay"
+          )}
         </button>
       </div>
     </>
