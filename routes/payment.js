@@ -37,7 +37,6 @@ const verifySignature = (rawBody, secret, signature) => {
 
 /* =========================================================
    GET /plans
-   id::text cast prevents BigInt precision loss in JavaScript
 ========================================================= */
 
 router.get("/plans", async (_, res) => {
@@ -61,8 +60,11 @@ router.get("/plans", async (_, res) => {
     return res.json({ success: true, plans: rows });
 
   } catch (err) {
-    console.error("[PAYMENT] Load plans error:", err);
-    return res.status(500).json({ success: false, message: "Failed to load plans" });
+    console.error("[PAYMENT] GET /plans error:", err.message);
+    return res.status(500).json({
+      success: false,
+      message: "Failed to load plans",
+    });
   }
 });
 
@@ -72,28 +74,50 @@ router.get("/plans", async (_, res) => {
 
 router.post("/initiate", authenticate, async (req, res) => {
 
+  // ── Log everything received so we can debug ──────────────
+  console.log("[PAYMENT] /initiate called", {
+    user:    req.user?.id,
+    body:    req.body,
+    planId:  req.body.plan_id,
+    planType: typeof req.body.plan_id,
+  });
+
   const sellerId  = cleanUuid(req.user?.id);
   const productId = cleanUuid(req.body.product_id);
-  const planId    = cleanBigInt(req.body.plan_id); // safe string, no precision loss
+  const planId    = cleanBigInt(req.body.plan_id);
   const email     = cleanEmail(req.body.email);
 
   if (!sellerId)
-    return res.status(401).json({ success: false, message: "Authentication required" });
+    return res.status(401).json({
+      success: false,
+      message: "Authentication required",
+    });
+
   if (!productId)
-    return res.status(400).json({ success: false, message: "Product ID required" });
+    return res.status(400).json({
+      success: false,
+      message: "Product ID required",
+    });
+
   if (!planId)
     return res.status(400).json({
       success: false,
       message: `Plan ID required — received: ${JSON.stringify(req.body.plan_id)}`,
     });
-  if (!email)
-    return res.status(400).json({ success: false, message: "Valid email required" });
 
-  // ── Look up plan outside the transaction ─────────────────
+  if (!email)
+    return res.status(400).json({
+      success: false,
+      message: "Valid email required",
+    });
+
+  // ── Step 1: Look up plan ─────────────────────────────────
   let plan;
   let finalAmount;
 
   try {
+    console.log("[PAYMENT] Looking up plan id:", planId);
+
     const { rows } = await pool.query(
       `SELECT
          id::text,
@@ -108,6 +132,8 @@ router.post("/initiate", authenticate, async (req, res) => {
       [planId]
     );
 
+    console.log("[PAYMENT] Plan query result:", rows);
+
     if (!rows.length)
       return res.status(400).json({
         success: false,
@@ -117,19 +143,33 @@ router.post("/initiate", authenticate, async (req, res) => {
     plan        = rows[0];
     finalAmount = Number(plan.effective_price);
 
+    console.log("[PAYMENT] Plan found:", plan.name, "| Amount:", finalAmount);
+
     if (!Number.isFinite(finalAmount) || finalAmount < 0)
-      return res.status(500).json({ success: false, message: "Invalid plan amount" });
+      return res.status(500).json({
+        success: false,
+        message: "Invalid plan amount calculated",
+      });
 
   } catch (err) {
-    console.error("[PAYMENT] Plan lookup error:", err);
-    return res.status(500).json({ success: false, message: "Failed to verify plan" });
+    console.error("[PAYMENT] Plan lookup DB error:", err.message, err.stack);
+    return res.status(500).json({
+      success: false,
+      message: "Failed to verify plan",
+    });
   }
 
+  // Generate reference we control
   const reference = `mm_${Date.now()}_${crypto.randomBytes(6).toString("hex")}`;
-  const client    = await pool.connect();
+
+  // ── Step 2: Open DB transaction ──────────────────────────
+  const client = await pool.connect();
 
   try {
     await client.query("BEGIN");
+
+    // Lock the product row
+    console.log("[PAYMENT] Fetching product:", productId, "for seller:", sellerId);
 
     const { rows: productRows } = await client.query(
       `SELECT id, seller_id, status, is_active
@@ -148,10 +188,14 @@ router.post("/initiate", authenticate, async (req, res) => {
     }
 
     const product = productRows[0];
+    console.log("[PAYMENT] Product status:", product.status, "| is_active:", product.is_active);
 
     if (product.status === "active" && product.is_active) {
       await client.query("ROLLBACK");
-      return res.status(409).json({ success: false, message: "Product already active" });
+      return res.status(409).json({
+        success: false,
+        message: "Product already active",
+      });
     }
 
     if (!["draft", "pending_payment"].includes(product.status)) {
@@ -162,38 +206,81 @@ router.post("/initiate", authenticate, async (req, res) => {
       });
     }
 
+    // Update product to pending_payment
     await client.query(
-      `UPDATE products SET status = 'pending_payment', updated_at = NOW() WHERE id = $1`,
+      `UPDATE products
+       SET status = 'pending_payment', updated_at = NOW()
+       WHERE id = $1`,
       [productId]
     );
 
-    const { rows: paymentRows } = await client.query(
-      `INSERT INTO payments
-         (seller_id, product_id, plan_id, amount, email,
-          reference, status, type, metadata)
-       VALUES ($1,$2,$3,$4,$5,$6,'pending','promotion',$7)
-       RETURNING id, reference`,
-      [
-        sellerId,
-        productId,
-        planId,
-        finalAmount,
-        email,
-        reference,
-        JSON.stringify({
-          original_price:   plan.price,
-          discount_percent: plan.discount_percent,
-          effective_price:  finalAmount,
-        }),
-      ]
-    );
+    // ── Step 3: Insert payment row ───────────────────────────
+    // This is the most likely place to get a DB error.
+    // We log the exact values being inserted so you can see what fails.
+    console.log("[PAYMENT] Inserting payment row:", {
+      sellerId,
+      productId,
+      planId,
+      finalAmount,
+      email,
+      reference,
+    });
 
-    const paymentId      = paymentRows[0].id;
-    const savedReference = paymentRows[0].reference;
+    let paymentId;
+    let savedReference;
+
+    try {
+      const { rows: paymentRows } = await client.query(
+        `INSERT INTO payments
+           (seller_id, product_id, plan_id, amount, email,
+            reference, status, type, metadata)
+         VALUES ($1, $2, $3, $4, $5, $6, 'pending', 'promotion', $7)
+         RETURNING id, reference`,
+        [
+          sellerId,
+          productId,
+          planId,
+          finalAmount,
+          email,
+          reference,
+          JSON.stringify({
+            original_price:   plan.price,
+            discount_percent: plan.discount_percent,
+            effective_price:  finalAmount,
+          }),
+        ]
+      );
+
+      paymentId      = paymentRows[0].id;
+      savedReference = paymentRows[0].reference;
+
+      console.log("[PAYMENT] Payment row created:", paymentId, "| ref:", savedReference);
+
+    } catch (insertErr) {
+      await client.query("ROLLBACK");
+      // This tells you EXACTLY which column or constraint failed
+      console.error("[PAYMENT] Payment INSERT failed:", {
+        message:  insertErr.message,
+        code:     insertErr.code,     // e.g. "23502" = not null violation
+        column:   insertErr.column,   // which column caused it
+        detail:   insertErr.detail,   // e.g. "Key (reference)=(...) already exists"
+        table:    insertErr.table,
+        constraint: insertErr.constraint,
+      });
+      return res.status(500).json({
+        success: false,
+        // Show exact DB error in dev so you can fix it
+        message: process.env.NODE_ENV !== "production"
+          ? `DB error: ${insertErr.message}`
+          : "Payment initiation failed",
+      });
+    }
 
     await client.query("COMMIT");
 
-    // ── Call Paystack after commit ───────────────────────────
+    // ── Step 4: Call Paystack ────────────────────────────────
+    console.log("[PAYMENT] Calling Paystack with amount (kobo):", Math.round(finalAmount * 100));
+
     let paystackData;
     try {
       const paystackRes = await fetch(
@@ -213,23 +300,30 @@ router.post("/initiate", authenticate, async (req, res) => {
               paymentId,
               productId,
               sellerId,
-              planId,  // safe string
+              planId,
             },
           }),
         }
       );
 
       paystackData = await paystackRes.json();
+      console.log("[PAYMENT] Paystack response:", paystackData);
 
       if (!paystackRes.ok || !paystackData.status) {
+        // Revert so seller can retry
         await pool.query(
-          `UPDATE products SET status = 'draft', updated_at = NOW() WHERE id = $1`,
+          `UPDATE products
+           SET status = 'draft', updated_at = NOW()
+           WHERE id = $1`,
           [productId]
         );
         await pool.query(
-          `UPDATE payments SET status = 'failed', updated_at = NOW() WHERE id = $1`,
+          `UPDATE payments
+           SET status = 'failed', updated_at = NOW()
+           WHERE id = $1`,
           [paymentId]
         );
+
         console.error("[PAYMENT] Paystack rejected:", paystackData);
         return res.status(502).json({
           success: false,
@@ -239,14 +333,19 @@ router.post("/initiate", authenticate, async (req, res) => {
 
     } catch (paystackErr) {
       await pool.query(
-        `UPDATE products SET status = 'draft', updated_at = NOW() WHERE id = $1`,
+        `UPDATE products
+         SET status = 'draft', updated_at = NOW()
+         WHERE id = $1`,
         [productId]
       );
       await pool.query(
-        `UPDATE payments SET status = 'failed', updated_at = NOW() WHERE id = $1`,
+        `UPDATE payments
+         SET status = 'failed', updated_at = NOW()
+         WHERE id = $1`,
         [paymentId]
       );
-      console.error("[PAYMENT] Paystack network error:", paystackErr);
+
+      console.error("[PAYMENT] Paystack network error:", paystackErr.message);
       return res.status(502).json({
         success: false,
         message: "Could not reach payment provider — please try again",
@@ -261,15 +360,26 @@ router.post("/initiate", authenticate, async (req, res) => {
 
   } catch (err) {
     await client.query("ROLLBACK").catch(() => {});
-    console.error("[PAYMENT] Initiate error:", err);
-    return res.status(500).json({ success: false, message: "Payment initiation failed" });
+    console.error("[PAYMENT] Unexpected initiate error:", {
+      message:    err.message,
+      stack:      err.stack,
+      code:       err.code,
+      detail:     err.detail,
+      constraint: err.constraint,
+    });
+    return res.status(500).json({
+      success: false,
+      message: process.env.NODE_ENV !== "production"
+        ? `Unexpected error: ${err.message}`
+        : "Payment initiation failed",
+    });
   } finally {
     client.release();
   }
 });
 
 /* =========================================================
-   WEBHOOK — Paystack
+   WEBHOOK
 ========================================================= */
 
 webhookRouter.post("/", async (req, res) => {
@@ -295,10 +405,10 @@ webhookRouter.post("/", async (req, res) => {
   const paymentId = cleanUuid(metadata.paymentId);
   const productId = cleanUuid(metadata.productId);
   const sellerId  = cleanUuid(metadata.sellerId);
-  const planId    = cleanBigInt(metadata.planId); // safe string
+  const planId    = cleanBigInt(metadata.planId);
 
   if (!paymentId || !productId || !sellerId || !planId) {
-    console.warn("[WEBHOOK] Missing metadata:", metadata);
+    console.warn("[WEBHOOK] Missing metadata fields:", metadata);
     return res.status(200).send("OK");
   }
 
@@ -335,7 +445,9 @@ webhookRouter.post("/", async (req, res) => {
     );
 
     await client.query(
-      `UPDATE payments SET status = 'success', updated_at = NOW() WHERE id = $1`,
+      `UPDATE payments
+       SET status = 'success', updated_at = NOW()
+       WHERE id = $1`,
       [paymentId]
     );
 
@@ -363,7 +475,7 @@ webhookRouter.post("/", async (req, res) => {
 
   } catch (err) {
     await client.query("ROLLBACK").catch(() => {});
-    console.error("[WEBHOOK] Error:", err);
+    console.error("[WEBHOOK] Processing error:", err.message);
     return res.status(200).send("OK");
   } finally {
     client.release();
