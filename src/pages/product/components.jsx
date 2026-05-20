@@ -32,18 +32,17 @@ export default function ProductComponents({
   selectedPlan, paymentData, loading, error, success,
   states, cities, options, selectedCategory,
   agreedToTerms, TermsCheckbox, detectedCoords, detectingLocation,
-  MAX_IMAGES = 6,
-  // Plans now come from the DB via AddProduct.jsx — no static import needed
+  MAX_IMAGES     = 6,
   promotionPlans = [],
   plansLoading   = false,
   updateForm, updateAttribute, updateContact, updateDelivery,
   updateDeliveryDuration, toggleFeature, setState, setCity,
   setSelectedPlan, handleImages, removeImage, handleSubmit,
-  clearDraft, detectLocation, resumePayment,
+  clearDraft, detectLocation, resumePayment, cancelPendingPayment,
   displayPrice, formatLabel, onlyNumbers, onlyDigits, INITIAL_FORM,
 }) {
 
-  // ── Derived ──────────────────────────────────────────────────────────────
+  // ── Derived ────────────────────────────────────────────────────────────────
   const categoryOptions = useMemo(() => {
     if (!Array.isArray(categories)) return [];
     return categories
@@ -51,7 +50,8 @@ export default function ProductComponents({
       .filter((cat) => cat.id && cat.name);
   }, [categories]);
 
-  const activeCategory = selectedCategory ?? getSelectedCategory(categories, form.category_id);
+  const activeCategory = selectedCategory
+    ?? getSelectedCategory(categories, form.category_id);
   const subcategories  = activeCategory?.subcategories ?? [];
 
   const fields = useMemo(() => {
@@ -70,7 +70,9 @@ export default function ProductComponents({
     return normalizeOptions(options?.models?.[key] ?? []);
   }, [attributes?.brand, options]);
 
-  const showModelField = !!attributes?.brand;
+  const showModelField  = !!attributes?.brand;
+  const isFreePlan      = !selectedPlan || Number(selectedPlan?.price ?? 0) === 0;
+  const currentFeatures = toArray(attributes?.features);
 
   const optionsMap = useMemo(() => ({
     brand:            normalizeOptions(options?.brands),
@@ -92,12 +94,8 @@ export default function ProductComponents({
     features:         Array.isArray(options?.features) ? options.features : [],
   }), [options]);
 
-  const isFreePlan      = !selectedPlan || Number(selectedPlan?.price ?? 0) === 0;
-  const currentFeatures = toArray(attributes?.features);
-
-  // ── Plan display helpers ──────────────────────────────────────────────────
-
-  // Format the plan price label — uses discount_percent from DB
+  // ── Plan price label ───────────────────────────────────────────────────────
+  // Reads discount_percent and effective_price directly from DB columns.
   const planPriceLabel = (plan) => {
     const price    = Number(plan.price ?? 0);
     const discount = Number(plan.discount_percent ?? 0);
@@ -105,12 +103,13 @@ export default function ProductComponents({
     if (price === 0) return "Free";
 
     if (discount > 0) {
-      const original  = price;
-      const effective = Number(plan.effective_price ?? price * (1 - discount / 100));
+      const effective = Number(
+        plan.effective_price ?? price * (1 - discount / 100)
+      );
       return (
         <>
           <span className="plan-price-original">
-            &#8358;{displayPrice(original)}
+            &#8358;{displayPrice(price)}
           </span>
           {" "}
           <span className="plan-price-effective">
@@ -125,10 +124,10 @@ export default function ProductComponents({
     return <>&#8358;{displayPrice(price)}</>;
   };
 
-  // ── Render ────────────────────────────────────────────────────────────────
+  // ── Render ─────────────────────────────────────────────────────────────────
   return (
     <>
-      {/* ── Sticky header ───────────────────────────────────────────────── */}
+      {/* ── Sticky header ─────────────────────────────────────────────────── */}
       <div style={{
         position:        "sticky",
         top:             0,
@@ -139,10 +138,53 @@ export default function ProductComponents({
         <AddProductHeader title="Add Product" onClearDraft={clearDraft} />
       </div>
 
-      {error   && <div className="form-error">&#9888;&#65039; {error}</div>}
-      {success && <div className="form-success">&#9989; {success}</div>}
+      {/* ── Feedback banners ──────────────────────────────────────────────── */}
+      {error   && (
+        <div className="form-error" role="alert">
+          &#9888;&#65039; {error}
+        </div>
+      )}
+      {success && (
+        <div className="form-success" role="status">
+          &#9989; {success}
+        </div>
+      )}
 
-      {/* ── Basic Information ──────────────────────────────────────────── */}
+      {/* ── Incomplete payment banner ──────────────────────────────────────
+           Shown when the user has a payment session in localStorage.
+           Offers two actions:
+           1. Complete Payment  — reopens the Paystack tab
+           2. Cancel & Save Draft — calls /verify, reverts product to draft
+      ──────────────────────────────────────────────────────────────────── */}
+      {paymentData?.authUrl && (
+        <div className="payment-resume-banner" role="alert">
+          <div className="payment-resume-info">
+            <span className="payment-resume-icon">&#128179;</span>
+            <div>
+              <strong>Incomplete Payment</strong>
+              <p>You have an unfinished payment. Complete it to make your listing live.</p>
+            </div>
+          </div>
+          <div className="payment-resume-actions">
+            <button
+              type="button"
+              className="primary-btn"
+              onClick={resumePayment}
+            >
+              &#9989; Complete Payment
+            </button>
+            <button
+              type="button"
+              className="outline-btn"
+              onClick={cancelPendingPayment}
+            >
+              &#10005; Cancel &amp; Save Draft
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* ── Basic Information ─────────────────────────────────────────────── */}
       <section className="section form-card">
         <h3 className="section-title">Basic Information</h3>
 
@@ -177,7 +219,7 @@ export default function ProductComponents({
         </div>
       </section>
 
-      {/* ── Product Details ────────────────────────────────────────────── */}
+      {/* ── Product Details ───────────────────────────────────────────────── */}
       <section className="section form-card">
         <h3 className="section-title">Product Details</h3>
 
@@ -238,7 +280,9 @@ export default function ProductComponents({
                 type="text"
                 placeholder="e.g. Pavilion 15-eg3000, ThinkPad X1 Carbon"
                 value={attributes?.model ?? ""}
-                onChange={(e) => updateAttribute("model", e.target.value.trimStart())}
+                onChange={(e) =>
+                  updateAttribute("model", e.target.value.trimStart())
+                }
               />
             )}
             <small className="field-hint">
@@ -252,7 +296,8 @@ export default function ProductComponents({
         {fields.map((field) => {
           const fieldOptions = optionsMap[field] ?? [];
           if (!fieldOptions.length) return null;
-          if (field === "used_detail" && attributes?.condition !== "Used") return null;
+          if (field === "used_detail" && attributes?.condition !== "Used")
+            return null;
           return (
             <div key={field} className="form-group">
               <label>{formatLabel(field)}</label>
@@ -284,7 +329,7 @@ export default function ProductComponents({
         )}
       </section>
 
-      {/* ── Contact Information ────────────────────────────────────────── */}
+      {/* ── Contact Information ───────────────────────────────────────────── */}
       <section className="section form-card">
         <h3 className="section-title">Contact Information</h3>
 
@@ -304,7 +349,9 @@ export default function ProductComponents({
               type="tel"
               value={form.contact.phone}
               placeholder="08012345678"
-              onChange={(e) => updateContact("phone", onlyDigits(e.target.value))}
+              onChange={(e) =>
+                updateContact("phone", onlyDigits(e.target.value))
+              }
             />
           </div>
         </div>
@@ -316,7 +363,9 @@ export default function ProductComponents({
               type="tel"
               value={form.contact.whatsapp}
               placeholder="08012345678"
-              onChange={(e) => updateContact("whatsapp", onlyDigits(e.target.value))}
+              onChange={(e) =>
+                updateContact("whatsapp", onlyDigits(e.target.value))
+              }
             />
           </div>
           <div className="form-group">
@@ -325,13 +374,15 @@ export default function ProductComponents({
               type="url"
               value={form.contact.whatsapp_link}
               placeholder="https://wa.me/234..."
-              onChange={(e) => updateContact("whatsapp_link", e.target.value.trim())}
+              onChange={(e) =>
+                updateContact("whatsapp_link", e.target.value.trim())
+              }
             />
           </div>
         </div>
       </section>
 
-      {/* ── Location and Delivery ──────────────────────────────────────── */}
+      {/* ── Location and Delivery ─────────────────────────────────────────── */}
       <section className="section form-card">
         <h3 className="section-title">Location &amp; Delivery</h3>
 
@@ -346,7 +397,10 @@ export default function ProductComponents({
               {detectingLocation ? (
                 <><span className="detect-spinner" /> Detecting&#8230;</>
               ) : (
-                <>&#128205; {detectedCoords ? "Location detected" : "Detect my location"}</>
+                <>
+                  &#128205;{" "}
+                  {detectedCoords ? "Location detected" : "Detect my location"}
+                </>
               )}
             </button>
             <small className="field-hint">Auto-fills your state and city</small>
@@ -418,7 +472,9 @@ export default function ProductComponents({
                 <input
                   type="text" inputMode="numeric"
                   value={displayPrice(form.delivery.fee)}
-                  onChange={(e) => updateDelivery("fee", onlyNumbers(e.target.value))}
+                  onChange={(e) =>
+                    updateDelivery("fee", onlyNumbers(e.target.value))
+                  }
                 />
               </div>
               <div className="form-group">
@@ -434,7 +490,7 @@ export default function ProductComponents({
         )}
       </section>
 
-      {/* ── Product Images ─────────────────────────────────────────────── */}
+      {/* ── Product Images ────────────────────────────────────────────────── */}
       <section className="section form-card">
         <h3 className="section-title">Product Images *</h3>
         <small className="field-hint">
@@ -445,7 +501,11 @@ export default function ProductComponents({
           {images.map((img) => (
             <div key={img.id} className="preview-thumb">
               <img src={img.preview} alt="preview" />
-              <button type="button" onClick={() => removeImage(img.id)}>
+              <button
+                type="button"
+                aria-label="Remove image"
+                onClick={() => removeImage(img.id)}
+              >
                 &#10005;
               </button>
             </div>
@@ -472,30 +532,31 @@ export default function ProductComponents({
         )}
       </section>
 
-      {/* ── Promotion Plan ─────────────────────────────────────────────── */}
+      {/* ── Promotion Plan ────────────────────────────────────────────────── */}
       <section className="section form-card">
         <h3 className="section-title">Promotion Plan</h3>
 
-        {/* Loading state */}
+        {/* Loading skeleton */}
         {plansLoading && (
-          <div className="plans-loading">
-            <span className="detect-spinner" /> Loading plans&#8230;
+          <div className="plans-loading" aria-live="polite">
+            <span className="detect-spinner" aria-hidden="true" />
+            {" "}Loading plans&#8230;
           </div>
         )}
 
-        {/* Error state — no plans loaded */}
+        {/* No plans loaded */}
         {!plansLoading && promotionPlans.length === 0 && (
-          <div className="form-error">
+          <div className="form-error" role="alert">
             &#9888;&#65039; Could not load promotion plans. Please refresh the page.
           </div>
         )}
 
-        {/* Plans grid — only shown when loaded */}
+        {/* Plans grid */}
         {!plansLoading && promotionPlans.length > 0 && (
           <div className="plans-grid">
             {promotionPlans.map((plan) => {
-              // String comparison — both sides are strings from DB (id::text)
-              const isSelected = String(selectedPlan?.id) === String(plan.id);
+              const isSelected =
+                String(selectedPlan?.id) === String(plan.id);
 
               return (
                 <div
@@ -518,7 +579,7 @@ export default function ProductComponents({
                     {plan.duration || `${plan.duration_days ?? 30} days`}
                   </div>
 
-                  {/* Features from DB (JSONB array) */}
+                  {/* Feature list from DB JSONB */}
                   {Array.isArray(plan.features) && plan.features.length > 0 && (
                     <ul className="plan-features">
                       {plan.features.map((f, i) => (
@@ -533,7 +594,7 @@ export default function ProductComponents({
         )}
       </section>
 
-      {/* ── Terms + Submit ─────────────────────────────────────────────── */}
+      {/* ── Terms + Submit ────────────────────────────────────────────────── */}
       <div className="button-section section form-card">
         {TermsCheckbox}
 
@@ -551,22 +612,11 @@ export default function ProductComponents({
           }
         >
           {loading
-            ? "&#9203; Processing&#8230;"
+            ? "⏳ Processing…"
             : isFreePlan
-            ? "&#128640; Post Ad"
-            : "&#128640; Post Ad & Pay"}
+            ? "🚀 Post Ad"
+            : "🚀 Post Ad & Pay"}
         </button>
-
-        {/* Resume incomplete payment */}
-        {paymentData?.authUrl && (
-          <button
-            type="button"
-            className="outline-btn full-width"
-            onClick={resumePayment}
-          >
-            &#128179; Complete Payment
-          </button>
-        )}
       </div>
     </>
   );
