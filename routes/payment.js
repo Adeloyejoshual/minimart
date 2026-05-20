@@ -85,30 +85,18 @@ router.post("/initiate", authenticate, async (req, res) => {
   const email     = cleanEmail(req.body.email);
 
   if (!sellerId)
-    return res.status(401).json({
-      success: false,
-      message: "Authentication required",
-    });
-
+    return res.status(401).json({ success: false, message: "Authentication required" });
   if (!productId)
-    return res.status(400).json({
-      success: false,
-      message: "Product ID required",
-    });
-
+    return res.status(400).json({ success: false, message: "Product ID required" });
   if (!planId)
     return res.status(400).json({
       success: false,
       message: `Plan ID required — received: ${JSON.stringify(req.body.plan_id)}`,
     });
-
   if (!email)
-    return res.status(400).json({
-      success: false,
-      message: "Valid email required",
-    });
+    return res.status(400).json({ success: false, message: "Valid email required" });
 
-  // ── Look up plan ─────────────────────────────────────────
+  // ── Look up plan outside transaction ─────────────────────
   let plan;
   let finalAmount;
 
@@ -144,10 +132,7 @@ router.post("/initiate", authenticate, async (req, res) => {
 
   } catch (err) {
     console.error("[PAYMENT] Plan lookup error:", err.message);
-    return res.status(500).json({
-      success: false,
-      message: "Failed to verify plan",
-    });
+    return res.status(500).json({ success: false, message: "Failed to verify plan" });
   }
 
   const reference = `mm_${Date.now()}_${crypto.randomBytes(6).toString("hex")}`;
@@ -156,7 +141,6 @@ router.post("/initiate", authenticate, async (req, res) => {
   try {
     await client.query("BEGIN");
 
-    // ── Lock the product row ─────────────────────────────────
     const { rows: productRows } = await client.query(
       `SELECT id, seller_id, status, is_active
        FROM products
@@ -177,10 +161,7 @@ router.post("/initiate", authenticate, async (req, res) => {
 
     if (product.status === "active" && product.is_active) {
       await client.query("ROLLBACK");
-      return res.status(409).json({
-        success: false,
-        message: "Product already active",
-      });
+      return res.status(409).json({ success: false, message: "Product already active" });
     }
 
     if (!["draft", "pending_payment"].includes(product.status)) {
@@ -192,9 +173,7 @@ router.post("/initiate", authenticate, async (req, res) => {
     }
 
     await client.query(
-      `UPDATE products
-       SET status = 'pending_payment', updated_at = NOW()
-       WHERE id = $1`,
+      `UPDATE products SET status = 'pending_payment', updated_at = NOW() WHERE id = $1`,
       [productId]
     );
 
@@ -239,8 +218,7 @@ router.post("/initiate", authenticate, async (req, res) => {
         constraint: insertErr.constraint,
       });
       return res.status(500).json({
-        success: false,
-        // Always show real error until payment is working
+        success:    false,
         message:    insertErr.message,
         code:       insertErr.code,
         detail:     insertErr.detail,
@@ -251,7 +229,7 @@ router.post("/initiate", authenticate, async (req, res) => {
 
     await client.query("COMMIT");
 
-    // ── Call Paystack ────────────────────────────────────────
+    // ── Call Paystack after commit ───────────────────────────
     let paystackData;
     try {
       const paystackRes = await fetch(
@@ -281,16 +259,13 @@ router.post("/initiate", authenticate, async (req, res) => {
       console.log("[PAYMENT] Paystack response status:", paystackData.status);
 
       if (!paystackRes.ok || !paystackData.status) {
+        // Revert so seller can retry
         await pool.query(
-          `UPDATE products
-           SET status = 'draft', updated_at = NOW()
-           WHERE id = $1`,
+          `UPDATE products SET status = 'draft', updated_at = NOW() WHERE id = $1`,
           [productId]
         );
         await pool.query(
-          `UPDATE payments
-           SET status = 'failed', updated_at = NOW()
-           WHERE id = $1`,
+          `UPDATE payments SET status = 'failed', updated_at = NOW() WHERE id = $1`,
           [paymentId]
         );
         return res.status(502).json({
@@ -301,15 +276,11 @@ router.post("/initiate", authenticate, async (req, res) => {
 
     } catch (paystackErr) {
       await pool.query(
-        `UPDATE products
-         SET status = 'draft', updated_at = NOW()
-         WHERE id = $1`,
+        `UPDATE products SET status = 'draft', updated_at = NOW() WHERE id = $1`,
         [productId]
       );
       await pool.query(
-        `UPDATE payments
-         SET status = 'failed', updated_at = NOW()
-         WHERE id = $1`,
+        `UPDATE payments SET status = 'failed', updated_at = NOW() WHERE id = $1`,
         [paymentId]
       );
       console.error("[PAYMENT] Paystack network error:", paystackErr.message);
@@ -334,7 +305,7 @@ router.post("/initiate", authenticate, async (req, res) => {
       constraint: err.constraint,
     });
     return res.status(500).json({
-      success: false,
+      success:    false,
       message:    err.message,
       code:       err.code,
       detail:     err.detail,
@@ -346,7 +317,188 @@ router.post("/initiate", authenticate, async (req, res) => {
 });
 
 /* =========================================================
-   WEBHOOK
+   POST /verify
+   Called by the frontend /payment/success page.
+   Handles success, cancellation, and failed payments.
+   Acts as a fallback if the webhook was slow or missed.
+========================================================= */
+
+router.post("/verify", authenticate, async (req, res) => {
+  const reference = cleanUuid(req.body.reference);
+  const sellerId  = cleanUuid(req.user?.id);
+
+  if (!reference)
+    return res.status(400).json({ success: false, message: "Reference required" });
+  if (!sellerId)
+    return res.status(401).json({ success: false, message: "Authentication required" });
+
+  // ── Step 1: Ask Paystack what actually happened ───────────
+  let paystackStatus;
+  try {
+    const paystackRes = await fetch(
+      `https://api.paystack.co/transaction/verify/${encodeURIComponent(reference)}`,
+      {
+        method:  "GET",
+        headers: {
+          Authorization: `Bearer ${process.env.PAYSTACK_SECRET_KEY}`,
+        },
+      }
+    );
+    const paystackData = await paystackRes.json();
+    // "success" | "abandoned" | "failed" | "reversed"
+    paystackStatus = paystackData?.data?.status;
+    console.log("[VERIFY] Paystack status for", reference, ":", paystackStatus);
+  } catch (err) {
+    console.error("[VERIFY] Paystack verify error:", err.message);
+    return res.status(502).json({
+      success: false,
+      message: "Could not reach payment provider",
+    });
+  }
+
+  // ── Step 2: Find our payment row ──────────────────────────
+  const client = await pool.connect();
+
+  try {
+    await client.query("BEGIN");
+
+    const { rows: paymentRows } = await client.query(
+      `SELECT id, product_id, plan_id::text, status
+       FROM payments
+       WHERE reference = $1 AND seller_id = $2
+       FOR UPDATE`,
+      [reference, sellerId]
+    );
+
+    if (!paymentRows.length) {
+      await client.query("ROLLBACK");
+      return res.status(404).json({
+        success: false,
+        message: "Payment record not found",
+      });
+    }
+
+    const payment   = paymentRows[0];
+    const productId = payment.product_id;
+    const planId    = payment.plan_id;
+
+    // Already successfully processed by webhook — just confirm
+    if (payment.status === "success") {
+      await client.query("ROLLBACK");
+      return res.json({
+        success: true,
+        status:  "success",
+        message: "Payment already confirmed — your product is live",
+      });
+    }
+
+    // ── Step 3: Handle each Paystack status ──────────────────
+
+    if (paystackStatus === "success") {
+      // Webhook may have been slow — activate the product now
+      // as a safe fallback. The webhook uses FOR UPDATE so
+      // if both run at the same time, only one will proceed.
+      const { rows: planRows } = await client.query(
+        `SELECT name, duration_days, priority
+         FROM promotion_plans
+         WHERE id = $1`,
+        [planId]
+      );
+
+      if (planRows.length) {
+        const plan      = planRows[0];
+        const expiresAt = new Date(
+          Date.now() + plan.duration_days * 24 * 60 * 60 * 1000
+        );
+
+        await client.query(
+          `UPDATE payments
+           SET status = 'success', updated_at = NOW()
+           WHERE id = $1`,
+          [payment.id]
+        );
+
+        await client.query(
+          `UPDATE products
+           SET status               = 'active',
+               is_active            = true,
+               is_promoted          = true,
+               promotion_id         = $1,
+               promotion_start      = NOW(),
+               promotion_end        = $2,
+               promotion_expires_at = $2,
+               promotion_type       = $3,
+               promotion_priority   = $4,
+               boost_score          = COALESCE(boost_score, 0) + 50,
+               updated_at           = NOW()
+           WHERE id = $5`,
+          [planId, expiresAt, plan.name, plan.priority, productId]
+        );
+      }
+
+      await client.query("COMMIT");
+
+      return res.json({
+        success: true,
+        status:  "success",
+        message: "Payment confirmed — your product is now live",
+      });
+    }
+
+    // ── Cancelled ("abandoned") or failed — revert everything ─
+    // "abandoned" = user closed the Paystack modal or pressed back
+    // "failed"    = card was declined or insufficient funds
+    const newPaymentStatus = paystackStatus === "abandoned"
+      ? "cancelled"
+      : "failed";
+
+    await client.query(
+      `UPDATE payments
+       SET status = $1, updated_at = NOW()
+       WHERE id = $2`,
+      [newPaymentStatus, payment.id]
+    );
+
+    // Revert product to draft so the seller can edit and retry
+    await client.query(
+      `UPDATE products
+       SET status    = 'draft',
+           is_active = false,
+           updated_at = NOW()
+       WHERE id = $1`,
+      [productId]
+    );
+
+    await client.query("COMMIT");
+
+    console.log(
+      `[VERIFY] Payment ${newPaymentStatus} — product ${productId} reverted to draft`
+    );
+
+    return res.json({
+      success: false,
+      status:  newPaymentStatus,
+      message: paystackStatus === "abandoned"
+        ? "Payment was cancelled — your listing has been saved as a draft"
+        : "Payment failed — your listing has been saved as a draft. Please try again.",
+    });
+
+  } catch (err) {
+    await client.query("ROLLBACK").catch(() => {});
+    console.error("[VERIFY] DB error:", err.message);
+    return res.status(500).json({
+      success: false,
+      message: "Verification failed — please contact support",
+    });
+  } finally {
+    client.release();
+  }
+});
+
+/* =========================================================
+   WEBHOOK — Paystack
+   IMPORTANT: Mount with express.raw() in app.js:
+   app.use("/api/payment/webhook", express.raw({ type: "*\/*" }), webhookRouter);
 ========================================================= */
 
 webhookRouter.post("/", async (req, res) => {
@@ -384,11 +536,13 @@ webhookRouter.post("/", async (req, res) => {
   try {
     await client.query("BEGIN");
 
+    // FOR UPDATE ensures webhook and /verify never double-process
     const { rows: paymentRows } = await client.query(
       `SELECT id, status FROM payments WHERE id = $1 FOR UPDATE`,
       [paymentId]
     );
 
+    // Idempotency — already processed, do nothing
     if (!paymentRows.length || paymentRows[0].status === "success") {
       await client.query("ROLLBACK");
       return res.status(200).send("OK");
@@ -412,9 +566,7 @@ webhookRouter.post("/", async (req, res) => {
     );
 
     await client.query(
-      `UPDATE payments
-       SET status = 'success', updated_at = NOW()
-       WHERE id = $1`,
+      `UPDATE payments SET status = 'success', updated_at = NOW() WHERE id = $1`,
       [paymentId]
     );
 
