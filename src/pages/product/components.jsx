@@ -1,486 +1,573 @@
-import express from "express";
-import crypto from "crypto";
-import fetch from "node-fetch";
-import { pool } from "../config/db.js";
-import authenticate from "../middleware/auth.js";
+import { useMemo } from "react";
+import DropdownModal    from "../../components/DropdownModal.jsx";
+import AddProductHeader from "../../components/AddProductHeader.jsx";
+import { categoryFields } from "../../config/categoryFields.js";
 
-const router = express.Router();
-const webhookRouter = express.Router();
+// ─── Helpers ──────────────────────────────────────────────────────────────────
 
-/* =========================================================
-   HELPERS
-========================================================= */
+function normalizeOptions(list) {
+  if (!Array.isArray(list)) return [];
+  return list
+    .map((item) => {
+      if (typeof item === "string") return { id: item, name: item };
+      return {
+        id:   String(item.id    ?? item.value ?? item.name ?? ""),
+        name: item.name ?? item.label ?? item.id ?? "",
+      };
+    })
+    .filter((item) => item.id && item.name);
+}
 
-// Keeps BigInt IDs as digit strings — parseInt would corrupt them
-const cleanBigInt = (v) => {
-  const s = String(v ?? "").trim();
-  return /^\d+$/.test(s) ? s : null;
-};
+function getSelectedCategory(categories, id) {
+  if (!Array.isArray(categories)) return null;
+  return categories.find((item) => String(item.id) === String(id)) ?? null;
+}
 
-const cleanUuid = (v) => {
-  const s = String(v ?? "").trim();
-  return s && s !== "null" && s !== "undefined" ? s : null;
-};
+const toArray = (v) => (Array.isArray(v) ? v : []);
 
-const cleanEmail = (v) => {
-  const s = String(v ?? "").trim().toLowerCase();
-  return s.includes("@") ? s : null;
-};
+// ─── Component ────────────────────────────────────────────────────────────────
 
-const verifySignature = (rawBody, secret, signature) => {
-  const hash = crypto
-    .createHmac("sha512", secret)
-    .update(rawBody)
-    .digest("hex");
-  return hash === signature;
-};
+export default function ProductComponents({
+  form, attributes, images, state, city, categories,
+  selectedPlan, paymentData, loading, error, success,
+  states, cities, options, selectedCategory,
+  agreedToTerms, TermsCheckbox, detectedCoords, detectingLocation,
+  MAX_IMAGES = 6,
+  // Plans now come from the DB via AddProduct.jsx — no static import needed
+  promotionPlans = [],
+  plansLoading   = false,
+  updateForm, updateAttribute, updateContact, updateDelivery,
+  updateDeliveryDuration, toggleFeature, setState, setCity,
+  setSelectedPlan, handleImages, removeImage, handleSubmit,
+  clearDraft, detectLocation, resumePayment,
+  displayPrice, formatLabel, onlyNumbers, onlyDigits, INITIAL_FORM,
+}) {
 
-/* =========================================================
-   GET /plans
-========================================================= */
+  // ── Derived ──────────────────────────────────────────────────────────────
+  const categoryOptions = useMemo(() => {
+    if (!Array.isArray(categories)) return [];
+    return categories
+      .map((cat) => ({ id: String(cat.id), name: cat.name }))
+      .filter((cat) => cat.id && cat.name);
+  }, [categories]);
 
-router.get("/plans", async (_, res) => {
-  try {
-    const { rows } = await pool.query(`
-      SELECT
-        id::text,
-        name,
-        price,
-        discount_percent,
-        duration,
-        duration_days,
-        priority,
-        features,
-        (price * (1 - discount_percent / 100.0)) AS effective_price
-      FROM promotion_plans
-      WHERE is_active = true
-      ORDER BY sort_order ASC, price ASC
-    `);
+  const activeCategory = selectedCategory ?? getSelectedCategory(categories, form.category_id);
+  const subcategories  = activeCategory?.subcategories ?? [];
 
-    return res.json({ success: true, plans: rows });
+  const fields = useMemo(() => {
+    if (!activeCategory) return [];
+    const backendFields = Array.isArray(options?.fields) ? options.fields : [];
+    const localFields   = categoryFields[activeCategory.name] ?? [];
+    return [...backendFields, ...localFields]
+      .filter(Boolean)
+      .filter((f, i, arr) => arr.indexOf(f) === i)
+      .filter((f) => f !== "brand" && f !== "model");
+  }, [activeCategory, options]);
 
-  } catch (err) {
-    console.error("[PAYMENT] GET /plans error:", err.message);
-    return res.status(500).json({
-      success: false,
-      message: "Failed to load plans",
-    });
-  }
-});
+  const modelOptions = useMemo(() => {
+    if (!attributes?.brand) return [];
+    const key = String(attributes.brand).toLowerCase();
+    return normalizeOptions(options?.models?.[key] ?? []);
+  }, [attributes?.brand, options]);
 
-/* =========================================================
-   POST /initiate
-========================================================= */
+  const showModelField = !!attributes?.brand;
 
-router.post("/initiate", authenticate, async (req, res) => {
+  const optionsMap = useMemo(() => ({
+    brand:            normalizeOptions(options?.brands),
+    color:            normalizeOptions(options?.colors),
+    condition:        normalizeOptions(options?.conditions),
+    used_detail:      normalizeOptions(options?.used_details ?? options?.usedDetails ?? []),
+    ram:              normalizeOptions(options?.ram),
+    storage:          normalizeOptions(options?.storage),
+    sim:              normalizeOptions(options?.sim),
+    year:             normalizeOptions(options?.years),
+    engine:           normalizeOptions(options?.engine ?? options?.engines ?? []),
+    fuel_type:        normalizeOptions(options?.fuelType ?? options?.fuel_types ?? []),
+    size:             normalizeOptions(options?.size),
+    age_range:        normalizeOptions(options?.age_range),
+    bedrooms:         normalizeOptions(options?.bedrooms),
+    bathrooms:        normalizeOptions(options?.bathrooms),
+    experience_level: normalizeOptions(options?.experience_level),
+    skills:           normalizeOptions(options?.skills),
+    features:         Array.isArray(options?.features) ? options.features : [],
+  }), [options]);
 
-  // ── Log everything received so we can debug ──────────────
-  console.log("[PAYMENT] /initiate called", {
-    user:    req.user?.id,
-    body:    req.body,
-    planId:  req.body.plan_id,
-    planType: typeof req.body.plan_id,
-  });
+  const isFreePlan      = !selectedPlan || Number(selectedPlan?.price ?? 0) === 0;
+  const currentFeatures = toArray(attributes?.features);
 
-  const sellerId  = cleanUuid(req.user?.id);
-  const productId = cleanUuid(req.body.product_id);
-  const planId    = cleanBigInt(req.body.plan_id);
-  const email     = cleanEmail(req.body.email);
+  // ── Plan display helpers ──────────────────────────────────────────────────
 
-  if (!sellerId)
-    return res.status(401).json({
-      success: false,
-      message: "Authentication required",
-    });
+  // Format the plan price label — uses discount_percent from DB
+  const planPriceLabel = (plan) => {
+    const price    = Number(plan.price ?? 0);
+    const discount = Number(plan.discount_percent ?? 0);
 
-  if (!productId)
-    return res.status(400).json({
-      success: false,
-      message: "Product ID required",
-    });
+    if (price === 0) return "Free";
 
-  if (!planId)
-    return res.status(400).json({
-      success: false,
-      message: `Plan ID required — received: ${JSON.stringify(req.body.plan_id)}`,
-    });
-
-  if (!email)
-    return res.status(400).json({
-      success: false,
-      message: "Valid email required",
-    });
-
-  // ── Step 1: Look up plan ─────────────────────────────────
-  let plan;
-  let finalAmount;
-
-  try {
-    console.log("[PAYMENT] Looking up plan id:", planId);
-
-    const { rows } = await pool.query(
-      `SELECT
-         id::text,
-         name,
-         price,
-         discount_percent,
-         duration_days,
-         priority,
-         (price * (1 - discount_percent / 100.0)) AS effective_price
-       FROM promotion_plans
-       WHERE id = $1 AND is_active = true`,
-      [planId]
-    );
-
-    console.log("[PAYMENT] Plan query result:", rows);
-
-    if (!rows.length)
-      return res.status(400).json({
-        success: false,
-        message: `Promotion plan not found for id: ${planId}`,
-      });
-
-    plan        = rows[0];
-    finalAmount = Number(plan.effective_price);
-
-    console.log("[PAYMENT] Plan found:", plan.name, "| Amount:", finalAmount);
-
-    if (!Number.isFinite(finalAmount) || finalAmount < 0)
-      return res.status(500).json({
-        success: false,
-        message: "Invalid plan amount calculated",
-      });
-
-  } catch (err) {
-    console.error("[PAYMENT] Plan lookup DB error:", err.message, err.stack);
-    return res.status(500).json({
-      success: false,
-      message: "Failed to verify plan",
-    });
-  }
-
-  // Generate reference we control
-  const reference = `mm_${Date.now()}_${crypto.randomBytes(6).toString("hex")}`;
-
-  // ── Step 2: Open DB transaction ──────────────────────────
-  const client = await pool.connect();
-
-  try {
-    await client.query("BEGIN");
-
-    // Lock the product row
-    console.log("[PAYMENT] Fetching product:", productId, "for seller:", sellerId);
-
-    const { rows: productRows } = await client.query(
-      `SELECT id, seller_id, status, is_active
-       FROM products
-       WHERE id = $1 AND seller_id = $2
-       FOR UPDATE`,
-      [productId, sellerId]
-    );
-
-    if (!productRows.length) {
-      await client.query("ROLLBACK");
-      return res.status(404).json({
-        success: false,
-        message: "Product not found or not owned by you",
-      });
-    }
-
-    const product = productRows[0];
-    console.log("[PAYMENT] Product status:", product.status, "| is_active:", product.is_active);
-
-    if (product.status === "active" && product.is_active) {
-      await client.query("ROLLBACK");
-      return res.status(409).json({
-        success: false,
-        message: "Product already active",
-      });
-    }
-
-    if (!["draft", "pending_payment"].includes(product.status)) {
-      await client.query("ROLLBACK");
-      return res.status(409).json({
-        success: false,
-        message: `Cannot pay from status '${product.status}'`,
-      });
-    }
-
-    // Update product to pending_payment
-    await client.query(
-      `UPDATE products
-       SET status = 'pending_payment', updated_at = NOW()
-       WHERE id = $1`,
-      [productId]
-    );
-
-    // ── Step 3: Insert payment row ───────────────────────────
-    // This is the most likely place to get a DB error.
-    // We log the exact values being inserted so you can see what fails.
-    console.log("[PAYMENT] Inserting payment row:", {
-      sellerId,
-      productId,
-      planId,
-      finalAmount,
-      email,
-      reference,
-    });
-
-    let paymentId;
-    let savedReference;
-
-    try {
-      const { rows: paymentRows } = await client.query(
-        `INSERT INTO payments
-           (seller_id, product_id, plan_id, amount, email,
-            reference, status, type, metadata)
-         VALUES ($1, $2, $3, $4, $5, $6, 'pending', 'promotion', $7)
-         RETURNING id, reference`,
-        [
-          sellerId,
-          productId,
-          planId,
-          finalAmount,
-          email,
-          reference,
-          JSON.stringify({
-            original_price:   plan.price,
-            discount_percent: plan.discount_percent,
-            effective_price:  finalAmount,
-          }),
-        ]
+    if (discount > 0) {
+      const original  = price;
+      const effective = Number(plan.effective_price ?? price * (1 - discount / 100));
+      return (
+        <>
+          <span className="plan-price-original">
+            &#8358;{displayPrice(original)}
+          </span>
+          {" "}
+          <span className="plan-price-effective">
+            &#8358;{displayPrice(effective)}
+          </span>
+          {" "}
+          <span className="plan-price-badge">-{discount}%</span>
+        </>
       );
-
-      paymentId      = paymentRows[0].id;
-      savedReference = paymentRows[0].reference;
-
-      console.log("[PAYMENT] Payment row created:", paymentId, "| ref:", savedReference);
-
-    } catch (insertErr) {
-      await client.query("ROLLBACK");
-      // This tells you EXACTLY which column or constraint failed
-      console.error("[PAYMENT] Payment INSERT failed:", {
-        message:  insertErr.message,
-        code:     insertErr.code,     // e.g. "23502" = not null violation
-        column:   insertErr.column,   // which column caused it
-        detail:   insertErr.detail,   // e.g. "Key (reference)=(...) already exists"
-        table:    insertErr.table,
-        constraint: insertErr.constraint,
-      });
-      return res.status(500).json({
-        success: false,
-        // Show exact DB error in dev so you can fix it
-        message: process.env.NODE_ENV !== "production"
-          ? `DB error: ${insertErr.message}`
-          : "Payment initiation failed",
-      });
     }
 
-    await client.query("COMMIT");
+    return <>&#8358;{displayPrice(price)}</>;
+  };
 
-    // ── Step 4: Call Paystack ────────────────────────────────
-    console.log("[PAYMENT] Calling Paystack with amount (kobo):", Math.round(finalAmount * 100));
+  // ── Render ────────────────────────────────────────────────────────────────
+  return (
+    <>
+      {/* ── Sticky header ───────────────────────────────────────────────── */}
+      <div style={{
+        position:        "sticky",
+        top:             0,
+        zIndex:          100,
+        backgroundColor: "var(--bg-surface, #fff)",
+        boxShadow:       "0 1px 4px rgba(0,0,0,.1)",
+      }}>
+        <AddProductHeader title="Add Product" onClearDraft={clearDraft} />
+      </div>
 
-    let paystackData;
-    try {
-      const paystackRes = await fetch(
-        "https://api.paystack.co/transaction/initialize",
-        {
-          method:  "POST",
-          headers: {
-            Authorization:  `Bearer ${process.env.PAYSTACK_SECRET_KEY}`,
-            "Content-Type": "application/json",
-          },
-          body: JSON.stringify({
-            email,
-            amount:       Math.round(finalAmount * 100),
-            reference:    savedReference,
-            callback_url: `${process.env.FRONTEND_URL}/payment/success`,
-            metadata: {
-              paymentId,
-              productId,
-              sellerId,
-              planId,
-            },
-          }),
-        }
-      );
+      {error   && <div className="form-error">&#9888;&#65039; {error}</div>}
+      {success && <div className="form-success">&#9989; {success}</div>}
 
-      paystackData = await paystackRes.json();
-      console.log("[PAYMENT] Paystack response:", paystackData);
+      {/* ── Basic Information ──────────────────────────────────────────── */}
+      <section className="section form-card">
+        <h3 className="section-title">Basic Information</h3>
 
-      if (!paystackRes.ok || !paystackData.status) {
-        // Revert so seller can retry
-        await pool.query(
-          `UPDATE products
-           SET status = 'draft', updated_at = NOW()
-           WHERE id = $1`,
-          [productId]
-        );
-        await pool.query(
-          `UPDATE payments
-           SET status = 'failed', updated_at = NOW()
-           WHERE id = $1`,
-          [paymentId]
-        );
+        <div className="form-group">
+          <label>Product Title *</label>
+          <input
+            placeholder="e.g. HP Pavilion 15 Laptop"
+            value={form.title}
+            onChange={(e) => updateForm("title", e.target.value)}
+          />
+        </div>
 
-        console.error("[PAYMENT] Paystack rejected:", paystackData);
-        return res.status(502).json({
-          success: false,
-          message: paystackData.message ?? "Payment initialization failed",
-        });
-      }
+        <div className="form-group">
+          <label>Description *</label>
+          <textarea
+            rows={4}
+            placeholder="Describe your product in detail"
+            value={form.description}
+            onChange={(e) => updateForm("description", e.target.value)}
+          />
+        </div>
 
-    } catch (paystackErr) {
-      await pool.query(
-        `UPDATE products
-         SET status = 'draft', updated_at = NOW()
-         WHERE id = $1`,
-        [productId]
-      );
-      await pool.query(
-        `UPDATE payments
-         SET status = 'failed', updated_at = NOW()
-         WHERE id = $1`,
-        [paymentId]
-      );
+        <div className="form-group">
+          <label>Price (&#8358;) *</label>
+          <input
+            type="text"
+            inputMode="numeric"
+            placeholder="Enter price"
+            value={displayPrice(form.price)}
+            onChange={(e) => updateForm("price", onlyNumbers(e.target.value))}
+          />
+        </div>
+      </section>
 
-      console.error("[PAYMENT] Paystack network error:", paystackErr.message);
-      return res.status(502).json({
-        success: false,
-        message: "Could not reach payment provider — please try again",
-      });
-    }
+      {/* ── Product Details ────────────────────────────────────────────── */}
+      <section className="section form-card">
+        <h3 className="section-title">Product Details</h3>
 
-    return res.json({
-      success:           true,
-      reference:         savedReference,
-      authorization_url: paystackData.data.authorization_url,
-    });
+        <div className="form-group">
+          <label>Category *</label>
+          <DropdownModal
+            value={String(form.category_id || "")}
+            options={categoryOptions}
+            placeholder="Select category"
+            onChange={(value) => {
+              updateForm("category_id",    value);
+              updateForm("subcategory_id", "");
+              updateForm("attributes",     INITIAL_FORM.attributes);
+            }}
+          />
+        </div>
 
-  } catch (err) {
-    await client.query("ROLLBACK").catch(() => {});
-    console.error("[PAYMENT] Unexpected initiate error:", {
-      message:    err.message,
-      stack:      err.stack,
-      code:       err.code,
-      detail:     err.detail,
-      constraint: err.constraint,
-    });
-    return res.status(500).json({
-      success: false,
-      message: process.env.NODE_ENV !== "production"
-        ? `Unexpected error: ${err.message}`
-        : "Payment initiation failed",
-    });
-  } finally {
-    client.release();
-  }
-});
+        {subcategories.length > 0 && (
+          <div className="form-group">
+            <label>Subcategory</label>
+            <DropdownModal
+              value={String(form.subcategory_id || "")}
+              options={subcategories.map((sub) => ({
+                id:   String(sub.id),
+                name: sub.name,
+              }))}
+              placeholder="Select subcategory"
+              onChange={(value) => updateForm("subcategory_id", value)}
+            />
+          </div>
+        )}
 
-/* =========================================================
-   WEBHOOK
-========================================================= */
+        {optionsMap.brand.length > 0 && (
+          <div className="form-group">
+            <label>{formatLabel("brand")}</label>
+            <DropdownModal
+              value={attributes?.brand ?? ""}
+              options={optionsMap.brand}
+              onChange={(v) => updateAttribute("brand", v)}
+            />
+          </div>
+        )}
 
-webhookRouter.post("/", async (req, res) => {
-  const secret    = process.env.PAYSTACK_SECRET_KEY;
-  const signature = req.headers["x-paystack-signature"];
+        {showModelField && (
+          <div className="form-group">
+            <label>{formatLabel("model")}</label>
+            {modelOptions.length > 0 ? (
+              <DropdownModal
+                key={"model-dd-" + (attributes?.brand ?? "none")}
+                value={attributes?.model ?? ""}
+                options={modelOptions}
+                placeholder="Select model"
+                onChange={(v) => updateAttribute("model", v)}
+              />
+            ) : (
+              <input
+                key={"model-txt-" + (attributes?.brand ?? "none")}
+                type="text"
+                placeholder="e.g. Pavilion 15-eg3000, ThinkPad X1 Carbon"
+                value={attributes?.model ?? ""}
+                onChange={(e) => updateAttribute("model", e.target.value.trimStart())}
+              />
+            )}
+            <small className="field-hint">
+              {modelOptions.length > 0
+                ? "Select the model from the list"
+                : "Type the exact model name as it appears on the device"}
+            </small>
+          </div>
+        )}
 
-  if (!signature || !verifySignature(req.body, secret, signature)) {
-    console.warn("[WEBHOOK] Invalid signature");
-    return res.status(401).send("Invalid signature");
-  }
+        {fields.map((field) => {
+          const fieldOptions = optionsMap[field] ?? [];
+          if (!fieldOptions.length) return null;
+          if (field === "used_detail" && attributes?.condition !== "Used") return null;
+          return (
+            <div key={field} className="form-group">
+              <label>{formatLabel(field)}</label>
+              <DropdownModal
+                value={attributes?.[field] ?? ""}
+                options={fieldOptions}
+                onChange={(v) => updateAttribute(field, v)}
+              />
+            </div>
+          );
+        })}
 
-  let event;
-  try {
-    event = JSON.parse(req.body.toString("utf-8"));
-  } catch {
-    return res.status(400).send("Invalid JSON");
-  }
+        {optionsMap.features.length > 0 && (
+          <div className="form-group">
+            <label>Features</label>
+            <div className="checkbox-grid-inline">
+              {optionsMap.features.slice(0, 12).map((feature) => (
+                <label key={feature} className="checkbox-inline">
+                  <input
+                    type="checkbox"
+                    checked={currentFeatures.includes(feature)}
+                    onChange={() => toggleFeature(feature)}
+                  />
+                  <span>{formatLabel(feature)}</span>
+                </label>
+              ))}
+            </div>
+          </div>
+        )}
+      </section>
 
-  if (event.event !== "charge.success")
-    return res.status(200).send("OK");
+      {/* ── Contact Information ────────────────────────────────────────── */}
+      <section className="section form-card">
+        <h3 className="section-title">Contact Information</h3>
 
-  const metadata  = event.data?.metadata ?? {};
-  const paymentId = cleanUuid(metadata.paymentId);
-  const productId = cleanUuid(metadata.productId);
-  const sellerId  = cleanUuid(metadata.sellerId);
-  const planId    = cleanBigInt(metadata.planId);
+        <div className="form-row">
+          <div className="form-group">
+            <label>Email *</label>
+            <input
+              type="email"
+              value={form.contact.email}
+              placeholder="your@email.com"
+              onChange={(e) => updateContact("email", e.target.value)}
+            />
+          </div>
+          <div className="form-group">
+            <label>Phone *</label>
+            <input
+              type="tel"
+              value={form.contact.phone}
+              placeholder="08012345678"
+              onChange={(e) => updateContact("phone", onlyDigits(e.target.value))}
+            />
+          </div>
+        </div>
 
-  if (!paymentId || !productId || !sellerId || !planId) {
-    console.warn("[WEBHOOK] Missing metadata fields:", metadata);
-    return res.status(200).send("OK");
-  }
+        <div className="form-row">
+          <div className="form-group">
+            <label>WhatsApp *</label>
+            <input
+              type="tel"
+              value={form.contact.whatsapp}
+              placeholder="08012345678"
+              onChange={(e) => updateContact("whatsapp", onlyDigits(e.target.value))}
+            />
+          </div>
+          <div className="form-group">
+            <label>WhatsApp Link</label>
+            <input
+              type="url"
+              value={form.contact.whatsapp_link}
+              placeholder="https://wa.me/234..."
+              onChange={(e) => updateContact("whatsapp_link", e.target.value.trim())}
+            />
+          </div>
+        </div>
+      </section>
 
-  const client = await pool.connect();
+      {/* ── Location and Delivery ──────────────────────────────────────── */}
+      <section className="section form-card">
+        <h3 className="section-title">Location &amp; Delivery</h3>
 
-  try {
-    await client.query("BEGIN");
+        {detectLocation && (
+          <div className="detect-location-row">
+            <button
+              type="button"
+              className="detect-location-btn"
+              onClick={detectLocation}
+              disabled={detectingLocation}
+            >
+              {detectingLocation ? (
+                <><span className="detect-spinner" /> Detecting&#8230;</>
+              ) : (
+                <>&#128205; {detectedCoords ? "Location detected" : "Detect my location"}</>
+              )}
+            </button>
+            <small className="field-hint">Auto-fills your state and city</small>
+          </div>
+        )}
 
-    const { rows: paymentRows } = await client.query(
-      `SELECT id, status FROM payments WHERE id = $1 FOR UPDATE`,
-      [paymentId]
-    );
+        <div className="form-row">
+          <div className="form-group">
+            <label>State *</label>
+            <DropdownModal
+              value={state}
+              onChange={setState}
+              options={states.map((s) => ({ id: s, name: s }))}
+              placeholder="Select state"
+            />
+          </div>
+          {state && (
+            <div className="form-group">
+              <label>City *</label>
+              <DropdownModal
+                value={city}
+                onChange={setCity}
+                options={cities.map((c) => ({ id: c, name: c }))}
+                placeholder="Select city"
+              />
+            </div>
+          )}
+        </div>
 
-    if (!paymentRows.length || paymentRows[0].status === "success") {
-      await client.query("ROLLBACK");
-      return res.status(200).send("OK");
-    }
+        <div className="form-group">
+          <label>Delivery Available</label>
+          <label className="toggle-switch">
+            <input
+              type="checkbox"
+              checked={form.delivery.available}
+              onChange={(e) => updateDelivery("available", e.target.checked)}
+            />
+            <span className="slider" />
+          </label>
+        </div>
 
-    const { rows: planRows } = await client.query(
-      `SELECT name, duration_days, priority
-       FROM promotion_plans WHERE id = $1`,
-      [planId]
-    );
+        {form.delivery.available && (
+          <div className="delivery-grid">
+            <div className="form-row">
+              <div className="form-group">
+                <label>From Day *</label>
+                <input
+                  type="number" min="1" max="30"
+                  value={form.delivery.duration.from}
+                  onChange={(e) =>
+                    updateDeliveryDuration("from", onlyDigits(e.target.value))
+                  }
+                />
+              </div>
+              <div className="form-group">
+                <label>To Day *</label>
+                <input
+                  type="number" min="1" max="30"
+                  value={form.delivery.duration.to}
+                  onChange={(e) =>
+                    updateDeliveryDuration("to", onlyDigits(e.target.value))
+                  }
+                />
+              </div>
+            </div>
+            <div className="form-row">
+              <div className="form-group">
+                <label>Fee (&#8358;) *</label>
+                <input
+                  type="text" inputMode="numeric"
+                  value={displayPrice(form.delivery.fee)}
+                  onChange={(e) => updateDelivery("fee", onlyNumbers(e.target.value))}
+                />
+              </div>
+              <div className="form-group">
+                <label>Delivery Note</label>
+                <textarea
+                  rows={2}
+                  value={form.delivery.note}
+                  onChange={(e) => updateDelivery("note", e.target.value)}
+                />
+              </div>
+            </div>
+          </div>
+        )}
+      </section>
 
-    if (!planRows.length) {
-      await client.query("ROLLBACK");
-      console.error(`[WEBHOOK] Plan ${planId} not found`);
-      return res.status(200).send("OK");
-    }
+      {/* ── Product Images ─────────────────────────────────────────────── */}
+      <section className="section form-card">
+        <h3 className="section-title">Product Images *</h3>
+        <small className="field-hint">
+          Max {MAX_IMAGES} images &middot; up to 3 MB each
+        </small>
 
-    const plan      = planRows[0];
-    const expiresAt = new Date(
-      Date.now() + plan.duration_days * 24 * 60 * 60 * 1000
-    );
+        <div className="preview-grid-modern image-upload-box">
+          {images.map((img) => (
+            <div key={img.id} className="preview-thumb">
+              <img src={img.preview} alt="preview" />
+              <button type="button" onClick={() => removeImage(img.id)}>
+                &#10005;
+              </button>
+            </div>
+          ))}
+          {images.length < MAX_IMAGES && (
+            <label className="add-image-box add-image-btn">
+              <input
+                hidden multiple type="file" accept="image/*"
+                onChange={(e) => {
+                  handleImages(e.target.files);
+                  e.target.value = "";
+                }}
+              />
+              <div>+</div>
+              <span>Add Images</span>
+            </label>
+          )}
+        </div>
 
-    await client.query(
-      `UPDATE payments
-       SET status = 'success', updated_at = NOW()
-       WHERE id = $1`,
-      [paymentId]
-    );
+        {images.length > 0 && (
+          <small className="image-count">
+            {images.length}/{MAX_IMAGES} images added
+          </small>
+        )}
+      </section>
 
-    await client.query(
-      `UPDATE products
-       SET status               = 'active',
-           is_active            = true,
-           is_promoted          = true,
-           promotion_id         = $1,
-           promotion_start      = NOW(),
-           promotion_end        = $2,
-           promotion_expires_at = $2,
-           promotion_type       = $3,
-           promotion_priority   = $4,
-           boost_score          = COALESCE(boost_score, 0) + 50,
-           updated_at           = NOW()
-       WHERE id = $5`,
-      [planId, expiresAt, plan.name, plan.priority, productId]
-    );
+      {/* ── Promotion Plan ─────────────────────────────────────────────── */}
+      <section className="section form-card">
+        <h3 className="section-title">Promotion Plan</h3>
 
-    await client.query("COMMIT");
+        {/* Loading state */}
+        {plansLoading && (
+          <div className="plans-loading">
+            <span className="detect-spinner" /> Loading plans&#8230;
+          </div>
+        )}
 
-    console.log(`✅ [WEBHOOK] Product ${productId} activated on plan ${plan.name}`);
-    return res.status(200).send("OK");
+        {/* Error state — no plans loaded */}
+        {!plansLoading && promotionPlans.length === 0 && (
+          <div className="form-error">
+            &#9888;&#65039; Could not load promotion plans. Please refresh the page.
+          </div>
+        )}
 
-  } catch (err) {
-    await client.query("ROLLBACK").catch(() => {});
-    console.error("[WEBHOOK] Processing error:", err.message);
-    return res.status(200).send("OK");
-  } finally {
-    client.release();
-  }
-});
+        {/* Plans grid — only shown when loaded */}
+        {!plansLoading && promotionPlans.length > 0 && (
+          <div className="plans-grid">
+            {promotionPlans.map((plan) => {
+              // String comparison — both sides are strings from DB (id::text)
+              const isSelected = String(selectedPlan?.id) === String(plan.id);
 
-export default router;
-export { webhookRouter };
+              return (
+                <div
+                  key={plan.id}
+                  className={"plan-card" + (isSelected ? " selected" : "")}
+                  onClick={() => setSelectedPlan(plan)}
+                  role="button"
+                  tabIndex={0}
+                  onKeyDown={(e) => e.key === "Enter" && setSelectedPlan(plan)}
+                  aria-pressed={isSelected}
+                >
+                  <div className="plan-header">
+                    <strong>{plan.name}</strong>
+                    <span className="plan-price">
+                      {planPriceLabel(plan)}
+                    </span>
+                  </div>
+
+                  <div className="plan-duration">
+                    {plan.duration || `${plan.duration_days ?? 30} days`}
+                  </div>
+
+                  {/* Features from DB (JSONB array) */}
+                  {Array.isArray(plan.features) && plan.features.length > 0 && (
+                    <ul className="plan-features">
+                      {plan.features.map((f, i) => (
+                        <li key={i}>&#10003; {f}</li>
+                      ))}
+                    </ul>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+        )}
+      </section>
+
+      {/* ── Terms + Submit ─────────────────────────────────────────────── */}
+      <div className="button-section section form-card">
+        {TermsCheckbox}
+
+        <button
+          type="button"
+          disabled={loading || !agreedToTerms || plansLoading}
+          className="primary-btn full-width"
+          onClick={handleSubmit}
+          title={
+            !agreedToTerms
+              ? "Please accept the Terms & Conditions first"
+              : plansLoading
+              ? "Plans are still loading"
+              : undefined
+          }
+        >
+          {loading
+            ? "&#9203; Processing&#8230;"
+            : isFreePlan
+            ? "&#128640; Post Ad"
+            : "&#128640; Post Ad & Pay"}
+        </button>
+
+        {/* Resume incomplete payment */}
+        {paymentData?.authUrl && (
+          <button
+            type="button"
+            className="outline-btn full-width"
+            onClick={resumePayment}
+          >
+            &#128179; Complete Payment
+          </button>
+        )}
+      </div>
+    </>
+  );
+}
