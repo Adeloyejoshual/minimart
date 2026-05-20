@@ -25,6 +25,8 @@ import TermsAndConditions from "./pages/TermsAndConditions";
 import MinimartPage from "./pages/MinimartPage";
 import PostAds from "./pages/PostAds";
 import P2P from "./pages/P2P";
+import PaymentSuccess from "./pages/PaymentSuccess.jsx";
+
 /* ================= HOMEPAGE SUB-PAGES ================= */
 import NearbyPage from "./pages/Homepage/NearbyPage";
 import DealsPage from "./pages/Homepage/DealsPage";
@@ -354,6 +356,7 @@ export default function App() {
   }
 />
 
+     <Route path="/payment/success" element={<PaymentSuccess />} />
         {/* ================= ADMIN ================= */}
         <Route
           path="/admin"
