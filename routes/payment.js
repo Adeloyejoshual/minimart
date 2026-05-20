@@ -290,4 +290,111 @@ router.post("/initiate", authenticate, async (req, res) => {
 /* =========================================================
    WEBHOOK — Paystack
    IMPORTANT: Mount this with express.raw() in your app.js:
-   app.use("/api/payment/webhook", express.raw({ type: "*\/*" }), 
+   app.use("/api/payment/webhook", express.raw({ type: "*\/*" }), webhookRouter);
+========================================================= */
+
+webhookRouter.post("/", async (req, res) => {
+  const secret    = process.env.PAYSTACK_SECRET_KEY;
+  const signature = req.headers["x-paystack-signature"];
+
+  // Verify webhook authenticity before doing anything
+  if (!signature || !verifySignature(req.body, secret, signature)) {
+    console.warn("[WEBHOOK] Invalid signature — possible spoofed request");
+    return res.status(401).send("Invalid signature");
+  }
+
+  let event;
+  try {
+    event = JSON.parse(req.body.toString("utf-8"));
+  } catch {
+    return res.status(400).send("Invalid JSON");
+  }
+
+  // We only care about successful charges
+  if (event.event !== "charge.success")
+    return res.status(200).send("OK");
+
+  const metadata  = event.data?.metadata ?? {};
+  const paymentId = cleanUuid(metadata.paymentId);
+  const productId = cleanUuid(metadata.productId);
+  const sellerId  = cleanUuid(metadata.sellerId);
+  const planId    = cleanInt(metadata.planId);
+
+  // If any required field is missing, acknowledge and exit
+  if (!paymentId || !productId || !sellerId || !planId) {
+    console.warn("[WEBHOOK] Missing metadata fields:", metadata);
+    return res.status(200).send("OK");
+  }
+
+  const client = await pool.connect();
+
+  try {
+    await client.query("BEGIN");
+
+    // Lock the payment row — prevents duplicate webhook processing
+    const { rows: paymentRows } = await client.query(
+      `SELECT id, status FROM payments WHERE id = $1 FOR UPDATE`,
+      [paymentId]
+    );
+
+    // Idempotency — if already processed, do nothing
+    if (!paymentRows.length || paymentRows[0].status === "success") {
+      await client.query("ROLLBACK");
+      return res.status(200).send("OK");
+    }
+
+    const { rows: planRows } = await client.query(
+      `SELECT name, duration_days, priority FROM promotion_plans WHERE id = $1`,
+      [planId]
+    );
+
+    if (!planRows.length) {
+      await client.query("ROLLBACK");
+      console.error(`[WEBHOOK] Plan ${planId} not found`);
+      return res.status(200).send("OK");
+    }
+
+    const plan      = planRows[0];
+    const expiresAt = new Date(Date.now() + plan.duration_days * 24 * 60 * 60 * 1000);
+
+    // Mark payment as successful
+    await client.query(
+      `UPDATE payments SET status = 'success', updated_at = NOW() WHERE id = $1`,
+      [paymentId]
+    );
+
+    // Activate the product with promotion details
+    await client.query(
+      `UPDATE products
+       SET status             = 'active',
+           is_active          = true,
+           is_promoted        = true,
+           promotion_id       = $1,
+           promotion_start    = NOW(),
+           promotion_end      = $2,
+           promotion_expires_at = $2,
+           promotion_type     = $3,
+           promotion_priority = $4,
+           boost_score        = COALESCE(boost_score, 0) + 50,
+           updated_at         = NOW()
+       WHERE id = $5`,
+      [planId, expiresAt, plan.name, plan.priority, productId]
+    );
+
+    await client.query("COMMIT");
+
+    console.log(`✅ [WEBHOOK] Product ${productId} activated on plan ${plan.name}`);
+    return res.status(200).send("OK");
+
+  } catch (err) {
+    await client.query("ROLLBACK").catch(() => {});
+    console.error("[WEBHOOK] Processing error:", err);
+    // Always return 200 to Paystack — otherwise it will keep retrying
+    return res.status(200).send("OK");
+  } finally {
+    client.release();
+  }
+});
+
+export default router;
+export { webhookRouter };
