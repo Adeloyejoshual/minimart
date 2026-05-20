@@ -20,14 +20,19 @@
 .add-product-container {
   max-width: 860px;
   margin: 0 auto;
+
+  /*
+    Top padding is 0 — the sticky header sits flush at the top.
+    The gap between header and first card comes from the flex gap.
+  */
   padding:
-    clamp(1.2rem, 3vw, 2rem)
+    0
     clamp(1rem, 3vw, 2rem)
     clamp(3rem, 8vw, 5rem);
 
   display: flex;
   flex-direction: column;
-  gap: clamp(1.2rem, 3vw, 20px);
+  gap: clamp(1rem, 2.5vw, 18px);
 
   min-height: 100vh;
   background: var(--bg);
@@ -38,52 +43,9 @@
 }
 
 /* ─────────────────────────────────────────────────────────
-   HEADER
-───────────────────────────────────────────────────────── */
-.add-product-container .glass-header {
-  position: sticky;
-  top: 0;
-  z-index: 50;
-
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-
-  padding: 14px 20px;
-  margin-bottom: 0;
-
-  background: rgba(255, 255, 255, 0.96);
-  backdrop-filter: blur(14px);
-  -webkit-backdrop-filter: blur(14px);
-  border-radius: 16px;
-  border: 1px solid rgba(255, 92, 0, 0.12);
-  box-shadow:
-    0 4px 18px rgba(255, 92, 0, 0.08),
-    0 1px 3px rgba(0, 0, 0, 0.06);
-}
-
-.add-product-container .glass-back-btn {
-  position: absolute;
-  left: 12px;
-  padding: 8px 14px;
-  border-radius: 10px;
-  background: #fff;
-  border: 1px solid var(--bd);
-  font-weight: 600;
-  color: var(--o);
-  text-decoration: none;
-  cursor: pointer;
-  user-select: none;
-  transition: 0.18s ease;
-}
-
-.add-product-container .glass-back-btn:hover {
-  border-color: var(--o);
-  background: #FFF3EE;
-}
-
-/* ─────────────────────────────────────────────────────────
    CARDS / SECTIONS
+   NOTE: .glass-header and .glass-back-btn are removed.
+   AddProductHeader.css owns the sticky header styles now.
 ───────────────────────────────────────────────────────── */
 .add-product-container .form-card,
 .add-product-container .section {
@@ -113,7 +75,7 @@
   font-size: 1.05rem;
   color: var(--ink);
   margin: 0;
-  padding-bottom: 4px;
+  padding-bottom: 8px;
   border-bottom: 2px solid rgba(255, 92, 0, 0.1);
 }
 
@@ -154,7 +116,10 @@
   font-size: 0.93rem;
   font-family: inherit;
   color: var(--ink);
-  transition: border-color 0.2s ease, box-shadow 0.2s ease, background 0.2s ease;
+  transition:
+    border-color 0.2s ease,
+    box-shadow   0.2s ease,
+    background   0.2s ease;
   box-sizing: border-box;
   -webkit-appearance: none;
   appearance: none;
@@ -175,7 +140,7 @@
   line-height: 1.55;
 }
 
-/* Error state on input */
+/* Error state */
 .add-product-container .error-input {
   border-color: #dc2626 !important;
 }
@@ -240,7 +205,6 @@
   display: flex;
   flex-direction: column;
   gap: 14px;
-
   padding: 16px 18px;
   border-radius: 16px;
   background: #FFF9F0;
@@ -254,7 +218,7 @@
   gap: 12px;
 }
 
-/* Card icon — CSS only, no emoji */
+/* CSS-only card icon — no emoji */
 .add-product-container .payment-resume-icon {
   flex-shrink: 0;
   margin-top: 2px;
@@ -318,19 +282,17 @@
   display: inline-flex;
   align-items: center;
   gap: 8px;
-
   padding: 10px 18px;
   border-radius: 12px;
   border: 1.5px solid rgba(255, 92, 0, 0.35);
   background: #FFF3EE;
   color: var(--o);
-
   font-size: 0.88rem;
   font-weight: 600;
   font-family: inherit;
   cursor: pointer;
   white-space: nowrap;
-  transition: 0.2s ease;
+  transition: background 0.2s ease, color 0.2s ease, border-color 0.2s ease;
 }
 
 .add-product-container .detect-location-btn:hover:not(:disabled) {
@@ -344,7 +306,7 @@
   cursor: not-allowed;
 }
 
-/* Location pin — CSS shape, no emoji */
+/* CSS-only location pin — no emoji */
 .add-product-container .location-pin-icon {
   display: inline-block;
   width: 10px;
@@ -394,7 +356,7 @@
   inset: 0;
   background: #d1d5db;
   border-radius: 999px;
-  transition: 0.25s ease;
+  transition: background 0.25s ease;
 }
 
 .add-product-container .toggle-switch .slider::before {
@@ -406,7 +368,7 @@
   background: #fff;
   top: 3px;
   left: 3px;
-  transition: 0.25s ease;
+  transition: transform 0.25s ease;
   box-shadow: 0 1px 4px rgba(0, 0, 0, 0.2);
 }
 
@@ -459,7 +421,7 @@
   cursor: pointer;
   font-size: 0.86rem;
   font-weight: 500;
-  transition: 0.18s ease;
+  transition: border-color 0.18s ease, background 0.18s ease;
   user-select: none;
   color: var(--ink);
 }
@@ -513,11 +475,12 @@
   cursor: pointer;
   font-size: 0.72rem;
   font-weight: 700;
-  transition: 0.18s ease;
+  transition: transform 0.18s ease, background 0.18s ease;
   display: flex;
   align-items: center;
   justify-content: center;
   backdrop-filter: blur(4px);
+  -webkit-backdrop-filter: blur(4px);
 }
 
 .add-product-container .preview-thumb button:hover {
@@ -539,7 +502,7 @@
   color: var(--o);
   font-size: 0.82rem;
   font-weight: 600;
-  transition: 0.2s ease;
+  transition: border-color 0.2s ease, background 0.2s ease;
   user-select: none;
 }
 
@@ -577,15 +540,25 @@
   border: 1.5px solid rgba(255, 92, 0, 0.18);
   background: #fff;
   cursor: pointer;
-  transition: transform 0.22s ease, box-shadow 0.22s ease, border-color 0.22s ease, background 0.22s ease;
+  transition:
+    transform    0.22s ease,
+    box-shadow   0.22s ease,
+    border-color 0.22s ease,
+    background   0.22s ease;
   user-select: none;
   position: relative;
+  outline: none;
 }
 
 .add-product-container .plan-card:hover {
   transform: translateY(-3px);
   border-color: var(--o);
   box-shadow: 0 6px 20px rgba(255, 92, 0, 0.12);
+}
+
+.add-product-container .plan-card:focus-visible {
+  border-color: var(--o);
+  box-shadow: 0 0 0 3px rgba(255, 92, 0, 0.2);
 }
 
 .add-product-container .plan-card.selected {
@@ -596,7 +569,7 @@
     0 6px 20px rgba(255, 92, 0, 0.1);
 }
 
-/* Selected checkmark badge */
+/* Inline SVG checkmark badge on selected card */
 .add-product-container .plan-card.selected::after {
   content: "";
   position: absolute;
@@ -605,7 +578,7 @@
   width: 18px;
   height: 18px;
   border-radius: 50%;
-  background: var(--o);
+  background-color: var(--o);
   background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 12 10'%3E%3Cpath d='M1 5l3 3 7-7' stroke='white' stroke-width='1.8' fill='none' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
   background-repeat: no-repeat;
   background-position: center;
@@ -623,6 +596,7 @@
 .add-product-container .plan-header strong {
   font-size: 0.95rem;
   color: var(--ink);
+  line-height: 1.3;
 }
 
 .add-product-container .plan-price {
@@ -631,23 +605,27 @@
   font-size: 0.9rem;
   text-align: right;
   line-height: 1.4;
+  flex-shrink: 0;
 }
 
-/* Discount price display */
+/* Strikethrough original price */
 .add-product-container .plan-price-original {
   font-weight: 500;
   text-decoration: line-through;
   color: var(--ink2);
-  font-size: 0.78rem;
+  font-size: 0.76rem;
   display: block;
 }
 
+/* Discounted effective price */
 .add-product-container .plan-price-effective {
   font-weight: 800;
   color: var(--o);
   font-size: 1rem;
+  display: block;
 }
 
+/* Discount badge e.g. "-20%" */
 .add-product-container .plan-price-badge {
   display: inline-block;
   padding: 2px 7px;
@@ -658,13 +636,13 @@
   font-weight: 700;
   letter-spacing: 0.02em;
   vertical-align: middle;
-  margin-left: 4px;
+  margin-top: 2px;
 }
 
 .add-product-container .plan-duration {
   font-size: 0.8rem;
   color: var(--ink2);
-  margin-bottom: 8px;
+  margin-bottom: 6px;
 }
 
 /* Feature list inside plan card */
@@ -688,7 +666,7 @@
   line-height: 1.4;
 }
 
-/* Green dot before each feature */
+/* CSS green dot bullet — no emoji */
 .add-product-container .plan-features li::before {
   content: "";
   width: 6px;
@@ -763,7 +741,10 @@
   font-size: 0.97rem;
   font-family: inherit;
   cursor: pointer;
-  transition: transform 0.22s ease, box-shadow 0.22s ease, opacity 0.2s ease;
+  transition:
+    transform  0.22s ease,
+    box-shadow 0.22s ease,
+    opacity    0.2s ease;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -792,7 +773,7 @@
   width: 100%;
 }
 
-/* Button spinner (replaces loading text) */
+/* Button loading spinner */
 .add-product-container .btn-spinner {
   display: inline-block;
   width: 15px;
@@ -829,6 +810,8 @@
 
 /* ─────────────────────────────────────────────────────────
    PROGRESS OVERLAY
+   Note: NOT scoped under .add-product-container because it
+   is rendered at the root level via a portal-like fixed div.
 ───────────────────────────────────────────────────────── */
 .progress-overlay {
   position: fixed;
@@ -847,7 +830,6 @@
   -webkit-backdrop-filter: blur(6px);
 }
 
-/* Card */
 .progress-overlay-card {
   position: relative;
   background: #fff;
@@ -864,10 +846,10 @@
 
 @keyframes progressCardIn {
   from { opacity: 0; transform: scale(0.88) translateY(16px); }
-  to   { opacity: 1; transform: scale(1) translateY(0);       }
+  to   { opacity: 1; transform: scale(1)    translateY(0);    }
 }
 
-/* Animated icon */
+/* Bouncing icon */
 .progress-overlay-icon {
   font-size: 2.6rem;
   margin-bottom: 12px;
@@ -876,16 +858,16 @@
 }
 
 @keyframes progressIconBounce {
-  0%, 100% { transform: translateY(0); }
+  0%, 100% { transform: translateY(0);    }
   50%       { transform: translateY(-7px); }
 }
 
-/* Label */
+/* Step label */
 .progress-overlay-label {
-  font-family: var(--fd, 'Fraunces', serif);
+  font-family: 'Fraunces', serif;
   font-size: 1rem;
   font-weight: 700;
-  color: var(--ink, #141210);
+  color: #141210;
   margin: 0 0 14px;
   animation: progressLabelFade 0.35s ease;
 }
@@ -895,7 +877,7 @@
   to   { opacity: 1; transform: translateY(0);   }
 }
 
-/* Progress bar track */
+/* Bar track */
 .progress-overlay-bar-track {
   width: 100%;
   height: 8px;
@@ -905,26 +887,26 @@
   margin-bottom: 8px;
 }
 
-/* Progress bar fill */
+/* Bar fill */
 .progress-overlay-bar-fill {
   height: 100%;
-  background: linear-gradient(90deg, var(--o, #FF5C00), #ff8c42);
+  background: linear-gradient(90deg, #FF5C00, #ff8c42);
   border-radius: 99px;
   transition: width 0.4s ease-out;
   position: relative;
   min-width: 6px;
 }
 
-/* Shimmer on bar */
+/* Shimmer on fill */
 .progress-overlay-bar-fill::after {
   content: "";
   position: absolute;
   inset: 0;
   background: linear-gradient(
     90deg,
-    transparent 0%,
-    rgba(255, 255, 255, 0.4) 50%,
-    transparent 100%
+    transparent          0%,
+    rgba(255,255,255,.4) 50%,
+    transparent          100%
   );
   animation: progressShimmer 1.4s ease-in-out infinite;
 }
@@ -934,17 +916,16 @@
   to   { transform: translateX(100%);  }
 }
 
-/* Percentage text */
+/* Percentage */
 .progress-overlay-percent {
   display: block;
   font-size: 0.82rem;
   font-weight: 700;
-  color: var(--o, #FF5C00);
+  color: #FF5C00;
   margin-bottom: 14px;
-  font-family: 'Plus Jakarta Sans', system-ui, sans-serif;
 }
 
-/* Step dots */
+/* Step dots row */
 .progress-overlay-steps {
   display: flex;
   justify-content: center;
@@ -962,53 +943,31 @@
   justify-content: center;
   font-size: 0.65rem;
   font-weight: 700;
-  color: var(--ink2, #5A5650);
+  color: #5A5650;
   background: #FAFAFA;
   transition: all 0.3s ease;
 }
 
 .progress-step-dot.active {
-  border-color: var(--o, #FF5C00);
+  border-color: #FF5C00;
   background: #FFF3EE;
-  color: var(--o, #FF5C00);
+  color: #FF5C00;
   transform: scale(1.18);
   box-shadow: 0 0 0 4px rgba(255, 92, 0, 0.12);
 }
 
 .progress-step-dot.done {
-  border-color: var(--gn, #15803D);
-  background: var(--gn, #15803D);
+  border-color: #15803D;
+  background: #15803D;
   color: #fff;
 }
 
-/* Hint text */
+/* Hint */
 .progress-overlay-hint {
   font-size: 0.76rem;
-  color: var(--ink2, #5A5650);
+  color: #5A5650;
   margin: 0;
   opacity: 0.7;
-}
-
-/* ─────────────────────────────────────────────────────────
-   LOADING OVERLAY (legacy simple spinner)
-───────────────────────────────────────────────────────── */
-.add-product-container .loading-overlay {
-  position: fixed;
-  inset: 0;
-  z-index: 150;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  background: rgba(20, 18, 16, 0.55);
-}
-
-.add-product-container .loader {
-  width: 40px;
-  height: 40px;
-  border: 3.5px solid rgba(255, 255, 255, 0.25);
-  border-top-color: var(--o);
-  border-radius: 50%;
-  animation: spin 0.85s linear infinite;
 }
 
 /* ─────────────────────────────────────────────────────────
@@ -1023,7 +982,7 @@
 ───────────────────────────────────────────────────────── */
 @media (max-width: 600px) {
   .add-product-container {
-    gap: clamp(1rem, 3vw, 16px);
+    gap: clamp(1rem, 3vw, 14px);
     padding-bottom: clamp(4rem, 10vw, 6rem);
   }
 
@@ -1041,11 +1000,6 @@
 
   .add-product-container .preview-grid-modern {
     grid-template-columns: repeat(3, 1fr);
-  }
-
-  .add-product-container .glass-header {
-    padding: 11px 14px;
-    border-radius: 14px;
   }
 
   .add-product-container .detect-location-row {
