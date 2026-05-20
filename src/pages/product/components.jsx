@@ -1,6 +1,6 @@
 import { useMemo } from "react";
-import DropdownModal     from "../../components/DropdownModal.jsx";
-import AddProductHeader  from "../../components/AddProductHeader.jsx";
+import DropdownModal    from "../../components/DropdownModal.jsx";
+import AddProductHeader from "../../components/AddProductHeader.jsx";
 import { categoryFields } from "../../config/categoryFields.js";
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
@@ -126,27 +126,17 @@ export default function ProductComponents({
   // ── Render ─────────────────────────────────────────────────────────────────
   return (
     <>
-      {/* ── Sticky header ─────────────────────────────────────────────────── */}
-      <div style={{
-        position:        "sticky",
-        top:             0,
-        zIndex:          100,
-        backgroundColor: "var(--bg-surface, #fff)",
-        boxShadow:       "0 1px 4px rgba(0,0,0,.1)",
-      }}>
-        <AddProductHeader title="Add Product" onClearDraft={clearDraft} />
-      </div>
+      {/* ── Sticky header — the component handles sticky itself ───────────── */}
+      <AddProductHeader title="Add Product" onClearDraft={clearDraft} />
 
       {/* ── Feedback banners ──────────────────────────────────────────────── */}
       {error && (
         <div className="form-error" role="alert">
-          {/* Warning triangle — safe HTML entity, no emoji */}
           &#9888; {error}
         </div>
       )}
       {success && (
         <div className="form-success" role="status">
-          {/* Check mark — safe HTML entity, no emoji */}
           &#10003; {success}
         </div>
       )}
@@ -155,7 +145,6 @@ export default function ProductComponents({
       {paymentData?.authUrl && (
         <div className="payment-resume-banner" role="alert">
           <div className="payment-resume-info">
-            {/* Card icon via CSS class — no emoji */}
             <span className="payment-resume-icon" aria-hidden="true" />
             <div>
               <strong>Incomplete Payment</strong>
@@ -401,7 +390,6 @@ export default function ProductComponents({
                 </>
               ) : (
                 <>
-                  {/* Pin icon via CSS — no emoji */}
                   <span className="location-pin-icon" aria-hidden="true" />
                   {detectedCoords ? "Location detected" : "Detect my location"}
                 </>
@@ -510,7 +498,6 @@ export default function ProductComponents({
                 aria-label="Remove image"
                 onClick={() => removeImage(img.id)}
               >
-                {/* Times / close symbol — safe entity, no emoji */}
                 &#215;
               </button>
             </div>
@@ -524,7 +511,6 @@ export default function ProductComponents({
                   e.target.value = "";
                 }}
               />
-              {/* Plus sign — plain text, universally supported */}
               <div aria-hidden="true">+</div>
               <span>Add Images</span>
             </label>
@@ -542,7 +528,7 @@ export default function ProductComponents({
       <section className="section form-card">
         <h3 className="section-title">Promotion Plan</h3>
 
-        {/* Loading state */}
+        {/* Loading */}
         {plansLoading && (
           <div className="plans-loading" aria-live="polite">
             <span className="detect-spinner" aria-hidden="true" />
@@ -550,7 +536,7 @@ export default function ProductComponents({
           </div>
         )}
 
-        {/* No plans loaded */}
+        {/* No plans */}
         {!plansLoading && promotionPlans.length === 0 && (
           <div className="form-error" role="alert">
             &#9888; Could not load promotion plans. Please refresh the page.
@@ -571,7 +557,12 @@ export default function ProductComponents({
                   onClick={() => setSelectedPlan(plan)}
                   role="button"
                   tabIndex={0}
-                  onKeyDown={(e) => e.key === "Enter" && setSelectedPlan(plan)}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter" || e.key === " ") {
+                      e.preventDefault();
+                      setSelectedPlan(plan);
+                    }
+                  }}
                   aria-pressed={isSelected}
                 >
                   <div className="plan-header">
@@ -585,14 +576,10 @@ export default function ProductComponents({
                     {plan.duration || `${plan.duration_days ?? 30} days`}
                   </div>
 
-                  {/* Feature list from DB JSONB */}
                   {Array.isArray(plan.features) && plan.features.length > 0 && (
                     <ul className="plan-features">
                       {plan.features.map((f, i) => (
-                        <li key={i}>
-                          {/* Check mark entity — no emoji */}
-                          &#10003; {f}
-                        </li>
+                        <li key={i}>{f}</li>
                       ))}
                     </ul>
                   )}
@@ -622,14 +609,13 @@ export default function ProductComponents({
         >
           {loading ? (
             <>
-              {/* Spinner replaces the hourglass emoji */}
               <span className="btn-spinner" aria-hidden="true" />
               {" "}Processing&#8230;
             </>
           ) : isFreePlan ? (
             "Post Ad"
           ) : (
-            "Post Ad &amp; Pay"
+            "Post Ad & Pay"
           )}
         </button>
       </div>
