@@ -1,28 +1,20 @@
-import React, {
-  useEffect,
-  useMemo,
-  useState,
-  useCallback,
-} from "react";
+import React, { useEffect, useState, useCallback } from "react";
 import { Link } from "react-router-dom";
 import ProductComponents from "./product/components.jsx";
 import { locationsByState } from "../config/locationsByState.js";
 import { apiFetch, ApiError } from "../utils/apiFetch.js";
-import imageCompression from "browser-image-compression";
 import "../styles/AddProduct.css";
 
-/* ─────────────────────────────────────────────────────────────
-   Constants
-────────────────────────────────────────────────────────────── */
+/* =========================================================
+   CONSTANTS
+========================================================= */
 
-const API_BASE        = "https://minimart-ivrm.onrender.com/api";
-const STORAGE_PAYMENT = "payment_retry";
-const MAX_IMAGES      = 6;
-const MAX_SIZE        = 3 * 1024 * 1024;
+const API_BASE = "https://minimart-ivrm.onrender.com/api";
+const MAX_IMAGES = 6;
 
-/* ─────────────────────────────────────────────────────────────
-   Initial Form State
-────────────────────────────────────────────────────────────── */
+/* =========================================================
+   INITIAL FORM
+========================================================= */
 
 const INITIAL_FORM = {
   title: "",
@@ -43,12 +35,6 @@ const INITIAL_FORM = {
     engine: "",
     fuel_type: "",
     features: [],
-    size: "",
-    age_range: "",
-    bedrooms: "",
-    bathrooms: "",
-    experience_level: "",
-    skills: "",
   },
   delivery: {
     available: false,
@@ -61,56 +47,26 @@ const INITIAL_FORM = {
     whatsapp: "",
     whatsapp_link: "",
     email: "",
-    preferred: "chat",
   },
 };
 
-/* ─────────────────────────────────────────────────────────────
-   Helpers
-────────────────────────────────────────────────────────────── */
-
-const onlyNumbers = (v = "") => v.replace(/[^0-9.]/g, "");
-const onlyDigits  = (v = "") => v.replace(/[^0-9]/g, "");
-
-const displayPrice = (v) => {
-  const num = Number(v);
-  return Number.isFinite(num) && num > 0
-    ? new Intl.NumberFormat("en-NG").format(num)
-    : "";
-};
-
-const formatLabel = (t) =>
-  t.replace(/_/g, " ").replace(/\b\w/g, (l) => l.toUpperCase());
+/* =========================================================
+   HELPERS
+========================================================= */
 
 const getToken = () => localStorage.getItem("token");
 
-const toArray = (v) => (Array.isArray(v) ? v : []);
+const onlyNumbers = (v = "") => v.replace(/[^0-9.]/g, "");
+const onlyDigits = (v = "") => v.replace(/[^0-9]/g, "");
 
-const multipartPost = async (url, formData, token) => {
-  const response = await fetch(url, {
-    method: "POST",
-    headers: { Authorization: `Bearer ${token}` },
-    body: formData,
-  });
+const displayPrice = (v) =>
+  Number(v) > 0 ? new Intl.NumberFormat("en-NG").format(v) : "";
 
-  const data = await response.json().catch(() => ({}));
-
-  if (!response.ok) {
-    throw new ApiError(
-      data?.message ?? `Request failed (${response.status})`,
-      response.status
-    );
-  }
-
-  return data;
-};
-
-/* ─────────────────────────────────────────────────────────────
-   Component
-────────────────────────────────────────────────────────────── */
+/* =========================================================
+   COMPONENT
+========================================================= */
 
 export default function AddProductPage({ user }) {
-
   const STORAGE_DRAFT = `product_draft_${user?.id ?? "anon"}`;
 
   const [form, setForm] = useState(INITIAL_FORM);
@@ -118,23 +74,20 @@ export default function AddProductPage({ user }) {
   const [promotionPlans, setPromotionPlans] = useState([]);
   const [plansLoading, setPlansLoading] = useState(true);
 
+  const [images, setImages] = useState([]);
   const [locationState, setLocationState] = useState("");
   const [city, setCity] = useState("");
-  const [images, setImages] = useState([]);
-
   const [selectedPlan, setSelectedPlan] = useState(null);
-  const [paymentData, setPaymentData] = useState(null);
 
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
   const [success, setSuccess] = useState("");
   const [agreedToTerms, setAgreedToTerms] = useState(false);
+  const [paymentData, setPaymentData] = useState(null);
 
-  const [detectedCoords, setDetectedCoords] = useState(null);
-
-  /* ────────────────────────────────────────────────────────────
-     Load Categories
-  ──────────────────────────────────────────────────────────── */
+  /* ─────────────────────────────────────────────
+     LOAD CATEGORIES
+  ───────────────────────────────────────────── */
 
   useEffect(() => {
     apiFetch(`${API_BASE}/addproduct/categories`)
@@ -142,9 +95,9 @@ export default function AddProductPage({ user }) {
       .catch(() => setCategories([]));
   }, []);
 
-  /* ────────────────────────────────────────────────────────────
-     Load Promotion Plans (Dynamic)
-  ──────────────────────────────────────────────────────────── */
+  /* ─────────────────────────────────────────────
+     LOAD PROMOTION PLANS
+  ───────────────────────────────────────────── */
 
   useEffect(() => {
     let mounted = true;
@@ -157,24 +110,24 @@ export default function AddProductPage({ user }) {
 
         if (res.success && Array.isArray(res.plans)) {
           setPromotionPlans([
-            { id: 0, name: "Free", price: 0, duration: "Unlimited" },
+            { id: 0, name: "Free", price: 0, effective_price: 0 },
             ...res.plans,
           ]);
         }
       } catch (err) {
-        console.error("Failed to load plans", err);
+        console.error("Failed to load plans:", err);
       } finally {
         if (mounted) setPlansLoading(false);
       }
     };
 
     loadPlans();
-    return () => { mounted = false; };
+    return () => (mounted = false);
   }, []);
 
-  /* ────────────────────────────────────────────────────────────
-     Draft Restore
-  ──────────────────────────────────────────────────────────── */
+  /* ─────────────────────────────────────────────
+     RESTORE DRAFT
+  ───────────────────────────────────────────── */
 
   useEffect(() => {
     const saved = localStorage.getItem(STORAGE_DRAFT);
@@ -182,6 +135,7 @@ export default function AddProductPage({ user }) {
 
     try {
       const draft = JSON.parse(saved);
+
       setForm(draft.form ?? INITIAL_FORM);
       setLocationState(draft.locationState ?? "");
       setCity(draft.city ?? "");
@@ -195,9 +149,9 @@ export default function AddProductPage({ user }) {
     } catch {}
   }, [promotionPlans]);
 
-  /* ────────────────────────────────────────────────────────────
-     Auto Save Draft
-  ──────────────────────────────────────────────────────────── */
+  /* ─────────────────────────────────────────────
+     AUTO SAVE DRAFT
+  ───────────────────────────────────────────── */
 
   useEffect(() => {
     const timeout = setTimeout(() => {
@@ -215,9 +169,9 @@ export default function AddProductPage({ user }) {
     return () => clearTimeout(timeout);
   }, [form, locationState, city, selectedPlan]);
 
-  /* ────────────────────────────────────────────────────────────
-     Validation
-  ──────────────────────────────────────────────────────────── */
+  /* ─────────────────────────────────────────────
+     VALIDATION
+  ───────────────────────────────────────────── */
 
   const validateForm = () => {
     if (!form.title.trim()) return "Title required";
@@ -227,13 +181,12 @@ export default function AddProductPage({ user }) {
     if (!images.length) return "At least one image required";
     if (!locationState || !city) return "Location required";
     if (!agreedToTerms) return "Accept Terms & Conditions";
-
     return null;
   };
 
-  /* ────────────────────────────────────────────────────────────
-     Submit
-  ──────────────────────────────────────────────────────────── */
+  /* ─────────────────────────────────────────────
+     SUBMIT
+  ───────────────────────────────────────────── */
 
   const handleSubmit = async () => {
     if (loading) return;
@@ -251,21 +204,29 @@ export default function AddProductPage({ user }) {
 
     const finalPlan =
       selectedPlan ||
-      promotionPlans.find((p) => Number(p.price) === 0);
+      promotionPlans.find(
+        (p) => Number(p.effective_price ?? p.price ?? 0) === 0
+      );
 
     if (!finalPlan) {
       setError("No promotion plan available.");
       return;
     }
 
+    const effectivePrice =
+      Number(finalPlan.effective_price ?? finalPlan.price ?? 0);
+
+    const isFree = effectivePrice === 0;
+
     setLoading(true);
     setError("");
-
-    let product = null;
+    setSuccess("");
 
     try {
       const token = getToken();
       if (!token) throw new ApiError("Login required", 401);
+
+      /* ───── Create Product ───── */
 
       const fd = new FormData();
       fd.append("title", form.title);
@@ -280,15 +241,21 @@ export default function AddProductPage({ user }) {
 
       images.forEach((img) => fd.append("images", img.file));
 
-      const res = await multipartPost(
-        `${API_BASE}/addproduct/products`,
-        fd,
-        token
-      );
+      const res = await fetch(`${API_BASE}/addproduct/products`, {
+        method: "POST",
+        headers: { Authorization: `Bearer ${token}` },
+        body: fd,
+      });
 
-      product = res.product;
+      const productData = await res.json();
 
-      const isFree = Number(finalPlan.price) === 0;
+      if (!res.ok) {
+        throw new Error(productData?.message || "Failed to create product");
+      }
+
+      const product = productData.product;
+
+      /* ───── Free Plan ───── */
 
       if (isFree) {
         await apiFetch(
@@ -304,9 +271,12 @@ export default function AddProductPage({ user }) {
         );
 
         localStorage.removeItem(STORAGE_DRAFT);
-        window.location.href = "/";
+        setSuccess("Product posted successfully!");
+        setTimeout(() => (window.location.href = "/"), 1200);
         return;
       }
+
+      /* ───── Paid Plan ───── */
 
       const payment = await apiFetch(`${API_BASE}/payment/initiate`, {
         method: "POST",
@@ -322,7 +292,7 @@ export default function AddProductPage({ user }) {
       });
 
       if (!payment.authorization_url) {
-        throw new Error("Payment failed");
+        throw new Error("Payment initialization failed");
       }
 
       setPaymentData(payment);
@@ -330,38 +300,40 @@ export default function AddProductPage({ user }) {
 
     } catch (err) {
       console.error(err);
-      setError(err.message ?? "Submission failed");
+      setError(err.message || "Submission failed");
     } finally {
       setLoading(false);
     }
   };
 
-  /* ────────────────────────────────────────────────────────────
-     Render
-  ──────────────────────────────────────────────────────────── */
+  /* ─────────────────────────────────────────────
+     RENDER
+  ───────────────────────────────────────────── */
 
   return (
     <div className="add-product-container">
       <ProductComponents
         form={form}
-        attributes={form.attributes}
-        images={images}
         categories={categories}
         promotionPlans={promotionPlans}
         selectedPlan={selectedPlan}
-        paymentData={paymentData}
+        setSelectedPlan={setSelectedPlan}
+        images={images}
+        setImages={setImages}
+        locationState={locationState}
+        setLocationState={setLocationState}
+        city={city}
+        setCity={setCity}
+        handleSubmit={handleSubmit}
         loading={loading}
         error={error}
         success={success}
         agreedToTerms={agreedToTerms}
-        setSelectedPlan={setSelectedPlan}
-        handleSubmit={handleSubmit}
+        setAgreedToTerms={setAgreedToTerms}
         displayPrice={displayPrice}
-        formatLabel={formatLabel}
         onlyNumbers={onlyNumbers}
         onlyDigits={onlyDigits}
         MAX_IMAGES={MAX_IMAGES}
-        INITIAL_FORM={INITIAL_FORM}
       />
     </div>
   );
