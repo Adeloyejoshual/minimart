@@ -111,7 +111,7 @@ export default function AddProductPage({ user }) {
   // ── State ──────────────────────────────────────────────────────────────────
   const [form,              setForm]              = useState(INITIAL_FORM);
   const [categories,        setCategories]        = useState([]);
-  const [promotionPlans,    setPromotionPlans]    = useState([]);  // ← FROM DB
+  const [promotionPlans,    setPromotionPlans]    = useState([]);
   const [plansLoading,      setPlansLoading]      = useState(true);
   const [locationState,     setLocationState]     = useState("");
   const [city,              setCity]              = useState("");
@@ -125,7 +125,9 @@ export default function AddProductPage({ user }) {
   const [detectingLocation, setDetectingLocation] = useState(false);
   const [detectedCoords,    setDetectedCoords]    = useState(null);
 
+  // Hard submit lock — survives re-renders unlike `loading` state
   const isSubmittingRef = useRef(false);
+  // Always-current images ref — needed for safe cleanup on unmount
   const imagesRef       = useRef([]);
 
   // ── Derived ────────────────────────────────────────────────────────────────
@@ -162,9 +164,8 @@ export default function AddProductPage({ user }) {
       });
   }, [showError]);
 
-  // ── Load promotion plans FROM DATABASE ────────────────────────────────────
-  // This is the single source of truth.
-  // The DB returns id::text so BigInt IDs are safe strings.
+  // ── Load promotion plans from DB ───────────────────────────────────────────
+  // DB returns id::text so BigInt IDs are safe strings — no precision loss.
   useEffect(() => {
     setPlansLoading(true);
     apiFetch(`${API_BASE}/payment/plans`)
@@ -184,33 +185,78 @@ export default function AddProductPage({ user }) {
   }, [showError]);
 
   // ── Resume or clear stale payment session ─────────────────────────────────
+  // On mount, check if a payment session was left incomplete.
+  // If it is less than 30 minutes old, offer to resume it.
+  // If it is older than 30 minutes, verify its status with the
+  // backend so stuck products get reverted to draft automatically.
   useEffect(() => {
-    try {
-      const saved = localStorage.getItem(STORAGE_PAYMENT);
-      if (!saved) return;
-      const session = JSON.parse(saved);
-      if (Date.now() - session.createdAt > 30 * 60 * 1000) {
+    const checkPendingPayment = async () => {
+      try {
+        const saved = localStorage.getItem(STORAGE_PAYMENT);
+        if (!saved) return;
+
+        const session = JSON.parse(saved);
+        const ageMs   = Date.now() - (session.createdAt ?? 0);
+
+        // Session is fresh — offer to resume
+        if (ageMs <= 30 * 60 * 1000) {
+          setPaymentData(session);
+          showSuccess("💳 Incomplete payment found — tap 'Complete Payment' to finish");
+          return;
+        }
+
+        // Session is stale — verify with backend to clean up the DB
+        // so the product does not stay stuck as pending_payment forever.
+        if (session.reference) {
+          const token = getToken();
+          if (token) {
+            try {
+              const result = await apiFetch(`${API_BASE}/payment/verify`, {
+                method:  "POST",
+                headers: {
+                  "Content-Type": "application/json",
+                  Authorization:  `Bearer ${token}`,
+                },
+                body: JSON.stringify({ reference: session.reference }),
+              });
+
+              if (result.status === "success") {
+                showSuccess("✅ Your previous payment was confirmed — product is live!");
+              } else {
+                // cancelled or failed — backend already reverted the product to draft
+                showError(
+                  result.message ??
+                  "Your previous payment did not complete — listing saved as draft"
+                );
+              }
+            } catch {
+              // Verify failed — not critical, just clear the stale session
+            }
+          }
+        }
+
+        // Clear stale session regardless of verify outcome
         localStorage.removeItem(STORAGE_PAYMENT);
-        return;
+        setPaymentData(null);
+
+      } catch {
+        localStorage.removeItem(STORAGE_PAYMENT);
       }
-      setPaymentData(session);
-      showSuccess("💳 Incomplete payment found — tap 'Complete Payment' to finish");
-    } catch {
-      localStorage.removeItem(STORAGE_PAYMENT);
-    }
+    };
+
+    checkPendingPayment();
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   // ── Restore draft ──────────────────────────────────────────────────────────
-  // We restore the selected plan AFTER promotionPlans loads from the DB
-  // so we can match by the real DB id string.
+  // Wait until plans are loaded from DB so we can match the saved plan ID.
   useEffect(() => {
-    if (plansLoading) return; // wait until plans are loaded from DB
+    if (plansLoading) return;
 
     try {
       const raw = localStorage.getItem(STORAGE_DRAFT);
       if (!raw) return;
       const draft = JSON.parse(raw);
-      const f = draft.form ?? {};
+      const f     = draft.form ?? {};
 
       setForm({
         title:          f.title          ?? "",
@@ -243,7 +289,7 @@ export default function AddProductPage({ user }) {
       setLocationState(draft.locationState ?? "");
       setCity(draft.city ?? "");
 
-      // Match saved plan ID against the freshly loaded DB plans
+      // Match saved plan ID against freshly loaded DB plans
       if (draft.selectedPlan) {
         const matched = promotionPlans.find(
           (p) => String(p.id) === String(draft.selectedPlan)
@@ -267,9 +313,9 @@ export default function AddProductPage({ user }) {
           locationState,
           city,
           imagesCount:  images.length,
-          selectedPlan: selectedPlan?.id ?? null, // save the DB string id
+          selectedPlan: selectedPlan?.id ?? null,
         }));
-      } catch { /* storage full */ }
+      } catch { /* storage full — ignore */ }
     }, 1000);
     return () => clearTimeout(t);
   }, [form, locationState, city, images.length, selectedPlan, STORAGE_DRAFT]);
@@ -278,7 +324,9 @@ export default function AddProductPage({ user }) {
   useEffect(() => { imagesRef.current = images; }, [images]);
   useEffect(() => {
     return () => {
-      imagesRef.current.forEach((img) => img.preview && URL.revokeObjectURL(img.preview));
+      imagesRef.current.forEach(
+        (img) => img.preview && URL.revokeObjectURL(img.preview)
+      );
     };
   }, []);
 
@@ -297,11 +345,17 @@ export default function AddProductPage({ user }) {
   }, []);
 
   const updateContact = useCallback((key, value) => {
-    setForm((prev) => ({ ...prev, contact: { ...prev.contact, [key]: value } }));
+    setForm((prev) => ({
+      ...prev,
+      contact: { ...prev.contact, [key]: value },
+    }));
   }, []);
 
   const updateDelivery = useCallback((key, value) => {
-    setForm((prev) => ({ ...prev, delivery: { ...prev.delivery, [key]: value } }));
+    setForm((prev) => ({
+      ...prev,
+      delivery: { ...prev.delivery, [key]: value },
+    }));
   }, []);
 
   const updateDeliveryDuration = useCallback((key, value) => {
@@ -335,6 +389,37 @@ export default function AddProductPage({ user }) {
     window.open(paymentData.authUrl, "_blank");
   }, [paymentData]);
 
+  // ── Cancel pending payment ─────────────────────────────────────────────────
+  // Called when the user explicitly dismisses the "Complete Payment" banner.
+  // Calls /verify so the backend reverts the product from pending_payment → draft.
+  const cancelPendingPayment = useCallback(async () => {
+    if (!paymentData?.reference) {
+      localStorage.removeItem(STORAGE_PAYMENT);
+      setPaymentData(null);
+      return;
+    }
+
+    try {
+      const token = getToken();
+      if (token) {
+        await apiFetch(`${API_BASE}/payment/verify`, {
+          method:  "POST",
+          headers: {
+            "Content-Type": "application/json",
+            Authorization:  `Bearer ${token}`,
+          },
+          body: JSON.stringify({ reference: paymentData.reference }),
+        });
+      }
+    } catch {
+      // Non-critical — clear locally regardless
+    } finally {
+      localStorage.removeItem(STORAGE_PAYMENT);
+      setPaymentData(null);
+      showSuccess("Payment cancelled — listing saved as draft");
+    }
+  }, [paymentData, showSuccess]);
+
   // ── Clear draft ────────────────────────────────────────────────────────────
   const clearDraft = useCallback(() => {
     setForm(INITIAL_FORM);
@@ -367,19 +452,22 @@ export default function AddProductPage({ user }) {
           const data = await res.json();
           const addr = data.address ?? {};
           const rawState = addr.state ?? addr.region ?? "";
-          const rawCity  = addr.city ?? addr.town ?? addr.village ?? addr.suburb ?? addr.county ?? "";
+          const rawCity  = addr.city ?? addr.town ?? addr.village
+                        ?? addr.suburb ?? addr.county ?? "";
 
           if (rawState) {
             const matched = Object.keys(locationsByState).find(
-              (s) => s.toLowerCase().includes(rawState.toLowerCase()) ||
-                     rawState.toLowerCase().includes(s.toLowerCase())
+              (s) =>
+                s.toLowerCase().includes(rawState.toLowerCase()) ||
+                rawState.toLowerCase().includes(s.toLowerCase())
             );
             if (matched) {
               setLocationState(matched);
               const cityList    = locationsByState[matched] ?? [];
               const matchedCity = cityList.find(
-                (c) => c.toLowerCase().includes(rawCity.toLowerCase()) ||
-                       rawCity.toLowerCase().includes(c.toLowerCase())
+                (c) =>
+                  c.toLowerCase().includes(rawCity.toLowerCase()) ||
+                  rawCity.toLowerCase().includes(c.toLowerCase())
               );
               if (matchedCity) setCity(matchedCity);
             }
@@ -425,8 +513,9 @@ export default function AddProductPage({ user }) {
     try {
       const compressed = await Promise.all(
         validFiles.map((f) =>
-          imageCompression(f, { maxSizeMB: 1, maxWidthOrHeight: 1280, useWebWorker: true })
-            .catch(() => f)
+          imageCompression(f, {
+            maxSizeMB: 1, maxWidthOrHeight: 1280, useWebWorker: true,
+          }).catch(() => f)
         )
       );
       const newImages = compressed.map((file) => ({
@@ -451,22 +540,24 @@ export default function AddProductPage({ user }) {
 
   // ── Validation ─────────────────────────────────────────────────────────────
   const validateForm = useCallback(() => {
-    if (!form.title?.trim())                                           return "Title required";
-    if (!form.description?.trim())                                     return "Description required";
-    if (!form.price || Number(form.price) <= 0)                        return "Enter a valid price";
-    if (!form.category_id)                                             return "Category required";
-    if (!form.contact?.email?.includes("@"))                           return "Enter a valid email";
-    if (!form.contact?.phone || form.contact.phone.length < 10)        return "Phone must be at least 10 digits";
-    if (!form.contact?.whatsapp || form.contact.whatsapp.length < 10)  return "WhatsApp number required";
-    if (!images.length)                                                return "At least one image required";
-    if (!locationState || !city)                                       return "Select your state and city";
-    if (!agreedToTerms)                                                return "Please accept the Terms & Conditions";
+    if (!form.title?.trim())                                          return "Title required";
+    if (!form.description?.trim())                                    return "Description required";
+    if (!form.price || Number(form.price) <= 0)                       return "Enter a valid price";
+    if (!form.category_id)                                            return "Category required";
+    if (!form.contact?.email?.includes("@"))                          return "Enter a valid email";
+    if (!form.contact?.phone || form.contact.phone.length < 10)       return "Phone must be at least 10 digits";
+    if (!form.contact?.whatsapp || form.contact.whatsapp.length < 10) return "WhatsApp number required";
+    if (!images.length)                                               return "At least one image required";
+    if (!locationState || !city)                                      return "Select your state and city";
+    if (!agreedToTerms)                                               return "Please accept the Terms & Conditions";
 
     if (form.delivery.available) {
       const from = Number(form.delivery.duration.from);
       const to   = Number(form.delivery.duration.to);
-      if (!Number.isFinite(from) || !Number.isFinite(to)) return "Enter valid delivery days";
-      if (to < from)                                       return "Delivery end must be after start";
+      if (!Number.isFinite(from) || !Number.isFinite(to))
+        return "Enter valid delivery days";
+      if (to < from)
+        return "Delivery end must be after start";
       if (!form.delivery.fee || Number(form.delivery.fee) <= 0)
         return "Enter a valid delivery fee";
     }
@@ -505,14 +596,15 @@ export default function AddProductPage({ user }) {
         );
       }
 
-      // The id coming from the DB is already a safe string (id::text in SQL)
+      // id is already a safe string from DB (id::text in SQL)
       const planId     = String(finalPlan.id);
       const isFreePlan = Number(finalPlan.price) === 0;
 
-      // ── Step 1: Create product ─────────────────────────────────────────
+      // ── Step 1: Create product ───────────────────────────────────────────
       {
         const token = getToken();
-        if (!token) throw new ApiError("Authentication required — please log in", 401);
+        if (!token)
+          throw new ApiError("Authentication required — please log in", 401);
 
         const fd = new FormData();
         fd.append("title",          form.title.trim());
@@ -545,34 +637,42 @@ export default function AddProductPage({ user }) {
         fd.append("seller_name",     user?.store_name || user?.name || "Minimart");
         images.forEach((img) => fd.append("images", img.file));
 
-        const data = await multipartPost(`${API_BASE}/addproduct/products`, fd, token);
-        if (!data.product?.id) throw new ApiError("Product creation failed", 500);
+        const data = await multipartPost(
+          `${API_BASE}/addproduct/products`, fd, token
+        );
+        if (!data.product?.id)
+          throw new ApiError("Product creation failed", 500);
         product = data.product;
       }
 
-      // ── Step 2a: Free plan — activate immediately ──────────────────────
+      // ── Step 2a: Free plan — activate immediately ────────────────────────
       if (isFreePlan) {
         const token = getToken();
-        await apiFetch(`${API_BASE}/addproduct/products/${product.id}/activate`, {
-          method:  "POST",
-          headers: {
-            "Content-Type": "application/json",
-            Authorization:  `Bearer ${token}`,
-          },
-          body: JSON.stringify({ promotion_id: null }),
-        });
+        await apiFetch(
+          `${API_BASE}/addproduct/products/${product.id}/activate`,
+          {
+            method:  "POST",
+            headers: {
+              "Content-Type": "application/json",
+              Authorization:  `Bearer ${token}`,
+            },
+            body: JSON.stringify({ promotion_id: null }),
+          }
+        );
         clearDraft();
         showSuccess("✅ Product live! Redirecting…");
         setTimeout(() => { window.location.href = "/"; }, 1500);
         return;
       }
 
-      // ── Step 2b: Paid plan — initiate Paystack ─────────────────────────
+      // ── Step 2b: Paid plan — initiate Paystack ───────────────────────────
       {
         const token        = getToken();
         const rawPrice     = Number(finalPlan.price);
         const discount     = Number(finalPlan.discount_percent ?? 0);
-        const effectiveAmt = Number((rawPrice * (1 - discount / 100)).toFixed(2));
+        const effectiveAmt = Number(
+          (rawPrice * (1 - discount / 100)).toFixed(2)
+        );
 
         const data = await apiFetch(`${API_BASE}/payment/initiate`, {
           method:  "POST",
@@ -583,7 +683,7 @@ export default function AddProductPage({ user }) {
           body: JSON.stringify({
             email:      form.contact.email,
             amount:     effectiveAmt,
-            plan_id:    planId,    // ← Safe DB string ID, e.g. "1176943648836550657"
+            plan_id:    planId,
             product_id: product.id,
           }),
         });
@@ -603,13 +703,17 @@ export default function AddProductPage({ user }) {
         localStorage.setItem(STORAGE_PAYMENT, JSON.stringify(session));
         setPaymentData(session);
         showSuccess("💳 Redirecting to payment…");
+
+        // Open Paystack in a new tab.
+        // When the user finishes (success or cancel), Paystack redirects
+        // them to /payment/success which calls our /verify endpoint.
         window.open(data.authorization_url, "_blank");
       }
 
     } catch (err) {
       console.error("Submit error:", err);
 
-      // Best-effort cleanup of orphaned draft product
+      // Best-effort cleanup of orphaned draft product if payment init failed
       if (product?.id) {
         const token = getToken();
         if (token) {
@@ -673,8 +777,8 @@ export default function AddProductPage({ user }) {
         agreedToTerms={agreedToTerms}
         TermsCheckbox={TermsCheckbox}
         INITIAL_FORM={INITIAL_FORM}
-        promotionPlans={promotionPlans}   // ← from DB, not static file
-        plansLoading={plansLoading}       // ← so UI can show a spinner
+        promotionPlans={promotionPlans}
+        plansLoading={plansLoading}
         MAX_IMAGES={MAX_IMAGES}
         updateForm={updateForm}
         updateAttribute={updateAttribute}
@@ -691,6 +795,7 @@ export default function AddProductPage({ user }) {
         clearDraft={clearDraft}
         detectLocation={detectLocation}
         resumePayment={resumePayment}
+        cancelPendingPayment={cancelPendingPayment}
         displayPrice={displayPrice}
         formatLabel={formatLabel}
         onlyNumbers={onlyNumbers}
