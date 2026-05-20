@@ -29,6 +29,40 @@ function getSelectedCategory(categories, id) {
 
 const toArray = (v) => (Array.isArray(v) ? v : []);
 
+/* ─────────────────────────────────────────────
+   Progress Indicator
+───────────────────────────────────────────── */
+
+function ProgressIndicator({ currentStep }) {
+  const steps = ["Basic Info", "Details", "Images", "Promotion"];
+
+  return (
+    <div className="progress-wrapper">
+      {steps.map((label, index) => {
+        const stepNumber = index + 1;
+        const isActive = stepNumber === currentStep;
+        const isCompleted = stepNumber < currentStep;
+
+        return (
+          <div
+            key={label}
+            className={`progress-step ${isActive ? "active" : ""} ${isCompleted ? "completed" : ""}`}
+          >
+            <div className="step-circle">
+              {isCompleted ? "✓" : stepNumber}
+            </div>
+            <span className="step-label">{label}</span>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+/* ─────────────────────────────────────────────
+   Main Component
+───────────────────────────────────────────── */
+
 export default function ProductComponents({
   form,
   attributes,
@@ -70,11 +104,8 @@ export default function ProductComponents({
   onlyNumbers,
   onlyDigits,
   INITIAL_FORM,
+  currentStep = 1,
 }) {
-
-  /* ─────────────────────────────────────────────
-     Category
-  ───────────────────────────────────────────── */
 
   const categoryOptions = useMemo(() => {
     if (!Array.isArray(categories)) return [];
@@ -103,12 +134,6 @@ export default function ProductComponents({
       .filter((f) => f !== "brand" && f !== "model");
   }, [activeCategory, options]);
 
-  const modelOptions = useMemo(() => {
-    if (!attributes?.brand) return [];
-    const key = String(attributes.brand).toLowerCase();
-    return normalizeOptions(options?.models?.[key] ?? []);
-  }, [attributes?.brand, options]);
-
   const optionsMap = useMemo(() => ({
     brand: normalizeOptions(options?.brands),
     color: normalizeOptions(options?.colors),
@@ -131,37 +156,28 @@ export default function ProductComponents({
       : [],
   }), [options]);
 
+  const currentFeatures = toArray(attributes?.features);
+
   const isFreePlan =
     !selectedPlan ||
     Number(selectedPlan?.effective_price ?? selectedPlan?.price ?? 0) === 0;
 
-  const currentFeatures = toArray(attributes?.features);
-
-  /* ─────────────────────────────────────────────
-     Render
-  ───────────────────────────────────────────── */
-
   return (
     <>
       {/* HEADER */}
-      <div style={{
-        position: "sticky",
-        top: 0,
-        zIndex: 100,
-        backgroundColor: "#fff",
-        boxShadow: "0 1px 4px rgba(0,0,0,.1)",
-      }}>
+      <div className="sticky-header">
         <AddProductHeader
           title="Add Product"
           onClearDraft={clearDraft}
         />
       </div>
 
+      <ProgressIndicator currentStep={currentStep} />
+
       {error && <div className="form-error">⚠ {error}</div>}
       {success && <div className="form-success">✅ {success}</div>}
 
-      {/* ───────────────────────── BASIC INFO ───────────────────────── */}
-
+      {/* BASIC INFO */}
       <section className="section form-card">
         <h3 className="section-title">Basic Information</h3>
 
@@ -193,8 +209,7 @@ export default function ProductComponents({
         />
       </section>
 
-      {/* ───────────────────────── PRODUCT DETAILS ───────────────────────── */}
-
+      {/* PRODUCT DETAILS */}
       <section className="section form-card">
         <h3 className="section-title">Product Details</h3>
 
@@ -239,68 +254,24 @@ export default function ProductComponents({
             />
           );
         })}
-
-        {optionsMap.features.length > 0 && (
-          <div className="checkbox-grid-inline">
-            {optionsMap.features.map((feature) => (
-              <label key={feature}>
-                <input
-                  type="checkbox"
-                  checked={currentFeatures.includes(feature)}
-                  onChange={() =>
-                    toggleFeature(feature)
-                  }
-                />
-                {formatLabel(feature)}
-              </label>
-            ))}
-          </div>
-        )}
       </section>
 
-      {/* ───────────────────────── CONTACT ───────────────────────── */}
-
+      {/* IMAGES */}
       <section className="section form-card">
-        <h3 className="section-title">Contact</h3>
-
-        <input
-          type="email"
-          placeholder="Email"
-          value={form.contact.email}
-          onChange={(e) =>
-            updateContact("email", e.target.value)
-          }
-        />
-
-        <input
-          type="tel"
-          placeholder="Phone"
-          value={form.contact.phone}
-          onChange={(e) =>
-            updateContact("phone", onlyDigits(e.target.value))
-          }
-        />
-
-        <input
-          type="tel"
-          placeholder="WhatsApp"
-          value={form.contact.whatsapp}
-          onChange={(e) =>
-            updateContact("whatsapp", onlyDigits(e.target.value))
-          }
-        />
-      </section>
-
-      {/* ───────────────────────── IMAGES ───────────────────────── */}
-
-      <section className="section form-card">
-        <h3 className="section-title">Images</h3>
+        <h3 className="section-title">Product Images *</h3>
 
         <div className="preview-grid-modern">
           {images.map((img) => (
             <div key={img.id}>
               <img src={img.preview} alt="" />
-              <button onClick={() => removeImage(img.id)}>✕</button>
+              <button
+                type="button"
+                onClick={() =>
+                  removeImage(img.id)
+                }
+              >
+                ✕
+              </button>
             </div>
           ))}
 
@@ -318,8 +289,7 @@ export default function ProductComponents({
         </div>
       </section>
 
-      {/* ───────────────────────── PROMOTION ───────────────────────── */}
-
+      {/* PROMOTION */}
       <section className="section form-card">
         <h3 className="section-title">Promotion Plan</h3>
 
@@ -331,12 +301,7 @@ export default function ProductComponents({
             return (
               <div
                 key={plan.id}
-                className={
-                  "plan-card" +
-                  (selectedPlan?.id === plan.id
-                    ? " selected"
-                    : "")
-                }
+                className={`plan-card ${selectedPlan?.id === plan.id ? "selected" : ""}`}
                 onClick={() => setSelectedPlan(plan)}
               >
                 <strong>{plan.name}</strong>
@@ -351,13 +316,13 @@ export default function ProductComponents({
         </div>
       </section>
 
-      {/* ───────────────────────── SUBMIT ───────────────────────── */}
-
+      {/* SUBMIT */}
       <div className="button-section">
         {TermsCheckbox}
 
         <button
           disabled={loading || !agreedToTerms}
+          className="primary-btn"
           onClick={handleSubmit}
         >
           {loading
@@ -369,6 +334,7 @@ export default function ProductComponents({
 
         {paymentData && (
           <button
+            className="outline-btn"
             onClick={() =>
               window.open(paymentData.authUrl, "_blank")
             }
