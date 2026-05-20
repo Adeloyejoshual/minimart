@@ -1,10 +1,12 @@
+// FRONTEND
+import { promotionPlans } from "../config/promotions.js";
+
 import React, {
   useEffect, useMemo, useState, useCallback, useRef,
 } from "react";
 import { Link } from "react-router-dom";
 import ProductComponents    from "./product/components.jsx";
 import { locationsByState } from "../config/locationsByState.js";
-import { promotionPlans }   from "../config/promotions.js";
 import { apiFetch, ApiError } from "../utils/apiFetch.js";
 import imageCompression      from "browser-image-compression";
 import "../styles/AddProduct.css";
@@ -222,9 +224,11 @@ export default function AddProductPage({ user }) {
       });
       setLocationState(draft.locationState ?? "");
       setCity(draft.city ?? "");
-      setSelectedPlan(
-        promotionPlans.find((p) => p.id === draft.selectedPlan) ?? null
-      );
+      
+      // Look up the exact plan from our static promotionPlans file based on saved ID
+      const savedPlan = promotionPlans.find((p) => String(p.id) === String(draft.selectedPlan));
+      setSelectedPlan(savedPlan ?? null);
+      
       showSuccess("Draft restored");
     } catch {
       showError("Draft restore failed");
@@ -457,7 +461,13 @@ export default function AddProductPage({ user }) {
         promotionPlans.find((p) => Number(p.price) === 0) ??
         null;
 
-      if (!finalPlan) throw new ApiError("No promotion plan available", 400);
+      if (!finalPlan) throw new ApiError("No promotion plan available in config", 400);
+
+      // Force integer parsing so it passes backend's `cleanInt` verification
+      const planIdInt = parseInt(finalPlan.id, 10);
+      if (Number.isNaN(planIdInt)) {
+        throw new ApiError("Invalid Plan ID in config. IDs must be numeric.", 400);
+      }
 
       const isFreePlan = Number(finalPlan.price) === 0;
 
@@ -490,10 +500,7 @@ export default function AddProductPage({ user }) {
         fd.append("phone",           form.contact.phone         ?? "");
         fd.append("whatsapp",        form.contact.whatsapp      ?? "");
         fd.append("whatsapp_link",   form.contact.whatsapp_link ?? "");
-        // Idempotency key — if the network drops and the user retries, the
-        // server returns the already-created product instead of a duplicate row.
         fd.append("idempotency_key", crypto.randomUUID());
-        // Seller name — used by Cloudinary watermark transformation.
         fd.append("seller_name",     user?.store_name || user?.name || "Minimart");
         images.forEach((img) => fd.append("images", img.file));
 
@@ -508,7 +515,6 @@ export default function AddProductPage({ user }) {
         await apiFetch(`${API_BASE}/addproduct/products/${product.id}/activate`, {
           method:  "POST",
           headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
-          // null = free listing, no DB plan row needed
           body: JSON.stringify({ promotion_id: null }),
         });
         clearDraft();
@@ -522,7 +528,6 @@ export default function AddProductPage({ user }) {
         const token = getToken();
         const rawPrice     = Number(finalPlan.price);
         const discount     = Number(finalPlan.discount ?? 0);
-        // toFixed(2) matches DECIMAL(10,2) DB precision exactly.
         const effectiveAmt = Number((rawPrice * (1 - discount / 100)).toFixed(2));
 
         const data = await apiFetch(`${API_BASE}/payment/initiate`, {
@@ -531,7 +536,7 @@ export default function AddProductPage({ user }) {
           body: JSON.stringify({
             email:      form.contact.email,
             amount:     effectiveAmt,
-            plan_id:    finalPlan.id,
+            plan_id:    planIdInt, // CRITICAL: This is now safely parsed as an Integer
             product_id: product.id,
           }),
         });
@@ -542,7 +547,7 @@ export default function AddProductPage({ user }) {
         const session = {
           reference: data.reference,
           authUrl:   data.authorization_url,
-          planId:    finalPlan.id,
+          planId:    planIdInt,
           productId: product.id,
           email:     form.contact.email,
           amount:    effectiveAmt,
@@ -557,7 +562,6 @@ export default function AddProductPage({ user }) {
     } catch (err) {
       console.error("Submit error:", err);
 
-      // Best-effort: clean up draft product if payment init failed
       if (product?.id) {
         const token = getToken();
         if (token) {
@@ -575,7 +579,7 @@ export default function AddProductPage({ user }) {
   }, [
     loading, validateForm, selectedPlan, form, attributes, images,
     locationState, city, detectedCoords, clearDraft, showError, showSuccess,
-    STORAGE_DRAFT,
+    STORAGE_DRAFT, user
   ]);
 
   // ── Terms checkbox ─────────────────────────────────────────────────────────
