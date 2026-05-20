@@ -2,7 +2,7 @@ import { useMemo } from "react";
 import DropdownModal    from "../../components/DropdownModal.jsx";
 import AddProductHeader from "../../components/AddProductHeader.jsx";
 import { categoryFields } from "../../config/categoryFields.js";
-// promotions.js import removed — plans are received via props from AddProductPage
+import { promotionPlans } from "../../config/promotions.js";
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -34,7 +34,6 @@ export default function ProductComponents({
   states, cities, options, selectedCategory,
   agreedToTerms, TermsCheckbox, detectedCoords, detectingLocation,
   MAX_IMAGES = 6,
-  promotionPlans = [],                                  // ✅ received via props
   updateForm, updateAttribute, updateContact, updateDelivery,
   updateDeliveryDuration, toggleFeature, setState, setCity,
   setSelectedPlan, handleImages, removeImage, handleSubmit,
@@ -91,11 +90,7 @@ export default function ProductComponents({
     features:         Array.isArray(options?.features) ? options.features : [],
   }), [options]);
 
-  // ✅ Discount-safe free plan detection
-  const isFreePlan =
-    !selectedPlan ||
-    Number(selectedPlan?.effective_price ?? selectedPlan?.price ?? 0) === 0;
-
+  const isFreePlan     = !selectedPlan || Number(selectedPlan?.price ?? 0) === 0;
   const currentFeatures = toArray(attributes?.features);
 
   return (
@@ -434,36 +429,22 @@ export default function ProductComponents({
       <section className="section form-card">
         <h3 className="section-title">Promotion Plan</h3>
         <div className="plans-grid">
-          {promotionPlans.map((plan) => {
-            // ✅ Discount-safe effective price
-            const effective = Number(plan.effective_price ?? plan.price ?? 0);
-            return (
-              <div
-                key={plan.id}
-                className={"plan-card" + (selectedPlan?.id === plan.id ? " selected" : "")}
-                onClick={() => setSelectedPlan(plan)}
-              >
-                <div className="plan-header">
-                  <strong>{plan.name}</strong>
-                  {/* ✅ Show original + discounted price when a discount applies */}
-                  <span className="plan-price">
-                    {effective === 0 ? (
-                      "Free"
-                    ) : plan.discount_percent > 0 ? (
-                      <>
-                        <span className="old-price">&#8358;{displayPrice(plan.price)}</span>
-                        <span className="discounted-price">&#8358;{displayPrice(effective)}</span>
-                      </>
-                    ) : (
-                      `₦${displayPrice(effective)}`
-                    )}
-                  </span>
-                </div>
-                <div className="plan-duration">{plan.duration || "Always active"}</div>
-                {plan.description && <small>{plan.description}</small>}
+          {promotionPlans.map((plan) => (
+            <div
+              key={plan.id}
+              className={"plan-card" + (selectedPlan?.id === plan.id ? " selected" : "")}
+              onClick={() => setSelectedPlan(plan)}
+            >
+              <div className="plan-header">
+                <strong>{plan.name}</strong>
+                <span className="plan-price">
+                  {Number(plan.price) === 0 ? "Free" : "&#8358;" + displayPrice(plan.price)}
+                </span>
               </div>
-            );
-          })}
+              <div className="plan-duration">{plan.duration || "Always active"}</div>
+              {plan.description && <small>{plan.description}</small>}
+            </div>
+          ))}
         </div>
       </section>
 
