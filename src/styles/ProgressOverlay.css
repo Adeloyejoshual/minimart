@@ -1,0 +1,172 @@
+/* ── Overlay ────────────────────────────────────────────────────────── */
+.progress-overlay {
+  position:   fixed;
+  inset:      0;
+  z-index:    9999;
+  display:    flex;
+  align-items:     center;
+  justify-content: center;
+}
+
+.progress-overlay-backdrop {
+  position:   absolute;
+  inset:      0;
+  background: rgba(0, 0, 0, 0.45);
+  backdrop-filter: blur(6px);
+  -webkit-backdrop-filter: blur(6px);
+}
+
+/* ── Card ────────────────────────────────────────────────────────────── */
+.progress-overlay-card {
+  position:      relative;
+  background:    #fff;
+  border-radius: 20px;
+  padding:       2rem 2.5rem;
+  width:         min(90vw, 360px);
+  text-align:    center;
+  box-shadow:    0 20px 60px rgba(0, 0, 0, 0.25);
+  animation:     progressCardIn 0.35s ease-out;
+}
+
+@keyframes progressCardIn {
+  from {
+    opacity:   0;
+    transform: scale(0.9) translateY(20px);
+  }
+  to {
+    opacity:   1;
+    transform: scale(1) translateY(0);
+  }
+}
+
+/* ── Animated icon ──────────────────────────────────────────────────── */
+.progress-overlay-icon {
+  font-size:  3rem;
+  margin-bottom: 0.75rem;
+  animation:  progressIconBounce 1.2s ease-in-out infinite;
+}
+
+@keyframes progressIconBounce {
+  0%, 100% { transform: translateY(0); }
+  50%      { transform: translateY(-8px); }
+}
+
+/* ── Label ──────────────────────────────────────────────────────────── */
+.progress-overlay-label {
+  font-size:     1.05rem;
+  font-weight:   600;
+  color:         #1e293b;
+  margin:        0 0 1rem;
+  animation:     progressFadeSwap 0.4s ease;
+}
+
+@keyframes progressFadeSwap {
+  from { opacity: 0; transform: translateY(6px); }
+  to   { opacity: 1; transform: translateY(0);   }
+}
+
+/* ── Progress bar track ─────────────────────────────────────────────── */
+.progress-overlay-bar-track {
+  width:         100%;
+  height:        10px;
+  background:    #e2e8f0;
+  border-radius: 99px;
+  overflow:      hidden;
+  margin-bottom: 0.5rem;
+}
+
+.progress-overlay-bar-fill {
+  height:        100%;
+  background:    linear-gradient(90deg, #4f46e5, #7c3aed, #a855f7);
+  border-radius: 99px;
+  transition:    width 0.3s ease;
+  position:      relative;
+}
+
+/* Shimmer effect on the fill */
+.progress-overlay-bar-fill::after {
+  content:    "";
+  position:   absolute;
+  inset:      0;
+  background: linear-gradient(
+    90deg,
+    transparent 0%,
+    rgba(255, 255, 255, 0.35) 50%,
+    transparent 100%
+  );
+  animation:  progressShimmer 1.5s ease-in-out infinite;
+}
+
+@keyframes progressShimmer {
+  from { transform: translateX(-100%); }
+  to   { transform: translateX(100%);  }
+}
+
+/* ── Percentage ─────────────────────────────────────────────────────── */
+.progress-overlay-percent {
+  font-size:   0.9rem;
+  font-weight: 700;
+  color:       #4f46e5;
+  display:     block;
+  margin-bottom: 1rem;
+}
+
+/* ── Step dots ──────────────────────────────────────────────────────── */
+.progress-overlay-steps {
+  display:         flex;
+  justify-content: center;
+  gap:             0.5rem;
+  margin-bottom:   1rem;
+}
+
+.progress-step-dot {
+  width:         28px;
+  height:        28px;
+  border-radius: 50%;
+  border:        2px solid #e2e8f0;
+  display:       flex;
+  align-items:   center;
+  justify-content: center;
+  font-size:     0.7rem;
+  font-weight:   600;
+  color:         #94a3b8;
+  background:    #f8fafc;
+  transition:    all 0.3s ease;
+}
+
+.progress-step-dot.active {
+  border-color: #4f46e5;
+  background:   #eef2ff;
+  color:        #4f46e5;
+  transform:    scale(1.15);
+  box-shadow:   0 0 0 4px rgba(79, 70, 229, 0.15);
+}
+
+.progress-step-dot.done {
+  border-color: #22c55e;
+  background:   #22c55e;
+  color:        #fff;
+}
+
+/* ── Hint ───────────────────────────────────────────────────────────── */
+.progress-overlay-hint {
+  font-size: 0.8rem;
+  color:     #94a3b8;
+  margin:    0;
+}
+
+/* ── Responsive ─────────────────────────────────────────────────────── */
+@media (max-width: 400px) {
+  .progress-overlay-card {
+    padding:       1.5rem 1.25rem;
+    border-radius: 16px;
+  }
+  .progress-overlay-icon {
+    font-size: 2.5rem;
+  }
+  .progress-step-dot {
+    width:  24px;
+    height: 24px;
+    font-size: 0.6rem;
+  }
+}
