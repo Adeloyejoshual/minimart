@@ -1,7 +1,6 @@
 import express from "express";
 import multer from "multer";
 import streamifier from "streamifier";
-import fetch from "node-fetch";
 import { v2 as cloudinary } from "cloudinary";
 import { pool } from "../config/db.js";
 import authenticate from "../middleware/auth.js";
@@ -76,7 +75,7 @@ const generateUniqueSlug = async (client, base) => {
     [`${base}%`]
   );
 
-  const existing = new Set(rows.map(r => r.slug));
+  const existing = new Set(rows.map((r) => r.slug));
   let counter = 1;
   let slug = `${base}-${counter}`;
 
@@ -123,7 +122,6 @@ router.post(
   authenticate,
   upload.array("images", 6),
   async (req, res) => {
-
     const client = await pool.connect();
 
     try {
@@ -131,7 +129,18 @@ router.post(
       const title     = cleanText(req.body.title);
       const price     = Number(req.body.price);
 
-      if (!title)  return res.status(400).json({ message: "Title required" });
+      // ── Read status from frontend so paid plans create as draft ──
+      // Frontend sends "active" for free plans and "draft" for paid plans.
+      const rawStatus  = cleanText(req.body.status) ?? "draft";
+      const status     = ["active", "draft", "pending_payment"].includes(rawStatus)
+        ? rawStatus
+        : "draft";
+
+      // is_active should only be true for free/active listings
+      const is_active  = status === "active";
+
+      if (!title)
+        return res.status(400).json({ message: "Title required" });
       if (!price || price <= 0)
         return res.status(400).json({ message: "Invalid price" });
 
@@ -154,11 +163,16 @@ router.post(
         });
       }
 
-      /* ───── Upload Images First (Fail Fast) ───── */
+      /* ───── Upload Images First (Fail Fast) ─────────────────────
+         All images must upload successfully before we touch the DB.
+         If ANY upload fails, we throw and never create a product row.
+      ────────────────────────────────────────────────────────────── */
       const uploaded = await Promise.all(
         files.map((file, i) =>
-          uploadToCloudinary(file.buffer)
-            .then(r => ({ url: r.secure_url, order: i }))
+          uploadToCloudinary(file.buffer).then((r) => ({
+            url:   r.secure_url,
+            order: i,
+          }))
         )
       );
 
@@ -168,37 +182,43 @@ router.post(
       await client.query("BEGIN");
 
       const baseSlug = slugify(title).slice(0, 60);
-      const slug = await generateUniqueSlug(client, baseSlug);
+      const slug     = await generateUniqueSlug(client, baseSlug);
 
+      /* ── FIX 1: Use the real status and is_active from frontend ── */
       const { rows } = await client.query(
         `INSERT INTO products (
           title, price, seller_id,
           thumbnail_url, main_image,
           slug, status, is_active
         )
-        VALUES ($1,$2,$3,$4,$5,$6,'draft',true)
+        VALUES ($1,$2,$3,$4,$5,$6,$7,$8)
         RETURNING *`,
-        [title, price, seller_id, thumbnail, thumbnail, slug]
+        [title, price, seller_id, thumbnail, thumbnail, slug, status, is_active]
       );
 
       const product = rows[0];
 
-      await client.query("COMMIT");
-
-      /* ───── Insert Gallery Images (Non-blocking) ───── */
-      uploaded.forEach(async (img) => {
-        try {
-          await pool.query(
-            `INSERT INTO product_images 
-             (product_id, image_url, position_order, is_primary)
-             VALUES ($1,$2,$3,$4)
+      /* ── FIX 2: Insert gallery images INSIDE the transaction ─────
+         Using Promise.all with proper awaiting inside the transaction
+         so the connection is NOT released until all inserts finish.
+         This eliminates the connection pool exhaustion that caused
+         the 30-second timeout on paid plans.
+      ────────────────────────────────────────────────────────────── */
+      await Promise.all(
+        uploaded.map((img) =>
+          client.query(
+            `INSERT INTO product_images
+               (product_id, image_url, position_order, is_primary)
+             VALUES ($1, $2, $3, $4)
              ON CONFLICT DO NOTHING`,
             [product.id, img.url, img.order, img.order === 0]
-          );
-        } catch {}
-      });
+          )
+        )
+      );
 
-      /* ───── Background Effects ───── */
+      await client.query("COMMIT");
+
+      /* ───── Background Effects (fire and forget is fine here) ── */
       updateSellerTrust(seller_id).catch(() => {});
       redis?.zIncrBy("trending:24h", 5, product.id).catch(() => {});
 
@@ -208,9 +228,7 @@ router.post(
       });
 
     } catch (err) {
-
       await client.query("ROLLBACK").catch(() => {});
-
       console.error("CREATE PRODUCT ERROR:", err);
 
       if (err.code === "LIMIT_FILE_SIZE") {
@@ -218,12 +236,16 @@ router.post(
       }
 
       return res.status(500).json({
-        message: process.env.NODE_ENV !== "production"
-          ? err.message
-          : "Failed to create product",
+        message:
+          process.env.NODE_ENV !== "production"
+            ? err.message
+            : "Failed to create product",
       });
 
     } finally {
+      // FIX 3: client.release() is in finally so it ALWAYS runs,
+      // even if we returned early above. The payment route can now
+      // always get a free connection from the pool immediately.
       client.release();
     }
   }
@@ -234,7 +256,6 @@ router.post(
 ========================================================= */
 
 router.post("/products/:id/activate", authenticate, async (req, res) => {
-
   const client = await pool.connect();
 
   try {
@@ -244,20 +265,24 @@ router.post("/products/:id/activate", authenticate, async (req, res) => {
     await client.query("BEGIN");
 
     const { rows } = await client.query(
-      `SELECT id, seller_id FROM products WHERE id=$1 FOR UPDATE`,
+      `SELECT id, seller_id FROM products WHERE id = $1 FOR UPDATE`,
       [product_id]
     );
 
-    if (!rows.length)
+    if (!rows.length) {
+      await client.query("ROLLBACK");
       return res.status(404).json({ message: "Product not found" });
+    }
 
-    if (rows[0].seller_id !== seller_id)
+    if (rows[0].seller_id !== seller_id) {
+      await client.query("ROLLBACK");
       return res.status(403).json({ message: "Not authorised" });
+    }
 
     await client.query(
       `UPDATE products
-       SET status='active', is_active=true, updated_at=NOW()
-       WHERE id=$1`,
+       SET status = 'active', is_active = true, updated_at = NOW()
+       WHERE id = $1`,
       [product_id]
     );
 
@@ -269,6 +294,7 @@ router.post("/products/:id/activate", authenticate, async (req, res) => {
 
   } catch (err) {
     await client.query("ROLLBACK").catch(() => {});
+    console.error("ACTIVATE PRODUCT ERROR:", err);
     return res.status(500).json({ message: "Activation failed" });
   } finally {
     client.release();
@@ -280,11 +306,10 @@ router.post("/products/:id/activate", authenticate, async (req, res) => {
 ========================================================= */
 
 router.delete("/products/:id", authenticate, async (req, res) => {
-
   try {
     const { rows } = await pool.query(
       `DELETE FROM products
-       WHERE id=$1 AND seller_id=$2 AND status='draft'
+       WHERE id = $1 AND seller_id = $2 AND status = 'draft'
        RETURNING id`,
       [req.params.id, req.user.id]
     );
@@ -294,7 +319,8 @@ router.delete("/products/:id", authenticate, async (req, res) => {
 
     return res.json({ success: true });
 
-  } catch {
+  } catch (err) {
+    console.error("DELETE PRODUCT ERROR:", err);
     return res.status(500).json({ message: "Delete failed" });
   }
 });
