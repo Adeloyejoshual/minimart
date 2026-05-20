@@ -3,6 +3,7 @@ import React, {
 } from "react";
 import { Link } from "react-router-dom";
 import ProductComponents    from "./product/components.jsx";
+import ProgressOverlay      from "../components/ProgressOverlay.jsx";
 import { locationsByState } from "../config/locationsByState.js";
 import { apiFetch, ApiError } from "../utils/apiFetch.js";
 import imageCompression      from "browser-image-compression";
@@ -73,11 +74,6 @@ const displayPrice = (v) => {
 const formatLabel = (t) =>
   t.replace(/_/g, " ").replace(/\b\w/g, (l) => l.toUpperCase());
 
-/**
- * multipartPost — raw fetch for FormData.
- * Never use apiFetch here: apiFetch sets Content-Type: application/json
- * which destroys the multipart boundary multer needs to read files.
- */
 const multipartPost = async (url, formData, token, timeoutMs = 120_000) => {
   const ctrl = new AbortController();
   const tid  = setTimeout(() => ctrl.abort(), timeoutMs);
@@ -97,11 +93,58 @@ const multipartPost = async (url, formData, token, timeoutMs = 120_000) => {
     clearTimeout(tid);
   }
   const data = await res.json().catch(() => ({}));
-  if (!res.ok) {
+  if (!res.ok)
     throw new ApiError(data?.message ?? `Request failed (${res.status})`, res.status);
-  }
   return data;
 };
+
+// ─── Auto-scroll to error field ───────────────────────────────────────────────
+// Maps validation error messages to CSS selectors so the browser
+// scrolls to and flashes the offending input automatically.
+
+const ERROR_SELECTOR_MAP = [
+  { match: "Title required",                   sel: 'input[placeholder*="HP Pavilion"], input[placeholder*="Product Title"]' },
+  { match: "Description required",             sel: 'textarea[placeholder*="Describe"]' },
+  { match: "valid price",                      sel: 'input[placeholder*="Enter price"]' },
+  { match: "Category required",                sel: ".form-card:nth-of-type(2)" },
+  { match: "valid email",                      sel: 'input[type="email"]' },
+  { match: "Phone must be",                    sel: 'input[placeholder="08012345678"]' },
+  { match: "WhatsApp number",                  sel: 'input[type="tel"]:last-of-type' },
+  { match: "image required",                   sel: ".image-upload-box" },
+  { match: "state and city",                   sel: ".detect-location-row, .detect-location-btn" },
+  { match: "Terms",                            sel: ".terms-checkbox-row" },
+  { match: "delivery days",                    sel: 'input[type="number"]' },
+  { match: "Delivery end",                     sel: 'input[type="number"]:last-of-type' },
+  { match: "delivery fee",                     sel: ".delivery-grid" },
+];
+
+function scrollToError(errorMessage) {
+  if (!errorMessage) return;
+
+  const entry = ERROR_SELECTOR_MAP.find((e) => errorMessage.includes(e.match));
+  const sel   = entry?.sel ?? ".form-error";
+
+  // Run after the error state renders
+  requestAnimationFrame(() => {
+    try {
+      const el = document.querySelector(sel);
+      if (!el) return;
+
+      el.scrollIntoView({ behavior: "smooth", block: "center" });
+
+      // Focus if it is a real input
+      if (["INPUT", "TEXTAREA", "SELECT"].includes(el.tagName)) {
+        setTimeout(() => el.focus({ preventScroll: true }), 350);
+      }
+
+      // Red flash animation
+      el.classList.add("field-error-flash");
+      setTimeout(() => el.classList.remove("field-error-flash"), 2000);
+    } catch {
+      // Scroll is a nice-to-have — never crash for it
+    }
+  });
+}
 
 // ─── Component ────────────────────────────────────────────────────────────────
 
@@ -125,6 +168,10 @@ export default function AddProductPage({ user }) {
   const [detectingLocation, setDetectingLocation] = useState(false);
   const [detectedCoords,    setDetectedCoords]    = useState(null);
 
+  // ── Progress overlay state ─────────────────────────────────────────────────
+  const [progressVisible, setProgressVisible] = useState(false);
+  const [progressStep,    setProgressStep]    = useState("compressing");
+
   // Hard submit lock — survives re-renders unlike `loading` state
   const isSubmittingRef = useRef(false);
   // Always-current images ref — needed for safe cleanup on unmount
@@ -140,9 +187,15 @@ export default function AddProductPage({ user }) {
   const states     = Object.keys(locationsByState ?? {});
   const cities     = locationState ? (locationsByState[locationState] ?? []) : [];
 
-  // ── Feedback ───────────────────────────────────────────────────────────────
+  // Determine if the selected plan is paid so ProgressOverlay
+  // knows whether to show the payment step
+  const isSelectedPlanPaid =
+    !!selectedPlan && Number(selectedPlan?.price ?? 0) > 0;
+
+  // ── Feedback with auto-scroll ──────────────────────────────────────────────
   const showError = useCallback((msg) => {
     setError(msg);
+    scrollToError(msg); // ← scroll + flash the offending field
     setTimeout(() => setError(""), 6000);
   }, []);
 
@@ -165,7 +218,6 @@ export default function AddProductPage({ user }) {
   }, [showError]);
 
   // ── Load promotion plans from DB ───────────────────────────────────────────
-  // DB returns id::text so BigInt IDs are safe strings — no precision loss.
   useEffect(() => {
     setPlansLoading(true);
     apiFetch(`${API_BASE}/payment/plans`)
@@ -185,10 +237,6 @@ export default function AddProductPage({ user }) {
   }, [showError]);
 
   // ── Resume or clear stale payment session ─────────────────────────────────
-  // On mount, check if a payment session was left incomplete.
-  // If it is less than 30 minutes old, offer to resume it.
-  // If it is older than 30 minutes, verify its status with the
-  // backend so stuck products get reverted to draft automatically.
   useEffect(() => {
     const checkPendingPayment = async () => {
       try {
@@ -198,15 +246,12 @@ export default function AddProductPage({ user }) {
         const session = JSON.parse(saved);
         const ageMs   = Date.now() - (session.createdAt ?? 0);
 
-        // Session is fresh — offer to resume
         if (ageMs <= 30 * 60 * 1000) {
           setPaymentData(session);
           showSuccess("💳 Incomplete payment found — tap 'Complete Payment' to finish");
           return;
         }
 
-        // Session is stale — verify with backend to clean up the DB
-        // so the product does not stay stuck as pending_payment forever.
         if (session.reference) {
           const token = getToken();
           if (token) {
@@ -223,22 +268,17 @@ export default function AddProductPage({ user }) {
               if (result.status === "success") {
                 showSuccess("✅ Your previous payment was confirmed — product is live!");
               } else {
-                // cancelled or failed — backend already reverted the product to draft
                 showError(
                   result.message ??
                   "Your previous payment did not complete — listing saved as draft"
                 );
               }
-            } catch {
-              // Verify failed — not critical, just clear the stale session
-            }
+            } catch { /* non-critical */ }
           }
         }
 
-        // Clear stale session regardless of verify outcome
         localStorage.removeItem(STORAGE_PAYMENT);
         setPaymentData(null);
-
       } catch {
         localStorage.removeItem(STORAGE_PAYMENT);
       }
@@ -248,7 +288,6 @@ export default function AddProductPage({ user }) {
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   // ── Restore draft ──────────────────────────────────────────────────────────
-  // Wait until plans are loaded from DB so we can match the saved plan ID.
   useEffect(() => {
     if (plansLoading) return;
 
@@ -289,7 +328,6 @@ export default function AddProductPage({ user }) {
       setLocationState(draft.locationState ?? "");
       setCity(draft.city ?? "");
 
-      // Match saved plan ID against freshly loaded DB plans
       if (draft.selectedPlan) {
         const matched = promotionPlans.find(
           (p) => String(p.id) === String(draft.selectedPlan)
@@ -302,7 +340,7 @@ export default function AddProductPage({ user }) {
       showError("Draft restore failed");
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [plansLoading]); // Runs once when plansLoading flips to false
+  }, [plansLoading]);
 
   // ── Auto-save draft ────────────────────────────────────────────────────────
   useEffect(() => {
@@ -390,8 +428,6 @@ export default function AddProductPage({ user }) {
   }, [paymentData]);
 
   // ── Cancel pending payment ─────────────────────────────────────────────────
-  // Called when the user explicitly dismisses the "Complete Payment" banner.
-  // Calls /verify so the backend reverts the product from pending_payment → draft.
   const cancelPendingPayment = useCallback(async () => {
     if (!paymentData?.reference) {
       localStorage.removeItem(STORAGE_PAYMENT);
@@ -411,9 +447,8 @@ export default function AddProductPage({ user }) {
           body: JSON.stringify({ reference: paymentData.reference }),
         });
       }
-    } catch {
-      // Non-critical — clear locally regardless
-    } finally {
+    } catch { /* non-critical */ }
+    finally {
       localStorage.removeItem(STORAGE_PAYMENT);
       setPaymentData(null);
       showSuccess("Payment cancelled — listing saved as draft");
@@ -564,24 +599,26 @@ export default function AddProductPage({ user }) {
     return null;
   }, [form, images.length, locationState, city, agreedToTerms]);
 
-  // ── Submit orchestration ───────────────────────────────────────────────────
+  // ── Submit with progress tracking ──────────────────────────────────────────
   const handleSubmit = useCallback(async () => {
     if (loading || isSubmittingRef.current) return;
     isSubmittingRef.current = true;
 
     const validationError = validateForm();
     if (validationError) {
-      showError(validationError);
+      showError(validationError); // auto-scrolls to the field
       isSubmittingRef.current = false;
       return;
     }
 
+    // Show overlay immediately
+    setProgressVisible(true);
+    setProgressStep("compressing");
     setLoading(true);
     setError("");
     let product = null;
 
     try {
-      // Resolve plan — fall back to the free plan from DB
       const finalPlan =
         selectedPlan ??
         promotionPlans.find((p) => Number(p.price) === 0) ??
@@ -596,58 +633,63 @@ export default function AddProductPage({ user }) {
         );
       }
 
-      // id is already a safe string from DB (id::text in SQL)
       const planId     = String(finalPlan.id);
       const isFreePlan = Number(finalPlan.price) === 0;
 
-      // ── Step 1: Create product ───────────────────────────────────────────
-      {
-        const token = getToken();
-        if (!token)
-          throw new ApiError("Authentication required — please log in", 401);
+      const token = getToken();
+      if (!token) throw new ApiError("Authentication required — please log in", 401);
 
-        const fd = new FormData();
-        fd.append("title",          form.title.trim());
-        fd.append("description",    form.description.trim());
-        fd.append("price",          Number(form.price).toFixed(2));
-        fd.append("category_id",    form.category_id);
-        if (form.subcategory_id)
-          fd.append("subcategory_id", form.subcategory_id);
-        fd.append("location_state", locationState ?? "");
-        fd.append("location_city",  city ?? "");
-        fd.append("status",         isFreePlan ? "active" : "draft");
-        fd.append("is_active",      isFreePlan ? "true"   : "false");
+      // ── Step 1: Compressing (brief pause so user sees the step) ───────────
+      await new Promise((r) => setTimeout(r, 400));
 
-        if (detectedCoords) {
-          fd.append("latitude",  String(detectedCoords.latitude));
-          fd.append("longitude", String(detectedCoords.longitude));
-        }
+      // ── Step 2: Uploading images + creating product ────────────────────────
+      setProgressStep("uploading");
 
-        const safeAttributes = {
-          ...attributes,
-          features: toArray(attributes.features),
-        };
-        fd.append("attributes",      JSON.stringify(safeAttributes));
-        fd.append("delivery",        JSON.stringify(form.delivery));
-        fd.append("contact",         JSON.stringify(form.contact));
-        fd.append("phone",           form.contact.phone         ?? "");
-        fd.append("whatsapp",        form.contact.whatsapp      ?? "");
-        fd.append("whatsapp_link",   form.contact.whatsapp_link ?? "");
-        fd.append("idempotency_key", crypto.randomUUID());
-        fd.append("seller_name",     user?.store_name || user?.name || "Minimart");
-        images.forEach((img) => fd.append("images", img.file));
+      const fd = new FormData();
+      fd.append("title",          form.title.trim());
+      fd.append("description",    form.description.trim());
+      fd.append("price",          Number(form.price).toFixed(2));
+      fd.append("category_id",    form.category_id);
+      if (form.subcategory_id)
+        fd.append("subcategory_id", form.subcategory_id);
+      fd.append("location_state", locationState ?? "");
+      fd.append("location_city",  city ?? "");
+      fd.append("status",         isFreePlan ? "active" : "draft");
+      fd.append("is_active",      isFreePlan ? "true"   : "false");
 
-        const data = await multipartPost(
-          `${API_BASE}/addproduct/products`, fd, token
-        );
-        if (!data.product?.id)
-          throw new ApiError("Product creation failed", 500);
-        product = data.product;
+      if (detectedCoords) {
+        fd.append("latitude",  String(detectedCoords.latitude));
+        fd.append("longitude", String(detectedCoords.longitude));
       }
 
-      // ── Step 2a: Free plan — activate immediately ────────────────────────
+      const safeAttributes = {
+        ...attributes,
+        features: toArray(attributes.features),
+      };
+      fd.append("attributes",      JSON.stringify(safeAttributes));
+      fd.append("delivery",        JSON.stringify(form.delivery));
+      fd.append("contact",         JSON.stringify(form.contact));
+      fd.append("phone",           form.contact.phone         ?? "");
+      fd.append("whatsapp",        form.contact.whatsapp      ?? "");
+      fd.append("whatsapp_link",   form.contact.whatsapp_link ?? "");
+      fd.append("idempotency_key", crypto.randomUUID());
+      fd.append("seller_name",     user?.store_name || user?.name || "Minimart");
+      images.forEach((img) => fd.append("images", img.file));
+
+      // ── Step 3: Saving product to DB ──────────────────────────────────────
+      setProgressStep("saving");
+
+      const data = await multipartPost(
+        `${API_BASE}/addproduct/products`, fd, token
+      );
+      if (!data.product?.id)
+        throw new ApiError("Product creation failed", 500);
+      product = data.product;
+
+      // ── Step 4a: Free — Activate ───────────────────────────────────────────
       if (isFreePlan) {
-        const token = getToken();
+        setProgressStep("activating");
+
         await apiFetch(
           `${API_BASE}/addproduct/products/${product.id}/activate`,
           {
@@ -659,61 +701,68 @@ export default function AddProductPage({ user }) {
             body: JSON.stringify({ promotion_id: null }),
           }
         );
+
+        setProgressStep("finalizing");
+        await new Promise((r) => setTimeout(r, 600));
+
+        setProgressVisible(false);
         clearDraft();
         showSuccess("✅ Product live! Redirecting…");
         setTimeout(() => { window.location.href = "/"; }, 1500);
         return;
       }
 
-      // ── Step 2b: Paid plan — initiate Paystack ───────────────────────────
-      {
-        const token        = getToken();
-        const rawPrice     = Number(finalPlan.price);
-        const discount     = Number(finalPlan.discount_percent ?? 0);
-        const effectiveAmt = Number(
-          (rawPrice * (1 - discount / 100)).toFixed(2)
-        );
+      // ── Step 4b: Paid — Initiate Paystack ────────────────────────────────
+      setProgressStep("payment");
 
-        const data = await apiFetch(`${API_BASE}/payment/initiate`, {
-          method:  "POST",
-          headers: {
-            "Content-Type": "application/json",
-            Authorization:  `Bearer ${token}`,
-          },
-          body: JSON.stringify({
-            email:      form.contact.email,
-            amount:     effectiveAmt,
-            plan_id:    planId,
-            product_id: product.id,
-          }),
-        });
+      const rawPrice     = Number(finalPlan.price);
+      const discount     = Number(finalPlan.discount_percent ?? 0);
+      const effectiveAmt = Number(
+        (rawPrice * (1 - discount / 100)).toFixed(2)
+      );
 
-        if (!data.authorization_url)
-          throw new ApiError("Payment setup failed — please try again", 500);
+      const payData = await apiFetch(`${API_BASE}/payment/initiate`, {
+        method:  "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization:  `Bearer ${token}`,
+        },
+        body: JSON.stringify({
+          email:      form.contact.email,
+          amount:     effectiveAmt,
+          plan_id:    planId,
+          product_id: product.id,
+        }),
+      });
 
-        const session = {
-          reference: data.reference,
-          authUrl:   data.authorization_url,
-          planId,
-          productId: product.id,
-          email:     form.contact.email,
-          amount:    effectiveAmt,
-          createdAt: Date.now(),
-        };
-        localStorage.setItem(STORAGE_PAYMENT, JSON.stringify(session));
-        setPaymentData(session);
-        showSuccess("💳 Redirecting to payment…");
+      if (!payData.authorization_url)
+        throw new ApiError("Payment setup failed — please try again", 500);
 
-        // Open Paystack in a new tab.
-        // When the user finishes (success or cancel), Paystack redirects
-        // them to /payment/success which calls our /verify endpoint.
-        window.open(data.authorization_url, "_blank");
-      }
+      setProgressStep("finalizing");
+      await new Promise((r) => setTimeout(r, 400));
+      setProgressVisible(false);
+
+      const session = {
+        reference: payData.reference,
+        authUrl:   payData.authorization_url,
+        planId,
+        productId: product.id,
+        email:     form.contact.email,
+        amount:    effectiveAmt,
+        createdAt: Date.now(),
+      };
+      localStorage.setItem(STORAGE_PAYMENT, JSON.stringify(session));
+      setPaymentData(session);
+      showSuccess("💳 Redirecting to payment…");
+      window.open(payData.authorization_url, "_blank");
 
     } catch (err) {
       console.error("Submit error:", err);
 
-      // Best-effort cleanup of orphaned draft product if payment init failed
+      // Always hide the overlay on error
+      setProgressVisible(false);
+
+      // Best-effort cleanup of orphaned draft product
       if (product?.id) {
         const token = getToken();
         if (token) {
@@ -723,6 +772,7 @@ export default function AddProductPage({ user }) {
           }).catch(() => {});
         }
       }
+
       showError(err.message ?? "Submission failed — please try again");
     } finally {
       setLoading(false);
@@ -756,6 +806,14 @@ export default function AddProductPage({ user }) {
   // ── Render ─────────────────────────────────────────────────────────────────
   return (
     <div className="add-product-container">
+
+      {/* Progress overlay — blurred backdrop + animated card */}
+      <ProgressOverlay
+        visible={progressVisible}
+        step={progressStep}
+        isPaid={isSelectedPlanPaid}
+      />
+
       <ProductComponents
         form={form}
         attributes={attributes}
