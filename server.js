@@ -23,15 +23,13 @@ const server = http.createServer(app);
    DATABASE — CockroachDB via pg Pool
 ═══════════════════════════════════════════ */
 export const pool = new Pool({
-  connectionString: process.env.COCKROACH_URI,
-  ssl:              { rejectUnauthorized: false },
-  /* CockroachDB recommended pool settings */
-  max:              10,
-  idleTimeoutMillis:  30_000,
+  connectionString:        process.env.COCKROACH_URI,
+  ssl:                     { rejectUnauthorized: false },
+  max:                     10,
+  idleTimeoutMillis:       30_000,
   connectionTimeoutMillis: 5_000,
 });
 
-/* verify connection on startup */
 (async () => {
   try {
     const { rows } = await pool.query("SELECT version()");
@@ -42,7 +40,6 @@ export const pool = new Pool({
   }
 })();
 
-/* log unexpected pool errors so they don't crash the process silently */
 pool.on("error", (err) => {
   console.error("🔥 Unexpected pool error:", err.message);
 });
@@ -96,9 +93,8 @@ setInterval(() => {
 ═══════════════════════════════════════════ */
 const corsOptions = {
   origin(origin, cb) {
-    /* allow requests with no origin (mobile apps, curl, Postman) */
     if (!origin || ALLOWED_ORIGIN === "*") return cb(null, true);
-    const allowed = ALLOWED_ORIGIN.split(",").map(s => s.trim());
+    const allowed = ALLOWED_ORIGIN.split(",").map((s) => s.trim());
     if (allowed.includes(origin)) return cb(null, true);
     cb(new Error(`CORS blocked: ${origin}`));
   },
@@ -108,7 +104,7 @@ const corsOptions = {
 };
 
 app.use(cors(corsOptions));
-app.options("*", cors(corsOptions)); // pre-flight for all routes
+app.options("*", cors(corsOptions));
 
 /* ═══════════════════════════════════════════
    SECURITY HEADERS
@@ -132,10 +128,9 @@ app.use((_req, res, next) => {
 app.use(
   "/uploads",
   express.static(path.join(__dirname, "uploads"), {
-    maxAge:   "7d",     // browser cache 7 days
-    etag:     true,
+    maxAge:      "7d",
+    etag:        true,
     lastModified: true,
-    /* security: never serve HTML from uploads folder */
     setHeaders(res, filePath) {
       if (filePath.endsWith(".html") || filePath.endsWith(".htm")) {
         res.setHeader("Content-Type", "text/plain");
@@ -159,17 +154,15 @@ app.use(
 /* ═══════════════════════════════════════════
    BODY PARSERS
 ═══════════════════════════════════════════ */
-app.use(express.json({         limit: "10mb" }));
-app.use(express.urlencoded({   extended: true, limit: "10mb" }));
+app.use(express.json({       limit: "10mb" }));
+app.use(express.urlencoded({ extended: true, limit: "10mb" }));
 
 /* ═══════════════════════════════════════════
    REQUEST LOGGER
 ═══════════════════════════════════════════ */
 app.use((req, _res, next) => {
   if (process.env.NODE_ENV !== "test") {
-    console.log(
-      `${new Date().toISOString()} | ${req.method} ${req.originalUrl}`
-    );
+    console.log(`${new Date().toISOString()} | ${req.method} ${req.originalUrl}`);
   }
   next();
 });
@@ -178,13 +171,10 @@ app.use((req, _res, next) => {
    RATE LIMITER (per-IP, in-memory)
 ═══════════════════════════════════════════ */
 const _limiter  = new Map();
-const WINDOW_MS = 60_000;   // 1 minute window
-const MAX_REQ   = 120;      // requests per window
-
-/* different limits for upload endpoints */
+const WINDOW_MS = 60_000;
+const MAX_REQ   = 120;
 const UPLOAD_MAX = 20;
 
-/* sweep old entries every 5 minutes */
 setInterval(() => {
   const now = Date.now();
   for (const [ip, data] of _limiter.entries()) {
@@ -194,13 +184,13 @@ setInterval(() => {
 
 function rateLimiter(max = MAX_REQ) {
   return (req, res, next) => {
-    const ip  =
+    const ip =
       req.headers["x-forwarded-for"]?.split(",")[0].trim() ??
       req.socket.remoteAddress ??
       "unknown";
 
     const now  = Date.now();
-    const key  = `${ip}:${max}`; // separate bucket per limit level
+    const key  = `${ip}:${max}`;
     let   data = _limiter.get(key);
 
     if (!data || now - data.time > WINDOW_MS) {
@@ -213,8 +203,8 @@ function rateLimiter(max = MAX_REQ) {
 
     if (data.count > max) {
       return res.status(429).json({
-        success: false,
-        message: "Too many requests. Please wait a moment.",
+        success:    false,
+        message:    "Too many requests. Please wait a moment.",
         retryAfter: Math.ceil((WINDOW_MS - (now - data.time)) / 1000),
       });
     }
@@ -223,13 +213,13 @@ function rateLimiter(max = MAX_REQ) {
   };
 }
 
-/* apply global rate limit */
 app.use(rateLimiter(MAX_REQ));
 
 /* ═══════════════════════════════════════════
    CRON JOBS
 ═══════════════════════════════════════════ */
 import "./jobs/expirePromotions.js";
+import { startChatCleanupJob } from "./jobs/cleanupChats.js";
 
 /* ═══════════════════════════════════════════
    ROUTE IMPORTS
@@ -253,18 +243,13 @@ import p2pRouter           from "./routes/p2p.js";
    API ROUTES
 ═══════════════════════════════════════════ */
 app.use("/api/payment",       paymentRouter);
-
 app.use("/api/seller",        sellerProfileRouter);
 app.use("/api/addproduct",    addproductRouter);
 app.use("/api/users",         userRouter);
 app.use("/api/conversations", conversationsRouter);
 
-/* stricter rate limit on upload */
-app.use(
-  "/api/messages/upload",
-  rateLimiter(UPLOAD_MAX)
-);
-app.use("/api/messages",      messagesRouter);
+app.use("/api/messages/upload", rateLimiter(UPLOAD_MAX));
+app.use("/api/messages",        messagesRouter);
 
 app.use("/api/admin",         adminRouter);
 app.use("/api/search",        searchRouter);
@@ -312,7 +297,6 @@ if (process.env.NODE_ENV === "production") {
   const distPath = path.join(__dirname, "dist");
   app.use(express.static(distPath, { maxAge: "1d" }));
 
-  /* SPA fallback — skip /api routes */
   app.get("*", (req, res) => {
     if (req.path.startsWith("/api/")) {
       return res.status(404).json({
@@ -342,51 +326,27 @@ app.use((err, req, res, _next) => {
 
   /* multer errors */
   if (err.code === "LIMIT_FILE_SIZE")
-    return res.status(400).json({
-      success: false,
-      message: "File too large (max 10 MB)",
-    });
+    return res.status(400).json({ success: false, message: "File too large (max 10 MB)" });
   if (err.code === "LIMIT_FILE_COUNT")
-    return res.status(400).json({
-      success: false,
-      message: "Too many files",
-    });
+    return res.status(400).json({ success: false, message: "Too many files" });
   if (err.code === "LIMIT_UNEXPECTED_FILE")
-    return res.status(400).json({
-      success: false,
-      message: "Unexpected file field",
-    });
+    return res.status(400).json({ success: false, message: "Unexpected file field" });
   if (err.message === "Only image files are allowed")
-    return res.status(400).json({
-      success: false,
-      message: err.message,
-    });
+    return res.status(400).json({ success: false, message: err.message });
 
   /* CORS error */
   if (err.message?.startsWith("CORS blocked"))
-    return res.status(403).json({
-      success: false,
-      message: err.message,
-    });
+    return res.status(403).json({ success: false, message: err.message });
 
   /* CockroachDB / pg errors */
   if (err.code === "23505")
-    return res.status(409).json({
-      success: false,
-      message: "Duplicate entry",
-    });
+    return res.status(409).json({ success: false, message: "Duplicate entry" });
   if (err.code === "23503")
-    return res.status(400).json({
-      success: false,
-      message: "Referenced record not found",
-    });
+    return res.status(400).json({ success: false, message: "Referenced record not found" });
   if (err.code === "23514")
-    return res.status(400).json({
-      success: false,
-      message: "Value violates database constraint",
-    });
+    return res.status(400).json({ success: false, message: "Value violates database constraint" });
 
-  const status = err.status ?? err.statusCode ?? 500;
+  const status  = err.status ?? err.statusCode ?? 500;
   const message =
     process.env.NODE_ENV === "production" && status === 500
       ? "Internal server error"
@@ -401,22 +361,17 @@ app.use((err, req, res, _next) => {
 async function shutdown(signal) {
   console.log(`\n${signal} received — shutting down gracefully…`);
 
-  /* stop accepting new connections */
   server.close(async () => {
     console.log("HTTP server closed");
-
-    /* drain pool */
     try {
       await pool.end();
       console.log("Database pool drained");
     } catch (err) {
       console.error("Pool drain error:", err.message);
     }
-
     process.exit(0);
   });
 
-  /* force exit after 10 s */
   setTimeout(() => {
     console.error("Forced exit after timeout");
     process.exit(1);
@@ -433,6 +388,9 @@ server.listen(PORT, () => {
   console.log(`🚀 Server running on port ${PORT}`);
   console.log(`   ENV  : ${process.env.NODE_ENV || "development"}`);
   console.log(`   CORS : ${ALLOWED_ORIGIN}`);
+
+  startChatCleanupJob();
+  console.log("🧹 Chat cleanup job started");
 });
 
 export default app;
