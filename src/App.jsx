@@ -46,7 +46,7 @@ import Wallet from "./pages/Profile/Wallet";
 
 /* ================= ADMIN ================= */
 import AdminLogin from "./pages/admin/AdminLogin";
-import AdminDashboard from "./pages/admin/AdminDashboard";
+import AdminDashboard from "./page/admin/AdminDashboard";
 
 /* ================= APP ================= */
 export default function App() {
