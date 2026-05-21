@@ -1,3 +1,7 @@
+/* Add at the top with other constants */
+
+export const CURRENCY = "₦";
+
 export const MESSAGE_TYPES = {
   TEXT:     "text",
   MEDIA:    "media",
@@ -34,7 +38,7 @@ export const SUGGESTIONS = {
     "What's included in the package?",
     "Can I pick it up today?",
     "What's the lowest price?",
-    "Do you accept bKash / Nagad?",
+    "Do you accept bank transfer?",
     "Last price please?",
     "Can we negotiate?",
   ],
@@ -43,7 +47,7 @@ export const SUGGESTIONS = {
     "Cash on delivery please",
     "Can we meet today?",
     "I'll take it!",
-    "bKash / Nagad OK?",
+    "Bank transfer OK?",
     "I'm a serious buyer",
     "Can you hold it for me?",
   ],
@@ -106,11 +110,10 @@ export function formatTime(d) {
 }
 
 export function formatDateLabel(d) {
-  const date = new Date(d);
-  const now  = new Date();
+  const date      = new Date(d);
+  const now       = new Date();
   const yesterday = new Date(now);
   yesterday.setDate(now.getDate() - 1);
-
   if (date.toDateString() === now.toDateString())       return "Today";
   if (date.toDateString() === yesterday.toDateString()) return "Yesterday";
   return date.toLocaleDateString([], {
@@ -141,37 +144,26 @@ export function groupByDate(msgs) {
   return out;
 }
 
-/**
- * dedupe — keeps one entry per real id OR temp id.
- * When both a temp and a real message share the same
- * client_message_id, the real message wins.
- */
 export function dedupe(arr) {
-  // 1. collect all items, real messages beat temp ones
-  const byId        = new Map();   // id  → msg
-  const byClientId  = new Map();   // client_message_id → real msg
+  const byId       = new Map();
+  const byClientId = new Map();
 
   for (const m of arr) {
-    // track real messages by their client_message_id
     if (m.client_message_id && !m._temp) {
       byClientId.set(m.client_message_id, m);
     }
-    // always keep the latest version by id
     const existing = byId.get(m.id);
     if (!existing) {
       byId.set(m.id, m);
-    } else {
-      // real beats temp
-      if (existing._temp && !m._temp) byId.set(m.id, m);
+    } else if (existing._temp && !m._temp) {
+      byId.set(m.id, m);
     }
   }
 
-  // 2. remove temp messages that have a real counterpart
   const result = [];
   for (const m of byId.values()) {
-    if (m._temp && m.client_message_id) {
-      // skip if a real message with same clientId exists
-      if (byClientId.has(m.client_message_id)) continue;
+    if (m._temp && m.client_message_id && byClientId.has(m.client_message_id)) {
+      continue;
     }
     result.push(m);
   }
@@ -183,4 +175,9 @@ export function dedupe(arr) {
 
 export function truncate(str, n = 55) {
   return str?.length > n ? str.slice(0, n) + "…" : str || "";
+}
+
+/** Format price with currency */
+export function formatPrice(amount) {
+  return `${CURRENCY}${Number(amount).toLocaleString()}`;
 }
