@@ -1,499 +1,353 @@
-import React, {
-  useEffect,
-  useState,
-  useRef,
-  useCallback,
-  useMemo,
-} from "react";
-import { useParams, useNavigate } from "react-router-dom";
-import { io }   from "socket.io-client";
-import axios    from "axios";
+// pages/Conversations.jsx
+// Route: /conversations or /messages
 
-/* ─────────────────────────────────────
-   CONFIG
-───────────────────────────────────── */
-const BASE       = "https://minimart-ivrm.onrender.com";
-const API        = `${BASE}/api`;
-const SOCKET_URL = BASE;
+import { useEffect, useState, useCallback, useRef } from "react";
+import { useNavigate }                              from "react-router-dom";
+
+const API = "https://minimart-ivrm.onrender.com/api";
 
 /* ─────────────────────────────────────
    HELPERS
 ───────────────────────────────────── */
 function getToken() {
-  return (
-    localStorage.getItem("token") ||
-    sessionStorage.getItem("token") ||
-    ""
-  );
+  return localStorage.getItem("token") || sessionStorage.getItem("token") || "";
 }
 function authH() {
   const t = getToken();
   return t ? { Authorization: `Bearer ${t}` } : {};
 }
-function formatTime(d) {
-  return new Date(d).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
-}
-function formatDateLabel(d) {
-  const date      = new Date(d);
-  const today     = new Date();
-  const yesterday = new Date(today);
-  yesterday.setDate(today.getDate() - 1);
-  if (date.toDateString() === today.toDateString())     return "Today";
-  if (date.toDateString() === yesterday.toDateString()) return "Yesterday";
-  return date.toLocaleDateString([], { month: "short", day: "numeric", year: "numeric" });
-}
-function groupByDate(msgs) {
-  const out = []; let last = null;
-  for (const m of msgs) {
-    const lbl = formatDateLabel(m.created_at);
-    if (lbl !== last) { out.push({ type: "date", label: lbl }); last = lbl; }
-    out.push({ type: "msg", data: m });
-  }
-  return out;
-}
-function dedupe(arr) {
-  const map = new Map();
-  for (const m of arr) map.set(m.id, m);
-  return [...map.values()].sort(
-    (a, b) => new Date(a.created_at) - new Date(b.created_at)
-  );
-}
+function timeLabel(dateStr) {
+  if (!dateStr) return "";
+  const d    = new Date(dateStr);
+  const now  = new Date();
+  const diff = Math.floor((now - d) / 1000);
 
-/* ─────────────────────────────────────
-   FETCH MESSAGES
-───────────────────────────────────── */
-async function fetchMessages(threadId, userId) {
-  const { data } = await axios.get(`${API}/messages`, {
-    params:  { threadId, userId },
-    headers: authH(),
-    timeout: 12_000,
-  });
-  return Array.isArray(data) ? data : [];
+  if (diff < 60)      return "now";
+  if (diff < 3600)    return `${Math.floor(diff / 60)}m`;
+  if (diff < 86400)   return `${Math.floor(diff / 3600)}h`;
+
+  const today     = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+  const yesterday = new Date(today); yesterday.setDate(today.getDate() - 1);
+
+  if (d >= today)     return d.toLocaleTimeString([], { hour:"2-digit", minute:"2-digit" });
+  if (d >= yesterday) return "Yesterday";
+
+  return d.toLocaleDateString([], { month:"short", day:"numeric" });
 }
 
 /* ─────────────────────────────────────
    COMPONENTS
 ───────────────────────────────────── */
-function Tick({ status }) {
-  const color =
-    status === "read"      ? "#60a5fa" :
-    status === "delivered" ? "rgba(255,255,255,.65)" :
-                             "rgba(255,255,255,.3)";
-  return (
-    <svg width="14" height="10" viewBox="0 0 16 10" fill="none">
-      <path d="M1 5l3 3L10 1"  stroke={color} strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round"/>
-      <path d="M6 5l3 3 6-7"  stroke={color} strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round"/>
-    </svg>
-  );
-}
-
-function TypingBubble() {
-  return (
-    <div style={{ display:"flex", justifyContent:"flex-start", margin:"4px 0 8px" }}>
-      <style>{`
-        @keyframes tdot {
-          0%,60%,100%{ transform:translateY(0); opacity:.35 }
-          30%         { transform:translateY(-5px); opacity:1 }
-        }
-      `}</style>
-      <div style={{
-        background:"#fff", border:"1px solid #e8e8e8",
-        borderRadius:"18px 18px 18px 4px",
-        padding:"10px 16px", display:"flex", gap:5,
-        alignItems:"center", boxShadow:"0 1px 3px rgba(0,0,0,.07)",
-      }}>
-        {[0,1,2].map(n=>(
-          <span key={n} style={{
-            display:"block", width:7, height:7, borderRadius:"50%",
-            background:"#bbb",
-            animation:`tdot 1.1s ease-in-out ${n*.18}s infinite`,
-          }}/>
-        ))}
-      </div>
-    </div>
-  );
-}
-
-function Bubble({ msg, mine, onRetry }) {
-  const failed  = !!msg._failed;
-  const sending = !!msg._temp;
-
-  return (
-    <div
-      onClick={() => failed && onRetry(msg)}
-      style={{
-        display:"flex",
-        justifyContent: mine ? "flex-end" : "flex-start",
-        marginBottom:4,
-        paddingLeft:  mine ? 56 : 0,
-        paddingRight: mine ? 0  : 56,
-        cursor: failed ? "pointer" : "default",
-      }}
-    >
-      <div style={{
-        maxWidth:"100%",
-        background: failed ? "#fee2e2" : mine ? "#111" : "#fff",
-        color:      failed ? "#dc2626"  : mine ? "#fff" : "#111",
-        border:     (mine && !failed) ? "none" : "1px solid #e8e8e8",
-        padding:"9px 13px 6px",
-        borderRadius: mine ? "18px 18px 4px 18px" : "18px 18px 18px 4px",
-        fontSize:14, lineHeight:1.5, wordBreak:"break-word",
-        boxShadow:"0 1px 3px rgba(0,0,0,.07)",
-        opacity: sending ? .55 : 1,
-        transition:"opacity .2s",
-      }}>
-        <div style={{ whiteSpace:"pre-wrap" }}>{msg.message}</div>
-
-        {msg.media_url && (
-          <img src={msg.media_url} alt="media"
-            style={{ marginTop:6, maxWidth:200, borderRadius:8, display:"block" }}/>
-        )}
-
-        {msg.edited && !failed && (
-          <span style={{ fontSize:10, opacity:.5 }}> · edited</span>
-        )}
-
-        <div style={{
-          fontSize:10,
-          color: mine ? "rgba(255,255,255,.45)" : "#bbb",
-          marginTop:4, display:"flex",
-          alignItems:"center", justifyContent:"flex-end", gap:4,
-        }}>
-          {failed ? (
-            <span style={{ color:"#ef4444", fontSize:11 }}>✕ Failed — tap to retry</span>
-          ) : sending ? (
-            <>
-              <svg width="10" height="10" viewBox="0 0 24 24" fill="none"
-                stroke="currentColor" strokeWidth={2}>
-                <circle cx="12" cy="12" r="10"/>
-                <path d="M12 6v6l4 2" strokeLinecap="round"/>
-              </svg>
-              Sending…
-            </>
-          ) : (
-            <>
-              {formatTime(msg.created_at)}
-              {mine && <Tick status={msg.status}/>}
-            </>
-          )}
-        </div>
-      </div>
-    </div>
-  );
-}
-
-function DateSep({ label }) {
-  return (
-    <div style={{
-      textAlign:"center", fontSize:11, color:"#aaa",
-      margin:"14px 0 6px", userSelect:"none",
-    }}>
-      <span style={{ background:"#e9e9e9", borderRadius:12, padding:"2px 12px" }}>
-        {label}
-      </span>
-    </div>
-  );
-}
-
-function Spinner({ size = 28 }) {
+function Spinner() {
   return (
     <>
-      <style>{`@keyframes sp{to{transform:rotate(360deg)}}`}</style>
+      <style>{`@keyframes cspin{to{transform:rotate(360deg)}}`}</style>
       <div style={{
-        width:size, height:size,
+        width:28, height:28,
         border:"3px solid #eee", borderTop:"3px solid #111",
-        borderRadius:"50%", animation:"sp .75s linear infinite",
-        flexShrink:0,
+        borderRadius:"50%", animation:"cspin .75s linear infinite",
       }}/>
     </>
   );
 }
 
+function Avatar({ src, name, online, size = 52 }) {
+  const fallback = `https://ui-avatars.com/api/?name=${encodeURIComponent(
+    name || "U"
+  )}&background=111&color=fff&size=${size * 2}`;
+
+  return (
+    <div style={{ position:"relative", flexShrink:0, width:size, height:size }}>
+      <img
+        src={src || fallback}
+        alt={name || "User"}
+        style={{
+          width:size, height:size, borderRadius:"50%",
+          objectFit:"cover", background:"#eee", display:"block",
+        }}
+        onError={(e) => { e.target.src = fallback; }}
+      />
+      {online && (
+        <span style={{
+          position:"absolute", bottom:1, right:1,
+          width:12, height:12, background:"#22c55e",
+          borderRadius:"50%", border:"2.5px solid #fff",
+        }}/>
+      )}
+    </div>
+  );
+}
+
+function EmptyState() {
+  return (
+    <div style={{
+      flex:1, display:"flex", flexDirection:"column",
+      alignItems:"center", justifyContent:"center",
+      gap:12, padding:"80px 24px 0", textAlign:"center",
+    }}>
+      <svg width="64" height="64" fill="none" viewBox="0 0 24 24"
+        stroke="#ddd" strokeWidth={1.1}>
+        <path strokeLinecap="round" strokeLinejoin="round"
+          d="M8 10h.01M12 10h.01M16 10h.01M21 12c0 4.418-4.03
+             8-9 8a9.77 9.77 0 01-4-.85L3 20l1.09-3.27C3.4
+             15.56 3 13.82 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z"/>
+      </svg>
+      <p style={{ margin:0, fontSize:16, fontWeight:700, color:"#bbb" }}>
+        No conversations yet
+      </p>
+      <p style={{ margin:0, fontSize:13, color:"#ccc", lineHeight:1.5, maxWidth:260 }}>
+        When you message a seller or someone messages you, your conversations will appear here.
+      </p>
+    </div>
+  );
+}
+
+function ThreadItem({ thread, userId, onClick }) {
+  const isMine       = thread.last_sender_id === userId;
+  const unread       = Number(thread.unread_count || 0);
+  const hasUnread    = unread > 0;
+  const preview      = thread.last_message || "";
+  const displayMsg   = isMine ? `You: ${preview}` : preview;
+  const truncated    = displayMsg.length > 55
+    ? displayMsg.slice(0, 55) + "…"
+    : displayMsg;
+
+  return (
+    <div
+      onClick={onClick}
+      role="button"
+      tabIndex={0}
+      onKeyDown={(e) => e.key === "Enter" && onClick()}
+      style={{
+        display:"flex", alignItems:"center", gap:12,
+        padding:"14px 16px",
+        background: hasUnread ? "#fafafa" : "#fff",
+        borderBottom:"1px solid #f5f5f5",
+        cursor:"pointer",
+        transition:"background .15s",
+      }}
+      onMouseEnter={(e) => (e.currentTarget.style.background = "#f8f8f8")}
+      onMouseLeave={(e) => (e.currentTarget.style.background = hasUnread ? "#fafafa" : "#fff")}
+    >
+      {/* Avatar */}
+      <Avatar
+        src={thread.other_user_image}
+        name={thread.other_user_name}
+        online={thread.other_user_online}
+      />
+
+      {/* Content */}
+      <div style={{ flex:1, minWidth:0 }}>
+        {/* Name + time */}
+        <div style={{
+          display:"flex", justifyContent:"space-between",
+          alignItems:"center", gap:8, marginBottom:3,
+        }}>
+          <span style={{
+            fontWeight: hasUnread ? 800 : 600,
+            fontSize:15, color:"#111",
+            whiteSpace:"nowrap", overflow:"hidden", textOverflow:"ellipsis",
+            flex:1,
+          }}>
+            {thread.other_user_name || "User"}
+          </span>
+          <span style={{
+            fontSize:11,
+            color: hasUnread ? "#111" : "#aaa",
+            fontWeight: hasUnread ? 700 : 400,
+            flexShrink:0,
+          }}>
+            {timeLabel(thread.last_message_at)}
+          </span>
+        </div>
+
+        {/* Preview + badge */}
+        <div style={{
+          display:"flex", justifyContent:"space-between",
+          alignItems:"center", gap:8,
+        }}>
+          <span style={{
+            fontSize:13,
+            color: hasUnread ? "#333" : "#999",
+            fontWeight: hasUnread ? 600 : 400,
+            whiteSpace:"nowrap", overflow:"hidden", textOverflow:"ellipsis",
+            flex:1,
+          }}>
+            {truncated || "No messages yet"}
+          </span>
+
+          {/* Product thumbnail */}
+          {thread.product_image && (
+            <img
+              src={thread.product_image}
+              alt=""
+              style={{
+                width:28, height:28, borderRadius:6,
+                objectFit:"cover", flexShrink:0,
+                border:"1px solid #eee",
+              }}
+            />
+          )}
+
+          {/* Unread badge */}
+          {hasUnread && (
+            <span style={{
+              minWidth:20, height:20, borderRadius:10,
+              background:"#111", color:"#fff",
+              fontSize:11, fontWeight:700,
+              display:"flex", alignItems:"center", justifyContent:"center",
+              padding:"0 6px", flexShrink:0,
+            }}>
+              {unread > 99 ? "99+" : unread}
+            </span>
+          )}
+        </div>
+
+        {/* Product title */}
+        {thread.product_title && (
+          <div style={{
+            fontSize:11, color:"#bbb", marginTop:3,
+            whiteSpace:"nowrap", overflow:"hidden", textOverflow:"ellipsis",
+          }}>
+            re: {thread.product_title}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
 /* ═══════════════════════════════════════
-   CHAT
+   CONVERSATIONS PAGE
 ═══════════════════════════════════════ */
-export default function Chat({ user }) {
-  const { threadId } = useParams();
-  const navigate     = useNavigate();
+export default function Conversations({ user }) {
+  const navigate = useNavigate();
 
-  /* ── state ── */
-  const [messages,    setMessages]    = useState([]);
-  const [newMsg,      setNewMsg]      = useState("");
-  const [otherUser,   setOtherUser]   = useState(null);
-  const [product,     setProduct]     = useState(null);
-  const [loading,     setLoading]     = useState(true);
-  const [sending,     setSending]     = useState(false);
-  const [isTyping,    setIsTyping]    = useState(false);
-  const [sockReady,   setSockReady]   = useState(false);
-  const [error,       setError]       = useState(null);
-
-  /* ── refs ── */
-  const socketRef      = useRef(null);
-  const bottomRef      = useRef(null);
-  const inputRef       = useRef(null);
-  const typingTimer    = useRef(null);
-  const historyLoaded  = useRef(false);
-  const pendingMsgs    = useRef([]);
-  const mounted        = useRef(true);
+  const [threads,  setThreads]  = useState([]);
+  const [loading,  setLoading]  = useState(true);
+  const [error,    setError]    = useState(null);
+  const [search,   setSearch]   = useState("");
+  const [tab,      setTab]      = useState("all"); // all | unread
+  const pollRef    = useRef(null);
+  const mounted    = useRef(true);
 
   useEffect(() => {
     mounted.current = true;
     return () => { mounted.current = false; };
   }, []);
 
-  const safe = useCallback((fn) => { if (mounted.current) fn(); }, []);
-
-  /* ══════════════════════════════
-     THREAD META
-  ══════════════════════════════ */
-  useEffect(() => {
-    if (!threadId || !user?.id) return;
-    const ctrl = new AbortController();
-
-    axios
-      .get(`${API}/conversations/${threadId}`, {
-        headers: authH(), signal: ctrl.signal, timeout: 8_000,
-      })
-      .then(({ data }) => {
-        const otherId =
-          data.other_user_id ||
-          (data.buyer_id === user.id ? data.seller_id : data.buyer_id);
-
-        safe(() => setOtherUser({
-          id:            otherId,
-          name:          data.other_user_name  || "User",
-          profile_image: data.other_user_image || null,
-          is_online:     data.other_user_online || false,
-          store_name:    data.other_user_store  || "",
-        }));
-
-        if (data.product_title) {
-          safe(() => setProduct({
-            title:  data.product_title,
-            images: data.product_image ? [data.product_image] : [],
-            price:  data.product_price,
-          }));
-        }
-
-        /* fetch full profile in background */
-        if (otherId) {
-          axios
-            .get(`${API}/users/${otherId}`, { headers: authH() })
-            .then(({ data: u }) => safe(() => setOtherUser(u)))
-            .catch(() => {});
-        }
-      })
-      .catch((err) => {
-        if (axios.isCancel(err)) return;
-        console.warn("Thread meta:", err.response?.status, err.message);
-
-        /* fallback — list */
-        axios
-          .get(`${API}/conversations`, {
-            params: { userId: user.id }, headers: authH(), signal: ctrl.signal,
-          })
-          .then(({ data: list }) => {
-            const t = (Array.isArray(list) ? list : [])
-              .find((t) => t.thread_id === threadId || t.id === threadId);
-            if (!t) return;
-            const otherId = t.other_user_id ||
-              (t.buyer_id === user.id ? t.seller_id : t.buyer_id);
-            safe(() => setOtherUser({
-              id:            otherId,
-              name:          t.other_user_name  || "User",
-              profile_image: t.other_user_image || null,
-              is_online:     t.other_user_online || false,
-            }));
-            if (t.product_title) {
-              safe(() => setProduct({
-                title:  t.product_title,
-                images: t.product_image ? [t.product_image] : [],
-                price:  t.product_price,
-              }));
-            }
-          })
-          .catch(() => {});
-      });
-
-    return () => ctrl.abort();
-  }, [threadId, user?.id]); // eslint-disable-line
-
-  /* ══════════════════════════════
-     SOCKET
-  ══════════════════════════════ */
-  useEffect(() => {
-    if (!user?.id || !threadId) return;
-
-    const sock = io(SOCKET_URL, {
-      transports: ["websocket", "polling"],
-      withCredentials: false,
-      query: { userId: user.id },
-      reconnection: true,
-      reconnectionAttempts: 8,
-      reconnectionDelay: 1500,
-    });
-    socketRef.current = sock;
-
-    sock.on("connect", () => {
-      sock.emit("joinThread", { threadId, userId: user.id });
-      safe(() => setSockReady(true));
-    });
-    sock.on("disconnect", () => safe(() => setSockReady(false)));
-
-    sock.on("receiveMessage", (msg) => {
-      if (!msg?.id || msg.sender_id === user.id) return;
-      if (!historyLoaded.current) { pendingMsgs.current.push(msg); return; }
-      safe(() => setMessages((p) => {
-        if (p.some((m) => m.id === msg.id)) return p;
-        return dedupe([...p, msg]);
-      }));
-      sock.emit("markRead", { threadId, userId: user.id });
-      axios.patch(`${API}/conversations/${threadId}/read`,
-        { userId: user.id }, { headers: authH() }).catch(() => {});
-    });
-
-    sock.on("messagesRead", ({ userId: uid }) => {
-      if (uid === user.id) return;
-      safe(() => setMessages((p) =>
-        p.map((m) =>
-          m.sender_id === user.id && m.status !== "read"
-            ? { ...m, status: "read" } : m
-        )
-      ));
-    });
-
-    sock.on("userTyping",     () => safe(() => setIsTyping(true)));
-    sock.on("userStopTyping", () => safe(() => setIsTyping(false)));
-
-    sock.on("messageEdited", ({ messageId, message }) =>
-      safe(() => setMessages((p) =>
-        p.map((m) => m.id === messageId ? { ...m, message, edited: true } : m)
-      ))
-    );
-    sock.on("messageDeleted", ({ messageId }) =>
-      safe(() => setMessages((p) => p.filter((m) => m.id !== messageId)))
-    );
-    sock.on("userOnline",  ({ userId: uid }) => {
-      if (uid !== user.id)
-        safe(() => setOtherUser((p) => p ? { ...p, is_online: true  } : p));
-    });
-    sock.on("userOffline", ({ userId: uid }) => {
-      if (uid !== user.id)
-        safe(() => setOtherUser((p) => p ? { ...p, is_online: false } : p));
-    });
-
-    return () => { sock.disconnect(); socketRef.current = null; safe(() => setSockReady(false)); };
-  }, [user?.id, threadId]); // eslint-disable-line
-
-  /* ══════════════════════════════
-     LOAD HISTORY
-  ══════════════════════════════ */
-  const loadHistory = useCallback(async () => {
-    if (!user?.id || !threadId) return;
-    historyLoaded.current  = false;
-    pendingMsgs.current    = [];
-    safe(() => { setLoading(true); setError(null); });
-
-    try {
-      const data = await fetchMessages(threadId, user.id);
-      const all  = dedupe([...data, ...pendingMsgs.current]);
-      pendingMsgs.current   = [];
-      historyLoaded.current = true;
-      safe(() => setMessages(all));
-      socketRef.current?.emit("markRead", { threadId, userId: user.id });
-      axios.patch(`${API}/conversations/${threadId}/read`,
-        { userId: user.id }, { headers: authH() }).catch(() => {});
-    } catch (err) {
-      const status = err.response?.status;
-      const body   = err.response?.data;
-      const info   = `HTTP ${status ?? "network"} — ${
-        typeof body === "object" ? JSON.stringify(body) : (body ?? err.message)
-      }`;
-      console.error("❌ loadHistory:", info);
-      safe(() => setError(info));
-    } finally {
-      safe(() => setLoading(false));
-    }
-  }, [user?.id, threadId, safe]);
-
-  useEffect(() => { loadHistory(); }, [loadHistory]);
-
-  /* ══════════════════════════════
-     AUTO-SCROLL
-  ══════════════════════════════ */
-  useEffect(() => {
-    bottomRef.current?.scrollIntoView({ behavior: "smooth" });
-  }, [messages, isTyping]);
-
-  /* ══════════════════════════════
-     TYPING
-  ══════════════════════════════ */
-  const handleTyping = useCallback(() => {
-    socketRef.current?.emit("typing", { threadId, userId: user?.id });
-    clearTimeout(typingTimer.current);
-    typingTimer.current = setTimeout(() => {
-      socketRef.current?.emit("stopTyping", { threadId, userId: user?.id });
-    }, 1500);
-  }, [threadId, user?.id]);
-
-  useEffect(() => () => clearTimeout(typingTimer.current), []);
-
-  /* ══════════════════════════════
-     SEND
-  ══════════════════════════════ */
-  const sendMessage = useCallback(async () => {
-    const text = newMsg.trim();
-    if (!text || sending) return;
-
-    const clientMessageId = `${user.id}_${Date.now()}`;
-    const tempId          = `temp_${clientMessageId}`;
-    const temp = {
-      id: tempId, thread_id: threadId, sender_id: user.id,
-      message: text, message_type: "text",
-      created_at: new Date().toISOString(),
-      status: "sending", _temp: true, _failed: false,
-    };
-
-    safe(() => { setMessages((p) => [...p, temp]); setNewMsg(""); setSending(true); });
-    clearTimeout(typingTimer.current);
-    socketRef.current?.emit("stopTyping", { threadId, userId: user.id });
-
-    try {
-      const { data: saved } = await axios.post(
-        `${API}/messages`,
-        { threadId, senderId: user.id, message: text,
-          messageType: "text", clientMessageId },
-        { headers: authH(), timeout: 12_000 }
-      );
-      safe(() => setMessages((p) => p.map((m) => m.id === tempId ? saved : m)));
-      socketRef.current?.emit("sendMessage", saved);
-    } catch (err) {
-      console.error("Send failed:", err.response?.data ?? err.message);
-      safe(() => {
-        setMessages((p) =>
-          p.map((m) => m.id === tempId ? { ...m, _temp: false, _failed: true } : m)
-        );
-        setNewMsg(text);
-      });
-    } finally {
-      safe(() => setSending(false));
-      inputRef.current?.focus();
-    }
-  }, [newMsg, sending, threadId, user?.id, safe]); // eslint-disable-line
-
-  const retryMessage = useCallback((failedMsg) => {
-    setMessages((p) => p.filter((m) => m.id !== failedMsg.id));
-    setNewMsg(failedMsg.message);
-    inputRef.current?.focus();
+  const safe = useCallback((fn) => {
+    if (mounted.current) fn();
   }, []);
 
-  const handleKeyDown = useCallback((e) => {
-    if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); sendMessage(); }
-  }, [sendMessage]);
+  /* ── Fetch conversations ── */
+  const fetchConversations = useCallback(async (showLoading = true) => {
+    if (!user?.id) return;
+    if (showLoading) safe(() => { setLoading(true); setError(null); });
 
-  const isMine  = useCallback((m) => m.sender_id === user?.id, [user?.id]);
-  const grouped = useMemo(() => groupByDate(messages), [messages]);
-  const canSend = newMsg.trim().length > 0 && !sending;
+    try {
+      const res = await fetch(`${API}/conversations?userId=${user.id}`, {
+        headers: authH(),
+        timeout: 10_000,
+      });
+
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}));
+        throw new Error(data.message || `HTTP ${res.status}`);
+      }
+
+      const data = await res.json();
+      const list = Array.isArray(data) ? data : [];
+
+      // Sort by last_message_at descending
+      list.sort((a, b) =>
+        new Date(b.last_message_at || 0) - new Date(a.last_message_at || 0)
+      );
+
+      safe(() => setThreads(list));
+    } catch (err) {
+      console.error("Fetch conversations:", err.message);
+      if (showLoading) safe(() => setError(err.message));
+    } finally {
+      if (showLoading) safe(() => setLoading(false));
+    }
+  }, [user?.id, safe]);
+
+  /* ── Initial load ── */
+  useEffect(() => {
+    fetchConversations(true);
+  }, [fetchConversations]);
+
+  /* ── Poll every 15s for new messages ── */
+  useEffect(() => {
+    if (!user?.id) return;
+    pollRef.current = setInterval(() => {
+      fetchConversations(false); // silent refresh
+    }, 15_000);
+
+    return () => clearInterval(pollRef.current);
+  }, [user?.id, fetchConversations]);
+
+  /* ── Open thread ── */
+  const openThread = useCallback((thread) => {
+    const threadId = thread.thread_id || thread.id;
+    navigate(`/chat/${threadId}`);
+  }, [navigate]);
+
+  /* ── Filtered threads ── */
+  const filtered = threads.filter((t) => {
+    // Tab filter
+    if (tab === "unread" && Number(t.unread_count || 0) === 0) return false;
+
+    // Search filter
+    if (search.trim()) {
+      const q = search.toLowerCase();
+      const name    = (t.other_user_name || "").toLowerCase();
+      const msg     = (t.last_message || "").toLowerCase();
+      const product = (t.product_title || "").toLowerCase();
+      if (!name.includes(q) && !msg.includes(q) && !product.includes(q)) return false;
+    }
+
+    return true;
+  });
+
+  const totalUnread = threads.reduce(
+    (sum, t) => sum + Number(t.unread_count || 0), 0
+  );
+
+  /* ── Not logged in ── */
+  if (!user?.id) {
+    return (
+      <div style={{
+        display:"flex", flexDirection:"column", alignItems:"center",
+        justifyContent:"center", height:"100dvh", gap:16,
+        fontFamily:"-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif",
+        padding:24, textAlign:"center",
+      }}>
+        <svg width="56" height="56" fill="none" viewBox="0 0 24 24"
+          stroke="#ccc" strokeWidth={1.2}>
+          <path strokeLinecap="round" strokeLinejoin="round"
+            d="M8 10h.01M12 10h.01M16 10h.01M21 12c0 4.418-4.03
+               8-9 8a9.77 9.77 0 01-4-.85L3 20l1.09-3.27C3.4
+               15.56 3 13.82 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z"/>
+        </svg>
+        <p style={{ fontSize:16, fontWeight:700, color:"#555" }}>
+          Log in to see your messages
+        </p>
+        <button
+          onClick={() => navigate("/login")}
+          style={{
+            padding:"11px 32px", borderRadius:24,
+            border:"none", background:"#111",
+            color:"#fff", fontSize:14, fontWeight:700,
+            cursor:"pointer",
+          }}
+        >
+          Log in
+        </button>
+      </div>
+    );
+  }
 
   /* ══════════════════════════════
      RENDER
@@ -501,7 +355,7 @@ export default function Chat({ user }) {
   return (
     <>
       <style>{`
-        .chat-wrap {
+        .cv-wrap {
           display:flex; flex-direction:column;
           height:100dvh; max-width:700px;
           margin:0 auto; background:#fff;
@@ -509,183 +363,197 @@ export default function Chat({ user }) {
         }
 
         /* ── header ── */
-        .chat-header {
-          display:flex; align-items:center; gap:10px;
-          padding:10px 14px;
-          border-bottom:1px solid #f0f0f0;
+        .cv-header {
+          padding:16px 16px 0;
           background:#fff;
-          position:sticky; top:0; z-index:20;
-          box-shadow:0 1px 8px rgba(0,0,0,.07);
+          position:sticky; top:0; z-index:10;
+          border-bottom:1px solid #f0f0f0;
         }
-        .chat-back {
+        .cv-header-top {
+          display:flex; align-items:center;
+          justify-content:space-between;
+          margin-bottom:12px;
+        }
+        .cv-title { font-size:22px; font-weight:900; color:#111; letter-spacing:-0.5px; }
+        .cv-unread-badge {
+          background:#111; color:#fff;
+          font-size:12px; font-weight:700;
+          padding:2px 8px; border-radius:10px;
+          margin-left:8px;
+        }
+        .cv-back {
           background:none; border:none; cursor:pointer;
           padding:6px; display:flex; align-items:center;
-          flex-shrink:0; border-radius:50%;
-          transition:background .15s;
+          border-radius:50%; transition:background .15s;
         }
-        .chat-back:hover { background:#f5f5f5; }
-        .chat-avatar-wrap { position:relative; flex-shrink:0; }
-        .chat-avatar {
-          width:42px; height:42px; border-radius:50%;
-          object-fit:cover; background:#eee; display:block;
-        }
-        .chat-online-dot {
-          position:absolute; bottom:1px; right:1px;
-          width:10px; height:10px; background:#22c55e;
-          border-radius:50%; border:2px solid #fff;
-        }
-        .chat-header-info { flex:1; min-width:0; }
-        .chat-header-name {
-          font-weight:700; font-size:15px; line-height:1.3;
-          white-space:nowrap; overflow:hidden; text-overflow:ellipsis;
-        }
-        .chat-header-sub {
-          font-size:11px; margin-top:1px;
-          white-space:nowrap; overflow:hidden; text-overflow:ellipsis;
-        }
-        .chat-product-thumb {
-          width:40px; height:40px; border-radius:8px;
-          object-fit:cover; flex-shrink:0; border:1px solid #eee;
-        }
-        .chat-sock-dot {
-          width:8px; height:8px; border-radius:50%; flex-shrink:0;
-          transition:background .3s;
-        }
+        .cv-back:hover { background:#f5f5f5; }
 
-        /* ── messages ── */
-        .chat-body {
-          flex:1; overflow-y:auto; padding:14px 12px;
-          display:flex; flex-direction:column; gap:1px;
-          background:#f8f8f8;
-        }
-        .chat-center {
-          flex:1; display:flex; flex-direction:column;
-          align-items:center; justify-content:center;
-          gap:12px; padding:80px 24px 0;
-        }
-
-        /* ── input ── */
-        .chat-footer {
-          display:flex; align-items:center; gap:10px;
-          padding:10px 12px;
-          border-top:1px solid #f0f0f0;
-          background:#fff;
-        }
-        .chat-input {
-          flex:1; padding:11px 16px;
-          border-radius:24px; border:1.5px solid #e5e5e5;
+        /* ── search ── */
+        .cv-search {
+          width:100%; padding:10px 14px;
+          border-radius:12px; border:1.5px solid #eee;
           font-size:14px; background:#f8f8f8;
           outline:none; transition:border-color .15s;
+          box-sizing:border-box;
+          margin-bottom:12px;
           font-family:inherit;
         }
-        .chat-input:focus { border-color:#999; }
-        .chat-send-btn {
-          width:44px; height:44px; border-radius:50%;
-          flex-shrink:0; border:none;
-          display:flex; align-items:center; justify-content:center;
-          cursor:pointer; transition:background .15s, transform .1s;
+        .cv-search:focus { border-color:#999; }
+
+        /* ── tabs ── */
+        .cv-tabs {
+          display:flex; gap:0;
+          border-bottom:none;
         }
-        .chat-send-btn:active { transform:scale(.92); }
-        .chat-send-btn:disabled { cursor:default; }
-
-        /* ── error box ── */
-        .chat-err-code {
-          font-family:monospace; font-size:11px;
-          color:#f87171; background:#fef2f2;
-          padding:6px 12px; border-radius:8px;
-          text-align:center; max-width:320px;
-          word-break:break-all;
+        .cv-tab {
+          flex:1; padding:10px 0;
+          text-align:center;
+          font-size:13px; font-weight:700;
+          color:#999; cursor:pointer;
+          border-bottom:2.5px solid transparent;
+          background:none; border-top:none;
+          border-left:none; border-right:none;
+          transition:color .15s, border-color .15s;
+          font-family:inherit;
+        }
+        .cv-tab.active {
+          color:#111;
+          border-bottom-color:#111;
         }
 
-        /* ── empty ── */
-        .chat-empty-icon { opacity:.25; }
+        /* ── thread list ── */
+        .cv-list {
+          flex:1; overflow-y:auto;
+        }
 
-        @keyframes btn-spin { to { transform:rotate(360deg); } }
+        /* ── pull indicator ── */
+        .cv-refresh-hint {
+          text-align:center; font-size:11px;
+          color:#ccc; padding:8px;
+        }
+
+        /* ── error ── */
+        .cv-error {
+          display:flex; flex-direction:column;
+          align-items:center; justify-content:center;
+          gap:12px; padding:60px 24px;
+          text-align:center;
+        }
       `}</style>
 
-      <div className="chat-wrap">
+      <div className="cv-wrap">
 
-        {/* ════ HEADER ════ */}
-        <header className="chat-header">
+        {/* ── HEADER ── */}
+        <div className="cv-header">
+          <div className="cv-header-top">
+            <div style={{ display:"flex", alignItems:"center" }}>
+              <button
+                className="cv-back"
+                onClick={() => navigate(-1)}
+                aria-label="Back"
+              >
+                <svg width="20" height="20" fill="none" viewBox="0 0 24 24"
+                  stroke="#111" strokeWidth={2.2}>
+                  <path strokeLinecap="round" strokeLinejoin="round"
+                    d="M15 19l-7-7 7-7"/>
+                </svg>
+              </button>
+              <span className="cv-title">
+                Messages
+                {totalUnread > 0 && (
+                  <span className="cv-unread-badge">
+                    {totalUnread > 99 ? "99+" : totalUnread}
+                  </span>
+                )}
+              </span>
+            </div>
 
-          <button className="chat-back" onClick={() => navigate(-1)} aria-label="Back">
-            <svg width="20" height="20" fill="none" viewBox="0 0 24 24"
-              stroke="#111" strokeWidth={2.2}>
-              <path strokeLinecap="round" strokeLinejoin="round" d="M15 19l-7-7 7-7"/>
-            </svg>
-          </button>
-
-          <div className="chat-avatar-wrap">
-            <img
-              className="chat-avatar"
-              src={
-                otherUser?.profile_image ||
-                `https://ui-avatars.com/api/?name=${encodeURIComponent(
-                  otherUser?.name || "U"
-                )}&background=111&color=fff&size=80`
-              }
-              alt={otherUser?.name || "User"}
-            />
-            {otherUser?.is_online && <span className="chat-online-dot"/>}
+            {/* Refresh button */}
+            <button
+              onClick={() => fetchConversations(true)}
+              aria-label="Refresh"
+              style={{
+                background:"none", border:"none", cursor:"pointer",
+                padding:8, borderRadius:"50%",
+                display:"flex", alignItems:"center",
+                transition:"background .15s",
+              }}
+              onMouseEnter={(e) => (e.currentTarget.style.background = "#f5f5f5")}
+              onMouseLeave={(e) => (e.currentTarget.style.background = "none")}
+            >
+              <svg width="20" height="20" fill="none" viewBox="0 0 24 24"
+                stroke="#555" strokeWidth={2}>
+                <path strokeLinecap="round" strokeLinejoin="round"
+                  d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582
+                     9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0
+                     01-15.357-2m15.357 2H15"/>
+              </svg>
+            </button>
           </div>
 
-          <div className="chat-header-info">
-            <div className="chat-header-name">
-              {otherUser?.name || "…"}
-            </div>
-            <div className="chat-header-sub">
-              {isTyping ? (
-                <span style={{ color:"#22c55e" }}>typing…</span>
-              ) : otherUser?.is_online ? (
-                <span style={{ color:"#22c55e" }}>Online</span>
-              ) : product?.title ? (
-                <span style={{ color:"#888" }}>re: {product.title}</span>
-              ) : otherUser?.store_name ? (
-                <span style={{ color:"#aaa" }}>{otherUser.store_name}</span>
-              ) : null}
-            </div>
-          </div>
-
-          {product?.images?.[0] && (
-            <img
-              className="chat-product-thumb"
-              src={product.images[0]}
-              alt={product.title}
+          {/* Search */}
+          {threads.length > 3 && (
+            <input
+              className="cv-search"
+              type="text"
+              placeholder="Search conversations…"
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
             />
           )}
 
-          <div
-            className="chat-sock-dot"
-            title={sockReady ? "Connected" : "Connecting…"}
-            style={{ background: sockReady ? "#22c55e" : "#f59e0b" }}
-          />
-        </header>
+          {/* Tabs */}
+          {threads.length > 0 && (
+            <div className="cv-tabs">
+              <button
+                className={`cv-tab${tab === "all" ? " active" : ""}`}
+                onClick={() => setTab("all")}
+              >
+                All ({threads.length})
+              </button>
+              <button
+                className={`cv-tab${tab === "unread" ? " active" : ""}`}
+                onClick={() => setTab("unread")}
+              >
+                Unread ({totalUnread})
+              </button>
+            </div>
+          )}
+        </div>
 
-        {/* ════ BODY ════ */}
-        <main className="chat-body">
+        {/* ── BODY ── */}
+        <div className="cv-list">
 
           {/* Loading */}
           {loading && (
-            <div className="chat-center">
+            <div style={{
+              display:"flex", justifyContent:"center",
+              paddingTop:80,
+            }}>
               <Spinner/>
             </div>
           )}
 
           {/* Error */}
           {!loading && error && (
-            <div className="chat-center">
-              <svg width="44" height="44" fill="none" viewBox="0 0 24 24"
-                stroke="#f87171" strokeWidth={1.5} className="chat-empty-icon"
-                style={{ opacity:1 }}>
+            <div className="cv-error">
+              <svg width="40" height="40" fill="none" viewBox="0 0 24 24"
+                stroke="#f87171" strokeWidth={1.5}>
                 <circle cx="12" cy="12" r="10"/>
                 <path strokeLinecap="round" d="M12 8v4m0 4h.01"/>
               </svg>
-              <p style={{ margin:0, fontSize:14, color:"#888", textAlign:"center" }}>
-                Failed to load messages
+              <p style={{ margin:0, fontSize:14, color:"#888" }}>
+                Could not load messages
               </p>
-              <p className="chat-err-code">{error}</p>
+              <p style={{
+                margin:0, fontSize:11, color:"#f87171",
+                fontFamily:"monospace", background:"#fef2f2",
+                padding:"4px 10px", borderRadius:6,
+              }}>
+                {error}
+              </p>
               <button
-                onClick={loadHistory}
+                onClick={() => fetchConversations(true)}
                 style={{
                   padding:"9px 28px", borderRadius:20,
                   border:"none", background:"#111",
@@ -698,85 +566,37 @@ export default function Chat({ user }) {
             </div>
           )}
 
-          {/* Empty */}
-          {!loading && !error && messages.length === 0 && (
-            <div className="chat-center">
-              <svg width="56" height="56" fill="none" viewBox="0 0 24 24"
-                stroke="#ccc" strokeWidth={1.2} className="chat-empty-icon">
-                <path strokeLinecap="round" strokeLinejoin="round"
-                  d="M8 10h.01M12 10h.01M16 10h.01M21 12c0 4.418-4.03
-                     8-9 8a9.77 9.77 0 01-4-.85L3 20l1.09-3.27C3.4
-                     15.56 3 13.82 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z"/>
-              </svg>
-              <p style={{ margin:0, fontSize:15, fontWeight:700, color:"#bbb" }}>
-                No messages yet
-              </p>
-              <p style={{ margin:0, fontSize:12, color:"#ccc" }}>
-                Say hello to start the conversation!
-              </p>
+          {/* Empty — no conversations at all */}
+          {!loading && !error && threads.length === 0 && (
+            <EmptyState/>
+          )}
+
+          {/* Empty — filter returned nothing */}
+          {!loading && !error && threads.length > 0 && filtered.length === 0 && (
+            <div style={{
+              textAlign:"center", padding:"60px 24px",
+              color:"#aaa", fontSize:14,
+            }}>
+              {tab === "unread"
+                ? "🎉 All caught up — no unread messages!"
+                : `No results for "${search}"`
+              }
             </div>
           )}
 
-          {/* Messages */}
-          {!loading && !error && messages.length > 0 && (
-            <>
-              {grouped.map((item, i) =>
-                item.type === "date" ? (
-                  <DateSep key={`d${i}`} label={item.label}/>
-                ) : (
-                  <Bubble
-                    key={item.data.id}
-                    msg={item.data}
-                    mine={isMine(item.data)}
-                    onRetry={retryMessage}
-                  />
-                )
-              )}
-              {isTyping && <TypingBubble/>}
-            </>
-          )}
+          {/* Thread list */}
+          {!loading && !error && filtered.map((thread) => (
+            <ThreadItem
+              key={thread.thread_id || thread.id}
+              thread={thread}
+              userId={user.id}
+              onClick={() => openThread(thread)}
+            />
+          ))}
 
-          <div ref={bottomRef}/>
-        </main>
-
-        {/* ════ FOOTER ════ */}
-        <footer className="chat-footer">
-          <input
-            ref={inputRef}
-            className="chat-input"
-            type="text"
-            value={newMsg}
-            onChange={(e) => { setNewMsg(e.target.value); handleTyping(); }}
-            onKeyDown={handleKeyDown}
-            placeholder="Type a message…"
-            aria-label="Message"
-            maxLength={5000}
-          />
-
-          <button
-            className="chat-send-btn"
-            onClick={sendMessage}
-            disabled={!canSend}
-            aria-label="Send"
-            style={{ background: canSend ? "#111" : "#e5e5e5" }}
-          >
-            {sending ? (
-              <div style={{
-                width:18, height:18,
-                border:"2px solid rgba(255,255,255,.3)",
-                borderTop:"2px solid #fff",
-                borderRadius:"50%",
-                animation:"btn-spin .7s linear infinite",
-              }}/>
-            ) : (
-              <svg width="18" height="18" viewBox="0 0 24 24" fill="none"
-                stroke={canSend ? "#fff" : "#aaa"} strokeWidth={2}>
-                <path strokeLinecap="round" strokeLinejoin="round"
-                  d="M22 2L11 13M22 2L15 22l-4-9-9-4 20-7z"/>
-              </svg>
-            )}
-          </button>
-        </footer>
+          {/* Bottom padding */}
+          <div style={{ height:80 }}/>
+        </div>
 
       </div>
     </>
