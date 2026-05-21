@@ -1,5 +1,6 @@
 import React, { useState, useCallback } from "react";
-import { Icon } from "./icons";
+import { Icon }     from "./icons";
+import { CURRENCY } from "./constants";
 
 function CounterOfferModal({ originalMsg, onSend, onClose }) {
   const o = originalMsg?._offerMeta;
@@ -35,7 +36,7 @@ function CounterOfferModal({ originalMsg, onSend, onClose }) {
             <div>
               <div className="modal-title">Counter Offer</div>
               <div className="modal-subtitle">
-                Their offer: ৳{Number(o?.amount || 0).toLocaleString()}
+                Their offer: {CURRENCY}{Number(o?.amount || 0).toLocaleString()}
               </div>
             </div>
           </div>
@@ -45,10 +46,15 @@ function CounterOfferModal({ originalMsg, onSend, onClose }) {
         <div className="modal-field">
           <label className="modal-label">Your Counter Price</label>
           <div className="modal-input-wrap">
-            <span className="modal-currency">৳</span>
-            <input className="modal-input" type="number" placeholder="0"
-              value={amt} autoFocus
-              onChange={e => { setAmt(e.target.value); setErr(""); }}/>
+            <span className="modal-currency">{CURRENCY}</span>
+            <input
+              className="modal-input"
+              type="number"
+              placeholder="0"
+              value={amt}
+              autoFocus
+              onChange={e => { setAmt(e.target.value); setErr(""); }}
+            />
           </div>
           {err && <div className="modal-err">{err}</div>}
         </div>
@@ -57,10 +63,14 @@ function CounterOfferModal({ originalMsg, onSend, onClose }) {
           <label className="modal-label">
             Note <span className="modal-optional">(optional)</span>
           </label>
-          <textarea className="modal-textarea" rows={2} maxLength={200}
+          <textarea
+            className="modal-textarea"
+            rows={2}
+            maxLength={200}
             placeholder="Explain your counter…"
             value={note}
-            onChange={e => setNote(e.target.value)}/>
+            onChange={e => setNote(e.target.value)}
+          />
         </div>
 
         <div className="modal-actions">
