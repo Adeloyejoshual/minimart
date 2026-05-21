@@ -1,18 +1,28 @@
-import React, { useCallback, memo } from "react";
-import { Icon }        from "./icons";
+import React, { useCallback, memo, useState, useEffect } from "react";
+import { Icon } from "./icons";
 import { lastSeenText } from "./constants";
 
-/* ── dropdown menu ───────────────────────── */
+/* ═══════════════════════════════════════════
+   HEADER MENU (3-dot dropdown)
+═══════════════════════════════════════════ */
 const HeaderMenu = memo(function HeaderMenu({
   otherUser, navigate, onClose, onMute, muted,
 }) {
+  /* close on Escape */
+  useEffect(() => {
+    const handler = e => { if (e.key === "Escape") onClose(); };
+    window.addEventListener("keydown", handler);
+    return () => window.removeEventListener("keydown", handler);
+  }, [onClose]);
+
   const goProfile = useCallback(() => {
     onClose();
-    navigate(`/seller/${otherUser.id}`);
+    if (otherUser?.id) navigate(`/seller/${otherUser.id}`);
   }, [onClose, navigate, otherUser?.id]);
 
   const handleMute = useCallback(() => {
-    onClose(); onMute();
+    onClose();
+    onMute();
   }, [onClose, onMute]);
 
   const handleReport = useCallback(() => {
@@ -28,103 +38,210 @@ const HeaderMenu = memo(function HeaderMenu({
   return (
     <>
       <div className="chat-menu-overlay" onClick={onClose}/>
-      <div className="chat-menu">
+      <div className="chat-menu" role="menu" aria-label="Chat options">
         {otherUser?.id && (
-          <button className="chat-menu-item" onClick={goProfile}>
-            {Icon.user} View Profile
+          <button className="chat-menu-item" onClick={goProfile} role="menuitem">
+            {Icon.user}
+            <span>View Profile</span>
           </button>
         )}
-        <button className="chat-menu-item" onClick={handleMute}>
+        <button className="chat-menu-item" onClick={handleMute} role="menuitem">
           {muted ? Icon.unmute : Icon.mute}
-          {muted ? "Unmute" : "Mute"} Notifications
+          <span>{muted ? "Unmute" : "Mute"} Notifications</span>
         </button>
-        <button className="chat-menu-item" onClick={handleReport}>
-          {Icon.flag} Report Seller
+        <button className="chat-menu-item" onClick={handleReport} role="menuitem">
+          {Icon.flag}
+          <span>Report Seller</span>
         </button>
-        <button className="chat-menu-item chat-menu-danger" onClick={handleSpam}>
-          {Icon.warn} Mark as Spam
+        <button
+          className="chat-menu-item chat-menu-danger"
+          onClick={handleSpam}
+          role="menuitem"
+        >
+          {Icon.warn}
+          <span>Mark as Spam</span>
         </button>
       </div>
     </>
   );
 });
 
-/* ── header ──────────────────────────────── */
+/* ═══════════════════════════════════════════
+   CONNECTION STATUS BADGE
+═══════════════════════════════════════════ */
+const ConnectionDot = memo(function ConnectionDot({ connected }) {
+  return (
+    <div
+      className={`chat-sock-dot ${connected ? "connected" : ""}`}
+      title={connected ? "Connected" : "Reconnecting…"}
+      role="status"
+      aria-label={connected ? "Connected" : "Reconnecting"}
+    />
+  );
+});
+
+/* ═══════════════════════════════════════════
+   AVATAR
+═══════════════════════════════════════════ */
+const FALLBACK_SIZE = 80;
+
+const Avatar = memo(function Avatar({ user: u }) {
+  const [imgError, setImgError] = useState(false);
+
+  const src = !imgError && u?.profile_image
+    ? u.profile_image
+    : `https://ui-avatars.com/api/?name=${
+        encodeURIComponent(u?.name || "U")
+      }&background=111&color=fff&size=${FALLBACK_SIZE}`;
+
+  const handleError = useCallback(() => setImgError(true), []);
+
+  /* reset error flag when user changes */
+  useEffect(() => setImgError(false), [u?.profile_image]);
+
+  return (
+    <div className="chat-avatar-wrap">
+      <img
+        className="chat-avatar"
+        src={src}
+        alt={u?.name || "User"}
+        onError={handleError}
+        loading="lazy"
+      />
+      {u?.is_online && <span className="chat-online-dot" aria-label="Online"/>}
+    </div>
+  );
+});
+
+/* ═══════════════════════════════════════════
+   PRODUCT THUMB (clickable)
+═══════════════════════════════════════════ */
+const ProductThumb = memo(function ProductThumb({ product, navigate }) {
+  const [imgError, setImgError] = useState(false);
+
+  const handleError = useCallback(() => setImgError(true), []);
+
+  const handleClick = useCallback(() => {
+    if (product?.id) navigate(`/product/${product.id}`);
+  }, [product?.id, navigate]);
+
+  useEffect(() => setImgError(false), [product?.images]);
+
+  if (!product?.images?.[0] || imgError) return null;
+
+  return (
+    <img
+      className="chat-product-thumb"
+      src={product.images[0]}
+      alt={product.title || "Product"}
+      title={product.title}
+      onClick={handleClick}
+      onError={handleError}
+      loading="lazy"
+    />
+  );
+});
+
+/* ═══════════════════════════════════════════
+   HEADER STATUS TEXT
+═══════════════════════════════════════════ */
+const StatusLine = memo(function StatusLine({ otherUser, isTyping }) {
+  if (isTyping) {
+    return (
+      <div className="chat-header-status typing" aria-live="polite">
+        typing…
+      </div>
+    );
+  }
+
+  if (otherUser?.is_online) {
+    return (
+      <div className="chat-header-status online">Online</div>
+    );
+  }
+
+  return (
+    <div className="chat-header-status offline">
+      {lastSeenText(otherUser?.last_login)}
+    </div>
+  );
+});
+
+/* ═══════════════════════════════════════════
+   MAIN HEADER
+═══════════════════════════════════════════ */
 function ChatHeader({
-  otherUser, product, isTyping, sockReady,
-  showMenu, onToggleMenu, onMenuClose,
-  navigate, muted, onMute,
+  otherUser,
+  product,
+  isTyping,
+  sockReady,
+  showMenu,
+  onToggleMenu,
+  onMenuClose,
+  navigate,
+  muted,
+  onMute,
 }) {
+  const goBack = useCallback(() => navigate(-1), [navigate]);
+
   const goProfile = useCallback(() => {
     if (otherUser?.id) navigate(`/seller/${otherUser.id}`);
   }, [otherUser?.id, navigate]);
 
-  const statusClass = isTyping ? "typing"
-    : otherUser?.is_online ? "online" : "offline";
-
-  const statusText = isTyping
-    ? "typing…"
-    : otherUser?.is_online
-      ? "Online"
-      : lastSeenText(otherUser?.last_login);
-
   return (
     <>
-      <header className="chat-header">
-        {/* Back */}
-        <button className="chat-icon-btn" onClick={() => navigate(-1)}
-          aria-label="Back">
+      <header className="chat-header" role="banner">
+        {/* Back button */}
+        <button
+          className="chat-icon-btn"
+          onClick={goBack}
+          aria-label="Go back"
+        >
           {Icon.back}
         </button>
 
         {/* Avatar */}
-        <div className="chat-avatar-wrap">
-          <img
-            className="chat-avatar"
-            src={
-              otherUser?.profile_image ||
-              `https://ui-avatars.com/api/?name=${encodeURIComponent(
-                otherUser?.name || "U"
-              )}&background=111&color=fff&size=80`
-            }
-            alt={otherUser?.name || "User"}
-          />
-          {otherUser?.is_online && <span className="chat-online-dot"/>}
-        </div>
+        <Avatar user={otherUser}/>
 
-        {/* Name + status */}
-        <div className="chat-header-info" onClick={goProfile}>
-          <div className="chat-header-name">{otherUser?.name || "…"}</div>
-          <div className={`chat-header-status ${statusClass}`}>
-            {statusText}
-          </div>
-        </div>
-
-        {/* Product thumb */}
-        {product?.images?.[0] && (
-          <img
-            className="chat-product-thumb"
-            src={product.images[0]}
-            alt={product.title}
-            title={product.title}
-          />
-        )}
-
-        {/* Connection dot */}
+        {/* Name + Status — tappable to view profile */}
         <div
-          className="chat-sock-dot"
-          title={sockReady ? "Connected" : "Connecting…"}
-          style={{ background: sockReady ? "#22c55e" : "#f59e0b" }}
-        />
+          className="chat-header-info"
+          onClick={goProfile}
+          role="button"
+          tabIndex={0}
+          aria-label={`View ${otherUser?.name || "user"}'s profile`}
+          onKeyDown={e => { if (e.key === "Enter") goProfile(); }}
+        >
+          <div className="chat-header-name">
+            {otherUser?.name || "…"}
+            {otherUser?.store_name && (
+              <span className="chat-header-store">
+                {otherUser.store_name}
+              </span>
+            )}
+          </div>
+          <StatusLine otherUser={otherUser} isTyping={isTyping}/>
+        </div>
 
-        {/* 3-dot */}
-        <button className="chat-icon-btn" onClick={onToggleMenu}
-          aria-label="Menu">
+        {/* Product thumbnail */}
+        <ProductThumb product={product} navigate={navigate}/>
+
+        {/* Connection status */}
+        <ConnectionDot connected={sockReady}/>
+
+        {/* 3-dot menu trigger */}
+        <button
+          className="chat-icon-btn"
+          onClick={onToggleMenu}
+          aria-label="Chat options"
+          aria-haspopup="menu"
+          aria-expanded={showMenu}
+        >
           {Icon.more}
         </button>
       </header>
 
-      {/* Dropdown */}
+      {/* Dropdown menu */}
       {showMenu && (
         <HeaderMenu
           otherUser={otherUser}
