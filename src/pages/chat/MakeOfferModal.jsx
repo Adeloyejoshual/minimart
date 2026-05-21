@@ -1,5 +1,6 @@
 import React, { useState, useCallback } from "react";
 import { Icon } from "./icons";
+import { CURRENCY } from "./constants";
 
 const QUICK_PCTS = [0.95, 0.90, 0.80, 0.70, 0.60];
 
@@ -37,10 +38,7 @@ function MakeOfferModal({ product, onSend, onClose }) {
     onClose();
   }, [validate, amt, op, note, product?.title, onSend, onClose]);
 
-  const handleAmtChange = useCallback(e => {
-    setAmt(e.target.value); setErr("");
-  }, []);
-
+  const handleAmtChange  = useCallback(e => { setAmt(e.target.value); setErr(""); }, []);
   const handleNoteChange = useCallback(e => setNote(e.target.value), []);
 
   return (
@@ -67,7 +65,7 @@ function MakeOfferModal({ product, onSend, onClose }) {
             <span className="modal-product-name">{product.title}</span>
             {op && (
               <span className="modal-product-price">
-                ৳{Number(op).toLocaleString()}
+                {CURRENCY}{Number(op).toLocaleString()}
               </span>
             )}
           </div>
@@ -76,7 +74,7 @@ function MakeOfferModal({ product, onSend, onClose }) {
         <div className="modal-field">
           <label className="modal-label">Your Offer Price</label>
           <div className="modal-input-wrap">
-            <span className="modal-currency">৳</span>
+            <span className="modal-currency">{CURRENCY}</span>
             <input
               className="modal-input"
               type="number"
@@ -98,10 +96,13 @@ function MakeOfferModal({ product, onSend, onClose }) {
             <div className="modal-section-label">Quick select</div>
             <div className="modal-quick-btns">
               {QUICK_PCTS.map(p => (
-                <button key={p} className="modal-quick-btn"
-                  onClick={() => { setAmt(Math.round(op * p)); setErr(""); }}>
+                <button
+                  key={p}
+                  className="modal-quick-btn"
+                  onClick={() => { setAmt(Math.round(op * p)); setErr(""); }}
+                >
                   {Math.round(p * 100)}%
-                  <span>৳{Math.round(op * p).toLocaleString()}</span>
+                  <span>{CURRENCY}{Math.round(op * p).toLocaleString()}</span>
                 </button>
               ))}
             </div>
