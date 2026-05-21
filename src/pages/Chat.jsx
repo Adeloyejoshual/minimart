@@ -31,15 +31,61 @@ const SEND_TIMEOUT = 15_000;
 ═══════════════════════════════════════════ */
 function msgsReducer(state, action) {
   switch (action.type) {
+
+    /* Replace entire list (initial load) */
     case "SET":
       return dedupe(action.payload);
 
-    case "APPEND":
-      if (state.some(m => m.id === action.payload.id)) return state;
-      return dedupe([...state, action.payload]);
+    /* Add one message — skip if id already exists */
+    case "APPEND": {
+      const alreadyById = state.some(m => m.id === action.payload.id);
+      if (alreadyById) return state;
 
-    case "REPLACE":
-      return state.map(m => m.id === action.tempId ? action.payload : m);
+      /* also skip temp if we already have the real version */
+      if (action.payload._temp && action.payload.client_message_id) {
+        const realExists = state.some(
+          m =>
+            !m._temp &&
+            m.client_message_id === action.payload.client_message_id
+        );
+        if (realExists) return state;
+      }
+
+      return dedupe([...state, action.payload]);
+    }
+
+    /* Replace temp message with saved message from server */
+    case "REPLACE": {
+      let replaced = false;
+
+      const next = state.map(m => {
+        /* primary match: temp id */
+        if (m.id === action.tempId) {
+          replaced = true;
+          return action.payload;
+        }
+        /* fallback match: same client_message_id */
+        if (
+          !replaced &&
+          m._temp &&
+          action.payload.client_message_id &&
+          m.client_message_id === action.payload.client_message_id
+        ) {
+          replaced = true;
+          return action.payload;
+        }
+        return m;
+      });
+
+      if (!replaced) {
+        /* temp was already removed — append real if not duplicate */
+        const exists = state.some(m => m.id === action.payload.id);
+        if (exists) return state;
+        return dedupe([...state, action.payload]);
+      }
+
+      return next;
+    }
 
     case "PATCH":
       return state.map(m =>
@@ -61,7 +107,8 @@ function msgsReducer(state, action) {
     case "MARK_READ":
       return state.map(m =>
         m.sender_id === action.myId && m.status !== "read"
-          ? { ...m, status: "read" } : m
+          ? { ...m, status: "read" }
+          : m
       );
 
     case "REMOVE":
@@ -79,29 +126,28 @@ export default function Chat({ user }) {
   const { threadId } = useParams();
   const navigate     = useNavigate();
 
-  /* ── state ── */
-  const [messages,  dispatch]        = useReducer(msgsReducer, []);
-  const [newMsg,    setNewMsg]       = useState("");
-  const [otherUser, setOtherUser]    = useState(null);
-  const [product,   setProduct]      = useState(null);
-  const [loading,   setLoading]      = useState(true);
-  const [sending,   setSending]      = useState(false);
-  const [isTyping,  setIsTyping]     = useState(false);
-  const [sockReady, setSockReady]    = useState(false);
-  const [error,     setError]        = useState(null);
+  /* ── core state ── */
+  const [messages,  dispatch]     = useReducer(msgsReducer, []);
+  const [newMsg,    setNewMsg]    = useState("");
+  const [otherUser, setOtherUser] = useState(null);
+  const [product,   setProduct]   = useState(null);
+  const [loading,   setLoading]   = useState(true);
+  const [sending,   setSending]   = useState(false);
+  const [isTyping,  setIsTyping]  = useState(false);
+  const [sockReady, setSockReady] = useState(false);
+  const [error,     setError]     = useState(null);
 
-  /* ── UI ── */
-  const [showMenu,        setShowMenu]        = useState(false);
-  const [muted,           setMuted]           = useState(false);
-  const [showSuggestions,  setShowSuggestions] = useState(true);
-  const [showAttach,      setShowAttach]      = useState(false);
-  const [lightboxUrl,     setLightboxUrl]     = useState(null);
-  const [replyTo,         setReplyTo]         = useState(null);
-  const [ctxMsgId,        setCtxMsgId]        = useState(null);
-  const [ctxPos,          setCtxPos]          = useState({ x: 0, y: 0 });
-  const [offerModal,      setOfferModal]      = useState(false);
-  const [counterModal,    setCounterModal]    = useState(null);
-  const [locationModal,   setLocationModal]   = useState(false);
+  /* ── UI state ── */
+  const [showMenu,         setShowMenu]         = useState(false);
+  const [muted,            setMuted]            = useState(false);
+  const [showSuggestions,  setShowSuggestions]  = useState(true);
+  const [showAttach,       setShowAttach]       = useState(false);
+  const [lightboxUrl,      setLightboxUrl]      = useState(null);
+  const [replyTo,          setReplyTo]          = useState(null);
+  const [ctxMsgId,         setCtxMsgId]         = useState(null);
+  const [offerModal,       setOfferModal]       = useState(false);
+  const [counterModal,     setCounterModal]     = useState(null);
+  const [locationModal,    setLocationModal]    = useState(false);
 
   /* ── refs ── */
   const socketRef     = useRef(null);
@@ -120,7 +166,9 @@ export default function Chat({ user }) {
     return () => { mounted.current = false; };
   }, []);
 
-  const safe = useCallback(fn => { if (mounted.current) fn(); }, []);
+  const safe = useCallback(fn => {
+    if (mounted.current) fn();
+  }, []);
 
   /* ── derived ── */
   const suggestions = useMemo(
@@ -144,48 +192,61 @@ export default function Chat({ user }) {
     if (!threadId || !user?.id) return;
     const ctrl = new AbortController();
 
-    axios.get(`${API}/conversations/${threadId}`, {
-      headers: authH(), signal: ctrl.signal, timeout: 8000,
-    }).then(({ data }) => {
-      const oid = data.other_user_id ||
-        (data.buyer_id === user.id ? data.seller_id : data.buyer_id);
+    axios
+      .get(`${API}/conversations/${threadId}`, {
+        headers: authH(),
+        signal:  ctrl.signal,
+        timeout: 8000,
+      })
+      .then(({ data }) => {
+        const oid =
+          data.other_user_id ||
+          (data.buyer_id === user.id ? data.seller_id : data.buyer_id);
 
-      safe(() => setOtherUser({
-        id:            oid,
-        name:          data.other_user_name  || "User",
-        profile_image: data.other_user_image || null,
-        is_online:     data.other_user_online || false,
-        store_name:    data.other_user_store  || "",
-        last_login:    data.last_login        || null,
-      }));
+        safe(() =>
+          setOtherUser({
+            id:            oid,
+            name:          data.other_user_name  || "User",
+            profile_image: data.other_user_image || null,
+            is_online:     data.other_user_online || false,
+            store_name:    data.other_user_store  || "",
+            last_login:    data.last_login        || null,
+          })
+        );
 
-      if (data.product_title) {
-        safe(() => setProduct({
-          title:  data.product_title,
-          images: data.product_image ? [data.product_image] : [],
-          price:  data.product_price,
-          id:     data.product_id,
-        }));
-      }
+        if (data.product_title) {
+          safe(() =>
+            setProduct({
+              title:  data.product_title,
+              images: data.product_image ? [data.product_image] : [],
+              price:  data.product_price,
+              id:     data.product_id,
+            })
+          );
+        }
 
-      /* fetch full user data for richer profile */
-      if (oid) {
-        axios.get(`${API}/users/${oid}`, { headers: authH() })
-          .then(({ data: u }) => safe(() => setOtherUser(prev => ({
-            ...prev,
-            ...u,
-            /* keep online status from conversation, user endpoint may not have it */
-            is_online: prev?.is_online || u.is_online || false,
-          }))))
-          .catch(() => {});
-      }
-    }).catch(() => {});
+        if (oid) {
+          axios
+            .get(`${API}/users/${oid}`, { headers: authH() })
+            .then(({ data: u }) =>
+              safe(() =>
+                setOtherUser(prev => ({
+                  ...prev,
+                  ...u,
+                  is_online: prev?.is_online || u.is_online || false,
+                }))
+              )
+            )
+            .catch(() => {});
+        }
+      })
+      .catch(() => {});
 
     return () => ctrl.abort();
   }, [threadId, user?.id]); // eslint-disable-line
 
   /* ════════════════════════════════════
-     SOCKET — named handlers + cleanup
+     SOCKET
   ════════════════════════════════════ */
   useEffect(() => {
     if (!user?.id || !threadId) return;
@@ -200,7 +261,6 @@ export default function Chat({ user }) {
     });
     socketRef.current = sock;
 
-    /* named handlers */
     const onConnect = () => {
       sock.emit("joinThread", { threadId, userId: user.id });
       safe(() => setSockReady(true));
@@ -208,23 +268,28 @@ export default function Chat({ user }) {
 
     const onDisconnect = () => safe(() => setSockReady(false));
 
-    const onReconnectAttempt = (attempt) => {
+    const onReconnect = attempt =>
       console.log(`[socket] reconnect attempt ${attempt}`);
-    };
 
     const onReceive = msg => {
+      /* ignore own messages — handled by HTTP response */
       if (!msg?.id || msg.sender_id === user.id) return;
+
       if (!historyLoaded.current) {
         pendingMsgs.current.push(msg);
         return;
       }
+
       safe(() => dispatch({ type: "APPEND", payload: msg }));
+
       sock.emit("markRead", { threadId, userId: user.id });
-      axios.patch(
-        `${API}/conversations/${threadId}/read`,
-        { userId: user.id },
-        { headers: authH() }
-      ).catch(() => {});
+      axios
+        .patch(
+          `${API}/conversations/${threadId}/read`,
+          { userId: user.id },
+          { headers: authH() }
+        )
+        .catch(() => {});
     };
 
     const onRead = ({ userId: uid }) => {
@@ -239,44 +304,48 @@ export default function Chat({ user }) {
       safe(() => dispatch({ type: "SOFT_DELETE", id: messageId }));
 
     const onOfferUpdated = ({ messageId, status }) =>
-      safe(() => dispatch({ type: "PATCH_OFFER", id: messageId, status }));
+      safe(() =>
+        dispatch({ type: "PATCH_OFFER", id: messageId, status })
+      );
 
-    const onUserOnline = ({ userId: uid }) => {
+    const onOnline = ({ userId: uid }) => {
       if (uid !== user.id)
-        safe(() => setOtherUser(p => p ? { ...p, is_online: true } : p));
+        safe(() =>
+          setOtherUser(p => (p ? { ...p, is_online: true } : p))
+        );
     };
 
-    const onUserOffline = ({ userId: uid }) => {
+    const onOffline = ({ userId: uid }) => {
       if (uid !== user.id)
-        safe(() => setOtherUser(p => p ? { ...p, is_online: false } : p));
+        safe(() =>
+          setOtherUser(p => (p ? { ...p, is_online: false } : p))
+        );
     };
 
-    /* bind */
-    sock.on("connect",            onConnect);
-    sock.on("disconnect",         onDisconnect);
-    sock.on("reconnect_attempt",  onReconnectAttempt);
-    sock.on("receiveMessage",     onReceive);
-    sock.on("messagesRead",       onRead);
-    sock.on("userTyping",         onTyping);
-    sock.on("userStopTyping",     onStopTyping);
-    sock.on("messageDeleted",     onDeleted);
-    sock.on("offerUpdated",       onOfferUpdated);
-    sock.on("userOnline",         onUserOnline);
-    sock.on("userOffline",        onUserOffline);
+    sock.on("connect",           onConnect);
+    sock.on("disconnect",        onDisconnect);
+    sock.on("reconnect_attempt", onReconnect);
+    sock.on("receiveMessage",    onReceive);
+    sock.on("messagesRead",      onRead);
+    sock.on("userTyping",        onTyping);
+    sock.on("userStopTyping",    onStopTyping);
+    sock.on("messageDeleted",    onDeleted);
+    sock.on("offerUpdated",      onOfferUpdated);
+    sock.on("userOnline",        onOnline);
+    sock.on("userOffline",       onOffline);
 
-    /* cleanup — remove every listener, then disconnect */
     return () => {
-      sock.off("connect",            onConnect);
-      sock.off("disconnect",         onDisconnect);
-      sock.off("reconnect_attempt",  onReconnectAttempt);
-      sock.off("receiveMessage",     onReceive);
-      sock.off("messagesRead",       onRead);
-      sock.off("userTyping",         onTyping);
-      sock.off("userStopTyping",     onStopTyping);
-      sock.off("messageDeleted",     onDeleted);
-      sock.off("offerUpdated",       onOfferUpdated);
-      sock.off("userOnline",         onUserOnline);
-      sock.off("userOffline",        onUserOffline);
+      sock.off("connect",           onConnect);
+      sock.off("disconnect",        onDisconnect);
+      sock.off("reconnect_attempt", onReconnect);
+      sock.off("receiveMessage",    onReceive);
+      sock.off("messagesRead",      onRead);
+      sock.off("userTyping",        onTyping);
+      sock.off("userStopTyping",    onStopTyping);
+      sock.off("messageDeleted",    onDeleted);
+      sock.off("offerUpdated",      onOfferUpdated);
+      sock.off("userOnline",        onOnline);
+      sock.off("userOffline",       onOffline);
       sock.disconnect();
       socketRef.current = null;
     };
@@ -309,16 +378,21 @@ export default function Chat({ user }) {
       safe(() => dispatch({ type: "SET", payload: all }));
 
       socketRef.current?.emit("markRead", { threadId, userId: user.id });
-      axios.patch(
-        `${API}/conversations/${threadId}/read`,
-        { userId: user.id },
-        { headers: authH() }
-      ).catch(() => {});
+      axios
+        .patch(
+          `${API}/conversations/${threadId}/read`,
+          { userId: user.id },
+          { headers: authH() }
+        )
+        .catch(() => {});
     } catch (err) {
-      safe(() => setError(
-        `${err.response?.status ?? "Network"} — ${
-          err.response?.data?.message ?? err.message}`
-      ));
+      safe(() =>
+        setError(
+          `${err.response?.status ?? "Network"} — ${
+            err.response?.data?.message ?? err.message
+          }`
+        )
+      );
     } finally {
       safe(() => setLoading(false));
     }
@@ -334,247 +408,326 @@ export default function Chat({ user }) {
   }, [messages, isTyping]);
 
   /* ════════════════════════════════════
-     TYPING DEBOUNCE
+     TYPING
   ════════════════════════════════════ */
   const handleTyping = useCallback(() => {
     socketRef.current?.emit("typing", { threadId, userId: user?.id });
     clearTimeout(typingTimer.current);
     typingTimer.current = setTimeout(() => {
-      socketRef.current?.emit("stopTyping", { threadId, userId: user?.id });
+      socketRef.current?.emit("stopTyping", {
+        threadId, userId: user?.id,
+      });
     }, 1500);
   }, [threadId, user?.id]);
 
   useEffect(() => () => clearTimeout(typingTimer.current), []);
 
   /* ════════════════════════════════════
-     CORE SEND
+     SEND MESSAGE
   ════════════════════════════════════ */
-  const sendMessage = useCallback(async (overrideText, extras = {}) => {
-    const text = (overrideText ?? newMsg).trim();
-    if (!text || sending) return;
+  const sendMessage = useCallback(
+    async (overrideText, extras = {}) => {
+      const text = (overrideText ?? newMsg).trim();
+      if (!text || sending) return;
 
-    const clientMsgId = `${user.id}_${Date.now()}`;
-    const tempId      = `temp_${clientMsgId}`;
-    const replyRef    = replyTo ? { reply_to_id: replyTo.id } : {};
+      /* unique ids */
+      const clientMsgId = `${user.id}_${Date.now()}`;
+      const tempId      = `temp_${clientMsgId}`;
+      const replyRef    = replyTo ? { reply_to_id: replyTo.id } : {};
 
-    const msgType = extras.offerMeta      ? MESSAGE_TYPES.OFFER
-                  : extras.location       ? MESSAGE_TYPES.LOCATION
-                  : extras.shared_product ? MESSAGE_TYPES.PRODUCT
-                  : MESSAGE_TYPES.TEXT;
+      const msgType =
+        extras.offerMeta      ? MESSAGE_TYPES.OFFER
+        : extras.location     ? MESSAGE_TYPES.LOCATION
+        : extras.shared_product ? MESSAGE_TYPES.PRODUCT
+        : MESSAGE_TYPES.TEXT;
 
-    const temp = {
-      id:           tempId,
-      thread_id:    threadId,
-      sender_id:    user.id,
-      message:      text,
-      message_type: msgType,
-      created_at:   new Date().toISOString(),
-      status:       "sending",
-      _temp:        true,
-      _failed:      false,
-      _timedOut:    false,
-      ...replyRef,
-      ...(extras.offerMeta      ? { _offerMeta:    extras.offerMeta }      : {}),
-      ...(extras.location       ? { location:       extras.location }       : {}),
-      ...(extras.shared_product ? { shared_product: extras.shared_product } : {}),
-    };
-
-    safe(() => {
-      dispatch({ type: "APPEND", payload: temp });
-      if (!overrideText) setNewMsg("");
-      setSending(true);
-      setShowSuggestions(false);
-      setReplyTo(null);
-    });
-
-    clearTimeout(typingTimer.current);
-    socketRef.current?.emit("stopTyping", { threadId, userId: user.id });
-
-    /* timeout */
-    const timer = setTimeout(() => {
-      safe(() => {
-        dispatch({
-          type: "PATCH", id: tempId,
-          patch: { _temp: false, _timedOut: true },
-        });
-        setSending(false);
-      });
-    }, SEND_TIMEOUT);
-    sendTimers.current.set(tempId, timer);
-
-    try {
-      const { data: saved } = await axios.post(
-        `${API}/messages`,
-        {
-          threadId,
-          senderId:        user.id,
-          message:         text,
-          messageType:     msgType,
-          clientMessageId: clientMsgId,
-          ...replyRef,
-          ...(extras.offerMeta      ? { offerMeta:    extras.offerMeta }      : {}),
-          ...(extras.location       ? { location:     extras.location }       : {}),
-          ...(extras.shared_product ? { sharedProduct: extras.shared_product } : {}),
-        },
-        { headers: authH(), timeout: SEND_TIMEOUT }
-      );
-
-      clearTimeout(sendTimers.current.get(tempId));
-      sendTimers.current.delete(tempId);
-
-      const final = {
-        ...saved,
-        ...(extras.offerMeta      ? { _offerMeta:    extras.offerMeta }      : {}),
-        ...(extras.location       ? { location:       extras.location }       : {}),
-        ...(extras.shared_product ? { shared_product: extras.shared_product } : {}),
+      /* optimistic temp message */
+      const temp = {
+        id:                tempId,
+        client_message_id: clientMsgId,   // ← critical for deduping
+        thread_id:         threadId,
+        sender_id:         user.id,
+        message:           text,
+        message_type:      msgType,
+        created_at:        new Date().toISOString(),
+        status:            "sending",
+        _temp:             true,
+        _failed:           false,
+        _timedOut:         false,
+        ...replyRef,
+        ...(extras.offerMeta
+          ? { _offerMeta: extras.offerMeta }
+          : {}),
+        ...(extras.location
+          ? { location: extras.location }
+          : {}),
+        ...(extras.shared_product
+          ? { shared_product: extras.shared_product }
+          : {}),
       };
 
-      safe(() => dispatch({ type: "REPLACE", tempId, payload: final }));
-      socketRef.current?.emit("sendMessage", final);
-    } catch {
-      clearTimeout(sendTimers.current.get(tempId));
-      sendTimers.current.delete(tempId);
       safe(() => {
-        dispatch({
-          type: "PATCH", id: tempId,
-          patch: { _temp: false, _failed: true, _timedOut: false },
-        });
-        if (!overrideText) setNewMsg(text);
+        dispatch({ type: "APPEND", payload: temp });
+        if (!overrideText) setNewMsg("");
+        setSending(true);
+        setShowSuggestions(false);
+        setReplyTo(null);
       });
-    } finally {
-      safe(() => setSending(false));
-      inputRef.current?.focus();
-    }
-  }, [newMsg, sending, threadId, user?.id, safe, replyTo]); // eslint-disable-line
 
-  /* ── offer ── */
-  const handleSendOffer = useCallback(offerMeta => {
-    const label = `Offer: ৳${offerMeta.amount.toLocaleString()}`;
-    sendMessage(label, { offerMeta });
-  }, [sendMessage]);
+      clearTimeout(typingTimer.current);
+      socketRef.current?.emit("stopTyping", {
+        threadId, userId: user.id,
+      });
 
-  const handleOfferRespond = useCallback((origMsg, action) => {
-    if (action === OFFER_STATUS.COUNTERED) {
-      setCounterModal(origMsg);
-      return;
-    }
+      /* timeout → mark as timed out */
+      const timer = setTimeout(() => {
+        safe(() => {
+          dispatch({
+            type:  "PATCH",
+            id:    tempId,
+            patch: { _temp: false, _timedOut: true },
+          });
+          setSending(false);
+        });
+      }, SEND_TIMEOUT);
+      sendTimers.current.set(tempId, timer);
 
-    safe(() => dispatch({
-      type: "PATCH_OFFER", id: origMsg.id, status: action,
-    }));
+      try {
+        const { data: saved } = await axios.post(
+          `${API}/messages`,
+          {
+            threadId,
+            senderId:        user.id,
+            message:         text,
+            messageType:     msgType,
+            clientMessageId: clientMsgId,
+            ...replyRef,
+            ...(extras.offerMeta
+              ? { offerMeta: extras.offerMeta }
+              : {}),
+            ...(extras.location
+              ? { location: extras.location }
+              : {}),
+            ...(extras.shared_product
+              ? { sharedProduct: extras.shared_product }
+              : {}),
+          },
+          { headers: authH(), timeout: SEND_TIMEOUT }
+        );
 
-    const txt = action === OFFER_STATUS.ACCEPTED
-      ? `Accepted! ৳${origMsg._offerMeta.amount.toLocaleString()}`
-      : "Offer declined.";
+        /* cancel timeout */
+        clearTimeout(sendTimers.current.get(tempId));
+        sendTimers.current.delete(tempId);
 
-    sendMessage(txt, {});
+        console.log("✅ Message saved:", saved.id);
 
-    socketRef.current?.emit("offerResponse", {
-      threadId,
-      messageId: origMsg.id,
-      status:    action,
-      userId:    user.id,
-    });
+        /* merge any client-side extras that backend doesn't return */
+        const final = {
+          ...saved,
+          ...(extras.offerMeta
+            ? { _offerMeta: extras.offerMeta }
+            : {}),
+          ...(extras.location
+            ? { location: extras.location }
+            : {}),
+          ...(extras.shared_product
+            ? { shared_product: extras.shared_product }
+            : {}),
+        };
 
-    axios.patch(
-      `${API}/messages/${origMsg.id}/offer`,
-      { status: action, userId: user.id },
-      { headers: authH() }
-    ).catch(() => {});
-  }, [threadId, user?.id, safe, sendMessage]); // eslint-disable-line
+        /* replace the temp bubble with the real message */
+        safe(() =>
+          dispatch({ type: "REPLACE", tempId, payload: final })
+        );
 
-  /* ── delete ── */
-  const handleDelete = useCallback(msg => {
-    if (!window.confirm("Delete this message?")) return;
-    safe(() => dispatch({ type: "SOFT_DELETE", id: msg.id }));
-    socketRef.current?.emit("deleteMessage", { threadId, messageId: msg.id });
-    axios.delete(`${API}/messages/${msg.id}`, {
-      data: { userId: user.id },
-      headers: authH(),
-    }).catch(() => {});
-  }, [threadId, user?.id, safe]);
+        /* tell the other party via socket */
+        socketRef.current?.emit("sendMessage", final);
+      } catch (err) {
+        clearTimeout(sendTimers.current.get(tempId));
+        sendTimers.current.delete(tempId);
 
-  /* ── copy ── */
+        console.error(
+          "Send failed:",
+          err.response?.data ?? err.message
+        );
+
+        safe(() => {
+          dispatch({
+            type:  "PATCH",
+            id:    tempId,
+            patch: { _temp: false, _failed: true, _timedOut: false },
+          });
+          if (!overrideText) setNewMsg(text); // restore input
+        });
+      } finally {
+        safe(() => setSending(false));
+        inputRef.current?.focus();
+      }
+    },
+    [newMsg, sending, threadId, user?.id, safe, replyTo] // eslint-disable-line
+  );
+
+  /* ════════════════════════════════════
+     IMAGE UPLOAD
+  ════════════════════════════════════ */
+  const handleImageChange = useCallback(
+    async e => {
+      const file = e.target.files?.[0];
+      if (!file) return;
+      e.target.value = "";
+      setShowAttach(false);
+
+      if (!file.type.startsWith("image/")) {
+        alert("Only images allowed.");
+        return;
+      }
+      if (file.size > 10 * 1024 * 1024) {
+        alert("Image too large. Max 10 MB.");
+        return;
+      }
+
+      const clientMsgId = `${user.id}_${Date.now()}`;
+      const tempId      = `temp_${clientMsgId}`;
+      const localUrl    = URL.createObjectURL(file);
+
+      const temp = {
+        id:                tempId,
+        client_message_id: clientMsgId,
+        thread_id:         threadId,
+        sender_id:         user.id,
+        message:           "Photo",
+        message_type:      MESSAGE_TYPES.MEDIA,
+        media_url:         localUrl,
+        created_at:        new Date().toISOString(),
+        status:            "sending",
+        _temp:             true,
+        _failed:           false,
+        _timedOut:         false,
+      };
+
+      safe(() => dispatch({ type: "APPEND", payload: temp }));
+
+      try {
+        const form = new FormData();
+        form.append("file",            file);
+        form.append("threadId",        threadId);
+        form.append("senderId",        user.id);
+        form.append("messageType",     MESSAGE_TYPES.MEDIA);
+        form.append("clientMessageId", clientMsgId);
+        if (replyTo) form.append("reply_to_id", replyTo.id);
+
+        const { data: saved } = await axios.post(
+          `${API}/messages/upload`,
+          form,
+          {
+            headers: {
+              ...authH(),
+              "Content-Type": "multipart/form-data",
+            },
+            timeout: 30000,
+          }
+        );
+
+        URL.revokeObjectURL(localUrl);
+        safe(() => {
+          dispatch({ type: "REPLACE", tempId, payload: saved });
+          setReplyTo(null);
+        });
+        socketRef.current?.emit("sendMessage", saved);
+      } catch (err) {
+        console.error("Upload failed:", err.message);
+        URL.revokeObjectURL(localUrl);
+        safe(() =>
+          dispatch({
+            type:  "PATCH",
+            id:    tempId,
+            patch: { _temp: false, _failed: true, _timedOut: false },
+          })
+        );
+      }
+    },
+    [threadId, user?.id, safe, replyTo]
+  );
+
+  /* ════════════════════════════════════
+     OFFER HANDLERS
+  ════════════════════════════════════ */
+  const handleSendOffer = useCallback(
+    offerMeta => {
+      const label = `Offer: ৳${offerMeta.amount.toLocaleString()}`;
+      sendMessage(label, { offerMeta });
+    },
+    [sendMessage]
+  );
+
+  const handleOfferRespond = useCallback(
+    (origMsg, action) => {
+      if (action === OFFER_STATUS.COUNTERED) {
+        setCounterModal(origMsg);
+        return;
+      }
+
+      safe(() =>
+        dispatch({ type: "PATCH_OFFER", id: origMsg.id, status: action })
+      );
+
+      const txt =
+        action === OFFER_STATUS.ACCEPTED
+          ? `Accepted! ৳${origMsg._offerMeta.amount.toLocaleString()}`
+          : "Offer declined.";
+
+      sendMessage(txt, {});
+
+      socketRef.current?.emit("offerResponse", {
+        threadId,
+        messageId: origMsg.id,
+        status:    action,
+        userId:    user.id,
+      });
+
+      axios
+        .patch(
+          `${API}/messages/${origMsg.id}/offer`,
+          { status: action, userId: user.id },
+          { headers: authH() }
+        )
+        .catch(() => {});
+    },
+    [threadId, user?.id, safe, sendMessage] // eslint-disable-line
+  );
+
+  /* ════════════════════════════════════
+     OTHER HANDLERS
+  ════════════════════════════════════ */
+  const handleDelete = useCallback(
+    msg => {
+      if (!window.confirm("Delete this message?")) return;
+      safe(() => dispatch({ type: "SOFT_DELETE", id: msg.id }));
+      socketRef.current?.emit("deleteMessage", {
+        threadId, messageId: msg.id,
+      });
+      axios
+        .delete(`${API}/messages/${msg.id}`, {
+          data:    { userId: user.id },
+          headers: authH(),
+        })
+        .catch(() => {});
+    },
+    [threadId, user?.id, safe]
+  );
+
   const handleCopy = useCallback(msg => {
     navigator.clipboard?.writeText(msg.message).catch(() => {});
   }, []);
 
-  /* ── image upload ── */
-  const handleImageChange = useCallback(async e => {
-    const file = e.target.files?.[0];
-    if (!file) return;
-    e.target.value = "";
-    setShowAttach(false);
+  const handleSendLocation = useCallback(
+    (coords, addr) => {
+      const label = addr ? truncate(addr, 50) : "My Location";
+      sendMessage(label, { location: { ...coords, address: addr } });
+    },
+    [sendMessage]
+  );
 
-    if (!file.type.startsWith("image/")) {
-      alert("Only images allowed.");
-      return;
-    }
-    if (file.size > 10 * 1024 * 1024) {
-      alert("Image too large. Max 10 MB.");
-      return;
-    }
-
-    const clientMsgId = `${user.id}_${Date.now()}`;
-    const tempId      = `temp_${clientMsgId}`;
-    const localUrl    = URL.createObjectURL(file);
-
-    const temp = {
-      id:           tempId,
-      thread_id:    threadId,
-      sender_id:    user.id,
-      message:      "Photo",
-      message_type: MESSAGE_TYPES.MEDIA,
-      media_url:    localUrl,
-      created_at:   new Date().toISOString(),
-      status:       "sending",
-      _temp:        true,
-      _failed:      false,
-      _timedOut:    false,
-    };
-
-    safe(() => dispatch({ type: "APPEND", payload: temp }));
-
-    try {
-      const form = new FormData();
-      form.append("file",            file);
-      form.append("threadId",        threadId);
-      form.append("senderId",        user.id);
-      form.append("messageType",     MESSAGE_TYPES.MEDIA);
-      form.append("clientMessageId", clientMsgId);
-      if (replyTo) form.append("reply_to_id", replyTo.id);
-
-      const { data: saved } = await axios.post(
-        `${API}/messages/upload`,
-        form,
-        {
-          headers: { ...authH(), "Content-Type": "multipart/form-data" },
-          timeout: 30000,
-        }
-      );
-
-      URL.revokeObjectURL(localUrl);
-      safe(() => {
-        dispatch({ type: "REPLACE", tempId, payload: saved });
-        setReplyTo(null);
-      });
-      socketRef.current?.emit("sendMessage", saved);
-    } catch {
-      URL.revokeObjectURL(localUrl);
-      safe(() => dispatch({
-        type: "PATCH", id: tempId,
-        patch: { _temp: false, _failed: true, _timedOut: false },
-      }));
-    }
-  }, [threadId, user?.id, safe, replyTo]);
-
-  /* ── location ── */
-  const handleSendLocation = useCallback((coords, addr) => {
-    const label = addr ? truncate(addr, 50) : "My Location";
-    sendMessage(label, { location: { ...coords, address: addr } });
-  }, [sendMessage]);
-
-  /* ── share product ── */
   const handleShareProduct = useCallback(() => {
     if (!product) return;
     sendMessage(
@@ -598,15 +751,10 @@ export default function Chat({ user }) {
       return;
     }
     setCtxMsgId(msg.id);
-    if (pos) setCtxPos(pos);
   }, []);
 
-  const closeCtx = useCallback(() => setCtxMsgId(null), []);
-
-  const ctxMsg = useMemo(
-    () => msgMap.get(ctxMsgId),
-    [msgMap, ctxMsgId]
-  );
+  const closeCtx  = useCallback(() => setCtxMsgId(null), []);
+  const ctxMsg    = useMemo(() => msgMap.get(ctxMsgId), [msgMap, ctxMsgId]);
 
   const handleCtxReply = useCallback(() => {
     if (ctxMsg) { setReplyTo(ctxMsg); inputRef.current?.focus(); }
@@ -622,7 +770,7 @@ export default function Chat({ user }) {
     [ctxMsg, handleDelete]
   );
 
-  /* ── retry ── */
+  /* ── retry failed ── */
   const retryMessage = useCallback(fm => {
     dispatch({ type: "REMOVE", id: fm.id });
     setNewMsg(fm.message);
@@ -630,63 +778,61 @@ export default function Chat({ user }) {
   }, []);
 
   /* ── keyboard ── */
-  const handleKeyDown = useCallback(e => {
-    if (e.key === "Enter" && !e.shiftKey) {
-      e.preventDefault();
-      sendMessage();
-    }
-    if (e.key === "Escape") setReplyTo(null);
-  }, [sendMessage]);
+  const handleKeyDown = useCallback(
+    e => {
+      if (e.key === "Enter" && !e.shiftKey) {
+        e.preventDefault();
+        sendMessage();
+      }
+      if (e.key === "Escape") setReplyTo(null);
+    },
+    [sendMessage]
+  );
 
-  const handleInputChange = useCallback(e => {
-    setNewMsg(e.target.value);
-    handleTyping();
-  }, [handleTyping]);
+  const handleInputChange = useCallback(
+    e => { setNewMsg(e.target.value); handleTyping(); },
+    [handleTyping]
+  );
 
-  const isMine = useCallback(m => m.sender_id === user?.id, [user?.id]);
+  const isMine = useCallback(
+    m => m.sender_id === user?.id,
+    [user?.id]
+  );
 
-  /* ── memoized UI handlers ── */
-  const openOfferModal       = useCallback(() => setOfferModal(true),  []);
-  const closeOfferModal      = useCallback(() => setOfferModal(false), []);
-  const closeCounterModal    = useCallback(() => setCounterModal(null), []);
-  const openLocationModal    = useCallback(() => {
-    setShowAttach(false);
-    setLocationModal(true);
+  /* ── stable UI callbacks ── */
+  const openOfferModal      = useCallback(() => setOfferModal(true),   []);
+  const closeOfferModal     = useCallback(() => setOfferModal(false),  []);
+  const closeCounterModal   = useCallback(() => setCounterModal(null), []);
+  const openLocationModal   = useCallback(() => {
+    setShowAttach(false); setLocationModal(true);
   }, []);
-  const closeLocationModal   = useCallback(() => setLocationModal(false), []);
-  const toggleMenu           = useCallback(() => setShowMenu(v => !v),   []);
-  const closeMenu            = useCallback(() => setShowMenu(false),     []);
-  const toggleAttach         = useCallback(e => {
-    e.stopPropagation();
-    setShowAttach(v => !v);
+  const closeLocationModal  = useCallback(() => setLocationModal(false), []);
+  const toggleMenu          = useCallback(() => setShowMenu(v => !v),  []);
+  const closeMenu           = useCallback(() => setShowMenu(false),    []);
+  const toggleAttach        = useCallback(e => {
+    e.stopPropagation(); setShowAttach(v => !v);
   }, []);
-  const showSuggestionsAgain = useCallback(() => setShowSuggestions(true), []);
-  const handleMute           = useCallback(() => setMuted(v => !v),       []);
-  const closeLightbox        = useCallback(() => setLightboxUrl(null),    []);
-  const openCamera           = useCallback(() => cameraRef.current?.click(), []);
-  const openGallery          = useCallback(() => fileRef.current?.click(),   []);
-  const clearReply           = useCallback(() => setReplyTo(null),           []);
-
-  const handleSelectSuggestion = useCallback(s => {
-    setNewMsg(s);
-    setShowSuggestions(false);
-    inputRef.current?.focus();
+  const showSuggestionsAgain  = useCallback(() => setShowSuggestions(true),  []);
+  const handleMute            = useCallback(() => setMuted(v => !v),          []);
+  const closeLightbox         = useCallback(() => setLightboxUrl(null),       []);
+  const openCamera            = useCallback(() => cameraRef.current?.click(), []);
+  const openGallery           = useCallback(() => fileRef.current?.click(),   []);
+  const clearReply            = useCallback(() => setReplyTo(null),           []);
+  const handleSelectSuggestion  = useCallback(s => {
+    setNewMsg(s); setShowSuggestions(false); inputRef.current?.focus();
   }, []);
-
   const handleDismissSuggestions = useCallback(
     () => setShowSuggestions(false), []
   );
-
-  /* ── close overlays when tapping body ── */
   const handleBodyClick = useCallback(() => {
-    setCtxMsgId(null);
-    setShowAttach(false);
+    setCtxMsgId(null); setShowAttach(false);
   }, []);
 
-  /* cleanup send timers */
-  useEffect(() => () => {
-    sendTimers.current.forEach(t => clearTimeout(t));
-  }, []);
+  /* cleanup timers on unmount */
+  useEffect(
+    () => () => sendTimers.current.forEach(t => clearTimeout(t)),
+    []
+  );
 
   /* ═══════════════════════════════════════════
      RENDER
@@ -694,7 +840,7 @@ export default function Chat({ user }) {
   return (
     <div className="chat-wrap" onClick={handleBodyClick}>
 
-      {/* ── HEADER ── */}
+      {/* HEADER */}
       <ChatHeader
         otherUser={otherUser}
         product={product}
@@ -708,7 +854,6 @@ export default function Chat({ user }) {
         onMute={handleMute}
       />
 
-      {/* Mute banner */}
       {muted && (
         <div className="mute-banner">
           Notifications muted
@@ -716,7 +861,7 @@ export default function Chat({ user }) {
         </div>
       )}
 
-      {/* ── BODY ── */}
+      {/* BODY */}
       <main className="chat-body">
         {loading && (
           <div className="chat-center">
@@ -743,44 +888,48 @@ export default function Chat({ user }) {
           </div>
         )}
 
-        {!loading && !error && messages.length > 0 && grouped.map((item, i) =>
-          item.type === "date" ? (
-            <DateSep key={`d${i}`} label={item.label}/>
-          ) : (
-            <Bubble
-              key={item.data.id}
-              msg={item.data}
-              mine={isMine(item.data)}
-              onRetry={retryMessage}
-              onOfferRespond={handleOfferRespond}
-              onCtx={handleCtx}
-              onLightbox={setLightboxUrl}
-              replyToMsg={
-                item.data.reply_to_id
-                  ? msgMap.get(item.data.reply_to_id)
-                  : null
-              }
-              ctxMsgId={ctxMsgId}
-              onCtxClose={closeCtx}
-              onCtxReply={handleCtxReply}
-              onCtxCopy={handleCtxCopy}
-              onCtxDelete={handleCtxDelete}
-            />
+        {!loading && !error && messages.length > 0 &&
+          grouped.map((item, i) =>
+            item.type === "date" ? (
+              <DateSep key={`d${i}`} label={item.label}/>
+            ) : (
+              <Bubble
+                key={item.data.id}
+                msg={item.data}
+                mine={isMine(item.data)}
+                onRetry={retryMessage}
+                onOfferRespond={handleOfferRespond}
+                onCtx={handleCtx}
+                onLightbox={setLightboxUrl}
+                replyToMsg={
+                  item.data.reply_to_id
+                    ? msgMap.get(item.data.reply_to_id)
+                    : null
+                }
+                ctxMsgId={ctxMsgId}
+                onCtxClose={closeCtx}
+                onCtxReply={handleCtxReply}
+                onCtxCopy={handleCtxCopy}
+                onCtxDelete={handleCtxDelete}
+              />
+            )
           )
-        )}
+        }
 
         {isTyping && <TypingBubble/>}
         <div ref={bottomRef}/>
       </main>
 
-      {/* ── TOOLBAR ── */}
+      {/* TOOLBAR */}
       <div className="chat-toolbar">
         <button className="toolbar-btn offer" onClick={openOfferModal}>
           {Icon.offer} Make Offer
         </button>
         {product && (
-          <button className="toolbar-btn share-product"
-            onClick={handleShareProduct}>
+          <button
+            className="toolbar-btn share-product"
+            onClick={handleShareProduct}
+          >
             {Icon.product} Share Product
           </button>
         )}
@@ -791,7 +940,7 @@ export default function Chat({ user }) {
         )}
       </div>
 
-      {/* ── SUGGESTIONS ── */}
+      {/* SUGGESTIONS */}
       {showSuggestions && (
         <SuggestionsBar
           suggestions={suggestions}
@@ -800,7 +949,7 @@ export default function Chat({ user }) {
         />
       )}
 
-      {/* ── REPLY PREVIEW ── */}
+      {/* REPLY PREVIEW */}
       {replyTo && (
         <div className="footer-reply-preview">
           {Icon.reply}
@@ -809,9 +958,12 @@ export default function Chat({ user }) {
               {replyTo.sender_id === user?.id ? "You" : otherUser?.name}
             </div>
             {replyTo.media_url ? (
-              <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
-                <img src={replyTo.media_url} alt=""
-                  className="footer-reply-thumb"/>
+              <div style={{ display:"flex", alignItems:"center", gap:6 }}>
+                <img
+                  src={replyTo.media_url}
+                  alt=""
+                  className="footer-reply-thumb"
+                />
                 <span className="footer-reply-msg">Photo</span>
               </div>
             ) : (
@@ -826,9 +978,8 @@ export default function Chat({ user }) {
         </div>
       )}
 
-      {/* ── FOOTER ── */}
+      {/* FOOTER */}
       <footer className="chat-footer">
-        {/* Attach popover */}
         {showAttach && (
           <div className="attach-popover">
             <button className="attach-option" onClick={openCamera}>
@@ -843,7 +994,6 @@ export default function Chat({ user }) {
           </div>
         )}
 
-        {/* Hidden file inputs — images only */}
         <input
           ref={fileRef}
           type="file"
@@ -860,8 +1010,11 @@ export default function Chat({ user }) {
           onChange={handleImageChange}
         />
 
-        <button className="chat-icon-btn" onClick={toggleAttach}
-          aria-label="Attach">
+        <button
+          className="chat-icon-btn"
+          onClick={toggleAttach}
+          aria-label="Attach"
+        >
           {Icon.plus}
         </button>
 
@@ -887,11 +1040,13 @@ export default function Chat({ user }) {
             color:      canSend ? "#fff" : "#aaa",
           }}
         >
-          {sending ? <div className="chat-btn-spinner"/> : Icon.send}
+          {sending
+            ? <div className="chat-btn-spinner"/>
+            : Icon.send}
         </button>
       </footer>
 
-      {/* ── LIGHTBOX ── */}
+      {/* LIGHTBOX */}
       {lightboxUrl && (
         <div className="lightbox-overlay" onClick={closeLightbox}>
           <img
@@ -906,7 +1061,7 @@ export default function Chat({ user }) {
         </div>
       )}
 
-      {/* ── MODALS ── */}
+      {/* MODALS */}
       {offerModal && (
         <MakeOfferModal
           product={product}
@@ -914,7 +1069,6 @@ export default function Chat({ user }) {
           onClose={closeOfferModal}
         />
       )}
-
       {counterModal && (
         <CounterOfferModal
           originalMsg={counterModal}
@@ -922,7 +1076,6 @@ export default function Chat({ user }) {
           onClose={closeCounterModal}
         />
       )}
-
       {locationModal && (
         <LocationModal
           onSend={handleSendLocation}
