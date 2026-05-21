@@ -1,22 +1,20 @@
-// routes/messages.js
-import express   from "express";
-import { pool }  from "../server.js";
+import express        from "express";
+import jwt            from "jsonwebtoken";
+import { pool }       from "../server.js";
 
-const router = express.Router();
+const router     = express.Router();
+const JWT_SECRET = process.env.JWT_SECRET || "supersecretkey";
 
-/* ── soft auth — reads JWT if present, falls back to ?userId param ── */
+/* ── soft auth — JWT if present, falls back to ?userId param ── */
 function softAuth(req, _res, next) {
   try {
     const header = req.headers.authorization || "";
     const token  = header.startsWith("Bearer ") ? header.slice(7) : null;
-
     if (token) {
-      const jwt    = await import("jsonwebtoken");
-      const secret = process.env.JWT_SECRET || "supersecretkey";
-      req.user = jwt.default.verify(token, secret);
+      req.user = jwt.verify(token, JWT_SECRET);
     }
   } catch (_) {
-    // invalid token — ignore, fall through to userId param
+    /* invalid / expired token — ignore, userId param will be used */
   }
   next();
 }
@@ -24,14 +22,10 @@ function softAuth(req, _res, next) {
 /* ══════════════════════════════════════════════
    GET /api/messages?threadId=&userId=
 ══════════════════════════════════════════════ */
-router.get("/", async (req, res) => {
-  const {
-    threadId,
-    before,
-    limit = 50,
-  } = req.query;
+router.get("/", softAuth, async (req, res) => {
+  const { threadId, before, limit = 50 } = req.query;
 
-  /* Accept userId from JWT or query param */
+  /* JWT wins, query param is fallback */
   const userId = req.user?.id || req.query.userId;
 
   console.log("📨 GET /messages", {
@@ -45,13 +39,16 @@ router.get("/", async (req, res) => {
     return res.status(400).json({ success: false, message: "threadId required" });
   }
   if (!userId) {
-    return res.status(401).json({ success: false, message: "userId or auth token required" });
+    return res.status(401).json({
+      success: false,
+      message: "userId or auth token required",
+    });
   }
 
   const pageSize = Math.min(parseInt(limit, 10) || 50, 100);
 
   try {
-    /* ── Verify user is in thread ── */
+    /* ── Verify user belongs to thread ── */
     const { rows: threadRows } = await pool.query(
       `SELECT id, buyer_id, seller_id
        FROM   public.chat_threads
@@ -72,11 +69,11 @@ router.get("/", async (req, res) => {
     if (!isMember) {
       return res.status(403).json({
         success: false,
-        message: `Access denied — user ${userId} is not buyer (${t.buyer_id}) or seller (${t.seller_id})`,
+        message: `Access denied — user ${userId} not in thread`,
       });
     }
 
-    /* ── Fetch messages ── */
+    /* ── Build query ── */
     const params       = [threadId, pageSize];
     const cursorClause = before
       ? `AND m.created_at < $${params.push(before) && params.length}`
@@ -95,8 +92,8 @@ router.get("/", async (req, res) => {
          m.edited,
          m.deleted,
          m.client_message_id,
-         u.name            AS sender_name,
-         u.profile_image   AS sender_image
+         u.name          AS sender_name,
+         u.profile_image AS sender_image
        FROM  public.chat_messages m
        JOIN  public.users         u ON u.id = m.sender_id
        WHERE m.thread_id = $1
@@ -117,9 +114,45 @@ router.get("/", async (req, res) => {
 });
 
 /* ══════════════════════════════════════════════
+   GET /api/messages/unread-count?userId=
+   NOTE: must be defined BEFORE /:messageId
+══════════════════════════════════════════════ */
+router.get("/unread-count", softAuth, async (req, res) => {
+  const userId = req.user?.id || req.query.userId;
+
+  if (!userId) {
+    return res.status(400).json({ success: false, message: "userId required" });
+  }
+
+  try {
+    const { rows } = await pool.query(
+      `SELECT COUNT(m.id)::INT AS total_unread
+       FROM   public.chat_threads            t
+       JOIN   public.chat_messages           m
+              ON  m.thread_id = t.id
+       LEFT   JOIN public.chat_read_receipts rr
+              ON  rr.thread_id = t.id
+              AND rr.user_id   = $1
+       WHERE  (t.buyer_id  = $1 OR t.seller_id = $1)
+         AND  t.is_archived  = false
+         AND  m.sender_id   <> $1
+         AND  m.deleted      = false
+         AND  (rr.last_read_at IS NULL
+               OR m.created_at > rr.last_read_at)`,
+      [userId]
+    );
+
+    return res.json({ unreadCount: rows[0].total_unread });
+  } catch (err) {
+    console.error("GET /unread-count error:", err);
+    return res.status(500).json({ success: false, message: err.message });
+  }
+});
+
+/* ══════════════════════════════════════════════
    POST /api/messages
 ══════════════════════════════════════════════ */
-router.post("/", async (req, res) => {
+router.post("/", softAuth, async (req, res) => {
   const {
     threadId,
     message,
@@ -133,21 +166,28 @@ router.post("/", async (req, res) => {
   console.log("📤 POST /messages", { threadId, senderId, messageType });
 
   if (!threadId || !senderId) {
-    return res.status(400).json({ success: false, message: "threadId and senderId required" });
+    return res.status(400).json({
+      success: false,
+      message: "threadId and senderId required",
+    });
   }
   if (!message && !mediaUrl) {
-    return res.status(400).json({ success: false, message: "message or mediaUrl required" });
+    return res.status(400).json({
+      success: false,
+      message: "message or mediaUrl required",
+    });
   }
 
   const client = await pool.connect();
   try {
     await client.query("BEGIN");
 
-    /* Idempotency */
+    /* ── Idempotency ── */
     if (clientMessageId) {
       const { rows: existing } = await client.query(
         `SELECT * FROM public.chat_messages
-         WHERE  client_message_id = $1 AND sender_id = $2`,
+         WHERE  client_message_id = $1
+           AND  sender_id         = $2`,
         [clientMessageId, senderId]
       );
       if (existing.length > 0) {
@@ -156,7 +196,7 @@ router.post("/", async (req, res) => {
       }
     }
 
-    /* Verify sender is in thread */
+    /* ── Verify sender is in thread ── */
     const { rows: threadRows } = await client.query(
       `SELECT id, buyer_id, seller_id, is_blocked
        FROM   public.chat_threads
@@ -179,10 +219,13 @@ router.post("/", async (req, res) => {
 
     if (t.is_blocked) {
       await client.query("ROLLBACK");
-      return res.status(403).json({ success: false, message: "Conversation is blocked" });
+      return res.status(403).json({
+        success: false,
+        message: "Conversation is blocked",
+      });
     }
 
-    /* Insert */
+    /* ── Insert message ── */
     const { rows } = await client.query(
       `INSERT INTO public.chat_messages
          (thread_id, sender_id, message, message_type,
@@ -193,22 +236,29 @@ router.post("/", async (req, res) => {
     );
 
     const saved   = rows[0];
-    const preview = messageType === "text"
-      ? (message.length > 80 ? message.slice(0, 80) + "…" : message)
-      : `[${messageType}]`;
+    const preview =
+      messageType === "text"
+        ? message.length > 80
+          ? message.slice(0, 80) + "…"
+          : message
+        : `[${messageType}]`;
 
+    /* ── Update thread summary ── */
     await client.query(
       `UPDATE public.chat_threads
-       SET    last_message = $1, last_message_at = $2
+       SET    last_message    = $1,
+              last_message_at = $2
        WHERE  id = $3`,
       [preview, saved.created_at, threadId]
     );
 
     await client.query("COMMIT");
 
-    /* Return with sender info */
+    /* ── Return with sender info ── */
     const { rows: full } = await pool.query(
-      `SELECT m.*, u.name AS sender_name, u.profile_image AS sender_image
+      `SELECT m.*,
+              u.name          AS sender_name,
+              u.profile_image AS sender_image
        FROM   public.chat_messages m
        JOIN   public.users         u ON u.id = m.sender_id
        WHERE  m.id = $1`,
@@ -229,10 +279,10 @@ router.post("/", async (req, res) => {
 /* ══════════════════════════════════════════════
    PATCH /api/messages/:messageId  (edit)
 ══════════════════════════════════════════════ */
-router.patch("/:messageId", async (req, res) => {
-  const { messageId }    = req.params;
-  const { message }      = req.body;
-  const senderId         = req.user?.id || req.body.senderId;
+router.patch("/:messageId", softAuth, async (req, res) => {
+  const { messageId }  = req.params;
+  const { message }    = req.body;
+  const senderId       = req.user?.id || req.body.senderId;
 
   if (!message?.trim()) {
     return res.status(400).json({ success: false, message: "message required" });
@@ -241,8 +291,11 @@ router.patch("/:messageId", async (req, res) => {
   try {
     const { rows, rowCount } = await pool.query(
       `UPDATE public.chat_messages
-       SET    message = $1, edited = true
-       WHERE  id = $2 AND sender_id = $3 AND deleted = false
+       SET    message = $1,
+              edited  = true
+       WHERE  id        = $2
+         AND  sender_id = $3
+         AND  deleted   = false
        RETURNING *`,
       [message.trim(), messageId, senderId]
     );
@@ -261,7 +314,7 @@ router.patch("/:messageId", async (req, res) => {
 /* ══════════════════════════════════════════════
    DELETE /api/messages/:messageId  (soft)
 ══════════════════════════════════════════════ */
-router.delete("/:messageId", async (req, res) => {
+router.delete("/:messageId", softAuth, async (req, res) => {
   const { messageId } = req.params;
   const senderId      = req.user?.id || req.body.senderId;
 
@@ -272,7 +325,8 @@ router.delete("/:messageId", async (req, res) => {
     const { rows, rowCount } = await client.query(
       `UPDATE public.chat_messages
        SET    deleted = true
-       WHERE  id = $1 AND sender_id = $2
+       WHERE  id        = $1
+         AND  sender_id = $2
        RETURNING thread_id`,
       [messageId, senderId]
     );
@@ -285,7 +339,7 @@ router.delete("/:messageId", async (req, res) => {
     /* Recompute thread preview */
     await client.query(
       `UPDATE public.chat_threads t
-       SET    last_message    = (
+       SET    last_message = (
                 SELECT message FROM public.chat_messages
                 WHERE  thread_id = $1 AND deleted = false
                 ORDER  BY created_at DESC LIMIT 1
@@ -308,38 +362,6 @@ router.delete("/:messageId", async (req, res) => {
     return res.status(500).json({ success: false, message: err.message });
   } finally {
     client.release();
-  }
-});
-
-/* ══════════════════════════════════════════════
-   GET /api/messages/unread-count?userId=
-══════════════════════════════════════════════ */
-router.get("/unread-count", async (req, res) => {
-  const userId = req.user?.id || req.query.userId;
-
-  if (!userId) {
-    return res.status(400).json({ success: false, message: "userId required" });
-  }
-
-  try {
-    const { rows } = await pool.query(
-      `SELECT COUNT(m.id)::INT AS total_unread
-       FROM   public.chat_threads            t
-       JOIN   public.chat_messages           m  ON m.thread_id  = t.id
-       LEFT   JOIN public.chat_read_receipts rr
-              ON  rr.thread_id = t.id AND rr.user_id = $1
-       WHERE  (t.buyer_id = $1 OR t.seller_id = $1)
-         AND  t.is_archived  = false
-         AND  m.sender_id   <> $1
-         AND  m.deleted      = false
-         AND  (rr.last_read_at IS NULL OR m.created_at > rr.last_read_at)`,
-      [userId]
-    );
-
-    return res.json({ unreadCount: rows[0].total_unread });
-  } catch (err) {
-    console.error("GET /unread-count error:", err);
-    return res.status(500).json({ success: false, message: err.message });
   }
 });
 
