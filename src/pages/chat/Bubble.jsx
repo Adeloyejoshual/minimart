@@ -1,10 +1,9 @@
 import React, { useRef, useCallback, memo } from "react";
-import OfferCard     from "./OfferCard";
-import ContextMenu   from "./ContextMenu";
-import { Icon }      from "./icons";
+import OfferCard   from "./OfferCard";
+import { Icon }    from "./icons";
 import { formatTime, truncate } from "./constants";
 
-/* ── tiny sub-components ─────────────────── */
+/* tiny sub-components */
 const Tick = memo(function Tick({ status }) {
   return <Icon.tick status={status}/>;
 });
@@ -26,7 +25,7 @@ const DateSep = memo(function DateSep({ label }) {
   return <div className="chat-date-sep"><span>{label}</span></div>;
 });
 
-/* ── main Bubble ─────────────────────────── */
+/* ── main bubble ── */
 function Bubble({
   msg, mine,
   onRetry, onOfferRespond,
@@ -44,55 +43,115 @@ function Bubble({
   const holdRef  = useRef(null);
   const rowRef   = useRef(null);
   const swipeX   = useRef(null);
+  const moved    = useRef(false);
 
-  /* Long press */
+  /* ── long press — works on both mobile & desktop ── */
   const startHold = useCallback(e => {
-    const rect = rowRef.current?.getBoundingClientRect() || {};
+    moved.current = false;
+
+    /* prevent text selection on long press */
+    if (e.cancelable) e.preventDefault();
+
     holdRef.current = setTimeout(() => {
+      /* only show if user didn't move finger */
+      if (moved.current) return;
+
       const touch = e.touches?.[0];
-      const cx = Math.min(
-        touch?.clientX ?? e.clientX ?? rect.left,
-        window.innerWidth - 200
+      const rect  = rowRef.current?.getBoundingClientRect() || {};
+
+      /* position the context menu near the bubble */
+      const x = Math.min(
+        touch?.clientX ?? e.clientX ?? rect.left + rect.width / 2,
+        window.innerWidth - 210
       );
-      const cy = Math.max((touch?.clientY ?? e.clientY ?? rect.top) - 130, 60);
-      onCtx(msg, { x: cx, y: cy });
-    }, 500);
+      const y = Math.max(
+        (touch?.clientY ?? e.clientY ?? rect.top) - 140,
+        60
+      );
+
+      onCtx(msg, { x, y });
+    }, 450); // slightly shorter than 500 for better UX
   }, [msg, onCtx]);
 
-  const cancelHold = useCallback(() => clearTimeout(holdRef.current), []);
+  const cancelHold = useCallback(() => {
+    clearTimeout(holdRef.current);
+    holdRef.current = null;
+  }, []);
 
-  /* Swipe to reply */
-  const onTS = useCallback(e => {
+  /* ── touch handlers for swipe-to-reply ── */
+  const onTouchStart = useCallback(e => {
     swipeX.current = e.touches[0].clientX;
+    moved.current  = false;
     startHold(e);
   }, [startHold]);
 
-  const onTM = useCallback(e => {
-    cancelHold();
+  const onTouchMove = useCallback(e => {
     if (swipeX.current === null) return;
+
     const dx = e.touches[0].clientX - swipeX.current;
+
+    /* if user moved more than 8px, cancel long press */
+    if (Math.abs(dx) > 8) {
+      moved.current = true;
+      cancelHold();
+    }
+
     const el = rowRef.current;
     if (!el) return;
+
     const valid = mine ? dx < -10 : dx > 10;
     if (valid) {
       el.classList.add("swiping");
-      const cl = mine ? Math.max(dx, -60) : Math.min(dx, 60);
-      const bubble = el.querySelector(".chat-bubble");
-      if (bubble) bubble.style.transform = `translateX(${cl}px)`;
+      const clamped = mine ? Math.max(dx, -60) : Math.min(dx, 60);
+      const bubble  = el.querySelector(".chat-bubble");
+      if (bubble) bubble.style.transform = `translateX(${clamped}px)`;
     }
   }, [mine, cancelHold]);
 
-  const onTE = useCallback(e => {
+  const onTouchEnd = useCallback(e => {
     cancelHold();
     const el = rowRef.current;
     if (!el) return;
+
     const dx = e.changedTouches[0].clientX - (swipeX.current || 0);
+
     el.classList.remove("swiping");
     const bubble = el.querySelector(".chat-bubble");
     if (bubble) bubble.style.transform = "";
     swipeX.current = null;
-    if (mine ? dx < -40 : dx > 40) onCtx(msg, null, "reply");
+
+    /* swipe threshold → trigger reply */
+    if (mine ? dx < -40 : dx > 40) {
+      onCtx(msg, null, "reply");
+    }
   }, [mine, cancelHold, msg, onCtx]);
+
+  /* mouse-based long press (desktop) */
+  const onMouseDown = useCallback(e => {
+    /* only left button */
+    if (e.button !== 0) return;
+    moved.current = false;
+    startHold(e);
+  }, [startHold]);
+
+  const onMouseMove = useCallback(() => {
+    moved.current = true;
+    cancelHold();
+  }, [cancelHold]);
+
+  const onMouseUp = useCallback(() => {
+    cancelHold();
+  }, [cancelHold]);
+
+  /* prevent browser context menu on mobile */
+  const onContextMenu = useCallback(e => {
+    e.preventDefault();
+    /* trigger our custom context menu */
+    const rect = rowRef.current?.getBoundingClientRect() || {};
+    const x = Math.min(e.clientX || rect.left, window.innerWidth - 210);
+    const y = Math.max(e.clientY - 140 || rect.top, 60);
+    onCtx(msg, { x, y });
+  }, [msg, onCtx]);
 
   const handleRetry = useCallback(() => {
     if (failed || timedOut) onRetry(msg);
@@ -100,7 +159,7 @@ function Bubble({
 
   const handleLightbox = useCallback(e => {
     e.stopPropagation();
-    onLightbox(msg.media_url);
+    if (msg.media_url) onLightbox(msg.media_url);
   }, [msg.media_url, onLightbox]);
 
   const handleProductClick = useCallback(e => {
@@ -108,10 +167,6 @@ function Bubble({
     if (msg.shared_product?.id)
       window.open(`/product/${msg.shared_product.id}`, "_blank");
   }, [msg.shared_product]);
-
-  const handleLocationClick = useCallback(e => {
-    e.stopPropagation();
-  }, []);
 
   return (
     <div
@@ -129,12 +184,14 @@ function Bubble({
           sending ? "sending"      : "",
           isOffer ? "offer-bubble" : "",
         ].filter(Boolean).join(" ")}
-        onMouseDown={startHold}
-        onMouseUp={cancelHold}
-        onMouseLeave={cancelHold}
-        onTouchStart={onTS}
-        onTouchMove={onTM}
-        onTouchEnd={onTE}
+        onTouchStart={onTouchStart}
+        onTouchMove={onTouchMove}
+        onTouchEnd={onTouchEnd}
+        onMouseDown={onMouseDown}
+        onMouseMove={onMouseMove}
+        onMouseUp={onMouseUp}
+        onMouseLeave={onMouseUp}
+        onContextMenu={onContextMenu}
       >
         {/* Reply strip */}
         {replyToMsg && !isOffer && (
@@ -143,7 +200,7 @@ function Bubble({
               {replyToMsg.sender_id === msg.sender_id ? "You" : "Them"}
             </div>
             {replyToMsg.media_url ? (
-              <div style={{ display:"flex", alignItems:"center", gap:6 }}>
+              <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
                 <img src={replyToMsg.media_url} alt=""
                   className="bubble-reply-img"/>
                 <span className="bubble-reply-text">Photo</span>
@@ -186,7 +243,7 @@ function Bubble({
             target="_blank"
             rel="noreferrer"
             className="chat-location-bubble"
-            onClick={handleLocationClick}
+            onClick={e => e.stopPropagation()}
           >
             <img
               className="chat-location-map"
@@ -214,7 +271,7 @@ function Bubble({
                 {msg.shared_product.title}
               </div>
               <div className="chat-product-card-price">
-                ৳{Number(msg.shared_product.price).toLocaleString()}
+                ₦{Number(msg.shared_product.price).toLocaleString()}
               </div>
               <div className="chat-product-card-cta">Tap to view</div>
             </div>
@@ -244,18 +301,7 @@ function Bubble({
         </div>
       </div>
 
-      {/* Context menu (rendered inside the row so it stays near the bubble) */}
-      {showCtx && (
-        <ContextMenu
-          msg={msg}
-          mine={mine}
-          pos={{ x: 20, y: -140 }}
-          onClose={onCtxClose}
-          onReply={onCtxReply}
-          onCopy={onCtxCopy}
-          onDelete={onCtxDelete}
-        />
-      )}
+      {/* Context menu rendered via parent — we just flag it */}
     </div>
   );
 }
