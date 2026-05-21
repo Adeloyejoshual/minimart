@@ -4,17 +4,18 @@ import React, {
 } from "react";
 import { useParams, useNavigate, Link } from "react-router-dom";
 import { useProductCache } from "../context/ProductCacheContext";
-import ProductHeader from "../components/ProductHeader";
-import MasonryGrid from "../components/MasonryGrid";
+import ProductHeader       from "../components/ProductHeader";
+import MasonryGrid         from "../components/MasonryGrid";
 import "../styles/ProductDetail.css";
 
 const API = import.meta.env.VITE_API_BASE || "https://minimart-ivrm.onrender.com/api";
 const PH  = "https://placehold.co/800x600/eae6e0/a8a39d?text=Minimart";
 
-/* ─── HELPERS ─── */
+/* ─────────────────────────────────────
+   HELPERS
+───────────────────────────────────── */
 const naira = (n) => "₦" + Number(n || 0).toLocaleString("en-NG");
 
-// 1432 → "1.4k", 1000000 → "1m"
 const fmtViews = (n) => {
   const v = Number(n || 0);
   if (v >= 1_000_000) return (v / 1_000_000).toFixed(1).replace(/\.0$/, "") + "m";
@@ -59,26 +60,32 @@ const timeAgo = (date) => {
   return new Date(date).toLocaleDateString("en-NG", { month: "short", year: "numeric" });
 };
 
-/* ── Auth helpers ── */
-const getToken = () =>
-  localStorage.getItem("token") ||
-  localStorage.getItem("authToken") ||
-  localStorage.getItem("minimart_token") ||
-  null;
+/* ── Auth ── */
+function getToken() {
+  return (
+    localStorage.getItem("token") ||
+    localStorage.getItem("authToken") ||
+    localStorage.getItem("minimart_token") ||
+    null
+  );
+}
 
-const readUserId = () => {
+function authH() {
+  const t = getToken();
+  return t ? { Authorization: `Bearer ${t}` } : {};
+}
+
+function readUserId() {
   try {
-    // Try JSON user objects first
     for (const key of ["user", "minimart_user", "currentUser", "authUser"]) {
       const raw = localStorage.getItem(key);
       if (!raw) continue;
       try {
-        const p = JSON.parse(raw);
+        const p  = JSON.parse(raw);
         const id = p?.id || p?.user?.id || p?.data?.id;
         if (id) return String(id);
       } catch {}
     }
-    // Decode JWT payload as fallback
     const token = getToken();
     if (token) {
       const payload = JSON.parse(atob(token.split(".")[1]));
@@ -87,29 +94,54 @@ const readUserId = () => {
     }
     return null;
   } catch { return null; }
-};
+}
 
+/* ── Favourites ── */
 const FAV_KEY  = "minimart_favs";
 const loadFavs = () => { try { return JSON.parse(localStorage.getItem(FAV_KEY) || "{}"); } catch { return {}; } };
 const saveFavs = (f)  => { try { localStorage.setItem(FAV_KEY, JSON.stringify(f)); } catch {} };
 
-/* ─── SKELETON ─── */
+/* ── Start chat — creates thread then returns threadId ── */
+async function startChatThread({ buyerId, sellerId, productId }) {
+  if (!buyerId || !sellerId)        throw new Error("Missing buyer or seller ID");
+  if (buyerId === sellerId)         throw new Error("Cannot chat with yourself");
+
+  const res = await fetch(`${API}/conversations`, {
+    method:  "POST",
+    headers: { "Content-Type": "application/json", ...authH() },
+    body:    JSON.stringify({ buyerId, sellerId, productId: productId || null }),
+  });
+
+  const data = await res.json();
+  if (!res.ok) throw new Error(data.message || `HTTP ${res.status}`);
+
+  const threadId = data.thread_id || data.id;
+  if (!threadId) throw new Error("No thread ID returned");
+
+  return threadId;
+}
+
+/* ─────────────────────────────────────
+   SKELETON
+───────────────────────────────────── */
 const Skel = ({ style }) => <div className="pd-skeleton" style={style} />;
 function LoadingSkeleton() {
   return (
     <div className="pd-page">
-      <Skel style={{ width: "100%", height: 300 }} />
-      <div style={{ padding: 16, display: "flex", flexDirection: "column", gap: 12 }}>
-        <Skel style={{ width: "40%", height: 13 }} />
-        <Skel style={{ width: "90%", height: 22 }} />
-        <Skel style={{ width: "55%", height: 32 }} />
-        <Skel style={{ width: "100%", height: 80, marginTop: 8 }} />
+      <Skel style={{ width:"100%", height:300 }} />
+      <div style={{ padding:16, display:"flex", flexDirection:"column", gap:12 }}>
+        <Skel style={{ width:"40%", height:13 }} />
+        <Skel style={{ width:"90%", height:22 }} />
+        <Skel style={{ width:"55%", height:32 }} />
+        <Skel style={{ width:"100%", height:80, marginTop:8 }} />
       </div>
     </div>
   );
 }
 
-/* ─── FAQ ITEM ─── */
+/* ─────────────────────────────────────
+   FAQ ITEM
+───────────────────────────────────── */
 function FaqItem({ q, a }) {
   const [open, setOpen] = useState(false);
   return (
@@ -123,7 +155,9 @@ function FaqItem({ q, a }) {
   );
 }
 
-/* ─── REVIEW FORM ─── */
+/* ─────────────────────────────────────
+   REVIEW FORM
+───────────────────────────────────── */
 function ReviewForm({ slug, userId, onSubmitted }) {
   const navigate      = useNavigate();
   const [rating,      setRating]      = useState(0);
@@ -156,14 +190,10 @@ function ReviewForm({ slug, userId, onSubmitted }) {
     setSubmitting(true);
     setError(null);
     try {
-      const token = getToken();
-      const headers = { "Content-Type": "application/json" };
-      if (token) headers["Authorization"] = `Bearer ${token}`;
-
       const res  = await fetch(`${API}/product/slug/${encodeURIComponent(slug)}/reviews`, {
-        method: "POST",
-        headers,
-        body: JSON.stringify({ user_id: userId, rating, comment }),
+        method:  "POST",
+        headers: { "Content-Type": "application/json", ...authH() },
+        body:    JSON.stringify({ user_id: userId, rating, comment }),
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.message || "Failed to submit");
@@ -198,7 +228,7 @@ function ReviewForm({ slug, userId, onSubmitted }) {
       </div>
       <textarea
         className="pd-review-textarea"
-        placeholder="Share your experience with this product... (optional)"
+        placeholder="Share your experience… (optional)"
         value={comment}
         onChange={(e) => setComment(e.target.value)}
         rows={3}
@@ -206,44 +236,24 @@ function ReviewForm({ slug, userId, onSubmitted }) {
       />
       <div className="pd-review-char">{comment.length}/500</div>
       {error && <div className="pd-review-error">{error}</div>}
-      <button className="pd-review-submit" onClick={handleSubmit} disabled={submitting || !rating}>
+      <button
+        className="pd-review-submit"
+        onClick={handleSubmit}
+        disabled={submitting || !rating}
+      >
         {submitting ? "Submitting…" : "Submit Review"}
       </button>
     </div>
   );
 }
 
-/* ─── PRODUCT CARD (similar + seller listings) ─── */
-function ProductCard({ p, onClick }) {
-  const img         = getImages(p)[0];
-  const avgRating   = Number(p.avg_rating || 0);
-  const reviewCount = Number(p.review_count || 0);
-  return (
-    <div className="pd-sim-card" onClick={onClick}>
-      <div className="pd-sim-img-wrap">
-        <img className="pd-sim-img" src={img} alt={p.title} loading="lazy" />
-        {p.is_promoted && <span className="pd-sim-promoted">Featured</span>}
-      </div>
-      <div className="pd-sim-body">
-        <div className="pd-sim-name">{p.title}</div>
-        <div className="pd-sim-price">{naira(p.price)}</div>
-        {reviewCount > 0 && (
-          <div className="pd-sim-rating">
-            {stars(avgRating, "sm")}
-            <span className="pd-sim-rating-count">({reviewCount})</span>
-          </div>
-        )}
-        {p.location_city && <div className="pd-sim-loc">{p.location_city}</div>}
-      </div>
-    </div>
-  );
-}
-
-/* ─── SAFETY TIPS ─── */
+/* ─────────────────────────────────────
+   SAFETY TIPS
+───────────────────────────────────── */
 const SAFETY_TIPS = [
   "Do not pay in advance, including for delivery.",
   "Arrange to meet sellers in a safe, public location.",
-  "Carefully inspect the item to confirm it meets your expectations.",
+  "Carefully inspect the item before purchase.",
   "Ensure the item you receive is the same one you inspected.",
   "Only make payment when you are fully satisfied.",
 ];
@@ -266,11 +276,12 @@ function SafetyTips() {
 /* ═══════════════════════════════════════════
    MAIN COMPONENT
 ═══════════════════════════════════════════ */
-export default function ProductDetail() {
+export default function ProductDetail({ user }) {
   const { slug } = useParams();
   const navigate = useNavigate();
   const { addSingleProduct } = useProductCache();
 
+  /* ── state ── */
   const [product,        setProduct]        = useState(null);
   const [seller,         setSeller]         = useState(null);
   const [similar,        setSimilar]        = useState([]);
@@ -285,9 +296,13 @@ export default function ProductDetail() {
   const [fav,            setFav]            = useState(false);
   const [reviewPage,     setReviewPage]     = useState(1);
   const [reviewTotal,    setReviewTotal]    = useState(0);
+  const [chatLoading,    setChatLoading]    = useState(false); // ← NEW
 
-  // Read userId once — tries multiple localStorage keys
-  const userId = useMemo(() => readUserId(), []);
+  /* ── current user ── */
+  const userId = useMemo(() => {
+    // Prefer user prop (passed from App), fallback to localStorage decode
+    return user?.id || readUserId();
+  }, [user]);
 
   /* ── derived ── */
   const images = useMemo(() => getImages(product), [product]);
@@ -314,7 +329,9 @@ export default function ProductDetail() {
     return Object.entries(s).filter(([, v]) => v != null && v !== "");
   }, [product]);
 
-  /* ── FETCH PRODUCT ── */
+  /* ══════════════════════════════════
+     FETCH PRODUCT
+  ══════════════════════════════════ */
   const fetchProduct = useCallback(async () => {
     if (!slug || slug === "undefined") {
       setError("Invalid product link.");
@@ -340,27 +357,22 @@ export default function ProductDetail() {
 
   useEffect(() => { fetchProduct(); }, [fetchProduct]);
 
-  /* ── TRACK VIEW — every page load, no deduplication ── */
+  /* ── Track view ── */
   useEffect(() => {
     if (!product?.id) return;
     fetch(`${API}/product/products/${product.id}/view`, { method: "POST" }).catch(() => {});
   }, [product?.id]);
 
-  /* ── FETCH SELLER — uses /api/seller/:id matching your existing seller route ── */
+  /* ── Fetch seller ── */
   useEffect(() => {
     if (!product?.seller_id) return;
     fetch(`${API}/seller/${product.seller_id}`)
       .then((r) => r.ok ? r.json() : null)
-      .then((d) => {
-        if (!d) return;
-        // /api/seller/:id returns { seller, products, stats }
-        // /api/product/users/:id/public returns the object directly
-        setSeller(d.seller || d);
-      })
+      .then((d) => { if (d) setSeller(d.seller || d); })
       .catch(() => {});
   }, [product?.seller_id]);
 
-  /* ── FETCH SELLER'S OTHER PRODUCTS ── */
+  /* ── Fetch seller's other products ── */
   useEffect(() => {
     if (!product?.seller_id || !product?.id) return;
     const qs = new URLSearchParams({
@@ -368,14 +380,13 @@ export default function ProductDetail() {
       exclude:   product.id,
       limit:     "10",
     });
-    // Route: GET /api/product/by-seller
     fetch(`${API}/product/by-seller?${qs}`)
       .then((r) => r.ok ? r.json() : [])
       .then((d) => setSellerProducts(Array.isArray(d) ? d : (d.products || [])))
       .catch(() => {});
   }, [product?.seller_id, product?.id]);
 
-  /* ── FETCH REVIEWS ── */
+  /* ── Fetch reviews ── */
   const fetchReviews = useCallback(async (page = 1) => {
     if (!slug) return;
     try {
@@ -387,7 +398,6 @@ export default function ProductDetail() {
       setReviews((prev) =>
         page === 1 ? (data.reviews || []) : [...prev, ...(data.reviews || [])]
       );
-      // Normalize: backend returns `average`, ProductHeader expects `avg_rating`
       const s = data.stats || null;
       setReviewStats(s ? { ...s, avg_rating: s.average } : null);
       setReviewTotal(data.stats?.total || 0);
@@ -396,7 +406,7 @@ export default function ProductDetail() {
 
   useEffect(() => { fetchReviews(1); }, [fetchReviews]);
 
-  /* ── FETCH SIMILAR ── */
+  /* ── Fetch similar ── */
   useEffect(() => {
     if (!product?.id || !product?.category_id) return;
     const qs = new URLSearchParams({
@@ -404,14 +414,13 @@ export default function ProductDetail() {
       exclude:     product.id,
       limit:       "10",
     });
-    // Route: GET /api/product/similar  (NOT /products/similar — router is at /api/product)
     fetch(`${API}/product/similar?${qs}`)
       .then((r) => r.ok ? r.json() : [])
       .then((d) => setSimilar(Array.isArray(d) ? d : (d.products || [])))
       .catch(() => {});
   }, [product?.id, product?.category_id]);
 
-  /* ── LIGHTBOX KEYS ── */
+  /* ── Lightbox keys ── */
   useEffect(() => {
     if (!lightbox) return;
     const h = (e) => {
@@ -423,7 +432,7 @@ export default function ProductDetail() {
     return () => window.removeEventListener("keydown", h);
   }, [lightbox, images.length]);
 
-  /* ── TOGGLE FAVORITE ── */
+  /* ── Favourite ── */
   const toggleFav = useCallback(async () => {
     if (!product?.id) return;
     const next = !fav;
@@ -433,38 +442,73 @@ export default function ProductDetail() {
     saveFavs(favs);
     if (userId) {
       fetch(`${API}/products/${product.id}/favorite`, {
-        method: "POST",
+        method:  "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ user_id: userId }),
+        body:    JSON.stringify({ user_id: userId }),
       }).catch(() => {});
     }
   }, [fav, product, userId]);
 
-  /* ── CONTACT ── */
+  /* ══════════════════════════════════
+     CONTACT ACTIONS
+  ══════════════════════════════════ */
   const contactPhone = product?.phone || product?.contact?.phone;
   const waNumber     = product?.whatsapp || product?.contact?.whatsapp;
   const waLink       = product?.whatsapp_link || product?.contact?.whatsapp_link;
-  const hasContact   = !!(waNumber || waLink || contactPhone || product?.seller_id);
 
-  const openWhatsApp = () => {
+  /* seller could be own listing */
+  const isOwnProduct = userId && product?.seller_id && userId === product.seller_id;
+
+  const hasContact = !!(waNumber || waLink || contactPhone || product?.seller_id);
+
+  const openWhatsApp = useCallback(() => {
+    if (!product) return;
     fetch(`${API}/products/${product.id}/click`, { method: "POST" }).catch(() => {});
     const msg = encodeURIComponent(
-      `Hi, I'm interested in your listing: ${product.title} — ${window.location.href}`
+      `Hi, I'm interested in: ${product.title} — ${window.location.href}`
     );
-    const url = waLink || (waNumber ? `https://wa.me/${waNumber.replace(/\D/g, "")}?text=${msg}` : null);
+    const url = waLink ||
+      (waNumber ? `https://wa.me/${waNumber.replace(/\D/g, "")}?text=${msg}` : null);
     if (url) window.open(url, "_blank");
-  };
-  const openCall = () => { if (contactPhone) window.location.href = `tel:${contactPhone}`; };
-  const openChat = () => { navigate(`/chat/${product.id}`); };
+  }, [product, waLink, waNumber]);
 
-  /* ── DELIVERY ── */
+  const openCall = useCallback(() => {
+    if (contactPhone) window.location.href = `tel:${contactPhone}`;
+  }, [contactPhone]);
+
+  /* ── Open chat — creates real thread first ── */
+  const openChat = useCallback(async () => {
+    if (!userId) {
+      navigate(`/login?redirect=${encodeURIComponent(`/product/${slug}`)}`);
+      return;
+    }
+    if (isOwnProduct) return;
+    if (!product?.seller_id) return;
+
+    setChatLoading(true);
+    try {
+      const threadId = await startChatThread({
+        buyerId:   userId,
+        sellerId:  product.seller_id,
+        productId: product.id,
+      });
+      navigate(`/chat/${threadId}`);
+    } catch (err) {
+      console.error("openChat failed:", err.message);
+      alert("Could not open chat: " + err.message);
+    } finally {
+      setChatLoading(false);
+    }
+  }, [userId, isOwnProduct, product, slug, navigate]);
+
+  /* ── Delivery ── */
   const delivery = useMemo(() => {
     const d = product?.delivery;
     if (!d || typeof d !== "object" || !d.available) return null;
     return d;
   }, [product]);
 
-  /* ═══ RENDER ═══ */
+  /* ══ RENDER ══ */
   if (loading) return <LoadingSkeleton />;
 
   if (error) return (
@@ -488,7 +532,6 @@ export default function ProductDetail() {
 
   return (
     <>
-      {/* PRODUCT HEADER — shows seller name when scrolled */}
       <ProductHeader
         product={product}
         seller={seller}
@@ -502,7 +545,7 @@ export default function ProductDetail() {
 
       <div className="pd-page">
 
-        {/* GALLERY — no top padding needed; header is transparent at top */}
+        {/* ── GALLERY ── */}
         <div className="pd-gallery">
           <div className="pd-main-img-wrap" onClick={() => setLightbox(true)}>
             {product.is_promoted && <span className="pd-promoted-badge">Featured</span>}
@@ -537,7 +580,7 @@ export default function ProductDetail() {
 
         <div className="pd-body">
 
-          {/* TITLE BLOCK */}
+          {/* ── TITLE BLOCK ── */}
           <div className="pd-title-block">
             {product.category_name && (
               <div className="pd-category-crumb">
@@ -550,8 +593,6 @@ export default function ProductDetail() {
               <span className="pd-price">{naira(product.price)}</span>
               {product.is_promoted && <span className="pd-price-note">Promoted listing</span>}
             </div>
-
-            {/* Stats — views only (no clicks), formatted */}
             <div className="pd-stats-row">
               <span className="pd-stat">{fmtViews(product.views)} views</span>
               {product.favorites_count > 0 && (
@@ -561,7 +602,7 @@ export default function ProductDetail() {
             </div>
           </div>
 
-          {/* ABOUT */}
+          {/* ── DESCRIPTION ── */}
           {product.description && (
             <div className="pd-section">
               <div className="pd-section-title">About this product</div>
@@ -571,7 +612,7 @@ export default function ProductDetail() {
                   : product.description}
                 {needsToggle && !descExpanded && (
                   <span className="pd-desc-ellipsis">
-                    ...
+                    …
                     <button className="pd-desc-toggle" onClick={() => setDescExpanded(true)}>
                       read more
                     </button>
@@ -586,7 +627,7 @@ export default function ProductDetail() {
             </div>
           )}
 
-          {/* FEATURES — one per line */}
+          {/* ── FEATURES ── */}
           {highlights.length > 0 && (
             <div className="pd-section">
               <div className="pd-section-title">Features</div>
@@ -603,7 +644,7 @@ export default function ProductDetail() {
             </div>
           )}
 
-          {/* DETAILS — stacked: label then value */}
+          {/* ── DETAILS ── */}
           {attrs.length > 0 && (
             <div className="pd-section">
               <div className="pd-section-title">Details</div>
@@ -620,7 +661,7 @@ export default function ProductDetail() {
             </div>
           )}
 
-          {/* SPECIFICATIONS — stacked */}
+          {/* ── SPECIFICATIONS ── */}
           {specs.length > 0 && (
             <div className="pd-section">
               <div className="pd-section-title">Specifications</div>
@@ -635,19 +676,25 @@ export default function ProductDetail() {
             </div>
           )}
 
-          {/* LOCATION */}
+          {/* ── LOCATION ── */}
           {(product.location_city || product.location_state) && (
             <div className="pd-section">
               <div className="pd-section-title">Location</div>
               <div className="pd-location-text">
-                {product.location_city && <span className="pd-location-city">{product.location_city}</span>}
-                {product.location_city && product.location_state && <span className="pd-location-sep">, </span>}
-                {product.location_state && <span className="pd-location-state">{product.location_state}</span>}
+                {product.location_city && (
+                  <span className="pd-location-city">{product.location_city}</span>
+                )}
+                {product.location_city && product.location_state && (
+                  <span className="pd-location-sep">, </span>
+                )}
+                {product.location_state && (
+                  <span className="pd-location-state">{product.location_state}</span>
+                )}
               </div>
             </div>
           )}
 
-          {/* DELIVERY */}
+          {/* ── DELIVERY ── */}
           {delivery && (
             <div className="pd-section">
               <div className="pd-section-title">Delivery</div>
@@ -679,7 +726,7 @@ export default function ProductDetail() {
             </div>
           )}
 
-          {/* SELLER */}
+          {/* ── SELLER ── */}
           {(seller || product.seller_id) && (
             <div className="pd-section">
               <div className="pd-section-title">Seller</div>
@@ -707,18 +754,23 @@ export default function ProductDetail() {
                     {seller?.verified && <span className="pd-seller-vfd">Verified</span>}
                   </div>
                   <div className="pd-seller-meta">
-                    {seller?.products_count > 0 && <span>{seller.products_count} listings</span>}
+                    {seller?.products_count > 0 && (
+                      <span>{seller.products_count} listings</span>
+                    )}
                     {seller?.total_sales > 0 && (
                       <span>· {Number(seller.total_sales).toLocaleString()} sales</span>
                     )}
                     {seller?.rating > 0 && (
-                      <span>· {Number(seller.rating).toFixed(1)} rating</span>
+                      <span>· {Number(seller.rating).toFixed(1)} ★</span>
                     )}
                   </div>
                   {seller?.trust_score != null && (
                     <div className="pd-seller-trust">
                       <div className="pd-trust-track">
-                        <div className="pd-trust-fill" style={{ width: `${seller.trust_score}%` }} />
+                        <div
+                          className="pd-trust-fill"
+                          style={{ width: `${seller.trust_score}%` }}
+                        />
                       </div>
                       <span className="pd-trust-val">{seller.trust_score}% trust</span>
                     </div>
@@ -729,21 +781,50 @@ export default function ProductDetail() {
             </div>
           )}
 
-          {/* CONTACT INFORMATION */}
-          {hasContact && (
+          {/* ── CONTACT ── */}
+          {hasContact && !isOwnProduct && (
             <div className="pd-section">
-              <div className="pd-section-title">Contact Information</div>
+              <div className="pd-section-title">Contact Seller</div>
               <div className="pd-contact-list">
-                <button className="pd-contact-btn pd-contact-chat" onClick={openChat}>
-                  <svg width="17" height="17" viewBox="0 0 24 24" fill="none"
-                    stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                    <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/>
-                  </svg>
-                  Chat with Seller
-                </button>
+
+                {/* Chat button — creates real thread */}
+                {product.seller_id && (
+                  <button
+                    className="pd-contact-btn pd-contact-chat"
+                    onClick={openChat}
+                    disabled={chatLoading}
+                  >
+                    {chatLoading ? (
+                      <>
+                        <span style={{
+                          display:"inline-block", width:14, height:14,
+                          border:"2px solid rgba(255,255,255,.3)",
+                          borderTop:"2px solid #fff",
+                          borderRadius:"50%",
+                          animation:"spin .7s linear infinite",
+                          marginRight:6,
+                          verticalAlign:"middle",
+                        }}/>
+                        Opening chat…
+                      </>
+                    ) : (
+                      <>
+                        <svg width="17" height="17" viewBox="0 0 24 24" fill="none"
+                          stroke="currentColor" strokeWidth="2"
+                          strokeLinecap="round" strokeLinejoin="round">
+                          <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/>
+                        </svg>
+                        Chat with Seller
+                      </>
+                    )}
+                  </button>
+                )}
 
                 {(waNumber || waLink) && (
-                  <button className="pd-contact-btn pd-contact-whatsapp" onClick={openWhatsApp}>
+                  <button
+                    className="pd-contact-btn pd-contact-whatsapp"
+                    onClick={openWhatsApp}
+                  >
                     <svg width="17" height="17" viewBox="0 0 24 24" fill="currentColor">
                       <path d="M17.472 14.382c-.297-.149-1.758-.867-2.03-.967-.273-.099-.471-.148-.67.15-.197.297-.767.966-.94 1.164-.173.199-.347.223-.644.075-.297-.15-1.255-.463-2.39-1.475-.883-.788-1.48-1.761-1.653-2.059-.173-.297-.018-.458.13-.606.134-.133.298-.347.446-.52.149-.174.198-.298.298-.497.099-.198.05-.371-.025-.52-.075-.149-.669-1.612-.916-2.207-.242-.579-.487-.5-.669-.51-.173-.008-.371-.01-.57-.01-.198 0-.52.074-.792.372-.272.297-1.04 1.016-1.04 2.479 0 1.462 1.065 2.875 1.213 3.074.149.198 2.096 3.2 5.077 4.487.709.306 1.262.489 1.694.625.712.227 1.36.195 1.871.118.571-.085 1.758-.719 2.006-1.413.248-.694.248-1.289.173-1.413-.074-.124-.272-.198-.57-.347z"/>
                       <path d="M12 0C5.373 0 0 5.373 0 12c0 2.127.558 4.126 1.533 5.857L.057 23.571l5.89-1.548A11.95 11.95 0 0012 24c6.627 0 12-5.373 12-12S18.627 0 12 0zm0 21.818a9.818 9.818 0 01-5.028-1.378l-.36-.215-3.734.98 1.001-3.654-.235-.374A9.818 9.818 0 012.182 12C2.182 6.562 6.562 2.182 12 2.182S21.818 6.562 21.818 12 17.438 21.818 12 21.818z"/>
@@ -753,29 +834,36 @@ export default function ProductDetail() {
                 )}
 
                 {contactPhone && (
-                  <button className="pd-contact-btn pd-contact-call" onClick={openCall}>
+                  <button
+                    className="pd-contact-btn pd-contact-call"
+                    onClick={openCall}
+                  >
                     <svg width="17" height="17" viewBox="0 0 24 24" fill="none"
-                      stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                      stroke="currentColor" strokeWidth="2"
+                      strokeLinecap="round" strokeLinejoin="round">
                       <path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07A19.5 19.5 0 0 1 4.69 12a19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 3.59 1.2h3a2 2 0 0 1 2 1.72 12.84 12.84 0 0 0 .7 2.81 2 2 0 0 1-.45 2.11L7.91 8.91a16 16 0 0 0 6 6l.92-.92a2 2 0 0 1 2.11-.45 12.84 12.84 0 0 0 2.81.7A2 2 0 0 1 21.73 16z"/>
                     </svg>
                     Call Seller
                   </button>
                 )}
+
               </div>
             </div>
           )}
 
-          {/* FAQ */}
+          {/* ── FAQ ── */}
           {faqs.length > 0 && (
             <div className="pd-section">
               <div className="pd-section-title">FAQs</div>
               <div className="pd-faq">
-                {faqs.map((item, i) => <FaqItem key={i} q={item.q} a={item.a} />)}
+                {faqs.map((item, i) => (
+                  <FaqItem key={i} q={item.q} a={item.a} />
+                ))}
               </div>
             </div>
           )}
 
-          {/* REVIEWS */}
+          {/* ── REVIEWS ── */}
           <div className="pd-section">
             <div className="pd-section-title">
               Reviews
@@ -799,12 +887,13 @@ export default function ProductDetail() {
                   {[5,4,3,2,1].map((n) => {
                     const key   = ["","one","two","three","four","five"][n] + "_star";
                     const count = reviewStats[key] || 0;
-                    const pct   = reviewStats.total > 0 ? (count / reviewStats.total) * 100 : 0;
+                    const pct   = reviewStats.total > 0
+                      ? (count / reviewStats.total) * 100 : 0;
                     return (
                       <div key={n} className="pd-review-bar-row">
                         <span className="pd-review-bar-label">{n}</span>
                         <div className="pd-review-bar-track">
-                          <div className="pd-review-bar-fill" style={{ width: `${pct}%` }} />
+                          <div className="pd-review-bar-fill" style={{ width:`${pct}%` }}/>
                         </div>
                         <span className="pd-review-bar-count">{count}</span>
                       </div>
@@ -860,24 +949,23 @@ export default function ProductDetail() {
             />
           </div>
 
-          {/* SAFETY TIPS */}
           <SafetyTips />
 
-        </div>{/* /pd-body */}
+        </div>
 
-        {/* SIMILAR PRODUCTS */}
+        {/* ── SIMILAR ── */}
         {similar.length > 0 && (
           <div className="pd-similar">
             <div className="pd-similar-title">You may also like</div>
             <MasonryGrid
               products={similar}
-              onView={(p) => {}}
+              onView={() => {}}
               onClick={(p) => navigate(`/product/${p.slug || p.id}`)}
             />
           </div>
         )}
 
-        {/* MORE FROM THIS SELLER */}
+        {/* ── MORE FROM SELLER ── */}
         {sellerProducts.length > 0 && (
           <div className="pd-similar">
             <div className="pd-similar-title">
@@ -885,7 +973,7 @@ export default function ProductDetail() {
             </div>
             <MasonryGrid
               products={sellerProducts}
-              onView={(p) => {}}
+              onView={() => {}}
               onClick={(p) => navigate(`/product/${p.slug || p.id}`)}
             />
             <button
@@ -897,34 +985,50 @@ export default function ProductDetail() {
           </div>
         )}
 
-      </div>{/* /pd-page */}
+      </div>
 
-      {/* LIGHTBOX */}
+      {/* ── LIGHTBOX ── */}
       {lightbox && (
         <div className="pd-lightbox" onClick={() => setLightbox(false)}>
-          <button className="pd-lightbox-close" onClick={() => setLightbox(false)} aria-label="Close">✕</button>
+          <button
+            className="pd-lightbox-close"
+            onClick={() => setLightbox(false)}
+            aria-label="Close"
+          >✕</button>
+
           {images.length > 1 && (
             <button
               className="pd-lightbox-prev"
-              onClick={(e) => { e.stopPropagation(); setActiveImg((i) => (i - 1 + images.length) % images.length); }}
+              onClick={(e) => {
+                e.stopPropagation();
+                setActiveImg((i) => (i - 1 + images.length) % images.length);
+              }}
               aria-label="Previous"
             >‹</button>
           )}
+
           <img
             className="pd-lightbox-img"
             src={images[activeImg]}
             alt={product.title}
             onClick={(e) => e.stopPropagation()}
           />
+
           {images.length > 1 && (
             <button
               className="pd-lightbox-next"
-              onClick={(e) => { e.stopPropagation(); setActiveImg((i) => (i + 1) % images.length); }}
+              onClick={(e) => {
+                e.stopPropagation();
+                setActiveImg((i) => (i + 1) % images.length);
+              }}
               aria-label="Next"
             >›</button>
           )}
         </div>
       )}
+
+      {/* spinner keyframe */}
+      <style>{`@keyframes spin { to { transform: rotate(360deg); } }`}</style>
     </>
   );
 }
