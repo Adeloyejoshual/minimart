@@ -6,13 +6,13 @@ import { useParams, useNavigate } from "react-router-dom";
 import { io }   from "socket.io-client";
 import axios    from "axios";
 
-import ChatHeader       from "./chat/ChatHeader";
-import SuggestionsBar   from "./chat/SuggestionsBar";
-import MakeOfferModal   from "./chat/MakeOfferModal";
+import ChatHeader        from "./chat/ChatHeader";
+import SuggestionsBar    from "./chat/SuggestionsBar";
+import MakeOfferModal    from "./chat/MakeOfferModal";
 import CounterOfferModal from "./chat/CounterOfferModal";
-import LocationModal    from "./chat/LocationModal";
+import LocationModal     from "./chat/LocationModal";
 import Bubble, { TypingBubble, DateSep } from "./chat/Bubble";
-import { Icon }         from "./chat/icons";
+import { Icon }          from "./chat/icons";
 import {
   MESSAGE_TYPES, OFFER_STATUS,
   authH, dedupe, groupByDate,
@@ -21,9 +21,9 @@ import {
 
 import "../styles/Chat.css";
 
-const BASE       = "https://minimart-ivrm.onrender.com";
-const API        = `${BASE}/api`;
-const SOCKET_URL = BASE;
+const BASE         = "https://minimart-ivrm.onrender.com";
+const API          = `${BASE}/api`;
+const SOCKET_URL   = BASE;
 const SEND_TIMEOUT = 15_000;
 
 /* ═══════════════════════════════════════════
@@ -39,9 +39,7 @@ function msgsReducer(state, action) {
       return dedupe([...state, action.payload]);
 
     case "REPLACE":
-      return state.map(m =>
-        m.id === action.tempId ? action.payload : m
-      );
+      return state.map(m => m.id === action.tempId ? action.payload : m);
 
     case "PATCH":
       return state.map(m =>
@@ -63,9 +61,11 @@ function msgsReducer(state, action) {
     case "MARK_READ":
       return state.map(m =>
         m.sender_id === action.myId && m.status !== "read"
-          ? { ...m, status: "read" }
-          : m
+          ? { ...m, status: "read" } : m
       );
+
+    case "REMOVE":
+      return state.filter(m => m.id !== action.id);
 
     default:
       return state;
@@ -80,40 +80,40 @@ export default function Chat({ user }) {
   const navigate     = useNavigate();
 
   /* ── state ── */
-  const [messages,  dispatch]       = useReducer(msgsReducer, []);
+  const [messages,  dispatch]        = useReducer(msgsReducer, []);
   const [newMsg,    setNewMsg]       = useState("");
-  const [otherUser, setOtherUser]   = useState(null);
-  const [product,   setProduct]     = useState(null);
-  const [loading,   setLoading]     = useState(true);
-  const [sending,   setSending]     = useState(false);
-  const [isTyping,  setIsTyping]    = useState(false);
-  const [sockReady, setSockReady]   = useState(false);
-  const [error,     setError]       = useState(null);
+  const [otherUser, setOtherUser]    = useState(null);
+  const [product,   setProduct]      = useState(null);
+  const [loading,   setLoading]      = useState(true);
+  const [sending,   setSending]      = useState(false);
+  const [isTyping,  setIsTyping]     = useState(false);
+  const [sockReady, setSockReady]    = useState(false);
+  const [error,     setError]        = useState(null);
 
   /* ── UI ── */
-  const [showMenu,       setShowMenu]       = useState(false);
-  const [muted,          setMuted]          = useState(false);
-  const [showSuggestions,setShowSuggestions]= useState(true);
-  const [showAttach,     setShowAttach]     = useState(false);
-  const [lightboxUrl,    setLightboxUrl]    = useState(null);
-  const [replyTo,        setReplyTo]        = useState(null);
-  const [ctxMsgId,       setCtxMsgId]       = useState(null);
-  const [ctxPos,         setCtxPos]         = useState({ x:0, y:0 });
-  const [offerModal,     setOfferModal]     = useState(false);
-  const [counterModal,   setCounterModal]   = useState(null);
-  const [locationModal,  setLocationModal]  = useState(false);
+  const [showMenu,        setShowMenu]        = useState(false);
+  const [muted,           setMuted]           = useState(false);
+  const [showSuggestions,  setShowSuggestions] = useState(true);
+  const [showAttach,      setShowAttach]      = useState(false);
+  const [lightboxUrl,     setLightboxUrl]     = useState(null);
+  const [replyTo,         setReplyTo]         = useState(null);
+  const [ctxMsgId,        setCtxMsgId]        = useState(null);
+  const [ctxPos,          setCtxPos]          = useState({ x: 0, y: 0 });
+  const [offerModal,      setOfferModal]      = useState(false);
+  const [counterModal,    setCounterModal]    = useState(null);
+  const [locationModal,   setLocationModal]   = useState(false);
 
   /* ── refs ── */
-  const socketRef      = useRef(null);
-  const bottomRef      = useRef(null);
-  const inputRef       = useRef(null);
-  const typingTimer    = useRef(null);
-  const historyLoaded  = useRef(false);
-  const pendingMsgs    = useRef([]);
-  const mounted        = useRef(true);
-  const sendTimers     = useRef(new Map());
-  const fileRef        = useRef(null);
-  const cameraRef      = useRef(null);
+  const socketRef     = useRef(null);
+  const bottomRef     = useRef(null);
+  const inputRef      = useRef(null);
+  const typingTimer   = useRef(null);
+  const historyLoaded = useRef(false);
+  const pendingMsgs   = useRef([]);
+  const mounted       = useRef(true);
+  const sendTimers    = useRef(new Map());
+  const fileRef       = useRef(null);
+  const cameraRef     = useRef(null);
 
   useEffect(() => {
     mounted.current = true;
@@ -127,11 +127,13 @@ export default function Chat({ user }) {
     () => pickSuggestions(messages, user?.id),
     [messages, user?.id]
   );
+
   const msgMap = useMemo(() => {
     const m = new Map();
     messages.forEach(msg => m.set(msg.id, msg));
     return m;
   }, [messages]);
+
   const grouped = useMemo(() => groupByDate(messages), [messages]);
   const canSend = newMsg.trim().length > 0 && !sending;
 
@@ -166,9 +168,15 @@ export default function Chat({ user }) {
         }));
       }
 
+      /* fetch full user data for richer profile */
       if (oid) {
         axios.get(`${API}/users/${oid}`, { headers: authH() })
-          .then(({ data: u }) => safe(() => setOtherUser(u)))
+          .then(({ data: u }) => safe(() => setOtherUser(prev => ({
+            ...prev,
+            ...u,
+            /* keep online status from conversation, user endpoint may not have it */
+            is_online: prev?.is_online || u.is_online || false,
+          }))))
           .catch(() => {});
       }
     }).catch(() => {});
@@ -177,36 +185,45 @@ export default function Chat({ user }) {
   }, [threadId, user?.id]); // eslint-disable-line
 
   /* ════════════════════════════════════
-     SOCKET — with proper cleanup
+     SOCKET — named handlers + cleanup
   ════════════════════════════════════ */
   useEffect(() => {
     if (!user?.id || !threadId) return;
 
     const sock = io(SOCKET_URL, {
-      transports:          ["websocket", "polling"],
-      withCredentials:     false,
-      query:               { userId: user.id },
-      reconnection:        true,
-      reconnectionAttempts: 8,
-      reconnectionDelay:   1500,
+      transports:           ["websocket", "polling"],
+      withCredentials:      false,
+      query:                { userId: user.id },
+      reconnection:         true,
+      reconnectionAttempts: 10,
+      reconnectionDelay:    1500,
     });
     socketRef.current = sock;
 
-    /* ── named handlers for clean removal ── */
+    /* named handlers */
     const onConnect = () => {
       sock.emit("joinThread", { threadId, userId: user.id });
       safe(() => setSockReady(true));
     };
+
     const onDisconnect = () => safe(() => setSockReady(false));
+
+    const onReconnectAttempt = (attempt) => {
+      console.log(`[socket] reconnect attempt ${attempt}`);
+    };
 
     const onReceive = msg => {
       if (!msg?.id || msg.sender_id === user.id) return;
-      if (!historyLoaded.current) { pendingMsgs.current.push(msg); return; }
+      if (!historyLoaded.current) {
+        pendingMsgs.current.push(msg);
+        return;
+      }
       safe(() => dispatch({ type: "APPEND", payload: msg }));
       sock.emit("markRead", { threadId, userId: user.id });
       axios.patch(
         `${API}/conversations/${threadId}/read`,
-        { userId: user.id }, { headers: authH() }
+        { userId: user.id },
+        { headers: authH() }
       ).catch(() => {});
     };
 
@@ -224,37 +241,42 @@ export default function Chat({ user }) {
     const onOfferUpdated = ({ messageId, status }) =>
       safe(() => dispatch({ type: "PATCH_OFFER", id: messageId, status }));
 
-    const onUserOnline  = ({ userId: uid }) => {
+    const onUserOnline = ({ userId: uid }) => {
       if (uid !== user.id)
         safe(() => setOtherUser(p => p ? { ...p, is_online: true } : p));
     };
+
     const onUserOffline = ({ userId: uid }) => {
       if (uid !== user.id)
         safe(() => setOtherUser(p => p ? { ...p, is_online: false } : p));
     };
 
-    sock.on("connect",        onConnect);
-    sock.on("disconnect",     onDisconnect);
-    sock.on("receiveMessage", onReceive);
-    sock.on("messagesRead",   onRead);
-    sock.on("userTyping",     onTyping);
-    sock.on("userStopTyping", onStopTyping);
-    sock.on("messageDeleted", onDeleted);
-    sock.on("offerUpdated",   onOfferUpdated);
-    sock.on("userOnline",     onUserOnline);
-    sock.on("userOffline",    onUserOffline);
+    /* bind */
+    sock.on("connect",            onConnect);
+    sock.on("disconnect",         onDisconnect);
+    sock.on("reconnect_attempt",  onReconnectAttempt);
+    sock.on("receiveMessage",     onReceive);
+    sock.on("messagesRead",       onRead);
+    sock.on("userTyping",         onTyping);
+    sock.on("userStopTyping",     onStopTyping);
+    sock.on("messageDeleted",     onDeleted);
+    sock.on("offerUpdated",       onOfferUpdated);
+    sock.on("userOnline",         onUserOnline);
+    sock.on("userOffline",        onUserOffline);
 
+    /* cleanup — remove every listener, then disconnect */
     return () => {
-      sock.off("connect",        onConnect);
-      sock.off("disconnect",     onDisconnect);
-      sock.off("receiveMessage", onReceive);
-      sock.off("messagesRead",   onRead);
-      sock.off("userTyping",     onTyping);
-      sock.off("userStopTyping", onStopTyping);
-      sock.off("messageDeleted", onDeleted);
-      sock.off("offerUpdated",   onOfferUpdated);
-      sock.off("userOnline",     onUserOnline);
-      sock.off("userOffline",    onUserOffline);
+      sock.off("connect",            onConnect);
+      sock.off("disconnect",         onDisconnect);
+      sock.off("reconnect_attempt",  onReconnectAttempt);
+      sock.off("receiveMessage",     onReceive);
+      sock.off("messagesRead",       onRead);
+      sock.off("userTyping",         onTyping);
+      sock.off("userStopTyping",     onStopTyping);
+      sock.off("messageDeleted",     onDeleted);
+      sock.off("offerUpdated",       onOfferUpdated);
+      sock.off("userOnline",         onUserOnline);
+      sock.off("userOffline",        onUserOffline);
       sock.disconnect();
       socketRef.current = null;
     };
@@ -275,17 +297,22 @@ export default function Chat({ user }) {
         headers: authH(),
         timeout: 12000,
       });
+
       const all = dedupe([
         ...(Array.isArray(data) ? data : []),
         ...pendingMsgs.current,
       ]);
+
       pendingMsgs.current   = [];
       historyLoaded.current = true;
+
       safe(() => dispatch({ type: "SET", payload: all }));
+
       socketRef.current?.emit("markRead", { threadId, userId: user.id });
       axios.patch(
         `${API}/conversations/${threadId}/read`,
-        { userId: user.id }, { headers: authH() }
+        { userId: user.id },
+        { headers: authH() }
       ).catch(() => {});
     } catch (err) {
       safe(() => setError(
@@ -307,7 +334,7 @@ export default function Chat({ user }) {
   }, [messages, isTyping]);
 
   /* ════════════════════════════════════
-     TYPING
+     TYPING DEBOUNCE
   ════════════════════════════════════ */
   const handleTyping = useCallback(() => {
     socketRef.current?.emit("typing", { threadId, userId: user?.id });
@@ -331,19 +358,25 @@ export default function Chat({ user }) {
     const replyRef    = replyTo ? { reply_to_id: replyTo.id } : {};
 
     const msgType = extras.offerMeta      ? MESSAGE_TYPES.OFFER
-      : extras.location                   ? MESSAGE_TYPES.LOCATION
-      : extras.shared_product             ? MESSAGE_TYPES.PRODUCT
-      : MESSAGE_TYPES.TEXT;
+                  : extras.location       ? MESSAGE_TYPES.LOCATION
+                  : extras.shared_product ? MESSAGE_TYPES.PRODUCT
+                  : MESSAGE_TYPES.TEXT;
 
     const temp = {
-      id: tempId, thread_id: threadId, sender_id: user.id,
-      message: text, message_type: msgType,
-      created_at: new Date().toISOString(),
-      status: "sending", _temp: true, _failed: false, _timedOut: false,
+      id:           tempId,
+      thread_id:    threadId,
+      sender_id:    user.id,
+      message:      text,
+      message_type: msgType,
+      created_at:   new Date().toISOString(),
+      status:       "sending",
+      _temp:        true,
+      _failed:      false,
+      _timedOut:    false,
       ...replyRef,
-      ...(extras.offerMeta      ? { _offerMeta:      extras.offerMeta }      : {}),
-      ...(extras.location       ? { location:         extras.location }       : {}),
-      ...(extras.shared_product ? { shared_product:   extras.shared_product } : {}),
+      ...(extras.offerMeta      ? { _offerMeta:    extras.offerMeta }      : {}),
+      ...(extras.location       ? { location:       extras.location }       : {}),
+      ...(extras.shared_product ? { shared_product: extras.shared_product } : {}),
     };
 
     safe(() => {
@@ -353,13 +386,17 @@ export default function Chat({ user }) {
       setShowSuggestions(false);
       setReplyTo(null);
     });
+
     clearTimeout(typingTimer.current);
     socketRef.current?.emit("stopTyping", { threadId, userId: user.id });
 
-    /* Timeout fallback */
+    /* timeout */
     const timer = setTimeout(() => {
       safe(() => {
-        dispatch({ type: "PATCH", id: tempId, patch: { _temp: false, _timedOut: true } });
+        dispatch({
+          type: "PATCH", id: tempId,
+          patch: { _temp: false, _timedOut: true },
+        });
         setSending(false);
       });
     }, SEND_TIMEOUT);
@@ -369,12 +406,15 @@ export default function Chat({ user }) {
       const { data: saved } = await axios.post(
         `${API}/messages`,
         {
-          threadId, senderId: user.id, message: text,
-          messageType: msgType, clientMessageId: clientMsgId,
+          threadId,
+          senderId:        user.id,
+          message:         text,
+          messageType:     msgType,
+          clientMessageId: clientMsgId,
           ...replyRef,
-          ...(extras.offerMeta      ? { offerMeta:     extras.offerMeta }      : {}),
-          ...(extras.location       ? { location:       extras.location }       : {}),
-          ...(extras.shared_product ? { sharedProduct:  extras.shared_product } : {}),
+          ...(extras.offerMeta      ? { offerMeta:    extras.offerMeta }      : {}),
+          ...(extras.location       ? { location:     extras.location }       : {}),
+          ...(extras.shared_product ? { sharedProduct: extras.shared_product } : {}),
         },
         { headers: authH(), timeout: SEND_TIMEOUT }
       );
@@ -395,8 +435,10 @@ export default function Chat({ user }) {
       clearTimeout(sendTimers.current.get(tempId));
       sendTimers.current.delete(tempId);
       safe(() => {
-        dispatch({ type: "PATCH", id: tempId,
-          patch: { _temp: false, _failed: true, _timedOut: false } });
+        dispatch({
+          type: "PATCH", id: tempId,
+          patch: { _temp: false, _failed: true, _timedOut: false },
+        });
         if (!overrideText) setNewMsg(text);
       });
     } finally {
@@ -405,29 +447,39 @@ export default function Chat({ user }) {
     }
   }, [newMsg, sending, threadId, user?.id, safe, replyTo]); // eslint-disable-line
 
-  /* ── offer send ── */
+  /* ── offer ── */
   const handleSendOffer = useCallback(offerMeta => {
     const label = `Offer: ৳${offerMeta.amount.toLocaleString()}`;
     sendMessage(label, { offerMeta });
   }, [sendMessage]);
 
-  /* ── offer respond ── */
   const handleOfferRespond = useCallback((origMsg, action) => {
     if (action === OFFER_STATUS.COUNTERED) {
-      setCounterModal(origMsg); return;
+      setCounterModal(origMsg);
+      return;
     }
+
     safe(() => dispatch({
       type: "PATCH_OFFER", id: origMsg.id, status: action,
     }));
+
     const txt = action === OFFER_STATUS.ACCEPTED
       ? `Accepted! ৳${origMsg._offerMeta.amount.toLocaleString()}`
       : "Offer declined.";
+
     sendMessage(txt, {});
+
     socketRef.current?.emit("offerResponse", {
-      threadId, messageId: origMsg.id, status: action, userId: user.id,
+      threadId,
+      messageId: origMsg.id,
+      status:    action,
+      userId:    user.id,
     });
-    axios.patch(`${API}/messages/${origMsg.id}/offer`,
-      { status: action, userId: user.id }, { headers: authH() }
+
+    axios.patch(
+      `${API}/messages/${origMsg.id}/offer`,
+      { status: action, userId: user.id },
+      { headers: authH() }
     ).catch(() => {});
   }, [threadId, user?.id, safe, sendMessage]); // eslint-disable-line
 
@@ -436,9 +488,10 @@ export default function Chat({ user }) {
     if (!window.confirm("Delete this message?")) return;
     safe(() => dispatch({ type: "SOFT_DELETE", id: msg.id }));
     socketRef.current?.emit("deleteMessage", { threadId, messageId: msg.id });
-    axios.delete(`${API}/messages/${msg.id}`,
-      { data: { userId: user.id }, headers: authH() }
-    ).catch(() => {});
+    axios.delete(`${API}/messages/${msg.id}`, {
+      data: { userId: user.id },
+      headers: authH(),
+    }).catch(() => {});
   }, [threadId, user?.id, safe]);
 
   /* ── copy ── */
@@ -446,7 +499,7 @@ export default function Chat({ user }) {
     navigator.clipboard?.writeText(msg.message).catch(() => {});
   }, []);
 
-  /* ── image upload (images only) ── */
+  /* ── image upload ── */
   const handleImageChange = useCallback(async e => {
     const file = e.target.files?.[0];
     if (!file) return;
@@ -454,10 +507,12 @@ export default function Chat({ user }) {
     setShowAttach(false);
 
     if (!file.type.startsWith("image/")) {
-      alert("Only images allowed."); return;
+      alert("Only images allowed.");
+      return;
     }
     if (file.size > 10 * 1024 * 1024) {
-      alert("Image too large. Max 10 MB."); return;
+      alert("Image too large. Max 10 MB.");
+      return;
     }
 
     const clientMsgId = `${user.id}_${Date.now()}`;
@@ -465,12 +520,19 @@ export default function Chat({ user }) {
     const localUrl    = URL.createObjectURL(file);
 
     const temp = {
-      id: tempId, thread_id: threadId, sender_id: user.id,
-      message: "Photo", message_type: MESSAGE_TYPES.MEDIA,
-      media_url: localUrl,
-      created_at: new Date().toISOString(),
-      status: "sending", _temp: true, _failed: false, _timedOut: false,
+      id:           tempId,
+      thread_id:    threadId,
+      sender_id:    user.id,
+      message:      "Photo",
+      message_type: MESSAGE_TYPES.MEDIA,
+      media_url:    localUrl,
+      created_at:   new Date().toISOString(),
+      status:       "sending",
+      _temp:        true,
+      _failed:      false,
+      _timedOut:    false,
     };
+
     safe(() => dispatch({ type: "APPEND", payload: temp }));
 
     try {
@@ -483,10 +545,14 @@ export default function Chat({ user }) {
       if (replyTo) form.append("reply_to_id", replyTo.id);
 
       const { data: saved } = await axios.post(
-        `${API}/messages/upload`, form,
-        { headers: { ...authH(), "Content-Type": "multipart/form-data" },
-          timeout: 30000 }
+        `${API}/messages/upload`,
+        form,
+        {
+          headers: { ...authH(), "Content-Type": "multipart/form-data" },
+          timeout: 30000,
+        }
       );
+
       URL.revokeObjectURL(localUrl);
       safe(() => {
         dispatch({ type: "REPLACE", tempId, payload: saved });
@@ -502,7 +568,7 @@ export default function Chat({ user }) {
     }
   }, [threadId, user?.id, safe, replyTo]);
 
-  /* ── location send ── */
+  /* ── location ── */
   const handleSendLocation = useCallback((coords, addr) => {
     const label = addr ? truncate(addr, 50) : "My Location";
     sendMessage(label, { location: { ...coords, address: addr } });
@@ -532,67 +598,101 @@ export default function Chat({ user }) {
       return;
     }
     setCtxMsgId(msg.id);
-    setCtxPos(pos);
+    if (pos) setCtxPos(pos);
   }, []);
 
-  const closeCtx     = useCallback(() => setCtxMsgId(null), []);
-  const ctxMsg       = useMemo(() => msgMap.get(ctxMsgId), [msgMap, ctxMsgId]);
-  const handleCtxReply  = useCallback(() => {
+  const closeCtx = useCallback(() => setCtxMsgId(null), []);
+
+  const ctxMsg = useMemo(
+    () => msgMap.get(ctxMsgId),
+    [msgMap, ctxMsgId]
+  );
+
+  const handleCtxReply = useCallback(() => {
     if (ctxMsg) { setReplyTo(ctxMsg); inputRef.current?.focus(); }
   }, [ctxMsg]);
-  const handleCtxCopy   = useCallback(() => { if (ctxMsg) handleCopy(ctxMsg); },   [ctxMsg, handleCopy]);
-  const handleCtxDelete = useCallback(() => { if (ctxMsg) handleDelete(ctxMsg); }, [ctxMsg, handleDelete]);
+
+  const handleCtxCopy = useCallback(
+    () => { if (ctxMsg) handleCopy(ctxMsg); },
+    [ctxMsg, handleCopy]
+  );
+
+  const handleCtxDelete = useCallback(
+    () => { if (ctxMsg) handleDelete(ctxMsg); },
+    [ctxMsg, handleDelete]
+  );
 
   /* ── retry ── */
   const retryMessage = useCallback(fm => {
-    dispatch({ type: "SOFT_DELETE", id: fm.id }); // remove failed
+    dispatch({ type: "REMOVE", id: fm.id });
     setNewMsg(fm.message);
     inputRef.current?.focus();
   }, []);
 
   /* ── keyboard ── */
   const handleKeyDown = useCallback(e => {
-    if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); sendMessage(); }
+    if (e.key === "Enter" && !e.shiftKey) {
+      e.preventDefault();
+      sendMessage();
+    }
     if (e.key === "Escape") setReplyTo(null);
   }, [sendMessage]);
 
   const handleInputChange = useCallback(e => {
-    setNewMsg(e.target.value); handleTyping();
+    setNewMsg(e.target.value);
+    handleTyping();
   }, [handleTyping]);
 
   const isMine = useCallback(m => m.sender_id === user?.id, [user?.id]);
 
-  /* ── memoized toolbar handlers ── */
-  const openOfferModal     = useCallback(() => setOfferModal(true),  []);
-  const closeOfferModal    = useCallback(() => setOfferModal(false), []);
-  const closeCounterModal  = useCallback(() => setCounterModal(null), []);
-  const openLocationModal  = useCallback(() => { setShowAttach(false); setLocationModal(true); }, []);
-  const closeLocationModal = useCallback(() => setLocationModal(false), []);
-  const toggleMenu         = useCallback(() => setShowMenu(v => !v), []);
-  const closeMenu          = useCallback(() => setShowMenu(false),   []);
-  const toggleAttach       = useCallback(e => { e.stopPropagation(); setShowAttach(v => !v); }, []);
-  const toggleSuggestions  = useCallback(() => setShowSuggestions(true), []);
-  const handleMute         = useCallback(() => setMuted(v => !v),   []);
-  const closeLightbox      = useCallback(() => setLightboxUrl(null), []);
-  const openCamera         = useCallback(() => cameraRef.current?.click(), []);
-  const openGallery        = useCallback(() => fileRef.current?.click(),   []);
+  /* ── memoized UI handlers ── */
+  const openOfferModal       = useCallback(() => setOfferModal(true),  []);
+  const closeOfferModal      = useCallback(() => setOfferModal(false), []);
+  const closeCounterModal    = useCallback(() => setCounterModal(null), []);
+  const openLocationModal    = useCallback(() => {
+    setShowAttach(false);
+    setLocationModal(true);
+  }, []);
+  const closeLocationModal   = useCallback(() => setLocationModal(false), []);
+  const toggleMenu           = useCallback(() => setShowMenu(v => !v),   []);
+  const closeMenu            = useCallback(() => setShowMenu(false),     []);
+  const toggleAttach         = useCallback(e => {
+    e.stopPropagation();
+    setShowAttach(v => !v);
+  }, []);
+  const showSuggestionsAgain = useCallback(() => setShowSuggestions(true), []);
+  const handleMute           = useCallback(() => setMuted(v => !v),       []);
+  const closeLightbox        = useCallback(() => setLightboxUrl(null),    []);
+  const openCamera           = useCallback(() => cameraRef.current?.click(), []);
+  const openGallery          = useCallback(() => fileRef.current?.click(),   []);
+  const clearReply           = useCallback(() => setReplyTo(null),           []);
 
   const handleSelectSuggestion = useCallback(s => {
     setNewMsg(s);
     setShowSuggestions(false);
     inputRef.current?.focus();
   }, []);
-  const handleDismissSuggestions = useCallback(() => setShowSuggestions(false), []);
+
+  const handleDismissSuggestions = useCallback(
+    () => setShowSuggestions(false), []
+  );
+
+  /* ── close overlays when tapping body ── */
+  const handleBodyClick = useCallback(() => {
+    setCtxMsgId(null);
+    setShowAttach(false);
+  }, []);
 
   /* cleanup send timers */
-  useEffect(() => () => sendTimers.current.forEach(t => clearTimeout(t)), []);
+  useEffect(() => () => {
+    sendTimers.current.forEach(t => clearTimeout(t));
+  }, []);
 
   /* ═══════════════════════════════════════════
      RENDER
   ═══════════════════════════════════════════ */
   return (
-    <div className="chat-wrap"
-      onClick={() => { setCtxMsgId(null); setShowAttach(false); }}>
+    <div className="chat-wrap" onClick={handleBodyClick}>
 
       {/* ── HEADER ── */}
       <ChatHeader
@@ -619,18 +719,18 @@ export default function Chat({ user }) {
       {/* ── BODY ── */}
       <main className="chat-body">
         {loading && (
-          <div className="chat-center"><div className="chat-spinner"/></div>
+          <div className="chat-center">
+            <div className="chat-spinner"/>
+          </div>
         )}
 
         {!loading && error && (
           <div className="chat-center">
             <p className="chat-empty-title">Failed to load messages</p>
             <p className="chat-err-code">{error}</p>
-            <button onClick={loadHistory} style={{
-              padding:"9px 28px", borderRadius:20, border:"none",
-              background:"#111", color:"#fff", fontSize:13,
-              fontWeight:700, cursor:"pointer",
-            }}>Retry</button>
+            <button onClick={loadHistory} className="chat-retry-btn">
+              Retry
+            </button>
           </div>
         )}
 
@@ -655,8 +755,11 @@ export default function Chat({ user }) {
               onOfferRespond={handleOfferRespond}
               onCtx={handleCtx}
               onLightbox={setLightboxUrl}
-              replyToMsg={item.data.reply_to_id
-                ? msgMap.get(item.data.reply_to_id) : null}
+              replyToMsg={
+                item.data.reply_to_id
+                  ? msgMap.get(item.data.reply_to_id)
+                  : null
+              }
               ctxMsgId={ctxMsgId}
               onCtxClose={closeCtx}
               onCtxReply={handleCtxReply}
@@ -676,12 +779,13 @@ export default function Chat({ user }) {
           {Icon.offer} Make Offer
         </button>
         {product && (
-          <button className="toolbar-btn share-product" onClick={handleShareProduct}>
+          <button className="toolbar-btn share-product"
+            onClick={handleShareProduct}>
             {Icon.product} Share Product
           </button>
         )}
         {!showSuggestions && (
-          <button className="toolbar-btn" onClick={toggleSuggestions}>
+          <button className="toolbar-btn" onClick={showSuggestionsAgain}>
             {Icon.suggest} Suggestions
           </button>
         )}
@@ -705,7 +809,7 @@ export default function Chat({ user }) {
               {replyTo.sender_id === user?.id ? "You" : otherUser?.name}
             </div>
             {replyTo.media_url ? (
-              <div style={{ display:"flex", alignItems:"center", gap:6 }}>
+              <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
                 <img src={replyTo.media_url} alt=""
                   className="footer-reply-thumb"/>
                 <span className="footer-reply-msg">Photo</span>
@@ -716,8 +820,7 @@ export default function Chat({ user }) {
               </div>
             )}
           </div>
-          <button className="footer-reply-close"
-            onClick={() => setReplyTo(null)}>
+          <button className="footer-reply-close" onClick={clearReply}>
             {Icon.close}
           </button>
         </div>
@@ -740,12 +843,22 @@ export default function Chat({ user }) {
           </div>
         )}
 
-        {/* Hidden file inputs */}
-        <input ref={fileRef}   type="file" accept="image/*"
-          className="hidden-input" onChange={handleImageChange}/>
-        <input ref={cameraRef} type="file" accept="image/*"
+        {/* Hidden file inputs — images only */}
+        <input
+          ref={fileRef}
+          type="file"
+          accept="image/*"
+          className="hidden-input"
+          onChange={handleImageChange}
+        />
+        <input
+          ref={cameraRef}
+          type="file"
+          accept="image/*"
           capture="environment"
-          className="hidden-input" onChange={handleImageChange}/>
+          className="hidden-input"
+          onChange={handleImageChange}
+        />
 
         <button className="chat-icon-btn" onClick={toggleAttach}
           aria-label="Attach">
@@ -769,21 +882,24 @@ export default function Chat({ user }) {
           onClick={sendMessage}
           disabled={!canSend}
           aria-label="Send"
-          style={{ background: canSend ? "#111" : "#e5e5e5",
-                   color:      canSend ? "#fff" : "#aaa" }}
+          style={{
+            background: canSend ? "#111" : "#e5e5e5",
+            color:      canSend ? "#fff" : "#aaa",
+          }}
         >
-          {sending
-            ? <div className="chat-btn-spinner"/>
-            : Icon.send}
+          {sending ? <div className="chat-btn-spinner"/> : Icon.send}
         </button>
       </footer>
 
       {/* ── LIGHTBOX ── */}
       {lightboxUrl && (
         <div className="lightbox-overlay" onClick={closeLightbox}>
-          <img src={lightboxUrl} alt="Full size"
+          <img
+            src={lightboxUrl}
+            alt="Full size"
             className="lightbox-img"
-            onClick={e => e.stopPropagation()}/>
+            onClick={e => e.stopPropagation()}
+          />
           <button className="lightbox-close" onClick={closeLightbox}>
             {Icon.close}
           </button>
@@ -798,6 +914,7 @@ export default function Chat({ user }) {
           onClose={closeOfferModal}
         />
       )}
+
       {counterModal && (
         <CounterOfferModal
           originalMsg={counterModal}
@@ -805,6 +922,7 @@ export default function Chat({ user }) {
           onClose={closeCounterModal}
         />
       )}
+
       {locationModal && (
         <LocationModal
           onSend={handleSendLocation}
