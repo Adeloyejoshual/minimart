@@ -1,10 +1,10 @@
-import express            from "express";
-import cors               from "cors";
-import path               from "path";
-import http               from "http";
-import dotenv             from "dotenv";
-import { fileURLToPath }  from "url";
-import { Pool }           from "pg";
+import express           from "express";
+import cors              from "cors";
+import path              from "path";
+import http              from "http";
+import dotenv            from "dotenv";
+import { fileURLToPath } from "url";
+import { Pool }          from "pg";
 import { initSocket, getOnlineCount } from "./socket.js";
 
 dotenv.config();
@@ -12,123 +12,142 @@ dotenv.config();
 const __filename = fileURLToPath(import.meta.url);
 const __dirname  = path.dirname(__filename);
 
-/* =========================================
-   APP + SERVER
-========================================= */
+/* ═══════════════════════════════════════════
+   APP + HTTP SERVER
+═══════════════════════════════════════════ */
 const app    = express();
 const PORT   = process.env.PORT || 5000;
 const server = http.createServer(app);
 
-/* =========================================
-   DATABASE
-========================================= */
+/* ═══════════════════════════════════════════
+   DATABASE — CockroachDB via pg Pool
+═══════════════════════════════════════════ */
 export const pool = new Pool({
   connectionString: process.env.COCKROACH_URI,
-  ssl: { rejectUnauthorized: false },
+  ssl:              { rejectUnauthorized: false },
+  /* CockroachDB recommended pool settings */
+  max:              10,
+  idleTimeoutMillis:  30_000,
+  connectionTimeoutMillis: 5_000,
 });
 
+/* verify connection on startup */
 (async () => {
   try {
-    await pool.query("SELECT 1");
-    console.log("✅ Database connected");
+    const { rows } = await pool.query("SELECT version()");
+    console.log("✅ CockroachDB connected:", rows[0].version.split(" ")[0]);
   } catch (err) {
     console.error("❌ Database connection failed:", err.message);
     process.exit(1);
   }
 })();
 
-/* =========================================
-   SOCKET.IO — init with server
-========================================= */
+/* log unexpected pool errors so they don't crash the process silently */
+pool.on("error", (err) => {
+  console.error("🔥 Unexpected pool error:", err.message);
+});
+
+/* ═══════════════════════════════════════════
+   SOCKET.IO
+═══════════════════════════════════════════ */
 const ALLOWED_ORIGIN = process.env.CLIENT_ORIGIN || "*";
 export const io = initSocket(server, ALLOWED_ORIGIN);
 
-/* =========================================
-   IN-MEMORY CACHE
-========================================= */
+/* ═══════════════════════════════════════════
+   IN-MEMORY CACHE (LRU-style with TTL)
+═══════════════════════════════════════════ */
 const _cache    = new Map();
-const CACHE_TTL = 60 * 1000;
+const CACHE_TTL = 60_000; // 1 minute
 
-export const setCache = (key, value) => {
-  _cache.set(key, { value, time: Date.now() });
-};
+export function setCache(key, value, ttl = CACHE_TTL) {
+  _cache.set(key, { value, expires: Date.now() + ttl });
+}
 
-export const getCache = (key) => {
+export function getCache(key) {
   const item = _cache.get(key);
   if (!item) return null;
-  if (Date.now() - item.time > CACHE_TTL) {
+  if (Date.now() > item.expires) {
     _cache.delete(key);
     return null;
   }
   return item.value;
-};
+}
 
+export function deleteCache(key) {
+  _cache.delete(key);
+}
+
+export function clearCachePattern(prefix) {
+  for (const key of _cache.keys()) {
+    if (key.startsWith(prefix)) _cache.delete(key);
+  }
+}
+
+/* sweep expired entries every minute */
 setInterval(() => {
   const now = Date.now();
   for (const [key, item] of _cache.entries()) {
-    if (now - item.time > CACHE_TTL) _cache.delete(key);
+    if (now > item.expires) _cache.delete(key);
   }
 }, 60_000);
 
-/* =========================================
+/* ═══════════════════════════════════════════
+   CORS
+═══════════════════════════════════════════ */
+const corsOptions = {
+  origin(origin, cb) {
+    /* allow requests with no origin (mobile apps, curl, Postman) */
+    if (!origin || ALLOWED_ORIGIN === "*") return cb(null, true);
+    const allowed = ALLOWED_ORIGIN.split(",").map(s => s.trim());
+    if (allowed.includes(origin)) return cb(null, true);
+    cb(new Error(`CORS blocked: ${origin}`));
+  },
+  credentials:    true,
+  methods:        ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
+  allowedHeaders: ["Content-Type", "Authorization", "x-requested-with"],
+};
+
+app.use(cors(corsOptions));
+app.options("*", cors(corsOptions)); // pre-flight for all routes
+
+/* ═══════════════════════════════════════════
    SECURITY HEADERS
-========================================= */
-app.use(cors({ origin: ALLOWED_ORIGIN }));
-
+═══════════════════════════════════════════ */
 app.use((_req, res, next) => {
-  res.setHeader("X-Content-Type-Options", "nosniff");
-  res.setHeader("X-Frame-Options", "DENY");
-  res.setHeader("X-XSS-Protection", "1; mode=block");
+  res.setHeader("X-Content-Type-Options",  "nosniff");
+  res.setHeader("X-Frame-Options",         "DENY");
+  res.setHeader("X-XSS-Protection",        "1; mode=block");
+  res.setHeader("Referrer-Policy",         "strict-origin-when-cross-origin");
+  res.setHeader(
+    "Permissions-Policy",
+    "camera=(), microphone=(), geolocation=(self)"
+  );
   next();
 });
 
-/* =========================================
-   REQUEST LOGGER
-========================================= */
-app.use((req, _res, next) => {
-  console.log(`${new Date().toISOString()} | ${req.method} ${req.originalUrl}`);
-  next();
-});
+/* ═══════════════════════════════════════════
+   STATIC — uploaded chat images
+   Must come before body parsers
+═══════════════════════════════════════════ */
+app.use(
+  "/uploads",
+  express.static(path.join(__dirname, "uploads"), {
+    maxAge:   "7d",     // browser cache 7 days
+    etag:     true,
+    lastModified: true,
+    /* security: never serve HTML from uploads folder */
+    setHeaders(res, filePath) {
+      if (filePath.endsWith(".html") || filePath.endsWith(".htm")) {
+        res.setHeader("Content-Type", "text/plain");
+      }
+    },
+  })
+);
 
-/* =========================================
-   RATE LIMITER
-========================================= */
-const _limiter  = new Map();
-const WINDOW_MS = 60_000;
-const MAX_REQ   = 120;
-
-setInterval(() => {
-  const now = Date.now();
-  for (const [ip, data] of _limiter.entries()) {
-    if (now - data.time > WINDOW_MS) _limiter.delete(ip);
-  }
-}, 5 * 60_000);
-
-app.use((req, res, next) => {
-  const ip  = req.headers["x-forwarded-for"]?.split(",")[0].trim()
-              ?? req.socket.remoteAddress
-              ?? "unknown";
-  const now = Date.now();
-  let data  = _limiter.get(ip);
-
-  if (!data || now - data.time > WINDOW_MS) {
-    data = { count: 1, time: now };
-  } else {
-    data.count++;
-  }
-
-  _limiter.set(ip, data);
-
-  if (data.count > MAX_REQ) {
-    return res.status(429).json({ success: false, message: "Too many requests" });
-  }
-
-  next();
-});
-
-/* =========================================
-   PAYSTACK WEBHOOK — before express.json()
-========================================= */
+/* ═══════════════════════════════════════════
+   PAYSTACK WEBHOOK
+   raw body MUST come before express.json()
+═══════════════════════════════════════════ */
 import paymentRouter, { webhookRouter } from "./routes/payment.js";
 
 app.use(
@@ -137,25 +156,84 @@ app.use(
   webhookRouter
 );
 
-/* =========================================
+/* ═══════════════════════════════════════════
    BODY PARSERS
-========================================= */
-app.use(express.json({ limit: "10mb" }));
-app.use(express.urlencoded({ extended: true, limit: "10mb" }));
+═══════════════════════════════════════════ */
+app.use(express.json({         limit: "10mb" }));
+app.use(express.urlencoded({   extended: true, limit: "10mb" }));
 
-/* =========================================
-   PAYMENT ROUTES
-========================================= */
-app.use("/api/payment", paymentRouter);
+/* ═══════════════════════════════════════════
+   REQUEST LOGGER
+═══════════════════════════════════════════ */
+app.use((req, _res, next) => {
+  if (process.env.NODE_ENV !== "test") {
+    console.log(
+      `${new Date().toISOString()} | ${req.method} ${req.originalUrl}`
+    );
+  }
+  next();
+});
 
-/* =========================================
+/* ═══════════════════════════════════════════
+   RATE LIMITER (per-IP, in-memory)
+═══════════════════════════════════════════ */
+const _limiter  = new Map();
+const WINDOW_MS = 60_000;   // 1 minute window
+const MAX_REQ   = 120;      // requests per window
+
+/* different limits for upload endpoints */
+const UPLOAD_MAX = 20;
+
+/* sweep old entries every 5 minutes */
+setInterval(() => {
+  const now = Date.now();
+  for (const [ip, data] of _limiter.entries()) {
+    if (now - data.time > WINDOW_MS) _limiter.delete(ip);
+  }
+}, 5 * 60_000);
+
+function rateLimiter(max = MAX_REQ) {
+  return (req, res, next) => {
+    const ip  =
+      req.headers["x-forwarded-for"]?.split(",")[0].trim() ??
+      req.socket.remoteAddress ??
+      "unknown";
+
+    const now  = Date.now();
+    const key  = `${ip}:${max}`; // separate bucket per limit level
+    let   data = _limiter.get(key);
+
+    if (!data || now - data.time > WINDOW_MS) {
+      data = { count: 1, time: now };
+    } else {
+      data.count++;
+    }
+
+    _limiter.set(key, data);
+
+    if (data.count > max) {
+      return res.status(429).json({
+        success: false,
+        message: "Too many requests. Please wait a moment.",
+        retryAfter: Math.ceil((WINDOW_MS - (now - data.time)) / 1000),
+      });
+    }
+
+    next();
+  };
+}
+
+/* apply global rate limit */
+app.use(rateLimiter(MAX_REQ));
+
+/* ═══════════════════════════════════════════
    CRON JOBS
-========================================= */
+═══════════════════════════════════════════ */
 import "./jobs/expirePromotions.js";
 
-/* =========================================
-   API ROUTES
-========================================= */
+/* ═══════════════════════════════════════════
+   ROUTE IMPORTS
+═══════════════════════════════════════════ */
 import addproductRouter    from "./routes/addproduct.js";
 import userRouter          from "./routes/users.js";
 import messagesRouter      from "./routes/messages.js";
@@ -167,50 +245,74 @@ import homepageRouter      from "./routes/homepage.js";
 import sellerProfileRouter from "./routes/sellerprofile.js";
 import dashboardRoutes     from "./routes/dashboard.js";
 import notificationsRouter from "./routes/notifications.js";
-import postAdsRouter from "./routes/postAds.js";
-import walletRoutes from "./routes/wallets.js";
-import p2pRouter from "./routes/p2p.js";
+import postAdsRouter       from "./routes/postAds.js";
+import walletRoutes        from "./routes/wallets.js";
+import p2pRouter           from "./routes/p2p.js";
+
+/* ═══════════════════════════════════════════
+   API ROUTES
+═══════════════════════════════════════════ */
+app.use("/api/payment",       paymentRouter);
 
 app.use("/api/seller",        sellerProfileRouter);
 app.use("/api/addproduct",    addproductRouter);
 app.use("/api/users",         userRouter);
 app.use("/api/conversations", conversationsRouter);
+
+/* stricter rate limit on upload */
+app.use(
+  "/api/messages/upload",
+  rateLimiter(UPLOAD_MAX)
+);
 app.use("/api/messages",      messagesRouter);
+
 app.use("/api/admin",         adminRouter);
 app.use("/api/search",        searchRouter);
 app.use("/api/product",       productDetailRouter);
 app.use("/api/homepage",      homepageRouter);
 app.use("/api/dashboard",     dashboardRoutes);
 app.use("/api/notifications", notificationsRouter);
-app.use("/api/products",       postAdsRouter);
-app.use("/api/v1/wallets",      walletRoutes);
-app.use("/api/p2p", p2pRouter);
+app.use("/api/products",      postAdsRouter);
+app.use("/api/v1/wallets",    walletRoutes);
+app.use("/api/p2p",           p2pRouter);
 
-/* =========================================
+/* ═══════════════════════════════════════════
    HEALTH CHECK
-========================================= */
+═══════════════════════════════════════════ */
 app.get("/api/health", async (_req, res) => {
   try {
-    const { rows } = await pool.query("SELECT 1");
+    const start       = Date.now();
+    const { rows }    = await pool.query("SELECT 1 AS ok");
+    const dbLatencyMs = Date.now() - start;
+
     return res.json({
-      success:      true,
-      database:     rows.length > 0,
-      uptime:       process.uptime(),
-      memory:       process.memoryUsage().rss,
-      online_users: getOnlineCount(),
+      success:       true,
+      status:        "healthy",
+      database:      rows[0]?.ok === 1,
+      db_latency_ms: dbLatencyMs,
+      uptime_s:      Math.floor(process.uptime()),
+      memory_mb:     Math.round(process.memoryUsage().rss / 1024 / 1024),
+      online_users:  getOnlineCount(),
+      node_version:  process.version,
+      env:           process.env.NODE_ENV || "development",
     });
   } catch (err) {
-    return res.status(500).json({ success: false, error: err.message });
+    return res.status(500).json({
+      success: false,
+      status:  "unhealthy",
+      error:   err.message,
+    });
   }
 });
 
-/* =========================================
-   STATIC FILES (production only)
-========================================= */
+/* ═══════════════════════════════════════════
+   STATIC BUILD (production)
+═══════════════════════════════════════════ */
 if (process.env.NODE_ENV === "production") {
   const distPath = path.join(__dirname, "dist");
-  app.use(express.static(distPath));
+  app.use(express.static(distPath, { maxAge: "1d" }));
 
+  /* SPA fallback — skip /api routes */
   app.get("*", (req, res) => {
     if (req.path.startsWith("/api/")) {
       return res.status(404).json({
@@ -222,9 +324,9 @@ if (process.env.NODE_ENV === "production") {
   });
 }
 
-/* =========================================
-   404
-========================================= */
+/* ═══════════════════════════════════════════
+   404 — unknown routes
+═══════════════════════════════════════════ */
 app.use((req, res) => {
   res.status(404).json({
     success: false,
@@ -232,34 +334,105 @@ app.use((req, res) => {
   });
 });
 
-/* =========================================
+/* ═══════════════════════════════════════════
    GLOBAL ERROR HANDLER
-========================================= */
+═══════════════════════════════════════════ */
 app.use((err, req, res, _next) => {
-  console.error("🔥 Unhandled error:", err);
+  console.error("🔥 Unhandled error:", err.message || err);
 
+  /* multer errors */
   if (err.code === "LIMIT_FILE_SIZE")
-    return res.status(400).json({ success: false, message: "File too large (max 3 MB)" });
+    return res.status(400).json({
+      success: false,
+      message: "File too large (max 10 MB)",
+    });
   if (err.code === "LIMIT_FILE_COUNT")
-    return res.status(400).json({ success: false, message: "Too many files (max 6)" });
+    return res.status(400).json({
+      success: false,
+      message: "Too many files",
+    });
   if (err.code === "LIMIT_UNEXPECTED_FILE")
-    return res.status(400).json({ success: false, message: "Unexpected file field" });
-  if (err.message === "Only images allowed")
-    return res.status(400).json({ success: false, message: err.message });
+    return res.status(400).json({
+      success: false,
+      message: "Unexpected file field",
+    });
+  if (err.message === "Only image files are allowed")
+    return res.status(400).json({
+      success: false,
+      message: err.message,
+    });
 
-  const status  = err.status ?? err.statusCode ?? 500;
-  const message = process.env.NODE_ENV === "production" && status === 500
-    ? "Internal server error"
-    : (err.message ?? "Internal server error");
+  /* CORS error */
+  if (err.message?.startsWith("CORS blocked"))
+    return res.status(403).json({
+      success: false,
+      message: err.message,
+    });
+
+  /* CockroachDB / pg errors */
+  if (err.code === "23505")
+    return res.status(409).json({
+      success: false,
+      message: "Duplicate entry",
+    });
+  if (err.code === "23503")
+    return res.status(400).json({
+      success: false,
+      message: "Referenced record not found",
+    });
+  if (err.code === "23514")
+    return res.status(400).json({
+      success: false,
+      message: "Value violates database constraint",
+    });
+
+  const status = err.status ?? err.statusCode ?? 500;
+  const message =
+    process.env.NODE_ENV === "production" && status === 500
+      ? "Internal server error"
+      : err.message ?? "Internal server error";
 
   res.status(status).json({ success: false, message });
 });
 
-/* =========================================
+/* ═══════════════════════════════════════════
+   GRACEFUL SHUTDOWN
+═══════════════════════════════════════════ */
+async function shutdown(signal) {
+  console.log(`\n${signal} received — shutting down gracefully…`);
+
+  /* stop accepting new connections */
+  server.close(async () => {
+    console.log("HTTP server closed");
+
+    /* drain pool */
+    try {
+      await pool.end();
+      console.log("Database pool drained");
+    } catch (err) {
+      console.error("Pool drain error:", err.message);
+    }
+
+    process.exit(0);
+  });
+
+  /* force exit after 10 s */
+  setTimeout(() => {
+    console.error("Forced exit after timeout");
+    process.exit(1);
+  }, 10_000);
+}
+
+process.on("SIGTERM", () => shutdown("SIGTERM"));
+process.on("SIGINT",  () => shutdown("SIGINT"));
+
+/* ═══════════════════════════════════════════
    START
-========================================= */
+═══════════════════════════════════════════ */
 server.listen(PORT, () => {
-  console.log(`🚀 Server started on port ${PORT}`);
+  console.log(`🚀 Server running on port ${PORT}`);
+  console.log(`   ENV  : ${process.env.NODE_ENV || "development"}`);
+  console.log(`   CORS : ${ALLOWED_ORIGIN}`);
 });
 
 export default app;
