@@ -7,16 +7,15 @@ const router = express.Router();
 
 /* ══════════════════════════════════════════════
    GET /api/conversations?userId=
-   All threads for a user with unread counts
 ══════════════════════════════════════════════ */
 router.get("/", softAuth, async (req, res) => {
   const userId = req.user?.id || req.query.userId;
 
-  console.log("📋 GET /conversations userId:", userId);
-
   if (!userId) {
     return res.status(400).json({ success: false, message: "userId required" });
   }
+
+  console.log("📋 GET /conversations userId:", userId);
 
   try {
     const { rows } = await pool.query(
@@ -43,12 +42,12 @@ router.get("/", softAuth, async (req, res) => {
          u.is_online           AS other_user_online,
          u.store_name          AS other_user_store,
 
-         /* product snapshot */
+         /* product snapshot — image from product_images table */
          p.title               AS product_title,
-         p.images->>0          AS product_image,
          p.price               AS product_price,
+         p.main_image          AS product_image,
 
-         /* last message sender — to show "You: …" */
+         /* last message sender */
          lm.sender_id          AS last_sender_id,
 
          /* unread count */
@@ -96,7 +95,7 @@ router.get("/", softAuth, async (req, res) => {
          t.id, t.product_id, t.last_message, t.last_message_at,
          t.is_archived, t.is_blocked, t.buyer_id, t.seller_id, t.created_at,
          u.name, u.profile_image, u.is_online, u.store_name,
-         p.title, p.images, p.price,
+         p.title, p.price, p.main_image,
          rr.last_read_at,
          lm.sender_id
 
@@ -115,7 +114,6 @@ router.get("/", softAuth, async (req, res) => {
 
 /* ══════════════════════════════════════════════
    GET /api/conversations/:threadId
-   Single thread — verify user is participant
 ══════════════════════════════════════════════ */
 router.get("/:threadId", softAuth, async (req, res) => {
   const { threadId } = req.params;
@@ -145,8 +143,8 @@ router.get("/:threadId", softAuth, async (req, res) => {
          u.is_online           AS other_user_online,
          u.store_name          AS other_user_store,
          p.title               AS product_title,
-         p.images->>0          AS product_image,
-         p.price               AS product_price
+         p.price               AS product_price,
+         p.main_image          AS product_image
        FROM  public.chat_threads t
        JOIN  public.users u
              ON u.id = CASE
@@ -175,8 +173,6 @@ router.get("/:threadId", softAuth, async (req, res) => {
 
 /* ══════════════════════════════════════════════
    POST /api/conversations
-   Create or find existing thread
-   Body: { buyerId, sellerId, productId? }
 ══════════════════════════════════════════════ */
 router.post("/", softAuth, async (req, res) => {
   const buyerId   = req.user?.id       || req.body.buyerId;
@@ -188,7 +184,7 @@ router.post("/", softAuth, async (req, res) => {
   if (!buyerId) {
     return res.status(400).json({
       success: false,
-      message: "buyerId required — not in JWT or body",
+      message: "buyerId required",
     });
   }
   if (!sellerId) {
@@ -208,7 +204,7 @@ router.post("/", softAuth, async (req, res) => {
   try {
     await client.query("BEGIN");
 
-    /* ── Verify both users exist ── */
+    /* Verify both users exist */
     const { rows: users } = await client.query(
       `SELECT id FROM public.users WHERE id = ANY($1::uuid[])`,
       [[buyerId, sellerId]]
@@ -231,9 +227,7 @@ router.post("/", softAuth, async (req, res) => {
       });
     }
 
-    /* ── Find existing thread ──
-       Handle NULL product_id explicitly —
-       CockroachDB treats NULL != NULL in unique indexes  */
+    /* Find existing thread */
     const findResult = productId
       ? await client.query(
           `SELECT
@@ -266,7 +260,7 @@ router.post("/", softAuth, async (req, res) => {
       return res.status(200).json(findResult.rows[0]);
     }
 
-    /* ── Create new thread ── */
+    /* Create new thread */
     const { rows: created } = await client.query(
       `INSERT INTO public.chat_threads
          (buyer_id, seller_id, product_id)
@@ -293,7 +287,7 @@ router.post("/", softAuth, async (req, res) => {
     await client.query("ROLLBACK");
     console.error("POST /conversations error:", err.message);
 
-    /* ── Race condition — unique constraint hit ── */
+    /* Race condition fallback */
     if (err.code === "23505") {
       try {
         const fallback = productId
@@ -321,7 +315,6 @@ router.post("/", softAuth, async (req, res) => {
             );
 
         if (fallback.rows.length > 0) {
-          console.log("♻️  Race fallback:", fallback.rows[0].thread_id);
           return res.status(200).json(fallback.rows[0]);
         }
       } catch (fbErr) {
@@ -337,7 +330,6 @@ router.post("/", softAuth, async (req, res) => {
 
 /* ══════════════════════════════════════════════
    PATCH /api/conversations/:threadId/read
-   Upsert read receipt + mark messages read
 ══════════════════════════════════════════════ */
 router.patch("/:threadId/read", softAuth, async (req, res) => {
   const { threadId } = req.params;
@@ -351,7 +343,6 @@ router.patch("/:threadId/read", softAuth, async (req, res) => {
   try {
     await client.query("BEGIN");
 
-    /* Upsert read receipt */
     await client.query(
       `INSERT INTO public.chat_read_receipts
          (thread_id, user_id, last_read_message_id, last_read_at)
@@ -367,7 +358,6 @@ router.patch("/:threadId/read", softAuth, async (req, res) => {
       [threadId, userId]
     );
 
-    /* Mark incoming messages as read */
     const { rowCount } = await client.query(
       `UPDATE public.chat_messages
        SET    status = 'read'
@@ -448,7 +438,6 @@ router.patch("/:threadId/block", softAuth, async (req, res) => {
 
 /* ══════════════════════════════════════════════
    DELETE /api/conversations/:threadId
-   Soft-delete — archive + delete caller's messages
 ══════════════════════════════════════════════ */
 router.delete("/:threadId", softAuth, async (req, res) => {
   const { threadId } = req.params;
