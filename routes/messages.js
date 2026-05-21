@@ -1,23 +1,9 @@
-import express        from "express";
-import jwt            from "jsonwebtoken";
-import { pool }       from "../server.js";
+import express            from "express";
+import jwt                from "jsonwebtoken";
+import { pool }           from "../server.js";
+import { softAuth }       from "../middleware/auth.js";  // ← import softAuth
 
-const router     = express.Router();
-const JWT_SECRET = process.env.JWT_SECRET || "supersecretkey";
-
-/* ── soft auth — JWT if present, falls back to ?userId param ── */
-function softAuth(req, _res, next) {
-  try {
-    const header = req.headers.authorization || "";
-    const token  = header.startsWith("Bearer ") ? header.slice(7) : null;
-    if (token) {
-      req.user = jwt.verify(token, JWT_SECRET);
-    }
-  } catch (_) {
-    /* invalid / expired token — ignore, userId param will be used */
-  }
-  next();
-}
+const router = express.Router();
 
 /* ══════════════════════════════════════════════
    GET /api/messages?threadId=&userId=
@@ -114,8 +100,8 @@ router.get("/", softAuth, async (req, res) => {
 });
 
 /* ══════════════════════════════════════════════
-   GET /api/messages/unread-count?userId=
-   NOTE: must be defined BEFORE /:messageId
+   GET /api/messages/unread-count
+   MUST be before /:messageId
 ══════════════════════════════════════════════ */
 router.get("/unread-count", softAuth, async (req, res) => {
   const userId = req.user?.id || req.query.userId;
@@ -225,7 +211,7 @@ router.post("/", softAuth, async (req, res) => {
       });
     }
 
-    /* ── Insert message ── */
+    /* ── Insert ── */
     const { rows } = await client.query(
       `INSERT INTO public.chat_messages
          (thread_id, sender_id, message, message_type,
@@ -280,9 +266,9 @@ router.post("/", softAuth, async (req, res) => {
    PATCH /api/messages/:messageId  (edit)
 ══════════════════════════════════════════════ */
 router.patch("/:messageId", softAuth, async (req, res) => {
-  const { messageId }  = req.params;
-  const { message }    = req.body;
-  const senderId       = req.user?.id || req.body.senderId;
+  const { messageId } = req.params;
+  const { message }   = req.body;
+  const senderId      = req.user?.id || req.body.senderId;
 
   if (!message?.trim()) {
     return res.status(400).json({ success: false, message: "message required" });
