@@ -1,4 +1,3 @@
-// routes/conversations.js
 import express      from "express";
 import { pool }     from "../server.js";
 import { softAuth } from "../middleware/auth.js";
@@ -14,6 +13,8 @@ router.get("/", softAuth, async (req, res) => {
   if (!userId) {
     return res.status(400).json({ success: false, message: "userId required" });
   }
+
+  console.log("📋 GET /conversations userId:", userId);
 
   try {
     const { rows } = await pool.query(
@@ -42,7 +43,10 @@ router.get("/", softAuth, async (req, res) => {
          COUNT(m.id) FILTER (
            WHERE m.sender_id <> $1
              AND m.deleted    = false
-             AND (rr.last_read_at IS NULL OR m.created_at > rr.last_read_at)
+             AND (
+               rr.last_read_at IS NULL
+               OR m.created_at > rr.last_read_at
+             )
          )::INT              AS unread_count
        FROM  public.chat_threads           t
        JOIN  public.users                  u
@@ -50,10 +54,13 @@ router.get("/", softAuth, async (req, res) => {
                          WHEN t.buyer_id = $1 THEN t.seller_id
                          ELSE t.buyer_id
                        END
-       LEFT JOIN public.products           p  ON p.id = t.product_id
-       LEFT JOIN public.chat_messages      m  ON m.thread_id = t.id
-       LEFT JOIN public.chat_read_receipts rr ON rr.thread_id = t.id
-                                             AND rr.user_id   = $1
+       LEFT JOIN public.products           p
+             ON p.id = t.product_id
+       LEFT JOIN public.chat_messages      m
+             ON m.thread_id = t.id
+       LEFT JOIN public.chat_read_receipts rr
+             ON rr.thread_id = t.id
+            AND rr.user_id   = $1
        WHERE (t.buyer_id = $1 OR t.seller_id = $1)
        GROUP BY
          t.id, t.product_id, t.last_message, t.last_message_at,
@@ -65,9 +72,11 @@ router.get("/", softAuth, async (req, res) => {
       [userId]
     );
 
+    console.log(`✅ Found ${rows.length} threads`);
     return res.json(rows);
+
   } catch (err) {
-    console.error("GET /conversations:", err);
+    console.error("GET /conversations error:", err);
     return res.status(500).json({ success: false, message: err.message });
   }
 });
@@ -79,22 +88,32 @@ router.get("/:threadId", softAuth, async (req, res) => {
   const { threadId } = req.params;
   const userId       = req.user?.id || req.query.userId;
 
+  console.log("🔍 GET /conversations/:threadId", { threadId, userId });
+
   try {
     const { rows } = await pool.query(
       `SELECT
-         t.*,
-         t.id            AS thread_id,
+         t.id                AS thread_id,
+         t.id                AS id,
+         t.product_id,
+         t.last_message,
+         t.last_message_at,
+         t.is_archived,
+         t.is_blocked,
+         t.buyer_id,
+         t.seller_id,
+         t.created_at,
          CASE
            WHEN t.buyer_id = $2 THEN t.seller_id
            ELSE t.buyer_id
-         END             AS other_user_id,
-         u.name          AS other_user_name,
-         u.profile_image AS other_user_image,
-         u.is_online     AS other_user_online,
-         u.store_name    AS other_user_store,
-         p.title         AS product_title,
-         p.images->>0    AS product_image,
-         p.price         AS product_price
+         END                 AS other_user_id,
+         u.name              AS other_user_name,
+         u.profile_image     AS other_user_image,
+         u.is_online         AS other_user_online,
+         u.store_name        AS other_user_store,
+         p.title             AS product_title,
+         p.images->>0        AS product_image,
+         p.price             AS product_price
        FROM  public.chat_threads t
        JOIN  public.users u
              ON u.id = CASE
@@ -107,34 +126,44 @@ router.get("/:threadId", softAuth, async (req, res) => {
     );
 
     if (!rows[0]) {
-      return res.status(404).json({ success: false, message: "Thread not found" });
+      return res.status(404).json({
+        success: false,
+        message: `Thread not found: ${threadId}`,
+      });
     }
 
     return res.json(rows[0]);
+
   } catch (err) {
-    console.error("GET /conversations/:threadId:", err);
+    console.error("GET /conversations/:threadId error:", err);
     return res.status(500).json({ success: false, message: err.message });
   }
 });
 
 /* ══════════════════════════════════════════════
    POST /api/conversations
-   Body: { buyerId, sellerId, productId? }
+   Safely handles NULL product_id for CockroachDB
 ══════════════════════════════════════════════ */
 router.post("/", softAuth, async (req, res) => {
-  const buyerId   = req.user?.id        || req.body.buyerId;
+  const buyerId   = req.user?.id       || req.body.buyerId;
   const sellerId  = req.body.sellerId;
-  const productId = req.body.productId  || null;
+  const productId = req.body.productId || null;
 
   console.log("📝 POST /conversations", { buyerId, sellerId, productId });
 
-  if (!buyerId || !sellerId) {
+  /* ── Validate ── */
+  if (!buyerId) {
     return res.status(400).json({
       success: false,
-      message: `buyerId and sellerId required — got buyerId=${buyerId} sellerId=${sellerId}`,
+      message: "buyerId required — not in JWT or body",
     });
   }
-
+  if (!sellerId) {
+    return res.status(400).json({
+      success: false,
+      message: "sellerId required",
+    });
+  }
   if (buyerId === sellerId) {
     return res.status(400).json({
       success: false,
@@ -146,13 +175,21 @@ router.post("/", softAuth, async (req, res) => {
   try {
     await client.query("BEGIN");
 
-    /* ── Check if seller exists ── */
-    const { rowCount: sellerExists } = await client.query(
-      "SELECT 1 FROM public.users WHERE id = $1",
-      [sellerId]
+    /* ── Verify both users exist ── */
+    const { rows: users } = await client.query(
+      `SELECT id FROM public.users WHERE id = ANY($1::uuid[])`,
+      [[buyerId, sellerId]]
     );
 
-    if (!sellerExists) {
+    const foundIds = users.map((u) => u.id);
+    if (!foundIds.includes(buyerId)) {
+      await client.query("ROLLBACK");
+      return res.status(404).json({
+        success: false,
+        message: `Buyer not found: ${buyerId}`,
+      });
+    }
+    if (!foundIds.includes(sellerId)) {
       await client.query("ROLLBACK");
       return res.status(404).json({
         success: false,
@@ -160,56 +197,39 @@ router.post("/", softAuth, async (req, res) => {
       });
     }
 
-    /* ── Check if buyer exists ── */
-    const { rowCount: buyerExists } = await client.query(
-      "SELECT 1 FROM public.users WHERE id = $1",
-      [buyerId]
-    );
+    /* ── Find existing thread ──
+       CockroachDB: NULL != NULL in unique indexes,
+       so we must handle NULL product_id explicitly  */
+    const findResult = productId
+      ? await client.query(
+          `SELECT
+             id AS thread_id, id, buyer_id, seller_id,
+             product_id, last_message, last_message_at,
+             created_at, is_archived, is_blocked
+           FROM public.chat_threads
+           WHERE buyer_id   = $1
+             AND seller_id  = $2
+             AND product_id = $3
+           LIMIT 1`,
+          [buyerId, sellerId, productId]
+        )
+      : await client.query(
+          `SELECT
+             id AS thread_id, id, buyer_id, seller_id,
+             product_id, last_message, last_message_at,
+             created_at, is_archived, is_blocked
+           FROM public.chat_threads
+           WHERE buyer_id    = $1
+             AND seller_id   = $2
+             AND product_id IS NULL
+           LIMIT 1`,
+          [buyerId, sellerId]
+        );
 
-    if (!buyerExists) {
-      await client.query("ROLLBACK");
-      return res.status(404).json({
-        success: false,
-        message: `Buyer not found: ${buyerId}`,
-      });
-    }
-
-    /* ── Look for existing thread ── */
-    let findQuery;
-    let findParams;
-
-    if (productId) {
-      findQuery = `
-        SELECT id AS thread_id, id, buyer_id, seller_id,
-               product_id, last_message, last_message_at,
-               created_at, is_archived, is_blocked
-        FROM   public.chat_threads
-        WHERE  buyer_id   = $1
-          AND  seller_id  = $2
-          AND  product_id = $3
-        LIMIT 1
-      `;
-      findParams = [buyerId, sellerId, productId];
-    } else {
-      findQuery = `
-        SELECT id AS thread_id, id, buyer_id, seller_id,
-               product_id, last_message, last_message_at,
-               created_at, is_archived, is_blocked
-        FROM   public.chat_threads
-        WHERE  buyer_id    = $1
-          AND  seller_id   = $2
-          AND  product_id IS NULL
-        LIMIT 1
-      `;
-      findParams = [buyerId, sellerId];
-    }
-
-    const { rows: existing } = await client.query(findQuery, findParams);
-
-    if (existing.length > 0) {
+    if (findResult.rows.length > 0) {
       await client.query("COMMIT");
-      console.log("♻️  Existing thread:", existing[0].thread_id);
-      return res.status(200).json(existing[0]);
+      console.log("♻️  Returning existing thread:", findResult.rows[0].thread_id);
+      return res.status(200).json(findResult.rows[0]);
     }
 
     /* ── Create new thread ── */
@@ -237,7 +257,44 @@ router.post("/", softAuth, async (req, res) => {
 
   } catch (err) {
     await client.query("ROLLBACK");
-    console.error("POST /conversations error:", err);
+    console.error("POST /conversations error:", err.message, err.detail || "");
+
+    /* Unique constraint race condition — fetch the existing row */
+    if (err.code === "23505") {
+      try {
+        const fallback = productId
+          ? await pool.query(
+              `SELECT id AS thread_id, id, buyer_id, seller_id,
+                      product_id, last_message, last_message_at,
+                      created_at, is_archived, is_blocked
+               FROM public.chat_threads
+               WHERE buyer_id   = $1
+                 AND seller_id  = $2
+                 AND product_id = $3
+               LIMIT 1`,
+              [buyerId, sellerId, productId]
+            )
+          : await pool.query(
+              `SELECT id AS thread_id, id, buyer_id, seller_id,
+                      product_id, last_message, last_message_at,
+                      created_at, is_archived, is_blocked
+               FROM public.chat_threads
+               WHERE buyer_id    = $1
+                 AND seller_id   = $2
+                 AND product_id IS NULL
+               LIMIT 1`,
+              [buyerId, sellerId]
+            );
+
+        if (fallback.rows.length > 0) {
+          console.log("♻️  Race condition — returning existing:", fallback.rows[0].thread_id);
+          return res.status(200).json(fallback.rows[0]);
+        }
+      } catch (fallbackErr) {
+        console.error("Fallback query failed:", fallbackErr.message);
+      }
+    }
+
     return res.status(500).json({ success: false, message: err.message });
   } finally {
     client.release();
@@ -262,7 +319,8 @@ router.patch("/:threadId/read", softAuth, async (req, res) => {
     await client.query(
       `INSERT INTO public.chat_read_receipts
          (thread_id, user_id, last_read_message_id, last_read_at)
-       SELECT $1, $2,
+       SELECT
+         $1, $2,
          (SELECT id FROM public.chat_messages
           WHERE  thread_id = $1 AND deleted = false
           ORDER  BY created_at DESC LIMIT 1),
