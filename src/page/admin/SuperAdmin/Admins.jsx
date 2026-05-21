@@ -98,4 +98,19 @@ export default function Admins({
                           })
                         }
                       >
-                        {busy === 
+                        {busy === `ba-${a.id}` ? "…" : "Ban"}
+                      </button>
+                    )}
+                  </td>
+                </tr>
+              ))}
+              {!admins.length && (
+                <tr><td colSpan={5} className="empty">No admins found</td></tr>
+              )}
+            </tbody>
+          </table>
+        </div>
+      </Card>
+    </>
+  );
+}
