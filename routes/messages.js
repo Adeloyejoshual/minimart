@@ -4,7 +4,7 @@ import path     from "path";
 import fs       from "fs";
 import crypto   from "crypto";
 import { pool } from "../server.js";
-import { softAuth } from "../middleware/auth.js";
+import { authenticate } from "../middleware/auth.js";
 
 const router = express.Router();
 
