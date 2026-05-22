@@ -1,7 +1,7 @@
 // routes/conversations.js
 import express      from "express";
 import { pool }     from "../server.js";
-import { authenticate } from "../middleware/auth.js";
+import { softAuth } from "../middleware/auth.js";
 
 const router = express.Router();
 
