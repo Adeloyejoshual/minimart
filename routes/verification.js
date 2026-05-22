@@ -3,7 +3,7 @@ import bcrypt               from "bcrypt";
 import crypto               from "crypto";
 import rateLimit            from "express-rate-limit";
 import { pool } from "../config/db.js";
-import { authMiddleware }   from "../middleware/auth.js";
+import { authenticate } from "../middleware/auth.js";
 import { sendVerificationEmail } from "../services/email.js";
 import { getCapabilities, computeTrustScore } from "../lib/permissions.js";
 import { writeAudit }       from "../lib/audit.js";
