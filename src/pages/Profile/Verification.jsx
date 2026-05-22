@@ -1,12 +1,11 @@
 // src/pages/Verification.jsx
 import { useState, useRef, useEffect, useCallback, useMemo } from "react";
-import { motion, AnimatePresence }                           from "framer-motion";
-import { useNavigate }                                       from "react-router-dom";
+import { motion, AnimatePresence } from "framer-motion";
+import { useNavigate } from "react-router-dom";
 import {
-  Shield, Mail, CheckCircle, Store,
-  Loader2, XCircle, RefreshCw, Lock,
-  ArrowRight, BadgeCheck, Upload, Camera,
-  FileText, User, X, Image,
+  Shield, Mail, CheckCircle, Store, Loader2, XCircle,
+  RefreshCw, Lock, ArrowRight, BadgeCheck, Upload,
+  Camera, FileText, User, X, Image,
 } from "lucide-react";
 import "../../style/Verification.css";
 
@@ -15,65 +14,45 @@ const API = "https://minimart-ivrm.onrender.com/api";
 /* ══════════════════════════════════════════════════════════════════════════════
    HELPERS
 ══════════════════════════════════════════════════════════════════════════════ */
-const CHIP_MAP = {
-  complete  : "Completed",
-  active    : "Active",
-  in_review : "In Review",
-  rejected  : "Rejected",
-  pending   : "Pending",
-};
-
-const formatFileSize = (bytes) => {
-  if (bytes < 1024) return `${bytes} B`;
-  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
-  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
-};
+const formatSize = (b) =>
+  b < 1024 ? `${b} B` : b < 1048576 ? `${(b / 1024).toFixed(1)} KB` : `${(b / 1048576).toFixed(1)} MB`;
 
 /* ══════════════════════════════════════════════════════════════════════════════
-   SUB-COMPONENTS
+   SUB COMPONENTS
 ══════════════════════════════════════════════════════════════════════════════ */
 function Chip({ status }) {
-  return (
-    <span className={`v-chip v-chip--${status}`}>
-      {CHIP_MAP[status] || "Pending"}
-    </span>
-  );
+  const labels = {
+    complete: "Completed", active: "Active", in_review: "In Review",
+    rejected: "Rejected", pending: "Pending",
+  };
+  return <span className={`v-chip v-chip--${status}`}>{labels[status] || "Pending"}</span>;
 }
 
 function ScoreRow({ label, points, done }) {
   return (
     <div className="score-row">
-      {done
-        ? <CheckCircle size={14} className="score-dot-done" />
-        : <div className="score-dot-empty" />
-      }
-      <span className={`score-label ${done ? "score-label--done" : "score-label--pending"}`}>
-        {label}
-      </span>
-      <span className={`score-points ${done ? "score-points--done" : "score-points--pending"}`}>
-        +{points}
-      </span>
+      {done ? <CheckCircle size={14} className="score-dot-done" /> : <div className="score-dot-empty" />}
+      <span className={`score-label ${done ? "score-label--done" : "score-label--pending"}`}>{label}</span>
+      <span className={`score-points ${done ? "score-points--done" : "score-points--pending"}`}>+{points}</span>
     </div>
   );
 }
 
 function TrustRing({ score = 0 }) {
-  const r    = 52;
-  const circ = 2 * Math.PI * r;
-  const cfg  =
+  const r = 52, circ = 2 * Math.PI * r;
+  const cfg =
     score >= 80 ? { color: "#22c55e", label: "Excellent" } :
-    score >= 60 ? { color: "#3b82f6", label: "Good"      } :
-    score >= 40 ? { color: "#f59e0b", label: "Fair"      } :
-                  { color: "#ef4444", label: "Low"        };
-
+    score >= 60 ? { color: "#3b82f6", label: "Good" } :
+    score >= 40 ? { color: "#f59e0b", label: "Fair" } :
+                  { color: "#ef4444", label: "Low" };
   return (
     <div className="trust-ring-wrap">
       <div className="trust-ring-center">
         <svg width="130" height="130" viewBox="0 0 140 140" className="trust-ring-svg">
           <circle cx="70" cy="70" r={r} fill="none" stroke="#1f2937" strokeWidth="10" />
           <motion.circle
-            cx="70" cy="70" r={r} fill="none"
-            stroke={cfg.color} strokeWidth="10" strokeLinecap="round"
+            cx="70" cy="70" r={r} fill="none" stroke={cfg.color}
+            strokeWidth="10" strokeLinecap="round"
             strokeDasharray={circ} strokeDashoffset={circ}
             animate={{ strokeDashoffset: circ - (score / 100) * circ }}
             transition={{ duration: 1.4, ease: "easeOut", delay: 0.2 }}
@@ -81,11 +60,7 @@ function TrustRing({ score = 0 }) {
           />
         </svg>
         <div className="trust-ring-score">
-          <motion.strong
-            key={score}
-            initial={{ opacity: 0, scale: 0.6 }}
-            animate={{ opacity: 1, scale: 1 }}
-          >
+          <motion.strong key={score} initial={{ opacity: 0, scale: 0.6 }} animate={{ opacity: 1, scale: 1 }}>
             {score}
           </motion.strong>
           <span>/ 100</span>
@@ -98,47 +73,33 @@ function TrustRing({ score = 0 }) {
 
 function OTPInput({ length = 6, value, onChange, disabled, hasError }) {
   const refs = useRef([]);
-  useEffect(() => { refs.current[0]?.focus(); }, []);
-
+  useEffect(() => { setTimeout(() => refs.current[0]?.focus(), 200); }, []);
+  const set = (i, v) => { const a = value.split(""); a[i] = v; onChange(a.join("")); };
   const handleChange = (i, e) => {
-    const val = e.target.value.replace(/\D/g, "");
-    if (!val) {
-      const arr = value.split(""); arr[i] = "";
-      onChange(arr.join(""));
-      if (i > 0) refs.current[i - 1]?.focus();
-      return;
-    }
-    const arr = value.split(""); arr[i] = val.slice(-1);
-    onChange(arr.join(""));
+    const v = e.target.value.replace(/\D/g, "");
+    if (!v) { set(i, ""); if (i > 0) refs.current[i - 1]?.focus(); return; }
+    set(i, v.slice(-1));
     if (i < length - 1) refs.current[i + 1]?.focus();
   };
-
-  const handleKeyDown = (i, e) => {
-    if (e.key === "Backspace" && !value[i] && i > 0) refs.current[i - 1]?.focus();
-  };
-
+  const handleKey = (i, e) => { if (e.key === "Backspace" && !value[i] && i > 0) refs.current[i - 1]?.focus(); };
   const handlePaste = (e) => {
     e.preventDefault();
     const p = e.clipboardData.getData("text").replace(/\D/g, "").slice(0, length);
     onChange(p.padEnd(length, "").slice(0, length));
     refs.current[Math.min(p.length, length - 1)]?.focus();
   };
-
   return (
     <div className="otp-group">
       {Array.from({ length }).map((_, i) => (
         <input
-          key={i}
-          ref={el => (refs.current[i] = el)}
+          key={i} ref={el => (refs.current[i] = el)}
           type="text" inputMode="numeric" maxLength={1}
           value={value[i] || ""}
           onChange={e => handleChange(i, e)}
-          onKeyDown={e => handleKeyDown(i, e)}
+          onKeyDown={e => handleKey(i, e)}
           onPaste={handlePaste}
           disabled={disabled}
-          className={`otp-input ${
-            hasError ? "otp-input--error" : value[i] ? "otp-input--filled" : ""
-          }`}
+          className={`otp-input ${hasError ? "otp-input--error" : value[i] ? "otp-input--filled" : ""}`}
         />
       ))}
     </div>
@@ -148,148 +109,81 @@ function OTPInput({ length = 6, value, onChange, disabled, hasError }) {
 function Countdown({ seconds, onComplete }) {
   const [left, setLeft] = useState(seconds);
   useEffect(() => {
-    let active = true;
-    const t = setInterval(() => {
-      if (!active) return;
-      setLeft(p => {
-        if (p <= 1) { clearInterval(t); onComplete?.(); return 0; }
-        return p - 1;
-      });
-    }, 1000);
-    return () => { active = false; clearInterval(t); };
+    let go = true;
+    const t = setInterval(() => { if (!go) return; setLeft(p => { if (p <= 1) { clearInterval(t); onComplete?.(); return 0; } return p - 1; }); }, 1000);
+    return () => { go = false; clearInterval(t); };
   }, []);
-  return (
-    <span className={`countdown-value ${left < 20 ? "countdown-value--warn" : "countdown-value--normal"}`}>
-      {left}s
-    </span>
-  );
+  return <span className={`countdown-value ${left < 20 ? "countdown-value--warn" : "countdown-value--normal"}`}>{left}s</span>;
 }
 
-/* ══════════════════════════════════════════════════════════════════════════════
-   FILE UPLOAD COMPONENT
-══════════════════════════════════════════════════════════════════════════════ */
 function FileUpload({ label, hint, accept, file, onFileChange, onRemove }) {
   const [preview, setPreview] = useState(null);
-
   useEffect(() => {
     if (!file) { setPreview(null); return; }
-    const url = URL.createObjectURL(file);
-    setPreview(url);
-    return () => URL.revokeObjectURL(url);
+    const u = URL.createObjectURL(file); setPreview(u);
+    return () => URL.revokeObjectURL(u);
   }, [file]);
 
-  return (
-    <div>
-      {file ? (
-        <div className={`upload-area upload-area--has-file`}>
-          <div className="upload-preview">
-            {preview && file.type.startsWith("image/") ? (
-              <img src={preview} alt="preview" />
-            ) : (
-              <div style={{ width: 60, height: 60, display: "flex", alignItems: "center", justifyContent: "center", background: "#1f2937", borderRadius: 8 }}>
-                <FileText size={24} style={{ color: "#6b7280" }} />
-              </div>
-            )}
-            <div className="upload-preview-info">
-              <p className="upload-preview-name">{file.name}</p>
-              <p className="upload-preview-size">{formatFileSize(file.size)}</p>
-            </div>
-            <button className="upload-remove" onClick={onRemove} type="button">
-              <X size={16} />
-            </button>
+  if (file) {
+    return (
+      <div className="upload-area upload-area--has-file">
+        <div className="upload-preview">
+          {preview && file.type.startsWith("image/")
+            ? <img src={preview} alt="" />
+            : <div style={{ width: 60, height: 60, display: "flex", alignItems: "center", justifyContent: "center", background: "#1f2937", borderRadius: 8 }}><FileText size={24} style={{ color: "#6b7280" }} /></div>
+          }
+          <div className="upload-preview-info">
+            <p className="upload-preview-name">{file.name}</p>
+            <p className="upload-preview-size">{formatSize(file.size)}</p>
           </div>
+          <button className="upload-remove" onClick={onRemove} type="button"><X size={16} /></button>
         </div>
-      ) : (
-        <label className="upload-area">
-          <input
-            type="file"
-            accept={accept}
-            onChange={(e) => {
-              const f = e.target.files?.[0];
-              if (f) onFileChange(f);
-              e.target.value = "";
-            }}
-          />
-          <Upload size={24} className="upload-icon" />
-          <p className="upload-text">{label}</p>
-          <p className="upload-hint">{hint}</p>
-        </label>
-      )}
-    </div>
+      </div>
+    );
+  }
+
+  return (
+    <label className="upload-area">
+      <input type="file" accept={accept} onChange={e => { if (e.target.files?.[0]) onFileChange(e.target.files[0]); e.target.value = ""; }} />
+      <Upload size={24} className="upload-icon" />
+      <p className="upload-text">{label}</p>
+      <p className="upload-hint">{hint}</p>
+    </label>
   );
 }
 
-/* ══════════════════════════════════════════════════════════════════════════════
-   SELFIE COMPONENT
-══════════════════════════════════════════════════════════════════════════════ */
 function SelfieCapture({ file, onFileChange, onRemove }) {
   const [preview, setPreview] = useState(null);
-  const fileRef = useRef(null);
-
+  const ref = useRef(null);
   useEffect(() => {
     if (!file) { setPreview(null); return; }
-    const url = URL.createObjectURL(file);
-    setPreview(url);
-    return () => URL.revokeObjectURL(url);
+    const u = URL.createObjectURL(file); setPreview(u);
+    return () => URL.revokeObjectURL(u);
   }, [file]);
 
-  const openCamera = () => {
-    if (fileRef.current) {
-      fileRef.current.setAttribute("capture", "user");
-      fileRef.current.click();
-    }
-  };
-
-  const openGallery = () => {
-    if (fileRef.current) {
-      fileRef.current.removeAttribute("capture");
-      fileRef.current.click();
-    }
-  };
+  const openCamera  = () => { ref.current?.setAttribute("capture", "user"); ref.current?.click(); };
+  const openGallery = () => { ref.current?.removeAttribute("capture"); ref.current?.click(); };
 
   return (
     <div className="selfie-area">
-      <input
-        ref={fileRef}
-        type="file"
-        accept="image/*"
-        style={{ display: "none" }}
-        onChange={(e) => {
-          const f = e.target.files?.[0];
-          if (f) onFileChange(f);
-          e.target.value = "";
-        }}
-      />
-
+      <input ref={ref} type="file" accept="image/*" style={{ display: "none" }}
+        onChange={e => { if (e.target.files?.[0]) onFileChange(e.target.files[0]); e.target.value = ""; }} />
       <div className="selfie-preview">
-        {preview ? (
-          <img src={preview} alt="selfie" />
-        ) : (
-          <div className="selfie-placeholder">
-            <User size={40} />
-            <span>No photo</span>
-          </div>
-        )}
+        {preview
+          ? <img src={preview} alt="" />
+          : <div className="selfie-placeholder"><User size={36} /><span>No photo</span></div>
+        }
       </div>
-
       <div className="selfie-buttons">
         {file ? (
           <>
-            <button className="v-btn v-btn--ghost v-btn--small" onClick={openCamera} type="button">
-              <Camera size={14} /> Retake
-            </button>
-            <button className="v-btn v-btn--ghost v-btn--small" onClick={onRemove} type="button">
-              <X size={14} /> Remove
-            </button>
+            <button className="v-btn v-btn--ghost v-btn--small" onClick={openCamera} type="button"><Camera size={14} /> Retake</button>
+            <button className="v-btn v-btn--ghost v-btn--small" onClick={onRemove} type="button"><X size={14} /> Remove</button>
           </>
         ) : (
           <>
-            <button className="v-btn v-btn--primary v-btn--small" onClick={openCamera} type="button">
-              <Camera size={14} /> Take Photo
-            </button>
-            <button className="v-btn v-btn--ghost v-btn--small" onClick={openGallery} type="button">
-              <Image size={14} /> Gallery
-            </button>
+            <button className="v-btn v-btn--primary v-btn--small" onClick={openCamera} type="button"><Camera size={14} /> Take Photo</button>
+            <button className="v-btn v-btn--ghost v-btn--small" onClick={openGallery} type="button"><Image size={14} /> Gallery</button>
           </>
         )}
       </div>
@@ -303,57 +197,52 @@ function SelfieCapture({ file, onFileChange, onRemove }) {
 export default function Verification() {
   const navigate = useNavigate();
 
-  // ── Page state ──────────────────────────────────────────────────────────
-  const [status,      setStatus]      = useState(null);
+  const [status, setStatus]           = useState(null);
   const [pageLoading, setPageLoading] = useState(true);
-  const [submitting,  setSubmitting]  = useState(false);
-  const [submitMsg,   setSubmitMsg]   = useState("");
+  const [submitting, setSubmitting]   = useState(false);
+  const [submitMsg, setSubmitMsg]     = useState("");
 
-  // ── Email OTP state ─────────────────────────────────────────────────────
-  const [emailStep,       setEmailStep]       = useState("idle"); // idle | otp | done
-  const [otp,             setOtp]             = useState("");
-  const [sending,         setSending]         = useState(false);
-  const [verifying,       setVerifying]       = useState(false);
-  const [canResend,       setCanResend]       = useState(false);
-  const [error,           setError]           = useState("");
-  const [attemptsLeft,    setAttemptsLeft]    = useState(5);
-  const [hasError,        setHasError]        = useState(false);
+  // Email OTP
+  const [emailStep, setEmailStep]           = useState("idle"); // idle | sending | otp | done
+  const [otp, setOtp]                       = useState("");
+  const [sending, setSending]               = useState(false);
+  const [verifying, setVerifying]           = useState(false);
+  const [canResend, setCanResend]           = useState(false);
+  const [error, setError]                   = useState("");
+  const [attemptsLeft, setAttemptsLeft]     = useState(5);
+  const [hasError, setHasError]             = useState(false);
   const [resendRemaining, setResendRemaining] = useState(2);
 
-  // ── Document state ──────────────────────────────────────────────────────
-  const [idFront,  setIdFront]  = useState(null);
-  const [idBack,   setIdBack]   = useState(null);
-  const [selfie,   setSelfie]   = useState(null);
+  // Documents
+  const [idFront, setIdFront]   = useState(null);
+  const [idBack, setIdBack]     = useState(null);
+  const [selfie, setSelfie]     = useState(null);
 
-  // ── Store state ─────────────────────────────────────────────────────────
-  const [storeName,  setStoreName]  = useState("");
-  const [storeDesc,  setStoreDesc]  = useState("");
-  const [storeLogo,  setStoreLogo]  = useState(null);
+  // Store
+  const [storeName, setStoreName] = useState("");
+  const [storeDesc, setStoreDesc] = useState("");
+  const [storeLogo, setStoreLogo] = useState(null);
 
   const verifyingRef = useRef(false);
 
   const authHeaders = useCallback(() => ({
-    "Content-Type" : "application/json",
-    Authorization  : `Bearer ${localStorage.getItem("token")}`,
+    "Content-Type": "application/json",
+    Authorization: `Bearer ${localStorage.getItem("token")}`,
   }), []);
 
   /* ── Fetch status ─────────────────────────────────────────────────────────── */
   const fetchStatus = useCallback(async () => {
     try {
-      const res  = await fetch(`${API}/verification/status`, { headers: authHeaders() });
+      const res = await fetch(`${API}/verification/status`, { headers: authHeaders() });
       const data = await res.json();
       if (res.ok) {
         setStatus(data);
+        // If email is already verified from backend → skip to done
         if (data.email_verified) setEmailStep("done");
         if (typeof data.resend_remaining === "number") setResendRemaining(data.resend_remaining);
-      } else if (res.status === 401) {
-        navigate("/login");
-      }
-    } catch (err) {
-      console.error("[fetchStatus]", err.message);
-    } finally {
-      setPageLoading(false);
-    }
+      } else if (res.status === 401) navigate("/login");
+    } catch (err) { console.error(err.message); }
+    finally { setPageLoading(false); }
   }, [authHeaders, navigate]);
 
   useEffect(() => { fetchStatus(); }, [fetchStatus]);
@@ -364,33 +253,44 @@ export default function Verification() {
   const storeVerified = status?.store_verified || false;
   const storeReview   = status?.store_review   || null;
 
-  // Completion tracking
-  const emailDone    = emailVerified;
-  const idDone       = !!(idFront && idBack);
-  const selfieDone   = !!selfie;
-  const storeDone    = storeVerified || !!(storeName.trim() && storeLogo);
+  const emailDone  = emailVerified;
+  const idDone     = !!(idFront && idBack);
+  const selfieDone = !!selfie;
+  const storeDone  = storeVerified || !!(storeName.trim() && storeLogo);
 
-  const completedCount = [emailDone, idDone, selfieDone, storeDone].filter(Boolean).length;
-  const totalSteps     = 4;
-  const allComplete    = completedCount === totalSteps;
+  const completed = [emailDone, idDone, selfieDone, storeDone].filter(Boolean).length;
+  const total     = 4;
+  const allDone   = completed === total;
 
   /* ── Send OTP ─────────────────────────────────────────────────────────────── */
   const sendOTP = useCallback(async () => {
-    setSending(true); setError(""); setOtp(""); setHasError(false);
+    setEmailStep("sending");
+    setSending(true);
+    setError("");
+    setOtp("");
+    setHasError(false);
+
     try {
-      const res  = await fetch(`${API}/verification/send-email-otp`, {
+      const res = await fetch(`${API}/verification/send-email-otp`, {
         method: "POST", headers: authHeaders(),
       });
       const data = await res.json();
+
       if (res.ok) {
-        setEmailStep("otp"); setCanResend(false);
+        setEmailStep("otp");
+        setCanResend(false);
         if (typeof data.remaining === "number") setResendRemaining(data.remaining);
       } else {
         setError(data.message || "Failed to send code.");
+        setEmailStep("idle");
         if (res.status === 429 && data.remaining === 0) setResendRemaining(0);
       }
-    } catch { setError("Network error."); }
-    finally { setSending(false); }
+    } catch {
+      setError("Network error.");
+      setEmailStep("idle");
+    } finally {
+      setSending(false);
+    }
   }, [authHeaders]);
 
   /* ── Verify OTP ───────────────────────────────────────────────────────────── */
@@ -398,11 +298,13 @@ export default function Verification() {
     if (otp.length < 6 || verifyingRef.current || verifying) return;
     verifyingRef.current = true;
     setVerifying(true); setError(""); setHasError(false);
+
     try {
-      const res  = await fetch(`${API}/verification/verify-email-otp`, {
+      const res = await fetch(`${API}/verification/verify-email-otp`, {
         method: "POST", headers: authHeaders(), body: JSON.stringify({ otp }),
       });
       const data = await res.json();
+
       if (res.ok) {
         setEmailStep("done");
         setStatus(prev => ({
@@ -423,7 +325,7 @@ export default function Verification() {
 
   useEffect(() => {
     if (otp.length === 6 && emailStep === "otp" && !verifying && !verifyingRef.current) {
-      const t = setTimeout(() => verifyOTP(), 120);
+      const t = setTimeout(() => verifyOTP(), 150);
       return () => clearTimeout(t);
     }
   }, [otp, emailStep, verifying, verifyOTP]);
@@ -432,40 +334,32 @@ export default function Verification() {
   const handleSubmitAll = async () => {
     setSubmitting(true); setSubmitMsg("");
     try {
-      const formData = new FormData();
-      if (idFront)   formData.append("id_front",   idFront);
-      if (idBack)    formData.append("id_back",    idBack);
-      if (selfie)    formData.append("selfie",     selfie);
-      if (storeName) formData.append("store_name", storeName.trim());
-      if (storeDesc) formData.append("store_desc", storeDesc.trim());
-      if (storeLogo) formData.append("store_logo", storeLogo);
+      const fd = new FormData();
+      if (idFront)   fd.append("id_front", idFront);
+      if (idBack)    fd.append("id_back", idBack);
+      if (selfie)    fd.append("selfie", selfie);
+      if (storeName) fd.append("store_name", storeName.trim());
+      if (storeDesc) fd.append("store_desc", storeDesc.trim());
+      if (storeLogo) fd.append("store_logo", storeLogo);
 
       const res = await fetch(`${API}/verification/submit`, {
         method: "POST",
         headers: { Authorization: `Bearer ${localStorage.getItem("token")}` },
-        body: formData,
+        body: fd,
       });
       const data = await res.json();
-      if (res.ok) {
-        setSubmitMsg("Verification submitted successfully. Under review.");
-        fetchStatus();
-      } else {
-        setSubmitMsg(data.message || "Submission failed. Please try again.");
-      }
-    } catch {
-      setSubmitMsg("Network error. Please try again.");
-    } finally {
-      setSubmitting(false);
-    }
+      setSubmitMsg(res.ok
+        ? "Verification submitted successfully. Under review."
+        : (data.message || "Submission failed.")
+      );
+      if (res.ok) fetchStatus();
+    } catch { setSubmitMsg("Network error."); }
+    finally { setSubmitting(false); }
   };
 
   /* ── Loading ──────────────────────────────────────────────────────────────── */
   if (pageLoading) {
-    return (
-      <div className="v-loading">
-        <Loader2 size={26} className="v-spin" />
-      </div>
-    );
+    return <div className="v-loading"><Loader2 size={26} className="v-spin" /></div>;
   }
 
   /* ════════════════════════════════════════════════════════════════════════════
@@ -475,97 +369,136 @@ export default function Verification() {
     <div className="verification-page">
       <div className="verification-container">
 
-        {/* ── Header ───────────────────────────────────────────────────────── */}
-        <motion.div
-          initial={{ opacity: 0, y: -12 }}
-          animate={{ opacity: 1, y:   0 }}
-          className="v-header"
-        >
-          <div className="v-header-icon">
-            <Shield size={24} />
-          </div>
+        {/* Header */}
+        <motion.div initial={{ opacity: 0, y: -12 }} animate={{ opacity: 1, y: 0 }} className="v-header">
+          <div className="v-header-icon"><Shield size={24} /></div>
           <h1>Account Verification</h1>
           <p>Complete all steps to verify your account</p>
         </motion.div>
 
-        {/* ── Trust Score ──────────────────────────────────────────────────── */}
+        {/* Trust Score */}
         <div className="v-card" style={{ display: "flex", flexDirection: "column", alignItems: "center" }}>
           <TrustRing score={trustScore} />
           <div className="score-breakdown">
-            <ScoreRow label="Email verified"       points={40} done={emailVerified}    />
-            <ScoreRow label="Store verified"       points={20} done={storeVerified}    />
+            <ScoreRow label="Email verified"       points={40} done={emailVerified} />
+            <ScoreRow label="Store verified"       points={20} done={storeVerified} />
             <ScoreRow label="Account age 30 days" points={10} done={trustScore >= 60} />
             <ScoreRow label="Account age 90 days" points={10} done={trustScore >= 70} />
           </div>
         </div>
 
         {/* ════════════════════════════════════════════════════════════════════
-            STEP 1 — EMAIL VERIFICATION
+            STEP 1 — EMAIL
         ════════════════════════════════════════════════════════════════════ */}
-        <div className={`step-item ${emailDone ? "step-item--complete" : "step-item--active"}`}>
+        <motion.div
+          layout
+          className={`step-item ${
+            emailDone     ? "step-item--complete" :
+            emailStep !== "idle" ? "step-item--active" : ""
+          }`}
+        >
           <div className="step-item-header">
             <div className={`step-item-icon ${emailDone ? "step-item-icon--complete" : "step-item-icon--email"}`}>
               {emailDone ? <CheckCircle size={20} /> : <Mail size={20} />}
             </div>
             <div className="step-item-info">
               <p className="step-item-title">Email Verification</p>
-              <p className="step-item-desc">
-                {emailDone
-                  ? `Verified · ${status?.email || ""}`
-                  : status?.email || "Verify your email address"
-                }
-              </p>
+              {emailDone ? (
+                <p className="step-item-verified">
+                  <CheckCircle size={12} />
+                  Verified
+                  {status?.email_verified_at && (
+                    <span style={{ color: "#6b7280", marginLeft: 4 }}>
+                      · {new Date(status.email_verified_at).toLocaleDateString("en-US", {
+                        day: "numeric", month: "short", year: "numeric",
+                      })}
+                    </span>
+                  )}
+                </p>
+              ) : (
+                <p className="step-item-desc">{status?.email || "Verify your email"}</p>
+              )}
             </div>
             <div className="step-item-action">
               {emailDone ? (
                 <Chip status="complete" />
-              ) : emailStep === "otp" ? (
-                <Chip status="active" />
-              ) : (
+              ) : emailStep === "idle" ? (
                 <button className="v-btn v-btn--primary v-btn--small" onClick={sendOTP} disabled={sending}>
-                  {sending ? <Loader2 size={13} className="v-spin" /> : <ArrowRight size={13} />}
-                  {sending ? "Sending" : "Verify"}
+                  <Mail size={13} /> Verify Email
                 </button>
+              ) : emailStep === "sending" ? (
+                <button className="v-btn v-btn--primary v-btn--small" disabled>
+                  <Loader2 size={13} className="v-spin" /> Sending
+                </button>
+              ) : (
+                <Chip status="active" />
               )}
             </div>
           </div>
 
-          {/* OTP Entry — visible when step is active */}
+          {/* ── OTP input area — slides open ───────────────────────────────── */}
           <AnimatePresence>
             {emailStep === "otp" && (
               <motion.div
                 initial={{ opacity: 0, height: 0 }}
                 animate={{ opacity: 1, height: "auto" }}
-                exit={{    opacity: 0, height: 0 }}
-                className="step-body"
+                exit={{ opacity: 0, height: 0 }}
+                transition={{ duration: 0.25 }}
+                className="step-body otp-section"
               >
+                {/* OTP header */}
+                <div className="otp-section-header">
+                  <div className="otp-section-icon">
+                    <Mail size={22} />
+                  </div>
+                  <p className="otp-section-title">Enter Verification Code</p>
+                  <p className="otp-section-subtitle">
+                    6-digit code sent to{" "}
+                    <span className="otp-section-email">{status?.email}</span>
+                  </p>
+                </div>
+
+                {/* OTP inputs */}
                 <OTPInput
                   length={6} value={otp} onChange={setOtp}
                   disabled={verifying} hasError={hasError}
                 />
                 <p className="otp-helper">Auto-submit enabled</p>
 
-                {verifying && (
-                  <div className="verifying-indicator">
-                    <Loader2 size={14} className="v-spin" />
-                    <span>Verifying</span>
-                  </div>
-                )}
+                {/* Verifying indicator */}
+                <AnimatePresence>
+                  {verifying && (
+                    <motion.div
+                      initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
+                      className="verifying-indicator"
+                    >
+                      <Loader2 size={14} className="v-spin" />
+                      <span>Verifying code</span>
+                    </motion.div>
+                  )}
+                </AnimatePresence>
 
-                {error && (
-                  <div className="v-error">
-                    <XCircle size={14} className="v-error-icon" />
-                    <div>
-                      <p className="v-error-text">{error}</p>
-                      {attemptsLeft < 5 && attemptsLeft > 0 && (
-                        <p className="v-error-sub">
-                          {attemptsLeft} attempt{attemptsLeft !== 1 ? "s" : ""} remaining
-                        </p>
-                      )}
-                    </div>
-                  </div>
-                )}
+                {/* Error */}
+                <AnimatePresence>
+                  {error && (
+                    <motion.div
+                      initial={{ opacity: 0, y: -6 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0 }}
+                      className="v-error"
+                    >
+                      <XCircle size={14} className="v-error-icon" />
+                      <div>
+                        <p className="v-error-text">{error}</p>
+                        {attemptsLeft < 5 && attemptsLeft > 0 && (
+                          <p className="v-error-sub">
+                            {attemptsLeft} attempt{attemptsLeft !== 1 ? "s" : ""} remaining
+                          </p>
+                        )}
+                      </div>
+                    </motion.div>
+                  )}
+                </AnimatePresence>
 
+                {/* Resend row */}
                 <div className="resend-row">
                   <div>
                     {resendRemaining <= 0 ? (
@@ -584,13 +517,13 @@ export default function Verification() {
                   </div>
                   <div className="security-note">
                     <Lock size={11} />
-                    <span>Do not share this code</span>
+                    <span>Do not share</span>
                   </div>
                 </div>
               </motion.div>
             )}
           </AnimatePresence>
-        </div>
+        </motion.div>
 
         {/* ════════════════════════════════════════════════════════════════════
             STEP 2 — ID DOCUMENT
@@ -606,24 +539,17 @@ export default function Verification() {
             </div>
             <Chip status={idDone ? "complete" : "pending"} />
           </div>
-
           <div className="step-body">
             <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
               <FileUpload
-                label="Upload front of ID"
-                hint="JPG, PNG or PDF — max 5MB"
-                accept="image/*,.pdf"
-                file={idFront}
-                onFileChange={setIdFront}
-                onRemove={() => setIdFront(null)}
+                label="Upload front of ID" hint="JPG, PNG or PDF — max 5MB"
+                accept="image/*,.pdf" file={idFront}
+                onFileChange={setIdFront} onRemove={() => setIdFront(null)}
               />
               <FileUpload
-                label="Upload back of ID"
-                hint="JPG, PNG or PDF — max 5MB"
-                accept="image/*,.pdf"
-                file={idBack}
-                onFileChange={setIdBack}
-                onRemove={() => setIdBack(null)}
+                label="Upload back of ID" hint="JPG, PNG or PDF — max 5MB"
+                accept="image/*,.pdf" file={idBack}
+                onFileChange={setIdBack} onRemove={() => setIdBack(null)}
               />
             </div>
           </div>
@@ -643,42 +569,33 @@ export default function Verification() {
             </div>
             <Chip status={selfieDone ? "complete" : "pending"} />
           </div>
-
           <div className="step-body">
-            <SelfieCapture
-              file={selfie}
-              onFileChange={setSelfie}
-              onRemove={() => setSelfie(null)}
-            />
+            <SelfieCapture file={selfie} onFileChange={setSelfie} onRemove={() => setSelfie(null)} />
           </div>
         </div>
 
         {/* ════════════════════════════════════════════════════════════════════
-            STEP 4 — STORE PROFILE
+            STEP 4 — STORE
         ════════════════════════════════════════════════════════════════════ */}
         <div className={`step-item ${storeDone ? "step-item--complete" : ""}`}>
           <div className="step-item-header">
-            <div className={`step-item-icon ${storeDone ? "step-item-icon--complete" : "step-item-icon--store"}`}>
-              {storeDone ? <CheckCircle size={20} /> : <Store size={20} />}
+            <div className={`step-item-icon ${storeVerified ? "step-item-icon--complete" : "step-item-icon--store"}`}>
+              {storeVerified ? <CheckCircle size={20} /> : <Store size={20} />}
             </div>
             <div className="step-item-info">
               <p className="step-item-title">Store Profile</p>
               <p className="step-item-desc">
-                {storeVerified
-                  ? "Verified"
-                  : storeReview?.status === "rejected"
-                    ? "Rejected — resubmit"
-                    : storeReview?.status === "pending"
-                      ? "Under review"
-                      : "Set up your store"
-                }
+                {storeVerified ? "Verified"
+                  : storeReview?.status === "rejected" ? "Rejected — resubmit"
+                  : storeReview?.status === "pending" ? "Under review"
+                  : "Set up your store"}
               </p>
             </div>
             <Chip status={
-              storeVerified                       ? "complete"  :
-              storeReview?.status === "rejected"  ? "rejected"  :
-              storeReview?.status === "pending"   ? "in_review" :
-              storeDone                           ? "complete"  : "pending"
+              storeVerified ? "complete"
+              : storeReview?.status === "rejected" ? "rejected"
+              : storeReview?.status === "pending" ? "in_review"
+              : storeDone ? "complete" : "pending"
             } />
           </div>
 
@@ -693,65 +610,25 @@ export default function Verification() {
             <div className="step-body">
               <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
                 <div>
-                  <label style={{ fontSize: 12, color: "#6b7280", display: "block", marginBottom: 6 }}>
-                    Store Name
-                  </label>
+                  <label className="v-field-label">Store Name</label>
                   <input
-                    type="text"
-                    value={storeName}
-                    onChange={e => setStoreName(e.target.value)}
-                    placeholder="Enter your store name"
-                    maxLength={60}
-                    style={{
-                      width: "100%",
-                      padding: "10px 14px",
-                      background: "#0f1115",
-                      border: "1px solid #2d3748",
-                      borderRadius: 10,
-                      color: "#fff",
-                      fontSize: 14,
-                      outline: "none",
-                      transition: "border-color 0.2s",
-                    }}
-                    onFocus={e => (e.target.style.borderColor = "#3b82f6")}
-                    onBlur={e => (e.target.style.borderColor = "#2d3748")}
+                    type="text" className="v-input"
+                    value={storeName} onChange={e => setStoreName(e.target.value)}
+                    placeholder="Enter your store name" maxLength={60}
                   />
                 </div>
-
                 <div>
-                  <label style={{ fontSize: 12, color: "#6b7280", display: "block", marginBottom: 6 }}>
-                    Store Description
-                  </label>
+                  <label className="v-field-label">Store Description</label>
                   <textarea
-                    value={storeDesc}
-                    onChange={e => setStoreDesc(e.target.value)}
-                    placeholder="Describe what you sell"
-                    maxLength={300}
-                    rows={3}
-                    style={{
-                      width: "100%",
-                      padding: "10px 14px",
-                      background: "#0f1115",
-                      border: "1px solid #2d3748",
-                      borderRadius: 10,
-                      color: "#fff",
-                      fontSize: 14,
-                      outline: "none",
-                      resize: "vertical",
-                      transition: "border-color 0.2s",
-                    }}
-                    onFocus={e => (e.target.style.borderColor = "#3b82f6")}
-                    onBlur={e => (e.target.style.borderColor = "#2d3748")}
+                    className="v-textarea"
+                    value={storeDesc} onChange={e => setStoreDesc(e.target.value)}
+                    placeholder="Describe what you sell" maxLength={300} rows={3}
                   />
                 </div>
-
                 <FileUpload
-                  label="Upload store logo"
-                  hint="JPG or PNG — max 2MB"
-                  accept="image/*"
-                  file={storeLogo}
-                  onFileChange={setStoreLogo}
-                  onRemove={() => setStoreLogo(null)}
+                  label="Upload store logo" hint="JPG or PNG — max 2MB"
+                  accept="image/*" file={storeLogo}
+                  onFileChange={setStoreLogo} onRemove={() => setStoreLogo(null)}
                 />
               </div>
             </div>
@@ -764,13 +641,14 @@ export default function Verification() {
         <div className="submit-bar">
           <div className="submit-bar-progress">
             <span className="submit-bar-label">Verification Progress</span>
-            <span className="submit-bar-count">{completedCount}/{totalSteps}</span>
+            <span className="submit-bar-count">{completed}/{total}</span>
           </div>
-
           <div className="submit-bar-track">
-            <div
+            <motion.div
               className="submit-bar-fill"
-              style={{ width: `${(completedCount / totalSteps) * 100}%` }}
+              initial={{ width: 0 }}
+              animate={{ width: `${(completed / total) * 100}%` }}
+              transition={{ duration: 0.4 }}
             />
           </div>
 
@@ -785,16 +663,16 @@ export default function Verification() {
           )}
 
           <button
-            className={`v-btn v-btn--full ${allComplete ? "v-btn--success" : "v-btn--ghost"}`}
-            disabled={!allComplete || submitting}
+            className={`v-btn v-btn--full ${allDone ? "v-btn--success" : "v-btn--ghost"}`}
+            disabled={!allDone || submitting}
             onClick={handleSubmitAll}
           >
             {submitting ? (
               <><Loader2 size={16} className="v-spin" /> Submitting</>
-            ) : allComplete ? (
+            ) : allDone ? (
               <><BadgeCheck size={16} /> Submit Verification</>
             ) : (
-              <><Lock size={16} /> Complete All Steps to Submit</>
+              <><Lock size={16} /> Complete All Steps ({completed}/{total})</>
             )}
           </button>
         </div>
