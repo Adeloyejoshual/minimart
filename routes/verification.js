@@ -1,21 +1,23 @@
-const express   = require('express');
-const router    = express.Router();
-const bcrypt    = require('bcryptjs');
-const crypto    = require('crypto');
-const rateLimit = require('express-rate-limit');
-const { pool }  = require('../db');
-const { authMiddleware }        = require('../middleware/auth');
-const { sendVerificationEmail } = require('../services/email');
-const { getCapabilities, computeTrustScore } = require('../lib/permissions');
-const { writeAudit }            = require('../lib/audit');
+import express              from 'express';
+import bcrypt               from 'bcryptjs';
+import crypto               from 'crypto';
+import rateLimit            from 'express-rate-limit';
+import { pool }             from '../db.js';
+import { authMiddleware }   from '../middleware/auth.js';
+import { sendVerificationEmail } from '../services/email.js';
+import { getCapabilities, computeTrustScore } from '../lib/permissions.js';
+import { writeAudit }       from '../lib/audit.js';
 
-// ── Rate limiters ─────────────────────────────────────────────────────────────
+const router = express.Router();
+
+// ── Rate limiters ──────────────────────────────────────────────────────────────
 const sendOtpLimiter = rateLimit({
   windowMs     : 10 * 60 * 1000,
   max          : 5,
   keyGenerator : (req) => req.user?.id || req.ip,
   handler      : (_req, res) => res.status(429).json({
-    error: 'Too many requests. Try again in 10 minutes.', retryAfter: 600,
+    error      : 'Too many requests. Try again in 10 minutes.',
+    retryAfter : 600,
   }),
 });
 
@@ -28,10 +30,12 @@ const verifyOtpLimiter = rateLimit({
   }),
 });
 
-// ── Helpers ───────────────────────────────────────────────────────────────────
-const generateOTP    = () => crypto.randomInt(100_000, 999_999).toString();
-const getIp          = (req) => req.ip || req.socket?.remoteAddress || null;
-const getDeviceHash  = (req) => {
+// ── Helpers ────────────────────────────────────────────────────────────────────
+const generateOTP   = () => crypto.randomInt(100_000, 999_999).toString();
+const getIp         = (req) => req.ip || req.socket?.remoteAddress || null;
+const maskEmail     = (email) => email.replace(/(.{2}).*(@.*)/, '$1***$2');
+
+const getDeviceHash = (req) => {
   const raw = [
     req.headers['user-agent']      || '',
     req.headers['accept-language'] || '',
@@ -43,9 +47,10 @@ const getDeviceHash  = (req) => {
 const flagAccount = async (client, userId, reason, ip) => {
   await client.query(`
     UPDATE users
-    SET status        = 'flagged',
-        total_reports = total_reports + 1,
-        updated_at    = NOW()
+    SET
+      status        = 'flagged',
+      total_reports = total_reports + 1,
+      updated_at    = NOW()
     WHERE id = $1
   `, [userId]);
 
@@ -72,16 +77,17 @@ router.post('/send-email-otp', authMiddleware, sendOtpLimiter, async (req, res) 
 
     const { rows: users } = await client.query(`
       SELECT id, email, name, email_verified, status
-      FROM users WHERE id = $1
+      FROM users
+      WHERE id = $1
     `, [userId]);
 
     const user = users[0];
+
     if (!user) {
       await client.query('ROLLBACK');
       return res.status(404).json({ error: 'User not found' });
     }
 
-    // Generic response — prevent enumeration
     if (user.email_verified) {
       await client.query('ROLLBACK');
       return res.status(400).json({
@@ -91,21 +97,28 @@ router.post('/send-email-otp', authMiddleware, sendOtpLimiter, async (req, res) 
 
     // Abuse check
     const { rows: abuse } = await client.query(`
-      SELECT COUNT(*) AS count FROM email_verifications
-      WHERE user_id = $1 AND created_at > NOW() - INTERVAL '10 minutes'
+      SELECT COUNT(*) AS count
+      FROM email_verifications
+      WHERE user_id    = $1
+        AND created_at > NOW() - INTERVAL '10 minutes'
     `, [userId]);
 
     if (parseInt(abuse[0].count) >= 5) {
       await flagAccount(client, userId, 'otp_abuse', ip);
       await client.query('COMMIT');
-      return res.status(429).json({ error: 'Too many requests. Account flagged.' });
+      return res.status(429).json({
+        error: 'Too many requests. Account flagged for review.',
+      });
     }
 
-    // Cooldown check
+    // Cooldown
     const { rows: recent } = await client.query(`
-      SELECT created_at FROM email_verifications
-      WHERE user_id = $1 AND created_at > NOW() - INTERVAL '60 seconds'
-      ORDER BY created_at DESC LIMIT 1
+      SELECT created_at
+      FROM email_verifications
+      WHERE user_id    = $1
+        AND created_at > NOW() - INTERVAL '60 seconds'
+      ORDER BY created_at DESC
+      LIMIT 1
     `, [userId]);
 
     if (recent.length > 0) {
@@ -114,19 +127,21 @@ router.post('/send-email-otp', authMiddleware, sendOtpLimiter, async (req, res) 
       );
       await client.query('ROLLBACK');
       return res.status(429).json({
-        error: `Wait ${waitSecs}s before requesting another code.`,
-        retryAfter: waitSecs,
+        error      : `Wait ${waitSecs}s before requesting another code.`,
+        retryAfter : waitSecs,
       });
     }
 
     // Invalidate old OTPs
     await client.query(`
       UPDATE email_verifications
-      SET status = 'expired', used_at = NOW()
-      WHERE user_id = $1 AND status = 'active'
+      SET status  = 'expired',
+          used_at = NOW()
+      WHERE user_id = $1
+        AND status  = 'active'
     `, [userId]);
 
-    // Generate + store
+    // Generate
     const otp        = generateOTP();
     const otpHash    = await bcrypt.hash(otp, 10);
     const deviceHash = getDeviceHash(req);
@@ -138,45 +153,57 @@ router.post('/send-email-otp', authMiddleware, sendOtpLimiter, async (req, res) 
     `, [userId, otpHash, deviceHash]);
 
     await client.query(`
-      INSERT INTO user_devices (user_id, device_hash, ip_address, user_agent, last_seen)
+      INSERT INTO user_devices
+        (user_id, device_hash, ip_address, user_agent, last_seen)
       VALUES ($1, $2, $3, $4, NOW())
       ON CONFLICT (user_id, device_hash)
-      DO UPDATE SET last_seen = NOW(), ip_address = EXCLUDED.ip_address
+      DO UPDATE SET
+        last_seen  = NOW(),
+        ip_address = EXCLUDED.ip_address
     `, [userId, deviceHash, ip, req.headers['user-agent'] || null]);
 
     await client.query('COMMIT');
 
-    // Send email after commit
+    // Send email outside transaction
     try {
       await sendVerificationEmail({ to: user.email, name: user.name, otp });
     } catch (mailErr) {
       console.error('[email-send-failed]', mailErr.message);
+
       await pool.query(`
         UPDATE email_verifications
-        SET status = 'expired', used_at = NOW()
-        WHERE user_id = $1 AND status = 'active'
+        SET status  = 'expired',
+            used_at = NOW()
+        WHERE user_id    = $1
+          AND status     = 'active'
           AND created_at > NOW() - INTERVAL '1 minute'
       `, [userId]);
-      return res.status(500).json({ error: 'Failed to send verification email.' });
+
+      return res.status(500).json({
+        error: 'Failed to send verification email. Please try again.',
+      });
     }
 
     await writeAudit({
-      actorId: userId, action: 'otp_sent',
-      targetType: 'user', targetId: userId,
-      metadata: { method: 'email' }, ipAddress: ip,
+      actorId    : userId,
+      action     : 'otp_sent',
+      targetType : 'user',
+      targetId   : userId,
+      metadata   : { method: 'email' },
+      ipAddress  : ip,
     });
 
-    res.json({
+    return res.json({
       success   : true,
-      message   : 'Verification code sent',
-      email     : user.email.replace(/(.{2}).*(@.*)/, '$1***$2'),
+      message   : 'Verification code sent to your email',
+      email     : maskEmail(user.email),
       expiresIn : 600,
     });
 
   } catch (err) {
     await client.query('ROLLBACK').catch(() => {});
     console.error('[send-email-otp]', err.message);
-    res.status(500).json({ error: 'Failed to send verification code' });
+    return res.status(500).json({ error: 'Failed to send verification code' });
   } finally {
     client.release();
   }
@@ -203,8 +230,11 @@ router.post('/verify-email-otp', authMiddleware, verifyOtpLimiter, async (req, r
     const { rows } = await client.query(`
       SELECT id, otp_hash, attempts, device_hash
       FROM email_verifications
-      WHERE user_id = $1 AND status = 'active' AND expires_at > NOW()
-      ORDER BY created_at DESC LIMIT 1
+      WHERE user_id    = $1
+        AND status     = 'active'
+        AND expires_at > NOW()
+      ORDER BY created_at DESC
+      LIMIT 1
     `, [userId]);
 
     if (!rows.length) {
@@ -216,24 +246,32 @@ router.post('/verify-email-otp', authMiddleware, verifyOtpLimiter, async (req, r
 
     const record = rows[0];
 
-    // Device mismatch — audit but don't block (mobile IPs shift)
+    // Device mismatch — audit but do not block
     if (record.device_hash && record.device_hash !== deviceHash) {
       await writeAudit({
-        actorId: userId, action: 'otp_device_mismatch',
-        targetType: 'user', targetId: userId,
-        metadata: { stored: record.device_hash, received: deviceHash },
-        ipAddress: ip,
+        actorId    : userId,
+        action     : 'otp_device_mismatch',
+        targetType : 'user',
+        targetId   : userId,
+        metadata   : { stored: record.device_hash, received: deviceHash },
+        ipAddress  : ip,
       });
     }
 
     // Max attempts
     if (record.attempts >= 5) {
       await client.query(`
-        UPDATE email_verifications SET status = 'blocked' WHERE id = $1
+        UPDATE email_verifications
+        SET status = 'blocked'
+        WHERE id = $1
       `, [record.id]);
+
       await flagAccount(client, userId, 'otp_max_attempts', ip);
       await client.query('COMMIT');
-      return res.status(400).json({ error: 'Too many failed attempts. Request a new code.' });
+
+      return res.status(400).json({
+        error: 'Too many failed attempts. Request a new code.',
+      });
     }
 
     // Compare
@@ -241,19 +279,26 @@ router.post('/verify-email-otp', authMiddleware, verifyOtpLimiter, async (req, r
 
     if (!isValid) {
       await client.query(`
-        UPDATE email_verifications SET attempts = attempts + 1 WHERE id = $1
+        UPDATE email_verifications
+        SET attempts = attempts + 1
+        WHERE id = $1
       `, [record.id]);
+
       await client.query('COMMIT');
 
       const attemptsLeft = Math.max(0, 4 - record.attempts);
+
       await writeAudit({
-        actorId: userId, action: 'otp_failed',
-        targetType: 'user', targetId: userId,
-        metadata: { attemptsLeft }, ipAddress: ip,
+        actorId    : userId,
+        action     : 'otp_failed',
+        targetType : 'user',
+        targetId   : userId,
+        metadata   : { attemptsLeft },
+        ipAddress  : ip,
       });
 
       return res.status(400).json({
-        error: 'Incorrect code. Please try again.',
+        error : 'Incorrect code. Please try again.',
         attemptsLeft,
       });
     }
@@ -261,24 +306,33 @@ router.post('/verify-email-otp', authMiddleware, verifyOtpLimiter, async (req, r
     // Atomic mark — race condition fix
     const { rows: marked } = await client.query(`
       UPDATE email_verifications
-      SET status = 'used', used_at = NOW()
-      WHERE id = $1 AND status = 'active'
+      SET status  = 'used',
+          used_at = NOW()
+      WHERE id     = $1
+        AND status = 'active'
       RETURNING id
     `, [record.id]);
 
     if (!marked.length) {
       await client.query('ROLLBACK');
-      return res.status(400).json({ error: 'Code already used. Request a new one.' });
+      return res.status(400).json({
+        error: 'Code already used. Please request a new one.',
+      });
     }
 
     // Update user
     const { rows: updatedUsers } = await client.query(`
       UPDATE users
-      SET email_verified = true, email_verified_at = NOW(),
-          verified = true, updated_at = NOW()
+      SET
+        email_verified    = true,
+        email_verified_at = NOW(),
+        verified          = true,
+        updated_at        = NOW()
       WHERE id = $1
-      RETURNING id, role, seller_type, status, email_verified,
-                store_verified, trust_score, created_at
+      RETURNING
+        id, role, seller_type, status,
+        email_verified, store_verified,
+        trust_score, created_at
     `, [userId]);
 
     const updatedUser = updatedUsers[0];
@@ -292,15 +346,21 @@ router.post('/verify-email-otp', authMiddleware, verifyOtpLimiter, async (req, r
     await client.query('COMMIT');
 
     await writeAudit({
-      actorId: userId, action: 'email_verified',
-      targetType: 'user', targetId: userId,
-      metadata: { trust_score: newScore }, ipAddress: ip,
+      actorId    : userId,
+      action     : 'email_verified',
+      targetType : 'user',
+      targetId   : userId,
+      metadata   : { trust_score: newScore },
+      ipAddress  : ip,
     });
 
-    // Return capability-based permissions
-    const caps = getCapabilities({ ...updatedUser, email_verified: true, trust_score: newScore });
+    const caps = getCapabilities({
+      ...updatedUser,
+      email_verified : true,
+      trust_score    : newScore,
+    });
 
-    res.json({
+    return res.json({
       success     : true,
       message     : 'Email verified successfully!',
       trust_score : newScore,
@@ -310,7 +370,7 @@ router.post('/verify-email-otp', authMiddleware, verifyOtpLimiter, async (req, r
   } catch (err) {
     await client.query('ROLLBACK').catch(() => {});
     console.error('[verify-email-otp]', err.message);
-    res.status(500).json({ error: 'Verification failed. Please try again.' });
+    return res.status(500).json({ error: 'Verification failed. Please try again.' });
   } finally {
     client.release();
   }
@@ -323,13 +383,17 @@ router.get('/status', authMiddleware, async (req, res) => {
   try {
     const { rows } = await pool.query(`
       SELECT
-        id, email, name, role, seller_type, status, rating,
-        email_verified, email_verified_at,
-        store_verified, trust_score, created_at
-      FROM users WHERE id = $1
+        id, email, name, role, seller_type,
+        status, rating, email_verified,
+        email_verified_at, store_verified,
+        trust_score, created_at
+      FROM users
+      WHERE id = $1
     `, [req.user.id]);
 
-    if (!rows.length) return res.status(404).json({ error: 'User not found' });
+    if (!rows.length) {
+      return res.status(404).json({ error: 'User not found' });
+    }
 
     const user = rows[0];
 
@@ -337,40 +401,32 @@ router.get('/status', authMiddleware, async (req, res) => {
       SELECT status, review_action, review_notes, updated_at
       FROM store_verifications
       WHERE user_id = $1
-      ORDER BY created_at DESC LIMIT 1
+      ORDER BY created_at DESC
+      LIMIT 1
     `, [req.user.id]);
 
     const caps = getCapabilities(user);
 
-    res.json({
-      // Identity
-      email      : user.email.replace(/(.{2}).*(@.*)/, '$1***$2'),
-      name       : user.name,
-      role       : user.role,
-      seller_type: user.seller_type,
-      status     : user.status,
-      rating     : user.rating,
-
-      // Verification state
+    return res.json({
+      email             : maskEmail(user.email),
+      name              : user.name,
+      role              : user.role,
+      seller_type       : user.seller_type,
+      status            : user.status,
+      rating            : user.rating,
       email_verified    : user.email_verified,
       email_verified_at : user.email_verified_at,
       store_verified    : user.store_verified,
       store_review      : storeRows[0] || null,
-
-      // Trust
-      trust_score : user.trust_score,
-
-      // Capabilities — structured with action hints
-      permissions : caps.toJSON(),
-
-      // Detailed hints for frontend CTAs
-      capability_hints: caps.toDetailedJSON(),
+      trust_score       : user.trust_score,
+      permissions       : caps.toJSON(),
+      capability_hints  : caps.toDetailedJSON(),
     });
 
   } catch (err) {
     console.error('[verification/status]', err.message);
-    res.status(500).json({ error: 'Failed to fetch status' });
+    return res.status(500).json({ error: 'Failed to fetch status' });
   }
 });
 
-module.exports = router;
+export default router;
