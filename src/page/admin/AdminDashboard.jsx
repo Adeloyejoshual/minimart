@@ -16,30 +16,30 @@ import Orders     from "./SuperAdmin/Orders";
 import Logs       from "./SuperAdmin/Logs";
 import Promotions from "./SuperAdmin/Promotions";
 import System     from "./SuperAdmin/System";
+import Reports    from "./SuperAdmin/Reports";     // ← NEW
 
 // helpers
 import { safeFeatures } from "./adminlayout/helpers";
 
-// ── API ───────────────────────────────────────────────────────────────────────
 const BASE     = "https://minimart-ivrm.onrender.com/api/admin";
 const PAY_BASE = "https://minimart-ivrm.onrender.com/api/payment";
 
 const createApi = (token) => {
   const h = { Authorization: `Bearer ${token}` };
   return {
-    get:  (p, base = BASE)        => axios.get(base + p,          { headers: h }),
-    post: (p, b = {}, base = BASE) => axios.post(base + p,  b,    { headers: h }),
-    put:  (p, b = {}, base = BASE) => axios.put(base + p,   b,    { headers: h }),
-    del:  (p, base = BASE)        => axios.delete(base + p,       { headers: h }),
+    get:  (p, base = BASE)         => axios.get(base + p,       { headers: h }),
+    post: (p, b = {}, base = BASE) => axios.post(base + p,  b,  { headers: h }),
+    put:  (p, b = {}, base = BASE) => axios.put(base + p,   b,  { headers: h }),
+    del:  (p, base = BASE)         => axios.delete(base + p,    { headers: h }),
   };
 };
 
-// ── Confirm Modal ─────────────────────────────────────────────────────────────
+/* ── Confirm modal ── */
 function Confirm({ cfg, onClose }) {
   if (!cfg) return null;
   return (
     <div className="overlay" onClick={onClose}>
-      <div className="modal" onClick={(e) => e.stopPropagation()}>
+      <div className="modal" onClick={e => e.stopPropagation()}>
         <div className="modal-title">{cfg.title}</div>
         <p style={{ fontSize: ".82rem", color: "var(--muted)", lineHeight: 1.6 }}>
           {cfg.body}
@@ -58,12 +58,14 @@ function Confirm({ cfg, onClose }) {
   );
 }
 
-// ── useData ───────────────────────────────────────────────────────────────────
+/* ── useData ── */
 function useData(api) {
-  const [stats,   setStats]   = useState({
+  const [stats,    setStats]   = useState({
     users: 0, orders: 0, revenue: 0, dailySales: [],
-    activeUsers: 0, bannedUsers: 0, pendingProducts: 0, totalProducts: 0,
-    todayUsers: 0, todayProducts: 0, todayRevenue: 0, todayOrders: 0,
+    activeUsers: 0, bannedUsers: 0,
+    pendingProducts: 0, totalProducts: 0,
+    todayUsers: 0, todayProducts: 0,
+    todayRevenue: 0, todayOrders: 0,
   });
   const [users,    setUsers]    = useState([]);
   const [admins,   setAdmins]   = useState([]);
@@ -72,9 +74,12 @@ function useData(api) {
   const [payments, setPayments] = useState([]);
   const [orders,   setOrders]   = useState([]);
   const [logs,     setLogs]     = useState([]);
-  const [system,   setSystem]   = useState({ maintenance: false, allowPosting: true, allowPayments: true });
-  const [plans,    setPlans]    = useState([]);
-  const [loading,  setLoading]  = useState(true);
+  const [system,   setSystem]   = useState({
+    maintenance: false, allowPosting: true, allowPayments: true,
+  });
+  const [plans,        setPlans]        = useState([]);
+  const [reportCount,  setReportCount]  = useState(0); // ← pending reports
+  const [loading,      setLoading]      = useState(true);
 
   const safe = useCallback(async (path, setter, base) => {
     try {
@@ -86,9 +91,10 @@ function useData(api) {
   }, [api]);
 
   const normalizePlans = useCallback((data) => {
-    if (data?.plans) {
-      setPlans(data.plans.map((p) => ({ ...p, features: safeFeatures(p.features) })));
-    }
+    if (data?.plans)
+      setPlans(data.plans.map(p => ({
+        ...p, features: safeFeatures(p.features),
+      })));
   }, []);
 
   const reloadPlans = useCallback(async () => {
@@ -98,6 +104,14 @@ function useData(api) {
     } catch (e) { console.warn("[plans]", e.message); }
   }, [api, normalizePlans]);
 
+  /* fetch pending report count for sidebar badge */
+  const reloadReportCount = useCallback(async () => {
+    try {
+      const { data } = await api.get("/reports/stats");
+      setReportCount(data.pending ?? 0);
+    } catch {}
+  }, [api]);
+
   const reload = useMemo(() => ({
     users:    () => safe("/users",            setUsers),
     admins:   () => safe("/admins",           setAdmins),
@@ -106,12 +120,13 @@ function useData(api) {
       safe("/products/pending", setPending),
       safe("/stats",            setStats),
     ]),
-    payments: () => safe("/payments", setPayments),
-    orders:   () => safe("/orders",   setOrders),
-    logs:     () => safe("/logs",     setLogs),
-    system:   (d) => setSystem(d),
-    plans:    reloadPlans,
-  }), [safe, reloadPlans]);
+    payments:     () => safe("/payments", setPayments),
+    orders:       () => safe("/orders",   setOrders),
+    logs:         () => safe("/logs",     setLogs),
+    system:       (d) => setSystem(d),
+    plans:        reloadPlans,
+    reportCount:  reloadReportCount,
+  }), [safe, reloadPlans, reloadReportCount]);
 
   const loadAll = useCallback(async () => {
     setLoading(true);
@@ -126,35 +141,39 @@ function useData(api) {
       safe("/logs",             setLogs),
       safe("/system",           setSystem),
       reloadPlans(),
+      reloadReportCount(),
     ]);
     setLoading(false);
-  }, [safe, reloadPlans]);
+  }, [safe, reloadPlans, reloadReportCount]);
 
   return {
     stats, users, admins, products, pending, payments,
-    orders, logs, system, plans, loading, loadAll, reload,
+    orders, logs, system, plans, reportCount, loading,
+    loadAll, reload,
   };
 }
 
-// ── useDerived ────────────────────────────────────────────────────────────────
-function useDerived({ users, products, pending, orders, payments, stats, productTab, userQ, productQ, orderQ, payQ }) {
+/* ── useDerived ── */
+function useDerived({
+  users, products, pending, orders, payments, stats,
+  productTab, userQ, productQ, orderQ, payQ,
+}) {
   const salesData = useMemo(() =>
-    (stats.dailySales ?? []).map((d) => ({
+    (stats.dailySales ?? []).map(d => ({
       date:  d.date?.slice(5),
       sales: Number(d.amount),
-    })),
-  [stats.dailySales]);
+    })), [stats.dailySales]);
 
   const userStats = useMemo(() => ({
     total:  users.length,
-    active: users.filter((u) => u.status !== "banned").length,
-    banned: users.filter((u) => u.status === "banned").length,
+    active: users.filter(u => u.status !== "banned").length,
+    banned: users.filter(u => u.status === "banned").length,
   }), [users]);
 
   const prodStatusData = useMemo(() => [
-    { status: "Active",  count: products.filter((p) => p.status === "active").length  },
-    { status: "Draft",   count: products.filter((p) => p.status === "draft").length   },
-    { status: "Pending", count: products.filter((p) => p.status === "pending").length },
+    { status: "Active",  count: products.filter(p => p.status === "active").length  },
+    { status: "Draft",   count: products.filter(p => p.status === "draft").length   },
+    { status: "Pending", count: products.filter(p => p.status === "pending").length },
   ], [products]);
 
   const lastProducts = useMemo(() =>
@@ -165,7 +184,7 @@ function useDerived({ users, products, pending, orders, payments, stats, product
 
   const filteredUsers = useMemo(() => {
     const q = userQ.toLowerCase();
-    return users.filter((u) =>
+    return users.filter(u =>
       `${u.name ?? ""} ${u.email ?? ""}`.toLowerCase().includes(q)
     );
   }, [users, userQ]);
@@ -173,7 +192,7 @@ function useDerived({ users, products, pending, orders, payments, stats, product
   const displayedProds = useMemo(() => {
     const q    = productQ.toLowerCase();
     const base = productTab === "pending" ? pending : products;
-    return base.filter((p) =>
+    return base.filter(p =>
       (p.name ?? p.title ?? "").toLowerCase().includes(q) ||
       (p.seller_name ?? "").toLowerCase().includes(q)
     );
@@ -181,14 +200,14 @@ function useDerived({ users, products, pending, orders, payments, stats, product
 
   const filteredOrders = useMemo(() => {
     const q = orderQ.toLowerCase();
-    return orders.filter((o) =>
+    return orders.filter(o =>
       `${o.id ?? ""} ${o.buyer_name ?? ""} ${o.status ?? ""}`.toLowerCase().includes(q)
     );
   }, [orders, orderQ]);
 
   const filteredPayments = useMemo(() => {
     const q = payQ.toLowerCase();
-    return payments.filter((p) =>
+    return payments.filter(p =>
       `${p.user ?? ""} ${p.reference ?? ""} ${p.status ?? ""}`.toLowerCase().includes(q)
     );
   }, [payments, payQ]);
@@ -199,7 +218,7 @@ function useDerived({ users, products, pending, orders, payments, stats, product
   };
 }
 
-// ── useActions ────────────────────────────────────────────────────────────────
+/* ── useActions ── */
 function useActions(api, reload) {
   const [busy, setBusy] = useState(null);
 
@@ -227,34 +246,33 @@ function useActions(api, reload) {
     registerAdmin: async (form) => { await api.post("/register", form); reload.admins(); },
     savePlan: async (plan) => {
       await run(`plan-${plan.id}`, () =>
-        api.put(
-          `/plans/${plan.id}`,
-          {
-            name:             plan.name,
-            price:            Number(plan.price),
-            discount_percent: Number(plan.discount_percent ?? 0),
-            duration_days:    Number(plan.duration_days ?? 30),
-            duration:         plan.duration ?? "",
-            priority:         Number(plan.priority ?? 0),
-            sort_order:       Number(plan.sort_order ?? 0),
-            is_active:        !!plan.is_active,
-            features:         safeFeatures(plan.features),
-          },
-          PAY_BASE
-        )
+        api.put(`/plans/${plan.id}`, {
+          name:             plan.name,
+          price:            Number(plan.price),
+          discount_percent: Number(plan.discount_percent ?? 0),
+          duration_days:    Number(plan.duration_days ?? 30),
+          duration:         plan.duration ?? "",
+          priority:         Number(plan.priority ?? 0),
+          sort_order:       Number(plan.sort_order ?? 0),
+          is_active:        !!plan.is_active,
+          features:         safeFeatures(plan.features),
+        }, PAY_BASE)
       );
       reload.plans();
     },
     togglePlan: async (plan) => {
       await run(`pt-${plan.id}`, () =>
-        api.put(`/plans/${plan.id}`, { ...plan, is_active: !plan.is_active }, PAY_BASE)
+        api.put(`/plans/${plan.id}`,
+          { ...plan, is_active: !plan.is_active }, PAY_BASE)
       );
       reload.plans();
     },
   };
 }
 
-// ── AdminDashboard ────────────────────────────────────────────────────────────
+/* ══════════════════════════════════════════════
+   AdminDashboard
+══════════════════════════════════════════════ */
 export default function AdminDashboard() {
   const token     = useMemo(() => localStorage.getItem("admin_token"), []);
   const adminName = useMemo(() => localStorage.getItem("admin_name") || "SA", []);
@@ -268,27 +286,27 @@ export default function AdminDashboard() {
   const [payQ,       setPayQ]       = useState("");
   const [confirmCfg, setConfirmCfg] = useState(null);
 
-  const confirm = useCallback((cfg) => setConfirmCfg(cfg), []);
+  const confirm = useCallback(cfg => setConfirmCfg(cfg), []);
 
   const data    = useData(api);
   const derived = useDerived({
-    users:      data.users,
-    products:   data.products,
-    pending:    data.pending,
-    orders:     data.orders,
-    payments:   data.payments,
-    stats:      data.stats,
+    users:    data.users,
+    products: data.products,
+    pending:  data.pending,
+    orders:   data.orders,
+    payments: data.payments,
+    stats:    data.stats,
     productTab, userQ, productQ, orderQ, payQ,
   });
   const actions = useActions(api, data.reload);
 
-  // stable ref for interval
-  const reloadLogsRef = useMemo(() => ({ current: data.reload.logs }), []);
-  useEffect(() => { reloadLogsRef.current = data.reload.logs; });
+  /* stable ref for log polling */
+  const logRef = useMemo(() => ({ current: data.reload.logs }), []);
+  useEffect(() => { logRef.current = data.reload.logs; });
 
   useEffect(() => {
     data.loadAll();
-    const iv = setInterval(() => reloadLogsRef.current(), 5000);
+    const iv = setInterval(() => logRef.current(), 5000);
     return () => clearInterval(iv);
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
@@ -298,7 +316,7 @@ export default function AdminDashboard() {
       <>
         <style>{css}</style>
         <div className="loading">
-          <span className="live-dot" /> Loading admin panel…
+          <span className="live-dot"/> Loading admin panel…
         </div>
       </>
     );
@@ -399,6 +417,10 @@ export default function AdminDashboard() {
         confirm={confirm}
       />
     ),
+    /* ← NEW */
+    reports: (
+      <Reports confirm={confirm}/>
+    ),
   };
 
   return (
@@ -409,19 +431,20 @@ export default function AdminDashboard() {
           page={page}
           setPage={setPage}
           pendingCount={data.pending.length}
+          reportCount={data.reportCount}      /* ← NEW */
         />
         <div className="main">
           <Topbar
             page={page}
             adminName={adminName}
-            notifCount={data.pending.length}
+            notifCount={data.pending.length + data.reportCount} /* ← NEW */
           />
           <div className="body">
             {pageMap[page] ?? null}
           </div>
         </div>
       </div>
-      <Confirm cfg={confirmCfg} onClose={() => setConfirmCfg(null)} />
+      <Confirm cfg={confirmCfg} onClose={() => setConfirmCfg(null)}/>
     </>
   );
 }
