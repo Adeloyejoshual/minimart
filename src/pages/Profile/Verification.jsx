@@ -8,7 +8,8 @@ import {
   ArrowRight, BadgeCheck,
 } from "lucide-react";
 
-const API = import.meta.env.VITE_API_URL || "http://localhost:5000";
+// ── API base — matches your production backend ─────────────────────────────────
+const API = "https://minimart-ivrm.onrender.com/api";
 
 /* ══════════════════════════════════════════════════════════════════════════════
    POLICY ENGINE — frontend display only
@@ -34,7 +35,7 @@ const policy = {
 };
 
 /* ══════════════════════════════════════════════════════════════════════════════
-   CHIP CONFIG — system-style status labels
+   CHIP CONFIG
 ══════════════════════════════════════════════════════════════════════════════ */
 const CHIP = {
   complete  : { label: "Completed", row: "bg-green-500/10  border-green-500/20",  text: "text-white",    badge: "text-green-400"  },
@@ -73,7 +74,6 @@ function StatusRow({ label, status, adminMessage }) {
         <Chip status={status} />
       </div>
 
-      {/* Admin feedback — only shown on rejection */}
       {status === "rejected" && adminMessage && (
         <motion.div
           initial={{ opacity: 0, y: -4 }}
@@ -93,7 +93,7 @@ function StatusRow({ label, status, adminMessage }) {
 }
 
 /* ══════════════════════════════════════════════════════════════════════════════
-   BUILD STATUS ROWS — backend truth only, no UI inference mixed in
+   BUILD STATUS ROWS
 ══════════════════════════════════════════════════════════════════════════════ */
 const buildStatusRows = (status) => {
   if (!status) return [];
@@ -120,9 +120,7 @@ const buildStatusRows = (status) => {
     {
       id           : "seller",
       label        : "Seller Access",
-      status       : isSeller
-        ? "complete"
-        : emailDone ? "active" : "pending",
+      status       : isSeller ? "complete" : emailDone ? "active" : "pending",
       adminMessage : null,
     },
     {
@@ -283,7 +281,7 @@ function OTPInput({ length = 6, value, onChange, disabled, hasError }) {
 }
 
 /* ══════════════════════════════════════════════════════════════════════════════
-   COUNTDOWN — stable, runs once per mount
+   COUNTDOWN — stable, runs once
 ══════════════════════════════════════════════════════════════════════════════ */
 function Countdown({ seconds, onComplete }) {
   const [left, setLeft] = useState(seconds);
@@ -298,7 +296,7 @@ function Countdown({ seconds, onComplete }) {
       });
     }, 1000);
     return () => { active = false; clearInterval(t); };
-  }, []); // intentional — runs once
+  }, []); // runs once
 
   return (
     <span className={`text-sm font-mono font-bold tabular-nums ${
@@ -338,7 +336,7 @@ export default function Verification() {
   /* ── Fetch status ─────────────────────────────────────────────────────────── */
   const fetchStatus = useCallback(async () => {
     try {
-      const res  = await fetch(`${API}/api/verification/status`, {
+      const res  = await fetch(`${API}/verification/status`, {
         headers: authHeaders(),
       });
       const data = await res.json();
@@ -360,7 +358,7 @@ export default function Verification() {
 
   useEffect(() => { fetchStatus(); }, [fetchStatus]);
 
-  /* ── Derived — memoized from raw backend claims ───────────────────────────── */
+  /* ── Derived ──────────────────────────────────────────────────────────────── */
   const permissions = useMemo(() => policy.resolve({
     email_verified : status?.email_verified,
     store_verified : status?.store_verified,
@@ -370,11 +368,11 @@ export default function Verification() {
 
   const statusRows = useMemo(() => buildStatusRows(status), [status]);
 
-  const trustScore    = status?.trust_score    || 0;
-  const emailVerified = status?.email_verified || false;
-  const storeVerified = status?.store_verified || false;
-  const storeReview   = status?.store_review   || null;
-  const isSeller      = status?.role === "seller" || status?.role === "admin";
+  const trustScore      = status?.trust_score    || 0;
+  const emailVerified   = status?.email_verified || false;
+  const storeVerified   = status?.store_verified || false;
+  const storeReview     = status?.store_review   || null;
+  const isSeller        = status?.role === "seller" || status?.role === "admin";
 
   const storeChipStatus = storeVerified
     ? "complete"
@@ -390,7 +388,7 @@ export default function Verification() {
     setHasError(false);
 
     try {
-      const res  = await fetch(`${API}/api/verification/send-email-otp`, {
+      const res  = await fetch(`${API}/verification/send-email-otp`, {
         method  : "POST",
         headers : authHeaders(),
       });
@@ -425,7 +423,7 @@ export default function Verification() {
     setHasError(false);
 
     try {
-      const res  = await fetch(`${API}/api/verification/verify-email-otp`, {
+      const res  = await fetch(`${API}/verification/verify-email-otp`, {
         method  : "POST",
         headers : authHeaders(),
         body    : JSON.stringify({ otp }),
@@ -433,14 +431,13 @@ export default function Verification() {
       const data = await res.json();
 
       if (res.ok) {
-        // Optimistic update — no stale render cycle
         setStatus((prev) => ({
           ...prev,
           email_verified : true,
           trust_score    : data.trust_score ?? (prev?.trust_score || 0) + 40,
         }));
         setStep("success");
-        fetchStatus(); // background sync
+        fetchStatus();
       } else {
         setHasError(true);
         setOtp("");
@@ -458,7 +455,7 @@ export default function Verification() {
     }
   }, [otp, verifying, authHeaders, fetchStatus]);
 
-  /* ── Auto-submit — debounced + race guard ─────────────────────────────────── */
+  /* ── Auto-submit ──────────────────────────────────────────────────────────── */
   useEffect(() => {
     if (
       otp.length === 6 &&
@@ -495,7 +492,7 @@ export default function Verification() {
     <div className="min-h-screen bg-gray-950 text-white">
       <div className="max-w-lg mx-auto px-4 py-10">
 
-        {/* ── Header ─────────────────────────────────────────────────────── */}
+        {/* Header */}
         <motion.div
           initial={{ opacity: 0, y: -12 }}
           animate={{ opacity: 1, y:   0 }}
@@ -526,32 +523,15 @@ export default function Verification() {
               transition={{ duration: 0.2 }}
               className="space-y-3"
             >
-
               {/* Trust Score */}
               <div className="bg-gray-900 rounded-2xl border border-gray-800 p-6">
                 <div className="flex flex-col items-center">
                   <TrustRing score={trustScore} />
                   <div className="w-full mt-5 pt-5 border-t border-gray-800 space-y-2.5">
-                    <ScoreRow
-                      label="Email verified"
-                      points={40}
-                      done={emailVerified}
-                    />
-                    <ScoreRow
-                      label="Store verified"
-                      points={20}
-                      done={storeVerified}
-                    />
-                    <ScoreRow
-                      label="Account age 30 days"
-                      points={10}
-                      done={trustScore >= 60}
-                    />
-                    <ScoreRow
-                      label="Account age 90 days"
-                      points={10}
-                      done={trustScore >= 70}
-                    />
+                    <ScoreRow label="Email verified"        points={40} done={emailVerified}    />
+                    <ScoreRow label="Store verified"        points={20} done={storeVerified}    />
+                    <ScoreRow label="Account age 30 days"  points={10} done={trustScore >= 60} />
+                    <ScoreRow label="Account age 90 days"  points={10} done={trustScore >= 70} />
                   </div>
                 </div>
               </div>
@@ -574,7 +554,7 @@ export default function Verification() {
                 </div>
               </div>
 
-              {/* Email action — only when not verified */}
+              {/* Email action */}
               {!emailVerified && (
                 <div className="bg-gray-900 rounded-2xl border border-gray-800 p-5">
                   <div className="flex items-center gap-4">
@@ -628,7 +608,6 @@ export default function Verification() {
                   <Chip status={storeChipStatus} />
                 </div>
 
-                {/* Admin rejection message */}
                 {storeChipStatus === "rejected" && storeReview?.message && (
                   <motion.div
                     initial={{ opacity: 0, y: -4 }}
@@ -644,7 +623,6 @@ export default function Verification() {
                   </motion.div>
                 )}
               </div>
-
             </motion.div>
           )}
 
@@ -668,8 +646,6 @@ export default function Verification() {
               </button>
 
               <div className="bg-gray-900 rounded-2xl border border-gray-800 p-8">
-
-                {/* Header */}
                 <div className="text-center mb-8">
                   <motion.div
                     initial={{ scale: 0.85, opacity: 0 }}
@@ -689,7 +665,6 @@ export default function Verification() {
                   </p>
                 </div>
 
-                {/* OTP Input */}
                 <div className="mb-2">
                   <OTPInput
                     length={6}
@@ -704,7 +679,6 @@ export default function Verification() {
                   Auto-submit enabled
                 </p>
 
-                {/* Verifying */}
                 <AnimatePresence>
                   {verifying && (
                     <motion.div
@@ -719,7 +693,6 @@ export default function Verification() {
                   )}
                 </AnimatePresence>
 
-                {/* Error */}
                 <AnimatePresence>
                   {error && (
                     <motion.div
@@ -741,13 +714,9 @@ export default function Verification() {
                   )}
                 </AnimatePresence>
 
-                {/* Resend row */}
                 <div className="flex items-center justify-between pt-3 border-t border-gray-800">
-
-                  {/* Left — resend control */}
                   <div>
                     {resendRemaining <= 0 ? (
-                      // Daily limit hit — backend already blocking
                       <span className="text-gray-600 text-sm">
                         Daily limit reached
                       </span>
@@ -776,7 +745,6 @@ export default function Verification() {
                     )}
                   </div>
 
-                  {/* Right — security note */}
                   <div className="flex items-center gap-1.5">
                     <Lock size={11} className="text-gray-700" />
                     <span className="text-gray-700 text-xs">
@@ -789,7 +757,7 @@ export default function Verification() {
           )}
 
           {/* ════════════════════════════════════════════════════════════════
-              SUCCESS — system style, no emojis, no marketing tone
+              SUCCESS
           ════════════════════════════════════════════════════════════════ */}
           {step === "success" && (
             <motion.div
@@ -800,8 +768,6 @@ export default function Verification() {
               transition={{ duration: 0.22 }}
             >
               <div className="bg-gray-900 rounded-2xl border border-gray-800 p-8">
-
-                {/* Header */}
                 <div className="text-center mb-6">
                   <motion.div
                     initial={{ scale: 0 }}
@@ -819,7 +785,6 @@ export default function Verification() {
                   </p>
                 </div>
 
-                {/* Status blocks */}
                 <div className="space-y-2 mb-4">
                   <StatusRow
                     label="Email Verification"
@@ -847,7 +812,6 @@ export default function Verification() {
                   />
                 </div>
 
-                {/* Trust score */}
                 <div className="flex items-center justify-between px-4 py-3 rounded-xl bg-gray-800/60 border border-gray-700 mb-5">
                   <span className="text-sm text-gray-400">Trust Score</span>
                   <span className="text-sm font-bold text-white">
@@ -855,7 +819,6 @@ export default function Verification() {
                   </span>
                 </div>
 
-                {/* Actions */}
                 <div className="space-y-2">
                   <motion.button
                     whileHover={{ scale: 1.02 }}
