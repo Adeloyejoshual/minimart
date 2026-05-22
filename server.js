@@ -23,11 +23,11 @@ const server = http.createServer(app);
    DATABASE — CockroachDB via pg Pool
 ═══════════════════════════════════════════ */
 export const pool = new Pool({
-  connectionString:        process.env.COCKROACH_URI,
-  ssl:                     { rejectUnauthorized: false },
-  max:                     10,
-  idleTimeoutMillis:       30_000,
-  connectionTimeoutMillis: 5_000,
+  connectionString        : process.env.COCKROACH_URI,
+  ssl                     : { rejectUnauthorized: false },
+  max                     : 10,
+  idleTimeoutMillis       : 30_000,
+  connectionTimeoutMillis : 5_000,
 });
 
 (async () => {
@@ -54,7 +54,7 @@ export const io = initSocket(server, ALLOWED_ORIGIN);
    IN-MEMORY CACHE (LRU-style with TTL)
 ═══════════════════════════════════════════ */
 const _cache    = new Map();
-const CACHE_TTL = 60_000; // 1 minute
+const CACHE_TTL = 60_000;
 
 export function setCache(key, value, ttl = CACHE_TTL) {
   _cache.set(key, { value, expires: Date.now() + ttl });
@@ -80,7 +80,6 @@ export function clearCachePattern(prefix) {
   }
 }
 
-/* sweep expired entries every minute */
 setInterval(() => {
   const now = Date.now();
   for (const [key, item] of _cache.entries()) {
@@ -98,9 +97,9 @@ const corsOptions = {
     if (allowed.includes(origin)) return cb(null, true);
     cb(new Error(`CORS blocked: ${origin}`));
   },
-  credentials:    true,
-  methods:        ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
-  allowedHeaders: ["Content-Type", "Authorization", "x-requested-with"],
+  credentials    : true,
+  methods        : ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
+  allowedHeaders : ["Content-Type", "Authorization", "x-requested-with"],
 };
 
 app.use(cors(corsOptions));
@@ -110,10 +109,10 @@ app.options("*", cors(corsOptions));
    SECURITY HEADERS
 ═══════════════════════════════════════════ */
 app.use((_req, res, next) => {
-  res.setHeader("X-Content-Type-Options",  "nosniff");
-  res.setHeader("X-Frame-Options",         "DENY");
-  res.setHeader("X-XSS-Protection",        "1; mode=block");
-  res.setHeader("Referrer-Policy",         "strict-origin-when-cross-origin");
+  res.setHeader("X-Content-Type-Options", "nosniff");
+  res.setHeader("X-Frame-Options",        "DENY");
+  res.setHeader("X-XSS-Protection",       "1; mode=block");
+  res.setHeader("Referrer-Policy",        "strict-origin-when-cross-origin");
   res.setHeader(
     "Permissions-Policy",
     "camera=(), microphone=(), geolocation=(self)"
@@ -123,14 +122,13 @@ app.use((_req, res, next) => {
 
 /* ═══════════════════════════════════════════
    STATIC — uploaded chat images
-   Must come before body parsers
 ═══════════════════════════════════════════ */
 app.use(
   "/uploads",
   express.static(path.join(__dirname, "uploads"), {
-    maxAge:      "7d",
-    etag:        true,
-    lastModified: true,
+    maxAge       : "7d",
+    etag         : true,
+    lastModified : true,
     setHeaders(res, filePath) {
       if (filePath.endsWith(".html") || filePath.endsWith(".htm")) {
         res.setHeader("Content-Type", "text/plain");
@@ -162,7 +160,9 @@ app.use(express.urlencoded({ extended: true, limit: "10mb" }));
 ═══════════════════════════════════════════ */
 app.use((req, _res, next) => {
   if (process.env.NODE_ENV !== "test") {
-    console.log(`${new Date().toISOString()} | ${req.method} ${req.originalUrl}`);
+    console.log(
+      `${new Date().toISOString()} | ${req.method} ${req.originalUrl}`
+    );
   }
   next();
 });
@@ -170,9 +170,9 @@ app.use((req, _res, next) => {
 /* ═══════════════════════════════════════════
    RATE LIMITER (per-IP, in-memory)
 ═══════════════════════════════════════════ */
-const _limiter  = new Map();
-const WINDOW_MS = 60_000;
-const MAX_REQ   = 120;
+const _limiter   = new Map();
+const WINDOW_MS  = 60_000;
+const MAX_REQ    = 120;
 const UPLOAD_MAX = 20;
 
 setInterval(() => {
@@ -189,9 +189,9 @@ function rateLimiter(max = MAX_REQ) {
       req.socket.remoteAddress ??
       "unknown";
 
-    const now  = Date.now();
-    const key  = `${ip}:${max}`;
-    let   data = _limiter.get(key);
+    const now = Date.now();
+    const key = `${ip}:${max}`;
+    let data  = _limiter.get(key);
 
     if (!data || now - data.time > WINDOW_MS) {
       data = { count: 1, time: now };
@@ -203,9 +203,9 @@ function rateLimiter(max = MAX_REQ) {
 
     if (data.count > max) {
       return res.status(429).json({
-        success:    false,
-        message:    "Too many requests. Please wait a moment.",
-        retryAfter: Math.ceil((WINDOW_MS - (now - data.time)) / 1000),
+        success    : false,
+        message    : "Too many requests. Please wait a moment.",
+        retryAfter : Math.ceil((WINDOW_MS - (now - data.time)) / 1000),
       });
     }
 
@@ -220,6 +220,7 @@ app.use(rateLimiter(MAX_REQ));
 ═══════════════════════════════════════════ */
 import "./jobs/expirePromotions.js";
 import { startChatCleanupJob } from "./jobs/cleanupChats.js";
+import { startCleanupJobs }    from "./jobs/cleanup.js";      // ← OTP + device cleanup
 
 /* ═══════════════════════════════════════════
    ROUTE IMPORTS
@@ -238,6 +239,7 @@ import notificationsRouter from "./routes/notifications.js";
 import postAdsRouter       from "./routes/postAds.js";
 import walletRoutes        from "./routes/wallets.js";
 import p2pRouter           from "./routes/p2p.js";
+import verificationRouter  from "./routes/verification.js";   // ← NEW
 
 /* ═══════════════════════════════════════════
    API ROUTES
@@ -260,6 +262,7 @@ app.use("/api/notifications", notificationsRouter);
 app.use("/api/products",      postAdsRouter);
 app.use("/api/v1/wallets",    walletRoutes);
 app.use("/api/p2p",           p2pRouter);
+app.use("/api/verification",  verificationRouter);            // ← NEW
 
 /* ═══════════════════════════════════════════
    HEALTH CHECK
@@ -271,21 +274,21 @@ app.get("/api/health", async (_req, res) => {
     const dbLatencyMs = Date.now() - start;
 
     return res.json({
-      success:       true,
-      status:        "healthy",
-      database:      rows[0]?.ok === 1,
-      db_latency_ms: dbLatencyMs,
-      uptime_s:      Math.floor(process.uptime()),
-      memory_mb:     Math.round(process.memoryUsage().rss / 1024 / 1024),
-      online_users:  getOnlineCount(),
-      node_version:  process.version,
-      env:           process.env.NODE_ENV || "development",
+      success       : true,
+      status        : "healthy",
+      database      : rows[0]?.ok === 1,
+      db_latency_ms : dbLatencyMs,
+      uptime_s      : Math.floor(process.uptime()),
+      memory_mb     : Math.round(process.memoryUsage().rss / 1024 / 1024),
+      online_users  : getOnlineCount(),
+      node_version  : process.version,
+      env           : process.env.NODE_ENV || "development",
     });
   } catch (err) {
     return res.status(500).json({
-      success: false,
-      status:  "unhealthy",
-      error:   err.message,
+      success : false,
+      status  : "unhealthy",
+      error   : err.message,
     });
   }
 });
@@ -300,8 +303,8 @@ if (process.env.NODE_ENV === "production") {
   app.get("*", (req, res) => {
     if (req.path.startsWith("/api/")) {
       return res.status(404).json({
-        success: false,
-        message: `API route not found: ${req.method} ${req.originalUrl}`,
+        success : false,
+        message : `API route not found: ${req.method} ${req.originalUrl}`,
       });
     }
     res.sendFile(path.join(distPath, "index.html"));
@@ -309,12 +312,12 @@ if (process.env.NODE_ENV === "production") {
 }
 
 /* ═══════════════════════════════════════════
-   404 — unknown routes
+   404
 ═══════════════════════════════════════════ */
 app.use((req, res) => {
   res.status(404).json({
-    success: false,
-    message: `Cannot ${req.method} ${req.originalUrl}`,
+    success : false,
+    message : `Cannot ${req.method} ${req.originalUrl}`,
   });
 });
 
@@ -324,7 +327,6 @@ app.use((req, res) => {
 app.use((err, req, res, _next) => {
   console.error("🔥 Unhandled error:", err.message || err);
 
-  /* multer errors */
   if (err.code === "LIMIT_FILE_SIZE")
     return res.status(400).json({ success: false, message: "File too large (max 10 MB)" });
   if (err.code === "LIMIT_FILE_COUNT")
@@ -333,12 +335,8 @@ app.use((err, req, res, _next) => {
     return res.status(400).json({ success: false, message: "Unexpected file field" });
   if (err.message === "Only image files are allowed")
     return res.status(400).json({ success: false, message: err.message });
-
-  /* CORS error */
   if (err.message?.startsWith("CORS blocked"))
     return res.status(403).json({ success: false, message: err.message });
-
-  /* CockroachDB / pg errors */
   if (err.code === "23505")
     return res.status(409).json({ success: false, message: "Duplicate entry" });
   if (err.code === "23503")
@@ -390,7 +388,8 @@ server.listen(PORT, () => {
   console.log(`   CORS : ${ALLOWED_ORIGIN}`);
 
   startChatCleanupJob();
-  console.log("🧹 Chat cleanup job started");
+  startCleanupJobs();                                          // ← OTP cleanup
+  console.log("🧹 Chat + OTP cleanup jobs started");
 });
 
 export default app;
