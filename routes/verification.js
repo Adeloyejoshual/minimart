@@ -1,5 +1,5 @@
 import express              from "express";
-import bcrypt               from "bcryptjs";
+import bcrypt               from "bcryptj";
 import crypto               from "crypto";
 import rateLimit            from "express-rate-limit";
 import { pool }             from "../db.js";
