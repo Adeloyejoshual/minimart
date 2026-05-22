@@ -1,5 +1,5 @@
 import cron          from 'node-cron';
-import { pool }      from '../db.js';
+import { pool } from "../config/db.js";
 import { writeAudit } from '../lib/audit.js';
 
 export const startCleanupJobs = () => {
