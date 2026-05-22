@@ -11,15 +11,18 @@ import "../../style/Verification.css";
 const API = "https://minimart-ivrm.onrender.com/api";
 
 const DOC_TYPES = [
-  { value: "nin",             label: "National ID (NIN)",      numberLabel: "NIN Number",     needsBack: false },
-  { value: "passport",        label: "International Passport", numberLabel: "Passport Number", needsBack: false },
-  { value: "drivers_license", label: "Driver's License",       numberLabel: "License Number",  needsBack: true  },
-  { value: "voters_card",     label: "Voter's Card",           numberLabel: "VIN",             needsBack: false },
+  { value: "nin",             label: "National ID (NIN)",      numberLabel: "NIN Number",      frontLabel: "Upload NIN Slip (Front)",        backLabel: "Upload NIN Slip (Back)"        },
+  { value: "passport",        label: "International Passport", numberLabel: "Passport Number",  frontLabel: "Upload Passport Photo Page",     backLabel: "Upload Passport Back Page"      },
+  { value: "drivers_license", label: "Driver's License",       numberLabel: "License Number",   frontLabel: "Upload License (Front)",          backLabel: "Upload License (Back)"          },
+  { value: "voters_card",     label: "Voter's Card",           numberLabel: "VIN",              frontLabel: "Upload Voter's Card (Front)",     backLabel: "Upload Voter's Card (Back)"     },
 ];
 
 const formatSize = (b) =>
   b < 1024 ? `${b} B` : b < 1048576 ? `${(b/1024).toFixed(1)} KB` : `${(b/1048576).toFixed(1)} MB`;
 
+/* ══════════════════════════════════════════════════════════════════════════════
+   SUB COMPONENTS
+══════════════════════════════════════════════════════════════════════════════ */
 function Chip({ status }) {
   const m = { complete:"Completed", active:"Active", in_review:"In Review", rejected:"Rejected", pending:"Pending" };
   return <span className={`v-chip v-chip--${status}`}>{m[status]||"Pending"}</span>;
@@ -62,7 +65,6 @@ function TrustRing({ score=0 }) {
 function OTPInput({ length=6, value, onChange, disabled, hasError }) {
   const refs = useRef([]);
   useEffect(() => { setTimeout(() => refs.current[0]?.focus(), 400); }, []);
-
   return (
     <div className="otp-group">
       {Array.from({length}).map((_,i) => (
@@ -86,13 +88,13 @@ function OTPInput({ length=6, value, onChange, disabled, hasError }) {
 }
 
 function Countdown({ seconds, onComplete }) {
-  const [left,setLeft] = useState(seconds);
+  const [left,setLeft]=useState(seconds);
   useEffect(()=>{let go=true;const t=setInterval(()=>{if(!go)return;setLeft(p=>{if(p<=1){clearInterval(t);onComplete?.();return 0}return p-1})},1000);return()=>{go=false;clearInterval(t)}},[]);
   return <span className={`countdown-value ${left<20?"countdown-value--warn":"countdown-value--normal"}`}>{left}s</span>;
 }
 
 function FileUpload({ label, hint, accept, file, onFileChange, onRemove }) {
-  const [preview,setPreview] = useState(null);
+  const [preview,setPreview]=useState(null);
   useEffect(()=>{if(!file){setPreview(null);return}const u=URL.createObjectURL(file);setPreview(u);return()=>URL.revokeObjectURL(u)},[file]);
   if(file) return (
     <div className="upload-area upload-area--has-file">
@@ -149,7 +151,7 @@ export default function Verification() {
   const [pageLoading,setPageLoading] = useState(true);
 
   // Email
-  const [emailStep,setEmailStep]     = useState("idle"); // idle|sending|otp|done
+  const [emailStep,setEmailStep]     = useState("idle"); // idle|otp|done
   const [userEmail,setUserEmail]     = useState("");
   const [otp,setOtp]                 = useState("");
   const [sending,setSending]         = useState(false);
@@ -209,35 +211,32 @@ export default function Verification() {
   const storeReview      = status?.store_review||null;
   const selectedDoc      = DOC_TYPES.find(d=>d.value===docType);
 
-  // ── Send OTP
+  // ── Send OTP — opens OTP area IMMEDIATELY, sends in background
   const sendOTP = useCallback(async()=>{
-    setSending(true);
-    setEmailStep("sending");
+    // Open OTP area instantly — don't wait for API
+    setEmailStep("otp");
     setEmailError("");
     setOtp("");
     setHasOtpError(false);
     setDevOtp("");
+    setSending(true);
+    setCanResend(false);
 
     try{
       const res=await fetch(`${API}/verification/send-email-otp`,{method:"POST",headers:authHeaders()});
       const data=await res.json();
-      console.log("[sendOTP] response:", data);
+      console.log("[sendOTP]", data);
 
       if(res.ok){
-        setEmailStep("otp");
-        setCanResend(false);
         if(data.full_email) setUserEmail(data.full_email);
         if(typeof data.remaining==="number") setResendRemaining(data.remaining);
         if(data.dev_otp) setDevOtp(data.dev_otp);
       } else {
-        setEmailError(data.message||"Failed to send.");
-        setEmailStep("idle");
+        setEmailError(data.message||"Failed to send code.");
         if(res.status===429&&data.remaining===0) setResendRemaining(0);
       }
-    }catch(err){
-      console.error("[sendOTP]",err);
-      setEmailError("Network error.");
-      setEmailStep("idle");
+    }catch{
+      setEmailError("Network error. Try again.");
     }finally{
       setSending(false);
     }
@@ -333,7 +332,7 @@ export default function Verification() {
         </div>
 
         {/* ══════════════════════════════════════════════════════════════════════
-            STEP 1 — EMAIL VERIFICATION
+            STEP 1 — EMAIL
         ══════════════════════════════════════════════════════════════════════ */}
         <motion.div layout className={`step-item ${emailStep==="done"?"step-item--complete":emailStep==="otp"?"step-item--active":""}`}>
           <div className="step-item-header">
@@ -347,27 +346,16 @@ export default function Verification() {
                   <CheckCircle size={12}/> Verified
                   {status?.email_verified_at&&<span style={{color:"#6b7280",marginLeft:4}}>· {new Date(status.email_verified_at).toLocaleDateString("en-US",{day:"numeric",month:"short",year:"numeric"})}</span>}
                 </p>
-              ):(
-                <p className="step-item-desc">{userEmail||status?.email||"Verify your email"}</p>
-              )}
+              ):<p className="step-item-desc">{userEmail||status?.email||"Verify your email"}</p>}
             </div>
             <div className="step-item-action">
               {emailStep==="done"?<Chip status="complete"/>:
                emailStep==="idle"?<button className="v-btn v-btn--primary v-btn--small" onClick={sendOTP}><Mail size={13}/> Verify Email</button>:
-               emailStep==="sending"?<button className="v-btn v-btn--primary v-btn--small" disabled><Loader2 size={13} className="v-spin"/> Sending</button>:
                <Chip status="active"/>}
             </div>
           </div>
 
-          {/* Error for send failure — shown when idle */}
-          {emailError&&emailStep==="idle"&&(
-            <div className="v-error" style={{margin:"12px 0 0"}}>
-              <XCircle size={14} className="v-error-icon"/>
-              <div><p className="v-error-text">{emailError}</p></div>
-            </div>
-          )}
-
-          {/* OTP AREA — slides open after clicking Verify Email */}
+          {/* OTP AREA — opens IMMEDIATELY on click */}
           <AnimatePresence>
             {emailStep==="otp"&&(
               <motion.div
@@ -377,49 +365,40 @@ export default function Verification() {
                 transition={{duration:0.3,ease:"easeInOut"}}
                 className="step-body otp-section"
               >
-                {/* Email display */}
                 <div className="otp-section-header">
                   <div className="otp-section-icon"><Mail size={22}/></div>
                   <p className="otp-section-title">Enter Verification Code</p>
-                  <p className="otp-section-subtitle">
-                    We sent a 6-digit code to
-                  </p>
-                  <p style={{
-                    fontSize: 15,
-                    fontWeight: 700,
-                    color: "#60a5fa",
-                    marginTop: 6,
-                    letterSpacing: 0.3,
-                    wordBreak: "break-all",
-                  }}>
-                    {userEmail || status?.email || "your email"}
+                  <p className="otp-section-subtitle">We sent a 6-digit code to</p>
+                  <p style={{fontSize:15,fontWeight:700,color:"#60a5fa",marginTop:6,letterSpacing:0.3,wordBreak:"break-all"}}>
+                    {userEmail||status?.email||"your email"}
                   </p>
                 </div>
 
-                {/* DEV: Show OTP for testing */}
+                {/* Sending indicator — shows while API is in progress */}
+                {sending&&(
+                  <div className="verifying-indicator" style={{marginBottom:14}}>
+                    <Loader2 size={14} className="v-spin"/><span>Sending code...</span>
+                  </div>
+                )}
+
+                {/* DEV: test code */}
                 {devOtp&&(
-                  <div style={{
-                    textAlign:"center",padding:"10px 14px",
-                    background:"rgba(245,158,11,0.1)",border:"1px solid rgba(245,158,11,0.2)",
-                    borderRadius:10,marginBottom:14,fontSize:13,color:"#fbbf24",
-                  }}>
+                  <div style={{textAlign:"center",padding:"10px 14px",background:"rgba(245,158,11,0.1)",border:"1px solid rgba(245,158,11,0.2)",borderRadius:10,marginBottom:14,fontSize:13,color:"#fbbf24"}}>
                     Test code: <strong style={{letterSpacing:4,fontSize:18}}>{devOtp}</strong>
                   </div>
                 )}
 
-                {/* OTP inputs */}
+                {/* OTP inputs — visible immediately */}
                 <OTPInput length={6} value={otp} onChange={setOtp} disabled={verifying} hasError={hasOtpError}/>
                 <p className="otp-helper">Auto-submit enabled</p>
 
-                {/* Verifying */}
                 {verifying&&(
                   <div className="verifying-indicator">
                     <Loader2 size={14} className="v-spin"/><span>Verifying code</span>
                   </div>
                 )}
 
-                {/* Error */}
-                {emailError&&emailStep==="otp"&&(
+                {emailError&&(
                   <div className="v-error">
                     <XCircle size={14} className="v-error-icon"/>
                     <div>
@@ -431,7 +410,6 @@ export default function Verification() {
                   </div>
                 )}
 
-                {/* Resend */}
                 <div className="resend-row">
                   <div>
                     {resendRemaining<=0?<span style={{fontSize:13,color:"#4b5563"}}>Daily limit reached</span>:
@@ -448,7 +426,7 @@ export default function Verification() {
         </motion.div>
 
         {/* ══════════════════════════════════════════════════════════════════════
-            STEP 2 — IDENTITY
+            STEP 2 — IDENTITY (all types require front + back)
         ══════════════════════════════════════════════════════════════════════ */}
         <div className={`step-item ${identityVerified?"step-item--complete":""}`}>
           <div className="step-item-header">
@@ -475,6 +453,7 @@ export default function Verification() {
           {!identityVerified&&idReview?.status!=="pending"&&(
             <div className="step-body">
               <div style={{display:"flex",flexDirection:"column",gap:14}}>
+
                 <div>
                   <label className="v-field-label">Choose Identification Type</label>
                   <div style={{display:"flex",flexDirection:"column",gap:8}}>
@@ -497,35 +476,35 @@ export default function Verification() {
                     <motion.div initial={{opacity:0,height:0}} animate={{opacity:1,height:"auto"}} exit={{opacity:0,height:0}}
                       transition={{duration:0.25}} style={{display:"flex",flexDirection:"column",gap:12,overflow:"hidden"}}>
 
+                      {/* Document number */}
                       <div>
                         <label className="v-field-label">{selectedDoc.numberLabel}</label>
                         <input type="text" className="v-input" value={docNumber} onChange={e=>setDocNumber(e.target.value)}
                           placeholder={`Enter ${selectedDoc.numberLabel}`} maxLength={30}/>
                       </div>
 
+                      {/* Front — always required */}
                       <div>
-                        <label className="v-field-label">
-                          {docType==="nin"?"Upload NIN Slip":docType==="passport"?"Upload Passport Photo Page":
-                           docType==="drivers_license"?"Upload License (Front)":"Upload Card (Front)"}
-                        </label>
+                        <label className="v-field-label">{selectedDoc.frontLabel}</label>
                         <FileUpload label="Tap to upload front" hint="JPG, PNG or PDF — max 5MB"
                           accept="image/*,.pdf" file={docFront} onFileChange={setDocFront} onRemove={()=>setDocFront(null)}/>
                       </div>
 
-                      {selectedDoc.needsBack&&(
-                        <div>
-                          <label className="v-field-label">Upload License (Back)</label>
-                          <FileUpload label="Tap to upload back" hint="JPG, PNG or PDF — max 5MB"
-                            accept="image/*,.pdf" file={docBack} onFileChange={setDocBack} onRemove={()=>setDocBack(null)}/>
-                        </div>
-                      )}
+                      {/* Back — ALWAYS required for all types */}
+                      <div>
+                        <label className="v-field-label">{selectedDoc.backLabel}</label>
+                        <FileUpload label="Tap to upload back" hint="JPG, PNG or PDF — max 5MB"
+                          accept="image/*,.pdf" file={docBack} onFileChange={setDocBack} onRemove={()=>setDocBack(null)}/>
+                      </div>
 
+                      {/* Selfie */}
                       <div>
                         <label className="v-field-label">Selfie Verification</label>
                         <p style={{fontSize:12,color:"#4b5563",marginBottom:10}}>Clear photo of your face. Must match your ID.</p>
                         <SelfieCapture file={selfie} onFileChange={setSelfie} onRemove={()=>setSelfie(null)}/>
                       </div>
 
+                      {/* Feedback */}
                       {idMsg&&(
                         <div className={idMsg.toLowerCase().includes("submit")||idMsg.toLowerCase().includes("review")?"v-success-msg":"v-error"}>
                           {idMsg.toLowerCase().includes("submit")||idMsg.toLowerCase().includes("review")?<CheckCircle size={14}/>:<XCircle size={14} className="v-error-icon"/>}
@@ -533,19 +512,21 @@ export default function Verification() {
                         </div>
                       )}
 
+                      {/* Requirements */}
                       <div style={{padding:"10px 14px",background:"rgba(59,130,246,0.05)",border:"1px solid rgba(59,130,246,0.1)",borderRadius:10,fontSize:12,color:"#6b7280"}}>
                         <p style={{fontWeight:600,color:"#9ca3af",marginBottom:6}}>Required:</p>
                         <div style={{display:"flex",flexDirection:"column",gap:4}}>
                           <span style={{color:docNumber.trim().length>=4?"#4ade80":"#6b7280"}}>{docNumber.trim().length>=4?"✓":"○"} {selectedDoc.numberLabel}</span>
                           <span style={{color:docFront?"#4ade80":"#6b7280"}}>{docFront?"✓":"○"} Document front</span>
-                          {selectedDoc.needsBack&&<span style={{color:docBack?"#4ade80":"#6b7280"}}>{docBack?"✓":"○"} Document back</span>}
+                          <span style={{color:docBack?"#4ade80":"#6b7280"}}>{docBack?"✓":"○"} Document back</span>
                           <span style={{color:selfie?"#4ade80":"#6b7280"}}>{selfie?"✓":"○"} Selfie photo</span>
                         </div>
                       </div>
 
+                      {/* Submit */}
                       <button
-                        className={`v-btn v-btn--full ${docFront&&selfie&&docNumber.trim().length>=4&&(!selectedDoc.needsBack||docBack)?"v-btn--primary":"v-btn--ghost"}`}
-                        disabled={!docFront||!selfie||docNumber.trim().length<4||(selectedDoc.needsBack&&!docBack)||idSubmitting}
+                        className={`v-btn v-btn--full ${docFront&&docBack&&selfie&&docNumber.trim().length>=4?"v-btn--primary":"v-btn--ghost"}`}
+                        disabled={!docFront||!docBack||!selfie||docNumber.trim().length<4||idSubmitting}
                         onClick={submitIdentity}>
                         {idSubmitting?<><Loader2 size={14} className="v-spin"/> Submitting</>:<><BadgeCheck size={14}/> Submit Identity Verification</>}
                       </button>
