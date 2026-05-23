@@ -220,15 +220,15 @@ app.use(rateLimiter(MAX_REQ));
 ═══════════════════════════════════════════ */
 import "./jobs/expirePromotions.js";
 import { startChatCleanupJob } from "./jobs/cleanupChats.js";
-import { startCleanupJobs }    from "./jobs/cleanup.js";      // ← OTP + device cleanup
+import { startCleanupJobs }    from "./jobs/cleanup.js";
 
 /* ═══════════════════════════════════════════
    ROUTE IMPORTS
 ═══════════════════════════════════════════ */
+import adminRouter         from "./routes/admin/index.js";   // ← updated path
 import addproductRouter    from "./routes/addproduct.js";
 import userRouter          from "./routes/users.js";
 import messagesRouter      from "./routes/messages.js";
-import adminRouter         from "./routes/admin.js";
 import searchRouter        from "./routes/search.js";
 import conversationsRouter from "./routes/conversations.js";
 import productDetailRouter from "./routes/productDetail.js";
@@ -239,7 +239,7 @@ import notificationsRouter from "./routes/notifications.js";
 import postAdsRouter       from "./routes/postAds.js";
 import walletRoutes        from "./routes/wallets.js";
 import p2pRouter           from "./routes/p2p.js";
-import verificationRouter  from "./routes/verification.js";   // ← NEW
+import verificationRouter  from "./routes/verification.js";
 
 /* ═══════════════════════════════════════════
    API ROUTES
@@ -262,7 +262,7 @@ app.use("/api/notifications", notificationsRouter);
 app.use("/api/products",      postAdsRouter);
 app.use("/api/v1/wallets",    walletRoutes);
 app.use("/api/p2p",           p2pRouter);
-app.use("/api/verification",  verificationRouter);            // ← NEW
+app.use("/api/verification",  verificationRouter);
 
 /* ═══════════════════════════════════════════
    HEALTH CHECK
@@ -388,7 +388,7 @@ server.listen(PORT, () => {
   console.log(`   CORS : ${ALLOWED_ORIGIN}`);
 
   startChatCleanupJob();
-  startCleanupJobs();                                          // ← OTP cleanup
+  startCleanupJobs();
   console.log("🧹 Chat + OTP cleanup jobs started");
 });
 
