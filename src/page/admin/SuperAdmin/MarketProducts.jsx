@@ -1,7 +1,7 @@
 import {
   useState, useEffect, useCallback, useMemo, useRef,
 } from "react";
-import adminApi from "../../services/adminApi";
+import adminApi from "../../../../services/adminApi";
 
 /* ═══════════════════════════════════════════
    Constants
