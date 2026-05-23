@@ -10,19 +10,15 @@ const adminApi = axios.create({
 
 /* ─────────────────────────────────────────────
    Request Interceptor
-   Attaches Authorization header from localStorage.
-   Checks all possible token keys for compatibility.
 ───────────────────────────────────────────── */
 adminApi.interceptors.request.use(
   (config) => {
     const token =
       localStorage.getItem("admin_token") ||
-      localStorage.getItem("adminToken") ||
+      localStorage.getItem("adminToken")  ||
       localStorage.getItem("token");
 
-    if (token) {
-      config.headers.Authorization = `Bearer ${token}`;
-    }
+    if (token) config.headers.Authorization = `Bearer ${token}`;
     return config;
   },
   (err) => Promise.reject(err)
@@ -30,20 +26,16 @@ adminApi.interceptors.request.use(
 
 /* ─────────────────────────────────────────────
    Response Interceptor
-   Handles 401 errors by clearing tokens and
-   redirecting to login page.
 ───────────────────────────────────────────── */
 adminApi.interceptors.response.use(
   (res) => res,
   (err) => {
     if (err.response?.status === 401) {
-      // Clear all possible token keys
       localStorage.removeItem("admin_token");
       localStorage.removeItem("adminToken");
       localStorage.removeItem("token");
       localStorage.removeItem("admin_name");
 
-      // Redirect to login if on admin pages
       if (window.location.pathname.startsWith("/admin")) {
         window.location.href = "/admin/login";
       }
@@ -68,58 +60,59 @@ export const getStats = () => adminApi.get("/stats");
 /* ═══════════════════════════════════════════
    Users
 ═══════════════════════════════════════════ */
-export const getUsers = () => adminApi.get("/users");
-export const banUser = (id) => adminApi.post(`/users/${id}/ban`);
+export const getUsers  = ()   => adminApi.get("/users");
+export const banUser   = (id) => adminApi.post(`/users/${id}/ban`);
 export const unbanUser = (id) => adminApi.post(`/users/${id}/unban`);
 
 /* ═══════════════════════════════════════════
    Admins
 ═══════════════════════════════════════════ */
-export const getAdmins = () => adminApi.get("/admins");
-export const registerAdmin = (data) => adminApi.post("/register", data);
-export const banAdmin = (id) => adminApi.post(`/admins/${id}/ban`);
-export const assignRole = (admin_id, role) =>
+export const getAdmins     = ()               => adminApi.get("/admins");
+export const registerAdmin = (data)           => adminApi.post("/register", data);
+export const banAdmin      = (id)             => adminApi.post(`/admins/${id}/ban`);
+export const assignRole    = (admin_id, role) =>
   adminApi.post("/assign-role", { admin_id, role });
 
 /* ═══════════════════════════════════════════
-   Products (Legacy - seller products)
+   Market Products  (market.products)
 ═══════════════════════════════════════════ */
-export const getProducts = (status = "") =>
-  adminApi.get(`/products${status ? `?status=${status}` : ""}`);
+export const getMarketProducts = (status = "") =>
+  adminApi.get(`/market-products${status ? `?status=${status}` : ""}`);
 
-export const getPendingProducts = () => adminApi.get("/products/pending");
+export const getMarketProduct = (id) =>
+  adminApi.get(`/market-products/${id}`);
 
-export const approveProduct = (id) =>
-  adminApi.post(`/products/${id}/approve`);
+export const approveMarketProduct = (id) =>
+  adminApi.post(`/market-products/${id}/approve`);
 
-export const rejectProduct = (id, reason) =>
-  adminApi.post(`/products/${id}/reject`, { rejectionReason: reason });
+export const rejectMarketProduct = (id, reason) =>
+  adminApi.post(`/market-products/${id}/reject`, { rejectionReason: reason });
 
-export const editProduct = (id, fields) =>
-  adminApi.patch(`/products/${id}`, fields);
+export const editMarketProduct = (id, fields) =>
+  adminApi.patch(`/market-products/${id}`, fields);
 
-export const setProductFlag = (id, flag, value) =>
-  adminApi.post(`/products/${id}/flag`, { flag, value });
+export const setMarketProductFlag = (id, flag, value) =>
+  adminApi.post(`/market-products/${id}/flag`, { flag, value });
 
-export const togglePauseProduct = (id) =>
-  adminApi.post(`/products/${id}/pause`);
+export const togglePauseMarketProduct = (id) =>
+  adminApi.post(`/market-products/${id}/pause`);
 
-export const removeProduct = (id, reason) =>
-  adminApi.post(`/products/${id}/remove`, { reason });
+export const removeMarketProduct = (id, reason) =>
+  adminApi.post(`/market-products/${id}/remove`, { reason });
 
-export const permanentDeleteProduct = (id) =>
-  adminApi.delete(`/products/${id}/permanent`);
+export const permanentDeleteMarketProduct = (id) =>
+  adminApi.delete(`/market-products/${id}/permanent`);
 
 /* ═══════════════════════════════════════════
    Payments
 ═══════════════════════════════════════════ */
-export const getPayments = () => adminApi.get("/payments");
+export const getPayments   = ()   => adminApi.get("/payments");
 export const refundPayment = (id) => adminApi.post(`/payments/${id}/refund`);
 
 /* ═══════════════════════════════════════════
    Orders
 ═══════════════════════════════════════════ */
-export const getOrders = () => adminApi.get("/orders");
+export const getOrders   = ()   => adminApi.get("/orders");
 export const cancelOrder = (id) => adminApi.post(`/orders/${id}/cancel`);
 
 /* ═══════════════════════════════════════════
@@ -130,14 +123,14 @@ export const getLogs = () => adminApi.get("/logs");
 /* ═══════════════════════════════════════════
    System Config
 ═══════════════════════════════════════════ */
-export const getSystemConfig = () => adminApi.get("/system");
+export const getSystemConfig    = ()     => adminApi.get("/system");
 export const updateSystemConfig = (data) => adminApi.post("/system", data);
 
 /* ═══════════════════════════════════════════
    Plans / Promotions
 ═══════════════════════════════════════════ */
-export const getPlans = () => adminApi.get("/plans");
-export const togglePlan = (id) => adminApi.post(`/plans/${id}/toggle`);
+export const getPlans   = ()         => adminApi.get("/plans");
+export const togglePlan = (id)       => adminApi.post(`/plans/${id}/toggle`);
 export const updatePlan = (id, data) => adminApi.put(`/plans/${id}`, data);
 
 /* ═══════════════════════════════════════════
@@ -148,7 +141,8 @@ export const getReportStats = () => adminApi.get("/reports/stats");
 export const getReports = (status = "all", limit = 50, offset = 0) =>
   adminApi.get("/reports", { params: { status, limit, offset } });
 
-export const getReport = (reportId) => adminApi.get(`/reports/${reportId}`);
+export const getReport = (reportId) =>
+  adminApi.get(`/reports/${reportId}`);
 
 export const updateReportStatus = (reportId, status) =>
   adminApi.patch(`/reports/${reportId}`, { status });
@@ -159,13 +153,11 @@ export const banReportedUser = (reportId) =>
 /* ═══════════════════════════════════════════
    Roles & Permissions
 ═══════════════════════════════════════════ */
-export const getRoles = () => adminApi.get("/roles");
-
+export const getRoles   = ()                       => adminApi.get("/roles");
 export const createRole = (role_name, description) =>
   adminApi.post("/roles", { role_name, description });
 
-export const getPermissions = () => adminApi.get("/permissions");
-
+export const getPermissions   = ()                  => adminApi.get("/permissions");
 export const createPermission = (name, description) =>
   adminApi.post("/permissions", { name, description });
 
