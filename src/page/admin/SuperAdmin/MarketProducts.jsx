@@ -1,1408 +1,1326 @@
-import express from "express";
-import { pool } from "../server.js";
-import bcrypt from "bcrypt";
-import jwt from "jsonwebtoken";
+import {
+  useState, useEffect, useCallback, useMemo, useRef,
+} from "react";
+import adminApi from "../../../../services/adminApi";
 
-const router = express.Router();
-const JWT_SECRET = process.env.JWT_SECRET || "supersecret";
+/* ═══════════════════════════════════════════
+   Constants
+═══════════════════════════════════════════ */
+const STATUS_META = {
+  pending_review: {
+    label: "Under Review",
+    color: "#d97706",
+    bg:    "#fffbeb",
+    border:"#fde68a",
+  },
+  active: {
+    label: "Live",
+    color: "#16a34a",
+    bg:    "#f0fdf4",
+    border:"#bbf7d0",
+  },
+  rejected: {
+    label: "Rejected",
+    color: "#dc2626",
+    bg:    "#fff5f5",
+    border:"#fecaca",
+  },
+  flagged: {
+    label: "Flagged",
+    color: "#9333ea",
+    bg:    "#fdf4ff",
+    border:"#e9d5ff",
+  },
+  paused: {
+    label: "Paused",
+    color: "#6b7280",
+    bg:    "#f9fafb",
+    border:"#e5e7eb",
+  },
+  sold: {
+    label: "Sold",
+    color: "#0369a1",
+    bg:    "#f0f9ff",
+    border:"#bae6fd",
+  },
+  deleted: {
+    label: "Removed",
+    color: "#dc2626",
+    bg:    "#fff5f5",
+    border:"#fecaca",
+  },
+};
 
-/* ─────────────────────────────────────────────
-   HELPERS
-───────────────────────────────────────────── */
-const generateToken = (admin) =>
-  jwt.sign(
-    { id: admin.id, email: admin.email, role: admin.role },
-    JWT_SECRET,
-    { expiresIn: "7d" }
+const TABS = [
+  { key: "pending_review", label: "Pending Review" },
+  { key: "active",         label: "Active"         },
+  { key: "rejected",       label: "Rejected"       },
+  { key: "flagged",        label: "Flagged"        },
+  { key: "paused",         label: "Paused"         },
+  { key: "sold",           label: "Sold"           },
+  { key: "",               label: "All"            },
+];
+
+const FLAG_OPTIONS = [
+  { key: "is_featured",  label: "Featured",  color: "#d97706" },
+  { key: "is_trending",  label: "Trending",  color: "#dc2626" },
+  { key: "is_sponsored", label: "Sponsored", color: "#9333ea" },
+  { key: "is_hidden",    label: "Hidden",    color: "#6b7280" },
+];
+
+const STATUS_OPTIONS = [
+  { value: "pending_review", label: "Pending Review" },
+  { value: "active",         label: "Active (Live)"  },
+  { value: "rejected",       label: "Rejected"       },
+  { value: "flagged",        label: "Flagged"        },
+  { value: "paused",         label: "Paused"         },
+  { value: "sold",           label: "Sold Out"       },
+];
+
+/* ═══════════════════════════════════════════
+   Shared micro-styles
+═══════════════════════════════════════════ */
+const S = {
+  sectionTitle: {
+    fontSize: 11, fontWeight: 700, color: "#aaa",
+    textTransform: "uppercase", letterSpacing: ".5px", marginBottom: 8,
+  },
+  label: {
+    display: "block", fontSize: ".78rem", fontWeight: 700,
+    color: "#888", textTransform: "uppercase",
+    letterSpacing: ".5px", marginBottom: 4,
+  },
+  input: {
+    width: "100%", padding: "10px 12px",
+    border: "1.5px solid #e8e6e0", borderRadius: 10,
+    fontSize: 13, fontFamily: "inherit", outline: "none",
+    boxSizing: "border-box", background: "#fff",
+  },
+  textarea: {
+    width: "100%", padding: "10px 12px",
+    border: "1.5px solid #e8e6e0", borderRadius: 10,
+    fontSize: 13, fontFamily: "inherit", resize: "vertical",
+    outline: "none", boxSizing: "border-box", background: "#fff",
+  },
+  closeBtn: {
+    border: "1.5px solid #e8e6e0", background: "#fafaf8",
+    borderRadius: "50%", width: 32, height: 32,
+    cursor: "pointer", fontSize: 16, color: "#555",
+    display: "flex", alignItems: "center", justifyContent: "center",
+  },
+  variantRow: {
+    display: "flex", justifyContent: "space-between",
+    alignItems: "center", padding: "8px 12px",
+    background: "#f5f4f0", borderRadius: 10, marginBottom: 6, fontSize: 12,
+  },
+  list: {
+    margin: 0, paddingLeft: 18,
+    fontSize: 13, color: "#555", lineHeight: 1.7,
+  },
+};
+
+const alertBox = (bg, border, color) => ({
+  background: bg, border: `1px solid ${border}`, borderRadius: 10,
+  padding: "10px 14px", fontSize: 12, color,
+  marginBottom: 16, lineHeight: 1.5,
+});
+
+/* ═══════════════════════════════════════════
+   Debounce hook
+═══════════════════════════════════════════ */
+function useDebounce(value, delay = 300) {
+  const [debounced, setDebounced] = useState(value);
+  useEffect(() => {
+    const t = setTimeout(() => setDebounced(value), delay);
+    return () => clearTimeout(t);
+  }, [value, delay]);
+  return debounced;
+}
+
+/* ═══════════════════════════════════════════
+   Small UI components
+═══════════════════════════════════════════ */
+function Section({ title, children }) {
+  return (
+    <div style={{ marginBottom: 16 }}>
+      <div style={S.sectionTitle}>{title}</div>
+      {children}
+    </div>
   );
+}
 
-const cleanBigInt = (v) => {
-  const s = String(v ?? "").trim();
-  return /^\d+$/.test(s) ? s : null;
-};
+function StatusPill({ status }) {
+  const meta = STATUS_META[status] ?? STATUS_META.active;
+  return (
+    <span style={{
+      padding: "3px 9px", borderRadius: 999,
+      fontSize: 11, fontWeight: 700, whiteSpace: "nowrap",
+      background: meta.bg, color: meta.color,
+      border: `1px solid ${meta.border}`,
+    }}>
+      {meta.label}
+    </span>
+  );
+}
 
-const safeInt = (v, fallback = 0) => {
-  const n = parseInt(v, 10);
-  return Number.isFinite(n) ? n : fallback;
-};
+function FlagChip({ label, color }) {
+  return (
+    <span style={{
+      padding: "2px 8px", borderRadius: 999,
+      fontSize: 10, fontWeight: 700,
+      background: `${color}18`,
+      color, border: `1px solid ${color}40`,
+    }}>
+      {label}
+    </span>
+  );
+}
 
-/* ─────────────────────────────────────────────
-   MIDDLEWARE
-───────────────────────────────────────────── */
-export const verifyAdmin = async (req, res, next) => {
-  const authHeader = req.headers.authorization;
-  if (!authHeader?.startsWith("Bearer "))
-    return res.status(401).json({ error: "Unauthorized" });
+function EmptyState({ tab }) {
+  return (
+    <div style={{
+      textAlign: "center", padding: 60, color: "#aaa",
+      background: "#fafaf8", borderRadius: 14,
+      border: "1.5px dashed #e8e6e0",
+    }}>
+      <div style={{ fontWeight: 700, fontSize: 15, marginBottom: 6 }}>
+        No listings found
+      </div>
+      <div style={{ fontSize: 13 }}>
+        {tab === "pending_review"
+          ? "The review queue is empty."
+          : "Nothing matches your current filter."}
+      </div>
+    </div>
+  );
+}
 
-  const token = authHeader.split(" ")[1];
-  try {
-    req.admin = jwt.verify(token, JWT_SECRET);
-    next();
-  } catch {
-    res.status(401).json({ error: "Invalid token" });
-  }
-};
+/* ═══════════════════════════════════════════
+   RejectModal
+═══════════════════════════════════════════ */
+function RejectModal({ product, onReject, onClose }) {
+  const [reason, setReason] = useState("");
+  const [busy,   setBusy]   = useState(false);
 
-const requireSuperAdmin = (req, res, next) => {
-  if (req.admin?.role !== "super_admin")
-    return res.status(403).json({ error: "Forbidden — super_admin only" });
-  next();
-};
+  const submit = async () => {
+    if (!reason.trim()) return;
+    setBusy(true);
+    await onReject(product.id, reason.trim());
+    setBusy(false);
+    onClose();
+  };
 
-/* ─────────────────────────────────────────────
-   AUTH
-───────────────────────────────────────────── */
-router.post("/login", async (req, res) => {
-  const { email, password } = req.body;
-  try {
-    const { rows } = await pool.query(
-      `SELECT * FROM admins WHERE email = $1`,
-      [email]
-    );
-    const admin = rows[0];
-    if (!admin) return res.status(404).json({ error: "Admin not found" });
+  return (
+    <div className="overlay" onClick={onClose}>
+      <div className="modal" onClick={(e) => e.stopPropagation()}
+        style={{ maxWidth: 460 }}>
+        <div className="modal-title">Reject Listing</div>
+        <p style={{ fontSize: ".82rem", color: "#888", marginBottom: 12 }}>
+          <strong>{product.name}</strong> by {product.seller_name}
+        </p>
+        <label style={S.label}>Reason for rejection (required)</label>
+        <textarea
+          value={reason}
+          onChange={(e) => setReason(e.target.value)}
+          placeholder='e.g. "Fake product photos" or "Prohibited item"'
+          rows={3}
+          style={S.textarea}
+        />
+        <div className="modal-btns" style={{ marginTop: 14 }}>
+          <button className="btn b-ghost" onClick={onClose}>Cancel</button>
+          <button
+            className="btn b-red"
+            disabled={!reason.trim() || busy}
+            onClick={submit}
+          >
+            {busy ? "Rejecting..." : "Reject Listing"}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
 
-    const match = await bcrypt.compare(password, admin.password_hash);
-    if (!match) return res.status(401).json({ error: "Invalid credentials" });
+/* ═══════════════════════════════════════════
+   RemoveModal
+═══════════════════════════════════════════ */
+function RemoveModal({ product, onRemove, onClose }) {
+  const [reason, setReason] = useState("");
+  const [busy,   setBusy]   = useState(false);
 
-    return res.json({ admin, token: generateToken(admin) });
-  } catch (err) {
-    return res.status(500).json({ error: err.message });
-  }
-});
+  const submit = async () => {
+    if (!reason.trim()) return;
+    setBusy(true);
+    await onRemove(product.id, reason.trim());
+    setBusy(false);
+    onClose();
+  };
 
-router.get("/me", verifyAdmin, async (req, res) => {
-  try {
-    const { rows } = await pool.query(
-      `SELECT id, name, email, role FROM admins WHERE id = $1`,
-      [req.admin.id]
-    );
-    if (!rows.length) return res.status(404).json({ error: "Admin not found" });
-    const admin = rows[0];
+  return (
+    <div className="overlay" onClick={onClose}>
+      <div className="modal" onClick={(e) => e.stopPropagation()}
+        style={{ maxWidth: 460 }}>
+        <div className="modal-title" style={{ color: "#dc2626" }}>
+          Remove Listing
+        </div>
+        <p style={{ fontSize: ".82rem", color: "#888", marginBottom: 8 }}>
+          This will soft-delete <strong>{product.name}</strong>.
+          The seller will be notified.
+        </p>
+        <label style={S.label}>Removal reason (required)</label>
+        <textarea
+          value={reason}
+          onChange={(e) => setReason(e.target.value)}
+          placeholder='e.g. "Scam product" or "Prohibited item"'
+          rows={3}
+          style={S.textarea}
+        />
+        <div className="modal-btns" style={{ marginTop: 14 }}>
+          <button className="btn b-ghost" onClick={onClose}>Cancel</button>
+          <button
+            className="btn b-red"
+            disabled={!reason.trim() || busy}
+            onClick={submit}
+          >
+            {busy ? "Removing..." : "Remove Listing"}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
 
-    const { rows: perms } = await pool.query(
-      `
-      SELECT DISTINCT p.name
-      FROM role_permissions rp
-      JOIN permissions p ON rp.permission_id = p.id
-      JOIN admin_roles ar ON rp.role_id = ar.id
-      WHERE ar.role_name = $1
-      UNION
-      SELECT p.name
-      FROM admin_permissions ap
-      JOIN permissions p ON ap.permission_id = p.id
-      WHERE ap.admin_id = $2
-    `,
-      [admin.role, admin.id]
-    );
+/* ═══════════════════════════════════════════
+   ProductDrawer
+═══════════════════════════════════════════ */
+function ProductDrawer({
+  product,
+  onClose,
+  onApprove,
+  onRejectOpen,
+  onRemoveOpen,
+  onPause,
+  onFlag,
+  onStatusChange,
+  onSaveEdit,
+  onPermanentDelete,
+  busy,
+  confirm,
+}) {
+  const [editing,    setEditing]    = useState(false);
+  const [editName,   setEditName]   = useState("");
+  const [editDesc,   setEditDesc]   = useState("");
+  const [editNotes,  setEditNotes]  = useState("");
+  const [savingEdit, setSavingEdit] = useState(false);
 
-    return res.json({ admin, permissions: perms.map((p) => p.name) });
-  } catch (err) {
-    return res.status(500).json({ error: err.message });
-  }
-});
+  /*
+   * FIXED: was incorrectly using useState as useEffect.
+   * useEffect correctly resets fields whenever the product
+   * changes (different product opened in drawer).
+   */
+  useEffect(() => {
+    if (!product) return;
+    setEditName(product.name ?? "");
+    setEditDesc(product.description ?? "");
+    setEditNotes(product.admin_notes ?? "");
+    setEditing(false);
+  }, [product?.id]);
 
-/* ─────────────────────────────────────────────
-   STATS
-───────────────────────────────────────────── */
-router.get("/stats", verifyAdmin, async (req, res) => {
-  try {
-    const today = new Date();
-    today.setHours(0, 0, 0, 0);
+  if (!product) return null;
 
-    const [
-      usersRes,
-      activeUsersRes,
-      bannedUsersRes,
-      todayUsersRes,
-      productsRes,
-      pendingRes,
-      todayProductsRes,
-      ordersRes,
-      todayOrdersRes,
-      revenueRes,
-      todayRevenueRes,
-      dailySalesRes,
-    ] = await Promise.all([
-      pool.query(`SELECT COUNT(*) FROM public.users`),
-      pool.query(`SELECT COUNT(*) FROM public.users WHERE status != 'banned'`),
-      pool.query(`SELECT COUNT(*) FROM public.users WHERE status = 'banned'`),
-      pool.query(`SELECT COUNT(*) FROM public.users WHERE created_at >= $1`, [today]),
-      pool.query(`SELECT COUNT(*) FROM market.products`),
-      pool.query(`SELECT COUNT(*) FROM market.products WHERE status = 'pending'`),
-      pool.query(`SELECT COUNT(*) FROM market.products WHERE created_at >= $1`, [today]),
-      pool
-        .query(`SELECT COUNT(*) FROM orders`)
-        .catch(() => ({ rows: [{ count: 0 }] })),
-      pool
-        .query(`SELECT COUNT(*) FROM orders WHERE created_at >= $1`, [today])
-        .catch(() => ({ rows: [{ count: 0 }] })),
-      pool.query(`
-        SELECT COALESCE(SUM(amount),0) AS revenue FROM payments
-        WHERE status IN ('success','completed','paid')
-      `),
-      pool.query(
-        `
-        SELECT COALESCE(SUM(amount),0) AS revenue FROM payments
-        WHERE status IN ('success','completed','paid') AND created_at >= $1
-      `,
-        [today]
-      ),
-      pool.query(`
-        SELECT DATE(created_at) AS date, COALESCE(SUM(amount), 0) AS amount
-        FROM payments
-        WHERE status IN ('success','completed','paid')
-          AND created_at >= NOW() - INTERVAL '30 days'
-        GROUP BY DATE(created_at)
-        ORDER BY date ASC
-      `),
-    ]);
+  const meta      = STATUS_META[product.status] ?? STATUS_META.active;
+  const images    = product.images ?? [];
+  const variants  = product.variants ?? [];
+  const features  = product.key_features  ?? product.keyFeatures  ?? [];
+  const specs     = product.specifications ?? [];
+  const box       = product.whats_in_box  ?? product.whatsInBox   ?? [];
+  const isPending = product.status === "pending_review"
+                 || product.status === "flagged";
 
-    return res.json({
-      users: Number(usersRes.rows[0].count),
-      activeUsers: Number(activeUsersRes.rows[0].count),
-      bannedUsers: Number(bannedUsersRes.rows[0].count),
-      todayUsers: Number(todayUsersRes.rows[0].count),
-      totalProducts: Number(productsRes.rows[0].count),
-      pendingProducts: Number(pendingRes.rows[0].count),
-      todayProducts: Number(todayProductsRes.rows[0].count),
-      orders: Number(ordersRes.rows[0].count),
-      todayOrders: Number(todayOrdersRes.rows[0].count),
-      revenue: Number(revenueRes.rows[0].revenue),
-      todayRevenue: Number(todayRevenueRes.rows[0].revenue),
-      dailySales: dailySalesRes.rows.map((r) => ({
-        date: r.date,
-        amount: Number(r.amount),
-      })),
+  const handleSave = async () => {
+    if (!editName.trim()) return;
+    setSavingEdit(true);
+    await onSaveEdit(product.id, {
+      name:        editName.trim(),
+      description: editDesc.trim(),
+      admin_notes: editNotes.trim(),
     });
-  } catch (err) {
-    console.error("[ADMIN] Stats error:", err.message);
-    return res.status(500).json({ error: err.message });
-  }
-});
+    setSavingEdit(false);
+    setEditing(false);
+  };
 
-/* ─────────────────────────────────────────────
-   USERS
-───────────────────────────────────────────── */
-router.get("/users", verifyAdmin, async (req, res) => {
-  try {
-    const { rows } = await pool.query(`
-      SELECT id, name, email, phone_number, city, state,
-             status, balance, created_at, last_login,
-             store_name, profile_picture
-      FROM public.users
-      ORDER BY created_at DESC
-      LIMIT 500
-    `);
-    return res.json(rows);
-  } catch (err) {
-    return res.status(500).json({ error: err.message });
-  }
-});
+  return (
+    <div style={{
+      position: "fixed", inset: 0, zIndex: 600,
+      display: "flex", alignItems: "stretch",
+    }}>
+      {/* backdrop */}
+      <div
+        style={{ flex: 1, background: "rgba(0,0,0,.45)", cursor: "pointer" }}
+        onClick={onClose}
+      />
 
-router.post("/users/:id/ban", verifyAdmin, async (req, res) => {
-  try {
-    await pool.query(
-      `UPDATE public.users SET status = 'banned', updated_at = NOW() WHERE id = $1`,
-      [req.params.id]
-    );
-    await pool
-      .query(
-        `INSERT INTO admin_logs (admin_id, action, target_type, target_id, details)
-       VALUES ($1, 'ban_user', 'user', $2, $3)`,
-        [req.admin.id, req.params.id, `Banned user ${req.params.id}`]
-      )
-      .catch(() => {});
-    return res.json({ success: true });
-  } catch (err) {
-    return res.status(500).json({ error: err.message });
-  }
-});
+      {/* panel */}
+      <div style={{
+        width: "min(560px, 100%)", background: "#fff",
+        overflowY: "auto", display: "flex", flexDirection: "column",
+        boxShadow: "-8px 0 32px rgba(0,0,0,.15)",
+      }}>
+        {/* header */}
+        <div style={{
+          padding: "16px 20px", borderBottom: "1px solid #f0eeea",
+          display: "flex", alignItems: "flex-start",
+          justifyContent: "space-between", flexShrink: 0,
+          position: "sticky", top: 0, background: "#fff", zIndex: 1,
+        }}>
+          <div style={{ flex: 1, minWidth: 0, marginRight: 12 }}>
+            <div style={{
+              fontWeight: 800, fontSize: 15,
+              whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis",
+            }}>
+              {product.name}
+            </div>
+            <div style={{ fontSize: 12, color: "#888", marginTop: 2 }}>
+              {product.seller_name} · {product.seller_email}
+            </div>
+          </div>
+          <div style={{ display: "flex", gap: 8, alignItems: "center", flexShrink: 0 }}>
+            <button
+              className="btn b-ghost"
+              onClick={() => setEditing((v) => !v)}
+              style={{ fontSize: 12, padding: "4px 10px", height: 28 }}
+            >
+              {editing ? "Cancel" : "Edit"}
+            </button>
+            <button onClick={onClose} style={S.closeBtn}>x</button>
+          </div>
+        </div>
 
-router.post("/users/:id/unban", verifyAdmin, async (req, res) => {
-  try {
-    await pool.query(
-      `UPDATE public.users SET status = 'active', updated_at = NOW() WHERE id = $1`,
-      [req.params.id]
-    );
-    return res.json({ success: true });
-  } catch (err) {
-    return res.status(500).json({ error: err.message });
-  }
-});
+        {/* body */}
+        <div style={{ padding: 20, flex: 1 }}>
 
-/* ─────────────────────────────────────────────
-   ADMINS
-───────────────────────────────────────────── */
-router.get("/admins", verifyAdmin, async (req, res) => {
-  try {
-    const { rows } = await pool.query(
-      `SELECT id, name, email, role, status, created_at
-       FROM admins ORDER BY created_at DESC`
-    );
-    return res.json(rows);
-  } catch (err) {
-    return res.status(500).json({ error: err.message });
-  }
-});
+          {/* status + flags */}
+          <div style={{
+            display: "flex", gap: 6, flexWrap: "wrap",
+            marginBottom: 16, alignItems: "center",
+          }}>
+            <StatusPill status={product.status} />
+            {product.is_featured  && <FlagChip label="Featured"  color="#d97706" />}
+            {product.is_trending  && <FlagChip label="Trending"  color="#dc2626" />}
+            {product.is_sponsored && <FlagChip label="Sponsored" color="#9333ea" />}
+            {product.is_hidden    && <FlagChip label="Hidden"    color="#6b7280" />}
+            {product.is_paused    && <FlagChip label="Paused"    color="#6b7280" />}
+            {product.is_flagged   && (
+              <span style={{
+                padding: "3px 10px", borderRadius: 999, fontSize: 11, fontWeight: 700,
+                background: "#fff5f5", color: "#dc2626", border: "1px solid #fecaca",
+              }}>
+                Spam detected · score {product.fraud_score}
+              </span>
+            )}
+          </div>
 
-router.post("/register", verifyAdmin, requireSuperAdmin, async (req, res) => {
-  const { name, email, password, role } = req.body;
-  if (!name || !email || !password)
-    return res.status(400).json({ error: "name, email, password required" });
-  try {
-    const hash = await bcrypt.hash(password, 10);
-    const { rows } = await pool.query(
-      `INSERT INTO admins (name, email, password_hash, role)
-       VALUES ($1, $2, $3, $4)
-       RETURNING id, name, email, role`,
-      [name, email, hash, role || "moderator"]
-    );
-    return res.json(rows[0]);
-  } catch (err) {
-    return res.status(500).json({ error: err.message });
-  }
-});
+          {/* alert banners */}
+          {product.rejection_reason && (
+            <div style={alertBox("#fff5f5", "#fecaca", "#991b1b")}>
+              <strong>Rejection reason:</strong> {product.rejection_reason}
+            </div>
+          )}
+          {product.removed_reason && (
+            <div style={alertBox("#fff5f5", "#fecaca", "#991b1b")}>
+              <strong>Removal reason:</strong> {product.removed_reason}
+            </div>
+          )}
+          {product.admin_notes && !editing && (
+            <div style={alertBox("#f0f9ff", "#bae6fd", "#0369a1")}>
+              <strong>Admin notes:</strong> {product.admin_notes}
+            </div>
+          )}
 
-router.post(
-  "/admins/:id/ban",
-  verifyAdmin,
-  requireSuperAdmin,
-  async (req, res) => {
+          {/* EDIT PANEL */}
+          {editing && (
+            <div style={{
+              border: "1.5px solid #ff5722", borderRadius: 14,
+              padding: 16, marginBottom: 16, background: "#fffbf5",
+            }}>
+              <div style={{
+                fontSize: 12, fontWeight: 800,
+                color: "#ff5722", marginBottom: 12,
+              }}>
+                Edit Mode
+              </div>
+
+              <label style={S.label}>Product Title</label>
+              <input
+                value={editName}
+                onChange={(e) => setEditName(e.target.value)}
+                maxLength={80}
+                style={S.input}
+              />
+              <div style={{
+                fontSize: 11, color: "#bbb",
+                textAlign: "right", marginTop: 2, marginBottom: 12,
+              }}>
+                {editName.length}/80
+              </div>
+
+              <label style={S.label}>Description</label>
+              <textarea
+                value={editDesc}
+                onChange={(e) => setEditDesc(e.target.value)}
+                maxLength={2000}
+                rows={5}
+                style={S.textarea}
+              />
+
+              <label style={{ ...S.label, marginTop: 12 }}>
+                Admin Notes (internal — not visible to seller)
+              </label>
+              <textarea
+                value={editNotes}
+                onChange={(e) => setEditNotes(e.target.value)}
+                rows={2}
+                placeholder="Internal notes only"
+                style={S.textarea}
+              />
+
+              <button
+                className="btn b-solid"
+                disabled={savingEdit || !editName.trim()}
+                onClick={handleSave}
+                style={{ width: "100%", height: 40, marginTop: 14, fontSize: 13 }}
+              >
+                {savingEdit ? "Saving..." : "Save Changes"}
+              </button>
+            </div>
+          )}
+
+          {/* DETAIL VIEW */}
+          {!editing && (
+            <>
+              {/* images */}
+              {images.length > 0 && (
+                <Section title={`Photos (${images.length})`}>
+                  <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+                    {images.map((img, i) => {
+                      const url = typeof img === "string"
+                        ? img
+                        : img?.image_url ?? img?.url;
+                      return url ? (
+                        <img key={i} src={url} alt=""
+                          style={{
+                            width:       i === 0 ? "100%" : "calc(33% - 6px)",
+                            aspectRatio: i === 0 ? "16/9" : "1",
+                            objectFit: "cover", borderRadius: 10,
+                            border: "1.5px solid #f0eeea",
+                          }}
+                        />
+                      ) : null;
+                    })}
+                  </div>
+                </Section>
+              )}
+
+              {/* price */}
+              <div style={{
+                background: "#fafaf8", border: "1.5px solid #f0eeea",
+                borderRadius: 12, padding: "14px 16px", marginBottom: 16,
+              }}>
+                <div style={{ display: "flex", alignItems: "baseline", gap: 10 }}>
+                  <span style={{ fontSize: 22, fontWeight: 900, color: "#ff5722" }}>
+                    {Number(product.base_price ?? product.price ?? 0).toLocaleString("en-NG", {
+                      style: "currency", currency: "NGN", maximumFractionDigits: 0,
+                    })}
+                  </span>
+                  {product.original_price && (
+                    <span style={{
+                      fontSize: 13, color: "#bbb", textDecoration: "line-through",
+                    }}>
+                      {Number(product.original_price).toLocaleString("en-NG", {
+                        style: "currency", currency: "NGN", maximumFractionDigits: 0,
+                      })}
+                    </span>
+                  )}
+                </div>
+                <div style={{ fontSize: 12, color: "#888", marginTop: 4 }}>
+                  Category: <strong>{product.category}</strong>
+                </div>
+              </div>
+
+              {/* description */}
+              {product.description && (
+                <Section title="Description">
+                  <p style={{ fontSize: 13, color: "#555", lineHeight: 1.6, margin: 0 }}>
+                    {product.description}
+                  </p>
+                </Section>
+              )}
+
+              {/* variants */}
+              {variants.length > 0 && (
+                <Section title={`Variants (${variants.length})`}>
+                  {variants.map((v, i) => (
+                    <div key={v.id ?? i} style={S.variantRow}>
+                      <div>
+                        <strong>{v.name}</strong>
+                        <span style={{ color: "#888", marginLeft: 6 }}>{v.sku}</span>
+                      </div>
+                      <div style={{ display: "flex", gap: 12, alignItems: "center" }}>
+                        <span style={{ fontWeight: 800, color: "#ff5722" }}>
+                          {Number(v.price ?? 0).toLocaleString("en-NG", {
+                            style: "currency", currency: "NGN", maximumFractionDigits: 0,
+                          })}
+                        </span>
+                        <span style={{ color: "#888" }}>{v.stock} in stock</span>
+                      </div>
+                    </div>
+                  ))}
+                </Section>
+              )}
+
+              {/* features */}
+              {features.length > 0 && (
+                <Section title="Key Features">
+                  <ul style={S.list}>
+                    {features.map((f, i) => <li key={i}>{f}</li>)}
+                  </ul>
+                </Section>
+              )}
+
+              {/* specs */}
+              {specs.length > 0 && (
+                <Section title="Specifications">
+                  <table style={{
+                    width: "100%", borderCollapse: "collapse", fontSize: 13,
+                  }}>
+                    <tbody>
+                      {specs.map((s, i) => (
+                        <tr key={i} style={{ borderBottom: "1px solid #f0eeea" }}>
+                          <td style={{
+                            padding: "5px 6px", color: "#888",
+                            fontWeight: 600, width: "40%",
+                          }}>
+                            {s.key ?? s.spec_key}
+                          </td>
+                          <td style={{ padding: "5px 6px", color: "#555" }}>
+                            {s.value ?? s.spec_value}
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </Section>
+              )}
+
+              {/* box */}
+              {box.length > 0 && (
+                <Section title="What is in the Box">
+                  <ul style={S.list}>
+                    {box.map((b, i) => <li key={i}>{b}</li>)}
+                  </ul>
+                </Section>
+              )}
+            </>
+          )}
+
+          {/* FLAGS */}
+          <Section title="Product Flags">
+            <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+              {FLAG_OPTIONS.map((f) => {
+                const isOn  = !!product[f.key];
+                const bKey  = `flag-${product.id}-${f.key}`;
+                return (
+                  <button
+                    key={f.key}
+                    className={`btn ${isOn ? "b-solid" : "b-ghost"}`}
+                    disabled={busy === bKey}
+                    onClick={() => onFlag(product.id, f.key, !isOn)}
+                    style={{
+                      fontSize: 12, padding: "5px 12px", height: 30,
+                      ...(isOn && {
+                        background:  f.color,
+                        borderColor: f.color,
+                        color:       "#fff",
+                      }),
+                    }}
+                  >
+                    {busy === bKey ? "..." : f.label}
+                  </button>
+                );
+              })}
+            </div>
+          </Section>
+
+          {/* STATUS CHANGE */}
+          <Section title="Change Status">
+            <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+              {STATUS_OPTIONS.map((s) => {
+                const isCurrent = product.status === s.value;
+                const sm        = STATUS_META[s.value] ?? {};
+                return (
+                  <button
+                    key={s.value}
+                    disabled={isCurrent || busy === `status-${product.id}`}
+                    onClick={() => {
+                      if (s.value === "rejected") {
+                        onRejectOpen(product);
+                      } else {
+                        confirm({
+                          title:   `Change status to "${s.label}"?`,
+                          body:    `"${product.name}" will be updated to ${s.label}.`,
+                          confirm: "Change",
+                          action:  () => onStatusChange(product.id, s.value),
+                        });
+                      }
+                    }}
+                    style={{
+                      padding: "5px 12px", height: 30, borderRadius: 8,
+                      border: `1.5px solid ${isCurrent ? sm.border : "#e8e6e0"}`,
+                      background: isCurrent ? sm.bg   : "#fff",
+                      color:      isCurrent ? sm.color : "#555",
+                      fontWeight: isCurrent ? 700 : 500,
+                      fontSize: 12,
+                      cursor: isCurrent ? "default" : "pointer",
+                    }}
+                  >
+                    {isCurrent ? "Current" : s.label}
+                  </button>
+                );
+              })}
+            </div>
+          </Section>
+
+          {/* SELLER INFO */}
+          <div style={{
+            background: "#fafaf8", border: "1.5px solid #f0eeea",
+            borderRadius: 12, padding: "14px 16px", marginBottom: 20, fontSize: 12,
+          }}>
+            <div style={S.sectionTitle}>Seller Info</div>
+            <div style={{ display: "grid", gap: 5 }}>
+              <div>
+                <span style={{ color: "#888" }}>Name: </span>
+                <strong>{product.seller_name}</strong>
+              </div>
+              <div>
+                <span style={{ color: "#888" }}>Email: </span>
+                <strong>{product.seller_email}</strong>
+              </div>
+              {product.seller_phone && (
+                <div>
+                  <span style={{ color: "#888" }}>Phone: </span>
+                  <strong>{product.seller_phone}</strong>
+                </div>
+              )}
+              <div style={{ color: "#aaa", marginTop: 4 }}>
+                Submitted:{" "}
+                {new Date(product.created_at).toLocaleString("en-GB", {
+                  day: "numeric", month: "short", year: "numeric",
+                  hour: "2-digit", minute: "2-digit",
+                })}
+              </div>
+            </div>
+          </div>
+
+          {/* ACTION BUTTONS */}
+          <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+
+            {/* Approve / Reject */}
+            {isPending && (
+              <div style={{ display: "flex", gap: 10 }}>
+                <button
+                  className="btn b-solid"
+                  disabled={busy === `ap-${product.id}`}
+                  onClick={() => confirm({
+                    title:   "Approve listing?",
+                    body:    `"${product.name}" will go live immediately.`,
+                    confirm: "Approve",
+                    action:  () => onApprove(product.id),
+                  })}
+                  style={{ flex: 1, height: 44, fontSize: 14 }}
+                >
+                  {busy === `ap-${product.id}` ? "Approving..." : "Approve"}
+                </button>
+                <button
+                  className="btn b-red"
+                  disabled={busy === `rp-${product.id}`}
+                  onClick={() => onRejectOpen(product)}
+                  style={{ flex: 1, height: 44, fontSize: 14 }}
+                >
+                  Reject
+                </button>
+              </div>
+            )}
+
+            {/* Re-approve */}
+            {product.status === "rejected" && (
+              <button
+                className="btn b-solid"
+                disabled={busy === `ap-${product.id}`}
+                onClick={() => confirm({
+                  title:   "Re-approve this listing?",
+                  body:    `"${product.name}" will go live.`,
+                  confirm: "Approve",
+                  action:  () => onApprove(product.id),
+                })}
+                style={{ width: "100%", height: 44, fontSize: 14 }}
+              >
+                {busy === `ap-${product.id}` ? "Approving..." : "Re-approve Listing"}
+              </button>
+            )}
+
+            {/* Pause / Resume */}
+            {(product.status === "active" || product.status === "paused") && (
+              <button
+                className={`btn ${product.is_paused ? "b-solid" : "b-ghost"}`}
+                disabled={busy === `pause-${product.id}`}
+                onClick={() => onPause(product.id)}
+                style={{ width: "100%", height: 40, fontSize: 13 }}
+              >
+                {busy === `pause-${product.id}`
+                  ? "..."
+                  : product.is_paused
+                  ? "Resume Listing"
+                  : "Pause Listing"}
+              </button>
+            )}
+
+            {/* Remove (soft) */}
+            <button
+              className="btn b-ghost"
+              onClick={() => onRemoveOpen(product)}
+              style={{
+                width: "100%", height: 38, fontSize: 12,
+                color: "#dc2626", borderColor: "#fecaca",
+              }}
+            >
+              Remove Listing (fake / scam)
+            </button>
+
+            {/* Permanent delete — super admin only */}
+            <button
+              className="btn b-ghost"
+              onClick={() => confirm({
+                title:   "Permanently delete this listing?",
+                body:    `This will permanently destroy "${product.name}" and all its data including images, variants, and specifications. This action cannot be undone.`,
+                confirm: "Delete Permanently",
+                danger:  true,
+                action:  () => onPermanentDelete(product.id),
+              })}
+              style={{
+                width: "100%", height: 36, fontSize: 11,
+                color: "#991b1b", borderColor: "#fca5a5", background: "#fff5f5",
+              }}
+            >
+              Permanent Delete (super admin only)
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/* ═══════════════════════════════════════════
+   MarketProducts — main component
+═══════════════════════════════════════════ */
+export default function MarketProducts({ confirm }) {
+  const [tab,          setTab]          = useState("pending_review");
+  const [products,     setProducts]     = useState([]);
+  const [counts,       setCounts]       = useState({});
+  const [loading,      setLoading]      = useState(true);
+  const [q,            setQ]            = useState("");
+  const [busy,         setBusy]         = useState(null);
+  const [drawer,       setDrawer]       = useState(null);
+  const [rejectTarget, setRejectTarget] = useState(null);
+  const [removeTarget, setRemoveTarget] = useState(null);
+
+  /*
+   * Debounce search input so filtering does not run on
+   * every single keystroke.
+   */
+  const debouncedQ = useDebounce(q, 300);
+
+  /* ── Load ── */
+  const load = useCallback(async () => {
+    setLoading(true);
     try {
-      await pool.query(
-        `UPDATE admins SET status = 'banned', updated_at = NOW() WHERE id = $1`,
-        [req.params.id]
+      const { data } = await adminApi.get(
+        `/products${tab ? `?status=${tab}` : ""}`
       );
-      return res.json({ success: true });
+      setProducts(Array.isArray(data) ? data : (data.products ?? []));
+      if (data.counts) setCounts(data.counts);
     } catch (err) {
-      return res.status(500).json({ error: err.message });
+      console.error("[MarketProducts load]", err.message);
+    } finally {
+      setLoading(false);
     }
-  }
-);
+  }, [tab]);
 
-router.post(
-  "/assign-role",
-  verifyAdmin,
-  requireSuperAdmin,
-  async (req, res) => {
-    const { admin_id, role } = req.body;
+  useEffect(() => { load(); }, [load]);
+
+  /* ── Local patch helpers ── */
+  const updateLocal = useCallback((id, patch) => {
+    setProducts((prev) =>
+      prev.map((p) => p.id === id ? { ...p, ...patch } : p)
+    );
+    setDrawer((d) => d?.id === id ? { ...d, ...patch } : d);
+  }, []);
+
+  const removeLocal = useCallback((id) => {
+    setProducts((prev) => prev.filter((p) => p.id !== id));
+    setDrawer((d) => d?.id === id ? null : d);
+  }, []);
+
+  /* ── Approve ── */
+  const handleApprove = useCallback(async (id) => {
+    setBusy(`ap-${id}`);
     try {
-      await pool.query(`UPDATE admins SET role = $1 WHERE id = $2`, [
-        role,
-        admin_id,
-      ]);
-      return res.json({ success: true });
+      await adminApi.post(`/products/${id}/approve`);
+      /*
+       * Reload from server after every mutation so counts
+       * are always accurate and never drift.
+       */
+      await load();
+      setDrawer(null);
     } catch (err) {
-      return res.status(500).json({ error: err.message });
+      console.error("[approve]", err.message);
+    } finally {
+      setBusy(null);
     }
-  }
-);
+  }, [load]);
 
-/* ═══════════════════════════════════════════════════════════
-   MARKET PRODUCTS — market.products only
-═══════════════════════════════════════════════════════════ */
-
-/* ── List all market products ── */
-router.get("/products", verifyAdmin, async (req, res) => {
-  try {
-    const { rows } = await pool.query(`
-      SELECT p.id, p.name, p.price, p.status,
-             p.is_active, p.is_featured AS is_promoted, 
-             p.created_at,
-             u.name AS seller_name, p.category AS category_name
-      FROM market.products p
-      LEFT JOIN public.users u ON u.id = p.user_id
-      ORDER BY p.created_at DESC
-      LIMIT 500
-    `);
-    return res.json(rows);
-  } catch (err) {
-    return res.status(500).json({ error: err.message });
-  }
-});
-
-/* ── Get pending market products ── */
-router.get("/products/pending", verifyAdmin, async (req, res) => {
-  try {
-    const { rows } = await pool.query(`
-      SELECT p.id, p.name, p.price, p.status,
-             p.is_active, p.is_featured AS is_promoted,
-             p.created_at,
-             u.name AS seller_name, p.category AS category_name
-      FROM market.products p
-      LEFT JOIN public.users u ON u.id = p.user_id
-      WHERE p.status = 'pending'
-      ORDER BY p.created_at ASC
-    `);
-    return res.json(rows);
-  } catch (err) {
-    return res.status(500).json({ error: err.message });
-  }
-});
-
-/* ── Approve market product ── */
-router.post("/products/:id/approve", verifyAdmin, async (req, res) => {
-  try {
-    await pool.query(
-      `UPDATE market.products
-       SET status = 'active', is_active = true, updated_at = NOW()
-       WHERE id = $1`,
-      [req.params.id]
-    );
-    await pool
-      .query(
-        `INSERT INTO market.admin_logs (admin_id, action, target_type, target_id, details)
-       VALUES ($1, 'approve_product', 'product', $2, $3)`,
-        [
-          req.admin.id,
-          req.params.id,
-          `Approved product ${req.params.id}`,
-        ]
-      )
-      .catch(() => {});
-    return res.json({ success: true });
-  } catch (err) {
-    return res.status(500).json({ error: err.message });
-  }
-});
-
-/* ── Reject market product ── */
-router.post("/products/:id/reject", verifyAdmin, async (req, res) => {
-  const { rejectionReason } = req.body;
-  try {
-    await pool.query(
-      `UPDATE market.products
-       SET status = 'rejected', is_active = false, 
-           rejection_reason = $1, updated_at = NOW()
-       WHERE id = $2`,
-      [rejectionReason || null, req.params.id]
-    );
-    await pool
-      .query(
-        `INSERT INTO market.admin_logs (admin_id, action, target_type, target_id, details)
-       VALUES ($1, 'reject_product', 'product', $2, $3)`,
-        [
-          req.admin.id,
-          req.params.id,
-          `Rejected product ${req.params.id}`,
-        ]
-      )
-      .catch(() => {});
-    return res.json({ success: true });
-  } catch (err) {
-    return res.status(500).json({ error: err.message });
-  }
-});
-
-/* ── Edit market product ── */
-router.patch("/products/:id", verifyAdmin, async (req, res) => {
-  const productId = req.params.id;
-
-  try {
-    const { rows } = await pool.query(
-      `SELECT id, name, status, user_id AS seller_id
-       FROM market.products WHERE id = $1`,
-      [productId]
-    );
-    if (!rows.length) {
-      return res.status(404).json({ error: "Product not found" });
-    }
-
-    const product = rows[0];
-
-    const allowed = [
-      "name",
-      "description",
-      "category",
-      "price",
-      "original_price",
-      "negotiable",
-      "status",
-      "is_active",
-      "is_flagged",
-      "is_featured",
-      "is_trending",
-      "is_sponsored",
-      "is_hidden",
-      "is_paused",
-      "rejection_reason",
-      "admin_notes",
-    ];
-
-    const VALID_STATUSES = new Set([
-      "pending",
-      "active",
-      "rejected",
-      "flagged",
-      "paused",
-      "sold",
-      "deleted",
-    ]);
-
-    const sets = [];
-    const params = [];
-    let idx = 1;
-
-    for (const key of allowed) {
-      if (req.body[key] === undefined) continue;
-
-      const val = req.body[key];
-
-      if (key === "status" && !VALID_STATUSES.has(val)) {
-        return res.status(400).json({
-          error: `Invalid status. Allowed: ${[...VALID_STATUSES].join(", ")}`,
-        });
-      }
-
-      if (key === "status") {
-        if (val === "active") {
-          sets.push(`is_active = true`);
-          sets.push(`is_paused = false`);
-          sets.push(`rejection_reason = NULL`);
-        }
-        if (val === "rejected") {
-          sets.push(`is_active = false`);
-        }
-        if (val === "paused") {
-          sets.push(`is_active = false`);
-          sets.push(`is_paused = true`);
-        }
-      }
-
-      params.push(val);
-      sets.push(`${key} = $${idx++}`);
-    }
-
-    if (!sets.length) {
-      return res.status(400).json({ error: "No valid fields to update" });
-    }
-
-    sets.push(`updated_at = NOW()`);
-    sets.push(`reviewed_by = $${idx++}`);
-    sets.push(`reviewed_at = NOW()`);
-    params.push(req.admin.id);
-    params.push(productId);
-
-    await pool.query(
-      `UPDATE market.products
-       SET ${sets.join(", ")}
-       WHERE id = $${idx}`,
-      params
-    );
-
-    const changedFields = Object.keys(req.body)
-      .filter((k) => allowed.includes(k))
-      .map((k) => `${k}: ${JSON.stringify(req.body[k])}`)
-      .join(", ");
-
-    await pool
-      .query(
-        `INSERT INTO market.admin_logs
-           (admin_id, action, target_type, target_id, details, metadata)
-         VALUES ($1, 'edit_product', 'product', $2, $3, $4)`,
-        [
-          req.admin.id,
-          productId,
-          `Edited product "${product.name}" — ${changedFields}`,
-          JSON.stringify(req.body),
-        ]
-      )
-      .catch(() => {});
-
-    return res.json({ success: true, message: "Product updated" });
-  } catch (err) {
-    console.error("[ADMIN PATCH /products/:id]", err.message);
-    return res.status(500).json({ error: err.message });
-  }
-});
-
-/* ── Flag market product ── */
-router.post("/products/:id/flag", verifyAdmin, async (req, res) => {
-  const { flag, value } = req.body;
-  const productId = req.params.id;
-
-  const ALLOWED_FLAGS = [
-    "is_featured",
-    "is_trending",
-    "is_sponsored",
-    "is_hidden",
-  ];
-
-  if (!ALLOWED_FLAGS.includes(flag)) {
-    return res.status(400).json({
-      error: `Invalid flag. Allowed: ${ALLOWED_FLAGS.join(", ")}`,
-    });
-  }
-
-  try {
-    const { rowCount } = await pool.query(
-      `UPDATE market.products
-       SET ${flag} = $1, updated_at = NOW()
-       WHERE id = $2`,
-      [!!value, productId]
-    );
-
-    if (!rowCount)
-      return res.status(404).json({ error: "Product not found" });
-
-    await pool
-      .query(
-        `INSERT INTO market.admin_logs
-           (admin_id, action, target_type, target_id, details)
-         VALUES ($1, $2, 'product', $3, $4)`,
-        [
-          req.admin.id,
-          value ? `set_${flag}` : `unset_${flag}`,
-          productId,
-          `${flag} set to ${value}`,
-        ]
-      )
-      .catch(() => {});
-
-    return res.json({ success: true, [flag]: !!value });
-  } catch (err) {
-    console.error("[ADMIN flag]", err.message);
-    return res.status(500).json({ error: err.message });
-  }
-});
-
-/* ── Pause market product ── */
-router.post("/products/:id/pause", verifyAdmin, async (req, res) => {
-  const productId = req.params.id;
-
-  try {
-    const { rows } = await pool.query(
-      `SELECT id, name, is_paused, status
-       FROM market.products WHERE id = $1`,
-      [productId]
-    );
-    if (!rows.length)
-      return res.status(404).json({ error: "Product not found" });
-
-    const product = rows[0];
-    const nowPaused = !product.is_paused;
-    const nextStatus = nowPaused ? "paused" : "active";
-
-    await pool.query(
-      `UPDATE market.products
-       SET is_paused  = $1,
-           is_active  = $2,
-           status     = $3,
-           updated_at = NOW()
-       WHERE id = $4`,
-      [nowPaused, !nowPaused, nextStatus, productId]
-    );
-
-    await pool
-      .query(
-        `INSERT INTO market.admin_logs
-           (admin_id, action, target_type, target_id, details)
-         VALUES ($1, $2, 'product', $3, $4)`,
-        [
-          req.admin.id,
-          nowPaused ? "pause_product" : "unpause_product",
-          productId,
-          `${nowPaused ? "Paused" : "Unpaused"} product "${product.name}"`,
-        ]
-      )
-      .catch(() => {});
-
-    return res.json({
-      success: true,
-      is_paused: nowPaused,
-      status: nextStatus,
-      message: nowPaused ? "Listing paused" : "Listing resumed",
-    });
-  } catch (err) {
-    console.error("[ADMIN pause]", err.message);
-    return res.status(500).json({ error: err.message });
-  }
-});
-
-/* ── Remove market product (soft delete) ── */
-router.post("/products/:id/remove", verifyAdmin, async (req, res) => {
-  const { reason } = req.body;
-
-  if (!reason?.trim()) {
-    return res.status(400).json({ error: "A removal reason is required" });
-  }
-
-  try {
-    const { rows } = await pool.query(
-      `SELECT id, name, user_id AS seller_id
-       FROM market.products
-       WHERE id = $1`,
-      [req.params.id]
-    );
-    if (!rows.length)
-      return res.status(404).json({ error: "Product not found" });
-
-    const product = rows[0];
-
-    await pool.query(
-      `UPDATE market.products
-       SET status         = 'deleted',
-           is_active      = false,
-           is_paused      = false,
-           removed_reason = $1,
-           reviewed_by    = $2,
-           reviewed_at    = NOW(),
-           updated_at     = NOW()
-       WHERE id = $3`,
-      [reason.trim(), req.admin.id, req.params.id]
-    );
-
-    await pool
-      .query(
-        `INSERT INTO market.admin_logs
-           (admin_id, action, target_type, target_id, details)
-         VALUES ($1, 'remove_product', 'product', $2, $3)`,
-        [
-          req.admin.id,
-          req.params.id,
-          `Removed "${product.name}" — reason: ${reason.trim()}`,
-        ]
-      )
-      .catch(() => {});
-
-    return res.json({ success: true, message: "Product removed" });
-  } catch (err) {
-    console.error("[ADMIN remove]", err.message);
-    return res.status(500).json({ error: err.message });
-  }
-});
-
-/* ── Permanent delete market product ── */
-router.delete(
-  "/products/:id/permanent",
-  verifyAdmin,
-  requireSuperAdmin,
-  async (req, res) => {
+  /* ── Reject ── */
+  const handleReject = useCallback(async (id, reason) => {
+    setBusy(`rp-${id}`);
     try {
-      const { rows } = await pool.query(
-        `SELECT id, name FROM market.products WHERE id = $1`,
-        [req.params.id]
-      );
-      if (!rows.length)
-        return res.status(404).json({ error: "Product not found" });
+      await adminApi.post(`/products/${id}/reject`, { rejectionReason: reason });
+      await load();
+      setDrawer(null);
+    } catch (err) {
+      console.error("[reject]", err.message);
+    } finally {
+      setBusy(null);
+    }
+  }, [load]);
 
-      const { rows: imgs } = await pool.query(
-        `SELECT public_id FROM market.product_images WHERE product_id = $1`,
-        [req.params.id]
-      ).catch(() => ({ rows: [] }));
+  /* ── Flag toggle ── */
+  const handleFlag = useCallback(async (id, flag, value) => {
+    const bKey = `flag-${id}-${flag}`;
+    setBusy(bKey);
+    try {
+      await adminApi.post(`/products/${id}/flag`, { flag, value });
+      /* Optimistic local update — no need to refetch for a toggle */
+      updateLocal(id, { [flag]: value });
+    } catch (err) {
+      console.error("[flag]", err.message);
+    } finally {
+      setBusy(null);
+    }
+  }, [updateLocal]);
 
-      if (imgs.length) {
-        const cloudinary = (await import("cloudinary")).v2;
-        await Promise.all(
-          imgs
-            .filter((i) => i.public_id)
-            .map((i) =>
-              cloudinary.uploader.destroy(i.public_id).catch(() => {})
-            )
-        );
-      }
-
-      await pool.query(`DELETE FROM market.products WHERE id = $1`, [req.params.id]);
-
-      await pool
-        .query(
-          `INSERT INTO market.admin_logs
-             (admin_id, action, target_type, target_id, details)
-           VALUES ($1, 'permanent_delete', 'product', $2, $3)`,
-          [
-            req.admin.id,
-            req.params.id,
-            `Permanently deleted "${rows[0].name}"`,
-          ]
-        )
-        .catch(() => {});
-
-      return res.json({
-        success: true,
-        message: "Product permanently deleted",
+  /* ── Pause toggle ── */
+  const handlePause = useCallback(async (id) => {
+    setBusy(`pause-${id}`);
+    try {
+      const { data } = await adminApi.post(`/products/${id}/pause`);
+      updateLocal(id, {
+        is_paused: data.is_paused,
+        status:    data.status,
+        is_active: !data.is_paused,
       });
     } catch (err) {
-      console.error("[ADMIN permanent delete]", err.message);
-      return res.status(500).json({ error: err.message });
-    }
-  }
-);
-
-/* ─────────────────────────────────────────────
-   PAYMENTS
-───────────────────────────────────────────── */
-router.get("/payments", verifyAdmin, async (req, res) => {
-  try {
-    const { rows } = await pool.query(`
-      SELECT p.id, p.amount, p.status, p.type, p.method,
-             p.reference, p.created_at, p.updated_at,
-             u.name AS user, u.email AS user_email
-      FROM payments p
-      LEFT JOIN public.users u ON u.id = p.seller_id
-      ORDER BY p.created_at DESC
-      LIMIT 500
-    `);
-    return res.json(rows);
-  } catch (err) {
-    return res.status(500).json({ error: err.message });
-  }
-});
-
-router.post(
-  "/payments/:id/refund",
-  verifyAdmin,
-  requireSuperAdmin,
-  async (req, res) => {
-    try {
-      await pool.query(
-        `UPDATE payments SET status = 'refunded', updated_at = NOW() WHERE id = $1`,
-        [req.params.id]
-      );
-      await pool
-        .query(
-          `INSERT INTO admin_logs (admin_id, action, target_type, target_id, details)
-         VALUES ($1, 'refund_payment', 'payment', $2, $3)`,
-          [
-            req.admin.id,
-            req.params.id,
-            `Refunded payment ${req.params.id}`,
-          ]
-        )
-        .catch(() => {});
-      return res.json({ success: true });
-    } catch (err) {
-      return res.status(500).json({ error: err.message });
-    }
-  }
-);
-
-/* ─────────────────────────────────────────────
-   ORDERS
-───────────────────────────────────────────── */
-router.get("/orders", verifyAdmin, async (req, res) => {
-  try {
-    const { rows } = await pool
-      .query(
-        `SELECT o.id, o.status, o.total, o.created_at,
-             u.name AS buyer_name, u.email AS buyer_email,
-             COUNT(oi.id) AS item_count
-      FROM orders o
-      LEFT JOIN public.users u  ON u.id        = o.buyer_id
-      LEFT JOIN order_items oi ON oi.order_id = o.id
-      GROUP BY o.id, u.name, u.email
-      ORDER BY o.created_at DESC
-      LIMIT 300`
-      )
-      .catch(() => ({ rows: [] }));
-    return res.json(rows);
-  } catch (err) {
-    return res.status(500).json({ error: err.message });
-  }
-});
-
-router.post("/orders/:id/cancel", verifyAdmin, async (req, res) => {
-  try {
-    await pool.query(
-      `UPDATE orders SET status = 'cancelled', updated_at = NOW() WHERE id = $1`,
-      [req.params.id]
-    );
-    return res.json({ success: true });
-  } catch (err) {
-    return res.status(500).json({ error: err.message });
-  }
-});
-
-/* ─────────────────────────────────────────────
-   ACTIVITY LOGS
-───────────────────────────────────────────── */
-router.get("/logs", verifyAdmin, async (req, res) => {
-  try {
-    const { rows } = await pool
-      .query(
-        `SELECT l.id, l.action, l.details, l.created_at, a.name AS admin_name
-      FROM admin_logs l
-      LEFT JOIN admins a ON a.id = l.admin_id
-      ORDER BY l.created_at DESC
-      LIMIT 200`
-      )
-      .catch(() =>
-        pool.query(`
-        SELECT id, action, details, created_at, NULL AS admin_name
-        FROM audit_logs
-        ORDER BY created_at DESC
-        LIMIT 200
-      `)
-      );
-    return res.json(rows);
-  } catch (err) {
-    return res.status(500).json({ error: err.message });
-  }
-});
-
-/* ─────────────────────────────────────────────
-   SYSTEM CONFIG
-───────────────────────────────────────────── */
-router.get("/system", verifyAdmin, async (req, res) => {
-  try {
-    const { rows } = await pool
-      .query(`SELECT key, value FROM system_config`)
-      .catch(() => ({ rows: [] }));
-
-    const config = {
-      maintenance: false,
-      allowPosting: true,
-      allowPayments: true,
-    };
-    rows.forEach(({ key, value }) => {
-      if (key === "maintenance") config.maintenance = value === "true";
-      if (key === "allowPosting") config.allowPosting = value !== "false";
-      if (key === "allowPayments") config.allowPayments = value !== "false";
-    });
-
-    return res.json(config);
-  } catch (err) {
-    return res.status(500).json({ error: err.message });
-  }
-});
-
-router.post(
-  "/system",
-  verifyAdmin,
-  requireSuperAdmin,
-  async (req, res) => {
-    const { maintenance, allowPosting, allowPayments } = req.body;
-    try {
-      const upsert = (key, value) =>
-        pool.query(
-          `INSERT INTO system_config (key, value, updated_at)
-           VALUES ($1, $2, NOW())
-           ON CONFLICT (key) DO UPDATE
-             SET value = EXCLUDED.value, updated_at = NOW()`,
-          [key, String(value)]
-        );
-
-      await Promise.all([
-        upsert("maintenance", maintenance ?? false),
-        upsert("allowPosting", allowPosting ?? true),
-        upsert("allowPayments", allowPayments ?? true),
-      ]);
-
-      await pool
-        .query(
-          `INSERT INTO admin_logs (admin_id, action, details)
-           VALUES ($1, 'system_config_update', $2)`,
-          [
-            req.admin.id,
-            JSON.stringify({ maintenance, allowPosting, allowPayments }),
-          ]
-        )
-        .catch(() => {});
-
-      return res.json({ success: true });
-    } catch (err) {
-      return res.status(500).json({ error: err.message });
-    }
-  }
-);
-
-/* ─────────────────────────────────────────────
-   PROMOTION PLANS
-───────────────────────────────────────────── */
-router.get("/plans", verifyAdmin, async (req, res) => {
-  try {
-    const { rows } = await pool.query(`
-      SELECT id::text, name, price, discount_percent,
-             duration, duration_days, priority, sort_order,
-             features, is_active,
-             (price * (1 - discount_percent / 100.0)) AS effective_price,
-             created_at, updated_at
-      FROM promotion_plans
-      ORDER BY sort_order ASC, price ASC
-    `);
-
-    const plans = rows.map((p) => ({
-      ...p,
-      features: (() => {
-        if (Array.isArray(p.features)) return p.features;
-        if (typeof p.features === "string") {
-          try {
-            return JSON.parse(p.features);
-          } catch {
-            return [];
-          }
-        }
-        return [];
-      })(),
-    }));
-
-    return res.json({ success: true, plans });
-  } catch (err) {
-    console.error("[ADMIN] Plans error:", err.message);
-    return res.status(500).json({ error: err.message });
-  }
-});
-
-router.put(
-  "/plans/:id",
-  verifyAdmin,
-  requireSuperAdmin,
-  async (req, res) => {
-    const planId = cleanBigInt(req.params.id);
-    if (!planId) return res.status(400).json({ error: "Invalid plan ID" });
-
-    const {
-      name,
-      price,
-      discount_percent,
-      duration_days,
-      duration,
-      priority,
-      sort_order,
-      is_active,
-      features,
-    } = req.body;
-
-    try {
-      const safeFeatures = Array.isArray(features) ? features : [];
-      await pool.query(
-        `UPDATE promotion_plans
-         SET name             = $1,
-             price            = $2,
-             discount_percent = $3,
-             duration_days    = $4,
-             duration         = $5,
-             priority         = $6,
-             sort_order       = $7,
-             is_active        = $8,
-             features         = $9::JSONB,
-             updated_at       = NOW()
-         WHERE id = $10`,
-        [
-          name,
-          Number(price),
-          Number(discount_percent ?? 0),
-          Number(duration_days ?? 30),
-          duration ?? "",
-          Number(priority ?? 0),
-          Number(sort_order ?? 0),
-          !!is_active,
-          JSON.stringify(safeFeatures),
-          planId,
-        ]
-      );
-
-      await pool
-        .query(
-          `INSERT INTO admin_logs
-             (admin_id, action, target_type, target_id, details)
-           VALUES ($1, 'update_plan', 'promotion_plan', $2, $3)`,
-          [
-            req.admin.id,
-            planId,
-            `Updated plan "${name}" — price: ${price}, discount: ${discount_percent}%`,
-          ]
-        )
-        .catch(() => {});
-
-      return res.json({ success: true });
-    } catch (err) {
-      return res.status(500).json({ error: err.message });
-    }
-  }
-);
-
-router.post(
-  "/plans/:id/toggle",
-  verifyAdmin,
-  requireSuperAdmin,
-  async (req, res) => {
-    const planId = cleanBigInt(req.params.id);
-    if (!planId) return res.status(400).json({ error: "Invalid plan ID" });
-
-    try {
-      const { rows } = await pool.query(
-        `UPDATE promotion_plans
-         SET is_active = NOT is_active, updated_at = NOW()
-         WHERE id = $1
-         RETURNING id::text, name, is_active`,
-        [planId]
-      );
-      if (!rows.length)
-        return res.status(404).json({ error: "Plan not found" });
-
-      return res.json({ success: true, plan: rows[0] });
-    } catch (err) {
-      return res.status(500).json({ error: err.message });
-    }
-  }
-);
-
-/* ─────────────────────────────────────────────
-   REPORTS
-   /reports/stats MUST come before /reports/:reportId
-───────────────────────────────────────────── */
-
-router.get("/reports/stats", verifyAdmin, async (req, res) => {
-  try {
-    const { rows } = await pool.query(`
-      SELECT
-        COUNT(*)                                                          ::INT AS total,
-        COUNT(*) FILTER (WHERE status = 'pending')                       ::INT AS pending,
-        COUNT(*) FILTER (WHERE status = 'reviewing')                     ::INT AS reviewing,
-        COUNT(*) FILTER (WHERE status = 'resolved')                      ::INT AS resolved,
-        COUNT(*) FILTER (WHERE status = 'dismissed')                     ::INT AS dismissed,
-        COUNT(*) FILTER (WHERE created_at > NOW() - INTERVAL '24 hours') ::INT AS last_24h,
-        COUNT(*) FILTER (WHERE created_at > NOW() - INTERVAL '7 days')   ::INT AS last_7d
-      FROM public.chat_reports
-    `);
-    return res.json(rows[0]);
-  } catch (err) {
-    console.error("[ADMIN] report stats error:", err.message);
-    return res.status(500).json({ error: err.message });
-  }
-});
-
-router.get("/reports", verifyAdmin, async (req, res) => {
-  const { status, limit = 50, offset = 0 } = req.query;
-  const pageSize   = Math.min(safeInt(limit, 50), 500);
-  const pageOffset = safeInt(offset, 0);
-
-  try {
-    const params = [];
-    let whereClause = "";
-
-    if (status && status !== "all") {
-      params.push(status);
-      whereClause = `WHERE cr.status = $${params.length}`;
-    }
-
-    params.push(pageSize);
-    params.push(pageOffset);
-
-    const { rows } = await pool.query(
-      `SELECT
-         cr.id,
-         cr.reason,
-         cr.details,
-         cr.status,
-         cr.created_at,
-         cr.updated_at,
-         cr.conversation_id,
-         cr.message_id,
-
-         rep.id            AS reporter_id,
-         rep.name          AS reporter_name,
-         rep.email         AS reporter_email,
-         rep.profile_image AS reporter_image,
-
-         rep2.id            AS reported_id,
-         rep2.name          AS reported_name,
-         rep2.email         AS reported_email,
-         rep2.profile_image AS reported_image,
-
-         ct.last_message,
-         ct.last_message_at,
-         ct.is_under_review,
-         ct.buyer_id,
-         ct.seller_id,
-
-         cm.message      AS flagged_message,
-         cm.message_type AS flagged_message_type,
-         cm.created_at   AS flagged_at
-
-       FROM public.chat_reports       cr
-       JOIN public.users              rep  ON rep.id  = cr.reporter_id
-       JOIN public.chat_threads       ct   ON ct.id   = cr.conversation_id
-       JOIN public.users              rep2 ON rep2.id = CASE
-         WHEN ct.buyer_id = cr.reporter_id THEN ct.seller_id
-         ELSE ct.buyer_id
-       END
-       LEFT JOIN public.chat_messages cm   ON cm.id   = cr.message_id
-       ${whereClause}
-       ORDER BY cr.created_at DESC
-       LIMIT  $${params.length - 1}
-       OFFSET $${params.length}`,
-      params
-    );
-
-    const countParams = status && status !== "all" ? [status] : [];
-    const countWhere  = status && status !== "all" ? "WHERE status = $1" : "";
-    const { rows: cr } = await pool.query(
-      `SELECT COUNT(*)::INT AS total FROM public.chat_reports ${countWhere}`,
-      countParams
-    );
-
-    return res.json({ reports: rows, total: cr[0].total });
-  } catch (err) {
-    console.error("[ADMIN] GET /reports error:", err.message);
-    return res.status(500).json({ error: err.message });
-  }
-});
-
-router.get("/reports/:reportId", verifyAdmin, async (req, res) => {
-  const { reportId } = req.params;
-  try {
-    const { rows: rr } = await pool.query(
-      `SELECT
-         cr.*,
-         rep.name          AS reporter_name,
-         rep.email         AS reporter_email,
-         rep.profile_image AS reporter_image,
-         rep2.name          AS reported_name,
-         rep2.email         AS reported_email,
-         rep2.profile_image AS reported_image,
-         ct.is_under_review,
-         ct.buyer_id,
-         ct.seller_id,
-         ct.last_message,
-         ct.last_message_at,
-         cm.message      AS flagged_message,
-         cm.message_type AS flagged_message_type,
-         cm.created_at   AS flagged_at
-       FROM public.chat_reports       cr
-       JOIN public.users              rep  ON rep.id  = cr.reporter_id
-       JOIN public.chat_threads       ct   ON ct.id   = cr.conversation_id
-       JOIN public.users              rep2 ON rep2.id = CASE
-         WHEN ct.buyer_id = cr.reporter_id THEN ct.seller_id
-         ELSE ct.buyer_id
-       END
-       LEFT JOIN public.chat_messages cm ON cm.id = cr.message_id
-       WHERE cr.id = $1`,
-      [reportId]
-    );
-
-    if (!rr[0]) return res.status(404).json({ error: "Report not found" });
-
-    const { rows: messages } = await pool.query(
-      `SELECT m.*, u.name AS sender_name, u.profile_image AS sender_image
-       FROM public.chat_messages m
-       JOIN public.users         u ON u.id = m.sender_id
-       WHERE m.thread_id = $1
-       ORDER BY m.created_at DESC
-       LIMIT 50`,
-      [rr[0].conversation_id]
-    );
-
-    return res.json({ report: rr[0], messages: messages.reverse() });
-  } catch (err) {
-    console.error("[ADMIN] GET /reports/:id error:", err.message);
-    return res.status(500).json({ error: err.message });
-  }
-});
-
-router.patch("/reports/:reportId", verifyAdmin, async (req, res) => {
-  const { reportId } = req.params;
-  const { status } = req.body;
-
-  const VALID = new Set(["pending", "reviewing", "resolved", "dismissed"]);
-  if (!VALID.has(status))
-    return res
-      .status(400)
-      .json({ error: "status must be pending|reviewing|resolved|dismissed" });
-
-  const client = await pool.connect();
-  try {
-    await client.query("BEGIN");
-
-    const { rows, rowCount } = await client.query(
-      `UPDATE public.chat_reports
-       SET status = $1, updated_at = NOW()
-       WHERE id = $2
-       RETURNING conversation_id, status`,
-      [status, reportId]
-    );
-
-    if (!rowCount) {
-      await client.query("ROLLBACK");
-      return res.status(404).json({ error: "Report not found" });
-    }
-
-    const convId = rows[0].conversation_id;
-
-    if (status === "resolved" || status === "dismissed") {
-      const { rows: others } = await client.query(
-        `SELECT id FROM public.chat_reports
-         WHERE conversation_id = $1
-           AND id     <> $2
-           AND status IN ('pending', 'reviewing')`,
-        [convId, reportId]
-      );
-      if (others.length === 0) {
-        await client.query(
-          `UPDATE public.chat_threads SET is_under_review = false WHERE id = $1`,
-          [convId]
-        );
-      }
-    }
-
-    if (status === "reviewing") {
-      await client.query(
-        `UPDATE public.chat_threads SET is_under_review = true WHERE id = $1`,
-        [convId]
-      );
-    }
-
-    await client
-      .query(
-        `INSERT INTO admin_logs
-           (admin_id, action, target_type, target_id, details)
-         VALUES ($1, 'update_report_status', 'chat_report', $2, $3)`,
-        [req.admin.id, reportId, `Status changed to ${status}`]
-      )
-      .catch(() => {});
-
-    await client.query("COMMIT");
-    return res.json({ success: true, status: rows[0].status });
-  } catch (err) {
-    await client.query("ROLLBACK").catch(() => {});
-    console.error("[ADMIN] PATCH /reports/:id error:", err.message);
-    return res.status(500).json({ error: err.message });
-  } finally {
-    client.release();
-  }
-});
-
-router.post(
-  "/reports/:reportId/ban-seller",
-  verifyAdmin,
-  async (req, res) => {
-    const { reportId } = req.params;
-
-    const client = await pool.connect();
-    try {
-      await client.query("BEGIN");
-
-      const { rows: rr } = await client.query(
-        `SELECT cr.conversation_id, ct.seller_id, ct.buyer_id, cr.reporter_id
-         FROM public.chat_reports cr
-         JOIN public.chat_threads ct ON ct.id = cr.conversation_id
-         WHERE cr.id = $1`,
-        [reportId]
-      );
-
-      if (!rr[0]) {
-        await client.query("ROLLBACK");
-        return res.status(404).json({ error: "Report not found" });
-      }
-
-      const reportedId =
-        rr[0].reporter_id === rr[0].buyer_id
-          ? rr[0].seller_id
-          : rr[0].buyer_id;
-
-      await client.query(
-        `UPDATE public.users
-         SET status = 'banned', updated_at = NOW()
-         WHERE id = $1`,
-        [reportedId]
-      );
-
-      await client.query(
-        `UPDATE public.chat_reports
-         SET status = 'resolved', updated_at = NOW()
-         WHERE id = $1`,
-        [reportId]
-      );
-
-      await client.query(
-        `UPDATE public.chat_threads
-         SET is_under_review = false
-         WHERE id = $1`,
-        [rr[0].conversation_id]
-      );
-
-      await client
-        .query(
-          `INSERT INTO admin_logs
-             (admin_id, action, target_type, target_id, details)
-           VALUES
-             ($1, 'ban_user',           'user',        $2, $3),
-             ($1, 'resolve_report_ban', 'chat_report', $4, $5)`,
-          [
-            req.admin.id,
-            reportedId,
-            `Banned via report ${reportId}`,
-            reportId,
-            `Report resolved — user ${reportedId} banned`,
-          ]
-        )
-        .catch(() => {});
-
-      await client.query("COMMIT");
-      return res.json({ success: true, banned: reportedId });
-    } catch (err) {
-      await client.query("ROLLBACK").catch(() => {});
-      console.error("[ADMIN] ban-seller error:", err.message);
-      return res.status(500).json({ error: err.message });
+      console.error("[pause]", err.message);
     } finally {
-      client.release();
+      setBusy(null);
     }
-  }
-);
+  }, [updateLocal]);
 
-/* ─────────────────────────────────────────────
-   ROLES & PERMISSIONS
-───────────────────────────────────────────── */
-router.post("/roles", verifyAdmin, async (req, res) => {
-  const { role_name, description } = req.body;
-  try {
-    const { rows } = await pool.query(
-      `INSERT INTO admin_roles (role_name, description) VALUES ($1, $2) RETURNING *`,
-      [role_name, description]
+  /* ── Status change ── */
+  const handleStatusChange = useCallback(async (id, status) => {
+    setBusy(`status-${id}`);
+    try {
+      await adminApi.patch(`/products/${id}`, { status });
+      await load();
+      setDrawer(null);
+    } catch (err) {
+      console.error("[statusChange]", err.message);
+    } finally {
+      setBusy(null);
+    }
+  }, [load]);
+
+  /* ── Edit (title, description, notes) ── */
+  const handleSaveEdit = useCallback(async (id, fields) => {
+    try {
+      await adminApi.patch(`/products/${id}`, fields);
+      updateLocal(id, fields);
+    } catch (err) {
+      console.error("[saveEdit]", err.message);
+    }
+  }, [updateLocal]);
+
+  /* ── Remove (soft delete) ── */
+  const handleRemove = useCallback(async (id, reason) => {
+    setBusy(`rm-${id}`);
+    try {
+      await adminApi.post(`/products/${id}/remove`, { reason });
+      await load();
+      setDrawer(null);
+    } catch (err) {
+      console.error("[remove]", err.message);
+    } finally {
+      setBusy(null);
+    }
+  }, [load]);
+
+  /* ── Permanent delete ── */
+  const handlePermanentDelete = useCallback(async (id) => {
+    setBusy(`perm-${id}`);
+    try {
+      await adminApi.delete(`/products/${id}/permanent`);
+      removeLocal(id);
+    } catch (err) {
+      console.error("[permanentDelete]", err.message);
+    } finally {
+      setBusy(null);
+    }
+  }, [removeLocal]);
+
+  /* ── Filter — uses debounced query ── */
+  const displayed = useMemo(() => {
+    const lq = debouncedQ.toLowerCase();
+    if (!lq) return products;
+    return products.filter((p) =>
+      (p.name         ?? "").toLowerCase().includes(lq) ||
+      (p.seller_name  ?? "").toLowerCase().includes(lq) ||
+      (p.seller_email ?? "").toLowerCase().includes(lq) ||
+      (p.category     ?? "").toLowerCase().includes(lq)
     );
-    return res.json(rows[0]);
-  } catch (err) {
-    return res.status(500).json({ error: err.message });
-  }
-});
+  }, [products, debouncedQ]);
 
-router.get("/roles", verifyAdmin, async (req, res) => {
-  const { rows } = await pool.query(`SELECT * FROM admin_roles`);
-  return res.json(rows);
-});
+  const fmtDate = (d) => d
+    ? new Date(d).toLocaleDateString("en-GB", {
+        day: "numeric", month: "short", year: "numeric",
+      })
+    : "—";
 
-router.post("/permissions", verifyAdmin, async (req, res) => {
-  const { name, description } = req.body;
-  try {
-    const { rows } = await pool.query(
-      `INSERT INTO permissions (name, description) VALUES ($1, $2) RETURNING *`,
-      [name, description]
-    );
-    return res.json(rows[0]);
-  } catch (err) {
-    return res.status(500).json({ error: err.message });
-  }
-});
+  /* ═══════════════════════════════════════
+     RENDER
+  ═══════════════════════════════════════ */
+  return (
+    <div>
 
-router.get("/permissions", verifyAdmin, async (req, res) => {
-  const { rows } = await pool.query(`SELECT * FROM permissions`);
-  return res.json(rows);
-});
+      {/* Header */}
+      <div style={{
+        display: "flex", alignItems: "center",
+        justifyContent: "space-between",
+        marginBottom: 20, flexWrap: "wrap", gap: 12,
+      }}>
+        <div>
+          <h2 style={{ margin: 0, fontSize: 20, fontWeight: 800 }}>
+            Market Products
+          </h2>
+          <p style={{ margin: "4px 0 0", fontSize: 13, color: "#888" }}>
+            Review, approve, edit and manage all marketplace listings
+          </p>
+        </div>
+        <button
+          className="btn b-ghost"
+          onClick={load}
+          disabled={loading}
+          style={{ fontSize: 13 }}
+        >
+          {loading ? "Loading..." : "Refresh"}
+        </button>
+      </div>
 
-router.post("/roles/assign-permission", verifyAdmin, async (req, res) => {
-  const { role_id, permission_id } = req.body;
-  try {
-    await pool.query(
-      `INSERT INTO role_permissions (role_id, permission_id)
-       VALUES ($1, $2) ON CONFLICT DO NOTHING`,
-      [role_id, permission_id]
-    );
-    return res.json({ success: true });
-  } catch (err) {
-    return res.status(500).json({ error: err.message });
-  }
-});
+      {/* Tabs */}
+      <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginBottom: 16 }}>
+        {TABS.map((t) => {
+          const count  = t.key
+            ? (counts[t.key] ?? 0)
+            : (counts.total ?? products.length);
+          const active = tab === t.key;
+          return (
+            <button
+              key={t.key}
+              onClick={() => setTab(t.key)}
+              style={{
+                padding: "7px 14px", borderRadius: 999,
+                border:      active ? "none" : "1.5px solid #e8e6e0",
+                background:  active ? "#ff5722" : "#fafaf8",
+                color:       active ? "#fff" : "#555",
+                fontWeight:  700, fontSize: 12, cursor: "pointer",
+                display: "flex", alignItems: "center", gap: 6,
+                transition: "all .15s",
+              }}
+            >
+              {t.label}
+              {count > 0 && (
+                <span style={{
+                  borderRadius: 999, fontSize: 10, fontWeight: 800,
+                  padding: "1px 6px", minWidth: 18, textAlign: "center",
+                  background: active
+                    ? "rgba(255,255,255,.25)"
+                    : t.key === "pending_review" ? "#ff5722" : "#e8e6e0",
+                  color: active
+                    ? "#fff"
+                    : t.key === "pending_review" ? "#fff" : "#555",
+                }}>
+                  {count}
+                </span>
+              )}
+            </button>
+          );
+        })}
+      </div>
 
-router.get("/roles/:id/permissions", verifyAdmin, async (req, res) => {
-  const { rows } = await pool.query(
-    `SELECT p.id, p.name
-     FROM role_permissions rp
-     JOIN permissions p ON rp.permission_id = p.id
-     WHERE rp.role_id = $1`,
-    [req.params.id]
+      {/* Search */}
+      <input
+        value={q}
+        onChange={(e) => setQ(e.target.value)}
+        placeholder="Search by name, seller, email or category..."
+        style={{
+          width: "100%", maxWidth: 420, padding: "9px 14px",
+          border: "1.5px solid #e8e6e0", borderRadius: 10,
+          fontSize: 13, fontFamily: "inherit", outline: "none",
+          boxSizing: "border-box", background: "#fafaf8", marginBottom: 16,
+        }}
+      />
+
+      {/* Content */}
+      {loading ? (
+        <div style={{ textAlign: "center", padding: 60, color: "#aaa" }}>
+          Loading listings...
+        </div>
+      ) : displayed.length === 0 ? (
+        <EmptyState tab={tab} />
+      ) : (
+        <div style={{ overflowX: "auto" }}>
+          <table style={{
+            width: "100%", borderCollapse: "collapse",
+            fontSize: 13, minWidth: 820,
+          }}>
+            <thead>
+              <tr style={{ borderBottom: "2px solid #f0eeea" }}>
+                {[
+                  "", "Product", "Seller", "Price",
+                  "Status", "Flags", "Fraud", "Date", "Actions",
+                ].map((h) => (
+                  <th key={h} style={{
+                    padding: "10px 10px", textAlign: "left",
+                    fontSize: 11, fontWeight: 700, color: "#aaa",
+                    textTransform: "uppercase", letterSpacing: ".4px",
+                    whiteSpace: "nowrap",
+                  }}>
+                    {h}
+                  </th>
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              {displayed.map((p) => {
+                const coverUrl = (() => {
+                  if (p.cover_image) return p.cover_image;
+                  const imgs  = p.images ?? [];
+                  if (!imgs.length) return null;
+                  const first = imgs[0];
+                  return typeof first === "string"
+                    ? first
+                    : first?.image_url ?? first?.url;
+                })();
+                const isPending = p.status === "pending_review"
+                               || p.status === "flagged";
+
+                return (
+                  <tr
+                    key={p.id}
+                    style={{
+                      borderBottom: "1px solid #f5f4f0",
+                      background: p.is_flagged ? "#fffbeb" : "transparent",
+                      cursor: "pointer", transition: "background .12s",
+                    }}
+                    onMouseEnter={(e) =>
+                      e.currentTarget.style.background = "#fafaf8"
+                    }
+                    onMouseLeave={(e) =>
+                      e.currentTarget.style.background =
+                        p.is_flagged ? "#fffbeb" : "transparent"
+                    }
+                    onClick={() => setDrawer(p)}
+                  >
+                    {/* Photo */}
+                    <td style={{ padding: "8px 10px", width: 56 }}>
+                      {coverUrl ? (
+                        <img src={coverUrl} alt="" style={{
+                          width: 44, height: 44, objectFit: "cover",
+                          borderRadius: 8, border: "1.5px solid #f0eeea",
+                        }} />
+                      ) : (
+                        <div style={{
+                          width: 44, height: 44, borderRadius: 8,
+                          background: "#f0eeea", display: "flex",
+                          alignItems: "center", justifyContent: "center",
+                          fontSize: 16, color: "#ccc",
+                        }}>
+                          --
+                        </div>
+                      )}
+                    </td>
+
+                    {/* Product */}
+                    <td style={{ padding: "8px 10px" }}>
+                      <div style={{ fontWeight: 700, color: "#1a1a1a", marginBottom: 2 }}>
+                        {p.name}
+                      </div>
+                      <div style={{ fontSize: 11, color: "#aaa" }}>
+                        {p.category}
+                      </div>
+                    </td>
+
+                    {/* Seller */}
+                    <td style={{ padding: "8px 10px" }}>
+                      <div style={{ fontWeight: 600 }}>
+                        {p.seller_name ?? "—"}
+                      </div>
+                      <div style={{ fontSize: 11, color: "#aaa" }}>
+                        {p.seller_email ?? ""}
+                      </div>
+                    </td>
+
+                    {/* Price */}
+                    <td style={{
+                      padding: "8px 10px", fontWeight: 800,
+                      color: "#ff5722", whiteSpace: "nowrap",
+                    }}>
+                      {Number(p.base_price ?? p.price ?? 0).toLocaleString("en-NG", {
+                        style: "currency", currency: "NGN",
+                        maximumFractionDigits: 0,
+                      })}
+                    </td>
+
+                    {/* Status */}
+                    <td style={{ padding: "8px 10px" }}>
+                      <StatusPill status={p.status} />
+                    </td>
+
+                    {/* Flags */}
+                    <td style={{ padding: "8px 10px" }}>
+                      <div style={{ display: "flex", gap: 3, flexWrap: "wrap" }}>
+                        {p.is_featured  && <FlagChip label="Featured"  color="#d97706" />}
+                        {p.is_trending  && <FlagChip label="Trending"  color="#dc2626" />}
+                        {p.is_sponsored && <FlagChip label="Sponsored" color="#9333ea" />}
+                        {p.is_hidden    && <FlagChip label="Hidden"    color="#6b7280" />}
+                        {p.is_paused    && <FlagChip label="Paused"    color="#6b7280" />}
+                      </div>
+                    </td>
+
+                    {/* Fraud score */}
+                    <td style={{ padding: "8px 10px" }}>
+                      {p.fraud_score != null ? (
+                        <span style={{
+                          fontWeight: 700,
+                          color: p.fraud_score > 50 ? "#dc2626"
+                               : p.fraud_score > 20 ? "#d97706"
+                               : "#16a34a",
+                        }}>
+                          {p.fraud_score}
+                        </span>
+                      ) : (
+                        <span style={{ color: "#ccc" }}>—</span>
+                      )}
+                    </td>
+
+                    {/* Date */}
+                    <td style={{
+                      padding: "8px 10px", color: "#888", whiteSpace: "nowrap",
+                    }}>
+                      {fmtDate(p.created_at)}
+                    </td>
+
+                    {/* Actions */}
+                    <td
+                      style={{ padding: "8px 10px" }}
+                      onClick={(e) => e.stopPropagation()}
+                    >
+                      <div style={{ display: "flex", gap: 6 }}>
+                        {isPending && (
+                          <>
+                            <button
+                              className="btn b-solid"
+                              disabled={busy === `ap-${p.id}`}
+                              onClick={() => confirm({
+                                title:   "Approve listing?",
+                                body:    `"${p.name}" will go live immediately.`,
+                                confirm: "Approve",
+                                action:  () => handleApprove(p.id),
+                              })}
+                              style={{
+                                fontSize: 11, padding: "4px 10px", height: 28,
+                              }}
+                            >
+                              {busy === `ap-${p.id}` ? "..." : "Approve"}
+                            </button>
+                            <button
+                              className="btn b-red"
+                              disabled={busy === `rp-${p.id}`}
+                              onClick={() => setRejectTarget(p)}
+                              style={{
+                                fontSize: 11, padding: "4px 10px", height: 28,
+                              }}
+                            >
+                              Reject
+                            </button>
+                          </>
+                        )}
+                        <button
+                          className="btn b-ghost"
+                          onClick={() => setDrawer(p)}
+                          style={{ fontSize: 11, padding: "4px 10px", height: 28 }}
+                        >
+                          View
+                        </button>
+                      </div>
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
+      )}
+
+      {/* Drawer */}
+      <ProductDrawer
+        product={drawer}
+        onClose={() => setDrawer(null)}
+        onApprove={handleApprove}
+        onRejectOpen={(p) => { setDrawer(null); setRejectTarget(p); }}
+        onRemoveOpen={(p) => { setDrawer(null); setRemoveTarget(p); }}
+        onPause={handlePause}
+        onFlag={handleFlag}
+        onStatusChange={handleStatusChange}
+        onSaveEdit={handleSaveEdit}
+        onPermanentDelete={handlePermanentDelete}
+        busy={busy}
+        confirm={confirm}
+      />
+
+      {/* Modals */}
+      {rejectTarget && (
+        <RejectModal
+          product={rejectTarget}
+          onReject={handleReject}
+          onClose={() => setRejectTarget(null)}
+        />
+      )}
+      {removeTarget && (
+        <RemoveModal
+          product={removeTarget}
+          onRemove={handleRemove}
+          onClose={() => setRemoveTarget(null)}
+        />
+      )}
+    </div>
   );
-  return res.json(rows);
-});
-
-export default router;
+}
