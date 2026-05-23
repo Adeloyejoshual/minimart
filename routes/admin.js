@@ -6,6 +6,8 @@ import { verifyAdmin, requireSuperAdmin } from "./admin/middleware.js";
 
 import userRouter                              from "./admin/user.js";
 import { publicProductRouter, marketProductRouter } from "./admin/product.js";
+import marketProductRouter     
+from "./admin/marketproducts.js"; 
 import paymentRouter                           from "./admin/payment.js";
 import orderRouter                             from "./admin/order.js";
 import reportRouter                            from "./admin/report.js";
