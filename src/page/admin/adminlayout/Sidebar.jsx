@@ -1,6 +1,12 @@
 import { NAV } from "./nav";
 
-export default function Sidebar({ page, setPage, pendingCount, reportCount }) {
+export default function Sidebar({
+  page,
+  setPage,
+  pendingCount,
+  reportCount,
+  marketPendingCount,
+}) {
   return (
     <aside className="sidebar">
       <div className="sb-logo">MM <span>Admin</span></div>
@@ -17,16 +23,19 @@ export default function Sidebar({ page, setPage, pendingCount, reportCount }) {
             <span className="nav-icon">{item.icon}</span>
             {item.label}
 
-            {/* pending products badge */}
+            {/* existing products — pending from old products table */}
             {item.id === "products" && pendingCount > 0 && (
               <span className="nav-badge">{pendingCount}</span>
             )}
 
-            {/* pending reports badge */}
+            {/* market products — pending_review from market.products */}
+            {item.id === "market_products" && marketPendingCount > 0 && (
+              <span className="nav-badge">{marketPendingCount}</span>
+            )}
+
+            {/* reports */}
             {item.id === "reports" && reportCount > 0 && (
-              <span className="nav-badge nav-badge-red">
-                {reportCount}
-              </span>
+              <span className="nav-badge nav-badge-red">{reportCount}</span>
             )}
           </button>
         )
