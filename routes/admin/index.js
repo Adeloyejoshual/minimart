@@ -54,13 +54,13 @@ router.get("/stats", async (req, res) => {
 });
 
 /* ── Mount feature routes ── */
-router.use("/users", userRoutes);
-router.use("/products", marketRoutes);          // ✅ market.products
-router.use("/products/legacy", legacyRoutes);   // 🗑️ public.products (deprecated)
-router.use("/payments", paymentRoutes);
-router.use("/orders", orderRoutes);
-router.use("/reports", reportRoutes);
-router.use("/system", systemRoutes);
-router.use("/roles", roleRoutes);
+router.use("/users",            userRoutes);
+router.use("/products",         marketRoutes);        // ✅ market.products
+router.use("/products/legacy",  legacyRoutes);        // 🗑️ public.products (deprecated)
+router.use("/payments",         paymentRoutes);
+router.use("/orders",           orderRoutes);
+router.use("/reports",          reportRoutes);
+router.use("/system",           systemRoutes);
+router.use("/roles",            roleRoutes);
 
 export default router;
