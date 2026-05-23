@@ -7,16 +7,17 @@ import Topbar  from "./adminlayout/Topbar";
 import { css } from "./adminlayout/css";
 
 // pages
-import Overview   from "./SuperAdmin/Overview";
-import Users      from "./SuperAdmin/Users";
-import Admins     from "./SuperAdmin/Admins";
-import Products   from "./SuperAdmin/Products";
-import Payments   from "./SuperAdmin/Payments";
-import Orders     from "./SuperAdmin/Orders";
-import Logs       from "./SuperAdmin/Logs";
-import Promotions from "./SuperAdmin/Promotions";
-import System     from "./SuperAdmin/System";
-import Reports    from "./SuperAdmin/Reports";     // ← NEW
+import Overview      from "./SuperAdmin/Overview";
+import Users         from "./SuperAdmin/Users";
+import Admins        from "./SuperAdmin/Admins";
+import Products      from "./SuperAdmin/Products";
+import MarketProducts from "./SuperAdmin/MarketProducts";
+import Payments      from "./SuperAdmin/Payments";
+import Orders        from "./SuperAdmin/Orders";
+import Logs          from "./SuperAdmin/Logs";
+import Promotions    from "./SuperAdmin/Promotions";
+import System        from "./SuperAdmin/System";
+import Reports       from "./SuperAdmin/Reports";
 
 // helpers
 import { safeFeatures } from "./adminlayout/helpers";
@@ -24,22 +25,30 @@ import { safeFeatures } from "./adminlayout/helpers";
 const BASE     = "https://minimart-ivrm.onrender.com/api/admin";
 const PAY_BASE = "https://minimart-ivrm.onrender.com/api/payment";
 
+/* ─────────────────────────────────────────────
+   createApi
+   Used for all non-market-products calls.
+   MarketProducts uses its own adminApi singleton
+   from services/adminApi.js
+───────────────────────────────────────────── */
 const createApi = (token) => {
   const h = { Authorization: `Bearer ${token}` };
   return {
-    get:  (p, base = BASE)         => axios.get(base + p,       { headers: h }),
-    post: (p, b = {}, base = BASE) => axios.post(base + p,  b,  { headers: h }),
-    put:  (p, b = {}, base = BASE) => axios.put(base + p,   b,  { headers: h }),
-    del:  (p, base = BASE)         => axios.delete(base + p,    { headers: h }),
+    get:  (p, base = BASE)          => axios.get(base + p,      { headers: h }),
+    post: (p, b = {}, base = BASE)  => axios.post(base + p, b,  { headers: h }),
+    put:  (p, b = {}, base = BASE)  => axios.put(base + p, b,   { headers: h }),
+    del:  (p, base = BASE)          => axios.delete(base + p,   { headers: h }),
   };
 };
 
-/* ── Confirm modal ── */
+/* ─────────────────────────────────────────────
+   Confirm modal
+───────────────────────────────────────────── */
 function Confirm({ cfg, onClose }) {
   if (!cfg) return null;
   return (
     <div className="overlay" onClick={onClose}>
-      <div className="modal" onClick={e => e.stopPropagation()}>
+      <div className="modal" onClick={(e) => e.stopPropagation()}>
         <div className="modal-title">{cfg.title}</div>
         <p style={{ fontSize: ".82rem", color: "var(--muted)", lineHeight: 1.6 }}>
           {cfg.body}
@@ -58,28 +67,31 @@ function Confirm({ cfg, onClose }) {
   );
 }
 
-/* ── useData ── */
+/* ─────────────────────────────────────────────
+   useData
+───────────────────────────────────────────── */
 function useData(api) {
-  const [stats,    setStats]   = useState({
+  const [stats, setStats] = useState({
     users: 0, orders: 0, revenue: 0, dailySales: [],
     activeUsers: 0, bannedUsers: 0,
     pendingProducts: 0, totalProducts: 0,
     todayUsers: 0, todayProducts: 0,
     todayRevenue: 0, todayOrders: 0,
   });
-  const [users,    setUsers]    = useState([]);
-  const [admins,   setAdmins]   = useState([]);
-  const [products, setProducts] = useState([]);
-  const [pending,  setPending]  = useState([]);
-  const [payments, setPayments] = useState([]);
-  const [orders,   setOrders]   = useState([]);
-  const [logs,     setLogs]     = useState([]);
-  const [system,   setSystem]   = useState({
+  const [users,               setUsers]               = useState([]);
+  const [admins,              setAdmins]              = useState([]);
+  const [products,            setProducts]            = useState([]);
+  const [pending,             setPending]             = useState([]);
+  const [payments,            setPayments]            = useState([]);
+  const [orders,              setOrders]              = useState([]);
+  const [logs,                setLogs]                = useState([]);
+  const [system,              setSystem]              = useState({
     maintenance: false, allowPosting: true, allowPayments: true,
   });
-  const [plans,        setPlans]        = useState([]);
-  const [reportCount,  setReportCount]  = useState(0); // ← pending reports
-  const [loading,      setLoading]      = useState(true);
+  const [plans,               setPlans]               = useState([]);
+  const [reportCount,         setReportCount]         = useState(0);
+  const [marketPendingCount,  setMarketPendingCount]  = useState(0);
+  const [loading,             setLoading]             = useState(true);
 
   const safe = useCallback(async (path, setter, base) => {
     try {
@@ -91,24 +103,45 @@ function useData(api) {
   }, [api]);
 
   const normalizePlans = useCallback((data) => {
-    if (data?.plans)
-      setPlans(data.plans.map(p => ({
+    if (data?.plans) {
+      setPlans(data.plans.map((p) => ({
         ...p, features: safeFeatures(p.features),
       })));
+    }
   }, []);
 
   const reloadPlans = useCallback(async () => {
     try {
       const { data } = await api.get("/plans", PAY_BASE);
       normalizePlans(data);
-    } catch (e) { console.warn("[plans]", e.message); }
+    } catch (e) {
+      console.warn("[plans]", e.message);
+    }
   }, [api, normalizePlans]);
 
-  /* fetch pending report count for sidebar badge */
   const reloadReportCount = useCallback(async () => {
     try {
       const { data } = await api.get("/reports/stats");
       setReportCount(data.pending ?? 0);
+    } catch {}
+  }, [api]);
+
+  /*
+   * Fetch market pending count for Sidebar badge.
+   * Hits the same /products?status=pending_review endpoint
+   * that MarketProducts uses — reads only the counts field.
+   */
+  const reloadMarketPendingCount = useCallback(async () => {
+    try {
+      const { data } = await api.get("/products?status=pending_review");
+      /*
+       * Backend returns { products: [...], counts: { pending_review, active, ... } }
+       * We only need the pending_review number for the badge.
+       */
+      const count = data?.counts?.pending_review
+        ?? (Array.isArray(data?.products) ? data.products.length : 0)
+        ?? 0;
+      setMarketPendingCount(count);
     } catch {}
   }, [api]);
 
@@ -120,13 +153,14 @@ function useData(api) {
       safe("/products/pending", setPending),
       safe("/stats",            setStats),
     ]),
-    payments:     () => safe("/payments", setPayments),
-    orders:       () => safe("/orders",   setOrders),
-    logs:         () => safe("/logs",     setLogs),
-    system:       (d) => setSystem(d),
-    plans:        reloadPlans,
-    reportCount:  reloadReportCount,
-  }), [safe, reloadPlans, reloadReportCount]);
+    payments:             () => safe("/payments", setPayments),
+    orders:               () => safe("/orders",   setOrders),
+    logs:                 () => safe("/logs",      setLogs),
+    system:               (d) => setSystem(d),
+    plans:                reloadPlans,
+    reportCount:          reloadReportCount,
+    marketPendingCount:   reloadMarketPendingCount,
+  }), [safe, reloadPlans, reloadReportCount, reloadMarketPendingCount]);
 
   const loadAll = useCallback(async () => {
     setLoading(true);
@@ -142,38 +176,43 @@ function useData(api) {
       safe("/system",           setSystem),
       reloadPlans(),
       reloadReportCount(),
+      reloadMarketPendingCount(),
     ]);
     setLoading(false);
-  }, [safe, reloadPlans, reloadReportCount]);
+  }, [safe, reloadPlans, reloadReportCount, reloadMarketPendingCount]);
 
   return {
     stats, users, admins, products, pending, payments,
-    orders, logs, system, plans, reportCount, loading,
-    loadAll, reload,
+    orders, logs, system, plans,
+    reportCount, marketPendingCount,
+    loading, loadAll, reload,
   };
 }
 
-/* ── useDerived ── */
+/* ─────────────────────────────────────────────
+   useDerived
+───────────────────────────────────────────── */
 function useDerived({
   users, products, pending, orders, payments, stats,
   productTab, userQ, productQ, orderQ, payQ,
 }) {
   const salesData = useMemo(() =>
-    (stats.dailySales ?? []).map(d => ({
+    (stats.dailySales ?? []).map((d) => ({
       date:  d.date?.slice(5),
       sales: Number(d.amount),
-    })), [stats.dailySales]);
+    })),
+  [stats.dailySales]);
 
   const userStats = useMemo(() => ({
     total:  users.length,
-    active: users.filter(u => u.status !== "banned").length,
-    banned: users.filter(u => u.status === "banned").length,
+    active: users.filter((u) => u.status !== "banned").length,
+    banned: users.filter((u) => u.status === "banned").length,
   }), [users]);
 
   const prodStatusData = useMemo(() => [
-    { status: "Active",  count: products.filter(p => p.status === "active").length  },
-    { status: "Draft",   count: products.filter(p => p.status === "draft").length   },
-    { status: "Pending", count: products.filter(p => p.status === "pending").length },
+    { status: "Active",  count: products.filter((p) => p.status === "active").length  },
+    { status: "Draft",   count: products.filter((p) => p.status === "draft").length   },
+    { status: "Pending", count: products.filter((p) => p.status === "pending").length },
   ], [products]);
 
   const lastProducts = useMemo(() =>
@@ -184,7 +223,7 @@ function useDerived({
 
   const filteredUsers = useMemo(() => {
     const q = userQ.toLowerCase();
-    return users.filter(u =>
+    return users.filter((u) =>
       `${u.name ?? ""} ${u.email ?? ""}`.toLowerCase().includes(q)
     );
   }, [users, userQ]);
@@ -192,7 +231,7 @@ function useDerived({
   const displayedProds = useMemo(() => {
     const q    = productQ.toLowerCase();
     const base = productTab === "pending" ? pending : products;
-    return base.filter(p =>
+    return base.filter((p) =>
       (p.name ?? p.title ?? "").toLowerCase().includes(q) ||
       (p.seller_name ?? "").toLowerCase().includes(q)
     );
@@ -200,15 +239,17 @@ function useDerived({
 
   const filteredOrders = useMemo(() => {
     const q = orderQ.toLowerCase();
-    return orders.filter(o =>
-      `${o.id ?? ""} ${o.buyer_name ?? ""} ${o.status ?? ""}`.toLowerCase().includes(q)
+    return orders.filter((o) =>
+      `${o.id ?? ""} ${o.buyer_name ?? ""} ${o.status ?? ""}`
+        .toLowerCase().includes(q)
     );
   }, [orders, orderQ]);
 
   const filteredPayments = useMemo(() => {
     const q = payQ.toLowerCase();
-    return payments.filter(p =>
-      `${p.user ?? ""} ${p.reference ?? ""} ${p.status ?? ""}`.toLowerCase().includes(q)
+    return payments.filter((p) =>
+      `${p.user ?? ""} ${p.reference ?? ""} ${p.status ?? ""}`
+        .toLowerCase().includes(q)
     );
   }, [payments, payQ]);
 
@@ -218,7 +259,9 @@ function useDerived({
   };
 }
 
-/* ── useActions ── */
+/* ─────────────────────────────────────────────
+   useActions
+───────────────────────────────────────────── */
 function useActions(api, reload) {
   const [busy, setBusy] = useState(null);
 
@@ -231,19 +274,42 @@ function useActions(api, reload) {
 
   return {
     busy,
-    banUser:        (id) => run(`bu-${id}`, async () => { await api.post(`/users/${id}/ban`);        reload.users(); }),
-    banAdmin:       (id) => run(`ba-${id}`, async () => { await api.post(`/admins/${id}/ban`);       reload.admins(); }),
-    approveProduct: (id) => run(`ap-${id}`, async () => { await api.post(`/products/${id}/approve`); reload.products(); }),
-    rejectProduct:  (id) => run(`rp-${id}`, async () => { await api.post(`/products/${id}/reject`);  reload.products(); }),
-    refundPayment:  (id) => run(`rf-${id}`, async () => { await api.post(`/payments/${id}/refund`);  reload.payments(); }),
-    cancelOrder:    (id) => run(`co-${id}`, async () => { await api.post(`/orders/${id}/cancel`);    reload.orders(); }),
+    banUser:        (id) => run(`bu-${id}`, async () => {
+      await api.post(`/users/${id}/ban`);
+      reload.users();
+    }),
+    banAdmin:       (id) => run(`ba-${id}`, async () => {
+      await api.post(`/admins/${id}/ban`);
+      reload.admins();
+    }),
+    approveProduct: (id) => run(`ap-${id}`, async () => {
+      await api.post(`/products/${id}/approve`);
+      reload.products();
+      reload.marketPendingCount();
+    }),
+    rejectProduct:  (id) => run(`rp-${id}`, async () => {
+      await api.post(`/products/${id}/reject`);
+      reload.products();
+      reload.marketPendingCount();
+    }),
+    refundPayment:  (id) => run(`rf-${id}`, async () => {
+      await api.post(`/payments/${id}/refund`);
+      reload.payments();
+    }),
+    cancelOrder:    (id) => run(`co-${id}`, async () => {
+      await api.post(`/orders/${id}/cancel`);
+      reload.orders();
+    }),
     toggleSystem: async (key, system) => {
       const next = { ...system, [key]: !system[key] };
       reload.system(next);
       try   { await api.post("/system", next); }
       catch { reload.system(system); }
     },
-    registerAdmin: async (form) => { await api.post("/register", form); reload.admins(); },
+    registerAdmin: async (form) => {
+      await api.post("/register", form);
+      reload.admins();
+    },
     savePlan: async (plan) => {
       await run(`plan-${plan.id}`, () =>
         api.put(`/plans/${plan.id}`, {
@@ -262,8 +328,11 @@ function useActions(api, reload) {
     },
     togglePlan: async (plan) => {
       await run(`pt-${plan.id}`, () =>
-        api.put(`/plans/${plan.id}`,
-          { ...plan, is_active: !plan.is_active }, PAY_BASE)
+        api.put(
+          `/plans/${plan.id}`,
+          { ...plan, is_active: !plan.is_active },
+          PAY_BASE
+        )
       );
       reload.plans();
     },
@@ -286,7 +355,7 @@ export default function AdminDashboard() {
   const [payQ,       setPayQ]       = useState("");
   const [confirmCfg, setConfirmCfg] = useState(null);
 
-  const confirm = useCallback(cfg => setConfirmCfg(cfg), []);
+  const confirm = useCallback((cfg) => setConfirmCfg(cfg), []);
 
   const data    = useData(api);
   const derived = useDerived({
@@ -300,7 +369,7 @@ export default function AdminDashboard() {
   });
   const actions = useActions(api, data.reload);
 
-  /* stable ref for log polling */
+  /* Stable ref for log polling — avoids stale closure */
   const logRef = useMemo(() => ({ current: data.reload.logs }), []);
   useEffect(() => { logRef.current = data.reload.logs; });
 
@@ -316,12 +385,13 @@ export default function AdminDashboard() {
       <>
         <style>{css}</style>
         <div className="loading">
-          <span className="live-dot"/> Loading admin panel…
+          <span className="live-dot" /> Loading admin panel...
         </div>
       </>
     );
   }
 
+  /* ── Page map ── */
   const pageMap = {
     overview: (
       <Overview
@@ -373,6 +443,19 @@ export default function AdminDashboard() {
         confirm={confirm}
       />
     ),
+
+    /*
+     * MarketProducts manages its own data fetching via adminApi.
+     * It only needs confirm for the shared confirm modal
+     * and onMutation to refresh the sidebar badge after any action.
+     */
+    market_products: (
+      <MarketProducts
+        confirm={confirm}
+        onMutation={data.reload.marketPendingCount}
+      />
+    ),
+
     payments: (
       <Payments
         filteredPayments={derived.filteredPayments}
@@ -417,11 +500,19 @@ export default function AdminDashboard() {
         confirm={confirm}
       />
     ),
-    /* ← NEW */
     reports: (
-      <Reports confirm={confirm}/>
+      <Reports confirm={confirm} />
     ),
   };
+
+  /*
+   * Total notification count for Topbar bell:
+   * old products pending + market products pending + open reports
+   */
+  const totalNotifCount =
+    data.pending.length +
+    data.marketPendingCount +
+    data.reportCount;
 
   return (
     <>
@@ -431,20 +522,21 @@ export default function AdminDashboard() {
           page={page}
           setPage={setPage}
           pendingCount={data.pending.length}
-          reportCount={data.reportCount}      /* ← NEW */
+          reportCount={data.reportCount}
+          marketPendingCount={data.marketPendingCount}
         />
         <div className="main">
           <Topbar
             page={page}
             adminName={adminName}
-            notifCount={data.pending.length + data.reportCount} /* ← NEW */
+            notifCount={totalNotifCount}
           />
           <div className="body">
             {pageMap[page] ?? null}
           </div>
         </div>
       </div>
-      <Confirm cfg={confirmCfg} onClose={() => setConfirmCfg(null)}/>
+      <Confirm cfg={confirmCfg} onClose={() => setConfirmCfg(null)} />
     </>
   );
 }
