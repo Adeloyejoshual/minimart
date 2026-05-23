@@ -4,16 +4,15 @@ import bcrypt from "bcrypt";
 import jwt from "jsonwebtoken";
 import { verifyAdmin, requireSuperAdmin } from "./admin/middleware.js";
 
-import userRouter                              from "./admin/user.js";
-import { publicProductRouter, marketProductRouter } from "./admin/product.js";
-import marketProductRouter     
-from "./admin/marketproducts.js"; 
-import paymentRouter                           from "./admin/payment.js";
-import orderRouter                             from "./admin/order.js";
-import reportRouter                            from "./admin/report.js";
-import systemRouter                            from "./admin/system.js";
-import { rolesRouter, permissionsRouter }      from "./admin/roles.js";
-import promotionRouter                         from "./admin/promotion.js";
+import userRouter              from "./admin/user.js";
+import { publicProductRouter } from "./admin/product.js";
+import marketProductRouter     from "./admin/marketproducts.js";   // ← added
+import paymentRouter           from "./admin/payment.js";
+import orderRouter             from "./admin/order.js";
+import reportRouter            from "./admin/report.js";
+import systemRouter            from "./admin/system.js";
+import { rolesRouter, permissionsRouter } from "./admin/roles.js";
+import promotionRouter         from "./admin/promotion.js";
 
 const router = express.Router();
 const JWT_SECRET    = process.env.JWT_SECRET || "supersecret";
