@@ -103,7 +103,7 @@ router.get("/me", verifyAdmin, async (req, res) => {
 });
 
 /* ─────────────────────────────────────────────
-   STATS
+   STATS  (combined from both schemas)
 ───────────────────────────────────────────── */
 router.get("/stats", verifyAdmin, async (req, res) => {
   try {
@@ -115,39 +115,42 @@ router.get("/stats", verifyAdmin, async (req, res) => {
       activeUsersRes,
       bannedUsersRes,
       todayUsersRes,
-      productsRes,
-      pendingRes,
-      todayProductsRes,
+      // public.products counts
+      publicProductsRes,
+      publicPendingRes,
+      publicTodayRes,
+      // market.products counts
+      marketProductsRes,
+      marketPendingRes,
+      marketTodayRes,
       ordersRes,
       todayOrdersRes,
       revenueRes,
       todayRevenueRes,
       dailySalesRes,
     ] = await Promise.all([
-      pool.query(`SELECT COUNT(*) FROM users`),
-      pool.query(`SELECT COUNT(*) FROM users WHERE status != 'banned'`),
-      pool.query(`SELECT COUNT(*) FROM users WHERE status = 'banned'`),
-      pool.query(`SELECT COUNT(*) FROM users WHERE created_at >= $1`, [today]),
-      pool.query(`SELECT COUNT(*) FROM products`),
-      pool.query(`SELECT COUNT(*) FROM products WHERE status = 'pending'`),
-      pool.query(`SELECT COUNT(*) FROM products WHERE created_at >= $1`, [today]),
-      pool
-        .query(`SELECT COUNT(*) FROM orders`)
-        .catch(() => ({ rows: [{ count: 0 }] })),
-      pool
-        .query(`SELECT COUNT(*) FROM orders WHERE created_at >= $1`, [today])
-        .catch(() => ({ rows: [{ count: 0 }] })),
+      pool.query(`SELECT COUNT(*) FROM public.users`),
+      pool.query(`SELECT COUNT(*) FROM public.users WHERE status != 'banned'`),
+      pool.query(`SELECT COUNT(*) FROM public.users WHERE status = 'banned'`),
+      pool.query(`SELECT COUNT(*) FROM public.users WHERE created_at >= $1`, [today]),
+      // public.products
+      pool.query(`SELECT COUNT(*) FROM public.products`).catch(() => ({ rows: [{ count: 0 }] })),
+      pool.query(`SELECT COUNT(*) FROM public.products WHERE status = 'pending'`).catch(() => ({ rows: [{ count: 0 }] })),
+      pool.query(`SELECT COUNT(*) FROM public.products WHERE created_at >= $1`, [today]).catch(() => ({ rows: [{ count: 0 }] })),
+      // market.products
+      pool.query(`SELECT COUNT(*) FROM market.products`).catch(() => ({ rows: [{ count: 0 }] })),
+      pool.query(`SELECT COUNT(*) FROM market.products WHERE status = 'pending'`).catch(() => ({ rows: [{ count: 0 }] })),
+      pool.query(`SELECT COUNT(*) FROM market.products WHERE created_at >= $1`, [today]).catch(() => ({ rows: [{ count: 0 }] })),
+      pool.query(`SELECT COUNT(*) FROM orders`).catch(() => ({ rows: [{ count: 0 }] })),
+      pool.query(`SELECT COUNT(*) FROM orders WHERE created_at >= $1`, [today]).catch(() => ({ rows: [{ count: 0 }] })),
       pool.query(`
         SELECT COALESCE(SUM(amount),0) AS revenue FROM payments
         WHERE status IN ('success','completed','paid')
       `),
-      pool.query(
-        `
+      pool.query(`
         SELECT COALESCE(SUM(amount),0) AS revenue FROM payments
         WHERE status IN ('success','completed','paid') AND created_at >= $1
-      `,
-        [today]
-      ),
+      `, [today]),
       pool.query(`
         SELECT DATE(created_at) AS date, COALESCE(SUM(amount), 0) AS amount
         FROM payments
@@ -159,18 +162,26 @@ router.get("/stats", verifyAdmin, async (req, res) => {
     ]);
 
     return res.json({
-      users: Number(usersRes.rows[0].count),
-      activeUsers: Number(activeUsersRes.rows[0].count),
-      bannedUsers: Number(bannedUsersRes.rows[0].count),
-      todayUsers: Number(todayUsersRes.rows[0].count),
-      totalProducts: Number(productsRes.rows[0].count),
-      pendingProducts: Number(pendingRes.rows[0].count),
-      todayProducts: Number(todayProductsRes.rows[0].count),
-      orders: Number(ordersRes.rows[0].count),
-      todayOrders: Number(todayOrdersRes.rows[0].count),
-      revenue: Number(revenueRes.rows[0].revenue),
+      users:          Number(usersRes.rows[0].count),
+      activeUsers:    Number(activeUsersRes.rows[0].count),
+      bannedUsers:    Number(bannedUsersRes.rows[0].count),
+      todayUsers:     Number(todayUsersRes.rows[0].count),
+
+      // public products
+      totalProducts:   Number(publicProductsRes.rows[0].count),
+      pendingProducts: Number(publicPendingRes.rows[0].count),
+      todayProducts:   Number(publicTodayRes.rows[0].count),
+
+      // market products
+      marketTotalProducts:   Number(marketProductsRes.rows[0].count),
+      marketPendingProducts: Number(marketPendingRes.rows[0].count),
+      marketTodayProducts:   Number(marketTodayRes.rows[0].count),
+
+      orders:       Number(ordersRes.rows[0].count),
+      todayOrders:  Number(todayOrdersRes.rows[0].count),
+      revenue:      Number(revenueRes.rows[0].revenue),
       todayRevenue: Number(todayRevenueRes.rows[0].revenue),
-      dailySales: dailySalesRes.rows.map((r) => ({
+      dailySales:   dailySalesRes.rows.map((r) => ({
         date: r.date,
         amount: Number(r.amount),
       })),
@@ -190,7 +201,7 @@ router.get("/users", verifyAdmin, async (req, res) => {
       SELECT id, name, email, phone_number, city, state,
              status, balance, created_at, last_login,
              store_name, profile_picture
-      FROM users
+      FROM public.users
       ORDER BY created_at DESC
       LIMIT 500
     `);
@@ -203,7 +214,7 @@ router.get("/users", verifyAdmin, async (req, res) => {
 router.post("/users/:id/ban", verifyAdmin, async (req, res) => {
   try {
     await pool.query(
-      `UPDATE users SET status = 'banned', updated_at = NOW() WHERE id = $1`,
+      `UPDATE public.users SET status = 'banned', updated_at = NOW() WHERE id = $1`,
       [req.params.id]
     );
     await pool
@@ -222,7 +233,7 @@ router.post("/users/:id/ban", verifyAdmin, async (req, res) => {
 router.post("/users/:id/unban", verifyAdmin, async (req, res) => {
   try {
     await pool.query(
-      `UPDATE users SET status = 'active', updated_at = NOW() WHERE id = $1`,
+      `UPDATE public.users SET status = 'active', updated_at = NOW() WHERE id = $1`,
       [req.params.id]
     );
     return res.json({ success: true });
@@ -299,9 +310,10 @@ router.post(
   }
 );
 
-/* ─────────────────────────────────────────────
-   PRODUCTS — list / pending / approve / reject
-───────────────────────────────────────────── */
+/* ═════════════════════════════════════════════════════════════
+   ██████   PUBLIC.PRODUCTS   (original products table)
+   ═════════════════════════════════════════════════════════════ */
+
 router.get("/products", verifyAdmin, async (req, res) => {
   try {
     const { rows } = await pool.query(`
@@ -309,9 +321,9 @@ router.get("/products", verifyAdmin, async (req, res) => {
              p.is_active, p.is_promoted, p.thumbnail_url,
              p.location_city, p.location_state, p.created_at,
              u.name AS seller_name, c.name AS category_name
-      FROM products p
-      LEFT JOIN users      u ON u.id = p.seller_id
-      LEFT JOIN categories c ON c.id = p.category_id
+      FROM public.products p
+      LEFT JOIN public.users      u ON u.id = p.seller_id
+      LEFT JOIN public.categories c ON c.id = p.category_id
       ORDER BY p.created_at DESC
       LIMIT 500
     `);
@@ -328,9 +340,9 @@ router.get("/products/pending", verifyAdmin, async (req, res) => {
              p.is_active, p.is_promoted, p.thumbnail_url,
              p.location_city, p.location_state, p.created_at,
              u.name AS seller_name, c.name AS category_name
-      FROM products p
-      LEFT JOIN users      u ON u.id = p.seller_id
-      LEFT JOIN categories c ON c.id = p.category_id
+      FROM public.products p
+      LEFT JOIN public.users      u ON u.id = p.seller_id
+      LEFT JOIN public.categories c ON c.id = p.category_id
       WHERE p.status = 'pending'
       ORDER BY p.created_at ASC
     `);
@@ -343,7 +355,7 @@ router.get("/products/pending", verifyAdmin, async (req, res) => {
 router.post("/products/:id/approve", verifyAdmin, async (req, res) => {
   try {
     await pool.query(
-      `UPDATE products
+      `UPDATE public.products
        SET status = 'active', is_active = true, updated_at = NOW()
        WHERE id = $1`,
       [req.params.id]
@@ -352,11 +364,7 @@ router.post("/products/:id/approve", verifyAdmin, async (req, res) => {
       .query(
         `INSERT INTO admin_logs (admin_id, action, target_type, target_id, details)
        VALUES ($1, 'approve_product', 'product', $2, $3)`,
-        [
-          req.admin.id,
-          req.params.id,
-          `Approved product ${req.params.id}`,
-        ]
+        [req.admin.id, req.params.id, `Approved public product ${req.params.id}`]
       )
       .catch(() => {});
     return res.json({ success: true });
@@ -368,7 +376,7 @@ router.post("/products/:id/approve", verifyAdmin, async (req, res) => {
 router.post("/products/:id/reject", verifyAdmin, async (req, res) => {
   try {
     await pool.query(
-      `UPDATE products
+      `UPDATE public.products
        SET status = 'rejected', is_active = false, updated_at = NOW()
        WHERE id = $1`,
       [req.params.id]
@@ -377,10 +385,219 @@ router.post("/products/:id/reject", verifyAdmin, async (req, res) => {
       .query(
         `INSERT INTO admin_logs (admin_id, action, target_type, target_id, details)
        VALUES ($1, 'reject_product', 'product', $2, $3)`,
+        [req.admin.id, req.params.id, `Rejected public product ${req.params.id}`]
+      )
+      .catch(() => {});
+    return res.json({ success: true });
+  } catch (err) {
+    return res.status(500).json({ error: err.message });
+  }
+});
+
+/* ═════════════════════════════════════════════════════════════
+   ██████   MARKET.PRODUCTS   (marketplace listings)
+   All routes prefixed with /market-products
+   ═════════════════════════════════════════════════════════════ */
+
+/* ── List with optional status filter + counts ── */
+router.get("/market-products", verifyAdmin, async (req, res) => {
+  try {
+    const { status } = req.query;
+
+    const params = [];
+    let whereClause = "WHERE 1=1";
+
+    if (status) {
+      params.push(status);
+      whereClause += ` AND p.status = $${params.length}`;
+    }
+
+    const { rows } = await pool.query(
+      `SELECT p.id, p.name, p.price, p.original_price,
+              p.category, p.condition, p.status,
+              p.is_active, p.is_flagged, p.is_featured,
+              p.is_trending, p.is_sponsored, p.is_hidden, p.is_paused,
+              p.fraud_score, p.rejection_reason, p.admin_notes,
+              p.removed_reason, p.phone,
+              p.created_at, p.updated_at,
+              p.reviewed_by, p.reviewed_at,
+              u.name  AS seller_name,
+              u.email AS seller_email,
+              u.phone_number AS seller_phone
+       FROM market.products p
+       LEFT JOIN public.users u ON u.id = p.user_id
+       ${whereClause}
+       ORDER BY p.created_at DESC
+       LIMIT 500`,
+      params
+    );
+
+    /* Attach cover images in bulk */
+    const ids = rows.map((r) => r.id);
+    let coverMap = {};
+    if (ids.length) {
+      const idList = ids.map((_, i) => `$${i + 1}`).join(",");
+      const { rows: covers } = await pool.query(
+        `SELECT DISTINCT ON (product_id) product_id, image_url
+         FROM market.product_images
+         WHERE product_id IN (${idList}) AND is_primary = true
+         ORDER BY product_id, sort_order ASC`,
+        ids
+      );
+      coverMap = covers.reduce((acc, r) => {
+        acc[r.product_id] = r.image_url;
+        return acc;
+      }, {});
+    }
+
+    /* Status counts */
+    const { rows: countRows } = await pool.query(`
+      SELECT
+        COUNT(*)                                    ::INT AS total,
+        COUNT(*) FILTER (WHERE status = 'pending')  ::INT AS pending,
+        COUNT(*) FILTER (WHERE status = 'active')   ::INT AS active,
+        COUNT(*) FILTER (WHERE status = 'rejected') ::INT AS rejected,
+        COUNT(*) FILTER (WHERE status = 'flagged')  ::INT AS flagged,
+        COUNT(*) FILTER (WHERE status = 'paused')   ::INT AS paused,
+        COUNT(*) FILTER (WHERE status = 'sold')     ::INT AS sold,
+        COUNT(*) FILTER (WHERE status = 'deleted')  ::INT AS deleted
+      FROM market.products
+    `);
+
+    const products = rows.map((p) => ({
+      ...p,
+      cover_image: coverMap[p.id] ?? null,
+    }));
+
+    return res.json({
+      products,
+      counts: countRows[0] ?? {},
+    });
+  } catch (err) {
+    console.error("[ADMIN] GET /market-products error:", err.message);
+    return res.status(500).json({ error: err.message });
+  }
+});
+
+/* ── Single product with all details ── */
+router.get("/market-products/:id", verifyAdmin, async (req, res) => {
+  try {
+    const { rows } = await pool.query(
+      `SELECT p.*,
+              u.name  AS seller_name,
+              u.email AS seller_email,
+              u.phone_number AS seller_phone
+       FROM market.products p
+       LEFT JOIN public.users u ON u.id = p.user_id
+       WHERE p.id = $1`,
+      [req.params.id]
+    );
+    if (!rows.length)
+      return res.status(404).json({ error: "Market product not found" });
+
+    const product = rows[0];
+    const id = product.id;
+
+    const [images, variants, features, specs, boxItems] = await Promise.all([
+      pool.query(
+        `SELECT image_url, public_id, is_primary, sort_order
+         FROM market.product_images
+         WHERE product_id = $1 ORDER BY sort_order`,
+        [id]
+      ),
+      pool.query(
+        `SELECT id, sku, name, price, stock, attributes
+         FROM market.product_variants
+         WHERE product_id = $1 ORDER BY created_at`,
+        [id]
+      ),
+      pool.query(
+        `SELECT feature FROM market.product_features
+         WHERE product_id = $1 ORDER BY sort_order`,
+        [id]
+      ),
+      pool.query(
+        `SELECT spec_key, spec_value FROM market.product_specifications
+         WHERE product_id = $1 ORDER BY sort_order`,
+        [id]
+      ),
+      pool.query(
+        `SELECT item FROM market.product_box_items
+         WHERE product_id = $1 ORDER BY sort_order`,
+        [id]
+      ),
+    ]);
+
+    return res.json({
+      success: true,
+      product: {
+        ...product,
+        images:         images.rows,
+        variants:       variants.rows,
+        key_features:   features.rows.map((r) => r.feature),
+        specifications: specs.rows.map((r) => ({
+          key:   r.spec_key,
+          value: r.spec_value,
+        })),
+        whats_in_box: boxItems.rows.map((r) => r.item),
+      },
+    });
+  } catch (err) {
+    console.error("[ADMIN] GET /market-products/:id error:", err.message);
+    return res.status(500).json({ error: err.message });
+  }
+});
+
+/* ── Approve ── */
+router.post("/market-products/:id/approve", verifyAdmin, async (req, res) => {
+  try {
+    await pool.query(
+      `UPDATE market.products
+       SET status      = 'active',
+           is_active   = true,
+           is_flagged  = false,
+           reviewed_by = $2,
+           reviewed_at = NOW(),
+           updated_at  = NOW()
+       WHERE id = $1`,
+      [req.params.id, req.admin.id]
+    );
+    await pool
+      .query(
+        `INSERT INTO admin_logs (admin_id, action, target_type, target_id, details)
+         VALUES ($1, 'approve_market_product', 'market_product', $2, $3)`,
+        [req.admin.id, req.params.id, `Approved market product ${req.params.id}`]
+      )
+      .catch(() => {});
+    return res.json({ success: true });
+  } catch (err) {
+    return res.status(500).json({ error: err.message });
+  }
+});
+
+/* ── Reject ── */
+router.post("/market-products/:id/reject", verifyAdmin, async (req, res) => {
+  const { rejectionReason } = req.body;
+  try {
+    await pool.query(
+      `UPDATE market.products
+       SET status           = 'rejected',
+           is_active        = false,
+           rejection_reason = $2,
+           reviewed_by      = $3,
+           reviewed_at      = NOW(),
+           updated_at       = NOW()
+       WHERE id = $1`,
+      [req.params.id, rejectionReason?.trim() || null, req.admin.id]
+    );
+    await pool
+      .query(
+        `INSERT INTO admin_logs (admin_id, action, target_type, target_id, details)
+         VALUES ($1, 'reject_market_product', 'market_product', $2, $3)`,
         [
           req.admin.id,
           req.params.id,
-          `Rejected product ${req.params.id}`,
+          `Rejected market product ${req.params.id}: ${rejectionReason}`,
         ]
       )
       .catch(() => {});
@@ -390,41 +607,29 @@ router.post("/products/:id/reject", verifyAdmin, async (req, res) => {
   }
 });
 
-/* ─────────────────────────────────────────────
-   PRODUCTS — extended moderation & editing
-───────────────────────────────────────────── */
-
-/**
- * PATCH /admin/products/:id
- * Admin can edit title, description, status, flags, notes.
- * Only fields present in body are updated.
- */
-router.patch("/products/:id", verifyAdmin, async (req, res) => {
+/* ── Patch (edit fields + status change) ── */
+router.patch("/market-products/:id", verifyAdmin, async (req, res) => {
   const productId = req.params.id;
 
   try {
-    /* Verify product exists */
     const { rows } = await pool.query(
-      `SELECT id, title AS name, status, seller_id
-       FROM products WHERE id = $1`,
+      `SELECT id, name, status, user_id FROM market.products WHERE id = $1`,
       [productId]
     );
-    if (!rows.length) {
-      return res.status(404).json({ error: "Product not found" });
-    }
+    if (!rows.length)
+      return res.status(404).json({ error: "Market product not found" });
 
     const product = rows[0];
 
-    /*
-     * Allowed fields — map admin-facing keys to actual DB column names.
-     * "name" in the old code mapped to the column "title" in products,
-     * so we keep "title" here; adjust to match your real schema.
-     */
     const allowed = [
-      "title",           // was "name" — use whichever your column is called
+      "name",
       "description",
-      "category_id",     // use the FK column, not "category"
-      "price",           // adjust to base_price / original_price as needed
+      "category",
+      "condition",
+      "price",
+      "original_price",
+      "negotiable",
+      "phone",
       "status",
       "is_active",
       "is_flagged",
@@ -438,7 +643,7 @@ router.patch("/products/:id", verifyAdmin, async (req, res) => {
     ];
 
     const VALID_STATUSES = new Set([
-      "pending_review",
+      "pending",
       "active",
       "rejected",
       "flagged",
@@ -447,28 +652,25 @@ router.patch("/products/:id", verifyAdmin, async (req, res) => {
       "deleted",
     ]);
 
-    /* Build SET clause dynamically from body */
     const sets = [];
     const params = [];
     let idx = 1;
 
     for (const key of allowed) {
       if (req.body[key] === undefined) continue;
-
       const val = req.body[key];
 
-      /* Validate status */
       if (key === "status" && !VALID_STATUSES.has(val)) {
         return res.status(400).json({
           error: `Invalid status. Allowed: ${[...VALID_STATUSES].join(", ")}`,
         });
       }
 
-      /* Side-effects when status changes */
       if (key === "status") {
         if (val === "active") {
           sets.push(`is_active = true`);
           sets.push(`is_paused = false`);
+          sets.push(`is_flagged = false`);
           sets.push(`rejection_reason = NULL`);
         }
         if (val === "rejected") {
@@ -480,7 +682,6 @@ router.patch("/products/:id", verifyAdmin, async (req, res) => {
         }
         if (val === "sold") {
           sets.push(`is_active = false`);
-          sets.push(`sold_at = NOW()`);
         }
       }
 
@@ -488,25 +689,22 @@ router.patch("/products/:id", verifyAdmin, async (req, res) => {
       sets.push(`${key} = $${idx++}`);
     }
 
-    if (!sets.length) {
+    if (!sets.length)
       return res.status(400).json({ error: "No valid fields to update" });
-    }
 
-    /* Always stamp who reviewed and when */
     sets.push(`updated_at = NOW()`);
     sets.push(`reviewed_by = $${idx++}`);
     sets.push(`reviewed_at = NOW()`);
-    params.push(req.admin.id); // reviewed_by
-    params.push(productId);    // WHERE id = $idx
+    params.push(req.admin.id);
+    params.push(productId);
 
     await pool.query(
-      `UPDATE products
+      `UPDATE market.products
        SET ${sets.join(", ")}
        WHERE id = $${idx}`,
       params
     );
 
-    /* Audit log */
     const changedFields = Object.keys(req.body)
       .filter((k) => allowed.includes(k))
       .map((k) => `${k}: ${JSON.stringify(req.body[k])}`)
@@ -516,29 +714,25 @@ router.patch("/products/:id", verifyAdmin, async (req, res) => {
       .query(
         `INSERT INTO admin_logs
            (admin_id, action, target_type, target_id, details, metadata)
-         VALUES ($1, 'edit_product', 'product', $2, $3, $4)`,
+         VALUES ($1, 'edit_market_product', 'market_product', $2, $3, $4)`,
         [
           req.admin.id,
           productId,
-          `Edited product "${product.name}" — ${changedFields}`,
+          `Edited market product "${product.name}" — ${changedFields}`,
           JSON.stringify(req.body),
         ]
       )
       .catch(() => {});
 
-    return res.json({ success: true, message: "Product updated" });
+    return res.json({ success: true, message: "Market product updated" });
   } catch (err) {
-    console.error("[ADMIN PATCH /products/:id]", err.message);
+    console.error("[ADMIN PATCH /market-products/:id]", err.message);
     return res.status(500).json({ error: err.message });
   }
 });
 
-/**
- * POST /admin/products/:id/flag
- * Toggle a boolean flag on a product.
- * Body: { flag: "is_featured", value: true }
- */
-router.post("/products/:id/flag", verifyAdmin, async (req, res) => {
+/* ── Flag toggle ── */
+router.post("/market-products/:id/flag", verifyAdmin, async (req, res) => {
   const { flag, value } = req.body;
   const productId = req.params.id;
 
@@ -557,20 +751,20 @@ router.post("/products/:id/flag", verifyAdmin, async (req, res) => {
 
   try {
     const { rowCount } = await pool.query(
-      `UPDATE products
+      `UPDATE market.products
        SET ${flag} = $1, updated_at = NOW()
        WHERE id = $2`,
       [!!value, productId]
     );
 
     if (!rowCount)
-      return res.status(404).json({ error: "Product not found" });
+      return res.status(404).json({ error: "Market product not found" });
 
     await pool
       .query(
         `INSERT INTO admin_logs
            (admin_id, action, target_type, target_id, details)
-         VALUES ($1, $2, 'product', $3, $4)`,
+         VALUES ($1, $2, 'market_product', $3, $4)`,
         [
           req.admin.id,
           value ? `set_${flag}` : `unset_${flag}`,
@@ -582,33 +776,30 @@ router.post("/products/:id/flag", verifyAdmin, async (req, res) => {
 
     return res.json({ success: true, [flag]: !!value });
   } catch (err) {
-    console.error("[ADMIN flag]", err.message);
+    console.error("[ADMIN market flag]", err.message);
     return res.status(500).json({ error: err.message });
   }
 });
 
-/**
- * POST /admin/products/:id/pause
- * Toggles the pause state of a listing.
- */
-router.post("/products/:id/pause", verifyAdmin, async (req, res) => {
+/* ── Pause toggle ── */
+router.post("/market-products/:id/pause", verifyAdmin, async (req, res) => {
   const productId = req.params.id;
 
   try {
     const { rows } = await pool.query(
-      `SELECT id, title AS name, is_paused, status
-       FROM products WHERE id = $1`,
+      `SELECT id, name, is_paused, status
+       FROM market.products WHERE id = $1`,
       [productId]
     );
     if (!rows.length)
-      return res.status(404).json({ error: "Product not found" });
+      return res.status(404).json({ error: "Market product not found" });
 
     const product = rows[0];
     const nowPaused = !product.is_paused;
     const nextStatus = nowPaused ? "paused" : "active";
 
     await pool.query(
-      `UPDATE products
+      `UPDATE market.products
        SET is_paused  = $1,
            is_active  = $2,
            status     = $3,
@@ -621,12 +812,12 @@ router.post("/products/:id/pause", verifyAdmin, async (req, res) => {
       .query(
         `INSERT INTO admin_logs
            (admin_id, action, target_type, target_id, details)
-         VALUES ($1, $2, 'product', $3, $4)`,
+         VALUES ($1, $2, 'market_product', $3, $4)`,
         [
           req.admin.id,
-          nowPaused ? "pause_product" : "unpause_product",
+          nowPaused ? "pause_market_product" : "unpause_market_product",
           productId,
-          `${nowPaused ? "Paused" : "Unpaused"} product "${product.name}"`,
+          `${nowPaused ? "Paused" : "Unpaused"} market product "${product.name}"`,
         ]
       )
       .catch(() => {});
@@ -638,41 +829,33 @@ router.post("/products/:id/pause", verifyAdmin, async (req, res) => {
       message: nowPaused ? "Listing paused" : "Listing resumed",
     });
   } catch (err) {
-    console.error("[ADMIN pause]", err.message);
+    console.error("[ADMIN market pause]", err.message);
     return res.status(500).json({ error: err.message });
   }
 });
 
-/**
- * POST /admin/products/:id/remove
- * Soft-delete a product with a mandatory reason.
- * Body: { reason: string }
- */
-router.post("/products/:id/remove", verifyAdmin, async (req, res) => {
+/* ── Remove (soft delete) ── */
+router.post("/market-products/:id/remove", verifyAdmin, async (req, res) => {
   const { reason } = req.body;
 
-  if (!reason?.trim()) {
+  if (!reason?.trim())
     return res.status(400).json({ error: "A removal reason is required" });
-  }
 
   try {
     const { rows } = await pool.query(
-      `SELECT id, title AS name, seller_id
-       FROM products
-       WHERE id = $1 AND deleted_at IS NULL`,
+      `SELECT id, name, user_id FROM market.products WHERE id = $1`,
       [req.params.id]
     );
     if (!rows.length)
-      return res.status(404).json({ error: "Product not found" });
+      return res.status(404).json({ error: "Market product not found" });
 
     const product = rows[0];
 
     await pool.query(
-      `UPDATE products
+      `UPDATE market.products
        SET status         = 'deleted',
            is_active      = false,
            is_paused      = false,
-           deleted_at     = NOW(),
            removed_reason = $1,
            reviewed_by    = $2,
            reviewed_at    = NOW(),
@@ -685,79 +868,90 @@ router.post("/products/:id/remove", verifyAdmin, async (req, res) => {
       .query(
         `INSERT INTO admin_logs
            (admin_id, action, target_type, target_id, details)
-         VALUES ($1, 'remove_product', 'product', $2, $3)`,
+         VALUES ($1, 'remove_market_product', 'market_product', $2, $3)`,
         [
           req.admin.id,
           req.params.id,
-          `Removed "${product.name}" — reason: ${reason.trim()}`,
+          `Removed market "${product.name}" — reason: ${reason.trim()}`,
         ]
       )
       .catch(() => {});
 
-    return res.json({ success: true, message: "Product removed" });
+    return res.json({ success: true, message: "Market product removed" });
   } catch (err) {
-    console.error("[ADMIN remove]", err.message);
+    console.error("[ADMIN market remove]", err.message);
     return res.status(500).json({ error: err.message });
   }
 });
 
-/**
- * DELETE /admin/products/:id/permanent
- * Hard-delete — super_admin only.
- * Removes Cloudinary images first, then CASCADE-deletes the DB row.
- */
+/* ── Permanent delete (super admin only) ── */
 router.delete(
-  "/products/:id/permanent",
+  "/market-products/:id/permanent",
   verifyAdmin,
   requireSuperAdmin,
   async (req, res) => {
     try {
       const { rows } = await pool.query(
-        `SELECT id, title AS name FROM products WHERE id = $1`,
+        `SELECT id, name FROM market.products WHERE id = $1`,
         [req.params.id]
       );
       if (!rows.length)
-        return res.status(404).json({ error: "Product not found" });
+        return res.status(404).json({ error: "Market product not found" });
 
-      /* Remove Cloudinary assets before the DB row disappears */
-      const { rows: imgs } = await pool.query(
-        `SELECT public_id FROM product_images WHERE product_id = $1`,
-        [req.params.id]
-      );
+      /* Remove Cloudinary images */
+      const { rows: imgs } = await pool
+        .query(
+          `SELECT public_id FROM market.product_images WHERE product_id = $1`,
+          [req.params.id]
+        )
+        .catch(() => ({ rows: [] }));
 
       if (imgs.length) {
         const cloudinary = (await import("cloudinary")).v2;
         await Promise.all(
           imgs
             .filter((i) => i.public_id)
-            .map((i) =>
-              cloudinary.uploader.destroy(i.public_id).catch(() => {})
-            )
+            .map((i) => cloudinary.uploader.destroy(i.public_id).catch(() => {}))
         );
       }
 
-      /* CASCADE handles child tables */
-      await pool.query(`DELETE FROM products WHERE id = $1`, [req.params.id]);
+      /* Delete child rows then product */
+      const client = await pool.connect();
+      try {
+        await client.query("BEGIN");
+        await client.query(`DELETE FROM market.product_images WHERE product_id = $1`, [req.params.id]);
+        await client.query(`DELETE FROM market.product_variants WHERE product_id = $1`, [req.params.id]);
+        await client.query(`DELETE FROM market.product_features WHERE product_id = $1`, [req.params.id]);
+        await client.query(`DELETE FROM market.product_specifications WHERE product_id = $1`, [req.params.id]);
+        await client.query(`DELETE FROM market.product_box_items WHERE product_id = $1`, [req.params.id]);
+        await client.query(`DELETE FROM market.products WHERE id = $1`, [req.params.id]);
+        await client.query("COMMIT");
+      } catch (e) {
+        await client.query("ROLLBACK");
+        throw e;
+      } finally {
+        client.release();
+      }
 
       await pool
         .query(
           `INSERT INTO admin_logs
              (admin_id, action, target_type, target_id, details)
-           VALUES ($1, 'permanent_delete', 'product', $2, $3)`,
+           VALUES ($1, 'permanent_delete_market', 'market_product', $2, $3)`,
           [
             req.admin.id,
             req.params.id,
-            `Permanently deleted "${rows[0].name}"`,
+            `Permanently deleted market "${rows[0].name}"`,
           ]
         )
         .catch(() => {});
 
       return res.json({
         success: true,
-        message: "Product permanently deleted",
+        message: "Market product permanently deleted",
       });
     } catch (err) {
-      console.error("[ADMIN permanent delete]", err.message);
+      console.error("[ADMIN market permanent delete]", err.message);
       return res.status(500).json({ error: err.message });
     }
   }
@@ -773,7 +967,7 @@ router.get("/payments", verifyAdmin, async (req, res) => {
              p.reference, p.created_at, p.updated_at,
              u.name AS user, u.email AS user_email
       FROM payments p
-      LEFT JOIN users u ON u.id = p.seller_id
+      LEFT JOIN public.users u ON u.id = p.seller_id
       ORDER BY p.created_at DESC
       LIMIT 500
     `);
@@ -797,11 +991,7 @@ router.post(
         .query(
           `INSERT INTO admin_logs (admin_id, action, target_type, target_id, details)
          VALUES ($1, 'refund_payment', 'payment', $2, $3)`,
-          [
-            req.admin.id,
-            req.params.id,
-            `Refunded payment ${req.params.id}`,
-          ]
+          [req.admin.id, req.params.id, `Refunded payment ${req.params.id}`]
         )
         .catch(() => {});
       return res.json({ success: true });
@@ -822,8 +1012,8 @@ router.get("/orders", verifyAdmin, async (req, res) => {
              u.name AS buyer_name, u.email AS buyer_email,
              COUNT(oi.id) AS item_count
       FROM orders o
-      LEFT JOIN users       u  ON u.id        = o.buyer_id
-      LEFT JOIN order_items oi ON oi.order_id = o.id
+      LEFT JOIN public.users u  ON u.id        = o.buyer_id
+      LEFT JOIN order_items  oi ON oi.order_id = o.id
       GROUP BY o.id, u.name, u.email
       ORDER BY o.created_at DESC
       LIMIT 300`
@@ -960,11 +1150,8 @@ router.get("/plans", verifyAdmin, async (req, res) => {
       features: (() => {
         if (Array.isArray(p.features)) return p.features;
         if (typeof p.features === "string") {
-          try {
-            return JSON.parse(p.features);
-          } catch {
-            return [];
-          }
+          try { return JSON.parse(p.features); }
+          catch { return []; }
         }
         return [];
       })(),
@@ -986,15 +1173,8 @@ router.put(
     if (!planId) return res.status(400).json({ error: "Invalid plan ID" });
 
     const {
-      name,
-      price,
-      discount_percent,
-      duration_days,
-      duration,
-      priority,
-      sort_order,
-      is_active,
-      features,
+      name, price, discount_percent, duration_days,
+      duration, priority, sort_order, is_active, features,
     } = req.body;
 
     try {
@@ -1013,16 +1193,10 @@ router.put(
              updated_at       = NOW()
          WHERE id = $10`,
         [
-          name,
-          Number(price),
-          Number(discount_percent ?? 0),
-          Number(duration_days ?? 30),
-          duration ?? "",
-          Number(priority ?? 0),
-          Number(sort_order ?? 0),
-          !!is_active,
-          JSON.stringify(safeFeatures),
-          planId,
+          name, Number(price), Number(discount_percent ?? 0),
+          Number(duration_days ?? 30), duration ?? "",
+          Number(priority ?? 0), Number(sort_order ?? 0),
+          !!is_active, JSON.stringify(safeFeatures), planId,
         ]
       );
 
@@ -1031,11 +1205,7 @@ router.put(
           `INSERT INTO admin_logs
              (admin_id, action, target_type, target_id, details)
            VALUES ($1, 'update_plan', 'promotion_plan', $2, $3)`,
-          [
-            req.admin.id,
-            planId,
-            `Updated plan "${name}" — price: ${price}, discount: ${discount_percent}%`,
-          ]
+          [req.admin.id, planId, `Updated plan "${name}"`]
         )
         .catch(() => {});
 
@@ -1074,9 +1244,7 @@ router.post(
 
 /* ─────────────────────────────────────────────
    REPORTS
-   /reports/stats MUST come before /reports/:reportId
 ───────────────────────────────────────────── */
-
 router.get("/reports/stats", verifyAdmin, async (req, res) => {
   try {
     const { rows } = await pool.query(`
@@ -1116,35 +1284,18 @@ router.get("/reports", verifyAdmin, async (req, res) => {
 
     const { rows } = await pool.query(
       `SELECT
-         cr.id,
-         cr.reason,
-         cr.details,
-         cr.status,
-         cr.created_at,
-         cr.updated_at,
-         cr.conversation_id,
-         cr.message_id,
-
-         rep.id            AS reporter_id,
-         rep.name          AS reporter_name,
-         rep.email         AS reporter_email,
-         rep.profile_image AS reporter_image,
-
-         rep2.id            AS reported_id,
-         rep2.name          AS reported_name,
-         rep2.email         AS reported_email,
-         rep2.profile_image AS reported_image,
-
-         ct.last_message,
-         ct.last_message_at,
-         ct.is_under_review,
-         ct.buyer_id,
-         ct.seller_id,
-
-         cm.message      AS flagged_message,
+         cr.id, cr.reason, cr.details, cr.status,
+         cr.created_at, cr.updated_at,
+         cr.conversation_id, cr.message_id,
+         rep.id   AS reporter_id, rep.name AS reporter_name,
+         rep.email AS reporter_email, rep.profile_image AS reporter_image,
+         rep2.id   AS reported_id, rep2.name AS reported_name,
+         rep2.email AS reported_email, rep2.profile_image AS reported_image,
+         ct.last_message, ct.last_message_at,
+         ct.is_under_review, ct.buyer_id, ct.seller_id,
+         cm.message AS flagged_message,
          cm.message_type AS flagged_message_type,
-         cm.created_at   AS flagged_at
-
+         cm.created_at AS flagged_at
        FROM public.chat_reports       cr
        JOIN public.users              rep  ON rep.id  = cr.reporter_id
        JOIN public.chat_threads       ct   ON ct.id   = cr.conversation_id
@@ -1152,7 +1303,7 @@ router.get("/reports", verifyAdmin, async (req, res) => {
          WHEN ct.buyer_id = cr.reporter_id THEN ct.seller_id
          ELSE ct.buyer_id
        END
-       LEFT JOIN public.chat_messages cm   ON cm.id   = cr.message_id
+       LEFT JOIN public.chat_messages cm ON cm.id = cr.message_id
        ${whereClause}
        ORDER BY cr.created_at DESC
        LIMIT  $${params.length - 1}
@@ -1178,22 +1329,16 @@ router.get("/reports/:reportId", verifyAdmin, async (req, res) => {
   const { reportId } = req.params;
   try {
     const { rows: rr } = await pool.query(
-      `SELECT
-         cr.*,
-         rep.name          AS reporter_name,
-         rep.email         AS reporter_email,
+      `SELECT cr.*,
+         rep.name AS reporter_name, rep.email AS reporter_email,
          rep.profile_image AS reporter_image,
-         rep2.name          AS reported_name,
-         rep2.email         AS reported_email,
+         rep2.name AS reported_name, rep2.email AS reported_email,
          rep2.profile_image AS reported_image,
-         ct.is_under_review,
-         ct.buyer_id,
-         ct.seller_id,
-         ct.last_message,
-         ct.last_message_at,
-         cm.message      AS flagged_message,
+         ct.is_under_review, ct.buyer_id, ct.seller_id,
+         ct.last_message, ct.last_message_at,
+         cm.message AS flagged_message,
          cm.message_type AS flagged_message_type,
-         cm.created_at   AS flagged_at
+         cm.created_at AS flagged_at
        FROM public.chat_reports       cr
        JOIN public.users              rep  ON rep.id  = cr.reporter_id
        JOIN public.chat_threads       ct   ON ct.id   = cr.conversation_id
@@ -1231,9 +1376,9 @@ router.patch("/reports/:reportId", verifyAdmin, async (req, res) => {
 
   const VALID = new Set(["pending", "reviewing", "resolved", "dismissed"]);
   if (!VALID.has(status))
-    return res
-      .status(400)
-      .json({ error: "status must be pending|reviewing|resolved|dismissed" });
+    return res.status(400).json({
+      error: "status must be pending|reviewing|resolved|dismissed",
+    });
 
   const client = await pool.connect();
   try {
@@ -1258,7 +1403,7 @@ router.patch("/reports/:reportId", verifyAdmin, async (req, res) => {
       const { rows: others } = await client.query(
         `SELECT id FROM public.chat_reports
          WHERE conversation_id = $1
-           AND id     <> $2
+           AND id <> $2
            AND status IN ('pending', 'reviewing')`,
         [convId, reportId]
       );
