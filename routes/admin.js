@@ -181,5 +181,6 @@ router.use("/system",          systemRouter);
 router.use("/roles",           rolesRouter);
 router.use("/permissions",     permissionsRouter);
 router.use("/plans",           promotionRouter);
+router.use("/verification", verificationRouter);
 
 export default router;
