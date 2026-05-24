@@ -20,7 +20,7 @@ import PricingStep         from "../components/add-product/PricingStep";
 import ReviewStep          from "../components/add-product/ReviewStep";
 import SuccessScreen       from "../components/add-product/SuccessScreen";
 
-import "../styles/AddProduct.css";
+import "../styles/PostAds.css";
 
 const SLOTS = 8;
 
