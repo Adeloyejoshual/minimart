@@ -6,6 +6,7 @@ export default function Sidebar({
   pendingCount,
   reportCount,
   marketPendingCount,
+  verificationPendingCount,
 }) {
   return (
     <aside className="sidebar">
@@ -23,19 +24,20 @@ export default function Sidebar({
             <span className="nav-icon">{item.icon}</span>
             {item.label}
 
-            {/* existing products — pending from old products table */}
             {item.id === "products" && pendingCount > 0 && (
               <span className="nav-badge">{pendingCount}</span>
             )}
 
-            {/* market products — pending_review from market.products */}
             {item.id === "market_products" && marketPendingCount > 0 && (
               <span className="nav-badge">{marketPendingCount}</span>
             )}
 
-            {/* reports */}
             {item.id === "reports" && reportCount > 0 && (
               <span className="nav-badge nav-badge-red">{reportCount}</span>
+            )}
+
+            {item.id === "verification" && verificationPendingCount > 0 && (
+              <span className="nav-badge nav-badge-red">{verificationPendingCount}</span>
             )}
           </button>
         )
