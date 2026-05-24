@@ -13,6 +13,8 @@ import reportRouter            from "./admin/report.js";
 import systemRouter            from "./admin/system.js";
 import { rolesRouter, permissionsRouter } from "./admin/roles.js";
 import promotionRouter         from "./admin/promotion.js";
+import verificationRouter from "./admin/verification.js";
+
 
 const router = express.Router();
 const JWT_SECRET    = process.env.JWT_SECRET || "supersecret";
