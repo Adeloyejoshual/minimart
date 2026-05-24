@@ -103,6 +103,32 @@ export const removeMarketProduct = (id, reason) =>
 export const permanentDeleteMarketProduct = (id) =>
   adminApi.delete(`/market-products/${id}/permanent`);
 
+
+/* ═══════════════════════════════════════════
+   Verification (admin)
+═══════════════════════════════════════════ */
+export const getVerificationStats      = ()         => adminApi.get("/verification/stats");
+
+export const getIdentityVerifications  = (status = "pending", limit = 50, offset = 0) =>
+  adminApi.get("/verification/identity", { params: { status, limit, offset } });
+
+export const getIdentityVerification   = (id)       => adminApi.get(`/verification/identity/${id}`);
+export const approveIdentity           = (id)       => adminApi.post(`/verification/identity/${id}/approve`);
+export const rejectIdentity            = (id, reason) => adminApi.post(`/verification/identity/${id}/reject`, { reason });
+export const resetIdentity             = (id, note)   => adminApi.post(`/verification/identity/${id}/reset`, { note });
+
+export const getStoreVerifications     = (status = "pending", limit = 50, offset = 0) =>
+  adminApi.get("/verification/store", { params: { status, limit, offset } });
+
+export const getStoreVerification      = (id)       => adminApi.get(`/verification/store/${id}`);
+export const approveStore              = (id)       => adminApi.post(`/verification/store/${id}/approve`);
+export const rejectStore               = (id, reason) => adminApi.post(`/verification/store/${id}/reject`, { reason });
+export const resetStore                = (id, note)   => adminApi.post(`/verification/store/${id}/reset`, { note });
+
+export const forceVerifyEmail          = (userId)   => adminApi.post(`/verification/email/${userId}/force-verify`);
+export const revokeEmailVerification   = (userId)   => adminApi.post(`/verification/email/${userId}/revoke`);
+export const recalculateTrustScore     = (userId)   => adminApi.post(`/verification/trust/${userId}/recalculate`);
+
 /* ═══════════════════════════════════════════
    Payments
 ═══════════════════════════════════════════ */
