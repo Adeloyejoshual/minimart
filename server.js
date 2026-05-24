@@ -236,7 +236,7 @@ import homepageRouter      from "./routes/homepage.js";
 import sellerProfileRouter from "./routes/sellerprofile.js";
 import dashboardRoutes     from "./routes/dashboard.js";
 import notificationsRouter from "./routes/notifications.js";
-import postAdsRouter       from "./routes/postAds.js";
+import productsRouter from "./routes/products.js";
 import walletRoutes        from "./routes/wallets.js";
 import p2pRouter           from "./routes/p2p.js";
 import verificationRouter  from "./routes/verification.js";   // ← NEW
@@ -259,7 +259,7 @@ app.use("/api/product",       productDetailRouter);
 app.use("/api/homepage",      homepageRouter);
 app.use("/api/dashboard",     dashboardRoutes);
 app.use("/api/notifications", notificationsRouter);
-app.use("/api/products",      postAdsRouter);
+app.use("/api/products", productsRouter);
 app.use("/api/v1/wallets",    walletRoutes);
 app.use("/api/p2p",           p2pRouter);
 app.use("/api/verification",  verificationRouter);            // ← NEW
