@@ -1,49 +1,44 @@
-import { NAV } from "./nav";
+export const NAV = [
+  { g: "Dashboard" },
+  { id: "overview",        icon: "◈", label: "Overview"        },
+  { id: "logs",            icon: "≡", label: "Activity"        },
 
-export default function Sidebar({
-  page,
-  setPage,
-  pendingCount,
-  reportCount,
-  marketPendingCount,
-  verificationPendingCount,
-}) {
-  return (
-    <aside className="sidebar">
-      <div className="sb-logo">MM <span>Admin</span></div>
+  { g: "Management" },
+  { id: "users",           icon: "◉", label: "Users"           },
+  { id: "products",        icon: "▦", label: "Products"        },
+  { id: "market_products", icon: "◧", label: "Market Products" },
+  { id: "admins",          icon: "⬡", label: "Admins"          },
 
-      {NAV.map((item, i) =>
-        item.g ? (
-          <div key={i} className="sb-section">{item.g}</div>
-        ) : (
-          <button
-            key={item.id}
-            className={`nav-btn ${page === item.id ? "active" : ""}`}
-            onClick={() => setPage(item.id)}
-          >
-            <span className="nav-icon">{item.icon}</span>
-            {item.label}
+  { g: "Operations" },
+  { id: "payments",        icon: "₦", label: "Payments"        },
+  { id: "orders",          icon: "◫", label: "Orders"          },
 
-            {item.id === "products" && pendingCount > 0 && (
-              <span className="nav-badge">{pendingCount}</span>
-            )}
+  { g: "Moderation" },
+  { id: "reports",         icon: "⚑", label: "Reports"         },
+  { id: "verification",    icon: "✦", label: "Verification"    },
 
-            {item.id === "market_products" && marketPendingCount > 0 && (
-              <span className="nav-badge">{marketPendingCount}</span>
-            )}
+  { g: "Config" },
+  { id: "promotions",      icon: "◆", label: "Promotions"      },
+  { id: "system",          icon: "⌬", label: "System"          },
+];
 
-            {item.id === "reports" && reportCount > 0 && (
-              <span className="nav-badge nav-badge-red">{reportCount}</span>
-            )}
-
-            {item.id === "verification" && verificationPendingCount > 0 && (
-              <span className="nav-badge nav-badge-red">{verificationPendingCount}</span>
-            )}
-          </button>
-        )
-      )}
-
-      <div className="sb-footer">Super Admin v2</div>
-    </aside>
-  );
-}
+export const TOGGLES = [
+  {
+    key:    "maintenance",
+    label:  "Maintenance Mode",
+    desc:   "Take the platform offline for all users. Only admins can access.",
+    danger: true,
+  },
+  {
+    key:    "allowPosting",
+    label:  "Allow Posting",
+    desc:   "Let sellers create and publish product listings.",
+    danger: false,
+  },
+  {
+    key:    "allowPayments",
+    label:  "Allow Payments",
+    desc:   "Enable the Paystack payment gateway for all transactions.",
+    danger: false,
+  },
+];
