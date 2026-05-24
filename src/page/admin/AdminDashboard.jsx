@@ -18,6 +18,7 @@ import Logs          from "./SuperAdmin/Logs";
 import Promotions    from "./SuperAdmin/Promotions";
 import System        from "./SuperAdmin/System";
 import Reports       from "./SuperAdmin/Reports";
+import Verification  from "./SuperAdmin/Verification";
 
 // helpers
 import { safeFeatures } from "./adminlayout/helpers";
@@ -27,17 +28,14 @@ const PAY_BASE = "https://minimart-ivrm.onrender.com/api/payment";
 
 /* ─────────────────────────────────────────────
    createApi
-   Used for all non-market-products calls.
-   MarketProducts uses its own adminApi singleton
-   from services/adminApi.js
 ───────────────────────────────────────────── */
 const createApi = (token) => {
   const h = { Authorization: `Bearer ${token}` };
   return {
-    get:  (p, base = BASE)          => axios.get(base + p,      { headers: h }),
-    post: (p, b = {}, base = BASE)  => axios.post(base + p, b,  { headers: h }),
-    put:  (p, b = {}, base = BASE)  => axios.put(base + p, b,   { headers: h }),
-    del:  (p, base = BASE)          => axios.delete(base + p,   { headers: h }),
+    get:  (p, base = BASE)         => axios.get(base + p,     { headers: h }),
+    post: (p, b = {}, base = BASE) => axios.post(base + p, b, { headers: h }),
+    put:  (p, b = {}, base = BASE) => axios.put(base + p, b,  { headers: h }),
+    del:  (p, base = BASE)         => axios.delete(base + p,  { headers: h }),
   };
 };
 
@@ -78,20 +76,21 @@ function useData(api) {
     todayUsers: 0, todayProducts: 0,
     todayRevenue: 0, todayOrders: 0,
   });
-  const [users,               setUsers]               = useState([]);
-  const [admins,              setAdmins]              = useState([]);
-  const [products,            setProducts]            = useState([]);
-  const [pending,             setPending]             = useState([]);
-  const [payments,            setPayments]            = useState([]);
-  const [orders,              setOrders]              = useState([]);
-  const [logs,                setLogs]                = useState([]);
-  const [system,              setSystem]              = useState({
+  const [users,                    setUsers]                    = useState([]);
+  const [admins,                   setAdmins]                   = useState([]);
+  const [products,                 setProducts]                 = useState([]);
+  const [pending,                  setPending]                  = useState([]);
+  const [payments,                 setPayments]                 = useState([]);
+  const [orders,                   setOrders]                   = useState([]);
+  const [logs,                     setLogs]                     = useState([]);
+  const [system,                   setSystem]                   = useState({
     maintenance: false, allowPosting: true, allowPayments: true,
   });
-  const [plans,               setPlans]               = useState([]);
-  const [reportCount,         setReportCount]         = useState(0);
-  const [marketPendingCount,  setMarketPendingCount]  = useState(0);
-  const [loading,             setLoading]             = useState(true);
+  const [plans,                    setPlans]                    = useState([]);
+  const [reportCount,              setReportCount]              = useState(0);
+  const [marketPendingCount,       setMarketPendingCount]       = useState(0);
+  const [verificationPendingCount, setVerificationPendingCount] = useState(0);
+  const [loading,                  setLoading]                  = useState(true);
 
   const safe = useCallback(async (path, setter, base) => {
     try {
@@ -126,41 +125,42 @@ function useData(api) {
     } catch {}
   }, [api]);
 
-  /*
-   * Fetch market pending count for Sidebar badge.
-   * Hits the same /products?status=pending_review endpoint
-   * that MarketProducts uses — reads only the counts field.
-   */
   const reloadMarketPendingCount = useCallback(async () => {
     try {
-      const { data } = await api.get("/products?status=pending_review");
-      /*
-       * Backend returns { products: [...], counts: { pending_review, active, ... } }
-       * We only need the pending_review number for the badge.
-       */
-      const count = data?.counts?.pending_review
-        ?? (Array.isArray(data?.products) ? data.products.length : 0)
-        ?? 0;
+      const { data } = await api.get("/market-products?status=pending");
+      const count =
+        data?.counts?.pending ??
+        (Array.isArray(data?.products) ? data.products.length : 0) ??
+        0;
       setMarketPendingCount(count);
     } catch {}
   }, [api]);
 
+  const reloadVerificationCount = useCallback(async () => {
+    try {
+      const { data } = await api.get("/verification/stats");
+      const count = (data?.identity?.pending ?? 0) + (data?.store?.pending ?? 0);
+      setVerificationPendingCount(count);
+    } catch {}
+  }, [api]);
+
   const reload = useMemo(() => ({
-    users:    () => safe("/users",            setUsers),
-    admins:   () => safe("/admins",           setAdmins),
-    products: () => Promise.all([
+    users:             () => safe("/users",            setUsers),
+    admins:            () => safe("/admins",           setAdmins),
+    products:          () => Promise.all([
       safe("/products",         setProducts),
       safe("/products/pending", setPending),
       safe("/stats",            setStats),
     ]),
-    payments:             () => safe("/payments", setPayments),
-    orders:               () => safe("/orders",   setOrders),
-    logs:                 () => safe("/logs",      setLogs),
-    system:               (d) => setSystem(d),
-    plans:                reloadPlans,
-    reportCount:          reloadReportCount,
-    marketPendingCount:   reloadMarketPendingCount,
-  }), [safe, reloadPlans, reloadReportCount, reloadMarketPendingCount]);
+    payments:          () => safe("/payments",         setPayments),
+    orders:            () => safe("/orders",           setOrders),
+    logs:              () => safe("/logs",             setLogs),
+    system:            (d) => setSystem(d),
+    plans:             reloadPlans,
+    reportCount:       reloadReportCount,
+    marketPendingCount:       reloadMarketPendingCount,
+    verificationCount: reloadVerificationCount,
+  }), [safe, reloadPlans, reloadReportCount, reloadMarketPendingCount, reloadVerificationCount]);
 
   const loadAll = useCallback(async () => {
     setLoading(true);
@@ -177,14 +177,15 @@ function useData(api) {
       reloadPlans(),
       reloadReportCount(),
       reloadMarketPendingCount(),
+      reloadVerificationCount(),
     ]);
     setLoading(false);
-  }, [safe, reloadPlans, reloadReportCount, reloadMarketPendingCount]);
+  }, [safe, reloadPlans, reloadReportCount, reloadMarketPendingCount, reloadVerificationCount]);
 
   return {
     stats, users, admins, products, pending, payments,
     orders, logs, system, plans,
-    reportCount, marketPendingCount,
+    reportCount, marketPendingCount, verificationPendingCount,
     loading, loadAll, reload,
   };
 }
@@ -274,29 +275,27 @@ function useActions(api, reload) {
 
   return {
     busy,
-    banUser:        (id) => run(`bu-${id}`, async () => {
+    banUser: (id) => run(`bu-${id}`, async () => {
       await api.post(`/users/${id}/ban`);
       reload.users();
     }),
-    banAdmin:       (id) => run(`ba-${id}`, async () => {
+    banAdmin: (id) => run(`ba-${id}`, async () => {
       await api.post(`/admins/${id}/ban`);
       reload.admins();
     }),
     approveProduct: (id) => run(`ap-${id}`, async () => {
       await api.post(`/products/${id}/approve`);
-      reload.products();
-      reload.marketPendingCount();
+      await reload.products();
     }),
-    rejectProduct:  (id) => run(`rp-${id}`, async () => {
+    rejectProduct: (id) => run(`rp-${id}`, async () => {
       await api.post(`/products/${id}/reject`);
-      reload.products();
-      reload.marketPendingCount();
+      await reload.products();
     }),
-    refundPayment:  (id) => run(`rf-${id}`, async () => {
+    refundPayment: (id) => run(`rf-${id}`, async () => {
       await api.post(`/payments/${id}/refund`);
       reload.payments();
     }),
-    cancelOrder:    (id) => run(`co-${id}`, async () => {
+    cancelOrder: (id) => run(`co-${id}`, async () => {
       await api.post(`/orders/${id}/cancel`);
       reload.orders();
     }),
@@ -369,13 +368,13 @@ export default function AdminDashboard() {
   });
   const actions = useActions(api, data.reload);
 
-  /* Stable ref for log polling — avoids stale closure */
+  /* Stable ref for log polling */
   const logRef = useMemo(() => ({ current: data.reload.logs }), []);
   useEffect(() => { logRef.current = data.reload.logs; });
 
   useEffect(() => {
     data.loadAll();
-    const iv = setInterval(() => logRef.current(), 5000);
+    const iv = setInterval(() => logRef.current(), 5_000);
     return () => clearInterval(iv);
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
@@ -443,19 +442,12 @@ export default function AdminDashboard() {
         confirm={confirm}
       />
     ),
-
-    /*
-     * MarketProducts manages its own data fetching via adminApi.
-     * It only needs confirm for the shared confirm modal
-     * and onMutation to refresh the sidebar badge after any action.
-     */
     market_products: (
       <MarketProducts
         confirm={confirm}
         onMutation={data.reload.marketPendingCount}
       />
     ),
-
     payments: (
       <Payments
         filteredPayments={derived.filteredPayments}
@@ -503,16 +495,19 @@ export default function AdminDashboard() {
     reports: (
       <Reports confirm={confirm} />
     ),
+    verification: (
+      <Verification
+        confirm={confirm}
+        onMutation={data.reload.verificationCount}
+      />
+    ),
   };
 
-  /*
-   * Total notification count for Topbar bell:
-   * old products pending + market products pending + open reports
-   */
   const totalNotifCount =
     data.pending.length +
     data.marketPendingCount +
-    data.reportCount;
+    data.reportCount +
+    data.verificationPendingCount;
 
   return (
     <>
@@ -524,6 +519,7 @@ export default function AdminDashboard() {
           pendingCount={data.pending.length}
           reportCount={data.reportCount}
           marketPendingCount={data.marketPendingCount}
+          verificationPendingCount={data.verificationPendingCount}
         />
         <div className="main">
           <Topbar
