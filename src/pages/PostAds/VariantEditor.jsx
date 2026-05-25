@@ -1,288 +1,150 @@
 import React from "react";
-import {
-  FiTrash2,
-  FiPlus,
-  FiCopy,
-} from "react-icons/fi";
+import { FiTrash2, FiPlus } from "react-icons/fi";
 
 export default function VariantEditor({
-  variants = [],
+  variants,
   onUpdate,
-  onUpdateAttribute,
+  onUpdateAttr,
   onAdd,
   onRemove,
-  onDuplicate,
 }) {
-
-  const formatPrice = (value) => {
-    if (!value) return "";
-    return Number(value).toLocaleString();
-  };
-
-  const addAttribute = (variantIndex) => {
-    const updated = [...variants];
-
-    updated[variantIndex].attributes.push({
-      id: crypto.randomUUID(),
-      key: "",
-      value: "",
-    });
-
-    onUpdate(variantIndex, "attributes", updated[variantIndex].attributes);
-  };
-
-  const removeAttribute = (variantIndex, attrIndex) => {
-    const updated = [...variants];
-
-    updated[variantIndex].attributes.splice(attrIndex, 1);
-
-    onUpdate(variantIndex, "attributes", updated[variantIndex].attributes);
-  };
-
   return (
     <>
-      <div className="pa-section-head">
-        <p className="pa-section-title">
-          Product Variants
-        </p>
+      <p className="pa-section-title">Product Variants</p>
+      <p className="pa-section-sub">
+        Each variant is a unique SKU — different colour, size, storage, etc.
+      </p>
 
-        <p className="pa-section-sub">
-          Create flexible variants for any product type:
-          colour, size, storage, material, RAM, voltage, etc.
-        </p>
-      </div>
-
-      {variants.map((variant, variantIndex) => {
-        const stock =
-          parseInt(variant.inventory?.quantity, 10) || 0;
+      {variants.map((v, i) => {
+        const stock = parseInt(v.stock, 10) || 0;
 
         return (
-          <div
-            className="pa-variant-card"
-            key={variant.id || variantIndex}
-          >
+          <div className="pa-variant-card" key={v.id}>
 
-            {/* HEADER */}
+            {/* Card header */}
             <div className="pa-variant-header">
-
-              <div>
-                <p className="pa-variant-title">
-                  Variant {variantIndex + 1}
-                </p>
-
-                <span className="pa-variant-sku">
-                  {variant.sku || "No SKU"}
-                </span>
-              </div>
-
-              <div className="pa-variant-actions">
-
-                {onDuplicate && (
-                  <button
-                    type="button"
-                    className="pa-variant-icon-btn"
-                    onClick={() => onDuplicate(variantIndex)}
-                  >
-                    <FiCopy size={14} />
-                  </button>
-                )}
-
-                <button
-                  type="button"
-                  className="pa-variant-icon-btn pa-variant-delete"
-                  onClick={() => onRemove(variantIndex)}
-                  disabled={variants.length === 1}
-                >
-                  <FiTrash2 size={14} />
-                </button>
-
-              </div>
+              <span className="pa-variant-title">Variant {i + 1}</span>
+              <button
+                type="button"
+                className="pa-variant-delete"
+                onClick={() => onRemove(i)}
+              >
+                <FiTrash2 size={13} />
+              </button>
             </div>
 
-            {/* CORE FIELDS */}
-            <div className="pa-variant-grid">
-
-              <div className="pa-variant-field pa-span-2">
+            {/* Core fields */}
+            <div className="pa-variant-grid" style={{ marginBottom: 10 }}>
+              <div className="pa-variant-field" style={{ gridColumn: "span 2" }}>
                 <label>Variant Name *</label>
-
                 <input
-                  placeholder='e.g. "Black 256GB"'
-                  value={variant.name || ""}
-                  onChange={(e) =>
-                    onUpdate(
-                      variantIndex,
-                      "name",
-                      e.target.value
-                    )
-                  }
+                  placeholder='e.g. "Black 128GB"'
+                  value={v.name}
+                  onChange={(e) => onUpdate(i, "name", e.target.value)}
                 />
               </div>
 
               <div className="pa-variant-field">
                 <label>SKU *</label>
-
                 <input
-                  placeholder='e.g. "IPH15-BLK-256"'
-                  value={variant.sku || ""}
-                  onChange={(e) =>
-                    onUpdate(
-                      variantIndex,
-                      "sku",
-                      e.target.value.toUpperCase()
-                    )
-                  }
+                  placeholder='e.g. "IP13-BLK-128"'
+                  value={v.sku}
+                  onChange={(e) => onUpdate(i, "sku", e.target.value.toUpperCase())}
                 />
               </div>
 
               <div className="pa-variant-field">
                 <label>Price (₦) *</label>
-
                 <input
                   type="text"
                   inputMode="numeric"
                   placeholder="0"
-                  value={formatPrice(variant.pricing?.price)}
+                  value={v.price ? Number(v.price).toLocaleString() : ""}
                   onChange={(e) =>
-                    onUpdate(
-                      variantIndex,
-                      "pricing",
-                      {
-                        ...variant.pricing,
-                        price: e.target.value.replace(/\D/g, ""),
-                      }
-                    )
+                    onUpdate(i, "price", e.target.value.replace(/\D/g, ""))
                   }
                 />
               </div>
 
               <div className="pa-variant-field">
-                <label>Stock Quantity</label>
-
+                <label>Stock Qty</label>
                 <input
                   type="number"
                   min="0"
-                  placeholder="0"
-                  value={variant.inventory?.quantity || ""}
-                  onChange={(e) =>
-                    onUpdate(
-                      variantIndex,
-                      "inventory",
-                      {
-                        ...variant.inventory,
-                        quantity: e.target.value,
-                      }
-                    )
-                  }
+                  placeholder="1"
+                  value={v.stock}
+                  onChange={(e) => onUpdate(i, "stock", e.target.value)}
                 />
-
                 <span
                   className={`pa-stock-badge ${
-                    stock === 0
-                      ? "pa-stock-badge--zero"
-                      : stock <= 3
-                      ? "pa-stock-badge--low"
-                      : "pa-stock-badge--ok"
+                    stock === 0 ? "pa-stock-badge--zero" :
+                    stock <= 3  ? "pa-stock-badge--low"  : "pa-stock-badge--ok"
                   }`}
                 >
                   {stock === 0
                     ? "Out of stock"
                     : stock <= 3
-                    ? `Only ${stock} left`
+                    ? `Only ${stock} left!`
                     : `${stock} in stock`}
                 </span>
               </div>
-
             </div>
 
-            {/* ATTRIBUTES */}
-            <div className="pa-variant-attributes">
+            {/* Attributes */}
+            <p style={{
+              fontSize: 11, fontWeight: 700, color: "#aaa",
+              textTransform: "uppercase", letterSpacing: ".5px", marginBottom: 8,
+            }}>
+              Attributes (fill what applies)
+            </p>
 
-              <div className="pa-variant-attributes-head">
-
-                <p className="pa-variant-attributes-title">
-                  Dynamic Attributes
-                </p>
-
-                <button
-                  type="button"
-                  className="pa-add-attribute-btn"
-                  onClick={() => addAttribute(variantIndex)}
-                >
-                  <FiPlus size={13} />
-                  Add Attribute
-                </button>
-
+            <div className="pa-variant-grid">
+              <div className="pa-variant-field">
+                <label>Color</label>
+                <input
+                  placeholder='e.g. "Midnight Black"'
+                  value={v.attributes.color}
+                  onChange={(e) => onUpdateAttr(i, "color", e.target.value)}
+                />
               </div>
-
-              {variant.attributes?.length > 0 ? (
-                variant.attributes.map((attr, attrIndex) => (
-                  <div
-                    className="pa-attribute-row"
-                    key={attr.id || attrIndex}
-                  >
-
-                    <input
-                      className="pa-attribute-input"
-                      placeholder="Attribute"
-                      value={attr.key}
-                      onChange={(e) =>
-                        onUpdateAttribute(
-                          variantIndex,
-                          attrIndex,
-                          "key",
-                          e.target.value
-                        )
-                      }
-                    />
-
-                    <input
-                      className="pa-attribute-input"
-                      placeholder="Value"
-                      value={attr.value}
-                      onChange={(e) =>
-                        onUpdateAttribute(
-                          variantIndex,
-                          attrIndex,
-                          "value",
-                          e.target.value
-                        )
-                      }
-                    />
-
-                    <button
-                      type="button"
-                      className="pa-remove-attribute-btn"
-                      onClick={() =>
-                        removeAttribute(
-                          variantIndex,
-                          attrIndex
-                        )
-                      }
-                    >
-                      <FiTrash2 size={13} />
-                    </button>
-
-                  </div>
-                ))
-              ) : (
-                <div className="pa-empty-attributes">
-                  No attributes added yet
-                </div>
-              )}
-
+              <div className="pa-variant-field">
+                <label>Size</label>
+                <input
+                  placeholder='e.g. "XL" or "42"'
+                  value={v.attributes.size}
+                  onChange={(e) => onUpdateAttr(i, "size", e.target.value)}
+                />
+              </div>
+              <div className="pa-variant-field">
+                <label>Storage</label>
+                <input
+                  placeholder='e.g. "256GB"'
+                  value={v.attributes.storage}
+                  onChange={(e) => onUpdateAttr(i, "storage", e.target.value)}
+                />
+              </div>
+              <div className="pa-variant-field">
+                <label>Material</label>
+                <input
+                  placeholder='e.g. "Cotton"'
+                  value={v.attributes.material || ""}
+                  onChange={(e) => onUpdateAttr(i, "material", e.target.value)}
+                />
+              </div>
             </div>
 
           </div>
         );
       })}
 
-      {variants.length < 50 && (
+      {variants.length < 10 && (
         <button
           type="button"
           className="pa-add-btn"
+          style={{ height: 48, fontSize: 14 }}
           onClick={onAdd}
         >
-          <FiPlus size={15} />
+          <FiPlus size={15} style={{ verticalAlign: "middle", marginRight: 6 }} />
           Add Another Variant
         </button>
       )}
