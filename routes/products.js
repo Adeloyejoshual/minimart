@@ -12,7 +12,7 @@
  */
 
 import express from "express";
-import pool   from "../db/index.js";
+import { pool }       from "../config/db.js";
 import { authenticate, requireAdmin } from "../middleware/auth.js";
 import { upload, uploadToCloudinary }  from "../middleware/upload.js";
 
