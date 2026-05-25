@@ -12,8 +12,8 @@
  */
 
 import express from "express";
-import { pool }       from "../config/db.js";
-import authenticate from "../middleware/auth.js";
+import pool   from "../db/index.js";
+import { authenticate, requireAdmin } from "../middleware/auth.js";
 import { upload, uploadToCloudinary }  from "../middleware/upload.js";
 
 const router = express.Router();
