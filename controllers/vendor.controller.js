@@ -1,5 +1,5 @@
 // controllers/vendor.controller.js
-import pool from "../db/pool.js";
+import { pool } from "../config/db.js";
 import { resolvePermissions } from "../utils/vendorAccess.js";
 import { assertTransition }   from "../utils/vendorTransition.js";
 import { STATUS_UI }          from "../config/vendorPolicy.js";
