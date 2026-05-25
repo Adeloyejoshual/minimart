@@ -5,7 +5,7 @@ import toast from "react-hot-toast";
 import { FiX, FiChevronLeft, FiChevronRight, FiCheckCircle } from "react-icons/fi";
 
 import categories from "../config/categories";
-import "../Style/PostAds.css";
+import "../styles/PostAds.css";
 
 import StepBar      from "./PostAds/StepBar";
 import ImageGrid    from "./PostAds/ImageGrid";
