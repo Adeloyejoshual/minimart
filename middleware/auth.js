@@ -32,7 +32,15 @@ export const softAuth = (req, _res, next) => {
       req.user    = jwt.verify(token, JWT_SECRET);
     }
   } catch (_) {
-    /* expired / invalid — silently ignore, route uses userId param */
+    /* expired / invalid — silently ignore */
+  }
+  next();
+};
+
+/* ── Admin guard — must come after authenticate ── */
+export const requireAdmin = (req, res, next) => {
+  if (req.user?.role !== "admin") {
+    return res.status(403).json({ message: "Admin access required" });
   }
   next();
 };
