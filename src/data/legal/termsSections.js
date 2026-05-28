@@ -11,30 +11,37 @@
  *   - Simplify multilingual/country-specific overrides
  *   - Enable A/B testing of section presentation
  *
+ * Imports are sourced exclusively from the barrel file.
+ * This ensures a single canonical import path across the
+ * entire codebase. If a section file moves, only index.js
+ * needs updating — not this file.
+ *
  * Each section entry shape:
  * {
- *   id          : string   — unique identifier, used for aria + anchors
- *   title       : string   — section heading (no emoji)
- *   component   : React.FC — the section content component
- *   required    : boolean  — whether section is legally mandatory
- *   enabled     : boolean  — feature flag for enabling/disabling
+ *   id        : string    — unique identifier, used for aria + anchors
+ *   title     : string    — section heading (empty string for non-heading sections)
+ *   component : React.FC  — the section content component
+ *   required  : boolean   — whether section is legally mandatory
+ *   enabled   : boolean   — feature flag for enabling/disabling
  * }
  */
 
-import LegalCompliance      from "../../components/terms/sections/LegalCompliance";
-import PaymentsSection      from "../../components/terms/sections/PaymentsSection";
-import ProhibitedItems      from "../../components/terms/sections/ProhibitedItems";
-import ListingGuidelines    from "../../components/terms/sections/ListingGuidelines";
-import SafetySection        from "../../components/terms/sections/SafetySection";
-import PrivacySection       from "../../components/terms/sections/PrivacySection";
-import FraudSection         from "../../components/terms/sections/FraudSection";
-import AccountSection       from "../../components/terms/sections/AccountSection";
-import LiabilitySection     from "../../components/terms/sections/LiabilitySection";
-import ElectronicAcceptance from "../../components/terms/sections/ElectronicAcceptance";
-import JurisdictionSection  from "../../components/terms/sections/JurisdictionSection";
-import TermsChanges         from "../../components/terms/sections/TermsChanges";
-import ContactSection       from "../../components/terms/sections/ContactSection";
-import AcceptanceNotice     from "../../components/terms/sections/AcceptanceNotice";
+import {
+  LegalCompliance,
+  PaymentsSection,
+  ProhibitedItems,
+  ListingGuidelines,
+  SafetySection,
+  PrivacySection,
+  FraudSection,
+  AccountSection,
+  LiabilitySection,
+  ElectronicAcceptance,
+  JurisdictionSection,
+  TermsChanges,
+  ContactSection,
+  AcceptanceNotice,
+} from "../../components/terms/index.js";
 
 export const TERMS_SECTIONS = [
   {
@@ -139,7 +146,7 @@ export const TERMS_SECTIONS = [
 
 /**
  * Returns only the enabled sections.
- * Components should always render from this filtered list.
+ * TermsAndConditions.jsx always renders from this list.
  *
  * @returns {object[]}
  */
@@ -149,10 +156,21 @@ export function getEnabledSections() {
 
 /**
  * Returns only the required sections.
- * Useful for compliance verification and testing.
+ * Used in compliance verification and test assertions.
  *
  * @returns {object[]}
  */
 export function getRequiredSections() {
   return TERMS_SECTIONS.filter((section) => section.required);
+}
+
+/**
+ * Returns a single section by its id.
+ * Useful for targeted updates and admin tooling.
+ *
+ * @param {string} id
+ * @returns {object | undefined}
+ */
+export function getSectionById(id) {
+  return TERMS_SECTIONS.find((section) => section.id === id);
 }
