@@ -1,134 +1,48 @@
-/* src/styles/terms/accessibility.css */
+/* src/styles/terms/accessibility.css ──────────────────────── */
 
-/* ── Focus Styles ─────────────────────────────────────────────────────────── */
+/* ── Focus States ───────────────────────────────────────────── */
 
-/*
- * Never suppress focus outlines globally.
- * Use :focus-visible to show outlines only for keyboard navigation.
- */
-
-.terms-footer__btn:focus-visible,
-.terms-header__back-btn:focus-visible,
 .terms-footer__checkbox:focus-visible {
-  outline: 3px solid #1565c0;
-  outline-offset: 3px;
+  outline: 2px solid #111827;
+  outline-offset: 2px;
 }
 
-/* Remove default outline only for mouse interactions */
-.terms-footer__btn:focus:not(:focus-visible),
-.terms-header__back-btn:focus:not(:focus-visible) {
-  outline: none;
-}
-
-/* ── High Contrast Mode ───────────────────────────────────────────────────── */
+/* ── High Contrast ──────────────────────────────────────────── */
 
 @media (forced-colors: active) {
+
   .progress-bar__fill {
     background: Highlight;
   }
 
-  .warning-card--warning {
-    border-left-color: ButtonText;
+  .warning-card--warning,
+  .warning-card--success,
+  .warning-card--info {
+    border-color: ButtonText;
     color: ButtonText;
-  }
-
-  .warning-card--success {
-    border-left-color: Highlight;
-    color: ButtonText;
+    background: ButtonFace;
   }
 
   .terms-footer__btn--active {
     background: Highlight;
     color: HighlightText;
-    border: 2px solid ButtonText;
+    border-color: ButtonText;
   }
 
   .terms-footer__btn--disabled {
     background: ButtonFace;
     color: GrayText;
-    border: 2px solid GrayText;
+    border-color: GrayText;
   }
 
-  .terms-section__heading {
+  .back-btn {
+    border-color: ButtonText;
     color: ButtonText;
-    border-bottom-color: ButtonText;
   }
-}
 
-/* ── Reduced Motion ───────────────────────────────────────────────────────── */
-
-@media (prefers-reduced-motion: reduce) {
-  *,
-  *::before,
-  *::after {
-    animation-duration: 0.01ms !important;
-    animation-iteration-count: 1 !important;
-    transition-duration: 0.01ms !important;
-    scroll-behavior: auto !important;
+  .terms-notice {
+    border-color: ButtonText;
+    color: ButtonText;
+    background: ButtonFace;
   }
-}
-
-/* ── Screen Reader Utilities ──────────────────────────────────────────────── */
-
-.sr-only {
-  position: absolute;
-  width: 1px;
-  height: 1px;
-  padding: 0;
-  margin: -1px;
-  overflow: hidden;
-  clip: rect(0, 0, 0, 0);
-  white-space: nowrap;
-  border: 0;
-}
-
-/* ── Skip Navigation Link ─────────────────────────────────────────────────── */
-
-.skip-to-content {
-  position: absolute;
-  top: -100%;
-  left: 16px;
-  z-index: 9999;
-  padding: 10px 18px;
-  background: #1565c0;
-  color: #fff;
-  font-weight: 700;
-  font-size: 0.9rem;
-  border-radius: 0 0 6px 6px;
-  text-decoration: none;
-  transition: top 0.2s ease;
-}
-
-.skip-to-content:focus {
-  top: 0;
-}
-
-/* ── Keyboard-navigable progress bar ─────────────────────────────────────── */
-
-.progress-bar:focus-within {
-  outline: 2px solid #1565c0;
-  outline-offset: 2px;
-}
-
-/* ── Checkbox label touch target ─────────────────────────────────────────── */
-
-.terms-footer__checkbox-label {
-  min-height: 44px;  /* WCAG 2.5.5 minimum touch target size */
-  padding: 4px 0;
-}
-
-/* ── Color contrast — body text minimum 4.5:1 ratio ─────────────────────── */
-
-.terms-section__body p,
-.terms-section__body li {
-  color: #333;   /* contrast ratio 10.4:1 on white */
-}
-
-.terms-section__body a {
-  color: #0d47a1; /* contrast ratio 8.9:1 on white */
-}
-
-.terms-section__body a:hover {
-  color: #1565c0;
-  text-decoration: underline;
 }
