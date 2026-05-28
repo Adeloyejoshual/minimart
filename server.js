@@ -266,6 +266,7 @@ app.use("/api/products", productsRouter);
 app.use("/api/v1/wallets",    walletRoutes);
 app.use("/api/p2p",           p2pRouter);
 app.use("/api/verification",  verificationRouter);            // ← NEW
+app.use("/api/market-products", marketProductsRouter);
 
 /* ═══════════════════════════════════════════
    HEALTH CHECK
