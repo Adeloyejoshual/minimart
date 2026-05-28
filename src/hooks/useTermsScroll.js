@@ -1,48 +1,46 @@
 // src/hooks/useTermsScroll.js
 import { useState, useEffect, useRef, useCallback } from "react";
-import {
-  computeScrollProgress,
-  hasMetReadThreshold,
-} from "../utils/termsValidation";
+import { createRAFDebounce }    from "../utils/scrollHelpers";
+import { computeScrollProgress } from "../utils/scrollHelpers";
+import { hasMetReadThreshold }  from "../utils/termsValidation";
 
 /**
- * Tracks scroll progress within a scrollable container.
- * Uses requestAnimationFrame for debouncing.
- * Exposes progress (0-100) and hasRead boolean.
+ * Tracks scroll progress on the page (window scroll),
+ * not an inner scrollable div.
+ *
+ * The .terms-content element is used only as a ref to
+ * measure position — the page itself scrolls naturally.
+ * This matches the existing CSS which has no overflow-y
+ * on .terms-content.
  */
 export function useTermsScroll() {
   const contentRef                          = useRef(null);
-  const rafRef                              = useRef(null);
   const [scrollProgress, setScrollProgress] = useState(0);
   const [hasRead, setHasRead]               = useState(false);
 
   const handleScroll = useCallback(() => {
-    if (rafRef.current) cancelAnimationFrame(rafRef.current);
+    // ── Measure the document scroll, not an inner element ──
+    const scrollTop    = window.scrollY || document.documentElement.scrollTop;
+    const scrollHeight = document.documentElement.scrollHeight;
+    const clientHeight = document.documentElement.clientHeight;
 
-    rafRef.current = requestAnimationFrame(() => {
-      const el = contentRef.current;
-      if (!el) return;
+    const progress = computeScrollProgress(scrollTop, scrollHeight, clientHeight);
 
-      const progress = computeScrollProgress(
-        el.scrollTop,
-        el.scrollHeight,
-        el.clientHeight
-      );
-
-      setScrollProgress(progress);
-      if (hasMetReadThreshold(progress)) setHasRead(true);
-    });
+    setScrollProgress(progress);
+    if (hasMetReadThreshold(progress)) setHasRead(true);
   }, []);
 
   useEffect(() => {
-    const el = contentRef.current;
-    if (!el) return;
+    const { schedule, cancel } = createRAFDebounce(handleScroll);
 
-    el.addEventListener("scroll", handleScroll, { passive: true });
+    window.addEventListener("scroll", schedule, { passive: true });
+
+    // ── Run once on mount in case content is short ──
+    handleScroll();
 
     return () => {
-      el.removeEventListener("scroll", handleScroll);
-      if (rafRef.current) cancelAnimationFrame(rafRef.current);
+      window.removeEventListener("scroll", schedule);
+      cancel();
     };
   }, [handleScroll]);
 
