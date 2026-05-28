@@ -1,27 +1,34 @@
-/* src/styles/terms/warning-card.css */
+/* src/styles/terms/warning-card.css
+   Matches the existing .terms-note card style.
+──────────────────────────────────────────────── */
 
 .warning-card {
-  border-radius: 6px;
-  padding: 14px 18px;
-  margin: 18px 0;
-  font-size: 0.92rem;
-  line-height: 1.7;
+  margin: 16px 0;
+  padding: 14px 16px;
+  border-radius: 8px;
+  font-size: 0.88rem;
+  line-height: 1.6;
+  border-width: 1px;
+  border-style: solid;
 }
 
+/* Warning — matches existing .terms-note amber style */
 .warning-card--warning {
-  background: #fff3e0;
-  border-left: 4px solid #e65100;
-  color: #4e342e;
+  background: #fefce8;
+  border-color: #fde68a;
+  color: #92400e;
 }
 
+/* Success — positive confirmation */
 .warning-card--success {
-  background: #e8f5e9;
-  border-left: 4px solid #2e7d32;
-  color: #1b5e20;
+  background: #f0fdf4;
+  border-color: #bbf7d0;
+  color: #14532d;
 }
 
+/* Info — neutral */
 .warning-card--info {
-  background: #e3f2fd;
-  border-left: 4px solid #1565c0;
-  color: #0d3b6e;
+  background: #f8fafc;
+  border-color: #e2e8f0;
+  color: #334155;
 }
