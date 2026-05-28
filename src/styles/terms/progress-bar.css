@@ -1,26 +1,34 @@
-/* src/styles/terms/progress-bar.css */
+/* src/styles/terms/progress-bar.css
+   Minimal bar consistent with the base design system.
+──────────────────────────────────────────────────── */
 
 .progress-bar {
   position: sticky;
-  top: 0;
-  z-index: 100;
+  top: 57px;       /* clears the sticky header height */
+  z-index: 15;
   background: #fff;
-  padding: 10px 20px;
-  border-bottom: 1px solid #eee;
-  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.06);
+  padding: 8px 0 6px;
+  border-bottom: 1px solid #f3f4f6;
+}
+
+.progress-bar__track {
+  height: 3px;
+  background: #f3f4f6;
+  border-radius: 2px;
+  overflow: hidden;
+  margin-bottom: 5px;
 }
 
 .progress-bar__fill {
-  height: 6px;
-  border-radius: 3px;
-  background: linear-gradient(90deg, #1565c0, #42a5f5);
-  transition: width 0.3s ease;
-  margin-bottom: 6px;
+  height: 100%;
+  border-radius: 2px;
+  background: #111827;
+  transition: width 0.25s ease;
 }
 
 .progress-bar__label {
   display: block;
-  font-size: 0.78rem;
-  color: #555;
-  text-align: center;
+  font-size: 0.75rem;
+  color: #9ca3af;
+  text-align: right;
 }
