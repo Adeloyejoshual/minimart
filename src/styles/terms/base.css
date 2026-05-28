@@ -1,142 +1,214 @@
-/* src/styles/terms/base.css */
+/* src/styles/terms/base.css
+   Matches the existing minimal design system.
+   Extends it with layout, footer, notice, and
+   accessibility shells — no visual conflicts.
+────────────────────────────────────────────── */
 
-*,
-*::before,
-*::after {
-  box-sizing: border-box;
-  margin: 0;
-  padding: 0;
+/* ── Skip Navigation ────────────────────────────────────────────────────── */
+
+.skip-to-content {
+  position: absolute;
+  top: -100%;
+  left: 16px;
+  z-index: 9999;
+  padding: 8px 16px;
+  background: #111827;
+  color: #fff;
+  font-size: 0.85rem;
+  font-weight: 600;
+  border-radius: 0 0 6px 6px;
+  text-decoration: none;
+  transition: top 0.2s ease;
 }
 
+.skip-to-content:focus {
+  top: 0;
+}
+
+/* ── Container ──────────────────────────────────────────────────────────── */
+
 .terms-container {
-  display: flex;
-  flex-direction: column;
-  max-width: 860px;
+  max-width: 680px;
   margin: 0 auto;
-  min-height: 100vh;
-  background: #ffffff;
-  font-family: "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
-  font-size: 15px;
+  padding: 0 16px 80px;   /* bottom pad clears sticky footer */
+  font-family: inherit;
   color: #1a1a1a;
 }
 
-/* Header */
+/* ── Header ─────────────────────────────────────────────────────────────── */
+
 .terms-header {
-  padding: 24px 28px 20px;
-  border-bottom: 2px solid #f0f0f0;
-  background: #fafafa;
-}
-
-.terms-header__back-btn {
-  display: inline-flex;
+  display: flex;
   align-items: center;
-  gap: 6px;
-  padding: 8px 16px;
-  background: #f0f0f0;
-  color: #333;
-  border: none;
-  border-radius: 6px;
-  font-size: 0.88rem;
-  font-weight: 600;
-  cursor: pointer;
-  transition: background 0.2s ease;
-  margin-bottom: 16px;
+  gap: 12px;
+  padding: 20px 0 16px;
+  border-bottom: 1px solid #e5e7eb;
+  margin-bottom: 0;
+  position: sticky;
+  top: 0;
+  background: #fff;
+  z-index: 20;
 }
 
-.terms-header__back-btn:hover {
-  background: #e0e0e0;
-}
-
-.terms-header__title {
-  font-size: 1.4rem;
+.terms-header h2 {
+  font-size: 1.2rem;
   font-weight: 700;
-  color: #111;
-  margin-bottom: 10px;
-  line-height: 1.3;
+  margin: 0;
+  color: #111827;
 }
 
-.terms-header__jurisdiction {
+/* ── Back Button ────────────────────────────────────────────────────────── */
+
+.back-btn {
+  background: none;
+  border: 1px solid #d1d5db;
+  border-radius: 8px;
+  padding: 6px 14px;
   font-size: 0.85rem;
-  color: #1565c0;
-  font-weight: 600;
-  margin-bottom: 4px;
-}
-
-.terms-header__reading-time,
-.terms-header__effective {
-  font-size: 0.82rem;
-  color: #777;
-  margin-bottom: 2px;
-}
-
-/* Sticky notice */
-.terms-notice {
-  background: #fff8e1;
-  border-left: 4px solid #f9a825;
-  padding: 10px 20px;
-  font-size: 0.88rem;
-  color: #5d4037;
   font-weight: 500;
+  color: #374151;
+  cursor: pointer;
+  transition: background 0.15s ease, border-color 0.15s ease;
+  white-space: nowrap;
+  flex-shrink: 0;
 }
 
-/* Scrollable content */
+.back-btn:hover {
+  background: #f3f4f6;
+  border-color: #9ca3af;
+}
+
+.back-btn:focus-visible {
+  outline: 2px solid #374151;
+  outline-offset: 3px;
+}
+
+.back-btn:focus:not(:focus-visible) {
+  outline: none;
+}
+
+/* ── Read Notice ────────────────────────────────────────────────────────── */
+
+.terms-notice {
+  padding: 10px 14px;
+  background: #fefce8;
+  border: 1px solid #fde68a;
+  border-radius: 8px;
+  font-size: 0.85rem;
+  color: #92400e;
+  line-height: 1.55;
+  margin: 12px 0;
+}
+
+/* ── Scrollable Content Area ────────────────────────────────────────────── */
+
 .terms-content {
-  flex: 1;
-  overflow-y: auto;
-  padding: 28px 32px 48px;
-  scroll-behavior: smooth;
+  line-height: 1.7;
+  font-size: 0.93rem;
+  /* No overflow-y here — the page itself scrolls.           */
+  /* The scroll ref tracks window/page scroll for progress.  */
 }
 
-.terms-content::-webkit-scrollbar        { width: 6px; }
-.terms-content::-webkit-scrollbar-track  { background: #f5f5f5; }
-.terms-content::-webkit-scrollbar-thumb  {
-  background: #ccc;
-  border-radius: 3px;
-}
-.terms-content::-webkit-scrollbar-thumb:hover { background: #aaa; }
-
-/* Introduction block */
+/* Introduction paragraph */
 .terms-intro {
-  background: #f1f8e9;
-  border-left: 4px solid #558b2f;
-  padding: 16px 18px;
-  border-radius: 6px;
-  line-height: 1.75;
-  margin-bottom: 28px;
   font-size: 0.95rem;
-  color: #2e3a1f;
+  margin-bottom: 24px;
+  color: #374151;
+  line-height: 1.75;
 }
 
-/* Footer */
+/* Section headings */
+.terms-content h3,
+.terms-section__heading {
+  font-size: 0.95rem;
+  font-weight: 700;
+  color: #111827;
+  margin: 28px 0 8px;
+  padding-bottom: 0;
+  border-bottom: none;
+}
+
+/* Body paragraphs */
+.terms-content p,
+.terms-section__body p {
+  margin: 0 0 12px;
+  color: #4b5563;
+  line-height: 1.7;
+}
+
+/* Lists */
+.terms-content ul,
+.terms-section__body ul {
+  margin: 0 0 16px 20px;
+  padding: 0;
+  color: #4b5563;
+}
+
+.terms-content ul li,
+.terms-section__body ul li {
+  margin-bottom: 6px;
+  line-height: 1.65;
+}
+
+.terms-content ul li strong,
+.terms-section__body ul li strong {
+  color: #111827;
+}
+
+/* Sub-headings inside sections */
+.terms-content h4,
+.terms-section__body h4 {
+  font-size: 0.88rem;
+  font-weight: 700;
+  color: #374151;
+  margin: 18px 0 8px;
+}
+
+/* Contact links */
+.terms-section__body a,
+.terms-content a {
+  color: #374151;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+.terms-section__body a:hover,
+.terms-content a:hover {
+  color: #111827;
+}
+
+/* ── Footer ─────────────────────────────────────────────────────────────── */
+
 .terms-footer {
   position: sticky;
   bottom: 0;
   background: #fff;
-  border-top: 2px solid #e0e0e0;
-  padding: 18px 28px;
+  border-top: 1px solid #e5e7eb;
+  padding: 16px 0;
   display: flex;
   flex-direction: column;
-  align-items: center;
-  gap: 14px;
-  box-shadow: 0 -4px 16px rgba(0, 0, 0, 0.08);
-  z-index: 50;
+  align-items: flex-start;
+  gap: 12px;
+  z-index: 20;
 }
 
+/* Checkbox label */
 .terms-footer__checkbox-label {
   display: flex;
   align-items: center;
   gap: 10px;
-  font-size: 0.9rem;
+  font-size: 0.88rem;
   font-weight: 500;
-  color: #222;
+  color: #374151;
   cursor: pointer;
   user-select: none;
+  min-height: 44px;     /* WCAG 2.5.5 minimum touch target */
 }
 
 .terms-footer__checkbox {
-  width: 18px;
-  height: 18px;
-  accent-color: #1565c0;
+  width: 16px;
+  height: 16px;
+  accent-color: #111827;
   cursor: pointer;
   flex-shrink: 0;
 }
@@ -150,45 +222,67 @@
   cursor: not-allowed;
 }
 
+/* API error message */
 .terms-footer__error {
   font-size: 0.82rem;
-  color: #c62828;
-  text-align: center;
+  color: #b91c1c;
+  line-height: 1.55;
   max-width: 480px;
 }
 
+/* Accept button — disabled state */
 .terms-footer__btn {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  padding: 12px 28px;
-  border: none;
+  background: none;
+  border: 1px solid #d1d5db;
   border-radius: 8px;
-  font-size: 0.92rem;
+  padding: 8px 20px;
+  font-size: 0.88rem;
   font-weight: 600;
   cursor: pointer;
-  transition: background 0.2s ease, box-shadow 0.2s ease, transform 0.1s ease;
-  min-width: 260px;
-}
-
-.terms-footer__btn:active {
-  transform: scale(0.97);
+  transition: background 0.15s ease,
+              border-color 0.15s ease,
+              color 0.15s ease;
+  white-space: nowrap;
 }
 
 .terms-footer__btn--disabled {
-  background: #bdbdbd;
-  color: #fff;
+  color: #9ca3af;
+  border-color: #e5e7eb;
   cursor: not-allowed;
-  opacity: 0.7;
+  background: none;
 }
 
+/* Accept button — active/enabled state */
 .terms-footer__btn--active {
-  background: linear-gradient(135deg, #1565c0, #1976d2);
+  background: #111827;
   color: #fff;
-  box-shadow: 0 4px 14px rgba(21, 101, 192, 0.35);
+  border-color: #111827;
 }
 
 .terms-footer__btn--active:hover {
-  background: linear-gradient(135deg, #0d47a1, #1565c0);
-  box-shadow: 0 6px 18px rgba(21, 101, 192, 0.45);
+  background: #1f2937;
+  border-color: #1f2937;
+}
+
+.terms-footer__btn:focus-visible {
+  outline: 2px solid #111827;
+  outline-offset: 3px;
+}
+
+.terms-footer__btn:focus:not(:focus-visible) {
+  outline: none;
+}
+
+/* ── Screen Reader Utility ──────────────────────────────────────────────── */
+
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
 }
