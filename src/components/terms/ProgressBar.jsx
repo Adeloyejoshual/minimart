@@ -14,14 +14,18 @@ export default function ProgressBar({ progress }) {
       aria-valuemax={100}
       aria-label="Terms reading progress"
     >
-      <div
-        className="progress-bar__fill"
-        style={{ width: `${safeProgress}%` }}
-      />
+      {/* Separate track element for cleaner styling */}
+      <div className="progress-bar__track">
+        <div
+          className="progress-bar__fill"
+          style={{ width: `${safeProgress}%` }}
+        />
+      </div>
+
       <span className="progress-bar__label">
         {isDone
           ? "You have read the terms"
-          : `${safeProgress}% read — please scroll to continue`}
+          : `${safeProgress}% — scroll to continue`}
       </span>
     </div>
   );
