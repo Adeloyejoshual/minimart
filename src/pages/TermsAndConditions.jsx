@@ -7,89 +7,102 @@ export default function TermsAndConditions() {
 
   return (
     <div className="terms-container">
-
-      {/* ── Header ── */}
       <div className="terms-header">
         <button className="back-btn" onClick={() => navigate(-1)}>← Back</button>
-        <h2>Terms &amp; Conditions</h2>
+        <h2>Terms of Use & Posting Rules</h2>
+        <p className="location-badge">Applicable in Nigeria</p>
       </div>
 
-      {/* ── Content ── */}
       <div className="terms-content">
-
         <p className="terms-intro">
-          Welcome to <strong>MiniMart</strong>. By using our platform — posting, browsing,
-          or interacting with listings — you agree to the terms below.
+          MiniMart is an online classifieds platform. We do not own, inspect, or 
+          guarantee any items listed. <strong>Transactions are strictly between 
+          the Buyer and the Seller.</strong>
         </p>
 
-        <h3>1. Acceptance of Terms</h3>
+        {/* 1. NIGERIAN LAW COMPLIANCE */}
+        <h3>1. Legal Compliance</h3>
         <p>
-          By clicking <em>"Post Ad"</em> you accept these Terms of Use, confirm you will follow
-          our Safety Tips, and declare that your listing does not include any prohibited items.
+          By using MiniMart, you agree to comply with the <strong>Cybercrimes Act 
+          of 2015</strong> and the <strong>Federal Competition and Consumer 
+          Protection Act (FCCPA)</strong>. You shall not use this platform for 
+          "Yahoo-Yahoo" (internet fraud), money laundering, or obtaining money 
+          under false pretenses (419).
         </p>
 
-        <h3>2. Posting Guidelines</h3>
+        {/* 2. NO PAYMENT ON PLATFORM */}
+        <h3 className="warning-text">2. Payment & Transactions</h3>
         <ul>
-          <li>No illegal, stolen, or counterfeit items.</li>
-          <li>Provide accurate descriptions, pricing, and delivery information.</li>
-          <li>Respect other users — no spam, misleading content, or duplicate listings.</li>
-          <li>Images must represent the actual item being sold.</li>
+          <li><strong>MiniMart is NOT a payment platform.</strong> We do not 
+              collect money for items.</li>
+          <li>We strongly advise: <strong>DO NOT PAY IN ADVANCE</strong> (no 
+              "commitment fee" or "delivery fee") before seeing the item.</li>
+          <li>Payments should be made via bank transfer or cash <strong>ONLY 
+              AFTER</strong> physical inspection and verification of the item.</li>
         </ul>
 
-        <h3>3. Safety Tips</h3>
+        {/* 3. PROHIBITED ITEMS (NIGERIA CUSTOMS & POLICE) */}
+        <h3>3. Prohibited Items (Nigeria)</h3>
+        <p>The following items are strictly banned on MiniMart Nigeria:</p>
         <ul>
-          <li>Meet in public, well-lit places when exchanging items.</li>
-          <li>Verify buyer or seller information before completing a transaction.</li>
-          <li>Never share sensitive personal or financial information unnecessarily.</li>
-          <li>MiniMart will never ask for your password or bank PIN.</li>
+          <li><strong>Customs Contraband:</strong> Foreign parboiled rice, 
+              used clothing (Okrika) in bulk, or any item on the Nigeria 
+              Customs Service prohibition list.</li>
+          <li><strong>Regulated Meds:</strong> Tramadol, Codeine, or 
+              unregistered NAFDAC products.</li>
+          <li><strong>Documents:</strong> Fake NIN, Passports, Drivers Licenses, 
+              or University Certificates.</li>
+          <li><strong>Weapons:</strong> Firearms, locally made pistols, 
+              or military/police uniforms and gear.</li>
+          <li><strong>Land/Property:</strong> Listings without proof of 
+              ownership (C of O or Governor's Consent) are subject to removal.</li>
         </ul>
 
-        <h3>4. Delivery &amp; Payment</h3>
-        <p>
-          Users are solely responsible for the accuracy of delivery details, fees, and estimated
-          timelines. Payment disputes between users are not managed by MiniMart.
-        </p>
-
-        <h3>5. Prohibited Items</h3>
+        {/* 4. SAFETY & MEETUPS */}
+        <h3>4. Physical Safety Guidelines</h3>
         <ul>
-          <li>Weapons, ammunition, or dangerous materials.</li>
-          <li>Drugs or prescription medicine without authorisation.</li>
-          <li>Content that infringes intellectual property rights.</li>
-          <li>Adult or explicit content.</li>
+          <li>Always meet in <strong>busy public places</strong> (e.g., Shoprite, 
+              Fuel Stations, or Fast Food restaurants).</li>
+          <li><strong>Inspect before you pay:</strong> Ensure the phone, 
+              laptop, or car is in the condition described.</li>
+          <li>If a deal seems too cheap to be true (e.g., iPhone 15 for 
+              ₦150,000), it is likely a scam.</li>
         </ul>
 
-        <h3>6. Account &amp; Listing Suspension</h3>
+        {/* 5. DATA PRIVACY (NDPR) */}
+        <h3>5. Privacy & Data</h3>
         <p>
-          MiniMart reserves the right to remove any listing or suspend any account that violates
-          these terms, without prior notice.
+          In line with the <strong>Nigeria Data Protection Regulation (NDPR)</strong>, 
+          by posting an ad, you consent to your phone number being visible to 
+          potential buyers. We will not sell your data to 3rd party advertisers.
         </p>
 
-        <h3>7. Liability</h3>
+        {/* 6. LIMITATION OF LIABILITY */}
+        <h3>6. Disclaimer of Liability</h3>
         <p>
-          MiniMart is a platform connecting buyers and sellers. We are not party to any
-          transaction and are not liable for disputes, damages, or losses between users.
+          MiniMart, its directors, and employees are <strong>NOT LIABLE</strong> 
+          for any financial loss, physical harm, or fraud arising from 
+          interactions on this platform. You use this service at your own risk.
         </p>
 
-        <h3>8. Changes to Terms</h3>
+        <h3>7. Reporting Fraud</h3>
         <p>
-          We may update these terms at any time. Continued use of the platform after an update
-          constitutes acceptance of the revised terms.
+          If you encounter a scammer, report the ad immediately. We cooperate 
+          with the <strong>EFCC</strong> and <strong>Nigeria Police Force</strong> 
+          to provide logs of fraudulent users.
         </p>
 
         <p className="terms-note">
-          By posting an ad you confirm that you have read, understood, and agree to comply
-          with these Terms &amp; Conditions.
+          By clicking "Post Ad", you agree to these terms under the jurisdiction 
+          of the High Courts of the Federal Republic of Nigeria.
         </p>
-
       </div>
 
-      {/* ── Footer ── */}
       <div className="terms-footer">
         <button className="back-btn" onClick={() => navigate(-1)}>
-          ← Back to Add Product
+          Confirm & Go Back
         </button>
       </div>
-
     </div>
   );
 }
