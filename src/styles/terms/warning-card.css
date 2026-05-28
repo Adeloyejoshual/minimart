@@ -1,0 +1,27 @@
+/* src/styles/terms/warning-card.css */
+
+.warning-card {
+  border-radius: 6px;
+  padding: 14px 18px;
+  margin: 18px 0;
+  font-size: 0.92rem;
+  line-height: 1.7;
+}
+
+.warning-card--warning {
+  background: #fff3e0;
+  border-left: 4px solid #e65100;
+  color: #4e342e;
+}
+
+.warning-card--success {
+  background: #e8f5e9;
+  border-left: 4px solid #2e7d32;
+  color: #1b5e20;
+}
+
+.warning-card--info {
+  background: #e3f2fd;
+  border-left: 4px solid #1565c0;
+  color: #0d3b6e;
+}
