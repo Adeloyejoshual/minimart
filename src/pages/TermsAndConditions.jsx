@@ -1,17 +1,15 @@
 // src/pages/TermsAndConditions.jsx
+import { useEffect }          from "react";
 import { useTermsScroll }     from "../hooks/useTermsScroll";
 import { useTermsAcceptance } from "../hooks/useTermsAcceptance";
 import { getEnabledSections } from "../data/legal/termsSections";
 import { logTermsViewed }     from "../services/legal/legalAuditService";
-import { useEffect }          from "react";
 
 import {
   TermsHeader,
   TermsFooter,
   ProgressBar,
-}                             from "../components/terms";
-
-import TermsLayout            from "../components/terms/layouts/TermsLayout";
+} from "../components/terms";
 
 import "../styles/terms/base.css";
 import "../styles/terms/progress-bar.css";
@@ -20,10 +18,22 @@ import "../styles/terms/sections.css";
 import "../styles/terms/responsive.css";
 import "../styles/terms/accessibility.css";
 
+// ── Resolve enabled sections once outside the component ──
+// Prevents recomputing on every render
 const ENABLED_SECTIONS = getEnabledSections();
 
+/**
+ * Terms and Conditions page.
+ *
+ * Responsibilities:
+ *   - Compose layout and section components
+ *   - Wire scroll tracking and acceptance hooks
+ *   - Pass props downward — no business logic here
+ *   - Log page view for legal audit trail
+ */
 export default function TermsAndConditions() {
 
+  // ── Scroll tracking ──
   const {
     contentRef,
     scrollProgress,
@@ -31,6 +41,7 @@ export default function TermsAndConditions() {
     setHasRead,
   } = useTermsScroll();
 
+  // ── Acceptance state and submission ──
   const {
     agreed,
     setAgreed,
@@ -51,53 +62,56 @@ export default function TermsAndConditions() {
         Skip to content
       </a>
 
-      <TermsLayout
-        header={<TermsHeader />}
+      <div className="terms-container">
 
-        progressBar={<ProgressBar progress={scrollProgress} />}
+        {/* Sticky header */}
+        <TermsHeader />
 
-        notice={
-          <div className="terms-notice" role="note">
-            Please read carefully before clicking{" "}
-            <strong>"Post Ad"</strong>
-          </div>
-        }
+        {/* Scroll progress indicator */}
+        <ProgressBar progress={scrollProgress} />
 
-        content={
-          <main
-            id="terms-main"
-            className="terms-content"
-            ref={contentRef}
-            aria-label="Terms and Conditions document"
-          >
-            <p className="terms-intro">
-              Welcome to <strong>MiniMart</strong> — a free online
-              classifieds platform connecting buyers and sellers worldwide.
-              We do <strong>not own, inspect, or guarantee</strong> any
-              items listed on this platform. All transactions are strictly
-              between the <strong>Buyer</strong> and the{" "}
-              <strong>Seller</strong>.
-            </p>
+        {/* Sticky read reminder */}
+        <div className="terms-notice" role="note">
+          Please read carefully before clicking{" "}
+          <strong>"Post Ad"</strong>
+        </div>
 
-            {/* Data-driven section rendering */}
-            {ENABLED_SECTIONS.map(({ id, component: Section }) => (
-              <Section key={id} />
-            ))}
+        {/* Scrollable content region */}
+        <main
+          id="terms-main"
+          className="terms-content"
+          ref={contentRef}
+          aria-label="Terms and Conditions document"
+        >
 
-          </main>
-        }
+          {/* Introduction */}
+          <p className="terms-intro">
+            Welcome to <strong>MiniMart</strong> — a free online
+            classifieds platform connecting buyers and sellers worldwide.
+            We do <strong>not own, inspect, or guarantee</strong> any
+            items listed on this platform. All transactions are strictly
+            between the <strong>Buyer</strong> and the{" "}
+            <strong>Seller</strong>.
+          </p>
 
-        footer={
-          <TermsFooter
-            hasRead={hasRead}
-            agreed={agreed}
-            onAgreeChange={setAgreed}
-            onAccept={handleAccept}
-            isSubmitting={isSubmitting}
-            submitError={submitError}
-          />
-        }
-      />
+          {/* Data-driven section rendering */}
+          {ENABLED_SECTIONS.map(({ id, component: Section }) => (
+            <Section key={id} />
+          ))}
+
+        </main>
+
+        {/* Sticky acceptance footer */}
+        <TermsFooter
+          hasRead={hasRead}
+          agreed={agreed}
+          onAgreeChange={setAgreed}
+          onAccept={handleAccept}
+          isSubmitting={isSubmitting}
+          submitError={submitError}
+        />
+
+      </div>
     </>
   );
 }
