@@ -1,68 +1,78 @@
-/* src/styles/terms/responsive.css */
+/* src/styles/terms/responsive.css ──────────────────────────── */
 
-@media (max-width: 600px) {
-  .terms-header {
-    padding: 16px;
+@media (max-width: 480px) {
+
+  .terms-container {
+    padding: 0 12px 96px;  /* more bottom pad on mobile for footer */
   }
 
-  .terms-header__title {
-    font-size: 1.15rem;
+  .terms-header h2 {
+    font-size: 1rem;
   }
 
-  .terms-content {
-    padding: 16px 16px 36px;
+  .terms-content,
+  .terms-section__body p,
+  .terms-section__body ul {
+    font-size: 0.9rem;
   }
 
-  .terms-section__heading {
-    font-size: 0.97rem;
+  .terms-notice,
+  .warning-card {
+    font-size: 0.85rem;
   }
 
   .terms-footer {
-    padding: 14px 16px;
+    padding: 14px 0;
   }
 
   .terms-footer__btn {
     width: 100%;
-    min-width: unset;
+    text-align: center;
+    justify-content: center;
   }
 
   .terms-footer__checkbox-label {
     font-size: 0.85rem;
-    text-align: center;
+  }
+
+  .progress-bar {
+    top: 53px;  /* adjusted for smaller header on mobile */
   }
 }
 
-@media (max-width: 400px) {
-  .terms-header__title {
-    font-size: 1.05rem;
-  }
-
-  .terms-content {
-    padding: 12px 12px 32px;
-  }
-}
-
-@media (prefers-reduced-motion: reduce) {
-  .progress-bar__fill,
-  .terms-footer__btn,
-  .terms-header__back-btn {
-    transition: none;
-  }
-}
+/* ── Print ─────────────────────────────────────────────────── */
 
 @media print {
   .progress-bar,
   .terms-notice,
-  .terms-footer {
+  .terms-footer,
+  .skip-to-content {
     display: none;
-  }
-
-  .terms-content {
-    overflow: visible;
-    padding: 0;
   }
 
   .terms-container {
     max-width: 100%;
+    padding: 0;
+  }
+
+  .terms-content {
+    font-size: 11pt;
+    line-height: 1.6;
+  }
+
+  .terms-header {
+    position: static;
+    border-bottom: 1px solid #000;
+  }
+}
+
+/* ── Reduced Motion ─────────────────────────────────────────── */
+
+@media (prefers-reduced-motion: reduce) {
+  .progress-bar__fill,
+  .back-btn,
+  .terms-footer__btn,
+  .skip-to-content {
+    transition: none;
   }
 }
