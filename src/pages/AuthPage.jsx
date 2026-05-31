@@ -163,31 +163,41 @@ function ParticleCanvas() {
 
     const resize = () => {
       const r = c.getBoundingClientRect();
-      w = r.width; h = r.height;
-      c.width = w * dpr; c.height = h * dpr;
+      w = r.width;
+      h = r.height;
+      c.width = w * dpr;
+      c.height = h * dpr;
       ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-      const count = Math.min(45, Math.floor((w * h) / 14000));
+      const count = Math.min(40, Math.floor((w * h) / 15000));
       pts.current = Array.from({ length: count }, () => ({
-        x: Math.random() * w, y: Math.random() * h,
+        x: Math.random() * w,
+        y: Math.random() * h,
         vx: (Math.random() - 0.5) * 0.25,
         vy: (Math.random() - 0.5) * 0.25,
-        r: Math.random() * 1.4 + 0.4,
-        o: Math.random() * 0.1 + 0.03,
+        r: Math.random() * 1.2 + 0.4,
+        o: Math.random() * 0.08 + 0.02,
       }));
     };
 
     const draw = () => {
       ctx.clearRect(0, 0, w, h);
       const arr = pts.current;
-      const mx = mouse.current.x, my = mouse.current.y;
+      const mx = mouse.current.x,
+        my = mouse.current.y;
       for (const p of arr) {
-        p.x += p.vx; p.y += p.vy;
+        p.x += p.vx;
+        p.y += p.vy;
         if (p.x < -10) p.x = w + 10;
         if (p.x > w + 10) p.x = -10;
         if (p.y < -10) p.y = h + 10;
         if (p.y > h + 10) p.y = -10;
-        const dx = p.x - mx, dy = p.y - my, d = Math.hypot(dx, dy);
-        if (d < 100 && d > 0) { p.x += dx * 0.007; p.y += dy * 0.007; }
+        const dx = p.x - mx,
+          dy = p.y - my,
+          d = Math.hypot(dx, dy);
+        if (d < 100 && d > 0) {
+          p.x += dx * 0.006;
+          p.y += dy * 0.006;
+        }
         ctx.beginPath();
         ctx.arc(p.x, p.y, p.r, 0, Math.PI * 2);
         ctx.fillStyle = `rgba(180,80,0,${p.o})`;
@@ -195,12 +205,15 @@ function ParticleCanvas() {
       }
       for (let i = 0; i < arr.length; i++) {
         for (let j = i + 1; j < arr.length; j++) {
-          const d = Math.hypot(arr[i].x - arr[j].x, arr[i].y - arr[j].y);
-          if (d < 90) {
+          const d = Math.hypot(
+            arr[i].x - arr[j].x,
+            arr[i].y - arr[j].y
+          );
+          if (d < 80) {
             ctx.beginPath();
             ctx.moveTo(arr[i].x, arr[i].y);
             ctx.lineTo(arr[j].x, arr[j].y);
-            ctx.strokeStyle = `rgba(180,80,0,${0.025 * (1 - d / 90)})`;
+            ctx.strokeStyle = `rgba(180,80,0,${0.02 * (1 - d / 80)})`;
             ctx.lineWidth = 0.5;
             ctx.stroke();
           }
@@ -211,22 +224,36 @@ function ParticleCanvas() {
 
     resize();
     draw();
-    window.addEventListener("resize", resize);
-    c.addEventListener("mousemove", (e) => {
+    const onR = () => resize();
+    window.addEventListener("resize", onR);
+    const onM = (e) => {
       const r = c.getBoundingClientRect();
       mouse.current = { x: e.clientX - r.left, y: e.clientY - r.top };
-    });
-    c.addEventListener("mouseleave", () => { mouse.current = { x: -9999, y: -9999 }; });
-    return () => { cancelAnimationFrame(raf.current); window.removeEventListener("resize", resize); };
+    };
+    const onL = () => {
+      mouse.current = { x: -9999, y: -9999 };
+    };
+    c.addEventListener("mousemove", onM);
+    c.addEventListener("mouseleave", onL);
+    return () => {
+      cancelAnimationFrame(raf.current);
+      window.removeEventListener("resize", onR);
+      c.removeEventListener("mousemove", onM);
+      c.removeEventListener("mouseleave", onL);
+    };
   }, []);
 
   return (
     <canvas
       ref={ref}
       style={{
-        position: "absolute", inset: 0,
-        width: "100%", height: "100%",
-        pointerEvents: "all", zIndex: 0, opacity: 0.5,
+        position: "absolute",
+        inset: 0,
+        width: "100%",
+        height: "100%",
+        pointerEvents: "all",
+        zIndex: 0,
+        opacity: 0.45,
       }}
     />
   );
@@ -237,629 +264,350 @@ function ParticleCanvas() {
 ══════════════════════════════════════════════════════════════ */
 const CSS = `
 @keyframes _spin { to { transform: rotate(360deg) } }
-@keyframes _up   { from { opacity:0; transform:translateY(28px) } to { opacity:1; transform:translateY(0) } }
+@keyframes _up   { from { opacity:0; transform:translateY(24px) } to { opacity:1; transform:translateY(0) } }
 @keyframes _fade { from { opacity:0 } to { opacity:1 } }
 @keyframes _su   { from { opacity:0; transform:translateY(10px) } to { opacity:1; transform:translateY(0) } }
-@keyframes _glow { 0%,100%{box-shadow:0 0 20px rgba(255,92,0,.15)} 50%{box-shadow:0 0 36px rgba(255,92,0,.3)} }
+@keyframes _glow { 0%,100%{box-shadow:0 0 16px rgba(255,92,0,.15)} 50%{box-shadow:0 0 32px rgba(255,92,0,.28)} }
 @keyframes _shim { 0%{background-position:-250% 0} 100%{background-position:250% 0} }
 @keyframes _ring { 0%{transform:scale(.8);opacity:.5} 80%,100%{transform:scale(2.2);opacity:0} }
 @keyframes _pop  { 0%{transform:scale(0)} 60%{transform:scale(1.3)} 100%{transform:scale(1)} }
 @keyframes _gmv  { 0%{background-position:0% 50%} 50%{background-position:100% 50%} 100%{background-position:0% 50%} }
-@keyframes _b1   { 0%,100%{border-radius:60% 40% 30% 70%/60% 30% 70% 40%;transform:translate(0,0)} 40%{border-radius:30% 60% 70% 40%/50% 60% 30% 60%;transform:translate(18px,-14px)} 70%{border-radius:50% 50% 40% 60%/40% 60% 50% 50%;transform:translate(-10px,10px)} }
-@keyframes _b2   { 0%,100%{border-radius:40% 60% 70% 30%/40% 50% 60% 50%} 50%{border-radius:60% 40% 30% 70%/60% 40% 70% 30%;transform:translate(-18px,18px)} }
+@keyframes _b1   { 0%,100%{border-radius:60% 40% 30% 70%/60% 30% 70% 40%} 40%{border-radius:30% 60% 70% 40%/50% 60% 30% 60%;transform:translate(16px,-12px)} 70%{border-radius:50% 50% 40% 60%/40% 60% 50% 50%;transform:translate(-8px,8px)} }
+@keyframes _b2   { 0%,100%{border-radius:40% 60% 70% 30%/40% 50% 60% 50%} 50%{border-radius:60% 40% 30% 70%/60% 40% 70% 30%;transform:translate(-15px,15px)} }
 
-/* ── FULL PAGE ── */
+/* ═══ FULL PAGE ═══ */
 .fp {
-  position: fixed;
-  inset: 0;
-  width: 100vw;
-  height: 100vh;
-  height: 100dvh;
-  display: flex;
-  overflow: hidden;
+  position: fixed; inset: 0;
+  width: 100vw; height: 100vh; height: 100dvh;
+  display: flex; overflow: hidden;
   font-family: var(--fb);
   background: #F7F4EF;
 }
 
-/* ══════════════════
-   LEFT — LIGHT WARM
-══════════════════ */
+/* ═══ LEFT PANEL ═══ */
 .fp-l {
   flex: 0 0 44%;
   position: relative;
-  display: flex;
-  flex-direction: column;
+  display: flex; flex-direction: column;
   overflow: hidden;
   background: linear-gradient(160deg, #FFF9F5 0%, #FFF1E8 45%, #FFE6D5 100%);
 }
-
-.fp-blob {
-  position: absolute;
-  filter: blur(72px);
-  opacity: 0.13;
-  pointer-events: none;
-  z-index: 0;
-}
-.fp-blob1 {
-  width: 320px; height: 320px;
-  background: #FF5C00;
-  top: -90px; left: -70px;
-  animation: _b1 16s ease-in-out infinite;
-}
-.fp-blob2 {
-  width: 260px; height: 260px;
-  background: #FF8040;
-  bottom: -70px; right: -80px;
-  animation: _b2 14s ease-in-out infinite 3s;
-}
+.fp-blob { position:absolute; filter:blur(72px); opacity:.12; pointer-events:none; z-index:0; }
+.fp-blob1 { width:300px; height:300px; background:#FF5C00; top:-80px; left:-60px; animation:_b1 16s ease-in-out infinite; }
+.fp-blob2 { width:240px; height:240px; background:#FF8040; bottom:-60px; right:-70px; animation:_b2 14s ease-in-out infinite 3s; }
 
 .fp-l-in {
-  position: relative;
-  z-index: 2;
-  display: flex;
-  flex-direction: column;
-  height: 100%;
-  padding: 40px 44px;
-  overflow-y: auto;
-  gap: 0;
+  position:relative; z-index:2;
+  display:flex; flex-direction:column;
+  height:100%; padding:36px 40px;
+  overflow-y:auto;
 }
-.fp-l-in::-webkit-scrollbar { width: 3px; }
-.fp-l-in::-webkit-scrollbar-thumb { background: rgba(0,0,0,.08); border-radius: 2px; }
+.fp-l-in::-webkit-scrollbar { width:3px; }
+.fp-l-in::-webkit-scrollbar-thumb { background:rgba(0,0,0,.07); border-radius:2px; }
 
 /* Logo */
-.fp-logo {
-  display: flex;
-  align-items: center;
-  gap: 13px;
-  flex-shrink: 0;
-  margin-bottom: 36px;
-}
+.fp-logo { display:flex; align-items:center; gap:12px; flex-shrink:0; margin-bottom:32px; }
 .fp-logo-icon {
-  width: 46px; height: 46px;
-  border-radius: 13px;
-  background: linear-gradient(135deg, #FF5C00, #FF8040);
-  display: flex; align-items: center; justify-content: center;
-  position: relative;
-  animation: _glow 4s ease-in-out infinite;
-  flex-shrink: 0;
+  width:44px; height:44px; border-radius:12px;
+  background:linear-gradient(135deg,#FF5C00,#FF8040);
+  display:flex; align-items:center; justify-content:center;
+  position:relative; animation:_glow 4s ease-in-out infinite; flex-shrink:0;
 }
 .fp-logo-ring {
-  position: absolute; inset: -5px;
-  border-radius: 17px;
-  border: 2px solid rgba(255,92,0,.22);
-  animation: _ring 3s ease-out infinite;
+  position:absolute; inset:-4px; border-radius:16px;
+  border:2px solid rgba(255,92,0,.2);
+  animation:_ring 3s ease-out infinite;
 }
-.fp-logo-name {
-  font-family: var(--fd);
-  font-size: 23px;
-  font-weight: 700;
-  letter-spacing: -.4px;
-  color: #1C1714;
-}
-.fp-logo-name b { color: #FF5C00; }
+.fp-logo-name { font-family:var(--fd); font-size:22px; font-weight:700; letter-spacing:-.4px; color:#1C1714; }
+.fp-logo-name b { color:#FF5C00; }
 
 /* Hero */
-.fp-hero {
-  flex: 1;
-  display: flex;
-  flex-direction: column;
-  justify-content: center;
-  padding: 12px 0 20px;
-}
+.fp-hero { flex:1; display:flex; flex-direction:column; justify-content:center; padding:10px 0 16px; }
 .fp-hero-tag {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  background: #FFF0E6;
-  border: 1px solid rgba(255,92,0,.18);
-  border-radius: 100px;
-  padding: 5px 12px;
-  font-size: 12px;
-  font-weight: 600;
-  color: #C04800;
-  width: fit-content;
-  margin-bottom: 20px;
+  display:inline-flex; align-items:center; gap:6px;
+  background:#FFF0E6; border:1px solid rgba(255,92,0,.16);
+  border-radius:100px; padding:4px 12px;
+  font-size:11.5px; font-weight:600; color:#C04800;
+  width:fit-content; margin-bottom:16px;
 }
-.fp-hero-tag span { font-size: 14px; }
 .fp-hero h2 {
-  font-family: var(--fd);
-  font-size: clamp(27px, 2.7vw, 40px);
-  font-weight: 700;
-  line-height: 1.18;
-  color: #1C1714;
-  margin-bottom: 16px;
-  letter-spacing: -.5px;
+  font-family:var(--fd); font-size:clamp(26px,2.6vw,38px);
+  font-weight:700; line-height:1.18; color:#1C1714;
+  margin-bottom:14px; letter-spacing:-.5px;
 }
-.fp-hero h2 em {
-  font-style: normal;
-  color: #FF5C00;
-}
+.fp-hero h2 em { font-style:normal; color:#FF5C00; }
 .fp-hero-desc {
-  font-size: clamp(13.5px, 1.05vw, 15.5px);
-  color: #6B6560;
-  line-height: 1.72;
-  max-width: 360px;
-  margin-bottom: 0;
+  font-size:clamp(13px,1vw,15px); color:#6B6560;
+  line-height:1.72; max-width:350px;
 }
 
 /* Features */
-.fp-feats {
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-  margin-top: 28px;
-}
+.fp-feats { display:flex; flex-direction:column; gap:5px; margin-top:24px; }
 .fp-feat {
-  display: flex;
-  align-items: center;
-  gap: 13px;
-  padding: 9px 13px;
-  border-radius: 12px;
-  transition: background .25s;
-  cursor: default;
-  animation: _su .45s ease both;
+  display:flex; align-items:center; gap:12px;
+  padding:8px 12px; border-radius:11px;
+  transition:background .25s; cursor:default; animation:_su .4s ease both;
 }
-.fp-feat:hover { background: rgba(255,92,0,.05); }
-.fp-feat:nth-child(2) { animation-delay: .07s; }
-.fp-feat:nth-child(3) { animation-delay: .14s; }
-.fp-feat:nth-child(4) { animation-delay: .21s; }
+.fp-feat:hover { background:rgba(255,92,0,.04); }
+.fp-feat:nth-child(2){animation-delay:.06s} .fp-feat:nth-child(3){animation-delay:.12s} .fp-feat:nth-child(4){animation-delay:.18s}
 .fp-feat-icon {
-  width: 38px; height: 38px;
-  border-radius: 10px;
-  background: #FFFFFF;
-  border: 1px solid rgba(255,92,0,.12);
-  box-shadow: 0 2px 6px rgba(255,92,0,.07);
-  display: flex; align-items: center; justify-content: center;
-  flex-shrink: 0;
-  transition: all .25s;
+  width:36px; height:36px; border-radius:10px; background:#FFFFFF;
+  border:1px solid rgba(255,92,0,.1); box-shadow:0 1px 4px rgba(255,92,0,.06);
+  display:flex; align-items:center; justify-content:center; flex-shrink:0; transition:all .25s;
 }
-.fp-feat:hover .fp-feat-icon {
-  background: #FFF0E6;
-  transform: scale(1.06);
-}
-.fp-feat-text {
-  font-size: clamp(12.5px, .95vw, 14px);
-  color: #6B6560;
-  line-height: 1.4;
-}
-.fp-feat-text strong {
-  display: block;
-  color: #1C1714;
-  font-weight: 700;
-  font-size: clamp(13px, 1vw, 14.5px);
-}
+.fp-feat:hover .fp-feat-icon { background:#FFF0E6; transform:scale(1.04); }
+.fp-feat-text { font-size:clamp(12px,.9vw,13.5px); color:#6B6560; line-height:1.35; }
+.fp-feat-text strong { display:block; color:#1C1714; font-weight:700; font-size:clamp(12.5px,.95vw,14px); }
 
-/* Feature trust badges — replaces fake stats */
+/* Trust grid */
 .fp-trust-grid {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 8px;
-  margin-top: auto;
-  padding-top: 24px;
-  border-top: 1px solid rgba(0,0,0,.07);
-  flex-shrink: 0;
+  display:grid; grid-template-columns:1fr 1fr; gap:7px;
+  margin-top:auto; padding-top:20px;
+  border-top:1px solid rgba(0,0,0,.06); flex-shrink:0;
 }
 .fp-trust-item {
-  display: flex;
-  align-items: center;
-  gap: 9px;
-  padding: 10px 13px;
-  background: #FFFFFF;
-  border: 1px solid rgba(0,0,0,.07);
-  border-radius: 11px;
-  box-shadow: 0 1px 4px rgba(0,0,0,.04);
+  display:flex; align-items:center; gap:8px;
+  padding:9px 11px; background:#FFFFFF;
+  border:1px solid rgba(0,0,0,.06); border-radius:10px;
+  box-shadow:0 1px 3px rgba(0,0,0,.03);
 }
 .fp-trust-ic {
-  width: 32px; height: 32px;
-  border-radius: 9px;
-  background: #FFF0E6;
-  display: flex; align-items: center; justify-content: center;
-  flex-shrink: 0;
+  width:30px; height:30px; border-radius:8px; background:#FFF0E6;
+  display:flex; align-items:center; justify-content:center; flex-shrink:0;
 }
-.fp-trust-label {
-  font-size: 12px;
-  font-weight: 700;
-  color: #2D2820;
-  line-height: 1.3;
-}
-.fp-trust-sub {
-  font-size: 10.5px;
-  color: #8A847C;
-  font-weight: 400;
-}
+.fp-trust-label { font-size:11.5px; font-weight:700; color:#2D2820; line-height:1.3; }
+.fp-trust-sub { font-size:10px; color:#8A847C; font-weight:400; }
 
-/* ══════════════════
-   RIGHT — WHITE FORM
-══════════════════ */
+/* ═══ RIGHT PANEL ═══ */
 .fp-r {
-  flex: 1;
-  display: flex;
-  flex-direction: column;
-  background: #FFFFFF;
-  border-left: 1px solid #EAE6E0;
-  overflow: hidden;
+  flex:1; display:flex; flex-direction:column;
+  background:#FFFFFF; border-left:1px solid #EAE6E0; overflow:hidden;
 }
-
 .fp-r-scroll {
-  flex: 1;
-  overflow-y: auto;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  padding: 36px 52px;
+  flex:1; overflow-y:auto;
+  display:flex; flex-direction:column;
+  align-items:center; justify-content:center;
+  padding:32px 48px;
 }
-.fp-r-scroll::-webkit-scrollbar { width: 4px; }
-.fp-r-scroll::-webkit-scrollbar-track { background: #F7F4EF; }
-.fp-r-scroll::-webkit-scrollbar-thumb { background: #D8D4CE; border-radius: 2px; }
+.fp-r-scroll::-webkit-scrollbar { width:4px; }
+.fp-r-scroll::-webkit-scrollbar-track { background:#F7F4EF; }
+.fp-r-scroll::-webkit-scrollbar-thumb { background:#D8D4CE; border-radius:2px; }
 
-.fp-r-box {
-  width: 100%;
-  max-width: 430px;
-  animation: _up .55s cubic-bezier(.22,1,.36,1);
-}
+.fp-r-box { width:100%; max-width:420px; animation:_up .5s cubic-bezier(.22,1,.36,1); }
 
-/* Mode tabs */
+/* Tabs */
 .fp-tabs {
-  display: flex;
-  background: #F3F0EB;
-  border-radius: 13px;
-  padding: 4px;
-  margin-bottom: 28px;
-  gap: 2px;
+  display:flex; background:#F3F0EB; border-radius:12px;
+  padding:3px; margin-bottom:24px; gap:2px;
 }
 .fp-tab {
-  flex: 1;
-  padding: 11px 14px;
-  border: none;
-  border-radius: 10px;
-  font-size: 13.5px;
-  font-weight: 600;
-  cursor: pointer;
-  background: transparent;
-  color: #8A847C;
-  transition: all .28s cubic-bezier(.22,1,.36,1);
-  font-family: var(--fb);
+  flex:1; padding:11px 12px; border:none; border-radius:10px;
+  font-size:13.5px; font-weight:600; cursor:pointer;
+  background:transparent; color:#8A847C;
+  transition:all .28s cubic-bezier(.22,1,.36,1); font-family:var(--fb);
 }
 .fp-tab.on {
-  color: #C04800;
-  background: #FFFFFF;
-  box-shadow: 0 2px 10px rgba(0,0,0,.07), 0 1px 2px rgba(0,0,0,.04);
+  color:#C04800; background:#FFFFFF;
+  box-shadow:0 2px 8px rgba(0,0,0,.06),0 1px 2px rgba(0,0,0,.04);
 }
-.fp-tab:not(.on):hover { color: #5A5650; }
+.fp-tab:not(.on):hover { color:#5A5650; }
 
-/* Heading */
-.fp-hd { margin-bottom: 22px; }
+/* Head */
+.fp-hd { margin-bottom:20px; }
 .fp-hd h3 {
-  font-family: var(--fd);
-  font-size: clamp(21px, 2vw, 26px);
-  font-weight: 700;
-  color: #1C1714;
-  margin-bottom: 5px;
-  letter-spacing: -.3px;
+  font-family:var(--fd); font-size:clamp(20px,2vw,25px);
+  font-weight:700; color:#1C1714; margin-bottom:4px; letter-spacing:-.3px;
 }
-.fp-hd p {
-  font-size: 13.5px;
-  color: #6B6560;
-  line-height: 1.55;
-}
+.fp-hd p { font-size:13.5px; color:#6B6560; line-height:1.5; }
 
-/* Google SSO */
+/* Google */
 .fp-google {
-  width: 100%;
-  padding: 12px;
-  border: 1.5px solid #DDD9D3;
-  border-radius: 11px;
-  background: #FFFFFF;
-  cursor: pointer;
-  display: flex; align-items: center; justify-content: center; gap: 10px;
-  font-size: 14px;
-  font-weight: 600;
-  color: #1C1714;
-  transition: all .2s;
-  font-family: var(--fb);
-  margin-bottom: 0;
+  width:100%; padding:11px; border:1.5px solid #DDD9D3;
+  border-radius:11px; background:#FFFFFF; cursor:pointer;
+  display:flex; align-items:center; justify-content:center; gap:9px;
+  font-size:13.5px; font-weight:600; color:#1C1714;
+  transition:all .2s; font-family:var(--fb);
 }
-.fp-google:hover {
-  border-color: #C8C2BA;
-  background: #FAFAF8;
-  box-shadow: 0 2px 8px rgba(0,0,0,.05);
-  transform: translateY(-1px);
-}
-.fp-google:active { transform: translateY(0); }
+.fp-google:hover { border-color:#C8C2BA; background:#FAFAF8; box-shadow:0 2px 6px rgba(0,0,0,.04); transform:translateY(-1px); }
+.fp-google:active { transform:translateY(0); }
 
 /* Divider */
 .fp-div {
-  display: flex; align-items: center; gap: 14px;
-  margin: 18px 0;
-  color: #A8A39D;
-  font-size: 11px;
-  font-weight: 600;
-  letter-spacing: .7px;
-  text-transform: uppercase;
+  display:flex; align-items:center; gap:12px; margin:16px 0;
+  color:#A8A39D; font-size:11px; font-weight:600;
+  letter-spacing:.7px; text-transform:uppercase;
 }
-.fp-div::before, .fp-div::after {
-  content: ''; flex: 1; height: 1px; background: #E8E4DE;
-}
+.fp-div::before,.fp-div::after { content:''; flex:1; height:1px; background:#E8E4DE; }
 
-/* Form fields */
-.fp-form { display: flex; flex-direction: column; gap: 14px; }
-.fp-row  { display: flex; gap: 10px; }
-.fp-row .fp-field { flex: 1; min-width: 0; }
-
-.fp-field { animation: _su .38s ease both; }
-.fp-field:nth-child(2) { animation-delay: .03s; }
-.fp-field:nth-child(3) { animation-delay: .06s; }
-.fp-field:nth-child(4) { animation-delay: .09s; }
-.fp-field:nth-child(5) { animation-delay: .12s; }
-.fp-field:nth-child(6) { animation-delay: .15s; }
+/* Fields */
+.fp-form { display:flex; flex-direction:column; gap:14px; }
+.fp-row { display:flex; gap:10px; }
+.fp-row .fp-field { flex:1; min-width:0; }
+.fp-field { animation:_su .35s ease both; }
 
 .fp-label {
-  display: flex; align-items: center; justify-content: space-between;
-  font-size: 12.5px;
-  font-weight: 700;
-  color: #2D2820;
-  margin-bottom: 6px;
+  display:flex; align-items:center; justify-content:space-between;
+  font-size:12.5px; font-weight:700; color:#2D2820; margin-bottom:5px;
 }
-.fp-label-opt {
-  font-weight: 400;
-  color: #A8A39D;
-  font-size: 11px;
-}
+.fp-label-opt { font-weight:400; color:#A8A39D; font-size:11px; }
 
-.fp-input-wrap {
-  display: flex; align-items: center;
-  border: 1.5px solid #DDD9D3;
-  border-radius: 11px;
-  background: #FFFFFF;
-  transition: border-color .2s, box-shadow .2s;
-  overflow: hidden;
+.fp-iw {
+  display:flex; align-items:center;
+  border:1.5px solid #DDD9D3; border-radius:10px;
+  background:#FFFFFF; transition:border-color .2s, box-shadow .2s; overflow:hidden;
 }
-.fp-input-wrap:focus-within {
-  border-color: #FF5C00;
-  box-shadow: 0 0 0 3.5px rgba(255,92,0,.09);
-}
-.fp-input-wrap:hover:not(:focus-within) { border-color: #C8C2BA; }
+.fp-iw:focus-within { border-color:#FF5C00; box-shadow:0 0 0 3px rgba(255,92,0,.08); }
+.fp-iw:hover:not(:focus-within) { border-color:#C8C2BA; }
 
-.fp-input-icon {
-  display: flex; align-items: center; justify-content: center;
-  width: 43px; flex-shrink: 0;
-  color: #A8A39D;
-  transition: color .2s;
+.fp-ii {
+  display:flex; align-items:center; justify-content:center;
+  width:42px; flex-shrink:0; color:#A8A39D; transition:color .2s;
 }
-.fp-input-wrap:focus-within .fp-input-icon { color: #FF5C00; }
+.fp-iw:focus-within .fp-ii { color:#FF5C00; }
 
-.fp-input-wrap input {
-  flex: 1;
-  padding: 12px 12px 12px 0;
-  border: none; outline: none;
-  font-size: 14px;
-  font-family: var(--fb);
-  color: #1C1714;
-  background: transparent;
-  min-width: 0;
+.fp-iw input {
+  flex:1; padding:12px 10px 12px 0; border:none; outline:none;
+  font-size:14px; font-family:var(--fb); color:#1C1714;
+  background:transparent; min-width:0;
 }
-.fp-input-wrap input::placeholder { color: #B0AAA3; }
+.fp-iw input::placeholder { color:#B0AAA3; }
 
 .fp-eye {
-  background: none; border: none;
-  padding: 0 12px; cursor: pointer;
-  color: #A8A39D;
-  display: flex; align-items: center;
-  transition: color .2s;
+  background:none; border:none; padding:0 11px; cursor:pointer;
+  color:#A8A39D; display:flex; align-items:center; transition:color .2s;
 }
-.fp-eye:hover { color: #5A5650; }
+.fp-eye:hover { color:#5A5650; }
 
-/* Password strength */
-.fp-pw { margin-top: 9px; animation: _fade .3s ease; }
-.fp-pw-bars { display: flex; gap: 3px; margin-bottom: 7px; }
-.fp-pw-bar {
-  flex: 1; height: 3.5px;
-  border-radius: 2px;
-  background: #E8E4DE;
-  transition: background .3s, transform .3s;
-}
-.fp-pw-bar.on { transform: scaleY(1.4); }
-.fp-pw-lbl { font-size: 11.5px; font-weight: 700; margin-bottom: 7px; }
-.fp-pw-checks { display: flex; flex-wrap: wrap; gap: 5px; }
+/* PW strength */
+.fp-pw { margin-top:8px; animation:_fade .3s ease; }
+.fp-pw-bars { display:flex; gap:3px; margin-bottom:6px; }
+.fp-pw-bar { flex:1; height:3px; border-radius:2px; background:#E8E4DE; transition:all .3s; }
+.fp-pw-bar.on { transform:scaleY(1.4); }
+.fp-pw-lbl { font-size:11.5px; font-weight:700; margin-bottom:6px; }
+.fp-pw-cks { display:flex; flex-wrap:wrap; gap:5px; }
 .fp-pw-ck {
-  display: flex; align-items: center; gap: 4px;
-  font-size: 11px; padding: 3px 8px;
-  border-radius: 6px; transition: all .22s; font-weight: 600;
+  display:flex; align-items:center; gap:4px;
+  font-size:10.5px; padding:2px 7px; border-radius:5px;
+  transition:all .22s; font-weight:600;
 }
-.fp-pw-ck.y { color: #15803D; background: #DCFCE7; }
-.fp-pw-ck.n { color: #8A847C; background: #F3F0EB; }
-.fp-pw-ck.y svg { animation: _pop .3s ease; }
+.fp-pw-ck.y { color:#15803D; background:#DCFCE7; }
+.fp-pw-ck.n { color:#8A847C; background:#F3F0EB; }
+.fp-pw-ck.y svg { animation:_pop .3s ease; }
 
-/* Options row */
-.fp-opts {
-  display: flex; align-items: center;
-  justify-content: space-between;
-  margin-top: 2px;
-}
-.fp-remember {
-  display: flex; align-items: center; gap: 8px;
-  font-size: 13px; color: #3D3830;
-  cursor: pointer; user-select: none; font-weight: 500;
+/* Options */
+.fp-opts { display:flex; align-items:center; justify-content:space-between; margin-top:2px; }
+.fp-rem {
+  display:flex; align-items:center; gap:7px;
+  font-size:13px; color:#3D3830; cursor:pointer; user-select:none; font-weight:500;
 }
 .fp-cb {
-  width: 18px; height: 18px;
-  border-radius: 5px;
-  border: 1.5px solid #C8C2BA;
-  display: flex; align-items: center; justify-content: center;
-  background: #FFFFFF; transition: all .2s; flex-shrink: 0;
+  width:17px; height:17px; border-radius:5px; border:1.5px solid #C8C2BA;
+  display:flex; align-items:center; justify-content:center;
+  background:#FFFFFF; transition:all .2s; flex-shrink:0;
 }
-.fp-cb.on { background: #FF5C00; border-color: #FF5C00; }
+.fp-cb.on { background:#FF5C00; border-color:#FF5C00; }
 .fp-forgot {
-  font-size: 13px; color: #C04800;
-  font-weight: 700; cursor: pointer;
-  background: none; border: none;
-  font-family: var(--fb); transition: color .2s;
+  font-size:13px; color:#C04800; font-weight:700; cursor:pointer;
+  background:none; border:none; font-family:var(--fb); transition:color .2s;
 }
-.fp-forgot:hover { color: #FF5C00; text-decoration: underline; }
+.fp-forgot:hover { color:#FF5C00; text-decoration:underline; }
 
-/* CTA button */
+/* CTA */
 .fp-cta {
-  width: 100%; padding: 14px 24px;
-  border: none; border-radius: 13px;
-  background: linear-gradient(135deg, #FF5C00 0%, #FF8040 100%);
-  background-size: 200% 200%;
-  animation: _gmv 5s ease infinite;
-  color: #FFFFFF;
-  font-size: 15px; font-weight: 700; cursor: pointer;
-  display: flex; align-items: center; justify-content: center; gap: 10px;
-  transition: all .28s cubic-bezier(.22,1,.36,1);
-  position: relative; overflow: hidden;
-  margin-top: 8px;
-  font-family: var(--fb);
-  letter-spacing: .15px;
+  width:100%; padding:14px 24px; border:none; border-radius:12px;
+  background:linear-gradient(135deg,#FF5C00 0%,#FF8040 100%);
+  background-size:200% 200%; animation:_gmv 5s ease infinite;
+  color:#FFFFFF; font-size:15px; font-weight:700; cursor:pointer;
+  display:flex; align-items:center; justify-content:center; gap:10px;
+  transition:all .28s cubic-bezier(.22,1,.36,1);
+  position:relative; overflow:hidden; margin-top:6px;
+  font-family:var(--fb); letter-spacing:.15px;
 }
 .fp-cta::after {
-  content: ''; position: absolute; inset: 0;
-  background: linear-gradient(90deg, transparent 20%, rgba(255,255,255,.18) 50%, transparent 80%);
-  background-size: 250% 100%; opacity: 0; transition: opacity .4s;
+  content:''; position:absolute; inset:0;
+  background:linear-gradient(90deg,transparent 20%,rgba(255,255,255,.18) 50%,transparent 80%);
+  background-size:250% 100%; opacity:0; transition:opacity .4s;
 }
-.fp-cta:hover::after { opacity: 1; animation: _shim 1.8s ease infinite; }
-.fp-cta:hover {
-  transform: translateY(-2px);
-  box-shadow: 0 12px 32px rgba(255,92,0,.22), 0 5px 12px rgba(255,92,0,.14);
-}
-.fp-cta:active { transform: translateY(0); }
-.fp-cta:disabled {
-  opacity: .55; cursor: not-allowed;
-  transform: none !important; box-shadow: none !important;
-}
-.fp-cta .sp { animation: _spin .7s linear infinite; }
+.fp-cta:hover::after { opacity:1; animation:_shim 1.8s ease infinite; }
+.fp-cta:hover { transform:translateY(-2px); box-shadow:0 12px 28px rgba(255,92,0,.2),0 4px 10px rgba(255,92,0,.12); }
+.fp-cta:active { transform:translateY(0); }
+.fp-cta:disabled { opacity:.55; cursor:not-allowed; transform:none!important; box-shadow:none!important; }
+.fp-cta .sp { animation:_spin .7s linear infinite; }
 
-/* Switch & footer */
-.fp-switch {
-  text-align: center; font-size: 13.5px;
-  color: #5A5650; margin-top: 20px;
-}
-.fp-switch a {
-  color: #C04800; font-weight: 700; cursor: pointer;
-  text-decoration: none; border-bottom: 2px solid transparent;
-  padding-bottom: 1px; transition: all .2s;
-}
-.fp-switch a:hover { color: #FF5C00; border-bottom-color: #FF5C00; }
-
-.fp-terms {
-  text-align: center; font-size: 11px;
-  color: #8A847C; margin-top: 14px; line-height: 1.65;
-}
-.fp-terms a { color: #C04800; text-decoration: none; font-weight: 600; }
-.fp-terms a:hover { text-decoration: underline; }
+/* Footer */
+.fp-sw { text-align:center; font-size:13.5px; color:#5A5650; margin-top:18px; }
+.fp-sw a { color:#C04800; font-weight:700; cursor:pointer; text-decoration:none; border-bottom:2px solid transparent; padding-bottom:1px; transition:all .2s; }
+.fp-sw a:hover { color:#FF5C00; border-bottom-color:#FF5C00; }
+.fp-tm { text-align:center; font-size:11px; color:#8A847C; margin-top:12px; line-height:1.6; }
+.fp-tm a { color:#C04800; text-decoration:none; font-weight:600; }
+.fp-tm a:hover { text-decoration:underline; }
 
 .fp-badges {
-  display: flex; align-items: center; justify-content: center;
-  gap: 16px; margin-top: 16px;
-  padding-top: 14px;
-  border-top: 1px solid #EAE6E0;
-  flex-wrap: wrap;
+  display:flex; align-items:center; justify-content:center;
+  gap:14px; margin-top:14px; padding-top:12px;
+  border-top:1px solid #EAE6E0; flex-wrap:wrap;
 }
-.fp-badge {
-  display: flex; align-items: center; gap: 5px;
-  font-size: 10.5px; color: #6B6560;
-  font-weight: 600; white-space: nowrap;
-}
+.fp-badge { display:flex; align-items:center; gap:4px; font-size:10.5px; color:#6B6560; font-weight:600; white-space:nowrap; }
 
-/* ══ RESPONSIVE ══ */
-@media (min-width: 1400px) {
-  .fp-l-in { padding: 50px 54px; }
-  .fp-r-scroll { padding: 46px 60px; }
-  .fp-r-box { max-width: 460px; }
+/* ═══ RESPONSIVE ═══ */
+@media(min-width:1400px){
+  .fp-l-in{padding:48px 52px} .fp-r-scroll{padding:44px 60px} .fp-r-box{max-width:450px}
 }
-
-@media (max-width: 1100px) {
-  .fp-l { flex: 0 0 40%; }
-  .fp-l-in { padding: 32px 32px; }
-  .fp-r-scroll { padding: 28px 36px; }
+@media(max-width:1100px){
+  .fp-l{flex:0 0 40%} .fp-l-in{padding:28px 28px} .fp-r-scroll{padding:24px 32px}
 }
-
-@media (max-width: 860px) {
-  .fp-l { flex: 0 0 38%; }
-  .fp-l-in { padding: 28px 26px; }
-  .fp-feats { display: none; }
-  .fp-trust-grid { grid-template-columns: 1fr 1fr; gap: 6px; padding-top: 16px; }
-  .fp-trust-item { padding: 8px 10px; }
-  .fp-trust-label { font-size: 11px; }
-  .fp-r-scroll { padding: 24px 28px; }
+@media(max-width:860px){
+  .fp-l{flex:0 0 38%} .fp-l-in{padding:24px 22px}
+  .fp-feats{display:none}
+  .fp-trust-grid{gap:5px;padding-top:14px}
+  .fp-trust-item{padding:7px 9px} .fp-trust-label{font-size:11px}
+  .fp-r-scroll{padding:22px 24px}
 }
-
-@media (max-width: 768px) {
-  .fp {
-    position: relative;
-    flex-direction: column;
-    height: auto;
-    min-height: 100vh;
-    min-height: 100dvh;
-    overflow-y: auto;
-    overflow-x: hidden;
-  }
-  .fp-l {
-    flex: 0 0 auto;
-    min-height: 280px;
-  }
-  .fp-l-in { padding: 28px 24px; }
-  .fp-feats { display: none; }
-  .fp-trust-grid { grid-template-columns: repeat(4, 1fr); gap: 6px; }
-  .fp-trust-item { flex-direction: column; text-align: center; gap: 5px; padding: 8px 6px; }
-  .fp-trust-ic { width: 28px; height: 28px; border-radius: 8px; }
-  .fp-trust-sub { display: none; }
-  .fp-hero h2 { font-size: 26px; }
-  .fp-r { flex: 0 0 auto; border-left: none; border-top: 1px solid #E5E0DA; }
-  .fp-r-scroll { padding: 28px 24px 36px; justify-content: flex-start; overflow-y: visible; }
-  .fp-r-box { max-width: 100%; }
-  .fp-row { flex-direction: column; gap: 14px; }
+@media(max-width:768px){
+  .fp{position:relative;flex-direction:column;height:auto;min-height:100vh;min-height:100dvh;overflow-y:auto;overflow-x:hidden}
+  .fp-l{flex:0 0 auto;min-height:260px}
+  .fp-l-in{padding:24px 20px}
+  .fp-feats{display:none}
+  .fp-trust-grid{grid-template-columns:repeat(4,1fr);gap:5px}
+  .fp-trust-item{flex-direction:column;text-align:center;gap:4px;padding:7px 4px}
+  .fp-trust-ic{width:26px;height:26px;border-radius:7px}
+  .fp-trust-sub{display:none}
+  .fp-hero h2{font-size:24px}
+  .fp-r{flex:0 0 auto;border-left:none;border-top:1px solid #E5E0DA}
+  .fp-r-scroll{padding:24px 20px 32px;justify-content:flex-start;overflow-y:visible}
+  .fp-r-box{max-width:100%}
+  .fp-row{flex-direction:column;gap:14px}
 }
-
-@media (max-width: 480px) {
-  .fp-l { min-height: 230px; }
-  .fp-l-in { padding: 22px 18px; }
-  .fp-logo-name { font-size: 20px; }
-  .fp-hero h2 { font-size: 22px; }
-  .fp-hero-desc { font-size: 13px; }
-  .fp-trust-grid { grid-template-columns: repeat(2, 1fr); padding-top: 14px; }
-  .fp-trust-item { flex-direction: row; text-align: left; }
-  .fp-r-scroll { padding: 22px 18px 30px; }
-  .fp-hd h3 { font-size: 20px; }
-  .fp-cta { padding: 13px; font-size: 14px; }
-  .fp-badges { gap: 10px; }
+@media(max-width:480px){
+  .fp-l{min-height:220px} .fp-l-in{padding:20px 16px}
+  .fp-logo-name{font-size:20px} .fp-hero h2{font-size:22px} .fp-hero-desc{font-size:13px}
+  .fp-trust-grid{grid-template-columns:1fr 1fr}
+  .fp-trust-item{flex-direction:row;text-align:left}
+  .fp-r-scroll{padding:20px 16px 28px}
+  .fp-hd h3{font-size:20px}
+  .fp-cta{padding:13px;font-size:14px}
+  .fp-badges{gap:8px}
 }
-
-@media (max-width: 360px) {
-  .fp-l-in { padding: 18px 14px; }
-  .fp-r-scroll { padding: 18px 14px 26px; }
-  .fp-hd h3 { font-size: 18px; }
-  .fp-input-wrap input { font-size: 13px; }
-  .fp-trust-grid { gap: 5px; }
+@media(max-width:360px){
+  .fp-l-in{padding:16px 14px} .fp-r-scroll{padding:16px 12px 24px}
+  .fp-hd h3{font-size:18px} .fp-iw input{font-size:13px}
 }
-
-@media (max-height: 500px) and (orientation: landscape) {
-  .fp { position: relative; flex-direction: row; height: auto; min-height: 100vh; overflow-y: auto; }
-  .fp-l { flex: 0 0 34%; }
-  .fp-l-in { padding: 16px 18px; }
-  .fp-hero h2 { font-size: 18px; margin-bottom: 8px; }
-  .fp-hero-desc { display: none; }
-  .fp-feats { display: none; }
-  .fp-trust-grid { display: none; }
-  .fp-hero-tag { display: none; }
-  .fp-r-scroll { padding: 14px 22px; justify-content: flex-start; }
+@media(max-height:500px) and (orientation:landscape){
+  .fp{position:relative;flex-direction:row;height:auto;min-height:100vh;overflow-y:auto}
+  .fp-l{flex:0 0 34%} .fp-l-in{padding:14px 16px}
+  .fp-hero h2{font-size:18px;margin-bottom:6px}
+  .fp-hero-desc{display:none} .fp-feats{display:none} .fp-trust-grid{display:none} .fp-hero-tag{display:none}
+  .fp-r-scroll{padding:12px 20px;justify-content:flex-start}
 }
-
-@media (prefers-reduced-motion: reduce) {
-  *, *::before, *::after {
-    animation-duration: .01ms !important;
-    animation-iteration-count: 1 !important;
-    transition-duration: .01ms !important;
-  }
+@media(prefers-reduced-motion:reduce){
+  *,*::before,*::after{animation-duration:.01ms!important;animation-iteration-count:1!important;transition-duration:.01ms!important}
 }
 `;
 
-let _injected = false;
+let _inj = false;
 function injectCSS() {
-  if (_injected) return;
-  _injected = true;
+  if (_inj) return;
+  _inj = true;
   const el = document.createElement("style");
   el.textContent = CSS;
   document.head.appendChild(el);
@@ -872,26 +620,36 @@ export default function AuthPage({ setUser }) {
   useEffect(() => {
     injectCSS();
     document.body.style.overflow = "hidden";
-    return () => { document.body.style.overflow = ""; };
+    return () => {
+      document.body.style.overflow = "";
+    };
   }, []);
 
-  const navigate  = useNavigate();
-  const [mode,    setMode]    = useState("login");
-  const [showPw,  setShowPw]  = useState(false);
-  const [remember,setRemember]= useState(false);
+  const navigate = useNavigate();
+  const [mode, setMode] = useState("login");
+  const [showPw, setShowPw] = useState(false);
+  const [remember, setRemember] = useState(false);
   const [loading, setLoading] = useState(false);
   const [form, setForm] = useState({
-    name: "", email: "", password: "",
-    phone_number: "", country: "", state: "", city: "",
+    name: "",
+    email: "",
+    password: "",
+    phone_number: "",
+    country: "",
+    state: "",
+    city: "",
   });
 
   const handleChange = useCallback((e) => {
     setForm((f) => ({ ...f, [e.target.name]: e.target.value }));
   }, []);
 
-  const switchMode = (m) => { setMode(m); setShowPw(false); };
+  const switchMode = (m) => {
+    setMode(m);
+    setShowPw(false);
+  };
 
-  /* ── Login ── */
+  // ── Login ──
   const handleLogin = async () => {
     if (!form.email || !form.password)
       return toast.error("Please enter your email and password");
@@ -908,10 +666,12 @@ export default function AuthPage({ setUser }) {
     } catch (err) {
       console.error("Login error:", err);
       toast.error(err.response?.data?.message || "Login failed");
-    } finally { setLoading(false); }
+    } finally {
+      setLoading(false);
+    }
   };
 
-  /* ── Register ── */
+  // ── Register ──
   const handleRegister = async () => {
     if (!form.name || !form.email || !form.password)
       return toast.error("Please fill in the required fields");
@@ -938,7 +698,9 @@ export default function AuthPage({ setUser }) {
     } catch (err) {
       console.error("Register error:", err);
       toast.error(err.response?.data?.message || "Registration failed");
-    } finally { setLoading(false); }
+    } finally {
+      setLoading(false);
+    }
   };
 
   const onSubmit = (e) => {
@@ -948,81 +710,63 @@ export default function AuthPage({ setUser }) {
 
   const pw = getPW(form.password);
 
-  /* Real feature-based trust signals — no fake numbers */
   const trustItems = [
-    { icon: <I.Shield s={16} c="#FF5C00" />,     label: "Secure Payments",  sub: "SSL encrypted"   },
-    { icon: <I.Truck s={16} c="#FF5C00" />,      label: "Fast Delivery",    sub: "To your door"    },
-    { icon: <I.CheckCircle s={16} c="#FF5C00" />,label: "Verified Sellers", sub: "Quality assured" },
-    { icon: <I.Headphones s={16} c="#FF5C00" />, label: "24/7 Support",     sub: "Always here"     },
+    { icon: <I.Shield s={15} c="#FF5C00" />, label: "Secure Payments", sub: "SSL encrypted" },
+    { icon: <I.Truck s={15} c="#FF5C00" />, label: "Fast Delivery", sub: "To your door" },
+    { icon: <I.CheckCircle s={15} c="#FF5C00" />, label: "Verified Sellers", sub: "Quality assured" },
+    { icon: <I.Headphones s={15} c="#FF5C00" />, label: "24/7 Support", sub: "Always here" },
   ];
 
   return (
     <div className="fp">
-
-      {/* ════════════════ LEFT PANEL ════════════════ */}
+      {/* ══════ LEFT PANEL ══════ */}
       <div className="fp-l">
         <div className="fp-blob fp-blob1" />
         <div className="fp-blob fp-blob2" />
         <ParticleCanvas />
-
         <div className="fp-l-in">
-          {/* Logo */}
           <div className="fp-logo">
             <div className="fp-logo-icon">
               <div className="fp-logo-ring" />
               <I.Bag s={22} c="#fff" />
             </div>
-            <span className="fp-logo-name">Mini<b>Mart</b></span>
+            <span className="fp-logo-name">
+              Mini<b>Mart</b>
+            </span>
           </div>
 
-          {/* Hero */}
           <div className="fp-hero">
-            <div className="fp-hero-tag">
-              <span>🛍️</span> Your everyday marketplace
-            </div>
+            <div className="fp-hero-tag">🛍️ Your everyday marketplace</div>
             <h2>
-              Shop Smarter,<br />
+              Shop Smarter,
+              <br />
               <em>Live Better.</em>
             </h2>
             <p className="fp-hero-desc">
-              Discover quality products from verified sellers.
-              Fast delivery, secure checkout, and real support — every order.
+              Discover quality products from verified sellers. Fast delivery,
+              secure checkout, and real support — every order.
             </p>
 
-            {/* Feature list */}
             <div className="fp-feats">
               <div className="fp-feat">
-                <div className="fp-feat-icon"><I.Zap s={16} c="#FF5C00" /></div>
-                <div className="fp-feat-text">
-                  <strong>Fast Delivery</strong>
-                  Orders dispatched quickly to your door
-                </div>
+                <div className="fp-feat-icon"><I.Zap s={15} c="#FF5C00" /></div>
+                <div className="fp-feat-text"><strong>Fast Delivery</strong>Orders dispatched quickly</div>
               </div>
               <div className="fp-feat">
-                <div className="fp-feat-icon"><I.Shield s={16} c="#FF5C00" /></div>
-                <div className="fp-feat-text">
-                  <strong>Secure Payments</strong>
-                  SSL-encrypted checkout, always safe
-                </div>
+                <div className="fp-feat-icon"><I.Shield s={15} c="#FF5C00" /></div>
+                <div className="fp-feat-text"><strong>Secure Payments</strong>SSL-encrypted checkout</div>
               </div>
               <div className="fp-feat">
-                <div className="fp-feat-icon"><I.CheckCircle s={16} c="#FF5C00" /></div>
-                <div className="fp-feat-text">
-                  <strong>Verified Sellers</strong>
-                  Every seller reviewed before listing
-                </div>
+                <div className="fp-feat-icon"><I.CheckCircle s={15} c="#FF5C00" /></div>
+                <div className="fp-feat-text"><strong>Verified Sellers</strong>Every seller reviewed</div>
               </div>
               <div className="fp-feat">
-                <div className="fp-feat-icon"><I.Headphones s={16} c="#FF5C00" /></div>
-                <div className="fp-feat-text">
-                  <strong>Real Support</strong>
-                  Help available whenever you need it
-                </div>
+                <div className="fp-feat-icon"><I.Headphones s={15} c="#FF5C00" /></div>
+                <div className="fp-feat-text"><strong>Real Support</strong>Help when you need it</div>
               </div>
             </div>
           </div>
 
-          {/* Trust grid — honest, feature-based */}
           <div className="fp-trust-grid">
             {trustItems.map((t) => (
               <div className="fp-trust-item" key={t.label}>
@@ -1037,154 +781,60 @@ export default function AuthPage({ setUser }) {
         </div>
       </div>
 
-      {/* ════════════════ RIGHT PANEL ════════════════ */}
+      {/* ══════ RIGHT PANEL ══════ */}
       <div className="fp-r">
         <div className="fp-r-scroll">
           <div className="fp-r-box">
-
-            {/* Mode tabs */}
+            {/* Tabs */}
             <div className="fp-tabs">
-              <button
-                className={`fp-tab${mode === "login" ? " on" : ""}`}
-                onClick={() => switchMode("login")}
-              >
-                Sign In
-              </button>
-              <button
-                className={`fp-tab${mode === "register" ? " on" : ""}`}
-                onClick={() => switchMode("register")}
-              >
-                Create Account
-              </button>
+              <button className={`fp-tab${mode === "login" ? " on" : ""}`} onClick={() => switchMode("login")}>Login</button>
+              <button className={`fp-tab${mode === "register" ? " on" : ""}`} onClick={() => switchMode("register")}>Register</button>
             </div>
 
             {/* Heading */}
             <div className="fp-hd">
-              <h3>
-                {mode === "login" ? "Welcome back" : "Create your account"}
-              </h3>
-              <p>
-                {mode === "login"
-                  ? "Sign in to continue your shopping experience"
-                  : "Join MiniMart and start shopping today"}
-              </p>
+              <h3>{mode === "login" ? "Welcome back" : "Create your account"}</h3>
+              <p>{mode === "login" ? "Enter your credentials to continue" : "Fill in your details to get started"}</p>
             </div>
 
-            {/* Google SSO */}
+            {/* Google */}
             <button className="fp-google" type="button">
               <I.Google /> Continue with Google
             </button>
-
             <div className="fp-div">or use your email</div>
 
-            {/* Form */}
+            {/* ══ FORM ══ */}
             <form onSubmit={onSubmit}>
-              <div className="fp-form" key={mode}>
+              <div className="fp-form">
 
-                {/* ── Register-only fields ── */}
+                {/* Register-only: Name */}
                 {mode === "register" && (
-                  <>
-                    <div className="fp-field">
-                      <label className="fp-label">Full Name</label>
-                      <div className="fp-input-wrap">
-                        <span className="fp-input-icon"><I.User /></span>
-                        <input
-                          name="name"
-                          value={form.name}
-                          onChange={handleChange}
-                          placeholder="John Doe"
-                          autoComplete="name"
-                        />
-                      </div>
+                  <div className="fp-field">
+                    <label className="fp-label">Full Name</label>
+                    <div className="fp-iw">
+                      <span className="fp-ii"><I.User /></span>
+                      <input name="name" value={form.name} onChange={handleChange} placeholder="Full Name" autoComplete="name" />
                     </div>
-
-                    <div className="fp-field">
-                      <label className="fp-label">
-                        Phone Number
-                        <span className="fp-label-opt">Optional</span>
-                      </label>
-                      <div className="fp-input-wrap">
-                        <span className="fp-input-icon"><I.Phone /></span>
-                        <input
-                          name="phone_number"
-                          value={form.phone_number}
-                          onChange={handleChange}
-                          placeholder="Phone Number"
-                          autoComplete="tel"
-                        />
-                      </div>
-                    </div>
-
-                    <div className="fp-row">
-                      <div className="fp-field">
-                        <label className="fp-label">Country</label>
-                        <div className="fp-input-wrap">
-                          <span className="fp-input-icon"><I.Globe /></span>
-                          <input
-                            name="country"
-                            value={form.country}
-                            onChange={handleChange}
-                            placeholder="Country"
-                          />
-                        </div>
-                      </div>
-                      <div className="fp-field">
-                        <label className="fp-label">State</label>
-                        <div className="fp-input-wrap">
-                          <span className="fp-input-icon"><I.Pin /></span>
-                          <input
-                            name="state"
-                            value={form.state}
-                            onChange={handleChange}
-                            placeholder="State"
-                          />
-                        </div>
-                      </div>
-                    </div>
-
-                    <div className="fp-field">
-                      <label className="fp-label">
-                        City
-                        <span className="fp-label-opt">Optional</span>
-                      </label>
-                      <div className="fp-input-wrap">
-                        <span className="fp-input-icon"><I.Pin /></span>
-                        <input
-                          name="city"
-                          value={form.city}
-                          onChange={handleChange}
-                          placeholder="City"
-                        />
-                      </div>
-                    </div>
-                  </>
+                  </div>
                 )}
 
-                {/* ── Shared fields ── */}
+                {/* ── EMAIL — always visible ── */}
                 <div className="fp-field">
                   <label className="fp-label">Email</label>
-                  <div className="fp-input-wrap">
-                    <span className="fp-input-icon"><I.Mail /></span>
-                    <input
-                      name="email"
-                      type="email"
-                      value={form.email}
-                      onChange={handleChange}
-                      placeholder="Email"
-                      autoComplete="email"
-                    />
+                  <div className="fp-iw">
+                    <span className="fp-ii"><I.Mail /></span>
+                    <input name="email" type="email" value={form.email} onChange={handleChange} placeholder="Email" autoComplete="email" />
                   </div>
                 </div>
 
+                {/* ── PASSWORD — always visible ── */}
                 <div className="fp-field">
                   <label className="fp-label">
                     Password
-                    {mode === "login" && (
-                      <button type="button" className="fp-forgot">Forgot?</button>
-                    )}
+                    {mode === "login" && <button type="button" className="fp-forgot">Forgot?</button>}
                   </label>
-                  <div className="fp-input-wrap">
-                    <span className="fp-input-icon"><I.Lock /></span>
+                  <div className="fp-iw">
+                    <span className="fp-ii"><I.Lock /></span>
                     <input
                       name="password"
                       type={showPw ? "text" : "password"}
@@ -1193,37 +843,23 @@ export default function AuthPage({ setUser }) {
                       placeholder="Password"
                       autoComplete={mode === "login" ? "current-password" : "new-password"}
                     />
-                    <button
-                      type="button"
-                      className="fp-eye"
-                      onClick={() => setShowPw(!showPw)}
-                      tabIndex={-1}
-                      aria-label={showPw ? "Hide password" : "Show password"}
-                    >
+                    <button type="button" className="fp-eye" onClick={() => setShowPw(!showPw)} tabIndex={-1} aria-label={showPw ? "Hide" : "Show"}>
                       {showPw ? <I.EyeOff /> : <I.Eye />}
                     </button>
                   </div>
 
-                  {/* Password strength — register only */}
                   {mode === "register" && form.password && (
                     <div className="fp-pw">
                       <div className="fp-pw-bars">
                         {[1, 2, 3, 4].map((v) => (
-                          <div
-                            key={v}
-                            className={`fp-pw-bar${pw.score >= v ? " on" : ""}`}
-                            style={pw.score >= v ? { background: pw.color } : {}}
-                          />
+                          <div key={v} className={`fp-pw-bar${pw.score >= v ? " on" : ""}`} style={pw.score >= v ? { background: pw.color } : {}} />
                         ))}
                       </div>
                       <div className="fp-pw-lbl" style={{ color: pw.color }}>{pw.label}</div>
-                      <div className="fp-pw-checks">
+                      <div className="fp-pw-cks">
                         {pw.checks.map((c, i) => (
                           <span key={i} className={`fp-pw-ck ${c.met ? "y" : "n"}`}>
-                            {c.met
-                              ? <I.Check s={10} c="#15803D" />
-                              : <span style={{ width:10,height:10,display:"inline-block",borderRadius:"50%",border:"1.5px solid #B0AAA3" }} />
-                            }
+                            {c.met ? <I.Check s={10} c="#15803D" /> : <span style={{ width: 10, height: 10, display: "inline-block", borderRadius: "50%", border: "1.5px solid #B0AAA3" }} />}
                             {c.label}
                           </span>
                         ))}
@@ -1232,13 +868,48 @@ export default function AuthPage({ setUser }) {
                   )}
                 </div>
 
-                {/* Remember me — login only */}
+                {/* Register-only: extra fields AFTER email & password */}
+                {mode === "register" && (
+                  <>
+                    <div className="fp-field">
+                      <label className="fp-label">Phone Number <span className="fp-label-opt">Optional</span></label>
+                      <div className="fp-iw">
+                        <span className="fp-ii"><I.Phone /></span>
+                        <input name="phone_number" value={form.phone_number} onChange={handleChange} placeholder="Phone Number" autoComplete="tel" />
+                      </div>
+                    </div>
+
+                    <div className="fp-row">
+                      <div className="fp-field">
+                        <label className="fp-label">Country</label>
+                        <div className="fp-iw">
+                          <span className="fp-ii"><I.Globe /></span>
+                          <input name="country" value={form.country} onChange={handleChange} placeholder="Country" />
+                        </div>
+                      </div>
+                      <div className="fp-field">
+                        <label className="fp-label">State</label>
+                        <div className="fp-iw">
+                          <span className="fp-ii"><I.Pin /></span>
+                          <input name="state" value={form.state} onChange={handleChange} placeholder="State" />
+                        </div>
+                      </div>
+                    </div>
+
+                    <div className="fp-field">
+                      <label className="fp-label">City <span className="fp-label-opt">Optional</span></label>
+                      <div className="fp-iw">
+                        <span className="fp-ii"><I.Pin /></span>
+                        <input name="city" value={form.city} onChange={handleChange} placeholder="City" />
+                      </div>
+                    </div>
+                  </>
+                )}
+
+                {/* Login-only: Remember me */}
                 {mode === "login" && (
                   <div className="fp-opts">
-                    <label
-                      className="fp-remember"
-                      onClick={(e) => { e.preventDefault(); setRemember(!remember); }}
-                    >
+                    <label className="fp-rem" onClick={(e) => { e.preventDefault(); setRemember(!remember); }}>
                       <span className={`fp-cb${remember ? " on" : ""}`}>
                         {remember && <I.Check s={11} c="#fff" />}
                       </span>
@@ -1251,9 +922,7 @@ export default function AuthPage({ setUser }) {
                 <button type="submit" className="fp-cta" disabled={loading}>
                   {loading ? (
                     <>
-                      <svg className="sp" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#fff" strokeWidth="2.5" strokeLinecap="round">
-                        <path d="M21 12a9 9 0 11-6.219-8.56" />
-                      </svg>
+                      <svg className="sp" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#fff" strokeWidth="2.5" strokeLinecap="round"><path d="M21 12a9 9 0 11-6.219-8.56" /></svg>
                       Please wait...
                     </>
                   ) : (
@@ -1266,29 +935,23 @@ export default function AuthPage({ setUser }) {
               </div>
             </form>
 
-            {/* Switch mode */}
-            <p className="fp-switch">
-              {mode === "login"
-                ? "Don't have an account? "
-                : "Already have an account? "}
+            {/* Switch */}
+            <p className="fp-sw">
+              {mode === "login" ? "Don't have an account? " : "Already have an account? "}
               <a onClick={() => switchMode(mode === "login" ? "register" : "login")}>
                 {mode === "login" ? "Register" : "Login"}
               </a>
             </p>
 
-            <p className="fp-terms">
-              By continuing you agree to our{" "}
-              <a href="#">Terms of Service</a> and{" "}
-              <a href="#">Privacy Policy</a>
+            <p className="fp-tm">
+              By continuing you agree to our <a href="#">Terms of Service</a> and <a href="#">Privacy Policy</a>
             </p>
 
-            {/* Security badges */}
             <div className="fp-badges">
-              <span className="fp-badge"><I.Shield s={13} c="#6B6560" /> SSL Secured</span>
-              <span className="fp-badge"><I.Lock s={13} c="#6B6560" /> 256-bit Encrypted</span>
-              <span className="fp-badge"><I.Check s={13} c="#6B6560" /> GDPR Compliant</span>
+              <span className="fp-badge"><I.Shield s={12} c="#6B6560" /> SSL Secured</span>
+              <span className="fp-badge"><I.Lock s={12} c="#6B6560" /> Encrypted</span>
+              <span className="fp-badge"><I.Check s={12} c="#6B6560" /> GDPR</span>
             </div>
-
           </div>
         </div>
       </div>
