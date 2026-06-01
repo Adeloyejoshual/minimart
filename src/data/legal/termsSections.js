@@ -1,31 +1,5 @@
 // src/data/legal/termsSections.js
 
-/**
- * Declarative registry of all Terms and Conditions sections.
- *
- * Benefits of data-driven section rendering:
- *   - Reorder sections by changing array order only
- *   - Enable/disable sections via feature flags
- *   - Track section-level analytics
- *   - Support future CMS integration
- *   - Simplify multilingual/country-specific overrides
- *   - Enable A/B testing of section presentation
- *
- * Imports are sourced exclusively from the barrel file.
- * This ensures a single canonical import path across the
- * entire codebase. If a section file moves, only index.js
- * needs updating — not this file.
- *
- * Each section entry shape:
- * {
- *   id        : string    — unique identifier, used for aria + anchors
- *   title     : string    — section heading (empty string for non-heading sections)
- *   component : React.FC  — the section content component
- *   required  : boolean   — whether section is legally mandatory
- *   enabled   : boolean   — feature flag for enabling/disabling
- * }
- */
-
 import {
   LegalCompliance,
   PaymentsSection,
@@ -144,33 +118,14 @@ export const TERMS_SECTIONS = [
   },
 ];
 
-/**
- * Returns only the enabled sections.
- * TermsAndConditions.jsx always renders from this list.
- *
- * @returns {object[]}
- */
 export function getEnabledSections() {
   return TERMS_SECTIONS.filter((section) => section.enabled);
 }
 
-/**
- * Returns only the required sections.
- * Used in compliance verification and test assertions.
- *
- * @returns {object[]}
- */
 export function getRequiredSections() {
   return TERMS_SECTIONS.filter((section) => section.required);
 }
 
-/**
- * Returns a single section by its id.
- * Useful for targeted updates and admin tooling.
- *
- * @param {string} id
- * @returns {object | undefined}
- */
 export function getSectionById(id) {
   return TERMS_SECTIONS.find((section) => section.id === id);
 }
