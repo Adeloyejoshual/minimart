@@ -3,8 +3,8 @@ import React, { useState, useEffect, useRef, useCallback, useMemo } from "react"
 import { useNavigate } from "react-router-dom";
 import axios from "axios";
 import toast from "react-hot-toast";
-import { locationsByState } from "../../config/locationsByState";
-import { countries, getFlag } from "../../config/countries";
+import { locationsByState } from "../config/locationsByState";
+import { countries, getFlag } from "../config/countries";
 
 const API = "https://minimart-ivrm.onrender.com/api/users";
 
