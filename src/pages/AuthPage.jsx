@@ -1,6 +1,6 @@
 // src/pages/AuthPage.jsx
 import React, { useState, useEffect, useRef, useCallback, useMemo } from "react";
-import { useNavigate } from "react-router-dom";
+import { useNavigate, useLocation } from "react-router-dom";
 import axios from "axios";
 import toast from "react-hot-toast";
 import { locationsByState } from "../config/locationsByState";
@@ -415,6 +415,11 @@ export default function AuthPage({ setUser }) {
   useEffect(() => { injectCSS(); }, []);
 
   const navigate = useNavigate();
+  const location = useLocation();                              // ✅ NEW
+
+  // ✅ NEW — where the user was before being sent to /auth
+  const from = location.state?.from?.pathname || "/";
+
   const [mode, setMode] = useState("login");
   const [showPw, setShowPw] = useState(false);
   const [remember, setRemember] = useState(false);
@@ -446,46 +451,74 @@ export default function AuthPage({ setUser }) {
     return [];
   }, [isNigeria, form.state]);
 
+  /* ══════════════════════════════════════════════
+     LOGIN — sends (user, token, navigate, from)
+  ══════════════════════════════════════════════ */
   const handleLogin = async () => {
-    if (!form.email || !form.password) return toast.error("Please enter your email and password");
+    if (!form.email || !form.password)
+      return toast.error("Please enter your email and password");
+
     setLoading(true);
     try {
-      const res = await axios.post(`${API}/login`, { email: form.email, password: form.password });
+      const res = await axios.post(`${API}/login`, {
+        email: form.email,
+        password: form.password,
+      });
       const { user, token } = res.data;
-      setUser(user, token);
-      toast.success("Login successful!");
-      navigate("/");
+
+      // ✅ FIX — pass navigate + from so App routes back correctly
+      setUser(user, token, navigate, from);
+
     } catch (err) {
       console.error("Login error:", err);
       toast.error(err.response?.data?.message || "Login failed");
-    } finally { setLoading(false); }
+    } finally {
+      setLoading(false);
+    }
   };
 
+  /* ══════════════════════════════════════════════
+     REGISTER — new user always goes to "/"
+  ══════════════════════════════════════════════ */
   const handleRegister = async () => {
     if (!form.name || !form.email || !form.password)
       return toast.error("Please fill in the required fields");
+
     setLoading(true);
     try {
-      const res = await axios.post(`${API}/register`, {
-        name: form.name, email: form.email, password: form.password,
-        phone_number: form.phone_number, country: form.country,
-        state: form.state, city: form.city,
+      await axios.post(`${API}/register`, {
+        name: form.name,
+        email: form.email,
+        password: form.password,
+        phone_number: form.phone_number,
+        country: form.country,
+        state: form.state,
+        city: form.city,
       });
-      const { user } = res.data;
+
       const loginRes = await axios.post(`${API}/login`, {
-        email: form.email, password: form.password,
+        email: form.email,
+        password: form.password,
       });
-      const { token } = loginRes.data;
-      setUser(user, token);
-      toast.success("Registration successful!");
-      navigate("/");
+
+      const { user, token } = loginRes.data;
+
+      // ✅ FIX — new users land on "/" not the page they tried to visit
+      setUser(user, token, navigate, "/");
+
     } catch (err) {
       console.error("Register error:", err);
       toast.error(err.response?.data?.message || "Registration failed");
-    } finally { setLoading(false); }
+    } finally {
+      setLoading(false);
+    }
   };
 
-  const onSubmit = (e) => { e.preventDefault(); mode === "login" ? handleLogin() : handleRegister(); };
+  const onSubmit = (e) => {
+    e.preventDefault();
+    mode === "login" ? handleLogin() : handleRegister();
+  };
+
   const pw = getPW(form.password);
 
   const trustItems = [
