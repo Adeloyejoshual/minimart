@@ -241,6 +241,8 @@ import walletRoutes        from "./routes/wallets.js";
 import p2pRouter           from "./routes/p2p.js";
 import verificationRouter  from "./routes/verification.js";   // ← NEW
 import marketProductsRouter from "./routes/marketproducts.js";
+import authRouter             from "./routes/sellerAuth.routes.js";
+import sellerOnboardingRouter from "./routes/sellerOnboarding.routes.js";
 
 
 /* ═══════════════════════════════════════════
@@ -252,6 +254,8 @@ app.use("/api/addproduct",    addproductRouter);
 app.use("/api/users",         userRouter);
 app.use("/api/conversations", conversationsRouter);
 app.use("/api/market-products", marketProductsRouter);
+app.use("/api/auth",              authRouter);
+app.use("/api/seller-onboarding", sellerOnboardingRouter);
 
 app.use("/api/messages/upload", rateLimiter(UPLOAD_MAX));
 app.use("/api/messages",        messagesRouter);
