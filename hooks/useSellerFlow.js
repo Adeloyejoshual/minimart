@@ -4,7 +4,6 @@ import axios from "axios";
 
 // ─────────────────────────────────────────────────────────────
 // STEPS — numbers required for ProgressBar > < comparison
-// REGISTER(0) is now the first visible step in the flow
 // ─────────────────────────────────────────────────────────────
 export const STEPS = {
   REGISTER:     0,
@@ -14,14 +13,14 @@ export const STEPS = {
   APPROVED:     4,
 };
 
-// Map vendor DB status → correct step
+// Map vendor DB status → correct step number
 const STATUS_TO_STEP = {
-  pending:      STEPS.REVIEW,
-  under_review: STEPS.REVIEW,
-  approved:     STEPS.APPROVED,
-  active:       STEPS.APPROVED,
-  rejected:     STEPS.STORE_SETUP,
-  suspended:    STEPS.APPROVED,
+  pending:      STEPS.REVIEW,       // submitted, awaiting
+  under_review: STEPS.REVIEW,       // docs being checked
+  approved:     STEPS.APPROVED,     // eligibility granted
+  active:       STEPS.APPROVED,     // fully operational
+  rejected:     STEPS.STORE_SETUP,  // back to start
+  suspended:    STEPS.APPROVED,     // show approved + warning
 };
 
 export const WITHDRAWAL_METHODS = [
@@ -71,6 +70,12 @@ const INITIAL_VERIFY_DATA = {
   selfie:        null,
 };
 
+// ─── Axios instance — base URL from env or relative ───────────
+// Works for both dev (vite proxy) and production (same origin)
+const api = axios.create({
+  baseURL: import.meta.env.VITE_API_URL ?? "",
+});
+
 // ─── Hook ─────────────────────────────────────────────────────
 export const useSellerFlow = () => {
   const [step,          setStep]          = useState(STEPS.REGISTER);
@@ -89,42 +94,60 @@ export const useSellerFlow = () => {
   // ── Token helper ───────────────────────────────────────────
   const token = () => localStorage.getItem("token");
 
-  // ── Mount: sync step from server ───────────────────────────
+  // ── Mount: check server for existing vendor ────────────────
+  // Restores correct step after page refresh
   useEffect(() => {
     const syncFromServer = async () => {
       try {
         const t = token();
 
-        // Already logged in — skip REGISTER step
-        if (t) {
-          const { data } = await axios.get("/api/seller/status", {
-            headers: { Authorization: `Bearer ${t}` },
-          });
+        if (!t) {
+          // No token → user not logged in → show REGISTER
+          setStep(STEPS.REGISTER);
+          return;
+        }
 
-          if (data?.vendor) {
-            setVendorData(data.vendor);
-            const restoredStep = STATUS_TO_STEP[data.vendor.status];
-            if (restoredStep !== undefined) setStep(restoredStep);
+        // ✅ FIXED URL: /api/seller-onboarding/status
+        const { data } = await api.get("/api/seller-onboarding/status", {
+          headers: { Authorization: `Bearer ${t}` },
+        });
+
+        if (data?.vendor) {
+          setVendorData(data.vendor);
+
+          // Map real DB status → correct step
+          const restoredStep = STATUS_TO_STEP[data.vendor.status];
+          if (restoredStep !== undefined) {
+            setStep(restoredStep);
           } else {
-            // Logged in but no vendor yet → go to store setup
             setStep(STEPS.STORE_SETUP);
           }
+        } else {
+          // Logged in but no vendor yet
+          setStep(STEPS.STORE_SETUP);
         }
-        // Not logged in → stay at REGISTER (default)
+
       } catch (err) {
-        if (err.response?.status === 404) {
-          // Logged in, no vendor → store setup
+        if (err.response?.status === 401) {
+          // Token invalid/expired → clear it → back to register
+          localStorage.removeItem("token");
+          setStep(STEPS.REGISTER);
+        } else if (err.response?.status === 404) {
+          // Logged in but no vendor yet → store setup
           setStep(STEPS.STORE_SETUP);
         } else {
+          // Network error or server down — stay at register safely
           console.warn("[useSellerFlow] sync error:", err.message);
+          setStep(STEPS.REGISTER);
         }
       } finally {
+        // Always stop the mount spinner
         setInitializing(false);
       }
     };
 
     syncFromServer();
-  }, []);
+  }, []); // ← runs once on mount only
 
   // ─── Register field handler ─────────────────────────────────
   const handleRegisterChange = useCallback((e) => {
@@ -141,6 +164,7 @@ export const useSellerFlow = () => {
       const file = files[0];
       setStoreData((prev) => ({ ...prev, [name]: file }));
 
+      // Live logo preview
       if (name === "store_logo") {
         const reader = new FileReader();
         reader.onloadend = () => setPreviewLogo(reader.result);
@@ -164,7 +188,7 @@ export const useSellerFlow = () => {
 
   // ─── Validation: Register ───────────────────────────────────
   const validateRegister = () => {
-    const errs = {};
+    const errs       = {};
     const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
     const phoneRegex = /^\+?[\d\s\-()]{7,15}$/;
 
@@ -254,20 +278,22 @@ export const useSellerFlow = () => {
     setServerMsg("");
 
     try {
-      const { data } = await axios.post("/api/auth/register", {
+      // ✅ CORRECT: /api/auth/register
+      const { data } = await api.post("/api/auth/register", {
         name:     registerData.name.trim(),
         email:    registerData.email.trim(),
         phone:    registerData.phone.trim(),
         password: registerData.password,
       });
 
-      // Store token from registration response
+      // Save JWT from registration
       if (data.token) {
         localStorage.setItem("token", data.token);
       }
 
       setServerMsg(data.message ?? "Account created successfully!");
       setStep(STEPS.STORE_SETUP);
+
     } catch (err) {
       setServerMsg(
         err.response?.data?.message ?? "Registration failed. Try again."
@@ -287,10 +313,12 @@ export const useSellerFlow = () => {
     try {
       const form = new FormData();
       Object.entries(storeData).forEach(([k, v]) => {
+        // Only append non-null, non-empty values
         if (v !== null && v !== "") form.append(k, v);
       });
 
-      const { data } = await axios.post("/api/seller/setup-store", form, {
+      // ✅ FIXED URL: /api/seller-onboarding/setup-store
+      const { data } = await api.post("/api/seller-onboarding/setup-store", form, {
         headers: {
           Authorization:  `Bearer ${token()}`,
           "Content-Type": "multipart/form-data",
@@ -300,6 +328,7 @@ export const useSellerFlow = () => {
       setServerMsg(data.message ?? "Store created!");
       if (data.vendor) setVendorData(data.vendor);
       setStep(STEPS.VERIFICATION);
+
     } catch (err) {
       setServerMsg(
         err.response?.data?.message ?? "Store setup failed. Try again."
@@ -322,7 +351,8 @@ export const useSellerFlow = () => {
         if (v !== null) form.append(k, v);
       });
 
-      const { data } = await axios.post("/api/seller/verify", form, {
+      // ✅ FIXED URL: /api/seller-onboarding/verify
+      const { data } = await api.post("/api/seller-onboarding/verify", form, {
         headers: {
           Authorization:  `Bearer ${token()}`,
           "Content-Type": "multipart/form-data",
@@ -332,6 +362,7 @@ export const useSellerFlow = () => {
       setServerMsg(data.message ?? "Documents submitted!");
       if (data.vendor) setVendorData(data.vendor);
       setStep(STEPS.REVIEW);
+
     } catch (err) {
       setServerMsg(
         err.response?.data?.message ?? "Verification failed. Try again."
@@ -343,11 +374,10 @@ export const useSellerFlow = () => {
 
   // ─── Return ─────────────────────────────────────────────────
   return {
-    step, setStep,
-    registerData, storeData, verifyData,
-    errors, loading, initializing,
-    serverMsg, previewLogo,
-    vendorData,
+    step,          setStep,
+    registerData,  storeData,       verifyData,
+    errors,        loading,         initializing,
+    serverMsg,     previewLogo,     vendorData,
     showPassword,  setShowPassword,
     showConfirm,   setShowConfirm,
     handleRegisterChange,
