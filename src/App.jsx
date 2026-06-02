@@ -41,7 +41,7 @@ import SettingsPage    from "./pages/SettingsPage";
 import AddProduct      from "./pages/AddProduct";
 import Conversations   from "./pages/Conversations";
 import Chat            from "./pages/Chat";
-import Coupons         from "./pages/Coupons";
+import Coupons         from "./pages/Profile/Coupons";
 import Dashboard       from "./pages/Dashboard";
 import Leaderboard     from "./pages/Leaderboard";
 import Verification    from "./pages/Verification";
