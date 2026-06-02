@@ -54,7 +54,7 @@ import PostAds         from "./pages/PostAds";
 import PaymentSuccess  from "./pages/PaymentSuccess";
 
 // ── Pages — Admin ─────────────────────────────────────────────
-import AdminLogin      from "./page/admin/AdminLogin";
+import AdminLogin      from "./pages/admin/AdminLogin";
 import AdminDashboard  from "./page/admin/AdminDashboard";
 
 // ─────────────────────────────────────────────────────────────
