@@ -3,7 +3,7 @@ import { useState, useCallback, useEffect } from "react";
 import axios from "axios";
 
 // ─────────────────────────────────────────────────────────────
-// STEPS — numbers for ProgressBar > < comparison
+// STEPS
 // ─────────────────────────────────────────────────────────────
 export const STEPS = {
   REGISTER:     0,
@@ -13,7 +13,6 @@ export const STEPS = {
   APPROVED:     4,
 };
 
-// Map vendor DB status → correct step
 const STATUS_TO_STEP = {
   pending:      STEPS.REVIEW,
   under_review: STEPS.REVIEW,
@@ -23,7 +22,6 @@ const STATUS_TO_STEP = {
   suspended:    STEPS.APPROVED,
 };
 
-// ── Store categories ──────────────────────────────────────────
 export const STORE_CATEGORIES = [
   "Electronics",
   "Fashion & Apparel",
@@ -37,7 +35,7 @@ export const STORE_CATEGORIES = [
   "Other",
 ];
 
-// ── Initial state ─────────────────────────────────────────────
+// ─── Initial state ────────────────────────────────────────────
 const INITIAL_REGISTER_DATA = {
   name:             "",
   email:            "",
@@ -53,10 +51,11 @@ const INITIAL_STORE_DATA = {
   store_category:    "",
   store_logo:        null,
   store_banner:      null,
-  withdrawal_method: "bank_transfer",  // always bank_transfer
-  bank_account:      "",               // account number
-  bank_name:         "",               // selected bank name
-  account_name:      "",               // verified account name
+  withdrawal_method: "bank_transfer",
+  bank_account:      "",   // 10-digit account number
+  bank_name:         "",   // bank display name  e.g. "Zenith Bank"
+  bank_code:         "",   // bank code e.g. "057" — used for API call
+  account_name:      "",   // verified name from Flutterwave
 };
 
 const INITIAL_VERIFY_DATA = {
@@ -98,7 +97,6 @@ export const useSellerFlow = (user = null) => {
           return;
         }
 
-        // ✅ CORRECT URL
         const { data } = await axios.get(
           "/api/seller-onboarding/status",
           { headers: { Authorization: `Bearer ${t}` } }
@@ -117,10 +115,9 @@ export const useSellerFlow = (user = null) => {
           localStorage.removeItem("token");
           setStep(STEPS.REGISTER);
         } else if (err.response?.status === 404) {
-          // Token valid, but no vendor yet
           setStep(STEPS.STORE_SETUP);
         } else {
-          console.warn("[useSellerFlow] sync error:", err.message);
+          console.warn("[useSellerFlow] sync:", err.message);
           setStep(user ? STEPS.STORE_SETUP : STEPS.REGISTER);
         }
       } finally {
@@ -131,39 +128,35 @@ export const useSellerFlow = (user = null) => {
     syncFromServer();
   }, []);
 
-  // ── Register handler ───────────────────────────────────────
+  // ── Handlers ──────────────────────────────────────────────
   const handleRegisterChange = useCallback((e) => {
     const { name, value } = e.target;
-    setRegisterData((prev) => ({ ...prev, [name]: value }));
-    setErrors((prev)      => ({ ...prev, [name]: ""    }));
+    setRegisterData((p) => ({ ...p, [name]: value }));
+    setErrors((p)        => ({ ...p, [name]: ""    }));
   }, []);
 
-  // ── Store handler ──────────────────────────────────────────
   const handleStoreChange = useCallback((e) => {
     const { name, value, files } = e.target;
 
     if (files?.[0]) {
       const file = files[0];
-      setStoreData((prev) => ({ ...prev, [name]: file }));
-
+      setStoreData((p) => ({ ...p, [name]: file }));
       if (name === "store_logo") {
         const reader = new FileReader();
         reader.onloadend = () => setPreviewLogo(reader.result);
         reader.readAsDataURL(file);
       }
     } else {
-      setStoreData((prev) => ({ ...prev, [name]: value }));
+      setStoreData((p) => ({ ...p, [name]: value }));
     }
-
-    setErrors((prev) => ({ ...prev, [name]: "" }));
+    setErrors((p) => ({ ...p, [name]: "" }));
   }, []);
 
-  // ── Verify handler ─────────────────────────────────────────
   const handleVerifyChange = useCallback((e) => {
     const { name, files } = e.target;
     if (files?.[0]) {
-      setVerifyData((prev) => ({ ...prev, [name]: files[0] }));
-      setErrors((prev)     => ({ ...prev, [name]: ""       }));
+      setVerifyData((p) => ({ ...p, [name]: files[0] }));
+      setErrors((p)     => ({ ...p, [name]: ""       }));
     }
   }, []);
 
@@ -206,7 +199,7 @@ export const useSellerFlow = (user = null) => {
     return Object.keys(errs).length === 0;
   };
 
-  // ── Validation: Store — bank only ─────────────────────────
+  // ── Validation: Store — bank transfer only ─────────────────
   const validateStore = () => {
     const errs = {};
 
@@ -221,18 +214,17 @@ export const useSellerFlow = (user = null) => {
     if (!storeData.store_description.trim())
       errs.store_description = "Description is required";
 
-    // ── Bank validation ──────────────────────────────────
     if (!storeData.bank_name.trim())
       errs.bank_name = "Please select a bank";
 
     if (!storeData.bank_account.trim())
       errs.bank_account = "Bank account number is required";
-    else if (storeData.bank_account.trim().length !== 10)
+    else if (!/^\d{10}$/.test(storeData.bank_account.trim()))
       errs.bank_account = "Account number must be 10 digits";
 
-    // account_name is set after Paystack verification
+    // account_name is only set after Flutterwave verification succeeds
     if (!storeData.account_name.trim())
-      errs.account_name = "Please verify your bank account";
+      errs.account_name = "Please verify your bank account first";
 
     setErrors(errs);
     return Object.keys(errs).length === 0;
@@ -254,7 +246,6 @@ export const useSellerFlow = (user = null) => {
     setServerMsg("");
 
     try {
-      // ✅ CORRECT URL
       const { data } = await axios.post("/api/auth/register", {
         name:     registerData.name.trim(),
         email:    registerData.email.trim(),
@@ -287,7 +278,7 @@ export const useSellerFlow = (user = null) => {
     try {
       const form = new FormData();
 
-      // Text fields
+      // ── Text fields ──────────────────────────────────────
       form.append("store_name",        storeData.store_name.trim());
       form.append("store_description", storeData.store_description.trim());
       form.append("store_category",    storeData.store_category);
@@ -296,11 +287,10 @@ export const useSellerFlow = (user = null) => {
       form.append("bank_name",         storeData.bank_name.trim());
       form.append("account_name",      storeData.account_name.trim());
 
-      // Files — only append if selected
+      // ── Files ────────────────────────────────────────────
       if (storeData.store_logo)   form.append("store_logo",   storeData.store_logo);
       if (storeData.store_banner) form.append("store_banner", storeData.store_banner);
 
-      // ✅ CORRECT URL
       const { data } = await axios.post(
         "/api/seller-onboarding/setup-store",
         form,
@@ -339,7 +329,6 @@ export const useSellerFlow = (user = null) => {
       if (verifyData.business_doc)  form.append("business_doc",  verifyData.business_doc);
       if (verifyData.address_proof) form.append("address_proof", verifyData.address_proof);
 
-      // ✅ CORRECT URL
       const { data } = await axios.post(
         "/api/seller-onboarding/verify",
         form,
@@ -366,31 +355,16 @@ export const useSellerFlow = (user = null) => {
 
   // ── Return ─────────────────────────────────────────────────
   return {
-    // Step
     step,          setStep,
-
-    // Data
-    registerData,
-    storeData,
-    verifyData,
-    vendorData,
-    setVendorData,
-
-    // UI state
-    errors,
-    loading,
-    initializing,
-    serverMsg,
-    previewLogo,
+    registerData,  storeData,      verifyData,
+    errors,        loading,        initializing,
+    serverMsg,     previewLogo,    vendorData,
     showPassword,  setShowPassword,
     showConfirm,   setShowConfirm,
-
-    // Handlers
+    setVendorData,
     handleRegisterChange,
     handleStoreChange,
     handleVerifyChange,
-
-    // Submissions
     submitRegister,
     submitStore,
     submitVerification,
