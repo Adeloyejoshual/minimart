@@ -2,6 +2,9 @@
 import { useState, useCallback, useEffect } from "react";
 import axios from "axios";
 
+// ─────────────────────────────────────────────────────────────
+// STEPS — numbers for ProgressBar > < comparison
+// ─────────────────────────────────────────────────────────────
 export const STEPS = {
   REGISTER:     0,
   STORE_SETUP:  1,
@@ -10,6 +13,7 @@ export const STEPS = {
   APPROVED:     4,
 };
 
+// Map vendor DB status → correct step
 const STATUS_TO_STEP = {
   pending:      STEPS.REVIEW,
   under_review: STEPS.REVIEW,
@@ -19,12 +23,7 @@ const STATUS_TO_STEP = {
   suspended:    STEPS.APPROVED,
 };
 
-export const WITHDRAWAL_METHODS = [
-  { value: "bank_transfer", label: "Bank Transfer", icon: "🏦" },
-  { value: "paypal",        label: "PayPal",        icon: "💰" },
-  { value: "crypto",        label: "Crypto Wallet", icon: "₿"  },
-];
-
+// ── Store categories ──────────────────────────────────────────
 export const STORE_CATEGORIES = [
   "Electronics",
   "Fashion & Apparel",
@@ -38,6 +37,7 @@ export const STORE_CATEGORIES = [
   "Other",
 ];
 
+// ── Initial state ─────────────────────────────────────────────
 const INITIAL_REGISTER_DATA = {
   name:             "",
   email:            "",
@@ -46,16 +46,17 @@ const INITIAL_REGISTER_DATA = {
   confirm_password: "",
 };
 
+// ── Bank transfer only — PayPal & crypto removed ──────────────
 const INITIAL_STORE_DATA = {
   store_name:        "",
   store_description: "",
   store_category:    "",
   store_logo:        null,
   store_banner:      null,
-  withdrawal_method: "",
-  bank_account:      "",
-  paypal_email:      "",
-  crypto_wallet:     "",
+  withdrawal_method: "bank_transfer",  // always bank_transfer
+  bank_account:      "",               // account number
+  bank_name:         "",               // selected bank name
+  account_name:      "",               // verified account name
 };
 
 const INITIAL_VERIFY_DATA = {
@@ -82,9 +83,10 @@ export const useSellerFlow = (user = null) => {
   const [showPassword, setShowPassword] = useState(false);
   const [showConfirm,  setShowConfirm]  = useState(false);
 
+  // ── Token helper ───────────────────────────────────────────
   const token = () => localStorage.getItem("token");
 
-  // ── Mount: restore step from server ────────────────────────
+  // ── Mount: restore step from server ───────────────────────
   useEffect(() => {
     const syncFromServer = async () => {
       try {
@@ -96,7 +98,7 @@ export const useSellerFlow = (user = null) => {
           return;
         }
 
-        // ✅ FIXED URL 1
+        // ✅ CORRECT URL
         const { data } = await axios.get(
           "/api/seller-onboarding/status",
           { headers: { Authorization: `Bearer ${t}` } }
@@ -115,6 +117,7 @@ export const useSellerFlow = (user = null) => {
           localStorage.removeItem("token");
           setStep(STEPS.REGISTER);
         } else if (err.response?.status === 404) {
+          // Token valid, but no vendor yet
           setStep(STEPS.STORE_SETUP);
         } else {
           console.warn("[useSellerFlow] sync error:", err.message);
@@ -128,19 +131,21 @@ export const useSellerFlow = (user = null) => {
     syncFromServer();
   }, []);
 
-  // ── Handlers ──────────────────────────────────────────────
+  // ── Register handler ───────────────────────────────────────
   const handleRegisterChange = useCallback((e) => {
     const { name, value } = e.target;
     setRegisterData((prev) => ({ ...prev, [name]: value }));
     setErrors((prev)      => ({ ...prev, [name]: ""    }));
   }, []);
 
+  // ── Store handler ──────────────────────────────────────────
   const handleStoreChange = useCallback((e) => {
     const { name, value, files } = e.target;
 
     if (files?.[0]) {
       const file = files[0];
       setStoreData((prev) => ({ ...prev, [name]: file }));
+
       if (name === "store_logo") {
         const reader = new FileReader();
         reader.onloadend = () => setPreviewLogo(reader.result);
@@ -153,6 +158,7 @@ export const useSellerFlow = (user = null) => {
     setErrors((prev) => ({ ...prev, [name]: "" }));
   }, []);
 
+  // ── Verify handler ─────────────────────────────────────────
   const handleVerifyChange = useCallback((e) => {
     const { name, files } = e.target;
     if (files?.[0]) {
@@ -161,7 +167,7 @@ export const useSellerFlow = (user = null) => {
     }
   }, []);
 
-  // ── Validation ────────────────────────────────────────────
+  // ── Validation: Register ───────────────────────────────────
   const validateRegister = () => {
     const errs       = {};
     const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
@@ -200,6 +206,7 @@ export const useSellerFlow = (user = null) => {
     return Object.keys(errs).length === 0;
   };
 
+  // ── Validation: Store — bank only ─────────────────────────
   const validateStore = () => {
     const errs = {};
 
@@ -214,25 +221,24 @@ export const useSellerFlow = (user = null) => {
     if (!storeData.store_description.trim())
       errs.store_description = "Description is required";
 
-    if (!storeData.withdrawal_method)
-      errs.withdrawal_method = "Select a withdrawal method";
+    // ── Bank validation ──────────────────────────────────
+    if (!storeData.bank_name.trim())
+      errs.bank_name = "Please select a bank";
 
-    if (storeData.withdrawal_method === "bank_transfer" &&
-        !storeData.bank_account.trim())
-      errs.bank_account = "Bank account is required";
+    if (!storeData.bank_account.trim())
+      errs.bank_account = "Bank account number is required";
+    else if (storeData.bank_account.trim().length !== 10)
+      errs.bank_account = "Account number must be 10 digits";
 
-    if (storeData.withdrawal_method === "paypal" &&
-        !storeData.paypal_email.trim())
-      errs.paypal_email = "PayPal email is required";
-
-    if (storeData.withdrawal_method === "crypto" &&
-        !storeData.crypto_wallet.trim())
-      errs.crypto_wallet = "Crypto wallet address is required";
+    // account_name is set after Paystack verification
+    if (!storeData.account_name.trim())
+      errs.account_name = "Please verify your bank account";
 
     setErrors(errs);
     return Object.keys(errs).length === 0;
   };
 
+  // ── Validation: Verification ───────────────────────────────
   const validateVerification = () => {
     const errs = {};
     if (!verifyData.id_card) errs.id_card = "ID card is required";
@@ -241,13 +247,14 @@ export const useSellerFlow = (user = null) => {
     return Object.keys(errs).length === 0;
   };
 
-  // ── API: Register ─────────────────────────────────────────
+  // ── API: Register ──────────────────────────────────────────
   const submitRegister = async () => {
     if (!validateRegister()) return;
     setLoading(true);
     setServerMsg("");
 
     try {
+      // ✅ CORRECT URL
       const { data } = await axios.post("/api/auth/register", {
         name:     registerData.name.trim(),
         email:    registerData.email.trim(),
@@ -271,7 +278,7 @@ export const useSellerFlow = (user = null) => {
     }
   };
 
-  // ── API: Store Setup ──────────────────────────────────────
+  // ── API: Store Setup ───────────────────────────────────────
   const submitStore = async () => {
     if (!validateStore()) return;
     setLoading(true);
@@ -279,11 +286,21 @@ export const useSellerFlow = (user = null) => {
 
     try {
       const form = new FormData();
-      Object.entries(storeData).forEach(([k, v]) => {
-        if (v !== null && v !== "") form.append(k, v);
-      });
 
-      // ✅ FIXED URL 2
+      // Text fields
+      form.append("store_name",        storeData.store_name.trim());
+      form.append("store_description", storeData.store_description.trim());
+      form.append("store_category",    storeData.store_category);
+      form.append("withdrawal_method", "bank_transfer");
+      form.append("bank_account",      storeData.bank_account.trim());
+      form.append("bank_name",         storeData.bank_name.trim());
+      form.append("account_name",      storeData.account_name.trim());
+
+      // Files — only append if selected
+      if (storeData.store_logo)   form.append("store_logo",   storeData.store_logo);
+      if (storeData.store_banner) form.append("store_banner", storeData.store_banner);
+
+      // ✅ CORRECT URL
       const { data } = await axios.post(
         "/api/seller-onboarding/setup-store",
         form,
@@ -300,6 +317,7 @@ export const useSellerFlow = (user = null) => {
       setStep(STEPS.VERIFICATION);
 
     } catch (err) {
+      console.error("[submitStore]", err.response?.data ?? err.message);
       setServerMsg(
         err.response?.data?.message ?? "Store setup failed. Try again."
       );
@@ -308,7 +326,7 @@ export const useSellerFlow = (user = null) => {
     }
   };
 
-  // ── API: Verification ─────────────────────────────────────
+  // ── API: Verification ──────────────────────────────────────
   const submitVerification = async () => {
     if (!validateVerification()) return;
     setLoading(true);
@@ -316,11 +334,12 @@ export const useSellerFlow = (user = null) => {
 
     try {
       const form = new FormData();
-      Object.entries(verifyData).forEach(([k, v]) => {
-        if (v !== null) form.append(k, v);
-      });
+      if (verifyData.id_card)       form.append("id_card",       verifyData.id_card);
+      if (verifyData.selfie)        form.append("selfie",        verifyData.selfie);
+      if (verifyData.business_doc)  form.append("business_doc",  verifyData.business_doc);
+      if (verifyData.address_proof) form.append("address_proof", verifyData.address_proof);
 
-      // ✅ FIXED URL 3
+      // ✅ CORRECT URL
       const { data } = await axios.post(
         "/api/seller-onboarding/verify",
         form,
@@ -345,17 +364,33 @@ export const useSellerFlow = (user = null) => {
     }
   };
 
+  // ── Return ─────────────────────────────────────────────────
   return {
+    // Step
     step,          setStep,
-    registerData,  storeData,       verifyData,
-    errors,        loading,         initializing,
-    serverMsg,     previewLogo,     vendorData,
+
+    // Data
+    registerData,
+    storeData,
+    verifyData,
+    vendorData,
+    setVendorData,
+
+    // UI state
+    errors,
+    loading,
+    initializing,
+    serverMsg,
+    previewLogo,
     showPassword,  setShowPassword,
     showConfirm,   setShowConfirm,
-    setVendorData,
+
+    // Handlers
     handleRegisterChange,
     handleStoreChange,
     handleVerifyChange,
+
+    // Submissions
     submitRegister,
     submitStore,
     submitVerification,
