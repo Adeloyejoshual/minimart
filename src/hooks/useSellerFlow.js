@@ -2,10 +2,6 @@
 import { useState, useCallback, useEffect } from "react";
 import axios from "axios";
 
-// ─────────────────────────────────────────────────────────────
-// STEPS — numbers required for ProgressBar > < comparison
-// REGISTER(0) is now the first visible step in the flow
-// ─────────────────────────────────────────────────────────────
 export const STEPS = {
   REGISTER:     0,
   STORE_SETUP:  1,
@@ -14,7 +10,6 @@ export const STEPS = {
   APPROVED:     4,
 };
 
-// Map vendor DB status → correct step
 const STATUS_TO_STEP = {
   pending:      STEPS.REVIEW,
   under_review: STEPS.REVIEW,
@@ -43,7 +38,6 @@ export const STORE_CATEGORIES = [
   "Other",
 ];
 
-// ─── Initial State ────────────────────────────────────────────
 const INITIAL_REGISTER_DATA = {
   name:             "",
   email:            "",
@@ -72,51 +66,59 @@ const INITIAL_VERIFY_DATA = {
 };
 
 // ─── Hook ─────────────────────────────────────────────────────
-export const useSellerFlow = () => {
-  const [step,          setStep]          = useState(STEPS.REGISTER);
-  const [registerData,  setRegisterData]  = useState(INITIAL_REGISTER_DATA);
-  const [storeData,     setStoreData]     = useState(INITIAL_STORE_DATA);
-  const [verifyData,    setVerifyData]    = useState(INITIAL_VERIFY_DATA);
-  const [errors,        setErrors]        = useState({});
-  const [loading,       setLoading]       = useState(false);
-  const [initializing,  setInitializing]  = useState(true);
-  const [serverMsg,     setServerMsg]     = useState("");
-  const [previewLogo,   setPreviewLogo]   = useState(null);
-  const [vendorData,    setVendorData]    = useState(null);
-  const [showPassword,  setShowPassword]  = useState(false);
-  const [showConfirm,   setShowConfirm]   = useState(false);
+export const useSellerFlow = (user = null) => {
+  const [step,         setStep]         = useState(
+    user ? STEPS.STORE_SETUP : STEPS.REGISTER
+  );
+  const [registerData, setRegisterData] = useState(INITIAL_REGISTER_DATA);
+  const [storeData,    setStoreData]    = useState(INITIAL_STORE_DATA);
+  const [verifyData,   setVerifyData]   = useState(INITIAL_VERIFY_DATA);
+  const [errors,       setErrors]       = useState({});
+  const [loading,      setLoading]      = useState(false);
+  const [initializing, setInitializing] = useState(true);
+  const [serverMsg,    setServerMsg]    = useState("");
+  const [previewLogo,  setPreviewLogo]  = useState(null);
+  const [vendorData,   setVendorData]   = useState(null);
+  const [showPassword, setShowPassword] = useState(false);
+  const [showConfirm,  setShowConfirm]  = useState(false);
 
-  // ── Token helper ───────────────────────────────────────────
   const token = () => localStorage.getItem("token");
 
-  // ── Mount: sync step from server ───────────────────────────
+  // ── Mount: restore step from server ────────────────────────
   useEffect(() => {
     const syncFromServer = async () => {
       try {
         const t = token();
 
-        // Already logged in — skip REGISTER step
-        if (t) {
-          const { data } = await axios.get("/api/seller/status", {
-            headers: { Authorization: `Bearer ${t}` },
-          });
-
-          if (data?.vendor) {
-            setVendorData(data.vendor);
-            const restoredStep = STATUS_TO_STEP[data.vendor.status];
-            if (restoredStep !== undefined) setStep(restoredStep);
-          } else {
-            // Logged in but no vendor yet → go to store setup
-            setStep(STEPS.STORE_SETUP);
-          }
+        if (!t) {
+          setStep(STEPS.REGISTER);
+          setInitializing(false);
+          return;
         }
-        // Not logged in → stay at REGISTER (default)
+
+        // ✅ FIXED URL 1
+        const { data } = await axios.get(
+          "/api/seller-onboarding/status",
+          { headers: { Authorization: `Bearer ${t}` } }
+        );
+
+        if (data?.vendor) {
+          setVendorData(data.vendor);
+          const restored = STATUS_TO_STEP[data.vendor.status];
+          setStep(restored ?? STEPS.STORE_SETUP);
+        } else {
+          setStep(STEPS.STORE_SETUP);
+        }
+
       } catch (err) {
-        if (err.response?.status === 404) {
-          // Logged in, no vendor → store setup
+        if (err.response?.status === 401) {
+          localStorage.removeItem("token");
+          setStep(STEPS.REGISTER);
+        } else if (err.response?.status === 404) {
           setStep(STEPS.STORE_SETUP);
         } else {
           console.warn("[useSellerFlow] sync error:", err.message);
+          setStep(user ? STEPS.STORE_SETUP : STEPS.REGISTER);
         }
       } finally {
         setInitializing(false);
@@ -126,21 +128,19 @@ export const useSellerFlow = () => {
     syncFromServer();
   }, []);
 
-  // ─── Register field handler ─────────────────────────────────
+  // ── Handlers ──────────────────────────────────────────────
   const handleRegisterChange = useCallback((e) => {
     const { name, value } = e.target;
     setRegisterData((prev) => ({ ...prev, [name]: value }));
-    setErrors((prev) => ({ ...prev, [name]: "" }));
+    setErrors((prev)      => ({ ...prev, [name]: ""    }));
   }, []);
 
-  // ─── Store field handler ────────────────────────────────────
   const handleStoreChange = useCallback((e) => {
     const { name, value, files } = e.target;
 
     if (files?.[0]) {
       const file = files[0];
       setStoreData((prev) => ({ ...prev, [name]: file }));
-
       if (name === "store_logo") {
         const reader = new FileReader();
         reader.onloadend = () => setPreviewLogo(reader.result);
@@ -153,18 +153,17 @@ export const useSellerFlow = () => {
     setErrors((prev) => ({ ...prev, [name]: "" }));
   }, []);
 
-  // ─── Verify field handler ───────────────────────────────────
   const handleVerifyChange = useCallback((e) => {
     const { name, files } = e.target;
     if (files?.[0]) {
       setVerifyData((prev) => ({ ...prev, [name]: files[0] }));
-      setErrors((prev) => ({ ...prev, [name]: "" }));
+      setErrors((prev)     => ({ ...prev, [name]: ""       }));
     }
   }, []);
 
-  // ─── Validation: Register ───────────────────────────────────
+  // ── Validation ────────────────────────────────────────────
   const validateRegister = () => {
-    const errs = {};
+    const errs       = {};
     const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
     const phoneRegex = /^\+?[\d\s\-()]{7,15}$/;
 
@@ -201,7 +200,6 @@ export const useSellerFlow = () => {
     return Object.keys(errs).length === 0;
   };
 
-  // ─── Validation: Store ──────────────────────────────────────
   const validateStore = () => {
     const errs = {};
 
@@ -219,37 +217,33 @@ export const useSellerFlow = () => {
     if (!storeData.withdrawal_method)
       errs.withdrawal_method = "Select a withdrawal method";
 
-    if (storeData.withdrawal_method === "bank_transfer" && !storeData.bank_account.trim())
+    if (storeData.withdrawal_method === "bank_transfer" &&
+        !storeData.bank_account.trim())
       errs.bank_account = "Bank account is required";
 
-    if (storeData.withdrawal_method === "paypal" && !storeData.paypal_email.trim())
+    if (storeData.withdrawal_method === "paypal" &&
+        !storeData.paypal_email.trim())
       errs.paypal_email = "PayPal email is required";
 
-    if (storeData.withdrawal_method === "crypto" && !storeData.crypto_wallet.trim())
+    if (storeData.withdrawal_method === "crypto" &&
+        !storeData.crypto_wallet.trim())
       errs.crypto_wallet = "Crypto wallet address is required";
 
     setErrors(errs);
     return Object.keys(errs).length === 0;
   };
 
-  // ─── Validation: Verification ───────────────────────────────
   const validateVerification = () => {
     const errs = {};
-
-    if (!verifyData.id_card)
-      errs.id_card = "ID card is required";
-
-    if (!verifyData.selfie)
-      errs.selfie = "Selfie with ID is required";
-
+    if (!verifyData.id_card) errs.id_card = "ID card is required";
+    if (!verifyData.selfie)  errs.selfie  = "Selfie with ID is required";
     setErrors(errs);
     return Object.keys(errs).length === 0;
   };
 
-  // ─── API: Register ──────────────────────────────────────────
+  // ── API: Register ─────────────────────────────────────────
   const submitRegister = async () => {
     if (!validateRegister()) return;
-
     setLoading(true);
     setServerMsg("");
 
@@ -261,13 +255,13 @@ export const useSellerFlow = () => {
         password: registerData.password,
       });
 
-      // Store token from registration response
       if (data.token) {
         localStorage.setItem("token", data.token);
       }
 
       setServerMsg(data.message ?? "Account created successfully!");
       setStep(STEPS.STORE_SETUP);
+
     } catch (err) {
       setServerMsg(
         err.response?.data?.message ?? "Registration failed. Try again."
@@ -277,10 +271,9 @@ export const useSellerFlow = () => {
     }
   };
 
-  // ─── API: Submit Store ──────────────────────────────────────
+  // ── API: Store Setup ──────────────────────────────────────
   const submitStore = async () => {
     if (!validateStore()) return;
-
     setLoading(true);
     setServerMsg("");
 
@@ -290,16 +283,22 @@ export const useSellerFlow = () => {
         if (v !== null && v !== "") form.append(k, v);
       });
 
-      const { data } = await axios.post("/api/seller/setup-store", form, {
-        headers: {
-          Authorization:  `Bearer ${token()}`,
-          "Content-Type": "multipart/form-data",
-        },
-      });
+      // ✅ FIXED URL 2
+      const { data } = await axios.post(
+        "/api/seller-onboarding/setup-store",
+        form,
+        {
+          headers: {
+            Authorization:  `Bearer ${token()}`,
+            "Content-Type": "multipart/form-data",
+          },
+        }
+      );
 
       setServerMsg(data.message ?? "Store created!");
       if (data.vendor) setVendorData(data.vendor);
       setStep(STEPS.VERIFICATION);
+
     } catch (err) {
       setServerMsg(
         err.response?.data?.message ?? "Store setup failed. Try again."
@@ -309,10 +308,9 @@ export const useSellerFlow = () => {
     }
   };
 
-  // ─── API: Submit Verification ───────────────────────────────
+  // ── API: Verification ─────────────────────────────────────
   const submitVerification = async () => {
     if (!validateVerification()) return;
-
     setLoading(true);
     setServerMsg("");
 
@@ -322,16 +320,22 @@ export const useSellerFlow = () => {
         if (v !== null) form.append(k, v);
       });
 
-      const { data } = await axios.post("/api/seller/verify", form, {
-        headers: {
-          Authorization:  `Bearer ${token()}`,
-          "Content-Type": "multipart/form-data",
-        },
-      });
+      // ✅ FIXED URL 3
+      const { data } = await axios.post(
+        "/api/seller-onboarding/verify",
+        form,
+        {
+          headers: {
+            Authorization:  `Bearer ${token()}`,
+            "Content-Type": "multipart/form-data",
+          },
+        }
+      );
 
       setServerMsg(data.message ?? "Documents submitted!");
       if (data.vendor) setVendorData(data.vendor);
       setStep(STEPS.REVIEW);
+
     } catch (err) {
       setServerMsg(
         err.response?.data?.message ?? "Verification failed. Try again."
@@ -341,15 +345,14 @@ export const useSellerFlow = () => {
     }
   };
 
-  // ─── Return ─────────────────────────────────────────────────
   return {
-    step, setStep,
-    registerData, storeData, verifyData,
-    errors, loading, initializing,
-    serverMsg, previewLogo,
-    vendorData,
+    step,          setStep,
+    registerData,  storeData,       verifyData,
+    errors,        loading,         initializing,
+    serverMsg,     previewLogo,     vendorData,
     showPassword,  setShowPassword,
     showConfirm,   setShowConfirm,
+    setVendorData,
     handleRegisterChange,
     handleStoreChange,
     handleVerifyChange,
@@ -358,3 +361,5 @@ export const useSellerFlow = () => {
     submitVerification,
   };
 };
+
+export default useSellerFlow;
