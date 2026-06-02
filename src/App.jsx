@@ -22,10 +22,10 @@ import P2P             from "./pages/P2P";
 import MenuPage        from "./pages/MenuPage";
 
 // ── Pages — Homepage Sub-pages ────────────────────────────────
-import NearbyPage      from "./Homepage/pages/NearbyPage";
-import DealsPage       from "./Homepage/pages/DealsPage";
-import NewArrivalsPage from "./Homepage/pages/NewArrivalsPage";
-import TrendingPage    from "./Homepage/TrendingPage";
+import NearbyPage      from "./pages/Homepage/NearbyPage";
+import DealsPage       from "./pages/Homepage/DealsPage";
+import NewArrivalsPage from "./pages/Homepage/NewArrivalsPage";
+import TrendingPage    from "./pages/Homepage/TrendingPage";
 
 // ── Pages — Auth ──────────────────────────────────────────────
 import AuthPage        from "./pages/AuthPage";
