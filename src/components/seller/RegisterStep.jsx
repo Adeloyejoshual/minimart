@@ -1,31 +1,47 @@
 // components/seller/RegisterStep.jsx
-import React from "react";
+import React, { useState, useCallback } from "react";
+import axios from "axios";
+import { STEPS } from "../../hooks/useSellerFlow";
 
 // ─── Password Strength Calculator ────────────────────────────
 const getPasswordStrength = (password) => {
   if (!password) return { score: 0, label: "", color: "" };
 
   let score = 0;
-  if (password.length >= 8)          score++;
-  if (password.length >= 12)         score++;
-  if (/[A-Z]/.test(password))        score++;
-  if (/[0-9]/.test(password))        score++;
-  if (/[^A-Za-z0-9]/.test(password)) score++;
+  if (password.length >= 8)           score++;
+  if (password.length >= 12)          score++;
+  if (/[A-Z]/.test(password))         score++;
+  if (/[0-9]/.test(password))         score++;
+  if (/[^A-Za-z0-9]/.test(password))  score++;
 
   const levels = [
-    { score: 0, label: "",          color: ""        },
-    { score: 1, label: "Weak",      color: "#ef4444" },
-    { score: 2, label: "Fair",      color: "#f59e0b" },
-    { score: 3, label: "Good",      color: "#3b82f6" },
-    { score: 4, label: "Strong",    color: "#10b981" },
+    { score: 0, label: "",            color: ""        },
+    { score: 1, label: "Weak",        color: "#ef4444" },
+    { score: 2, label: "Fair",        color: "#f59e0b" },
+    { score: 3, label: "Good",        color: "#3b82f6" },
+    { score: 4, label: "Strong",      color: "#10b981" },
     { score: 5, label: "Very Strong", color: "#059669" },
   ];
 
   return levels[Math.min(score, 5)];
 };
 
-// ─── Component ────────────────────────────────────────────────
+// ─── Main Component ───────────────────────────────────────────
 const RegisterStep = ({ flow }) => {
+  // Toggle between register / sign-in views
+  const [mode, setMode] = useState("register"); // "register" | "signin"
+
+  return mode === "register" ? (
+    <RegisterForm flow={flow} onSwitchToSignIn={() => setMode("signin")} />
+  ) : (
+    <SignInForm flow={flow} onSwitchToRegister={() => setMode("register")} />
+  );
+};
+
+// ══════════════════════════════════════════════════════════════
+// REGISTER FORM
+// ══════════════════════════════════════════════════════════════
+const RegisterForm = ({ flow, onSwitchToSignIn }) => {
   const {
     registerData,
     errors,
@@ -45,7 +61,7 @@ const RegisterStep = ({ flow }) => {
   return (
     <div className="seller-card">
 
-      {/* ── Header ─────────────────────────────────────────── */}
+      {/* ── Header ───────────────────────────────────────────── */}
       <div style={s.cardHeader}>
         <div style={s.headerIcon}>👤</div>
         <h2 style={s.cardTitle}>Create Your Account</h2>
@@ -54,16 +70,11 @@ const RegisterStep = ({ flow }) => {
         </p>
       </div>
 
-      {/* ── Form ───────────────────────────────────────────── */}
+      {/* ── Form ─────────────────────────────────────────────── */}
       <div style={s.form}>
 
         {/* Full Name */}
-        <Field
-          label="Full Name"
-          icon="👤"
-          required
-          error={errors.name}
-        >
+        <Field label="Full Name" icon="👤" required error={errors.name}>
           <input
             name="name"
             type="text"
@@ -76,12 +87,7 @@ const RegisterStep = ({ flow }) => {
         </Field>
 
         {/* Email */}
-        <Field
-          label="Email Address"
-          icon="📧"
-          required
-          error={errors.email}
-        >
+        <Field label="Email Address" icon="📧" required error={errors.email}>
           <input
             name="email"
             type="email"
@@ -113,12 +119,7 @@ const RegisterStep = ({ flow }) => {
         </Field>
 
         {/* Password */}
-        <Field
-          label="Password"
-          icon="🔒"
-          required
-          error={errors.password}
-        >
+        <Field label="Password" icon="🔒" required error={errors.password}>
           <div style={s.passwordWrap}>
             <input
               name="password"
@@ -130,38 +131,12 @@ const RegisterStep = ({ flow }) => {
               className={`seller-input ${errors.password ? "error" : ""}`}
               style={{ paddingRight: "3rem" }}
             />
-            <button
-              type="button"
-              style={s.eyeBtn}
-              onClick={() => setShowPassword(!showPassword)}
-              aria-label={showPassword ? "Hide password" : "Show password"}
-            >
-              {showPassword ? "🙈" : "👁️"}
-            </button>
+            <EyeBtn show={showPassword} toggle={() => setShowPassword(!showPassword)} />
           </div>
 
           {/* Strength meter */}
           {registerData.password && (
-            <div style={s.strengthWrap}>
-              <div style={s.strengthBar}>
-                {[1, 2, 3, 4, 5].map((i) => (
-                  <div
-                    key={i}
-                    style={{
-                      ...s.strengthSegment,
-                      background: i <= strength.score
-                        ? strength.color
-                        : "#e5e7eb",
-                    }}
-                  />
-                ))}
-              </div>
-              {strength.label && (
-                <span style={{ ...s.strengthLabel, color: strength.color }}>
-                  {strength.label}
-                </span>
-              )}
-            </div>
+            <StrengthMeter strength={strength} />
           )}
 
           {/* Rules checklist */}
@@ -188,42 +163,20 @@ const RegisterStep = ({ flow }) => {
               className={`seller-input ${errors.confirm_password ? "error" : ""}`}
               style={{ paddingRight: "3rem" }}
             />
-            <button
-              type="button"
-              style={s.eyeBtn}
-              onClick={() => setShowConfirm(!showConfirm)}
-              aria-label={showConfirm ? "Hide password" : "Show password"}
-            >
-              {showConfirm ? "🙈" : "👁️"}
-            </button>
+            <EyeBtn show={showConfirm} toggle={() => setShowConfirm(!showConfirm)} />
           </div>
 
           {/* Match indicator */}
           {registerData.confirm_password && (
-            <span style={{
-              fontSize:   "0.8rem",
-              fontWeight: 500,
-              color: registerData.password === registerData.confirm_password
-                ? "#10b981"
-                : "#ef4444",
-            }}>
-              {registerData.password === registerData.confirm_password
-                ? "✓ Passwords match"
-                : "✗ Passwords do not match"}
-            </span>
+            <MatchIndicator
+              a={registerData.password}
+              b={registerData.confirm_password}
+            />
           )}
         </Field>
 
         {/* Server message */}
-        {serverMsg && (
-          <div className={`seller-alert ${
-            serverMsg.toLowerCase().includes("fail") ||
-            serverMsg.toLowerCase().includes("error")
-              ? "error" : "success"
-          }`}>
-            {serverMsg}
-          </div>
-        )}
+        <ServerAlert msg={serverMsg} />
 
         {/* Submit */}
         <button
@@ -236,23 +189,24 @@ const RegisterStep = ({ flow }) => {
             : "Create Account & Continue →"}
         </button>
 
-        {/* Already have account */}
-        <p style={s.loginLink}>
+        {/* Switch to sign in */}
+        <p style={s.switchText}>
           Already have an account?{" "}
-          <a href="/login" style={s.link}>Sign in instead</a>
+          <button
+            type="button"
+            style={s.switchBtn}
+            onClick={onSwitchToSignIn}
+          >
+            Sign in instead
+          </button>
         </p>
 
-        {/* Divider */}
-        <div style={s.divider}>
-          <div style={s.dividerLine} />
-          <span style={s.dividerText}>or</span>
-          <div style={s.dividerLine} />
-        </div>
+        <Divider />
 
-        {/* Skip if already have account */}
+        {/* Skip */}
         <button
           type="button"
-          onClick={() => setStep(1)}
+          onClick={() => setStep(STEPS.STORE_SETUP)}
           style={s.skipBtn}
         >
           Already registered? Skip to Store Setup →
@@ -263,12 +217,222 @@ const RegisterStep = ({ flow }) => {
   );
 };
 
-// ─── Password Rules Checklist ─────────────────────────────────
+// ══════════════════════════════════════════════════════════════
+// SIGN IN FORM
+// ══════════════════════════════════════════════════════════════
+const SignInForm = ({ flow, onSwitchToRegister }) => {
+  const { setStep, setVendorData } = flow;
+
+  // Local state — sign in has its own fields, separate from registerData
+  const [formData,     setFormData]     = useState({ email: "", password: "" });
+  const [errors,       setErrors]       = useState({});
+  const [loading,      setLoading]      = useState(false);
+  const [serverMsg,    setServerMsg]    = useState("");
+  const [showPassword, setShowPassword] = useState(false);
+
+  const handleChange = useCallback((e) => {
+    const { name, value } = e.target;
+    setFormData((prev) => ({ ...prev, [name]: value }));
+    setErrors((prev)   => ({ ...prev, [name]: ""    }));
+    setServerMsg("");
+  }, []);
+
+  // ── Validation ────────────────────────────────────────────
+  const validate = () => {
+    const errs       = {};
+    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+
+    if (!formData.email.trim())
+      errs.email = "Email is required";
+    else if (!emailRegex.test(formData.email))
+      errs.email = "Enter a valid email address";
+
+    if (!formData.password)
+      errs.password = "Password is required";
+
+    setErrors(errs);
+    return Object.keys(errs).length === 0;
+  };
+
+  // ── Submit ─────────────────────────────────────────────────
+  const handleSignIn = async () => {
+    if (!validate()) return;
+
+    setLoading(true);
+    setServerMsg("");
+
+    try {
+      const { data } = await axios.post("/api/auth/login", {
+        email:    formData.email.trim(),
+        password: formData.password,
+      });
+
+      // ── Save token ────────────────────────────────────────
+      if (data.token) {
+        localStorage.setItem("token", data.token);
+      }
+
+      // ── Check if vendor already exists ────────────────────
+      try {
+        const { data: vendorRes } = await axios.get(
+          "/api/seller-onboarding/status",
+          { headers: { Authorization: `Bearer ${data.token}` } }
+        );
+
+        if (vendorRes?.vendor) {
+          // Has vendor — map status → step
+          const STATUS_TO_STEP = {
+            pending:      STEPS.REVIEW,
+            under_review: STEPS.REVIEW,
+            approved:     STEPS.APPROVED,
+            active:       STEPS.APPROVED,
+            rejected:     STEPS.STORE_SETUP,
+            suspended:    STEPS.APPROVED,
+          };
+
+          if (typeof setVendorData === "function") {
+            setVendorData(vendorRes.vendor);
+          }
+
+          const nextStep = STATUS_TO_STEP[vendorRes.vendor.status];
+          setStep(nextStep ?? STEPS.STORE_SETUP);
+        } else {
+          // Logged in but no vendor → store setup
+          setStep(STEPS.STORE_SETUP);
+        }
+      } catch (vendorErr) {
+        // 404 = no vendor yet → go to store setup
+        if (vendorErr.response?.status === 404) {
+          setStep(STEPS.STORE_SETUP);
+        } else {
+          setStep(STEPS.STORE_SETUP);
+        }
+      }
+
+    } catch (err) {
+      setServerMsg(
+        err.response?.data?.message ?? "Sign in failed. Try again."
+      );
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  // ── Handle Enter key ─────────────────────────────────────
+  const handleKeyDown = (e) => {
+    if (e.key === "Enter") handleSignIn();
+  };
+
+  return (
+    <div className="seller-card">
+
+      {/* ── Header ─────────────────────────────────────────── */}
+      <div style={s.cardHeader}>
+        <div style={s.headerIcon}>🔐</div>
+        <h2 style={s.cardTitle}>Welcome Back</h2>
+        <p style={s.cardSubtitle}>
+          Sign in to continue setting up your store
+        </p>
+      </div>
+
+      {/* ── Form ─────────────────────────────────────────────── */}
+      <div style={s.form}>
+
+        {/* Email */}
+        <Field label="Email Address" icon="📧" required error={errors.email}>
+          <input
+            name="email"
+            type="email"
+            value={formData.email}
+            onChange={handleChange}
+            onKeyDown={handleKeyDown}
+            placeholder="you@example.com"
+            autoComplete="email"
+            autoFocus
+            className={`seller-input ${errors.email ? "error" : ""}`}
+          />
+        </Field>
+
+        {/* Password */}
+        <Field label="Password" icon="🔒" required error={errors.password}>
+          <div style={s.passwordWrap}>
+            <input
+              name="password"
+              type={showPassword ? "text" : "password"}
+              value={formData.password}
+              onChange={handleChange}
+              onKeyDown={handleKeyDown}
+              placeholder="Your password"
+              autoComplete="current-password"
+              className={`seller-input ${errors.password ? "error" : ""}`}
+              style={{ paddingRight: "3rem" }}
+            />
+            <EyeBtn
+              show={showPassword}
+              toggle={() => setShowPassword(!showPassword)}
+            />
+          </div>
+        </Field>
+
+        {/* Forgot password */}
+        <div style={{ textAlign: "right", marginTop: "-0.5rem" }}>
+          <a href="/forgot-password" style={s.forgotLink}>
+            Forgot password?
+          </a>
+        </div>
+
+        {/* Server message */}
+        <ServerAlert msg={serverMsg} />
+
+        {/* Submit */}
+        <button
+          onClick={handleSignIn}
+          disabled={loading}
+          className="btn-seller-primary"
+        >
+          {loading
+            ? <><Spinner /> Signing In...</>
+            : "Sign In & Continue →"}
+        </button>
+
+        {/* Switch to register */}
+        <p style={s.switchText}>
+          Don't have an account?{" "}
+          <button
+            type="button"
+            style={s.switchBtn}
+            onClick={onSwitchToRegister}
+          >
+            Create one free
+          </button>
+        </p>
+
+        <Divider />
+
+        {/* Skip */}
+        <button
+          type="button"
+          onClick={() => setStep(STEPS.STORE_SETUP)}
+          style={s.skipBtn}
+        >
+          Already registered? Skip to Store Setup →
+        </button>
+
+      </div>
+    </div>
+  );
+};
+
+// ══════════════════════════════════════════════════════════════
+// SHARED SUB-COMPONENTS
+// ══════════════════════════════════════════════════════════════
+
+// ── Password Rules Checklist ──────────────────────────────────
 const RULES = [
-  { test: (p) => p.length >= 8,          label: "At least 8 characters" },
-  { test: (p) => /[A-Z]/.test(p),        label: "One uppercase letter"  },
-  { test: (p) => /[0-9]/.test(p),        label: "One number"            },
-  { test: (p) => /[^A-Za-z0-9]/.test(p), label: "One special character" },
+  { test: (p) => p.length >= 8,           label: "At least 8 characters" },
+  { test: (p) => /[A-Z]/.test(p),         label: "One uppercase letter"  },
+  { test: (p) => /[0-9]/.test(p),         label: "One number"            },
+  { test: (p) => /[^A-Za-z0-9]/.test(p),  label: "One special character" },
 ];
 
 const PasswordRules = ({ password }) => (
@@ -280,10 +444,7 @@ const PasswordRules = ({ password }) => (
           <span style={{ color: passed ? "#10b981" : "#d1d5db" }}>
             {passed ? "✓" : "○"}
           </span>
-          <span style={{
-            fontSize: "0.8rem",
-            color:    passed ? "#10b981" : "#9ca3af",
-          }}>
+          <span style={{ fontSize: "0.8rem", color: passed ? "#10b981" : "#9ca3af" }}>
             {rule.label}
           </span>
         </div>
@@ -292,7 +453,40 @@ const PasswordRules = ({ password }) => (
   </div>
 );
 
-// ─── Field Wrapper ────────────────────────────────────────────
+// ── Strength Meter ────────────────────────────────────────────
+const StrengthMeter = ({ strength }) => (
+  <div style={s.strengthWrap}>
+    <div style={s.strengthBar}>
+      {[1, 2, 3, 4, 5].map((i) => (
+        <div
+          key={i}
+          style={{
+            ...s.strengthSegment,
+            background: i <= strength.score ? strength.color : "#e5e7eb",
+          }}
+        />
+      ))}
+    </div>
+    {strength.label && (
+      <span style={{ ...s.strengthLabel, color: strength.color }}>
+        {strength.label}
+      </span>
+    )}
+  </div>
+);
+
+// ── Match Indicator ───────────────────────────────────────────
+const MatchIndicator = ({ a, b }) => (
+  <span style={{
+    fontSize:   "0.8rem",
+    fontWeight: 500,
+    color:      a === b ? "#10b981" : "#ef4444",
+  }}>
+    {a === b ? "✓ Passwords match" : "✗ Passwords do not match"}
+  </span>
+);
+
+// ── Field Wrapper ─────────────────────────────────────────────
 const Field = ({ label, icon, required, error, hint, children }) => (
   <div className="seller-field">
     <label className="seller-label">
@@ -309,7 +503,46 @@ const Field = ({ label, icon, required, error, hint, children }) => (
   </div>
 );
 
-// ─── Spinner ──────────────────────────────────────────────────
+// ── Eye Button ────────────────────────────────────────────────
+const EyeBtn = ({ show, toggle }) => (
+  <button
+    type="button"
+    style={s.eyeBtn}
+    onClick={toggle}
+    aria-label={show ? "Hide password" : "Show password"}
+  >
+    {show ? "🙈" : "👁️"}
+  </button>
+);
+
+// ── Server Alert ──────────────────────────────────────────────
+const ServerAlert = ({ msg }) => {
+  if (!msg) return null;
+
+  const isError =
+    msg.toLowerCase().includes("fail") ||
+    msg.toLowerCase().includes("error") ||
+    msg.toLowerCase().includes("invalid") ||
+    msg.toLowerCase().includes("incorrect") ||
+    msg.toLowerCase().includes("already");
+
+  return (
+    <div className={`seller-alert ${isError ? "error" : "success"}`}>
+      {isError ? "⚠️" : "✅"} {msg}
+    </div>
+  );
+};
+
+// ── Divider ───────────────────────────────────────────────────
+const Divider = () => (
+  <div style={s.divider}>
+    <div style={s.dividerLine} />
+    <span style={s.dividerText}>or</span>
+    <div style={s.dividerLine} />
+  </div>
+);
+
+// ── Spinner ───────────────────────────────────────────────────
 const Spinner = () => (
   <span style={{
     width:        "18px",
@@ -319,20 +552,23 @@ const Spinner = () => (
     borderRadius: "50%",
     display:      "inline-block",
     animation:    "spin 0.7s linear infinite",
+    marginRight:  "0.4rem",
   }} />
 );
 
-// ─── Styles ───────────────────────────────────────────────────
+// ══════════════════════════════════════════════════════════════
+// STYLES
+// ══════════════════════════════════════════════════════════════
 const s = {
   cardHeader: {
-    textAlign:    "center",
-    marginBottom: "2rem",
+    textAlign:     "center",
+    marginBottom:  "2rem",
     paddingBottom: "1.5rem",
-    borderBottom: "1px solid #f3f4f6",
+    borderBottom:  "1px solid #f3f4f6",
   },
-  headerIcon:  { fontSize: "3rem", marginBottom: "0.75rem" },
-  cardTitle:   { fontSize: "1.5rem", fontWeight: 800, color: "#1f2937", margin: 0 },
-  cardSubtitle:{ color: "#6b7280", marginTop: "0.4rem", fontSize: "0.95rem" },
+  headerIcon:   { fontSize: "3rem", marginBottom: "0.75rem" },
+  cardTitle:    { fontSize: "1.5rem", fontWeight: 800, color: "#1f2937", margin: 0 },
+  cardSubtitle: { color: "#6b7280", marginTop: "0.4rem", fontSize: "0.95rem" },
 
   form: { display: "flex", flexDirection: "column", gap: "1.25rem" },
 
@@ -351,81 +587,77 @@ const s = {
     lineHeight: 1,
   },
 
-  // Strength meter
+  // Strength
   strengthWrap: {
     display:    "flex",
     alignItems: "center",
     gap:        "0.75rem",
     marginTop:  "0.5rem",
   },
-  strengthBar: {
-    display: "flex",
-    gap:     "3px",
-    flex:    1,
-  },
+  strengthBar:     { display: "flex", gap: "3px", flex: 1 },
   strengthSegment: {
     height:       "4px",
     flex:         1,
     borderRadius: "100px",
     transition:   "background 0.3s ease",
   },
-  strengthLabel: {
-    fontSize:   "0.8rem",
-    fontWeight: 700,
-    whiteSpace: "nowrap",
-  },
+  strengthLabel: { fontSize: "0.8rem", fontWeight: 700, whiteSpace: "nowrap" },
 
-  // Rules checklist
+  // Rules
   rulesWrap: {
-    display:       "grid",
+    display:             "grid",
     gridTemplateColumns: "1fr 1fr",
-    gap:           "0.35rem",
-    marginTop:     "0.5rem",
-    padding:       "0.75rem",
-    background:    "#f8fafc",
-    borderRadius:  "10px",
+    gap:                 "0.35rem",
+    marginTop:           "0.5rem",
+    padding:             "0.75rem",
+    background:          "#f8fafc",
+    borderRadius:        "10px",
   },
-  ruleRow: {
-    display:    "flex",
-    alignItems: "center",
-    gap:        "0.4rem",
-  },
+  ruleRow: { display: "flex", alignItems: "center", gap: "0.4rem" },
 
-  // Footer
-  loginLink: {
+  // Switch between forms
+  switchText: {
     textAlign:  "center",
     color:      "#6b7280",
     fontSize:   "0.9rem",
-    margin:     "0.5rem 0",
+    margin:     "0.25rem 0",
   },
-  link: {
+  switchBtn: {
+    background:  "none",
+    border:      "none",
+    color:       "#6366f1",
+    fontWeight:  700,
+    cursor:      "pointer",
+    fontSize:    "0.9rem",
+    padding:     0,
+    textDecoration: "underline",
+  },
+
+  // Forgot
+  forgotLink: {
     color:          "#6366f1",
+    fontSize:       "0.85rem",
     fontWeight:     600,
     textDecoration: "none",
   },
-  divider: {
-    display:    "flex",
-    alignItems: "center",
-    gap:        "1rem",
-    margin:     "0.5rem 0",
-  },
-  dividerLine: {
-    flex:       1,
-    height:     "1px",
-    background: "#e5e7eb",
-  },
+
+  // Divider
+  divider:     { display: "flex", alignItems: "center", gap: "1rem", margin: "0.25rem 0" },
+  dividerLine: { flex: 1, height: "1px", background: "#e5e7eb" },
   dividerText: { color: "#9ca3af", fontSize: "0.85rem" },
+
+  // Skip
   skipBtn: {
-    background:  "none",
-    border:      "2px dashed #e5e7eb",
+    background:   "none",
+    border:       "2px dashed #e5e7eb",
     borderRadius: "14px",
-    color:       "#9ca3af",
-    padding:     "0.875rem",
-    cursor:      "pointer",
-    fontSize:    "0.875rem",
-    fontWeight:  500,
-    width:       "100%",
-    transition:  "all 0.2s ease",
+    color:        "#9ca3af",
+    padding:      "0.875rem",
+    cursor:       "pointer",
+    fontSize:     "0.875rem",
+    fontWeight:   500,
+    width:        "100%",
+    transition:   "all 0.2s ease",
   },
 };
 
