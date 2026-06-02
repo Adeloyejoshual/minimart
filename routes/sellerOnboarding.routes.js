@@ -1,6 +1,7 @@
 // routes/sellerOnboarding.routes.js
 import express              from "express";
 import multer               from "multer";
+import axios                from "axios";
 import { pool }             from "../server.js";
 import { authenticate }     from "../middleware/auth.js";
 import { v2 as cloudinary } from "cloudinary";
@@ -13,7 +14,12 @@ const upload = multer({
   storage: multer.memoryStorage(),
   limits:  { fileSize: 5 * 1024 * 1024 },
   fileFilter(_req, file, cb) {
-    const allowed = ["image/jpeg", "image/png", "image/webp", "application/pdf"];
+    const allowed = [
+      "image/jpeg",
+      "image/png",
+      "image/webp",
+      "application/pdf",
+    ];
     cb(null, allowed.includes(file.mimetype));
   },
 });
@@ -49,9 +55,9 @@ const maybeUpload = async (files, field, folder, id) => {
   return uploadToCloudinary(file.buffer, folder, id);
 };
 
-// ════════════════════════════════════════════════
+// ════════════════════════════════════════════════════════════
 // GET /api/seller-onboarding/status
-// ════════════════════════════════════════════════
+// ════════════════════════════════════════════════════════════
 router.get("/status", authenticate, async (req, res) => {
   try {
     const { rows } = await pool.query(
@@ -61,7 +67,10 @@ router.get("/status", authenticate, async (req, res) => {
          v.status, v.rejection_reason, v.suspended_reason,
          v.approved_at, v.activated_at,
          v.products_count, v.total_sales,
-         v.total_revenue, v.rating, v.created_at
+         v.total_revenue, v.rating,
+         v.withdrawal_method, v.bank_account,
+         v.bank_name, v.account_name,
+         v.created_at
        FROM market.vendors v
        WHERE v.user_id = $1`,
       [req.user.id]
@@ -78,14 +87,126 @@ router.get("/status", authenticate, async (req, res) => {
     return res.json({ success: true, vendor: rows[0] });
 
   } catch (err) {
-    console.error("[vendor status error]", err.message);
+    console.error("[status error]", err.message);
     return res.status(500).json({ success: false, message: "Server error" });
   }
 });
 
-// ════════════════════════════════════════════════
+// ════════════════════════════════════════════════════════════
+// GET /api/seller-onboarding/verify-account
+// Resolves bank account name via Flutterwave
+// Query: ?account_number=0123456789&bank_code=044
+// ════════════════════════════════════════════════════════════
+router.get("/verify-account", authenticate, async (req, res) => {
+  const { account_number, bank_code } = req.query;
+
+  // ── Validate ────────────────────────────────────────────
+  if (!account_number || !bank_code) {
+    return res.status(400).json({
+      success: false,
+      message: "account_number and bank_code are required",
+    });
+  }
+
+  if (!/^\d{10}$/.test(account_number)) {
+    return res.status(400).json({
+      success: false,
+      message: "Account number must be exactly 10 digits",
+    });
+  }
+
+  if (!process.env.FLW_SECRET_KEY) {
+    console.error("[verify-account] FLW_SECRET_KEY not set");
+    return res.status(500).json({
+      success: false,
+      message: "Payment service not configured",
+    });
+  }
+
+  try {
+    // ── Flutterwave account resolve ──────────────────────
+    const { data } = await axios.post(
+      "https://api.flutterwave.com/v3/accounts/resolve",
+      {
+        account_number,
+        account_bank: bank_code,
+      },
+      {
+        headers: {
+          Authorization: `Bearer ${process.env.FLW_SECRET_KEY}`,
+          "Content-Type": "application/json",
+        },
+        timeout: 10_000,
+      }
+    );
+
+    if (data.status !== "success") {
+      return res.status(400).json({
+        success: false,
+        message: data.message ?? "Account not found",
+      });
+    }
+
+    return res.json({
+      success:        true,
+      account_name:   data.data.account_name,
+      account_number: data.data.account_number,
+    });
+
+  } catch (err) {
+    console.error("[verify-account flw]", err.response?.data ?? err.message);
+
+    // Flutterwave returns 400 for invalid accounts
+    const msg =
+      err.response?.data?.message ??
+      "Account verification failed. Check number and bank.";
+
+    return res.status(400).json({ success: false, message: msg });
+  }
+});
+
+// ════════════════════════════════════════════════════════════
+// GET /api/seller-onboarding/banks
+// Returns list of Nigerian banks from Flutterwave
+// ════════════════════════════════════════════════════════════
+router.get("/banks", authenticate, async (req, res) => {
+  if (!process.env.FLW_SECRET_KEY) {
+    return res.status(500).json({
+      success: false,
+      message: "Payment service not configured",
+    });
+  }
+
+  try {
+    const { data } = await axios.get(
+      "https://api.flutterwave.com/v3/banks/NG",
+      {
+        headers: {
+          Authorization: `Bearer ${process.env.FLW_SECRET_KEY}`,
+        },
+        timeout: 10_000,
+      }
+    );
+
+    const banks = (data.data ?? []).map((b) => ({
+      code: b.code,
+      name: b.name,
+    }));
+
+    return res.json({ success: true, banks });
+
+  } catch (err) {
+    console.error("[banks error]", err.message);
+    return res.status(500).json({
+      success: false,
+      message: "Failed to fetch banks",
+    });
+  }
+});
+
+// ════════════════════════════════════════════════════════════
 // POST /api/seller-onboarding/setup-store
-// ════════════════════════════════════════════════
+// ════════════════════════════════════════════════════════════
 router.post("/setup-store", authenticate, storeUpload, async (req, res) => {
   const client = await pool.connect();
 
@@ -93,10 +214,15 @@ router.post("/setup-store", authenticate, storeUpload, async (req, res) => {
     await client.query("BEGIN");
 
     const {
-      store_name, store_description, store_category,
-      withdrawal_method, bank_account, paypal_email, crypto_wallet,
+      store_name,
+      store_description,
+      store_category,
+      bank_account,
+      bank_name,
+      account_name,
     } = req.body;
 
+    // ── Validate required fields ─────────────────────────
     if (!store_name?.trim()) {
       await client.query("ROLLBACK");
       return res.status(400).json({
@@ -105,13 +231,38 @@ router.post("/setup-store", authenticate, storeUpload, async (req, res) => {
       });
     }
 
-    // ── Check existing vendor ────────────────────────────────
+    if (!bank_account?.trim() || !/^\d{10}$/.test(bank_account.trim())) {
+      await client.query("ROLLBACK");
+      return res.status(400).json({
+        success: false,
+        message: "Valid 10-digit bank account is required",
+      });
+    }
+
+    if (!bank_name?.trim()) {
+      await client.query("ROLLBACK");
+      return res.status(400).json({
+        success: false,
+        message: "Bank name is required",
+      });
+    }
+
+    if (!account_name?.trim()) {
+      await client.query("ROLLBACK");
+      return res.status(400).json({
+        success: false,
+        message: "Verified account name is required",
+      });
+    }
+
+    // ── Check existing vendor ─────────────────────────────
     const { rows: existing } = await client.query(
       `SELECT id, status FROM market.vendors WHERE user_id = $1`,
       [req.user.id]
     );
 
-    const isReapply = existing.length && existing[0].status === "rejected";
+    const isReapply =
+      existing.length && existing[0].status === "rejected";
 
     if (existing.length && !isReapply) {
       await client.query("ROLLBACK");
@@ -123,7 +274,7 @@ router.post("/setup-store", authenticate, storeUpload, async (req, res) => {
       });
     }
 
-    // ── Check store name taken ───────────────────────────────
+    // ── Check store name taken ────────────────────────────
     const { rows: taken } = await client.query(
       `SELECT id FROM market.vendors
        WHERE store_name = $1 AND user_id != $2`,
@@ -139,7 +290,7 @@ router.post("/setup-store", authenticate, storeUpload, async (req, res) => {
       });
     }
 
-    // ── Upload images ────────────────────────────────────────
+    // ── Upload images ─────────────────────────────────────
     const [store_logo, store_banner] = await Promise.all([
       maybeUpload(req.files, "store_logo",   "vendor_logos",   `logo_${req.user.id}`),
       maybeUpload(req.files, "store_banner", "vendor_banners", `banner_${req.user.id}`),
@@ -149,6 +300,7 @@ router.post("/setup-store", authenticate, storeUpload, async (req, res) => {
     const oldStatus = existing[0]?.status ?? null;
 
     if (isReapply) {
+      // ── UPDATE existing rejected vendor ──────────────
       const { rows: [updated] } = await client.query(
         `UPDATE market.vendors SET
            store_name        = $1,
@@ -156,14 +308,17 @@ router.post("/setup-store", authenticate, storeUpload, async (req, res) => {
            store_category    = $3,
            store_logo        = COALESCE($4, store_logo),
            store_banner      = COALESCE($5, store_banner),
-           withdrawal_method = $6,
-           bank_account      = $7,
-           paypal_email      = $8,
-           crypto_wallet     = $9,
+           withdrawal_method = 'bank_transfer',
+           bank_account      = $6,
+           bank_name         = $7,
+           account_name      = $8,
+           paypal_email      = NULL,
+           crypto_wallet     = NULL,
            status            = 'pending',
            rejection_reason  = NULL,
+           rejected_at       = NULL,
            updated_at        = NOW()
-         WHERE user_id = $10
+         WHERE user_id = $9
          RETURNING *`,
         [
           store_name.trim(),
@@ -171,21 +326,23 @@ router.post("/setup-store", authenticate, storeUpload, async (req, res) => {
           store_category            ?? null,
           store_logo,
           store_banner,
-          withdrawal_method         ?? null,
-          bank_account?.trim()      ?? null,
-          paypal_email?.trim()      ?? null,
-          crypto_wallet?.trim()     ?? null,
+          bank_account.trim(),
+          bank_name.trim(),
+          account_name.trim(),
           req.user.id,
         ]
       );
       vendor = updated;
+
     } else {
+      // ── INSERT new vendor ─────────────────────────────
       const { rows: [created] } = await client.query(
         `INSERT INTO market.vendors
            (user_id, store_name, store_description, store_category,
-            store_logo, store_banner, withdrawal_method,
-            bank_account, paypal_email, crypto_wallet, status)
-         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,'pending')
+            store_logo, store_banner,
+            withdrawal_method, bank_account, bank_name, account_name,
+            status)
+         VALUES ($1,$2,$3,$4,$5,$6,'bank_transfer',$7,$8,$9,'pending')
          RETURNING *`,
         [
           req.user.id,
@@ -194,16 +351,15 @@ router.post("/setup-store", authenticate, storeUpload, async (req, res) => {
           store_category            ?? null,
           store_logo,
           store_banner,
-          withdrawal_method         ?? null,
-          bank_account?.trim()      ?? null,
-          paypal_email?.trim()      ?? null,
-          crypto_wallet?.trim()     ?? null,
+          bank_account.trim(),
+          bank_name.trim(),
+          account_name.trim(),
         ]
       );
       vendor = created;
     }
 
-    // ── Status log ───────────────────────────────────────────
+    // ── Status log ────────────────────────────────────────
     await client.query(
       `INSERT INTO market.vendor_status_logs
          (vendor_id, old_status, new_status, changed_by, reason)
@@ -226,16 +382,20 @@ router.post("/setup-store", authenticate, storeUpload, async (req, res) => {
 
   } catch (err) {
     await client.query("ROLLBACK");
-    console.error("[setup-store error]", err.message);
+    console.error("[setup-store error]", {
+      message: err.message,
+      code:    err.code,
+      detail:  err.detail,
+    });
     return res.status(500).json({ success: false, message: "Server error" });
   } finally {
     client.release();
   }
 });
 
-// ════════════════════════════════════════════════
+// ════════════════════════════════════════════════════════════
 // POST /api/seller-onboarding/verify
-// ════════════════════════════════════════════════
+// ════════════════════════════════════════════════════════════
 router.post("/verify", authenticate, verifyUpload, async (req, res) => {
   const client = await pool.connect();
 
@@ -277,10 +437,26 @@ router.post("/verify", authenticate, verifyUpload, async (req, res) => {
 
     const [id_card_url, selfie_url, business_doc_url, address_proof_url] =
       await Promise.all([
-        uploadToCloudinary(req.files.id_card[0].buffer,  "vendor_docs/id_cards", `id_${vendor.id}_${ts}`),
-        uploadToCloudinary(req.files.selfie[0].buffer,   "vendor_docs/selfies",  `selfie_${vendor.id}_${ts}`),
-        maybeUpload(req.files, "business_doc",  "vendor_docs/business", `biz_${vendor.id}_${ts}`),
-        maybeUpload(req.files, "address_proof", "vendor_docs/address",  `addr_${vendor.id}_${ts}`),
+        uploadToCloudinary(
+          req.files.id_card[0].buffer,
+          "vendor_docs/id_cards",
+          `id_${vendor.id}_${ts}`
+        ),
+        uploadToCloudinary(
+          req.files.selfie[0].buffer,
+          "vendor_docs/selfies",
+          `selfie_${vendor.id}_${ts}`
+        ),
+        maybeUpload(
+          req.files, "business_doc",
+          "vendor_docs/business",
+          `biz_${vendor.id}_${ts}`
+        ),
+        maybeUpload(
+          req.files, "address_proof",
+          "vendor_docs/address",
+          `addr_${vendor.id}_${ts}`
+        ),
       ]);
 
     await client.query(
@@ -291,8 +467,14 @@ router.post("/verify", authenticate, verifyUpload, async (req, res) => {
        ON CONFLICT (vendor_id) DO UPDATE SET
          id_card_url       = EXCLUDED.id_card_url,
          selfie_url        = EXCLUDED.selfie_url,
-         business_doc_url  = COALESCE(EXCLUDED.business_doc_url,  vendor_verifications.business_doc_url),
-         address_proof_url = COALESCE(EXCLUDED.address_proof_url, vendor_verifications.address_proof_url),
+         business_doc_url  = COALESCE(
+                               EXCLUDED.business_doc_url,
+                               vendor_verifications.business_doc_url
+                             ),
+         address_proof_url = COALESCE(
+                               EXCLUDED.address_proof_url,
+                               vendor_verifications.address_proof_url
+                             ),
          status            = 'pending',
          updated_at        = NOW()`,
       [vendor.id, id_card_url, selfie_url, business_doc_url, address_proof_url]
@@ -329,9 +511,9 @@ router.post("/verify", authenticate, verifyUpload, async (req, res) => {
   }
 });
 
-// ════════════════════════════════════════════════
+// ════════════════════════════════════════════════════════════
 // POST /api/seller-onboarding/reapply
-// ════════════════════════════════════════════════
+// ════════════════════════════════════════════════════════════
 router.post("/reapply", authenticate, async (req, res) => {
   try {
     const { rows } = await pool.query(
@@ -355,9 +537,19 @@ router.post("/reapply", authenticate, async (req, res) => {
 
     await pool.query(
       `UPDATE market.vendors
-       SET status = 'pending', rejection_reason = NULL, updated_at = NOW()
+       SET status           = 'pending',
+           rejection_reason = NULL,
+           rejected_at      = NULL,
+           updated_at       = NOW()
        WHERE id = $1`,
       [rows[0].id]
+    );
+
+    await pool.query(
+      `INSERT INTO market.vendor_status_logs
+         (vendor_id, old_status, new_status, changed_by, reason)
+       VALUES ($1, 'rejected', 'pending', $2, 'Seller reapplied')`,
+      [rows[0].id, req.user.id]
     );
 
     return res.json({
