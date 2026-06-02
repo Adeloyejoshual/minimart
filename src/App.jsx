@@ -42,10 +42,10 @@ import AddProduct      from "./pages/AddProduct";
 import Conversations   from "./pages/Conversations";
 import Chat            from "./pages/Chat";
 import Coupons         from "./pages/Profile/Coupons";
-import Dashboard       from "./pages/Dashboard";
-import Leaderboard     from "./pages/Leaderboard";
-import Verification    from "./pages/Verification";
-import Wallet          from "./pages/Wallet";
+import Dashboard       from "./pages/Profile/Dashboard";
+import Leaderboard     from "./pages/Profile/Leaderboard";
+import Verification    from "./pages/Profile/Verification";
+import Wallet          from "./pages/Profile/Wallet";
 import FAQ             from "./pages/FAQ";
 import Complain        from "./pages/Complain";
 import Support         from "./pages/Support";
@@ -54,8 +54,8 @@ import PostAds         from "./pages/PostAds";
 import PaymentSuccess  from "./pages/PaymentSuccess";
 
 // ── Pages — Admin ─────────────────────────────────────────────
-import AdminLogin      from "./pages/admin/AdminLogin";
-import AdminDashboard  from "./pages/admin/AdminDashboard";
+import AdminLogin      from "./page/admin/AdminLogin";
+import AdminDashboard  from "./page/admin/AdminDashboard";
 
 // ─────────────────────────────────────────────────────────────
 
