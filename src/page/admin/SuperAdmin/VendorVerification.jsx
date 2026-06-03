@@ -1,16 +1,16 @@
 // SuperAdmin/VendorVerification.jsx
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import axios from "axios";
 
-const BASE  = "https://minimart-ivrm.onrender.com/api/admin";
+const BASE = "https://minimart-ivrm.onrender.com/api/admin";
 
 const api = () => {
   const token = localStorage.getItem("admin_token");
   const h     = { Authorization: `Bearer ${token}` };
   return {
-    get:   (p)      => axios.get(`${BASE}${p}`,     { headers: h }),
-    patch: (p, b)   => axios.patch(`${BASE}${p}`, b, { headers: h }),
-    post:  (p, b={})=> axios.post(`${BASE}${p}`, b,  { headers: h }),
+    get:   (p)       => axios.get(`${BASE}${p}`,      { headers: h }),
+    patch: (p, b)    => axios.patch(`${BASE}${p}`, b, { headers: h }),
+    post:  (p, b={}) => axios.post(`${BASE}${p}`, b,  { headers: h }),
   };
 };
 
@@ -24,7 +24,7 @@ const STATUS_CONFIG = {
   suspended:    { label: "Suspended",    color: "#6b7280", bg: "#f9fafb" },
 };
 
-// ── Allowed transitions (mirrors backend) ─────────────────────
+// ── Allowed transitions — mirrors backend ─────────────────────
 const ALLOWED_TRANSITIONS = {
   pending:      ["under_review", "rejected"],
   under_review: ["approved", "rejected"],
@@ -39,12 +39,14 @@ const STATUS_FILTERS = [
   "approved", "active", "rejected", "suspended",
 ];
 
+const LIMIT = 20;
+
 // ══════════════════════════════════════════════════════════════
 export default function VendorVerification({ confirm, onMutation }) {
   const [vendors,        setVendors]        = useState([]);
   const [statusCounts,   setStatusCounts]   = useState({});
   const [pagination,     setPagination]     = useState({
-    total: 0, page: 1, limit: 20, total_pages: 1,
+    total: 0, page: 1, limit: LIMIT, total_pages: 1,
   });
   const [loading,        setLoading]        = useState(true);
   const [selectedVendor, setSelectedVendor] = useState(null);
@@ -53,13 +55,22 @@ export default function VendorVerification({ confirm, onMutation }) {
   const [statusFilter,   setStatusFilter]   = useState("pending");
   const [search,         setSearch]         = useState("");
   const [activeTab,      setActiveTab]      = useState("info");
+  const [notes,          setNotes]          = useState("");
 
-  // ── Status update modal ───────────────────────────────────
   const [statusModal, setStatusModal] = useState({
-    open:   false,
-    status: "",
-    reason: "",
+    open: false, status: "", reason: "",
   });
+
+  // ── FIX 7: wallet cache — prevents refetch on every tab switch
+  const walletCacheRef = useRef({});
+
+  // ── FIX 9: debounced search ───────────────────────────────
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      fetchVendors(1);
+    }, 500);
+    return () => clearTimeout(timer);
+  }, [search, statusFilter]);
 
   // ── Fetch vendors list ────────────────────────────────────
   const fetchVendors = useCallback(async (page = 1) => {
@@ -67,7 +78,7 @@ export default function VendorVerification({ confirm, onMutation }) {
     try {
       const params = new URLSearchParams({
         page,
-        limit: 20,
+        limit: LIMIT,
         ...(statusFilter !== "all" && { status: statusFilter }),
         ...(search.trim()          && { search: search.trim() }),
       });
@@ -75,18 +86,23 @@ export default function VendorVerification({ confirm, onMutation }) {
       const { data } = await api().get(`/vendors?${params}`);
 
       setVendors(data.vendors ?? []);
-      setPagination(data.pagination ?? {
-        total: 0, page: 1, limit: 20, total_pages: 1,
-      });
       setStatusCounts(data.status_counts ?? {});
+
+      // ── FIX 3: backend returns data.total not data.pagination
+      const total = Number(data.total ?? 0);
+      setPagination({
+        total,
+        page,
+        limit:       LIMIT,
+        total_pages: Math.max(1, Math.ceil(total / LIMIT)),
+      });
+
     } catch (err) {
       console.error("[VendorVerification] fetch:", err.message);
     } finally {
       setLoading(false);
     }
   }, [statusFilter, search]);
-
-  useEffect(() => { fetchVendors(1); }, [fetchVendors]);
 
   // ── Fetch single vendor detail ────────────────────────────
   const fetchDetail = useCallback(async (id) => {
@@ -95,6 +111,13 @@ export default function VendorVerification({ confirm, onMutation }) {
     try {
       const { data } = await api().get(`/vendors/${id}`);
       setSelectedVendor(data);
+
+      // ── FIX 4: preload verification notes into state
+      setNotes(
+        data?.vendor?.verification_notes ??
+        data?.vendor?.notes              ??
+        ""
+      );
     } catch (err) {
       console.error("[VendorVerification] detail:", err.message);
     } finally {
@@ -115,11 +138,13 @@ export default function VendorVerification({ confirm, onMutation }) {
         { status, ...(reason.trim() && { reason: reason.trim() }) }
       );
 
-      // Refresh detail
-      await fetchDetail(vendorId);
-      fetchVendors(pagination.page);
-      onMutation?.();
+      // ── FIX 5: parallel refresh — prevents stale data
+      await Promise.all([
+        fetchDetail(vendorId),
+        fetchVendors(pagination.page),
+      ]);
 
+      onMutation?.();
       setStatusModal({ open: false, status: "", reason: "" });
 
       if (data.virtual_account) {
@@ -129,23 +154,27 @@ export default function VendorVerification({ confirm, onMutation }) {
           `Bank: ${data.virtual_account.bank_name}`
         );
       }
+
     } catch (err) {
-      alert(
-        err.response?.data?.message ?? "Failed to update status"
-      );
+      alert(err.response?.data?.message ?? "Failed to update status");
     } finally {
       setActionLoading(null);
     }
-  }, [statusModal, selectedVendor, pagination.page,
-      fetchDetail, fetchVendors, onMutation]);
+  }, [
+    statusModal, selectedVendor,
+    pagination.page, fetchDetail,
+    fetchVendors, onMutation,
+  ]);
 
-  // ── Create virtual account (retry) ────────────────────────
+  // ── Create virtual account (retry) ───────────────────────
   const retryVirtualAccount = useCallback(async (vendorId) => {
     setActionLoading("va");
     try {
       const { data } = await api().post(
         `/vendors/${vendorId}/create-virtual-account`
       );
+      // Invalidate wallet cache on new VA creation
+      delete walletCacheRef.current[vendorId];
       await fetchDetail(vendorId);
       alert(
         `✅ Virtual account created!\n` +
@@ -153,24 +182,19 @@ export default function VendorVerification({ confirm, onMutation }) {
         `Bank: ${data.virtual_account?.bank_name}`
       );
     } catch (err) {
-      alert(
-        err.response?.data?.message ?? "Virtual account creation failed"
-      );
+      alert(err.response?.data?.message ?? "Virtual account creation failed");
     } finally {
       setActionLoading(null);
     }
   }, [fetchDetail]);
 
   // ── Save verification notes ───────────────────────────────
-  const [notes, setNotes] = useState("");
-
   const saveNotes = useCallback(async (vendorId) => {
     if (!notes.trim()) return;
     setActionLoading("notes");
     try {
       await api().patch(`/vendors/${vendorId}/verification-notes`, { notes });
       await fetchDetail(vendorId);
-      setNotes("");
     } catch (err) {
       alert(err.response?.data?.message ?? "Failed to save notes");
     } finally {
@@ -186,30 +210,19 @@ export default function VendorVerification({ confirm, onMutation }) {
       <div style={s.header}>
         <div>
           <h2 style={s.title}>🏪 Vendor Verification</h2>
-          <p style={s.subtitle}>
-            Review and approve seller applications
-          </p>
+          <p style={s.subtitle}>Review and approve seller applications</p>
         </div>
-
-        {/* Status count pills */}
         <div style={s.countPills}>
           {["pending", "under_review", "active"].map((st) => {
             const cfg = STATUS_CONFIG[st];
             return (
-              <div
-                key={st}
-                style={{
-                  ...s.countPill,
-                  background: cfg.bg,
-                  color:      cfg.color,
-                }}
-              >
+              <div key={st} style={{
+                ...s.countPill, background: cfg.bg, color: cfg.color,
+              }}>
                 <span style={{ fontWeight: 800 }}>
                   {statusCounts[st] ?? 0}
                 </span>
-                <span style={{ fontSize: "0.75rem" }}>
-                  {cfg.label}
-                </span>
+                <span style={{ fontSize: "0.75rem" }}>{cfg.label}</span>
               </div>
             );
           })}
@@ -218,7 +231,6 @@ export default function VendorVerification({ confirm, onMutation }) {
 
       {/* ── Filters ────────────────────────────────────── */}
       <div style={s.filters}>
-        {/* Status tabs */}
         <div style={s.tabs}>
           {STATUS_FILTERS.map((st) => (
             <button
@@ -234,19 +246,17 @@ export default function VendorVerification({ confirm, onMutation }) {
             >
               {st === "all" ? "All" : STATUS_CONFIG[st]?.label ?? st}
               {st !== "all" && statusCounts[st]
-                ? ` (${statusCounts[st]})`
-                : ""}
+                ? ` (${statusCounts[st]})` : ""}
             </button>
           ))}
         </div>
 
-        {/* Search */}
+        {/* FIX 9: search input — debounced via useEffect */}
         <input
           style={s.search}
-          placeholder="🔍 Search store name, owner, email..."
+          placeholder="🔍 Search store, owner, email..."
           value={search}
           onChange={(e) => setSearch(e.target.value)}
-          onKeyDown={(e) => e.key === "Enter" && fetchVendors(1)}
         />
       </div>
 
@@ -270,7 +280,6 @@ export default function VendorVerification({ confirm, onMutation }) {
             ))
           )}
 
-          {/* Pagination */}
           {pagination.total_pages > 1 && (
             <Pagination
               pagination={pagination}
@@ -297,6 +306,7 @@ export default function VendorVerification({ confirm, onMutation }) {
                 notes={notes}
                 setNotes={setNotes}
                 saveNotes={saveNotes}
+                walletCacheRef={walletCacheRef}
                 onClose={() => setSelectedVendor(null)}
               />
             )}
@@ -335,7 +345,6 @@ function VendorRow({ vendor, selected, onClick }) {
       }}
       onClick={onClick}
     >
-      {/* Logo */}
       {vendor.store_logo ? (
         <img
           src={vendor.store_logo}
@@ -348,7 +357,6 @@ function VendorRow({ vendor, selected, onClick }) {
         </div>
       )}
 
-      {/* Info */}
       <div style={{ flex: 1, minWidth: 0 }}>
         <div style={s.vendorName}>{vendor.store_name}</div>
         <div style={s.vendorOwner}>{vendor.owner_email}</div>
@@ -358,14 +366,9 @@ function VendorRow({ vendor, selected, onClick }) {
         </div>
       </div>
 
-      {/* Status */}
-      <span
-        style={{
-          ...s.statusBadge,
-          color:      cfg.color,
-          background: cfg.bg,
-        }}
-      >
+      <span style={{
+        ...s.statusBadge, color: cfg.color, background: cfg.bg,
+      }}>
         {cfg.label}
       </span>
     </div>
@@ -381,6 +384,7 @@ function DetailPanel({
   updateStatus, actionLoading,
   retryVirtualAccount,
   notes, setNotes, saveNotes,
+  walletCacheRef,
   onClose,
 }) {
   const { vendor, history } = data;
@@ -389,7 +393,7 @@ function DetailPanel({
 
   return (
     <div style={s.detailWrap}>
-      {/* ── Detail header ─────────────────────────────── */}
+      {/* Header */}
       <div style={s.detailHeader}>
         <div style={s.detailHeaderLeft}>
           {vendor.store_logo ? (
@@ -402,9 +406,7 @@ function DetailPanel({
           <div>
             <h3 style={s.detailName}>{vendor.store_name}</h3>
             <span style={{
-              ...s.statusBadge,
-              color:      cfg.color,
-              background: cfg.bg,
+              ...s.statusBadge, color: cfg.color, background: cfg.bg,
             }}>
               {cfg.label}
             </span>
@@ -413,7 +415,7 @@ function DetailPanel({
         <button style={s.closeBtn} onClick={onClose}>✕</button>
       </div>
 
-      {/* ── Action buttons ────────────────────────────── */}
+      {/* Action buttons */}
       {allowed.length > 0 && (
         <div style={s.actionRow}>
           {allowed.map((st) => {
@@ -429,11 +431,15 @@ function DetailPanel({
                   opacity:    actionLoading ? 0.6 : 1,
                 }}
                 disabled={!!actionLoading}
-                onClick={() => setStatusModal({
-                  open:   true,
-                  status: st,
-                  reason: "",
-                })}
+                onClick={() => {
+                  // ── FIX 6: confirm before suspend/reject
+                  if (["rejected", "suspended"].includes(st)) {
+                    if (!window.confirm(
+                      `Are you sure you want to ${st} this vendor?`
+                    )) return;
+                  }
+                  setStatusModal({ open: true, status: st, reason: "" });
+                }}
               >
                 {st === "active"       && "✅ Activate"}
                 {st === "approved"     && "👍 Approve"}
@@ -444,36 +450,33 @@ function DetailPanel({
             );
           })}
 
-          {/* Retry virtual account */}
-          {vendor.status === "active" &&
-           !vendor.virtual_account_number && (
+          {/* ── FIX 8: disable button while loading ────── */}
+          {vendor.status === "active"    &&
+           !vendor.virtual_account_number &&
+           !actionLoading && (
             <button
               style={{
                 ...s.actionBtn,
                 background: "#eef2ff",
                 color:      "#6366f1",
                 border:     "1px solid #6366f1",
-                opacity:    actionLoading === "va" ? 0.6 : 1,
               }}
-              disabled={actionLoading === "va"}
               onClick={() => retryVirtualAccount(vendor.id)}
             >
-              {actionLoading === "va"
-                ? "Creating..."
-                : "🏦 Create Virtual Account"}
+              {actionLoading === "va" ? "Creating..." : "🏦 Create Virtual Account"}
             </button>
           )}
         </div>
       )}
 
-      {/* ── Tabs ──────────────────────────────────────── */}
+      {/* Tabs */}
       <div style={s.detailTabs}>
         {[
-          { key: "info",   label: "ℹ️ Info"    },
-          { key: "docs",   label: "📄 Docs"    },
-          { key: "bank",   label: "🏦 Bank"    },
-          { key: "wallet", label: "💳 Wallet"  },
-          { key: "history",label: "📋 History" },
+          { key: "info",    label: "ℹ️ Info"    },
+          { key: "docs",    label: "📄 Docs"    },
+          { key: "bank",    label: "🏦 Bank"    },
+          { key: "wallet",  label: "💳 Wallet"  },
+          { key: "history", label: "📋 History" },
         ].map((tab) => (
           <button
             key={tab.key}
@@ -488,26 +491,29 @@ function DetailPanel({
         ))}
       </div>
 
-      {/* ── Tab content ───────────────────────────────── */}
+      {/* Tab content */}
       <div style={s.detailBody}>
 
-        {/* INFO TAB */}
+        {/* INFO */}
         {activeTab === "info" && (
           <div style={s.infoGrid}>
-            <InfoRow label="Owner"    value={vendor.owner_name}    />
-            <InfoRow label="Email"    value={vendor.owner_email}   />
-            <InfoRow label="Phone"    value={vendor.owner_phone}   />
-            <InfoRow label="Category" value={vendor.store_category}/>
-            <InfoRow label="Applied"
+            <InfoRow label="Owner"    value={vendor.owner_name}     />
+            <InfoRow label="Email"    value={vendor.owner_email}    />
+            <InfoRow label="Phone"    value={vendor.owner_phone}    />
+            <InfoRow label="Category" value={vendor.store_category} />
+            <InfoRow
+              label="Applied"
               value={new Date(vendor.created_at).toLocaleDateString()}
             />
             {vendor.approved_at && (
-              <InfoRow label="Approved"
+              <InfoRow
+                label="Approved"
                 value={new Date(vendor.approved_at).toLocaleDateString()}
               />
             )}
             {vendor.activated_at && (
-              <InfoRow label="Activated"
+              <InfoRow
+                label="Activated"
                 value={new Date(vendor.activated_at).toLocaleDateString()}
               />
             )}
@@ -518,6 +524,13 @@ function DetailPanel({
                 danger
               />
             )}
+            {vendor.suspended_reason && (
+              <InfoRow
+                label="Suspension Reason"
+                value={vendor.suspended_reason}
+                danger
+              />
+            )}
             {vendor.store_description && (
               <div style={s.descBox}>
                 <span style={s.descLabel}>Description</span>
@@ -525,7 +538,7 @@ function DetailPanel({
               </div>
             )}
 
-            {/* Internal notes */}
+            {/* Notes */}
             <div style={s.notesSection}>
               <label style={s.notesLabel}>Internal Notes</label>
               {vendor.verification_notes && (
@@ -555,59 +568,32 @@ function DetailPanel({
           </div>
         )}
 
-        {/* DOCS TAB */}
+        {/* DOCS */}
         {activeTab === "docs" && (
           <div style={s.docsGrid}>
-            <DocImage
-              label="🪪 Government ID"
-              url={vendor.id_card_url}
-              required
-            />
-            <DocImage
-              label="🤳 Selfie with ID"
-              url={vendor.selfie_url}
-              required
-            />
-            <DocImage
-              label="📄 Business Document"
-              url={vendor.business_doc_url}
-            />
-            <DocImage
-              label="📍 Address Proof"
-              url={vendor.address_proof_url}
-            />
+            <DocImage label="🪪 Government ID"     url={vendor.id_card_url}       required />
+            <DocImage label="🤳 Selfie with ID"    url={vendor.selfie_url}        required />
+            <DocImage label="📄 Business Document" url={vendor.business_doc_url}           />
+            <DocImage label="📍 Address Proof"     url={vendor.address_proof_url}          />
           </div>
         )}
 
-        {/* BANK TAB */}
+        {/* BANK */}
         {activeTab === "bank" && (
           <div style={s.infoGrid}>
-            <InfoRow label="Bank Name"       value={vendor.bank_name}     />
-            <InfoRow label="Account Number"  value={vendor.bank_account}  />
-            <InfoRow label="Account Name"    value={vendor.account_name}  />
+            <InfoRow label="Bank Name"      value={vendor.bank_name}    />
+            <InfoRow label="Account Number" value={vendor.bank_account} />
+            <InfoRow label="Account Name"   value={vendor.account_name} />
 
-            {/* Virtual account */}
             {vendor.virtual_account_number ? (
               <>
                 <div style={s.sectionDivider}>
-                  🏦 Virtual Account (for receiving payments)
+                  🏦 Virtual Account (receive payments)
                 </div>
-                <InfoRow
-                  label="Virtual Account"
-                  value={vendor.virtual_account_number}
-                />
-                <InfoRow
-                  label="Virtual Bank"
-                  value={vendor.virtual_bank_name}
-                />
-                <InfoRow
-                  label="Virtual Name"
-                  value={vendor.virtual_account_name}
-                />
-                <InfoRow
-                  label="VA Status"
-                  value={vendor.virtual_account_status}
-                />
+                <InfoRow label="Virtual Account" value={vendor.virtual_account_number} />
+                <InfoRow label="Virtual Bank"    value={vendor.virtual_bank_name}      />
+                <InfoRow label="Virtual Name"    value={vendor.virtual_account_name}   />
+                <InfoRow label="VA Status"       value={vendor.virtual_account_status} />
               </>
             ) : (
               <div style={s.noVA}>
@@ -622,12 +608,15 @@ function DetailPanel({
           </div>
         )}
 
-        {/* WALLET TAB */}
+        {/* WALLET */}
         {activeTab === "wallet" && (
-          <WalletTab vendorId={vendor.id} />
+          <WalletTab
+            vendorId={vendor.id}
+            walletCacheRef={walletCacheRef}
+          />
         )}
 
-        {/* HISTORY TAB */}
+        {/* HISTORY */}
         {activeTab === "history" && (
           <div style={s.historyList}>
             {!history?.length ? (
@@ -662,29 +651,44 @@ function DetailPanel({
 }
 
 // ══════════════════════════════════════════════════════════════
-// WALLET TAB — loads on demand
+// WALLET TAB — with cache + correct field mapping
 // ══════════════════════════════════════════════════════════════
-function WalletTab({ vendorId }) {
-  const [wallet,  setWallet]  = useState(null);
-  const [loading, setLoading] = useState(true);
+function WalletTab({ vendorId, walletCacheRef }) {
+  const [walletData, setWalletData] = useState(null);
+  const [loading,    setLoading]    = useState(true);
 
   useEffect(() => {
     const fetchWallet = async () => {
       setLoading(true);
+
+      // ── FIX 7: return cached data if available ────────
+      if (walletCacheRef.current[vendorId]) {
+        setWalletData(walletCacheRef.current[vendorId]);
+        setLoading(false);
+        return;
+      }
+
       try {
         const { data } = await api().get(`/vendors/${vendorId}/wallet`);
-        setWallet(data);
+
+        // Cache the result
+        walletCacheRef.current[vendorId] = data;
+        setWalletData(data);
       } catch (err) {
         console.error("[WalletTab]", err.message);
       } finally {
         setLoading(false);
       }
     };
-    fetchWallet();
-  }, [vendorId]);
 
-  if (loading) return <div style={s.empty}>Loading wallet...</div>;
-  if (!wallet?.wallet) {
+    fetchWallet();
+  }, [vendorId, walletCacheRef]);
+
+  if (loading) {
+    return <div style={s.empty}>Loading wallet...</div>;
+  }
+
+  if (!walletData?.wallet) {
     return (
       <div style={s.empty}>
         💳 No wallet yet — created when vendor is activated
@@ -692,20 +696,24 @@ function WalletTab({ vendorId }) {
     );
   }
 
-  const { balance, virtual_account, transactions, withdrawals } = wallet;
+  // ── FIX 1 + 2: correct field destructuring ────────────────
+  const balance         = walletData.wallet;           // not walletData.balance
+  const virtual_account = walletData.virtual_account;
+  const transactions    = walletData.transactions ?? [];
+  const withdrawals     = walletData.withdrawals  ?? [];
 
   return (
     <div>
-      {/* Balance cards */}
+      {/* Balance cards — FIX 2: correct field names */}
       <div style={s.balanceGrid}>
         <BalanceCard
           label="Available"
-          value={balance?.available ?? 0}
+          value={balance?.available_balance ?? 0}
           color="#10b981"
         />
         <BalanceCard
           label="Pending"
-          value={balance?.pending   ?? 0}
+          value={balance?.pending_balance ?? 0}
           color="#f59e0b"
         />
         <BalanceCard
@@ -724,17 +732,23 @@ function WalletTab({ vendorId }) {
       {virtual_account && (
         <div style={s.vaBox}>
           <span style={s.vaLabel}>🏦 Virtual Account</span>
-          <span style={s.vaNumber}>
-            {virtual_account.account_number}
-          </span>
+          <span style={s.vaNumber}>{virtual_account.account_number}</span>
           <span style={s.vaBank}>
             {virtual_account.account_name} · {virtual_account.bank_name}
+          </span>
+          <span style={{
+            fontSize:  "0.72rem",
+            color:     virtual_account.status === "active" ? "#059669" : "#6b7280",
+            fontWeight: 600,
+            marginTop: "0.25rem",
+          }}>
+            {virtual_account.status}
           </span>
         </div>
       )}
 
       {/* Recent transactions */}
-      {transactions?.length > 0 && (
+      {transactions.length > 0 && (
         <div style={s.txSection}>
           <div style={s.txTitle}>Recent Transactions</div>
           {transactions.slice(0, 5).map((tx) => (
@@ -743,8 +757,7 @@ function WalletTab({ vendorId }) {
                 ...s.txType,
                 color: tx.type === "credit" ? "#10b981" : "#ef4444",
               }}>
-                {tx.type === "credit" ? "↑" : "↓"}
-                {" "}{tx.type}
+                {tx.type === "credit" ? "↑" : "↓"} {tx.type}
               </span>
               <span style={s.txAmount}>
                 ₦{Number(tx.amount).toLocaleString()}
@@ -757,6 +770,27 @@ function WalletTab({ vendorId }) {
           ))}
         </div>
       )}
+
+      {/* Recent withdrawals */}
+      {withdrawals.length > 0 && (
+        <div style={{ ...s.txSection, marginTop: "1rem" }}>
+          <div style={s.txTitle}>Recent Withdrawals</div>
+          {withdrawals.slice(0, 5).map((wd) => (
+            <div key={wd.id} style={s.txRow}>
+              <span style={{ ...s.txType, color: "#ef4444" }}>
+                ↓ withdrawal
+              </span>
+              <span style={s.txAmount}>
+                ₦{Number(wd.amount).toLocaleString()}
+              </span>
+              <span style={s.txDate}>
+                {new Date(wd.created_at).toLocaleDateString()}
+              </span>
+              <TxStatus status={wd.status} />
+            </div>
+          ))}
+        </div>
+      )}
     </div>
   );
 }
@@ -765,15 +799,16 @@ function WalletTab({ vendorId }) {
 // STATUS MODAL
 // ══════════════════════════════════════════════════════════════
 function StatusModal({ modal, setModal, onConfirm, loading }) {
-  const cfg             = STATUS_CONFIG[modal.status] ?? {};
-  const requiresReason  = ["rejected", "suspended"].includes(modal.status);
+  const cfg            = STATUS_CONFIG[modal.status] ?? {};
+  const requiresReason = ["rejected", "suspended"].includes(modal.status);
 
   return (
-    <div style={s.modalOverlay} onClick={() => setModal({ ...modal, open: false })}>
+    <div
+      style={s.modalOverlay}
+      onClick={() => setModal({ ...modal, open: false })}
+    >
       <div style={s.modal} onClick={(e) => e.stopPropagation()}>
-        <h3 style={s.modalTitle}>
-          Confirm Status Change
-        </h3>
+        <h3 style={s.modalTitle}>Confirm Status Change</h3>
 
         <p style={s.modalBody}>
           Change vendor status to{" "}
@@ -783,7 +818,6 @@ function StatusModal({ modal, setModal, onConfirm, loading }) {
           ?
         </p>
 
-        {/* Reason input */}
         {requiresReason && (
           <div style={s.modalReasonWrap}>
             <label style={s.modalReasonLabel}>
@@ -794,7 +828,7 @@ function StatusModal({ modal, setModal, onConfirm, loading }) {
               placeholder={
                 modal.status === "rejected"
                   ? "e.g. Documents unclear, invalid ID..."
-                  : "e.g. Policy violation, fraudulent activity..."
+                  : "e.g. Policy violation, suspicious activity..."
               }
               value={modal.reason}
               onChange={(e) =>
@@ -816,7 +850,7 @@ function StatusModal({ modal, setModal, onConfirm, loading }) {
           <button
             style={{
               ...s.modalConfirmBtn,
-              background:  cfg.color ?? "#6366f1",
+              background: cfg.color ?? "#6366f1",
               opacity:
                 loading ||
                 (requiresReason && !modal.reason.trim())
@@ -857,12 +891,7 @@ function DocImage({ label, url, required }) {
       <a href={url} target="_blank" rel="noreferrer">
         <img src={url} alt={label} style={s.docImg} />
       </a>
-      <a
-        href={url}
-        target="_blank"
-        rel="noreferrer"
-        style={s.docLink}
-      >
+      <a href={url} target="_blank" rel="noreferrer" style={s.docLink}>
         Open full size ↗
       </a>
     </div>
@@ -884,7 +913,9 @@ function InfoRow({ label, value, danger }) {
 }
 
 function StatusBadge({ status }) {
-  const cfg = STATUS_CONFIG[status] ?? { label: status, color: "#6b7280", bg: "#f9fafb" };
+  const cfg = STATUS_CONFIG[status] ?? {
+    label: status, color: "#6b7280", bg: "#f9fafb",
+  };
   return (
     <span style={{
       padding:      "0.15rem 0.5rem",
@@ -920,18 +951,14 @@ function TxStatus({ status }) {
   };
   const cfg = map[status] ?? map.pending;
   return (
-    <span style={{
-      fontSize:  "0.72rem",
-      fontWeight: 600,
-      color:      cfg.color,
-    }}>
+    <span style={{ fontSize: "0.72rem", fontWeight: 600, color: cfg.color }}>
       {cfg.label}
     </span>
   );
 }
 
 function Pagination({ pagination, onPage }) {
-  const { page, total_pages } = pagination;
+  const { page, total_pages, total } = pagination;
   return (
     <div style={s.pagination}>
       <button
@@ -943,6 +970,9 @@ function Pagination({ pagination, onPage }) {
       </button>
       <span style={s.pageInfo}>
         {page} / {total_pages}
+        <span style={{ color: "#9ca3af", marginLeft: "0.5rem" }}>
+          ({total} total)
+        </span>
       </span>
       <button
         style={s.pageBtn}
@@ -963,7 +993,10 @@ function LoadingRows() {
           <div style={s.skeletonCircle} />
           <div style={{ flex: 1 }}>
             <div style={s.skeletonLine} />
-            <div style={{ ...s.skeletonLine, width: "60%", marginTop: 6 }} />
+            <div style={{
+              ...s.skeletonLine,
+              width: "60%", marginTop: 6,
+            }} />
           </div>
         </div>
       ))}
@@ -975,10 +1008,10 @@ function LoadingRows() {
 // STYLES
 // ══════════════════════════════════════════════════════════════
 const s = {
-  wrap:      { display: "flex", flexDirection: "column", gap: "1.25rem", height: "100%" },
+  wrap:      { display: "flex", flexDirection: "column", gap: "1.25rem" },
   header:    { display: "flex", justifyContent: "space-between", alignItems: "flex-start", flexWrap: "wrap", gap: "1rem" },
-  title:     { fontSize: "1.35rem", fontWeight: 800, color: "var(--text, #1f2937)", margin: 0 },
-  subtitle:  { color: "var(--muted, #6b7280)", fontSize: "0.875rem", margin: "0.25rem 0 0" },
+  title:     { fontSize: "1.35rem", fontWeight: 800, color: "var(--text,#1f2937)", margin: 0 },
+  subtitle:  { color: "var(--muted,#6b7280)", fontSize: "0.875rem", margin: "0.25rem 0 0" },
 
   countPills:{ display: "flex", gap: "0.75rem", flexWrap: "wrap" },
   countPill: { display: "flex", flexDirection: "column", alignItems: "center", padding: "0.5rem 1rem", borderRadius: "12px", minWidth: "70px", gap: "0.15rem" },
@@ -991,39 +1024,36 @@ const s = {
 
   layout:    { display: "grid", gridTemplateColumns: "340px 1fr", gap: "1.25rem", minHeight: "500px" },
 
-  // List
-  list:       { background: "white", borderRadius: "14px", border: "1px solid #f3f4f6", overflow: "hidden", display: "flex", flexDirection: "column" },
-  vendorRow:  { display: "flex", alignItems: "center", gap: "0.75rem", padding: "0.875rem 1rem", cursor: "pointer", borderBottom: "1px solid #f9fafb", transition: "background 0.1s" },
-  vendorRowSelected: { background: "#eef2ff" },
-  vendorLogo: { width: "40px", height: "40px", borderRadius: "10px", objectFit: "cover", flexShrink: 0 },
+  list:               { background: "white", borderRadius: "14px", border: "1px solid #f3f4f6", overflow: "hidden", display: "flex", flexDirection: "column" },
+  vendorRow:          { display: "flex", alignItems: "center", gap: "0.75rem", padding: "0.875rem 1rem", cursor: "pointer", borderBottom: "1px solid #f9fafb", transition: "background 0.1s" },
+  vendorRowSelected:  { background: "#eef2ff" },
+  vendorLogo:         { width: "40px", height: "40px", borderRadius: "10px", objectFit: "cover", flexShrink: 0 },
   vendorLogoPlaceholder: { width: "40px", height: "40px", borderRadius: "10px", background: "linear-gradient(135deg,#6366f1,#8b5cf6)", color: "white", display: "flex", alignItems: "center", justifyContent: "center", fontWeight: 800, fontSize: "1.1rem", flexShrink: 0 },
-  vendorName: { fontWeight: 600, color: "#1f2937", fontSize: "0.875rem", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" },
-  vendorOwner:{ fontSize: "0.78rem", color: "#6b7280", marginTop: "0.15rem" },
-  vendorMeta: { fontSize: "0.72rem", color: "#9ca3af", marginTop: "0.1rem" },
-  statusBadge:{ display: "inline-block", padding: "0.15rem 0.6rem", borderRadius: "100px", fontSize: "0.72rem", fontWeight: 700, whiteSpace: "nowrap", flexShrink: 0 },
+  vendorName:         { fontWeight: 600, color: "#1f2937", fontSize: "0.875rem", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" },
+  vendorOwner:        { fontSize: "0.78rem", color: "#6b7280", marginTop: "0.15rem" },
+  vendorMeta:         { fontSize: "0.72rem", color: "#9ca3af", marginTop: "0.1rem" },
+  statusBadge:        { display: "inline-block", padding: "0.15rem 0.6rem", borderRadius: "100px", fontSize: "0.72rem", fontWeight: 700, whiteSpace: "nowrap", flexShrink: 0 },
 
-  // Detail
   detail:      { background: "white", borderRadius: "14px", border: "1px solid #f3f4f6", overflow: "hidden" },
   detailEmpty: { background: "white", borderRadius: "14px", border: "1px solid #f3f4f6", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", color: "#9ca3af", gap: "0.75rem", minHeight: "400px" },
-  detailLoading: { display: "flex", alignItems: "center", justifyContent: "center", minHeight: "300px", color: "#9ca3af" },
+  detailLoading:{ display: "flex", alignItems: "center", justifyContent: "center", minHeight: "300px", color: "#9ca3af" },
 
-  detailWrap:  { display: "flex", flexDirection: "column", height: "100%" },
-  detailHeader:{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "1rem 1.25rem", borderBottom: "1px solid #f3f4f6" },
+  detailWrap:       { display: "flex", flexDirection: "column", height: "100%" },
+  detailHeader:     { display: "flex", justifyContent: "space-between", alignItems: "center", padding: "1rem 1.25rem", borderBottom: "1px solid #f3f4f6" },
   detailHeaderLeft: { display: "flex", alignItems: "center", gap: "0.875rem" },
-  detailLogo:  { width: "48px", height: "48px", borderRadius: "12px", objectFit: "cover" },
+  detailLogo:       { width: "48px", height: "48px", borderRadius: "12px", objectFit: "cover" },
   detailLogoPlaceholder: { width: "48px", height: "48px", borderRadius: "12px", background: "linear-gradient(135deg,#6366f1,#8b5cf6)", color: "white", display: "flex", alignItems: "center", justifyContent: "center", fontWeight: 800, fontSize: "1.25rem" },
   detailName:  { fontWeight: 800, color: "#1f2937", margin: "0 0 0.25rem" },
   closeBtn:    { background: "none", border: "none", fontSize: "1.1rem", cursor: "pointer", color: "#9ca3af", padding: "0.25rem" },
 
-  actionRow:   { display: "flex", gap: "0.5rem", padding: "0.75rem 1.25rem", flexWrap: "wrap", borderBottom: "1px solid #f3f4f6" },
-  actionBtn:   { padding: "0.45rem 0.875rem", borderRadius: "8px", fontWeight: 600, fontSize: "0.8rem", cursor: "pointer", transition: "all 0.15s" },
+  actionRow:  { display: "flex", gap: "0.5rem", padding: "0.75rem 1.25rem", flexWrap: "wrap", borderBottom: "1px solid #f3f4f6" },
+  actionBtn:  { padding: "0.45rem 0.875rem", borderRadius: "8px", fontWeight: 600, fontSize: "0.8rem", cursor: "pointer", transition: "all 0.15s" },
 
-  detailTabs:  { display: "flex", borderBottom: "1px solid #f3f4f6", overflowX: "auto" },
-  detailTab:   { padding: "0.65rem 1rem", border: "none", background: "transparent", color: "#6b7280", fontSize: "0.85rem", cursor: "pointer", whiteSpace: "nowrap", fontWeight: 500, borderBottom: "2px solid transparent" },
-  detailTabActive: { color: "#6366f1", borderBottomColor: "#6366f1", fontWeight: 700 },
-  detailBody:  { padding: "1.25rem", overflowY: "auto", flex: 1 },
+  detailTabs:     { display: "flex", borderBottom: "1px solid #f3f4f6", overflowX: "auto" },
+  detailTab:      { padding: "0.65rem 1rem", border: "none", background: "transparent", color: "#6b7280", fontSize: "0.85rem", cursor: "pointer", whiteSpace: "nowrap", fontWeight: 500, borderBottom: "2px solid transparent" },
+  detailTabActive:{ color: "#6366f1", borderBottomColor: "#6366f1", fontWeight: 700 },
+  detailBody:     { padding: "1.25rem", overflowY: "auto", flex: 1 },
 
-  // Info
   infoGrid:    { display: "flex", flexDirection: "column", gap: "0.5rem" },
   infoRow:     { display: "flex", justifyContent: "space-between", alignItems: "center", padding: "0.5rem 0.75rem", background: "#f8fafc", borderRadius: "8px" },
   infoLabel:   { color: "#6b7280", fontSize: "0.8rem", fontWeight: 500 },
@@ -1032,14 +1062,12 @@ const s = {
   descLabel:   { color: "#6b7280", fontSize: "0.8rem", fontWeight: 500, display: "block", marginBottom: "0.35rem" },
   descText:    { fontSize: "0.875rem", color: "#374151", margin: 0, lineHeight: 1.5 },
 
-  // Notes
   notesSection:{ marginTop: "1rem", display: "flex", flexDirection: "column", gap: "0.5rem" },
   notesLabel:  { fontWeight: 600, color: "#374151", fontSize: "0.85rem" },
   existingNote:{ background: "#fffbeb", border: "1px solid #fde68a", borderRadius: "8px", padding: "0.5rem 0.75rem", fontSize: "0.8rem", color: "#92400e" },
   notesInput:  { width: "100%", padding: "0.75rem", border: "1px solid #e5e7eb", borderRadius: "8px", fontSize: "0.875rem", resize: "vertical", outline: "none", boxSizing: "border-box" },
   saveNotesBtn:{ alignSelf: "flex-end", padding: "0.45rem 1rem", background: "#6366f1", color: "white", border: "none", borderRadius: "8px", fontWeight: 600, fontSize: "0.8rem", cursor: "pointer" },
 
-  // Docs
   docsGrid:    { display: "grid", gridTemplateColumns: "1fr 1fr", gap: "1rem" },
   docCard:     { background: "#f8fafc", borderRadius: "10px", padding: "0.75rem", display: "flex", flexDirection: "column", gap: "0.5rem" },
   docLabel:    { fontWeight: 600, color: "#374151", fontSize: "0.8rem" },
@@ -1047,14 +1075,12 @@ const s = {
   docLink:     { fontSize: "0.75rem", color: "#6366f1", textDecoration: "none" },
   docMissing:  { display: "flex", justifyContent: "space-between", padding: "0.75rem", background: "#f8fafc", borderRadius: "10px", fontSize: "0.8rem", color: "#374151" },
 
-  // Bank
-  sectionDivider: { fontWeight: 700, color: "#6366f1", fontSize: "0.8rem", padding: "0.5rem 0", borderTop: "1px solid #f3f4f6", marginTop: "0.5rem" },
-  noVA:        { background: "#fffbeb", border: "1px solid #fde68a", borderRadius: "8px", padding: "0.75rem", color: "#92400e", fontSize: "0.85rem" },
-  noVAHint:    { color: "#a16207", fontSize: "0.8rem" },
+  sectionDivider:{ fontWeight: 700, color: "#6366f1", fontSize: "0.8rem", padding: "0.5rem 0", borderTop: "1px solid #f3f4f6", marginTop: "0.5rem" },
+  noVA:          { background: "#fffbeb", border: "1px solid #fde68a", borderRadius: "8px", padding: "0.75rem", color: "#92400e", fontSize: "0.85rem" },
+  noVAHint:      { color: "#a16207", fontSize: "0.8rem" },
 
-  // Wallet
-  balanceGrid: { display: "grid", gridTemplateColumns: "1fr 1fr", gap: "0.75rem", marginBottom: "1rem" },
-  balanceCard: { background: "#f8fafc", borderRadius: "10px", padding: "0.875rem", display: "flex", flexDirection: "column", gap: "0.25rem" },
+  balanceGrid:  { display: "grid", gridTemplateColumns: "1fr 1fr", gap: "0.75rem", marginBottom: "1rem" },
+  balanceCard:  { background: "#f8fafc", borderRadius: "10px", padding: "0.875rem", display: "flex", flexDirection: "column", gap: "0.25rem" },
   balanceAmount:{ fontWeight: 800, fontSize: "1.1rem" },
   balanceLabel: { fontSize: "0.75rem", color: "#9ca3af", fontWeight: 500 },
   vaBox:        { background: "#ecfdf5", border: "1px solid #a7f3d0", borderRadius: "10px", padding: "0.875rem", marginBottom: "1rem", display: "flex", flexDirection: "column", gap: "0.25rem" },
@@ -1064,11 +1090,10 @@ const s = {
   txSection:    { marginTop: "0.75rem" },
   txTitle:      { fontWeight: 700, color: "#374151", fontSize: "0.85rem", marginBottom: "0.5rem" },
   txRow:        { display: "flex", alignItems: "center", gap: "0.75rem", padding: "0.5rem 0", borderBottom: "1px solid #f9fafb", fontSize: "0.82rem" },
-  txType:       { fontWeight: 600, width: "70px" },
+  txType:       { fontWeight: 600, width: "80px", flexShrink: 0 },
   txAmount:     { fontWeight: 700, color: "#1f2937", flex: 1 },
-  txDate:       { color: "#9ca3af" },
+  txDate:       { color: "#9ca3af", flexShrink: 0 },
 
-  // History
   historyList:  { display: "flex", flexDirection: "column", gap: "0.75rem" },
   historyRow:   { background: "#f8fafc", borderRadius: "10px", padding: "0.75rem 1rem" },
   historyBadges:{ display: "flex", alignItems: "center", gap: "0.5rem", marginBottom: "0.35rem" },
@@ -1076,24 +1101,21 @@ const s = {
   historyMeta:  { display: "flex", gap: "1rem", fontSize: "0.75rem", color: "#9ca3af" },
   historyReason:{ fontSize: "0.8rem", color: "#6b7280", marginTop: "0.35rem", fontStyle: "italic" },
 
-  // Modal
-  modalOverlay: { position: "fixed", inset: 0, background: "rgba(0,0,0,0.5)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 1000 },
-  modal:        { background: "white", borderRadius: "16px", padding: "2rem", maxWidth: "420px", width: "90%", boxShadow: "0 20px 60px rgba(0,0,0,0.2)" },
-  modalTitle:   { fontWeight: 800, color: "#1f2937", margin: "0 0 0.75rem", fontSize: "1.1rem" },
-  modalBody:    { color: "#6b7280", lineHeight: 1.6, margin: "0 0 1.25rem", fontSize: "0.9rem" },
-  modalReasonWrap: { marginBottom: "1.25rem" },
+  modalOverlay:   { position: "fixed", inset: 0, background: "rgba(0,0,0,0.5)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 1000 },
+  modal:          { background: "white", borderRadius: "16px", padding: "2rem", maxWidth: "420px", width: "90%", boxShadow: "0 20px 60px rgba(0,0,0,0.2)" },
+  modalTitle:     { fontWeight: 800, color: "#1f2937", margin: "0 0 0.75rem", fontSize: "1.1rem" },
+  modalBody:      { color: "#6b7280", lineHeight: 1.6, margin: "0 0 1.25rem", fontSize: "0.9rem" },
+  modalReasonWrap:{ marginBottom: "1.25rem" },
   modalReasonLabel:{ fontWeight: 600, color: "#374151", fontSize: "0.85rem", display: "block", marginBottom: "0.5rem" },
-  modalReason:  { width: "100%", padding: "0.75rem", border: "1px solid #e5e7eb", borderRadius: "8px", fontSize: "0.875rem", resize: "vertical", outline: "none", boxSizing: "border-box" },
-  modalBtns:    { display: "flex", gap: "0.75rem", justifyContent: "flex-end" },
-  modalCancelBtn:  { padding: "0.6rem 1.25rem", border: "1px solid #e5e7eb", background: "white", borderRadius: "8px", fontWeight: 600, cursor: "pointer", fontSize: "0.875rem" },
-  modalConfirmBtn: { padding: "0.6rem 1.5rem", border: "none", borderRadius: "8px", color: "white", fontWeight: 700, cursor: "pointer", fontSize: "0.875rem" },
+  modalReason:    { width: "100%", padding: "0.75rem", border: "1px solid #e5e7eb", borderRadius: "8px", fontSize: "0.875rem", resize: "vertical", outline: "none", boxSizing: "border-box" },
+  modalBtns:      { display: "flex", gap: "0.75rem", justifyContent: "flex-end" },
+  modalCancelBtn: { padding: "0.6rem 1.25rem", border: "1px solid #e5e7eb", background: "white", borderRadius: "8px", fontWeight: 600, cursor: "pointer", fontSize: "0.875rem" },
+  modalConfirmBtn:{ padding: "0.6rem 1.5rem", border: "none", borderRadius: "8px", color: "white", fontWeight: 700, cursor: "pointer", fontSize: "0.875rem" },
 
-  // Pagination
-  pagination:   { display: "flex", alignItems: "center", justifyContent: "center", gap: "1rem", padding: "0.875rem", borderTop: "1px solid #f3f4f6", marginTop: "auto" },
-  pageBtn:      { padding: "0.4rem 0.875rem", border: "1px solid #e5e7eb", borderRadius: "8px", background: "white", cursor: "pointer", fontSize: "0.82rem", fontWeight: 500 },
-  pageInfo:     { color: "#6b7280", fontSize: "0.82rem" },
+  pagination:  { display: "flex", alignItems: "center", justifyContent: "center", gap: "1rem", padding: "0.875rem", borderTop: "1px solid #f3f4f6", marginTop: "auto" },
+  pageBtn:     { padding: "0.4rem 0.875rem", border: "1px solid #e5e7eb", borderRadius: "8px", background: "white", cursor: "pointer", fontSize: "0.82rem", fontWeight: 500 },
+  pageInfo:    { color: "#6b7280", fontSize: "0.82rem" },
 
-  // Skeleton
   skeletonRow:   { display: "flex", alignItems: "center", gap: "0.75rem", padding: "0.875rem 1rem", borderBottom: "1px solid #f9fafb" },
   skeletonCircle:{ width: "40px", height: "40px", borderRadius: "10px", background: "linear-gradient(90deg,#f3f4f6 25%,#e5e7eb 50%,#f3f4f6 75%)", backgroundSize: "200% 100%", animation: "shimmer 1.5s infinite", flexShrink: 0 },
   skeletonLine:  { height: "12px", width: "80%", borderRadius: "6px", background: "linear-gradient(90deg,#f3f4f6 25%,#e5e7eb 50%,#f3f4f6 75%)", backgroundSize: "200% 100%", animation: "shimmer 1.5s infinite" },
