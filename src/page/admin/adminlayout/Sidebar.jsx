@@ -1,3 +1,4 @@
+// adminlayout/Sidebar.jsx
 import { NAV } from "./nav";
 
 export default function Sidebar({
@@ -7,14 +8,35 @@ export default function Sidebar({
   reportCount,
   marketPendingCount,
   verificationPendingCount,
+  vendorPendingCount,
 }) {
+  // ── Badge map — id → count ──────────────────────────────
+  const badges = {
+    products:             pendingCount,
+    market_products:      marketPendingCount,
+    reports:              reportCount,
+    verification:         verificationPendingCount,
+    vendor_verification:  vendorPendingCount,
+  };
+
+  // ── Red badge IDs (alert badges vs info badges) ─────────
+  const redBadges = new Set([
+    "reports",
+    "verification",
+    "vendor_verification",
+  ]);
+
   return (
     <aside className="sidebar">
-      <div className="sb-logo">MM <span>Admin</span></div>
+      <div className="sb-logo">
+        MM <span>Admin</span>
+      </div>
 
       {NAV.map((item, i) =>
         item.g ? (
-          <div key={i} className="sb-section">{item.g}</div>
+          <div key={`g-${i}`} className="sb-section">
+            {item.g}
+          </div>
         ) : (
           <button
             key={item.id}
@@ -24,20 +46,14 @@ export default function Sidebar({
             <span className="nav-icon">{item.icon}</span>
             {item.label}
 
-            {item.id === "products" && pendingCount > 0 && (
-              <span className="nav-badge">{pendingCount}</span>
-            )}
-
-            {item.id === "market_products" && marketPendingCount > 0 && (
-              <span className="nav-badge">{marketPendingCount}</span>
-            )}
-
-            {item.id === "reports" && reportCount > 0 && (
-              <span className="nav-badge nav-badge-red">{reportCount}</span>
-            )}
-
-            {item.id === "verification" && verificationPendingCount > 0 && (
-              <span className="nav-badge nav-badge-red">{verificationPendingCount}</span>
+            {badges[item.id] > 0 && (
+              <span
+                className={`nav-badge ${
+                  redBadges.has(item.id) ? "nav-badge-red" : ""
+                }`}
+              >
+                {badges[item.id]}
+              </span>
             )}
           </button>
         )
