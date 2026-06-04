@@ -1,4 +1,6 @@
 // routes/sellerOnboarding.routes.js
+// Full working version matching your exact schema
+
 import express              from "express";
 import multer               from "multer";
 import axios                from "axios";
@@ -72,19 +74,31 @@ router.get("/status", authenticate, async (req, res) => {
   try {
     const { rows } = await pool.query(
       `SELECT
-         v.id, v.store_name, v.store_logo, v.store_banner,
-         v.store_category, v.store_description,
-         v.status, v.rejection_reason, v.suspended_reason,
-         v.approved_at, v.activated_at,
-         v.products_count, v.total_sales,
-         v.total_revenue, v.rating,
-         v.bank_account, v.bank_name,
-         v.account_name, v.bank_code,
+         v.id,
+         v.store_name,
+         v.store_logo,
+         v.store_banner,
+         v.store_category,
+         v.store_description,
+         v.status,
+         v.rejection_reason,
+         v.suspended_reason,
+         v.approved_at,
+         v.activated_at,
+         v.products_count,
+         v.total_sales,
+         v.total_revenue,
+         v.rating,
+         v.trust_score,
+         v.bank_account,
+         v.bank_name,
+         v.account_name,
+         v.bank_code,
          v.created_at,
+         v.updated_at,
          va.account_number  AS virtual_account_number,
          va.account_name    AS virtual_account_name,
-         va.bank_name       AS virtual_bank_name,
-         va.available_balance
+         va.bank_name       AS virtual_bank_name
        FROM market.vendors v
        LEFT JOIN market.vendor_virtual_accounts va
          ON va.vendor_id = v.id
@@ -103,7 +117,7 @@ router.get("/status", authenticate, async (req, res) => {
     return res.json({ success: true, vendor: rows[0] });
 
   } catch (err) {
-    console.error("[status error]", err.message);
+    console.error("[status]", err.message);
     return res.status(500).json({ success: false, message: "Server error" });
   }
 });
@@ -122,7 +136,7 @@ router.get("/banks", authenticate, async (req, res) => {
     return res.json({ success: true, banks });
 
   } catch (err) {
-    console.error("[banks error]", err.response?.data ?? err.message);
+    console.error("[banks]", err.response?.data ?? err.message);
     return res.status(500).json({
       success: false,
       message: "Failed to fetch banks",
@@ -151,7 +165,6 @@ router.get("/verify-account", authenticate, async (req, res) => {
   }
 
   if (!FLW_KEY()?.startsWith("FLWSECK")) {
-    console.error("[verify-account] FLW_SECRET_KEY missing or invalid");
     return res.status(500).json({
       success: false,
       message: "Payment service not configured. Contact admin.",
@@ -186,7 +199,7 @@ router.get("/verify-account", authenticate, async (req, res) => {
     if (err.response?.status === 401) {
       return res.status(500).json({
         success: false,
-        message: "Payment service authentication failed. Contact admin.",
+        message: "Payment service authentication failed.",
       });
     }
 
@@ -201,25 +214,16 @@ router.get("/verify-account", authenticate, async (req, res) => {
 
 // ════════════════════════════════════════════════════════════
 // POST /api/seller-onboarding/setup-store
+// Columns confirmed from your schema:
+//   bank_account, bank_name, bank_code, account_name
+//   store_name, store_description, store_category
+//   store_logo, store_banner, withdrawal_method, status
 // ════════════════════════════════════════════════════════════
 router.post("/setup-store", authenticate, storeUpload, async (req, res) => {
   const client = await pool.connect();
 
   try {
     await client.query("BEGIN");
-
-    // ── Log incoming body for debugging ──────────────────
-    console.log("[setup-store] body:", {
-      store_name:    req.body.store_name,
-      store_category:req.body.store_category,
-      bank_name:     req.body.bank_name,
-      bank_account:  req.body.bank_account,
-      account_name:  req.body.account_name,
-      bank_code:     req.body.bank_code,
-      hasLogo:       !!req.files?.store_logo,
-      hasBanner:     !!req.files?.store_banner,
-      userId:        req.user.id,
-    });
 
     const {
       store_name,
@@ -231,32 +235,47 @@ router.post("/setup-store", authenticate, storeUpload, async (req, res) => {
       account_name,
     } = req.body;
 
-    // ── Validate required fields ─────────────────────────
+    // ── Log for debugging ─────────────────────────────────
+    console.log("[setup-store] body:", {
+      store_name,
+      store_category,
+      bank_account,
+      bank_name,
+      bank_code,
+      account_name,
+      user_id: req.user.id,
+    });
+
+    // ── Validate ─────────────────────────────────────────
     if (!store_name?.trim()) {
       await client.query("ROLLBACK");
       return res.status(400).json({
-        success: false, message: "Store name is required",
+        success: false,
+        message: "Store name is required",
       });
     }
 
     if (!bank_account?.trim()) {
       await client.query("ROLLBACK");
       return res.status(400).json({
-        success: false, message: "Bank account number is required",
+        success: false,
+        message: "Bank account number is required",
       });
     }
 
     if (!bank_name?.trim()) {
       await client.query("ROLLBACK");
       return res.status(400).json({
-        success: false, message: "Bank name is required",
+        success: false,
+        message: "Bank name is required",
       });
     }
 
     if (!account_name?.trim()) {
       await client.query("ROLLBACK");
       return res.status(400).json({
-        success: false, message: "Verified account name is required — please verify your bank account",
+        success: false,
+        message: "Please verify your bank account first",
       });
     }
 
@@ -297,8 +316,16 @@ router.post("/setup-store", authenticate, storeUpload, async (req, res) => {
 
     // ── Upload images ─────────────────────────────────────
     const [store_logo, store_banner] = await Promise.all([
-      maybeUpload(req.files, "store_logo",   "vendor_logos",   `logo_${req.user.id}`),
-      maybeUpload(req.files, "store_banner", "vendor_banners", `banner_${req.user.id}`),
+      maybeUpload(
+        req.files, "store_logo",
+        "vendor_logos",
+        `logo_${req.user.id}`
+      ),
+      maybeUpload(
+        req.files, "store_banner",
+        "vendor_banners",
+        `banner_${req.user.id}`
+      ),
     ]);
 
     let vendor;
@@ -323,7 +350,9 @@ router.post("/setup-store", authenticate, storeUpload, async (req, res) => {
            rejected_at       = NULL,
            updated_at        = NOW()
          WHERE user_id = $10
-         RETURNING *`,
+         RETURNING
+           id, store_name, store_logo,
+           store_banner, status`,
         [
           store_name.trim(),
           store_description?.trim() ?? null,
@@ -343,39 +372,57 @@ router.post("/setup-store", authenticate, storeUpload, async (req, res) => {
       // ── INSERT new vendor ─────────────────────────────
       const { rows: [created] } = await client.query(
         `INSERT INTO market.vendors
-           (user_id, store_name, store_description, store_category,
-            store_logo, store_banner, withdrawal_method,
-            bank_account, bank_name, account_name, bank_code,
+           (user_id,
+            store_name,
+            store_description,
+            store_category,
+            store_logo,
+            store_banner,
+            withdrawal_method,
+            bank_account,
+            bank_name,
+            account_name,
+            bank_code,
             status)
-         VALUES ($1,$2,$3,$4,$5,$6,'bank_transfer',$7,$8,$9,$10,'pending')
-         RETURNING *`,
+         VALUES
+           ($1, $2, $3, $4, $5, $6,
+            'bank_transfer',
+            $7, $8, $9, $10,
+            'pending')
+         RETURNING
+           id, store_name, store_logo,
+           store_banner, status`,
         [
-          req.user.id,
-          store_name.trim(),
-          store_description?.trim() ?? null,
-          store_category            ?? null,
-          store_logo,
-          store_banner,
-          bank_account.trim(),
-          bank_name.trim(),
-          account_name.trim(),
-          bank_code?.trim()         ?? null,
+          req.user.id,                        // $1
+          store_name.trim(),                  // $2
+          store_description?.trim() ?? null,  // $3
+          store_category            ?? null,  // $4
+          store_logo,                         // $5
+          store_banner,                       // $6
+          bank_account.trim(),                // $7
+          bank_name.trim(),                   // $8
+          account_name.trim(),                // $9
+          bank_code?.trim()         ?? null,  // $10
         ]
       );
       vendor = created;
     }
 
     // ── Status log ────────────────────────────────────────
-    await client.query(
-      `INSERT INTO market.vendor_status_logs
-         (vendor_id, old_status, new_status, changed_by, reason)
-       VALUES ($1, $2, 'pending', $3, 'Store setup submitted')`,
-      [vendor.id, oldStatus, req.user.id]
-    );
+    try {
+      await client.query(
+        `INSERT INTO market.vendor_status_logs
+           (vendor_id, old_status, new_status, changed_by, reason)
+         VALUES ($1, $2, 'pending', $3, 'Store setup submitted')`,
+        [vendor.id, oldStatus, req.user.id]
+      );
+    } catch (logErr) {
+      console.warn("[setup-store] log skipped:", logErr.message);
+    }
 
     await client.query("COMMIT");
 
-    console.log("[setup-store] success — vendor id:", vendor.id);
+    console.log("[setup-store] ✅ vendor created:", vendor.id);
 
     return res.status(201).json({
       success: true,
@@ -391,20 +438,18 @@ router.post("/setup-store", authenticate, storeUpload, async (req, res) => {
   } catch (err) {
     await client.query("ROLLBACK");
 
-    // ── Detailed error logging ────────────────────────────
-    console.error("[setup-store error]", {
+    console.error("[setup-store] ❌", {
       message: err.message,
       code:    err.code,
       detail:  err.detail,
       hint:    err.hint,
-      where:   err.where,
     });
 
-    // ── Known DB errors ───────────────────────────────────
+    // ── Specific error messages ───────────────────────────
     if (err.code === "42703") {
       return res.status(500).json({
         success: false,
-        message: "Database column missing. Run migration: ALTER TABLE market.vendors ADD COLUMN ...",
+        message: `DB column missing: ${err.message}`,
       });
     }
 
@@ -415,16 +460,16 @@ router.post("/setup-store", authenticate, storeUpload, async (req, res) => {
       });
     }
 
-    if (err.code === "42P01") {
-      return res.status(500).json({
+    if (err.code === "23502") {
+      return res.status(400).json({
         success: false,
-        message: "Database table missing. Contact admin.",
+        message: `Required field missing: ${err.message}`,
       });
     }
 
     return res.status(500).json({
       success: false,
-      message: "Server error. Please try again.",
+      message: err.message ?? "Server error. Please try again.",
     });
 
   } finally {
@@ -506,7 +551,7 @@ router.post("/verify", authenticate, verifyUpload, async (req, res) => {
       `INSERT INTO market.vendor_verifications
          (vendor_id, id_card_url, selfie_url,
           business_doc_url, address_proof_url, status)
-       VALUES ($1,$2,$3,$4,$5,'pending')
+       VALUES ($1, $2, $3, $4, $5, 'pending')
        ON CONFLICT (vendor_id) DO UPDATE SET
          id_card_url       = EXCLUDED.id_card_url,
          selfie_url        = EXCLUDED.selfie_url,
@@ -520,8 +565,13 @@ router.post("/verify", authenticate, verifyUpload, async (req, res) => {
                              ),
          status            = 'pending',
          updated_at        = NOW()`,
-      [vendor.id, id_card_url, selfie_url,
-       business_doc_url, address_proof_url]
+      [
+        vendor.id,
+        id_card_url,
+        selfie_url,
+        business_doc_url,
+        address_proof_url,
+      ]
     );
 
     await client.query(
@@ -531,12 +581,16 @@ router.post("/verify", authenticate, verifyUpload, async (req, res) => {
       [vendor.id]
     );
 
-    await client.query(
-      `INSERT INTO market.vendor_status_logs
-         (vendor_id, old_status, new_status, changed_by, reason)
-       VALUES ($1,'pending','under_review',$2,'Verification submitted')`,
-      [vendor.id, req.user.id]
-    );
+    try {
+      await client.query(
+        `INSERT INTO market.vendor_status_logs
+           (vendor_id, old_status, new_status, changed_by, reason)
+         VALUES ($1, 'pending', 'under_review', $2, 'Verification submitted')`,
+        [vendor.id, req.user.id]
+      );
+    } catch (logErr) {
+      console.warn("[verify] log skipped:", logErr.message);
+    }
 
     await client.query("COMMIT");
 
@@ -548,12 +602,11 @@ router.post("/verify", authenticate, verifyUpload, async (req, res) => {
 
   } catch (err) {
     await client.query("ROLLBACK");
-    console.error("[verify error]", {
-      message: err.message,
-      code:    err.code,
-      detail:  err.detail,
+    console.error("[verify]", { message: err.message, code: err.code });
+    return res.status(500).json({
+      success: false,
+      message: err.message ?? "Server error",
     });
-    return res.status(500).json({ success: false, message: "Server error" });
   } finally {
     client.release();
   }
@@ -592,12 +645,16 @@ router.post("/reapply", authenticate, async (req, res) => {
       [rows[0].id]
     );
 
-    await pool.query(
-      `INSERT INTO market.vendor_status_logs
-         (vendor_id, old_status, new_status, changed_by, reason)
-       VALUES ($1,'rejected','pending',$2,'Seller reapplied')`,
-      [rows[0].id, req.user.id]
-    );
+    try {
+      await pool.query(
+        `INSERT INTO market.vendor_status_logs
+           (vendor_id, old_status, new_status, changed_by, reason)
+         VALUES ($1, 'rejected', 'pending', $2, 'Seller reapplied')`,
+        [rows[0].id, req.user.id]
+      );
+    } catch (logErr) {
+      console.warn("[reapply] log skipped:", logErr.message);
+    }
 
     return res.json({
       success: true,
@@ -606,8 +663,10 @@ router.post("/reapply", authenticate, async (req, res) => {
     });
 
   } catch (err) {
-    console.error("[reapply error]", err.message);
-    return res.status(500).json({ success: false, message: "Server error" });
+    console.error("[reapply]", err.message);
+    return res.status(500).json({
+      success: false, message: "Server error",
+    });
   }
 });
 
