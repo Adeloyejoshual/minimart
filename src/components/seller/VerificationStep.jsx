@@ -1,5 +1,8 @@
 // components/seller/VerificationStep.jsx
-import React, { useState, useCallback, useMemo, useEffect } from "react";
+import React, {
+  useState, useCallback, useMemo, useEffect,
+} from "react";
+import { locationsByState } from "../../config/locationsByState";
 
 // ─── ID Types — BVN removed ───────────────────────────────────
 const ID_TYPES = [
@@ -9,15 +12,14 @@ const ID_TYPES = [
     full:    "National Identity Number",
     digits:  11,
     numeric: true,
-    hint:    "Dial *346# to get your NIN",
+    hint:    "Dial *346# on your registered phone to get your NIN",
   },
   {
     value:   "passport",
     label:   "Passport",
     full:    "International Passport",
     digits:  9,
-    numeric: false,               // alphanumeric e.g. A12345678
-    pattern: /^[A-Z0-9]{9}$/,
+    numeric: false,
     hint:    "9 characters — letter + 8 digits e.g. A12345678",
   },
   {
@@ -26,7 +28,7 @@ const ID_TYPES = [
     full:    "Driver's Licence",
     digits:  12,
     numeric: true,
-    hint:    "12-digit licence number",
+    hint:    "12-digit licence number on your card",
   },
   {
     value:   "voters",
@@ -34,7 +36,7 @@ const ID_TYPES = [
     full:    "Permanent Voter's Card",
     digits:  19,
     numeric: true,
-    hint:    "19-digit VIN number",
+    hint:    "19-digit VIN number on your voter card",
   },
 ];
 
@@ -61,7 +63,7 @@ const DOCS = [
     label:    "Selfie Holding ID",
     icon:     "🤳",
     required: true,
-    hint:     "Face clearly visible next to your ID",
+    hint:     "Hold your ID next to your face, clearly visible",
     side:     null,
   },
   {
@@ -69,20 +71,38 @@ const DOCS = [
     label:    "Business Registration (CAC)",
     icon:     "📄",
     required: false,
-    hint:     "Optional — CAC certificate",
+    hint:     "Optional — CAC certificate or business doc",
     side:     null,
   },
   {
     name:     "address_proof",
-    label:    "Address Proof",
+    label:    "Proof of Address",
     icon:     "📍",
     required: false,
-    hint:     "Utility bill or bank statement",
+    hint:     "Utility bill or bank statement (optional)",
     side:     null,
   },
 ];
 
+// ─── File constraints ─────────────────────────────────────────
 const MAX_FILE_SIZE = 2 * 1024 * 1024; // 2MB
+
+// ✅ FIX 1: MIME type whitelist
+const ALLOWED_TYPES = [
+  "image/jpeg",
+  "image/png",
+  "image/webp",
+  "application/pdf",
+];
+
+// ─── Required docs ────────────────────────────────────────────
+// ✅ FIX 2: explicit list for pre-submit check
+const REQUIRED_DOCS = ["id_card", "id_card_back", "selfie"];
+
+// ─── State list ───────────────────────────────────────────────
+const STATE_LIST = Object.keys(locationsByState).sort((a, b) =>
+  a.localeCompare(b)
+);
 
 // ═════════════════════════════════════════════════════════════
 export default function VerificationStep({ flow }) {
@@ -96,7 +116,7 @@ export default function VerificationStep({ flow }) {
     setStep,
   } = flow;
 
-  // ── Local ID state ────────────────────────────────────────
+  // ── ID state ──────────────────────────────────────────────
   const [idType,   setIdType]   = useState("");
   const [idNumber, setIdNumber] = useState("");
   const [idError,  setIdError]  = useState("");
@@ -104,37 +124,76 @@ export default function VerificationStep({ flow }) {
   // ── Address state ─────────────────────────────────────────
   const [address, setAddress] = useState({
     street:  "",
-    city:    "",
     state:   "",
+    city:    "",
     country: "Nigeria",
   });
   const [addressErrors, setAddressErrors] = useState({});
 
-  const selectedType = ID_TYPES.find((t) => t.value === idType);
+  const selectedType  = ID_TYPES.find((t) => t.value === idType);
+  const availableLgas = address.state
+    ? (locationsByState[address.state] ?? []).sort((a, b) =>
+        a.localeCompare(b)
+      )
+    : [];
 
-  // ── File validation ───────────────────────────────────────
+  // ── File validation — size + MIME ─────────────────────────
+  // ✅ FIX 1: combined size + type check
   const validateFile = useCallback((file, fieldName) => {
     if (!file) return true;
-    if (file.size > MAX_FILE_SIZE) {
-      alert(`${fieldName} must be under 2MB. Your file is ${(file.size / 1024 / 1024).toFixed(1)}MB`);
+
+    if (!ALLOWED_TYPES.includes(file.type)) {
+      alert(
+        `${fieldName}: Only JPG, PNG, WEBP or PDF files are allowed.\n` +
+        `You selected: ${file.type || "unknown type"}`
+      );
       return false;
     }
+
+    if (file.size > MAX_FILE_SIZE) {
+      alert(
+        `${fieldName} must be under 2MB.\n` +
+        `Your file: ${(file.size / 1024 / 1024).toFixed(1)}MB`
+      );
+      return false;
+    }
+
     return true;
   }, []);
 
-  // ── Handle file change with size check ────────────────────
   const handleFileChange = useCallback((e) => {
     const { name, files } = e.target;
     const file = files?.[0];
     if (!file) return;
-    if (!validateFile(file, name.replace(/_/g, " "))) {
+
+    const label = DOCS.find((d) => d.name === name)?.label ?? name;
+    if (!validateFile(file, label)) {
       e.target.value = "";
       return;
     }
+
     handleVerifyChange(e);
   }, [validateFile, handleVerifyChange]);
 
-  // ── Validate ID number ────────────────────────────────────
+  // ── ID validation ─────────────────────────────────────────
+  const idProgress = useMemo(() => {
+    if (!selectedType) return 0;
+    if (idType === "passport") {
+      return Math.min(idNumber.replace(/\s/g, "").length, 9);
+    }
+    return Math.min(
+      idNumber.replace(/\D/g, "").length,
+      selectedType.digits
+    );
+  }, [idNumber, idType, selectedType]);
+
+  const idComplete = useMemo(() => {
+    if (!selectedType || !idNumber) return false;
+    const cleaned = idNumber.replace(/\s/g, "").toUpperCase();
+    if (idType === "passport") return /^[A-Z0-9]{9}$/.test(cleaned);
+    return cleaned.replace(/\D/g, "").length === selectedType.digits;
+  }, [idNumber, idType, selectedType]);
+
   const validateIdNumber = useCallback(() => {
     if (!idType) {
       setIdError("Please select an ID type");
@@ -149,17 +208,15 @@ export default function VerificationStep({ flow }) {
     }
 
     if (idType === "passport") {
-      // Alphanumeric — e.g. A12345678
       if (!/^[A-Z0-9]{9}$/.test(cleaned)) {
         setIdError("Passport must be 9 characters (e.g. A12345678)");
         return false;
       }
     } else {
-      // Numeric only
       const digits = cleaned.replace(/\D/g, "");
       if (digits.length !== selectedType?.digits) {
         setIdError(
-          `${selectedType?.full} must be ${selectedType?.digits} digits`
+          `${selectedType?.full} must be exactly ${selectedType?.digits} digits`
         );
         return false;
       }
@@ -169,71 +226,70 @@ export default function VerificationStep({ flow }) {
     return true;
   }, [idType, idNumber, selectedType]);
 
-  // ── Validate address ──────────────────────────────────────
+  // ── Address validation ────────────────────────────────────
   const validateAddress = useCallback(() => {
     const errs = {};
-    if (!address.street.trim())
-      errs.street = "Street address is required";
-    if (!address.city.trim())
-      errs.city   = "City is required";
-    if (!address.state.trim())
-      errs.state  = "State is required";
+    if (!address.street.trim()) errs.street = "Street address is required";
+    if (!address.state.trim())  errs.state  = "State is required";
+    if (!address.city.trim())   errs.city   = "LGA / City is required";
     setAddressErrors(errs);
     return Object.keys(errs).length === 0;
   }, [address]);
 
-  // ── Handle submit ─────────────────────────────────────────
+  // ── Submit — all validations in order ─────────────────────
   const handleSubmit = useCallback(() => {
-    const idOk      = validateIdNumber();
-    const addressOk = validateAddress();
-    if (!idOk || !addressOk) return;
+    // 1. ID number
+    if (!validateIdNumber()) return;
 
-    // Push id fields into verifyData via synthetic events
+    // 2. Address
+    if (!validateAddress()) return;
+
+    // ✅ FIX 2: required document check before submit
+    const missingDocs = REQUIRED_DOCS.filter(
+      (field) => !verifyData[field]
+    );
+
+    if (missingDocs.length > 0) {
+      const labels = missingDocs
+        .map((f) => DOCS.find((d) => d.name === f)?.label ?? f)
+        .join(", ");
+      alert(`Please upload the following required documents:\n${labels}`);
+      return;
+    }
+
+    // 3. Push text fields into verifyData
+    const fullAddress =
+      `${address.street.trim()}, ${address.city.trim()}, ` +
+      `${address.state.trim()}, Nigeria`;
+
     handleVerifyChange({
-      target: { name: "id_type",   value: idType,                              files: null },
+      target: {
+        name:  "id_type",
+        value: idType,
+        files: null,
+      },
     });
     handleVerifyChange({
-      target: { name: "id_number", value: idNumber.replace(/\s/g, "").toUpperCase(), files: null },
+      target: {
+        name:  "id_number",
+        value: idNumber.replace(/\s/g, "").toUpperCase(),
+        files: null,
+      },
     });
     handleVerifyChange({
       target: {
         name:  "address",
-        value: `${address.street.trim()}, ${address.city.trim()}, ${address.state.trim()}, ${address.country}`,
+        value: fullAddress,
         files: null,
       },
     });
 
     submitVerification();
   }, [
-    validateIdNumber, validateAddress,
+    validateIdNumber, validateAddress, verifyData,
     handleVerifyChange, submitVerification,
     idType, idNumber, address,
   ]);
-
-  // ── Nigerian states ───────────────────────────────────────
-  const NG_STATES = [
-    "Abia","Adamawa","Akwa Ibom","Anambra","Bauchi","Bayelsa",
-    "Benue","Borno","Cross River","Delta","Ebonyi","Edo","Ekiti",
-    "Enugu","FCT - Abuja","Gombe","Imo","Jigawa","Kaduna","Kano",
-    "Katsina","Kebbi","Kogi","Kwara","Lagos","Nasarawa","Niger",
-    "Ogun","Ondo","Osun","Oyo","Plateau","Rivers","Sokoto",
-    "Taraba","Yobe","Zamfara",
-  ];
-
-  const idProgress = useMemo(() => {
-    if (!selectedType) return 0;
-    if (idType === "passport") {
-      return Math.min(idNumber.replace(/\s/g, "").length, 9);
-    }
-    return Math.min(idNumber.replace(/\D/g, "").length, selectedType.digits);
-  }, [idNumber, idType, selectedType]);
-
-  const idComplete = useMemo(() => {
-    if (!selectedType || !idNumber) return false;
-    const cleaned = idNumber.replace(/\s/g, "").toUpperCase();
-    if (idType === "passport") return /^[A-Z0-9]{9}$/.test(cleaned);
-    return cleaned.replace(/\D/g, "").length === selectedType.digits;
-  }, [idNumber, idType, selectedType]);
 
   return (
     <div className="seller-card">
@@ -243,7 +299,7 @@ export default function VerificationStep({ flow }) {
         <h2 style={s.title}>🔍 Identity Verification</h2>
         <p style={s.subtitle}>
           Verify your identity to activate your seller account.
-          All data is encrypted and secure.
+          All data is encrypted and stored securely.
         </p>
       </div>
 
@@ -251,7 +307,7 @@ export default function VerificationStep({ flow }) {
       <div style={s.securityBadge}>
         <span style={{ fontSize: "1.4rem" }}>🔒</span>
         <p style={s.securityText}>
-          AES-256 encrypted · Only reviewed by verified staff ·
+          AES-256 encrypted · Reviewed only by verified staff ·
           Never shared with third parties
         </p>
       </div>
@@ -261,14 +317,17 @@ export default function VerificationStep({ flow }) {
         {/* ══════════════════════════════════════════════════
             1. ID INFORMATION
         ══════════════════════════════════════════════════ */}
-        <Section title="📋 ID Information" subtitle="Select your government-issued ID">
-
+        <Section
+          title="📋 ID Information"
+          subtitle="Select a government-issued ID and enter your number"
+        >
           {/* ID Type */}
           <div className="seller-field">
             <label className="seller-label">
               ID Type <span style={{ color: "#ef4444" }}>*</span>
             </label>
-            <div style={s.idTypeGrid}>
+            {/* ✅ FIX 3: CSS class grid — no JS resize listener */}
+            <div className="verification-grid">
               {ID_TYPES.map((type) => {
                 const selected = idType === type.value;
                 return (
@@ -289,7 +348,9 @@ export default function VerificationStep({ flow }) {
                     }}
                   >
                     <span>{type.label}</span>
-                    {selected && <span style={{ color: "#6366f1" }}>✓</span>}
+                    {selected && (
+                      <span style={{ color: "#6366f1" }}>✓</span>
+                    )}
                   </button>
                 );
               })}
@@ -324,8 +385,8 @@ export default function VerificationStep({ flow }) {
                       : `Enter ${selectedType?.digits}-digit number`
                   }
                   className={`seller-input ${
-                    idError      ? "error"   :
-                    idComplete   ? "success" : ""
+                    idError    ? "error"   :
+                    idComplete ? "success" : ""
                   }`}
                   style={{
                     letterSpacing: "0.08em",
@@ -363,19 +424,14 @@ export default function VerificationStep({ flow }) {
                 </span>
               </div>
 
-              {/* Error */}
               {idError && (
                 <span className="field-error">⚠️ {idError}</span>
               )}
-
-              {/* Success */}
               {idComplete && !idError && (
                 <span style={s.fieldSuccess}>
-                  ✅ {selectedType?.full} number confirmed
+                  ✅ {selectedType?.full} confirmed
                 </span>
               )}
-
-              {/* Hint */}
               {selectedType?.hint && !idError && (
                 <div style={s.idHintBox}>
                   💡 {selectedType.hint}
@@ -388,8 +444,10 @@ export default function VerificationStep({ flow }) {
         {/* ══════════════════════════════════════════════════
             2. HOME ADDRESS
         ══════════════════════════════════════════════════ */}
-        <Section title="📍 Home Address" subtitle="Enter your current residential address">
-
+        <Section
+          title="📍 Home Address"
+          subtitle="Enter your current residential address"
+        >
           {/* Street */}
           <div className="seller-field">
             <label className="seller-label">
@@ -402,7 +460,7 @@ export default function VerificationStep({ flow }) {
                 setAddress((p) => ({ ...p, street: e.target.value }));
                 setAddressErrors((p) => ({ ...p, street: "" }));
               }}
-              placeholder="e.g. 15 Bode Thomas Street"
+              placeholder="e.g. 15 Bode Thomas Street, Surulere"
               className={`seller-input ${addressErrors.street ? "error" : ""}`}
             />
             {addressErrors.street && (
@@ -410,27 +468,11 @@ export default function VerificationStep({ flow }) {
             )}
           </div>
 
-          {/* City + State side by side */}
-          <div style={s.twoCol}>
-            <div className="seller-field">
-              <label className="seller-label">
-                City <span style={{ color: "#ef4444" }}>*</span>
-              </label>
-              <input
-                type="text"
-                value={address.city}
-                onChange={(e) => {
-                  setAddress((p) => ({ ...p, city: e.target.value }));
-                  setAddressErrors((p) => ({ ...p, city: "" }));
-                }}
-                placeholder="e.g. Lagos"
-                className={`seller-input ${addressErrors.city ? "error" : ""}`}
-              />
-              {addressErrors.city && (
-                <span className="field-error">⚠️ {addressErrors.city}</span>
-              )}
-            </div>
+          {/* State + LGA — CSS grid */}
+          {/* ✅ FIX 3: CSS class instead of JS resize */}
+          <div className="verification-grid">
 
+            {/* State */}
             <div className="seller-field">
               <label className="seller-label">
                 State <span style={{ color: "#ef4444" }}>*</span>
@@ -438,14 +480,20 @@ export default function VerificationStep({ flow }) {
               <select
                 value={address.state}
                 onChange={(e) => {
-                  setAddress((p) => ({ ...p, state: e.target.value }));
-                  setAddressErrors((p) => ({ ...p, state: "" }));
+                  setAddress((p) => ({
+                    ...p,
+                    state: e.target.value,
+                    city:  "",
+                  }));
+                  setAddressErrors((p) => ({
+                    ...p, state: "", city: "",
+                  }));
                 }}
                 className={`seller-input ${addressErrors.state ? "error" : ""}`}
                 style={{ cursor: "pointer" }}
               >
                 <option value="">Select state</option>
-                {NG_STATES.map((st) => (
+                {STATE_LIST.map((st) => (
                   <option key={st} value={st}>{st}</option>
                 ))}
               </select>
@@ -453,9 +501,41 @@ export default function VerificationStep({ flow }) {
                 <span className="field-error">⚠️ {addressErrors.state}</span>
               )}
             </div>
+
+            {/* LGA / City */}
+            <div className="seller-field">
+              <label className="seller-label">
+                LGA / City <span style={{ color: "#ef4444" }}>*</span>
+              </label>
+              <select
+                value={address.city}
+                disabled={!address.state}
+                onChange={(e) => {
+                  setAddress((p) => ({ ...p, city: e.target.value }));
+                  setAddressErrors((p) => ({ ...p, city: "" }));
+                }}
+                className={`seller-input ${addressErrors.city ? "error" : ""}`}
+                style={{
+                  cursor:  address.state ? "pointer" : "not-allowed",
+                  opacity: address.state ? 1 : 0.55,
+                }}
+              >
+                <option value="">
+                  {address.state
+                    ? "Select LGA / City"
+                    : "Select state first"}
+                </option>
+                {availableLgas.map((lga) => (
+                  <option key={lga} value={lga}>{lga}</option>
+                ))}
+              </select>
+              {addressErrors.city && (
+                <span className="field-error">⚠️ {addressErrors.city}</span>
+              )}
+            </div>
           </div>
 
-          {/* Country — fixed to Nigeria */}
+          {/* Country — read only */}
           <div className="seller-field">
             <label className="seller-label">Country</label>
             <input
@@ -463,19 +543,23 @@ export default function VerificationStep({ flow }) {
               value="Nigeria"
               readOnly
               className="seller-input"
-              style={{ background: "#f8fafc", color: "#6b7280", cursor: "not-allowed" }}
+              style={{
+                background: "#f8fafc",
+                color:      "#6b7280",
+                cursor:     "not-allowed",
+              }}
             />
           </div>
 
           {/* Address preview */}
           {address.street && address.city && address.state && (
             <div style={s.addressPreview}>
-              <span style={{ fontSize: "1.1rem" }}>📍</span>
+              <span style={{ fontSize: "1.25rem", flexShrink: 0 }}>📍</span>
               <div>
                 <p style={s.addressPreviewLabel}>Your Address</p>
                 <p style={s.addressPreviewValue}>
                   {address.street}, {address.city},{" "}
-                  {address.state}, {address.country}
+                  {address.state}, Nigeria
                 </p>
               </div>
             </div>
@@ -487,10 +571,11 @@ export default function VerificationStep({ flow }) {
         ══════════════════════════════════════════════════ */}
         <Section
           title="📸 Document Photos"
-          subtitle="Upload clear photos — both front and back required"
+          subtitle="Upload clear photos — front and back are required"
         >
-          {/* ID front + back side by side */}
-          <div style={s.idPairGrid}>
+          {/* ID front + back — CSS grid */}
+          {/* ✅ FIX 3: CSS class */}
+          <div className="verification-grid">
             {DOCS.filter((d) =>
               d.name === "id_card" || d.name === "id_card_back"
             ).map((doc) => (
@@ -504,7 +589,7 @@ export default function VerificationStep({ flow }) {
             ))}
           </div>
 
-          {/* Selfie + optional docs */}
+          {/* Selfie + optional */}
           <div style={{ display: "flex", flexDirection: "column", gap: "1rem" }}>
             {DOCS.filter((d) =>
               d.name !== "id_card" && d.name !== "id_card_back"
@@ -518,18 +603,44 @@ export default function VerificationStep({ flow }) {
               />
             ))}
           </div>
+
+          {/* Required docs checklist */}
+          <div style={s.docChecklist}>
+            {REQUIRED_DOCS.map((field) => {
+              const doc    = DOCS.find((d) => d.name === field);
+              const done   = !!verifyData[field];
+              return (
+                <div key={field} style={s.docCheckRow}>
+                  <span style={{
+                    color:      done ? "#10b981" : "#d1d5db",
+                    fontWeight: 700,
+                    fontSize:   "1rem",
+                  }}>
+                    {done ? "✓" : "○"}
+                  </span>
+                  <span style={{
+                    fontSize:   "0.82rem",
+                    color:      done ? "#10b981" : "#6b7280",
+                    fontWeight: done ? 600 : 400,
+                  }}>
+                    {doc?.label}
+                  </span>
+                </div>
+              );
+            })}
+          </div>
         </Section>
 
         {/* ── Photo tips ───────────────────────────────────── */}
         <div style={s.tipsBox}>
-          <p style={s.tipsTitle}>📸 Photo Tips for Faster Approval</p>
+          <p style={s.tipsTitle}>📸 Tips for Faster Approval</p>
           <div style={s.tipsList}>
             {[
               "Place ID on a flat, well-lit surface",
-              "All four corners must be clearly visible",
-              "No glare, reflections or blur",
-              "Text must be readable",
-              "Photo must not be cropped or edited",
+              "All four corners of the ID must be visible",
+              "No glare, blur or reflections",
+              "All text must be clearly readable",
+              "Both front and back photos are required",
             ].map((tip, i) => (
               <div key={i} style={s.tipRow}>
                 <span style={{ color: "#10b981", flexShrink: 0 }}>✓</span>
@@ -544,7 +655,8 @@ export default function VerificationStep({ flow }) {
           <div
             className={`seller-alert ${
               serverMsg.toLowerCase().includes("fail") ||
-              serverMsg.toLowerCase().includes("error")
+              serverMsg.toLowerCase().includes("error") ||
+              serverMsg.toLowerCase().includes("already")
                 ? "error" : "success"
             }`}
           >
@@ -584,7 +696,7 @@ export default function VerificationStep({ flow }) {
 function Section({ title, subtitle, children }) {
   return (
     <div style={s.section}>
-      <div style={s.sectionHead}>
+      <div>
         <h3 style={s.sectionTitle}>{title}</h3>
         {subtitle && <p style={s.sectionSubtitle}>{subtitle}</p>}
       </div>
@@ -595,9 +707,8 @@ function Section({ title, subtitle, children }) {
   );
 }
 
-// ── Doc Upload Field — with preview + memory leak fix ─────────
+// ── Doc Upload Field ──────────────────────────────────────────
 function DocUploadField({ doc, file, error, onChange }) {
-  // ✅ Fix memory leak — revoke URL on unmount / file change
   const previewUrl = useMemo(() => {
     if (file && file.type?.startsWith("image/")) {
       return URL.createObjectURL(file);
@@ -618,7 +729,9 @@ function DocUploadField({ doc, file, error, onChange }) {
         {doc.required ? (
           <span style={{ color: "#ef4444" }}> *</span>
         ) : (
-          <span style={{ color: "#9ca3af", fontSize: "0.75rem", fontWeight: 400 }}>
+          <span style={{
+            color: "#9ca3af", fontSize: "0.72rem", fontWeight: 400,
+          }}>
             {" "}(optional)
           </span>
         )}
@@ -647,10 +760,9 @@ function DocUploadField({ doc, file, error, onChange }) {
         <input
           type="file"
           name={doc.name}
-          accept="image/*,application/pdf"
+          accept="image/jpeg,image/png,image/webp,application/pdf"
           onChange={onChange}
         />
-
         {file ? (
           <div style={s.filePreview}>
             {previewUrl ? (
@@ -672,8 +784,12 @@ function DocUploadField({ doc, file, error, onChange }) {
             <div className="upload-icon">{doc.icon}</div>
             <p className="upload-text">Tap to upload</p>
             <p className="upload-sub">{doc.hint}</p>
-            <p style={{ color: "#9ca3af", fontSize: "0.72rem", marginTop: "0.2rem" }}>
-              JPG, PNG or PDF · Max 2MB
+            <p style={{
+              color:      "#9ca3af",
+              fontSize:   "0.72rem",
+              marginTop:  "0.2rem",
+            }}>
+              JPG, PNG, WEBP or PDF · Max 2MB
             </p>
           </>
         )}
@@ -717,15 +833,11 @@ const s = {
     marginBottom: "1.25rem",
   },
   securityText: {
-    color:      "#065f46",
-    fontSize:   "0.82rem",
-    fontWeight: 500,
-    margin:     0,
+    color: "#065f46", fontSize: "0.82rem", fontWeight: 500, margin: 0,
   },
 
   form: { display: "flex", flexDirection: "column", gap: "1.25rem" },
 
-  // Section
   section: {
     background:    "#f8fafc",
     borderRadius:  "16px",
@@ -735,17 +847,9 @@ const s = {
     flexDirection: "column",
     gap:           "1rem",
   },
-  sectionHead:    { marginBottom: "0.25rem" },
   sectionTitle:   { fontSize: "1rem", fontWeight: 700, color: "#1f2937", margin: 0 },
   sectionSubtitle:{ color: "#9ca3af", fontSize: "0.82rem", margin: "0.2rem 0 0" },
 
-  // ID type
-  idTypeGrid: {
-    display:             "grid",
-    gridTemplateColumns: "repeat(auto-fill, minmax(160px, 1fr))",
-    gap:                 "0.5rem",
-    marginTop:           "0.5rem",
-  },
   idTypeBtn: {
     padding:        "0.65rem 0.875rem",
     border:         "2px solid",
@@ -756,30 +860,23 @@ const s = {
     justifyContent: "space-between",
     alignItems:     "center",
     transition:     "all 0.15s ease",
-    gap:            "0.5rem",
   },
 
-  // ID input
   inputCheck: {
-    position:  "absolute",
-    right:     "1rem",
-    top:       "50%",
-    transform: "translateY(-50%)",
-    color:     "#10b981",
-    fontSize:  "1.2rem",
-    fontWeight:700,
+    position:   "absolute",
+    right:      "1rem",
+    top:        "50%",
+    transform:  "translateY(-50%)",
+    color:      "#10b981",
+    fontSize:   "1.2rem",
+    fontWeight: 700,
   },
   digitRow: {
-    display:    "flex",
-    gap:        "3px",
-    marginTop:  "0.5rem",
-    alignItems: "center",
+    display: "flex", gap: "3px", marginTop: "0.5rem", alignItems: "center",
   },
   digitDot: {
-    height:       "4px",
-    borderRadius: "100px",
-    transition:   "background 0.2s",
-    flex:         1,
+    height: "4px", borderRadius: "100px",
+    transition: "background 0.2s", flex: 1,
   },
   digitLabel: {
     fontSize:   "0.72rem",
@@ -789,11 +886,8 @@ const s = {
     flexShrink: 0,
   },
   fieldSuccess: {
-    color:      "#10b981",
-    fontSize:   "0.8rem",
-    fontWeight: 600,
-    marginTop:  "0.25rem",
-    display:    "block",
+    color: "#10b981", fontSize: "0.8rem", fontWeight: 600,
+    marginTop: "0.25rem", display: "block",
   },
   idHintBox: {
     background:   "#fffbeb",
@@ -805,12 +899,6 @@ const s = {
     marginTop:    "0.5rem",
   },
 
-  // Address
-  twoCol: {
-    display:             "grid",
-    gridTemplateColumns: "1fr 1fr",
-    gap:                 "1rem",
-  },
   addressPreview: {
     display:      "flex",
     alignItems:   "flex-start",
@@ -819,30 +907,16 @@ const s = {
     border:       "1px solid #a7f3d0",
     borderRadius: "10px",
     padding:      "0.875rem 1rem",
-    marginTop:    "0.25rem",
   },
   addressPreviewLabel: {
-    color:      "#065f46",
-    fontSize:   "0.72rem",
-    fontWeight: 700,
-    margin:     0,
-    textTransform: "uppercase",
-    letterSpacing: "0.04em",
+    color: "#065f46", fontSize: "0.72rem", fontWeight: 700,
+    margin: 0, textTransform: "uppercase", letterSpacing: "0.04em",
   },
   addressPreviewValue: {
-    color:      "#064e3b",
-    fontSize:   "0.875rem",
-    fontWeight: 600,
-    margin:     "0.2rem 0 0",
-    lineHeight: 1.5,
+    color: "#064e3b", fontSize: "0.875rem",
+    fontWeight: 600, margin: "0.2rem 0 0", lineHeight: 1.5,
   },
 
-  // Docs
-  idPairGrid: {
-    display:             "grid",
-    gridTemplateColumns: "1fr 1fr",
-    gap:                 "1rem",
-  },
   sideBadge: {
     marginLeft:    "0.5rem",
     fontSize:      "0.68rem",
@@ -853,7 +927,6 @@ const s = {
     letterSpacing: "0.05em",
   },
 
-  // File preview
   filePreview: {
     display:       "flex",
     flexDirection: "column",
@@ -871,18 +944,36 @@ const s = {
   fileName: { color: "#10b981", fontWeight: 600, fontSize: "0.82rem", margin: 0 },
   fileSize: { color: "#9ca3af", fontSize: "0.72rem", margin: 0 },
 
-  // Tips
+  // Required docs checklist
+  docChecklist: {
+    display:      "flex",
+    flexDirection:"column",
+    gap:          "0.4rem",
+    padding:      "0.875rem 1rem",
+    background:   "#f8fafc",
+    borderRadius: "10px",
+    border:       "1px solid #e5e7eb",
+    marginTop:    "0.5rem",
+  },
+  docCheckRow: {
+    display:    "flex",
+    alignItems: "center",
+    gap:        "0.5rem",
+  },
+
   tipsBox: {
     background:   "#f0fdf4",
     border:       "1px solid #bbf7d0",
     borderRadius: "12px",
     padding:      "1rem 1.25rem",
   },
-  tipsTitle: { fontWeight: 700, color: "#166534", fontSize: "0.875rem", margin: "0 0 0.75rem" },
+  tipsTitle: {
+    fontWeight: 700, color: "#166534",
+    fontSize: "0.875rem", margin: "0 0 0.75rem",
+  },
   tipsList:  { display: "flex", flexDirection: "column", gap: "0.4rem" },
   tipRow:    { display: "flex", gap: "0.5rem", alignItems: "flex-start" },
   tipText:   { color: "#166534", fontSize: "0.8rem", lineHeight: 1.4 },
 
-  // Buttons
   btnRow: { display: "flex", gap: "1rem" },
 };
