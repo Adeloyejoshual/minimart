@@ -30,6 +30,7 @@ const storeUpload = upload.fields([
 
 const verifyUpload = upload.fields([
   { name: "id_card",       maxCount: 1 },
+  { name: "id_card_back",  maxCount: 1 },
   { name: "selfie",        maxCount: 1 },
   { name: "business_doc",  maxCount: 1 },
   { name: "address_proof", maxCount: 1 },
@@ -77,31 +78,22 @@ const logStatusChange = (vendorId, oldStatus, newStatus, changedBy, reason) => {
   });
 };
 
-// ─────────────────────────────────────────────────────────────
-// KEY HELPER: Ensure user exists in market.users
-// Handles users who registered via the old routes/users.js
-// which only inserts into public.users
-// ─────────────────────────────────────────────────────────────
+// ── Ensure user exists in market.users ───────────────────────
+// Handles users registered via old routes/users.js (public.users only)
 const ensureUserInMarket = async (client, userId) => {
-  // Check market.users first
   const { rows: existing } = await client.query(
     `SELECT id FROM market.users WHERE id = $1`,
     [userId]
   );
 
-  if (existing.length) {
-    return; // Already in market.users — all good
-  }
+  if (existing.length) return;
 
-  console.log("[ensureUserInMarket] user not in market.users, syncing:", userId);
+  console.log("[ensureUserInMarket] syncing user:", userId);
 
-  // Fetch from public.users
   const { rows: pubRows } = await client.query(
-    `SELECT
-       id, name, email, password_hash,
-       phone_number, status, created_at
-     FROM public.users
-     WHERE id = $1`,
+    `SELECT id, name, email, password_hash,
+            phone_number, status, created_at
+     FROM public.users WHERE id = $1`,
     [userId]
   );
 
@@ -111,15 +103,10 @@ const ensureUserInMarket = async (client, userId) => {
     );
   }
 
-  const u = pubRows[0];
-
-  // Validate status matches market.users CHECK constraint
+  const u            = pubRows[0];
   const validStatuses = ["active", "suspended", "banned"];
-  const safeStatus    = validStatuses.includes(u.status)
-    ? u.status
-    : "active";
+  const safeStatus   = validStatuses.includes(u.status) ? u.status : "active";
 
-  // Insert into market.users with SAME UUID
   await client.query(
     `INSERT INTO market.users
        (id, name, email, password_hash,
@@ -127,13 +114,8 @@ const ensureUserInMarket = async (client, userId) => {
      VALUES ($1, $2, $3, $4, $5, $6, $7, NOW())
      ON CONFLICT (id) DO NOTHING`,
     [
-      u.id,
-      u.name,
-      u.email,
-      u.password_hash,
-      u.phone_number ?? null,
-      safeStatus,
-      u.created_at,
+      u.id, u.name, u.email, u.password_hash,
+      u.phone_number ?? null, safeStatus, u.created_at,
     ]
   );
 
@@ -142,6 +124,7 @@ const ensureUserInMarket = async (client, userId) => {
 
 // ════════════════════════════════════════════════════════════
 // GET /api/seller-onboarding/status
+// Called on mount to restore correct step after login/refresh
 // ════════════════════════════════════════════════════════════
 router.get("/status", authenticate, async (req, res) => {
   try {
@@ -199,11 +182,13 @@ router.get("/status", authenticate, async (req, res) => {
 
 // ════════════════════════════════════════════════════════════
 // GET /api/seller-onboarding/banks
+// Returns filtered commercial banks from Flutterwave
 // ════════════════════════════════════════════════════════════
 router.get("/banks", authenticate, async (req, res) => {
   try {
     const { data } = await flw().get("/banks/NG");
 
+    // Filter out MFBs and mobile money operators
     const MFB_KEYWORDS = [
       "microfinance", "mfb",
       "opay", "palmpay", "kuda", "moniepoint",
@@ -230,6 +215,7 @@ router.get("/banks", authenticate, async (req, res) => {
 
 // ════════════════════════════════════════════════════════════
 // GET /api/seller-onboarding/verify-account
+// Verify bank account number via Flutterwave
 // ════════════════════════════════════════════════════════════
 router.get("/verify-account", authenticate, async (req, res) => {
   const { account_number, bank_code } = req.query;
@@ -297,6 +283,8 @@ router.get("/verify-account", authenticate, async (req, res) => {
 
 // ════════════════════════════════════════════════════════════
 // POST /api/seller-onboarding/setup-store
+// Creates or updates vendor store record
+// Status stays "pending" — no virtual account created here
 // ════════════════════════════════════════════════════════════
 router.post("/setup-store", authenticate, storeUpload, async (req, res) => {
   const client = await pool.connect();
@@ -304,8 +292,7 @@ router.post("/setup-store", authenticate, storeUpload, async (req, res) => {
   try {
     await client.query("BEGIN");
 
-    // ✅ KEY FIX: sync user to market.users before vendor insert
-    // Handles users who registered via old routes/users.js
+    // ✅ Sync user to market.users if they registered via public route
     await ensureUserInMarket(client, req.user.id);
 
     const {
@@ -319,16 +306,12 @@ router.post("/setup-store", authenticate, storeUpload, async (req, res) => {
     } = req.body;
 
     console.log("[setup-store] body:", {
-      store_name,
-      store_category,
-      bank_account,
-      bank_name,
-      bank_code,
-      account_name,
+      store_name, store_category,
+      bank_account, bank_name, bank_code, account_name,
       user_id: req.user.id,
     });
 
-    // ── Validate ─────────────────────────────────────────
+    // ── Validate required fields ──────────────────────────
     if (!store_name?.trim()) {
       await client.query("ROLLBACK");
       return res.status(400).json({
@@ -361,16 +344,27 @@ router.post("/setup-store", authenticate, storeUpload, async (req, res) => {
       [req.user.id]
     );
 
+    // Only allow resubmit if previously rejected
     const isReapply =
       existing.length && existing[0].status === "rejected";
 
     if (existing.length && !isReapply) {
       await client.query("ROLLBACK");
+
+      // ✅ Return full status so frontend can redirect correctly
+      // pending      → frontend goes to VERIFICATION step
+      // under_review → frontend goes to REVIEW step
       return res.status(409).json({
         success: false,
         code:    "VENDOR_EXISTS",
-        message: "Store already exists",
-        status:  existing[0].status,
+        message: existing[0].status === "pending"
+          ? "Store already set up — please proceed to verification"
+          : "Store already exists",
+        status: existing[0].status,
+        vendor: {
+          id:     existing[0].id,
+          status: existing[0].status,
+        },
       });
     }
 
@@ -400,6 +394,7 @@ router.post("/setup-store", authenticate, storeUpload, async (req, res) => {
     const oldStatus = existing[0]?.status ?? null;
 
     if (isReapply) {
+      // ── UPDATE rejected vendor ────────────────────────
       const { rows: [updated] } = await client.query(
         `UPDATE market.vendors SET
            store_name        = $1,
@@ -423,8 +418,7 @@ router.post("/setup-store", authenticate, storeUpload, async (req, res) => {
           store_name.trim(),
           store_description?.trim() ?? null,
           store_category            ?? null,
-          store_logo,
-          store_banner,
+          store_logo, store_banner,
           bank_account.trim(),
           bank_name.trim(),
           account_name.trim(),
@@ -435,25 +429,16 @@ router.post("/setup-store", authenticate, storeUpload, async (req, res) => {
       vendor = updated;
 
     } else {
+      // ── INSERT new vendor ─────────────────────────────
       const { rows: [created] } = await client.query(
         `INSERT INTO market.vendors
-           (user_id,
-            store_name,
-            store_description,
-            store_category,
-            store_logo,
-            store_banner,
-            withdrawal_method,
-            bank_account,
-            bank_name,
-            account_name,
-            bank_code,
+           (user_id, store_name, store_description, store_category,
+            store_logo, store_banner, withdrawal_method,
+            bank_account, bank_name, account_name, bank_code,
             status)
          VALUES
-           ($1, $2, $3, $4, $5, $6,
-            'bank_transfer',
-            $7, $8, $9, $10,
-            'pending')
+           ($1, $2, $3, $4, $5, $6, 'bank_transfer',
+            $7, $8, $9, $10, 'pending')
          RETURNING
            id, store_name, store_logo, store_banner, status`,
         [
@@ -461,8 +446,7 @@ router.post("/setup-store", authenticate, storeUpload, async (req, res) => {
           store_name.trim(),
           store_description?.trim() ?? null,
           store_category            ?? null,
-          store_logo,
-          store_banner,
+          store_logo, store_banner,
           bank_account.trim(),
           bank_name.trim(),
           account_name.trim(),
@@ -472,18 +456,15 @@ router.post("/setup-store", authenticate, storeUpload, async (req, res) => {
       vendor = created;
     }
 
-    // ── COMMIT vendor ─────────────────────────────────────
+    // ── COMMIT vendor first ───────────────────────────────
+    // Status log runs AFTER so FK issues never roll back vendor
     await client.query("COMMIT");
 
     console.log("[setup-store] ✅ vendor saved:", vendor.id);
 
-    // ── Status log — fire and forget AFTER commit ─────────
     logStatusChange(
-      vendor.id,
-      oldStatus,
-      "pending",
-      req.user.id,
-      "Store setup submitted"
+      vendor.id, oldStatus, "pending",
+      req.user.id, "Store setup submitted"
     );
 
     return res.status(201).json({
@@ -538,6 +519,8 @@ router.post("/setup-store", authenticate, storeUpload, async (req, res) => {
 
 // ════════════════════════════════════════════════════════════
 // POST /api/seller-onboarding/verify
+// Uploads verification documents
+// Advances status: pending → under_review
 // ════════════════════════════════════════════════════════════
 router.post("/verify", authenticate, verifyUpload, async (req, res) => {
   const client = await pool.connect();
@@ -545,6 +528,7 @@ router.post("/verify", authenticate, verifyUpload, async (req, res) => {
   try {
     await client.query("BEGIN");
 
+    // ── Check vendor exists ───────────────────────────────
     const { rows } = await client.query(
       `SELECT id, status FROM market.vendors WHERE user_id = $1`,
       [req.user.id]
@@ -567,44 +551,111 @@ router.post("/verify", authenticate, verifyUpload, async (req, res) => {
       });
     }
 
-    if (!req.files?.id_card?.[0] || !req.files?.selfie?.[0]) {
+    // ── Require id_card front + selfie ────────────────────
+    if (!req.files?.id_card?.[0]) {
       await client.query("ROLLBACK");
       return res.status(400).json({
-        success: false, message: "ID card and selfie are required",
+        success: false, message: "ID card front photo is required",
+      });
+    }
+
+    if (!req.files?.selfie?.[0]) {
+      await client.query("ROLLBACK");
+      return res.status(400).json({
+        success: false, message: "Selfie with ID is required",
+      });
+    }
+
+    // ── Validate ID number ────────────────────────────────
+    const { id_type, id_number } = req.body;
+
+    if (!id_type?.trim()) {
+      await client.query("ROLLBACK");
+      return res.status(400).json({
+        success: false, message: "ID type is required",
+      });
+    }
+
+    if (!id_number?.trim()) {
+      await client.query("ROLLBACK");
+      return res.status(400).json({
+        success: false, message: "ID number is required",
+      });
+    }
+
+    // ── Validate digit count per ID type ──────────────────
+    const ID_DIGITS = {
+      nin:      11,
+      bvn:      11,
+      passport:  9,
+      drivers:  12,
+      voters:   19,
+    };
+
+    const expectedDigits = ID_DIGITS[id_type];
+    const actualDigits   = id_number.replace(/\s/g, "").length;
+
+    if (expectedDigits && actualDigits !== expectedDigits) {
+      await client.query("ROLLBACK");
+      return res.status(400).json({
+        success: false,
+        message: `${id_type.toUpperCase()} must be ${expectedDigits} digits`,
       });
     }
 
     const ts = Date.now();
 
+    // ── Upload all documents in parallel ──────────────────
     const [
       id_card_url,
+      id_card_back_url,
       selfie_url,
       business_doc_url,
       address_proof_url,
     ] = await Promise.all([
+      // Front — required
       uploadToCloudinary(
         req.files.id_card[0].buffer,
         "vendor_docs/id_cards",
-        `id_${vendor.id}_${ts}`
+        `id_front_${vendor.id}_${ts}`
       ),
+      // Back — optional
+      maybeUpload(
+        req.files, "id_card_back",
+        "vendor_docs/id_cards",
+        `id_back_${vendor.id}_${ts}`
+      ),
+      // Selfie — required
       uploadToCloudinary(
         req.files.selfie[0].buffer,
         "vendor_docs/selfies",
         `selfie_${vendor.id}_${ts}`
       ),
+      // Optional docs
       maybeUpload(req.files, "business_doc",
         "vendor_docs/business", `biz_${vendor.id}_${ts}`),
       maybeUpload(req.files, "address_proof",
         "vendor_docs/address",  `addr_${vendor.id}_${ts}`),
     ]);
 
+    // ── Upsert verification record ────────────────────────
     await client.query(
       `INSERT INTO market.vendor_verifications
-         (vendor_id, id_card_url, selfie_url,
-          business_doc_url, address_proof_url, status)
-       VALUES ($1, $2, $3, $4, $5, 'pending')
+         (vendor_id,
+          id_card_url,
+          id_card_back_url,
+          selfie_url,
+          business_doc_url,
+          address_proof_url,
+          id_type,
+          id_number,
+          status)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,'pending')
        ON CONFLICT (vendor_id) DO UPDATE SET
          id_card_url       = EXCLUDED.id_card_url,
+         id_card_back_url  = COALESCE(
+                               EXCLUDED.id_card_back_url,
+                               vendor_verifications.id_card_back_url),
          selfie_url        = EXCLUDED.selfie_url,
          business_doc_url  = COALESCE(
                                EXCLUDED.business_doc_url,
@@ -612,12 +663,23 @@ router.post("/verify", authenticate, verifyUpload, async (req, res) => {
          address_proof_url = COALESCE(
                                EXCLUDED.address_proof_url,
                                vendor_verifications.address_proof_url),
+         id_type           = EXCLUDED.id_type,
+         id_number         = EXCLUDED.id_number,
          status            = 'pending',
          updated_at        = NOW()`,
-      [vendor.id, id_card_url, selfie_url,
-       business_doc_url, address_proof_url]
+      [
+        vendor.id,
+        id_card_url,
+        id_card_back_url  ?? null,
+        selfie_url,
+        business_doc_url  ?? null,
+        address_proof_url ?? null,
+        id_type.trim(),
+        id_number.replace(/\s/g, ""),
+      ]
     );
 
+    // ── Advance vendor status → under_review ──────────────
     await client.query(
       `UPDATE market.vendors
        SET status = 'under_review', updated_at = NOW()
@@ -625,6 +687,7 @@ router.post("/verify", authenticate, verifyUpload, async (req, res) => {
       [vendor.id]
     );
 
+    // ── COMMIT ────────────────────────────────────────────
     await client.query("COMMIT");
 
     console.log("[verify] ✅ submitted:", vendor.id);
@@ -642,7 +705,11 @@ router.post("/verify", authenticate, verifyUpload, async (req, res) => {
 
   } catch (err) {
     await client.query("ROLLBACK").catch(() => {});
-    console.error("[verify] ❌", { message: err.message, code: err.code });
+    console.error("[verify] ❌", {
+      message: err.message,
+      code:    err.code,
+      detail:  err.detail,
+    });
     return res.status(500).json({
       success: false,
       message: err.message ?? "Server error",
@@ -654,6 +721,7 @@ router.post("/verify", authenticate, verifyUpload, async (req, res) => {
 
 // ════════════════════════════════════════════════════════════
 // POST /api/seller-onboarding/reapply
+// Resets rejected vendor back to pending
 // ════════════════════════════════════════════════════════════
 router.post("/reapply", authenticate, async (req, res) => {
   try {
