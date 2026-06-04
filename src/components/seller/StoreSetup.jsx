@@ -1,10 +1,10 @@
 // components/seller/StoreSetup.jsx
-import React, { useState, useEffect, useRef } from "react";
-import { STORE_CATEGORIES }  from "../../hooks/useSellerFlow";
-import axios                 from "axios";
+import React, { useState, useEffect, useCallback, useRef } from "react";
+import { STORE_CATEGORIES } from "../../hooks/useSellerFlow";
+import axios                from "axios";
 
-// ─── Nigerian Banks ───────────────────────────────────────────
-const NIGERIAN_BANKS = [
+// ─── Fallback bank list ───────────────────────────────────────
+const FALLBACK_BANKS = [
   { code: "044",    name: "Access Bank"              },
   { code: "023",    name: "Citibank"                 },
   { code: "050",    name: "EcoBank"                  },
@@ -28,15 +28,15 @@ const NIGERIAN_BANKS = [
   { code: "057",    name: "Zenith Bank"              },
   { code: "120001", name: "9PSB"                     },
   { code: "50515",  name: "Moniepoint MFB"           },
-  { code: "090405", name: "Opay"                     },
+  { code: "999991", name: "Opay"                     },
   { code: "999992", name: "Palmpay"                  },
   { code: "50211",  name: "Kuda Bank"                },
+  { code: "090175", name: "Rubies MFB"               },
+  { code: "090267", name: "Kuda MFB"                 },
 ];
 
 // ═════════════════════════════════════════════════════════════
-// MAIN COMPONENT
-// ═════════════════════════════════════════════════════════════
-const StoreSetup = ({ flow }) => {
+export default function StoreSetup({ flow }) {
   const {
     storeData,
     errors,
@@ -47,18 +47,44 @@ const StoreSetup = ({ flow }) => {
     submitStore,
   } = flow;
 
-  // ── Bank verification state ───────────────────────────────
+  // ── Bank list ─────────────────────────────────────────────
+  const [banks,        setBanks]        = useState(FALLBACK_BANKS);
+  const [banksLoading, setBanksLoading] = useState(true);
+
+  // ── Bank selection state ──────────────────────────────────
   const [selectedBank,  setSelectedBank]  = useState(null);
   const [accountNumber, setAccountNumber] = useState("");
   const [accountName,   setAccountName]   = useState("");
   const [verifying,     setVerifying]     = useState(false);
   const [verifyError,   setVerifyError]   = useState("");
-  const [bankSearch,    setBankSearch]     = useState("");
-  const [showBankList,  setShowBankList]   = useState(false);
+  const [bankSearch,    setBankSearch]    = useState("");
+  const [showBankList,  setShowBankList]  = useState(false);
 
-  const bankRef = useRef(null);
+  const bankRef    = useRef(null);
+  const verifyRef  = useRef(null); // cancel previous verify
 
-  // ── Close dropdown on outside click ───────────────────────
+  // ── Load banks from API on mount ──────────────────────────
+  useEffect(() => {
+    const fetchBanks = async () => {
+      try {
+        const token      = localStorage.getItem("token");
+        const { data }   = await axios.get(
+          "/api/seller-onboarding/banks",
+          { headers: { Authorization: `Bearer ${token}` } }
+        );
+        if (data.success && data.banks?.length) {
+          setBanks(data.banks);
+        }
+      } catch {
+        // Keep fallback list
+      } finally {
+        setBanksLoading(false);
+      }
+    };
+    fetchBanks();
+  }, []);
+
+  // ── Close dropdown on outside click ──────────────────────
   useEffect(() => {
     const handler = (e) => {
       if (bankRef.current && !bankRef.current.contains(e.target)) {
@@ -73,89 +99,99 @@ const StoreSetup = ({ flow }) => {
   useEffect(() => {
     if (accountNumber.length === 10 && selectedBank) {
       verifyAccount(accountNumber, selectedBank.code);
-    } else if (accountName) {
-      // Reset if user changes number
+    }
+
+    // Reset account name if user clears number
+    if (accountNumber.length < 10 && accountName) {
       setAccountName("");
-      handleStoreChange({
-        target: { name: "account_name", value: "" },
-      });
+      setVerifyError("");
+      handleStoreChange({ target: { name: "account_name", value: "" } });
     }
   }, [accountNumber, selectedBank]);
 
-  // ── Verify account via Flutterwave ────────────────────────
-  const verifyAccount = async (number, code) => {
+  // ── Verify account via backend → Flutterwave ─────────────
+  const verifyAccount = useCallback(async (number, code) => {
+    // Cancel any running verify
+    if (verifyRef.current) verifyRef.current = false;
+    const thisCall = true;
+    verifyRef.current = thisCall;
+
     setVerifying(true);
     setVerifyError("");
     setAccountName("");
 
     try {
-      // ✅ FIX: Send Authorization header with token
-      const token = localStorage.getItem("token");
-
+      const token    = localStorage.getItem("token");
       const { data } = await axios.get(
         "/api/seller-onboarding/verify-account",
         {
-          params: {
-            account_number: number,
-            bank_code:      code,
-          },
-          headers: {
-            Authorization: `Bearer ${token}`,
-          },
+          params:  { account_number: number, bank_code: code },
+          headers: { Authorization: `Bearer ${token}` },
         }
       );
+
+      // Stale response — user already changed input
+      if (!verifyRef.current) return;
 
       if (data.success && data.account_name) {
         const name = data.account_name;
         setAccountName(name);
 
-        // Push bank fields into storeData
-        handleStoreChange({
-          target: { name: "bank_account", value: number },
-        });
-        handleStoreChange({
-          target: { name: "bank_name", value: selectedBank.name },
-        });
-        handleStoreChange({
-          target: { name: "bank_code", value: code },
-        });
-        handleStoreChange({
-          target: { name: "account_name", value: name },
-        });
-        handleStoreChange({
-          target: { name: "withdrawal_method", value: "bank_transfer" },
-        });
+        // Push all bank fields into storeData
+        handleStoreChange({ target: { name: "bank_account",      value: number              } });
+        handleStoreChange({ target: { name: "bank_name",         value: selectedBank?.name  } });
+        handleStoreChange({ target: { name: "bank_code",         value: code                } });
+        handleStoreChange({ target: { name: "account_name",      value: name                } });
+        handleStoreChange({ target: { name: "withdrawal_method", value: "bank_transfer"     } });
       } else {
         setVerifyError("Account not found. Check number and bank.");
       }
 
     } catch (err) {
+      if (!verifyRef.current) return;
       setVerifyError(
         err.response?.data?.message ??
-        "Verification failed. Check details and try again."
+        "Verification failed. Try again."
       );
     } finally {
-      setVerifying(false);
+      if (verifyRef.current) setVerifying(false);
     }
-  };
+  }, [selectedBank, handleStoreChange]);
+
+  // ── Select bank ───────────────────────────────────────────
+  const handleBankSelect = useCallback((bank) => {
+    setSelectedBank(bank);
+    setBankSearch("");
+    setShowBankList(false);
+    setAccountName("");
+    setVerifyError("");
+    handleStoreChange({ target: { name: "account_name", value: "" } });
+    handleStoreChange({ target: { name: "bank_name",    value: bank.name } });
+    handleStoreChange({ target: { name: "bank_code",    value: bank.code } });
+  }, [handleStoreChange]);
 
   // ── Filtered banks ────────────────────────────────────────
-  const filteredBanks = NIGERIAN_BANKS.filter((b) =>
+  const filteredBanks = banks.filter((b) =>
     b.name.toLowerCase().includes(bankSearch.toLowerCase())
   );
 
+  const canSubmit = !!accountName && !loading;
+
+  // ─────────────────────────────────────────────────────────
   return (
     <div className="seller-card">
-      <div style={s.header}>
-        <h2 style={s.title}>🏪 Store Setup</h2>
-        <p style={s.subtitle}>
+
+      {/* ── Header ─────────────────────────────────────────── */}
+      <div style={s.cardHeader}>
+        <h2 style={s.cardTitle}>🏪 Store Setup</h2>
+        <p style={s.cardSubtitle}>
           Tell us about your store — this is what buyers will see.
         </p>
       </div>
 
       <div style={s.form}>
 
-        {/* ── Store Name ─────────────────────── */}
+        {/* ── Store Name ─────────────────────────────────── */}
         <Field
           label="Store Name"
           icon="🏷️"
@@ -167,6 +203,7 @@ const StoreSetup = ({ flow }) => {
             value={storeData.store_name}
             onChange={handleStoreChange}
             placeholder="e.g. TechHub Electronics"
+            maxLength={100}
             className={`seller-input ${errors.store_name ? "error" : ""}`}
           />
           <span style={s.charCount}>
@@ -174,7 +211,7 @@ const StoreSetup = ({ flow }) => {
           </span>
         </Field>
 
-        {/* ── Store Category ──────────────────── */}
+        {/* ── Store Category ──────────────────────────────── */}
         <Field
           label="Store Category"
           icon="📂"
@@ -201,7 +238,7 @@ const StoreSetup = ({ flow }) => {
           </div>
         </Field>
 
-        {/* ── Description ────────────────────── */}
+        {/* ── Description ─────────────────────────────────── */}
         <Field
           label="Store Description"
           icon="📝"
@@ -212,18 +249,21 @@ const StoreSetup = ({ flow }) => {
             name="store_description"
             value={storeData.store_description}
             onChange={handleStoreChange}
-            placeholder="Describe what your store sells, specialties, shipping..."
-            className={`seller-textarea ${errors.store_description ? "error" : ""}`}
+            placeholder="Describe your store, specialties, shipping policy..."
+            rows={4}
+            className={`seller-textarea ${
+              errors.store_description ? "error" : ""
+            }`}
           />
         </Field>
 
-        {/* ── Store Logo ──────────────────────── */}
+        {/* ── Store Logo ──────────────────────────────────── */}
         <Field label="Store Logo" icon="🖼️">
           <div style={s.logoRow}>
             {previewLogo ? (
               <img
                 src={previewLogo}
-                alt="Logo"
+                alt="Logo preview"
                 className="logo-preview-circle"
               />
             ) : (
@@ -245,7 +285,7 @@ const StoreSetup = ({ flow }) => {
           </div>
         </Field>
 
-        {/* ── Store Banner ─────────────────────── */}
+        {/* ── Store Banner ─────────────────────────────────── */}
         <Field label="Store Banner" icon="🏞️">
           <div className="upload-box">
             <input
@@ -265,16 +305,18 @@ const StoreSetup = ({ flow }) => {
           </div>
         </Field>
 
-        {/* ══════════════════════════════════════
+        {/* ══════════════════════════════════════════════════
             BANK DETAILS
-        ══════════════════════════════════════ */}
+        ══════════════════════════════════════════════════ */}
         <div style={s.bankSection}>
-          <h3 style={s.bankTitle}>🏦 Bank Details</h3>
-          <p style={s.bankSubtitle}>
-            Payouts will be sent to this account
-          </p>
+          <div style={s.bankSectionHeader}>
+            <h3 style={s.bankTitle}>🏦 Bank Details</h3>
+            <p style={s.bankSubtitle}>
+              Payouts will be sent to this account
+            </p>
+          </div>
 
-          {/* ── Bank Selector ────────────────── */}
+          {/* ── Bank Selector ─────────────────────────── */}
           <Field
             label="Select Bank"
             icon="🏦"
@@ -292,12 +334,14 @@ const StoreSetup = ({ flow }) => {
                     ? "#ef4444"
                     : "#e5e7eb",
                 }}
-                onClick={() => setShowBankList(!showBankList)}
+                onClick={() => setShowBankList((v) => !v)}
               >
                 <span style={{
                   color: selectedBank ? "#1f2937" : "#9ca3af",
                 }}>
-                  {selectedBank?.name ?? "Choose your bank"}
+                  {banksLoading
+                    ? "Loading banks..."
+                    : selectedBank?.name ?? "Choose your bank"}
                 </span>
                 <span style={s.chevron}>
                   {showBankList ? "▲" : "▼"}
@@ -312,45 +356,36 @@ const StoreSetup = ({ flow }) => {
                       placeholder="🔍 Search bank..."
                       value={bankSearch}
                       onChange={(e) => setBankSearch(e.target.value)}
-                      style={s.bankSearch}
+                      style={s.bankSearchInput}
                       autoFocus
                     />
                   </div>
-
                   <div style={s.bankList}>
                     {filteredBanks.length === 0 ? (
                       <div style={s.bankNoResult}>No banks found</div>
                     ) : (
-                      filteredBanks.map((bank) => (
-                        <button
-                          key={bank.code}
-                          type="button"
-                          style={{
-                            ...s.bankOption,
-                            background:
-                              selectedBank?.code === bank.code
-                                ? "#eef2ff" : "white",
-                            color:
-                              selectedBank?.code === bank.code
-                                ? "#6366f1" : "#374151",
-                            fontWeight:
-                              selectedBank?.code === bank.code
-                                ? 700 : 400,
-                          }}
-                          onClick={() => {
-                            setSelectedBank(bank);
-                            setBankSearch("");
-                            setShowBankList(false);
-                            setAccountName("");
-                            setVerifyError("");
-                          }}
-                        >
-                          {bank.name}
-                          {selectedBank?.code === bank.code && (
-                            <span style={{ marginLeft: "auto" }}>✓</span>
-                          )}
-                        </button>
-                      ))
+                      filteredBanks.map((bank) => {
+                        const isSelected =
+                          selectedBank?.code === bank.code;
+                        return (
+                          <button
+                            key={`${bank.code}-${bank.name}`}
+                            type="button"
+                            style={{
+                              ...s.bankOption,
+                              background: isSelected ? "#eef2ff" : "white",
+                              color:      isSelected ? "#6366f1" : "#374151",
+                              fontWeight: isSelected ? 700 : 400,
+                            }}
+                            onClick={() => handleBankSelect(bank)}
+                          >
+                            <span>{bank.name}</span>
+                            {isSelected && (
+                              <span style={{ marginLeft: "auto" }}>✓</span>
+                            )}
+                          </button>
+                        );
+                      })
                     )}
                   </div>
                 </div>
@@ -358,7 +393,7 @@ const StoreSetup = ({ flow }) => {
             </div>
           </Field>
 
-          {/* ── Account Number ───────────────── */}
+          {/* ── Account Number ────────────────────────── */}
           <Field
             label="Account Number"
             icon="🔢"
@@ -367,7 +402,7 @@ const StoreSetup = ({ flow }) => {
             hint={
               !selectedBank
                 ? "Select a bank first"
-                : "10-digit account number"
+                : "Enter your 10-digit account number"
             }
           >
             <div style={{ position: "relative" }}>
@@ -385,38 +420,51 @@ const StoreSetup = ({ flow }) => {
                 }}
                 placeholder={
                   selectedBank
-                    ? "Enter 10-digit account number"
+                    ? "e.g. 0123456789"
                     : "Select a bank first"
                 }
                 className={`seller-input ${
-                  errors.bank_account || verifyError ? "error" : ""
+                  verifyError   ? "error"   :
+                  accountName   ? "success" : ""
                 }`}
                 style={{
-                  paddingRight: "3rem",
-                  opacity:      selectedBank ? 1 : 0.5,
+                  paddingRight: "3.5rem",
+                  opacity:      selectedBank ? 1 : 0.55,
+                  borderColor:  accountName
+                    ? "#10b981"
+                    : verifyError
+                    ? "#ef4444"
+                    : undefined,
                 }}
               />
 
-              <span style={s.acctStatus}>
-                {verifying && <span style={s.spinnerSmall} />}
+              {/* Status icon */}
+              <span style={s.acctIcon}>
+                {verifying && <Spinner size={16} />}
                 {!verifying && accountName && (
-                  <span style={{ color: "#10b981", fontSize: "1.2rem" }}>✓</span>
+                  <span style={{ color: "#10b981", fontSize: "1.2rem" }}>
+                    ✓
+                  </span>
                 )}
                 {!verifying && verifyError && (
-                  <span style={{ color: "#ef4444", fontSize: "1.2rem" }}>✗</span>
+                  <span style={{ color: "#ef4444", fontSize: "1.2rem" }}>
+                    ✗
+                  </span>
                 )}
               </span>
             </div>
 
-            {/* Digit progress */}
-            <div style={s.digitCounter}>
+            {/* Digit progress bar */}
+            <div style={s.digitRow}>
               {[...Array(10)].map((_, i) => (
                 <div
                   key={i}
                   style={{
                     ...s.digitDot,
                     background:
-                      i < accountNumber.length ? "#6366f1" : "#e5e7eb",
+                      i < accountNumber.length
+                        ? accountName ? "#10b981" : "#6366f1"
+                        : "#e5e7eb",
                   }}
                 />
               ))}
@@ -426,8 +474,18 @@ const StoreSetup = ({ flow }) => {
             </div>
           </Field>
 
-          {/* ── Verify Error ─────────────────── */}
-          {verifyError && (
+          {/* ── Verifying state ───────────────────────── */}
+          {verifying && (
+            <div style={s.verifyingBox}>
+              <Spinner size={16} />
+              <span>
+                Verifying with {selectedBank?.name}...
+              </span>
+            </div>
+          )}
+
+          {/* ── Verify error ──────────────────────────── */}
+          {verifyError && !verifying && (
             <div style={s.verifyError}>
               <span>⚠️ {verifyError}</span>
               {selectedBank && accountNumber.length === 10 && (
@@ -444,95 +502,124 @@ const StoreSetup = ({ flow }) => {
             </div>
           )}
 
-          {/* ── Verifying spinner ────────────── */}
-          {verifying && (
-            <div style={s.verifyingBox}>
-              <span style={s.spinnerSmall} />
-              <span>Verifying account with {selectedBank?.name}...</span>
-            </div>
-          )}
-
-          {/* ── Verified Account Name ────────── */}
+          {/* ── Account name — verified ───────────────── */}
           {accountName && !verifying && (
             <div style={s.accountNameBox}>
-              <div style={s.accountNameIcon}>✅</div>
-              <div>
-                <p style={s.accountNameLabel}>Account Name</p>
+              <span style={{ fontSize: "1.75rem" }}>✅</span>
+              <div style={{ flex: 1 }}>
+                <p style={s.accountNameLabel}>Verified Account Name</p>
                 <p style={s.accountNameValue}>{accountName}</p>
+                <p style={s.accountNameBank}>{selectedBank?.name}</p>
               </div>
-              <div style={s.verifiedBadge}>Verified</div>
+              <span style={s.verifiedBadge}>Verified</span>
             </div>
           )}
         </div>
 
-        {/* ── Server Message ──────────────────── */}
+        {/* ── Server message ───────────────────────────── */}
         {serverMsg && (
           <div
             className={`seller-alert ${
               serverMsg.toLowerCase().includes("fail") ||
-              serverMsg.toLowerCase().includes("error")
-                ? "error"
-                : "success"
+              serverMsg.toLowerCase().includes("error") ||
+              serverMsg.toLowerCase().includes("already")
+                ? "error" : "success"
             }`}
           >
             {serverMsg}
           </div>
         )}
 
-        {/* ── Submit ─────────────────────────── */}
+        {/* ── Submit button ────────────────────────────── */}
         <button
+          type="button"
           onClick={submitStore}
-          disabled={loading || !accountName}
+          disabled={!canSubmit}
           className="btn-seller-primary"
-          style={{ opacity: !accountName ? 0.6 : 1 }}
+          style={{ opacity: canSubmit ? 1 : 0.6 }}
         >
           {loading ? (
-            <><span className="spinner" /> Saving Store...</>
+            <>
+              <Spinner size={18} white />
+              {" "}Saving Store...
+            </>
           ) : (
             "Continue to Verification →"
           )}
         </button>
 
-        {!accountName && (
-          <p style={s.acctHint}>
-            ⚠️ Verify your bank account to continue
+        {/* Hint when bank not verified */}
+        {!accountName && !loading && (
+          <p style={s.submitHint}>
+            ⚠️ Please verify your bank account above to continue
           </p>
         )}
 
       </div>
     </div>
   );
-};
+}
 
-// ─── Field Wrapper ────────────────────────────────────────────
-const Field = ({ label, icon, required, error, hint, children }) => (
-  <div className="seller-field">
-    <label className="seller-label">
-      {icon} {label}
-      {required && <span style={{ color: "#ef4444" }}> *</span>}
-    </label>
-    {children}
-    {hint && !error && (
-      <span style={{ color: "#9ca3af", fontSize: "0.8rem" }}>{hint}</span>
-    )}
-    {error && <span className="field-error">⚠️ {error}</span>}
-  </div>
-);
+// ══════════════════════════════════════════════════════════════
+// SHARED COMPONENTS
+// ══════════════════════════════════════════════════════════════
 
-// ─── Styles ───────────────────────────────────────────────────
+function Field({ label, icon, required, error, hint, children }) {
+  return (
+    <div className="seller-field">
+      <label className="seller-label">
+        {icon} {label}
+        {required && (
+          <span style={{ color: "#ef4444" }}> *</span>
+        )}
+      </label>
+      {children}
+      {hint && !error && (
+        <span style={{ color: "#9ca3af", fontSize: "0.8rem" }}>
+          {hint}
+        </span>
+      )}
+      {error && (
+        <span className="field-error">⚠️ {error}</span>
+      )}
+    </div>
+  );
+}
+
+function Spinner({ size = 20, white = false }) {
+  return (
+    <span
+      style={{
+        width:        size,
+        height:       size,
+        border:       `2px solid ${white ? "rgba(255,255,255,0.3)" : "#e5e7eb"}`,
+        borderTop:    `2px solid ${white ? "white" : "#6366f1"}`,
+        borderRadius: "50%",
+        display:      "inline-block",
+        animation:    "spin 0.7s linear infinite",
+        verticalAlign:"middle",
+        flexShrink:   0,
+      }}
+    />
+  );
+}
+
+// ══════════════════════════════════════════════════════════════
+// STYLES
+// ══════════════════════════════════════════════════════════════
 const s = {
-  header:   { marginBottom: "2rem" },
-  title:    { fontSize: "1.5rem", fontWeight: 800, color: "#1f2937", margin: 0 },
-  subtitle: { color: "#6b7280", marginTop: "0.35rem" },
-  form:     { display: "flex", flexDirection: "column", gap: "1.5rem" },
-  charCount:{ color: "#9ca3af", fontSize: "0.8rem", marginTop: "0.25rem", display: "block" },
-  fileOk:   { color: "#10b981", marginTop: "0.5rem", fontSize: "0.85rem" },
+  // Card header
+  cardHeader:   { marginBottom: "2rem" },
+  cardTitle:    { fontSize: "1.5rem", fontWeight: 800, color: "#1f2937", margin: 0 },
+  cardSubtitle: { color: "#6b7280", marginTop: "0.35rem", margin: "0.35rem 0 0" },
 
-  logoRow: {
-    display:    "flex",
-    gap:        "1.5rem",
-    alignItems: "center",
-  },
+  // Form
+  form:      { display: "flex", flexDirection: "column", gap: "1.5rem" },
+  charCount: { color: "#9ca3af", fontSize: "0.8rem", marginTop: "0.25rem", display: "block" },
+  fileOk:    { color: "#10b981", marginTop: "0.5rem", fontSize: "0.85rem" },
+
+  // Logo
+  logoRow: { display: "flex", gap: "1.5rem", alignItems: "center" },
   logoPlaceholder: {
     width:          "80px",
     height:         "80px",
@@ -557,10 +644,11 @@ const s = {
     flexDirection: "column",
     gap:           "1.25rem",
   },
-  bankTitle:    { fontSize: "1.1rem", fontWeight: 700, color: "#1f2937", margin: 0 },
-  bankSubtitle: { color: "#9ca3af", fontSize: "0.85rem", margin: 0 },
+  bankSectionHeader: { marginBottom: "0.25rem" },
+  bankTitle:    { fontSize: "1.05rem", fontWeight: 700, color: "#1f2937", margin: 0 },
+  bankSubtitle: { color: "#9ca3af", fontSize: "0.85rem", margin: "0.25rem 0 0" },
 
-  // Bank selector
+  // Bank dropdown trigger
   bankTrigger: {
     width:          "100%",
     padding:        "0.875rem 1.125rem",
@@ -573,9 +661,11 @@ const s = {
     cursor:         "pointer",
     fontSize:       "1rem",
     transition:     "border-color 0.2s",
+    textAlign:      "left",
   },
-  chevron: { color: "#9ca3af", fontSize: "0.75rem" },
+  chevron: { color: "#9ca3af", fontSize: "0.75rem", flexShrink: 0 },
 
+  // Dropdown
   bankDropdown: {
     position:     "absolute",
     top:          "calc(100% + 4px)",
@@ -592,19 +682,16 @@ const s = {
     padding:      "0.75rem",
     borderBottom: "1px solid #f3f4f6",
   },
-  bankSearch: {
-    width:       "100%",
-    padding:     "0.6rem 0.875rem",
-    border:      "1px solid #e5e7eb",
-    borderRadius:"8px",
-    fontSize:    "0.9rem",
-    outline:     "none",
-    boxSizing:   "border-box",
+  bankSearchInput: {
+    width:        "100%",
+    padding:      "0.6rem 0.875rem",
+    border:       "1px solid #e5e7eb",
+    borderRadius: "8px",
+    fontSize:     "0.9rem",
+    outline:      "none",
+    boxSizing:    "border-box",
   },
-  bankList: {
-    maxHeight: "240px",
-    overflowY: "auto",
-  },
+  bankList:   { maxHeight: "240px", overflowY: "auto" },
   bankOption: {
     width:      "100%",
     padding:    "0.75rem 1rem",
@@ -614,6 +701,7 @@ const s = {
     fontSize:   "0.875rem",
     display:    "flex",
     alignItems: "center",
+    gap:        "0.5rem",
     transition: "background 0.1s",
   },
   bankNoResult: {
@@ -624,13 +712,15 @@ const s = {
   },
 
   // Account number
-  acctStatus: {
+  acctIcon: {
     position:  "absolute",
     right:     "1rem",
     top:       "50%",
     transform: "translateY(-50%)",
+    display:   "flex",
+    alignItems:"center",
   },
-  digitCounter: {
+  digitRow: {
     display:    "flex",
     gap:        "4px",
     marginTop:  "0.5rem",
@@ -639,22 +729,34 @@ const s = {
   digitDot: {
     height:       "4px",
     borderRadius: "100px",
-    transition:   "background 0.2s",
+    transition:   "background 0.25s ease",
     flex:         1,
   },
   digitLabel: {
-    fontSize:   "0.75rem",
+    fontSize:   "0.72rem",
     color:      "#9ca3af",
     marginLeft: "0.5rem",
     whiteSpace: "nowrap",
+    flexShrink: 0,
   },
 
   // Verify states
+  verifyingBox: {
+    display:      "flex",
+    alignItems:   "center",
+    gap:          "0.75rem",
+    color:        "#6b7280",
+    fontSize:     "0.875rem",
+    padding:      "0.875rem 1rem",
+    background:   "#f9fafb",
+    borderRadius: "10px",
+    border:       "1px solid #e5e7eb",
+  },
   verifyError: {
     background:   "#fef2f2",
     border:       "1px solid #fecaca",
     borderRadius: "10px",
-    padding:      "0.75rem 1rem",
+    padding:      "0.875rem 1rem",
     color:        "#991b1b",
     fontSize:     "0.875rem",
     display:      "flex",
@@ -672,17 +774,7 @@ const s = {
     fontWeight:   600,
     cursor:       "pointer",
     fontSize:     "0.8rem",
-  },
-  verifyingBox: {
-    display:      "flex",
-    alignItems:   "center",
-    gap:          "0.75rem",
-    color:        "#6b7280",
-    fontSize:     "0.875rem",
-    padding:      "0.75rem 1rem",
-    background:   "#f9fafb",
-    borderRadius: "10px",
-    border:       "1px solid #e5e7eb",
+    flexShrink:   0,
   },
 
   // Account name result
@@ -695,46 +787,43 @@ const s = {
     borderRadius: "12px",
     padding:      "1rem 1.25rem",
   },
-  accountNameIcon:  { fontSize: "1.5rem" },
   accountNameLabel: {
     color:      "#065f46",
-    fontSize:   "0.75rem",
+    fontSize:   "0.72rem",
     fontWeight: 600,
     margin:     0,
+    textTransform: "uppercase",
+    letterSpacing: "0.05em",
   },
   accountNameValue: {
     color:      "#064e3b",
     fontSize:   "1.05rem",
     fontWeight: 800,
-    margin:     "0.15rem 0 0",
+    margin:     "0.2rem 0 0",
+  },
+  accountNameBank: {
+    color:    "#047857",
+    fontSize: "0.8rem",
+    margin:   "0.15rem 0 0",
   },
   verifiedBadge: {
-    marginLeft:  "auto",
-    background:  "#10b981",
-    color:       "white",
-    fontSize:    "0.7rem",
-    fontWeight:  700,
-    padding:     "0.25rem 0.65rem",
-    borderRadius:"100px",
-    letterSpacing:"0.03em",
+    marginLeft:    "auto",
+    background:    "#10b981",
+    color:         "white",
+    fontSize:      "0.7rem",
+    fontWeight:    700,
+    padding:       "0.25rem 0.65rem",
+    borderRadius:  "100px",
+    letterSpacing: "0.04em",
+    flexShrink:    0,
   },
 
-  spinnerSmall: {
-    width:        "16px",
-    height:       "16px",
-    border:       "2px solid #e5e7eb",
-    borderTop:    "2px solid #6366f1",
-    borderRadius: "50%",
-    display:      "inline-block",
-    animation:    "spin 0.7s linear infinite",
-  },
-
-  acctHint: {
+  // Submit
+  submitHint: {
     textAlign:  "center",
     color:      "#f59e0b",
     fontSize:   "0.85rem",
     margin:     0,
+    fontWeight: 500,
   },
 };
-
-export default StoreSetup;
