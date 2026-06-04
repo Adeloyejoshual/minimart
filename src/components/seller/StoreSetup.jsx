@@ -3,36 +3,30 @@ import React, { useState, useEffect, useCallback, useRef } from "react";
 import { STORE_CATEGORIES } from "../../hooks/useSellerFlow";
 import axios                from "axios";
 
-// ─── Fallback bank list ───────────────────────────────────────
+// ─── Nigerian Commercial Banks Only ───────────────────────────
+// Removed: Opay, Palmpay, Kuda, Moniepoint, 9PSB, Rubies MFB
 const FALLBACK_BANKS = [
-  { code: "044",    name: "Access Bank"              },
-  { code: "023",    name: "Citibank"                 },
-  { code: "050",    name: "EcoBank"                  },
-  { code: "070",    name: "Fidelity Bank"            },
-  { code: "011",    name: "First Bank of Nigeria"    },
-  { code: "214",    name: "First City Monument Bank" },
-  { code: "058",    name: "Guaranty Trust Bank"      },
-  { code: "030",    name: "Heritage Bank"            },
-  { code: "301",    name: "Jaiz Bank"                },
-  { code: "082",    name: "Keystone Bank"            },
-  { code: "076",    name: "Polaris Bank"             },
-  { code: "101",    name: "Providus Bank"            },
-  { code: "221",    name: "Stanbic IBTC Bank"        },
-  { code: "068",    name: "Standard Chartered"       },
-  { code: "232",    name: "Sterling Bank"            },
-  { code: "100",    name: "Suntrust Bank"            },
-  { code: "032",    name: "Union Bank"               },
-  { code: "033",    name: "United Bank for Africa"   },
-  { code: "215",    name: "Unity Bank"               },
-  { code: "035",    name: "Wema Bank"                },
-  { code: "057",    name: "Zenith Bank"              },
-  { code: "120001", name: "9PSB"                     },
-  { code: "50515",  name: "Moniepoint MFB"           },
-  { code: "999991", name: "Opay"                     },
-  { code: "999992", name: "Palmpay"                  },
-  { code: "50211",  name: "Kuda Bank"                },
-  { code: "090175", name: "Rubies MFB"               },
-  { code: "090267", name: "Kuda MFB"                 },
+  { code: "044", name: "Access Bank"              },
+  { code: "023", name: "Citibank"                 },
+  { code: "050", name: "EcoBank"                  },
+  { code: "070", name: "Fidelity Bank"            },
+  { code: "011", name: "First Bank of Nigeria"    },
+  { code: "214", name: "First City Monument Bank" },
+  { code: "058", name: "Guaranty Trust Bank"      },
+  { code: "030", name: "Heritage Bank"            },
+  { code: "301", name: "Jaiz Bank"                },
+  { code: "082", name: "Keystone Bank"            },
+  { code: "076", name: "Polaris Bank"             },
+  { code: "101", name: "Providus Bank"            },
+  { code: "221", name: "Stanbic IBTC Bank"        },
+  { code: "068", name: "Standard Chartered"       },
+  { code: "232", name: "Sterling Bank"            },
+  { code: "100", name: "Suntrust Bank"            },
+  { code: "032", name: "Union Bank"               },
+  { code: "033", name: "United Bank for Africa"   },
+  { code: "215", name: "Unity Bank"               },
+  { code: "035", name: "Wema Bank"                },
+  { code: "057", name: "Zenith Bank"              },
 ];
 
 // ═════════════════════════════════════════════════════════════
@@ -47,11 +41,8 @@ export default function StoreSetup({ flow }) {
     submitStore,
   } = flow;
 
-  // ── Bank list ─────────────────────────────────────────────
   const [banks,        setBanks]        = useState(FALLBACK_BANKS);
   const [banksLoading, setBanksLoading] = useState(true);
-
-  // ── Bank selection state ──────────────────────────────────
   const [selectedBank,  setSelectedBank]  = useState(null);
   const [accountNumber, setAccountNumber] = useState("");
   const [accountName,   setAccountName]   = useState("");
@@ -60,20 +51,41 @@ export default function StoreSetup({ flow }) {
   const [bankSearch,    setBankSearch]    = useState("");
   const [showBankList,  setShowBankList]  = useState(false);
 
-  const bankRef    = useRef(null);
-  const verifyRef  = useRef(null); // cancel previous verify
+  const bankRef   = useRef(null);
+  const verifyRef = useRef(null);
 
-  // ── Load banks from API on mount ──────────────────────────
+  // ── Load banks from API — filter out MFBs ─────────────────
   useEffect(() => {
     const fetchBanks = async () => {
       try {
-        const token      = localStorage.getItem("token");
-        const { data }   = await axios.get(
+        const token    = localStorage.getItem("token");
+        const { data } = await axios.get(
           "/api/seller-onboarding/banks",
           { headers: { Authorization: `Bearer ${token}` } }
         );
+
         if (data.success && data.banks?.length) {
-          setBanks(data.banks);
+          // ── Filter: keep only commercial banks (nuban type)
+          // Remove MFBs, mobile money, fintech wallets
+          const MFB_KEYWORDS = [
+            "microfinance", "mfb", "mfBank",
+            "opay", "palmpay", "kuda", "moniepoint",
+            "9psb", "rubies", "fairmoney", "carbon",
+            "piggyvest", "eyowo", "sparkle",
+          ];
+
+          const commercialOnly = data.banks.filter((b) => {
+            const nameLower = b.name.toLowerCase();
+            return !MFB_KEYWORDS.some((keyword) =>
+              nameLower.includes(keyword)
+            );
+          });
+
+          setBanks(
+            commercialOnly.length > 0
+              ? commercialOnly
+              : FALLBACK_BANKS
+          );
         }
       } catch {
         // Keep fallback list
@@ -100,8 +112,6 @@ export default function StoreSetup({ flow }) {
     if (accountNumber.length === 10 && selectedBank) {
       verifyAccount(accountNumber, selectedBank.code);
     }
-
-    // Reset account name if user clears number
     if (accountNumber.length < 10 && accountName) {
       setAccountName("");
       setVerifyError("");
@@ -109,12 +119,10 @@ export default function StoreSetup({ flow }) {
     }
   }, [accountNumber, selectedBank]);
 
-  // ── Verify account via backend → Flutterwave ─────────────
+  // ── Verify account ────────────────────────────────────────
   const verifyAccount = useCallback(async (number, code) => {
-    // Cancel any running verify
     if (verifyRef.current) verifyRef.current = false;
-    const thisCall = true;
-    verifyRef.current = thisCall;
+    verifyRef.current = true;
 
     setVerifying(true);
     setVerifyError("");
@@ -130,28 +138,23 @@ export default function StoreSetup({ flow }) {
         }
       );
 
-      // Stale response — user already changed input
       if (!verifyRef.current) return;
 
       if (data.success && data.account_name) {
         const name = data.account_name;
         setAccountName(name);
-
-        // Push all bank fields into storeData
-        handleStoreChange({ target: { name: "bank_account",      value: number              } });
-        handleStoreChange({ target: { name: "bank_name",         value: selectedBank?.name  } });
-        handleStoreChange({ target: { name: "bank_code",         value: code                } });
-        handleStoreChange({ target: { name: "account_name",      value: name                } });
-        handleStoreChange({ target: { name: "withdrawal_method", value: "bank_transfer"     } });
+        handleStoreChange({ target: { name: "bank_account",      value: number             } });
+        handleStoreChange({ target: { name: "bank_name",         value: selectedBank?.name } });
+        handleStoreChange({ target: { name: "bank_code",         value: code               } });
+        handleStoreChange({ target: { name: "account_name",      value: name               } });
+        handleStoreChange({ target: { name: "withdrawal_method", value: "bank_transfer"    } });
       } else {
         setVerifyError("Account not found. Check number and bank.");
       }
-
     } catch (err) {
       if (!verifyRef.current) return;
       setVerifyError(
-        err.response?.data?.message ??
-        "Verification failed. Try again."
+        err.response?.data?.message ?? "Verification failed. Try again."
       );
     } finally {
       if (verifyRef.current) setVerifying(false);
@@ -165,19 +168,17 @@ export default function StoreSetup({ flow }) {
     setShowBankList(false);
     setAccountName("");
     setVerifyError("");
-    handleStoreChange({ target: { name: "account_name", value: "" } });
+    handleStoreChange({ target: { name: "account_name", value: ""        } });
     handleStoreChange({ target: { name: "bank_name",    value: bank.name } });
     handleStoreChange({ target: { name: "bank_code",    value: bank.code } });
   }, [handleStoreChange]);
 
-  // ── Filtered banks ────────────────────────────────────────
   const filteredBanks = banks.filter((b) =>
     b.name.toLowerCase().includes(bankSearch.toLowerCase())
   );
 
   const canSubmit = !!accountName && !loading;
 
-  // ─────────────────────────────────────────────────────────
   return (
     <div className="seller-card">
 
@@ -191,13 +192,8 @@ export default function StoreSetup({ flow }) {
 
       <div style={s.form}>
 
-        {/* ── Store Name ─────────────────────────────────── */}
-        <Field
-          label="Store Name"
-          icon="🏷️"
-          required
-          error={errors.store_name}
-        >
+        {/* ── Store Name ───────────────────────────────────── */}
+        <Field label="Store Name" icon="🏷️" required error={errors.store_name}>
           <input
             name="store_name"
             value={storeData.store_name}
@@ -211,7 +207,7 @@ export default function StoreSetup({ flow }) {
           </span>
         </Field>
 
-        {/* ── Store Category ──────────────────────────────── */}
+        {/* ── Store Category ───────────────────────────────── */}
         <Field
           label="Store Category"
           icon="📂"
@@ -238,7 +234,7 @@ export default function StoreSetup({ flow }) {
           </div>
         </Field>
 
-        {/* ── Description ─────────────────────────────────── */}
+        {/* ── Description ──────────────────────────────────── */}
         <Field
           label="Store Description"
           icon="📝"
@@ -257,7 +253,7 @@ export default function StoreSetup({ flow }) {
           />
         </Field>
 
-        {/* ── Store Logo ──────────────────────────────────── */}
+        {/* ── Store Logo ───────────────────────────────────── */}
         <Field label="Store Logo" icon="🖼️">
           <div style={s.logoRow}>
             {previewLogo ? (
@@ -298,9 +294,7 @@ export default function StoreSetup({ flow }) {
             <p className="upload-text">Click to upload banner</p>
             <p className="upload-sub">Recommended: 1200×300px</p>
             {storeData.store_banner && (
-              <p style={s.fileOk}>
-                ✅ {storeData.store_banner.name}
-              </p>
+              <p style={s.fileOk}>✅ {storeData.store_banner.name}</p>
             )}
           </div>
         </Field>
@@ -313,6 +307,9 @@ export default function StoreSetup({ flow }) {
             <h3 style={s.bankTitle}>🏦 Bank Details</h3>
             <p style={s.bankSubtitle}>
               Payouts will be sent to this account
+            </p>
+            <p style={s.bankNote}>
+              ℹ️ Only CBN-licensed commercial banks accepted
             </p>
           </div>
 
@@ -365,8 +362,7 @@ export default function StoreSetup({ flow }) {
                       <div style={s.bankNoResult}>No banks found</div>
                     ) : (
                       filteredBanks.map((bank) => {
-                        const isSelected =
-                          selectedBank?.code === bank.code;
+                        const isSelected = selectedBank?.code === bank.code;
                         return (
                           <button
                             key={`${bank.code}-${bank.name}`}
@@ -419,13 +415,10 @@ export default function StoreSetup({ flow }) {
                   setAccountNumber(val);
                 }}
                 placeholder={
-                  selectedBank
-                    ? "e.g. 0123456789"
-                    : "Select a bank first"
+                  selectedBank ? "e.g. 0123456789" : "Select a bank first"
                 }
                 className={`seller-input ${
-                  verifyError   ? "error"   :
-                  accountName   ? "success" : ""
+                  verifyError ? "error" : accountName ? "success" : ""
                 }`}
                 style={{
                   paddingRight: "3.5rem",
@@ -438,23 +431,18 @@ export default function StoreSetup({ flow }) {
                 }}
               />
 
-              {/* Status icon */}
               <span style={s.acctIcon}>
                 {verifying && <Spinner size={16} />}
                 {!verifying && accountName && (
-                  <span style={{ color: "#10b981", fontSize: "1.2rem" }}>
-                    ✓
-                  </span>
+                  <span style={{ color: "#10b981", fontSize: "1.2rem" }}>✓</span>
                 )}
                 {!verifying && verifyError && (
-                  <span style={{ color: "#ef4444", fontSize: "1.2rem" }}>
-                    ✗
-                  </span>
+                  <span style={{ color: "#ef4444", fontSize: "1.2rem" }}>✗</span>
                 )}
               </span>
             </div>
 
-            {/* Digit progress bar */}
+            {/* Digit progress */}
             <div style={s.digitRow}>
               {[...Array(10)].map((_, i) => (
                 <div
@@ -478,9 +466,7 @@ export default function StoreSetup({ flow }) {
           {verifying && (
             <div style={s.verifyingBox}>
               <Spinner size={16} />
-              <span>
-                Verifying with {selectedBank?.name}...
-              </span>
+              <span>Verifying with {selectedBank?.name}...</span>
             </div>
           )}
 
@@ -502,7 +488,7 @@ export default function StoreSetup({ flow }) {
             </div>
           )}
 
-          {/* ── Account name — verified ───────────────── */}
+          {/* ── Verified account name ─────────────────── */}
           {accountName && !verifying && (
             <div style={s.accountNameBox}>
               <span style={{ fontSize: "1.75rem" }}>✅</span>
@@ -530,7 +516,7 @@ export default function StoreSetup({ flow }) {
           </div>
         )}
 
-        {/* ── Submit button ────────────────────────────── */}
+        {/* ── Submit ───────────────────────────────────── */}
         <button
           type="button"
           onClick={submitStore}
@@ -539,16 +525,12 @@ export default function StoreSetup({ flow }) {
           style={{ opacity: canSubmit ? 1 : 0.6 }}
         >
           {loading ? (
-            <>
-              <Spinner size={18} white />
-              {" "}Saving Store...
-            </>
+            <><Spinner size={18} white /> Saving Store...</>
           ) : (
             "Continue to Verification →"
           )}
         </button>
 
-        {/* Hint when bank not verified */}
         {!accountName && !loading && (
           <p style={s.submitHint}>
             ⚠️ Please verify your bank account above to continue
@@ -560,24 +542,17 @@ export default function StoreSetup({ flow }) {
   );
 }
 
-// ══════════════════════════════════════════════════════════════
-// SHARED COMPONENTS
-// ══════════════════════════════════════════════════════════════
-
+// ─── Field Wrapper ────────────────────────────────────────────
 function Field({ label, icon, required, error, hint, children }) {
   return (
     <div className="seller-field">
       <label className="seller-label">
         {icon} {label}
-        {required && (
-          <span style={{ color: "#ef4444" }}> *</span>
-        )}
+        {required && <span style={{ color: "#ef4444" }}> *</span>}
       </label>
       {children}
       {hint && !error && (
-        <span style={{ color: "#9ca3af", fontSize: "0.8rem" }}>
-          {hint}
-        </span>
+        <span style={{ color: "#9ca3af", fontSize: "0.8rem" }}>{hint}</span>
       )}
       {error && (
         <span className="field-error">⚠️ {error}</span>
@@ -586,39 +561,33 @@ function Field({ label, icon, required, error, hint, children }) {
   );
 }
 
+// ─── Spinner ──────────────────────────────────────────────────
 function Spinner({ size = 20, white = false }) {
   return (
-    <span
-      style={{
-        width:        size,
-        height:       size,
-        border:       `2px solid ${white ? "rgba(255,255,255,0.3)" : "#e5e7eb"}`,
-        borderTop:    `2px solid ${white ? "white" : "#6366f1"}`,
-        borderRadius: "50%",
-        display:      "inline-block",
-        animation:    "spin 0.7s linear infinite",
-        verticalAlign:"middle",
-        flexShrink:   0,
-      }}
-    />
+    <span style={{
+      width:         size,
+      height:        size,
+      border:        `2px solid ${white ? "rgba(255,255,255,0.3)" : "#e5e7eb"}`,
+      borderTop:     `2px solid ${white ? "white" : "#6366f1"}`,
+      borderRadius:  "50%",
+      display:       "inline-block",
+      animation:     "spin 0.7s linear infinite",
+      verticalAlign: "middle",
+      flexShrink:    0,
+    }} />
   );
 }
 
-// ══════════════════════════════════════════════════════════════
-// STYLES
-// ══════════════════════════════════════════════════════════════
+// ─── Styles ───────────────────────────────────────────────────
 const s = {
-  // Card header
   cardHeader:   { marginBottom: "2rem" },
   cardTitle:    { fontSize: "1.5rem", fontWeight: 800, color: "#1f2937", margin: 0 },
   cardSubtitle: { color: "#6b7280", marginTop: "0.35rem", margin: "0.35rem 0 0" },
 
-  // Form
   form:      { display: "flex", flexDirection: "column", gap: "1.5rem" },
   charCount: { color: "#9ca3af", fontSize: "0.8rem", marginTop: "0.25rem", display: "block" },
   fileOk:    { color: "#10b981", marginTop: "0.5rem", fontSize: "0.85rem" },
 
-  // Logo
   logoRow: { display: "flex", gap: "1.5rem", alignItems: "center" },
   logoPlaceholder: {
     width:          "80px",
@@ -634,7 +603,6 @@ const s = {
     flexShrink:     0,
   },
 
-  // Bank section
   bankSection: {
     background:    "#f8fafc",
     borderRadius:  "16px",
@@ -645,10 +613,18 @@ const s = {
     gap:           "1.25rem",
   },
   bankSectionHeader: { marginBottom: "0.25rem" },
-  bankTitle:    { fontSize: "1.05rem", fontWeight: 700, color: "#1f2937", margin: 0 },
-  bankSubtitle: { color: "#9ca3af", fontSize: "0.85rem", margin: "0.25rem 0 0" },
+  bankTitle:   { fontSize: "1.05rem", fontWeight: 700, color: "#1f2937", margin: 0 },
+  bankSubtitle:{ color: "#9ca3af", fontSize: "0.85rem", margin: "0.25rem 0 0" },
+  bankNote:    {
+    color:        "#6366f1",
+    fontSize:     "0.78rem",
+    margin:       "0.35rem 0 0",
+    background:   "#eef2ff",
+    padding:      "0.3rem 0.6rem",
+    borderRadius: "6px",
+    display:      "inline-block",
+  },
 
-  // Bank dropdown trigger
   bankTrigger: {
     width:          "100%",
     padding:        "0.875rem 1.125rem",
@@ -665,7 +641,6 @@ const s = {
   },
   chevron: { color: "#9ca3af", fontSize: "0.75rem", flexShrink: 0 },
 
-  // Dropdown
   bankDropdown: {
     position:     "absolute",
     top:          "calc(100% + 4px)",
@@ -678,10 +653,7 @@ const s = {
     zIndex:       100,
     overflow:     "hidden",
   },
-  bankSearchWrap: {
-    padding:      "0.75rem",
-    borderBottom: "1px solid #f3f4f6",
-  },
+  bankSearchWrap:  { padding: "0.75rem", borderBottom: "1px solid #f3f4f6" },
   bankSearchInput: {
     width:        "100%",
     padding:      "0.6rem 0.875rem",
@@ -711,7 +683,6 @@ const s = {
     fontSize:  "0.875rem",
   },
 
-  // Account number
   acctIcon: {
     position:  "absolute",
     right:     "1rem",
@@ -740,7 +711,6 @@ const s = {
     flexShrink: 0,
   },
 
-  // Verify states
   verifyingBox: {
     display:      "flex",
     alignItems:   "center",
@@ -777,7 +747,6 @@ const s = {
     flexShrink:   0,
   },
 
-  // Account name result
   accountNameBox: {
     display:      "flex",
     alignItems:   "center",
@@ -788,10 +757,10 @@ const s = {
     padding:      "1rem 1.25rem",
   },
   accountNameLabel: {
-    color:      "#065f46",
-    fontSize:   "0.72rem",
-    fontWeight: 600,
-    margin:     0,
+    color:         "#065f46",
+    fontSize:      "0.72rem",
+    fontWeight:    600,
+    margin:        0,
     textTransform: "uppercase",
     letterSpacing: "0.05em",
   },
@@ -818,7 +787,6 @@ const s = {
     flexShrink:    0,
   },
 
-  // Submit
   submitHint: {
     textAlign:  "center",
     color:      "#f59e0b",
