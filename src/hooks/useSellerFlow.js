@@ -44,7 +44,6 @@ const INITIAL_REGISTER_DATA = {
   confirm_password: "",
 };
 
-// ── Bank transfer only — PayPal & crypto removed ──────────────
 const INITIAL_STORE_DATA = {
   store_name:        "",
   store_description: "",
@@ -52,17 +51,21 @@ const INITIAL_STORE_DATA = {
   store_logo:        null,
   store_banner:      null,
   withdrawal_method: "bank_transfer",
-  bank_account:      "",   // 10-digit account number
-  bank_name:         "",   // bank display name  e.g. "Zenith Bank"
-  bank_code:         "",   // bank code e.g. "057" — used for API call
-  account_name:      "",   // verified name from Flutterwave
+  bank_account:      "",
+  bank_name:         "",
+  bank_code:         "",
+  account_name:      "",
 };
 
+// ── Updated — includes id_card_back, id_type, id_number ───────
 const INITIAL_VERIFY_DATA = {
-  id_card:       null,
+  id_card:       null,   // front photo
+  id_card_back:  null,   // back photo  ← NEW
+  selfie:        null,
   business_doc:  null,
   address_proof: null,
-  selfie:        null,
+  id_type:       "",     // "nin" | "bvn" | "passport" | etc  ← NEW
+  id_number:     "",     // actual ID number  ← NEW
 };
 
 // ─── Hook ─────────────────────────────────────────────────────
@@ -128,13 +131,14 @@ export const useSellerFlow = (user = null) => {
     syncFromServer();
   }, []);
 
-  // ── Handlers ──────────────────────────────────────────────
+  // ── Register handler ───────────────────────────────────────
   const handleRegisterChange = useCallback((e) => {
     const { name, value } = e.target;
     setRegisterData((p) => ({ ...p, [name]: value }));
     setErrors((p)        => ({ ...p, [name]: ""    }));
   }, []);
 
+  // ── Store handler ──────────────────────────────────────────
   const handleStoreChange = useCallback((e) => {
     const { name, value, files } = e.target;
 
@@ -152,11 +156,20 @@ export const useSellerFlow = (user = null) => {
     setErrors((p) => ({ ...p, [name]: "" }));
   }, []);
 
+  // ── Verify handler — handles FILES + TEXT fields ───────────
+  // ✅ Updated: now handles id_type and id_number (text)
+  //             plus id_card_back (file)
   const handleVerifyChange = useCallback((e) => {
-    const { name, files } = e.target;
+    const { name, value, files } = e.target;
+
     if (files?.[0]) {
+      // File upload — id_card, id_card_back, selfie, etc.
       setVerifyData((p) => ({ ...p, [name]: files[0] }));
-      setErrors((p)     => ({ ...p, [name]: ""       }));
+      setErrors((p)     => ({ ...p, [name]: ""        }));
+    } else if (value !== undefined) {
+      // Text field — id_type, id_number
+      setVerifyData((p) => ({ ...p, [name]: value }));
+      setErrors((p)     => ({ ...p, [name]: ""    }));
     }
   }, []);
 
@@ -199,7 +212,7 @@ export const useSellerFlow = (user = null) => {
     return Object.keys(errs).length === 0;
   };
 
-  // ── Validation: Store — bank transfer only ─────────────────
+  // ── Validation: Store ──────────────────────────────────────
   const validateStore = () => {
     const errs = {};
 
@@ -222,7 +235,6 @@ export const useSellerFlow = (user = null) => {
     else if (!/^\d{10}$/.test(storeData.bank_account.trim()))
       errs.bank_account = "Account number must be 10 digits";
 
-    // account_name is only set after Flutterwave verification succeeds
     if (!storeData.account_name.trim())
       errs.account_name = "Please verify your bank account first";
 
@@ -231,10 +243,49 @@ export const useSellerFlow = (user = null) => {
   };
 
   // ── Validation: Verification ───────────────────────────────
+  // ✅ Updated: requires id_type, id_number, id_card_back
   const validateVerification = () => {
     const errs = {};
-    if (!verifyData.id_card) errs.id_card = "ID card is required";
-    if (!verifyData.selfie)  errs.selfie  = "Selfie with ID is required";
+
+    // ── ID number fields ────────────────────────────────────
+    if (!verifyData.id_type)
+      errs.id_type = "Please select an ID type";
+
+    if (!verifyData.id_number?.trim())
+      errs.id_number = "ID number is required";
+    else {
+      // Digit count validation per ID type
+      const ID_DIGITS = {
+        nin:      11,
+        bvn:      11,
+        passport:  9,
+        drivers:  12,
+        voters:   19,
+      };
+      const expected = ID_DIGITS[verifyData.id_type];
+      const actual   = verifyData.id_number.replace(/\s/g, "").length;
+      if (expected && actual !== expected) {
+        const labelMap = {
+          nin:     "NIN",
+          bvn:     "BVN",
+          passport:"Passport",
+          drivers: "Driver's Licence",
+          voters:  "Voter's Card",
+        };
+        errs.id_number = `${labelMap[verifyData.id_type]} must be ${expected} digits`;
+      }
+    }
+
+    // ── Document photos ─────────────────────────────────────
+    if (!verifyData.id_card)
+      errs.id_card      = "ID card front photo is required";
+
+    if (!verifyData.id_card_back)
+      errs.id_card_back = "ID card back photo is required";
+
+    if (!verifyData.selfie)
+      errs.selfie       = "Selfie with ID is required";
+
     setErrors(errs);
     return Object.keys(errs).length === 0;
   };
@@ -278,7 +329,6 @@ export const useSellerFlow = (user = null) => {
     try {
       const form = new FormData();
 
-      // ── Text fields ──────────────────────────────────────
       form.append("store_name",        storeData.store_name.trim());
       form.append("store_description", storeData.store_description.trim());
       form.append("store_category",    storeData.store_category);
@@ -287,9 +337,9 @@ export const useSellerFlow = (user = null) => {
       form.append("bank_name",         storeData.bank_name.trim());
       form.append("account_name",      storeData.account_name.trim());
 
-      // ── Files ────────────────────────────────────────────
-      if (storeData.store_logo)   form.append("store_logo",   storeData.store_logo);
-      if (storeData.store_banner) form.append("store_banner", storeData.store_banner);
+      if (storeData.bank_code)   form.append("bank_code",    storeData.bank_code.trim());
+      if (storeData.store_logo)  form.append("store_logo",   storeData.store_logo);
+      if (storeData.store_banner)form.append("store_banner", storeData.store_banner);
 
       const { data } = await axios.post(
         "/api/seller-onboarding/setup-store",
@@ -317,6 +367,7 @@ export const useSellerFlow = (user = null) => {
   };
 
   // ── API: Verification ──────────────────────────────────────
+  // ✅ Updated: sends id_card_back, id_type, id_number
   const submitVerification = async () => {
     if (!validateVerification()) return;
     setLoading(true);
@@ -324,10 +375,26 @@ export const useSellerFlow = (user = null) => {
 
     try {
       const form = new FormData();
-      if (verifyData.id_card)       form.append("id_card",       verifyData.id_card);
-      if (verifyData.selfie)        form.append("selfie",        verifyData.selfie);
-      if (verifyData.business_doc)  form.append("business_doc",  verifyData.business_doc);
-      if (verifyData.address_proof) form.append("address_proof", verifyData.address_proof);
+
+      // ── Document files ─────────────────────────────────
+      if (verifyData.id_card)
+        form.append("id_card",       verifyData.id_card);
+
+      if (verifyData.id_card_back)
+        form.append("id_card_back",  verifyData.id_card_back);  // ← NEW
+
+      if (verifyData.selfie)
+        form.append("selfie",        verifyData.selfie);
+
+      if (verifyData.business_doc)
+        form.append("business_doc",  verifyData.business_doc);
+
+      if (verifyData.address_proof)
+        form.append("address_proof", verifyData.address_proof);
+
+      // ── ID number fields ────────────────────────────────
+      form.append("id_type",   verifyData.id_type);            // ← NEW
+      form.append("id_number", verifyData.id_number.trim());   // ← NEW
 
       const { data } = await axios.post(
         "/api/seller-onboarding/verify",
