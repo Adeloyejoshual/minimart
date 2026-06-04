@@ -10,16 +10,14 @@ import streamifier          from "streamifier";
 const router  = express.Router();
 const FLW_KEY = () => process.env.FLW_SECRET_KEY;
 
-// ── Multer — memory storage ───────────────────────────────────
+// ── Multer ────────────────────────────────────────────────────
 const upload = multer({
   storage: multer.memoryStorage(),
   limits:  { fileSize: 5 * 1024 * 1024 },
   fileFilter(_req, file, cb) {
     const allowed = [
-      "image/jpeg",
-      "image/png",
-      "image/webp",
-      "application/pdf",
+      "image/jpeg", "image/png",
+      "image/webp", "application/pdf",
     ];
     cb(null, allowed.includes(file.mimetype));
   },
@@ -67,8 +65,7 @@ const flw = () =>
     timeout: 15_000,
   });
 
-// ── Status log helper — fire and forget ───────────────────────
-// Runs OUTSIDE transaction so it never blocks vendor save
+// ── Status log — fire and forget ──────────────────────────────
 const logStatusChange = (vendorId, oldStatus, newStatus, changedBy, reason) => {
   pool.query(
     `INSERT INTO market.vendor_status_logs
@@ -76,81 +73,72 @@ const logStatusChange = (vendorId, oldStatus, newStatus, changedBy, reason) => {
      VALUES ($1, $2, $3, $4, $5)`,
     [vendorId, oldStatus ?? null, newStatus, changedBy ?? null, reason ?? null]
   ).catch((err) => {
-    console.warn("[status_log] failed (non-fatal):", {
-      message: err.message,
-      code:    err.code,
-    });
+    console.warn("[status_log] non-fatal:", err.message);
   });
 };
 
-// ════════════════════════════════════════════════════════════
-// GET /api/seller-onboarding/debug-user
-// Temporary — remove after confirming fix
-// ════════════════════════════════════════════════════════════
-router.get("/debug-user", authenticate, async (req, res) => {
-  try {
-    const userId = req.user.id;
+// ─────────────────────────────────────────────────────────────
+// KEY HELPER: Ensure user exists in market.users
+// Handles users who registered via the old routes/users.js
+// which only inserts into public.users
+// ─────────────────────────────────────────────────────────────
+const ensureUserInMarket = async (client, userId) => {
+  // Check market.users first
+  const { rows: existing } = await client.query(
+    `SELECT id FROM market.users WHERE id = $1`,
+    [userId]
+  );
 
-    const { rows: marketUser } = await pool.query(
-      `SELECT id, name, email, status FROM market.users WHERE id = $1`,
-      [userId]
-    );
-
-    const { rows: publicUser } = await pool.query(
-      `SELECT id, name, email, status FROM public.users WHERE id = $1`,
-      [userId]
-    );
-
-    const { rows: fkInfo } = await pool.query(`
-      SELECT
-        tc.table_name,
-        kcu.column_name,
-        ccu.table_schema AS ref_schema,
-        ccu.table_name   AS ref_table
-      FROM information_schema.table_constraints tc
-      JOIN information_schema.key_column_usage kcu
-        ON tc.constraint_name = kcu.constraint_name
-      JOIN information_schema.constraint_column_usage ccu
-        ON tc.constraint_name = ccu.constraint_name
-      WHERE tc.constraint_type = 'FOREIGN KEY'
-        AND tc.table_schema    = 'market'
-        AND tc.table_name      = 'vendors'
-    `);
-
-    let insertTest = null;
-    try {
-      const testName = `debug_test_${Date.now()}`;
-      await pool.query(
-        `INSERT INTO market.vendors (user_id, store_name, status)
-         VALUES ($1, $2, 'pending')`,
-        [userId, testName]
-      );
-      await pool.query(
-        `DELETE FROM market.vendors WHERE store_name = $1`,
-        [testName]
-      );
-      insertTest = "SUCCESS ✅";
-    } catch (e) {
-      insertTest = `FAILED: ${e.message} (code: ${e.code})`;
-    }
-
-    return res.json({
-      token_user_id:        userId,
-      in_market_users:      marketUser.length > 0,
-      in_public_users:      publicUser.length > 0,
-      market_user:          marketUser[0] ?? null,
-      public_user:          publicUser[0] ?? null,
-      vendors_fk_points_to: fkInfo,
-      insert_test:          insertTest,
-    });
-
-  } catch (err) {
-    return res.json({
-      error: err.message,
-      code:  err.code,
-    });
+  if (existing.length) {
+    return; // Already in market.users — all good
   }
-});
+
+  console.log("[ensureUserInMarket] user not in market.users, syncing:", userId);
+
+  // Fetch from public.users
+  const { rows: pubRows } = await client.query(
+    `SELECT
+       id, name, email, password_hash,
+       phone_number, status, created_at
+     FROM public.users
+     WHERE id = $1`,
+    [userId]
+  );
+
+  if (!pubRows.length) {
+    throw new Error(
+      `User ${userId} not found in public.users or market.users`
+    );
+  }
+
+  const u = pubRows[0];
+
+  // Validate status matches market.users CHECK constraint
+  const validStatuses = ["active", "suspended", "banned"];
+  const safeStatus    = validStatuses.includes(u.status)
+    ? u.status
+    : "active";
+
+  // Insert into market.users with SAME UUID
+  await client.query(
+    `INSERT INTO market.users
+       (id, name, email, password_hash,
+        phone_number, status, created_at, updated_at)
+     VALUES ($1, $2, $3, $4, $5, $6, $7, NOW())
+     ON CONFLICT (id) DO NOTHING`,
+    [
+      u.id,
+      u.name,
+      u.email,
+      u.password_hash,
+      u.phone_number ?? null,
+      safeStatus,
+      u.created_at,
+    ]
+  );
+
+  console.log("[ensureUserInMarket] ✅ synced:", userId);
+};
 
 // ════════════════════════════════════════════════════════════
 // GET /api/seller-onboarding/status
@@ -216,8 +204,18 @@ router.get("/banks", authenticate, async (req, res) => {
   try {
     const { data } = await flw().get("/banks/NG");
 
+    const MFB_KEYWORDS = [
+      "microfinance", "mfb",
+      "opay", "palmpay", "kuda", "moniepoint",
+      "9psb", "rubies", "fairmoney", "carbon",
+    ];
+
     const banks = (data.data ?? [])
-      .map((b) => ({ code: b.code, name: b.name }))
+      .filter((b) => {
+        const n = b.name.toLowerCase();
+        return !MFB_KEYWORDS.some((kw) => n.includes(kw));
+      })
+      .map((b)  => ({ code: b.code, name: b.name }))
       .sort((a, b) => a.name.localeCompare(b.name));
 
     return res.json({ success: true, banks });
@@ -225,8 +223,7 @@ router.get("/banks", authenticate, async (req, res) => {
   } catch (err) {
     console.error("[banks]", err.response?.data ?? err.message);
     return res.status(500).json({
-      success: false,
-      message: "Failed to fetch banks",
+      success: false, message: "Failed to fetch banks",
     });
   }
 });
@@ -246,8 +243,7 @@ router.get("/verify-account", authenticate, async (req, res) => {
 
   if (!/^\d{6,12}$/.test(account_number)) {
     return res.status(400).json({
-      success: false,
-      message: "Invalid account number format",
+      success: false, message: "Invalid account number format",
     });
   }
 
@@ -308,6 +304,10 @@ router.post("/setup-store", authenticate, storeUpload, async (req, res) => {
   try {
     await client.query("BEGIN");
 
+    // ✅ KEY FIX: sync user to market.users before vendor insert
+    // Handles users who registered via old routes/users.js
+    await ensureUserInMarket(client, req.user.id);
+
     const {
       store_name,
       store_description,
@@ -335,21 +335,18 @@ router.post("/setup-store", authenticate, storeUpload, async (req, res) => {
         success: false, message: "Store name is required",
       });
     }
-
     if (!bank_account?.trim()) {
       await client.query("ROLLBACK");
       return res.status(400).json({
         success: false, message: "Bank account number is required",
       });
     }
-
     if (!bank_name?.trim()) {
       await client.query("ROLLBACK");
       return res.status(400).json({
         success: false, message: "Bank name is required",
       });
     }
-
     if (!account_name?.trim()) {
       await client.query("ROLLBACK");
       return res.status(400).json({
@@ -395,23 +392,14 @@ router.post("/setup-store", authenticate, storeUpload, async (req, res) => {
 
     // ── Upload images ─────────────────────────────────────
     const [store_logo, store_banner] = await Promise.all([
-      maybeUpload(
-        req.files, "store_logo",
-        "vendor_logos",
-        `logo_${req.user.id}`
-      ),
-      maybeUpload(
-        req.files, "store_banner",
-        "vendor_banners",
-        `banner_${req.user.id}`
-      ),
+      maybeUpload(req.files, "store_logo",   "vendor_logos",   `logo_${req.user.id}`),
+      maybeUpload(req.files, "store_banner", "vendor_banners", `banner_${req.user.id}`),
     ]);
 
     let vendor;
     const oldStatus = existing[0]?.status ?? null;
 
     if (isReapply) {
-      // ── UPDATE rejected vendor ────────────────────────
       const { rows: [updated] } = await client.query(
         `UPDATE market.vendors SET
            store_name        = $1,
@@ -447,7 +435,6 @@ router.post("/setup-store", authenticate, storeUpload, async (req, res) => {
       vendor = updated;
 
     } else {
-      // ── INSERT new vendor ─────────────────────────────
       const { rows: [created] } = await client.query(
         `INSERT INTO market.vendors
            (user_id,
@@ -470,29 +457,27 @@ router.post("/setup-store", authenticate, storeUpload, async (req, res) => {
          RETURNING
            id, store_name, store_logo, store_banner, status`,
         [
-          req.user.id,                        // $1
-          store_name.trim(),                  // $2
-          store_description?.trim() ?? null,  // $3
-          store_category            ?? null,  // $4
-          store_logo,                         // $5
-          store_banner,                       // $6
-          bank_account.trim(),                // $7
-          bank_name.trim(),                   // $8
-          account_name.trim(),                // $9
-          bank_code?.trim()         ?? null,  // $10
+          req.user.id,
+          store_name.trim(),
+          store_description?.trim() ?? null,
+          store_category            ?? null,
+          store_logo,
+          store_banner,
+          bank_account.trim(),
+          bank_name.trim(),
+          account_name.trim(),
+          bank_code?.trim()         ?? null,
         ]
       );
       vendor = created;
     }
 
-    // ── COMMIT vendor first ───────────────────────────────
-    // Status log runs AFTER commit so FK issues never
-    // roll back the vendor insert
+    // ── COMMIT vendor ─────────────────────────────────────
     await client.query("COMMIT");
 
     console.log("[setup-store] ✅ vendor saved:", vendor.id);
 
-    // ── Status log — fire and forget after commit ─────────
+    // ── Status log — fire and forget AFTER commit ─────────
     logStatusChange(
       vendor.id,
       oldStatus,
@@ -522,32 +507,22 @@ router.post("/setup-store", authenticate, storeUpload, async (req, res) => {
       hint:    err.hint,
     });
 
-    // ── Specific error messages ───────────────────────────
     if (err.code === "23503") {
       return res.status(400).json({
         success: false,
         message: `Foreign key error: ${err.detail ?? err.message}`,
       });
     }
-
     if (err.code === "42703") {
       return res.status(500).json({
         success: false,
-        message: `Column missing in DB: ${err.message}`,
+        message: `Column missing: ${err.message}`,
       });
     }
-
     if (err.code === "23505") {
       return res.status(409).json({
         success: false,
         message: "Store name already taken",
-      });
-    }
-
-    if (err.code === "23502") {
-      return res.status(400).json({
-        success: false,
-        message: `Required field missing: ${err.message}`,
       });
     }
 
@@ -570,7 +545,6 @@ router.post("/verify", authenticate, verifyUpload, async (req, res) => {
   try {
     await client.query("BEGIN");
 
-    // ── Check vendor exists and is pending ────────────────
     const { rows } = await client.query(
       `SELECT id, status FROM market.vendors WHERE user_id = $1`,
       [req.user.id]
@@ -579,8 +553,7 @@ router.post("/verify", authenticate, verifyUpload, async (req, res) => {
     if (!rows.length) {
       await client.query("ROLLBACK");
       return res.status(404).json({
-        success: false,
-        message: "Complete store setup first",
+        success: false, message: "Complete store setup first",
       });
     }
 
@@ -594,18 +567,15 @@ router.post("/verify", authenticate, verifyUpload, async (req, res) => {
       });
     }
 
-    // ── Require id_card + selfie ──────────────────────────
     if (!req.files?.id_card?.[0] || !req.files?.selfie?.[0]) {
       await client.query("ROLLBACK");
       return res.status(400).json({
-        success: false,
-        message: "ID card and selfie are required",
+        success: false, message: "ID card and selfie are required",
       });
     }
 
     const ts = Date.now();
 
-    // ── Upload docs to Cloudinary in parallel ─────────────
     const [
       id_card_url,
       selfie_url,
@@ -622,19 +592,12 @@ router.post("/verify", authenticate, verifyUpload, async (req, res) => {
         "vendor_docs/selfies",
         `selfie_${vendor.id}_${ts}`
       ),
-      maybeUpload(
-        req.files, "business_doc",
-        "vendor_docs/business",
-        `biz_${vendor.id}_${ts}`
-      ),
-      maybeUpload(
-        req.files, "address_proof",
-        "vendor_docs/address",
-        `addr_${vendor.id}_${ts}`
-      ),
+      maybeUpload(req.files, "business_doc",
+        "vendor_docs/business", `biz_${vendor.id}_${ts}`),
+      maybeUpload(req.files, "address_proof",
+        "vendor_docs/address",  `addr_${vendor.id}_${ts}`),
     ]);
 
-    // ── Upsert verification record ────────────────────────
     await client.query(
       `INSERT INTO market.vendor_verifications
          (vendor_id, id_card_url, selfie_url,
@@ -645,44 +608,30 @@ router.post("/verify", authenticate, verifyUpload, async (req, res) => {
          selfie_url        = EXCLUDED.selfie_url,
          business_doc_url  = COALESCE(
                                EXCLUDED.business_doc_url,
-                               vendor_verifications.business_doc_url
-                             ),
+                               vendor_verifications.business_doc_url),
          address_proof_url = COALESCE(
                                EXCLUDED.address_proof_url,
-                               vendor_verifications.address_proof_url
-                             ),
+                               vendor_verifications.address_proof_url),
          status            = 'pending',
          updated_at        = NOW()`,
-      [
-        vendor.id,
-        id_card_url,
-        selfie_url,
-        business_doc_url,
-        address_proof_url,
-      ]
+      [vendor.id, id_card_url, selfie_url,
+       business_doc_url, address_proof_url]
     );
 
-    // ── Advance vendor status → under_review ──────────────
     await client.query(
       `UPDATE market.vendors
-       SET status     = 'under_review',
-           updated_at = NOW()
+       SET status = 'under_review', updated_at = NOW()
        WHERE id = $1`,
       [vendor.id]
     );
 
-    // ── COMMIT ────────────────────────────────────────────
     await client.query("COMMIT");
 
     console.log("[verify] ✅ submitted:", vendor.id);
 
-    // ── Status log — fire and forget ──────────────────────
     logStatusChange(
-      vendor.id,
-      "pending",
-      "under_review",
-      req.user.id,
-      "Verification docs submitted"
+      vendor.id, "pending", "under_review",
+      req.user.id, "Verification docs submitted"
     );
 
     return res.json({
@@ -693,18 +642,11 @@ router.post("/verify", authenticate, verifyUpload, async (req, res) => {
 
   } catch (err) {
     await client.query("ROLLBACK").catch(() => {});
-
-    console.error("[verify] ❌", {
-      message: err.message,
-      code:    err.code,
-      detail:  err.detail,
-    });
-
+    console.error("[verify] ❌", { message: err.message, code: err.code });
     return res.status(500).json({
       success: false,
       message: err.message ?? "Server error",
     });
-
   } finally {
     client.release();
   }
@@ -722,8 +664,7 @@ router.post("/reapply", authenticate, async (req, res) => {
 
     if (!rows.length) {
       return res.status(404).json({
-        success: false,
-        message: "No vendor account found",
+        success: false, message: "No vendor account found",
       });
     }
 
@@ -746,13 +687,9 @@ router.post("/reapply", authenticate, async (req, res) => {
       [vendor.id]
     );
 
-    // ── Status log — fire and forget ──────────────────────
     logStatusChange(
-      vendor.id,
-      "rejected",
-      "pending",
-      req.user.id,
-      "Seller reapplied"
+      vendor.id, "rejected", "pending",
+      req.user.id, "Seller reapplied"
     );
 
     console.log("[reapply] ✅ vendor:", vendor.id);
