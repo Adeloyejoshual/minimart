@@ -1,3 +1,4 @@
+
 // routes/admin/vendorVerification.js
 import express         from "express";
 import { pool }        from "../../server.js";
@@ -81,16 +82,13 @@ router.get("/", verifyAdmin, async (req, res) => {
     );
 
     const { rows: [{ count }] } = await pool.query(
-      `SELECT COUNT(*)
-       FROM market.vendors v
-       JOIN market.users u ON u.id = v.user_id
-       ${where}`,
+      `SELECT COUNT(*) FROM market.vendors v
+       JOIN market.users u ON u.id = v.user_id ${where}`,
       params
     );
 
     const { rows: summary } = await pool.query(
-      `SELECT status, COUNT(*) AS count
-       FROM market.vendors GROUP BY status`
+      `SELECT status, COUNT(*) AS count FROM market.vendors GROUP BY status`
     );
 
     const status_counts = summary.reduce((acc, row) => {
@@ -118,7 +116,6 @@ router.get("/", verifyAdmin, async (req, res) => {
 
 // ════════════════════════════════════════════════════════════
 // GET /api/admin/vendors/:id
-// ✅ Now includes id_card_back_url, id_type, id_number, seller_address
 // ════════════════════════════════════════════════════════════
 router.get("/:id", verifyAdmin, async (req, res) => {
   try {
@@ -128,7 +125,6 @@ router.get("/:id", verifyAdmin, async (req, res) => {
          u.name         AS owner_name,
          u.email        AS owner_email,
          u.phone_number AS owner_phone,
-         -- Verification docs + ID info + address
          vv.id_card_url,
          vv.id_card_back_url,
          vv.selfie_url,
@@ -139,13 +135,11 @@ router.get("/:id", verifyAdmin, async (req, res) => {
          vv.seller_address,
          vv.status      AS verification_status,
          vv.notes       AS verification_notes,
-         -- Virtual account
          va.account_number  AS virtual_account_number,
          va.account_name    AS virtual_account_name,
          va.bank_name       AS virtual_bank_name,
          va.status          AS virtual_account_status,
          va.created_at      AS virtual_account_created_at,
-         -- Wallet
          w.available_balance,
          w.pending_balance,
          w.total_received,
@@ -167,8 +161,7 @@ router.get("/:id", verifyAdmin, async (req, res) => {
       `SELECT
          vsl.old_status, vsl.new_status,
          vsl.reason, vsl.created_at,
-         a.name  AS changed_by_name,
-         a.email AS changed_by_email
+         a.name AS changed_by_name, a.email AS changed_by_email
        FROM market.vendor_status_logs vsl
        LEFT JOIN admins a ON a.id = vsl.changed_by
        WHERE vsl.vendor_id = $1
@@ -191,6 +184,7 @@ router.get("/:id", verifyAdmin, async (req, res) => {
 
 // ════════════════════════════════════════════════════════════
 // PATCH /api/admin/vendors/:id/status
+// On → active: auto-creates virtual account
 // ════════════════════════════════════════════════════════════
 router.patch("/:id/status", verifyAdmin, async (req, res) => {
   const { id }             = req.params;
@@ -200,18 +194,18 @@ router.patch("/:id/status", verifyAdmin, async (req, res) => {
     return res.status(400).json({ success: false, message: "status is required" });
   }
 
-  const ALL_STATUSES = Object.keys(ALLOWED_TRANSITIONS);
-  if (!ALL_STATUSES.includes(status)) {
+  const ALL = Object.keys(ALLOWED_TRANSITIONS);
+  if (!ALL.includes(status)) {
     return res.status(400).json({
       success: false,
-      message: `Invalid status. Must be: ${ALL_STATUSES.join(", ")}`,
+      message: `Invalid status. Must be: ${ALL.join(", ")}`,
     });
   }
 
   if (["rejected", "suspended"].includes(status) && !reason?.trim()) {
     return res.status(400).json({
       success: false,
-      message: `A reason is required when ${status === "rejected" ? "rejecting" : "suspending"}`,
+      message: `Reason required when ${status === "rejected" ? "rejecting" : "suspending"}`,
     });
   }
 
@@ -280,19 +274,25 @@ router.patch("/:id/status", verifyAdmin, async (req, res) => {
 
     await client.query("COMMIT");
 
-    let virtualAccount = null;
+    // ── Auto-create virtual account when → active ─────────
+    let virtualAccount  = null;
+    let vaError         = null;
 
     if (status === "active") {
       const existing = await getVirtualAccount(id);
+
       if (existing) {
         virtualAccount = existing;
+        console.log("[admin] VA already exists:", existing.account_number);
       } else {
         try {
           const result = await createVirtualAccount(id);
           virtualAccount = result?.virtual_account ?? null;
-          console.log(`[admin] ✅ VA created:`, virtualAccount?.account_number);
+          console.log("[admin] ✅ VA created:", virtualAccount?.account_number);
         } catch (vaErr) {
-          console.error(`[admin] ❌ VA failed:`, vaErr.message);
+          vaError = vaErr.message;
+          console.error("[admin] ❌ VA failed:", vaErr.message);
+          // Don't fail the activation — admin can manually assign
         }
       }
     }
@@ -308,6 +308,8 @@ router.patch("/:id/status", verifyAdmin, async (req, res) => {
         account_name:   virtualAccount.account_name,
         bank_name:      virtualAccount.bank_name,
       } : null,
+      // ✅ Tell admin if VA creation failed so they can manually assign
+      va_error: vaError,
     });
 
   } catch (err) {
@@ -321,78 +323,196 @@ router.patch("/:id/status", verifyAdmin, async (req, res) => {
 
 // ════════════════════════════════════════════════════════════
 // POST /api/admin/vendors/:id/create-virtual-account
+// Auto-create via Flutterwave API (retry if failed)
 // ════════════════════════════════════════════════════════════
-router.post("/:id/create-virtual-account", verifyAdmin, async (req, res) => {
-  try {
-    const { rows: [vendor] } = await pool.query(
-      `SELECT id, status FROM market.vendors WHERE id = $1`,
-      [req.params.id]
-    );
+router.post(
+  "/:id/create-virtual-account",
+  verifyAdmin,
+  async (req, res) => {
+    try {
+      const { rows: [vendor] } = await pool.query(
+        `SELECT id, status FROM market.vendors WHERE id = $1`,
+        [req.params.id]
+      );
 
-    if (!vendor) {
-      return res.status(404).json({ success: false, message: "Vendor not found" });
+      if (!vendor) {
+        return res.status(404).json({
+          success: false, message: "Vendor not found",
+        });
+      }
+
+      if (vendor.status !== "active") {
+        return res.status(400).json({
+          success: false,
+          message: `Vendor must be active. Current: "${vendor.status}"`,
+        });
+      }
+
+      const existing = await getVirtualAccount(req.params.id);
+      if (existing) {
+        return res.status(409).json({
+          success:         false,
+          message:         "Virtual account already exists",
+          virtual_account: existing,
+        });
+      }
+
+      const result        = await createVirtualAccount(req.params.id);
+      const virtualAccount = result?.virtual_account ?? result;
+
+      return res.json({
+        success:         true,
+        message:         "Virtual account created successfully",
+        virtual_account: {
+          account_number: virtualAccount.account_number,
+          account_name:   virtualAccount.account_name,
+          bank_name:      virtualAccount.bank_name,
+        },
+      });
+
+    } catch (err) {
+      console.error("[admin create-va]", err.message);
+      return res.status(500).json({
+        success: false,
+        // ✅ Return exact error so admin knows what to do
+        message: err.message ?? "Virtual account creation failed",
+      });
     }
+  }
+);
 
-    if (vendor.status !== "active") {
+// ════════════════════════════════════════════════════════════
+// POST /api/admin/vendors/:id/assign-virtual-account
+// Manually assign existing FLW account (fallback when API fails)
+// ════════════════════════════════════════════════════════════
+router.post(
+  "/:id/assign-virtual-account",
+  verifyAdmin,
+  async (req, res) => {
+    const {
+      account_number,
+      account_name,
+      bank_name,
+      flw_account_id,
+    } = req.body;
+
+    if (!account_number?.trim() || !account_name?.trim() || !bank_name?.trim()) {
       return res.status(400).json({
         success: false,
-        message: `Vendor must be active. Current: "${vendor.status}"`,
+        message: "account_number, account_name and bank_name are required",
       });
     }
 
-    const existing = await getVirtualAccount(req.params.id);
-    if (existing) {
-      return res.status(409).json({
-        success:         false,
-        message:         "Virtual account already exists",
-        virtual_account: existing,
+    try {
+      const { rows: [vendor] } = await pool.query(
+        `SELECT id, user_id, status FROM market.vendors WHERE id = $1`,
+        [req.params.id]
+      );
+
+      if (!vendor) {
+        return res.status(404).json({
+          success: false, message: "Vendor not found",
+        });
+      }
+
+      const existing = await getVirtualAccount(req.params.id);
+      if (existing) {
+        return res.status(409).json({
+          success:         false,
+          message:         "Virtual account already assigned",
+          virtual_account: existing,
+        });
+      }
+
+      const client = await pool.connect();
+      try {
+        await client.query("BEGIN");
+
+        const { rows: [saved] } = await client.query(
+          `INSERT INTO market.vendor_virtual_accounts
+             (vendor_id, user_id, flw_account_id,
+              account_number, account_name, bank_name,
+              order_ref, status)
+           VALUES ($1, $2, $3, $4, $5, $6, $7, 'active')
+           ON CONFLICT (vendor_id) DO UPDATE SET
+             account_number = EXCLUDED.account_number,
+             account_name   = EXCLUDED.account_name,
+             bank_name      = EXCLUDED.bank_name,
+             flw_account_id = EXCLUDED.flw_account_id,
+             status         = 'active',
+             updated_at     = NOW()
+           RETURNING *`,
+          [
+            vendor.id,
+            vendor.user_id,
+            flw_account_id?.trim() ?? null,
+            account_number.trim(),
+            account_name.trim(),
+            bank_name.trim(),
+            `MANUAL-${vendor.id}-${Date.now()}`,
+          ]
+        );
+
+        await client.query(
+          `INSERT INTO market.vendor_wallets
+             (vendor_id, available_balance, pending_balance,
+              total_received, total_withdrawn, currency)
+           VALUES ($1, 0.00, 0.00, 0.00, 0.00, 'NGN')
+           ON CONFLICT (vendor_id) DO NOTHING`,
+          [vendor.id]
+        );
+
+        await client.query("COMMIT");
+
+        console.log("[assign-va] ✅ manually assigned:", saved.account_number);
+
+        return res.json({
+          success:         true,
+          message:         "Virtual account assigned successfully",
+          virtual_account: {
+            account_number: saved.account_number,
+            account_name:   saved.account_name,
+            bank_name:      saved.bank_name,
+          },
+        });
+
+      } catch (dbErr) {
+        await client.query("ROLLBACK");
+        throw dbErr;
+      } finally {
+        client.release();
+      }
+
+    } catch (err) {
+      console.error("[assign-va]", err.message);
+      return res.status(500).json({
+        success: false, message: err.message,
       });
     }
-
-    const result        = await createVirtualAccount(req.params.id);
-    const virtualAccount = result?.virtual_account ?? result;
-
-    return res.json({
-      success:         true,
-      message:         "Virtual account created",
-      virtual_account: virtualAccount,
-    });
-
-  } catch (err) {
-    console.error("[admin create-va]", err.message);
-    return res.status(500).json({
-      success: false, message: err.message ?? "Virtual account creation failed",
-    });
   }
-});
+);
 
 // ════════════════════════════════════════════════════════════
 // PATCH /api/admin/vendors/:id/verification-notes
 // ════════════════════════════════════════════════════════════
 router.patch("/:id/verification-notes", verifyAdmin, async (req, res) => {
   const { notes } = req.body;
-
   if (!notes?.trim()) {
     return res.status(400).json({ success: false, message: "Notes cannot be empty" });
   }
-
   try {
     const { rows: [updated] } = await pool.query(
       `UPDATE market.vendor_verifications
        SET notes = $1, verified_by = $2, updated_at = NOW()
-       WHERE vendor_id = $3
-       RETURNING *`,
+       WHERE vendor_id = $3 RETURNING *`,
       [notes.trim(), req.admin.id, req.params.id]
     );
-
     if (!updated) {
       return res.status(404).json({
         success: false, message: "Verification record not found",
       });
     }
-
     return res.json({ success: true, verification: updated });
-
   } catch (err) {
     console.error("[admin notes]", err.message);
     return res.status(500).json({ success: false, message: err.message });
@@ -430,12 +550,10 @@ router.get("/:id/wallet", verifyAdmin, async (req, res) => {
 
     const txParams  = [req.params.id];
     const txFilters = [];
-
     if (type) {
       txParams.push(type);
       txFilters.push(`type = $${txParams.length}`);
     }
-
     const txWhere = txFilters.length ? `AND ${txFilters.join(" AND ")}` : "";
 
     const { rows: transactions } = await pool.query(
@@ -456,10 +574,10 @@ router.get("/:id/wallet", verifyAdmin, async (req, res) => {
     );
 
     const { rows: withdrawals } = await pool.query(
-      `SELECT id, amount, fee, net_amount,
-              bank_name, account_number, account_name,
-              status, failure_reason, flw_transfer_id,
-              tx_ref, created_at, processed_at
+      `SELECT id, amount, fee, net_amount, bank_name,
+              account_number, account_name, status,
+              failure_reason, flw_transfer_id, tx_ref,
+              created_at, processed_at
        FROM market.vendor_withdrawal_requests
        WHERE vendor_id = $1
        ORDER BY created_at DESC
