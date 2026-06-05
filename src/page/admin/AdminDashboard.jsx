@@ -1,34 +1,36 @@
+// AdminDashboard.jsx
 import { useEffect, useState, useMemo, useCallback } from "react";
 import axios from "axios";
 
-// layout
+// ── Layout ────────────────────────────────────────────────────
 import Sidebar from "./adminlayout/Sidebar";
 import Topbar  from "./adminlayout/Topbar";
 import { css } from "./adminlayout/css";
 
-// pages
-import Overview      from "./SuperAdmin/Overview";
-import Users         from "./SuperAdmin/Users";
-import Admins        from "./SuperAdmin/Admins";
-import Products      from "./SuperAdmin/Products";
-import MarketProducts from "./SuperAdmin/MarketProducts";
-import Payments      from "./SuperAdmin/Payments";
-import Orders        from "./SuperAdmin/Orders";
-import Logs          from "./SuperAdmin/Logs";
-import Promotions    from "./SuperAdmin/Promotions";
-import System        from "./SuperAdmin/System";
-import Reports       from "./SuperAdmin/Reports";
-import Verification  from "./SuperAdmin/Verification";
+// ── Pages ─────────────────────────────────────────────────────
+import Overview           from "./SuperAdmin/Overview";
+import Users              from "./SuperAdmin/Users";
+import Admins             from "./SuperAdmin/Admins";
+import Products           from "./SuperAdmin/Products";
+import MarketProducts     from "./SuperAdmin/MarketProducts";
+import Payments           from "./SuperAdmin/Payments";
+import Orders             from "./SuperAdmin/Orders";
+import Logs               from "./SuperAdmin/Logs";
+import Promotions         from "./SuperAdmin/Promotions";
+import System             from "./SuperAdmin/System";
+import Reports            from "./SuperAdmin/Reports";
+import Verification       from "./SuperAdmin/Verification";
+import VendorVerification from "./SuperAdmin/VendorVerification";   // ← NEW
 
-// helpers
+// ── Helpers ───────────────────────────────────────────────────
 import { safeFeatures } from "./adminlayout/helpers";
 
 const BASE     = "https://minimart-ivrm.onrender.com/api/admin";
 const PAY_BASE = "https://minimart-ivrm.onrender.com/api/payment";
 
-/* ─────────────────────────────────────────────
-   createApi
-───────────────────────────────────────────── */
+// ════════════════════════════════════════════════════════════
+// createApi
+// ════════════════════════════════════════════════════════════
 const createApi = (token) => {
   const h = { Authorization: `Bearer ${token}` };
   return {
@@ -39,9 +41,9 @@ const createApi = (token) => {
   };
 };
 
-/* ─────────────────────────────────────────────
-   Confirm modal
-───────────────────────────────────────────── */
+// ════════════════════════════════════════════════════════════
+// Confirm modal
+// ════════════════════════════════════════════════════════════
 function Confirm({ cfg, onClose }) {
   if (!cfg) return null;
   return (
@@ -65,9 +67,9 @@ function Confirm({ cfg, onClose }) {
   );
 }
 
-/* ─────────────────────────────────────────────
-   useData
-───────────────────────────────────────────── */
+// ════════════════════════════════════════════════════════════
+// useData — fetches all admin data
+// ════════════════════════════════════════════════════════════
 function useData(api) {
   const [stats, setStats] = useState({
     users: 0, orders: 0, revenue: 0, dailySales: [],
@@ -75,7 +77,11 @@ function useData(api) {
     pendingProducts: 0, totalProducts: 0,
     todayUsers: 0, todayProducts: 0,
     todayRevenue: 0, todayOrders: 0,
+    // Vendor stats
+    vendorsTotal: 0, vendorsPending: 0,
+    vendorsActive: 0, vendorsUnderReview: 0,
   });
+
   const [users,                    setUsers]                    = useState([]);
   const [admins,                   setAdmins]                   = useState([]);
   const [products,                 setProducts]                 = useState([]);
@@ -90,6 +96,7 @@ function useData(api) {
   const [reportCount,              setReportCount]              = useState(0);
   const [marketPendingCount,       setMarketPendingCount]       = useState(0);
   const [verificationPendingCount, setVerificationPendingCount] = useState(0);
+  const [vendorPendingCount,       setVendorPendingCount]       = useState(0);  // ← NEW
   const [loading,                  setLoading]                  = useState(true);
 
   const safe = useCallback(async (path, setter, base) => {
@@ -139,28 +146,49 @@ function useData(api) {
   const reloadVerificationCount = useCallback(async () => {
     try {
       const { data } = await api.get("/verification/stats");
-      const count = (data?.identity?.pending ?? 0) + (data?.store?.pending ?? 0);
+      const count =
+        (data?.identity?.pending ?? 0) +
+        (data?.store?.pending    ?? 0);
       setVerificationPendingCount(count);
     } catch {}
   }, [api]);
 
+  // ── NEW: vendor pending count ─────────────────────────────
+  const reloadVendorCount = useCallback(async () => {
+    try {
+      const { data } = await api.get("/vendors?status=pending&limit=1");
+      setVendorPendingCount(
+        data?.status_counts?.pending ??
+        data?.pagination?.total      ?? 0
+      );
+    } catch {}
+  }, [api]);
+
   const reload = useMemo(() => ({
-    users:             () => safe("/users",            setUsers),
-    admins:            () => safe("/admins",           setAdmins),
-    products:          () => Promise.all([
+    users:              () => safe("/users",            setUsers),
+    admins:             () => safe("/admins",           setAdmins),
+    products:           () => Promise.all([
       safe("/products",         setProducts),
       safe("/products/pending", setPending),
       safe("/stats",            setStats),
     ]),
-    payments:          () => safe("/payments",         setPayments),
-    orders:            () => safe("/orders",           setOrders),
-    logs:              () => safe("/logs",             setLogs),
-    system:            (d) => setSystem(d),
-    plans:             reloadPlans,
-    reportCount:       reloadReportCount,
-    marketPendingCount:       reloadMarketPendingCount,
-    verificationCount: reloadVerificationCount,
-  }), [safe, reloadPlans, reloadReportCount, reloadMarketPendingCount, reloadVerificationCount]);
+    payments:           () => safe("/payments",         setPayments),
+    orders:             () => safe("/orders",           setOrders),
+    logs:               () => safe("/logs",             setLogs),
+    system:             (d) => setSystem(d),
+    plans:              reloadPlans,
+    reportCount:        reloadReportCount,
+    marketPendingCount: reloadMarketPendingCount,
+    verificationCount:  reloadVerificationCount,
+    vendorCount:        reloadVendorCount,              // ← NEW
+  }), [
+    safe,
+    reloadPlans,
+    reloadReportCount,
+    reloadMarketPendingCount,
+    reloadVerificationCount,
+    reloadVendorCount,
+  ]);
 
   const loadAll = useCallback(async () => {
     setLoading(true);
@@ -178,21 +206,31 @@ function useData(api) {
       reloadReportCount(),
       reloadMarketPendingCount(),
       reloadVerificationCount(),
+      reloadVendorCount(),                              // ← NEW
     ]);
     setLoading(false);
-  }, [safe, reloadPlans, reloadReportCount, reloadMarketPendingCount, reloadVerificationCount]);
+  }, [
+    safe,
+    reloadPlans,
+    reloadReportCount,
+    reloadMarketPendingCount,
+    reloadVerificationCount,
+    reloadVendorCount,
+  ]);
 
   return {
     stats, users, admins, products, pending, payments,
     orders, logs, system, plans,
-    reportCount, marketPendingCount, verificationPendingCount,
+    reportCount, marketPendingCount,
+    verificationPendingCount,
+    vendorPendingCount,                                 // ← NEW
     loading, loadAll, reload,
   };
 }
 
-/* ─────────────────────────────────────────────
-   useDerived
-───────────────────────────────────────────── */
+// ════════════════════════════════════════════════════════════
+// useDerived — memoised filters
+// ════════════════════════════════════════════════════════════
 function useDerived({
   users, products, pending, orders, payments, stats,
   productTab, userQ, productQ, orderQ, payQ,
@@ -260,9 +298,9 @@ function useDerived({
   };
 }
 
-/* ─────────────────────────────────────────────
-   useActions
-───────────────────────────────────────────── */
+// ════════════════════════════════════════════════════════════
+// useActions — admin operations
+// ════════════════════════════════════════════════════════════
 function useActions(api, reload) {
   const [busy, setBusy] = useState(null);
 
@@ -275,40 +313,49 @@ function useActions(api, reload) {
 
   return {
     busy,
+
     banUser: (id) => run(`bu-${id}`, async () => {
       await api.post(`/users/${id}/ban`);
       reload.users();
     }),
+
     banAdmin: (id) => run(`ba-${id}`, async () => {
       await api.post(`/admins/${id}/ban`);
       reload.admins();
     }),
+
     approveProduct: (id) => run(`ap-${id}`, async () => {
       await api.post(`/products/${id}/approve`);
       await reload.products();
     }),
+
     rejectProduct: (id) => run(`rp-${id}`, async () => {
       await api.post(`/products/${id}/reject`);
       await reload.products();
     }),
+
     refundPayment: (id) => run(`rf-${id}`, async () => {
       await api.post(`/payments/${id}/refund`);
       reload.payments();
     }),
+
     cancelOrder: (id) => run(`co-${id}`, async () => {
       await api.post(`/orders/${id}/cancel`);
       reload.orders();
     }),
+
     toggleSystem: async (key, system) => {
       const next = { ...system, [key]: !system[key] };
       reload.system(next);
       try   { await api.post("/system", next); }
       catch { reload.system(system); }
     },
+
     registerAdmin: async (form) => {
       await api.post("/register", form);
       reload.admins();
     },
+
     savePlan: async (plan) => {
       await run(`plan-${plan.id}`, () =>
         api.put(`/plans/${plan.id}`, {
@@ -325,6 +372,7 @@ function useActions(api, reload) {
       );
       reload.plans();
     },
+
     togglePlan: async (plan) => {
       await run(`pt-${plan.id}`, () =>
         api.put(
@@ -338,9 +386,9 @@ function useActions(api, reload) {
   };
 }
 
-/* ══════════════════════════════════════════════
-   AdminDashboard
-══════════════════════════════════════════════ */
+// ════════════════════════════════════════════════════════════
+// AdminDashboard — main component
+// ════════════════════════════════════════════════════════════
 export default function AdminDashboard() {
   const token     = useMemo(() => localStorage.getItem("admin_token"), []);
   const adminName = useMemo(() => localStorage.getItem("admin_name") || "SA", []);
@@ -368,7 +416,7 @@ export default function AdminDashboard() {
   });
   const actions = useActions(api, data.reload);
 
-  /* Stable ref for log polling */
+  // ── Log polling ───────────────────────────────────────────
   const logRef = useMemo(() => ({ current: data.reload.logs }), []);
   useEffect(() => { logRef.current = data.reload.logs; });
 
@@ -376,9 +424,10 @@ export default function AdminDashboard() {
     data.loadAll();
     const iv = setInterval(() => logRef.current(), 5_000);
     return () => clearInterval(iv);
-  // eslint-disable-next-line react-hooks/exhaustive-deps
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  // ── Loading screen ────────────────────────────────────────
   if (data.loading) {
     return (
       <>
@@ -390,7 +439,7 @@ export default function AdminDashboard() {
     );
   }
 
-  /* ── Page map ── */
+  // ── Page map ──────────────────────────────────────────────
   const pageMap = {
     overview: (
       <Overview
@@ -405,6 +454,7 @@ export default function AdminDashboard() {
         goTo={setPage}
       />
     ),
+
     users: (
       <Users
         filteredUsers={derived.filteredUsers}
@@ -416,6 +466,7 @@ export default function AdminDashboard() {
         confirm={confirm}
       />
     ),
+
     admins: (
       <Admins
         admins={data.admins}
@@ -426,6 +477,7 @@ export default function AdminDashboard() {
         confirm={confirm}
       />
     ),
+
     products: (
       <Products
         displayedProds={derived.displayedProds}
@@ -442,12 +494,14 @@ export default function AdminDashboard() {
         confirm={confirm}
       />
     ),
+
     market_products: (
       <MarketProducts
         confirm={confirm}
         onMutation={data.reload.marketPendingCount}
       />
     ),
+
     payments: (
       <Payments
         filteredPayments={derived.filteredPayments}
@@ -459,6 +513,7 @@ export default function AdminDashboard() {
         confirm={confirm}
       />
     ),
+
     orders: (
       <Orders
         filteredOrders={derived.filteredOrders}
@@ -470,12 +525,14 @@ export default function AdminDashboard() {
         confirm={confirm}
       />
     ),
+
     logs: (
       <Logs
         logs={data.logs}
         reloadLogs={data.reload.logs}
       />
     ),
+
     promotions: (
       <Promotions
         plans={data.plans}
@@ -485,6 +542,7 @@ export default function AdminDashboard() {
         reloadPlans={data.reload.plans}
       />
     ),
+
     system: (
       <System
         system={data.system}
@@ -492,26 +550,40 @@ export default function AdminDashboard() {
         confirm={confirm}
       />
     ),
+
     reports: (
       <Reports confirm={confirm} />
     ),
+
     verification: (
       <Verification
         confirm={confirm}
         onMutation={data.reload.verificationCount}
       />
     ),
+
+    // ── NEW: Vendor verification ──────────────────────────
+    vendor_verification: (
+      <VendorVerification
+        confirm={confirm}
+        onMutation={data.reload.vendorCount}
+      />
+    ),
   };
 
+  // ── Total notification badge count ────────────────────────
   const totalNotifCount =
-    data.pending.length +
-    data.marketPendingCount +
-    data.reportCount +
-    data.verificationPendingCount;
+    data.pending.length              +
+    data.marketPendingCount          +
+    data.reportCount                 +
+    data.verificationPendingCount    +
+    data.vendorPendingCount;         // ← NEW
 
+  // ── Render ────────────────────────────────────────────────
   return (
     <>
       <style>{css}</style>
+
       <div className="wrap">
         <Sidebar
           page={page}
@@ -520,7 +592,9 @@ export default function AdminDashboard() {
           reportCount={data.reportCount}
           marketPendingCount={data.marketPendingCount}
           verificationPendingCount={data.verificationPendingCount}
+          vendorPendingCount={data.vendorPendingCount}    // ← NEW
         />
+
         <div className="main">
           <Topbar
             page={page}
@@ -532,6 +606,7 @@ export default function AdminDashboard() {
           </div>
         </div>
       </div>
+
       <Confirm cfg={confirmCfg} onClose={() => setConfirmCfg(null)} />
     </>
   );
