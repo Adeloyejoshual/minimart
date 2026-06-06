@@ -1,7 +1,7 @@
 // routes/seller/payout.js
-import express    from "express";
-import { pool }   from "../../server.js";
-import { verifyToken } from "../../middleware/auth.js";
+import express         from "express";
+import { pool }        from "../../server.js";
+import { authenticate } from "../../middleware/auth.js";  // ✅ fixed
 import {
   calculateWithdrawalFees,
   generateTxRef,
@@ -15,9 +15,9 @@ import {
 
 const router = express.Router();
 
-const MAX_DAILY         = 5;
-const MIN_AMOUNT        = 500;
-const RATE_LIMIT_SECS   = 10;
+const MAX_DAILY       = 5;
+const MIN_AMOUNT      = 500;
+const RATE_LIMIT_SECS = 10;
 
 // ── Helper: vendor by user ────────────────────────────────────
 const getVendorByUser = async (userId) => {
@@ -67,7 +67,7 @@ const getDailyCount = async (vendorId) => {
 // ════════════════════════════════════════════════════════════
 // GET /api/seller-wallet/balance
 // ════════════════════════════════════════════════════════════
-router.get("/balance", verifyToken, async (req, res) => {
+router.get("/balance", authenticate, async (req, res) => {
   try {
     const vendor = await getVendorByUser(req.user.id);
     if (!vendor)
@@ -103,7 +103,7 @@ router.get("/balance", verifyToken, async (req, res) => {
 
     if (!wallet) {
       return res.json({
-        success:  true,
+        success: true,
         balance: {
           available:       0,
           pending:         0,
@@ -144,7 +144,7 @@ router.get("/balance", verifyToken, async (req, res) => {
 // ════════════════════════════════════════════════════════════
 // GET /api/seller-wallet/transactions
 // ════════════════════════════════════════════════════════════
-router.get("/transactions", verifyToken, async (req, res) => {
+router.get("/transactions", authenticate, async (req, res) => {
   try {
     const vendor = await getVendorByUser(req.user.id);
     if (!vendor)
@@ -210,7 +210,7 @@ router.get("/transactions", verifyToken, async (req, res) => {
 // ════════════════════════════════════════════════════════════
 // GET /api/seller-wallet/withdrawals
 // ════════════════════════════════════════════════════════════
-router.get("/withdrawals", verifyToken, async (req, res) => {
+router.get("/withdrawals", authenticate, async (req, res) => {
   try {
     const vendor = await getVendorByUser(req.user.id);
     if (!vendor)
@@ -270,19 +270,18 @@ router.get("/withdrawals", verifyToken, async (req, res) => {
 // ════════════════════════════════════════════════════════════
 // GET /api/seller-wallet/supported-banks
 // ════════════════════════════════════════════════════════════
-router.get("/supported-banks", verifyToken, (_req, res) => {
+router.get("/supported-banks", authenticate, (_req, res) => {
   return res.json({
     success: true,
     banks:   getSupportedBanks(),
-    note:    "Only Nigerian commercial banks are supported for withdrawals",
+    note:    "Only Nigerian commercial banks supported",
   });
 });
 
 // ════════════════════════════════════════════════════════════
 // POST /api/seller-wallet/verify-account
-// Verify account name via Flutterwave before seller saves bank
 // ════════════════════════════════════════════════════════════
-router.post("/verify-account", verifyToken, async (req, res) => {
+router.post("/verify-account", authenticate, async (req, res) => {
   const { account_number, bank_name } = req.body;
 
   if (!account_number || !bank_name) {
@@ -318,9 +317,8 @@ router.post("/verify-account", verifyToken, async (req, res) => {
 
 // ════════════════════════════════════════════════════════════
 // GET /api/seller-wallet/withdrawal-preview
-// Live fee calculation before submitting withdrawal
 // ════════════════════════════════════════════════════════════
-router.get("/withdrawal-preview", verifyToken, async (req, res) => {
+router.get("/withdrawal-preview", authenticate, async (req, res) => {
   try {
     const vendor = await getVendorByUser(req.user.id);
     if (!vendor)
@@ -334,25 +332,25 @@ router.get("/withdrawal-preview", verifyToken, async (req, res) => {
       });
     }
 
-    const feeCalc  = await calculateWithdrawalFees(vendor.id, amount);
-    const wallet   = await getWallet(vendor.id);
+    const feeCalc   = await calculateWithdrawalFees(vendor.id, amount);
+    const wallet    = await getWallet(vendor.id);
     const available = Number(wallet?.available_balance ?? 0);
 
-    const insufficientBalance  = amount > available;
-    const insufficientForFees  = !insufficientBalance && feeCalc.net_amount <= 0;
-    const limitReached         = feeCalc.daily_remaining <= 0;
+    const insufficientBalance = amount > available;
+    const insufficientForFees = !insufficientBalance && feeCalc.net_amount <= 0;
+    const limitReached        = feeCalc.daily_remaining <= 0;
 
     return res.json({
       success: true,
       preview: {
-        amount:               feeCalc.amount,
-        fee:                  feeCalc.fee,
-        net_amount:           feeCalc.net_amount,
-        daily_count:          feeCalc.daily_count,
-        daily_remaining:      feeCalc.daily_remaining,
-        daily_limit:          MAX_DAILY,
-        breakdown:            feeCalc.breakdown,
-        available_balance:    available,
+        amount:                 feeCalc.amount,
+        fee:                    feeCalc.fee,
+        net_amount:             feeCalc.net_amount,
+        daily_count:            feeCalc.daily_count,
+        daily_remaining:        feeCalc.daily_remaining,
+        daily_limit:            MAX_DAILY,
+        breakdown:              feeCalc.breakdown,
+        available_balance:      available,
         can_withdraw:
           !insufficientBalance &&
           !insufficientForFees &&
@@ -370,13 +368,11 @@ router.get("/withdrawal-preview", verifyToken, async (req, res) => {
 
 // ════════════════════════════════════════════════════════════
 // POST /api/seller-wallet/withdraw
-// Instant withdrawal via Flutterwave Transfers API
 // ════════════════════════════════════════════════════════════
-router.post("/withdraw", verifyToken, async (req, res) => {
+router.post("/withdraw", authenticate, async (req, res) => {
   const { amount, idempotency_key } = req.body;
   const numAmount = Number(amount);
 
-  // ── Basic validation ────────────────────────────────────
   if (!amount || isNaN(numAmount) || numAmount <= 0)
     return res.status(400).json({ success: false, message: "Invalid amount" });
 
@@ -397,7 +393,6 @@ router.post("/withdraw", verifyToken, async (req, res) => {
   try {
     await client.query("BEGIN");
 
-    // ── Lock & fetch vendor ─────────────────────────────
     const { rows: [vendor] } = await client.query(
       `SELECT v.id, v.status, v.store_name,
               v.bank_name, v.bank_account, v.account_name
@@ -419,7 +414,6 @@ router.post("/withdraw", verifyToken, async (req, res) => {
       });
     }
 
-    // ── Bank details check ──────────────────────────────
     if (!vendor.bank_name || !vendor.bank_account || !vendor.account_name) {
       await client.query("ROLLBACK");
       return res.status(400).json({
@@ -428,18 +422,16 @@ router.post("/withdraw", verifyToken, async (req, res) => {
       });
     }
 
-    // ── Must be a commercial bank ───────────────────────
     const bank = getBankCode(vendor.bank_name);
     if (!bank) {
       await client.query("ROLLBACK");
       return res.status(400).json({
         success: false,
-        message: `"${vendor.bank_name}" is not a supported commercial bank. Update your bank details.`,
+        message: `"${vendor.bank_name}" is not a supported commercial bank.`,
         supported_banks: getSupportedBanks().map((b) => b.name),
       });
     }
 
-    // ── Validate account number format ──────────────────
     if (!validateAccountNumber(vendor.bank_account)) {
       await client.query("ROLLBACK");
       return res.status(400).json({
@@ -448,29 +440,26 @@ router.post("/withdraw", verifyToken, async (req, res) => {
       });
     }
 
-    // ── Idempotency check ───────────────────────────────
+    // Idempotency
     if (idempotency_key) {
       const { rows: [existing] } = await client.query(
         `SELECT id, status, amount, fee, net_amount, tx_ref, created_at
          FROM market.vendor_withdrawal_requests
-         WHERE vendor_id = $1
-           AND idempotency_key = $2
-         LIMIT 1`,
+         WHERE vendor_id = $1 AND idempotency_key = $2 LIMIT 1`,
         [vendor.id, idempotency_key]
       );
-
       if (existing) {
         await client.query("ROLLBACK");
         return res.status(200).json({
-          success:   true,
-          message:   "Withdrawal already submitted",
-          duplicate: true,
+          success:    true,
+          message:    "Withdrawal already submitted",
+          duplicate:  true,
           withdrawal: existing,
         });
       }
     }
 
-    // ── Rate limit: 10 sec cooldown ─────────────────────
+    // Rate limit
     const { rows: [recent] } = await client.query(
       `SELECT id FROM market.vendor_withdrawal_requests
        WHERE vendor_id  = $1
@@ -478,16 +467,15 @@ router.post("/withdraw", verifyToken, async (req, res) => {
        LIMIT 1`,
       [vendor.id]
     );
-
     if (recent) {
       await client.query("ROLLBACK");
       return res.status(429).json({
         success: false,
-        message: `Please wait ${RATE_LIMIT_SECS} seconds before requesting another withdrawal.`,
+        message: `Wait ${RATE_LIMIT_SECS} seconds before requesting another withdrawal.`,
       });
     }
 
-    // ── Daily limit check ───────────────────────────────
+    // Daily limit
     const today = getNigeriaDate();
     const { rows: [{ count: dailyRaw }] } = await client.query(
       `SELECT COUNT(*) FROM market.vendor_withdrawal_requests
@@ -502,50 +490,38 @@ router.post("/withdraw", verifyToken, async (req, res) => {
       await client.query("ROLLBACK");
       return res.status(429).json({
         success:         false,
-        message:         `Daily withdrawal limit reached (${MAX_DAILY}/day). Try again tomorrow.`,
+        message:         `Daily limit reached (${MAX_DAILY}/day). Try again tomorrow.`,
         daily_used:      dailyCount,
         daily_limit:     MAX_DAILY,
         daily_remaining: 0,
       });
     }
 
-    // ── Calculate fees (single source of truth) ─────────
+    // Fees
     let fee = 0;
     const breakdown = { above_10k_fee: 0, extra_withdrawal_fee: 0 };
-
-    if (numAmount > 10000) {
-      breakdown.above_10k_fee = 50;
-      fee += 50;
-    }
-    if (dailyCount >= 2) {
-      breakdown.extra_withdrawal_fee = 10;
-      fee += 10;
-    }
+    if (numAmount > 10000) { breakdown.above_10k_fee = 50;   fee += 50; }
+    if (dailyCount >= 2)   { breakdown.extra_withdrawal_fee = 10; fee += 10; }
 
     const netAmount = numAmount - fee;
     if (netAmount <= 0) {
       await client.query("ROLLBACK");
       return res.status(400).json({
         success: false,
-        message: `Amount too small after ₦${fee} fee. Please increase your withdrawal amount.`,
+        message: `Amount too small after ₦${fee} fee.`,
         fee,
       });
     }
 
-    // ── Lock & fetch wallet ─────────────────────────────
+    // Wallet lock
     const { rows: [wallet] } = await client.query(
-      `SELECT available_balance
-       FROM market.vendor_wallets
+      `SELECT available_balance FROM market.vendor_wallets
        WHERE vendor_id = $1 FOR UPDATE`,
       [vendor.id]
     );
-
     if (!wallet) {
       await client.query("ROLLBACK");
-      return res.status(400).json({
-        success: false,
-        message: "Wallet not found. Please contact support.",
-      });
+      return res.status(400).json({ success: false, message: "Wallet not found." });
     }
 
     const available = Number(wallet.available_balance);
@@ -553,14 +529,14 @@ router.post("/withdraw", verifyToken, async (req, res) => {
       await client.query("ROLLBACK");
       return res.status(400).json({
         success:   false,
-        message:   `Insufficient balance. You need ₦${numAmount.toLocaleString("en-NG")} but have ₦${available.toLocaleString("en-NG")}.`,
+        message:   `Insufficient balance. Need ₦${numAmount.toLocaleString("en-NG")}, have ₦${available.toLocaleString("en-NG")}.`,
         required:  numAmount,
         available,
         shortfall: numAmount - available,
       });
     }
 
-    // ── Deduct full gross amount ────────────────────────
+    // Deduct
     await client.query(
       `UPDATE market.vendor_wallets
        SET available_balance = available_balance - $1,
@@ -570,7 +546,6 @@ router.post("/withdraw", verifyToken, async (req, res) => {
       [numAmount, vendor.id]
     );
 
-    // ── Insert withdrawal request ───────────────────────
     const txRef = generateTxRef();
 
     const { rows: [withdrawal] } = await client.query(
@@ -581,29 +556,19 @@ router.post("/withdraw", verifyToken, async (req, res) => {
        VALUES ($1,$2,$3,$4,$5,$6,$7,'processing',$8,$9)
        RETURNING *`,
       [
-        vendor.id,
-        numAmount,
-        fee,
-        netAmount,
-        bank.name,                // use normalized bank name
-        vendor.bank_account,
-        vendor.account_name,
-        txRef,
-        idempotency_key ?? null,
+        vendor.id, numAmount, fee, netAmount,
+        bank.name, vendor.bank_account, vendor.account_name,
+        txRef, idempotency_key ?? null,
       ]
     );
 
-    // ── Record debit transaction ────────────────────────
     await client.query(
       `INSERT INTO market.vendor_transactions
          (vendor_id, type, amount, fee, net_amount,
           currency, status, narration, tx_ref)
        VALUES ($1,'debit',$2,$3,$4,'NGN','processing',$5,$6)`,
       [
-        vendor.id,
-        numAmount,
-        fee,
-        netAmount,
+        vendor.id, numAmount, fee, netAmount,
         `Instant withdrawal to ${bank.name} — ${vendor.account_name}`,
         txRef,
       ]
@@ -611,7 +576,7 @@ router.post("/withdraw", verifyToken, async (req, res) => {
 
     await client.query("COMMIT");
 
-    // ── Initiate FLW transfer (outside DB transaction) ──
+    // FLW transfer
     let transferResult = null;
     let transferError  = null;
 
@@ -634,25 +599,19 @@ router.post("/withdraw", verifyToken, async (req, res) => {
         [transferResult.flw_transfer_id, withdrawal.id]
       );
 
-      console.log(
-        `[withdraw] ✅ vendor=${vendor.id} amount=₦${numAmount} ref=${txRef} flw_id=${transferResult.flw_transfer_id}`
-      );
+      console.log(`[withdraw] ✅ ref=${txRef} flw_id=${transferResult.flw_transfer_id}`);
     } catch (flwErr) {
       transferError = flwErr.message;
-      console.error(`[withdraw] ❌ FLW failed: ${flwErr.message}`);
+      console.error(`[withdraw] ❌ FLW: ${flwErr.message}`);
 
-      // Downgrade to pending — admin fallback
       await pool.query(
         `UPDATE market.vendor_withdrawal_requests
          SET status = 'pending', failure_reason = $1, updated_at = NOW()
          WHERE id = $2`,
         [`FLW: ${flwErr.message}`, withdrawal.id]
       );
-
       await pool.query(
-        `UPDATE market.vendor_transactions
-         SET status = 'pending'
-         WHERE tx_ref = $1`,
+        `UPDATE market.vendor_transactions SET status = 'pending' WHERE tx_ref = $1`,
         [txRef]
       );
     }
@@ -661,7 +620,7 @@ router.post("/withdraw", verifyToken, async (req, res) => {
       success: true,
       message: transferResult
         ? `₦${netAmount.toLocaleString("en-NG", { minimumFractionDigits: 2 })} is on its way to your ${bank.name} account.`
-        : `Withdrawal of ₦${netAmount.toLocaleString("en-NG", { minimumFractionDigits: 2 })} has been queued for manual processing.`,
+        : `Withdrawal queued for manual processing.`,
       withdrawal: {
         id:             withdrawal.id,
         amount:         numAmount,
@@ -686,10 +645,7 @@ router.post("/withdraw", verifyToken, async (req, res) => {
   } catch (err) {
     await client.query("ROLLBACK");
     console.error("[withdraw]", err.message);
-    return res.status(500).json({
-      success: false,
-      message: "Withdrawal failed. Please try again.",
-    });
+    return res.status(500).json({ success: false, message: "Withdrawal failed." });
   } finally {
     client.release();
   }
