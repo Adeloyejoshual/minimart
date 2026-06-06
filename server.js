@@ -138,15 +138,28 @@ app.use(
 );
 
 /* ═══════════════════════════════════════════
-   PAYSTACK WEBHOOK
-   raw body MUST come before express.json()
+   WEBHOOKS — raw body MUST come before express.json()
 ═══════════════════════════════════════════ */
 import paymentRouter, { webhookRouter } from "./routes/payment.js";
+import flwTransferWebhook               from "./routes/webhooks/flutterwaveTransfer.js";
 
+// Paystack
 app.use(
   "/api/payment/webhook",
   express.raw({ type: "application/json" }),
   webhookRouter
+);
+
+// Flutterwave — parse raw Buffer back to object after HMAC verification
+app.use(
+  "/api/webhooks/flutterwave",
+  express.raw({ type: "application/json" }),
+  (req, _res, next) => {
+    try { req.body = JSON.parse(req.body.toString()); }
+    catch { req.body = {}; }
+    next();
+  },
+  flwTransferWebhook
 );
 
 /* ═══════════════════════════════════════════
@@ -220,42 +233,43 @@ app.use(rateLimiter(MAX_REQ));
 ═══════════════════════════════════════════ */
 import "./jobs/expirePromotions.js";
 import { startChatCleanupJob } from "./jobs/cleanupChats.js";
-import { startCleanupJobs }    from "./jobs/cleanup.js";      // ← OTP + device cleanup
+import { startCleanupJobs }    from "./jobs/cleanup.js";
 
 /* ═══════════════════════════════════════════
    ROUTE IMPORTS
 ═══════════════════════════════════════════ */
-import addproductRouter    from "./routes/addproduct.js";
-import userRouter          from "./routes/users.js";
-import messagesRouter      from "./routes/messages.js";
-import adminRouter         from "./routes/admin.js";
-import searchRouter        from "./routes/search.js";
-import conversationsRouter from "./routes/conversations.js";
-import productDetailRouter from "./routes/productDetail.js";
-import homepageRouter      from "./routes/homepage.js";
-import sellerProfileRouter from "./routes/sellerprofile.js";
-import dashboardRoutes     from "./routes/dashboard.js";
-import notificationsRouter from "./routes/notifications.js";
-import productsRouter from "./routes/products.js";
-import walletRoutes        from "./routes/wallets.js";
-import p2pRouter           from "./routes/p2p.js";
-import verificationRouter  from "./routes/verification.js";   // ← NEW
-import marketProductsRouter from "./routes/marketproducts.js";
+import addproductRouter       from "./routes/addproduct.js";
+import userRouter             from "./routes/users.js";
+import messagesRouter         from "./routes/messages.js";
+import adminRouter            from "./routes/admin.js";
+import searchRouter           from "./routes/search.js";
+import conversationsRouter    from "./routes/conversations.js";
+import productDetailRouter    from "./routes/productDetail.js";
+import homepageRouter         from "./routes/homepage.js";
+import sellerProfileRouter    from "./routes/sellerprofile.js";
+import dashboardRoutes        from "./routes/dashboard.js";
+import notificationsRouter    from "./routes/notifications.js";
+import productsRouter         from "./routes/products.js";
+import walletRoutes           from "./routes/wallets.js";
+import p2pRouter              from "./routes/p2p.js";
+import verificationRouter     from "./routes/verification.js";
+import marketProductsRouter   from "./routes/marketproducts.js";
 import authRouter             from "./routes/sellerAuth.routes.js";
 import sellerOnboardingRouter from "./routes/sellerOnboarding.routes.js";
-
+import sellerPayoutRoutes     from "./routes/seller/payout.js";
 
 /* ═══════════════════════════════════════════
    API ROUTES
 ═══════════════════════════════════════════ */
-app.use("/api/payment",       paymentRouter);
-app.use("/api/seller",        sellerProfileRouter);
-app.use("/api/addproduct",    addproductRouter);
-app.use("/api/users",         userRouter);
-app.use("/api/conversations", conversationsRouter);
-app.use("/api/market-products", marketProductsRouter);
+app.use("/api/payment",           paymentRouter);
+app.use("/api/seller",            sellerProfileRouter);
+app.use("/api/addproduct",        addproductRouter);
+app.use("/api/users",             userRouter);
+app.use("/api/conversations",     conversationsRouter);
+app.use("/api/market-products",   marketProductsRouter);
 app.use("/api/auth",              authRouter);
 app.use("/api/seller-onboarding", sellerOnboardingRouter);
+app.use("/api/seller-wallet",     sellerPayoutRoutes);
 
 app.use("/api/messages/upload", rateLimiter(UPLOAD_MAX));
 app.use("/api/messages",        messagesRouter);
@@ -266,11 +280,10 @@ app.use("/api/product",       productDetailRouter);
 app.use("/api/homepage",      homepageRouter);
 app.use("/api/dashboard",     dashboardRoutes);
 app.use("/api/notifications", notificationsRouter);
-app.use("/api/products", productsRouter);
+app.use("/api/products",      productsRouter);
 app.use("/api/v1/wallets",    walletRoutes);
 app.use("/api/p2p",           p2pRouter);
-app.use("/api/verification",  verificationRouter);            // ← NEW
-app.use("/api/market-products", marketProductsRouter);
+app.use("/api/verification",  verificationRouter);
 
 /* ═══════════════════════════════════════════
    HEALTH CHECK
@@ -396,7 +409,7 @@ server.listen(PORT, () => {
   console.log(`   CORS : ${ALLOWED_ORIGIN}`);
 
   startChatCleanupJob();
-  startCleanupJobs();                                          // ← OTP cleanup
+  startCleanupJobs();
   console.log("🧹 Chat + OTP cleanup jobs started");
 });
 
