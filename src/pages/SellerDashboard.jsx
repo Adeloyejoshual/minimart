@@ -1,17 +1,19 @@
 // pages/SellerDashboard.jsx
-import React                       from "react";
-import { Navigate }                from "react-router-dom";
-import { useSellerDashboard }      from "../hooks/useSellerDashboard";
-import { Sidebar }                 from "../components/seller/dashboard/Sidebar";
-import { Overview }                from "../components/seller/dashboard/Overview";
-import { Orders }                  from "../components/seller/dashboard/Orders";
-import { Payouts }                 from "../components/seller/dashboard/Payouts";
-import { Products }                from "../components/seller/dashboard/Products";
-import { Analytics }               from "../components/seller/dashboard/Analytics";
-import { Settings }                from "../components/seller/dashboard/Settings";
-import { StatusBadge,
-         DashboardSkeleton,
-         DashboardError }          from "../components/seller/dashboard/Shared";
+import React                        from "react";
+import { Navigate }                 from "react-router-dom";
+import { useSellerDashboard }       from "../hooks/useSellerDashboard";
+import {
+  Sidebar,
+  Overview,
+  Orders,
+  Payouts,
+  TopProducts,
+  RevenueChart,
+  Settings,
+  StatusBadge,
+  DashboardSkeleton,
+  DashboardError,
+} from "../components/seller/DashboardComponents";
 import "../style/SellerDashboard.css";
 
 const PAGE_TITLES = {
@@ -33,24 +35,15 @@ export default function SellerDashboard({ user }) {
   }
 
   if (dash.loading) {
-    return (
-      <div className="sd-layout">
-        <DashboardSkeleton />
-      </div>
-    );
+    return <div className="sd-layout"><DashboardSkeleton /></div>;
   }
 
   if (dash.error) {
-    return (
-      <div className="sd-layout">
-        <DashboardError error={dash.error} onRetry={dash.refetch} />
-      </div>
-    );
+    return <div className="sd-layout"><DashboardError error={dash.error} onRetry={dash.refetch} /></div>;
   }
 
   return (
     <div className="sd-layout">
-
       <Sidebar
         vendor={dash.vendor}
         activeSection={dash.activeSection}
@@ -62,24 +55,14 @@ export default function SellerDashboard({ user }) {
 
       <main className="sd-main">
         <header className="sd-topbar">
-          <button
-            className="sd-hamburger"
-            onClick={() => dash.setSidebarOpen(true)}
-          >
-            ☰
-          </button>
-
+          <button className="sd-hamburger" onClick={() => dash.setSidebarOpen(true)}>☰</button>
           <div className="sd-topbar-left">
             <h1 className="sd-page-title">
               {PAGE_TITLES[dash.activeSection] ?? "Dashboard"}
             </h1>
           </div>
-
           <div className="sd-topbar-right">
-            <button
-              className="sd-bell"
-              onClick={() => dash.setActiveSection("notifications")}
-            >
+            <button className="sd-bell" onClick={() => dash.setActiveSection("notifications")}>
               🔔
               {dash.unreadCount > 0 && (
                 <span className="sd-bell-badge">
@@ -112,15 +95,15 @@ export default function SellerDashboard({ user }) {
           )}
 
           {dash.activeSection === "products" && (
-            <Products products={dash.topProducts} />
+            <TopProducts products={dash.topProducts} />
           )}
 
           {dash.activeSection === "analytics" && (
-            <Analytics
-              revenueChart={dash.revenueChart}
-              stats={dash.stats}
+            <RevenueChart
+              data={dash.revenueChart}
               timeRange={dash.timeRange}
               setTimeRange={dash.setTimeRange}
+              stats={dash.stats}
             />
           )}
 
