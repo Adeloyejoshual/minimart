@@ -1,7 +1,7 @@
 // src/pages/SellerDashboard.jsx
-import React                  from "react";
-import { Navigate }           from "react-router-dom";
-import { useSellerDashboard } from "../hooks/useSellerDashboard";
+import React, { useEffect, useState } from "react";
+import { Navigate }                   from "react-router-dom";
+import { useSellerDashboard }         from "../hooks/useSellerDashboard";
 import {
   Sidebar,
   Overview,
@@ -18,31 +18,31 @@ import {
 import "../style/SellerDashboard.css";
 
 const PAGE_TITLES = {
-  overview:       "Dashboard Overview",
-  orders:         "Orders",
-  products:       "Products",
-  analytics:      "Analytics",
-  payouts:        "Payouts",
-  settings:       "Store Settings",
-  notifications:  "Notifications",
+  overview:      "Dashboard Overview",
+  orders:        "Orders",
+  products:      "Products",
+  analytics:     "Analytics",
+  payouts:       "Payouts",
+  settings:      "Store Settings",
+  notifications: "Notifications",
 };
 
 export default function SellerDashboard({ user }) {
   const dash = useSellerDashboard();
 
-  // ── Guards ─────────────────────────────────────────────────
-  if (!user) {
-    return <Navigate to="/auth" replace />;
-  }
+  // ── Check seller token exists ──────────────────────────────
+  // Seller dashboard requires a token from market.users
+  // (registered via /api/auth/register — seller system)
+  // NOT the marketplace token (public.users / Gmail)
+  const sellerToken = localStorage.getItem("token");
 
-  if (
-    dash.vendor &&
-    !["active", "approved"].includes(dash.vendor?.status)
-  ) {
+  // ── No token at all → go to become-seller (will show login)
+  if (!sellerToken) {
     return <Navigate to="/become-seller" replace />;
   }
 
   // ── Loading ─────────────────────────────────────────────────
+  // Wait for vendor data before making redirect decisions
   if (dash.loading) {
     return (
       <div className="sd-layout">
@@ -53,11 +53,29 @@ export default function SellerDashboard({ user }) {
 
   // ── Error ───────────────────────────────────────────────────
   if (dash.error) {
+    // ✅ If error is NOT_SELLER_ACCOUNT → redirect to become-seller
+    if (
+      dash.errorCode === "NOT_SELLER_ACCOUNT" ||
+      dash.errorCode === "NO_VENDOR"
+    ) {
+      return <Navigate to="/become-seller" replace />;
+    }
+
     return (
       <div className="sd-layout">
         <DashboardError error={dash.error} onRetry={dash.refetch} />
       </div>
     );
+  }
+
+  // ── No vendor found → redirect to onboarding ───────────────
+  if (!dash.vendor) {
+    return <Navigate to="/become-seller" replace />;
+  }
+
+  // ── Vendor not active → redirect to onboarding ─────────────
+  if (!["active", "approved"].includes(dash.vendor.status)) {
+    return <Navigate to="/become-seller" replace />;
   }
 
   // ── Render ──────────────────────────────────────────────────
