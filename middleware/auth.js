@@ -5,7 +5,8 @@ import { pool } from "../server.js";
 const JWT_SECRET = process.env.JWT_SECRET || "supersecretkey";
 
 // ════════════════════════════════════════════════════════════
-// authenticate — checks market.users first, then public.users
+// authenticate
+// Used by general routes — checks public.users
 // ════════════════════════════════════════════════════════════
 export const authenticate = async (req, res, next) => {
   try {
@@ -18,52 +19,37 @@ export const authenticate = async (req, res, next) => {
     const token   = authHeader.split(" ")[1];
     const decoded = jwt.verify(token, JWT_SECRET);
 
-    let user   = null;
-    let source = null;
+    // ── Check public.users (marketplace buyers) ───────────
+    const { rows: pubRows } = await pool.query(
+      `SELECT id, name, email, status FROM public.users WHERE id = $1`,
+      [decoded.id]
+    );
 
-    // ── 1. Check market.users first (seller accounts) ─────
-    try {
-      const { rows } = await pool.query(
-        `SELECT id, name, email, status FROM market.users WHERE id = $1`,
-        [decoded.id]
-      );
-      if (rows.length) {
-        user   = rows[0];
-        source = "market";
+    if (pubRows.length) {
+      const user = pubRows[0];
+      if (user.status === "banned" || user.status === "suspended") {
+        return res.status(403).json({ message: "Account suspended" });
       }
-    } catch (e) {
-      console.warn("[auth] market.users:", e.message);
+      req.user = user;
+      return next();
     }
 
-    // ── 2. Fall back to public.users (marketplace buyers) ──
-    if (!user) {
-      try {
-        const { rows } = await pool.query(
-          `SELECT id, name, email, status FROM public.users WHERE id = $1`,
-          [decoded.id]
-        );
-        if (rows.length) {
-          user   = rows[0];
-          source = "public";
-        }
-      } catch (e) {
-        console.warn("[auth] public.users:", e.message);
+    // ── Fall back to market.users (seller accounts) ───────
+    const { rows: mktRows } = await pool.query(
+      `SELECT id, name, email, status FROM market.users WHERE id = $1`,
+      [decoded.id]
+    );
+
+    if (mktRows.length) {
+      const user = mktRows[0];
+      if (user.status === "banned" || user.status === "suspended") {
+        return res.status(403).json({ message: "Account suspended" });
       }
+      req.user = user;
+      return next();
     }
 
-    if (!user) {
-      return res.status(401).json({ message: "User not found" });
-    }
-
-    if (user.status === "banned" || user.status === "suspended") {
-      return res.status(403).json({ message: "Account suspended" });
-    }
-
-    // ✅ Attach user + source so routes can check origin
-    req.user       = user;
-    req.userSource = source; // "market" | "public"
-
-    next();
+    return res.status(401).json({ message: "User not found" });
 
   } catch (err) {
     if (
@@ -76,6 +62,9 @@ export const authenticate = async (req, res, next) => {
   }
 };
 
+// ════════════════════════════════════════════════════════════
+// softAuth — never blocks
+// ════════════════════════════════════════════════════════════
 export const softAuth = async (req, _res, next) => {
   try {
     const authHeader = req.headers.authorization ?? "";
@@ -83,27 +72,23 @@ export const softAuth = async (req, _res, next) => {
       const token   = authHeader.split(" ")[1];
       const decoded = jwt.verify(token, JWT_SECRET);
 
-      let user = null;
-      try {
-        const { rows } = await pool.query(
+      // Check public.users first
+      const { rows: pub } = await pool.query(
+        `SELECT id, name, email, status FROM public.users WHERE id = $1`,
+        [decoded.id]
+      );
+
+      if (pub.length && pub[0].status === "active") {
+        req.user = pub[0];
+      } else {
+        // Check market.users
+        const { rows: mkt } = await pool.query(
           `SELECT id, name, email, status FROM market.users WHERE id = $1`,
           [decoded.id]
         );
-        if (rows.length) user = rows[0];
-      } catch {}
-
-      if (!user) {
-        try {
-          const { rows } = await pool.query(
-            `SELECT id, name, email, status FROM public.users WHERE id = $1`,
-            [decoded.id]
-          );
-          if (rows.length) user = rows[0];
-        } catch {}
-      }
-
-      if (user && user.status === "active") {
-        req.user = user;
+        if (mkt.length && mkt[0].status === "active") {
+          req.user = mkt[0];
+        }
       }
     }
   } catch {
