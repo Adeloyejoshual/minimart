@@ -13,13 +13,13 @@ export const STEPS = {
   APPROVED:     4,
 };
 
-// ✅ pending → VERIFICATION (store saved, docs not submitted yet)
+// ── Map vendor DB status → correct step ──────────────────────
 const STATUS_TO_STEP = {
-  pending:      STEPS.VERIFICATION,
-  under_review: STEPS.REVIEW,
+  pending:      STEPS.VERIFICATION, // store saved, docs not yet submitted
+  under_review: STEPS.REVIEW,       // docs submitted, awaiting admin
   approved:     STEPS.APPROVED,
   active:       STEPS.APPROVED,
-  rejected:     STEPS.STORE_SETUP,
+  rejected:     STEPS.STORE_SETUP,  // reapply
   suspended:    STEPS.APPROVED,
 };
 
@@ -59,42 +59,48 @@ const INITIAL_STORE_DATA = {
 };
 
 const INITIAL_VERIFY_DATA = {
-  id_card:       null,   // front photo
-  id_card_back:  null,   // back photo
+  id_card:       null,
+  id_card_back:  null,
   selfie:        null,
   business_doc:  null,
   address_proof: null,
-  id_type:       "",     // nin | passport | drivers | voters
-  id_number:     "",     // actual ID number
-  address:       "",     // full address string
+  id_type:       "",
+  id_number:     "",
+  address:       "",
 };
 
 // ─── Hook ─────────────────────────────────────────────────────
 export const useSellerFlow = (user = null) => {
-  const [step,         setStep]         = useState(
-    user ? STEPS.STORE_SETUP : STEPS.REGISTER
-  );
-  const [registerData, setRegisterData] = useState(INITIAL_REGISTER_DATA);
-  const [storeData,    setStoreData]    = useState(INITIAL_STORE_DATA);
-  const [verifyData,   setVerifyData]   = useState(INITIAL_VERIFY_DATA);
-  const [errors,       setErrors]       = useState({});
-  const [loading,      setLoading]      = useState(false);
-  const [initializing, setInitializing] = useState(true);
-  const [serverMsg,    setServerMsg]    = useState("");
-  const [previewLogo,  setPreviewLogo]  = useState(null);
-  const [vendorData,   setVendorData]   = useState(null);
-  const [showPassword, setShowPassword] = useState(false);
-  const [showConfirm,  setShowConfirm]  = useState(false);
+  // If user passed from App.js → they are logged in
+  // Determine starting step based on token presence
+  const [step,            setStep]            = useState(STEPS.REGISTER);
+  const [registerData,    setRegisterData]    = useState(INITIAL_REGISTER_DATA);
+  const [storeData,       setStoreData]       = useState(INITIAL_STORE_DATA);
+  const [verifyData,      setVerifyData]      = useState(INITIAL_VERIFY_DATA);
+  const [errors,          setErrors]          = useState({});
+  const [loading,         setLoading]         = useState(false);
+  const [initializing,    setInitializing]    = useState(true);
+  const [serverMsg,       setServerMsg]       = useState("");
+  const [previewLogo,     setPreviewLogo]     = useState(null);
+  const [vendorData,      setVendorData]      = useState(null);
+  const [showPassword,    setShowPassword]    = useState(false);
+  const [showConfirm,     setShowConfirm]     = useState(false);
+
+  // ── "Not seller account" state ────────────────────────────
+  // True when user is logged in via Gmail/public.users
+  // but seller system requires market.users account
+  const [isGmailUser,     setIsGmailUser]     = useState(false);
 
   // ── Token helper ───────────────────────────────────────────
   const token = () => localStorage.getItem("token");
 
-  // ── Mount: restore correct step from server ────────────────
+  // ── Mount: restore step from server ───────────────────────
   useEffect(() => {
     const syncFromServer = async () => {
       try {
         const t = token();
 
+        // No token → show register step
         if (!t) {
           setStep(STEPS.REGISTER);
           setInitializing(false);
@@ -107,29 +113,44 @@ export const useSellerFlow = (user = null) => {
         );
 
         if (data?.vendor) {
-          const vendor  = data.vendor;
-          setVendorData(vendor);
-
-          const restored = STATUS_TO_STEP[vendor.status];
+          setVendorData(data.vendor);
+          const restored = STATUS_TO_STEP[data.vendor.status];
           setStep(restored ?? STEPS.STORE_SETUP);
 
           console.log(
-            `[useSellerFlow] status: "${vendor.status}"`,
+            `[useSellerFlow] status: "${data.vendor.status}"`,
             `→ step: ${restored}`
           );
         } else {
+          // Token valid, user in market.users, no vendor yet
           setStep(STEPS.STORE_SETUP);
         }
 
       } catch (err) {
-        if (err.response?.status === 401) {
+        const status = err.response?.status;
+        const code   = err.response?.data?.code;
+
+        if (status === 401) {
+          // Token invalid → clear + show register
           localStorage.removeItem("token");
           setStep(STEPS.REGISTER);
-        } else if (err.response?.status === 404) {
+
+        } else if (status === 404) {
+          // Token valid, no vendor yet → store setup
           setStep(STEPS.STORE_SETUP);
+
+        } else if (status === 403 && code === "NOT_SELLER_ACCOUNT") {
+          // ✅ User is in public.users (Gmail/marketplace login)
+          // They cannot use the seller system with this token
+          // Must create a separate seller account
+          setIsGmailUser(true);
+          setStep(STEPS.REGISTER);
+          // Remove public token — seller needs market.users token
+          localStorage.removeItem("token");
+
         } else {
-          console.warn("[useSellerFlow] sync:", err.message);
-          setStep(user ? STEPS.STORE_SETUP : STEPS.REGISTER);
+          console.warn("[useSellerFlow] sync error:", err.message);
+          setStep(STEPS.REGISTER);
         }
       } finally {
         setInitializing(false);
@@ -149,7 +170,6 @@ export const useSellerFlow = (user = null) => {
   // ── Store handler ──────────────────────────────────────────
   const handleStoreChange = useCallback((e) => {
     const { name, value, files } = e.target;
-
     if (files?.[0]) {
       const file = files[0];
       setStoreData((p) => ({ ...p, [name]: file }));
@@ -165,14 +185,12 @@ export const useSellerFlow = (user = null) => {
   }, []);
 
   // ── Verify handler ─────────────────────────────────────────
-  // Handles: files (id_card, selfie, etc.)
-  //          text  (id_type, id_number, address)
+  // Handles: files (id_card, selfie etc) + text (id_type, id_number, address)
   const handleVerifyChange = useCallback((e) => {
     const { name, value, files } = e.target;
-
     if (files?.[0]) {
       setVerifyData((p) => ({ ...p, [name]: files[0] }));
-      setErrors((p)     => ({ ...p, [name]: ""        }));
+      setErrors((p)     => ({ ...p, [name]: ""       }));
     } else if (value !== undefined) {
       setVerifyData((p) => ({ ...p, [name]: value }));
       setErrors((p)     => ({ ...p, [name]: ""    }));
@@ -252,11 +270,9 @@ export const useSellerFlow = (user = null) => {
   const validateVerification = () => {
     const errs = {};
 
-    // ── ID type ────────────────────────────────────────────
     if (!verifyData.id_type)
       errs.id_type = "Please select an ID type";
 
-    // ── ID number ──────────────────────────────────────────
     if (!verifyData.id_number?.trim()) {
       errs.id_number = "ID number is required";
     } else {
@@ -266,14 +282,12 @@ export const useSellerFlow = (user = null) => {
         drivers:  12,
         voters:   19,
       };
-
       const cleaned  = verifyData.id_number.replace(/\s/g, "").toUpperCase();
       const expected = ID_DIGITS[verifyData.id_type];
 
       if (verifyData.id_type === "passport") {
         if (!/^[A-Z0-9]{9}$/.test(cleaned)) {
-          errs.id_number =
-            "Passport must be 9 characters (e.g. A12345678)";
+          errs.id_number = "Passport must be 9 characters (e.g. A12345678)";
         }
       } else if (expected) {
         const actual = cleaned.replace(/\D/g, "").length;
@@ -283,14 +297,11 @@ export const useSellerFlow = (user = null) => {
             drivers: "Driver's Licence",
             voters:  "Voter's Card",
           };
-          errs.id_number =
-            `${labels[verifyData.id_type] ?? verifyData.id_type} ` +
-            `must be ${expected} digits`;
+          errs.id_number = `${labels[verifyData.id_type] ?? verifyData.id_type} must be ${expected} digits`;
         }
       }
     }
 
-    // ── Required photos ────────────────────────────────────
     if (!verifyData.id_card)
       errs.id_card      = "ID card front photo is required";
 
@@ -300,7 +311,6 @@ export const useSellerFlow = (user = null) => {
     if (!verifyData.selfie)
       errs.selfie       = "Selfie with ID is required";
 
-    // ── Address ────────────────────────────────────────────
     if (!verifyData.address?.trim())
       errs.address      = "Home address is required";
 
@@ -326,6 +336,7 @@ export const useSellerFlow = (user = null) => {
         localStorage.setItem("token", data.token);
       }
 
+      setIsGmailUser(false);
       setServerMsg(data.message ?? "Account created successfully!");
       setStep(STEPS.STORE_SETUP);
 
@@ -346,7 +357,6 @@ export const useSellerFlow = (user = null) => {
 
     try {
       const form = new FormData();
-
       form.append("store_name",        storeData.store_name.trim());
       form.append("store_description", storeData.store_description.trim());
       form.append("store_category",    storeData.store_category);
@@ -355,12 +365,9 @@ export const useSellerFlow = (user = null) => {
       form.append("bank_name",         storeData.bank_name.trim());
       form.append("account_name",      storeData.account_name.trim());
 
-      if (storeData.bank_code)
-        form.append("bank_code",    storeData.bank_code.trim());
-      if (storeData.store_logo)
-        form.append("store_logo",   storeData.store_logo);
-      if (storeData.store_banner)
-        form.append("store_banner", storeData.store_banner);
+      if (storeData.bank_code)    form.append("bank_code",    storeData.bank_code.trim());
+      if (storeData.store_logo)   form.append("store_logo",   storeData.store_logo);
+      if (storeData.store_banner) form.append("store_banner", storeData.store_banner);
 
       const { data } = await axios.post(
         "/api/seller-onboarding/setup-store",
@@ -380,16 +387,14 @@ export const useSellerFlow = (user = null) => {
     } catch (err) {
       console.error("[submitStore]", err.response?.data ?? err.message);
 
-      // ✅ Handle vendor already exists — redirect to correct step
+      // Handle vendor already exists — redirect to correct step
       if (err.response?.data?.code === "VENDOR_EXISTS") {
         const existingStatus = err.response.data.status;
-
         if (existingStatus === "pending") {
           setServerMsg("");
           setStep(STEPS.VERIFICATION);
           return;
         }
-
         if (existingStatus === "under_review") {
           setStep(STEPS.REVIEW);
           return;
@@ -413,35 +418,15 @@ export const useSellerFlow = (user = null) => {
     try {
       const form = new FormData();
 
-      // ── Files ─────────────────────────────────────────────
-      if (verifyData.id_card)
-        form.append("id_card",       verifyData.id_card);
+      if (verifyData.id_card)       form.append("id_card",       verifyData.id_card);
+      if (verifyData.id_card_back)  form.append("id_card_back",  verifyData.id_card_back);
+      if (verifyData.selfie)        form.append("selfie",        verifyData.selfie);
+      if (verifyData.business_doc)  form.append("business_doc",  verifyData.business_doc);
+      if (verifyData.address_proof) form.append("address_proof", verifyData.address_proof);
 
-      if (verifyData.id_card_back)
-        form.append("id_card_back",  verifyData.id_card_back);
-
-      if (verifyData.selfie)
-        form.append("selfie",        verifyData.selfie);
-
-      if (verifyData.business_doc)
-        form.append("business_doc",  verifyData.business_doc);
-
-      if (verifyData.address_proof)
-        form.append("address_proof", verifyData.address_proof);
-
-      // ── Text fields ───────────────────────────────────────
-      form.append(
-        "id_type",
-        verifyData.id_type.trim()
-      );
-      form.append(
-        "id_number",
-        verifyData.id_number.replace(/\s/g, "").toUpperCase()
-      );
-      form.append(
-        "address",
-        verifyData.address.trim()
-      );
+      form.append("id_type",   verifyData.id_type);
+      form.append("id_number", verifyData.id_number.replace(/\s/g, "").toUpperCase());
+      form.append("address",   verifyData.address.trim());
 
       const { data } = await axios.post(
         "/api/seller-onboarding/verify",
@@ -475,6 +460,7 @@ export const useSellerFlow = (user = null) => {
     serverMsg,     previewLogo,    vendorData,
     showPassword,  setShowPassword,
     showConfirm,   setShowConfirm,
+    isGmailUser,   // ← true when public.users login detected
     setVendorData,
     handleRegisterChange,
     handleStoreChange,
