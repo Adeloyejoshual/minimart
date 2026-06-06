@@ -19,11 +19,48 @@ const MAX_DAILY       = 5;
 const MIN_AMOUNT      = 500;
 const RATE_LIMIT_SECS = 10;
 
+// ── Seller account guard ──────────────────────────────────────
+// Confirms token belongs to market.users ONLY
+const requireSellerAccount = async (req, res, next) => {
+  try {
+    const { rows } = await pool.query(
+      `SELECT id, name, email, status
+       FROM market.users
+       WHERE id = $1`,
+      [req.user.id]
+    );
+
+    if (!rows.length) {
+      return res.status(403).json({
+        success: false,
+        code:    "NOT_SELLER_ACCOUNT",
+        message: "This route requires a seller account.",
+      });
+    }
+
+    if (rows[0].status !== "active") {
+      return res.status(403).json({
+        success: false,
+        code:    "ACCOUNT_SUSPENDED",
+        message: "Your seller account has been suspended",
+      });
+    }
+
+    req.sellerUser = rows[0];
+    next();
+
+  } catch (err) {
+    console.error("[requireSellerAccount]", err.message);
+    return res.status(500).json({ success: false, message: "Auth error" });
+  }
+};
+
 // ── Helper: vendor by user ────────────────────────────────────
 const getVendorByUser = async (userId) => {
   const { rows } = await pool.query(
     `SELECT v.id, v.status, v.store_name,
-            v.bank_name, v.bank_account, v.account_name
+            v.bank_name, v.bank_account, v.account_name,
+            v.bank_code
      FROM market.vendors v
      WHERE v.user_id = $1`,
     [userId]
@@ -31,7 +68,7 @@ const getVendorByUser = async (userId) => {
   return rows[0] ?? null;
 };
 
-// ── Helper: wallet only ───────────────────────────────────────
+// ── Helper: wallet ────────────────────────────────────────────
 const getWallet = async (vendorId) => {
   const { rows } = await pool.query(
     `SELECT
@@ -45,16 +82,12 @@ const getWallet = async (vendorId) => {
   return rows[0] ?? null;
 };
 
-// ── Helper: virtual account (queried directly) ─────────────────
+// ── Helper: virtual account ───────────────────────────────────
 const getVirtualAccount = async (vendorId) => {
   const { rows } = await pool.query(
     `SELECT
-       account_number,
-       account_name,
-       bank_name,
-       bank_code,
-       status,
-       created_at
+       account_number, account_name,
+       bank_name, bank_code, status, created_at
      FROM market.vendor_virtual_accounts
      WHERE vendor_id = $1`,
     [vendorId]
@@ -77,26 +110,29 @@ const getDailyCount = async (vendorId) => {
 
 // ════════════════════════════════════════════════════════════
 // GET /api/seller-wallet/balance
+// ✅ Returns vendor bank details + virtual account + wallet
 // ════════════════════════════════════════════════════════════
-router.get("/balance", authenticate, async (req, res) => {
+router.get("/balance", authenticate, requireSellerAccount, async (req, res) => {
   try {
     const vendor = await getVendorByUser(req.user.id);
-    if (!vendor)
+
+    if (!vendor) {
       return res.status(404).json({
         success: false,
-        message: "Vendor not found",
+        message: "Vendor not found. Please complete store setup.",
       });
+    }
 
-    if (vendor.status !== "active")
+    if (vendor.status !== "active") {
       return res.status(403).json({
         success: false,
-        message: `Store not active. Current: "${vendor.status}"`,
+        message: `Store not active. Current status: "${vendor.status}"`,
       });
+    }
 
-    // ── All 3 in parallel ──────────────────────────────
     const [wallet, virtualAccount, dailyCount] = await Promise.all([
       getWallet(vendor.id),
-      getVirtualAccount(vendor.id),   // ✅ direct query
+      getVirtualAccount(vendor.id),
       getDailyCount(vendor.id),
     ]);
 
@@ -121,6 +157,15 @@ router.get("/balance", authenticate, async (req, res) => {
 
     return res.json({
       success: true,
+      // ✅ Return vendor bank details so frontend can display them
+      vendor: {
+        id:           vendor.id,
+        store_name:   vendor.store_name,
+        bank_name:    vendor.bank_name,
+        bank_account: vendor.bank_account,
+        account_name: vendor.account_name,
+        bank_code:    vendor.bank_code,
+      },
       balance: {
         available:       Number(wallet?.available_balance  ?? 0),
         pending:         Number(wallet?.pending_balance    ?? 0),
@@ -139,6 +184,7 @@ router.get("/balance", authenticate, async (req, res) => {
         : null,
       withdrawal_info: withdrawalInfo,
     });
+
   } catch (err) {
     console.error("[balance]", err.message);
     return res.status(500).json({ success: false, message: "Server error" });
@@ -148,14 +194,12 @@ router.get("/balance", authenticate, async (req, res) => {
 // ════════════════════════════════════════════════════════════
 // GET /api/seller-wallet/transactions
 // ════════════════════════════════════════════════════════════
-router.get("/transactions", authenticate, async (req, res) => {
+router.get("/transactions", authenticate, requireSellerAccount, async (req, res) => {
   try {
     const vendor = await getVendorByUser(req.user.id);
-    if (!vendor)
-      return res.status(404).json({
-        success: false,
-        message: "Vendor not found",
-      });
+    if (!vendor) {
+      return res.status(404).json({ success: false, message: "Vendor not found" });
+    }
 
     const { limit = 10, page = 1, type, from, to } = req.query;
     const safeLimit  = Math.min(Math.max(parseInt(limit) || 10, 1), 100);
@@ -209,6 +253,7 @@ router.get("/transactions", authenticate, async (req, res) => {
         total_pages: Math.ceil(Number(count) / safeLimit),
       },
     });
+
   } catch (err) {
     console.error("[transactions]", err.message);
     return res.status(500).json({ success: false, message: "Server error" });
@@ -218,14 +263,12 @@ router.get("/transactions", authenticate, async (req, res) => {
 // ════════════════════════════════════════════════════════════
 // GET /api/seller-wallet/withdrawals
 // ════════════════════════════════════════════════════════════
-router.get("/withdrawals", authenticate, async (req, res) => {
+router.get("/withdrawals", authenticate, requireSellerAccount, async (req, res) => {
   try {
     const vendor = await getVendorByUser(req.user.id);
-    if (!vendor)
-      return res.status(404).json({
-        success: false,
-        message: "Vendor not found",
-      });
+    if (!vendor) {
+      return res.status(404).json({ success: false, message: "Vendor not found" });
+    }
 
     const { limit = 5, page = 1, status } = req.query;
     const safeLimit  = Math.min(Math.max(parseInt(limit) || 5, 1), 100);
@@ -273,6 +316,7 @@ router.get("/withdrawals", authenticate, async (req, res) => {
         total_pages: Math.ceil(Number(count) / safeLimit),
       },
     });
+
   } catch (err) {
     console.error("[withdrawals]", err.message);
     return res.status(500).json({ success: false, message: "Server error" });
@@ -282,7 +326,7 @@ router.get("/withdrawals", authenticate, async (req, res) => {
 // ════════════════════════════════════════════════════════════
 // GET /api/seller-wallet/supported-banks
 // ════════════════════════════════════════════════════════════
-router.get("/supported-banks", authenticate, (_req, res) => {
+router.get("/supported-banks", authenticate, requireSellerAccount, (_req, res) => {
   return res.json({
     success: true,
     banks:   getSupportedBanks(),
@@ -293,22 +337,21 @@ router.get("/supported-banks", authenticate, (_req, res) => {
 // ════════════════════════════════════════════════════════════
 // POST /api/seller-wallet/verify-account
 // ════════════════════════════════════════════════════════════
-router.post("/verify-account", authenticate, async (req, res) => {
+router.post("/verify-account", authenticate, requireSellerAccount, async (req, res) => {
   const { account_number, bank_name } = req.body;
 
-  if (!account_number || !bank_name)
+  if (!account_number || !bank_name) {
     return res.status(400).json({
       success: false,
       message: "account_number and bank_name are required",
     });
+  }
 
   try {
     const result = await verifyAccountName(account_number, bank_name);
-    if (!result.valid)
-      return res.status(400).json({
-        success: false,
-        message: result.message,
-      });
+    if (!result.valid) {
+      return res.status(400).json({ success: false, message: result.message });
+    }
 
     return res.json({
       success: true,
@@ -319,6 +362,7 @@ router.post("/verify-account", authenticate, async (req, res) => {
         bank_code:      result.bank_code,
       },
     });
+
   } catch (err) {
     console.error("[verify-account]", err.message);
     return res.status(500).json({
@@ -331,21 +375,20 @@ router.post("/verify-account", authenticate, async (req, res) => {
 // ════════════════════════════════════════════════════════════
 // GET /api/seller-wallet/withdrawal-preview
 // ════════════════════════════════════════════════════════════
-router.get("/withdrawal-preview", authenticate, async (req, res) => {
+router.get("/withdrawal-preview", authenticate, requireSellerAccount, async (req, res) => {
   try {
     const vendor = await getVendorByUser(req.user.id);
-    if (!vendor)
-      return res.status(404).json({
-        success: false,
-        message: "Vendor not found",
-      });
+    if (!vendor) {
+      return res.status(404).json({ success: false, message: "Vendor not found" });
+    }
 
     const amount = Number(req.query.amount);
-    if (!amount || isNaN(amount) || amount < MIN_AMOUNT)
+    if (!amount || isNaN(amount) || amount < MIN_AMOUNT) {
       return res.status(400).json({
         success: false,
         message: `Minimum withdrawal is ₦${MIN_AMOUNT}`,
       });
+    }
 
     const [feeCalc, wallet] = await Promise.all([
       calculateWithdrawalFees(vendor.id, amount),
@@ -377,6 +420,7 @@ router.get("/withdrawal-preview", authenticate, async (req, res) => {
         limit_reached:         limitReached,
       },
     });
+
   } catch (err) {
     console.error("[withdrawal-preview]", err.message);
     return res.status(500).json({ success: false, message: "Server error" });
@@ -386,32 +430,33 @@ router.get("/withdrawal-preview", authenticate, async (req, res) => {
 // ════════════════════════════════════════════════════════════
 // POST /api/seller-wallet/withdraw
 // ════════════════════════════════════════════════════════════
-router.post("/withdraw", authenticate, async (req, res) => {
+router.post("/withdraw", authenticate, requireSellerAccount, async (req, res) => {
   const { amount, idempotency_key } = req.body;
   const numAmount = Number(amount);
 
-  // ── Validate ────────────────────────────────────────────
-  if (!amount || isNaN(numAmount) || numAmount <= 0)
+  if (!amount || isNaN(numAmount) || numAmount <= 0) {
     return res.status(400).json({ success: false, message: "Invalid amount" });
+  }
 
-  if (numAmount < MIN_AMOUNT)
+  if (numAmount < MIN_AMOUNT) {
     return res.status(400).json({
       success: false,
       message: `Minimum withdrawal is ₦${MIN_AMOUNT.toLocaleString("en-NG")}`,
     });
+  }
 
-  if (!Number.isInteger(numAmount * 100))
+  if (!Number.isInteger(numAmount * 100)) {
     return res.status(400).json({
       success: false,
       message: "Amount must have at most 2 decimal places",
     });
+  }
 
   const client = await pool.connect();
 
   try {
     await client.query("BEGIN");
 
-    // ── Lock & fetch vendor ─────────────────────────────
     const { rows: [vendor] } = await client.query(
       `SELECT v.id, v.status, v.store_name,
               v.bank_name, v.bank_account, v.account_name
@@ -422,10 +467,7 @@ router.post("/withdraw", authenticate, async (req, res) => {
 
     if (!vendor) {
       await client.query("ROLLBACK");
-      return res.status(404).json({
-        success: false,
-        message: "Vendor not found",
-      });
+      return res.status(404).json({ success: false, message: "Vendor not found" });
     }
 
     if (vendor.status !== "active") {
@@ -462,7 +504,7 @@ router.post("/withdraw", authenticate, async (req, res) => {
       });
     }
 
-    // ── Idempotency ─────────────────────────────────────
+    // Idempotency
     if (idempotency_key) {
       const { rows: [existing] } = await client.query(
         `SELECT id, status, amount, fee, net_amount, tx_ref, created_at
@@ -482,7 +524,7 @@ router.post("/withdraw", authenticate, async (req, res) => {
       }
     }
 
-    // ── Rate limit ──────────────────────────────────────
+    // Rate limit
     const { rows: [recent] } = await client.query(
       `SELECT id FROM market.vendor_withdrawal_requests
        WHERE vendor_id  = $1
@@ -498,7 +540,7 @@ router.post("/withdraw", authenticate, async (req, res) => {
       });
     }
 
-    // ── Daily limit ─────────────────────────────────────
+    // Daily limit
     const today = getNigeriaDate();
     const { rows: [{ count: dailyRaw }] } = await client.query(
       `SELECT COUNT(*) FROM market.vendor_withdrawal_requests
@@ -520,11 +562,11 @@ router.post("/withdraw", authenticate, async (req, res) => {
       });
     }
 
-    // ── Fees ────────────────────────────────────────────
+    // Fees
     let fee = 0;
     const breakdown = { above_10k_fee: 0, extra_withdrawal_fee: 0 };
-    if (numAmount > 10000)  { breakdown.above_10k_fee = 50;        fee += 50; }
-    if (dailyCount >= 2)    { breakdown.extra_withdrawal_fee = 10; fee += 10; }
+    if (numAmount > 10000) { breakdown.above_10k_fee = 50;        fee += 50; }
+    if (dailyCount >= 2)   { breakdown.extra_withdrawal_fee = 10; fee += 10; }
 
     const netAmount = numAmount - fee;
     if (netAmount <= 0) {
@@ -536,7 +578,7 @@ router.post("/withdraw", authenticate, async (req, res) => {
       });
     }
 
-    // ── Lock wallet ─────────────────────────────────────
+    // Lock wallet
     const { rows: [wallet] } = await client.query(
       `SELECT available_balance FROM market.vendor_wallets
        WHERE vendor_id = $1 FOR UPDATE`,
@@ -544,10 +586,7 @@ router.post("/withdraw", authenticate, async (req, res) => {
     );
     if (!wallet) {
       await client.query("ROLLBACK");
-      return res.status(400).json({
-        success: false,
-        message: "Wallet not found. Contact support.",
-      });
+      return res.status(400).json({ success: false, message: "Wallet not found." });
     }
 
     const available = Number(wallet.available_balance);
@@ -562,7 +601,7 @@ router.post("/withdraw", authenticate, async (req, res) => {
       });
     }
 
-    // ── Deduct ──────────────────────────────────────────
+    // Deduct
     await client.query(
       `UPDATE market.vendor_wallets
        SET available_balance = available_balance - $1,
@@ -572,7 +611,6 @@ router.post("/withdraw", authenticate, async (req, res) => {
       [numAmount, vendor.id]
     );
 
-    // ── Insert withdrawal ───────────────────────────────
     const txRef = generateTxRef();
 
     const { rows: [withdrawal] } = await client.query(
@@ -589,7 +627,6 @@ router.post("/withdraw", authenticate, async (req, res) => {
       ]
     );
 
-    // ── Insert debit transaction ────────────────────────
     await client.query(
       `INSERT INTO market.vendor_transactions
          (vendor_id, type, amount, fee, net_amount,
@@ -597,14 +634,14 @@ router.post("/withdraw", authenticate, async (req, res) => {
        VALUES ($1,'debit',$2,$3,$4,'NGN','processing',$5,$6)`,
       [
         vendor.id, numAmount, fee, netAmount,
-        `Instant withdrawal to ${bank.name} — ${vendor.account_name}`,
+        `Withdrawal to ${bank.name} — ${vendor.account_name}`,
         txRef,
       ]
     );
 
     await client.query("COMMIT");
 
-    // ── FLW transfer ────────────────────────────────────
+    // FLW transfer after commit
     let transferResult = null;
     let transferError  = null;
 
@@ -627,12 +664,9 @@ router.post("/withdraw", authenticate, async (req, res) => {
         [transferResult.flw_transfer_id, withdrawal.id]
       );
 
-      console.log(
-        `[withdraw] ✅ ref=${txRef} flw_id=${transferResult.flw_transfer_id}`
-      );
     } catch (flwErr) {
       transferError = flwErr.message;
-      console.error(`[withdraw] ❌ FLW: ${flwErr.message}`);
+      console.error(`[withdraw] FLW error: ${flwErr.message}`);
 
       await pool.query(
         `UPDATE market.vendor_withdrawal_requests
@@ -673,6 +707,7 @@ router.post("/withdraw", authenticate, async (req, res) => {
       },
       transfer_error: transferError,
     });
+
   } catch (err) {
     await client.query("ROLLBACK");
     console.error("[withdraw]", err.message);
