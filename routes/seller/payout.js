@@ -1,33 +1,20 @@
-import express from "express";
-import axios from "axios";
+import express    from "express";
+import axios      from "axios";
 import { randomUUID } from "crypto";
-import { pool } from "../../server.js";
+import { pool }   from "../../server.js";
 import authenticate from "../middleware/auth.js";
+import { calculateWithdrawalFee, feeScheduleLabel } from "../../utils/withdrawalFee.js";
 
 const router = express.Router();
 
-// ─── constants ────────────────────────────────────────────────────────────────
-
+// ─── env ──────────────────────────────────────────────────────────────────────
 const FLW_SECRET_KEY        = process.env.FLW_SECRET_KEY;
-const MIN_WITHDRAWAL        = parseFloat(process.env.MIN_WITHDRAWAL        || "500");
-const MAX_WITHDRAWAL        = parseFloat(process.env.MAX_WITHDRAWAL        || "5000000");
+const MIN_WITHDRAWAL        = parseFloat(process.env.MIN_WITHDRAWAL         || "500");
+const MAX_WITHDRAWAL        = parseFloat(process.env.MAX_WITHDRAWAL         || "5000000");
 const DAILY_LIMIT           = parseFloat(process.env.DAILY_WITHDRAWAL_LIMIT || "1000000");
 const FLW_CHECK_THROTTLE_MS = 2 * 60 * 1000; // 2 minutes
 
-// ─── fee schedule ─────────────────────────────────────────────────────────────
-//  • ₦50  flat if amount  > ₦10,000
-//  • ₦10  extra if vendor already has ≥ 2 successful/processing withdrawals today
-//  • Free otherwise
-
-const calculateFee = ({ amount, withdrawalsToday }) => {
-  let fee = 0;
-  if (amount > 10_000)        fee += 50;
-  if (withdrawalsToday >= 2)  fee += 10;
-  return fee;
-};
-
 // ─── Flutterwave client ───────────────────────────────────────────────────────
-
 const flw = () =>
   axios.create({
     baseURL: "https://api.flutterwave.com/v3",
@@ -40,10 +27,6 @@ const flw = () =>
 
 // ─── helpers ──────────────────────────────────────────────────────────────────
 
-/**
- * Verify a transfer status with Flutterwave.
- * Returns the raw FLW data object or null on error.
- */
 const verifyFlwTransfer = async (flwTransferId) => {
   try {
     const { data } = await flw().get(`/transfers/${flwTransferId}`);
@@ -54,10 +37,6 @@ const verifyFlwTransfer = async (flwTransferId) => {
   }
 };
 
-/**
- * Initiate a Flutterwave bank transfer.
- * Throws on any failure so the caller can roll back.
- */
 const initiateFlwTransfer = async ({
   account_number,
   account_name,
@@ -66,7 +45,7 @@ const initiateFlwTransfer = async ({
   narration,
   reference,
 }) => {
-  const payload = {
+  const { data } = await flw().post("/transfers", {
     account_bank:   bank_code,
     account_number,
     amount,
@@ -75,11 +54,7 @@ const initiateFlwTransfer = async ({
     reference,
     callback_url:   process.env.FLW_WEBHOOK_URL,
     debit_currency: "NGN",
-  };
-
-  console.log("[initiateFlwTransfer] →", { account_number, bank_code, amount, reference });
-
-  const { data } = await flw().post("/transfers", payload);
+  });
 
   if (data.status !== "success") {
     throw new Error(data.message ?? "Transfer initiation failed");
@@ -88,9 +63,30 @@ const initiateFlwTransfer = async ({
   return data.data;
 };
 
+/**
+ * Count today's withdrawals for a vendor (pending + processing + success).
+ * Used for fee calculation and daily-limit checks.
+ * Must be called inside an open DB client when you need a consistent read.
+ */
+const getTodayWithdrawalStats = async (dbOrClient, vendorId) => {
+  const { rows: [row] } = await dbOrClient.query(
+    `SELECT
+       COUNT(*)                  AS withdrawals_today,
+       COALESCE(SUM(amount), 0)  AS daily_used
+     FROM market.vendor_withdrawal_requests
+     WHERE vendor_id  = $1
+       AND status     IN ('pending','processing','success')
+       AND created_at >= CURRENT_DATE`,
+    [vendorId]
+  );
+  return {
+    withdrawalsToday: parseInt(row.withdrawals_today, 10),
+    dailyUsed:        parseFloat(row.daily_used),
+  };
+};
+
 // ═══════════════════════════════════════════════════════════════════════════════
 // GET /api/seller/payout/info
-// Wallet balances + payout bank + virtual account + limits
 // ═══════════════════════════════════════════════════════════════════════════════
 router.get("/info", authenticate, async (req, res) => {
   try {
@@ -126,30 +122,11 @@ router.get("/info", authenticate, async (req, res) => {
       });
     }
 
-    // ── daily usage (pending + processing + success count toward limit) ───────
-    const today = new Date().toISOString().slice(0, 10);
+    const { withdrawalsToday, dailyUsed } =
+      await getTodayWithdrawalStats(pool, vendorId);
 
-    const { rows: [daily] } = await pool.query(
-      `SELECT
-         COALESCE(SUM(amount), 0)                                        AS daily_used,
-         COALESCE(SUM(CASE WHEN status IN ('success','processing')
-                           THEN 1 ELSE 0 END), 0)                        AS withdrawals_today
-       FROM market.vendor_withdrawal_requests
-       WHERE vendor_id  = $1
-         AND status     IN ('pending','processing','success')
-         AND created_at >= $2::date`,
-      [vendorId, today]
-    );
-
-    const dailyUsed         = parseFloat(daily.daily_used);
-    const withdrawalsToday  = parseInt(daily.withdrawals_today, 10);
-    const dailyRemaining    = Math.max(0, DAILY_LIMIT - dailyUsed);
-
-    // Preview fee for a hypothetical next withdrawal
-    const previewFee = calculateFee({
-      amount: MIN_WITHDRAWAL,   // cheapest possible
-      withdrawalsToday,
-    });
+    const dailyRemaining  = Math.max(0, DAILY_LIMIT - dailyUsed);
+    const freeRemaining   = Math.max(0, 3 - withdrawalsToday);
 
     return res.json({
       success: true,
@@ -175,13 +152,14 @@ router.get("/info", authenticate, async (req, res) => {
           }
         : null,
       limits: {
-        min_withdrawal:   MIN_WITHDRAWAL,
-        max_withdrawal:   MAX_WITHDRAWAL,
-        daily_limit:      DAILY_LIMIT,
-        daily_used:       dailyUsed,
-        daily_remaining:  dailyRemaining,
+        min_withdrawal:    MIN_WITHDRAWAL,
+        max_withdrawal:    MAX_WITHDRAWAL,
+        daily_limit:       DAILY_LIMIT,
+        daily_used:        dailyUsed,
+        daily_remaining:   dailyRemaining,
         withdrawals_today: withdrawalsToday,
-        preview_fee:      previewFee,
+        free_remaining:    freeRemaining,        // how many more are free today
+        fee_schedule_label: feeScheduleLabel(withdrawalsToday),
       },
     });
   } catch (err) {
@@ -192,7 +170,6 @@ router.get("/info", authenticate, async (req, res) => {
 
 // ═══════════════════════════════════════════════════════════════════════════════
 // GET /api/seller/payout/history
-// Paginated withdrawal history + summary stats
 // ═══════════════════════════════════════════════════════════════════════════════
 router.get("/history", authenticate, async (req, res) => {
   try {
@@ -235,11 +212,12 @@ router.get("/history", authenticate, async (req, res) => {
 
     const { rows: [stats] } = await pool.query(
       `SELECT
-         COUNT(*)                                                                    AS total,
-         COALESCE(SUM(CASE WHEN status = 'success'    THEN net_amount ELSE 0 END), 0) AS total_paid_out,
-         COALESCE(SUM(CASE WHEN status = 'pending'    THEN 1          ELSE 0 END), 0) AS pending_count,
-         COALESCE(SUM(CASE WHEN status = 'processing' THEN 1          ELSE 0 END), 0) AS processing_count,
-         COALESCE(SUM(CASE WHEN status = 'failed'     THEN 1          ELSE 0 END), 0) AS failed_count
+         COUNT(*)                                                                      AS total,
+         COALESCE(SUM(CASE WHEN status='success'    THEN net_amount ELSE 0 END), 0)   AS total_paid_out,
+         COALESCE(SUM(CASE WHEN status='pending'    THEN 1          ELSE 0 END), 0)   AS pending_count,
+         COALESCE(SUM(CASE WHEN status='processing' THEN 1          ELSE 0 END), 0)   AS processing_count,
+         COALESCE(SUM(CASE WHEN status='failed'     THEN 1          ELSE 0 END), 0)   AS failed_count,
+         COALESCE(SUM(fee), 0)                                                        AS total_fees_paid
        FROM market.vendor_withdrawal_requests
        WHERE vendor_id = $1`,
       [vendorId]
@@ -251,6 +229,7 @@ router.get("/history", authenticate, async (req, res) => {
       stats: {
         total:            Number(stats.total),
         total_paid_out:   Number(stats.total_paid_out),
+        total_fees_paid:  Number(stats.total_fees_paid),
         pending_count:    Number(stats.pending_count),
         processing_count: Number(stats.processing_count),
         failed_count:     Number(stats.failed_count),
@@ -271,19 +250,16 @@ router.get("/history", authenticate, async (req, res) => {
 // ═══════════════════════════════════════════════════════════════════════════════
 // POST /api/seller/payout/withdraw
 //
-// Lifecycle (webhook is the ONLY place that finalises balances):
-//
-//   REQUEST                  WEBHOOK SUCCESS          WEBHOOK FAILED
-//   ──────────────────────   ──────────────────────   ─────────────────────
-//   available  -= amount     pending  -= amount        pending  -= amount
-//   pending    += amount     total_withdrawn += amount available += amount
-//   status = 'processing'    status = 'success'        status = 'failed'
+// Lifecycle  (webhook is the ONLY place that finalises balances)
+// ───────────────────────────────────────────────────────────────
+//  REQUEST          available -= amount   pending += amount   status = processing
+//  WEBHOOK SUCCESS  pending   -= amount   total_withdrawn += amount
+//  WEBHOOK FAIL     pending   -= amount   available += amount
 // ═══════════════════════════════════════════════════════════════════════════════
 router.post("/withdraw", authenticate, async (req, res) => {
   const vendorId        = req.vendor.id;
   const { amount, idempotency_key } = req.body;
 
-  // ── basic validation ──────────────────────────────────────────────────────
   if (!amount || isNaN(amount)) {
     return res.status(400).json({ success: false, message: "Valid amount is required" });
   }
@@ -309,37 +285,31 @@ router.post("/withdraw", authenticate, async (req, res) => {
   try {
     await client.query("BEGIN");
 
-    // ── idempotency check ─────────────────────────────────────────────────
+    // ── idempotency ───────────────────────────────────────────────────────
     if (idempotency_key) {
-      const { rows: [existing] } = await client.query(
+      const { rows: [dupe] } = await client.query(
         `SELECT * FROM market.vendor_withdrawal_requests
          WHERE idempotency_key = $1`,
         [idempotency_key]
       );
-
-      if (existing) {
+      if (dupe) {
         await client.query("ROLLBACK");
         return res.status(200).json({
           success:    true,
           idempotent: true,
           message:    "Duplicate request — returning existing withdrawal",
-          withdrawal: existing,
+          withdrawal: dupe,
         });
       }
     }
 
-    // ── lock wallet + fetch bank details ──────────────────────────────────
+    // ── lock wallet ───────────────────────────────────────────────────────
     const { rows: [wallet] } = await client.query(
-      `SELECT
-         w.*,
-         v.bank_name,
-         v.bank_code,
-         v.bank_account AS account_number,
-         v.account_name
+      `SELECT w.*, v.bank_name, v.bank_code,
+              v.bank_account AS account_number, v.account_name
        FROM market.vendor_wallets w
        JOIN market.vendors v ON v.id = w.vendor_id
-       WHERE w.vendor_id = $1
-       FOR UPDATE`,
+       WHERE w.vendor_id = $1 FOR UPDATE`,
       [vendorId]
     );
 
@@ -357,43 +327,28 @@ router.post("/withdraw", authenticate, async (req, res) => {
       });
     }
 
-    const available = parseFloat(wallet.available_balance);
-
-    if (parsedAmount > available) {
+    if (parsedAmount > parseFloat(wallet.available_balance)) {
       await client.query("ROLLBACK");
       return res.status(400).json({
         success: false,
-        message: `Insufficient balance. Available: ₦${available.toLocaleString()}`,
+        message: `Insufficient balance. Available: ₦${Number(wallet.available_balance).toLocaleString()}`,
       });
     }
 
-    // ── daily limit check ─────────────────────────────────────────────────
-    const today = new Date().toISOString().slice(0, 10);
-
-    const { rows: [daily] } = await client.query(
-      `SELECT
-         COALESCE(SUM(amount), 0)                                              AS daily_used,
-         COALESCE(SUM(CASE WHEN status IN ('success','processing')
-                           THEN 1 ELSE 0 END), 0)                              AS withdrawals_today
-       FROM market.vendor_withdrawal_requests
-       WHERE vendor_id  = $1
-         AND status     IN ('pending','processing','success')
-         AND created_at >= $2::date`,
-      [vendorId, today]
-    );
-
-    const dailyUsed        = parseFloat(daily.daily_used);
-    const withdrawalsToday = parseInt(daily.withdrawals_today, 10);
+    // ── today's stats (inside the same TX for consistency) ────────────────
+    const { withdrawalsToday, dailyUsed } =
+      await getTodayWithdrawalStats(client, vendorId);
 
     if (dailyUsed + parsedAmount > DAILY_LIMIT) {
       await client.query("ROLLBACK");
       return res.status(400).json({
         success: false,
-        message: `Daily limit of ₦${DAILY_LIMIT.toLocaleString()} exceeded. Used: ₦${dailyUsed.toLocaleString()}`,
+        message: `Daily limit of ₦${DAILY_LIMIT.toLocaleString()} exceeded. ` +
+                 `Used today: ₦${dailyUsed.toLocaleString()}`,
       });
     }
 
-    // ── pending / processing guard (one active withdrawal at a time) ──────
+    // ── one active withdrawal at a time ───────────────────────────────────
     const { rows: [{ count: activeCount }] } = await client.query(
       `SELECT COUNT(*) FROM market.vendor_withdrawal_requests
        WHERE vendor_id = $1 AND status IN ('pending','processing')`,
@@ -405,29 +360,31 @@ router.post("/withdraw", authenticate, async (req, res) => {
       return res.status(400).json({
         success: false,
         message:
-          "You already have a pending or processing withdrawal. Please wait for it to complete.",
+          "You already have a pending or processing withdrawal. " +
+          "Please wait for it to complete.",
       });
     }
 
-    // ── calculate fee ─────────────────────────────────────────────────────
-    const fee       = calculateFee({ amount: parsedAmount, withdrawalsToday });
+    // ── fee calculation ───────────────────────────────────────────────────
+    //    withdrawalsToday is the count BEFORE this one, so:
+    //    if it's 0,1,2 → this is the 1st/2nd/3rd → free
+    //    if it's 3+    → this is the 4th+ → tiered fee applies
+    const fee       = calculateWithdrawalFee(parsedAmount, withdrawalsToday);
     const netAmount = parseFloat((parsedAmount - fee).toFixed(2));
     const txRef     = `WD-${randomUUID()}`;
     const iKey      = idempotency_key ?? txRef;
 
-    // ── deduct available, add to pending ──────────────────────────────────
-    //    Webhook is the ONLY place that will move money OUT of pending.
+    // ── deduct available → move to pending ───────────────────────────────
     await client.query(
       `UPDATE market.vendor_wallets
-       SET
-         available_balance = available_balance - $1,
-         pending_balance   = pending_balance   + $1,
-         updated_at        = NOW()
+       SET available_balance = available_balance - $1,
+           pending_balance   = pending_balance   + $1,
+           updated_at        = NOW()
        WHERE vendor_id = $2`,
       [parsedAmount, vendorId]
     );
 
-    // ── create withdrawal request (status = 'processing') ─────────────────
+    // ── create withdrawal record ──────────────────────────────────────────
     const { rows: [withdrawal] } = await client.query(
       `INSERT INTO market.vendor_withdrawal_requests
          (vendor_id, wallet_id, amount, fee, net_amount,
@@ -436,21 +393,15 @@ router.post("/withdraw", authenticate, async (req, res) => {
        VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,'processing',$11,NOW())
        RETURNING *`,
       [
-        vendorId,
-        wallet.id,
-        parsedAmount,
-        fee,
-        netAmount,
-        wallet.bank_name,
-        wallet.bank_code,
-        wallet.account_number,
-        wallet.account_name,
-        txRef,
-        iKey,
+        vendorId, wallet.id,
+        parsedAmount, fee, netAmount,
+        wallet.bank_name, wallet.bank_code,
+        wallet.account_number, wallet.account_name,
+        txRef, iKey,
       ]
     );
 
-    // ── record a vendor_transaction (status = 'processing') ───────────────
+    // ── vendor_transactions record ────────────────────────────────────────
     await client.query(
       `INSERT INTO market.vendor_transactions
          (vendor_id, type, amount, fee, currency, status, narration, tx_ref)
@@ -460,12 +411,9 @@ router.post("/withdraw", authenticate, async (req, res) => {
 
     await client.query("COMMIT");
 
-    // ── initiate Flutterwave transfer OUTSIDE the DB transaction ──────────
-    let flwResult = null;
-    let flwError  = null;
-
+    // ── Flutterwave transfer (outside TX) ─────────────────────────────────
     try {
-      flwResult = await initiateFlwTransfer({
+      const flwResult = await initiateFlwTransfer({
         account_number: wallet.account_number,
         account_name:   wallet.account_name,
         bank_code:      wallet.bank_code,
@@ -474,30 +422,48 @@ router.post("/withdraw", authenticate, async (req, res) => {
         reference:      txRef,
       });
 
-      // Persist FLW transfer ID (status stays 'processing')
       await pool.query(
         `UPDATE market.vendor_withdrawal_requests
-         SET flw_transfer_id = $1,
-             updated_at      = NOW()
+         SET flw_transfer_id = $1, updated_at = NOW()
          WHERE tx_ref = $2`,
         [flwResult.id?.toString(), txRef]
       );
 
-      console.log("[payout/withdraw] ✅ FLW transfer initiated:", flwResult.id);
+      console.log("[payout/withdraw] ✅ FLW transfer:", flwResult.id);
+
+      return res.status(201).json({
+        success: true,
+        message: "Withdrawal initiated successfully",
+        withdrawal: {
+          id:              withdrawal.id,
+          amount:          parsedAmount,
+          fee,
+          net_amount:      netAmount,
+          fee_note:        fee === 0
+            ? "Free (within first 3 today)"
+            : `₦${fee} processing fee applied`,
+          status:          "processing",
+          tx_ref:          txRef,
+          flw_transfer_id: flwResult.id?.toString() ?? null,
+          bank_name:       wallet.bank_name,
+          account_number:  wallet.account_number,
+          account_name:    wallet.account_name,
+          requested_at:    withdrawal.requested_at,
+        },
+      });
 
     } catch (flwErr) {
-      flwError =
+      const reason =
         flwErr.response?.data?.message ?? flwErr.message ?? "FLW error";
 
-      console.error("[payout/withdraw] ❌ FLW initiation failed:", flwError);
+      console.error("[payout/withdraw] ❌ FLW failed:", reason);
 
-      // ── Immediate Flutterwave failure → reverse wallet atomically ─────
+      // Reverse wallet atomically
       await pool.query(
         `UPDATE market.vendor_wallets
-         SET
-           available_balance = available_balance + $1,
-           pending_balance   = pending_balance   - $1,
-           updated_at        = NOW()
+         SET available_balance = available_balance + $1,
+             pending_balance   = pending_balance   - $1,
+             updated_at        = NOW()
          WHERE vendor_id = $2`,
         [parsedAmount, vendorId]
       );
@@ -509,41 +475,23 @@ router.post("/withdraw", authenticate, async (req, res) => {
              processed_at   = NOW(),
              updated_at     = NOW()
          WHERE tx_ref = $2`,
-        [flwError, txRef]
+        [reason, txRef]
       );
 
       await pool.query(
         `UPDATE market.vendor_transactions
-         SET status   = 'failed',
-             narration = $1
-         WHERE tx_ref  = $2`,
-        [`Withdrawal failed: ${flwError}`, txRef]
+         SET status = 'failed', narration = $1
+         WHERE tx_ref = $2`,
+        [`Withdrawal failed: ${reason}`, txRef]
       );
 
       return res.status(502).json({
         success: false,
-        message: `Transfer initiation failed: ${flwError}. Your balance has been restored.`,
+        message: `Transfer failed: ${reason}. Your balance has been restored.`,
         tx_ref:  txRef,
       });
     }
 
-    return res.status(201).json({
-      success: true,
-      message: "Withdrawal initiated successfully",
-      withdrawal: {
-        id:              withdrawal.id,
-        amount:          parsedAmount,
-        fee,
-        net_amount:      netAmount,
-        status:          "processing",
-        tx_ref:          txRef,
-        flw_transfer_id: flwResult?.id?.toString() ?? null,
-        bank_name:       wallet.bank_name,
-        account_number:  wallet.account_number,
-        account_name:    wallet.account_name,
-        requested_at:    withdrawal.requested_at,
-      },
-    });
   } catch (err) {
     await client.query("ROLLBACK");
     console.error("[payout/withdraw]", err.message);
@@ -555,22 +503,14 @@ router.post("/withdraw", authenticate, async (req, res) => {
 
 // ═══════════════════════════════════════════════════════════════════════════════
 // GET /api/seller/payout/withdrawal/:id
-//
-// Returns withdrawal detail + optional live FLW status check.
-//
-// ⚠️  This endpoint NEVER mutates wallet balances.
-//     The webhook is the SINGLE source of truth for settlement.
-//     We only sync the withdrawal *row* status here so the UI
-//     shows current info before the next webhook fires.
+// Status polling — NEVER mutates wallet balances (webhook is source of truth)
 // ═══════════════════════════════════════════════════════════════════════════════
 router.get("/withdrawal/:id", authenticate, async (req, res) => {
   try {
-    const vendorId = req.vendor.id;
-
     const { rows: [withdrawal] } = await pool.query(
       `SELECT * FROM market.vendor_withdrawal_requests
        WHERE id = $1 AND vendor_id = $2`,
-      [req.params.id, vendorId]
+      [req.params.id, req.vendor.id]
     );
 
     if (!withdrawal) {
@@ -579,59 +519,43 @@ router.get("/withdrawal/:id", authenticate, async (req, res) => {
 
     let liveStatus = null;
 
-    // ── throttled Flutterwave check (max once per 2 minutes) ─────────────
-    if (
-      withdrawal.status === "processing" &&
-      withdrawal.flw_transfer_id
-    ) {
+    if (withdrawal.status === "processing" && withdrawal.flw_transfer_id) {
       const lastChecked = withdrawal.last_checked_at
         ? new Date(withdrawal.last_checked_at).getTime()
         : 0;
 
-      const shouldCheck = Date.now() - lastChecked > FLW_CHECK_THROTTLE_MS;
-
-      if (shouldCheck) {
+      if (Date.now() - lastChecked > FLW_CHECK_THROTTLE_MS) {
         const flwData = await verifyFlwTransfer(withdrawal.flw_transfer_id);
 
         if (flwData) {
           liveStatus = flwData.status;
+          const upper = flwData.status?.toUpperCase();
 
-          // Only update the withdrawal row — wallet is handled by webhook
-          const upperStatus = flwData.status?.toUpperCase();
-
-          if (["SUCCESSFUL", "SUCCESS"].includes(upperStatus)) {
+          if (["SUCCESSFUL", "SUCCESS"].includes(upper)) {
             await pool.query(
               `UPDATE market.vendor_withdrawal_requests
-               SET status          = 'success',
-                   processed_at    = NOW(),
-                   last_checked_at = NOW(),
-                   updated_at      = NOW()
-               WHERE id     = $1
-                 AND status = 'processing'`,
+               SET status = 'success', processed_at = NOW(),
+                   last_checked_at = NOW(), updated_at = NOW()
+               WHERE id = $1 AND status = 'processing'`,
               [withdrawal.id]
             );
             withdrawal.status = "success";
 
-          } else if (["FAILED", "CANCELLED"].includes(upperStatus)) {
+          } else if (["FAILED", "CANCELLED"].includes(upper)) {
             await pool.query(
               `UPDATE market.vendor_withdrawal_requests
-               SET status          = 'failed',
-                   failure_reason  = $1,
-                   processed_at    = NOW(),
-                   last_checked_at = NOW(),
-                   updated_at      = NOW()
-               WHERE id     = $2
-                 AND status = 'processing'`,
+               SET status = 'failed', failure_reason = $1,
+                   processed_at = NOW(), last_checked_at = NOW(),
+                   updated_at = NOW()
+               WHERE id = $2 AND status = 'processing'`,
               [flwData.complete_message ?? "Transfer failed", withdrawal.id]
             );
             withdrawal.status = "failed";
 
           } else {
-            // Still in-flight — just update the timestamp
             await pool.query(
               `UPDATE market.vendor_withdrawal_requests
-               SET last_checked_at = NOW()
-               WHERE id = $1`,
+               SET last_checked_at = NOW() WHERE id = $1`,
               [withdrawal.id]
             );
           }
@@ -642,26 +566,23 @@ router.get("/withdrawal/:id", authenticate, async (req, res) => {
     return res.json({ success: true, withdrawal, live_status: liveStatus });
 
   } catch (err) {
-    console.error("[payout/withdrawal/:id]", err.message);
+    console.error("[withdrawal/:id]", err.message);
     return res.status(500).json({ success: false, message: "Server error" });
   }
 });
 
 // ═══════════════════════════════════════════════════════════════════════════════
 // POST /api/seller/payout/withdrawal/:id/cancel
-// Only 'processing' withdrawals that have NOT been sent to FLW yet
-// (no flw_transfer_id) can be cancelled by the vendor.
+// Only processing withdrawals not yet sent to FLW
 // ═══════════════════════════════════════════════════════════════════════════════
 router.post("/withdrawal/:id/cancel", authenticate, async (req, res) => {
   const client = await pool.connect();
-
   try {
     await client.query("BEGIN");
 
     const { rows: [withdrawal] } = await client.query(
       `SELECT * FROM market.vendor_withdrawal_requests
-       WHERE id = $1 AND vendor_id = $2
-       FOR UPDATE`,
+       WHERE id = $1 AND vendor_id = $2 FOR UPDATE`,
       [req.params.id, req.vendor.id]
     );
 
@@ -670,41 +591,35 @@ router.post("/withdrawal/:id/cancel", authenticate, async (req, res) => {
       return res.status(404).json({ success: false, message: "Withdrawal not found" });
     }
 
-    // Once FLW has the transfer we cannot safely cancel from our side
     if (withdrawal.status !== "processing" || withdrawal.flw_transfer_id) {
       await client.query("ROLLBACK");
       return res.status(400).json({
         success: false,
-        message:
-          withdrawal.flw_transfer_id
-            ? "Transfer already sent to Flutterwave — cannot cancel"
-            : `Cannot cancel a "${withdrawal.status}" withdrawal`,
+        message: withdrawal.flw_transfer_id
+          ? "Transfer already sent to Flutterwave — cannot cancel"
+          : `Cannot cancel a "${withdrawal.status}" withdrawal`,
       });
     }
 
     await client.query(
       `UPDATE market.vendor_withdrawal_requests
-       SET status     = 'cancelled',
-           updated_at = NOW()
+       SET status = 'cancelled', updated_at = NOW()
        WHERE id = $1`,
       [withdrawal.id]
     );
 
-    // Reverse pending → available
     await client.query(
       `UPDATE market.vendor_wallets
-       SET
-         available_balance = available_balance + $1,
-         pending_balance   = pending_balance   - $1,
-         updated_at        = NOW()
+       SET available_balance = available_balance + $1,
+           pending_balance   = pending_balance   - $1,
+           updated_at        = NOW()
        WHERE vendor_id = $2`,
       [withdrawal.amount, req.vendor.id]
     );
 
     await client.query(
       `UPDATE market.vendor_transactions
-       SET status   = 'failed',
-           narration = 'Withdrawal cancelled by vendor'
+       SET status = 'failed', narration = 'Withdrawal cancelled by vendor'
        WHERE tx_ref = $1`,
       [withdrawal.tx_ref]
     );
@@ -715,7 +630,7 @@ router.post("/withdrawal/:id/cancel", authenticate, async (req, res) => {
 
   } catch (err) {
     await client.query("ROLLBACK");
-    console.error("[cancel withdrawal]", err.message);
+    console.error("[cancel]", err.message);
     return res.status(500).json({ success: false, message: "Server error" });
   } finally {
     client.release();
