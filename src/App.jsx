@@ -55,7 +55,7 @@ import PaymentSuccess    from "./pages/PaymentSuccess";
 
 // ── Pages — Admin ─────────────────────────────────────────────
 import AdminLogin     from "./pages/admin/AdminLogin";
-import AdminDashboard from "./pages/admin/AdminDashboard";
+import AdminDashboard from "./page/admin/AdminDashboard";
 
 // ─────────────────────────────────────────────────────────────
 
