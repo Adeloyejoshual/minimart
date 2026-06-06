@@ -1,15 +1,16 @@
-// pages/SellerDashboard.jsx
-import React                        from "react";
-import { Navigate }                 from "react-router-dom";
-import { useSellerDashboard }       from "../hooks/useSellerDashboard";
+// src/pages/SellerDashboard.jsx
+import React                  from "react";
+import { Navigate }           from "react-router-dom";
+import { useSellerDashboard } from "../hooks/useSellerDashboard";
 import {
   Sidebar,
   Overview,
   Orders,
-  Payouts,
   TopProducts,
   RevenueChart,
+  Payouts,
   Settings,
+  NotificationPanel,
   StatusBadge,
   DashboardSkeleton,
   DashboardError,
@@ -17,33 +18,52 @@ import {
 import "../style/SellerDashboard.css";
 
 const PAGE_TITLES = {
-  overview:  "Dashboard Overview",
-  orders:    "Orders",
-  products:  "Products",
-  analytics: "Analytics",
-  payouts:   "Payouts",
-  settings:  "Store Settings",
+  overview:       "Dashboard Overview",
+  orders:         "Orders",
+  products:       "Products",
+  analytics:      "Analytics",
+  payouts:        "Payouts",
+  settings:       "Store Settings",
+  notifications:  "Notifications",
 };
 
 export default function SellerDashboard({ user }) {
   const dash = useSellerDashboard();
 
-  if (!user) return <Navigate to="/auth" replace />;
+  // ── Guards ─────────────────────────────────────────────────
+  if (!user) {
+    return <Navigate to="/auth" replace />;
+  }
 
-  if (dash.vendor && !["active", "approved"].includes(dash.vendor?.status)) {
+  if (
+    dash.vendor &&
+    !["active", "approved"].includes(dash.vendor?.status)
+  ) {
     return <Navigate to="/become-seller" replace />;
   }
 
+  // ── Loading ─────────────────────────────────────────────────
   if (dash.loading) {
-    return <div className="sd-layout"><DashboardSkeleton /></div>;
+    return (
+      <div className="sd-layout">
+        <DashboardSkeleton />
+      </div>
+    );
   }
 
+  // ── Error ───────────────────────────────────────────────────
   if (dash.error) {
-    return <div className="sd-layout"><DashboardError error={dash.error} onRetry={dash.refetch} /></div>;
+    return (
+      <div className="sd-layout">
+        <DashboardError error={dash.error} onRetry={dash.refetch} />
+      </div>
+    );
   }
 
+  // ── Render ──────────────────────────────────────────────────
   return (
     <div className="sd-layout">
+
       <Sidebar
         vendor={dash.vendor}
         activeSection={dash.activeSection}
@@ -54,15 +74,27 @@ export default function SellerDashboard({ user }) {
       />
 
       <main className="sd-main">
+
+        {/* Top bar */}
         <header className="sd-topbar">
-          <button className="sd-hamburger" onClick={() => dash.setSidebarOpen(true)}>☰</button>
+          <button
+            className="sd-hamburger"
+            onClick={() => dash.setSidebarOpen(true)}
+          >
+            ☰
+          </button>
+
           <div className="sd-topbar-left">
             <h1 className="sd-page-title">
               {PAGE_TITLES[dash.activeSection] ?? "Dashboard"}
             </h1>
           </div>
+
           <div className="sd-topbar-right">
-            <button className="sd-bell" onClick={() => dash.setActiveSection("notifications")}>
+            <button
+              className="sd-bell"
+              onClick={() => dash.setActiveSection("notifications")}
+            >
               🔔
               {dash.unreadCount > 0 && (
                 <span className="sd-bell-badge">
@@ -70,6 +102,7 @@ export default function SellerDashboard({ user }) {
                 </span>
               )}
             </button>
+
             <div className="sd-user-pill">
               <span className="sd-user-name">
                 {dash.vendor?.store_name ?? user?.name ?? "Store"}
@@ -79,6 +112,7 @@ export default function SellerDashboard({ user }) {
           </div>
         </header>
 
+        {/* Content */}
         <div className="sd-content">
 
           {dash.activeSection === "overview" && (
@@ -113,6 +147,13 @@ export default function SellerDashboard({ user }) {
 
           {dash.activeSection === "settings" && (
             <Settings vendor={dash.vendor} />
+          )}
+
+          {dash.activeSection === "notifications" && (
+            <NotificationPanel
+              notifications={dash.notifications}
+              markNotifRead={dash.markNotifRead}
+            />
           )}
 
         </div>
