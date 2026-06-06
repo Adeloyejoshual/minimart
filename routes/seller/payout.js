@@ -1,7 +1,7 @@
 // routes/seller/payout.js
 import express    from "express";
 import { pool }   from "../../server.js";
-import { verifyToken } from ".. /../middleware/auth.js";
+import authenticate from "../../middleware/auth.js";
 import {
   calculateWithdrawalFees,
   generateTxRef,
