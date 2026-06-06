@@ -8,7 +8,9 @@ const router         = express.Router();
 const JWT_SECRET     = process.env.JWT_SECRET     || "supersecretkey";
 const JWT_EXPIRES_IN = process.env.JWT_EXPIRES_IN || "7d";
 
+// ── Rate limiter ──────────────────────────────────────────────
 const _attempts = new Map();
+
 const authLimiter = (req, res, next) => {
   const ip  =
     req.headers["x-forwarded-for"]?.split(",")[0].trim() ??
@@ -16,12 +18,15 @@ const authLimiter = (req, res, next) => {
   const now = Date.now();
   const key = `auth:${ip}`;
   let   rec = _attempts.get(key);
+
   if (!rec || now - rec.time > 15 * 60_000) {
     rec = { count: 1, time: now };
   } else {
     rec.count++;
   }
+
   _attempts.set(key, rec);
+
   if (rec.count > 10) {
     return res.status(429).json({
       success:    false,
@@ -29,28 +34,29 @@ const authLimiter = (req, res, next) => {
       retryAfter: Math.ceil((15 * 60_000 - (now - rec.time)) / 1000),
     });
   }
+
   next();
 };
 
 // ════════════════════════════════════════════════════════════
 // POST /api/auth/register
-// ✅ Inserts into market.users (for vendor FK)
-// ✅ Also inserts into public.users (for marketplace)
+// Inserts into market.users ONLY
 // ════════════════════════════════════════════════════════════
 router.post("/register", authLimiter, async (req, res) => {
   const { name, email, phone, password } = req.body;
 
-  if (!name?.trim() || !email?.trim() || !password) {
-    return res.status(400).json({
-      success: false,
-      message: "Name, email and password are required",
-    });
+  if (!name?.trim()) {
+    return res.status(400).json({ success: false, message: "Name is required" });
   }
-
+  if (!email?.trim()) {
+    return res.status(400).json({ success: false, message: "Email is required" });
+  }
+  if (!password) {
+    return res.status(400).json({ success: false, message: "Password is required" });
+  }
   if (password.length < 8) {
     return res.status(400).json({
-      success: false,
-      message: "Password must be at least 8 characters",
+      success: false, message: "Password must be at least 8 characters",
     });
   }
 
@@ -66,30 +72,24 @@ router.post("/register", authLimiter, async (req, res) => {
   try {
     await client.query("BEGIN");
 
-    // ── Check duplicate in BOTH tables ────────────────────
-    const [{ rows: mkt }, { rows: pub }] = await Promise.all([
-      client.query(
-        `SELECT id FROM market.users WHERE email = $1`,
-        [email.toLowerCase().trim()]
-      ),
-      client.query(
-        `SELECT id FROM public.users WHERE email = $1`,
-        [email.toLowerCase().trim()]
-      ),
-    ]);
+    // ── Check duplicate in market.users ONLY ─────────────
+    const { rows: existing } = await client.query(
+      `SELECT id FROM market.users WHERE email = $1`,
+      [email.toLowerCase().trim()]
+    );
 
-    if (mkt.length || pub.length) {
+    if (existing.length) {
       await client.query("ROLLBACK");
       return res.status(409).json({
         success: false,
         code:    "EMAIL_TAKEN",
-        message: "An account with this email already exists",
+        message: "A seller account with this email already exists",
       });
     }
 
     const password_hash = await bcrypt.hash(password, 12);
 
-    // ── INSERT into market.users (primary — vendor FK) ────
+    // ── INSERT into market.users only ─────────────────────
     const { rows: [user] } = await client.query(
       `INSERT INTO market.users
          (name, email, password_hash, phone_number, status)
@@ -103,29 +103,9 @@ router.post("/register", authLimiter, async (req, res) => {
       ]
     );
 
-    // ── INSERT into public.users (same UUID) ──────────────
-    try {
-      await client.query(
-        `INSERT INTO public.users
-           (id, name, email, password_hash, phone_number, status)
-         VALUES ($1, $2, $3, $4, $5, 'active')
-         ON CONFLICT (id) DO NOTHING`,
-        [
-          user.id,
-          name.trim(),
-          email.toLowerCase().trim(),
-          password_hash,
-          phone?.trim() ?? null,
-        ]
-      );
-    } catch (pubErr) {
-      // Non-fatal — seller system uses market.users
-      console.warn("[register] public.users insert skipped:", pubErr.message);
-    }
-
     await client.query("COMMIT");
 
-    console.log("[register] ✅ user created:", user.id);
+    console.log("[register] ✅ market.users created:", user.id);
 
     const token = jwt.sign(
       { id: user.id, email: user.email },
@@ -135,7 +115,7 @@ router.post("/register", authLimiter, async (req, res) => {
 
     return res.status(201).json({
       success: true,
-      message: "Account created successfully!",
+      message: "Seller account created successfully!",
       token,
       user: {
         id:    user.id,
@@ -156,7 +136,7 @@ router.post("/register", authLimiter, async (req, res) => {
     if (err.code === "23505") {
       return res.status(409).json({
         success: false,
-        message: "An account with this email already exists",
+        message: "A seller account with this email already exists",
       });
     }
 
@@ -164,6 +144,7 @@ router.post("/register", authLimiter, async (req, res) => {
       success: false,
       message: "Registration failed. Please try again.",
     });
+
   } finally {
     client.release();
   }
@@ -171,6 +152,7 @@ router.post("/register", authLimiter, async (req, res) => {
 
 // ════════════════════════════════════════════════════════════
 // POST /api/auth/login
+// Checks market.users ONLY
 // ════════════════════════════════════════════════════════════
 router.post("/login", authLimiter, async (req, res) => {
   const { email, password } = req.body;
@@ -182,44 +164,36 @@ router.post("/login", authLimiter, async (req, res) => {
   }
 
   try {
-    // ── Check market.users first, then public.users ───────
-    let user = null;
-
-    const { rows: mktRows } = await pool.query(
+    // ── market.users ONLY ─────────────────────────────────
+    const { rows } = await pool.query(
       `SELECT id, name, email, password_hash, status
-       FROM market.users WHERE email = $1`,
+       FROM market.users
+       WHERE email = $1`,
       [email.toLowerCase().trim()]
     );
 
-    if (mktRows.length) {
-      user = mktRows[0];
-    } else {
-      const { rows: pubRows } = await pool.query(
-        `SELECT id, name, email, password_hash, status
-         FROM public.users WHERE email = $1`,
-        [email.toLowerCase().trim()]
-      );
-      if (pubRows.length) user = pubRows[0];
-    }
-
-    if (!user) {
+    if (!rows.length) {
       return res.status(401).json({
-        success: false, message: "Invalid email or password",
+        success: false,
+        message: "No seller account found with this email. Please create one.",
       });
     }
+
+    const user = rows[0];
 
     if (user.status !== "active") {
       return res.status(403).json({
         success: false,
         code:    "ACCOUNT_SUSPENDED",
-        message: "Your account has been suspended",
+        message: "Your seller account has been suspended",
       });
     }
 
     const valid = await bcrypt.compare(password, user.password_hash);
     if (!valid) {
       return res.status(401).json({
-        success: false, message: "Invalid email or password",
+        success: false,
+        message: "Invalid email or password",
       });
     }
 
@@ -229,13 +203,17 @@ router.post("/login", authLimiter, async (req, res) => {
       { expiresIn: JWT_EXPIRES_IN }
     );
 
-    console.log("[login] ✅ user:", user.id);
+    console.log("[login] ✅ market.users:", user.id);
 
     return res.json({
       success: true,
       message: "Login successful",
       token,
-      user: { id: user.id, name: user.name, email: user.email },
+      user: {
+        id:    user.id,
+        name:  user.name,
+        email: user.email,
+      },
     });
 
   } catch (err) {
@@ -248,6 +226,7 @@ router.post("/login", authLimiter, async (req, res) => {
 
 // ════════════════════════════════════════════════════════════
 // GET /api/auth/me
+// Returns user from market.users ONLY
 // ════════════════════════════════════════════════════════════
 router.get("/me", async (req, res) => {
   try {
@@ -261,31 +240,22 @@ router.get("/me", async (req, res) => {
     const token   = header.split(" ")[1];
     const decoded = jwt.verify(token, JWT_SECRET);
 
-    // Try market.users first
-    let user = null;
-    const { rows: mkt } = await pool.query(
+    // ── market.users ONLY ─────────────────────────────────
+    const { rows } = await pool.query(
       `SELECT id, name, email, phone_number, status, created_at
-       FROM market.users WHERE id = $1`,
+       FROM market.users
+       WHERE id = $1`,
       [decoded.id]
     );
-    if (mkt.length) {
-      user = mkt[0];
-    } else {
-      const { rows: pub } = await pool.query(
-        `SELECT id, name, email, phone_number, status, created_at
-         FROM public.users WHERE id = $1`,
-        [decoded.id]
-      );
-      if (pub.length) user = pub[0];
-    }
 
-    if (!user) {
+    if (!rows.length) {
       return res.status(404).json({
-        success: false, message: "User not found",
+        success: false,
+        message: "Seller account not found",
       });
     }
 
-    return res.json({ success: true, user });
+    return res.json({ success: true, user: rows[0] });
 
   } catch (err) {
     if (
@@ -296,7 +266,9 @@ router.get("/me", async (req, res) => {
         success: false, message: "Invalid or expired token",
       });
     }
-    return res.status(500).json({ success: false, message: "Server error" });
+    return res.status(500).json({
+      success: false, message: "Server error",
+    });
   }
 });
 
