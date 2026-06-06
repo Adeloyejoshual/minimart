@@ -1,16 +1,15 @@
-// src/pages/SellerDashboard.jsx
-import React, { useEffect, useState } from "react";
-import { Navigate }                   from "react-router-dom";
-import { useSellerDashboard }         from "../hooks/useSellerDashboard";
+// pages/SellerDashboard.jsx
+import React                        from "react";
+import { Navigate }                 from "react-router-dom";
+import { useSellerDashboard }       from "../hooks/useSellerDashboard";
 import {
   Sidebar,
   Overview,
   Orders,
+  Payouts,
   TopProducts,
   RevenueChart,
-  Payouts,
   Settings,
-  NotificationPanel,
   StatusBadge,
   DashboardSkeleton,
   DashboardError,
@@ -18,70 +17,33 @@ import {
 import "../style/SellerDashboard.css";
 
 const PAGE_TITLES = {
-  overview:      "Dashboard Overview",
-  orders:        "Orders",
-  products:      "Products",
-  analytics:     "Analytics",
-  payouts:       "Payouts",
-  settings:      "Store Settings",
-  notifications: "Notifications",
+  overview:  "Dashboard Overview",
+  orders:    "Orders",
+  products:  "Products",
+  analytics: "Analytics",
+  payouts:   "Payouts",
+  settings:  "Store Settings",
 };
 
 export default function SellerDashboard({ user }) {
   const dash = useSellerDashboard();
 
-  // ── Check seller token exists ──────────────────────────────
-  // Seller dashboard requires a token from market.users
-  // (registered via /api/auth/register — seller system)
-  // NOT the marketplace token (public.users / Gmail)
-  const sellerToken = localStorage.getItem("token");
+  if (!user) return <Navigate to="/auth" replace />;
 
-  // ── No token at all → go to become-seller (will show login)
-  if (!sellerToken) {
+  if (dash.vendor && !["active", "approved"].includes(dash.vendor?.status)) {
     return <Navigate to="/become-seller" replace />;
   }
 
-  // ── Loading ─────────────────────────────────────────────────
-  // Wait for vendor data before making redirect decisions
   if (dash.loading) {
-    return (
-      <div className="sd-layout">
-        <DashboardSkeleton />
-      </div>
-    );
+    return <div className="sd-layout"><DashboardSkeleton /></div>;
   }
 
-  // ── Error ───────────────────────────────────────────────────
   if (dash.error) {
-    // ✅ If error is NOT_SELLER_ACCOUNT → redirect to become-seller
-    if (
-      dash.errorCode === "NOT_SELLER_ACCOUNT" ||
-      dash.errorCode === "NO_VENDOR"
-    ) {
-      return <Navigate to="/become-seller" replace />;
-    }
-
-    return (
-      <div className="sd-layout">
-        <DashboardError error={dash.error} onRetry={dash.refetch} />
-      </div>
-    );
+    return <div className="sd-layout"><DashboardError error={dash.error} onRetry={dash.refetch} /></div>;
   }
 
-  // ── No vendor found → redirect to onboarding ───────────────
-  if (!dash.vendor) {
-    return <Navigate to="/become-seller" replace />;
-  }
-
-  // ── Vendor not active → redirect to onboarding ─────────────
-  if (!["active", "approved"].includes(dash.vendor.status)) {
-    return <Navigate to="/become-seller" replace />;
-  }
-
-  // ── Render ──────────────────────────────────────────────────
   return (
     <div className="sd-layout">
-
       <Sidebar
         vendor={dash.vendor}
         activeSection={dash.activeSection}
@@ -92,27 +54,15 @@ export default function SellerDashboard({ user }) {
       />
 
       <main className="sd-main">
-
-        {/* Top bar */}
         <header className="sd-topbar">
-          <button
-            className="sd-hamburger"
-            onClick={() => dash.setSidebarOpen(true)}
-          >
-            ☰
-          </button>
-
+          <button className="sd-hamburger" onClick={() => dash.setSidebarOpen(true)}>☰</button>
           <div className="sd-topbar-left">
             <h1 className="sd-page-title">
               {PAGE_TITLES[dash.activeSection] ?? "Dashboard"}
             </h1>
           </div>
-
           <div className="sd-topbar-right">
-            <button
-              className="sd-bell"
-              onClick={() => dash.setActiveSection("notifications")}
-            >
+            <button className="sd-bell" onClick={() => dash.setActiveSection("notifications")}>
               🔔
               {dash.unreadCount > 0 && (
                 <span className="sd-bell-badge">
@@ -120,7 +70,6 @@ export default function SellerDashboard({ user }) {
                 </span>
               )}
             </button>
-
             <div className="sd-user-pill">
               <span className="sd-user-name">
                 {dash.vendor?.store_name ?? user?.name ?? "Store"}
@@ -130,7 +79,6 @@ export default function SellerDashboard({ user }) {
           </div>
         </header>
 
-        {/* Content */}
         <div className="sd-content">
 
           {dash.activeSection === "overview" && (
@@ -165,13 +113,6 @@ export default function SellerDashboard({ user }) {
 
           {dash.activeSection === "settings" && (
             <Settings vendor={dash.vendor} />
-          )}
-
-          {dash.activeSection === "notifications" && (
-            <NotificationPanel
-              notifications={dash.notifications}
-              markNotifRead={dash.markNotifRead}
-            />
           )}
 
         </div>
