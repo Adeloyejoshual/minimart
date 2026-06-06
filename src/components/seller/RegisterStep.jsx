@@ -26,15 +26,31 @@ const getPasswordStrength = (password) => {
   return levels[Math.min(score, 5)];
 };
 
+// ── Map vendor status → correct step ─────────────────────────
+// ✅ Fixed: pending → VERIFICATION (not REVIEW)
+const STATUS_TO_STEP = {
+  pending:      STEPS.VERIFICATION,
+  under_review: STEPS.REVIEW,
+  approved:     STEPS.APPROVED,
+  active:       STEPS.APPROVED,
+  rejected:     STEPS.STORE_SETUP,
+  suspended:    STEPS.APPROVED,
+};
+
 // ─── Main Component ───────────────────────────────────────────
 const RegisterStep = ({ flow }) => {
-  // Toggle between register / sign-in views
   const [mode, setMode] = useState("register"); // "register" | "signin"
 
   return mode === "register" ? (
-    <RegisterForm flow={flow} onSwitchToSignIn={() => setMode("signin")} />
+    <RegisterForm
+      flow={flow}
+      onSwitchToSignIn={() => setMode("signin")}
+    />
   ) : (
-    <SignInForm flow={flow} onSwitchToRegister={() => setMode("register")} />
+    <SignInForm
+      flow={flow}
+      onSwitchToRegister={() => setMode("register")}
+    />
   );
 };
 
@@ -61,16 +77,15 @@ const RegisterForm = ({ flow, onSwitchToSignIn }) => {
   return (
     <div className="seller-card">
 
-      {/* ── Header ───────────────────────────────────────────── */}
+      {/* Header */}
       <div style={s.cardHeader}>
         <div style={s.headerIcon}>👤</div>
-        <h2 style={s.cardTitle}>Create Your Account</h2>
+        <h2 style={s.cardTitle}>Create Seller Account</h2>
         <p style={s.cardSubtitle}>
-          Join thousands of sellers already growing with us
+          Register with email and password to start selling
         </p>
       </div>
 
-      {/* ── Form ─────────────────────────────────────────────── */}
       <div style={s.form}>
 
         {/* Full Name */}
@@ -82,6 +97,7 @@ const RegisterForm = ({ flow, onSwitchToSignIn }) => {
             onChange={handleRegisterChange}
             placeholder="John Doe"
             autoComplete="name"
+            autoFocus
             className={`seller-input ${errors.name ? "error" : ""}`}
           />
         </Field>
@@ -105,14 +121,14 @@ const RegisterForm = ({ flow, onSwitchToSignIn }) => {
           icon="📱"
           required
           error={errors.phone}
-          hint="Include country code, e.g. +1 234 567 8900"
+          hint="Include country code, e.g. +234 800 000 0000"
         >
           <input
             name="phone"
             type="tel"
             value={registerData.phone}
             onChange={handleRegisterChange}
-            placeholder="+1 234 567 8900"
+            placeholder="+234 800 000 0000"
             autoComplete="tel"
             className={`seller-input ${errors.phone ? "error" : ""}`}
           />
@@ -131,15 +147,15 @@ const RegisterForm = ({ flow, onSwitchToSignIn }) => {
               className={`seller-input ${errors.password ? "error" : ""}`}
               style={{ paddingRight: "3rem" }}
             />
-            <EyeBtn show={showPassword} toggle={() => setShowPassword(!showPassword)} />
+            <EyeBtn
+              show={showPassword}
+              toggle={() => setShowPassword(!showPassword)}
+            />
           </div>
 
-          {/* Strength meter */}
           {registerData.password && (
             <StrengthMeter strength={strength} />
           )}
-
-          {/* Rules checklist */}
           {registerData.password && (
             <PasswordRules password={registerData.password} />
           )}
@@ -163,10 +179,12 @@ const RegisterForm = ({ flow, onSwitchToSignIn }) => {
               className={`seller-input ${errors.confirm_password ? "error" : ""}`}
               style={{ paddingRight: "3rem" }}
             />
-            <EyeBtn show={showConfirm} toggle={() => setShowConfirm(!showConfirm)} />
+            <EyeBtn
+              show={showConfirm}
+              toggle={() => setShowConfirm(!showConfirm)}
+            />
           </div>
 
-          {/* Match indicator */}
           {registerData.confirm_password && (
             <MatchIndicator
               a={registerData.password}
@@ -191,7 +209,7 @@ const RegisterForm = ({ flow, onSwitchToSignIn }) => {
 
         {/* Switch to sign in */}
         <p style={s.switchText}>
-          Already have an account?{" "}
+          Already have a seller account?{" "}
           <button
             type="button"
             style={s.switchBtn}
@@ -200,17 +218,6 @@ const RegisterForm = ({ flow, onSwitchToSignIn }) => {
             Sign in instead
           </button>
         </p>
-
-        <Divider />
-
-        {/* Skip */}
-        <button
-          type="button"
-          onClick={() => setStep(STEPS.STORE_SETUP)}
-          style={s.skipBtn}
-        >
-          Already registered? Skip to Store Setup →
-        </button>
 
       </div>
     </div>
@@ -223,7 +230,6 @@ const RegisterForm = ({ flow, onSwitchToSignIn }) => {
 const SignInForm = ({ flow, onSwitchToRegister }) => {
   const { setStep, setVendorData } = flow;
 
-  // Local state — sign in has its own fields, separate from registerData
   const [formData,     setFormData]     = useState({ email: "", password: "" });
   const [errors,       setErrors]       = useState({});
   const [loading,      setLoading]      = useState(false);
@@ -232,8 +238,8 @@ const SignInForm = ({ flow, onSwitchToRegister }) => {
 
   const handleChange = useCallback((e) => {
     const { name, value } = e.target;
-    setFormData((prev) => ({ ...prev, [name]: value }));
-    setErrors((prev)   => ({ ...prev, [name]: ""    }));
+    setFormData((p) => ({ ...p, [name]: value }));
+    setErrors((p)   => ({ ...p, [name]: ""    }));
     setServerMsg("");
   }, []);
 
@@ -262,17 +268,17 @@ const SignInForm = ({ flow, onSwitchToRegister }) => {
     setServerMsg("");
 
     try {
+      // ✅ Login via seller auth route (market.users only)
       const { data } = await axios.post("/api/auth/login", {
         email:    formData.email.trim(),
         password: formData.password,
       });
 
-      // ── Save token ────────────────────────────────────────
       if (data.token) {
         localStorage.setItem("token", data.token);
       }
 
-      // ── Check if vendor already exists ────────────────────
+      // ── Check existing vendor status ──────────────────────
       try {
         const { data: vendorRes } = await axios.get(
           "/api/seller-onboarding/status",
@@ -280,31 +286,28 @@ const SignInForm = ({ flow, onSwitchToRegister }) => {
         );
 
         if (vendorRes?.vendor) {
-          // Has vendor — map status → step
-          const STATUS_TO_STEP = {
-            pending:      STEPS.REVIEW,
-            under_review: STEPS.REVIEW,
-            approved:     STEPS.APPROVED,
-            active:       STEPS.APPROVED,
-            rejected:     STEPS.STORE_SETUP,
-            suspended:    STEPS.APPROVED,
-          };
-
           if (typeof setVendorData === "function") {
             setVendorData(vendorRes.vendor);
           }
 
-          const nextStep = STATUS_TO_STEP[vendorRes.vendor.status];
-          setStep(nextStep ?? STEPS.STORE_SETUP);
+          const nextStep =
+            STATUS_TO_STEP[vendorRes.vendor.status] ?? STEPS.STORE_SETUP;
+
+          setStep(nextStep);
         } else {
-          // Logged in but no vendor → store setup
           setStep(STEPS.STORE_SETUP);
         }
+
       } catch (vendorErr) {
-        // 404 = no vendor yet → go to store setup
-        if (vendorErr.response?.status === 404) {
-          setStep(STEPS.STORE_SETUP);
+        if (vendorErr.response?.status === 403) {
+          // This shouldn't happen since we use seller auth route
+          // but just in case — go to store setup
+          setServerMsg(
+            "This account cannot access the seller system. " +
+            "Please create a seller account."
+          );
         } else {
+          // 404 = no vendor yet
           setStep(STEPS.STORE_SETUP);
         }
       }
@@ -318,7 +321,6 @@ const SignInForm = ({ flow, onSwitchToRegister }) => {
     }
   };
 
-  // ── Handle Enter key ─────────────────────────────────────
   const handleKeyDown = (e) => {
     if (e.key === "Enter") handleSignIn();
   };
@@ -326,16 +328,15 @@ const SignInForm = ({ flow, onSwitchToRegister }) => {
   return (
     <div className="seller-card">
 
-      {/* ── Header ─────────────────────────────────────────── */}
+      {/* Header */}
       <div style={s.cardHeader}>
         <div style={s.headerIcon}>🔐</div>
         <h2 style={s.cardTitle}>Welcome Back</h2>
         <p style={s.cardSubtitle}>
-          Sign in to continue setting up your store
+          Sign in to your seller account to continue
         </p>
       </div>
 
-      {/* ── Form ─────────────────────────────────────────────── */}
       <div style={s.form}>
 
         {/* Email */}
@@ -362,14 +363,14 @@ const SignInForm = ({ flow, onSwitchToRegister }) => {
               value={formData.password}
               onChange={handleChange}
               onKeyDown={handleKeyDown}
-              placeholder="Your password"
+              placeholder="Your seller account password"
               autoComplete="current-password"
               className={`seller-input ${errors.password ? "error" : ""}`}
               style={{ paddingRight: "3rem" }}
             />
             <EyeBtn
               show={showPassword}
-              toggle={() => setShowPassword(!showPassword)}
+              toggle={() => setShowPassword((v) => !v)}
             />
           </div>
         </Field>
@@ -397,7 +398,7 @@ const SignInForm = ({ flow, onSwitchToRegister }) => {
 
         {/* Switch to register */}
         <p style={s.switchText}>
-          Don't have an account?{" "}
+          Don't have a seller account?{" "}
           <button
             type="button"
             style={s.switchBtn}
@@ -407,16 +408,13 @@ const SignInForm = ({ flow, onSwitchToRegister }) => {
           </button>
         </p>
 
-        <Divider />
-
-        {/* Skip */}
-        <button
-          type="button"
-          onClick={() => setStep(STEPS.STORE_SETUP)}
-          style={s.skipBtn}
-        >
-          Already registered? Skip to Store Setup →
-        </button>
+        {/* Important note */}
+        <div style={s.noteBox}>
+          <p style={s.noteText}>
+            🔒 <strong>Seller accounts are separate</strong> from your
+            marketplace account. Use your seller email and password here.
+          </p>
+        </div>
 
       </div>
     </div>
@@ -427,7 +425,6 @@ const SignInForm = ({ flow, onSwitchToRegister }) => {
 // SHARED SUB-COMPONENTS
 // ══════════════════════════════════════════════════════════════
 
-// ── Password Rules Checklist ──────────────────────────────────
 const RULES = [
   { test: (p) => p.length >= 8,           label: "At least 8 characters" },
   { test: (p) => /[A-Z]/.test(p),         label: "One uppercase letter"  },
@@ -453,7 +450,6 @@ const PasswordRules = ({ password }) => (
   </div>
 );
 
-// ── Strength Meter ────────────────────────────────────────────
 const StrengthMeter = ({ strength }) => (
   <div style={s.strengthWrap}>
     <div style={s.strengthBar}>
@@ -475,7 +471,6 @@ const StrengthMeter = ({ strength }) => (
   </div>
 );
 
-// ── Match Indicator ───────────────────────────────────────────
 const MatchIndicator = ({ a, b }) => (
   <span style={{
     fontSize:   "0.8rem",
@@ -486,7 +481,6 @@ const MatchIndicator = ({ a, b }) => (
   </span>
 );
 
-// ── Field Wrapper ─────────────────────────────────────────────
 const Field = ({ label, icon, required, error, hint, children }) => (
   <div className="seller-field">
     <label className="seller-label">
@@ -503,7 +497,6 @@ const Field = ({ label, icon, required, error, hint, children }) => (
   </div>
 );
 
-// ── Eye Button ────────────────────────────────────────────────
 const EyeBtn = ({ show, toggle }) => (
   <button
     type="button"
@@ -515,16 +508,15 @@ const EyeBtn = ({ show, toggle }) => (
   </button>
 );
 
-// ── Server Alert ──────────────────────────────────────────────
 const ServerAlert = ({ msg }) => {
   if (!msg) return null;
-
   const isError =
-    msg.toLowerCase().includes("fail") ||
-    msg.toLowerCase().includes("error") ||
+    msg.toLowerCase().includes("fail")    ||
+    msg.toLowerCase().includes("error")   ||
     msg.toLowerCase().includes("invalid") ||
     msg.toLowerCase().includes("incorrect") ||
-    msg.toLowerCase().includes("already");
+    msg.toLowerCase().includes("already") ||
+    msg.toLowerCase().includes("cannot");
 
   return (
     <div className={`seller-alert ${isError ? "error" : "success"}`}>
@@ -533,16 +525,6 @@ const ServerAlert = ({ msg }) => {
   );
 };
 
-// ── Divider ───────────────────────────────────────────────────
-const Divider = () => (
-  <div style={s.divider}>
-    <div style={s.dividerLine} />
-    <span style={s.dividerText}>or</span>
-    <div style={s.dividerLine} />
-  </div>
-);
-
-// ── Spinner ───────────────────────────────────────────────────
 const Spinner = () => (
   <span style={{
     width:        "18px",
@@ -572,7 +554,6 @@ const s = {
 
   form: { display: "flex", flexDirection: "column", gap: "1.25rem" },
 
-  // Password
   passwordWrap: { position: "relative" },
   eyeBtn: {
     position:   "absolute",
@@ -587,7 +568,6 @@ const s = {
     lineHeight: 1,
   },
 
-  // Strength
   strengthWrap: {
     display:    "flex",
     alignItems: "center",
@@ -603,7 +583,6 @@ const s = {
   },
   strengthLabel: { fontSize: "0.8rem", fontWeight: 700, whiteSpace: "nowrap" },
 
-  // Rules
   rulesWrap: {
     display:             "grid",
     gridTemplateColumns: "1fr 1fr",
@@ -615,25 +594,23 @@ const s = {
   },
   ruleRow: { display: "flex", alignItems: "center", gap: "0.4rem" },
 
-  // Switch between forms
   switchText: {
-    textAlign:  "center",
-    color:      "#6b7280",
-    fontSize:   "0.9rem",
-    margin:     "0.25rem 0",
+    textAlign: "center",
+    color:     "#6b7280",
+    fontSize:  "0.9rem",
+    margin:    "0.25rem 0",
   },
   switchBtn: {
-    background:  "none",
-    border:      "none",
-    color:       "#6366f1",
-    fontWeight:  700,
-    cursor:      "pointer",
-    fontSize:    "0.9rem",
-    padding:     0,
+    background:     "none",
+    border:         "none",
+    color:          "#6366f1",
+    fontWeight:     700,
+    cursor:         "pointer",
+    fontSize:       "0.9rem",
+    padding:        0,
     textDecoration: "underline",
   },
 
-  // Forgot
   forgotLink: {
     color:          "#6366f1",
     fontSize:       "0.85rem",
@@ -641,23 +618,20 @@ const s = {
     textDecoration: "none",
   },
 
-  // Divider
-  divider:     { display: "flex", alignItems: "center", gap: "1rem", margin: "0.25rem 0" },
-  dividerLine: { flex: 1, height: "1px", background: "#e5e7eb" },
-  dividerText: { color: "#9ca3af", fontSize: "0.85rem" },
-
-  // Skip
-  skipBtn: {
-    background:   "none",
-    border:       "2px dashed #e5e7eb",
-    borderRadius: "14px",
-    color:        "#9ca3af",
-    padding:      "0.875rem",
-    cursor:       "pointer",
-    fontSize:     "0.875rem",
-    fontWeight:   500,
-    width:        "100%",
-    transition:   "all 0.2s ease",
+  // ✅ Note box — replaces the "skip" button
+  // Seller step 0 (REGISTER) should NOT allow skipping
+  // without authentication
+  noteBox: {
+    background:   "#fffbeb",
+    border:       "1px solid #fde68a",
+    borderRadius: "12px",
+    padding:      "0.875rem 1rem",
+  },
+  noteText: {
+    color:      "#92400e",
+    fontSize:   "0.82rem",
+    lineHeight: 1.5,
+    margin:     0,
   },
 };
 
