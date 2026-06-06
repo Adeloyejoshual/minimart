@@ -4,7 +4,9 @@ import { pool } from "../server.js";
 
 const JWT_SECRET = process.env.JWT_SECRET || "supersecretkey";
 
-// ── Hard auth ─────────────────────────────────────────────────
+// ════════════════════════════════════════════════════════════
+// authenticate — checks market.users first, then public.users
+// ════════════════════════════════════════════════════════════
 export const authenticate = async (req, res, next) => {
   try {
     const authHeader = req.headers.authorization;
@@ -16,31 +18,34 @@ export const authenticate = async (req, res, next) => {
     const token   = authHeader.split(" ")[1];
     const decoded = jwt.verify(token, JWT_SECRET);
 
-    let user = null;
+    let user   = null;
+    let source = null;
 
-    // ── 1. Check market.users (seller accounts) ───────────
+    // ── 1. Check market.users first (seller accounts) ─────
     try {
       const { rows } = await pool.query(
-        `SELECT id, name, email, status
-         FROM market.users
-         WHERE id = $1`,
+        `SELECT id, name, email, status FROM market.users WHERE id = $1`,
         [decoded.id]
       );
-      if (rows.length) user = rows[0];
+      if (rows.length) {
+        user   = rows[0];
+        source = "market";
+      }
     } catch (e) {
       console.warn("[auth] market.users:", e.message);
     }
 
-    // ── 2. Fall back to public.users (marketplace buyers) ─
+    // ── 2. Fall back to public.users (marketplace buyers) ──
     if (!user) {
       try {
         const { rows } = await pool.query(
-          `SELECT id, name, email, status
-           FROM public.users
-           WHERE id = $1`,
+          `SELECT id, name, email, status FROM public.users WHERE id = $1`,
           [decoded.id]
         );
-        if (rows.length) user = rows[0];
+        if (rows.length) {
+          user   = rows[0];
+          source = "public";
+        }
       } catch (e) {
         console.warn("[auth] public.users:", e.message);
       }
@@ -54,7 +59,10 @@ export const authenticate = async (req, res, next) => {
       return res.status(403).json({ message: "Account suspended" });
     }
 
-    req.user = user;
+    // ✅ Attach user + source so routes can check origin
+    req.user       = user;
+    req.userSource = source; // "market" | "public"
+
     next();
 
   } catch (err) {
@@ -68,7 +76,6 @@ export const authenticate = async (req, res, next) => {
   }
 };
 
-// ── Soft auth — never blocks ──────────────────────────────────
 export const softAuth = async (req, _res, next) => {
   try {
     const authHeader = req.headers.authorization ?? "";
@@ -77,11 +84,9 @@ export const softAuth = async (req, _res, next) => {
       const decoded = jwt.verify(token, JWT_SECRET);
 
       let user = null;
-
       try {
         const { rows } = await pool.query(
-          `SELECT id, name, email, status
-           FROM market.users WHERE id = $1`,
+          `SELECT id, name, email, status FROM market.users WHERE id = $1`,
           [decoded.id]
         );
         if (rows.length) user = rows[0];
@@ -90,8 +95,7 @@ export const softAuth = async (req, _res, next) => {
       if (!user) {
         try {
           const { rows } = await pool.query(
-            `SELECT id, name, email, status
-             FROM public.users WHERE id = $1`,
+            `SELECT id, name, email, status FROM public.users WHERE id = $1`,
             [decoded.id]
           );
           if (rows.length) user = rows[0];
@@ -108,7 +112,6 @@ export const softAuth = async (req, _res, next) => {
   next();
 };
 
-// ── Admin guard ───────────────────────────────────────────────
 export const requireAdmin = (req, res, next) => {
   if (req.user?.role !== "admin") {
     return res.status(403).json({ message: "Admin access required" });
