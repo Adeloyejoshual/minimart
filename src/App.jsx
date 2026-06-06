@@ -12,14 +12,14 @@ import toast, { Toaster } from "react-hot-toast";
 import { useProductCache } from "./context/ProductCacheContext";
 
 // ── Pages — Public ────────────────────────────────────────────
-import Homepage        from "./pages/Homepage";
-import SearchPage      from "./pages/SearchPage";
-import ProductDetail   from "./pages/ProductDetail";
-import SellerProfile   from "./pages/SellerProfile";
+import Homepage           from "./pages/Homepage";
+import SearchPage         from "./pages/SearchPage";
+import ProductDetail      from "./pages/ProductDetail";
+import SellerProfile      from "./pages/SellerProfile";
 import TermsAndConditions from "./pages/TermsAndConditions";
-import MinimartPage    from "./pages/MinimartPage";
-import P2P             from "./pages/P2P";
-import MenuPage        from "./pages/MenuPage";
+import MinimartPage       from "./pages/MinimartPage";
+import P2P                from "./pages/P2P";
+import MenuPage           from "./pages/MenuPage";
 
 // ── Pages — Homepage Sub-pages ────────────────────────────────
 import NearbyPage      from "./pages/Homepage/NearbyPage";
@@ -28,36 +28,39 @@ import NewArrivalsPage from "./pages/Homepage/NewArrivalsPage";
 import TrendingPage    from "./pages/Homepage/TrendingPage";
 
 // ── Pages — Auth ──────────────────────────────────────────────
-import AuthPage        from "./pages/AuthPage";
+import AuthPage from "./pages/AuthPage";
 
 // ── Pages — Seller ────────────────────────────────────────────
 import BecomeSeller    from "./pages/BecomeSeller";
 import SellerDashboard from "./pages/SellerDashboard";
 
 // ── Pages — User Protected ────────────────────────────────────
-import Profile         from "./pages/Profile";
+import Profile           from "./pages/Profile";
 import NotificationsPage from "./pages/NotificationsPage";
-import SettingsPage    from "./pages/SettingsPage";
-import AddProduct      from "./pages/AddProduct";
-import Conversations   from "./pages/Conversations";
-import Chat            from "./pages/Chat";
-import Coupons         from "./pages/Profile/Coupons";
-import Dashboard       from "./pages/Profile/Dashboard";
-import Leaderboard     from "./pages/Profile/Leaderboard";
-import Verification    from "./pages/Profile/Verification";
-import Wallet          from "./pages/Profile/Wallet";
-import FAQ             from "./pages/FAQ";
-import Complain        from "./pages/Complain";
-import Support         from "./pages/Support";
-import Invitation      from "./pages/Invitation";
-import PostAds         from "./pages/PostAds";
-import PaymentSuccess  from "./pages/PaymentSuccess";
+import SettingsPage      from "./pages/SettingsPage";
+import AddProduct        from "./pages/AddProduct";
+import Conversations     from "./pages/Conversations";
+import Chat              from "./pages/Chat";
+import Coupons           from "./pages/Profile/Coupons";
+import Dashboard         from "./pages/Profile/Dashboard";
+import Leaderboard       from "./pages/Profile/Leaderboard";
+import Verification      from "./pages/Profile/Verification";
+import Wallet            from "./pages/Profile/Wallet";
+import FAQ               from "./pages/FAQ";
+import Complain          from "./pages/Complain";
+import Support           from "./pages/Support";
+import Invitation        from "./pages/Invitation";
+import PostAds           from "./pages/PostAds";
+import PaymentSuccess    from "./pages/PaymentSuccess";
 
 // ── Pages — Admin ─────────────────────────────────────────────
-import AdminLogin      from "./pages/admin/AdminLogin";
-import AdminDashboard  from "./page/admin/AdminDashboard";
+import AdminLogin     from "./pages/admin/AdminLogin";
+import AdminDashboard from "./pages/admin/AdminDashboard";
 
 // ─────────────────────────────────────────────────────────────
+
+const USERS_API = "https://minimart-ivrm.onrender.com/api/users";
+const AUTH_API  = "https://minimart-ivrm.onrender.com/api/auth";
 
 export default function App() {
   const [user,           setUser]           = useState(null);
@@ -68,15 +71,11 @@ export default function App() {
 
   const { resetCache } = useProductCache();
 
-  // ── API base URLs ───────────────────────────────────────────
-  const USERS_API = "https://minimart-ivrm.onrender.com/api/users";
-  const AUTH_API  = "https://minimart-ivrm.onrender.com/api/auth";
-
-  /* ═══════════════════════════════════════════════════════════
-     USER AUTH
-     Tries /api/users/me first  (existing marketplace users)
-     Falls back to /api/auth/me (seller-registered users)
-  ═══════════════════════════════════════════════════════════ */
+  // ══════════════════════════════════════════════════════════
+  // USER AUTH
+  // Tries /api/users/me first  (existing marketplace users)
+  // Falls back to /api/auth/me (seller-registered users)
+  // ══════════════════════════════════════════════════════════
   useEffect(() => {
     const token = localStorage.getItem("token");
 
@@ -94,16 +93,14 @@ export default function App() {
         setLoadingUser(false);
       })
       .catch((err) => {
-        // Existing route failed — try seller auth route
         if (
           err.response?.status === 401 ||
           err.response?.status === 404  ||
-          !err.response                 // network / timeout
+          !err.response
         ) {
           axios
             .get(`${AUTH_API}/me`, { headers, timeout: 8000 })
             .then((res) => {
-              // Normalise to match what your app expects
               setUser(res.data.user ?? res.data);
             })
             .catch(() => {
@@ -119,9 +116,9 @@ export default function App() {
       });
   }, []);
 
-  /* ═══════════════════════════════════════════════════════════
-     ADMIN AUTH
-  ═══════════════════════════════════════════════════════════ */
+  // ══════════════════════════════════════════════════════════
+  // ADMIN AUTH
+  // ══════════════════════════════════════════════════════════
   useEffect(() => {
     const token       = localStorage.getItem("admin_token");
     const storedAdmin = localStorage.getItem("admin");
@@ -141,20 +138,18 @@ export default function App() {
     }
   }, []);
 
-  /* ═══════════════════════════════════════════════════════════
-     SLOW SERVER TIMEOUT MESSAGE
-  ═══════════════════════════════════════════════════════════ */
+  // ══════════════════════════════════════════════════════════
+  // SLOW SERVER TIMEOUT
+  // ══════════════════════════════════════════════════════════
   useEffect(() => {
     const timer = setTimeout(() => setTimeoutReached(true), 5000);
     return () => clearTimeout(timer);
   }, []);
 
-  /* ═══════════════════════════════════════════════════════════
-     LOADING SCREEN
-  ═══════════════════════════════════════════════════════════ */
-  const isAppLoading = loadingUser || loadingAdmin;
-
-  if (isAppLoading) {
+  // ══════════════════════════════════════════════════════════
+  // LOADING SCREEN
+  // ══════════════════════════════════════════════════════════
+  if (loadingUser || loadingAdmin) {
     return (
       <div className="global-loader">
         <div className="logo">Minimart</div>
@@ -168,9 +163,23 @@ export default function App() {
     );
   }
 
-  /* ═══════════════════════════════════════════════════════════
-     ROUTE GUARDS
-  ═══════════════════════════════════════════════════════════ */
+  // ══════════════════════════════════════════════════════════
+  // AUTH SUCCESS HANDLER
+  // ══════════════════════════════════════════════════════════
+  const handleAuthSuccess = (userData, token, navigateFn, from) => {
+    localStorage.setItem("token", token);
+    resetCache();
+    localStorage.removeItem("lastLocation");
+    localStorage.removeItem("active_location");
+    localStorage.removeItem("cacheTime");
+    setUser(userData);
+    toast.success(`Welcome back, ${userData.name}`);
+    navigateFn(from || "/", { replace: true });
+  };
+
+  // ══════════════════════════════════════════════════════════
+  // ROUTE GUARDS — defined inside Router so useLocation works
+  // ══════════════════════════════════════════════════════════
   const ProtectedRoute = ({ children }) => {
     const location = useLocation();
     if (!user) {
@@ -190,29 +199,9 @@ export default function App() {
     return children;
   };
 
-  /* ═══════════════════════════════════════════════════════════
-     AUTH SUCCESS HANDLER
-     Called by AuthPage after successful login
-  ═══════════════════════════════════════════════════════════ */
-  const handleAuthSuccess = (userData, token, navigateFn, from) => {
-    localStorage.setItem("token", token);
-
-    // Wipe stale cache from previous session
-    resetCache();
-    localStorage.removeItem("lastLocation");
-    localStorage.removeItem("active_location");
-    localStorage.removeItem("cacheTime");
-
-    setUser(userData);
-    toast.success(`Welcome back, ${userData.name}`);
-
-    // Navigate to where they came from, or home
-    navigateFn(from || "/", { replace: true });
-  };
-
-  /* ═══════════════════════════════════════════════════════════
-     RENDER
-  ═══════════════════════════════════════════════════════════ */
+  // ══════════════════════════════════════════════════════════
+  // RENDER
+  // ══════════════════════════════════════════════════════════
   return (
     <Router>
       <Toaster
@@ -227,30 +216,30 @@ export default function App() {
 
       <Routes>
 
-        {/* ══════════════════════════════════════════════════
-            PUBLIC ROUTES
-        ══════════════════════════════════════════════════ */}
+        {/* ════════════════════════════════════════════════
+            PUBLIC
+        ════════════════════════════════════════════════ */}
         <Route
           path="/"
           element={<Homepage key={user?.id || "guest"} user={user} />}
         />
-        <Route path="/search"         element={<SearchPage user={user} />} />
-        <Route path="/product/:slug"  element={<ProductDetail user={user} />} />
-        <Route path="/seller/:id"     element={<SellerProfile user={user} />} />
-        <Route path="/terms"          element={<TermsAndConditions />} />
-        <Route path="/minimart"       element={<MinimartPage user={user} />} />
-        <Route path="/p2p"            element={<P2P user={user} />} />
-        <Route path="/menu"           element={<MenuPage />} />
+        <Route path="/search"        element={<SearchPage      user={user} />} />
+        <Route path="/product/:slug" element={<ProductDetail   user={user} />} />
+        <Route path="/seller/:id"    element={<SellerProfile   user={user} />} />
+        <Route path="/terms"         element={<TermsAndConditions />} />
+        <Route path="/minimart"      element={<MinimartPage    user={user} />} />
+        <Route path="/p2p"           element={<P2P             user={user} />} />
+        <Route path="/menu"          element={<MenuPage />} />
 
-        {/* ── Homepage sub-pages ──────────────────────────── */}
+        {/* Homepage sub-pages */}
         <Route path="/nearby"   element={<NearbyPage      user={user} />} />
         <Route path="/deals"    element={<DealsPage       user={user} />} />
         <Route path="/latest"   element={<NewArrivalsPage user={user} />} />
         <Route path="/trending" element={<TrendingPage    user={user} />} />
 
-        {/* ══════════════════════════════════════════════════
+        {/* ════════════════════════════════════════════════
             AUTH
-        ══════════════════════════════════════════════════ */}
+        ════════════════════════════════════════════════ */}
         <Route
           path="/auth"
           element={
@@ -260,31 +249,41 @@ export default function App() {
           }
         />
 
-        {/* ══════════════════════════════════════════════════
+        {/* ════════════════════════════════════════════════
             SELLER ONBOARDING
-            ✅ NOT inside ProtectedRoute —
-               step 0 IS the register/login screen
-               user prop lets hook skip to store setup
-               if already logged in
-        ══════════════════════════════════════════════════ */}
+            ✅ Public — handles its own auth (Register is step 0)
+            ✅ If user already logged in → passed as prop
+            ✅ If vendor active/approved → redirects to dashboard
+        ════════════════════════════════════════════════ */}
         <Route
           path="/become-seller"
-          element={<BecomeSeller user={user} />}
-        />
-
-        {/* ── Seller dashboard — requires auth ────────────── */}
-        <Route
-          path="/seller/dashboard"
           element={
-            <ProtectedRoute>
-              <SellerDashboard user={user} />
-            </ProtectedRoute>
+            // ✅ If logged in user already has active vendor → skip to dashboard
+            // This is handled inside BecomeSeller via Navigate
+            <BecomeSeller user={user} />
           }
         />
 
-        {/* ══════════════════════════════════════════════════
+        {/* ════════════════════════════════════════════════
+            SELLER DASHBOARD
+            Requires login — redirects to /auth if not logged in
+        ════════════════════════════════════════════════ */}
+        <Route
+          path="/seller/dashboard"
+          element={
+            // ✅ If not logged in → go to /auth
+            // ✅ If logged in but not a seller → go to /become-seller
+            !user ? (
+              <Navigate to="/auth" replace />
+            ) : (
+              <SellerDashboard user={user} />
+            )
+          }
+        />
+
+        {/* ════════════════════════════════════════════════
             USER PROTECTED ROUTES
-        ══════════════════════════════════════════════════ */}
+        ════════════════════════════════════════════════ */}
         <Route
           path="/profile"
           element={
@@ -413,14 +412,11 @@ export default function App() {
             </ProtectedRoute>
           }
         />
-        <Route
-          path="/payment/success"
-          element={<PaymentSuccess />}
-        />
+        <Route path="/payment/success" element={<PaymentSuccess />} />
 
-        {/* ══════════════════════════════════════════════════
+        {/* ════════════════════════════════════════════════
             ADMIN ROUTES
-        ══════════════════════════════════════════════════ */}
+        ════════════════════════════════════════════════ */}
         <Route
           path="/admin"
           element={
@@ -442,9 +438,9 @@ export default function App() {
           }
         />
 
-        {/* ══════════════════════════════════════════════════
+        {/* ════════════════════════════════════════════════
             FALLBACK
-        ══════════════════════════════════════════════════ */}
+        ════════════════════════════════════════════════ */}
         <Route path="*" element={<Navigate to="/" replace />} />
 
       </Routes>
