@@ -1,14 +1,14 @@
 // pages/BecomeSeller.jsx
 import React from "react";
-import { useSellerFlow, STEPS } from "../hooks/useSellerFlow";
-import RegisterStep     from "../components/seller/RegisterStep";
-import StoreSetup       from "../components/seller/StoreSetup";
-import VerificationStep from "../components/seller/VerificationStep";
+import { Navigate }              from "react-router-dom";
+import { useSellerFlow, STEPS }  from "../hooks/useSellerFlow";
+import { formatNGN }             from "../components/seller/DashboardComponents";
+import RegisterStep              from "../components/seller/RegisterStep";
+import StoreSetup                from "../components/seller/StoreSetup";
+import VerificationStep          from "../components/seller/VerificationStep";
 import "../style/Seller.css";
 
-// ─────────────────────────────────────────────────────────────
-// All 5 steps shown in progress bar — REGISTER(0) is now first
-// ─────────────────────────────────────────────────────────────
+// ─── Progress config ──────────────────────────────────────────
 const PROGRESS_STEPS = [
   { key: STEPS.REGISTER,     label: "Register",     icon: "👤" },
   { key: STEPS.STORE_SETUP,  label: "Store Setup",  icon: "🏪" },
@@ -58,38 +58,50 @@ const ProgressBar = ({ currentStep }) => (
 
 // ─── Mount Loader ─────────────────────────────────────────────
 const MountLoader = () => (
-  <div style={s.loaderWrap}>
-    <div style={s.spinner} />
-    <p style={s.loaderText}>Loading your seller profile...</p>
+  <div style={st.loaderWrap}>
+    <div style={st.spinner} />
+    <p style={st.loaderText}>Loading your seller profile...</p>
   </div>
 );
 
-// ─── Main Page ────────────────────────────────────────────────
-const BecomeSeller = () => {
-  const flow = useSellerFlow();
+// ═════════════════════════════════════════════════════════════
+// MAIN PAGE
+// ═════════════════════════════════════════════════════════════
+const BecomeSeller = ({ user }) => {
+  const flow = useSellerFlow(user);
 
+  // ── Show loader while checking status ───────────────────
   if (flow.initializing) return <MountLoader />;
+
+  // ── If vendor is already active/approved → go to dashboard
+  if (
+    flow.vendorData &&
+    ["active", "approved"].includes(flow.vendorData.status)
+  ) {
+    return <Navigate to="/seller/dashboard" replace />;
+  }
+
+  // ── If not logged in (no token) → show register step ────
+  // useSellerFlow already sets step = REGISTER if no token
 
   return (
     <div className="seller-wrapper">
 
-      {/* ── Header ─────────────────────────────────────────── */}
-      <div style={s.header}>
-        <h1 style={s.title}>Become a Seller</h1>
-        <p style={s.subtitle}>
+      {/* ── Header ───────────────────────────────────────── */}
+      <div style={st.header}>
+        <h1 style={st.title}>Become a Seller</h1>
+        <p style={st.subtitle}>
           Set up your store and start selling to millions of users
         </p>
-
-        {/* Step counter badge */}
-        <div style={s.stepBadge}>
+        <div style={st.stepBadge}>
           Step {flow.step + 1} of {PROGRESS_STEPS.length}
         </div>
       </div>
 
-      {/* ── Progress Bar ─────────────────────────────────────── */}
+      {/* ── Progress Bar ─────────────────────────────────── */}
       <ProgressBar currentStep={flow.step} />
 
-      {/* ── Step Screens ───────────────────────────────────── */}
+      {/* ── Step Screens ─────────────────────────────────── */}
 
       {flow.step === STEPS.REGISTER && (
         <RegisterStep flow={flow} />
@@ -115,25 +127,27 @@ const BecomeSeller = () => {
   );
 };
 
-// ─── Review Screen ────────────────────────────────────────────
+// ═════════════════════════════════════════════════════════════
+// REVIEW SCREEN
+// ═════════════════════════════════════════════════════════════
 const ReviewScreen = ({ vendor }) => {
   const status = vendor?.status ?? "pending";
 
   const steps = [
-    { icon: "📋", text: "Account created",         done: true                                    },
-    { icon: "🏪", text: "Store setup complete",    done: true                                    },
-    { icon: "🔍", text: "Documents under review",  done: status !== "pending"                    },
-    { icon: "✅", text: "Store activation",         done: ["approved","active"].includes(status)  },
-    { icon: "🚀", text: "Start selling",            done: status === "active"                     },
+    { icon: "📋", text: "Account created",        done: true },
+    { icon: "🏪", text: "Store setup complete",   done: true },
+    { icon: "🔍", text: "Documents under review", done: status !== "pending" },
+    { icon: "✅", text: "Store activation",        done: ["approved","active"].includes(status) },
+    { icon: "🚀", text: "Start selling",           done: status === "active" },
   ];
 
   return (
     <div className="seller-card review-screen">
       <div className="review-icon">⏳</div>
 
-      <h2 style={s.reviewTitle}>Application Under Review</h2>
+      <h2 style={st.reviewTitle}>Application Under Review</h2>
 
-      <p style={s.reviewDesc}>
+      <p style={st.reviewDesc}>
         Our team is reviewing your application. This usually takes{" "}
         <strong>1–3 business days</strong>.
       </p>
@@ -149,27 +163,39 @@ const ReviewScreen = ({ vendor }) => {
               {item.text}
             </span>
             {item.done && (
-              <span style={{ marginLeft: "auto", color: "#10b981" }}>✓</span>
+              <span style={{ marginLeft: "auto", color: "#10b981" }}>
+                ✓
+              </span>
             )}
           </div>
         ))}
       </div>
 
       {status === "rejected" && vendor?.rejection_reason && (
-        <div style={s.rejectionBox}>
+        <div style={st.rejectionBox}>
           <strong>Rejection reason: </strong>
           {vendor.rejection_reason}
         </div>
       )}
 
-      <p style={s.emailNote}>
+      <p style={st.emailNote}>
         📧 We'll notify you by email once your store is reviewed.
       </p>
+
+      {/* Back to home */}
+      <a
+        href="/"
+        style={st.homeLink}
+      >
+        ← Back to Marketplace
+      </a>
     </div>
   );
 };
 
-// ─── Approved Screen ──────────────────────────────────────────
+// ═════════════════════════════════════════════════════════════
+// APPROVED SCREEN
+// ═════════════════════════════════════════════════════════════
 const ApprovedScreen = ({ vendor }) => (
   <div className="seller-card review-screen">
     <div className="review-icon">🎉</div>
@@ -181,40 +207,55 @@ const ApprovedScreen = ({ vendor }) => (
     </h2>
 
     <p style={{ color: "#6b7280", marginTop: "0.75rem", lineHeight: 1.6 }}>
-      Your store is fully active. Start adding products and make your first sale!
+      Your store is fully active. Start adding products and make your
+      first sale!
     </p>
 
     {vendor && (
-      <div style={s.statsRow}>
-        <StatPill icon="📦" label="Products" value={vendor.products_count ?? 0}          />
-        <StatPill icon="💰" label="Revenue"  value={`$${vendor.total_revenue ?? "0.00"}`}/>
-        <StatPill icon="⭐" label="Rating"   value={vendor.rating ?? "—"}                />
+      <div style={st.statsRow}>
+        <StatPill
+          icon="📦"
+          label="Products"
+          value={vendor.products_count ?? 0}
+        />
+        <StatPill
+          icon="💰"
+          label="Revenue"
+          value={formatNGN(vendor.total_revenue)}
+        />
+        <StatPill
+          icon="⭐"
+          label="Rating"
+          value={vendor.rating ?? "—"}
+        />
       </div>
     )}
 
     <a
       href="/seller/dashboard"
       className="btn-seller-primary"
-      style={s.dashLink}
+      style={st.dashLink}
     >
       🚀 Go to Seller Dashboard
     </a>
   </div>
 );
 
-// ─── Stat Pill ────────────────────────────────────────────────
+// ── Stat Pill ─────────────────────────────────────────────────
 const StatPill = ({ icon, label, value }) => (
-  <div style={s.statPill}>
+  <div style={st.statPill}>
     <span style={{ fontSize: "1.5rem" }}>{icon}</span>
-    <span style={s.statValue}>{value}</span>
-    <span style={s.statLabel}>{label}</span>
+    <span style={st.statValue}>{value}</span>
+    <span style={st.statLabel}>{label}</span>
   </div>
 );
 
-// ─── Styles ───────────────────────────────────────────────────
-const s = {
+// ═════════════════════════════════════════════════════════════
+// STYLES
+// ═════════════════════════════════════════════════════════════
+const st = {
   // Header
-  header:   { textAlign: "center", marginBottom: "2rem" },
+  header: { textAlign: "center", marginBottom: "2rem" },
   title: {
     fontSize:             "2rem",
     fontWeight:           800,
@@ -255,9 +296,21 @@ const s = {
   loaderText: { color: "#9ca3af", fontWeight: 500 },
 
   // Review screen
-  reviewTitle:  { fontSize: "1.75rem", fontWeight: 800, color: "#1f2937" },
-  reviewDesc:   { color: "#6b7280", marginTop: "0.75rem", lineHeight: 1.6 },
-  emailNote:    { color: "#9ca3af", fontSize: "0.875rem", marginTop: "1.5rem" },
+  reviewTitle: {
+    fontSize:   "1.75rem",
+    fontWeight: 800,
+    color:      "#1f2937",
+  },
+  reviewDesc: {
+    color:      "#6b7280",
+    marginTop:  "0.75rem",
+    lineHeight: 1.6,
+  },
+  emailNote: {
+    color:      "#9ca3af",
+    fontSize:   "0.875rem",
+    marginTop:  "1.5rem",
+  },
   rejectionBox: {
     background:   "#fef2f2",
     border:       "1px solid #fecaca",
@@ -267,6 +320,14 @@ const s = {
     fontSize:     "0.875rem",
     margin:       "1rem 0",
     textAlign:    "left",
+  },
+  homeLink: {
+    display:        "inline-block",
+    marginTop:      "1.5rem",
+    color:          "#6b7280",
+    fontSize:       "0.9rem",
+    textDecoration: "none",
+    fontWeight:     500,
   },
 
   // Approved screen
@@ -278,19 +339,27 @@ const s = {
     flexWrap:       "wrap",
   },
   statPill: {
-    display:       "flex",
-    flexDirection: "column",
-    alignItems:    "center",
-    gap:           "0.25rem",
-    padding:       "1rem 1.5rem",
-    background:    "#f8fafc",
-    borderRadius:  "16px",
-    border:        "1px solid #e5e7eb",
-    minWidth:      "90px",
+    display:        "flex",
+    flexDirection:  "column",
+    alignItems:     "center",
+    gap:            "0.25rem",
+    padding:        "1rem 1.5rem",
+    background:     "#f8fafc",
+    borderRadius:   "16px",
+    border:         "1px solid #e5e7eb",
+    minWidth:       "90px",
   },
-  statValue: { fontSize: "1.25rem", fontWeight: 800, color: "#1f2937" },
-  statLabel: { fontSize: "0.75rem", color: "#9ca3af", fontWeight: 500 },
-  dashLink:  {
+  statValue: {
+    fontSize:   "1.25rem",
+    fontWeight: 800,
+    color:      "#1f2937",
+  },
+  statLabel: {
+    fontSize:   "0.75rem",
+    color:      "#9ca3af",
+    fontWeight: 500,
+  },
+  dashLink: {
     marginTop:      "2rem",
     textDecoration: "none",
     display:        "inline-flex",
