@@ -1,3 +1,4 @@
+// server.js
 import express           from "express";
 import cors              from "cors";
 import path              from "path";
@@ -21,7 +22,7 @@ const PORT   = process.env.PORT || 5000;
 const server = http.createServer(app);
 
 /* ═══════════════════════════════════════════════════════════════
-   DATABASE — CockroachDB via pg Pool
+   DATABASE
 ═══════════════════════════════════════════════════════════════ */
 export const pool = new Pool({
   connectionString        : process.env.COCKROACH_URI,
@@ -52,7 +53,7 @@ const ALLOWED_ORIGIN = process.env.CLIENT_ORIGIN || "*";
 export const io = initSocket(server, ALLOWED_ORIGIN);
 
 /* ═══════════════════════════════════════════════════════════════
-   IN-MEMORY CACHE (TTL-based)
+   IN-MEMORY CACHE
 ═══════════════════════════════════════════════════════════════ */
 const _cache    = new Map();
 const CACHE_TTL = 60_000;
@@ -134,22 +135,21 @@ app.use(
 
 /* ═══════════════════════════════════════════════════════════════
    WEBHOOKS
-   Raw body MUST be parsed BEFORE express.json() is mounted.
+   ⚠️  Must be registered BEFORE express.json()
+   ⚠️  Uses express.raw() to get the raw body buffer
 ═══════════════════════════════════════════════════════════════ */
 import paymentRouter, { webhookRouter } from "./routes/payment.js";
 import flwWebhookRouter                 from "./routes/webhooks/flutterwave.js";
 
-// Paystack — raw body for HMAC verification
+// ── Paystack webhook ──────────────────────────────────────────
 app.use(
   "/api/payment/webhook",
   express.raw({ type: "application/json" }),
   webhookRouter
 );
 
-// Flutterwave transfer webhook
-// 1. Read raw buffer for HMAC verification
-// 2. Parse to JSON object so the router can read req.body
-// 3. Router handles the event (NO express.json() inside)
+// ── Flutterwave webhook ───────────────────────────────────────
+// Raw → parse → route
 app.use(
   "/api/webhooks/flutterwave",
   express.raw({ type: "application/json" }),
@@ -161,8 +161,48 @@ app.use(
   flwWebhookRouter
 );
 
+// ── TEMPORARY: Raw payload capture ───────────────────────────
+// Point this URL at Flutterwave dashboard temporarily to see
+// the exact payload structure. Remove after debugging.
+app.post(
+  "/api/webhooks/flw-capture",
+  express.raw({ type: "*/*" }),
+  async (req, res) => {
+    const raw  = req.body?.toString?.() ?? "";
+    const body = (() => {
+      try { return JSON.parse(raw); } catch { return { raw }; }
+    })();
+
+    // Log full payload to Render logs
+    console.log("═══ FLW PAYLOAD CAPTURE ═══");
+    console.log("Time:    ", new Date().toISOString());
+    console.log("Headers: ", JSON.stringify(req.headers, null, 2));
+    console.log("Body:    ", JSON.stringify(body, null, 2));
+    console.log("═══════════════════════════");
+
+    // Try to save to DB (optional)
+    try {
+      await pool.query(
+        `INSERT INTO market.webhook_logs
+           (source, event, payload, headers, created_at)
+         VALUES ('flutterwave_capture', $1, $2, $3, NOW())`,
+        [
+          body?.event ?? "unknown",
+          JSON.stringify(body),
+          JSON.stringify(req.headers),
+        ]
+      );
+    } catch {
+      // Table might not exist — payload is still in Render logs
+    }
+
+    res.status(200).json({ captured: true, event: body?.event });
+  }
+);
+
 /* ═══════════════════════════════════════════════════════════════
    BODY PARSERS
+   ⚠️  Must come AFTER webhook routes
 ═══════════════════════════════════════════════════════════════ */
 app.use(express.json({       limit: "10mb" }));
 app.use(express.urlencoded({ extended: true, limit: "10mb" }));
@@ -172,13 +212,15 @@ app.use(express.urlencoded({ extended: true, limit: "10mb" }));
 ═══════════════════════════════════════════════════════════════ */
 if (process.env.NODE_ENV !== "test") {
   app.use((req, _res, next) => {
-    console.log(`${new Date().toISOString()} | ${req.method} ${req.originalUrl}`);
+    console.log(
+      `${new Date().toISOString()} | ${req.method} ${req.originalUrl}`
+    );
     next();
   });
 }
 
 /* ═══════════════════════════════════════════════════════════════
-   IN-MEMORY RATE LIMITER (per-IP)
+   RATE LIMITER
 ═══════════════════════════════════════════════════════════════ */
 const _limiter   = new Map();
 const WINDOW_MS  = 60_000;
@@ -254,8 +296,8 @@ import marketProductsRouter   from "./routes/marketproducts.js";
 import authRouter             from "./routes/sellerAuth.routes.js";
 import sellerOnboardingRouter from "./routes/sellerOnboarding.routes.js";
 import sellerPayoutRoutes     from "./routes/seller/payout.js";
-import sellerDashboardRouter from "./routes/seller/dashboard.js";
-import sellerSettingsRouter from "./routes/seller/settings.js";
+import sellerDashboardRouter  from "./routes/seller/dashboard.js";
+import sellerSettingsRouter   from "./routes/seller/settings.js";
 
 // ── Payment ──────────────────────────────────────────────────
 app.use("/api/payment",           paymentRouter);
@@ -265,7 +307,9 @@ app.use("/api/seller",            sellerProfileRouter);
 app.use("/api/auth",              authRouter);
 app.use("/api/seller-onboarding", sellerOnboardingRouter);
 app.use("/api/seller/payout",     sellerPayoutRoutes);
-app.use("/api/seller/settings", sellerSettingsRouter);
+app.use("/api/seller/settings",   sellerSettingsRouter);
+app.use("/api/seller-dashboard",  sellerDashboardRouter);
+
 // ── Products ─────────────────────────────────────────────────
 app.use("/api/addproduct",        addproductRouter);
 app.use("/api/market-products",   marketProductsRouter);
@@ -291,7 +335,6 @@ app.use("/api/notifications",     notificationsRouter);
 app.use("/api/v1/wallets",        walletRoutes);
 app.use("/api/p2p",               p2pRouter);
 app.use("/api/verification",      verificationRouter);
-app.use("/api/seller-dashboard", sellerDashboardRouter);
 
 /* ═══════════════════════════════════════════════════════════════
    HEALTH CHECK
@@ -303,15 +346,19 @@ app.get("/api/health", async (_req, res) => {
     const dbLatencyMs = Date.now() - t0;
 
     return res.json({
-      success       : true,
-      status        : "healthy",
-      database      : rows[0]?.ok === 1,
-      db_latency_ms : dbLatencyMs,
-      uptime_s      : Math.floor(process.uptime()),
-      memory_mb     : Math.round(process.memoryUsage().rss / 1024 / 1024),
-      online_users  : getOnlineCount(),
-      node_version  : process.version,
-      env           : process.env.NODE_ENV || "development",
+      success          : true,
+      status           : "healthy",
+      database         : rows[0]?.ok === 1,
+      db_latency_ms    : dbLatencyMs,
+      uptime_s         : Math.floor(process.uptime()),
+      memory_mb        : Math.round(process.memoryUsage().rss / 1024 / 1024),
+      online_users     : getOnlineCount(),
+      node_version     : process.version,
+      env              : process.env.NODE_ENV || "development",
+      flw_key_set      : !!process.env.FLW_SECRET_KEY,
+      flw_hash_set     : !!process.env.FLW_SECRET_HASH,
+      flw_key_prefix   : process.env.FLW_SECRET_KEY?.slice(0, 12) + "…",
+      webhook_url      : "https://minimart-ivrm.onrender.com/api/webhooks/flutterwave",
     });
   } catch (err) {
     return res.status(500).json({
@@ -323,7 +370,7 @@ app.get("/api/health", async (_req, res) => {
 });
 
 /* ═══════════════════════════════════════════════════════════════
-   STATIC BUILD (production SPA)
+   STATIC BUILD
 ═══════════════════════════════════════════════════════════════ */
 if (process.env.NODE_ENV === "production") {
   const distPath = path.join(__dirname, "dist");
@@ -356,7 +403,6 @@ app.use((req, res) =>
 app.use((err, req, res, _next) => {
   console.error("🔥 Unhandled error:", err.message || err);
 
-  // Multer / file errors
   if (err.code === "LIMIT_FILE_SIZE")
     return res.status(400).json({ success: false, message: "File too large (max 10 MB)" });
   if (err.code === "LIMIT_FILE_COUNT")
@@ -365,12 +411,8 @@ app.use((err, req, res, _next) => {
     return res.status(400).json({ success: false, message: "Unexpected file field" });
   if (err.message === "Only image files are allowed")
     return res.status(400).json({ success: false, message: err.message });
-
-  // CORS
   if (err.message?.startsWith("CORS blocked"))
     return res.status(403).json({ success: false, message: err.message });
-
-  // CockroachDB constraint errors
   if (err.code === "23505")
     return res.status(409).json({ success: false, message: "Duplicate entry" });
   if (err.code === "23503")
@@ -392,7 +434,6 @@ app.use((err, req, res, _next) => {
 ═══════════════════════════════════════════════════════════════ */
 async function shutdown(signal) {
   console.log(`\n${signal} received — shutting down…`);
-
   server.close(async () => {
     console.log("HTTP server closed");
     try {
@@ -403,7 +444,6 @@ async function shutdown(signal) {
     }
     process.exit(0);
   });
-
   setTimeout(() => {
     console.error("Forced exit after timeout");
     process.exit(1);
@@ -418,8 +458,10 @@ process.on("SIGINT",  () => shutdown("SIGINT"));
 ═══════════════════════════════════════════════════════════════ */
 server.listen(PORT, () => {
   console.log(`🚀 Server running on port ${PORT}`);
-  console.log(`   ENV  : ${process.env.NODE_ENV || "development"}`);
-  console.log(`   CORS : ${ALLOWED_ORIGIN}`);
+  console.log(`   ENV     : ${process.env.NODE_ENV || "development"}`);
+  console.log(`   CORS    : ${ALLOWED_ORIGIN}`);
+  console.log(`   FLW KEY : ${process.env.FLW_SECRET_KEY ? "✅ set" : "❌ MISSING"}`);
+  console.log(`   FLW HASH: ${process.env.FLW_SECRET_HASH ? "✅ set" : "❌ MISSING"}`);
 
   startChatCleanupJob();
   startCleanupJobs();
