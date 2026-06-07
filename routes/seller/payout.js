@@ -1,3 +1,4 @@
+// routes/seller/payout.js
 import express      from "express";
 import { pool }     from "../../server.js";
 import authenticate from "../../middleware/auth.js";
@@ -23,18 +24,88 @@ const MAX_WITHDRAWAL = parseFloat(process.env.MAX_WITHDRAWAL         || "5000000
 const DAILY_LIMIT    = parseFloat(process.env.DAILY_WITHDRAWAL_LIMIT || "1000000");
 const CHECK_THROTTLE = 2 * 60 * 1000;
 
-// ═══════════════════════════════════════════════════════════════════════════════
+// ─────────────────────────────────────────────────────────────
+// SELLER ACCOUNT GUARD
+// ─────────────────────────────────────────────────────────────
+const requireSellerAccount = async (req, res, next) => {
+  try {
+    const { rows } = await pool.query(
+      `SELECT id, name, email, status FROM market.users WHERE id = $1`,
+      [req.user.id]
+    );
+
+    if (!rows.length) {
+      return res.status(403).json({
+        success: false,
+        code:    "NOT_SELLER_ACCOUNT",
+        message: "Seller account required",
+      });
+    }
+
+    if (rows[0].status !== "active") {
+      return res.status(403).json({
+        success: false,
+        message: "Your seller account has been suspended",
+      });
+    }
+
+    req.sellerUser = rows[0];
+    next();
+  } catch (err) {
+    console.error("[requireSellerAccount]", err.message);
+    return res.status(500).json({ success: false, message: "Auth error" });
+  }
+};
+
+// ─────────────────────────────────────────────────────────────
+// VENDOR GUARD — sets req.vendor
+// ─────────────────────────────────────────────────────────────
+const requireVendor = async (req, res, next) => {
+  try {
+    const { rows } = await pool.query(
+      `SELECT id, status, store_name,
+              bank_name, bank_code, bank_account, account_name
+       FROM market.vendors
+       WHERE user_id = $1`,
+      [req.user.id]
+    );
+
+    if (!rows.length) {
+      return res.status(404).json({
+        success: false,
+        code:    "NO_VENDOR",
+        message: "No vendor account found",
+      });
+    }
+
+    if (!["active", "approved"].includes(rows[0].status)) {
+      return res.status(403).json({
+        success: false,
+        message: `Vendor not active. Current: "${rows[0].status}"`,
+      });
+    }
+
+    req.vendor = rows[0];
+    next();
+  } catch (err) {
+    console.error("[requireVendor]", err.message);
+    return res.status(500).json({ success: false, message: "Server error" });
+  }
+};
+
+const guard = [authenticate, requireSellerAccount, requireVendor];
+
+// ════════════════════════════════════════════════════════════
 // GET /api/seller/payout/banks
-// ═══════════════════════════════════════════════════════════════════════════════
-router.get("/banks", authenticate, (_req, res) => {
+// ════════════════════════════════════════════════════════════
+router.get("/banks", authenticate, requireSellerAccount, (_req, res) => {
   return res.json({ success: true, banks: getSupportedBanks() });
 });
 
-// ═══════════════════════════════════════════════════════════════════════════════
+// ════════════════════════════════════════════════════════════
 // POST /api/seller/payout/resolve-account
-// Auto-resolve account name — called with debounced 10-digit input
-// ═══════════════════════════════════════════════════════════════════════════════
-router.post("/resolve-account", authenticate, async (req, res) => {
+// ════════════════════════════════════════════════════════════
+router.post("/resolve-account", authenticate, requireSellerAccount, async (req, res) => {
   const { account_number, bank_name } = req.body;
 
   if (!bank_name?.trim()) {
@@ -74,11 +145,10 @@ router.post("/resolve-account", authenticate, async (req, res) => {
   }
 });
 
-// ═══════════════════════════════════════════════════════════════════════════════
+// ════════════════════════════════════════════════════════════
 // POST /api/seller/payout/verify-account
-// Full verification before saving bank details
-// ═══════════════════════════════════════════════════════════════════════════════
-router.post("/verify-account", authenticate, async (req, res) => {
+// ════════════════════════════════════════════════════════════
+router.post("/verify-account", authenticate, requireSellerAccount, async (req, res) => {
   const { account_number, bank_name } = req.body;
   if (!account_number?.trim() || !bank_name?.trim()) {
     return res.status(400).json({ success: false, message: "account_number and bank_name are required" });
@@ -88,12 +158,12 @@ router.post("/verify-account", authenticate, async (req, res) => {
   return res.json({ success: true, ...result });
 });
 
-// ═══════════════════════════════════════════════════════════════════════════════
+// ════════════════════════════════════════════════════════════
 // GET /api/seller/payout/info
-// ═══════════════════════════════════════════════════════════════════════════════
-router.get("/info", authenticate, async (req, res) => {
+// ════════════════════════════════════════════════════════════
+router.get("/info", ...guard, async (req, res) => {
   try {
-    const vendorId = req.vendor.id;
+    const vendorId = req.vendor.id; // ✅ set by requireVendor
 
     const { rows: [data] } = await pool.query(
       `SELECT
@@ -166,12 +236,12 @@ router.get("/info", authenticate, async (req, res) => {
   }
 });
 
-// ═══════════════════════════════════════════════════════════════════════════════
+// ════════════════════════════════════════════════════════════
 // GET /api/seller/payout/history
-// ═══════════════════════════════════════════════════════════════════════════════
-router.get("/history", authenticate, async (req, res) => {
+// ════════════════════════════════════════════════════════════
+router.get("/history", ...guard, async (req, res) => {
   try {
-    const vendorId = req.vendor.id;
+    const vendorId = req.vendor.id; // ✅
     const { page = 1, limit = 20, status } = req.query;
 
     const safeLimit  = Math.min(Math.max(parseInt(limit) || 20, 1), 100);
@@ -235,11 +305,11 @@ router.get("/history", authenticate, async (req, res) => {
   }
 });
 
-// ═══════════════════════════════════════════════════════════════════════════════
+// ════════════════════════════════════════════════════════════
 // POST /api/seller/payout/withdraw
-// ═══════════════════════════════════════════════════════════════════════════════
-router.post("/withdraw", authenticate, async (req, res) => {
-  const vendorId = req.vendor.id;
+// ════════════════════════════════════════════════════════════
+router.post("/withdraw", ...guard, async (req, res) => {
+  const vendorId = req.vendor.id; // ✅
   const { amount, idempotency_key } = req.body;
 
   if (!amount || isNaN(amount)) {
@@ -259,7 +329,6 @@ router.post("/withdraw", authenticate, async (req, res) => {
   try {
     await client.query("BEGIN");
 
-    // ── idempotency ──────────────────────────────────────────────────────
     if (idempotency_key) {
       const { rows: [dupe] } = await client.query(
         `SELECT * FROM market.vendor_withdrawal_requests WHERE idempotency_key = $1`,
@@ -271,7 +340,6 @@ router.post("/withdraw", authenticate, async (req, res) => {
       }
     }
 
-    // ── lock wallet ──────────────────────────────────────────────────────
     const { rows: [wallet] } = await client.query(
       `SELECT w.*, v.bank_name, v.bank_code,
               v.bank_account AS account_number, v.account_name
@@ -296,7 +364,6 @@ router.post("/withdraw", authenticate, async (req, res) => {
       return res.status(400).json({ success: false, message: `Insufficient balance. Available: ₦${Number(wallet.available_balance).toLocaleString()}` });
     }
 
-    // ── fees + daily stats ───────────────────────────────────────────────
     const { fee, netAmount, withdrawalsToday, dailyUsed, freeRemaining } =
       await calculateWithdrawalFees(client, vendorId, parsedAmount);
 
@@ -308,7 +375,6 @@ router.post("/withdraw", authenticate, async (req, res) => {
       });
     }
 
-    // ── one active withdrawal at a time ──────────────────────────────────
     const { rows: [{ count: activeCount }] } = await client.query(
       `SELECT COUNT(*) FROM market.vendor_withdrawal_requests
        WHERE vendor_id = $1 AND status IN ('pending','processing')`,
@@ -323,7 +389,6 @@ router.post("/withdraw", authenticate, async (req, res) => {
     const txRef = generateTxRef();
     const iKey  = idempotency_key ?? txRef;
 
-    // ── deduct available → pending ───────────────────────────────────────
     await client.query(
       `UPDATE market.vendor_wallets
        SET available_balance = available_balance - $1,
@@ -333,7 +398,6 @@ router.post("/withdraw", authenticate, async (req, res) => {
       [parsedAmount, vendorId]
     );
 
-    // ── withdrawal record ────────────────────────────────────────────────
     const { rows: [withdrawal] } = await client.query(
       `INSERT INTO market.vendor_withdrawal_requests
          (vendor_id, wallet_id, amount, fee, net_amount,
@@ -349,7 +413,6 @@ router.post("/withdraw", authenticate, async (req, res) => {
       ]
     );
 
-    // ── transaction record ───────────────────────────────────────────────
     await client.query(
       `INSERT INTO market.vendor_transactions
          (vendor_id, type, amount, fee, currency, status, narration, tx_ref)
@@ -359,7 +422,6 @@ router.post("/withdraw", authenticate, async (req, res) => {
 
     await client.query("COMMIT");
 
-    // ── Flutterwave (outside TX) ─────────────────────────────────────────
     try {
       const flwResult = await initiateTransfer({
         vendorId, amount: parsedAmount, fee, netAmount,
@@ -429,16 +491,15 @@ router.post("/withdraw", authenticate, async (req, res) => {
   }
 });
 
-// ═══════════════════════════════════════════════════════════════════════════════
+// ════════════════════════════════════════════════════════════
 // GET /api/seller/payout/withdrawal/:id
-// Polling — never touches wallet balances (webhook is source of truth)
-// ═══════════════════════════════════════════════════════════════════════════════
-router.get("/withdrawal/:id", authenticate, async (req, res) => {
+// ════════════════════════════════════════════════════════════
+router.get("/withdrawal/:id", ...guard, async (req, res) => {
   try {
     const { rows: [withdrawal] } = await pool.query(
       `SELECT * FROM market.vendor_withdrawal_requests
        WHERE id = $1 AND vendor_id = $2`,
-      [req.params.id, req.vendor.id]
+      [req.params.id, req.vendor.id] // ✅
     );
 
     if (!withdrawal) {
@@ -495,10 +556,10 @@ router.get("/withdrawal/:id", authenticate, async (req, res) => {
   }
 });
 
-// ═══════════════════════════════════════════════════════════════════════════════
+// ════════════════════════════════════════════════════════════
 // POST /api/seller/payout/withdrawal/:id/cancel
-// ═══════════════════════════════════════════════════════════════════════════════
-router.post("/withdrawal/:id/cancel", authenticate, async (req, res) => {
+// ════════════════════════════════════════════════════════════
+router.post("/withdrawal/:id/cancel", ...guard, async (req, res) => {
   const client = await pool.connect();
   try {
     await client.query("BEGIN");
@@ -506,7 +567,7 @@ router.post("/withdrawal/:id/cancel", authenticate, async (req, res) => {
     const { rows: [withdrawal] } = await client.query(
       `SELECT * FROM market.vendor_withdrawal_requests
        WHERE id=$1 AND vendor_id=$2 FOR UPDATE`,
-      [req.params.id, req.vendor.id]
+      [req.params.id, req.vendor.id] // ✅
     );
 
     if (!withdrawal) {
@@ -533,7 +594,7 @@ router.post("/withdrawal/:id/cancel", authenticate, async (req, res) => {
        SET available_balance=available_balance+$1,
            pending_balance=pending_balance-$1, updated_at=NOW()
        WHERE vendor_id=$2`,
-      [withdrawal.amount, req.vendor.id]
+      [withdrawal.amount, req.vendor.id] // ✅
     );
     await client.query(
       `UPDATE market.vendor_transactions
