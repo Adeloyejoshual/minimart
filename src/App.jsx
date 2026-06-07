@@ -59,8 +59,8 @@ import AdminDashboard from "./page/admin/AdminDashboard";
 
 // ─────────────────────────────────────────────────────────────
 
+// ── API base URLs ─────────────────────────────────────────────
 const USERS_API = "https://minimart-ivrm.onrender.com/api/users";
-const AUTH_API  = "https://minimart-ivrm.onrender.com/api/auth";
 
 export default function App() {
   const [user,           setUser]           = useState(null);
@@ -72,48 +72,33 @@ export default function App() {
   const { resetCache } = useProductCache();
 
   // ══════════════════════════════════════════════════════════
-  // USER AUTH
-  // Tries /api/users/me first  (existing marketplace users)
-  // Falls back to /api/auth/me (seller-registered users)
+  // USER AUTH — public.users ONLY (marketplace users)
+  // Seller accounts (market.users) are handled separately
+  // in BecomeSeller / SellerDashboard via their own token
   // ══════════════════════════════════════════════════════════
   useEffect(() => {
-    const token = localStorage.getItem("token");
+    // ✅ Read marketplace token — separate from seller token
+    const token = localStorage.getItem("marketplace_token");
 
     if (!token) {
       setLoadingUser(false);
       return;
     }
 
-    const headers = { Authorization: `Bearer ${token}` };
-
     axios
-      .get(`${USERS_API}/me`, { headers, timeout: 8000 })
+      .get(`${USERS_API}/me`, {
+        headers: { Authorization: `Bearer ${token}` },
+        timeout: 8000,
+      })
       .then((res) => {
         setUser(res.data);
-        setLoadingUser(false);
       })
-      .catch((err) => {
-        if (
-          err.response?.status === 401 ||
-          err.response?.status === 404  ||
-          !err.response
-        ) {
-          axios
-            .get(`${AUTH_API}/me`, { headers, timeout: 8000 })
-            .then((res) => {
-              setUser(res.data.user ?? res.data);
-            })
-            .catch(() => {
-              localStorage.removeItem("token");
-              setUser(null);
-            })
-            .finally(() => setLoadingUser(false));
-        } else {
-          localStorage.removeItem("token");
-          setUser(null);
-          setLoadingUser(false);
-        }
-      });
+      .catch(() => {
+        // Token invalid → clear and show logged-out state
+        localStorage.removeItem("marketplace_token");
+        setUser(null);
+      })
+      .finally(() => setLoadingUser(false));
   }, []);
 
   // ══════════════════════════════════════════════════════════
@@ -139,7 +124,7 @@ export default function App() {
   }, []);
 
   // ══════════════════════════════════════════════════════════
-  // SLOW SERVER TIMEOUT
+  // SLOW SERVER TIMEOUT MESSAGE
   // ══════════════════════════════════════════════════════════
   useEffect(() => {
     const timer = setTimeout(() => setTimeoutReached(true), 5000);
@@ -165,20 +150,25 @@ export default function App() {
 
   // ══════════════════════════════════════════════════════════
   // AUTH SUCCESS HANDLER
+  // Called by AuthPage after successful marketplace login
+  // ✅ Saves as "marketplace_token" — never touches seller token
   // ══════════════════════════════════════════════════════════
   const handleAuthSuccess = (userData, token, navigateFn, from) => {
-    localStorage.setItem("token", token);
+    // Save marketplace token separately
+    localStorage.setItem("marketplace_token", token);
+
     resetCache();
     localStorage.removeItem("lastLocation");
     localStorage.removeItem("active_location");
     localStorage.removeItem("cacheTime");
+
     setUser(userData);
     toast.success(`Welcome back, ${userData.name}`);
     navigateFn(from || "/", { replace: true });
   };
 
   // ══════════════════════════════════════════════════════════
-  // ROUTE GUARDS — defined inside Router so useLocation works
+  // ROUTE GUARDS
   // ══════════════════════════════════════════════════════════
   const ProtectedRoute = ({ children }) => {
     const location = useLocation();
@@ -238,7 +228,7 @@ export default function App() {
         <Route path="/trending" element={<TrendingPage    user={user} />} />
 
         {/* ════════════════════════════════════════════════
-            AUTH
+            AUTH (marketplace login)
         ════════════════════════════════════════════════ */}
         <Route
           path="/auth"
@@ -251,167 +241,76 @@ export default function App() {
 
         {/* ════════════════════════════════════════════════
             SELLER ONBOARDING
-            ✅ Public — handles its own auth (Register is step 0)
-            ✅ If user already logged in → passed as prop
-            ✅ If vendor active/approved → redirects to dashboard
+            ✅ Public — manages its own seller auth
+            ✅ Uses "seller_token" from market.users
+            ✅ Never reads marketplace_token
         ════════════════════════════════════════════════ */}
         <Route
           path="/become-seller"
-          element={
-            // ✅ If logged in user already has active vendor → skip to dashboard
-            // This is handled inside BecomeSeller via Navigate
-            <BecomeSeller user={user} />
-          }
+          element={<BecomeSeller user={user} />}
         />
 
         {/* ════════════════════════════════════════════════
             SELLER DASHBOARD
-            Requires login — redirects to /auth if not logged in
+            ✅ Uses seller_token (market.users)
+            ✅ Independent from marketplace auth
         ════════════════════════════════════════════════ */}
         <Route
           path="/seller/dashboard"
-          element={
-            // ✅ If not logged in → go to /auth
-            // ✅ If logged in but not a seller → go to /become-seller
-            !user ? (
-              <Navigate to="/auth" replace />
-            ) : (
-              <SellerDashboard user={user} />
-            )
-          }
+          element={<SellerDashboard user={user} />}
         />
 
         {/* ════════════════════════════════════════════════
-            USER PROTECTED ROUTES
+            USER PROTECTED ROUTES (marketplace)
         ════════════════════════════════════════════════ */}
-        <Route
-          path="/profile"
-          element={
-            <ProtectedRoute>
-              <Profile user={user} />
-            </ProtectedRoute>
-          }
-        />
-        <Route
-          path="/notifications"
-          element={
-            <ProtectedRoute>
-              <NotificationsPage user={user} />
-            </ProtectedRoute>
-          }
-        />
-        <Route
-          path="/settings"
-          element={
-            <ProtectedRoute>
-              <SettingsPage user={user} />
-            </ProtectedRoute>
-          }
-        />
-        <Route
-          path="/minimart/add"
-          element={
-            <ProtectedRoute>
-              <AddProduct user={user} />
-            </ProtectedRoute>
-          }
-        />
-        <Route
-          path="/conversations"
-          element={
-            <ProtectedRoute>
-              <Conversations user={user} />
-            </ProtectedRoute>
-          }
-        />
-        <Route
-          path="/chat/:threadId"
-          element={
-            <ProtectedRoute>
-              <Chat user={user} />
-            </ProtectedRoute>
-          }
-        />
-        <Route
-          path="/coupons"
-          element={
-            <ProtectedRoute>
-              <Coupons user={user} />
-            </ProtectedRoute>
-          }
-        />
-        <Route
-          path="/dashboard"
-          element={
-            <ProtectedRoute>
-              <Dashboard user={user} />
-            </ProtectedRoute>
-          }
-        />
-        <Route
-          path="/leaderboard"
-          element={
-            <ProtectedRoute>
-              <Leaderboard user={user} />
-            </ProtectedRoute>
-          }
-        />
-        <Route
-          path="/verification"
-          element={
-            <ProtectedRoute>
-              <Verification user={user} />
-            </ProtectedRoute>
-          }
-        />
-        <Route
-          path="/wallet"
-          element={
-            <ProtectedRoute>
-              <Wallet user={user} />
-            </ProtectedRoute>
-          }
-        />
-        <Route
-          path="/faq"
-          element={
-            <ProtectedRoute>
-              <FAQ user={user} />
-            </ProtectedRoute>
-          }
-        />
-        <Route
-          path="/complain"
-          element={
-            <ProtectedRoute>
-              <Complain user={user} />
-            </ProtectedRoute>
-          }
-        />
-        <Route
-          path="/support"
-          element={
-            <ProtectedRoute>
-              <Support user={user} />
-            </ProtectedRoute>
-          }
-        />
-        <Route
-          path="/invitation"
-          element={
-            <ProtectedRoute>
-              <Invitation user={user} />
-            </ProtectedRoute>
-          }
-        />
-        <Route
-          path="/minimart/post-ad"
-          element={
-            <ProtectedRoute>
-              <PostAds user={user} />
-            </ProtectedRoute>
-          }
-        />
+        <Route path="/profile" element={
+          <ProtectedRoute><Profile user={user} /></ProtectedRoute>
+        } />
+        <Route path="/notifications" element={
+          <ProtectedRoute><NotificationsPage user={user} /></ProtectedRoute>
+        } />
+        <Route path="/settings" element={
+          <ProtectedRoute><SettingsPage user={user} /></ProtectedRoute>
+        } />
+        <Route path="/minimart/add" element={
+          <ProtectedRoute><AddProduct user={user} /></ProtectedRoute>
+        } />
+        <Route path="/conversations" element={
+          <ProtectedRoute><Conversations user={user} /></ProtectedRoute>
+        } />
+        <Route path="/chat/:threadId" element={
+          <ProtectedRoute><Chat user={user} /></ProtectedRoute>
+        } />
+        <Route path="/coupons" element={
+          <ProtectedRoute><Coupons user={user} /></ProtectedRoute>
+        } />
+        <Route path="/dashboard" element={
+          <ProtectedRoute><Dashboard user={user} /></ProtectedRoute>
+        } />
+        <Route path="/leaderboard" element={
+          <ProtectedRoute><Leaderboard user={user} /></ProtectedRoute>
+        } />
+        <Route path="/verification" element={
+          <ProtectedRoute><Verification user={user} /></ProtectedRoute>
+        } />
+        <Route path="/wallet" element={
+          <ProtectedRoute><Wallet user={user} /></ProtectedRoute>
+        } />
+        <Route path="/faq" element={
+          <ProtectedRoute><FAQ user={user} /></ProtectedRoute>
+        } />
+        <Route path="/complain" element={
+          <ProtectedRoute><Complain user={user} /></ProtectedRoute>
+        } />
+        <Route path="/support" element={
+          <ProtectedRoute><Support user={user} /></ProtectedRoute>
+        } />
+        <Route path="/invitation" element={
+          <ProtectedRoute><Invitation user={user} /></ProtectedRoute>
+        } />
+        <Route path="/minimart/post-ad" element={
+          <ProtectedRoute><PostAds user={user} /></ProtectedRoute>
+        } />
         <Route path="/payment/success" element={<PaymentSuccess />} />
 
         {/* ════════════════════════════════════════════════
@@ -425,12 +324,10 @@ export default function App() {
               : <Navigate to="/admin/login"     replace />
           }
         />
-        <Route
-          path="/admin/login"
+        <Route path="/admin/login"
           element={<AdminLogin setAdmin={setAdmin} />}
         />
-        <Route
-          path="/admin/dashboard"
+        <Route path="/admin/dashboard"
           element={
             <AdminProtectedRoute>
               <AdminDashboard />
