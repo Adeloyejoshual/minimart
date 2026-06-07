@@ -1,10 +1,16 @@
 // components/seller/StoreSetup.jsx
 import React, { useState, useEffect, useCallback, useRef } from "react";
-import { STORE_CATEGORIES } from "../../hooks/useSellerFlow";
-import axios                from "axios";
+import { STORE_CATEGORIES, SELLER_TOKEN_KEY } from "../../hooks/useSellerFlow";
+import axios from "axios";
 
-// ─── Nigerian Commercial Banks Only ───────────────────────────
-// Removed: Opay, Palmpay, Kuda, Moniepoint, 9PSB, Rubies MFB
+// ─────────────────────────────────────────────────────────────
+// TOKEN HELPER — must match useSellerFlow + SellerDashboard
+// ─────────────────────────────────────────────────────────────
+const getToken = () => localStorage.getItem(SELLER_TOKEN_KEY);
+
+// ─────────────────────────────────────────────────────────────
+// NIGERIAN COMMERCIAL BANKS — fallback if API fails
+// ─────────────────────────────────────────────────────────────
 const FALLBACK_BANKS = [
   { code: "044", name: "Access Bank"              },
   { code: "023", name: "Citibank"                 },
@@ -29,6 +35,13 @@ const FALLBACK_BANKS = [
   { code: "057", name: "Zenith Bank"              },
 ];
 
+const MFB_KEYWORDS = [
+  "microfinance", "mfb", "mfbank",
+  "opay", "palmpay", "kuda", "moniepoint",
+  "9psb", "rubies", "fairmoney", "carbon",
+  "piggyvest", "eyowo", "sparkle",
+];
+
 // ═════════════════════════════════════════════════════════════
 export default function StoreSetup({ flow }) {
   const {
@@ -36,13 +49,14 @@ export default function StoreSetup({ flow }) {
     errors,
     loading,
     serverMsg,
+    serverErr,
     previewLogo,
     handleStoreChange,
     submitStore,
   } = flow;
 
-  const [banks,        setBanks]        = useState(FALLBACK_BANKS);
-  const [banksLoading, setBanksLoading] = useState(true);
+  const [banks,         setBanks]         = useState(FALLBACK_BANKS);
+  const [banksLoading,  setBanksLoading]  = useState(true);
   const [selectedBank,  setSelectedBank]  = useState(null);
   const [accountNumber, setAccountNumber] = useState("");
   const [accountName,   setAccountName]   = useState("");
@@ -51,44 +65,45 @@ export default function StoreSetup({ flow }) {
   const [bankSearch,    setBankSearch]    = useState("");
   const [showBankList,  setShowBankList]  = useState(false);
 
-  const bankRef   = useRef(null);
-  const verifyRef = useRef(null);
+  const bankRef    = useRef(null);
+  const activeRef  = useRef(true); // prevent state update on unmounted
 
-  // ── Load banks from API — filter out MFBs ─────────────────
+  // ── Restore existing bank data on mount (e.g. after refresh)
+  useEffect(() => {
+    if (storeData.bank_name && storeData.bank_account) {
+      const found = FALLBACK_BANKS.find(
+        (b) => b.name === storeData.bank_name
+          || b.code === storeData.bank_code
+      );
+      if (found) setSelectedBank(found);
+      setAccountNumber(storeData.bank_account);
+      if (storeData.account_name) setAccountName(storeData.account_name);
+    }
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // ── Cleanup on unmount ──────────────────────────────────
+  useEffect(() => {
+    return () => { activeRef.current = false; };
+  }, []);
+
+  // ── Load banks from API ─────────────────────────────────
   useEffect(() => {
     const fetchBanks = async () => {
       try {
-        const token    = localStorage.getItem("token");
         const { data } = await axios.get(
           "/api/seller-onboarding/banks",
-          { headers: { Authorization: `Bearer ${token}` } }
+          { headers: { Authorization: `Bearer ${getToken()}` } }
         );
 
         if (data.success && data.banks?.length) {
-          // ── Filter: keep only commercial banks (nuban type)
-          // Remove MFBs, mobile money, fintech wallets
-          const MFB_KEYWORDS = [
-            "microfinance", "mfb", "mfBank",
-            "opay", "palmpay", "kuda", "moniepoint",
-            "9psb", "rubies", "fairmoney", "carbon",
-            "piggyvest", "eyowo", "sparkle",
-          ];
-
-          const commercialOnly = data.banks.filter((b) => {
-            const nameLower = b.name.toLowerCase();
-            return !MFB_KEYWORDS.some((keyword) =>
-              nameLower.includes(keyword)
-            );
+          const filtered = data.banks.filter((b) => {
+            const n = b.name.toLowerCase();
+            return !MFB_KEYWORDS.some((kw) => n.includes(kw));
           });
-
-          setBanks(
-            commercialOnly.length > 0
-              ? commercialOnly
-              : FALLBACK_BANKS
-          );
+          setBanks(filtered.length > 0 ? filtered : FALLBACK_BANKS);
         }
       } catch {
-        // Keep fallback list
+        // Keep fallback — silently ignore
       } finally {
         setBanksLoading(false);
       }
@@ -96,7 +111,7 @@ export default function StoreSetup({ flow }) {
     fetchBanks();
   }, []);
 
-  // ── Close dropdown on outside click ──────────────────────
+  // ── Close bank dropdown on outside click ────────────────
   useEffect(() => {
     const handler = (e) => {
       if (bankRef.current && !bankRef.current.contains(e.target)) {
@@ -107,82 +122,90 @@ export default function StoreSetup({ flow }) {
     return () => document.removeEventListener("mousedown", handler);
   }, []);
 
-  // ── Auto-verify when 10 digits + bank selected ────────────
+  // ── Auto-verify when 10 digits + bank selected ──────────
   useEffect(() => {
     if (accountNumber.length === 10 && selectedBank) {
       verifyAccount(accountNumber, selectedBank.code);
     }
-    if (accountNumber.length < 10 && accountName) {
+    if (accountNumber.length < 10) {
       setAccountName("");
       setVerifyError("");
-      handleStoreChange({ target: { name: "account_name", value: "" } });
+      // Clear from flow state too
+      handleStoreChange({
+        target: { name: "account_name", value: "" }
+      });
     }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [accountNumber, selectedBank]);
 
-  // ── Verify account ────────────────────────────────────────
+  // ── Verify account number ───────────────────────────────
   const verifyAccount = useCallback(async (number, code) => {
-    if (verifyRef.current) verifyRef.current = false;
-    verifyRef.current = true;
-
     setVerifying(true);
     setVerifyError("");
     setAccountName("");
 
     try {
-      const token    = localStorage.getItem("token");
+      // ✅ FIXED: use getToken() → "seller_token"
       const { data } = await axios.get(
         "/api/seller-onboarding/verify-account",
         {
           params:  { account_number: number, bank_code: code },
-          headers: { Authorization: `Bearer ${token}` },
+          headers: { Authorization: `Bearer ${getToken()}` },
+          timeout: 12_000,
         }
       );
 
-      if (!verifyRef.current) return;
+      if (!activeRef.current) return;
 
       if (data.success && data.account_name) {
         const name = data.account_name;
         setAccountName(name);
-        handleStoreChange({ target: { name: "bank_account",      value: number             } });
-        handleStoreChange({ target: { name: "bank_name",         value: selectedBank?.name } });
-        handleStoreChange({ target: { name: "bank_code",         value: code               } });
-        handleStoreChange({ target: { name: "account_name",      value: name               } });
-        handleStoreChange({ target: { name: "withdrawal_method", value: "bank_transfer"    } });
+
+        // Push all bank data into flow state
+        handleStoreChange({ target: { name: "bank_account",      value: number                        } });
+        handleStoreChange({ target: { name: "bank_name",         value: selectedBank?.name ?? ""      } });
+        handleStoreChange({ target: { name: "bank_code",         value: selectedBank?.code ?? code    } });
+        handleStoreChange({ target: { name: "account_name",      value: name                          } });
+        handleStoreChange({ target: { name: "withdrawal_method", value: "bank_transfer"               } });
       } else {
         setVerifyError("Account not found. Check number and bank.");
       }
     } catch (err) {
-      if (!verifyRef.current) return;
-      setVerifyError(
-        err.response?.data?.message ?? "Verification failed. Try again."
-      );
+      if (!activeRef.current) return;
+      const msg = err.response?.data?.message;
+      setVerifyError(msg ?? "Verification failed. Try again.");
     } finally {
-      if (verifyRef.current) setVerifying(false);
+      if (activeRef.current) setVerifying(false);
     }
   }, [selectedBank, handleStoreChange]);
 
-  // ── Select bank ───────────────────────────────────────────
+  // ── Select bank ─────────────────────────────────────────
   const handleBankSelect = useCallback((bank) => {
     setSelectedBank(bank);
     setBankSearch("");
     setShowBankList(false);
+    // Reset verification
     setAccountName("");
     setVerifyError("");
-    handleStoreChange({ target: { name: "account_name", value: ""        } });
     handleStoreChange({ target: { name: "bank_name",    value: bank.name } });
     handleStoreChange({ target: { name: "bank_code",    value: bank.code } });
-  }, [handleStoreChange]);
+    handleStoreChange({ target: { name: "account_name", value: ""        } });
+    // Re-verify immediately if number already entered
+    if (accountNumber.length === 10) {
+      verifyAccount(accountNumber, bank.code);
+    }
+  }, [accountNumber, handleStoreChange, verifyAccount]);
 
   const filteredBanks = banks.filter((b) =>
     b.name.toLowerCase().includes(bankSearch.toLowerCase())
   );
 
-  const canSubmit = !!accountName && !loading;
+  const canSubmit = !!accountName && !loading && !verifying;
 
   return (
     <div className="seller-card">
 
-      {/* ── Header ─────────────────────────────────────────── */}
+      {/* Header */}
       <div style={s.cardHeader}>
         <h2 style={s.cardTitle}>🏪 Store Setup</h2>
         <p style={s.cardSubtitle}>
@@ -192,8 +215,13 @@ export default function StoreSetup({ flow }) {
 
       <div style={s.form}>
 
-        {/* ── Store Name ───────────────────────────────────── */}
-        <Field label="Store Name" icon="🏷️" required error={errors.store_name}>
+        {/* ── Store Name ─────────────────────────────────── */}
+        <Field
+          label="Store Name"
+          icon="🏷️"
+          required
+          error={errors.store_name}
+        >
           <input
             name="store_name"
             value={storeData.store_name}
@@ -207,7 +235,7 @@ export default function StoreSetup({ flow }) {
           </span>
         </Field>
 
-        {/* ── Store Category ───────────────────────────────── */}
+        {/* ── Category ───────────────────────────────────── */}
         <Field
           label="Store Category"
           icon="📂"
@@ -234,7 +262,7 @@ export default function StoreSetup({ flow }) {
           </div>
         </Field>
 
-        {/* ── Description ──────────────────────────────────── */}
+        {/* ── Description ────────────────────────────────── */}
         <Field
           label="Store Description"
           icon="📝"
@@ -245,7 +273,7 @@ export default function StoreSetup({ flow }) {
             name="store_description"
             value={storeData.store_description}
             onChange={handleStoreChange}
-            placeholder="Describe your store, specialties, shipping policy..."
+            placeholder="Describe your store, what you sell, and what makes you unique..."
             rows={4}
             className={`seller-textarea ${
               errors.store_description ? "error" : ""
@@ -253,7 +281,7 @@ export default function StoreSetup({ flow }) {
           />
         </Field>
 
-        {/* ── Store Logo ───────────────────────────────────── */}
+        {/* ── Store Logo ─────────────────────────────────── */}
         <Field label="Store Logo" icon="🖼️">
           <div style={s.logoRow}>
             {previewLogo ? (
@@ -281,7 +309,7 @@ export default function StoreSetup({ flow }) {
           </div>
         </Field>
 
-        {/* ── Store Banner ─────────────────────────────────── */}
+        {/* ── Store Banner ───────────────────────────────── */}
         <Field label="Store Banner" icon="🏞️">
           <div className="upload-box">
             <input
@@ -306,14 +334,14 @@ export default function StoreSetup({ flow }) {
           <div style={s.bankSectionHeader}>
             <h3 style={s.bankTitle}>🏦 Bank Details</h3>
             <p style={s.bankSubtitle}>
-              Payouts will be sent to this account
+              All payouts will be sent to this account
             </p>
-            <p style={s.bankNote}>
-              ℹ️ Only CBN-licensed commercial banks accepted
-            </p>
+            <span style={s.bankNote}>
+              ℹ️ CBN-licensed commercial banks only
+            </span>
           </div>
 
-          {/* ── Bank Selector ─────────────────────────── */}
+          {/* Bank selector */}
           <Field
             label="Select Bank"
             icon="🏦"
@@ -328,8 +356,8 @@ export default function StoreSetup({ flow }) {
                   borderColor: showBankList
                     ? "#6366f1"
                     : errors.bank_name
-                    ? "#ef4444"
-                    : "#e5e7eb",
+                      ? "#ef4444"
+                      : "#e5e7eb",
                 }}
                 onClick={() => setShowBankList((v) => !v)}
               >
@@ -337,7 +365,7 @@ export default function StoreSetup({ flow }) {
                   color: selectedBank ? "#1f2937" : "#9ca3af",
                 }}>
                   {banksLoading
-                    ? "Loading banks..."
+                    ? "Loading banks…"
                     : selectedBank?.name ?? "Choose your bank"}
                 </span>
                 <span style={s.chevron}>
@@ -362,22 +390,24 @@ export default function StoreSetup({ flow }) {
                       <div style={s.bankNoResult}>No banks found</div>
                     ) : (
                       filteredBanks.map((bank) => {
-                        const isSelected = selectedBank?.code === bank.code;
+                        const isSel = selectedBank?.code === bank.code;
                         return (
                           <button
                             key={`${bank.code}-${bank.name}`}
                             type="button"
                             style={{
                               ...s.bankOption,
-                              background: isSelected ? "#eef2ff" : "white",
-                              color:      isSelected ? "#6366f1" : "#374151",
-                              fontWeight: isSelected ? 700 : 400,
+                              background: isSel ? "#eef2ff" : "white",
+                              color:      isSel ? "#6366f1" : "#374151",
+                              fontWeight: isSel ? 700 : 400,
                             }}
                             onClick={() => handleBankSelect(bank)}
                           >
                             <span>{bank.name}</span>
-                            {isSelected && (
-                              <span style={{ marginLeft: "auto" }}>✓</span>
+                            {isSel && (
+                              <span style={{ marginLeft: "auto" }}>
+                                ✓
+                              </span>
                             )}
                           </button>
                         );
@@ -389,7 +419,7 @@ export default function StoreSetup({ flow }) {
             </div>
           </Field>
 
-          {/* ── Account Number ────────────────────────── */}
+          {/* Account number */}
           <Field
             label="Account Number"
             icon="🔢"
@@ -398,7 +428,9 @@ export default function StoreSetup({ flow }) {
             hint={
               !selectedBank
                 ? "Select a bank first"
-                : "Enter your 10-digit account number"
+                : accountNumber.length < 10
+                  ? `${accountNumber.length}/10 digits entered`
+                  : undefined
             }
           >
             <div style={{ position: "relative" }}>
@@ -413,36 +445,60 @@ export default function StoreSetup({ flow }) {
                     .replace(/\D/g, "")
                     .slice(0, 10);
                   setAccountNumber(val);
+                  // Clear verified state when user types new number
+                  if (val !== accountNumber) {
+                    setAccountName("");
+                    setVerifyError("");
+                    handleStoreChange({
+                      target: { name: "account_name", value: "" }
+                    });
+                  }
                 }}
                 placeholder={
                   selectedBank ? "e.g. 0123456789" : "Select a bank first"
                 }
                 className={`seller-input ${
-                  verifyError ? "error" : accountName ? "success" : ""
+                  verifyError
+                    ? "error"
+                    : accountName
+                      ? "success"
+                      : ""
                 }`}
                 style={{
                   paddingRight: "3.5rem",
-                  opacity:      selectedBank ? 1 : 0.55,
+                  opacity:      selectedBank ? 1 : 0.5,
                   borderColor:  accountName
                     ? "#10b981"
                     : verifyError
-                    ? "#ef4444"
-                    : undefined,
+                      ? "#ef4444"
+                      : undefined,
+                  fontFamily:   "monospace",
+                  fontSize:     "1rem",
+                  letterSpacing:"0.08em",
                 }}
               />
 
+              {/* Status icon */}
               <span style={s.acctIcon}>
                 {verifying && <Spinner size={16} />}
                 {!verifying && accountName && (
-                  <span style={{ color: "#10b981", fontSize: "1.2rem" }}>✓</span>
+                  <span style={{
+                    color: "#10b981", fontSize: "1.2rem",
+                  }}>
+                    ✓
+                  </span>
                 )}
                 {!verifying && verifyError && (
-                  <span style={{ color: "#ef4444", fontSize: "1.2rem" }}>✗</span>
+                  <span style={{
+                    color: "#ef4444", fontSize: "1.2rem",
+                  }}>
+                    ✗
+                  </span>
                 )}
               </span>
             </div>
 
-            {/* Digit progress */}
+            {/* Digit progress dots */}
             <div style={s.digitRow}>
               {[...Array(10)].map((_, i) => (
                 <div
@@ -451,7 +507,11 @@ export default function StoreSetup({ flow }) {
                     ...s.digitDot,
                     background:
                       i < accountNumber.length
-                        ? accountName ? "#10b981" : "#6366f1"
+                        ? accountName
+                          ? "#10b981"
+                          : verifyError
+                            ? "#ef4444"
+                            : "#6366f1"
                         : "#e5e7eb",
                   }}
                 />
@@ -462,15 +522,17 @@ export default function StoreSetup({ flow }) {
             </div>
           </Field>
 
-          {/* ── Verifying state ───────────────────────── */}
+          {/* Verifying spinner */}
           {verifying && (
             <div style={s.verifyingBox}>
               <Spinner size={16} />
-              <span>Verifying with {selectedBank?.name}...</span>
+              <span>
+                Verifying with {selectedBank?.name}…
+              </span>
             </div>
           )}
 
-          {/* ── Verify error ──────────────────────────── */}
+          {/* Verify error */}
           {verifyError && !verifying && (
             <div style={s.verifyError}>
               <span>⚠️ {verifyError}</span>
@@ -488,35 +550,35 @@ export default function StoreSetup({ flow }) {
             </div>
           )}
 
-          {/* ── Verified account name ─────────────────── */}
+          {/* Verified account name */}
           {accountName && !verifying && (
             <div style={s.accountNameBox}>
               <span style={{ fontSize: "1.75rem" }}>✅</span>
               <div style={{ flex: 1 }}>
-                <p style={s.accountNameLabel}>Verified Account Name</p>
+                <p style={s.accountNameLabel}>Verified Account</p>
                 <p style={s.accountNameValue}>{accountName}</p>
-                <p style={s.accountNameBank}>{selectedBank?.name}</p>
+                <p style={s.accountNameBank}>
+                  {selectedBank?.name}
+                </p>
               </div>
               <span style={s.verifiedBadge}>Verified</span>
             </div>
           )}
         </div>
 
-        {/* ── Server message ───────────────────────────── */}
-        {serverMsg && (
-          <div
-            className={`seller-alert ${
-              serverMsg.toLowerCase().includes("fail") ||
-              serverMsg.toLowerCase().includes("error") ||
-              serverMsg.toLowerCase().includes("already")
-                ? "error" : "success"
-            }`}
-          >
-            {serverMsg}
+        {/* Server messages */}
+        {serverErr && (
+          <div className="seller-alert error">
+            ⚠️ {serverErr}
+          </div>
+        )}
+        {serverMsg && !serverErr && (
+          <div className="seller-alert success">
+            ✅ {serverMsg}
           </div>
         )}
 
-        {/* ── Submit ───────────────────────────────────── */}
+        {/* Submit */}
         <button
           type="button"
           onClick={submitStore}
@@ -525,7 +587,7 @@ export default function StoreSetup({ flow }) {
           style={{ opacity: canSubmit ? 1 : 0.6 }}
         >
           {loading ? (
-            <><Spinner size={18} white /> Saving Store...</>
+            <><Spinner size={18} white /> Saving Store…</>
           ) : (
             "Continue to Verification →"
           )}
@@ -542,17 +604,21 @@ export default function StoreSetup({ flow }) {
   );
 }
 
-// ─── Field Wrapper ────────────────────────────────────────────
+// ─────────────────────────────────────────────────────────────
+// FIELD WRAPPER
+// ─────────────────────────────────────────────────────────────
 function Field({ label, icon, required, error, hint, children }) {
   return (
     <div className="seller-field">
       <label className="seller-label">
-        {icon} {label}
+        {icon && `${icon} `}{label}
         {required && <span style={{ color: "#ef4444" }}> *</span>}
       </label>
       {children}
       {hint && !error && (
-        <span style={{ color: "#9ca3af", fontSize: "0.8rem" }}>{hint}</span>
+        <span style={{ color: "#9ca3af", fontSize: "0.8rem" }}>
+          {hint}
+        </span>
       )}
       {error && (
         <span className="field-error">⚠️ {error}</span>
@@ -561,13 +627,17 @@ function Field({ label, icon, required, error, hint, children }) {
   );
 }
 
-// ─── Spinner ──────────────────────────────────────────────────
+// ─────────────────────────────────────────────────────────────
+// SPINNER
+// ─────────────────────────────────────────────────────────────
 function Spinner({ size = 20, white = false }) {
   return (
     <span style={{
       width:         size,
       height:        size,
-      border:        `2px solid ${white ? "rgba(255,255,255,0.3)" : "#e5e7eb"}`,
+      border:        `2px solid ${
+        white ? "rgba(255,255,255,0.3)" : "#e5e7eb"
+      }`,
       borderTop:     `2px solid ${white ? "white" : "#6366f1"}`,
       borderRadius:  "50%",
       display:       "inline-block",
@@ -578,22 +648,49 @@ function Spinner({ size = 20, white = false }) {
   );
 }
 
-// ─── Styles ───────────────────────────────────────────────────
+// ─────────────────────────────────────────────────────────────
+// STYLES
+// ─────────────────────────────────────────────────────────────
 const s = {
-  cardHeader:   { marginBottom: "2rem" },
-  cardTitle:    { fontSize: "1.5rem", fontWeight: 800, color: "#1f2937", margin: 0 },
-  cardSubtitle: { color: "#6b7280", marginTop: "0.35rem", margin: "0.35rem 0 0" },
-
-  form:      { display: "flex", flexDirection: "column", gap: "1.5rem" },
-  charCount: { color: "#9ca3af", fontSize: "0.8rem", marginTop: "0.25rem", display: "block" },
-  fileOk:    { color: "#10b981", marginTop: "0.5rem", fontSize: "0.85rem" },
-
-  logoRow: { display: "flex", gap: "1.5rem", alignItems: "center" },
+  cardHeader: { marginBottom: "2rem" },
+  cardTitle: {
+    fontSize:  "1.5rem",
+    fontWeight:800,
+    color:     "#1f2937",
+    margin:    0,
+  },
+  cardSubtitle: {
+    color:    "#6b7280",
+    fontSize: "0.95rem",
+    margin:   "0.35rem 0 0",
+  },
+  form: {
+    display:       "flex",
+    flexDirection: "column",
+    gap:           "1.5rem",
+  },
+  charCount: {
+    color:      "#9ca3af",
+    fontSize:   "0.8rem",
+    marginTop:  "0.25rem",
+    display:    "block",
+    textAlign:  "right",
+  },
+  fileOk: {
+    color:     "#10b981",
+    marginTop: "0.5rem",
+    fontSize:  "0.85rem",
+  },
+  logoRow: {
+    display:    "flex",
+    gap:        "1.5rem",
+    alignItems: "center",
+  },
   logoPlaceholder: {
     width:          "80px",
     height:         "80px",
     borderRadius:   "50%",
-    background:     "linear-gradient(135deg, #6366f1, #8b5cf6)",
+    background:     "linear-gradient(135deg,#6366f1,#8b5cf6)",
     color:          "white",
     display:        "flex",
     alignItems:     "center",
@@ -602,7 +699,6 @@ const s = {
     fontWeight:     800,
     flexShrink:     0,
   },
-
   bankSection: {
     background:    "#f8fafc",
     borderRadius:  "16px",
@@ -613,9 +709,18 @@ const s = {
     gap:           "1.25rem",
   },
   bankSectionHeader: { marginBottom: "0.25rem" },
-  bankTitle:   { fontSize: "1.05rem", fontWeight: 700, color: "#1f2937", margin: 0 },
-  bankSubtitle:{ color: "#9ca3af", fontSize: "0.85rem", margin: "0.25rem 0 0" },
-  bankNote:    {
+  bankTitle: {
+    fontSize:  "1.05rem",
+    fontWeight:700,
+    color:     "#1f2937",
+    margin:    0,
+  },
+  bankSubtitle: {
+    color:    "#9ca3af",
+    fontSize: "0.85rem",
+    margin:   "0.25rem 0 0",
+  },
+  bankNote: {
     color:        "#6366f1",
     fontSize:     "0.78rem",
     margin:       "0.35rem 0 0",
@@ -624,7 +729,6 @@ const s = {
     borderRadius: "6px",
     display:      "inline-block",
   },
-
   bankTrigger: {
     width:          "100%",
     padding:        "0.875rem 1.125rem",
@@ -638,9 +742,13 @@ const s = {
     fontSize:       "1rem",
     transition:     "border-color 0.2s",
     textAlign:      "left",
+    fontFamily:     "inherit",
   },
-  chevron: { color: "#9ca3af", fontSize: "0.75rem", flexShrink: 0 },
-
+  chevron: {
+    color:     "#9ca3af",
+    fontSize:  "0.75rem",
+    flexShrink:0,
+  },
   bankDropdown: {
     position:     "absolute",
     top:          "calc(100% + 4px)",
@@ -653,7 +761,10 @@ const s = {
     zIndex:       100,
     overflow:     "hidden",
   },
-  bankSearchWrap:  { padding: "0.75rem", borderBottom: "1px solid #f3f4f6" },
+  bankSearchWrap: {
+    padding:      "0.75rem",
+    borderBottom: "1px solid #f3f4f6",
+  },
   bankSearchInput: {
     width:        "100%",
     padding:      "0.6rem 0.875rem",
@@ -662,8 +773,9 @@ const s = {
     fontSize:     "0.9rem",
     outline:      "none",
     boxSizing:    "border-box",
+    fontFamily:   "inherit",
   },
-  bankList:   { maxHeight: "240px", overflowY: "auto" },
+  bankList: { maxHeight: "240px", overflowY: "auto" },
   bankOption: {
     width:      "100%",
     padding:    "0.75rem 1rem",
@@ -675,6 +787,7 @@ const s = {
     alignItems: "center",
     gap:        "0.5rem",
     transition: "background 0.1s",
+    fontFamily: "inherit",
   },
   bankNoResult: {
     padding:   "1.5rem",
@@ -682,7 +795,6 @@ const s = {
     color:     "#9ca3af",
     fontSize:  "0.875rem",
   },
-
   acctIcon: {
     position:  "absolute",
     right:     "1rem",
@@ -700,7 +812,7 @@ const s = {
   digitDot: {
     height:       "4px",
     borderRadius: "100px",
-    transition:   "background 0.25s ease",
+    transition:   "background 0.2s ease",
     flex:         1,
   },
   digitLabel: {
@@ -710,7 +822,6 @@ const s = {
     whiteSpace: "nowrap",
     flexShrink: 0,
   },
-
   verifyingBox: {
     display:      "flex",
     alignItems:   "center",
@@ -745,8 +856,8 @@ const s = {
     cursor:       "pointer",
     fontSize:     "0.8rem",
     flexShrink:   0,
+    fontFamily:   "inherit",
   },
-
   accountNameBox: {
     display:      "flex",
     alignItems:   "center",
@@ -786,7 +897,6 @@ const s = {
     letterSpacing: "0.04em",
     flexShrink:    0,
   },
-
   submitHint: {
     textAlign:  "center",
     color:      "#f59e0b",
