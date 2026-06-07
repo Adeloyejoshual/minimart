@@ -10,6 +10,7 @@ import {
   TopProducts,
   RevenueChart,
   Settings,
+  NotificationPanel,
   StatusBadge,
   DashboardSkeleton,
   DashboardError,
@@ -17,31 +18,66 @@ import {
 import "../style/SellerDashboard.css";
 
 const PAGE_TITLES = {
-  overview:  "Dashboard Overview",
-  orders:    "Orders",
-  products:  "Products",
-  analytics: "Analytics",
-  payouts:   "Payouts",
-  settings:  "Store Settings",
+  overview:      "Dashboard Overview",
+  orders:        "Orders",
+  products:      "Products",
+  analytics:     "Analytics",
+  payouts:       "Payouts",
+  settings:      "Store Settings",
+  notifications: "Notifications",
 };
+
+// ── Error codes that mean "go to onboarding" not "show error" ─
+const REDIRECT_TO_ONBOARDING = new Set([
+  "NOT_SELLER_ACCOUNT",
+  "NO_VENDOR",
+  "NO_TOKEN",
+  "UNAUTHORIZED",
+]);
 
 export default function SellerDashboard({ user }) {
   const dash = useSellerDashboard();
 
-  if (!user) return <Navigate to="/auth" replace />;
-
-  if (dash.vendor && !["active", "approved"].includes(dash.vendor?.status)) {
+  // ── No seller token → onboarding ──────────────────────────
+  if (!localStorage.getItem("token")) {
     return <Navigate to="/become-seller" replace />;
   }
 
+  // ── Loading ─────────────────────────────────────────────────
   if (dash.loading) {
-    return <div className="sd-layout"><DashboardSkeleton /></div>;
+    return (
+      <div className="sd-layout">
+        <DashboardSkeleton />
+      </div>
+    );
   }
 
-  if (dash.error) {
-    return <div className="sd-layout"><DashboardError error={dash.error} onRetry={dash.refetch} /></div>;
+  // ── Redirect errors → onboarding ──────────────────────────
+  // NO_VENDOR, NOT_SELLER_ACCOUNT etc → don't show error screen
+  if (dash.errorCode && REDIRECT_TO_ONBOARDING.has(dash.errorCode)) {
+    return <Navigate to="/become-seller" replace />;
   }
 
+  // ── Real server errors → show error screen ─────────────────
+  if (dash.error && !REDIRECT_TO_ONBOARDING.has(dash.errorCode)) {
+    return (
+      <div className="sd-layout">
+        <DashboardError error={dash.error} onRetry={dash.refetch} />
+      </div>
+    );
+  }
+
+  // ── No vendor → onboarding ─────────────────────────────────
+  if (!dash.vendor) {
+    return <Navigate to="/become-seller" replace />;
+  }
+
+  // ── Vendor not active → onboarding ────────────────────────
+  if (!["active", "approved"].includes(dash.vendor.status)) {
+    return <Navigate to="/become-seller" replace />;
+  }
+
+  // ── Render ──────────────────────────────────────────────────
   return (
     <div className="sd-layout">
       <Sidebar
@@ -55,14 +91,24 @@ export default function SellerDashboard({ user }) {
 
       <main className="sd-main">
         <header className="sd-topbar">
-          <button className="sd-hamburger" onClick={() => dash.setSidebarOpen(true)}>☰</button>
+          <button
+            className="sd-hamburger"
+            onClick={() => dash.setSidebarOpen(true)}
+          >
+            ☰
+          </button>
+
           <div className="sd-topbar-left">
             <h1 className="sd-page-title">
               {PAGE_TITLES[dash.activeSection] ?? "Dashboard"}
             </h1>
           </div>
+
           <div className="sd-topbar-right">
-            <button className="sd-bell" onClick={() => dash.setActiveSection("notifications")}>
+            <button
+              className="sd-bell"
+              onClick={() => dash.setActiveSection("notifications")}
+            >
               🔔
               {dash.unreadCount > 0 && (
                 <span className="sd-bell-badge">
@@ -113,6 +159,13 @@ export default function SellerDashboard({ user }) {
 
           {dash.activeSection === "settings" && (
             <Settings vendor={dash.vendor} />
+          )}
+
+          {dash.activeSection === "notifications" && (
+            <NotificationPanel
+              notifications={dash.notifications}
+              markNotifRead={dash.markNotifRead}
+            />
           )}
 
         </div>
