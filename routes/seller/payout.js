@@ -1,6 +1,6 @@
 import express      from "express";
 import { pool }     from "../../server.js";
-import authenticate from "../middleware/auth.js";
+import authenticate from "../../middleware/auth.js";
 import {
   calculateWithdrawalFees,
   calculateWithdrawalFee,
