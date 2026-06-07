@@ -255,6 +255,7 @@ import authRouter             from "./routes/sellerAuth.routes.js";
 import sellerOnboardingRouter from "./routes/sellerOnboarding.routes.js";
 import sellerPayoutRoutes     from "./routes/seller/payout.js";
 import sellerDashboardRouter from "./routes/seller/dashboard.js";
+import sellerSettingsRouter from "./routes/seller/settings.js";
 
 // ── Payment ──────────────────────────────────────────────────
 app.use("/api/payment",           paymentRouter);
@@ -264,7 +265,7 @@ app.use("/api/seller",            sellerProfileRouter);
 app.use("/api/auth",              authRouter);
 app.use("/api/seller-onboarding", sellerOnboardingRouter);
 app.use("/api/seller/payout",     sellerPayoutRoutes);
-
+app.use("/api/seller/settings", sellerSettingsRouter);
 // ── Products ─────────────────────────────────────────────────
 app.use("/api/addproduct",        addproductRouter);
 app.use("/api/market-products",   marketProductsRouter);
