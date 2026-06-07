@@ -1,514 +1,974 @@
-// components/seller/dashboard/Payouts.jsx
-import { useState, useEffect } from "react";
-import axios from "axios";
-import { formatNGN } from "./Shared";
+import React, { useState, useEffect, useCallback, useMemo } from "react";
+import {
+  Wallet, ArrowDownToLine, Clock, CheckCircle,
+  XCircle, AlertCircle, RefreshCw, ChevronLeft,
+  ChevronRight, Copy, Eye, X, TrendingUp,
+  Banknote, Info, ShieldCheck, Gift,
+} from "lucide-react";
+import api from "../../utils/api";
+import toast from "react-hot-toast";
 
-const api = () => {
-  const token = localStorage.getItem("token");
-  return axios.create({
-    headers: { Authorization: `Bearer ${token}` },
-  });
+// ─── fee utility (mirrors server) ────────────────────────────────────────────
+
+const calculateWithdrawalFee = (amount, withdrawalsToday) => {
+  if (withdrawalsToday < 3) return 0;
+  if (amount <= 9_999)      return 50;
+  if (amount <= 99_999)     return 100;
+  if (amount <= 500_000)    return 150;
+  return 200;
 };
 
-export const Payouts = ({ vendor }) => {
-  const [wallet,      setWallet]      = useState(null);
-  const [transactions,setTransactions]= useState([]);
-  const [withdrawals, setWithdrawals] = useState([]);
-  const [loading,     setLoading]     = useState(true);
-  const [withdrawAmt, setWithdrawAmt] = useState("");
-  const [withdrawing, setWithdrawing] = useState(false);
-  const [msg,         setMsg]         = useState({ type: "", text: "" });
+const FEE_TIERS = [
+  { range: "₦0 – ₦9,999",         fee: "₦50"  },
+  { range: "₦10,000 – ₦99,999",   fee: "₦100" },
+  { range: "₦100,000 – ₦500,000", fee: "₦150" },
+  { range: "Above ₦500,000",       fee: "₦200" },
+];
 
-  // ── Fetch wallet ────────────────────────────────────────────
-  useEffect(() => {
-    const fetchWallet = async () => {
-      try {
-        const { data } = await api().get("/api/seller-wallet/balance");
-        setWallet(data);
-      } catch (err) {
-        console.error("[Payouts]", err.message);
-      } finally {
-        setLoading(false);
-      }
+// ─── formatting ───────────────────────────────────────────────────────────────
+
+const fmt = (n) =>
+  `₦${Number(n ?? 0).toLocaleString("en-NG", {
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+  })}`;
+
+const fmtDate = (d) =>
+  d
+    ? new Date(d).toLocaleString("en-NG", {
+        day: "2-digit", month: "short", year: "numeric",
+        hour: "2-digit", minute: "2-digit",
+      })
+    : "—";
+
+const copyText = (t) =>
+  navigator.clipboard.writeText(t).then(() => toast.success("Copied!"));
+
+// ─── status config ────────────────────────────────────────────────────────────
+
+const STATUS_META = {
+  pending:    { label: "Pending",    chip: "bg-amber-100 text-amber-700 border-amber-200",  icon: <Clock size={11} /> },
+  processing: { label: "Processing", chip: "bg-blue-100 text-blue-700 border-blue-200",     icon: <RefreshCw size={11} className="animate-spin" /> },
+  success:    { label: "Success",    chip: "bg-green-100 text-green-700 border-green-200",  icon: <CheckCircle size={11} /> },
+  failed:     { label: "Failed",     chip: "bg-red-100 text-red-700 border-red-200",        icon: <XCircle size={11} /> },
+  cancelled:  { label: "Cancelled",  chip: "bg-gray-100 text-gray-500 border-gray-200",     icon: <X size={11} /> },
+};
+
+const StatusBadge = ({ status }) => {
+  const m = STATUS_META[status] ?? { label: status, chip: "bg-gray-100 text-gray-500 border-gray-200", icon: null };
+  return (
+    <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full
+                      text-xs font-medium border ${m.chip}`}>
+      {m.icon}{m.label}
+    </span>
+  );
+};
+
+// ─── StatCard ─────────────────────────────────────────────────────────────────
+
+const CARD_COLORS = {
+  blue:   "bg-blue-50   border-blue-100   text-blue-700",
+  green:  "bg-green-50  border-green-100  text-green-700",
+  amber:  "bg-amber-50  border-amber-100  text-amber-700",
+  purple: "bg-purple-50 border-purple-100 text-purple-700",
+};
+
+const StatCard = ({ icon, label, value, sub, color = "blue" }) => (
+  <div className={`rounded-2xl border p-4 flex items-start gap-3 ${CARD_COLORS[color]}`}>
+    <div className="p-2 rounded-xl bg-white/70 shrink-0">{icon}</div>
+    <div className="min-w-0">
+      <p className="text-xs font-medium opacity-70 mb-0.5">{label}</p>
+      <p className="text-lg font-bold truncate">{value}</p>
+      {sub && <p className="text-xs opacity-60 mt-0.5">{sub}</p>}
+    </div>
+  </div>
+);
+
+// ─── Fee Schedule Table ───────────────────────────────────────────────────────
+
+const FeeScheduleTable = ({ freeRemaining, withdrawalsToday }) => (
+  <div className="bg-white border border-gray-200 rounded-2xl overflow-hidden">
+    <div className="px-4 py-3 border-b bg-gray-50 flex items-center gap-2">
+      <Info size={14} className="text-gray-500" />
+      <h3 className="text-sm font-semibold text-gray-700">Withdrawal Fee Schedule</h3>
+    </div>
+
+    {/* free withdrawals banner */}
+    <div className={`px-4 py-3 flex items-center gap-3 border-b ${
+      freeRemaining > 0
+        ? "bg-green-50 border-green-100"
+        : "bg-gray-50 border-gray-200"
+    }`}>
+      <Gift size={18} className={freeRemaining > 0 ? "text-green-600" : "text-gray-400"} />
+      <div>
+        {freeRemaining > 0 ? (
+          <>
+            <p className="text-sm font-semibold text-green-700">
+              {freeRemaining} free withdrawal{freeRemaining > 1 ? "s" : ""} remaining today
+            </p>
+            <p className="text-xs text-green-600">
+              First 3 withdrawals each day are always free
+            </p>
+          </>
+        ) : (
+          <>
+            <p className="text-sm font-semibold text-gray-600">
+              Free withdrawals used for today
+            </p>
+            <p className="text-xs text-gray-400">
+              Fee tiers below apply to withdrawal #{withdrawalsToday + 1}+
+            </p>
+          </>
+        )}
+      </div>
+    </div>
+
+    {/* fee tiers */}
+    <div className="divide-y divide-gray-100">
+      {FEE_TIERS.map(({ range, fee }) => (
+        <div key={range} className="flex justify-between items-center px-4 py-2.5 text-sm">
+          <span className="text-gray-600">{range}</span>
+          <span className={`font-semibold ${
+            freeRemaining > 0 ? "text-gray-300 line-through" : "text-gray-900"
+          }`}>
+            {fee}
+          </span>
+        </div>
+      ))}
+    </div>
+  </div>
+);
+
+// ══════════════════════════════════════════════════════════════════════════════
+// WithdrawModal
+// ══════════════════════════════════════════════════════════════════════════════
+
+const WithdrawModal = ({ info, onClose, onSuccess }) => {
+  const [amount,  setAmount]  = useState("");
+  const [loading, setLoading] = useState(false);
+  const [showFees, setShowFees] = useState(false);
+
+  const { wallet, bank, limits } = info;
+  const parsedAmount = parseFloat(amount) || 0;
+
+  const preview = useMemo(() => {
+    if (!parsedAmount || parsedAmount <= 0) return null;
+    const fee = calculateWithdrawalFee(parsedAmount, limits.withdrawals_today);
+    return {
+      amount: parsedAmount,
+      fee,
+      net: parseFloat((parsedAmount - fee).toFixed(2)),
+      isFree: fee === 0,
     };
+  }, [parsedAmount, limits.withdrawals_today]);
 
-    const fetchHistory = async () => {
-      try {
-        const [txRes, wdRes] = await Promise.all([
-          api().get("/api/seller-wallet/transactions?limit=10"),
-          api().get("/api/seller-wallet/withdrawals?limit=5"),
-        ]);
-        setTransactions(txRes.data.transactions ?? []);
-        setWithdrawals(wdRes.data.withdrawals   ?? []);
-      } catch {}
-    };
+  const maxAllowed = Math.min(
+    wallet.available_balance,
+    limits.daily_remaining,
+    limits.max_withdrawal
+  );
 
-    fetchWallet();
-    fetchHistory();
-  }, []);
+  const setQuick = (pct) => {
+    const val = parseFloat(((wallet.available_balance * pct) / 100).toFixed(2));
+    setAmount(String(Math.min(val, maxAllowed)));
+  };
 
-  // ── Request withdrawal ──────────────────────────────────────
-  const handleWithdraw = async () => {
-    const amount = Number(withdrawAmt);
-    if (!amount || amount < 500) {
-      setMsg({ type: "error", text: "Minimum withdrawal is ₦500" });
-      return;
+  const handleSubmit = async (e) => {
+    e.preventDefault();
+
+    if (!parsedAmount || parsedAmount < limits.min_withdrawal) {
+      return toast.error(`Minimum withdrawal is ${fmt(limits.min_withdrawal)}`);
+    }
+    if (parsedAmount > wallet.available_balance) {
+      return toast.error("Insufficient balance");
+    }
+    if (parsedAmount > limits.daily_remaining) {
+      return toast.error(`Daily limit exceeded. Remaining: ${fmt(limits.daily_remaining)}`);
     }
 
-    const available = Number(wallet?.balance?.available ?? 0);
-    if (amount > available) {
-      setMsg({ type: "error", text: `Insufficient balance. Available: ${formatNGN(available)}` });
-      return;
-    }
-
-    setWithdrawing(true);
-    setMsg({ type: "", text: "" });
-
+    setLoading(true);
     try {
-      const { data } = await api().post("/api/seller-wallet/withdraw", { amount });
-      setMsg({ type: "success", text: `✅ ${data.message}` });
-      setWithdrawAmt("");
-
-      // Refresh wallet
-      const { data: refreshed } = await api().get("/api/seller-wallet/balance");
-      setWallet(refreshed);
-    } catch (err) {
-      setMsg({
-        type: "error",
-        text: err.response?.data?.message ?? "Withdrawal failed",
+      const { data } = await api.post("/seller/payout/withdraw", {
+        amount: parsedAmount,
+        idempotency_key: `WD-${Date.now()}-${Math.random().toString(36).slice(2)}`,
       });
+
+      if (data.success) {
+        toast.success(
+          data.withdrawal?.fee === 0
+            ? "Withdrawal initiated — free transfer!"
+            : `Withdrawal initiated (₦${data.withdrawal?.fee} fee)`
+        );
+        onSuccess();
+        onClose();
+      } else {
+        toast.error(data.message ?? "Withdrawal failed");
+      }
+    } catch (err) {
+      toast.error(err.response?.data?.message ?? "Withdrawal failed. Try again.");
     } finally {
-      setWithdrawing(false);
+      setLoading(false);
     }
   };
 
-  if (loading) {
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center
+                    p-4 bg-black/50 backdrop-blur-sm">
+      <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md
+                      max-h-[92vh] overflow-y-auto">
+
+        {/* header */}
+        <div className="flex items-center justify-between p-6 border-b
+                        sticky top-0 bg-white z-10">
+          <div className="flex items-center gap-2">
+            <ArrowDownToLine size={20} className="text-blue-600" />
+            <h2 className="text-lg font-bold text-gray-900">Withdraw Funds</h2>
+          </div>
+          <button onClick={onClose}
+            className="p-2 hover:bg-gray-100 rounded-lg transition-colors">
+            <X size={18} />
+          </button>
+        </div>
+
+        <form onSubmit={handleSubmit} className="p-6 space-y-5">
+
+          {/* free withdrawal badge */}
+          {limits.free_remaining > 0 && (
+            <div className="bg-green-50 border border-green-200 rounded-xl
+                            p-3 flex items-center gap-2.5">
+              <Gift size={16} className="text-green-600 shrink-0" />
+              <p className="text-sm text-green-700 font-medium">
+                {limits.free_remaining} free withdrawal
+                {limits.free_remaining > 1 ? "s" : ""} remaining today — no fee!
+              </p>
+            </div>
+          )}
+
+          {/* payout bank */}
+          {bank.account_number ? (
+            <div className="bg-gray-50 border border-gray-200 rounded-xl p-4">
+              <p className="text-xs text-gray-400 mb-1">Payout to</p>
+              <p className="font-semibold text-gray-900">{bank.account_name}</p>
+              <p className="text-sm text-gray-500">
+                {bank.account_number} — {bank.bank_name}
+              </p>
+            </div>
+          ) : (
+            <div className="bg-amber-50 border border-amber-200 rounded-xl
+                            p-4 flex gap-2">
+              <AlertCircle size={16} className="text-amber-600 shrink-0 mt-0.5" />
+              <p className="text-sm text-amber-700">
+                No payout bank configured. Please update Settings first.
+              </p>
+            </div>
+          )}
+
+          {/* balance row */}
+          <div className="flex justify-between items-center text-sm">
+            <span className="text-gray-500">Available balance</span>
+            <span className="font-bold text-green-600">
+              {fmt(wallet.available_balance)}
+            </span>
+          </div>
+
+          {/* quick % */}
+          <div className="grid grid-cols-4 gap-2">
+            {[25, 50, 75, 100].map((pct) => (
+              <button key={pct} type="button" onClick={() => setQuick(pct)}
+                className="text-xs py-1.5 rounded-lg border border-gray-200
+                           hover:border-blue-400 hover:text-blue-600 transition-colors">
+                {pct}%
+              </button>
+            ))}
+          </div>
+
+          {/* amount input */}
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1.5">
+              Amount (₦)
+            </label>
+            <input
+              type="number"
+              min={limits.min_withdrawal}
+              max={maxAllowed}
+              step="1"
+              value={amount}
+              onChange={(e) => setAmount(e.target.value)}
+              placeholder={`Min ${fmt(limits.min_withdrawal)}`}
+              className="w-full border border-gray-300 rounded-xl px-4 py-3
+                         text-lg font-semibold focus:outline-none
+                         focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+              required
+            />
+          </div>
+
+          {/* fee preview */}
+          {preview && (
+            <div className={`border rounded-xl p-4 space-y-2 text-sm ${
+              preview.isFree
+                ? "bg-green-50 border-green-200"
+                : "bg-blue-50 border-blue-100"
+            }`}>
+              <div className="flex justify-between text-gray-600">
+                <span>Gross amount</span>
+                <span>{fmt(preview.amount)}</span>
+              </div>
+              <div className="flex justify-between">
+                <span className="text-gray-600">Processing fee</span>
+                {preview.isFree ? (
+                  <span className="text-green-600 font-semibold flex items-center gap-1">
+                    <Gift size={13} /> Free
+                  </span>
+                ) : (
+                  <span className="text-red-500">−{fmt(preview.fee)}</span>
+                )}
+              </div>
+              <div className="flex justify-between font-bold text-gray-900
+                              pt-2 border-t border-current/10">
+                <span>You receive</span>
+                <span className={preview.isFree ? "text-green-600" : "text-blue-700"}>
+                  {fmt(preview.net)}
+                </span>
+              </div>
+            </div>
+          )}
+
+          {/* daily info + fee schedule toggle */}
+          <div className="space-y-2">
+            <div className="flex items-start gap-2 text-xs text-gray-500
+                            bg-gray-50 rounded-lg p-3">
+              <Info size={13} className="shrink-0 mt-0.5" />
+              <div className="space-y-0.5">
+                <p>
+                  Daily remaining:{" "}
+                  <strong className="text-gray-700">{fmt(limits.daily_remaining)}</strong>
+                  {" "}of {fmt(limits.daily_limit)}
+                </p>
+                <p>
+                  Withdrawals today:{" "}
+                  <strong className="text-gray-700">{limits.withdrawals_today}</strong>
+                  {limits.free_remaining > 0 && (
+                    <span className="text-green-600 ml-1">
+                      ({limits.free_remaining} free left)
+                    </span>
+                  )}
+                </p>
+              </div>
+            </div>
+
+            <button
+              type="button"
+              onClick={() => setShowFees((v) => !v)}
+              className="text-xs text-blue-600 hover:underline w-full text-left pl-1"
+            >
+              {showFees ? "Hide" : "View"} full fee schedule
+            </button>
+
+            {showFees && (
+              <div className="rounded-xl border border-gray-200 overflow-hidden text-xs">
+                <div className="bg-green-50 border-b border-green-100 px-3 py-2
+                                flex items-center gap-2 text-green-700">
+                  <Gift size={12} />
+                  First 3 withdrawals per day are always FREE
+                </div>
+                {FEE_TIERS.map(({ range, fee }) => (
+                  <div key={range}
+                    className="flex justify-between px-3 py-2 border-b
+                               border-gray-100 last:border-0">
+                    <span className="text-gray-500">{range}</span>
+                    <span className="font-semibold text-gray-800">{fee}</span>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+
+          {/* submit */}
+          <button
+            type="submit"
+            disabled={loading || !bank.account_number || !amount || parsedAmount <= 0}
+            className="w-full bg-blue-600 hover:bg-blue-700
+                       disabled:opacity-50 disabled:cursor-not-allowed
+                       text-white font-semibold py-3.5 rounded-xl
+                       transition-colors flex items-center justify-center gap-2"
+          >
+            {loading ? (
+              <><RefreshCw size={16} className="animate-spin" /> Initiating…</>
+            ) : (
+              <><ArrowDownToLine size={16} />
+                Withdraw {preview ? fmt(preview.amount) : ""}
+                {preview?.isFree && (
+                  <span className="text-green-200 text-xs">(Free)</span>
+                )}
+              </>
+            )}
+          </button>
+        </form>
+      </div>
+    </div>
+  );
+};
+
+// ══════════════════════════════════════════════════════════════════════════════
+// DetailDrawer
+// ══════════════════════════════════════════════════════════════════════════════
+
+const DetailDrawer = ({ id, onClose, onCancelled }) => {
+  const [data,       setData]       = useState(null);
+  const [loading,    setLoading]    = useState(true);
+  const [cancelling, setCancelling] = useState(false);
+
+  const load = useCallback(async () => {
+    setLoading(true);
+    try {
+      const { data: res } = await api.get(`/seller/payout/withdrawal/${id}`);
+      if (res.success) setData(res);
+    } catch {
+      toast.error("Failed to load withdrawal details");
+    } finally {
+      setLoading(false);
+    }
+  }, [id]);
+
+  useEffect(() => { load(); }, [load]);
+
+  const handleCancel = async () => {
+    if (!window.confirm("Cancel this withdrawal and restore your balance?")) return;
+    setCancelling(true);
+    try {
+      const { data: res } = await api.post(`/seller/payout/withdrawal/${id}/cancel`);
+      if (res.success) {
+        toast.success("Withdrawal cancelled. Balance restored.");
+        onCancelled?.();
+        onClose();
+      } else {
+        toast.error(res.message);
+      }
+    } catch (err) {
+      toast.error(err.response?.data?.message ?? "Cancellation failed");
+    } finally {
+      setCancelling(false);
+    }
+  };
+
+  const wd = data?.withdrawal;
+
+  return (
+    <div className="fixed inset-0 z-50 flex">
+      <div className="flex-1 bg-black/40 backdrop-blur-sm" onClick={onClose} />
+      <div className="w-full max-w-md bg-white h-full overflow-y-auto
+                      shadow-2xl flex flex-col">
+
+        <div className="flex items-center justify-between p-6 border-b
+                        sticky top-0 bg-white z-10">
+          <h2 className="font-bold text-gray-900">Withdrawal Details</h2>
+          <div className="flex items-center gap-2">
+            <button onClick={load}
+              className="p-2 hover:bg-gray-100 rounded-lg transition-colors text-gray-500">
+              <RefreshCw size={15} />
+            </button>
+            <button onClick={onClose}
+              className="p-2 hover:bg-gray-100 rounded-lg transition-colors">
+              <X size={18} />
+            </button>
+          </div>
+        </div>
+
+        {loading ? (
+          <div className="flex-1 flex items-center justify-center">
+            <RefreshCw size={24} className="animate-spin text-blue-400" />
+          </div>
+        ) : wd ? (
+          <div className="p-6 space-y-6 flex-1">
+
+            <div className="flex items-center justify-between">
+              <StatusBadge status={wd.status} />
+              {data.live_status && (
+                <span className="text-xs text-gray-400 bg-gray-50 border
+                                 border-gray-200 px-2 py-0.5 rounded-full">
+                  FLW: {data.live_status}
+                </span>
+              )}
+            </div>
+
+            {/* amount hero */}
+            <div className="bg-gradient-to-br from-blue-50 to-indigo-50
+                            border border-blue-100 rounded-2xl p-5 text-center">
+              <p className="text-xs text-gray-500 mb-1">Amount requested</p>
+              <p className="text-3xl font-bold text-gray-900">{fmt(wd.amount)}</p>
+              <div className="mt-3 flex justify-center gap-8 text-sm">
+                <div>
+                  <p className="text-xs text-gray-400">Fee</p>
+                  {Number(wd.fee) === 0 ? (
+                    <p className="text-green-600 font-medium flex items-center gap-1">
+                      <Gift size={12} /> Free
+                    </p>
+                  ) : (
+                    <p className="text-red-500 font-medium">−{fmt(wd.fee)}</p>
+                  )}
+                </div>
+                <div>
+                  <p className="text-xs text-gray-400">You receive</p>
+                  <p className="text-green-600 font-medium">{fmt(wd.net_amount)}</p>
+                </div>
+              </div>
+            </div>
+
+            {/* destination */}
+            <section>
+              <h3 className="text-xs font-semibold text-gray-400 uppercase
+                             tracking-wider mb-3">Destination</h3>
+              <div className="space-y-2.5 text-sm">
+                {[
+                  ["Account Name",   wd.account_name],
+                  ["Account Number", wd.account_number],
+                  ["Bank",           wd.bank_name],
+                ].map(([label, value]) => (
+                  <div key={label} className="flex justify-between">
+                    <span className="text-gray-500">{label}</span>
+                    <span className="font-medium text-gray-900">{value}</span>
+                  </div>
+                ))}
+              </div>
+            </section>
+
+            {/* references */}
+            <section>
+              <h3 className="text-xs font-semibold text-gray-400 uppercase
+                             tracking-wider mb-3">References</h3>
+              <div className="space-y-2.5">
+                {[
+                  ["Tx Ref", wd.tx_ref],
+                  wd.flw_transfer_id ? ["FLW Transfer", wd.flw_transfer_id] : null,
+                ].filter(Boolean).map(([label, value]) => (
+                  <div key={label} className="flex items-center justify-between text-sm">
+                    <span className="text-gray-500">{label}</span>
+                    <div className="flex items-center gap-1.5">
+                      <span className="font-mono text-xs text-gray-700
+                                       max-w-[180px] truncate">{value}</span>
+                      <button onClick={() => copyText(value)}
+                        className="text-gray-400 hover:text-blue-600 transition-colors">
+                        <Copy size={13} />
+                      </button>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </section>
+
+            {/* timeline */}
+            <section>
+              <h3 className="text-xs font-semibold text-gray-400 uppercase
+                             tracking-wider mb-3">Timeline</h3>
+              <div className="space-y-2.5 text-sm">
+                <div className="flex justify-between">
+                  <span className="text-gray-500">Requested</span>
+                  <span className="text-gray-900">{fmtDate(wd.requested_at)}</span>
+                </div>
+                {wd.processed_at && (
+                  <div className="flex justify-between">
+                    <span className="text-gray-500">Processed</span>
+                    <span className="text-gray-900">{fmtDate(wd.processed_at)}</span>
+                  </div>
+                )}
+              </div>
+            </section>
+
+            {wd.failure_reason && (
+              <div className="bg-red-50 border border-red-200 rounded-xl p-4">
+                <p className="text-xs font-semibold text-red-700 mb-1">Failure Reason</p>
+                <p className="text-sm text-red-600">{wd.failure_reason}</p>
+              </div>
+            )}
+
+            <div className="flex items-start gap-2 text-xs text-gray-400
+                            bg-gray-50 rounded-lg p-3">
+              <ShieldCheck size={13} className="shrink-0 mt-0.5 text-green-500" />
+              <span>
+                Balance is settled only after Flutterwave confirms the transfer.
+                Refresh to check the latest status.
+              </span>
+            </div>
+
+            {wd.status === "processing" && !wd.flw_transfer_id && (
+              <button onClick={handleCancel} disabled={cancelling}
+                className="w-full border border-red-300 text-red-600
+                           hover:bg-red-50 font-medium py-3 rounded-xl
+                           transition-colors flex items-center justify-center
+                           gap-2 disabled:opacity-50">
+                {cancelling
+                  ? <RefreshCw size={16} className="animate-spin" />
+                  : <X size={16} />}
+                Cancel Withdrawal
+              </button>
+            )}
+          </div>
+        ) : (
+          <div className="flex-1 flex items-center justify-center text-gray-400">
+            Withdrawal not found
+          </div>
+        )}
+      </div>
+    </div>
+  );
+};
+
+// ══════════════════════════════════════════════════════════════════════════════
+// Payouts page
+// ══════════════════════════════════════════════════════════════════════════════
+
+const STATUS_FILTERS = ["", "pending", "processing", "success", "failed", "cancelled"];
+
+export default function Payouts() {
+  const [info,           setInfo]           = useState(null);
+  const [history,        setHistory]        = useState(null);
+  const [loadingInfo,    setLoadingInfo]    = useState(true);
+  const [loadingHistory, setLoadingHistory] = useState(true);
+  const [showWithdraw,   setShowWithdraw]   = useState(false);
+  const [selectedId,     setSelectedId]     = useState(null);
+  const [statusFilter,   setStatusFilter]   = useState("");
+  const [page,           setPage]           = useState(1);
+
+  const loadInfo = useCallback(async () => {
+    setLoadingInfo(true);
+    try {
+      const { data } = await api.get("/seller/payout/info");
+      if (data.success) setInfo(data);
+    } catch (err) {
+      toast.error(err.response?.data?.message ?? "Failed to load wallet info");
+    } finally {
+      setLoadingInfo(false);
+    }
+  }, []);
+
+  const loadHistory = useCallback(async () => {
+    setLoadingHistory(true);
+    try {
+      const params = new URLSearchParams({ page, limit: 10 });
+      if (statusFilter) params.set("status", statusFilter);
+      const { data } = await api.get(`/seller/payout/history?${params}`);
+      if (data.success) setHistory(data);
+    } catch {
+      toast.error("Failed to load history");
+    } finally {
+      setLoadingHistory(false);
+    }
+  }, [page, statusFilter]);
+
+  useEffect(() => { loadInfo(); },    [loadInfo]);
+  useEffect(() => { loadHistory(); }, [loadHistory]);
+
+  const refresh = () => { loadInfo(); loadHistory(); };
+
+  if (loadingInfo) {
     return (
-      <div className="sd-card" style={{ textAlign: "center", padding: "3rem" }}>
-        <div style={{ color: "#9ca3af" }}>Loading wallet...</div>
+      <div className="min-h-screen bg-gray-50 p-6 space-y-4 animate-pulse">
+        {[1, 2, 3, 4].map((i) => (
+          <div key={i} className="h-20 bg-gray-200 rounded-2xl" />
+        ))}
       </div>
     );
   }
 
-  const balance        = wallet?.balance;
-  const virtualAccount = wallet?.virtual_account;
+  if (!info) {
+    return (
+      <div className="min-h-screen bg-gray-50 flex items-center justify-center">
+        <div className="text-center">
+          <AlertCircle size={40} className="text-red-400 mx-auto mb-3" />
+          <p className="text-gray-600 font-medium">Failed to load payout info</p>
+          <button onClick={loadInfo} className="mt-3 text-blue-600 underline text-sm">
+            Try again
+          </button>
+        </div>
+      </div>
+    );
+  }
+
+  const { wallet, bank, virtual_account, limits } = info;
+  const canWithdraw =
+    wallet.available_balance >= limits.min_withdrawal &&
+    limits.daily_remaining   >= limits.min_withdrawal;
 
   return (
-    <div style={{ display: "flex", flexDirection: "column", gap: "1.5rem" }}>
+    <div className="min-h-screen bg-gray-50">
+      <div className="max-w-4xl mx-auto p-4 md:p-6 space-y-6">
 
-      {/* ── Balance cards ─────────────────────────────────── */}
-      <div style={s.balanceGrid}>
-        <BalanceCard
-          label="Available Balance"
-          value={balance?.available ?? 0}
-          color="#10b981"
-          icon="💰"
-          primary
-        />
-        <BalanceCard
-          label="Pending"
-          value={balance?.pending ?? 0}
-          color="#f59e0b"
-          icon="⏳"
-        />
-        <BalanceCard
-          label="Total Received"
-          value={balance?.total_received ?? 0}
-          color="#6366f1"
-          icon="📥"
-        />
-        <BalanceCard
-          label="Total Withdrawn"
-          value={balance?.total_withdrawn ?? 0}
-          color="#6b7280"
-          icon="📤"
-        />
-      </div>
-
-      {/* ── Virtual account ───────────────────────────────── */}
-      {virtualAccount ? (
-        <div className="sd-card">
-          <h3 className="sd-card-title">🏦 Your Virtual Account</h3>
-          <p style={{ color: "#6b7280", fontSize: "0.875rem", marginBottom: "1rem" }}>
-            Share this account number to receive payments from buyers
-          </p>
-          <div style={s.vaBox}>
-            <div style={s.vaRow}>
-              <span style={s.vaLabel}>Account Number</span>
-              <div style={{ display: "flex", alignItems: "center", gap: "0.5rem" }}>
-                <span style={s.vaNumber}>{virtualAccount.account_number}</span>
-                <button
-                  style={s.copyBtn}
-                  onClick={() => {
-                    navigator.clipboard.writeText(virtualAccount.account_number);
-                    alert("Account number copied!");
-                  }}
-                >
-                  📋 Copy
-                </button>
-              </div>
-            </div>
-            <div style={s.vaRow}>
-              <span style={s.vaLabel}>Account Name</span>
-              <span style={s.vaValue}>{virtualAccount.account_name}</span>
-            </div>
-            <div style={s.vaRow}>
-              <span style={s.vaLabel}>Bank</span>
-              <span style={s.vaValue}>{virtualAccount.bank_name}</span>
-            </div>
-          </div>
-
-          <div style={s.vaNote}>
-            💡 Buyers pay directly to this account. Funds are
-            credited to your wallet automatically.
-          </div>
-        </div>
-      ) : (
-        <div className="sd-card">
-          <div style={s.noVa}>
-            <span style={{ fontSize: "2rem" }}>🏦</span>
-            <p style={{ fontWeight: 600, color: "#374151" }}>
-              No Virtual Account Yet
-            </p>
-            <p style={{ color: "#9ca3af", fontSize: "0.875rem" }}>
-              Your virtual account will be created automatically once
-              your store is approved and activated by admin.
+        {/* header */}
+        <div className="flex items-center justify-between">
+          <div>
+            <h1 className="text-2xl font-bold text-gray-900">Payouts</h1>
+            <p className="text-sm text-gray-500 mt-0.5">
+              Manage your earnings and withdrawals
             </p>
           </div>
-        </div>
-      )}
-
-      {/* ── Withdrawal ────────────────────────────────────── */}
-      <div className="sd-card">
-        <h3 className="sd-card-title">💸 Request Withdrawal</h3>
-        <p style={{ color: "#6b7280", fontSize: "0.875rem", marginBottom: "1.25rem" }}>
-          Withdraw to your registered bank account
-        </p>
-
-        {/* Payout bank info */}
-        <div style={s.bankBox}>
-          <div style={s.bankRow}>
-            <span style={s.bankLabel}>Bank</span>
-            <span style={s.bankValue}>{vendor?.bank_name ?? "—"}</span>
-          </div>
-          <div style={s.bankRow}>
-            <span style={s.bankLabel}>Account</span>
-            <span style={s.bankValue}>
-              {"•".repeat(6) + (vendor?.bank_account?.slice(-4) ?? "——")}
-            </span>
-          </div>
-          <div style={s.bankRow}>
-            <span style={s.bankLabel}>Name</span>
-            <span style={s.bankValue}>{vendor?.account_name ?? "—"}</span>
-          </div>
-        </div>
-
-        {/* Amount input */}
-        <div style={{ position: "relative", marginTop: "1rem" }}>
-          <span style={s.currencyPrefix}>₦</span>
-          <input
-            type="number"
-            placeholder="Enter amount (min ₦500)"
-            value={withdrawAmt}
-            onChange={(e) => setWithdrawAmt(e.target.value)}
-            style={s.withdrawInput}
-          />
-        </div>
-
-        {/* Quick amounts */}
-        <div style={s.quickAmounts}>
-          {[1000, 5000, 10000, 50000].map((amt) => (
-            <button
-              key={amt}
-              style={{
-                ...s.quickAmtBtn,
-                background: withdrawAmt == amt ? "#6366f1" : "#f8fafc",
-                color:      withdrawAmt == amt ? "white"   : "#374151",
-                borderColor:withdrawAmt == amt ? "#6366f1" : "#e5e7eb",
-              }}
-              onClick={() => setWithdrawAmt(String(amt))}
-            >
-              {formatNGN(amt, 0)}
-            </button>
-          ))}
-          <button
-            style={{ ...s.quickAmtBtn, background: "#f8fafc", color: "#6366f1", borderColor: "#6366f1" }}
-            onClick={() => setWithdrawAmt(String(balance?.available ?? 0))}
-          >
-            All
+          <button onClick={refresh}
+            className="p-2 hover:bg-white rounded-xl border border-gray-200
+                       text-gray-500 hover:text-blue-600 transition-colors">
+            <RefreshCw size={18} />
           </button>
         </div>
 
-        {/* Message */}
-        {msg.text && (
-          <div style={{
-            padding:      "0.75rem 1rem",
-            borderRadius: "10px",
-            fontSize:     "0.875rem",
-            marginTop:    "1rem",
-            background:   msg.type === "error" ? "#fef2f2" : "#ecfdf5",
-            color:        msg.type === "error" ? "#991b1b" : "#065f46",
-            border:       `1px solid ${msg.type === "error" ? "#fecaca" : "#a7f3d0"}`,
-          }}>
-            {msg.text}
+        {/* free withdrawal alert */}
+        {limits.free_remaining > 0 && (
+          <div className="bg-green-50 border border-green-200 rounded-2xl
+                          p-4 flex items-center gap-3">
+            <div className="bg-green-100 p-2 rounded-xl">
+              <Gift size={18} className="text-green-600" />
+            </div>
+            <div>
+              <p className="font-semibold text-green-800">
+                {limits.free_remaining} free withdrawal
+                {limits.free_remaining > 1 ? "s" : ""} remaining today
+              </p>
+              <p className="text-sm text-green-600">
+                Withdraw now with zero fees
+              </p>
+            </div>
           </div>
         )}
 
-        <button
-          style={{
-            ...s.withdrawBtn,
-            opacity: withdrawing || !withdrawAmt ? 0.6 : 1,
-          }}
-          disabled={withdrawing || !withdrawAmt}
-          onClick={handleWithdraw}
-        >
-          {withdrawing ? "Processing..." : "💸 Request Withdrawal"}
-        </button>
+        {/* stat cards */}
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+          <StatCard icon={<Wallet size={20} />}     label="Available"       value={fmt(wallet.available_balance)} color="blue" />
+          <StatCard icon={<Clock size={20} />}      label="Pending"         value={fmt(wallet.pending_balance)}   color="amber"
+                    sub="Awaiting settlement" />
+          <StatCard icon={<TrendingUp size={20} />} label="Total Received"  value={fmt(wallet.total_received)}    color="green" />
+          <StatCard icon={<Banknote size={20} />}   label="Total Withdrawn" value={fmt(wallet.total_withdrawn)}   color="purple" />
+        </div>
 
-        <p style={s.withdrawNote}>
-          ⏱ Processed within 1–3 business days · Minimum ₦500
-        </p>
+        {/* virtual account */}
+        {virtual_account && (
+          <div className="bg-gradient-to-r from-blue-600 to-indigo-600
+                          text-white rounded-2xl p-5">
+            <p className="text-xs font-medium opacity-70 uppercase tracking-wider mb-2">
+              Virtual Account — receive payments here
+            </p>
+            <div className="flex items-center justify-between gap-4">
+              <div>
+                <p className="text-2xl font-bold tracking-widest">
+                  {virtual_account.account_number}
+                </p>
+                <p className="text-sm opacity-80 mt-0.5">
+                  {virtual_account.account_name} • {virtual_account.bank_name}
+                </p>
+              </div>
+              <button onClick={() => copyText(virtual_account.account_number)}
+                className="bg-white/20 hover:bg-white/30 p-2.5 rounded-xl transition-colors">
+                <Copy size={16} />
+              </button>
+            </div>
+          </div>
+        )}
+
+        {/* withdraw CTA */}
+        <div className="bg-white border border-gray-200 rounded-2xl p-5
+                        flex flex-col sm:flex-row items-start sm:items-center
+                        justify-between gap-4">
+          <div className="space-y-1">
+            <h2 className="font-semibold text-gray-900">Withdraw Earnings</h2>
+            <p className="text-sm text-gray-500">
+              {bank.account_number
+                ? `→ ${bank.account_name} • ${bank.account_number} (${bank.bank_name})`
+                : "No payout bank configured — update in Settings"}
+            </p>
+            <p className="text-xs text-gray-400">
+              {limits.fee_schedule_label} • Daily left: {fmt(limits.daily_remaining)}
+            </p>
+          </div>
+          <button
+            onClick={() => setShowWithdraw(true)}
+            disabled={!canWithdraw || !bank.account_number}
+            className="shrink-0 bg-blue-600 hover:bg-blue-700
+                       disabled:opacity-50 disabled:cursor-not-allowed
+                       text-white font-semibold px-6 py-3 rounded-xl
+                       transition-colors flex items-center gap-2"
+          >
+            <ArrowDownToLine size={16} />
+            Withdraw
+            {limits.free_remaining > 0 && (
+              <span className="bg-green-500 text-white text-xs px-1.5 py-0.5 rounded-full">
+                Free
+              </span>
+            )}
+          </button>
+        </div>
+
+        {/* fee schedule */}
+        <FeeScheduleTable
+          freeRemaining={limits.free_remaining}
+          withdrawalsToday={limits.withdrawals_today}
+        />
+
+        {/* history summary */}
+        {history && (
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+            {[
+              { label: "All requests",   val: history.stats.total },
+              { label: "Total paid out", val: fmt(history.stats.total_paid_out) },
+              { label: "Total fees",     val: fmt(history.stats.total_fees_paid) },
+              { label: "Failed",         val: history.stats.failed_count },
+            ].map(({ label, val }) => (
+              <div key={label}
+                className="bg-white border border-gray-200 rounded-xl p-4 text-center">
+                <p className="text-xs text-gray-400">{label}</p>
+                <p className="text-lg font-bold text-gray-800 mt-0.5">{val}</p>
+              </div>
+            ))}
+          </div>
+        )}
+
+        {/* history table */}
+        <div className="bg-white border border-gray-200 rounded-2xl overflow-hidden">
+          <div className="flex flex-wrap items-center justify-between gap-3 p-4 border-b">
+            <h2 className="font-semibold text-gray-900">Withdrawal History</h2>
+            <div className="flex flex-wrap gap-1.5">
+              {STATUS_FILTERS.map((s) => (
+                <button key={s}
+                  onClick={() => { setStatusFilter(s); setPage(1); }}
+                  className={`text-xs px-3 py-1.5 rounded-lg border transition-colors ${
+                    statusFilter === s
+                      ? "bg-blue-600 text-white border-blue-600"
+                      : "border-gray-200 text-gray-600 hover:border-blue-300"
+                  }`}>
+                  {s === "" ? "All" : s.charAt(0).toUpperCase() + s.slice(1)}
+                </button>
+              ))}
+            </div>
+          </div>
+
+          {loadingHistory ? (
+            <div className="p-10 flex justify-center">
+              <RefreshCw size={24} className="animate-spin text-blue-400" />
+            </div>
+          ) : !history?.withdrawals?.length ? (
+            <div className="p-14 text-center">
+              <ArrowDownToLine size={36} className="text-gray-300 mx-auto mb-3" />
+              <p className="text-gray-500 font-medium">No withdrawals yet</p>
+              <p className="text-gray-400 text-sm mt-1">
+                Your withdrawal history will appear here
+              </p>
+            </div>
+          ) : (
+            <>
+              {/* desktop */}
+              <div className="hidden md:block overflow-x-auto">
+                <table className="w-full text-sm">
+                  <thead className="bg-gray-50 border-b">
+                    <tr>
+                      {["Date", "Amount", "Fee", "Net", "Bank", "Status", ""].map((h) => (
+                        <th key={h} className="text-left text-xs font-semibold
+                                               text-gray-500 uppercase tracking-wider
+                                               px-4 py-3">
+                          {h}
+                        </th>
+                      ))}
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-gray-100">
+                    {history.withdrawals.map((w) => (
+                      <tr key={w.id} className="hover:bg-gray-50 transition-colors">
+                        <td className="px-4 py-3 text-gray-500 whitespace-nowrap text-xs">
+                          {fmtDate(w.created_at)}
+                        </td>
+                        <td className="px-4 py-3 font-semibold text-gray-900">
+                          {fmt(w.amount)}
+                        </td>
+                        <td className="px-4 py-3 text-xs">
+                          {Number(w.fee) === 0 ? (
+                            <span className="text-green-600 flex items-center gap-1">
+                              <Gift size={11} /> Free
+                            </span>
+                          ) : (
+                            <span className="text-red-400">−{fmt(w.fee)}</span>
+                          )}
+                        </td>
+                        <td className="px-4 py-3 text-green-600 font-medium">
+                          {fmt(w.net_amount)}
+                        </td>
+                        <td className="px-4 py-3 text-gray-500 max-w-[140px] truncate text-xs">
+                          {w.bank_name}
+                        </td>
+                        <td className="px-4 py-3">
+                          <StatusBadge status={w.status} />
+                        </td>
+                        <td className="px-4 py-3">
+                          <button onClick={() => setSelectedId(w.id)}
+                            className="text-gray-400 hover:text-blue-600 p-1
+                                       rounded transition-colors">
+                            <Eye size={15} />
+                          </button>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+
+              {/* mobile */}
+              <div className="md:hidden divide-y divide-gray-100">
+                {history.withdrawals.map((w) => (
+                  <div key={w.id}
+                    className="p-4 hover:bg-gray-50 transition-colors cursor-pointer"
+                    onClick={() => setSelectedId(w.id)}>
+                    <div className="flex items-start justify-between mb-2">
+                      <div>
+                        <p className="font-semibold text-gray-900">{fmt(w.amount)}</p>
+                        <p className="text-xs text-gray-400 mt-0.5">
+                          Net: {fmt(w.net_amount)}{" "}
+                          {Number(w.fee) === 0 ? (
+                            <span className="text-green-500">(Free)</span>
+                          ) : (
+                            <span className="text-red-400">(−{fmt(w.fee)} fee)</span>
+                          )}
+                        </p>
+                      </div>
+                      <StatusBadge status={w.status} />
+                    </div>
+                    <div className="flex justify-between text-xs text-gray-400">
+                      <span>{w.bank_name}</span>
+                      <span>{fmtDate(w.created_at)}</span>
+                    </div>
+                  </div>
+                ))}
+              </div>
+
+              {/* pagination */}
+              {history.pagination.total_pages > 1 && (
+                <div className="flex items-center justify-between px-4 py-3
+                                border-t bg-gray-50 text-sm">
+                  <p className="text-gray-500 text-xs">
+                    Page {history.pagination.page} of{" "}
+                    {history.pagination.total_pages} •{" "}
+                    {history.pagination.total} total
+                  </p>
+                  <div className="flex gap-2">
+                    <button onClick={() => setPage((p) => Math.max(1, p - 1))}
+                      disabled={page === 1}
+                      className="p-2 rounded-lg border border-gray-200
+                                 disabled:opacity-40 hover:bg-white transition-colors">
+                      <ChevronLeft size={15} />
+                    </button>
+                    <button
+                      onClick={() => setPage((p) => Math.min(history.pagination.total_pages, p + 1))}
+                      disabled={page === history.pagination.total_pages}
+                      className="p-2 rounded-lg border border-gray-200
+                                 disabled:opacity-40 hover:bg-white transition-colors">
+                      <ChevronRight size={15} />
+                    </button>
+                  </div>
+                </div>
+              )}
+            </>
+          )}
+        </div>
       </div>
 
-      {/* ── Transaction history ───────────────────────────── */}
-      {transactions.length > 0 && (
-        <div className="sd-card">
-          <h3 className="sd-card-title">📊 Transaction History</h3>
-          <div style={{ display: "flex", flexDirection: "column", gap: "0.5rem" }}>
-            {transactions.map((tx) => (
-              <TxRow key={tx.id} tx={tx} />
-            ))}
-          </div>
-        </div>
+      {showWithdraw && (
+        <WithdrawModal info={info} onClose={() => setShowWithdraw(false)} onSuccess={refresh} />
       )}
-
-      {/* ── Withdrawal history ────────────────────────────── */}
-      {withdrawals.length > 0 && (
-        <div className="sd-card">
-          <h3 className="sd-card-title">📤 Withdrawal History</h3>
-          <div style={{ display: "flex", flexDirection: "column", gap: "0.5rem" }}>
-            {withdrawals.map((wd) => (
-              <WdRow key={wd.id} wd={wd} />
-            ))}
-          </div>
-        </div>
+      {selectedId && (
+        <DetailDrawer id={selectedId} onClose={() => setSelectedId(null)} onCancelled={refresh} />
       )}
     </div>
   );
-};
-
-// ── Balance card ──────────────────────────────────────────────
-const BalanceCard = ({ label, value, color, icon, primary }) => (
-  <div style={{
-    background:   primary
-      ? `linear-gradient(135deg, ${color}, ${color}cc)`
-      : "white",
-    borderRadius: "16px",
-    padding:      "1.25rem",
-    border:       primary ? "none" : `1px solid #f3f4f6`,
-    boxShadow:    primary ? `0 4px 20px ${color}30` : "0 1px 3px rgba(0,0,0,0.04)",
-  }}>
-  <div style={{ display: "flex", alignItems: "center", gap: "0.5rem", marginBottom: "0.75rem" }}>
-    <span style={{ fontSize: "1.25rem" }}>{icon}</span>
-    <span style={{ fontSize: "0.8rem", fontWeight: 500, color: primary ? "rgba(255,255,255,0.85)" : "#9ca3af" }}>
-      {label}
-    </span>
-  </div>
-  <div style={{ fontSize: "1.5rem", fontWeight: 800, color: primary ? "white" : color }}>
-    {formatNGN(value)}
-  </div>
-</div>
-);
-
-// ── Transaction row ───────────────────────────────────────────
-const TxRow = ({ tx }) => (
-  <div style={{
-    display:       "flex",
-    alignItems:    "center",
-    gap:           "0.75rem",
-    padding:       "0.75rem",
-    background:    "#f8fafc",
-    borderRadius:  "10px",
-  }}>
-    <span style={{
-      fontSize:   "1.25rem",
-      width:      "36px",
-      height:     "36px",
-      display:    "flex",
-      alignItems: "center",
-      justifyContent: "center",
-      borderRadius: "8px",
-      background: tx.type === "credit" ? "#ecfdf5" : "#fef2f2",
-    }}>
-      {tx.type === "credit" ? "📥" : "📤"}
-    </span>
-    <div style={{ flex: 1 }}>
-      <p style={{ fontWeight: 600, color: "#1f2937", margin: 0, fontSize: "0.875rem" }}>
-        {tx.narration ?? tx.type}
-      </p>
-      <p style={{ color: "#9ca3af", margin: 0, fontSize: "0.75rem" }}>
-        {new Date(tx.created_at).toLocaleDateString("en-NG")}
-      </p>
-    </div>
-    <span style={{
-      fontWeight: 800,
-      fontSize:   "0.9rem",
-      color:      tx.type === "credit" ? "#10b981" : "#ef4444",
-    }}>
-      {tx.type === "credit" ? "+" : "-"}{formatNGN(tx.amount)}
-    </span>
-  </div>
-);
-
-// ── Withdrawal row ────────────────────────────────────────────
-const STATUS_COLORS = {
-  success:    { color: "#10b981", bg: "#ecfdf5" },
-  pending:    { color: "#f59e0b", bg: "#fffbeb" },
-  processing: { color: "#3b82f6", bg: "#eff6ff" },
-  failed:     { color: "#ef4444", bg: "#fef2f2" },
-};
-
-const WdRow = ({ wd }) => {
-  const sc = STATUS_COLORS[wd.status] ?? STATUS_COLORS.pending;
-  return (
-    <div style={{
-      display:        "flex",
-      alignItems:     "center",
-      gap:            "0.75rem",
-      padding:        "0.75rem",
-      background:     "#f8fafc",
-      borderRadius:   "10px",
-    }}>
-      <span style={{
-        fontSize:       "1.1rem",
-        width:          "36px",
-        height:         "36px",
-        display:        "flex",
-        alignItems:     "center",
-        justifyContent: "center",
-        borderRadius:   "8px",
-        background:     "#fef2f2",
-      }}>
-        💸
-      </span>
-      <div style={{ flex: 1 }}>
-        <p style={{ fontWeight: 600, color: "#1f2937", margin: 0, fontSize: "0.875rem" }}>
-          Withdrawal to {wd.bank_name}
-        </p>
-        <p style={{ color: "#9ca3af", margin: 0, fontSize: "0.75rem" }}>
-          {new Date(wd.created_at).toLocaleDateString("en-NG")}
-        </p>
-      </div>
-      <div style={{ textAlign: "right" }}>
-        <p style={{ fontWeight: 800, color: "#ef4444", margin: 0, fontSize: "0.9rem" }}>
-          -{formatNGN(wd.amount)}
-        </p>
-        <span style={{
-          fontSize:     "0.7rem",
-          fontWeight:   700,
-          color:        sc.color,
-          background:   sc.bg,
-          padding:      "0.1rem 0.45rem",
-          borderRadius: "100px",
-        }}>
-          {wd.status}
-        </span>
-      </div>
-    </div>
-  );
-};
-
-// ── Styles ────────────────────────────────────────────────────
-const s = {
-  balanceGrid: {
-    display:               "grid",
-    gridTemplateColumns:   "repeat(auto-fill, minmax(200px, 1fr))",
-    gap:                   "1rem",
-  },
-  vaBox: {
-    background:   "#f8fafc",
-    borderRadius: "12px",
-    padding:      "1rem",
-    border:       "1px solid #e5e7eb",
-    display:      "flex",
-    flexDirection:"column",
-    gap:          "0.75rem",
-  },
-  vaRow: {
-    display:        "flex",
-    justifyContent: "space-between",
-    alignItems:     "center",
-  },
-  vaLabel:  { color: "#6b7280", fontSize: "0.85rem", fontWeight: 500 },
-  vaValue:  { fontWeight: 600, color: "#1f2937",  fontSize: "0.875rem" },
-  vaNumber: { fontWeight: 800, color: "#6366f1",  fontSize: "1.1rem",  fontFamily: "monospace", letterSpacing: "0.08em" },
-  copyBtn:  { padding: "0.25rem 0.75rem", background: "#eef2ff", color: "#6366f1", border: "none", borderRadius: "6px", fontWeight: 600, fontSize: "0.78rem", cursor: "pointer" },
-  vaNote:   { background: "#eff6ff", border: "1px solid #bfdbfe", borderRadius: "10px", padding: "0.75rem 1rem", color: "#1e40af", fontSize: "0.82rem", marginTop: "1rem" },
-  noVa:     { textAlign: "center", padding: "2rem", display: "flex", flexDirection: "column", alignItems: "center", gap: "0.5rem" },
-
-  bankBox: {
-    background:   "#f8fafc",
-    borderRadius: "12px",
-    padding:      "1rem",
-    border:       "1px solid #e5e7eb",
-    display:      "flex",
-    flexDirection:"column",
-    gap:          "0.5rem",
-  },
-  bankRow:   { display: "flex", justifyContent: "space-between", alignItems: "center" },
-  bankLabel: { color: "#6b7280", fontSize: "0.82rem", fontWeight: 500 },
-  bankValue: { fontWeight: 600, color: "#1f2937", fontSize: "0.875rem" },
-
-  currencyPrefix: {
-    position:   "absolute",
-    left:       "1rem",
-    top:        "50%",
-    transform:  "translateY(-50%)",
-    fontWeight: 700,
-    color:      "#374151",
-    fontSize:   "1rem",
-  },
-  withdrawInput: {
-    width:        "100%",
-    padding:      "0.875rem 1rem 0.875rem 2rem",
-    border:       "2px solid #e5e7eb",
-    borderRadius: "12px",
-    fontSize:     "1.1rem",
-    fontWeight:   600,
-    outline:      "none",
-    boxSizing:    "border-box",
-  },
-  quickAmounts: {
-    display:   "flex",
-    gap:       "0.5rem",
-    marginTop: "0.75rem",
-    flexWrap:  "wrap",
-  },
-  quickAmtBtn: {
-    padding:      "0.4rem 0.875rem",
-    borderRadius: "100px",
-    border:       "1px solid",
-    cursor:       "pointer",
-    fontSize:     "0.82rem",
-    fontWeight:   600,
-    transition:   "all 0.15s",
-  },
-  withdrawBtn: {
-    width:         "100%",
-    padding:       "1rem",
-    marginTop:     "1rem",
-    background:    "linear-gradient(135deg, #10b981, #059669)",
-    color:         "white",
-    border:        "none",
-    borderRadius:  "14px",
-    fontWeight:    700,
-    fontSize:      "1rem",
-    cursor:        "pointer",
-  },
-  withdrawNote: {
-    color:      "#9ca3af",
-    fontSize:   "0.8rem",
-    textAlign:  "center",
-    marginTop:  "0.75rem",
-  },
-};
+}
