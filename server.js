@@ -254,6 +254,7 @@ import marketProductsRouter   from "./routes/marketproducts.js";
 import authRouter             from "./routes/sellerAuth.routes.js";
 import sellerOnboardingRouter from "./routes/sellerOnboarding.routes.js";
 import sellerPayoutRoutes     from "./routes/seller/payout.js";
+import sellerDashboardRouter from "./routes/seller/dashboard.js";
 
 // ── Payment ──────────────────────────────────────────────────
 app.use("/api/payment",           paymentRouter);
@@ -289,6 +290,7 @@ app.use("/api/notifications",     notificationsRouter);
 app.use("/api/v1/wallets",        walletRoutes);
 app.use("/api/p2p",               p2pRouter);
 app.use("/api/verification",      verificationRouter);
+app.use("/api/seller-dashboard", sellerDashboardRouter);
 
 /* ═══════════════════════════════════════════════════════════════
    HEALTH CHECK
