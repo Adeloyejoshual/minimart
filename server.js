@@ -75,7 +75,6 @@ export const clearCachePattern = (prefix) => {
   }
 };
 
-// Purge expired cache entries every 60 s
 setInterval(() => {
   const now = Date.now();
   for (const [key, item] of _cache.entries()) {
@@ -118,7 +117,7 @@ app.use((_req, res, next) => {
 });
 
 /* ═══════════════════════════════════════════════════════════════
-   STATIC — uploads folder
+   STATIC — uploads
 ═══════════════════════════════════════════════════════════════ */
 app.use(
   "/uploads",
@@ -135,14 +134,28 @@ app.use(
 );
 
 /* ═══════════════════════════════════════════════════════════════
+   FLW KEY HELPER
+   Detects whether the Flutterwave key is live or test.
+   Flutterwave live keys come in two formats:
+     FLWSECK_LIVE-xxxxx   (newer format)
+     FLWSECK-xxxxx        (older format — also valid live key)
+   Test keys always contain "TEST" in the name.
+═══════════════════════════════════════════════════════════════ */
+const flwKeyMode = () => {
+  const key = process.env.FLW_SECRET_KEY ?? "";
+  if (!key) return "missing";
+  if (key.includes("TEST")) return "test";
+  return "live"; // FLWSECK_LIVE- or FLWSECK- without TEST = live
+};
+
+/* ═══════════════════════════════════════════════════════════════
    WEBHOOKS
    ⚠️  MUST be registered BEFORE express.json()
-       Webhooks need the raw body buffer for signature verification.
 ═══════════════════════════════════════════════════════════════ */
 import paymentRouter, { webhookRouter } from "./routes/payment.js";
 import flwWebhookRouter                 from "./routes/webhooks/flutterwave.js";
 
-// ── Paystack webhook (raw body for HMAC) ──────────────────────
+// ── Paystack webhook ──────────────────────────────────────────
 app.use(
   "/api/payment/webhook",
   express.raw({ type: "application/json" }),
@@ -150,7 +163,6 @@ app.use(
 );
 
 // ── Flutterwave webhook ───────────────────────────────────────
-// Raw buffer → parse to JSON → route handler
 app.use(
   "/api/webhooks/flutterwave",
   express.raw({ type: "application/json" }),
@@ -162,10 +174,10 @@ app.use(
   flwWebhookRouter
 );
 
-// ── TEMPORARY: payload capture endpoint ───────────────────────
-// Use this URL in Flutterwave dashboard temporarily to inspect
-// the exact payload structure. Remove once webhook works.
-// URL: https://minimart-ivrm.onrender.com/api/webhooks/flw-capture
+// ── TEMPORARY: Payload capture ────────────────────────────────
+// Set this URL in Flutterwave dashboard to see the exact payload.
+// https://minimart-ivrm.onrender.com/api/webhooks/flw-capture
+// Remove this block once webhook is confirmed working.
 app.post(
   "/api/webhooks/flw-capture",
   express.raw({ type: "*/*" }),
@@ -175,13 +187,20 @@ app.post(
       try { return JSON.parse(raw); } catch { return { raw }; }
     })();
 
-    console.log("═══════════════════════════════════════");
-    console.log("FLW CAPTURE:", new Date().toISOString());
-    console.log("Headers:", JSON.stringify(req.headers, null, 2));
-    console.log("Body:",    JSON.stringify(body, null, 2));
-    console.log("═══════════════════════════════════════");
+    console.log("═══════════════════════════════════════════════");
+    console.log("  FLW CAPTURE  —", new Date().toISOString());
+    console.log("  verif-hash header:", req.headers["verif-hash"]);
+    console.log("  event:", body?.event);
+    console.log("  amount:", body?.data?.amount);
+    console.log("  status:", body?.data?.status);
+    console.log("  payment_type:", body?.data?.payment_type);
+    console.log("  virtual_account_number:", body?.data?.virtual_account_number);
+    console.log("  account_number:", body?.data?.account_number);
+    console.log("  meta:", JSON.stringify(body?.data?.meta));
+    console.log("  payment_type_meta:", JSON.stringify(body?.data?.payment_type_meta));
+    console.log("  FULL BODY:", JSON.stringify(body, null, 2));
+    console.log("═══════════════════════════════════════════════");
 
-    // Save to DB for inspection (best-effort)
     try {
       await pool.query(
         `INSERT INTO market.webhook_logs
@@ -200,8 +219,7 @@ app.post(
 );
 
 /* ═══════════════════════════════════════════════════════════════
-   BODY PARSERS
-   ⚠️  Must come AFTER webhook routes
+   BODY PARSERS  ⚠️  After webhooks
 ═══════════════════════════════════════════════════════════════ */
 app.use(express.json({       limit: "10mb" }));
 app.use(express.urlencoded({ extended: true, limit: "10mb" }));
@@ -219,14 +237,13 @@ if (process.env.NODE_ENV !== "test") {
 }
 
 /* ═══════════════════════════════════════════════════════════════
-   IN-MEMORY RATE LIMITER (per-IP)
+   RATE LIMITER
 ═══════════════════════════════════════════════════════════════ */
 const _limiter   = new Map();
 const WINDOW_MS  = 60_000;
 const MAX_REQ    = 120;
 const UPLOAD_MAX = 20;
 
-// Purge stale limiter entries every 5 min
 setInterval(() => {
   const now = Date.now();
   for (const [ip, data] of _limiter.entries()) {
@@ -348,37 +365,36 @@ app.get("/api/health", async (_req, res) => {
     const t0       = Date.now();
     const { rows } = await pool.query("SELECT 1 AS ok");
     dbLatency      = Date.now() - t0;
-    // CockroachDB returns "1" as a string — loose equality handles both
-    dbOk           = rows[0]?.ok == 1;
+    dbOk           = rows[0]?.ok == 1; // loose — CockroachDB returns "1"
   } catch (err) {
     dbError = err.message;
   }
+
+  const mode = flwKeyMode();
 
   return res.json({
     success        : true,
     status         : dbOk ? "healthy" : "degraded",
     database       : dbOk,
     db_latency_ms  : dbLatency,
-    db_error       : dbError    ?? undefined,
+    db_error       : dbError   ?? undefined,
     uptime_s       : Math.floor(process.uptime()),
     memory_mb      : Math.round(process.memoryUsage().rss / 1024 / 1024),
     online_users   : getOnlineCount(),
     node_version   : process.version,
     env            : process.env.NODE_ENV || "development",
-    // Flutterwave status
     flw_key_set    : !!process.env.FLW_SECRET_KEY,
     flw_hash_set   : !!process.env.FLW_SECRET_HASH,
+    flw_mode       : mode,
     flw_key_prefix : process.env.FLW_SECRET_KEY
-      ? process.env.FLW_SECRET_KEY.slice(0, 12) + "…"
+      ? process.env.FLW_SECRET_KEY.slice(0, 14) + "…"
       : null,
-    flw_mode       : process.env.FLW_SECRET_KEY?.startsWith("FLWSECK_LIVE")
-      ? "live" : "test",
     webhook_url    : "https://minimart-ivrm.onrender.com/api/webhooks/flutterwave",
   });
 });
 
 /* ═══════════════════════════════════════════════════════════════
-   STATIC BUILD (production SPA fallback)
+   STATIC BUILD (production SPA)
 ═══════════════════════════════════════════════════════════════ */
 if (process.env.NODE_ENV === "production") {
   const distPath = path.join(__dirname, "dist");
@@ -412,43 +428,22 @@ app.use((req, res) =>
 app.use((err, req, res, _next) => {
   console.error("🔥 Unhandled error:", err.message || err);
 
-  // Multer file errors
   if (err.code === "LIMIT_FILE_SIZE")
-    return res.status(400).json({
-      success: false, message: "File too large (max 10 MB)",
-    });
+    return res.status(400).json({ success: false, message: "File too large (max 10 MB)" });
   if (err.code === "LIMIT_FILE_COUNT")
-    return res.status(400).json({
-      success: false, message: "Too many files",
-    });
+    return res.status(400).json({ success: false, message: "Too many files" });
   if (err.code === "LIMIT_UNEXPECTED_FILE")
-    return res.status(400).json({
-      success: false, message: "Unexpected file field",
-    });
+    return res.status(400).json({ success: false, message: "Unexpected file field" });
   if (err.message === "Only image files are allowed")
-    return res.status(400).json({
-      success: false, message: err.message,
-    });
-
-  // CORS
+    return res.status(400).json({ success: false, message: err.message });
   if (err.message?.startsWith("CORS blocked"))
-    return res.status(403).json({
-      success: false, message: err.message,
-    });
-
-  // CockroachDB constraint errors
+    return res.status(403).json({ success: false, message: err.message });
   if (err.code === "23505")
-    return res.status(409).json({
-      success: false, message: "Duplicate entry",
-    });
+    return res.status(409).json({ success: false, message: "Duplicate entry" });
   if (err.code === "23503")
-    return res.status(400).json({
-      success: false, message: "Referenced record not found",
-    });
+    return res.status(400).json({ success: false, message: "Referenced record not found" });
   if (err.code === "23514")
-    return res.status(400).json({
-      success: false, message: "Value violates database constraint",
-    });
+    return res.status(400).json({ success: false, message: "Value violates database constraint" });
 
   const status  = err.status ?? err.statusCode ?? 500;
   const message =
@@ -476,7 +471,6 @@ async function shutdown(signal) {
     process.exit(0);
   });
 
-  // Force exit if shutdown takes > 10 s
   setTimeout(() => {
     console.error("Forced exit after timeout");
     process.exit(1);
@@ -490,12 +484,23 @@ process.on("SIGINT",  () => shutdown("SIGINT"));
    START
 ═══════════════════════════════════════════════════════════════ */
 server.listen(PORT, () => {
+  const mode = flwKeyMode();
+
   console.log(`🚀 Server running on port ${PORT}`);
-  console.log(`   ENV     : ${process.env.NODE_ENV || "development"}`);
-  console.log(`   CORS    : ${ALLOWED_ORIGIN}`);
-  console.log(`   FLW KEY : ${process.env.FLW_SECRET_KEY  ? "✅ set (" + (process.env.FLW_SECRET_KEY.startsWith("FLWSECK_LIVE") ? "LIVE" : "TEST") + ")" : "❌ MISSING"}`);
-  console.log(`   FLW HASH: ${process.env.FLW_SECRET_HASH ? "✅ set" : "❌ MISSING — webhooks will be rejected"}`);
-  console.log(`   WEBHOOK : https://minimart-ivrm.onrender.com/api/webhooks/flutterwave`);
+  console.log(`   ENV      : ${process.env.NODE_ENV || "development"}`);
+  console.log(`   CORS     : ${ALLOWED_ORIGIN}`);
+  console.log(`   FLW KEY  : ${
+    mode === "missing" ? "❌ MISSING" :
+    mode === "live"    ? "✅ set — LIVE MODE" :
+                         "⚠️  set — TEST MODE (payments won't credit)"
+  }`);
+  console.log(`   FLW HASH : ${
+    process.env.FLW_SECRET_HASH
+      ? "✅ set"
+      : "❌ MISSING — webhooks will be rejected"
+  }`);
+  console.log(`   WEBHOOK  : https://minimart-ivrm.onrender.com/api/webhooks/flutterwave`);
+  console.log(`   CAPTURE  : https://minimart-ivrm.onrender.com/api/webhooks/flw-capture`);
 
   startChatCleanupJob();
   startCleanupJobs();
