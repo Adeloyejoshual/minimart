@@ -5,6 +5,7 @@ import http              from "http";
 import dotenv            from "dotenv";
 import { fileURLToPath } from "url";
 import { Pool }          from "pg";
+
 import { initSocket, getOnlineCount } from "./socket.js";
 
 dotenv.config();
@@ -12,16 +13,16 @@ dotenv.config();
 const __filename = fileURLToPath(import.meta.url);
 const __dirname  = path.dirname(__filename);
 
-/* ═══════════════════════════════════════════
+/* ═══════════════════════════════════════════════════════════════
    APP + HTTP SERVER
-═══════════════════════════════════════════ */
+═══════════════════════════════════════════════════════════════ */
 const app    = express();
 const PORT   = process.env.PORT || 5000;
 const server = http.createServer(app);
 
-/* ═══════════════════════════════════════════
+/* ═══════════════════════════════════════════════════════════════
    DATABASE — CockroachDB via pg Pool
-═══════════════════════════════════════════ */
+═══════════════════════════════════════════════════════════════ */
 export const pool = new Pool({
   connectionString        : process.env.COCKROACH_URI,
   ssl                     : { rejectUnauthorized: false },
@@ -33,53 +34,47 @@ export const pool = new Pool({
 (async () => {
   try {
     const { rows } = await pool.query("SELECT version()");
-    console.log("✅ CockroachDB connected:", rows[0].version.split(" ")[0]);
+    console.log("✅ CockroachDB:", rows[0].version.split(" ")[0]);
   } catch (err) {
     console.error("❌ Database connection failed:", err.message);
     process.exit(1);
   }
 })();
 
-pool.on("error", (err) => {
-  console.error("🔥 Unexpected pool error:", err.message);
-});
+pool.on("error", (err) =>
+  console.error("🔥 Unexpected pool error:", err.message)
+);
 
-/* ═══════════════════════════════════════════
+/* ═══════════════════════════════════════════════════════════════
    SOCKET.IO
-═══════════════════════════════════════════ */
+═══════════════════════════════════════════════════════════════ */
 const ALLOWED_ORIGIN = process.env.CLIENT_ORIGIN || "*";
 export const io = initSocket(server, ALLOWED_ORIGIN);
 
-/* ═══════════════════════════════════════════
-   IN-MEMORY CACHE (LRU-style with TTL)
-═══════════════════════════════════════════ */
+/* ═══════════════════════════════════════════════════════════════
+   IN-MEMORY CACHE (TTL-based)
+═══════════════════════════════════════════════════════════════ */
 const _cache    = new Map();
 const CACHE_TTL = 60_000;
 
-export function setCache(key, value, ttl = CACHE_TTL) {
+export const setCache = (key, value, ttl = CACHE_TTL) =>
   _cache.set(key, { value, expires: Date.now() + ttl });
-}
 
-export function getCache(key) {
+export const getCache = (key) => {
   const item = _cache.get(key);
   if (!item) return null;
-  if (Date.now() > item.expires) {
-    _cache.delete(key);
-    return null;
-  }
+  if (Date.now() > item.expires) { _cache.delete(key); return null; }
   return item.value;
-}
+};
 
-export function deleteCache(key) {
-  _cache.delete(key);
-}
-
-export function clearCachePattern(prefix) {
+export const deleteCache      = (key)    => _cache.delete(key);
+export const clearCachePattern = (prefix) => {
   for (const key of _cache.keys()) {
     if (key.startsWith(prefix)) _cache.delete(key);
   }
-}
+};
 
+// Evict expired entries every minute
 setInterval(() => {
   const now = Date.now();
   for (const [key, item] of _cache.entries()) {
@@ -87,15 +82,16 @@ setInterval(() => {
   }
 }, 60_000);
 
-/* ═══════════════════════════════════════════
+/* ═══════════════════════════════════════════════════════════════
    CORS
-═══════════════════════════════════════════ */
+═══════════════════════════════════════════════════════════════ */
 const corsOptions = {
   origin(origin, cb) {
     if (!origin || ALLOWED_ORIGIN === "*") return cb(null, true);
     const allowed = ALLOWED_ORIGIN.split(",").map((s) => s.trim());
-    if (allowed.includes(origin)) return cb(null, true);
-    cb(new Error(`CORS blocked: ${origin}`));
+    return allowed.includes(origin)
+      ? cb(null, true)
+      : cb(new Error(`CORS blocked: ${origin}`));
   },
   credentials    : true,
   methods        : ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
@@ -105,9 +101,9 @@ const corsOptions = {
 app.use(cors(corsOptions));
 app.options("*", cors(corsOptions));
 
-/* ═══════════════════════════════════════════
+/* ═══════════════════════════════════════════════════════════════
    SECURITY HEADERS
-═══════════════════════════════════════════ */
+═══════════════════════════════════════════════════════════════ */
 app.use((_req, res, next) => {
   res.setHeader("X-Content-Type-Options", "nosniff");
   res.setHeader("X-Frame-Options",        "DENY");
@@ -120,9 +116,9 @@ app.use((_req, res, next) => {
   next();
 });
 
-/* ═══════════════════════════════════════════
-   STATIC — uploaded chat images
-═══════════════════════════════════════════ */
+/* ═══════════════════════════════════════════════════════════════
+   STATIC — uploads
+═══════════════════════════════════════════════════════════════ */
 app.use(
   "/uploads",
   express.static(path.join(__dirname, "uploads"), {
@@ -130,64 +126,65 @@ app.use(
     etag         : true,
     lastModified : true,
     setHeaders(res, filePath) {
-      if (filePath.endsWith(".html") || filePath.endsWith(".htm")) {
+      // Prevent HTML files from being served as HTML
+      if (/\.html?$/.test(filePath)) {
         res.setHeader("Content-Type", "text/plain");
       }
     },
   })
 );
 
-/* ═══════════════════════════════════════════
-   WEBHOOKS — raw body MUST come before express.json()
-═══════════════════════════════════════════ */
+/* ═══════════════════════════════════════════════════════════════
+   WEBHOOKS
+   Raw body MUST be parsed BEFORE express.json() is mounted.
+═══════════════════════════════════════════════════════════════ */
 import paymentRouter, { webhookRouter } from "./routes/payment.js";
 import flwTransferWebhook               from "./routes/webhooks/flutterwaveTransfer.js";
 
-// Paystack
+// Paystack — raw body for HMAC verification
 app.use(
   "/api/payment/webhook",
   express.raw({ type: "application/json" }),
   webhookRouter
 );
 
-// Flutterwave — parse raw Buffer back to object after HMAC verification
+// Flutterwave transfer — raw body → verify HMAC → parse JSON
 app.use(
   "/api/webhooks/flutterwave",
   express.raw({ type: "application/json" }),
   (req, _res, next) => {
-    try { req.body = JSON.parse(req.body.toString()); }
+    try   { req.body = JSON.parse(req.body.toString()); }
     catch { req.body = {}; }
     next();
   },
   flwTransferWebhook
 );
 
-/* ═══════════════════════════════════════════
+/* ═══════════════════════════════════════════════════════════════
    BODY PARSERS
-═══════════════════════════════════════════ */
+═══════════════════════════════════════════════════════════════ */
 app.use(express.json({       limit: "10mb" }));
 app.use(express.urlencoded({ extended: true, limit: "10mb" }));
 
-/* ═══════════════════════════════════════════
+/* ═══════════════════════════════════════════════════════════════
    REQUEST LOGGER
-═══════════════════════════════════════════ */
-app.use((req, _res, next) => {
-  if (process.env.NODE_ENV !== "test") {
-    console.log(
-      `${new Date().toISOString()} | ${req.method} ${req.originalUrl}`
-    );
-  }
-  next();
-});
+═══════════════════════════════════════════════════════════════ */
+if (process.env.NODE_ENV !== "test") {
+  app.use((req, _res, next) => {
+    console.log(`${new Date().toISOString()} | ${req.method} ${req.originalUrl}`);
+    next();
+  });
+}
 
-/* ═══════════════════════════════════════════
-   RATE LIMITER (per-IP, in-memory)
-═══════════════════════════════════════════ */
+/* ═══════════════════════════════════════════════════════════════
+   IN-MEMORY RATE LIMITER (per-IP)
+═══════════════════════════════════════════════════════════════ */
 const _limiter   = new Map();
 const WINDOW_MS  = 60_000;
 const MAX_REQ    = 120;
 const UPLOAD_MAX = 20;
 
+// Sweep stale entries every 5 minutes
 setInterval(() => {
   const now = Date.now();
   for (const [ip, data] of _limiter.entries()) {
@@ -226,18 +223,19 @@ function rateLimiter(max = MAX_REQ) {
   };
 }
 
+// Global rate limit
 app.use(rateLimiter(MAX_REQ));
 
-/* ═══════════════════════════════════════════
+/* ═══════════════════════════════════════════════════════════════
    CRON JOBS
-═══════════════════════════════════════════ */
+═══════════════════════════════════════════════════════════════ */
 import "./jobs/expirePromotions.js";
 import { startChatCleanupJob } from "./jobs/cleanupChats.js";
 import { startCleanupJobs }    from "./jobs/cleanup.js";
 
-/* ═══════════════════════════════════════════
-   ROUTE IMPORTS
-═══════════════════════════════════════════ */
+/* ═══════════════════════════════════════════════════════════════
+   ROUTES
+═══════════════════════════════════════════════════════════════ */
 import addproductRouter       from "./routes/addproduct.js";
 import userRouter             from "./routes/users.js";
 import messagesRouter         from "./routes/messages.js";
@@ -258,41 +256,49 @@ import authRouter             from "./routes/sellerAuth.routes.js";
 import sellerOnboardingRouter from "./routes/sellerOnboarding.routes.js";
 import sellerPayoutRoutes     from "./routes/seller/payout.js";
 
-/* ═══════════════════════════════════════════
-   API ROUTES
-═══════════════════════════════════════════ */
+// ── Public / payment ──────────────────────────────────────────
 app.use("/api/payment",           paymentRouter);
+
+// ── Seller ───────────────────────────────────────────────────
 app.use("/api/seller",            sellerProfileRouter);
-app.use("/api/addproduct",        addproductRouter);
-app.use("/api/users",             userRouter);
-app.use("/api/conversations",     conversationsRouter);
-app.use("/api/market-products",   marketProductsRouter);
 app.use("/api/auth",              authRouter);
 app.use("/api/seller-onboarding", sellerOnboardingRouter);
-app.use("/api/seller-wallet",     sellerPayoutRoutes);
+app.use("/api/seller/payout",     sellerPayoutRoutes);
 
-app.use("/api/messages/upload", rateLimiter(UPLOAD_MAX));
-app.use("/api/messages",        messagesRouter);
+// ── Products ─────────────────────────────────────────────────
+app.use("/api/addproduct",        addproductRouter);
+app.use("/api/market-products",   marketProductsRouter);
+app.use("/api/product",           productDetailRouter);
+app.use("/api/products",          productsRouter);
 
-app.use("/api/admin",         adminRouter);
-app.use("/api/search",        searchRouter);
-app.use("/api/product",       productDetailRouter);
-app.use("/api/homepage",      homepageRouter);
-app.use("/api/dashboard",     dashboardRoutes);
-app.use("/api/notifications", notificationsRouter);
-app.use("/api/products",      productsRouter);
-app.use("/api/v1/wallets",    walletRoutes);
-app.use("/api/p2p",           p2pRouter);
-app.use("/api/verification",  verificationRouter);
+// ── Users ────────────────────────────────────────────────────
+app.use("/api/users",             userRouter);
 
-/* ═══════════════════════════════════════════
+// ── Messaging (upload has tighter rate limit) ─────────────────
+app.use("/api/messages/upload",   rateLimiter(UPLOAD_MAX));
+app.use("/api/messages",          messagesRouter);
+app.use("/api/conversations",     conversationsRouter);
+
+// ── Admin ────────────────────────────────────────────────────
+app.use("/api/admin",             adminRouter);
+
+// ── Misc ─────────────────────────────────────────────────────
+app.use("/api/search",            searchRouter);
+app.use("/api/homepage",          homepageRouter);
+app.use("/api/dashboard",         dashboardRoutes);
+app.use("/api/notifications",     notificationsRouter);
+app.use("/api/v1/wallets",        walletRoutes);
+app.use("/api/p2p",               p2pRouter);
+app.use("/api/verification",      verificationRouter);
+
+/* ═══════════════════════════════════════════════════════════════
    HEALTH CHECK
-═══════════════════════════════════════════ */
+═══════════════════════════════════════════════════════════════ */
 app.get("/api/health", async (_req, res) => {
   try {
-    const start       = Date.now();
+    const t0          = Date.now();
     const { rows }    = await pool.query("SELECT 1 AS ok");
-    const dbLatencyMs = Date.now() - start;
+    const dbLatencyMs = Date.now() - t0;
 
     return res.json({
       success       : true,
@@ -306,22 +312,19 @@ app.get("/api/health", async (_req, res) => {
       env           : process.env.NODE_ENV || "development",
     });
   } catch (err) {
-    return res.status(500).json({
-      success : false,
-      status  : "unhealthy",
-      error   : err.message,
-    });
+    return res.status(500).json({ success: false, status: "unhealthy", error: err.message });
   }
 });
 
-/* ═══════════════════════════════════════════
-   STATIC BUILD (production)
-═══════════════════════════════════════════ */
+/* ═══════════════════════════════════════════════════════════════
+   STATIC BUILD (production SPA)
+═══════════════════════════════════════════════════════════════ */
 if (process.env.NODE_ENV === "production") {
   const distPath = path.join(__dirname, "dist");
   app.use(express.static(distPath, { maxAge: "1d" }));
 
   app.get("*", (req, res) => {
+    // Let unknown /api/* fall through to the 404 handler below
     if (req.path.startsWith("/api/")) {
       return res.status(404).json({
         success : false,
@@ -332,22 +335,23 @@ if (process.env.NODE_ENV === "production") {
   });
 }
 
-/* ═══════════════════════════════════════════
+/* ═══════════════════════════════════════════════════════════════
    404
-═══════════════════════════════════════════ */
-app.use((req, res) => {
+═══════════════════════════════════════════════════════════════ */
+app.use((req, res) =>
   res.status(404).json({
     success : false,
     message : `Cannot ${req.method} ${req.originalUrl}`,
-  });
-});
+  })
+);
 
-/* ═══════════════════════════════════════════
+/* ═══════════════════════════════════════════════════════════════
    GLOBAL ERROR HANDLER
-═══════════════════════════════════════════ */
+═══════════════════════════════════════════════════════════════ */
 app.use((err, req, res, _next) => {
   console.error("🔥 Unhandled error:", err.message || err);
 
+  // Multer / file errors
   if (err.code === "LIMIT_FILE_SIZE")
     return res.status(400).json({ success: false, message: "File too large (max 10 MB)" });
   if (err.code === "LIMIT_FILE_COUNT")
@@ -356,8 +360,12 @@ app.use((err, req, res, _next) => {
     return res.status(400).json({ success: false, message: "Unexpected file field" });
   if (err.message === "Only image files are allowed")
     return res.status(400).json({ success: false, message: err.message });
+
+  // CORS
   if (err.message?.startsWith("CORS blocked"))
     return res.status(403).json({ success: false, message: err.message });
+
+  // PostgreSQL / CockroachDB constraint errors
   if (err.code === "23505")
     return res.status(409).json({ success: false, message: "Duplicate entry" });
   if (err.code === "23503")
@@ -369,16 +377,16 @@ app.use((err, req, res, _next) => {
   const message =
     process.env.NODE_ENV === "production" && status === 500
       ? "Internal server error"
-      : err.message ?? "Internal server error";
+      : (err.message ?? "Internal server error");
 
-  res.status(status).json({ success: false, message });
+  return res.status(status).json({ success: false, message });
 });
 
-/* ═══════════════════════════════════════════
+/* ═══════════════════════════════════════════════════════════════
    GRACEFUL SHUTDOWN
-═══════════════════════════════════════════ */
+═══════════════════════════════════════════════════════════════ */
 async function shutdown(signal) {
-  console.log(`\n${signal} received — shutting down gracefully…`);
+  console.log(`\n${signal} received — shutting down…`);
 
   server.close(async () => {
     console.log("HTTP server closed");
@@ -391,6 +399,7 @@ async function shutdown(signal) {
     process.exit(0);
   });
 
+  // Force exit if graceful shutdown hangs
   setTimeout(() => {
     console.error("Forced exit after timeout");
     process.exit(1);
@@ -400,9 +409,9 @@ async function shutdown(signal) {
 process.on("SIGTERM", () => shutdown("SIGTERM"));
 process.on("SIGINT",  () => shutdown("SIGINT"));
 
-/* ═══════════════════════════════════════════
+/* ═══════════════════════════════════════════════════════════════
    START
-═══════════════════════════════════════════ */
+═══════════════════════════════════════════════════════════════ */
 server.listen(PORT, () => {
   console.log(`🚀 Server running on port ${PORT}`);
   console.log(`   ENV  : ${process.env.NODE_ENV || "development"}`);
@@ -410,7 +419,7 @@ server.listen(PORT, () => {
 
   startChatCleanupJob();
   startCleanupJobs();
-  console.log("🧹 Chat + OTP cleanup jobs started");
+  console.log("🧹 Cleanup jobs started");
 });
 
 export default app;
