@@ -1,4 +1,4 @@
-// src/pages/Profile.jsx
+// pages/Profile.jsx
 import React, { useState, useEffect, useRef } from "react";
 import { useNavigate, Link }                   from "react-router-dom";
 import axios                                   from "axios";
@@ -13,9 +13,9 @@ import "../style/Profile.css";
 
 // ══════════════════════════════════════════════════════════════
 // BECOME SELLER MODAL
-// Only asks: "Do you have a seller account?"
-// If YES → login → navigate to /become-seller (skips RegisterStep)
-// If NO  → navigate to /become-seller → RegisterStep shows
+// ✅ Uses seller_token (market.users) — separate from
+//    marketplace_token (public.users)
+// ✅ Never touches marketplace_token
 // ══════════════════════════════════════════════════════════════
 const BecomeSellerModal = ({ onClose, navigate }) => {
   const [mode,         setMode]         = useState("choice");
@@ -29,10 +29,7 @@ const BecomeSellerModal = ({ onClose, navigate }) => {
     setError("");
   };
 
-  // ── Login existing seller account ─────────────────────────
-  // After login → token saved → navigate to /become-seller
-  // useSellerFlow will detect token from market.users
-  // and skip REGISTER step → goes to STORE_SETUP
+  // ── Login existing seller account (market.users) ───────────
   const handleLogin = async () => {
     if (!formData.email.trim() || !formData.password) {
       setError("Email and password are required");
@@ -48,7 +45,11 @@ const BecomeSellerModal = ({ onClose, navigate }) => {
       });
 
       if (data.token) {
-        // ✅ Save as "token" — same key useSellerFlow reads
+        // ✅ Save as "seller_token" — market.users
+        // Does NOT overwrite "marketplace_token" (public.users)
+        localStorage.setItem("seller_token", data.token);
+
+        // ✅ Also set as "token" — this is what seller routes read
         localStorage.setItem("token", data.token);
       }
 
@@ -56,9 +57,7 @@ const BecomeSellerModal = ({ onClose, navigate }) => {
       navigate("/become-seller");
 
     } catch (err) {
-      setError(
-        err.response?.data?.message ?? "Login failed. Try again."
-      );
+      setError(err.response?.data?.message ?? "Login failed. Try again.");
     } finally {
       setLoading(false);
     }
@@ -77,7 +76,7 @@ const BecomeSellerModal = ({ onClose, navigate }) => {
           <FiX size={18} />
         </button>
 
-        {/* ── CHOICE SCREEN ─────────────────────────────── */}
+        {/* ── CHOICE ───────────────────────────────────── */}
         {mode === "choice" && (
           <div style={ms.section}>
             <div style={ms.icon}>🏪</div>
@@ -87,18 +86,15 @@ const BecomeSellerModal = ({ onClose, navigate }) => {
             </p>
 
             <div style={ms.btnGroup}>
-              {/* Has seller account → login first */}
-              <button
-                style={ms.primaryBtn}
-                onClick={() => setMode("login")}
-              >
+              <button style={ms.primaryBtn} onClick={() => setMode("login")}>
                 🔐 Yes, Sign In to Seller Account
               </button>
-
-              {/* No seller account → go to /become-seller → RegisterStep */}
               <button
                 style={ms.secondaryBtn}
                 onClick={() => {
+                  // ✅ Clear seller token — will show RegisterStep
+                  localStorage.removeItem("seller_token");
+                  localStorage.removeItem("token");
                   onClose();
                   navigate("/become-seller");
                 }}
@@ -109,14 +105,14 @@ const BecomeSellerModal = ({ onClose, navigate }) => {
 
             <div style={ms.infoBox}>
               <p style={ms.infoText}>
-                💡 Seller accounts use a separate email/password login
-                from your marketplace account (Google login).
+                💡 Seller accounts are separate from your marketplace account.
+                They use a different email and password.
               </p>
             </div>
           </div>
         )}
 
-        {/* ── LOGIN SCREEN ──────────────────────────────── */}
+        {/* ── LOGIN ────────────────────────────────────── */}
         {mode === "login" && (
           <div style={ms.section}>
             <button
@@ -129,7 +125,7 @@ const BecomeSellerModal = ({ onClose, navigate }) => {
             <div style={ms.icon}>🔐</div>
             <h2 style={ms.title}>Seller Sign In</h2>
             <p style={ms.subtitle}>
-              Sign in with your seller account
+              Sign in with your seller account (market.users)
             </p>
 
             <input
@@ -177,6 +173,8 @@ const BecomeSellerModal = ({ onClose, navigate }) => {
               <button
                 style={ms.switchLink}
                 onClick={() => {
+                  localStorage.removeItem("seller_token");
+                  localStorage.removeItem("token");
                   onClose();
                   navigate("/become-seller");
                 }}
@@ -187,8 +185,8 @@ const BecomeSellerModal = ({ onClose, navigate }) => {
 
             <div style={ms.noteBox}>
               <p style={ms.noteText}>
-                🔒 This is for your <strong>seller account</strong> only —
-                different from your Google/marketplace login.
+                🔒 This is your <strong>seller account</strong> — separate
+                from your Google/marketplace login.
               </p>
             </div>
           </div>
@@ -234,15 +232,10 @@ const ms = {
     display:    "flex",
     alignItems: "center",
   },
-  section: {
-    display:       "flex",
-    flexDirection: "column",
-    gap:           "1rem",
-  },
+  section: { display: "flex", flexDirection: "column", gap: "1rem" },
   icon:     { fontSize: "2.5rem", textAlign: "center" },
   title:    { fontSize: "1.35rem", fontWeight: 800, color: "#1f2937", margin: 0, textAlign: "center" },
   subtitle: { color: "#6b7280", fontSize: "0.875rem", textAlign: "center", lineHeight: 1.5, margin: 0 },
-
   input: {
     width:        "100%",
     padding:      "0.875rem 1rem",
@@ -251,7 +244,6 @@ const ms = {
     fontSize:     "0.95rem",
     outline:      "none",
     boxSizing:    "border-box",
-    transition:   "border-color 0.2s",
   },
   eyeBtn: {
     position:   "absolute",
@@ -283,7 +275,6 @@ const ms = {
     fontWeight:   700,
     fontSize:     "0.95rem",
     cursor:       "pointer",
-    transition:   "opacity 0.2s",
   },
   secondaryBtn: {
     width:        "100%",
@@ -297,41 +288,13 @@ const ms = {
     cursor:       "pointer",
   },
   btnGroup:  { display: "flex", flexDirection: "column", gap: "0.75rem" },
-  infoBox: {
-    background:   "#f0f9ff",
-    border:       "1px solid #bae6fd",
-    borderRadius: "10px",
-    padding:      "0.75rem 1rem",
-  },
+  infoBox:   { background: "#f0f9ff", border: "1px solid #bae6fd", borderRadius: "10px", padding: "0.75rem 1rem" },
   infoText:  { color: "#0369a1", fontSize: "0.8rem", lineHeight: 1.5, margin: 0 },
-  noteBox: {
-    background:   "#fffbeb",
-    border:       "1px solid #fde68a",
-    borderRadius: "10px",
-    padding:      "0.75rem 1rem",
-  },
+  noteBox:   { background: "#fffbeb", border: "1px solid #fde68a", borderRadius: "10px", padding: "0.75rem 1rem" },
   noteText:  { color: "#92400e", fontSize: "0.8rem", lineHeight: 1.5, margin: 0 },
   switchText:{ textAlign: "center", color: "#6b7280", fontSize: "0.85rem", margin: 0 },
-  switchLink:{
-    background:     "none",
-    border:         "none",
-    color:          "#6366f1",
-    fontWeight:     700,
-    cursor:         "pointer",
-    fontSize:       "0.85rem",
-    padding:        0,
-    textDecoration: "underline",
-  },
-  backBtn: {
-    background:  "none",
-    border:      "none",
-    color:       "#6b7280",
-    cursor:      "pointer",
-    fontSize:    "0.85rem",
-    fontWeight:  500,
-    padding:     0,
-    textAlign:   "left",
-  },
+  switchLink:{ background: "none", border: "none", color: "#6366f1", fontWeight: 700, cursor: "pointer", fontSize: "0.85rem", padding: 0, textDecoration: "underline" },
+  backBtn:   { background: "none", border: "none", color: "#6b7280", cursor: "pointer", fontSize: "0.85rem", fontWeight: 500, padding: 0, textAlign: "left" },
 };
 
 // ══════════════════════════════════════════════════════════════
@@ -351,6 +314,8 @@ const MENU_ITEMS = [
 
 // ══════════════════════════════════════════════════════════════
 // PROFILE COMPONENT
+// ✅ Uses marketplace_token for /api/users/me
+// ✅ Never interferes with seller_token / token
 // ══════════════════════════════════════════════════════════════
 const Profile = () => {
   const [user,            setUser]            = useState(null);
@@ -360,11 +325,17 @@ const Profile = () => {
 
   const menuRef  = useRef(null);
   const navigate = useNavigate();
-  const token    = localStorage.getItem("token");
 
-  // ── Fetch user ────────────────────────────────────────────
+  // ── Fetch marketplace user ────────────────────────────────
+  // ✅ Uses marketplace_token — NOT seller token
   useEffect(() => {
-    if (!token) return navigate("/auth");
+    const token = localStorage.getItem("marketplace_token");
+
+    if (!token) {
+      navigate("/auth");
+      return;
+    }
+
     (async () => {
       try {
         setLoading(true);
@@ -373,13 +344,13 @@ const Profile = () => {
         });
         setUser(data);
       } catch {
-        localStorage.removeItem("token");
+        localStorage.removeItem("marketplace_token");
         navigate("/auth");
       } finally {
         setLoading(false);
       }
     })();
-  }, [token]);
+  }, []);
 
   // ── Close menu on outside click ───────────────────────────
   useEffect(() => {
@@ -392,9 +363,10 @@ const Profile = () => {
     return () => document.removeEventListener("mousedown", close);
   }, []);
 
+  // ── Logout — clear marketplace session ───────────────────
+  // ✅ Does NOT clear seller_token — seller stays logged in
   const handleLogout = () => {
-    localStorage.removeItem("token");
-    localStorage.removeItem("seller_token");
+    localStorage.removeItem("marketplace_token");
     navigate("/auth");
   };
 
@@ -514,17 +486,17 @@ const Profile = () => {
             </Link>
           ))}
 
-          {/* ✅ Become Seller — opens modal first */}
+          {/* ✅ Become Seller — opens modal */}
           <button
             className="menu-item"
             onClick={() => setShowSellerModal(true)}
             style={{
-              width:      "100%",
-              textAlign:  "left",
-              background: "linear-gradient(135deg, #f5f3ff, #eef2ff)",
-              border:     "1px solid #e0e7ff",
-              cursor:     "pointer",
-              marginTop:  "0.5rem",
+              width:        "100%",
+              textAlign:    "left",
+              background:   "linear-gradient(135deg, #f5f3ff, #eef2ff)",
+              border:       "1px solid #e0e7ff",
+              cursor:       "pointer",
+              marginTop:    "0.5rem",
               borderRadius: "12px",
             }}
           >
@@ -558,12 +530,12 @@ const Profile = () => {
         </div>
       </div>
 
-      {/* Support button */}
+      {/* Support */}
       <Link to="/support" className="support-btn" aria-label="Contact support">
         <FiHeadphones size={18} />
       </Link>
 
-      {/* Become Seller Modal */}
+      {/* Seller Modal */}
       {showSellerModal && (
         <BecomeSellerModal
           onClose={() => setShowSellerModal(false)}
