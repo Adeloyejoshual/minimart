@@ -7,9 +7,6 @@ import StoreSetup       from "../components/seller/StoreSetup";
 import VerificationStep from "../components/seller/VerificationStep";
 import "../style/Seller.css";
 
-// ─────────────────────────────────────────────────────────────
-// PROGRESS STEPS CONFIG
-// ─────────────────────────────────────────────────────────────
 const PROGRESS_STEPS = [
   { key: STEPS.REGISTER,     label: "Register",     icon: "👤" },
   { key: STEPS.STORE_SETUP,  label: "Store Setup",  icon: "🏪" },
@@ -18,9 +15,6 @@ const PROGRESS_STEPS = [
   { key: STEPS.APPROVED,     label: "Approved",     icon: "✅" },
 ];
 
-// ─────────────────────────────────────────────────────────────
-// PROGRESS BAR
-// ─────────────────────────────────────────────────────────────
 const ProgressBar = ({ currentStep }) => (
   <div className="seller-progress">
     {PROGRESS_STEPS.map((s, idx) => {
@@ -29,33 +23,26 @@ const ProgressBar = ({ currentStep }) => (
       return (
         <React.Fragment key={s.key}>
           <div className="progress-step">
-            <div
-              className={[
-                "step-circle",
-                isActive    ? "active"    : "",
-                isCompleted ? "completed" : "",
-              ].filter(Boolean).join(" ")}
-            >
+            <div className={[
+              "step-circle",
+              isActive    ? "active"    : "",
+              isCompleted ? "completed" : "",
+            ].filter(Boolean).join(" ")}>
               {isCompleted ? "✓" : s.icon}
             </div>
-            <span
-              className={[
-                "step-label",
-                isActive    ? "active"    : "",
-                isCompleted ? "completed" : "",
-              ].filter(Boolean).join(" ")}
-            >
+            <span className={[
+              "step-label",
+              isActive    ? "active"    : "",
+              isCompleted ? "completed" : "",
+            ].filter(Boolean).join(" ")}>
               {s.label}
             </span>
           </div>
-
           {idx < PROGRESS_STEPS.length - 1 && (
-            <div
-              className={[
-                "progress-line",
-                isCompleted ? "completed" : "",
-              ].filter(Boolean).join(" ")}
-            />
+            <div className={[
+              "progress-line",
+              isCompleted ? "completed" : "",
+            ].filter(Boolean).join(" ")} />
           )}
         </React.Fragment>
       );
@@ -63,9 +50,7 @@ const ProgressBar = ({ currentStep }) => (
   </div>
 );
 
-// ─────────────────────────────────────────────────────────────
-// MOUNT LOADER
-// ─────────────────────────────────────────────────────────────
+// ── Loading spinner ────────────────────────────────────────────
 const MountLoader = () => (
   <div style={st.loaderWrap}>
     <div style={st.spinner} />
@@ -73,15 +58,11 @@ const MountLoader = () => (
   </div>
 );
 
-// ─────────────────────────────────────────────────────────────
-// GMAIL / BUYER ACCOUNT SCREEN
-// ─────────────────────────────────────────────────────────────
-const GmailUserScreen = () => (
+// ── Gmail / marketplace user screen ───────────────────────────
+const GmailUserScreen = ({ onSignOut }) => (
   <div className="seller-wrapper">
-    <div
-      className="seller-card"
-      style={{ textAlign: "center", padding: "2.5rem 2rem" }}
-    >
+    <div className="seller-card"
+      style={{ textAlign: "center", padding: "2.5rem 2rem" }}>
       <div style={{ fontSize: "3.5rem", marginBottom: "1rem" }}>
         🏪
       </div>
@@ -99,7 +80,7 @@ const GmailUserScreen = () => (
         marginBottom: "2rem",
         fontSize:     "0.9rem",
       }}>
-        You are currently logged in as a marketplace buyer.
+        You are logged in with a marketplace account.
         The seller system requires a separate seller account.
       </p>
       <div style={{
@@ -110,24 +91,17 @@ const GmailUserScreen = () => (
         margin:        "0 auto",
       }}>
         <button
-          onClick={() => {
-            // Clear any stale seller token and reload
-            // so the register form is shown clean
-            localStorage.removeItem("seller_token");
-            window.location.reload();
-          }}
+          onClick={onSignOut}
           className="btn-seller-primary"
         >
-          📝 Create Seller Account
+          📝 Create / Sign In to Seller Account
         </button>
-        <a
-          href="/"
+        <a href="/"
           style={{
             color:          "#9ca3af",
             textDecoration: "none",
             fontSize:       "0.9rem",
-          }}
-        >
+          }}>
           ← Back to Marketplace
         </a>
       </div>
@@ -135,44 +109,22 @@ const GmailUserScreen = () => (
   </div>
 );
 
-// ─────────────────────────────────────────────────────────────
-// REVIEW SCREEN
-// ─────────────────────────────────────────────────────────────
+// ── Review screen ──────────────────────────────────────────────
 const ReviewScreen = ({ vendor }) => {
   const status = vendor?.status ?? "pending";
-
-  const steps = [
-    {
-      icon: "📋",
-      text: "Account created",
-      done: true,
-    },
-    {
-      icon: "🏪",
-      text: "Store setup complete",
-      done: true,
-    },
-    {
-      icon: "🔍",
-      text: "Documents under review",
-      done: status !== "pending",
-    },
-    {
-      icon: "✅",
-      text: "Store activation",
-      done: ["approved", "active"].includes(status),
-    },
-    {
-      icon: "🚀",
-      text: "Start selling",
-      done: status === "active",
-    },
+  const steps  = [
+    { icon:"📋", text:"Account created",        done: true            },
+    { icon:"🏪", text:"Store setup complete",   done: true            },
+    { icon:"🔍", text:"Documents under review", done: status !== "pending" },
+    { icon:"✅", text:"Store activation",
+      done: ["approved","active"].includes(status) },
+    { icon:"🚀", text:"Start selling",
+      done: status === "active" },
   ];
 
   return (
     <div className="seller-card review-screen">
       <div className="review-icon">⏳</div>
-
       <h2 style={st.reviewTitle}>Application Under Review</h2>
       <p style={st.reviewDesc}>
         Our team is reviewing your application. This usually takes{" "}
@@ -199,7 +151,6 @@ const ReviewScreen = ({ vendor }) => {
         ))}
       </div>
 
-      {/* Rejection reason */}
       {status === "rejected" && vendor?.rejection_reason && (
         <div style={st.rejectionBox}>
           <strong>Rejection reason: </strong>
@@ -208,26 +159,28 @@ const ReviewScreen = ({ vendor }) => {
       )}
 
       <p style={st.emailNote}>
-        📧 We'll notify you by email once your store is reviewed.
+        📧 We'll notify you by email once reviewed.
       </p>
 
-      <a href="/" style={st.homeLink}>
-        ← Back to Marketplace
-      </a>
+      <a href="/" style={st.homeLink}>← Back to Marketplace</a>
     </div>
   );
 };
 
-// ─────────────────────────────────────────────────────────────
-// MAIN COMPONENT
-// ─────────────────────────────────────────────────────────────
-const BecomeSeller = ({ user }) => {
-  const flow = useSellerFlow(user);
+// ═════════════════════════════════════════════════════════════
+// MAIN
+// ═════════════════════════════════════════════════════════════
+const BecomeSeller = () => {
+  // ✅ No "user" prop needed — seller auth is self-contained
+  const flow = useSellerFlow();
 
-  // Loading state
-  if (flow.initializing) return <MountLoader />;
+  // ── 1. Still determining step (checking server) ───────────
+  // step === null means syncFromServer hasn't finished yet
+  if (flow.initializing || flow.step === null) {
+    return <MountLoader />;
+  }
 
-  // Redirect to dashboard if vendor is already approved/active
+  // ── 2. Redirect to dashboard if already approved ──────────
   if (flow.step === STEPS.APPROVED) {
     return <Navigate to="/seller/dashboard" replace />;
   }
@@ -239,29 +192,32 @@ const BecomeSeller = ({ user }) => {
     return <Navigate to="/seller/dashboard" replace />;
   }
 
-  // Buyer/Gmail account screen
+  // ── 3. Gmail / marketplace user ───────────────────────────
   if (flow.isGmailUser) {
-    return <GmailUserScreen />;
+    return (
+      <GmailUserScreen
+        // signOut clears the wrong token + resets to REGISTER
+        onSignOut={flow.signOut}
+      />
+    );
   }
 
+  // ── 4. Normal flow ────────────────────────────────────────
   return (
     <div className="seller-wrapper">
 
-      {/* Header */}
       <div style={st.header}>
         <h1 style={st.title}>Become a Seller</h1>
         <p style={st.subtitle}>
-          Set up your store and start selling to millions of users
+          Set up your store and start selling
         </p>
         <div style={st.stepBadge}>
           Step {flow.step + 1} of {PROGRESS_STEPS.length}
         </div>
       </div>
 
-      {/* Progress */}
       <ProgressBar currentStep={flow.step} />
 
-      {/* Steps */}
       {flow.step === STEPS.REGISTER && (
         <RegisterStep flow={flow} />
       )}
@@ -277,8 +233,6 @@ const BecomeSeller = ({ user }) => {
       {flow.step === STEPS.REVIEW && (
         <ReviewScreen vendor={flow.vendorData} />
       )}
-
-      {/* STEPS.APPROVED is handled by the Navigate redirect above */}
 
     </div>
   );
@@ -317,12 +271,13 @@ const st = {
     fontSize:     "0.85rem",
   },
   loaderWrap: {
-    minHeight:      "60vh",
+    minHeight:      "100vh",
     display:        "flex",
     flexDirection:  "column",
     alignItems:     "center",
     justifyContent: "center",
     gap:            "1rem",
+    background:     "#f9fafb",
   },
   spinner: {
     width:        "44px",
@@ -344,10 +299,10 @@ const st = {
     margin:     "0 0 0.25rem",
   },
   reviewDesc: {
-    color:      "#6b7280",
-    marginTop:  "0.75rem",
-    lineHeight: 1.6,
-    fontSize:   "0.9rem",
+    color:     "#6b7280",
+    marginTop: "0.75rem",
+    lineHeight:1.6,
+    fontSize:  "0.9rem",
   },
   emailNote: {
     color:     "#9ca3af",
