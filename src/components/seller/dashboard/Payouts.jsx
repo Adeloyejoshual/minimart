@@ -14,7 +14,7 @@ import {
   formatTimeAgo,
   DashboardSkeleton,
   DashboardError,
-} from "../../components/seller/dashboard/Shared";
+} from "./Shared";
 
 // ─── Fee calc (mirrors server) ────────────────────────────────────────────────
 const clientCalcFee = (amount, withdrawalsToday) => {
