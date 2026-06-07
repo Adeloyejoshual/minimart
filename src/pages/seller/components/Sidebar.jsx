@@ -2,31 +2,26 @@
 import React from "react";
 
 const NAV = [
-  { key: "overview",  icon: "⊞",  label: "Overview"  },
-  { key: "orders",    icon: "📦",  label: "Orders"    },
-  { key: "products",  icon: "🏷️", label: "Products"  },
-  { key: "analytics", icon: "📊",  label: "Analytics" },
-  { key: "payouts",   icon: "💳",  label: "Payouts"   },
-  { key: "settings",  icon: "⚙️", label: "Settings"  },
+  { key:"overview",  icon:"⊞",  label:"Overview"  },
+  { key:"orders",    icon:"📦", label:"Orders"    },
+  { key:"products",  icon:"🏷️",label:"Products"  },
+  { key:"analytics", icon:"📊", label:"Analytics" },
+  { key:"payouts",   icon:"💳", label:"Payouts"   },
+  { key:"settings",  icon:"⚙️",label:"Settings"  },
 ];
 
 export default function Sidebar({
   vendor, activePage, onNavigate,
-  isOpen, onClose, unreadCount = 0,
+  isOpen, onClose, showClose = false,
+  unreadCount = 0,
 }) {
   return (
-    <aside
-      style={{
-        ...s.sidebar,
-        ...(isOpen
-          ? { transform: "translateX(0)", boxShadow: "4px 0 24px rgba(0,0,0,0.15)" }
-          : {}),
-      }}
-    >
-      {/* Brand header */}
+    <aside style={s.sidebar}>
+
+      {/* Brand */}
       <div style={s.brand}>
         <div style={s.brandIcon}>🛒</div>
-        <div style={{ flex: 1, minWidth: 0 }}>
+        <div style={{ flex:1, minWidth:0 }}>
           <p style={s.brandName} title={vendor?.store_name}>
             {vendor?.store_name ?? "My Store"}
           </p>
@@ -35,19 +30,20 @@ export default function Sidebar({
             <span style={s.statusText}>Active</span>
           </div>
         </div>
-        <button
-          onClick={onClose}
-          style={s.closeBtn}
-          aria-label="Close sidebar"
-        >
-          ✕
-        </button>
+        {showClose && (
+          <button
+            onClick={onClose}
+            style={s.closeBtn}
+            aria-label="Close sidebar"
+          >
+            ✕
+          </button>
+        )}
       </div>
 
-      {/* Navigation */}
+      {/* Nav */}
       <nav style={s.nav}>
-        <p style={s.navSectionLabel}>MENU</p>
-
+        <p style={s.navLabel}>MENU</p>
         {NAV.map(({ key, icon, label }) => {
           const active = activePage === key;
           return (
@@ -56,36 +52,36 @@ export default function Sidebar({
               onClick={() => onNavigate(key)}
               style={{
                 ...s.navItem,
-                background:  active
+                background: active
                   ? "rgba(255,255,255,0.13)" : "transparent",
-                color:       active
+                color:      active
                   ? "white" : "rgba(255,255,255,0.62)",
-                fontWeight:  active ? 700 : 400,
+                fontWeight: active ? 700 : 400,
               }}
             >
-              {active && <span style={s.activeIndicator} />}
-              <span style={s.navItemIcon}>{icon}</span>
-              <span style={{ flex: 1 }}>{label}</span>
-
-              {/* Notification badge on overview */}
+              {active && <span style={s.activeBar} />}
+              <span style={s.navIcon}>{icon}</span>
+              <span style={{ flex:1 }}>{label}</span>
               {key === "overview" && unreadCount > 0 && (
-                <span style={s.badge}>{unreadCount}</span>
+                <span style={s.badge}>
+                  {unreadCount > 9 ? "9+" : unreadCount}
+                </span>
               )}
             </button>
           );
         })}
       </nav>
 
-      {/* Store info footer */}
+      {/* Footer */}
       <div style={s.footer}>
-        <div style={s.footerAvatar}>
+        <div style={s.avatar}>
           {(vendor?.store_name?.[0] ?? "S").toUpperCase()}
         </div>
-        <div style={{ flex: 1, minWidth: 0 }}>
-          <p style={s.footerStoreName} title={vendor?.store_name}>
+        <div style={{ flex:1, minWidth:0 }}>
+          <p style={s.footerName} title={vendor?.store_name}>
             {vendor?.store_name ?? "Seller"}
           </p>
-          <p style={s.footerCategory}>
+          <p style={s.footerCat}>
             {vendor?.store_category ?? "Marketplace"}
           </p>
         </div>
@@ -96,39 +92,34 @@ export default function Sidebar({
             if (!window.confirm(
               "Sign out of your seller dashboard?"
             )) return;
-            localStorage.removeItem("token");
+            localStorage.removeItem("seller_token");
             window.location.href = "/become-seller";
           }}
         >
           ↩
         </button>
       </div>
+
     </aside>
   );
 }
 
 const s = {
   sidebar: {
-    width:          "240px",
-    minWidth:       "240px",
-    background:     "linear-gradient(170deg,#1e1b4b 0%,#312e81 60%,#3730a3 100%)",
-    display:        "flex",
-    flexDirection:  "column",
-    height:         "100vh",
-    position:       "sticky",
-    top:            0,
-    overflowY:      "auto",
-    zIndex:         100,
-    transition:     "transform 0.25s cubic-bezier(.4,0,.2,1)",
-    // On mobile (<768px) it slides in from left
-    // We handle this via isOpen prop + transform override above
+    width:         "240px",
+    minWidth:      "240px",
+    background:    "linear-gradient(170deg,#1e1b4b 0%,#312e81 60%,#3730a3 100%)",
+    display:       "flex",
+    flexDirection: "column",
+    height:        "100vh",
+    overflowY:     "auto",
   },
   brand: {
-    display:       "flex",
-    alignItems:    "center",
-    gap:           "0.75rem",
-    padding:       "1.5rem 1.25rem 1.1rem",
-    borderBottom:  "1px solid rgba(255,255,255,0.07)",
+    display:      "flex",
+    alignItems:   "center",
+    gap:          "0.75rem",
+    padding:      "1.5rem 1.25rem 1.1rem",
+    borderBottom: "1px solid rgba(255,255,255,0.07)",
   },
   brandIcon: {
     width:          "40px",
@@ -164,9 +155,9 @@ const s = {
     flexShrink:   0,
   },
   statusText: {
-    color:    "#6ee7b7",
-    fontSize: "0.72rem",
-    fontWeight: 600,
+    color:     "#6ee7b7",
+    fontSize:  "0.72rem",
+    fontWeight:600,
   },
   closeBtn: {
     background:   "rgba(255,255,255,0.1)",
@@ -178,6 +169,7 @@ const s = {
     fontSize:     "0.9rem",
     flexShrink:   0,
     lineHeight:   1,
+    fontFamily:   "inherit",
   },
   nav: {
     flex:          1,
@@ -186,7 +178,7 @@ const s = {
     flexDirection: "column",
     gap:           "0.15rem",
   },
-  navSectionLabel: {
+  navLabel: {
     fontSize:      "0.65rem",
     fontWeight:    700,
     color:         "rgba(255,255,255,0.28)",
@@ -195,20 +187,21 @@ const s = {
     margin:        "0 0 0.5rem",
   },
   navItem: {
-    display:       "flex",
-    alignItems:    "center",
-    gap:           "0.7rem",
-    padding:       "0.68rem 0.875rem",
-    borderRadius:  "11px",
-    border:        "none",
-    cursor:        "pointer",
-    fontSize:      "0.875rem",
-    transition:    "all 0.15s",
-    width:         "100%",
-    textAlign:     "left",
-    position:      "relative",
+    display:      "flex",
+    alignItems:   "center",
+    gap:          "0.7rem",
+    padding:      "0.68rem 0.875rem",
+    borderRadius: "11px",
+    border:       "none",
+    cursor:       "pointer",
+    fontSize:     "0.875rem",
+    transition:   "all 0.15s",
+    width:        "100%",
+    textAlign:    "left",
+    position:     "relative",
+    fontFamily:   "inherit",
   },
-  activeIndicator: {
+  activeBar: {
     position:     "absolute",
     left:         "-0.75rem",
     top:          "50%",
@@ -218,10 +211,10 @@ const s = {
     background:   "white",
     borderRadius: "0 3px 3px 0",
   },
-  navItemIcon: {
-    fontSize: "1rem",
-    width:    "20px",
-    textAlign:"center",
+  navIcon: {
+    fontSize:  "1rem",
+    width:     "20px",
+    textAlign: "center",
     flexShrink:0,
   },
   badge: {
@@ -229,20 +222,20 @@ const s = {
     color:         "white",
     fontSize:      "0.62rem",
     fontWeight:    800,
-    padding:       "0.1rem 0.42rem",
+    padding:       "0.1rem 0.45rem",
     borderRadius:  "100px",
     minWidth:      "18px",
     textAlign:     "center",
     lineHeight:    "1.4",
   },
   footer: {
-    display:       "flex",
-    alignItems:    "center",
-    gap:           "0.7rem",
-    padding:       "1rem 1.1rem",
-    borderTop:     "1px solid rgba(255,255,255,0.07)",
+    display:    "flex",
+    alignItems: "center",
+    gap:        "0.7rem",
+    padding:    "1rem 1.1rem",
+    borderTop:  "1px solid rgba(255,255,255,0.07)",
   },
-  footerAvatar: {
+  avatar: {
     width:          "34px",
     height:         "34px",
     borderRadius:   "10px",
@@ -255,7 +248,7 @@ const s = {
     fontSize:       "0.95rem",
     flexShrink:     0,
   },
-  footerStoreName: {
+  footerName: {
     fontWeight:   600,
     color:        "rgba(255,255,255,0.9)",
     fontSize:     "0.8rem",
@@ -264,7 +257,7 @@ const s = {
     textOverflow: "ellipsis",
     whiteSpace:   "nowrap",
   },
-  footerCategory: {
+  footerCat: {
     color:        "rgba(255,255,255,0.4)",
     fontSize:     "0.7rem",
     margin:       0,
@@ -281,7 +274,7 @@ const s = {
     padding:      "0.45rem 0.6rem",
     fontSize:     "1rem",
     flexShrink:   0,
-    transition:   "all 0.15s",
     lineHeight:   1,
+    fontFamily:   "inherit",
   },
 };
