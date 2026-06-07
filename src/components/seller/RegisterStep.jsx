@@ -1,9 +1,29 @@
 // components/seller/RegisterStep.jsx
 import React, { useState, useCallback } from "react";
 import axios from "axios";
-import { STEPS } from "../../hooks/useSellerFlow";
+import { STEPS, SELLER_TOKEN_KEY } from "../../hooks/useSellerFlow";
 
-// ─── Password Strength Calculator ────────────────────────────
+// ─────────────────────────────────────────────────────────────
+// TOKEN HELPERS — must match useSellerFlow + SellerDashboard
+// ─────────────────────────────────────────────────────────────
+const getToken   = ()    => localStorage.getItem(SELLER_TOKEN_KEY);
+const saveToken  = (t)   => localStorage.setItem(SELLER_TOKEN_KEY, t);
+
+// ─────────────────────────────────────────────────────────────
+// Map vendor status → step
+// ─────────────────────────────────────────────────────────────
+const STATUS_TO_STEP = {
+  pending:      STEPS.VERIFICATION,
+  under_review: STEPS.REVIEW,
+  approved:     STEPS.APPROVED,
+  active:       STEPS.APPROVED,
+  rejected:     STEPS.STORE_SETUP,
+  suspended:    STEPS.APPROVED,
+};
+
+// ─────────────────────────────────────────────────────────────
+// PASSWORD STRENGTH
+// ─────────────────────────────────────────────────────────────
 const getPasswordStrength = (password) => {
   if (!password) return { score: 0, label: "", color: "" };
 
@@ -22,24 +42,14 @@ const getPasswordStrength = (password) => {
     { score: 4, label: "Strong",      color: "#10b981" },
     { score: 5, label: "Very Strong", color: "#059669" },
   ];
-
   return levels[Math.min(score, 5)];
 };
 
-// ── Map vendor status → correct step ─────────────────────────
-// ✅ Fixed: pending → VERIFICATION (not REVIEW)
-const STATUS_TO_STEP = {
-  pending:      STEPS.VERIFICATION,
-  under_review: STEPS.REVIEW,
-  approved:     STEPS.APPROVED,
-  active:       STEPS.APPROVED,
-  rejected:     STEPS.STORE_SETUP,
-  suspended:    STEPS.APPROVED,
-};
-
-// ─── Main Component ───────────────────────────────────────────
+// ─────────────────────────────────────────────────────────────
+// ROOT — toggles between register and sign-in
+// ─────────────────────────────────────────────────────────────
 const RegisterStep = ({ flow }) => {
-  const [mode, setMode] = useState("register"); // "register" | "signin"
+  const [mode, setMode] = useState("register");
 
   return mode === "register" ? (
     <RegisterForm
@@ -63,21 +73,19 @@ const RegisterForm = ({ flow, onSwitchToSignIn }) => {
     errors,
     loading,
     serverMsg,
+    serverErr,
     showPassword,
     showConfirm,
     setShowPassword,
     setShowConfirm,
     handleRegisterChange,
     submitRegister,
-    setStep,
   } = flow;
 
   const strength = getPasswordStrength(registerData.password);
 
   return (
     <div className="seller-card">
-
-      {/* Header */}
       <div style={s.cardHeader}>
         <div style={s.headerIcon}>👤</div>
         <h2 style={s.cardTitle}>Create Seller Account</h2>
@@ -88,7 +96,6 @@ const RegisterForm = ({ flow, onSwitchToSignIn }) => {
 
       <div style={s.form}>
 
-        {/* Full Name */}
         <Field label="Full Name" icon="👤" required error={errors.name}>
           <input
             name="name"
@@ -102,7 +109,6 @@ const RegisterForm = ({ flow, onSwitchToSignIn }) => {
           />
         </Field>
 
-        {/* Email */}
         <Field label="Email Address" icon="📧" required error={errors.email}>
           <input
             name="email"
@@ -115,7 +121,6 @@ const RegisterForm = ({ flow, onSwitchToSignIn }) => {
           />
         </Field>
 
-        {/* Phone */}
         <Field
           label="Phone Number"
           icon="📱"
@@ -134,7 +139,6 @@ const RegisterForm = ({ flow, onSwitchToSignIn }) => {
           />
         </Field>
 
-        {/* Password */}
         <Field label="Password" icon="🔒" required error={errors.password}>
           <div style={s.passwordWrap}>
             <input
@@ -152,16 +156,14 @@ const RegisterForm = ({ flow, onSwitchToSignIn }) => {
               toggle={() => setShowPassword(!showPassword)}
             />
           </div>
-
           {registerData.password && (
-            <StrengthMeter strength={strength} />
-          )}
-          {registerData.password && (
-            <PasswordRules password={registerData.password} />
+            <>
+              <StrengthMeter strength={strength} />
+              <PasswordRules password={registerData.password} />
+            </>
           )}
         </Field>
 
-        {/* Confirm Password */}
         <Field
           label="Confirm Password"
           icon="🔒"
@@ -184,7 +186,6 @@ const RegisterForm = ({ flow, onSwitchToSignIn }) => {
               toggle={() => setShowConfirm(!showConfirm)}
             />
           </div>
-
           {registerData.confirm_password && (
             <MatchIndicator
               a={registerData.password}
@@ -193,10 +194,9 @@ const RegisterForm = ({ flow, onSwitchToSignIn }) => {
           )}
         </Field>
 
-        {/* Server message */}
-        <ServerAlert msg={serverMsg} />
+        {serverErr && <ServerAlert msg={serverErr} isError />}
+        {serverMsg && <ServerAlert msg={serverMsg} />}
 
-        {/* Submit */}
         <button
           onClick={submitRegister}
           disabled={loading}
@@ -207,7 +207,6 @@ const RegisterForm = ({ flow, onSwitchToSignIn }) => {
             : "Create Account & Continue →"}
         </button>
 
-        {/* Switch to sign in */}
         <p style={s.switchText}>
           Already have a seller account?{" "}
           <button
@@ -234,6 +233,7 @@ const SignInForm = ({ flow, onSwitchToRegister }) => {
   const [errors,       setErrors]       = useState({});
   const [loading,      setLoading]      = useState(false);
   const [serverMsg,    setServerMsg]    = useState("");
+  const [isError,      setIsError]      = useState(false);
   const [showPassword, setShowPassword] = useState(false);
 
   const handleChange = useCallback((e) => {
@@ -241,16 +241,16 @@ const SignInForm = ({ flow, onSwitchToRegister }) => {
     setFormData((p) => ({ ...p, [name]: value }));
     setErrors((p)   => ({ ...p, [name]: ""    }));
     setServerMsg("");
+    setIsError(false);
   }, []);
 
-  // ── Validation ────────────────────────────────────────────
   const validate = () => {
-    const errs       = {};
-    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    const errs    = {};
+    const emailRx = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
     if (!formData.email.trim())
       errs.email = "Email is required";
-    else if (!emailRegex.test(formData.email))
+    else if (!emailRx.test(formData.email))
       errs.email = "Enter a valid email address";
 
     if (!formData.password)
@@ -260,75 +260,119 @@ const SignInForm = ({ flow, onSwitchToRegister }) => {
     return Object.keys(errs).length === 0;
   };
 
-  // ── Submit ─────────────────────────────────────────────────
   const handleSignIn = async () => {
     if (!validate()) return;
 
     setLoading(true);
     setServerMsg("");
+    setIsError(false);
 
     try {
-      // ✅ Login via seller auth route (market.users only)
-      const { data } = await axios.post("/api/auth/login", {
-        email:    formData.email.trim(),
-        password: formData.password,
-      });
+      // ── Step 1: Login ──────────────────────────────────
+      const { data: loginData } = await axios.post(
+        "/api/auth/login",
+        {
+          email:    formData.email.trim().toLowerCase(),
+          password: formData.password,
+        }
+      );
 
-      if (data.token) {
-        localStorage.setItem("token", data.token);
+      if (!loginData.token) {
+        setIsError(true);
+        setServerMsg("Login failed — no token received.");
+        return;
       }
 
-      // ── Check existing vendor status ──────────────────────
+      // ✅ CRITICAL FIX: save as "seller_token" not "token"
+      // This is what SellerDashboard reads via getSellerToken()
+      saveToken(loginData.token);
+
+      // ── Step 2: Fetch vendor status ────────────────────
       try {
-        const { data: vendorRes } = await axios.get(
+        const { data: statusData } = await axios.get(
           "/api/seller-onboarding/status",
-          { headers: { Authorization: `Bearer ${data.token}` } }
+          {
+            headers:  { Authorization: `Bearer ${loginData.token}` },
+            timeout:  10_000,
+          }
         );
 
-        if (vendorRes?.vendor) {
+        if (statusData?.vendor) {
+          const { status } = statusData.vendor;
+
+          // Update vendor data in parent hook
           if (typeof setVendorData === "function") {
-            setVendorData(vendorRes.vendor);
+            setVendorData(statusData.vendor);
           }
 
-          const nextStep =
-            STATUS_TO_STEP[vendorRes.vendor.status] ?? STEPS.STORE_SETUP;
+          // Approved / active → navigate to dashboard
+          if (["active", "approved"].includes(status)) {
+            setServerMsg("Welcome back! Redirecting to dashboard…");
+            // Small delay so user sees the message
+            setTimeout(() => {
+              window.location.replace("/seller/dashboard");
+            }, 800);
+            return;
+          }
 
+          // Other statuses → go to correct step
+          const nextStep =
+            STATUS_TO_STEP[status] ?? STEPS.STORE_SETUP;
           setStep(nextStep);
+
         } else {
+          // No vendor yet → store setup
           setStep(STEPS.STORE_SETUP);
         }
 
-      } catch (vendorErr) {
-        if (vendorErr.response?.status === 403) {
-          // This shouldn't happen since we use seller auth route
-          // but just in case — go to store setup
+      } catch (statusErr) {
+        const httpStatus = statusErr.response?.status;
+        const code       = statusErr.response?.data?.code;
+
+        if (httpStatus === 404) {
+          // Logged in, no vendor yet
+          setStep(STEPS.STORE_SETUP);
+        } else if (httpStatus === 403 && code === "NOT_SELLER_ACCOUNT") {
+          // They logged in with a marketplace account
+          // Clear the wrong token and show error
+          localStorage.removeItem(SELLER_TOKEN_KEY);
+          setIsError(true);
           setServerMsg(
-            "This account cannot access the seller system. " +
-            "Please create a seller account."
+            "This is a marketplace account. "
+            + "Please create a separate seller account."
           );
         } else {
-          // 404 = no vendor yet
+          // Status check failed — still go to store setup
+          console.warn("[SignIn] status check failed:", statusErr.message);
           setStep(STEPS.STORE_SETUP);
         }
       }
 
     } catch (err) {
-      setServerMsg(
-        err.response?.data?.message ?? "Sign in failed. Try again."
-      );
+      const msg = err.response?.data?.message;
+      const status = err.response?.status;
+
+      if (status === 401) {
+        setServerMsg("Incorrect email or password.");
+      } else if (status === 403) {
+        setServerMsg(
+          "Access denied. Make sure you are using your seller credentials."
+        );
+      } else {
+        setServerMsg(msg ?? "Sign in failed. Please try again.");
+      }
+      setIsError(true);
     } finally {
       setLoading(false);
     }
   };
 
   const handleKeyDown = (e) => {
-    if (e.key === "Enter") handleSignIn();
+    if (e.key === "Enter" && !loading) handleSignIn();
   };
 
   return (
     <div className="seller-card">
-
-      {/* Header */}
       <div style={s.cardHeader}>
         <div style={s.headerIcon}>🔐</div>
         <h2 style={s.cardTitle}>Welcome Back</h2>
@@ -339,7 +383,6 @@ const SignInForm = ({ flow, onSwitchToRegister }) => {
 
       <div style={s.form}>
 
-        {/* Email */}
         <Field label="Email Address" icon="📧" required error={errors.email}>
           <input
             name="email"
@@ -354,7 +397,6 @@ const SignInForm = ({ flow, onSwitchToRegister }) => {
           />
         </Field>
 
-        {/* Password */}
         <Field label="Password" icon="🔒" required error={errors.password}>
           <div style={s.passwordWrap}>
             <input
@@ -375,17 +417,16 @@ const SignInForm = ({ flow, onSwitchToRegister }) => {
           </div>
         </Field>
 
-        {/* Forgot password */}
         <div style={{ textAlign: "right", marginTop: "-0.5rem" }}>
           <a href="/forgot-password" style={s.forgotLink}>
             Forgot password?
           </a>
         </div>
 
-        {/* Server message */}
-        <ServerAlert msg={serverMsg} />
+        {serverMsg && (
+          <ServerAlert msg={serverMsg} isError={isError} />
+        )}
 
-        {/* Submit */}
         <button
           onClick={handleSignIn}
           disabled={loading}
@@ -396,7 +437,6 @@ const SignInForm = ({ flow, onSwitchToRegister }) => {
             : "Sign In & Continue →"}
         </button>
 
-        {/* Switch to register */}
         <p style={s.switchText}>
           Don't have a seller account?{" "}
           <button
@@ -408,11 +448,11 @@ const SignInForm = ({ flow, onSwitchToRegister }) => {
           </button>
         </p>
 
-        {/* Important note */}
         <div style={s.noteBox}>
           <p style={s.noteText}>
-            🔒 <strong>Seller accounts are separate</strong> from your
-            marketplace account. Use your seller email and password here.
+            🔒 <strong>Seller accounts are separate</strong> from
+            your marketplace account. Use your seller email and
+            password here.
           </p>
         </div>
 
@@ -424,7 +464,6 @@ const SignInForm = ({ flow, onSwitchToRegister }) => {
 // ══════════════════════════════════════════════════════════════
 // SHARED SUB-COMPONENTS
 // ══════════════════════════════════════════════════════════════
-
 const RULES = [
   { test: (p) => p.length >= 8,           label: "At least 8 characters" },
   { test: (p) => /[A-Z]/.test(p),         label: "One uppercase letter"  },
@@ -441,7 +480,10 @@ const PasswordRules = ({ password }) => (
           <span style={{ color: passed ? "#10b981" : "#d1d5db" }}>
             {passed ? "✓" : "○"}
           </span>
-          <span style={{ fontSize: "0.8rem", color: passed ? "#10b981" : "#9ca3af" }}>
+          <span style={{
+            fontSize: "0.8rem",
+            color:    passed ? "#10b981" : "#9ca3af",
+          }}>
             {rule.label}
           </span>
         </div>
@@ -453,12 +495,13 @@ const PasswordRules = ({ password }) => (
 const StrengthMeter = ({ strength }) => (
   <div style={s.strengthWrap}>
     <div style={s.strengthBar}>
-      {[1, 2, 3, 4, 5].map((i) => (
+      {[1,2,3,4,5].map((i) => (
         <div
           key={i}
           style={{
             ...s.strengthSegment,
-            background: i <= strength.score ? strength.color : "#e5e7eb",
+            background: i <= strength.score
+              ? strength.color : "#e5e7eb",
           }}
         />
       ))}
@@ -473,9 +516,9 @@ const StrengthMeter = ({ strength }) => (
 
 const MatchIndicator = ({ a, b }) => (
   <span style={{
-    fontSize:   "0.8rem",
-    fontWeight: 500,
-    color:      a === b ? "#10b981" : "#ef4444",
+    fontSize:  "0.8rem",
+    fontWeight:500,
+    color:     a === b ? "#10b981" : "#ef4444",
   }}>
     {a === b ? "✓ Passwords match" : "✗ Passwords do not match"}
   </span>
@@ -484,12 +527,14 @@ const MatchIndicator = ({ a, b }) => (
 const Field = ({ label, icon, required, error, hint, children }) => (
   <div className="seller-field">
     <label className="seller-label">
-      {icon} {label}
+      {icon && `${icon} `}{label}
       {required && <span style={{ color: "#ef4444" }}> *</span>}
     </label>
     {children}
     {hint && !error && (
-      <span style={{ color: "#9ca3af", fontSize: "0.8rem" }}>{hint}</span>
+      <span style={{ color: "#9ca3af", fontSize: "0.8rem" }}>
+        {hint}
+      </span>
     )}
     {error && (
       <span className="field-error">⚠️ {error}</span>
@@ -503,21 +548,14 @@ const EyeBtn = ({ show, toggle }) => (
     style={s.eyeBtn}
     onClick={toggle}
     aria-label={show ? "Hide password" : "Show password"}
+    tabIndex={-1}
   >
     {show ? "🙈" : "👁️"}
   </button>
 );
 
-const ServerAlert = ({ msg }) => {
+const ServerAlert = ({ msg, isError }) => {
   if (!msg) return null;
-  const isError =
-    msg.toLowerCase().includes("fail")    ||
-    msg.toLowerCase().includes("error")   ||
-    msg.toLowerCase().includes("invalid") ||
-    msg.toLowerCase().includes("incorrect") ||
-    msg.toLowerCase().includes("already") ||
-    msg.toLowerCase().includes("cannot");
-
   return (
     <div className={`seller-alert ${isError ? "error" : "success"}`}>
       {isError ? "⚠️" : "✅"} {msg}
@@ -535,6 +573,7 @@ const Spinner = () => (
     display:      "inline-block",
     animation:    "spin 0.7s linear infinite",
     marginRight:  "0.4rem",
+    verticalAlign:"middle",
   }} />
 );
 
@@ -549,11 +588,22 @@ const s = {
     borderBottom:  "1px solid #f3f4f6",
   },
   headerIcon:   { fontSize: "3rem", marginBottom: "0.75rem" },
-  cardTitle:    { fontSize: "1.5rem", fontWeight: 800, color: "#1f2937", margin: 0 },
-  cardSubtitle: { color: "#6b7280", marginTop: "0.4rem", fontSize: "0.95rem" },
-
-  form: { display: "flex", flexDirection: "column", gap: "1.25rem" },
-
+  cardTitle:    {
+    fontSize:  "1.5rem",
+    fontWeight:800,
+    color:     "#1f2937",
+    margin:    0,
+  },
+  cardSubtitle: {
+    color:     "#6b7280",
+    marginTop: "0.4rem",
+    fontSize:  "0.95rem",
+  },
+  form: {
+    display:       "flex",
+    flexDirection: "column",
+    gap:           "1.25rem",
+  },
   passwordWrap: { position: "relative" },
   eyeBtn: {
     position:   "absolute",
@@ -567,7 +617,6 @@ const s = {
     padding:    "0.25rem",
     lineHeight: 1,
   },
-
   strengthWrap: {
     display:    "flex",
     alignItems: "center",
@@ -581,8 +630,11 @@ const s = {
     borderRadius: "100px",
     transition:   "background 0.3s ease",
   },
-  strengthLabel: { fontSize: "0.8rem", fontWeight: 700, whiteSpace: "nowrap" },
-
+  strengthLabel: {
+    fontSize:  "0.8rem",
+    fontWeight:700,
+    whiteSpace:"nowrap",
+  },
   rulesWrap: {
     display:             "grid",
     gridTemplateColumns: "1fr 1fr",
@@ -593,7 +645,6 @@ const s = {
     borderRadius:        "10px",
   },
   ruleRow: { display: "flex", alignItems: "center", gap: "0.4rem" },
-
   switchText: {
     textAlign: "center",
     color:     "#6b7280",
@@ -609,18 +660,14 @@ const s = {
     fontSize:       "0.9rem",
     padding:        0,
     textDecoration: "underline",
+    fontFamily:     "inherit",
   },
-
   forgotLink: {
     color:          "#6366f1",
     fontSize:       "0.85rem",
     fontWeight:     600,
     textDecoration: "none",
   },
-
-  // ✅ Note box — replaces the "skip" button
-  // Seller step 0 (REGISTER) should NOT allow skipping
-  // without authentication
   noteBox: {
     background:   "#fffbeb",
     border:       "1px solid #fde68a",
@@ -628,10 +675,10 @@ const s = {
     padding:      "0.875rem 1rem",
   },
   noteText: {
-    color:      "#92400e",
-    fontSize:   "0.82rem",
-    lineHeight: 1.5,
-    margin:     0,
+    color:     "#92400e",
+    fontSize:  "0.82rem",
+    lineHeight:1.5,
+    margin:    0,
   },
 };
 
