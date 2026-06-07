@@ -1,13 +1,15 @@
 // pages/BecomeSeller.jsx
-import React          from "react";
-import { Navigate }   from "react-router-dom";
+import React        from "react";
+import { Navigate } from "react-router-dom";
 import { useSellerFlow, STEPS } from "../hooks/useSellerFlow";
-import { formatNGN }  from "../components/seller/DashboardComponents";
-import RegisterStep   from "../components/seller/RegisterStep";
-import StoreSetup     from "../components/seller/StoreSetup";
+import RegisterStep     from "../components/seller/RegisterStep";
+import StoreSetup       from "../components/seller/StoreSetup";
 import VerificationStep from "../components/seller/VerificationStep";
 import "../style/Seller.css";
 
+// ─────────────────────────────────────────────────────────────
+// PROGRESS STEPS CONFIG
+// ─────────────────────────────────────────────────────────────
 const PROGRESS_STEPS = [
   { key: STEPS.REGISTER,     label: "Register",     icon: "👤" },
   { key: STEPS.STORE_SETUP,  label: "Store Setup",  icon: "🏪" },
@@ -16,33 +18,44 @@ const PROGRESS_STEPS = [
   { key: STEPS.APPROVED,     label: "Approved",     icon: "✅" },
 ];
 
+// ─────────────────────────────────────────────────────────────
+// PROGRESS BAR
+// ─────────────────────────────────────────────────────────────
 const ProgressBar = ({ currentStep }) => (
   <div className="seller-progress">
     {PROGRESS_STEPS.map((s, idx) => {
       const isActive    = currentStep === s.key;
-      const isCompleted = currentStep > s.key;
+      const isCompleted = currentStep  >  s.key;
       return (
         <React.Fragment key={s.key}>
           <div className="progress-step">
             <div
-              className={`step-circle ${
-                isActive    ? "active"    :
-                isCompleted ? "completed" : ""
-              }`}
+              className={[
+                "step-circle",
+                isActive    ? "active"    : "",
+                isCompleted ? "completed" : "",
+              ].filter(Boolean).join(" ")}
             >
               {isCompleted ? "✓" : s.icon}
             </div>
             <span
-              className={`step-label ${
-                isActive    ? "active"    :
-                isCompleted ? "completed" : ""
-              }`}
+              className={[
+                "step-label",
+                isActive    ? "active"    : "",
+                isCompleted ? "completed" : "",
+              ].filter(Boolean).join(" ")}
             >
               {s.label}
             </span>
           </div>
+
           {idx < PROGRESS_STEPS.length - 1 && (
-            <div className={`progress-line ${isCompleted ? "completed" : ""}`} />
+            <div
+              className={[
+                "progress-line",
+                isCompleted ? "completed" : "",
+              ].filter(Boolean).join(" ")}
+            />
           )}
         </React.Fragment>
       );
@@ -50,22 +63,171 @@ const ProgressBar = ({ currentStep }) => (
   </div>
 );
 
+// ─────────────────────────────────────────────────────────────
+// MOUNT LOADER
+// ─────────────────────────────────────────────────────────────
 const MountLoader = () => (
   <div style={st.loaderWrap}>
     <div style={st.spinner} />
-    <p style={st.loaderText}>Loading your seller profile...</p>
+    <p style={st.loaderText}>Loading your seller profile…</p>
   </div>
 );
 
-// ═════════════════════════════════════════════════════════════
+// ─────────────────────────────────────────────────────────────
+// GMAIL / BUYER ACCOUNT SCREEN
+// ─────────────────────────────────────────────────────────────
+const GmailUserScreen = () => (
+  <div className="seller-wrapper">
+    <div
+      className="seller-card"
+      style={{ textAlign: "center", padding: "2.5rem 2rem" }}
+    >
+      <div style={{ fontSize: "3.5rem", marginBottom: "1rem" }}>
+        🏪
+      </div>
+      <h2 style={{
+        fontWeight:   800,
+        color:        "#1f2937",
+        marginBottom: "0.75rem",
+        fontSize:     "1.5rem",
+      }}>
+        Seller Account Required
+      </h2>
+      <p style={{
+        color:        "#6b7280",
+        lineHeight:   1.7,
+        marginBottom: "2rem",
+        fontSize:     "0.9rem",
+      }}>
+        You are currently logged in as a marketplace buyer.
+        The seller system requires a separate seller account.
+      </p>
+      <div style={{
+        display:       "flex",
+        flexDirection: "column",
+        gap:           "0.75rem",
+        maxWidth:      "320px",
+        margin:        "0 auto",
+      }}>
+        <button
+          onClick={() => {
+            // Clear any stale seller token and reload
+            // so the register form is shown clean
+            localStorage.removeItem("seller_token");
+            window.location.reload();
+          }}
+          className="btn-seller-primary"
+        >
+          📝 Create Seller Account
+        </button>
+        <a
+          href="/"
+          style={{
+            color:          "#9ca3af",
+            textDecoration: "none",
+            fontSize:       "0.9rem",
+          }}
+        >
+          ← Back to Marketplace
+        </a>
+      </div>
+    </div>
+  </div>
+);
+
+// ─────────────────────────────────────────────────────────────
+// REVIEW SCREEN
+// ─────────────────────────────────────────────────────────────
+const ReviewScreen = ({ vendor }) => {
+  const status = vendor?.status ?? "pending";
+
+  const steps = [
+    {
+      icon: "📋",
+      text: "Account created",
+      done: true,
+    },
+    {
+      icon: "🏪",
+      text: "Store setup complete",
+      done: true,
+    },
+    {
+      icon: "🔍",
+      text: "Documents under review",
+      done: status !== "pending",
+    },
+    {
+      icon: "✅",
+      text: "Store activation",
+      done: ["approved", "active"].includes(status),
+    },
+    {
+      icon: "🚀",
+      text: "Start selling",
+      done: status === "active",
+    },
+  ];
+
+  return (
+    <div className="seller-card review-screen">
+      <div className="review-icon">⏳</div>
+
+      <h2 style={st.reviewTitle}>Application Under Review</h2>
+      <p style={st.reviewDesc}>
+        Our team is reviewing your application. This usually takes{" "}
+        <strong>1–3 business days</strong>.
+      </p>
+
+      <div className="review-steps">
+        {steps.map((item, i) => (
+          <div className="review-step-item" key={i}>
+            <span style={{ fontSize: "1.5rem" }}>{item.icon}</span>
+            <span style={{
+              fontWeight: 500,
+              color:      item.done ? "#10b981" : "#9ca3af",
+              flex:       1,
+            }}>
+              {item.text}
+            </span>
+            {item.done && (
+              <span style={{ color: "#10b981", fontWeight: 700 }}>
+                ✓
+              </span>
+            )}
+          </div>
+        ))}
+      </div>
+
+      {/* Rejection reason */}
+      {status === "rejected" && vendor?.rejection_reason && (
+        <div style={st.rejectionBox}>
+          <strong>Rejection reason: </strong>
+          {vendor.rejection_reason}
+        </div>
+      )}
+
+      <p style={st.emailNote}>
+        📧 We'll notify you by email once your store is reviewed.
+      </p>
+
+      <a href="/" style={st.homeLink}>
+        ← Back to Marketplace
+      </a>
+    </div>
+  );
+};
+
+// ─────────────────────────────────────────────────────────────
+// MAIN COMPONENT
+// ─────────────────────────────────────────────────────────────
 const BecomeSeller = ({ user }) => {
   const flow = useSellerFlow(user);
 
-  // ── Loading ────────────────────────────────────────────────
+  // Loading state
   if (flow.initializing) return <MountLoader />;
 
-  // ── ✅ FIX: Redirect to dashboard if approved/active ───────
-  // Check BOTH vendorData AND step
+  // Redirect to dashboard if vendor is already approved/active
   if (flow.step === STEPS.APPROVED) {
     return <Navigate to="/seller/dashboard" replace />;
   }
@@ -77,7 +239,7 @@ const BecomeSeller = ({ user }) => {
     return <Navigate to="/seller/dashboard" replace />;
   }
 
-  // ── Gmail user screen ──────────────────────────────────────
+  // Buyer/Gmail account screen
   if (flow.isGmailUser) {
     return <GmailUserScreen />;
   }
@@ -85,6 +247,7 @@ const BecomeSeller = ({ user }) => {
   return (
     <div className="seller-wrapper">
 
+      {/* Header */}
       <div style={st.header}>
         <h1 style={st.title}>Become a Seller</h1>
         <p style={st.subtitle}>
@@ -95,8 +258,10 @@ const BecomeSeller = ({ user }) => {
         </div>
       </div>
 
+      {/* Progress */}
       <ProgressBar currentStep={flow.step} />
 
+      {/* Steps */}
       {flow.step === STEPS.REGISTER && (
         <RegisterStep flow={flow} />
       )}
@@ -113,105 +278,34 @@ const BecomeSeller = ({ user }) => {
         <ReviewScreen vendor={flow.vendorData} />
       )}
 
-      {/* ✅ APPROVED step → redirect handled above → never reaches here */}
+      {/* STEPS.APPROVED is handled by the Navigate redirect above */}
 
     </div>
   );
 };
 
-// ═════════════════════════════════════════════════════════════
-const GmailUserScreen = () => (
-  <div className="seller-wrapper">
-    <div className="seller-card" style={{ textAlign: "center", padding: "2.5rem 2rem" }}>
-      <div style={{ fontSize: "3.5rem", marginBottom: "1rem" }}>🏪</div>
-      <h2 style={{ fontWeight: 800, color: "#1f2937", marginBottom: "0.75rem" }}>
-        Seller Account Required
-      </h2>
-      <p style={{ color: "#6b7280", lineHeight: 1.7, marginBottom: "2rem" }}>
-        You are logged in as a marketplace buyer.
-        The seller system requires a separate seller account.
-      </p>
-      <div style={{ display: "flex", flexDirection: "column", gap: "0.75rem", maxWidth: "320px", margin: "0 auto" }}>
-        <button
-          onClick={() => {
-            localStorage.removeItem("token");
-            window.location.reload();
-          }}
-          className="btn-seller-primary"
-        >
-          📝 Create Seller Account
-        </button>
-        <a href="/" style={{ color: "#9ca3af", textDecoration: "none", fontSize: "0.9rem" }}>
-          ← Back to Marketplace
-        </a>
-      </div>
-    </div>
-  </div>
-);
-
-// ═════════════════════════════════════════════════════════════
-const ReviewScreen = ({ vendor }) => {
-  const status = vendor?.status ?? "pending";
-
-  const steps = [
-    { icon: "📋", text: "Account created",        done: true },
-    { icon: "🏪", text: "Store setup complete",   done: true },
-    { icon: "🔍", text: "Documents under review", done: status !== "pending" },
-    { icon: "✅", text: "Store activation",        done: ["approved","active"].includes(status) },
-    { icon: "🚀", text: "Start selling",           done: status === "active" },
-  ];
-
-  return (
-    <div className="seller-card review-screen">
-      <div className="review-icon">⏳</div>
-      <h2 style={st.reviewTitle}>Application Under Review</h2>
-      <p style={st.reviewDesc}>
-        Our team is reviewing your application. This usually takes{" "}
-        <strong>1–3 business days</strong>.
-      </p>
-
-      <div className="review-steps">
-        {steps.map((item, i) => (
-          <div className="review-step-item" key={i}>
-            <span style={{ fontSize: "1.5rem" }}>{item.icon}</span>
-            <span style={{ fontWeight: 500, color: item.done ? "#10b981" : "#9ca3af" }}>
-              {item.text}
-            </span>
-            {item.done && (
-              <span style={{ marginLeft: "auto", color: "#10b981" }}>✓</span>
-            )}
-          </div>
-        ))}
-      </div>
-
-      {status === "rejected" && vendor?.rejection_reason && (
-        <div style={st.rejectionBox}>
-          <strong>Rejection reason: </strong>
-          {vendor.rejection_reason}
-        </div>
-      )}
-
-      <p style={st.emailNote}>
-        📧 We'll notify you by email once your store is reviewed.
-      </p>
-
-      <a href="/" style={st.homeLink}>← Back to Marketplace</a>
-    </div>
-  );
-};
-
-// ═════════════════════════════════════════════════════════════
+// ─────────────────────────────────────────────────────────────
+// STYLES
+// ─────────────────────────────────────────────────────────────
 const st = {
-  header:   { textAlign: "center", marginBottom: "2rem" },
+  header: {
+    textAlign:    "center",
+    marginBottom: "2rem",
+  },
   title: {
     fontSize:             "2rem",
     fontWeight:           800,
-    background:           "linear-gradient(135deg, #6366f1, #8b5cf6)",
+    background:           "linear-gradient(135deg,#6366f1,#8b5cf6)",
     WebkitBackgroundClip: "text",
     WebkitTextFillColor:  "transparent",
     margin:               0,
+    lineHeight:           1.2,
   },
-  subtitle:  { color: "#6b7280", marginTop: "0.5rem" },
+  subtitle: {
+    color:     "#6b7280",
+    marginTop: "0.5rem",
+    fontSize:  "0.95rem",
+  },
   stepBadge: {
     display:      "inline-block",
     marginTop:    "0.75rem",
@@ -238,10 +332,28 @@ const st = {
     borderRadius: "50%",
     animation:    "spin 0.8s linear infinite",
   },
-  loaderText:  { color: "#9ca3af", fontWeight: 500 },
-  reviewTitle: { fontSize: "1.75rem", fontWeight: 800, color: "#1f2937" },
-  reviewDesc:  { color: "#6b7280", marginTop: "0.75rem", lineHeight: 1.6 },
-  emailNote:   { color: "#9ca3af", fontSize: "0.875rem", marginTop: "1.5rem" },
+  loaderText: {
+    color:      "#9ca3af",
+    fontWeight: 500,
+    margin:     0,
+  },
+  reviewTitle: {
+    fontSize:   "1.75rem",
+    fontWeight: 800,
+    color:      "#1f2937",
+    margin:     "0 0 0.25rem",
+  },
+  reviewDesc: {
+    color:      "#6b7280",
+    marginTop:  "0.75rem",
+    lineHeight: 1.6,
+    fontSize:   "0.9rem",
+  },
+  emailNote: {
+    color:     "#9ca3af",
+    fontSize:  "0.875rem",
+    marginTop: "1.5rem",
+  },
   rejectionBox: {
     background:   "#fef2f2",
     border:       "1px solid #fecaca",
@@ -251,6 +363,7 @@ const st = {
     fontSize:     "0.875rem",
     margin:       "1rem 0",
     textAlign:    "left",
+    lineHeight:   1.5,
   },
   homeLink: {
     display:        "inline-block",
