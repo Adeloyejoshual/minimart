@@ -1,6 +1,6 @@
 // routes/seller/settings.js
 import express from "express";
-import bcrypt  from "bcryptjs";
+import bcrypt  from "bcrypt";
 import { pool } from "../../server.js";
 import { authenticate } from "../../middleware/auth.js";
 
