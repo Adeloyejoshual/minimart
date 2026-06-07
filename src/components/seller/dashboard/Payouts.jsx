@@ -7,23 +7,14 @@ import {
   ChevronRight, Copy, Eye, X, TrendingUp,
   Banknote, Info, ShieldCheck, Gift,
 } from "lucide-react";
-import api  from "../../utils/api";
+import api from "../../utils/api";
 import toast from "react-hot-toast";
-
-// ─── formatting ───────────────────────────────────────────────────────────────
-const fmt = (n) =>
-  `₦${Number(n ?? 0).toLocaleString("en-NG", {
-    minimumFractionDigits: 2, maximumFractionDigits: 2,
-  })}`;
-
-const fmtDate = (d) =>
-  d ? new Date(d).toLocaleString("en-NG", {
-    day: "2-digit", month: "short", year: "numeric",
-    hour: "2-digit", minute: "2-digit",
-  }) : "—";
-
-const copyText = (t) =>
-  navigator.clipboard.writeText(t).then(() => toast.success("Copied!"));
+import {
+  formatNGN,
+  formatTimeAgo,
+  DashboardSkeleton,
+  DashboardError,
+} from "../../components/seller/dashboard/Shared";
 
 // ─── Fee calc (mirrors server) ────────────────────────────────────────────────
 const clientCalcFee = (amount, withdrawalsToday) => {
@@ -41,23 +32,59 @@ const FEE_TIERS = [
   { label: "Above ₦500,000",        fee: "₦200" },
 ];
 
-// ─── Status config ────────────────────────────────────────────────────────────
-const STATUS_META = {
-  pending:    { label: "Pending",    chip: "bg-amber-100 text-amber-700 border-amber-200",  Icon: Clock      },
-  processing: { label: "Processing", chip: "bg-blue-100 text-blue-700 border-blue-200",     Icon: RefreshCw  },
-  success:    { label: "Success",    chip: "bg-green-100 text-green-700 border-green-200",  Icon: CheckCircle },
-  failed:     { label: "Failed",     chip: "bg-red-100 text-red-700 border-red-200",        Icon: XCircle    },
-  cancelled:  { label: "Cancelled",  chip: "bg-gray-100 text-gray-500 border-gray-200",     Icon: X          },
+// ─── Date formatter ───────────────────────────────────────────────────────────
+const fmtDate = (d) =>
+  d ? new Date(d).toLocaleString("en-NG", {
+    day: "2-digit", month: "short", year: "numeric",
+    hour: "2-digit", minute: "2-digit",
+  }) : "—";
+
+const copyText = (t) =>
+  navigator.clipboard.writeText(t).then(() => toast.success("Copied!"));
+
+// ─── Payout status config ─────────────────────────────────────────────────────
+const PAYOUT_STATUS = {
+  pending: {
+    label: "Pending",
+    chip:  "bg-amber-100 text-amber-700 border-amber-200",
+    Icon:  Clock,
+    spin:  false,
+  },
+  processing: {
+    label: "Processing",
+    chip:  "bg-blue-100 text-blue-700 border-blue-200",
+    Icon:  RefreshCw,
+    spin:  true,
+  },
+  success: {
+    label: "Success",
+    chip:  "bg-green-100 text-green-700 border-green-200",
+    Icon:  CheckCircle,
+    spin:  false,
+  },
+  failed: {
+    label: "Failed",
+    chip:  "bg-red-100 text-red-700 border-red-200",
+    Icon:  XCircle,
+    spin:  false,
+  },
+  cancelled: {
+    label: "Cancelled",
+    chip:  "bg-gray-100 text-gray-500 border-gray-200",
+    Icon:  X,
+    spin:  false,
+  },
 };
 
-const StatusBadge = ({ status }) => {
-  const m = STATUS_META[status] ?? { label: status, chip: "bg-gray-100 text-gray-500 border-gray-200", Icon: null };
+const PayoutStatusBadge = ({ status }) => {
+  const m = PAYOUT_STATUS[status] ?? {
+    label: status, chip: "bg-gray-100 text-gray-500 border-gray-200",
+    Icon: null, spin: false,
+  };
   return (
     <span className={`inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full
                       text-xs font-medium border ${m.chip}`}>
-      {m.Icon && (
-        <m.Icon size={11} className={status === "processing" ? "animate-spin" : ""} />
-      )}
+      {m.Icon && <m.Icon size={11} className={m.spin ? "animate-spin" : ""} />}
       {m.label}
     </span>
   );
@@ -130,9 +157,9 @@ const FeeTable = ({ freeRemaining, withdrawalsToday }) => (
 // WithdrawModal
 // ══════════════════════════════════════════════════════════════════════════════
 const WithdrawModal = ({ info, onClose, onSuccess }) => {
-  const [amount,    setAmount]    = useState("");
-  const [loading,   setLoading]   = useState(false);
-  const [showFees,  setShowFees]  = useState(false);
+  const [amount,   setAmount]   = useState("");
+  const [loading,  setLoading]  = useState(false);
+  const [showFees, setShowFees] = useState(false);
 
   const { wallet, bank, limits } = info;
   const parsedAmount = parseFloat(amount) || 0;
@@ -165,19 +192,19 @@ const WithdrawModal = ({ info, onClose, onSuccess }) => {
   const handleSubmit = async (e) => {
     e.preventDefault();
     if (!parsedAmount || parsedAmount < limits.min_withdrawal) {
-      return toast.error(`Minimum withdrawal is ${fmt(limits.min_withdrawal)}`);
+      return toast.error(`Minimum withdrawal is ${formatNGN(limits.min_withdrawal)}`);
     }
     if (parsedAmount > wallet.available_balance) {
       return toast.error("Insufficient balance");
     }
     if (parsedAmount > limits.daily_remaining) {
-      return toast.error(`Daily limit exceeded. Remaining: ${fmt(limits.daily_remaining)}`);
+      return toast.error(`Daily limit exceeded. Remaining: ${formatNGN(limits.daily_remaining)}`);
     }
 
     setLoading(true);
     try {
       const { data } = await api.post("/seller/payout/withdraw", {
-        amount:          parsedAmount,
+        amount: parsedAmount,
         idempotency_key: `WD-${Date.now()}-${Math.random().toString(36).slice(2)}`,
       });
 
@@ -240,7 +267,9 @@ const WithdrawModal = ({ info, onClose, onSuccess }) => {
               <div className="min-w-0">
                 <p className="text-xs text-gray-400 mb-0.5">Payout to</p>
                 <p className="font-semibold text-gray-900 truncate">{bank.account_name}</p>
-                <p className="text-sm text-gray-500">{bank.account_number} — {bank.bank_name}</p>
+                <p className="text-sm text-gray-500">
+                  {bank.account_number} — {bank.bank_name}
+                </p>
               </div>
             </div>
           ) : (
@@ -259,7 +288,7 @@ const WithdrawModal = ({ info, onClose, onSuccess }) => {
           <div className="flex justify-between items-center py-2 border-y border-gray-100">
             <span className="text-sm text-gray-500">Available balance</span>
             <span className="font-bold text-lg text-green-600">
-              {fmt(wallet.available_balance)}
+              {formatNGN(wallet.available_balance)}
             </span>
           </div>
 
@@ -287,7 +316,7 @@ const WithdrawModal = ({ info, onClose, onSuccess }) => {
               step="1"
               value={amount}
               onChange={(e) => setAmount(e.target.value)}
-              placeholder={`Min ${fmt(limits.min_withdrawal)}`}
+              placeholder={`Min ${formatNGN(limits.min_withdrawal)}`}
               className="w-full border border-gray-300 rounded-xl px-4 py-3.5
                          text-2xl font-bold focus:outline-none focus:ring-2
                          focus:ring-blue-500 focus:border-transparent
@@ -306,7 +335,7 @@ const WithdrawModal = ({ info, onClose, onSuccess }) => {
             }`}>
               <div className="flex justify-between text-gray-600">
                 <span>Gross amount</span>
-                <span>{fmt(preview.amount)}</span>
+                <span>{formatNGN(preview.amount)}</span>
               </div>
               <div className="flex justify-between">
                 <span className="text-gray-600">Processing fee</span>
@@ -315,14 +344,16 @@ const WithdrawModal = ({ info, onClose, onSuccess }) => {
                     <Gift size={12} /> Free
                   </span>
                 ) : (
-                  <span className="text-red-500 font-medium">−{fmt(preview.fee)}</span>
+                  <span className="text-red-500 font-medium">
+                    −{formatNGN(preview.fee)}
+                  </span>
                 )}
               </div>
               <div className="flex justify-between font-bold text-base
                               pt-2 border-t border-black/5">
                 <span className="text-gray-900">You receive</span>
                 <span className={preview.isFree ? "text-green-700" : "text-blue-700"}>
-                  {fmt(preview.net)}
+                  {formatNGN(preview.net)}
                 </span>
               </div>
             </div>
@@ -335,8 +366,10 @@ const WithdrawModal = ({ info, onClose, onSuccess }) => {
             <div className="space-y-1">
               <p>
                 Daily remaining:{" "}
-                <strong className="text-gray-800">{fmt(limits.daily_remaining)}</strong>
-                {" "}of {fmt(limits.daily_limit)}
+                <strong className="text-gray-800">
+                  {formatNGN(limits.daily_remaining)}
+                </strong>
+                {" "}of {formatNGN(limits.daily_limit)}
               </p>
               <p>
                 Withdrawals today:{" "}
@@ -382,11 +415,14 @@ const WithdrawModal = ({ info, onClose, onSuccess }) => {
                        flex items-center justify-center gap-2 text-base"
           >
             {loading ? (
-              <><RefreshCw size={18} className="animate-spin" /> Initiating…</>
+              <>
+                <RefreshCw size={18} className="animate-spin" />
+                Initiating…
+              </>
             ) : (
               <>
                 <ArrowDownToLine size={18} />
-                Withdraw {preview ? fmt(preview.amount) : ""}
+                Withdraw {preview ? formatNGN(preview.amount) : ""}
                 {preview?.isFree && (
                   <span className="bg-green-500 text-white text-xs px-2 py-0.5
                                    rounded-full font-medium">Free</span>
@@ -427,7 +463,9 @@ const DetailDrawer = ({ id, onClose, onCancelled }) => {
     if (!window.confirm("Cancel this withdrawal and restore your balance?")) return;
     setCancelling(true);
     try {
-      const { data: res } = await api.post(`/seller/payout/withdrawal/${id}/cancel`);
+      const { data: res } = await api.post(
+        `/seller/payout/withdrawal/${id}/cancel`
+      );
       if (res.success) {
         toast.success("Cancelled. Balance restored.");
         onCancelled?.();
@@ -476,7 +514,7 @@ const DetailDrawer = ({ id, onClose, onCancelled }) => {
 
             {/* status row */}
             <div className="flex items-center justify-between">
-              <StatusBadge status={wd.status} />
+              <PayoutStatusBadge status={wd.status} />
               {data.live_status && (
                 <span className="text-xs text-gray-400 bg-gray-50 border
                                  border-gray-200 px-2.5 py-1 rounded-full">
@@ -489,7 +527,7 @@ const DetailDrawer = ({ id, onClose, onCancelled }) => {
             <div className="bg-gradient-to-br from-blue-600 to-indigo-600
                             rounded-2xl p-6 text-white text-center">
               <p className="text-sm opacity-75 mb-1">Amount requested</p>
-              <p className="text-4xl font-bold mb-4">{fmt(wd.amount)}</p>
+              <p className="text-4xl font-bold mb-4">{formatNGN(wd.amount)}</p>
               <div className="grid grid-cols-2 gap-4 bg-white/10 rounded-xl p-3">
                 <div>
                   <p className="text-xs opacity-70 mb-0.5">Processing fee</p>
@@ -498,12 +536,14 @@ const DetailDrawer = ({ id, onClose, onCancelled }) => {
                       <Gift size={13} /> Free
                     </p>
                   ) : (
-                    <p className="font-semibold">−{fmt(wd.fee)}</p>
+                    <p className="font-semibold">−{formatNGN(wd.fee)}</p>
                   )}
                 </div>
                 <div>
                   <p className="text-xs opacity-70 mb-0.5">You receive</p>
-                  <p className="font-bold text-green-300">{fmt(wd.net_amount)}</p>
+                  <p className="font-bold text-green-300">
+                    {formatNGN(wd.net_amount)}
+                  </p>
                 </div>
               </div>
             </div>
@@ -532,17 +572,20 @@ const DetailDrawer = ({ id, onClose, onCancelled }) => {
                              tracking-wider mb-3">References</h3>
               <div className="space-y-2.5">
                 {[
-                  ["Tx Ref",       wd.tx_ref],
-                  wd.flw_transfer_id ? ["FLW Transfer", wd.flw_transfer_id] : null,
+                  ["Tx Ref", wd.tx_ref],
+                  wd.flw_transfer_id
+                    ? ["FLW Transfer", wd.flw_transfer_id]
+                    : null,
                 ].filter(Boolean).map(([label, val]) => (
-                  <div key={label} className="flex items-center justify-between text-sm">
+                  <div key={label}
+                    className="flex items-center justify-between text-sm">
                     <span className="text-gray-500">{label}</span>
                     <div className="flex items-center gap-1.5">
-                      <span className="font-mono text-xs text-gray-700 max-w-[180px] truncate">
-                        {val}
-                      </span>
+                      <span className="font-mono text-xs text-gray-700
+                                       max-w-[180px] truncate">{val}</span>
                       <button onClick={() => copyText(val)}
-                        className="p-1 text-gray-400 hover:text-blue-600 transition-colors">
+                        className="p-1 text-gray-400 hover:text-blue-600
+                                   transition-colors">
                         <Copy size={13} />
                       </button>
                     </div>
@@ -558,12 +601,26 @@ const DetailDrawer = ({ id, onClose, onCancelled }) => {
               <div className="space-y-2.5 text-sm">
                 <div className="flex justify-between">
                   <span className="text-gray-500">Requested</span>
-                  <span className="text-gray-900">{fmtDate(wd.requested_at)}</span>
+                  <div className="text-right">
+                    <span className="text-gray-900 block">
+                      {fmtDate(wd.requested_at)}
+                    </span>
+                    <span className="text-xs text-gray-400">
+                      {formatTimeAgo(wd.requested_at)}
+                    </span>
+                  </div>
                 </div>
                 {wd.processed_at && (
                   <div className="flex justify-between">
                     <span className="text-gray-500">Processed</span>
-                    <span className="text-gray-900">{fmtDate(wd.processed_at)}</span>
+                    <div className="text-right">
+                      <span className="text-gray-900 block">
+                        {fmtDate(wd.processed_at)}
+                      </span>
+                      <span className="text-xs text-gray-400">
+                        {formatTimeAgo(wd.processed_at)}
+                      </span>
+                    </div>
                   </div>
                 )}
               </div>
@@ -572,7 +629,9 @@ const DetailDrawer = ({ id, onClose, onCancelled }) => {
             {/* failure reason */}
             {wd.failure_reason && (
               <div className="bg-red-50 border border-red-200 rounded-xl p-4">
-                <p className="text-xs font-semibold text-red-700 mb-1">Failure Reason</p>
+                <p className="text-xs font-semibold text-red-700 mb-1">
+                  Failure Reason
+                </p>
                 <p className="text-sm text-red-600">{wd.failure_reason}</p>
               </div>
             )}
@@ -580,10 +639,11 @@ const DetailDrawer = ({ id, onClose, onCancelled }) => {
             {/* webhook notice */}
             <div className="flex items-start gap-2 text-xs text-gray-400
                             bg-gray-50 rounded-xl p-3.5">
-              <ShieldCheck size={13} className="shrink-0 mt-0.5 text-green-500" />
+              <ShieldCheck size={13}
+                className="shrink-0 mt-0.5 text-green-500" />
               <span>
-                Balance is finalised only after Flutterwave confirms the transfer.
-                Tap refresh to check the latest status.
+                Balance is finalised only after Flutterwave confirms the
+                transfer. Tap refresh to check the latest status.
               </span>
             </div>
 
@@ -628,6 +688,7 @@ export default function Payouts() {
   const [history,        setHistory]        = useState(null);
   const [loadingInfo,    setLoadingInfo]    = useState(true);
   const [loadingHistory, setLoadingHistory] = useState(true);
+  const [error,          setError]          = useState(null);
   const [showWithdraw,   setShowWithdraw]   = useState(false);
   const [selectedId,     setSelectedId]     = useState(null);
   const [statusFilter,   setStatusFilter]   = useState("");
@@ -635,11 +696,13 @@ export default function Payouts() {
 
   const loadInfo = useCallback(async () => {
     setLoadingInfo(true);
+    setError(null);
     try {
       const { data } = await api.get("/seller/payout/info");
       if (data.success) setInfo(data);
+      else setError(data.message);
     } catch (err) {
-      toast.error(err.response?.data?.message ?? "Failed to load wallet info");
+      setError(err.response?.data?.message ?? "Failed to load wallet info");
     } finally {
       setLoadingInfo(false);
     }
@@ -662,34 +725,28 @@ export default function Payouts() {
   useEffect(() => { loadInfo(); },    [loadInfo]);
   useEffect(() => { loadHistory(); }, [loadHistory]);
 
-  const refresh = useCallback(() => { loadInfo(); loadHistory(); }, [loadInfo, loadHistory]);
+  const refresh = useCallback(() => {
+    loadInfo();
+    loadHistory();
+  }, [loadInfo, loadHistory]);
 
-  // ── loading ──────────────────────────────────────────────────────────────
-  if (loadingInfo) {
-    return (
-      <div className="min-h-screen bg-gray-50 p-6 space-y-4 animate-pulse">
-        {[1, 2, 3, 4].map((i) => <div key={i} className="h-20 bg-gray-200 rounded-2xl" />)}
-      </div>
-    );
-  }
+  // ── loading / error states ──────────────────────────────────────────────
+  if (loadingInfo) return <DashboardSkeleton />;
 
-  if (!info) {
+  if (error || !info) {
     return (
-      <div className="min-h-screen bg-gray-50 flex items-center justify-center">
-        <div className="text-center space-y-3">
-          <AlertCircle size={40} className="text-red-400 mx-auto" />
-          <p className="text-gray-600 font-medium">Failed to load payout info</p>
-          <button onClick={loadInfo} className="text-blue-600 underline text-sm">
-            Try again
-          </button>
-        </div>
-      </div>
+      <DashboardError
+        error={error ?? "Failed to load payout information"}
+        onRetry={loadInfo}
+      />
     );
   }
 
   const { wallet, bank, virtual_account, limits } = info;
-  const canWithdraw = wallet.available_balance >= limits.min_withdrawal
-                   && limits.daily_remaining   >= limits.min_withdrawal;
+
+  const canWithdraw =
+    wallet.available_balance >= limits.min_withdrawal &&
+    limits.daily_remaining   >= limits.min_withdrawal;
 
   return (
     <div className="min-h-screen bg-gray-50">
@@ -699,7 +756,9 @@ export default function Payouts() {
         <div className="flex items-center justify-between">
           <div>
             <h1 className="text-2xl font-bold text-gray-900">Payouts</h1>
-            <p className="text-sm text-gray-500 mt-0.5">Manage your earnings and withdrawals</p>
+            <p className="text-sm text-gray-500 mt-0.5">
+              Manage your earnings and withdrawals
+            </p>
           </div>
           <button onClick={refresh}
             className="p-2.5 hover:bg-white rounded-xl border border-gray-200
@@ -720,22 +779,40 @@ export default function Payouts() {
                 {limits.free_remaining} free withdrawal
                 {limits.free_remaining > 1 ? "s" : ""} remaining today
               </p>
-              <p className="text-sm text-green-600">Withdraw now with zero fees</p>
+              <p className="text-sm text-green-600">
+                Withdraw now with zero fees
+              </p>
             </div>
           </div>
         )}
 
         {/* ── stat cards ──────────────────────────────────────────── */}
         <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-          <StatCard icon={<Wallet size={20} />}     color="blue"
-            label="Available"       value={fmt(wallet.available_balance)} />
-          <StatCard icon={<Clock size={20} />}      color="amber"
-            label="Pending"         value={fmt(wallet.pending_balance)}
-            sub="Awaiting settlement" />
-          <StatCard icon={<TrendingUp size={20} />} color="green"
-            label="Total Received"  value={fmt(wallet.total_received)} />
-          <StatCard icon={<Banknote size={20} />}   color="purple"
-            label="Total Withdrawn" value={fmt(wallet.total_withdrawn)} />
+          <StatCard
+            icon={<Wallet size={20} />}
+            color="blue"
+            label="Available"
+            value={formatNGN(wallet.available_balance)}
+          />
+          <StatCard
+            icon={<Clock size={20} />}
+            color="amber"
+            label="Pending"
+            value={formatNGN(wallet.pending_balance)}
+            sub="Awaiting settlement"
+          />
+          <StatCard
+            icon={<TrendingUp size={20} />}
+            color="green"
+            label="Total Received"
+            value={formatNGN(wallet.total_received)}
+          />
+          <StatCard
+            icon={<Banknote size={20} />}
+            color="purple"
+            label="Total Withdrawn"
+            value={formatNGN(wallet.total_withdrawn)}
+          />
         </div>
 
         {/* ── virtual account ─────────────────────────────────────── */}
@@ -751,12 +828,16 @@ export default function Payouts() {
                   {virtual_account.account_number}
                 </p>
                 <p className="text-sm opacity-80 mt-0.5">
-                  {virtual_account.account_name} • {virtual_account.bank_name}
+                  {virtual_account.account_name} •{" "}
+                  {virtual_account.bank_name}
                 </p>
               </div>
-              <button onClick={() => copyText(virtual_account.account_number)}
+              <button
+                onClick={() => copyText(virtual_account.account_number)}
                 className="bg-white/20 hover:bg-white/30 p-2.5 rounded-xl
-                           transition-colors shrink-0" title="Copy">
+                           transition-colors shrink-0"
+                title="Copy"
+              >
                 <Copy size={16} />
               </button>
             </div>
@@ -775,7 +856,8 @@ export default function Payouts() {
                 : "No payout bank configured — update in Settings"}
             </p>
             <p className="text-xs text-gray-400">
-              {limits.fee_schedule_label} • Daily left: {fmt(limits.daily_remaining)}
+              {limits.fee_schedule_label} • Daily left:{" "}
+              {formatNGN(limits.daily_remaining)}
             </p>
           </div>
           <button
@@ -801,13 +883,13 @@ export default function Payouts() {
           withdrawalsToday={limits.withdrawals_today}
         />
 
-        {/* ── history summary stats ─────────────────────────────────── */}
+        {/* ── history summary ──────────────────────────────────────── */}
         {history && (
           <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
             {[
               { label: "Total requests",  val: history.stats.total },
-              { label: "Total paid out",  val: fmt(history.stats.total_paid_out) },
-              { label: "Total fees paid", val: fmt(history.stats.total_fees_paid) },
+              { label: "Total paid out",  val: formatNGN(history.stats.total_paid_out) },
+              { label: "Total fees paid", val: formatNGN(history.stats.total_fees_paid) },
               { label: "Failed",          val: history.stats.failed_count },
             ].map(({ label, val }) => (
               <div key={label}
@@ -819,11 +901,12 @@ export default function Payouts() {
           </div>
         )}
 
-        {/* ── withdrawal history ───────────────────────────────────── */}
+        {/* ── withdrawal history table ─────────────────────────────── */}
         <div className="bg-white border border-gray-200 rounded-2xl overflow-hidden">
 
           {/* filter bar */}
-          <div className="flex flex-wrap items-center justify-between gap-3 p-4 border-b">
+          <div className="flex flex-wrap items-center justify-between gap-3
+                          p-4 border-b">
             <h2 className="font-semibold text-gray-900">Withdrawal History</h2>
             <div className="flex flex-wrap gap-1.5">
               {STATUS_FILTERS.map(({ key, label }) => (
@@ -846,7 +929,8 @@ export default function Payouts() {
             </div>
           ) : !history?.withdrawals?.length ? (
             <div className="p-16 text-center">
-              <ArrowDownToLine size={36} className="text-gray-200 mx-auto mb-3" />
+              <ArrowDownToLine size={36}
+                className="text-gray-200 mx-auto mb-3" />
               <p className="text-gray-500 font-medium">No withdrawals yet</p>
               <p className="text-gray-400 text-sm mt-1">
                 Your withdrawal history will appear here
@@ -859,23 +943,31 @@ export default function Payouts() {
                 <table className="w-full text-sm">
                   <thead className="bg-gray-50 border-b">
                     <tr>
-                      {["Date", "Amount", "Fee", "Net", "Bank", "Status", ""].map((h) => (
-                        <th key={h}
-                          className="text-left text-xs font-semibold text-gray-500
-                                     uppercase tracking-wider px-4 py-3">
-                          {h}
-                        </th>
-                      ))}
+                      {["Date", "Amount", "Fee", "Net", "Bank", "Status", ""].map(
+                        (h) => (
+                          <th key={h}
+                            className="text-left text-xs font-semibold text-gray-500
+                                       uppercase tracking-wider px-4 py-3">
+                            {h}
+                          </th>
+                        )
+                      )}
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-gray-100">
                     {history.withdrawals.map((w) => (
-                      <tr key={w.id} className="hover:bg-gray-50 transition-colors">
-                        <td className="px-4 py-3 text-gray-400 whitespace-nowrap text-xs">
-                          {fmtDate(w.created_at)}
+                      <tr key={w.id}
+                        className="hover:bg-gray-50 transition-colors">
+                        <td className="px-4 py-3 whitespace-nowrap">
+                          <span className="text-gray-500 text-xs block">
+                            {fmtDate(w.created_at)}
+                          </span>
+                          <span className="text-gray-400 text-xs">
+                            {formatTimeAgo(w.created_at)}
+                          </span>
                         </td>
                         <td className="px-4 py-3 font-bold text-gray-900">
-                          {fmt(w.amount)}
+                          {formatNGN(w.amount)}
                         </td>
                         <td className="px-4 py-3 text-xs">
                           {Number(w.fee) === 0 ? (
@@ -883,17 +975,20 @@ export default function Payouts() {
                               <Gift size={11} /> Free
                             </span>
                           ) : (
-                            <span className="text-red-400">−{fmt(w.fee)}</span>
+                            <span className="text-red-400">
+                              −{formatNGN(w.fee)}
+                            </span>
                           )}
                         </td>
                         <td className="px-4 py-3 text-green-700 font-semibold">
-                          {fmt(w.net_amount)}
+                          {formatNGN(w.net_amount)}
                         </td>
-                        <td className="px-4 py-3 text-gray-500 max-w-[140px] truncate text-xs">
+                        <td className="px-4 py-3 text-gray-500 max-w-[140px]
+                                       truncate text-xs">
                           {w.bank_name}
                         </td>
                         <td className="px-4 py-3">
-                          <StatusBadge status={w.status} />
+                          <PayoutStatusBadge status={w.status} />
                         </td>
                         <td className="px-4 py-3">
                           <button onClick={() => setSelectedId(w.id)}
@@ -912,26 +1007,33 @@ export default function Payouts() {
               <div className="md:hidden divide-y divide-gray-100">
                 {history.withdrawals.map((w) => (
                   <div key={w.id}
-                    className="p-4 hover:bg-gray-50 transition-colors cursor-pointer active:bg-gray-100"
+                    className="p-4 hover:bg-gray-50 transition-colors
+                               cursor-pointer active:bg-gray-100"
                     onClick={() => setSelectedId(w.id)}>
                     <div className="flex items-start justify-between mb-2">
                       <div>
-                        <p className="font-bold text-gray-900">{fmt(w.amount)}</p>
+                        <p className="font-bold text-gray-900">
+                          {formatNGN(w.amount)}
+                        </p>
                         <p className="text-xs text-gray-400 mt-0.5">
-                          Net: <span className="text-green-600 font-medium">{fmt(w.net_amount)}</span>
-                          {" "}
+                          Net:{" "}
+                          <span className="text-green-600 font-medium">
+                            {formatNGN(w.net_amount)}
+                          </span>{" "}
                           {Number(w.fee) === 0 ? (
                             <span className="text-green-500">(Free)</span>
                           ) : (
-                            <span className="text-red-400">(−{fmt(w.fee)} fee)</span>
+                            <span className="text-red-400">
+                              (−{formatNGN(w.fee)} fee)
+                            </span>
                           )}
                         </p>
                       </div>
-                      <StatusBadge status={w.status} />
+                      <PayoutStatusBadge status={w.status} />
                     </div>
                     <div className="flex justify-between text-xs text-gray-400">
                       <span>{w.bank_name}</span>
-                      <span>{fmtDate(w.created_at)}</span>
+                      <span>{formatTimeAgo(w.created_at)}</span>
                     </div>
                   </div>
                 ))}
@@ -942,21 +1044,29 @@ export default function Payouts() {
                 <div className="flex items-center justify-between px-4 py-3
                                 border-t bg-gray-50">
                   <p className="text-xs text-gray-500">
-                    Page {history.pagination.page} of {history.pagination.total_pages}
-                    {" "}• {history.pagination.total} total
+                    Page {history.pagination.page} of{" "}
+                    {history.pagination.total_pages} •{" "}
+                    {history.pagination.total} total
                   </p>
                   <div className="flex gap-2">
-                    <button onClick={() => setPage((p) => Math.max(1, p - 1))}
+                    <button
+                      onClick={() => setPage((p) => Math.max(1, p - 1))}
                       disabled={page === 1}
                       className="p-2 rounded-lg border border-gray-200
-                                 disabled:opacity-40 hover:bg-white transition-colors">
+                                 disabled:opacity-40 hover:bg-white
+                                 transition-colors">
                       <ChevronLeft size={15} />
                     </button>
                     <button
-                      onClick={() => setPage((p) => Math.min(history.pagination.total_pages, p + 1))}
+                      onClick={() =>
+                        setPage((p) =>
+                          Math.min(history.pagination.total_pages, p + 1)
+                        )
+                      }
                       disabled={page === history.pagination.total_pages}
                       className="p-2 rounded-lg border border-gray-200
-                                 disabled:opacity-40 hover:bg-white transition-colors">
+                                 disabled:opacity-40 hover:bg-white
+                                 transition-colors">
                       <ChevronRight size={15} />
                     </button>
                   </div>
@@ -967,7 +1077,7 @@ export default function Payouts() {
         </div>
       </div>
 
-      {/* modals */}
+      {/* ── modals ──────────────────────────────────────────────── */}
       {showWithdraw && (
         <WithdrawModal
           info={info}
