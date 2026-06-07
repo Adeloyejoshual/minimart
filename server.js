@@ -67,14 +67,13 @@ export const getCache = (key) => {
   return item.value;
 };
 
-export const deleteCache      = (key)    => _cache.delete(key);
+export const deleteCache       = (key)    => _cache.delete(key);
 export const clearCachePattern = (prefix) => {
   for (const key of _cache.keys()) {
     if (key.startsWith(prefix)) _cache.delete(key);
   }
 };
 
-// Evict expired entries every minute
 setInterval(() => {
   const now = Date.now();
   for (const [key, item] of _cache.entries()) {
@@ -126,7 +125,6 @@ app.use(
     etag         : true,
     lastModified : true,
     setHeaders(res, filePath) {
-      // Prevent HTML files from being served as HTML
       if (/\.html?$/.test(filePath)) {
         res.setHeader("Content-Type", "text/plain");
       }
@@ -139,7 +137,7 @@ app.use(
    Raw body MUST be parsed BEFORE express.json() is mounted.
 ═══════════════════════════════════════════════════════════════ */
 import paymentRouter, { webhookRouter } from "./routes/payment.js";
-import flwTransferWebhook               from "./routes/webhooks/flutterwaveTransfer.js";
+import flwWebhookRouter                 from "./routes/webhooks/flutterwave.js";
 
 // Paystack — raw body for HMAC verification
 app.use(
@@ -148,7 +146,10 @@ app.use(
   webhookRouter
 );
 
-// Flutterwave transfer — raw body → verify HMAC → parse JSON
+// Flutterwave transfer webhook
+// 1. Read raw buffer for HMAC verification
+// 2. Parse to JSON object so the router can read req.body
+// 3. Router handles the event (NO express.json() inside)
 app.use(
   "/api/webhooks/flutterwave",
   express.raw({ type: "application/json" }),
@@ -157,7 +158,7 @@ app.use(
     catch { req.body = {}; }
     next();
   },
-  flwTransferWebhook
+  flwWebhookRouter
 );
 
 /* ═══════════════════════════════════════════════════════════════
@@ -184,7 +185,6 @@ const WINDOW_MS  = 60_000;
 const MAX_REQ    = 120;
 const UPLOAD_MAX = 20;
 
-// Sweep stale entries every 5 minutes
 setInterval(() => {
   const now = Date.now();
   for (const [ip, data] of _limiter.entries()) {
@@ -223,7 +223,6 @@ function rateLimiter(max = MAX_REQ) {
   };
 }
 
-// Global rate limit
 app.use(rateLimiter(MAX_REQ));
 
 /* ═══════════════════════════════════════════════════════════════
@@ -256,7 +255,7 @@ import authRouter             from "./routes/sellerAuth.routes.js";
 import sellerOnboardingRouter from "./routes/sellerOnboarding.routes.js";
 import sellerPayoutRoutes     from "./routes/seller/payout.js";
 
-// ── Public / payment ──────────────────────────────────────────
+// ── Payment ──────────────────────────────────────────────────
 app.use("/api/payment",           paymentRouter);
 
 // ── Seller ───────────────────────────────────────────────────
@@ -274,7 +273,7 @@ app.use("/api/products",          productsRouter);
 // ── Users ────────────────────────────────────────────────────
 app.use("/api/users",             userRouter);
 
-// ── Messaging (upload has tighter rate limit) ─────────────────
+// ── Messaging ────────────────────────────────────────────────
 app.use("/api/messages/upload",   rateLimiter(UPLOAD_MAX));
 app.use("/api/messages",          messagesRouter);
 app.use("/api/conversations",     conversationsRouter);
@@ -312,7 +311,11 @@ app.get("/api/health", async (_req, res) => {
       env           : process.env.NODE_ENV || "development",
     });
   } catch (err) {
-    return res.status(500).json({ success: false, status: "unhealthy", error: err.message });
+    return res.status(500).json({
+      success : false,
+      status  : "unhealthy",
+      error   : err.message,
+    });
   }
 });
 
@@ -324,7 +327,6 @@ if (process.env.NODE_ENV === "production") {
   app.use(express.static(distPath, { maxAge: "1d" }));
 
   app.get("*", (req, res) => {
-    // Let unknown /api/* fall through to the 404 handler below
     if (req.path.startsWith("/api/")) {
       return res.status(404).json({
         success : false,
@@ -365,7 +367,7 @@ app.use((err, req, res, _next) => {
   if (err.message?.startsWith("CORS blocked"))
     return res.status(403).json({ success: false, message: err.message });
 
-  // PostgreSQL / CockroachDB constraint errors
+  // CockroachDB constraint errors
   if (err.code === "23505")
     return res.status(409).json({ success: false, message: "Duplicate entry" });
   if (err.code === "23503")
@@ -399,7 +401,6 @@ async function shutdown(signal) {
     process.exit(0);
   });
 
-  // Force exit if graceful shutdown hangs
   setTimeout(() => {
     console.error("Forced exit after timeout");
     process.exit(1);
