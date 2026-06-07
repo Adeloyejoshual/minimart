@@ -3,17 +3,10 @@ import React                        from "react";
 import { Navigate }                 from "react-router-dom";
 import { useSellerDashboard }       from "../hooks/useSellerDashboard";
 import {
-  Sidebar,
-  Overview,
-  Orders,
-  Payouts,
-  TopProducts,
-  RevenueChart,
-  Settings,
-  NotificationPanel,
-  StatusBadge,
-  DashboardSkeleton,
-  DashboardError,
+  Sidebar, Overview, Orders, Payouts,
+  TopProducts, RevenueChart, Settings,
+  NotificationPanel, StatusBadge,
+  DashboardSkeleton, DashboardError,
 } from "../components/seller/DashboardComponents";
 import "../style/SellerDashboard.css";
 
@@ -27,18 +20,10 @@ const PAGE_TITLES = {
   notifications: "Notifications",
 };
 
-// ── Error codes that mean "go to onboarding" not "show error" ─
-const REDIRECT_TO_ONBOARDING = new Set([
-  "NOT_SELLER_ACCOUNT",
-  "NO_VENDOR",
-  "NO_TOKEN",
-  "UNAUTHORIZED",
-]);
-
 export default function SellerDashboard({ user }) {
   const dash = useSellerDashboard();
 
-  // ── No seller token → onboarding ──────────────────────────
+  // ── No token ───────────────────────────────────────────────
   if (!localStorage.getItem("token")) {
     return <Navigate to="/become-seller" replace />;
   }
@@ -52,14 +37,13 @@ export default function SellerDashboard({ user }) {
     );
   }
 
-  // ── Redirect errors → onboarding ──────────────────────────
-  // NO_VENDOR, NOT_SELLER_ACCOUNT etc → don't show error screen
-  if (dash.errorCode && REDIRECT_TO_ONBOARDING.has(dash.errorCode)) {
+  // ── Redirect errors (NO_VENDOR, NOT_SELLER_ACCOUNT etc) ────
+  if (dash.shouldRedirect) {
     return <Navigate to="/become-seller" replace />;
   }
 
   // ── Real server errors → show error screen ─────────────────
-  if (dash.error && !REDIRECT_TO_ONBOARDING.has(dash.errorCode)) {
+  if (dash.error) {
     return (
       <div className="sd-layout">
         <DashboardError error={dash.error} onRetry={dash.refetch} />
@@ -67,12 +51,12 @@ export default function SellerDashboard({ user }) {
     );
   }
 
-  // ── No vendor → onboarding ─────────────────────────────────
+  // ── No vendor ──────────────────────────────────────────────
   if (!dash.vendor) {
     return <Navigate to="/become-seller" replace />;
   }
 
-  // ── Vendor not active → onboarding ────────────────────────
+  // ── Vendor not active ──────────────────────────────────────
   if (!["active", "approved"].includes(dash.vendor.status)) {
     return <Navigate to="/become-seller" replace />;
   }
