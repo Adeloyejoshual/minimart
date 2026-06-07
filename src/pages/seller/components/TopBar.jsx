@@ -2,23 +2,21 @@
 import React, { useState, useRef, useEffect } from "react";
 
 const PAGE_META = {
-  overview:  { title: "Overview",   sub: "Welcome back 👋"              },
-  orders:    { title: "Orders",     sub: "Manage customer orders"        },
-  products:  { title: "Products",   sub: "Your store inventory"          },
-  analytics: { title: "Analytics",  sub: "Sales insights & trends"       },
-  payouts:   { title: "Payouts",    sub: "Earnings & withdrawals"        },
-  settings:  { title: "Settings",   sub: "Store configuration"           },
+  overview:  { title:"Overview",   sub:"Welcome back 👋"         },
+  orders:    { title:"Orders",     sub:"Manage customer orders"   },
+  products:  { title:"Products",   sub:"Your store inventory"     },
+  analytics: { title:"Analytics",  sub:"Sales insights & trends"  },
+  payouts:   { title:"Payouts",    sub:"Earnings & withdrawals"   },
+  settings:  { title:"Settings",   sub:"Store configuration"      },
 };
 
 const timeAgo = (d) => {
   if (!d) return "";
-  const mins  = Math.floor((Date.now() - new Date(d)) / 60000);
-  const hours = Math.floor(mins / 60);
-  const days  = Math.floor(hours / 24);
-  if (mins  < 1)  return "just now";
-  if (mins  < 60) return `${mins}m ago`;
-  if (hours < 24) return `${hours}h ago`;
-  return `${days}d ago`;
+  const s  = Math.floor((Date.now() - new Date(d)) / 1000);
+  if (s < 60)    return "just now";
+  if (s < 3600)  return `${Math.floor(s / 60)}m ago`;
+  if (s < 86400) return `${Math.floor(s / 3600)}h ago`;
+  return `${Math.floor(s / 86400)}d ago`;
 };
 
 export default function TopBar({
@@ -26,31 +24,31 @@ export default function TopBar({
   notifications = [], unreadCount = 0,
   onMarkRead, onMarkAllRead,
 }) {
-  const [notifOpen, setNotifOpen] = useState(false);
-  const dropRef = useRef(null);
+  const [open,    setOpen]    = useState(false);
+  const dropRef               = useRef(null);
   const { title, sub } = PAGE_META[activePage] ?? PAGE_META.overview;
 
-  // Close dropdown on outside click
+  // Close on outside click
   useEffect(() => {
-    const handler = (e) => {
+    const fn = (e) => {
       if (dropRef.current && !dropRef.current.contains(e.target)) {
-        setNotifOpen(false);
+        setOpen(false);
       }
     };
-    document.addEventListener("mousedown", handler);
-    return () => document.removeEventListener("mousedown", handler);
+    document.addEventListener("mousedown", fn);
+    return () => document.removeEventListener("mousedown", fn);
   }, []);
 
   return (
     <header style={t.bar}>
 
       {/* Left */}
-      <div style={{ display: "flex", alignItems: "center",
-        gap: "0.875rem" }}>
+      <div style={{ display:"flex", alignItems:"center",
+        gap:"0.875rem" }}>
         <button
           onClick={onMenuClick}
           style={t.menuBtn}
-          aria-label="Open menu"
+          aria-label="Toggle menu"
         >
           ☰
         </button>
@@ -61,19 +59,19 @@ export default function TopBar({
       </div>
 
       {/* Right */}
-      <div style={{ display: "flex", alignItems: "center",
-        gap: "0.625rem" }}>
+      <div style={{ display:"flex", alignItems:"center",
+        gap:"0.6rem" }}>
 
-        {/* Store link */}
+        {/* View store */}
         <a href="/" target="_blank" rel="noreferrer"
           style={t.storeLink}>
-          🔗 <span style={t.storeLinkText}>View Store</span>
+          🔗 <span>View Store</span>
         </a>
 
         {/* Notifications */}
-        <div ref={dropRef} style={{ position: "relative" }}>
+        <div ref={dropRef} style={{ position:"relative" }}>
           <button
-            onClick={() => setNotifOpen((v) => !v)}
+            onClick={() => setOpen((v) => !v)}
             style={t.iconBtn}
             aria-label="Notifications"
           >
@@ -85,10 +83,8 @@ export default function TopBar({
             )}
           </button>
 
-          {notifOpen && (
+          {open && (
             <div style={t.dropdown}>
-
-              {/* Dropdown header */}
               <div style={t.dropHeader}>
                 <span style={t.dropTitle}>
                   Notifications
@@ -98,8 +94,10 @@ export default function TopBar({
                 </span>
                 {unreadCount > 0 && (
                   <button
-                    onClick={() => { onMarkAllRead?.();
-                      setNotifOpen(false); }}
+                    onClick={() => {
+                      onMarkAllRead?.();
+                      setOpen(false);
+                    }}
                     style={t.markAllBtn}
                   >
                     Mark all read
@@ -107,13 +105,13 @@ export default function TopBar({
                 )}
               </div>
 
-              {/* Items */}
-              <div style={{ maxHeight: "360px", overflowY: "auto" }}>
+              <div style={{ maxHeight:"340px", overflowY:"auto" }}>
                 {notifications.length === 0 ? (
                   <div style={t.emptyNotif}>
-                    <span style={{ fontSize: "2rem" }}>🔕</span>
-                    <p style={{ margin: "0.5rem 0 0",
-                      color: "#9ca3af", fontSize: "0.85rem" }}>
+                    <span style={{ fontSize:"2rem" }}>🔕</span>
+                    <p style={{ margin:"0.5rem 0 0",
+                      color:"#9ca3af",
+                      fontSize:"0.85rem" }}>
                       All caught up!
                     </p>
                   </div>
@@ -121,18 +119,20 @@ export default function TopBar({
                   notifications.map((n) => (
                     <div
                       key={n.id}
-                      onClick={() => { onMarkRead?.(n.id); }}
+                      onClick={() => {
+                        if (!n.read) onMarkRead?.(n.id);
+                      }}
                       style={{
                         ...t.notifItem,
                         background: n.read ? "white" : "#f0f0ff",
-                        cursor: n.read ? "default" : "pointer",
+                        cursor:     n.read ? "default" : "pointer",
                       }}
                     >
                       <div style={{
                         ...t.notifDot,
                         opacity: n.read ? 0 : 1,
                       }} />
-                      <div style={{ flex: 1, minWidth: 0 }}>
+                      <div style={{ flex:1, minWidth:0 }}>
                         <p style={t.notifMsg}>{n.message}</p>
                         <p style={t.notifTime}>
                           {timeAgo(n.created_at)}
@@ -142,7 +142,6 @@ export default function TopBar({
                   ))
                 )}
               </div>
-
             </div>
           )}
         </div>
@@ -170,6 +169,7 @@ const t = {
     zIndex:         50,
     gap:            "1rem",
     flexWrap:       "wrap",
+    boxShadow:      "0 1px 4px rgba(0,0,0,0.04)",
   },
   menuBtn: {
     background:   "none",
@@ -180,6 +180,7 @@ const t = {
     padding:      "0.25rem 0.4rem",
     borderRadius: "8px",
     lineHeight:   1,
+    fontFamily:   "inherit",
   },
   title: {
     fontWeight: 800,
@@ -206,11 +207,6 @@ const t = {
     fontSize:       "0.82rem",
     fontWeight:     600,
     whiteSpace:     "nowrap",
-    transition:     "all 0.15s",
-  },
-  storeLinkText: {
-    // Hidden on very small screens via JS is complex;
-    // just keep it visible
   },
   iconBtn: {
     position:     "relative",
@@ -221,7 +217,7 @@ const t = {
     cursor:       "pointer",
     fontSize:     "1rem",
     lineHeight:   1,
-    transition:   "all 0.15s",
+    fontFamily:   "inherit",
   },
   badge: {
     position:       "absolute",
@@ -230,7 +226,7 @@ const t = {
     background:     "#ef4444",
     color:          "white",
     borderRadius:   "100px",
-    fontSize:       "0.6rem",
+    fontSize:       "0.58rem",
     fontWeight:     800,
     minWidth:       "17px",
     height:         "17px",
@@ -271,7 +267,7 @@ const t = {
     background:   "#6366f1",
     color:        "white",
     borderRadius: "100px",
-    fontSize:     "0.62rem",
+    fontSize:     "0.6rem",
     fontWeight:   800,
     padding:      "0.1rem 0.45rem",
   },
@@ -280,13 +276,14 @@ const t = {
     border:      "none",
     color:       "#6366f1",
     cursor:      "pointer",
-    fontSize:    "0.78rem",
+    fontSize:    "0.75rem",
     fontWeight:  600,
     padding:     0,
+    fontFamily:  "inherit",
   },
   notifItem: {
     display:      "flex",
-    gap:          "0.625rem",
+    gap:          "0.6rem",
     padding:      "0.875rem 1.1rem",
     borderBottom: "1px solid #f9fafb",
     alignItems:   "flex-start",
@@ -299,6 +296,7 @@ const t = {
     background:   "#6366f1",
     flexShrink:   0,
     marginTop:    "5px",
+    transition:   "opacity 0.2s",
   },
   notifMsg: {
     margin:     0,
@@ -308,15 +306,15 @@ const t = {
   },
   notifTime: {
     margin:    "0.2rem 0 0",
-    fontSize:  "0.7rem",
+    fontSize:  "0.68rem",
     color:     "#9ca3af",
   },
   emptyNotif: {
-    padding:        "2.5rem 1rem",
-    textAlign:      "center",
-    display:        "flex",
-    flexDirection:  "column",
-    alignItems:     "center",
+    padding:       "2.5rem 1rem",
+    textAlign:     "center",
+    display:       "flex",
+    flexDirection: "column",
+    alignItems:    "center",
   },
   avatar: {
     width:          "36px",
