@@ -12,8 +12,9 @@ const router = express.Router();
 const requireSellerAccount = async (req, res, next) => {
   try {
     const { rows } = await pool.query(
-      `SELECT id, name, email, status, password_hash
-       FROM market.users WHERE id = $1`,
+      `SELECT id, name, email, status
+       FROM market.users
+       WHERE id = $1`,
       [req.user.id]
     );
 
@@ -36,7 +37,10 @@ const requireSellerAccount = async (req, res, next) => {
     next();
   } catch (err) {
     console.error("[requireSellerAccount]", err.message);
-    return res.status(500).json({ success: false, message: "Auth error" });
+    return res.status(500).json({
+      success: false,
+      message: "Auth error",
+    });
   }
 };
 
@@ -70,34 +74,109 @@ const requireVendor = async (req, res, next) => {
     next();
   } catch (err) {
     console.error("[requireVendor]", err.message);
-    return res.status(500).json({ success: false, message: "Server error" });
+    return res.status(500).json({
+      success: false,
+      message: "Server error",
+    });
   }
 };
 
 const guard = [authenticate, requireSellerAccount, requireVendor];
 
-// ── Helper: verify seller password ─────────────────────────
+// ─────────────────────────────────────────────────────────────
+// HELPER: verify seller password
+// ─────────────────────────────────────────────────────────────
 const verifyPassword = async (userId, password) => {
   const { rows } = await pool.query(
     `SELECT password_hash FROM market.users WHERE id = $1`,
     [userId]
   );
-  if (!rows.length) return false;
+  if (!rows.length || !rows[0].password_hash) return false;
   return bcrypt.compare(password, rows[0].password_hash);
 };
 
+// ─────────────────────────────────────────────────────────────
+// HELPER: write audit log (non-critical — never throws)
+// vendor_id is UUID
+// ─────────────────────────────────────────────────────────────
+const auditLog = async (vendorId, action, details = {}, ip = null) => {
+  try {
+    await pool.query(
+      `INSERT INTO market.vendor_audit_log
+         (vendor_id, action, details, ip_address, created_at)
+       VALUES ($1, $2, $3, $4, NOW())`,
+      [
+        vendorId,          // UUID — from req.vendor.id
+        action,
+        JSON.stringify(details),
+        ip ?? null,
+      ]
+    );
+  } catch (err) {
+    // Non-critical: log but don't crash the request
+    console.warn("[auditLog] failed:", err.message);
+  }
+};
+
+// ════════════════════════════════════════════════════════════
+// GET /api/seller/settings/profile
+// Returns combined vendor + user profile
+// ════════════════════════════════════════════════════════════
+router.get("/profile", ...guard, async (req, res) => {
+  try {
+    const { rows: [vendor] } = await pool.query(
+      `SELECT
+         v.id,
+         v.store_name,
+         v.store_description,
+         v.store_category,
+         v.phone,
+         v.store_address,
+         v.bank_name,
+         v.bank_code,
+         v.bank_account     AS account_number,
+         v.account_name,
+         v.status,
+         v.created_at,
+         v.updated_at,
+         u.name             AS user_name,
+         u.email            AS user_email
+       FROM market.vendors   v
+       JOIN market.users     u ON u.id = v.user_id
+       WHERE v.user_id = $1`,
+      [req.user.id]
+    );
+
+    if (!vendor) {
+      return res.status(404).json({
+        success: false,
+        message: "Vendor not found",
+      });
+    }
+
+    return res.json({ success: true, vendor });
+
+  } catch (err) {
+    console.error("[settings/profile]", err.message);
+    return res.status(500).json({
+      success: false,
+      message: "Server error",
+    });
+  }
+});
+
 // ════════════════════════════════════════════════════════════
 // PUT /api/seller/settings/store
-// Update store info (no password required)
+// Update store info — no password required
 // ════════════════════════════════════════════════════════════
 router.put("/store", ...guard, async (req, res) => {
   try {
     const {
       store_name,
-      store_description,
-      store_category,
-      phone,
-      store_address,
+      store_description = "",
+      store_category    = "",
+      phone             = "",
+      store_address     = "",
     } = req.body;
 
     // ── Validate ──────────────────────────────────────
@@ -115,14 +194,14 @@ router.put("/store", ...guard, async (req, res) => {
       });
     }
 
-    if (store_description && store_description.length > 500) {
+    if (store_description.length > 500) {
       return res.status(400).json({
         success: false,
         message: "Description must be 500 characters or less",
       });
     }
 
-    if (phone && !/^[+\d\s\-]{7,15}$/.test(phone)) {
+    if (phone && !/^[+\d\s\-]{7,15}$/.test(phone.trim())) {
       return res.status(400).json({
         success: false,
         message: "Invalid phone number format",
@@ -130,7 +209,7 @@ router.put("/store", ...guard, async (req, res) => {
     }
 
     // ── Update ────────────────────────────────────────
-    const { rows: [vendor] } = await pool.query(
+    const { rows: [updated] } = await pool.query(
       `UPDATE market.vendors
        SET store_name        = $1,
            store_description = $2,
@@ -142,29 +221,41 @@ router.put("/store", ...guard, async (req, res) => {
        RETURNING
          id, store_name, store_description,
          store_category, phone, store_address,
-         bank_name, bank_code, bank_account,
+         bank_name, bank_code,
+         bank_account AS account_number,
          account_name, status`,
       [
         store_name.trim(),
-        (store_description ?? "").trim(),
-        (store_category ?? "").trim(),
-        (phone ?? "").trim(),
-        (store_address ?? "").trim(),
+        store_description.trim(),
+        store_category.trim(),
+        phone.trim(),
+        store_address.trim(),
         req.user.id,
       ]
     );
 
-    if (!vendor) {
+    if (!updated) {
       return res.status(500).json({
         success: false,
         message: "Failed to update store",
       });
     }
 
+    // Audit log — vendor_id is UUID from req.vendor.id
+    await auditLog(
+      req.vendor.id,
+      "store_info_updated",
+      {
+        store_name:     store_name.trim(),
+        store_category: store_category.trim(),
+      },
+      req.ip
+    );
+
     return res.json({
       success: true,
       message: "Store info updated",
-      vendor,
+      vendor:  updated,
     });
 
   } catch (err) {
@@ -178,7 +269,7 @@ router.put("/store", ...guard, async (req, res) => {
 
 // ════════════════════════════════════════════════════════════
 // POST /api/seller/settings/bank
-// Update bank details (requires password)
+// Update bank details — requires password
 // ════════════════════════════════════════════════════════════
 router.post("/bank", ...guard, async (req, res) => {
   try {
@@ -190,7 +281,7 @@ router.post("/bank", ...guard, async (req, res) => {
       password,
     } = req.body;
 
-    // ── Require password ──────────────────────────────
+    // ── Password required ─────────────────────────────
     if (!password) {
       return res.status(400).json({
         success: false,
@@ -215,7 +306,7 @@ router.post("/bank", ...guard, async (req, res) => {
       });
     }
 
-    if (!account_number || !/^\d{10}$/.test(account_number)) {
+    if (!account_number || !/^\d{10}$/.test(account_number.trim())) {
       return res.status(400).json({
         success: false,
         message: "Account number must be exactly 10 digits",
@@ -229,16 +320,19 @@ router.post("/bank", ...guard, async (req, res) => {
       });
     }
 
-    // ── Update ────────────────────────────────────────
-    const { rows: [vendor] } = await pool.query(
+    // ── Update vendor bank fields ─────────────────────
+    const { rows: [updated] } = await pool.query(
       `UPDATE market.vendors
-       SET bank_name       = $1,
-           bank_code       = $2,
-           bank_account    = $3,
-           account_name    = $4,
-           updated_at      = NOW()
+       SET bank_name    = $1,
+           bank_code    = $2,
+           bank_account = $3,
+           account_name = $4,
+           updated_at   = NOW()
        WHERE user_id = $5
-       RETURNING id, bank_name, bank_code, bank_account, account_name`,
+       RETURNING
+         id, bank_name, bank_code,
+         bank_account AS account_number,
+         account_name`,
       [
         bank_name.trim(),
         (bank_code ?? "").trim(),
@@ -248,33 +342,28 @@ router.post("/bank", ...guard, async (req, res) => {
       ]
     );
 
-    if (!vendor) {
+    if (!updated) {
       return res.status(500).json({
         success: false,
         message: "Failed to update bank details",
       });
     }
 
-    // ── Audit log (optional but recommended) ──────────
-    try {
-      await pool.query(
-        `INSERT INTO market.vendor_audit_log
-           (vendor_id, action, details, ip_address, created_at)
-         VALUES ($1, 'bank_updated', $2, $3, NOW())`,
-        [
-          req.vendor.id,
-          JSON.stringify({
-            bank_name:      bank_name.trim(),
-            account_number: account_number.slice(0, 3)
-              + "****" + account_number.slice(-3),
-            account_name:   account_name.trim(),
-          }),
-          req.ip,
-        ]
-      );
-    } catch {
-      // Non-critical — don't fail the request
-    }
+    // ── Audit log (mask account number) ──────────────
+    await auditLog(
+      req.vendor.id,
+      "bank_details_updated",
+      {
+        bank_name,
+        // Mask: show first 3 and last 3 digits only
+        account_number_masked:
+          account_number.slice(0, 3)
+          + "****"
+          + account_number.slice(-3),
+        account_name: account_name.trim(),
+      },
+      req.ip
+    );
 
     return res.json({
       success: true,
@@ -297,7 +386,7 @@ router.post("/change-password", ...guard, async (req, res) => {
   try {
     const { current_password, new_password } = req.body;
 
-    // ── Validate ──────────────────────────────────────
+    // ── Basic presence check ──────────────────────────
     if (!current_password || !new_password) {
       return res.status(400).json({
         success: false,
@@ -305,14 +394,13 @@ router.post("/change-password", ...guard, async (req, res) => {
       });
     }
 
+    // ── New password strength requirements ────────────
     if (new_password.length < 8) {
       return res.status(400).json({
         success: false,
         message: "New password must be at least 8 characters",
       });
     }
-
-    // Require strong password: uppercase, number, special char
     if (!/[A-Z]/.test(new_password)) {
       return res.status(400).json({
         success: false,
@@ -332,10 +420,11 @@ router.post("/change-password", ...guard, async (req, res) => {
       });
     }
 
+    // ── Cannot reuse same password ────────────────────
     if (current_password === new_password) {
       return res.status(400).json({
         success: false,
-        message: "New password must be different from current",
+        message: "New password must be different from your current password",
       });
     }
 
@@ -348,9 +437,8 @@ router.post("/change-password", ...guard, async (req, res) => {
       });
     }
 
-    // ── Hash and save ─────────────────────────────────
-    const salt = await bcrypt.genSalt(12);
-    const hash = await bcrypt.hash(new_password, salt);
+    // ── Hash new password (cost factor 12) ────────────
+    const hash = await bcrypt.hash(new_password, 12);
 
     await pool.query(
       `UPDATE market.users
@@ -361,14 +449,12 @@ router.post("/change-password", ...guard, async (req, res) => {
     );
 
     // ── Audit log ─────────────────────────────────────
-    try {
-      await pool.query(
-        `INSERT INTO market.vendor_audit_log
-           (vendor_id, action, details, ip_address, created_at)
-         VALUES ($1, 'password_changed', '{}', $2, NOW())`,
-        [req.vendor.id, req.ip]
-      );
-    } catch { /* non-critical */ }
+    await auditLog(
+      req.vendor.id,
+      "password_changed",
+      {},
+      req.ip
+    );
 
     return res.json({
       success: true,
@@ -386,13 +472,14 @@ router.post("/change-password", ...guard, async (req, res) => {
 
 // ════════════════════════════════════════════════════════════
 // POST /api/seller/settings/deactivate
-// Deactivate seller account (requires password)
+// Deactivate seller account — requires password
 // ════════════════════════════════════════════════════════════
 router.post("/deactivate", ...guard, async (req, res) => {
+  const client = await pool.connect();
   try {
     const { password } = req.body;
 
-    // ── Require password ──────────────────────────────
+    // ── Password required ─────────────────────────────
     if (!password) {
       return res.status(400).json({
         success: false,
@@ -409,23 +496,27 @@ router.post("/deactivate", ...guard, async (req, res) => {
       });
     }
 
-    // ── Check for pending withdrawals ─────────────────
-    const { rows: [{ count }] } = await pool.query(
-      `SELECT COUNT(*) FROM market.vendor_withdrawal_requests
-       WHERE vendor_id = $1 AND status IN ('pending', 'processing')`,
+    // ── Block if pending withdrawals ──────────────────
+    const { rows: [{ count: pendingCount }] } = await pool.query(
+      `SELECT COUNT(*) AS count
+       FROM market.vendor_withdrawal_requests
+       WHERE vendor_id = $1
+         AND status IN ('pending', 'processing')`,
       [req.vendor.id]
     );
 
-    if (parseInt(count) > 0) {
+    if (parseInt(pendingCount, 10) > 0) {
       return res.status(400).json({
         success: false,
-        message: "Cannot deactivate while you have pending withdrawals. Please wait for them to complete.",
+        message:
+          "You have pending withdrawals. "
+          + "Please wait for them to complete before deactivating.",
       });
     }
 
-    // ── Check wallet balance ──────────────────────────
+    // ── Block if balance remaining ────────────────────
     const { rows: walletRows } = await pool.query(
-      `SELECT available_balance, pending_balance
+      `SELECT available_balance
        FROM market.vendor_wallets
        WHERE vendor_id = $1`,
       [req.vendor.id]
@@ -436,13 +527,20 @@ router.post("/deactivate", ...guard, async (req, res) => {
       if (bal > 0) {
         return res.status(400).json({
           success: false,
-          message: `Please withdraw your remaining balance of ₦${bal.toLocaleString()} before deactivating.`,
+          message:
+            `Please withdraw your remaining balance `
+            + `of ₦${bal.toLocaleString("en-NG", {
+              minimumFractionDigits: 2,
+            })} before deactivating.`,
         });
       }
     }
 
-    // ── Deactivate ────────────────────────────────────
-    await pool.query(
+    // ── Deactivate in a transaction ───────────────────
+    await client.query("BEGIN");
+
+    // Deactivate vendor
+    await client.query(
       `UPDATE market.vendors
        SET status     = 'deactivated',
            updated_at = NOW()
@@ -450,120 +548,77 @@ router.post("/deactivate", ...guard, async (req, res) => {
       [req.vendor.id]
     );
 
-    // Hide all products
-    await pool.query(
+    // Hide all active products
+    await client.query(
       `UPDATE market.products
        SET status     = 'inactive',
            updated_at = NOW()
-       WHERE vendor_id = $1`,
+       WHERE vendor_id = $1
+         AND status    = 'active'`,
       [req.vendor.id]
     );
 
+    await client.query("COMMIT");
+
     // ── Audit log ─────────────────────────────────────
-    try {
-      await pool.query(
-        `INSERT INTO market.vendor_audit_log
-           (vendor_id, action, details, ip_address, created_at)
-         VALUES ($1, 'account_deactivated', $2, $3, NOW())`,
-        [
-          req.vendor.id,
-          JSON.stringify({
-            store_name: req.vendor.store_name,
-            reason:     "self_deactivation",
-          }),
-          req.ip,
-        ]
-      );
-    } catch { /* non-critical */ }
+    await auditLog(
+      req.vendor.id,
+      "account_deactivated",
+      {
+        store_name: req.vendor.store_name,
+        reason:     "self_deactivation",
+      },
+      req.ip
+    );
 
     return res.json({
       success: true,
-      message: "Seller account deactivated. Contact support to reactivate.",
+      message:
+        "Seller account deactivated successfully. "
+        + "Contact support at support@minimart.com to reactivate.",
     });
 
   } catch (err) {
+    await client.query("ROLLBACK").catch(() => {});
     console.error("[settings/deactivate]", err.message);
     return res.status(500).json({
       success: false,
       message: "Server error",
     });
-  }
-});
-
-// ════════════════════════════════════════════════════════════
-// GET /api/seller/settings/profile
-// Get current seller profile (store + bank combined)
-// ════════════════════════════════════════════════════════════
-router.get("/profile", ...guard, async (req, res) => {
-  try {
-    const { rows: [vendor] } = await pool.query(
-      `SELECT
-         v.id,
-         v.store_name,
-         v.store_description,
-         v.store_category,
-         v.phone,
-         v.store_address,
-         v.bank_name,
-         v.bank_code,
-         v.bank_account    AS account_number,
-         v.account_name,
-         v.status,
-         v.created_at,
-         v.updated_at,
-         u.name            AS user_name,
-         u.email           AS user_email
-       FROM market.vendors v
-       JOIN market.users u ON u.id = v.user_id
-       WHERE v.user_id = $1`,
-      [req.user.id]
-    );
-
-    if (!vendor) {
-      return res.status(404).json({
-        success: false,
-        message: "Vendor not found",
-      });
-    }
-
-    return res.json({
-      success: true,
-      vendor,
-    });
-
-  } catch (err) {
-    console.error("[settings/profile]", err.message);
-    return res.status(500).json({
-      success: false,
-      message: "Server error",
-    });
+  } finally {
+    client.release();
   }
 });
 
 // ════════════════════════════════════════════════════════════
 // GET /api/seller/settings/audit-log
-// Get recent security audit log
+// Returns recent security activity for the vendor
 // ════════════════════════════════════════════════════════════
 router.get("/audit-log", ...guard, async (req, res) => {
   try {
-    const limit = Math.min(parseInt(req.query.limit) || 20, 50);
+    const limit = Math.min(
+      parseInt(req.query.limit) || 20, 50
+    );
 
     const { rows: logs } = await pool.query(
-      `SELECT id, action, details, ip_address, created_at
+      `SELECT
+         id,
+         action,
+         details,
+         ip_address,
+         created_at
        FROM market.vendor_audit_log
        WHERE vendor_id = $1
        ORDER BY created_at DESC
        LIMIT $2`,
-      [req.vendor.id, limit]
-    ).catch(() => ({ rows: [] }));
+      [req.vendor.id, limit]   // vendor_id is UUID
+    );
 
-    return res.json({
-      success: true,
-      logs,
-    });
+    return res.json({ success: true, logs });
 
   } catch (err) {
     console.error("[settings/audit-log]", err.message);
+    // Non-critical: return empty rather than 500
     return res.json({ success: true, logs: [] });
   }
 });
