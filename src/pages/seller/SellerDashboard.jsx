@@ -1,83 +1,63 @@
 // pages/seller/SellerDashboard.jsx
 import React, {
-  useState, useEffect, useCallback, createContext, useContext,
+  useState, useEffect, useCallback,
+  createContext, useContext,
 } from "react";
 import { Navigate, useParams } from "react-router-dom";
 import axios from "axios";
 
-// ── Child pages ───────────────────────────────────────────────
 import Overview  from "./Overview";
 import Orders    from "./Orders";
 import Products  from "./Products";
 import Analytics from "./Analytics";
 import Payouts   from "./Payouts";
 import Settings  from "./Settings";
-
-// ── Child components ──────────────────────────────────────────
-import Sidebar from "./components/Sidebar";
-import TopBar  from "./components/TopBar";
+import Sidebar   from "./components/Sidebar";
+import TopBar    from "./components/TopBar";
 
 // ─────────────────────────────────────────────────────────────
-// TOKEN KEY — seller_token (market.users)
-// NEVER reads marketplace_token
+// TOKEN
 // ─────────────────────────────────────────────────────────────
 export const SELLER_TOKEN_KEY = "seller_token";
-
-export const getSellerToken = () =>
+export const getSellerToken   = () =>
   localStorage.getItem(SELLER_TOKEN_KEY);
 
 // ─────────────────────────────────────────────────────────────
-// SHARED SELLER API — all dashboard calls use this
+// SHARED API — all seller calls go through here
 // ─────────────────────────────────────────────────────────────
 export const sellerApi = {
   get: (url, params) =>
     axios.get(url, {
-      headers: {
-        Authorization: `Bearer ${getSellerToken()}`,
-      },
+      headers: { Authorization: `Bearer ${getSellerToken()}` },
       params,
       timeout: 15_000,
     }),
-
   post: (url, data) =>
     axios.post(url, data, {
-      headers: {
-        Authorization: `Bearer ${getSellerToken()}`,
-      },
+      headers: { Authorization: `Bearer ${getSellerToken()}` },
       timeout: 15_000,
     }),
-
   patch: (url, data) =>
     axios.patch(url, data, {
-      headers: {
-        Authorization: `Bearer ${getSellerToken()}`,
-      },
+      headers: { Authorization: `Bearer ${getSellerToken()}` },
       timeout: 15_000,
     }),
-
   put: (url, data) =>
     axios.put(url, data, {
-      headers: {
-        Authorization: `Bearer ${getSellerToken()}`,
-      },
+      headers: { Authorization: `Bearer ${getSellerToken()}` },
       timeout: 15_000,
     }),
-
   delete: (url) =>
     axios.delete(url, {
-      headers: {
-        Authorization: `Bearer ${getSellerToken()}`,
-      },
+      headers: { Authorization: `Bearer ${getSellerToken()}` },
       timeout: 15_000,
     }),
 };
 
 // ─────────────────────────────────────────────────────────────
-// DASHBOARD CONTEXT
-// Provides vendor + helpers to all child pages/components
+// CONTEXT
 // ─────────────────────────────────────────────────────────────
 const DashboardContext = createContext(null);
-
 export const useDashboard = () => {
   const ctx = useContext(DashboardContext);
   if (!ctx) throw new Error(
@@ -87,19 +67,16 @@ export const useDashboard = () => {
 };
 
 // ─────────────────────────────────────────────────────────────
-// VALID PAGES + URL TAB MAP
+// CONSTANTS
 // ─────────────────────────────────────────────────────────────
 const VALID_TABS = [
   "overview", "orders", "products",
   "analytics", "payouts", "settings",
 ];
 
-const tabFromParam = (param) =>
-  VALID_TABS.includes(param) ? param : "overview";
+const tabFromParam = (p) =>
+  VALID_TABS.includes(p) ? p : "overview";
 
-// ─────────────────────────────────────────────────────────────
-// SIGN OUT
-// ─────────────────────────────────────────────────────────────
 export const sellerSignOut = () => {
   localStorage.removeItem(SELLER_TOKEN_KEY);
   window.location.href = "/become-seller";
@@ -108,14 +85,33 @@ export const sellerSignOut = () => {
 // ─────────────────────────────────────────────────────────────
 // LOADING SCREEN
 // ─────────────────────────────────────────────────────────────
-const LoadingScreen = () => (
+const LoadingScreen = ({ timeoutHit }) => (
   <div style={css.loadWrap}>
     <div style={css.loadCard}>
-      <div style={css.loadLogo}>🛒</div>
+      <div style={{ fontSize: "2.5rem", lineHeight: 1 }}>🛒</div>
       <div style={css.spinner} />
       <p style={{ color: "#6b7280", margin: 0, fontSize: "0.9rem" }}>
-        Loading your dashboard…
+        {timeoutHit
+          ? "Still loading… server may be waking up"
+          : "Loading your dashboard…"}
       </p>
+      {timeoutHit && (
+        <button
+          onClick={sellerSignOut}
+          style={{
+            background:   "none",
+            border:       "none",
+            color:        "#9ca3af",
+            cursor:       "pointer",
+            fontSize:     "0.8rem",
+            textDecoration:"underline",
+            padding:      0,
+            fontFamily:   "inherit",
+          }}
+        >
+          Back to login
+        </button>
+      )}
     </div>
   </div>
 );
@@ -123,47 +119,100 @@ const LoadingScreen = () => (
 // ─────────────────────────────────────────────────────────────
 // ERROR SCREEN
 // ─────────────────────────────────────────────────────────────
-const ErrorScreen = ({ error, onRetry }) => (
-  <div style={css.loadWrap}>
-    <div style={{ ...css.loadCard, maxWidth: "380px" }}>
-      <span style={{ fontSize: "2.5rem" }}>⚠️</span>
-      <h2 style={{
-        color:     "#1f2937",
-        margin:    "0.75rem 0 0.4rem",
-        fontSize:  "1.15rem",
-        fontWeight:800,
-      }}>
-        Dashboard Unavailable
-      </h2>
-      <p style={{
-        color:     "#6b7280",
-        fontSize:  "0.875rem",
-        textAlign: "center",
-        margin:    "0 0 1.5rem",
-      }}>
-        {error}
-      </p>
-      <button onClick={onRetry} style={css.retryBtn}>
-        🔄 Try Again
-      </button>
-      <button
-        onClick={sellerSignOut}
-        style={{
-          ...css.retryBtn,
-          marginTop:  "0.5rem",
-          background: "#fef2f2",
-          color:      "#ef4444",
-          border:     "1px solid #fecaca",
-        }}
-      >
-        ↩ Back to Login
-      </button>
+const ErrorScreen = ({ error, code, onRetry }) => {
+  // Show friendly messages for known codes
+  const friendly = {
+    NOT_SELLER_ACCOUNT:
+      "This email is not registered as a seller account.",
+    NO_VENDOR:
+      "No store found. Please complete seller onboarding.",
+    VENDOR_NOT_ACTIVE:
+      "Your store is not yet active. Please wait for approval.",
+    ACCOUNT_SUSPENDED:
+      "Your seller account has been suspended.",
+    TOKEN_EXPIRED:
+      "Your session has expired. Please log in again.",
+    INVALID_TOKEN:
+      "Invalid session. Please log in again.",
+    NO_TOKEN:
+      "No seller account found. Please sign in.",
+  };
+
+  const msg = friendly[code] ?? error ?? "Something went wrong.";
+  const isAuthError = [
+    "TOKEN_EXPIRED", "INVALID_TOKEN", "NO_TOKEN",
+    "NOT_SELLER_ACCOUNT",
+  ].includes(code);
+
+  return (
+    <div style={css.loadWrap}>
+      <div style={{ ...css.loadCard, maxWidth: "400px" }}>
+        <span style={{ fontSize: "2.5rem" }}>
+          {isAuthError ? "🔐" : "⚠️"}
+        </span>
+
+        <h2 style={{
+          color:     "#1f2937",
+          margin:    "0.5rem 0 0.3rem",
+          fontSize:  "1.1rem",
+          fontWeight:800,
+          textAlign: "center",
+        }}>
+          {isAuthError ? "Sign In Required" : "Dashboard Unavailable"}
+        </h2>
+
+        <p style={{
+          color:     "#6b7280",
+          fontSize:  "0.875rem",
+          textAlign: "center",
+          margin:    "0 0 1.25rem",
+          lineHeight:1.5,
+        }}>
+          {msg}
+        </p>
+
+        {/* Debug info in development */}
+        {process.env.NODE_ENV === "development" && code && (
+          <p style={{
+            background:   "#f3f4f6",
+            borderRadius: "8px",
+            padding:      "0.5rem 0.75rem",
+            fontSize:     "0.72rem",
+            color:        "#6b7280",
+            fontFamily:   "monospace",
+            margin:       "0 0 1rem",
+            width:        "100%",
+            textAlign:    "center",
+          }}>
+            code: {code}
+          </p>
+        )}
+
+        {!isAuthError && (
+          <button onClick={onRetry} style={css.retryBtn}>
+            🔄 Try Again
+          </button>
+        )}
+
+        <button
+          onClick={sellerSignOut}
+          style={{
+            ...css.retryBtn,
+            marginTop:  "0.5rem",
+            background: "#fef2f2",
+            color:      "#ef4444",
+            border:     "1px solid #fecaca",
+          }}
+        >
+          ↩ {isAuthError ? "Back to Sign In" : "Sign Out"}
+        </button>
+      </div>
     </div>
-  </div>
-);
+  );
+};
 
 // ─────────────────────────────────────────────────────────────
-// GLOBAL CSS (injected once)
+// GLOBAL CSS
 // ─────────────────────────────────────────────────────────────
 const GLOBAL_CSS = `
   @keyframes spin {
@@ -177,10 +226,6 @@ const GLOBAL_CSS = `
     0%   { background-position: -400px 0; }
     100% { background-position:  400px 0; }
   }
-  @keyframes sdPulse {
-    0%, 100% { opacity: 1; }
-    50%       { opacity: 0.5; }
-  }
   *, *::before, *::after { box-sizing: border-box; }
   body {
     margin: 0;
@@ -192,56 +237,34 @@ const GLOBAL_CSS = `
   ::-webkit-scrollbar { width: 5px; height: 5px; }
   ::-webkit-scrollbar-track { background: transparent; }
   ::-webkit-scrollbar-thumb {
-    background: #d1d5db;
-    border-radius: 10px;
+    background: #d1d5db; border-radius: 10px;
   }
-  input, textarea, select {
-    font-family: inherit;
-  }
+  input, textarea, select { font-family: inherit; }
   input:focus, textarea:focus, select:focus {
     outline: none !important;
     border-color: #6366f1 !important;
     box-shadow: 0 0 0 3px rgba(99,102,241,0.1) !important;
   }
   button:focus-visible {
-    outline: 2px solid #6366f1;
-    outline-offset: 2px;
+    outline: 2px solid #6366f1; outline-offset: 2px;
   }
-  /* Seller dashboard root — prevents body scroll bleed */
   .sd-root {
-    display: flex;
-    min-height: 100vh;
-    background: #f1f5f9;
-    position: relative;
+    display: flex; min-height: 100vh; background: #f1f5f9;
   }
   .sd-main {
-    flex: 1;
-    display: flex;
-    flex-direction: column;
-    min-width: 0;
-    overflow: hidden;
+    flex: 1; display: flex; flex-direction: column;
+    min-width: 0; overflow: hidden;
   }
   .sd-page-wrap {
-    flex: 1;
-    overflow-y: auto;
-    padding: 1.5rem;
+    flex: 1; overflow-y: auto; padding: 1.5rem;
   }
-  .sd-page-anim {
-    animation: sdFadeIn 0.2s ease;
-  }
-  /* Mobile: sidebar hidden off-screen by default */
+  .sd-page-anim { animation: sdFadeIn 0.2s ease; }
   @media (max-width: 768px) {
-    .sd-sidebar-desktop {
-      display: none !important;
-    }
+    .sd-sidebar-desktop { display: none !important; }
+    .sd-page-wrap { padding: 1rem !important; }
   }
   @media (min-width: 769px) {
-    .sd-sidebar-mobile {
-      display: none !important;
-    }
-    .sd-mobile-overlay {
-      display: none !important;
-    }
+    .sd-menu-btn { display: none !important; }
   }
 `;
 
@@ -249,111 +272,144 @@ const GLOBAL_CSS = `
 // MAIN COMPONENT
 // ─────────────────────────────────────────────────────────────
 export default function SellerDashboard() {
-  // ── URL-driven active tab ─────────────────────────────────
   const { tab: tabParam } = useParams();
+
   const [activePage,    setActivePage]    = useState(
     tabFromParam(tabParam)
   );
   const [vendor,        setVendor]        = useState(null);
   const [loading,       setLoading]       = useState(true);
   const [error,         setError]         = useState(null);
+  const [errorCode,     setErrorCode]     = useState(null);
+  const [timeoutHit,    setTimeoutHit]    = useState(false);
   const [sidebarOpen,   setSidebarOpen]   = useState(false);
   const [notifications, setNotifications] = useState([]);
   const [unreadCount,   setUnreadCount]   = useState(0);
 
-  // ── Inject global CSS once ────────────────────────────────
+  // Inject CSS once
   useEffect(() => {
-    const id  = "sd-global-css";
-    if (!document.getElementById(id)) {
-      const el  = document.createElement("style");
-      el.id     = id;
-      el.textContent = GLOBAL_CSS;
-      document.head.appendChild(el);
-    }
-    return () => {
-      // Don't remove on unmount — keeps styles for re-mounts
-    };
+    const id = "sd-global-css";
+    if (document.getElementById(id)) return;
+    const el = document.createElement("style");
+    el.id = id;
+    el.textContent = GLOBAL_CSS;
+    document.head.appendChild(el);
   }, []);
 
-  // ── Sync tab from URL param ───────────────────────────────
+  // Sync tab from URL
   useEffect(() => {
     if (tabParam) setActivePage(tabFromParam(tabParam));
   }, [tabParam]);
 
-  // ── Close sidebar on page change ──────────────────────────
-  useEffect(() => {
-    setSidebarOpen(false);
-  }, [activePage]);
+  // Close sidebar on nav
+  useEffect(() => { setSidebarOpen(false); }, [activePage]);
 
-  // ── Load vendor via onboarding status ─────────────────────
-  // Uses: GET /api/seller-onboarding/status
+  // ── Load vendor ─────────────────────────────────────────
   const loadVendor = useCallback(async () => {
     const token = getSellerToken();
 
+    // Guard: no token
     if (!token) {
       setError("No seller account found. Please sign in.");
+      setErrorCode("NO_TOKEN");
       setLoading(false);
       return;
     }
 
     setLoading(true);
     setError(null);
+    setErrorCode(null);
+    setTimeoutHit(false);
+
+    // Show "still loading" message after 6s
+    const slowTimer = setTimeout(() => setTimeoutHit(true), 6_000);
 
     try {
       const { data } = await sellerApi.get(
         "/api/seller-onboarding/status"
       );
 
-      if (!data.vendor) {
-        setError("Vendor account not found.");
-        return;
-      }
+      // ── Success path ──────────────────────────────
+      if (data.vendor) {
+        const status = data.vendor.status;
 
-      if (!["active", "approved"].includes(data.vendor.status)) {
-        // Not yet active — send back to onboarding
-        setError(`REDIRECT_ONBOARDING:${data.vendor.status}`);
-        return;
+        if (["active", "approved"].includes(status)) {
+          setVendor(data.vendor);
+          // ✅ All good — render dashboard
+        } else {
+          // Vendor exists but not yet active
+          setError(`Vendor status: ${status}`);
+          setErrorCode("VENDOR_NOT_ACTIVE");
+        }
+      } else {
+        setError("No vendor account found.");
+        setErrorCode("NO_VENDOR");
       }
-
-      setVendor(data.vendor);
 
     } catch (err) {
-      const code = err.response?.data?.code;
-      const msg  = err.response?.data?.message;
-      const st   = err.response?.status;
+      const status  = err.response?.status;
+      const code    = err.response?.data?.code;
+      const message = err.response?.data?.message;
 
-      if (st === 401 || code === "INVALID_TOKEN"
-        || code === "TOKEN_EXPIRED") {
+      console.error("[SellerDashboard] loadVendor error:", {
+        status, code, message,
+        networkError: err.message,
+      });
+
+      // ── Auth errors → clear token ─────────────────
+      if (
+        status === 401
+        || code === "INVALID_TOKEN"
+        || code === "TOKEN_EXPIRED"
+      ) {
         localStorage.removeItem(SELLER_TOKEN_KEY);
         setError("Session expired. Please sign in again.");
+        setErrorCode(code ?? "TOKEN_EXPIRED");
         return;
       }
 
-      setError(msg ?? "Failed to load seller account.");
+      // ── Known server codes ────────────────────────
+      if (code) {
+        setError(message ?? code);
+        setErrorCode(code);
+        return;
+      }
+
+      // ── Network / timeout ─────────────────────────
+      if (err.code === "ECONNABORTED" || !err.response) {
+        setError(
+          "Connection timed out. "
+          + "The server may be starting up — please retry."
+        );
+        setErrorCode("TIMEOUT");
+        return;
+      }
+
+      // ── Unknown error ─────────────────────────────
+      setError(message ?? "Failed to load seller account.");
+      setErrorCode("UNKNOWN");
+
     } finally {
+      clearTimeout(slowTimer);
       setLoading(false);
     }
   }, []);
 
-  // ── Load notifications ─────────────────────────────────────
-  // Uses: GET /api/seller-dashboard/notifications
+  // ── Load notifications ──────────────────────────────────
   const loadNotifications = useCallback(async () => {
     if (!getSellerToken()) return;
     try {
       const { data } = await sellerApi.get(
-        "/api/seller-dashboard/notifications",
-        { limit: 15 }
+        "/api/seller-dashboard/notifications", { limit: 15 }
       );
       if (data.success) {
         const notifs = data.notifications ?? [];
         setNotifications(notifs);
         setUnreadCount(notifs.filter((n) => !n.read).length);
       }
-    } catch { /* silent — non-critical */ }
+    } catch { /* silent */ }
   }, []);
 
-  // ── Mark single notification read ─────────────────────────
-  // Uses: PATCH /api/seller-dashboard/notifications/:id/read
   const markNotifRead = useCallback(async (id) => {
     try {
       await sellerApi.patch(
@@ -366,7 +422,6 @@ export default function SellerDashboard() {
     } catch { /* silent */ }
   }, []);
 
-  // ── Mark all notifications read ───────────────────────────
   const markAllRead = useCallback(async () => {
     const unread = notifications.filter((n) => !n.read);
     if (!unread.length) return;
@@ -383,66 +438,66 @@ export default function SellerDashboard() {
     setUnreadCount(0);
   }, [notifications]);
 
-  // ── Initial load ──────────────────────────────────────────
-  useEffect(() => {
-    loadVendor();
-  }, [loadVendor]);
+  // Initial load
+  useEffect(() => { loadVendor(); }, [loadVendor]);
 
-  // ── Load notifications after vendor loads ─────────────────
+  // Poll notifications once vendor loads
   useEffect(() => {
-    if (vendor) {
-      loadNotifications();
-      // Poll every 60 s
-      const t = setInterval(loadNotifications, 60_000);
-      return () => clearInterval(t);
-    }
+    if (!vendor) return;
+    loadNotifications();
+    const t = setInterval(loadNotifications, 60_000);
+    return () => clearInterval(t);
   }, [vendor, loadNotifications]);
 
-  // ── Guards ────────────────────────────────────────────────
+  // ── Route guards ────────────────────────────────────────
   const token = getSellerToken();
 
+  // 1. No token at all → redirect immediately (no loading)
   if (!token) {
     return <Navigate to="/become-seller" replace />;
   }
 
+  // 2. Loading
   if (loading) {
-    return <LoadingScreen />;
+    return <LoadingScreen timeoutHit={timeoutHit} />;
   }
 
-  // Redirect back to onboarding if vendor not active
-  if (error?.startsWith("REDIRECT_ONBOARDING:")) {
+  // 3. Vendor not active → redirect to onboarding
+  if (errorCode === "VENDOR_NOT_ACTIVE") {
     return <Navigate to="/become-seller" replace />;
   }
 
-  if (error) {
+  // 4. No vendor → redirect to onboarding
+  if (errorCode === "NO_VENDOR") {
+    return <Navigate to="/become-seller" replace />;
+  }
+
+  // 5. Any other error → show error screen
+  if (error || !vendor) {
     return (
       <ErrorScreen
         error={error}
+        code={errorCode}
         onRetry={() => {
           setError(null);
-          setLoading(true);
+          setErrorCode(null);
           loadVendor();
         }}
       />
     );
   }
 
-  if (!vendor) {
-    return <Navigate to="/become-seller" replace />;
-  }
-
-  // ── Navigation helper (updates state + URL) ───────────────
+  // ── Navigation ──────────────────────────────────────────
   const navigate = (page) => {
     if (!VALID_TABS.includes(page)) return;
     setActivePage(page);
-    // Update URL without full reload
     window.history.replaceState(
       null, "", `/seller/dashboard/${page}`
     );
   };
 
-  // ── Context value ─────────────────────────────────────────
-  const contextValue = {
+  // ── Context ─────────────────────────────────────────────
+  const ctx = {
     vendor,
     setVendor,
     activePage,
@@ -454,7 +509,6 @@ export default function SellerDashboard() {
     reloadVendor: loadVendor,
   };
 
-  // ── Page map ──────────────────────────────────────────────
   const PAGE_MAP = {
     overview:  <Overview  />,
     orders:    <Orders    />,
@@ -465,51 +519,44 @@ export default function SellerDashboard() {
   };
 
   return (
-    <DashboardContext.Provider value={contextValue}>
+    <DashboardContext.Provider value={ctx}>
       <div className="sd-root">
 
-        {/* ── Mobile backdrop ─────────────────────────── */}
+        {/* Mobile overlay */}
         {sidebarOpen && (
           <div
-            className="sd-mobile-overlay"
             style={css.mobileOverlay}
             onClick={() => setSidebarOpen(false)}
           />
         )}
 
-        {/* ── Desktop sidebar (always visible ≥769px) ── */}
+        {/* Desktop sidebar */}
         <div className="sd-sidebar-desktop">
           <Sidebar
             vendor={vendor}
             activePage={activePage}
             onNavigate={navigate}
             unreadCount={unreadCount}
-            isOpen
             onClose={() => {}}
           />
         </div>
 
-        {/* ── Mobile sidebar (slide-in) ────────────────── */}
+        {/* Mobile sidebar */}
         {sidebarOpen && (
-          <div
-            className="sd-sidebar-mobile"
-            style={css.mobileSidebar}
-          >
+          <div style={css.mobileSidebar}>
             <Sidebar
               vendor={vendor}
               activePage={activePage}
               onNavigate={navigate}
               unreadCount={unreadCount}
-              isOpen={sidebarOpen}
               onClose={() => setSidebarOpen(false)}
               showClose
             />
           </div>
         )}
 
-        {/* ── Main area ────────────────────────────────── */}
+        {/* Main content */}
         <div className="sd-main">
-
           <TopBar
             vendor={vendor}
             activePage={activePage}
@@ -519,25 +566,18 @@ export default function SellerDashboard() {
             onMarkRead={markNotifRead}
             onMarkAllRead={markAllRead}
           />
-
           <div className="sd-page-wrap">
-            <div
-              key={activePage}
-              className="sd-page-anim"
-            >
+            <div key={activePage} className="sd-page-anim">
               {PAGE_MAP[activePage] ?? PAGE_MAP.overview}
             </div>
           </div>
-
         </div>
+
       </div>
     </DashboardContext.Provider>
   );
 }
 
-// ─────────────────────────────────────────────────────────────
-// STYLES (non-className pieces)
-// ─────────────────────────────────────────────────────────────
 const css = {
   loadWrap: {
     minHeight:      "100vh",
@@ -548,21 +588,17 @@ const css = {
     padding:        "2rem",
   },
   loadCard: {
-    background:     "white",
-    borderRadius:   "24px",
-    padding:        "3rem 2.5rem",
-    boxShadow:      "0 4px 32px rgba(0,0,0,0.08)",
-    display:        "flex",
-    flexDirection:  "column",
-    alignItems:     "center",
-    gap:            "1.25rem",
-    width:          "100%",
-    maxWidth:       "340px",
-    textAlign:      "center",
-  },
-  loadLogo: {
-    fontSize:       "3rem",
-    lineHeight:     1,
+    background:    "white",
+    borderRadius:  "24px",
+    padding:       "3rem 2.5rem",
+    boxShadow:     "0 4px 32px rgba(0,0,0,0.08)",
+    display:       "flex",
+    flexDirection: "column",
+    alignItems:    "center",
+    gap:           "1.25rem",
+    width:         "100%",
+    maxWidth:      "340px",
+    textAlign:     "center",
   },
   spinner: {
     width:        "40px",
@@ -571,6 +607,7 @@ const css = {
     borderTop:    "4px solid #6366f1",
     borderRadius: "50%",
     animation:    "spin 0.8s linear infinite",
+    flexShrink:   0,
   },
   retryBtn: {
     padding:      "0.8rem 2rem",
