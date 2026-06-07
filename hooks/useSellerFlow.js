@@ -3,7 +3,7 @@ import { useState, useCallback, useEffect } from "react";
 import axios from "axios";
 
 // ─────────────────────────────────────────────────────────────
-// STEPS — numbers required for ProgressBar > < comparison
+// STEPS
 // ─────────────────────────────────────────────────────────────
 export const STEPS = {
   REGISTER:     0,
@@ -13,20 +13,17 @@ export const STEPS = {
   APPROVED:     4,
 };
 
-// Map vendor DB status → correct step number
 const STATUS_TO_STEP = {
-  pending:      STEPS.REVIEW,       // submitted, awaiting
-  under_review: STEPS.REVIEW,       // docs being checked
-  approved:     STEPS.APPROVED,     // eligibility granted
-  active:       STEPS.APPROVED,     // fully operational
-  rejected:     STEPS.STORE_SETUP,  // back to start
-  suspended:    STEPS.APPROVED,     // show approved + warning
+  pending:      STEPS.REVIEW,
+  under_review: STEPS.REVIEW,
+  approved:     STEPS.APPROVED,
+  active:       STEPS.APPROVED,
+  rejected:     STEPS.STORE_SETUP,
+  suspended:    STEPS.APPROVED,
 };
 
 export const WITHDRAWAL_METHODS = [
   { value: "bank_transfer", label: "Bank Transfer", icon: "🏦" },
-  { value: "paypal",        label: "PayPal",        icon: "💰" },
-  { value: "crypto",        label: "Crypto Wallet", icon: "₿"  },
 ];
 
 export const STORE_CATEGORIES = [
@@ -42,7 +39,19 @@ export const STORE_CATEGORIES = [
   "Other",
 ];
 
-// ─── Initial State ────────────────────────────────────────────
+// ─────────────────────────────────────────────────────────────
+// TOKEN KEY — single source of truth
+// Must match SELLER_TOKEN_KEY in SellerDashboard.jsx
+// ─────────────────────────────────────────────────────────────
+export const SELLER_TOKEN_KEY = "seller_token";
+
+const getToken  = ()         => localStorage.getItem(SELLER_TOKEN_KEY);
+const saveToken = (t)        => localStorage.setItem(SELLER_TOKEN_KEY, t);
+const clearToken = ()        => localStorage.removeItem(SELLER_TOKEN_KEY);
+
+// ─────────────────────────────────────────────────────────────
+// INITIAL STATE
+// ─────────────────────────────────────────────────────────────
 const INITIAL_REGISTER_DATA = {
   name:             "",
   email:            "",
@@ -57,26 +66,35 @@ const INITIAL_STORE_DATA = {
   store_category:    "",
   store_logo:        null,
   store_banner:      null,
-  withdrawal_method: "",
+  withdrawal_method: "bank_transfer",
   bank_account:      "",
-  paypal_email:      "",
-  crypto_wallet:     "",
+  bank_name:         "",
+  bank_code:         "",
+  account_name:      "",
 };
 
 const INITIAL_VERIFY_DATA = {
+  id_type:       "nin",
+  id_number:     "",
+  address:       "",
   id_card:       null,
+  id_card_back:  null,
+  selfie:        null,
   business_doc:  null,
   address_proof: null,
-  selfie:        null,
 };
 
-// ─── Axios instance — base URL from env or relative ───────────
-// Works for both dev (vite proxy) and production (same origin)
+// ─────────────────────────────────────────────────────────────
+// AXIOS INSTANCE
+// ─────────────────────────────────────────────────────────────
 const api = axios.create({
   baseURL: import.meta.env.VITE_API_URL ?? "",
+  timeout: 15_000,
 });
 
-// ─── Hook ─────────────────────────────────────────────────────
+// ─────────────────────────────────────────────────────────────
+// HOOK
+// ─────────────────────────────────────────────────────────────
 export const useSellerFlow = () => {
   const [step,          setStep]          = useState(STEPS.REGISTER);
   const [registerData,  setRegisterData]  = useState(INITIAL_REGISTER_DATA);
@@ -86,251 +104,333 @@ export const useSellerFlow = () => {
   const [loading,       setLoading]       = useState(false);
   const [initializing,  setInitializing]  = useState(true);
   const [serverMsg,     setServerMsg]     = useState("");
+  const [serverErr,     setServerErr]     = useState("");
   const [previewLogo,   setPreviewLogo]   = useState(null);
   const [vendorData,    setVendorData]    = useState(null);
   const [showPassword,  setShowPassword]  = useState(false);
   const [showConfirm,   setShowConfirm]   = useState(false);
+  const [isGmailUser,   setIsGmailUser]   = useState(false);
 
-  // ── Token helper ───────────────────────────────────────────
-  const token = () => localStorage.getItem("token");
-
-  // ── Mount: check server for existing vendor ────────────────
-  // Restores correct step after page refresh
+  // ── Mount: restore step from server ─────────────────────
   useEffect(() => {
     const syncFromServer = async () => {
+      const t = getToken();
+
+      if (!t) {
+        // No seller token → show register
+        setStep(STEPS.REGISTER);
+        setInitializing(false);
+        return;
+      }
+
       try {
-        const t = token();
-
-        if (!t) {
-          // No token → user not logged in → show REGISTER
-          setStep(STEPS.REGISTER);
-          return;
-        }
-
-        // ✅ FIXED URL: /api/seller-onboarding/status
-        const { data } = await api.get("/api/seller-onboarding/status", {
-          headers: { Authorization: `Bearer ${t}` },
-        });
+        const { data } = await api.get(
+          "/api/seller-onboarding/status",
+          { headers: { Authorization: `Bearer ${t}` } }
+        );
 
         if (data?.vendor) {
           setVendorData(data.vendor);
-
-          // Map real DB status → correct step
           const restoredStep = STATUS_TO_STEP[data.vendor.status];
-          if (restoredStep !== undefined) {
-            setStep(restoredStep);
-          } else {
-            setStep(STEPS.STORE_SETUP);
-          }
+          setStep(restoredStep ?? STEPS.STORE_SETUP);
         } else {
-          // Logged in but no vendor yet
+          // Authenticated but no vendor yet
           setStep(STEPS.STORE_SETUP);
         }
 
       } catch (err) {
-        if (err.response?.status === 401) {
-          // Token invalid/expired → clear it → back to register
-          localStorage.removeItem("token");
+        const status = err.response?.status;
+        const code   = err.response?.data?.code;
+
+        if (status === 401
+          || code === "INVALID_TOKEN"
+          || code === "TOKEN_EXPIRED") {
+          // Token expired → clear and restart
+          clearToken();
           setStep(STEPS.REGISTER);
-        } else if (err.response?.status === 404) {
-          // Logged in but no vendor yet → store setup
+
+        } else if (status === 403
+          && code === "NOT_SELLER_ACCOUNT") {
+          // This is a marketplace user (Gmail/social login)
+          // trying to access seller routes
+          setIsGmailUser(true);
+          setStep(STEPS.REGISTER);
+
+        } else if (status === 404) {
+          // Logged in, no vendor yet
           setStep(STEPS.STORE_SETUP);
+
         } else {
-          // Network error or server down — stay at register safely
+          // Network error or 500 — fallback gracefully
           console.warn("[useSellerFlow] sync error:", err.message);
           setStep(STEPS.REGISTER);
         }
       } finally {
-        // Always stop the mount spinner
         setInitializing(false);
       }
     };
 
     syncFromServer();
-  }, []); // ← runs once on mount only
-
-  // ─── Register field handler ─────────────────────────────────
-  const handleRegisterChange = useCallback((e) => {
-    const { name, value } = e.target;
-    setRegisterData((prev) => ({ ...prev, [name]: value }));
-    setErrors((prev) => ({ ...prev, [name]: "" }));
   }, []);
 
-  // ─── Store field handler ────────────────────────────────────
+  // ── Clear messages on step change ───────────────────────
+  useEffect(() => {
+    setServerMsg("");
+    setServerErr("");
+    setErrors({});
+  }, [step]);
+
+  // ─────────────────────────────────────────────────────────
+  // FIELD HANDLERS
+  // ─────────────────────────────────────────────────────────
+  const handleRegisterChange = useCallback((e) => {
+    const { name, value } = e.target;
+    setRegisterData((p) => ({ ...p, [name]: value }));
+    setErrors((p) => ({ ...p, [name]: "" }));
+    setServerErr("");
+  }, []);
+
   const handleStoreChange = useCallback((e) => {
     const { name, value, files } = e.target;
-
     if (files?.[0]) {
       const file = files[0];
-      setStoreData((prev) => ({ ...prev, [name]: file }));
-
-      // Live logo preview
+      setStoreData((p) => ({ ...p, [name]: file }));
       if (name === "store_logo") {
         const reader = new FileReader();
         reader.onloadend = () => setPreviewLogo(reader.result);
         reader.readAsDataURL(file);
       }
     } else {
-      setStoreData((prev) => ({ ...prev, [name]: value }));
+      setStoreData((p) => ({ ...p, [name]: value }));
     }
-
-    setErrors((prev) => ({ ...prev, [name]: "" }));
+    setErrors((p) => ({ ...p, [name]: "" }));
+    setServerErr("");
   }, []);
 
-  // ─── Verify field handler ───────────────────────────────────
   const handleVerifyChange = useCallback((e) => {
-    const { name, files } = e.target;
+    const { name, value, files } = e.target;
     if (files?.[0]) {
-      setVerifyData((prev) => ({ ...prev, [name]: files[0] }));
-      setErrors((prev) => ({ ...prev, [name]: "" }));
+      setVerifyData((p) => ({ ...p, [name]: files[0] }));
+    } else {
+      setVerifyData((p) => ({ ...p, [name]: value }));
     }
+    setErrors((p) => ({ ...p, [name]: "" }));
+    setServerErr("");
   }, []);
 
-  // ─── Validation: Register ───────────────────────────────────
+  // Expose a direct setter for bank fields
+  // (used by BankVerify component in StoreSetup)
+  const setBankField = useCallback((field, value) => {
+    setStoreData((p) => ({ ...p, [field]: value }));
+    setErrors((p) => ({ ...p, [field]: "" }));
+  }, []);
+
+  // ─────────────────────────────────────────────────────────
+  // VALIDATION
+  // ─────────────────────────────────────────────────────────
   const validateRegister = () => {
-    const errs       = {};
-    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-    const phoneRegex = /^\+?[\d\s\-()]{7,15}$/;
+    const e    = {};
+    const emailRx = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    const phoneRx = /^\+?[\d\s\-()]{7,15}$/;
 
     if (!registerData.name.trim())
-      errs.name = "Full name is required";
+      e.name = "Full name is required";
     else if (registerData.name.trim().length < 2)
-      errs.name = "Name must be at least 2 characters";
+      e.name = "Name must be at least 2 characters";
 
     if (!registerData.email.trim())
-      errs.email = "Email is required";
-    else if (!emailRegex.test(registerData.email))
-      errs.email = "Enter a valid email address";
+      e.email = "Email is required";
+    else if (!emailRx.test(registerData.email))
+      e.email = "Enter a valid email address";
 
     if (!registerData.phone.trim())
-      errs.phone = "Phone number is required";
-    else if (!phoneRegex.test(registerData.phone))
-      errs.phone = "Enter a valid phone number";
+      e.phone = "Phone number is required";
+    else if (!phoneRx.test(registerData.phone))
+      e.phone = "Enter a valid phone number";
 
     if (!registerData.password)
-      errs.password = "Password is required";
+      e.password = "Password is required";
     else if (registerData.password.length < 8)
-      errs.password = "Password must be at least 8 characters";
-    else if (!/(?=.*[A-Z])/.test(registerData.password))
-      errs.password = "Must contain at least one uppercase letter";
-    else if (!/(?=.*\d)/.test(registerData.password))
-      errs.password = "Must contain at least one number";
+      e.password = "Password must be at least 8 characters";
+    else if (!/[A-Z]/.test(registerData.password))
+      e.password = "Must contain at least one uppercase letter";
+    else if (!/\d/.test(registerData.password))
+      e.password = "Must contain at least one number";
 
     if (!registerData.confirm_password)
-      errs.confirm_password = "Please confirm your password";
+      e.confirm_password = "Please confirm your password";
     else if (registerData.password !== registerData.confirm_password)
-      errs.confirm_password = "Passwords do not match";
+      e.confirm_password = "Passwords do not match";
 
-    setErrors(errs);
-    return Object.keys(errs).length === 0;
+    setErrors(e);
+    return Object.keys(e).length === 0;
   };
 
-  // ─── Validation: Store ──────────────────────────────────────
   const validateStore = () => {
-    const errs = {};
+    const e = {};
 
     if (!storeData.store_name.trim())
-      errs.store_name = "Store name is required";
+      e.store_name = "Store name is required";
     else if (storeData.store_name.length > 100)
-      errs.store_name = "Max 100 characters";
+      e.store_name = "Max 100 characters";
 
     if (!storeData.store_category)
-      errs.store_category = "Please select a category";
+      e.store_category = "Please select a category";
 
     if (!storeData.store_description.trim())
-      errs.store_description = "Description is required";
+      e.store_description = "Description is required";
 
-    if (!storeData.withdrawal_method)
-      errs.withdrawal_method = "Select a withdrawal method";
+    // Bank details required
+    if (!storeData.bank_account.trim())
+      e.bank_account = "Bank account number is required";
 
-    if (storeData.withdrawal_method === "bank_transfer" && !storeData.bank_account.trim())
-      errs.bank_account = "Bank account is required";
+    if (!storeData.bank_name.trim())
+      e.bank_name = "Please select and verify your bank";
 
-    if (storeData.withdrawal_method === "paypal" && !storeData.paypal_email.trim())
-      errs.paypal_email = "PayPal email is required";
+    if (!storeData.account_name?.trim())
+      e.account_name = "Please verify your bank account first";
 
-    if (storeData.withdrawal_method === "crypto" && !storeData.crypto_wallet.trim())
-      errs.crypto_wallet = "Crypto wallet address is required";
-
-    setErrors(errs);
-    return Object.keys(errs).length === 0;
+    setErrors(e);
+    return Object.keys(e).length === 0;
   };
 
-  // ─── Validation: Verification ───────────────────────────────
   const validateVerification = () => {
-    const errs = {};
+    const e = {};
+
+    if (!verifyData.id_type)
+      e.id_type = "Select an ID type";
+
+    if (!verifyData.id_number?.trim())
+      e.id_number = "ID number is required";
+
+    if (!verifyData.address?.trim())
+      e.address = "Home address is required";
 
     if (!verifyData.id_card)
-      errs.id_card = "ID card is required";
+      e.id_card = "Front photo of ID card is required";
 
     if (!verifyData.selfie)
-      errs.selfie = "Selfie with ID is required";
+      e.selfie = "Selfie with ID is required";
 
-    setErrors(errs);
-    return Object.keys(errs).length === 0;
+    setErrors(e);
+    return Object.keys(e).length === 0;
   };
 
-  // ─── API: Register ──────────────────────────────────────────
+  // ─────────────────────────────────────────────────────────
+  // API: REGISTER / LOGIN
+  // POST /api/auth/register
+  // POST /api/auth/login     (if seller already has account)
+  // ─────────────────────────────────────────────────────────
   const submitRegister = async () => {
     if (!validateRegister()) return;
 
     setLoading(true);
     setServerMsg("");
+    setServerErr("");
 
     try {
-      // ✅ CORRECT: /api/auth/register
       const { data } = await api.post("/api/auth/register", {
         name:     registerData.name.trim(),
-        email:    registerData.email.trim(),
+        email:    registerData.email.trim().toLowerCase(),
         phone:    registerData.phone.trim(),
         password: registerData.password,
       });
 
-      // Save JWT from registration
+      // ✅ FIXED: save as "seller_token" not "token"
       if (data.token) {
-        localStorage.setItem("token", data.token);
+        saveToken(data.token);
       }
 
-      setServerMsg(data.message ?? "Account created successfully!");
+      setServerMsg(data.message ?? "Account created!");
       setStep(STEPS.STORE_SETUP);
 
     } catch (err) {
-      setServerMsg(
-        err.response?.data?.message ?? "Registration failed. Try again."
+      const msg = err.response?.data?.message
+        ?? "Registration failed. Try again.";
+      setServerErr(msg);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  // ─────────────────────────────────────────────────────────
+  // API: LOGIN (for returning sellers)
+  // POST /api/auth/login
+  // ─────────────────────────────────────────────────────────
+  const submitLogin = async (email, password) => {
+    setLoading(true);
+    setServerMsg("");
+    setServerErr("");
+
+    try {
+      const { data } = await api.post("/api/auth/login", {
+        email:    email.trim().toLowerCase(),
+        password,
+      });
+
+      // ✅ FIXED: save as "seller_token" not "token"
+      if (data.token) {
+        saveToken(data.token);
+      }
+
+      // Reload step from server
+      if (data.vendor) {
+        setVendorData(data.vendor);
+        const restoredStep = STATUS_TO_STEP[data.vendor.status];
+        setStep(restoredStep ?? STEPS.STORE_SETUP);
+      } else {
+        setStep(STEPS.STORE_SETUP);
+      }
+
+      setServerMsg("Welcome back!");
+
+    } catch (err) {
+      setServerErr(
+        err.response?.data?.message ?? "Login failed. Try again."
       );
     } finally {
       setLoading(false);
     }
   };
 
-  // ─── API: Submit Store ──────────────────────────────────────
+  // ─────────────────────────────────────────────────────────
+  // API: SETUP STORE
+  // POST /api/seller-onboarding/setup-store
+  // ─────────────────────────────────────────────────────────
   const submitStore = async () => {
     if (!validateStore()) return;
 
     setLoading(true);
     setServerMsg("");
+    setServerErr("");
 
     try {
       const form = new FormData();
+
+      // Append all fields — skip null/empty
       Object.entries(storeData).forEach(([k, v]) => {
-        // Only append non-null, non-empty values
-        if (v !== null && v !== "") form.append(k, v);
+        if (v !== null && v !== undefined && v !== "") {
+          form.append(k, v);
+        }
       });
 
-      // ✅ FIXED URL: /api/seller-onboarding/setup-store
-      const { data } = await api.post("/api/seller-onboarding/setup-store", form, {
-        headers: {
-          Authorization:  `Bearer ${token()}`,
-          "Content-Type": "multipart/form-data",
-        },
-      });
+      const { data } = await api.post(
+        "/api/seller-onboarding/setup-store",
+        form,
+        {
+          headers: {
+            Authorization:  `Bearer ${getToken()}`,
+            "Content-Type": "multipart/form-data",
+          },
+        }
+      );
 
-      setServerMsg(data.message ?? "Store created!");
       if (data.vendor) setVendorData(data.vendor);
+      setServerMsg(data.message ?? "Store setup complete!");
       setStep(STEPS.VERIFICATION);
 
     } catch (err) {
-      setServerMsg(
+      setServerErr(
         err.response?.data?.message ?? "Store setup failed. Try again."
       );
     } finally {
@@ -338,33 +438,50 @@ export const useSellerFlow = () => {
     }
   };
 
-  // ─── API: Submit Verification ───────────────────────────────
+  // ─────────────────────────────────────────────────────────
+  // API: SUBMIT VERIFICATION
+  // POST /api/seller-onboarding/verify
+  // ─────────────────────────────────────────────────────────
   const submitVerification = async () => {
     if (!validateVerification()) return;
 
     setLoading(true);
     setServerMsg("");
+    setServerErr("");
 
     try {
       const form = new FormData();
-      Object.entries(verifyData).forEach(([k, v]) => {
-        if (v !== null) form.append(k, v);
+
+      // Text fields
+      ["id_type", "id_number", "address"].forEach((k) => {
+        if (verifyData[k]) form.append(k, verifyData[k]);
       });
 
-      // ✅ FIXED URL: /api/seller-onboarding/verify
-      const { data } = await api.post("/api/seller-onboarding/verify", form, {
-        headers: {
-          Authorization:  `Bearer ${token()}`,
-          "Content-Type": "multipart/form-data",
-        },
+      // File fields
+      ["id_card", "id_card_back", "selfie",
+        "business_doc", "address_proof"].forEach((k) => {
+        if (verifyData[k]) form.append(k, verifyData[k]);
       });
 
-      setServerMsg(data.message ?? "Documents submitted!");
+      const { data } = await api.post(
+        "/api/seller-onboarding/verify",
+        form,
+        {
+          headers: {
+            Authorization:  `Bearer ${getToken()}`,
+            "Content-Type": "multipart/form-data",
+          },
+        }
+      );
+
       if (data.vendor) setVendorData(data.vendor);
+      setServerMsg(
+        data.message ?? "Documents submitted! We'll review within 1–3 days."
+      );
       setStep(STEPS.REVIEW);
 
     } catch (err) {
-      setServerMsg(
+      setServerErr(
         err.response?.data?.message ?? "Verification failed. Try again."
       );
     } finally {
@@ -372,19 +489,64 @@ export const useSellerFlow = () => {
     }
   };
 
-  // ─── Return ─────────────────────────────────────────────────
+  // ─────────────────────────────────────────────────────────
+  // API: REAPPLY
+  // POST /api/seller-onboarding/reapply
+  // ─────────────────────────────────────────────────────────
+  const submitReapply = async () => {
+    setLoading(true);
+    setServerErr("");
+    try {
+      const { data } = await api.post(
+        "/api/seller-onboarding/reapply",
+        {},
+        { headers: { Authorization: `Bearer ${getToken()}` } }
+      );
+      setServerMsg(data.message ?? "Reapplication submitted.");
+      setStep(STEPS.STORE_SETUP);
+    } catch (err) {
+      setServerErr(
+        err.response?.data?.message ?? "Reapply failed. Try again."
+      );
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  // ─────────────────────────────────────────────────────────
+  // RETURN
+  // ─────────────────────────────────────────────────────────
   return {
-    step,          setStep,
-    registerData,  storeData,       verifyData,
-    errors,        loading,         initializing,
-    serverMsg,     previewLogo,     vendorData,
-    showPassword,  setShowPassword,
-    showConfirm,   setShowConfirm,
+    // State
+    step,
+    setStep,
+    registerData,
+    storeData,
+    verifyData,
+    errors,
+    loading,
+    initializing,
+    serverMsg,
+    serverErr,
+    previewLogo,
+    vendorData,
+    showPassword,
+    setShowPassword,
+    showConfirm,
+    setShowConfirm,
+    isGmailUser,
+
+    // Handlers
     handleRegisterChange,
     handleStoreChange,
     handleVerifyChange,
+    setBankField,
+
+    // Submitters
     submitRegister,
+    submitLogin,
     submitStore,
     submitVerification,
+    submitReapply,
   };
 };
