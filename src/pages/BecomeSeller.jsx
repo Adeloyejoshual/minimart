@@ -50,7 +50,6 @@ const ProgressBar = ({ currentStep }) => (
   </div>
 );
 
-// ── Loading spinner ────────────────────────────────────────────
 const MountLoader = () => (
   <div style={st.loaderWrap}>
     <div style={st.spinner} />
@@ -58,7 +57,6 @@ const MountLoader = () => (
   </div>
 );
 
-// ── Gmail / marketplace user screen ───────────────────────────
 const GmailUserScreen = ({ onSignOut }) => (
   <div className="seller-wrapper">
     <div className="seller-card"
@@ -70,7 +68,6 @@ const GmailUserScreen = ({ onSignOut }) => (
         fontWeight:   800,
         color:        "#1f2937",
         marginBottom: "0.75rem",
-        fontSize:     "1.5rem",
       }}>
         Seller Account Required
       </h2>
@@ -109,13 +106,15 @@ const GmailUserScreen = ({ onSignOut }) => (
   </div>
 );
 
-// ── Review screen ──────────────────────────────────────────────
 const ReviewScreen = ({ vendor }) => {
   const status = vendor?.status ?? "pending";
-  const steps  = [
-    { icon:"📋", text:"Account created",        done: true            },
-    { icon:"🏪", text:"Store setup complete",   done: true            },
-    { icon:"🔍", text:"Documents under review", done: status !== "pending" },
+  const items  = [
+    { icon:"📋", text:"Account created",
+      done: true },
+    { icon:"🏪", text:"Store setup complete",
+      done: true },
+    { icon:"🔍", text:"Documents under review",
+      done: status !== "pending" },
     { icon:"✅", text:"Store activation",
       done: ["approved","active"].includes(status) },
     { icon:"🚀", text:"Start selling",
@@ -127,18 +126,18 @@ const ReviewScreen = ({ vendor }) => {
       <div className="review-icon">⏳</div>
       <h2 style={st.reviewTitle}>Application Under Review</h2>
       <p style={st.reviewDesc}>
-        Our team is reviewing your application. This usually takes{" "}
-        <strong>1–3 business days</strong>.
+        Our team is reviewing your application.
+        This usually takes <strong>1–3 business days</strong>.
       </p>
 
       <div className="review-steps">
-        {steps.map((item, i) => (
+        {items.map((item, i) => (
           <div className="review-step-item" key={i}>
             <span style={{ fontSize: "1.5rem" }}>{item.icon}</span>
             <span style={{
               fontWeight: 500,
-              color:      item.done ? "#10b981" : "#9ca3af",
               flex:       1,
+              color:      item.done ? "#10b981" : "#9ca3af",
             }}>
               {item.text}
             </span>
@@ -161,26 +160,25 @@ const ReviewScreen = ({ vendor }) => {
       <p style={st.emailNote}>
         📧 We'll notify you by email once reviewed.
       </p>
-
       <a href="/" style={st.homeLink}>← Back to Marketplace</a>
     </div>
   );
 };
 
-// ═════════════════════════════════════════════════════════════
+// ─────────────────────────────────────────────────────────────
 // MAIN
-// ═════════════════════════════════════════════════════════════
+// ─────────────────────────────────────────────────────────────
 const BecomeSeller = () => {
-  // ✅ No "user" prop needed — seller auth is self-contained
   const flow = useSellerFlow();
 
-  // ── 1. Still determining step (checking server) ───────────
-  // step === null means syncFromServer hasn't finished yet
+  // ── 1. Still syncing with server ────────────────────────
+  // step === null means syncFromServer hasn't finished
+  // This prevents showing the wrong step for half a second
   if (flow.initializing || flow.step === null) {
     return <MountLoader />;
   }
 
-  // ── 2. Redirect to dashboard if already approved ──────────
+  // ── 2. Already approved → go to dashboard ───────────────
   if (flow.step === STEPS.APPROVED) {
     return <Navigate to="/seller/dashboard" replace />;
   }
@@ -192,17 +190,16 @@ const BecomeSeller = () => {
     return <Navigate to="/seller/dashboard" replace />;
   }
 
-  // ── 3. Gmail / marketplace user ───────────────────────────
+  // ── 3. Marketplace/Gmail user ────────────────────────────
   if (flow.isGmailUser) {
     return (
       <GmailUserScreen
-        // signOut clears the wrong token + resets to REGISTER
         onSignOut={flow.signOut}
       />
     );
   }
 
-  // ── 4. Normal flow ────────────────────────────────────────
+  // ── 4. Normal seller flow ────────────────────────────────
   return (
     <div className="seller-wrapper">
 
@@ -217,6 +214,20 @@ const BecomeSeller = () => {
       </div>
 
       <ProgressBar currentStep={flow.step} />
+
+      {/* Server error banner */}
+      {flow.serverErr && (
+        <div style={st.errBanner}>
+          ⚠️ {flow.serverErr}
+        </div>
+      )}
+
+      {/* Success banner */}
+      {flow.serverMsg && (
+        <div style={st.okBanner}>
+          ✅ {flow.serverMsg}
+        </div>
+      )}
 
       {flow.step === STEPS.REGISTER && (
         <RegisterStep flow={flow} />
@@ -238,14 +249,8 @@ const BecomeSeller = () => {
   );
 };
 
-// ─────────────────────────────────────────────────────────────
-// STYLES
-// ─────────────────────────────────────────────────────────────
 const st = {
-  header: {
-    textAlign:    "center",
-    marginBottom: "2rem",
-  },
+  header: { textAlign:"center", marginBottom:"2rem" },
   title: {
     fontSize:             "2rem",
     fontWeight:           800,
@@ -255,11 +260,7 @@ const st = {
     margin:               0,
     lineHeight:           1.2,
   },
-  subtitle: {
-    color:     "#6b7280",
-    marginTop: "0.5rem",
-    fontSize:  "0.95rem",
-  },
+  subtitle: { color:"#6b7280", marginTop:"0.5rem", fontSize:"0.95rem" },
   stepBadge: {
     display:      "inline-block",
     marginTop:    "0.75rem",
@@ -287,16 +288,12 @@ const st = {
     borderRadius: "50%",
     animation:    "spin 0.8s linear infinite",
   },
-  loaderText: {
-    color:      "#9ca3af",
-    fontWeight: 500,
-    margin:     0,
-  },
+  loaderText: { color:"#9ca3af", fontWeight:500, margin:0 },
   reviewTitle: {
-    fontSize:   "1.75rem",
-    fontWeight: 800,
-    color:      "#1f2937",
-    margin:     "0 0 0.25rem",
+    fontSize:  "1.75rem",
+    fontWeight:800,
+    color:     "#1f2937",
+    margin:    "0 0 0.25rem",
   },
   reviewDesc: {
     color:     "#6b7280",
@@ -304,11 +301,7 @@ const st = {
     lineHeight:1.6,
     fontSize:  "0.9rem",
   },
-  emailNote: {
-    color:     "#9ca3af",
-    fontSize:  "0.875rem",
-    marginTop: "1.5rem",
-  },
+  emailNote: { color:"#9ca3af", fontSize:"0.875rem", marginTop:"1.5rem" },
   rejectionBox: {
     background:   "#fef2f2",
     border:       "1px solid #fecaca",
@@ -327,6 +320,26 @@ const st = {
     fontSize:       "0.9rem",
     textDecoration: "none",
     fontWeight:     500,
+  },
+  errBanner: {
+    background:   "#fef2f2",
+    border:       "1px solid #fecaca",
+    borderRadius: "12px",
+    padding:      "0.875rem 1.25rem",
+    color:        "#991b1b",
+    fontSize:     "0.875rem",
+    marginBottom: "1rem",
+    fontWeight:   500,
+  },
+  okBanner: {
+    background:   "#ecfdf5",
+    border:       "1px solid #a7f3d0",
+    borderRadius: "12px",
+    padding:      "0.875rem 1.25rem",
+    color:        "#065f46",
+    fontSize:     "0.875rem",
+    marginBottom: "1rem",
+    fontWeight:   500,
   },
 };
 
