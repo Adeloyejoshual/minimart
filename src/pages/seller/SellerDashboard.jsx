@@ -16,14 +16,14 @@ import Sidebar   from "./components/Sidebar";
 import TopBar    from "./components/TopBar";
 
 // ─────────────────────────────────────────────────────────────
-// TOKEN
+// TOKEN KEY
 // ─────────────────────────────────────────────────────────────
 export const SELLER_TOKEN_KEY = "seller_token";
 export const getSellerToken   = () =>
   localStorage.getItem(SELLER_TOKEN_KEY);
 
 // ─────────────────────────────────────────────────────────────
-// SHARED API — all seller calls go through here
+// SHARED API
 // ─────────────────────────────────────────────────────────────
 export const sellerApi = {
   get: (url, params) =>
@@ -73,142 +73,12 @@ const VALID_TABS = [
   "overview", "orders", "products",
   "analytics", "payouts", "settings",
 ];
-
 const tabFromParam = (p) =>
   VALID_TABS.includes(p) ? p : "overview";
 
 export const sellerSignOut = () => {
   localStorage.removeItem(SELLER_TOKEN_KEY);
   window.location.href = "/become-seller";
-};
-
-// ─────────────────────────────────────────────────────────────
-// LOADING SCREEN
-// ─────────────────────────────────────────────────────────────
-const LoadingScreen = ({ timeoutHit }) => (
-  <div style={css.loadWrap}>
-    <div style={css.loadCard}>
-      <div style={{ fontSize: "2.5rem", lineHeight: 1 }}>🛒</div>
-      <div style={css.spinner} />
-      <p style={{ color: "#6b7280", margin: 0, fontSize: "0.9rem" }}>
-        {timeoutHit
-          ? "Still loading… server may be waking up"
-          : "Loading your dashboard…"}
-      </p>
-      {timeoutHit && (
-        <button
-          onClick={sellerSignOut}
-          style={{
-            background:   "none",
-            border:       "none",
-            color:        "#9ca3af",
-            cursor:       "pointer",
-            fontSize:     "0.8rem",
-            textDecoration:"underline",
-            padding:      0,
-            fontFamily:   "inherit",
-          }}
-        >
-          Back to login
-        </button>
-      )}
-    </div>
-  </div>
-);
-
-// ─────────────────────────────────────────────────────────────
-// ERROR SCREEN
-// ─────────────────────────────────────────────────────────────
-const ErrorScreen = ({ error, code, onRetry }) => {
-  // Show friendly messages for known codes
-  const friendly = {
-    NOT_SELLER_ACCOUNT:
-      "This email is not registered as a seller account.",
-    NO_VENDOR:
-      "No store found. Please complete seller onboarding.",
-    VENDOR_NOT_ACTIVE:
-      "Your store is not yet active. Please wait for approval.",
-    ACCOUNT_SUSPENDED:
-      "Your seller account has been suspended.",
-    TOKEN_EXPIRED:
-      "Your session has expired. Please log in again.",
-    INVALID_TOKEN:
-      "Invalid session. Please log in again.",
-    NO_TOKEN:
-      "No seller account found. Please sign in.",
-  };
-
-  const msg = friendly[code] ?? error ?? "Something went wrong.";
-  const isAuthError = [
-    "TOKEN_EXPIRED", "INVALID_TOKEN", "NO_TOKEN",
-    "NOT_SELLER_ACCOUNT",
-  ].includes(code);
-
-  return (
-    <div style={css.loadWrap}>
-      <div style={{ ...css.loadCard, maxWidth: "400px" }}>
-        <span style={{ fontSize: "2.5rem" }}>
-          {isAuthError ? "🔐" : "⚠️"}
-        </span>
-
-        <h2 style={{
-          color:     "#1f2937",
-          margin:    "0.5rem 0 0.3rem",
-          fontSize:  "1.1rem",
-          fontWeight:800,
-          textAlign: "center",
-        }}>
-          {isAuthError ? "Sign In Required" : "Dashboard Unavailable"}
-        </h2>
-
-        <p style={{
-          color:     "#6b7280",
-          fontSize:  "0.875rem",
-          textAlign: "center",
-          margin:    "0 0 1.25rem",
-          lineHeight:1.5,
-        }}>
-          {msg}
-        </p>
-
-        {/* Debug info in development */}
-        {process.env.NODE_ENV === "development" && code && (
-          <p style={{
-            background:   "#f3f4f6",
-            borderRadius: "8px",
-            padding:      "0.5rem 0.75rem",
-            fontSize:     "0.72rem",
-            color:        "#6b7280",
-            fontFamily:   "monospace",
-            margin:       "0 0 1rem",
-            width:        "100%",
-            textAlign:    "center",
-          }}>
-            code: {code}
-          </p>
-        )}
-
-        {!isAuthError && (
-          <button onClick={onRetry} style={css.retryBtn}>
-            🔄 Try Again
-          </button>
-        )}
-
-        <button
-          onClick={sellerSignOut}
-          style={{
-            ...css.retryBtn,
-            marginTop:  "0.5rem",
-            background: "#fef2f2",
-            color:      "#ef4444",
-            border:     "1px solid #fecaca",
-          }}
-        >
-          ↩ {isAuthError ? "Back to Sign In" : "Sign Out"}
-        </button>
-      </div>
-    </div>
-  );
 };
 
 // ─────────────────────────────────────────────────────────────
@@ -249,14 +119,21 @@ const GLOBAL_CSS = `
     outline: 2px solid #6366f1; outline-offset: 2px;
   }
   .sd-root {
-    display: flex; min-height: 100vh; background: #f1f5f9;
+    display: flex;
+    min-height: 100vh;
+    background: #f1f5f9;
   }
   .sd-main {
-    flex: 1; display: flex; flex-direction: column;
-    min-width: 0; overflow: hidden;
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    min-width: 0;
+    overflow: hidden;
   }
   .sd-page-wrap {
-    flex: 1; overflow-y: auto; padding: 1.5rem;
+    flex: 1;
+    overflow-y: auto;
+    padding: 1.5rem;
   }
   .sd-page-anim { animation: sdFadeIn 0.2s ease; }
   @media (max-width: 768px) {
@@ -269,24 +146,239 @@ const GLOBAL_CSS = `
 `;
 
 // ─────────────────────────────────────────────────────────────
+// TOKEN DIAGNOSTIC — runs once on mount in development
+// Checks every possible key the token could be stored under
+// ─────────────────────────────────────────────────────────────
+const runTokenDiagnostic = () => {
+  if (process.env.NODE_ENV !== "development") return;
+
+  const keys = [
+    "seller_token", "token", "seller_token",
+    "auth_token", "jwt", "access_token", "sellerToken",
+  ];
+
+  console.group("🔍 [SellerDashboard] Token Diagnostic");
+  keys.forEach((k) => {
+    const val = localStorage.getItem(k);
+    if (val) {
+      console.log(`  ✅ Found "${k}":`, val.slice(0, 40) + "...");
+    } else {
+      console.log(`  ❌ "${k}": not found`);
+    }
+  });
+
+  const sellerToken = localStorage.getItem("seller_token");
+  if (!sellerToken) {
+    console.warn(
+      "  ⚠️  seller_token is MISSING.\n"
+      + "  Make sure BecomeSeller saves as:\n"
+      + '  localStorage.setItem("seller_token", token)'
+    );
+  }
+  console.groupEnd();
+};
+
+// ─────────────────────────────────────────────────────────────
+// LOADING SCREEN
+// ─────────────────────────────────────────────────────────────
+const LoadingScreen = ({ stage, timeoutHit }) => (
+  <div style={css.loadWrap}>
+    <div style={css.loadCard}>
+      <div style={{ fontSize: "2.5rem", lineHeight: 1 }}>🛒</div>
+      <div style={css.spinner} />
+      <p style={{
+        color:    "#6b7280",
+        margin:   0,
+        fontSize: "0.9rem",
+      }}>
+        {timeoutHit
+          ? "Server is waking up, please wait…"
+          : stage === "notifications"
+            ? "Almost ready…"
+            : "Loading your dashboard…"
+        }
+      </p>
+      {timeoutHit && (
+        <button
+          onClick={sellerSignOut}
+          style={{
+            background:     "none",
+            border:         "none",
+            color:          "#9ca3af",
+            cursor:         "pointer",
+            fontSize:       "0.8rem",
+            textDecoration: "underline",
+            padding:        0,
+            fontFamily:     "inherit",
+          }}
+        >
+          ← Back to login
+        </button>
+      )}
+    </div>
+  </div>
+);
+
+// ─────────────────────────────────────────────────────────────
+// ERROR SCREEN
+// ─────────────────────────────────────────────────────────────
+const ErrorScreen = ({ error, code, raw, onRetry }) => {
+  // Map known codes → friendly messages
+  const MESSAGES = {
+    NO_TOKEN:
+      "No seller account found. Please sign in.",
+    NOT_SELLER_ACCOUNT:
+      "This account is not registered as a seller.\n"
+      + "Please use your seller credentials.",
+    ACCOUNT_SUSPENDED:
+      "Your seller account has been suspended. Contact support.",
+    NO_VENDOR:
+      "No store found. Please complete seller setup.",
+    VENDOR_NOT_ACTIVE:
+      "Your store is pending approval. Check back soon.",
+    TOKEN_EXPIRED:
+      "Your session has expired. Please sign in again.",
+    INVALID_TOKEN:
+      "Invalid session. Please sign in again.",
+    TIMEOUT:
+      "Connection timed out. The server may be starting up.",
+    NETWORK:
+      "Could not reach the server. Check your connection.",
+  };
+
+  const isAuthErr = [
+    "NO_TOKEN", "TOKEN_EXPIRED",
+    "INVALID_TOKEN", "NOT_SELLER_ACCOUNT",
+    "ACCOUNT_SUSPENDED",
+  ].includes(code);
+
+  const isOnboardingErr = [
+    "NO_VENDOR", "VENDOR_NOT_ACTIVE",
+  ].includes(code);
+
+  const friendlyMsg = MESSAGES[code] ?? error ?? "Something went wrong.";
+
+  return (
+    <div style={css.loadWrap}>
+      <div style={{ ...css.loadCard, maxWidth: "420px" }}>
+        <span style={{ fontSize: "2.5rem" }}>
+          {isAuthErr ? "🔐" : isOnboardingErr ? "🏪" : "⚠️"}
+        </span>
+
+        <h2 style={{
+          color:     "#1f2937",
+          margin:    "0.25rem 0 0.35rem",
+          fontSize:  "1.1rem",
+          fontWeight:800,
+          textAlign: "center",
+        }}>
+          {isAuthErr        ? "Sign In Required"
+           : isOnboardingErr ? "Store Not Ready"
+           : "Dashboard Error"}
+        </h2>
+
+        <p style={{
+          color:     "#6b7280",
+          fontSize:  "0.875rem",
+          textAlign: "center",
+          margin:    "0 0 1rem",
+          lineHeight:1.55,
+          whiteSpace:"pre-line",
+        }}>
+          {friendlyMsg}
+        </p>
+
+        {/* Full debug info shown in dev only */}
+        {process.env.NODE_ENV === "development" && (
+          <div style={{
+            background:   "#f3f4f6",
+            borderRadius: "8px",
+            padding:      "0.75rem",
+            width:        "100%",
+            marginBottom: "1rem",
+            textAlign:    "left",
+          }}>
+            <p style={{
+              fontFamily: "monospace",
+              fontSize:   "0.72rem",
+              color:      "#374151",
+              margin:     0,
+              whiteSpace: "pre-wrap",
+              wordBreak:  "break-all",
+            }}>
+              {JSON.stringify({ code, error, raw }, null, 2)}
+            </p>
+          </div>
+        )}
+
+        {/* Actions */}
+        <div style={{
+          display:       "flex",
+          flexDirection: "column",
+          gap:           "0.5rem",
+          width:         "100%",
+        }}>
+
+          {/* Retry — not for auth errors */}
+          {!isAuthErr && !isOnboardingErr && (
+            <button onClick={onRetry} style={css.primaryBtn}>
+              🔄 Try Again
+            </button>
+          )}
+
+          {/* Go to onboarding */}
+          {isOnboardingErr && (
+            <button
+              onClick={() => {
+                window.location.href = "/become-seller";
+              }}
+              style={css.primaryBtn}
+            >
+              🏪 Go to Store Setup
+            </button>
+          )}
+
+          {/* Sign out / back to login */}
+          <button
+            onClick={sellerSignOut}
+            style={css.secondaryBtn}
+          >
+            ↩ {isAuthErr ? "Sign In to Seller" : "Sign Out"}
+          </button>
+
+        </div>
+      </div>
+    </div>
+  );
+};
+
+// ─────────────────────────────────────────────────────────────
 // MAIN COMPONENT
 // ─────────────────────────────────────────────────────────────
 export default function SellerDashboard() {
   const { tab: tabParam } = useParams();
 
-  const [activePage,    setActivePage]    = useState(
+  const [activePage,  setActivePage]  = useState(
     tabFromParam(tabParam)
   );
-  const [vendor,        setVendor]        = useState(null);
-  const [loading,       setLoading]       = useState(true);
-  const [error,         setError]         = useState(null);
-  const [errorCode,     setErrorCode]     = useState(null);
-  const [timeoutHit,    setTimeoutHit]    = useState(false);
-  const [sidebarOpen,   setSidebarOpen]   = useState(false);
-  const [notifications, setNotifications] = useState([]);
-  const [unreadCount,   setUnreadCount]   = useState(0);
+  const [vendor,      setVendor]      = useState(null);
 
-  // Inject CSS once
+  // Loading has three stages:
+  // "vendor"        → fetching /api/seller-onboarding/status
+  // "notifications" → loading notifications (non-blocking)
+  // false           → done
+  const [loadStage,   setLoadStage]   = useState("vendor");
+  const [loading,     setLoading]     = useState(true);
+
+  const [error,       setError]       = useState(null);
+  const [errorCode,   setErrorCode]   = useState(null);
+  const [errorRaw,    setErrorRaw]    = useState(null);
+  const [timeoutHit,  setTimeoutHit]  = useState(false);
+  const [sidebarOpen, setSidebarOpen] = useState(false);
+  const [notifications,setNotifications] = useState([]);
+  const [unreadCount, setUnreadCount] = useState(0);
+
+  // ── Inject CSS once ──────────────────────────────────────
   useEffect(() => {
     const id = "sd-global-css";
     if (document.getElementById(id)) return;
@@ -296,87 +388,127 @@ export default function SellerDashboard() {
     document.head.appendChild(el);
   }, []);
 
-  // Sync tab from URL
+  // ── Token diagnostic (dev only) ──────────────────────────
+  useEffect(() => {
+    runTokenDiagnostic();
+  }, []);
+
+  // ── Sync tab from URL param ──────────────────────────────
   useEffect(() => {
     if (tabParam) setActivePage(tabFromParam(tabParam));
   }, [tabParam]);
 
-  // Close sidebar on nav
-  useEffect(() => { setSidebarOpen(false); }, [activePage]);
+  // ── Close sidebar on page change ─────────────────────────
+  useEffect(() => {
+    setSidebarOpen(false);
+  }, [activePage]);
 
-  // ── Load vendor ─────────────────────────────────────────
+  // ── Load vendor ──────────────────────────────────────────
   const loadVendor = useCallback(async () => {
     const token = getSellerToken();
 
-    // Guard: no token
+    // ── No token ─────────────────────────────────────────
     if (!token) {
-      setError("No seller account found. Please sign in.");
+      setError("No seller account found.");
       setErrorCode("NO_TOKEN");
       setLoading(false);
       return;
     }
 
     setLoading(true);
+    setLoadStage("vendor");
     setError(null);
     setErrorCode(null);
+    setErrorRaw(null);
     setTimeoutHit(false);
 
-    // Show "still loading" message after 6s
-    const slowTimer = setTimeout(() => setTimeoutHit(true), 6_000);
+    // Show slow-server message after 7s
+    const slowTimer = setTimeout(() => setTimeoutHit(true), 7_000);
 
     try {
+      console.log(
+        "[SellerDashboard] calling /api/seller-onboarding/status",
+        "token:", token.slice(0, 30) + "..."
+      );
+
       const { data } = await sellerApi.get(
         "/api/seller-onboarding/status"
       );
 
-      // ── Success path ──────────────────────────────
+      console.log("[SellerDashboard] status response:", data);
+
+      // ── vendor returned ───────────────────────────────
       if (data.vendor) {
-        const status = data.vendor.status;
+        const { status } = data.vendor;
 
         if (["active", "approved"].includes(status)) {
+          // ✅ All good
           setVendor(data.vendor);
-          // ✅ All good — render dashboard
         } else {
-          // Vendor exists but not yet active
-          setError(`Vendor status: ${status}`);
+          // Vendor exists but not active yet
+          setError(`Your store status is: ${status}`);
           setErrorCode("VENDOR_NOT_ACTIVE");
         }
+      } else if (data.success === false) {
+        // Server returned success:false with a code
+        setError(data.message ?? "Unknown error");
+        setErrorCode(data.code ?? "UNKNOWN");
       } else {
-        setError("No vendor account found.");
+        // success:true but no vendor
+        setError("No vendor found.");
         setErrorCode("NO_VENDOR");
       }
 
     } catch (err) {
-      const status  = err.response?.status;
-      const code    = err.response?.data?.code;
-      const message = err.response?.data?.message;
+      const httpStatus  = err.response?.status;
+      const serverCode  = err.response?.data?.code;
+      const serverMsg   = err.response?.data?.message;
+      const networkCode = err.code; // ECONNABORTED, ERR_NETWORK etc.
 
       console.error("[SellerDashboard] loadVendor error:", {
-        status, code, message,
-        networkError: err.message,
+        httpStatus,
+        serverCode,
+        serverMsg,
+        networkCode,
+        axiosMessage: err.message,
+        responseData: err.response?.data,
       });
 
-      // ── Auth errors → clear token ─────────────────
-      if (
-        status === 401
-        || code === "INVALID_TOKEN"
-        || code === "TOKEN_EXPIRED"
-      ) {
+      setErrorRaw({
+        httpStatus,
+        serverCode,
+        networkCode,
+        axiosMessage: err.message,
+      });
+
+      // ── 401 Unauthorized ─────────────────────────────
+      if (httpStatus === 401) {
         localStorage.removeItem(SELLER_TOKEN_KEY);
         setError("Session expired. Please sign in again.");
-        setErrorCode(code ?? "TOKEN_EXPIRED");
+        setErrorCode(serverCode ?? "TOKEN_EXPIRED");
         return;
       }
 
-      // ── Known server codes ────────────────────────
-      if (code) {
-        setError(message ?? code);
-        setErrorCode(code);
+      // ── 403 Forbidden ────────────────────────────────
+      if (httpStatus === 403) {
+        setError(serverMsg ?? "Access denied.");
+        setErrorCode(serverCode ?? "FORBIDDEN");
         return;
       }
 
-      // ── Network / timeout ─────────────────────────
-      if (err.code === "ECONNABORTED" || !err.response) {
+      // ── 404 Not found ────────────────────────────────
+      if (httpStatus === 404) {
+        setError(serverMsg ?? "No vendor found.");
+        setErrorCode(serverCode ?? "NO_VENDOR");
+        return;
+      }
+
+      // ── Network timeout ──────────────────────────────
+      if (
+        networkCode === "ECONNABORTED"
+        || networkCode === "ERR_NETWORK"
+        || !err.response
+      ) {
         setError(
           "Connection timed out. "
           + "The server may be starting up — please retry."
@@ -385,43 +517,63 @@ export default function SellerDashboard() {
         return;
       }
 
-      // ── Unknown error ─────────────────────────────
-      setError(message ?? "Failed to load seller account.");
+      // ── Known server code ────────────────────────────
+      if (serverCode) {
+        setError(serverMsg ?? serverCode);
+        setErrorCode(serverCode);
+        return;
+      }
+
+      // ── Fallback ──────────────────────────────────────
+      setError(serverMsg ?? err.message ?? "Unexpected error.");
       setErrorCode("UNKNOWN");
 
     } finally {
       clearTimeout(slowTimer);
       setLoading(false);
+      setLoadStage(false);
     }
   }, []);
 
-  // ── Load notifications ──────────────────────────────────
+  // ── Load notifications (non-blocking) ───────────────────
   const loadNotifications = useCallback(async () => {
     if (!getSellerToken()) return;
     try {
       const { data } = await sellerApi.get(
-        "/api/seller-dashboard/notifications", { limit: 15 }
+        "/api/seller-dashboard/notifications",
+        { limit: 15 }
       );
       if (data.success) {
         const notifs = data.notifications ?? [];
         setNotifications(notifs);
         setUnreadCount(notifs.filter((n) => !n.read).length);
       }
-    } catch { /* silent */ }
+    } catch (err) {
+      // Non-critical — notifications failing should
+      // never break the dashboard
+      console.warn(
+        "[SellerDashboard] notifications failed:",
+        err.message
+      );
+    }
   }, []);
 
+  // ── Mark single notif read ───────────────────────────────
   const markNotifRead = useCallback(async (id) => {
     try {
       await sellerApi.patch(
         `/api/seller-dashboard/notifications/${id}/read`
       );
       setNotifications((prev) =>
-        prev.map((n) => n.id === id ? { ...n, read: true } : n)
+        prev.map((n) =>
+          n.id === id ? { ...n, read: true } : n
+        )
       );
       setUnreadCount((c) => Math.max(0, c - 1));
     } catch { /* silent */ }
   }, []);
 
+  // ── Mark all read ────────────────────────────────────────
   const markAllRead = useCallback(async () => {
     const unread = notifications.filter((n) => !n.read);
     if (!unread.length) return;
@@ -438,10 +590,12 @@ export default function SellerDashboard() {
     setUnreadCount(0);
   }, [notifications]);
 
-  // Initial load
-  useEffect(() => { loadVendor(); }, [loadVendor]);
+  // ── Run on mount ─────────────────────────────────────────
+  useEffect(() => {
+    loadVendor();
+  }, [loadVendor]);
 
-  // Poll notifications once vendor loads
+  // ── Load notifications once vendor is confirmed ──────────
   useEffect(() => {
     if (!vendor) return;
     loadNotifications();
@@ -449,45 +603,54 @@ export default function SellerDashboard() {
     return () => clearInterval(t);
   }, [vendor, loadNotifications]);
 
-  // ── Route guards ────────────────────────────────────────
-  const token = getSellerToken();
+  // ─────────────────────────────────────────────────────────
+  // RENDER GUARDS
+  // ─────────────────────────────────────────────────────────
 
-  // 1. No token at all → redirect immediately (no loading)
-  if (!token) {
+  // 1. No token → redirect immediately (don't even show loading)
+  const token = getSellerToken();
+  if (!token && !loading) {
     return <Navigate to="/become-seller" replace />;
   }
 
   // 2. Loading
   if (loading) {
-    return <LoadingScreen timeoutHit={timeoutHit} />;
+    return (
+      <LoadingScreen
+        stage={loadStage}
+        timeoutHit={timeoutHit}
+      />
+    );
   }
 
-  // 3. Vendor not active → redirect to onboarding
-  if (errorCode === "VENDOR_NOT_ACTIVE") {
+  // 3. Vendor not active → back to onboarding
+  if (
+    errorCode === "VENDOR_NOT_ACTIVE"
+    || errorCode === "NO_VENDOR"
+  ) {
     return <Navigate to="/become-seller" replace />;
   }
 
-  // 4. No vendor → redirect to onboarding
-  if (errorCode === "NO_VENDOR") {
-    return <Navigate to="/become-seller" replace />;
-  }
-
-  // 5. Any other error → show error screen
+  // 4. Error
   if (error || !vendor) {
     return (
       <ErrorScreen
         error={error}
         code={errorCode}
+        raw={errorRaw}
         onRetry={() => {
           setError(null);
           setErrorCode(null);
+          setErrorRaw(null);
           loadVendor();
         }}
       />
     );
   }
 
-  // ── Navigation ──────────────────────────────────────────
+  // ─────────────────────────────────────────────────────────
+  // DASHBOARD RENDER
+  // ─────────────────────────────────────────────────────────
   const navigate = (page) => {
     if (!VALID_TABS.includes(page)) return;
     setActivePage(page);
@@ -496,7 +659,6 @@ export default function SellerDashboard() {
     );
   };
 
-  // ── Context ─────────────────────────────────────────────
   const ctx = {
     vendor,
     setVendor,
@@ -555,7 +717,7 @@ export default function SellerDashboard() {
           </div>
         )}
 
-        {/* Main content */}
+        {/* Main */}
         <div className="sd-main">
           <TopBar
             vendor={vendor}
@@ -578,6 +740,9 @@ export default function SellerDashboard() {
   );
 }
 
+// ─────────────────────────────────────────────────────────────
+// STYLES
+// ─────────────────────────────────────────────────────────────
 const css = {
   loadWrap: {
     minHeight:      "100vh",
@@ -597,7 +762,7 @@ const css = {
     alignItems:    "center",
     gap:           "1.25rem",
     width:         "100%",
-    maxWidth:      "340px",
+    maxWidth:      "360px",
     textAlign:     "center",
   },
   spinner: {
@@ -609,13 +774,26 @@ const css = {
     animation:    "spin 0.8s linear infinite",
     flexShrink:   0,
   },
-  retryBtn: {
-    padding:      "0.8rem 2rem",
+  primaryBtn: {
+    padding:      "0.85rem 2rem",
     background:   "#6366f1",
     color:        "white",
     border:       "none",
     borderRadius: "12px",
     fontWeight:   700,
+    cursor:       "pointer",
+    fontSize:     "0.9rem",
+    width:        "100%",
+    fontFamily:   "inherit",
+    transition:   "opacity 0.15s",
+  },
+  secondaryBtn: {
+    padding:      "0.85rem 2rem",
+    background:   "#fef2f2",
+    color:        "#ef4444",
+    border:       "1px solid #fecaca",
+    borderRadius: "12px",
+    fontWeight:   600,
     cursor:       "pointer",
     fontSize:     "0.9rem",
     width:        "100%",
