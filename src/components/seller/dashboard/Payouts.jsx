@@ -1,445 +1,457 @@
-import React, {
-  useState, useEffect, useCallback, useMemo,
-} from "react";
-import {
-  Wallet, ArrowDownToLine, Clock, CheckCircle,
-  XCircle, AlertCircle, RefreshCw, ChevronLeft,
-  ChevronRight, Copy, Eye, X, TrendingUp,
-  Banknote, Info, ShieldCheck, Gift,
-} from "lucide-react";
-import api from "../../utils/api";
-import toast from "react-hot-toast";
-import {
-  formatNGN,
-  formatTimeAgo,
-  DashboardSkeleton,
-  DashboardError,
-} from "./Shared";
+// components/seller/dashboard/Payouts.jsx
+import { useState, useEffect, useCallback, useMemo } from "react";
+import axios from "axios";
 
-// ─── Fee calc (mirrors server) ────────────────────────────────────────────────
-const clientCalcFee = (amount, withdrawalsToday) => {
-  if (withdrawalsToday < 3) return 0;
-  if (amount <= 9_999)      return 50;
-  if (amount <= 99_999)     return 100;
-  if (amount <= 500_000)    return 150;
-  return 200;
+// ── Seller API — always uses market.users token ───────────────
+const sellerApi = {
+  get: (url) =>
+    axios.get(url, {
+      headers: { Authorization: `Bearer ${localStorage.getItem("token")}` },
+      timeout: 15_000,
+    }),
+  post: (url, data) =>
+    axios.post(url, data, {
+      headers: { Authorization: `Bearer ${localStorage.getItem("token")}` },
+      timeout: 15_000,
+    }),
 };
 
-const FEE_TIERS = [
-  { label: "₦0 – ₦9,999",          fee: "₦50"  },
-  { label: "₦10,000 – ₦99,999",    fee: "₦100" },
-  { label: "₦100,000 – ₦500,000",  fee: "₦150" },
-  { label: "Above ₦500,000",        fee: "₦200" },
-];
+// ── Format Naira ──────────────────────────────────────────────
+const fmt = (v, d = 2) =>
+  `₦${Number(v ?? 0).toLocaleString("en-NG", {
+    minimumFractionDigits: d,
+    maximumFractionDigits: d,
+  })}`;
 
-// ─── Date formatter ───────────────────────────────────────────────────────────
 const fmtDate = (d) =>
-  d ? new Date(d).toLocaleString("en-NG", {
-    day: "2-digit", month: "short", year: "numeric",
-    hour: "2-digit", minute: "2-digit",
-  }) : "—";
+  d
+    ? new Date(d).toLocaleString("en-NG", {
+        day:    "2-digit",
+        month:  "short",
+        year:   "numeric",
+        hour:   "2-digit",
+        minute: "2-digit",
+      })
+    : "—";
 
-const copyText = (t) =>
-  navigator.clipboard.writeText(t).then(() => toast.success("Copied!"));
-
-// ─── Payout status config ─────────────────────────────────────────────────────
-const PAYOUT_STATUS = {
-  pending: {
-    label: "Pending",
-    chip:  "bg-amber-100 text-amber-700 border-amber-200",
-    Icon:  Clock,
-    spin:  false,
-  },
-  processing: {
-    label: "Processing",
-    chip:  "bg-blue-100 text-blue-700 border-blue-200",
-    Icon:  RefreshCw,
-    spin:  true,
-  },
-  success: {
-    label: "Success",
-    chip:  "bg-green-100 text-green-700 border-green-200",
-    Icon:  CheckCircle,
-    spin:  false,
-  },
-  failed: {
-    label: "Failed",
-    chip:  "bg-red-100 text-red-700 border-red-200",
-    Icon:  XCircle,
-    spin:  false,
-  },
-  cancelled: {
-    label: "Cancelled",
-    chip:  "bg-gray-100 text-gray-500 border-gray-200",
-    Icon:  X,
-    spin:  false,
-  },
+const timeAgo = (d) => {
+  if (!d) return "";
+  const diff  = Date.now() - new Date(d).getTime();
+  const mins  = Math.floor(diff / 60000);
+  const hours = Math.floor(diff / 3600000);
+  const days  = Math.floor(diff / 86400000);
+  if (mins < 1)   return "just now";
+  if (mins < 60)  return `${mins}m ago`;
+  if (hours < 24) return `${hours}h ago`;
+  if (days < 7)   return `${days}d ago`;
+  return new Date(d).toLocaleDateString("en-NG");
 };
 
-const PayoutStatusBadge = ({ status }) => {
-  const m = PAYOUT_STATUS[status] ?? {
-    label: status, chip: "bg-gray-100 text-gray-500 border-gray-200",
-    Icon: null, spin: false,
-  };
+const copy = (t) => {
+  navigator.clipboard.writeText(t).then(() => alert("Copied!")).catch(() => {});
+};
+
+// ── Status config ─────────────────────────────────────────────
+const STATUS = {
+  pending:    { label: "Pending",    bg: "#fffbeb", color: "#92400e", border: "#fde68a" },
+  processing: { label: "Processing", bg: "#eff6ff", color: "#1e40af", border: "#bfdbfe" },
+  success:    { label: "Success",    bg: "#ecfdf5", color: "#065f46", border: "#a7f3d0" },
+  failed:     { label: "Failed",     bg: "#fef2f2", color: "#991b1b", border: "#fecaca" },
+  cancelled:  { label: "Cancelled",  bg: "#f9fafb", color: "#6b7280", border: "#e5e7eb" },
+};
+
+const StatusBadge = ({ status }) => {
+  const c = STATUS[status] ?? STATUS.pending;
   return (
-    <span className={`inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full
-                      text-xs font-medium border ${m.chip}`}>
-      {m.Icon && <m.Icon size={11} className={m.spin ? "animate-spin" : ""} />}
-      {m.label}
+    <span style={{
+      padding:      "0.2rem 0.65rem",
+      borderRadius: "100px",
+      fontSize:     "0.72rem",
+      fontWeight:   700,
+      background:   c.bg,
+      color:        c.color,
+      border:       `1px solid ${c.border}`,
+      display:      "inline-block",
+      whiteSpace:   "nowrap",
+    }}>
+      {c.label}
     </span>
   );
 };
 
-// ─── StatCard ─────────────────────────────────────────────────────────────────
-const CARD_COLORS = {
-  blue:   "bg-blue-50   border-blue-100   text-blue-700",
-  green:  "bg-green-50  border-green-100  text-green-700",
-  amber:  "bg-amber-50  border-amber-100  text-amber-700",
-  purple: "bg-purple-50 border-purple-100 text-purple-700",
-};
-
-const StatCard = ({ icon, label, value, sub, color = "blue" }) => (
-  <div className={`rounded-2xl border p-4 flex items-start gap-3 ${CARD_COLORS[color]}`}>
-    <div className="p-2 rounded-xl bg-white/70 shrink-0">{icon}</div>
-    <div className="min-w-0">
-      <p className="text-xs font-medium opacity-70 mb-0.5 truncate">{label}</p>
-      <p className="text-lg font-bold truncate">{value}</p>
-      {sub && <p className="text-xs opacity-60 mt-0.5">{sub}</p>}
-    </div>
-  </div>
+// ── Spinner ───────────────────────────────────────────────────
+const Spin = ({ size = 20 }) => (
+  <span style={{
+    width:        size,
+    height:       size,
+    border:       "2.5px solid #e5e7eb",
+    borderTop:    "2.5px solid #6366f1",
+    borderRadius: "50%",
+    display:      "inline-block",
+    animation:    "spin 0.7s linear infinite",
+    flexShrink:   0,
+  }} />
 );
 
-// ─── FeeTable ─────────────────────────────────────────────────────────────────
-const FeeTable = ({ freeRemaining, withdrawalsToday }) => (
-  <div className="bg-white border border-gray-200 rounded-2xl overflow-hidden">
-    <div className="px-4 py-3 border-b bg-gray-50 flex items-center gap-2">
-      <Info size={14} className="text-gray-400" />
-      <h3 className="text-sm font-semibold text-gray-700">Withdrawal Fee Schedule</h3>
-    </div>
-
-    <div className={`px-4 py-3 border-b flex items-center gap-3 ${
-      freeRemaining > 0 ? "bg-green-50 border-green-100" : "bg-gray-50 border-gray-200"
-    }`}>
-      <Gift size={18} className={freeRemaining > 0 ? "text-green-600" : "text-gray-400"} />
-      <div>
-        {freeRemaining > 0 ? (
-          <>
-            <p className="text-sm font-semibold text-green-800">
-              {freeRemaining} free withdrawal{freeRemaining > 1 ? "s" : ""} remaining today
-            </p>
-            <p className="text-xs text-green-600">First 3 each day are always free</p>
-          </>
-        ) : (
-          <>
-            <p className="text-sm font-semibold text-gray-600">All free withdrawals used today</p>
-            <p className="text-xs text-gray-400">Fees apply to withdrawal #{withdrawalsToday + 1}+</p>
-          </>
-        )}
-      </div>
-    </div>
-
-    <div className="divide-y divide-gray-100">
-      {FEE_TIERS.map(({ label, fee }) => (
-        <div key={label} className="flex justify-between items-center px-4 py-2.5 text-sm">
-          <span className="text-gray-500">{label}</span>
-          <span className={`font-semibold ${
-            freeRemaining > 0 ? "text-gray-300 line-through" : "text-gray-900"
-          }`}>
-            {fee}
-          </span>
-        </div>
-      ))}
-    </div>
-  </div>
-);
-
-// ══════════════════════════════════════════════════════════════════════════════
-// WithdrawModal
-// ══════════════════════════════════════════════════════════════════════════════
+// ══════════════════════════════════════════════════════════════
+// WITHDRAW MODAL
+// ══════════════════════════════════════════════════════════════
 const WithdrawModal = ({ info, onClose, onSuccess }) => {
-  const [amount,   setAmount]   = useState("");
-  const [loading,  setLoading]  = useState(false);
-  const [showFees, setShowFees] = useState(false);
-
-  const { wallet, bank, limits } = info;
-  const parsedAmount = parseFloat(amount) || 0;
-
-  const preview = useMemo(() => {
-    if (!parsedAmount || parsedAmount <= 0) return null;
-    const fee = clientCalcFee(parsedAmount, limits.withdrawals_today);
-    return {
-      amount: parsedAmount,
-      fee,
-      net:    parseFloat((parsedAmount - fee).toFixed(2)),
-      isFree: fee === 0,
-    };
-  }, [parsedAmount, limits.withdrawals_today]);
-
-  const maxAllowed = Math.min(
-    wallet.available_balance,
-    limits.daily_remaining,
-    limits.max_withdrawal
+  const [amount,    setAmount]    = useState("");
+  const [loading,   setLoading]   = useState(false);
+  const [msg,       setMsg]       = useState({ type: "", text: "" });
+  const [idemKey]                 = useState(
+    `WD-${Date.now()}-${Math.random().toString(36).slice(2)}`
   );
 
-  const setQuick = (pct) => {
-    const val = Math.min(
-      parseFloat(((wallet.available_balance * pct) / 100).toFixed(2)),
-      maxAllowed
-    );
-    setAmount(String(val));
-  };
+  const { wallet, bank, limits } = info;
+  const parsed    = parseFloat(amount) || 0;
+  const available = Number(wallet?.available_balance ?? 0);
 
-  const handleSubmit = async (e) => {
-    e.preventDefault();
-    if (!parsedAmount || parsedAmount < limits.min_withdrawal) {
-      return toast.error(`Minimum withdrawal is ${formatNGN(limits.min_withdrawal)}`);
+  // Client-side fee preview (mirrors server logic)
+  const feePreview = useMemo(() => {
+    if (!parsed || parsed <= 0) return null;
+    const today = limits?.withdrawals_today ?? 0;
+    let fee = 0;
+    if (today >= 3) {
+      if (parsed <= 9_999)   fee = 50;
+      else if (parsed <= 99_999)  fee = 100;
+      else if (parsed <= 500_000) fee = 150;
+      else                        fee = 200;
     }
-    if (parsedAmount > wallet.available_balance) {
-      return toast.error("Insufficient balance");
+    return { amount: parsed, fee, net: parsed - fee, free: fee === 0 };
+  }, [parsed, limits]);
+
+  const handleWithdraw = async () => {
+    if (!parsed || parsed < (limits?.min_withdrawal ?? 500)) {
+      setMsg({ type: "error", text: `Minimum is ${fmt(limits?.min_withdrawal ?? 500)}` });
+      return;
     }
-    if (parsedAmount > limits.daily_remaining) {
-      return toast.error(`Daily limit exceeded. Remaining: ${formatNGN(limits.daily_remaining)}`);
+    if (parsed > available) {
+      setMsg({ type: "error", text: `Insufficient. Available: ${fmt(available)}` });
+      return;
     }
 
     setLoading(true);
+    setMsg({ type: "", text: "" });
+
     try {
-      const { data } = await api.post("/seller/payout/withdraw", {
-        amount: parsedAmount,
-        idempotency_key: `WD-${Date.now()}-${Math.random().toString(36).slice(2)}`,
+      const { data } = await sellerApi.post("/api/seller/payout/withdraw", {
+        amount:          parsed,
+        idempotency_key: idemKey,
       });
 
       if (data.success) {
-        toast.success(
-          data.withdrawal?.fee === 0
-            ? "Withdrawal initiated — free transfer!"
-            : `Withdrawal initiated (₦${data.withdrawal?.fee} fee)`
-        );
-        onSuccess();
-        onClose();
+        setMsg({ type: "success", text: data.message ?? "Withdrawal initiated!" });
+        setTimeout(() => { onSuccess(); onClose(); }, 1800);
       } else {
-        toast.error(data.message ?? "Withdrawal failed");
+        setMsg({ type: "error", text: data.message });
       }
     } catch (err) {
-      toast.error(err.response?.data?.message ?? "Withdrawal failed. Try again.");
+      setMsg({
+        type: "error",
+        text: err.response?.data?.message ?? "Withdrawal failed. Try again.",
+      });
     } finally {
       setLoading(false);
     }
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center
-                    p-4 bg-black/50 backdrop-blur-sm">
-      <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md
-                      max-h-[92vh] overflow-y-auto">
+    <div style={ms.overlay} onClick={onClose}>
+      <div style={ms.modal} onClick={(e) => e.stopPropagation()}>
 
-        {/* header */}
-        <div className="flex items-center justify-between p-5 border-b
-                        sticky top-0 bg-white z-10">
-          <div className="flex items-center gap-2">
-            <ArrowDownToLine size={20} className="text-blue-600" />
-            <h2 className="text-lg font-bold text-gray-900">Withdraw Funds</h2>
+        {/* Header */}
+        <div style={ms.header}>
+          <div style={{ display: "flex", alignItems: "center", gap: "0.75rem" }}>
+            <span style={{ fontSize: "1.5rem" }}>💸</span>
+            <h2 style={ms.title}>Withdraw Funds</h2>
           </div>
-          <button onClick={onClose}
-            className="p-2 hover:bg-gray-100 rounded-xl transition-colors">
-            <X size={18} />
-          </button>
+          <button style={ms.closeBtn} onClick={onClose}>✕</button>
         </div>
 
-        <form onSubmit={handleSubmit} className="p-5 space-y-5">
-
-          {/* free badge */}
-          {limits.free_remaining > 0 && (
-            <div className="flex items-center gap-2.5 bg-green-50 border
-                            border-green-200 rounded-xl px-4 py-3">
-              <Gift size={16} className="text-green-600 shrink-0" />
-              <p className="text-sm font-medium text-green-700">
-                {limits.free_remaining} free withdrawal
-                {limits.free_remaining > 1 ? "s" : ""} remaining — no fees!
-              </p>
-            </div>
-          )}
-
-          {/* payout bank */}
-          {bank.account_number && bank.account_name ? (
-            <div className="flex items-start gap-3 bg-gray-50 border
-                            border-gray-200 rounded-xl p-4">
-              <CheckCircle size={16} className="text-green-500 mt-0.5 shrink-0" />
-              <div className="min-w-0">
-                <p className="text-xs text-gray-400 mb-0.5">Payout to</p>
-                <p className="font-semibold text-gray-900 truncate">{bank.account_name}</p>
-                <p className="text-sm text-gray-500">
-                  {bank.account_number} — {bank.bank_name}
-                </p>
-              </div>
-            </div>
-          ) : (
-            <div className="flex gap-2.5 bg-amber-50 border border-amber-200 rounded-xl p-4">
-              <AlertCircle size={16} className="text-amber-600 shrink-0 mt-0.5" />
-              <div>
-                <p className="text-sm font-medium text-amber-800">No payout bank configured</p>
-                <p className="text-xs text-amber-600 mt-0.5">
-                  Go to Settings → Bank Account to set up your payout account
-                </p>
-              </div>
-            </div>
-          )}
-
-          {/* available balance */}
-          <div className="flex justify-between items-center py-2 border-y border-gray-100">
-            <span className="text-sm text-gray-500">Available balance</span>
-            <span className="font-bold text-lg text-green-600">
-              {formatNGN(wallet.available_balance)}
-            </span>
+        {/* Free withdrawal badge */}
+        {(limits?.free_remaining ?? 0) > 0 && (
+          <div style={ms.freeBadge}>
+            🎁 {limits.free_remaining} free withdrawal
+            {limits.free_remaining > 1 ? "s" : ""} remaining today — no fees!
           </div>
+        )}
 
-          {/* quick % */}
-          <div className="grid grid-cols-4 gap-2">
-            {[25, 50, 75, 100].map((pct) => (
-              <button key={pct} type="button" onClick={() => setQuick(pct)}
-                className="py-2 text-xs rounded-xl border border-gray-200
-                           hover:border-blue-400 hover:text-blue-600
-                           hover:bg-blue-50 transition-colors font-medium">
+        {/* Payout bank */}
+        <div style={ms.bankBox}>
+          <p style={ms.smallLabel}>Payout to</p>
+          {bank?.bank_name ? (
+            <>
+              <p style={ms.bankName}>{bank.account_name}</p>
+              <p style={ms.bankSub}>
+                {bank.account_number} · {bank.bank_name}
+              </p>
+            </>
+          ) : (
+            <p style={{ color: "#ef4444", fontSize: "0.875rem", margin: 0 }}>
+              ⚠️ No bank configured — update in Settings
+            </p>
+          )}
+        </div>
+
+        {/* Available */}
+        <div style={ms.availRow}>
+          <span style={{ color: "#6b7280" }}>Available balance</span>
+          <span style={{ fontWeight: 800, color: "#10b981", fontSize: "1.15rem" }}>
+            {fmt(available)}
+          </span>
+        </div>
+
+        {/* Quick amounts */}
+        <div style={ms.quickRow}>
+          {[25, 50, 75, 100].map((pct) => {
+            const val = Math.min(
+              parseFloat(((available * pct) / 100).toFixed(2)),
+              limits?.max_withdrawal ?? available
+            );
+            return (
+              <button
+                key={pct}
+                onClick={() => setAmount(String(val))}
+                style={{ ...ms.quickBtn, background: parsed === val ? "#6366f1" : "#f8fafc", color: parsed === val ? "white" : "#374151", borderColor: parsed === val ? "#6366f1" : "#e5e7eb" }}
+              >
                 {pct}%
               </button>
-            ))}
-          </div>
+            );
+          })}
+        </div>
 
-          {/* amount input */}
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1.5">
-              Amount (₦)
-            </label>
-            <input
-              type="number"
-              min={limits.min_withdrawal}
-              max={maxAllowed}
-              step="1"
-              value={amount}
-              onChange={(e) => setAmount(e.target.value)}
-              placeholder={`Min ${formatNGN(limits.min_withdrawal)}`}
-              className="w-full border border-gray-300 rounded-xl px-4 py-3.5
-                         text-2xl font-bold focus:outline-none focus:ring-2
-                         focus:ring-blue-500 focus:border-transparent
-                         placeholder:text-gray-300 placeholder:font-normal
-                         placeholder:text-base"
-              required
-            />
-          </div>
+        {/* Amount input */}
+        <div style={{ position: "relative", marginBottom: "1rem" }}>
+          <span style={ms.currencySign}>₦</span>
+          <input
+            type="number"
+            value={amount}
+            onChange={(e) => { setAmount(e.target.value); setMsg({ type: "", text: "" }); }}
+            placeholder="0.00"
+            style={ms.amtInput}
+            autoFocus
+          />
+        </div>
 
-          {/* fee preview */}
-          {preview && (
-            <div className={`rounded-xl border p-4 space-y-2.5 text-sm ${
-              preview.isFree
-                ? "bg-green-50 border-green-200"
-                : "bg-blue-50 border-blue-100"
-            }`}>
-              <div className="flex justify-between text-gray-600">
-                <span>Gross amount</span>
-                <span>{formatNGN(preview.amount)}</span>
-              </div>
-              <div className="flex justify-between">
-                <span className="text-gray-600">Processing fee</span>
-                {preview.isFree ? (
-                  <span className="text-green-600 font-semibold flex items-center gap-1">
-                    <Gift size={12} /> Free
-                  </span>
-                ) : (
-                  <span className="text-red-500 font-medium">
-                    −{formatNGN(preview.fee)}
-                  </span>
-                )}
-              </div>
-              <div className="flex justify-between font-bold text-base
-                              pt-2 border-t border-black/5">
-                <span className="text-gray-900">You receive</span>
-                <span className={preview.isFree ? "text-green-700" : "text-blue-700"}>
-                  {formatNGN(preview.net)}
-                </span>
-              </div>
+        {/* Fee preview */}
+        {feePreview && (
+          <div style={{
+            ...ms.feeBox,
+            background: feePreview.free ? "#f0fdf4" : "#f0f9ff",
+            borderColor: feePreview.free ? "#a7f3d0" : "#bfdbfe",
+          }}>
+            <div style={ms.feeRow}>
+              <span style={{ color: "#6b7280" }}>Amount</span>
+              <span style={{ fontWeight: 600 }}>{fmt(feePreview.amount)}</span>
             </div>
+            <div style={ms.feeRow}>
+              <span style={{ color: "#6b7280" }}>Fee</span>
+              <span style={{ fontWeight: 600, color: feePreview.free ? "#10b981" : "#f59e0b" }}>
+                {feePreview.free ? "🎁 Free" : `− ${fmt(feePreview.fee)}`}
+              </span>
+            </div>
+            <div style={{ ...ms.feeDivider }} />
+            <div style={ms.feeRow}>
+              <span style={{ fontWeight: 700, color: "#1f2937" }}>You receive</span>
+              <span style={{ fontWeight: 800, fontSize: "1.1rem", color: feePreview.free ? "#10b981" : "#6366f1" }}>
+                {fmt(feePreview.net)}
+              </span>
+            </div>
+          </div>
+        )}
+
+        {/* Message */}
+        {msg.text && (
+          <div style={{
+            padding:      "0.75rem 1rem",
+            borderRadius: "10px",
+            marginBottom: "1rem",
+            background:   msg.type === "error" ? "#fef2f2" : "#ecfdf5",
+            color:        msg.type === "error" ? "#991b1b" : "#065f46",
+            border:       `1px solid ${msg.type === "error" ? "#fecaca" : "#a7f3d0"}`,
+            fontSize:     "0.875rem",
+            fontWeight:   500,
+          }}>
+            {msg.type === "error" ? "⚠️" : "✅"} {msg.text}
+          </div>
+        )}
+
+        {/* Submit */}
+        <button
+          onClick={handleWithdraw}
+          disabled={loading || !amount || !bank?.bank_name}
+          style={{
+            ...ms.submitBtn,
+            opacity: loading || !amount || !bank?.bank_name ? 0.6 : 1,
+          }}
+        >
+          {loading ? (
+            <div style={{ display: "flex", alignItems: "center", gap: "0.5rem" }}>
+              <Spin size={18} /> Processing...
+            </div>
+          ) : (
+            `💸 Withdraw ${parsed > 0 ? fmt(parsed) : ""}`
           )}
+        </button>
 
-          {/* daily info */}
-          <div className="flex items-start gap-2 text-xs text-gray-500
-                          bg-gray-50 rounded-xl p-3.5">
-            <Info size={13} className="shrink-0 mt-0.5" />
-            <div className="space-y-1">
-              <p>
-                Daily remaining:{" "}
-                <strong className="text-gray-800">
-                  {formatNGN(limits.daily_remaining)}
-                </strong>
-                {" "}of {formatNGN(limits.daily_limit)}
-              </p>
-              <p>
-                Withdrawals today:{" "}
-                <strong className="text-gray-800">{limits.withdrawals_today}</strong>
-                {limits.free_remaining > 0 && (
-                  <span className="text-green-600 ml-1">
-                    ({limits.free_remaining} free left)
-                  </span>
-                )}
-              </p>
-            </div>
-          </div>
+        {/* Fee schedule info */}
+        <div style={ms.feeInfo}>
+          <p style={{ margin: 0, fontWeight: 600, color: "#374151", marginBottom: "0.35rem" }}>
+            💡 Fee Schedule
+          </p>
+          <p style={{ margin: 0, color: "#6b7280", fontSize: "0.78rem" }}>
+            First 3 withdrawals per day: Free
+          </p>
+          {(limits?.fee_tiers ?? []).map((tier, i) => (
+            <p key={i} style={{ margin: "0.15rem 0 0", color: "#6b7280", fontSize: "0.78rem" }}>
+              {tier.label}: {tier.fee}
+            </p>
+          ))}
+        </div>
 
-          {/* fee schedule toggle */}
-          <button type="button" onClick={() => setShowFees((v) => !v)}
-            className="text-xs text-blue-600 hover:underline w-full text-left">
-            {showFees ? "▲ Hide" : "▼ View"} full fee schedule
-          </button>
-
-          {showFees && (
-            <div className="rounded-xl border border-gray-200 overflow-hidden text-xs">
-              <div className="bg-green-50 border-b border-green-100 px-3.5 py-2.5
-                              flex items-center gap-2 text-green-700 font-medium">
-                <Gift size={12} /> First 3 withdrawals per day are FREE
-              </div>
-              {FEE_TIERS.map(({ label, fee }) => (
-                <div key={label} className="flex justify-between px-3.5 py-2.5
-                                            border-b border-gray-100 last:border-0">
-                  <span className="text-gray-500">{label}</span>
-                  <span className="font-semibold text-gray-800">{fee}</span>
-                </div>
-              ))}
-            </div>
-          )}
-
-          {/* submit */}
-          <button
-            type="submit"
-            disabled={loading || !bank.account_number || !amount || parsedAmount <= 0}
-            className="w-full bg-blue-600 hover:bg-blue-700
-                       disabled:opacity-50 disabled:cursor-not-allowed
-                       text-white font-bold py-4 rounded-xl transition-colors
-                       flex items-center justify-center gap-2 text-base"
-          >
-            {loading ? (
-              <>
-                <RefreshCw size={18} className="animate-spin" />
-                Initiating…
-              </>
-            ) : (
-              <>
-                <ArrowDownToLine size={18} />
-                Withdraw {preview ? formatNGN(preview.amount) : ""}
-                {preview?.isFree && (
-                  <span className="bg-green-500 text-white text-xs px-2 py-0.5
-                                   rounded-full font-medium">Free</span>
-                )}
-              </>
-            )}
-          </button>
-        </form>
       </div>
     </div>
   );
 };
 
-// ══════════════════════════════════════════════════════════════════════════════
-// DetailDrawer
-// ══════════════════════════════════════════════════════════════════════════════
-const DetailDrawer = ({ id, onClose, onCancelled }) => {
+// Modal styles
+const ms = {
+  overlay: {
+    position:       "fixed",
+    inset:          0,
+    background:     "rgba(0,0,0,0.55)",
+    display:        "flex",
+    alignItems:     "center",
+    justifyContent: "center",
+    zIndex:         1000,
+    padding:        "1rem",
+    backdropFilter: "blur(4px)",
+  },
+  modal: {
+    background:    "white",
+    borderRadius:  "20px",
+    padding:       "0",
+    width:         "100%",
+    maxWidth:      "420px",
+    maxHeight:     "90vh",
+    overflowY:     "auto",
+    boxShadow:     "0 20px 60px rgba(0,0,0,0.2)",
+  },
+  header: {
+    display:        "flex",
+    justifyContent: "space-between",
+    alignItems:     "center",
+    padding:        "1.5rem 1.5rem 1rem",
+    borderBottom:   "1px solid #f3f4f6",
+    position:       "sticky",
+    top:            0,
+    background:     "white",
+    zIndex:         1,
+    borderRadius:   "20px 20px 0 0",
+  },
+  title:    { fontWeight: 800, fontSize: "1.2rem", color: "#1f2937", margin: 0 },
+  closeBtn: { background: "none", border: "none", cursor: "pointer", fontSize: "1.2rem", color: "#9ca3af", padding: "0.25rem" },
+  freeBadge: {
+    margin:       "0 1.5rem 1rem",
+    background:   "#ecfdf5",
+    border:       "1px solid #a7f3d0",
+    borderRadius: "12px",
+    padding:      "0.65rem 1rem",
+    color:        "#065f46",
+    fontSize:     "0.85rem",
+    fontWeight:   600,
+  },
+  bankBox: {
+    margin:       "0 1.5rem 1rem",
+    background:   "#f8fafc",
+    border:       "1px solid #e5e7eb",
+    borderRadius: "12px",
+    padding:      "0.875rem 1rem",
+  },
+  smallLabel: { fontSize: "0.72rem", color: "#9ca3af", fontWeight: 600, margin: "0 0 0.35rem", textTransform: "uppercase" },
+  bankName:   { fontWeight: 700, color: "#1f2937", margin: 0, fontSize: "0.95rem" },
+  bankSub:    { color: "#6b7280", fontSize: "0.82rem", margin: "0.2rem 0 0" },
+  availRow: {
+    display:        "flex",
+    justifyContent: "space-between",
+    alignItems:     "center",
+    margin:         "0 1.5rem",
+    padding:        "0.75rem 0",
+    borderBottom:   "1px solid #f3f4f6",
+    marginBottom:   "1rem",
+    fontSize:       "0.9rem",
+  },
+  quickRow: { display: "flex", gap: "0.5rem", margin: "0 1.5rem 1rem", flexWrap: "wrap" },
+  quickBtn: {
+    padding:      "0.4rem 0.75rem",
+    borderRadius: "100px",
+    border:       "1px solid",
+    cursor:       "pointer",
+    fontSize:     "0.82rem",
+    fontWeight:   600,
+    transition:   "all 0.15s",
+    flex:         1,
+  },
+  currencySign: {
+    position:   "absolute",
+    left:       "1rem",
+    top:        "50%",
+    transform:  "translateY(-50%)",
+    fontWeight: 800,
+    fontSize:   "1.2rem",
+    color:      "#374151",
+  },
+  amtInput: {
+    width:        "100%",
+    padding:      "1rem 1rem 1rem 2.5rem",
+    border:       "2px solid #e5e7eb",
+    borderRadius: "12px",
+    fontSize:     "1.5rem",
+    fontWeight:   800,
+    outline:      "none",
+    boxSizing:    "border-box",
+    margin:       "0 0 0",
+  },
+  feeBox: {
+    borderRadius: "12px",
+    padding:      "1rem",
+    border:       "1px solid",
+    margin:       "0 1.5rem 1rem",
+    display:      "flex",
+    flexDirection:"column",
+    gap:          "0.5rem",
+  },
+  feeRow:     { display: "flex", justifyContent: "space-between", alignItems: "center", fontSize: "0.9rem" },
+  feeDivider: { height: "1px", background: "rgba(0,0,0,0.06)" },
+  submitBtn: {
+    display:      "block",
+    width:        "calc(100% - 3rem)",
+    margin:       "0 1.5rem",
+    padding:      "1rem",
+    background:   "linear-gradient(135deg,#10b981,#059669)",
+    color:        "white",
+    border:       "none",
+    borderRadius: "14px",
+    fontWeight:   700,
+    fontSize:     "1rem",
+    cursor:       "pointer",
+    textAlign:    "center",
+  },
+  feeInfo: {
+    margin:       "1rem 1.5rem 1.5rem",
+    background:   "#f8fafc",
+    border:       "1px solid #e5e7eb",
+    borderRadius: "10px",
+    padding:      "0.875rem 1rem",
+  },
+};
+
+// ══════════════════════════════════════════════════════════════
+// DETAIL DRAWER
+// ══════════════════════════════════════════════════════════════
+const DetailDrawer = ({ id, vendorId, onClose, onCancelled }) => {
   const [data,       setData]       = useState(null);
   const [loading,    setLoading]    = useState(true);
   const [cancelling, setCancelling] = useState(false);
@@ -447,11 +459,12 @@ const DetailDrawer = ({ id, onClose, onCancelled }) => {
   const load = useCallback(async () => {
     setLoading(true);
     try {
-      const { data: res } = await api.get(`/seller/payout/withdrawal/${id}`);
+      const { data: res } = await sellerApi.get(
+        `/api/seller/payout/withdrawal/${id}`
+      );
       if (res.success) setData(res);
-      else toast.error("Failed to load details");
-    } catch {
-      toast.error("Failed to load details");
+    } catch (err) {
+      console.error("[DetailDrawer]", err.message);
     } finally {
       setLoading(false);
     }
@@ -463,18 +476,18 @@ const DetailDrawer = ({ id, onClose, onCancelled }) => {
     if (!window.confirm("Cancel this withdrawal and restore your balance?")) return;
     setCancelling(true);
     try {
-      const { data: res } = await api.post(
-        `/seller/payout/withdrawal/${id}/cancel`
+      const { data: res } = await sellerApi.post(
+        `/api/seller/payout/withdrawal/${id}/cancel`
       );
       if (res.success) {
-        toast.success("Cancelled. Balance restored.");
+        alert("Cancelled. Balance restored.");
         onCancelled?.();
         onClose();
       } else {
-        toast.error(res.message);
+        alert(res.message ?? "Cancellation failed");
       }
     } catch (err) {
-      toast.error(err.response?.data?.message ?? "Cancellation failed");
+      alert(err.response?.data?.message ?? "Cancellation failed");
     } finally {
       setCancelling(false);
     }
@@ -483,186 +496,119 @@ const DetailDrawer = ({ id, onClose, onCancelled }) => {
   const wd = data?.withdrawal;
 
   return (
-    <div className="fixed inset-0 z-50 flex">
-      <div className="flex-1 bg-black/40 backdrop-blur-sm" onClick={onClose} />
+    <div style={dd.overlay}>
+      <div style={dd.backdrop} onClick={onClose} />
+      <div style={dd.drawer}>
 
-      <div className="w-full max-w-md bg-white h-full overflow-y-auto
-                      shadow-2xl flex flex-col">
-
-        {/* header */}
-        <div className="flex items-center justify-between px-6 py-4 border-b
-                        sticky top-0 bg-white z-10">
-          <h2 className="font-bold text-gray-900 text-lg">Withdrawal Details</h2>
-          <div className="flex items-center gap-1">
-            <button onClick={load} title="Refresh"
-              className="p-2 hover:bg-gray-100 rounded-xl transition-colors text-gray-500">
-              <RefreshCw size={16} />
-            </button>
-            <button onClick={onClose}
-              className="p-2 hover:bg-gray-100 rounded-xl transition-colors">
-              <X size={18} />
-            </button>
+        {/* Header */}
+        <div style={dd.header}>
+          <h3 style={dd.title}>Withdrawal Details</h3>
+          <div style={{ display: "flex", gap: "0.5rem" }}>
+            <button style={dd.iconBtn} onClick={load} title="Refresh">↻</button>
+            <button style={dd.iconBtn} onClick={onClose}>✕</button>
           </div>
         </div>
 
         {loading ? (
-          <div className="flex-1 flex items-center justify-center">
-            <RefreshCw size={24} className="animate-spin text-blue-400" />
+          <div style={{ display: "flex", justifyContent: "center", padding: "3rem" }}>
+            <Spin size={28} />
           </div>
         ) : wd ? (
-          <div className="p-6 space-y-6 flex-1">
+          <div style={{ padding: "1.5rem", display: "flex", flexDirection: "column", gap: "1.5rem" }}>
 
-            {/* status row */}
-            <div className="flex items-center justify-between">
-              <PayoutStatusBadge status={wd.status} />
+            {/* Status */}
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+              <StatusBadge status={wd.status} />
               {data.live_status && (
-                <span className="text-xs text-gray-400 bg-gray-50 border
-                                 border-gray-200 px-2.5 py-1 rounded-full">
+                <span style={{ fontSize: "0.75rem", color: "#9ca3af", background: "#f9fafb", border: "1px solid #e5e7eb", padding: "0.2rem 0.6rem", borderRadius: "100px" }}>
                   FLW: {data.live_status}
                 </span>
               )}
             </div>
 
-            {/* amount hero */}
-            <div className="bg-gradient-to-br from-blue-600 to-indigo-600
-                            rounded-2xl p-6 text-white text-center">
-              <p className="text-sm opacity-75 mb-1">Amount requested</p>
-              <p className="text-4xl font-bold mb-4">{formatNGN(wd.amount)}</p>
-              <div className="grid grid-cols-2 gap-4 bg-white/10 rounded-xl p-3">
+            {/* Amount hero */}
+            <div style={{ background: "linear-gradient(135deg,#4f46e5,#7c3aed)", borderRadius: "16px", padding: "1.5rem", color: "white", textAlign: "center" }}>
+              <p style={{ opacity: 0.75, fontSize: "0.82rem", margin: "0 0 0.35rem" }}>Amount requested</p>
+              <p style={{ fontWeight: 800, fontSize: "2.5rem", margin: "0 0 1rem" }}>{fmt(wd.amount)}</p>
+              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "0.75rem", background: "rgba(255,255,255,0.1)", borderRadius: "10px", padding: "0.875rem" }}>
                 <div>
-                  <p className="text-xs opacity-70 mb-0.5">Processing fee</p>
-                  {Number(wd.fee) === 0 ? (
-                    <p className="font-semibold flex items-center justify-center gap-1">
-                      <Gift size={13} /> Free
-                    </p>
-                  ) : (
-                    <p className="font-semibold">−{formatNGN(wd.fee)}</p>
-                  )}
+                  <p style={{ opacity: 0.7, fontSize: "0.72rem", margin: "0 0 0.2rem" }}>Fee</p>
+                  <p style={{ fontWeight: 700, margin: 0 }}>
+                    {Number(wd.fee) === 0 ? "🎁 Free" : `−${fmt(wd.fee)}`}
+                  </p>
                 </div>
                 <div>
-                  <p className="text-xs opacity-70 mb-0.5">You receive</p>
-                  <p className="font-bold text-green-300">
-                    {formatNGN(wd.net_amount)}
+                  <p style={{ opacity: 0.7, fontSize: "0.72rem", margin: "0 0 0.2rem" }}>You receive</p>
+                  <p style={{ fontWeight: 800, color: "#86efac", margin: 0 }}>
+                    {fmt(wd.net_amount)}
                   </p>
                 </div>
               </div>
             </div>
 
-            {/* destination */}
-            <section>
-              <h3 className="text-xs font-semibold text-gray-400 uppercase
-                             tracking-wider mb-3">Destination</h3>
-              <div className="bg-gray-50 rounded-xl p-4 space-y-2.5 text-sm">
-                {[
-                  ["Account Name",   wd.account_name],
-                  ["Account Number", wd.account_number],
-                  ["Bank",           wd.bank_name],
-                ].map(([label, val]) => (
-                  <div key={label} className="flex justify-between">
-                    <span className="text-gray-500">{label}</span>
-                    <span className="font-medium text-gray-900">{val}</span>
-                  </div>
-                ))}
-              </div>
-            </section>
+            {/* Destination */}
+            <Section title="Destination">
+              {[
+                ["Account Name",   wd.account_name],
+                ["Account Number", wd.account_number],
+                ["Bank",           wd.bank_name],
+              ].map(([label, val]) => (
+                <InfoRow key={label} label={label} value={val} />
+              ))}
+            </Section>
 
-            {/* references */}
-            <section>
-              <h3 className="text-xs font-semibold text-gray-400 uppercase
-                             tracking-wider mb-3">References</h3>
-              <div className="space-y-2.5">
-                {[
-                  ["Tx Ref", wd.tx_ref],
-                  wd.flw_transfer_id
-                    ? ["FLW Transfer", wd.flw_transfer_id]
-                    : null,
-                ].filter(Boolean).map(([label, val]) => (
-                  <div key={label}
-                    className="flex items-center justify-between text-sm">
-                    <span className="text-gray-500">{label}</span>
-                    <div className="flex items-center gap-1.5">
-                      <span className="font-mono text-xs text-gray-700
-                                       max-w-[180px] truncate">{val}</span>
-                      <button onClick={() => copyText(val)}
-                        className="p-1 text-gray-400 hover:text-blue-600
-                                   transition-colors">
-                        <Copy size={13} />
-                      </button>
-                    </div>
-                  </div>
-                ))}
-              </div>
-            </section>
+            {/* References */}
+            <Section title="References">
+              <InfoRow
+                label="Tx Ref"
+                value={wd.tx_ref}
+                mono
+                onCopy={() => copy(wd.tx_ref)}
+              />
+              {wd.flw_transfer_id && (
+                <InfoRow
+                  label="FLW Transfer"
+                  value={wd.flw_transfer_id}
+                  mono
+                  onCopy={() => copy(wd.flw_transfer_id)}
+                />
+              )}
+            </Section>
 
-            {/* timeline */}
-            <section>
-              <h3 className="text-xs font-semibold text-gray-400 uppercase
-                             tracking-wider mb-3">Timeline</h3>
-              <div className="space-y-2.5 text-sm">
-                <div className="flex justify-between">
-                  <span className="text-gray-500">Requested</span>
-                  <div className="text-right">
-                    <span className="text-gray-900 block">
-                      {fmtDate(wd.requested_at)}
-                    </span>
-                    <span className="text-xs text-gray-400">
-                      {formatTimeAgo(wd.requested_at)}
-                    </span>
-                  </div>
-                </div>
-                {wd.processed_at && (
-                  <div className="flex justify-between">
-                    <span className="text-gray-500">Processed</span>
-                    <div className="text-right">
-                      <span className="text-gray-900 block">
-                        {fmtDate(wd.processed_at)}
-                      </span>
-                      <span className="text-xs text-gray-400">
-                        {formatTimeAgo(wd.processed_at)}
-                      </span>
-                    </div>
-                  </div>
-                )}
-              </div>
-            </section>
+            {/* Timeline */}
+            <Section title="Timeline">
+              <InfoRow label="Requested" value={fmtDate(wd.requested_at)} sub={timeAgo(wd.requested_at)} />
+              {wd.processed_at && (
+                <InfoRow label="Processed" value={fmtDate(wd.processed_at)} sub={timeAgo(wd.processed_at)} />
+              )}
+            </Section>
 
-            {/* failure reason */}
+            {/* Failure reason */}
             {wd.failure_reason && (
-              <div className="bg-red-50 border border-red-200 rounded-xl p-4">
-                <p className="text-xs font-semibold text-red-700 mb-1">
+              <div style={{ background: "#fef2f2", border: "1px solid #fecaca", borderRadius: "10px", padding: "0.875rem 1rem" }}>
+                <p style={{ fontWeight: 700, color: "#991b1b", fontSize: "0.82rem", margin: "0 0 0.25rem" }}>
                   Failure Reason
                 </p>
-                <p className="text-sm text-red-600">{wd.failure_reason}</p>
+                <p style={{ color: "#b91c1c", fontSize: "0.875rem", margin: 0 }}>
+                  {wd.failure_reason}
+                </p>
               </div>
             )}
 
-            {/* webhook notice */}
-            <div className="flex items-start gap-2 text-xs text-gray-400
-                            bg-gray-50 rounded-xl p-3.5">
-              <ShieldCheck size={13}
-                className="shrink-0 mt-0.5 text-green-500" />
-              <span>
-                Balance is finalised only after Flutterwave confirms the
-                transfer. Tap refresh to check the latest status.
-              </span>
-            </div>
-
-            {/* cancel */}
+            {/* Cancel button */}
             {wd.status === "processing" && !wd.flw_transfer_id && (
-              <button onClick={handleCancel} disabled={cancelling}
-                className="w-full border border-red-300 text-red-600
-                           hover:bg-red-50 font-semibold py-3 rounded-xl
-                           transition-colors flex items-center justify-center
-                           gap-2 disabled:opacity-50">
-                {cancelling
-                  ? <RefreshCw size={16} className="animate-spin" />
-                  : <X size={16} />}
-                Cancel Withdrawal
+              <button
+                onClick={handleCancel}
+                disabled={cancelling}
+                style={{ padding: "0.875rem", border: "1px solid #fecaca", background: "#fef2f2", color: "#ef4444", borderRadius: "12px", fontWeight: 600, cursor: "pointer", width: "100%", fontSize: "0.9rem", display: "flex", alignItems: "center", justifyContent: "center", gap: "0.5rem" }}
+              >
+                {cancelling ? <><Spin size={16} /> Cancelling...</> : "❌ Cancel Withdrawal"}
               </button>
             )}
+
           </div>
         ) : (
-          <div className="flex-1 flex items-center justify-center text-gray-400">
+          <div style={{ padding: "3rem", textAlign: "center", color: "#9ca3af" }}>
             Withdrawal not found
           </div>
         )}
@@ -671,9 +617,69 @@ const DetailDrawer = ({ id, onClose, onCancelled }) => {
   );
 };
 
-// ══════════════════════════════════════════════════════════════════════════════
-// Payouts page
-// ══════════════════════════════════════════════════════════════════════════════
+// Drawer styles
+const dd = {
+  overlay:  { position: "fixed", inset: 0, zIndex: 1000, display: "flex" },
+  backdrop: { flex: 1, background: "rgba(0,0,0,0.4)", backdropFilter: "blur(2px)" },
+  drawer: {
+    width:        "100%",
+    maxWidth:     "440px",
+    background:   "white",
+    height:       "100%",
+    overflowY:    "auto",
+    boxShadow:    "-8px 0 40px rgba(0,0,0,0.12)",
+    display:      "flex",
+    flexDirection:"column",
+  },
+  header: {
+    display:        "flex",
+    justifyContent: "space-between",
+    alignItems:     "center",
+    padding:        "1.25rem 1.5rem",
+    borderBottom:   "1px solid #f3f4f6",
+    position:       "sticky",
+    top:            0,
+    background:     "white",
+    zIndex:         1,
+  },
+  title:   { fontWeight: 800, color: "#1f2937", margin: 0, fontSize: "1.1rem" },
+  iconBtn: { background: "none", border: "none", cursor: "pointer", padding: "0.5rem", color: "#6b7280", fontSize: "1rem", borderRadius: "8px" },
+};
+
+// Reusable info row
+const Section = ({ title, children }) => (
+  <div>
+    <p style={{ fontSize: "0.72rem", fontWeight: 700, color: "#9ca3af", textTransform: "uppercase", letterSpacing: "0.05em", margin: "0 0 0.75rem" }}>
+      {title}
+    </p>
+    <div style={{ background: "#f8fafc", borderRadius: "12px", padding: "0.5rem 0.875rem", border: "1px solid #e5e7eb" }}>
+      {children}
+    </div>
+  </div>
+);
+
+const InfoRow = ({ label, value, sub, mono, onCopy }) => (
+  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "0.5rem 0", borderBottom: "1px solid #f3f4f6" }}>
+    <span style={{ color: "#6b7280", fontSize: "0.82rem" }}>{label}</span>
+    <div style={{ textAlign: "right" }}>
+      <div style={{ display: "flex", alignItems: "center", gap: "0.4rem" }}>
+        <span style={{ fontWeight: 600, color: "#1f2937", fontSize: "0.875rem", fontFamily: mono ? "monospace" : "inherit", maxWidth: "200px", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+          {value ?? "—"}
+        </span>
+        {onCopy && (
+          <button onClick={onCopy} style={{ background: "none", border: "none", cursor: "pointer", color: "#9ca3af", padding: "0.1rem", fontSize: "0.85rem" }}>
+            📋
+          </button>
+        )}
+      </div>
+      {sub && <span style={{ fontSize: "0.72rem", color: "#9ca3af", display: "block", marginTop: "0.1rem" }}>{sub}</span>}
+    </div>
+  </div>
+);
+
+// ══════════════════════════════════════════════════════════════
+// MAIN PAYOUTS PAGE
+// ══════════════════════════════════════════════════════════════
 const STATUS_FILTERS = [
   { key: "",           label: "All"        },
   { key: "pending",    label: "Pending"    },
@@ -683,408 +689,371 @@ const STATUS_FILTERS = [
   { key: "cancelled",  label: "Cancelled"  },
 ];
 
-export default function Payouts() {
-  const [info,           setInfo]           = useState(null);
-  const [history,        setHistory]        = useState(null);
-  const [loadingInfo,    setLoadingInfo]    = useState(true);
-  const [loadingHistory, setLoadingHistory] = useState(true);
-  const [error,          setError]          = useState(null);
-  const [showWithdraw,   setShowWithdraw]   = useState(false);
-  const [selectedId,     setSelectedId]     = useState(null);
-  const [statusFilter,   setStatusFilter]   = useState("");
-  const [page,           setPage]           = useState(1);
+export const Payouts = ({ vendor }) => {
+  const [info,         setInfo]         = useState(null);
+  const [history,      setHistory]      = useState(null);
+  const [loadingInfo,  setLoadingInfo]  = useState(true);
+  const [loadingHist,  setLoadingHist]  = useState(true);
+  const [error,        setError]        = useState(null);
+  const [showWithdraw, setShowWithdraw] = useState(false);
+  const [selectedId,   setSelectedId]  = useState(null);
+  const [statusFilter, setStatusFilter] = useState("");
+  const [page,         setPage]         = useState(1);
+  const [refreshing,   setRefreshing]   = useState(false);
 
+  // ── Load wallet info ────────────────────────────────────────
   const loadInfo = useCallback(async () => {
     setLoadingInfo(true);
     setError(null);
     try {
-      const { data } = await api.get("/seller/payout/info");
+      const { data } = await sellerApi.get("/api/seller/payout/info");
       if (data.success) setInfo(data);
       else setError(data.message);
     } catch (err) {
-      setError(err.response?.data?.message ?? "Failed to load wallet info");
+      setError(err.response?.data?.message ?? "Failed to load wallet");
     } finally {
       setLoadingInfo(false);
     }
   }, []);
 
+  // ── Load withdrawal history ─────────────────────────────────
   const loadHistory = useCallback(async () => {
-    setLoadingHistory(true);
+    setLoadingHist(true);
     try {
       const params = new URLSearchParams({ page, limit: 10 });
       if (statusFilter) params.set("status", statusFilter);
-      const { data } = await api.get(`/seller/payout/history?${params}`);
+      const { data } = await sellerApi.get(
+        `/api/seller/payout/history?${params}`
+      );
       if (data.success) setHistory(data);
-    } catch {
-      toast.error("Failed to load history");
+    } catch (err) {
+      console.error("[loadHistory]", err.message);
     } finally {
-      setLoadingHistory(false);
+      setLoadingHist(false);
     }
   }, [page, statusFilter]);
 
   useEffect(() => { loadInfo(); },    [loadInfo]);
   useEffect(() => { loadHistory(); }, [loadHistory]);
 
-  const refresh = useCallback(() => {
-    loadInfo();
-    loadHistory();
+  const refresh = useCallback(async () => {
+    setRefreshing(true);
+    await Promise.all([loadInfo(), loadHistory()]);
+    setRefreshing(false);
   }, [loadInfo, loadHistory]);
 
-  // ── loading / error states ──────────────────────────────────────────────
-  if (loadingInfo) return <DashboardSkeleton />;
-
-  if (error || !info) {
+  // ── Loading ─────────────────────────────────────────────────
+  if (loadingInfo && !info) {
     return (
-      <DashboardError
-        error={error ?? "Failed to load payout information"}
-        onRetry={loadInfo}
-      />
+      <div style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: "1rem", padding: "4rem", color: "#9ca3af" }}>
+        <Spin size={24} />
+        <span>Loading wallet...</span>
+      </div>
     );
   }
 
-  const { wallet, bank, virtual_account, limits } = info;
+  if (error && !info) {
+    return (
+      <div style={{ textAlign: "center", padding: "4rem 2rem" }}>
+        <p style={{ fontSize: "2rem", marginBottom: "0.75rem" }}>⚠️</p>
+        <p style={{ fontWeight: 700, color: "#1f2937" }}>Failed to load</p>
+        <p style={{ color: "#6b7280", marginBottom: "1.5rem" }}>{error}</p>
+        <button onClick={loadInfo} style={{ padding: "0.75rem 1.5rem", background: "#6366f1", color: "white", border: "none", borderRadius: "10px", fontWeight: 600, cursor: "pointer" }}>
+          🔄 Retry
+        </button>
+      </div>
+    );
+  }
 
-  const canWithdraw =
-    wallet.available_balance >= limits.min_withdrawal &&
-    limits.daily_remaining   >= limits.min_withdrawal;
+  const { wallet, bank, virtual_account, limits } = info ?? {};
+  const canWithdraw = Number(wallet?.available_balance ?? 0) >= (limits?.min_withdrawal ?? 500);
 
   return (
-    <div className="min-h-screen bg-gray-50">
-      <div className="max-w-4xl mx-auto p-4 md:p-6 space-y-5">
+    <div style={{ display: "flex", flexDirection: "column", gap: "1.5rem" }}>
 
-        {/* ── page header ─────────────────────────────────────────── */}
-        <div className="flex items-center justify-between">
+      {/* ── Header ─────────────────────────────────────────── */}
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", flexWrap: "wrap", gap: "0.75rem" }}>
+        <div>
+          <h2 style={{ fontWeight: 800, fontSize: "1.35rem", color: "#1f2937", margin: 0 }}>
+            💳 Payouts
+          </h2>
+          <p style={{ color: "#9ca3af", fontSize: "0.85rem", margin: "0.2rem 0 0" }}>
+            Manage your earnings and withdrawals
+          </p>
+        </div>
+        <button
+          onClick={refresh}
+          disabled={refreshing}
+          style={{ background: "white", border: "1px solid #e5e7eb", borderRadius: "10px", padding: "0.6rem 1rem", cursor: "pointer", display: "flex", alignItems: "center", gap: "0.5rem", color: "#6b7280", fontSize: "0.85rem", fontWeight: 500 }}
+        >
+          <span style={{ display: "inline-block", animation: refreshing ? "spin 0.7s linear infinite" : "none" }}>↻</span>
+          Refresh
+        </button>
+      </div>
+
+      {/* ── Free withdrawal alert ─────────────────────────────── */}
+      {(limits?.free_remaining ?? 0) > 0 && (
+        <div style={{ background: "#ecfdf5", border: "1px solid #a7f3d0", borderRadius: "14px", padding: "1rem 1.25rem", display: "flex", alignItems: "center", gap: "0.75rem" }}>
+          <span style={{ fontSize: "1.5rem" }}>🎁</span>
           <div>
-            <h1 className="text-2xl font-bold text-gray-900">Payouts</h1>
-            <p className="text-sm text-gray-500 mt-0.5">
-              Manage your earnings and withdrawals
+            <p style={{ fontWeight: 700, color: "#065f46", margin: 0 }}>
+              {limits.free_remaining} free withdrawal
+              {limits.free_remaining > 1 ? "s" : ""} remaining today
+            </p>
+            <p style={{ color: "#059669", fontSize: "0.82rem", margin: 0 }}>
+              Withdraw now with zero fees
             </p>
           </div>
-          <button onClick={refresh}
-            className="p-2.5 hover:bg-white rounded-xl border border-gray-200
-                       text-gray-500 hover:text-blue-600 transition-colors">
-            <RefreshCw size={18} />
-          </button>
         </div>
+      )}
 
-        {/* ── free withdrawal alert ────────────────────────────────── */}
-        {limits.free_remaining > 0 && (
-          <div className="flex items-center gap-3 bg-green-50 border
-                          border-green-200 rounded-2xl p-4">
-            <div className="bg-green-100 p-2.5 rounded-xl shrink-0">
-              <Gift size={20} className="text-green-600" />
+      {/* ── Balance cards ─────────────────────────────────────── */}
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill,minmax(190px,1fr))", gap: "1rem" }}>
+        {[
+          { label: "Available",      value: wallet?.available_balance ?? 0, icon: "💰", primary: true },
+          { label: "Pending",        value: wallet?.pending_balance   ?? 0, icon: "⏳" },
+          { label: "Total Received", value: wallet?.total_received    ?? 0, icon: "📥" },
+          { label: "Total Withdrawn",value: wallet?.total_withdrawn   ?? 0, icon: "📤" },
+        ].map((card) => (
+          <div key={card.label} style={{
+            background:   card.primary ? "linear-gradient(135deg,#6366f1,#8b5cf6)" : "white",
+            borderRadius: "16px",
+            padding:      "1.25rem",
+            border:       card.primary ? "none" : "1px solid #f3f4f6",
+            boxShadow:    card.primary ? "0 4px 20px rgba(99,102,241,0.3)" : "0 1px 3px rgba(0,0,0,0.04)",
+          }}>
+            <div style={{ display: "flex", alignItems: "center", gap: "0.5rem", marginBottom: "0.75rem" }}>
+              <span style={{ fontSize: "1.25rem" }}>{card.icon}</span>
+              <span style={{ fontSize: "0.8rem", fontWeight: 500, color: card.primary ? "rgba(255,255,255,0.8)" : "#9ca3af" }}>
+                {card.label}
+              </span>
             </div>
+            <div style={{ fontSize: "1.5rem", fontWeight: 800, color: card.primary ? "white" : "#1f2937" }}>
+              {fmt(card.value)}
+            </div>
+          </div>
+        ))}
+      </div>
+
+      {/* ── Virtual account ───────────────────────────────────── */}
+      {virtual_account ? (
+        <div style={{ background: "linear-gradient(135deg,#4f46e5,#7c3aed)", borderRadius: "20px", padding: "1.5rem", color: "white" }}>
+          <p style={{ fontSize: "0.72rem", fontWeight: 700, opacity: 0.7, textTransform: "uppercase", letterSpacing: "0.05em", margin: "0 0 0.75rem" }}>
+            🏦 Virtual Account — Receive Payments
+          </p>
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: "0.75rem" }}>
             <div>
-              <p className="font-semibold text-green-800">
-                {limits.free_remaining} free withdrawal
-                {limits.free_remaining > 1 ? "s" : ""} remaining today
+              <p style={{ fontSize: "1.75rem", fontWeight: 800, fontFamily: "monospace", letterSpacing: "0.1em", margin: 0 }}>
+                {virtual_account.account_number}
               </p>
-              <p className="text-sm text-green-600">
-                Withdraw now with zero fees
+              <p style={{ opacity: 0.75, fontSize: "0.875rem", margin: "0.35rem 0 0" }}>
+                {virtual_account.account_name} · {virtual_account.bank_name}
               </p>
             </div>
+            <button
+              onClick={() => copy(virtual_account.account_number)}
+              style={{ background: "rgba(255,255,255,0.2)", border: "none", borderRadius: "10px", padding: "0.6rem 1rem", color: "white", cursor: "pointer", fontWeight: 600, fontSize: "0.85rem", display: "flex", alignItems: "center", gap: "0.4rem" }}
+            >
+              📋 Copy
+            </button>
           </div>
-        )}
-
-        {/* ── stat cards ──────────────────────────────────────────── */}
-        <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-          <StatCard
-            icon={<Wallet size={20} />}
-            color="blue"
-            label="Available"
-            value={formatNGN(wallet.available_balance)}
-          />
-          <StatCard
-            icon={<Clock size={20} />}
-            color="amber"
-            label="Pending"
-            value={formatNGN(wallet.pending_balance)}
-            sub="Awaiting settlement"
-          />
-          <StatCard
-            icon={<TrendingUp size={20} />}
-            color="green"
-            label="Total Received"
-            value={formatNGN(wallet.total_received)}
-          />
-          <StatCard
-            icon={<Banknote size={20} />}
-            color="purple"
-            label="Total Withdrawn"
-            value={formatNGN(wallet.total_withdrawn)}
-          />
+          <p style={{ background: "rgba(255,255,255,0.1)", borderRadius: "10px", padding: "0.6rem 0.875rem", fontSize: "0.8rem", margin: "1rem 0 0", opacity: 0.85 }}>
+            💡 Buyers pay to this account. Funds credit your wallet automatically.
+          </p>
         </div>
+      ) : (
+        <div style={{ background: "white", border: "2px dashed #e5e7eb", borderRadius: "16px", padding: "2rem", textAlign: "center", color: "#9ca3af" }}>
+          <p style={{ fontSize: "2rem", marginBottom: "0.5rem" }}>🏦</p>
+          <p style={{ fontWeight: 600, color: "#374151", margin: 0 }}>No Virtual Account Yet</p>
+          <p style={{ fontSize: "0.85rem", margin: "0.35rem 0 0" }}>
+            Created automatically when your store is activated
+          </p>
+        </div>
+      )}
 
-        {/* ── virtual account ─────────────────────────────────────── */}
-        {virtual_account && (
-          <div className="bg-gradient-to-r from-blue-600 to-indigo-600
-                          text-white rounded-2xl p-5">
-            <p className="text-xs font-medium opacity-70 uppercase tracking-wider mb-2">
-              Virtual Account — receive payments here
+      {/* ── Withdraw CTA ──────────────────────────────────────── */}
+      <div style={{ background: "white", border: "1px solid #e5e7eb", borderRadius: "16px", padding: "1.5rem", display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: "1rem" }}>
+        <div style={{ minWidth: 0 }}>
+          <h3 style={{ fontWeight: 700, color: "#1f2937", margin: "0 0 0.25rem" }}>
+            Request Withdrawal
+          </h3>
+          <p style={{ color: "#6b7280", fontSize: "0.85rem", margin: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+            {bank?.bank_name
+              ? `→ ${bank.account_name} · ${bank.account_number} (${bank.bank_name})`
+              : "⚠️ No bank configured — update in Settings"}
+          </p>
+          {limits && (
+            <p style={{ color: "#9ca3af", fontSize: "0.78rem", margin: "0.25rem 0 0" }}>
+              {limits.fee_schedule_label} · Daily remaining: {fmt(limits.daily_remaining)}
             </p>
-            <div className="flex items-center justify-between gap-4">
-              <div>
-                <p className="text-2xl font-bold tracking-widest">
-                  {virtual_account.account_number}
-                </p>
-                <p className="text-sm opacity-80 mt-0.5">
-                  {virtual_account.account_name} •{" "}
-                  {virtual_account.bank_name}
-                </p>
-              </div>
+          )}
+        </div>
+        <button
+          onClick={() => setShowWithdraw(true)}
+          disabled={!canWithdraw || !bank?.bank_name}
+          style={{
+            flexShrink:   0,
+            padding:      "0.875rem 1.75rem",
+            background:   "linear-gradient(135deg,#10b981,#059669)",
+            color:        "white",
+            border:       "none",
+            borderRadius: "12px",
+            fontWeight:   700,
+            fontSize:     "0.95rem",
+            cursor:       !canWithdraw || !bank?.bank_name ? "not-allowed" : "pointer",
+            opacity:      !canWithdraw || !bank?.bank_name ? 0.5 : 1,
+            display:      "flex",
+            alignItems:   "center",
+            gap:          "0.5rem",
+          }}
+        >
+          💸 Withdraw
+          {(limits?.free_remaining ?? 0) > 0 && (
+            <span style={{ background: "#16a34a", fontSize: "0.68rem", padding: "0.1rem 0.45rem", borderRadius: "100px", fontWeight: 700 }}>
+              Free
+            </span>
+          )}
+        </button>
+      </div>
+
+      {/* ── Withdrawal history ────────────────────────────────── */}
+      <div style={{ background: "white", border: "1px solid #f3f4f6", borderRadius: "16px", overflow: "hidden" }}>
+
+        {/* Filter bar */}
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "1rem 1.25rem", borderBottom: "1px solid #f3f4f6", flexWrap: "wrap", gap: "0.75rem" }}>
+          <h3 style={{ fontWeight: 700, color: "#1f2937", margin: 0, fontSize: "1rem" }}>
+            📤 Withdrawal History
+          </h3>
+          <div style={{ display: "flex", gap: "0.4rem", flexWrap: "wrap" }}>
+            {STATUS_FILTERS.map(({ key, label }) => (
               <button
-                onClick={() => copyText(virtual_account.account_number)}
-                className="bg-white/20 hover:bg-white/30 p-2.5 rounded-xl
-                           transition-colors shrink-0"
-                title="Copy"
+                key={key}
+                onClick={() => { setStatusFilter(key); setPage(1); }}
+                style={{
+                  padding:      "0.3rem 0.75rem",
+                  borderRadius: "100px",
+                  border:       "1px solid",
+                  cursor:       "pointer",
+                  fontSize:     "0.78rem",
+                  fontWeight:   600,
+                  background:   statusFilter === key ? "#6366f1" : "white",
+                  color:        statusFilter === key ? "white"   : "#6b7280",
+                  borderColor:  statusFilter === key ? "#6366f1" : "#e5e7eb",
+                }}
               >
-                <Copy size={16} />
+                {label}
               </button>
-            </div>
-          </div>
-        )}
-
-        {/* ── withdraw CTA ─────────────────────────────────────────── */}
-        <div className="bg-white border border-gray-200 rounded-2xl p-5
-                        flex flex-col sm:flex-row items-start sm:items-center
-                        justify-between gap-4">
-          <div className="space-y-1 min-w-0">
-            <h2 className="font-semibold text-gray-900">Withdraw Earnings</h2>
-            <p className="text-sm text-gray-500 truncate">
-              {bank.account_number
-                ? `→ ${bank.account_name} • ${bank.account_number} (${bank.bank_name})`
-                : "No payout bank configured — update in Settings"}
-            </p>
-            <p className="text-xs text-gray-400">
-              {limits.fee_schedule_label} • Daily left:{" "}
-              {formatNGN(limits.daily_remaining)}
-            </p>
-          </div>
-          <button
-            onClick={() => setShowWithdraw(true)}
-            disabled={!canWithdraw || !bank.account_number}
-            className="shrink-0 bg-blue-600 hover:bg-blue-700
-                       disabled:opacity-50 disabled:cursor-not-allowed
-                       text-white font-bold px-6 py-3 rounded-xl
-                       transition-colors flex items-center gap-2"
-          >
-            <ArrowDownToLine size={16} />
-            Withdraw
-            {limits.free_remaining > 0 && (
-              <span className="bg-green-500 text-white text-xs px-1.5 py-0.5
-                               rounded-full">Free</span>
-            )}
-          </button>
-        </div>
-
-        {/* ── fee schedule ─────────────────────────────────────────── */}
-        <FeeTable
-          freeRemaining={limits.free_remaining}
-          withdrawalsToday={limits.withdrawals_today}
-        />
-
-        {/* ── history summary ──────────────────────────────────────── */}
-        {history && (
-          <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-            {[
-              { label: "Total requests",  val: history.stats.total },
-              { label: "Total paid out",  val: formatNGN(history.stats.total_paid_out) },
-              { label: "Total fees paid", val: formatNGN(history.stats.total_fees_paid) },
-              { label: "Failed",          val: history.stats.failed_count },
-            ].map(({ label, val }) => (
-              <div key={label}
-                className="bg-white border border-gray-200 rounded-xl p-4 text-center">
-                <p className="text-xs text-gray-400">{label}</p>
-                <p className="text-lg font-bold text-gray-800 mt-0.5">{val}</p>
-              </div>
             ))}
           </div>
-        )}
+        </div>
 
-        {/* ── withdrawal history table ─────────────────────────────── */}
-        <div className="bg-white border border-gray-200 rounded-2xl overflow-hidden">
-
-          {/* filter bar */}
-          <div className="flex flex-wrap items-center justify-between gap-3
-                          p-4 border-b">
-            <h2 className="font-semibold text-gray-900">Withdrawal History</h2>
-            <div className="flex flex-wrap gap-1.5">
-              {STATUS_FILTERS.map(({ key, label }) => (
-                <button key={key}
-                  onClick={() => { setStatusFilter(key); setPage(1); }}
-                  className={`text-xs px-3 py-1.5 rounded-lg border transition-colors ${
-                    statusFilter === key
-                      ? "bg-blue-600 text-white border-blue-600"
-                      : "border-gray-200 text-gray-600 hover:border-blue-300 hover:text-blue-600"
-                  }`}>
-                  {label}
-                </button>
+        {/* List */}
+        {loadingHist ? (
+          <div style={{ display: "flex", justifyContent: "center", padding: "3rem" }}>
+            <Spin size={24} />
+          </div>
+        ) : !history?.withdrawals?.length ? (
+          <div style={{ padding: "4rem", textAlign: "center", color: "#9ca3af" }}>
+            <p style={{ fontSize: "2rem", marginBottom: "0.5rem" }}>📭</p>
+            <p style={{ fontWeight: 600, color: "#374151", margin: 0 }}>No withdrawals yet</p>
+            <p style={{ fontSize: "0.85rem", margin: "0.35rem 0 0" }}>
+              Your withdrawal history will appear here
+            </p>
+          </div>
+        ) : (
+          <>
+            <div style={{ display: "flex", flexDirection: "column" }}>
+              {history.withdrawals.map((wd) => (
+                <div
+                  key={wd.id}
+                  onClick={() => setSelectedId(wd.id)}
+                  style={{ display: "flex", alignItems: "center", gap: "0.875rem", padding: "1rem 1.25rem", borderBottom: "1px solid #f9fafb", cursor: "pointer", transition: "background 0.1s" }}
+                  onMouseEnter={(e) => e.currentTarget.style.background = "#fafafa"}
+                  onMouseLeave={(e) => e.currentTarget.style.background = ""}
+                >
+                  <div style={{ width: "40px", height: "40px", borderRadius: "10px", background: "#fef2f2", display: "flex", alignItems: "center", justifyContent: "center", fontSize: "1.1rem", flexShrink: 0 }}>
+                    💸
+                  </div>
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <p style={{ fontWeight: 600, color: "#1f2937", margin: 0, fontSize: "0.875rem" }}>
+                      To {wd.bank_name}
+                    </p>
+                    <p style={{ color: "#9ca3af", margin: "0.1rem 0 0", fontSize: "0.75rem" }}>
+                      {fmtDate(wd.created_at)} · ••••{wd.account_number?.slice(-4)}
+                    </p>
+                  </div>
+                  <div style={{ textAlign: "right", flexShrink: 0 }}>
+                    <p style={{ fontWeight: 800, color: "#ef4444", margin: 0, fontSize: "0.9rem" }}>
+                      −{fmt(wd.amount)}
+                    </p>
+                    {Number(wd.fee) === 0 ? (
+                      <span style={{ fontSize: "0.7rem", color: "#10b981", fontWeight: 600 }}>🎁 Free</span>
+                    ) : (
+                      <span style={{ fontSize: "0.7rem", color: "#f59e0b" }}>fee {fmt(wd.fee)}</span>
+                    )}
+                    <div style={{ marginTop: "0.2rem" }}>
+                      <StatusBadge status={wd.status} />
+                    </div>
+                  </div>
+                  <span style={{ color: "#d1d5db", fontSize: "0.85rem", flexShrink: 0 }}>›</span>
+                </div>
               ))}
             </div>
-          </div>
 
-          {loadingHistory ? (
-            <div className="p-12 flex justify-center">
-              <RefreshCw size={24} className="animate-spin text-blue-400" />
-            </div>
-          ) : !history?.withdrawals?.length ? (
-            <div className="p-16 text-center">
-              <ArrowDownToLine size={36}
-                className="text-gray-200 mx-auto mb-3" />
-              <p className="text-gray-500 font-medium">No withdrawals yet</p>
-              <p className="text-gray-400 text-sm mt-1">
-                Your withdrawal history will appear here
-              </p>
-            </div>
-          ) : (
-            <>
-              {/* desktop table */}
-              <div className="hidden md:block overflow-x-auto">
-                <table className="w-full text-sm">
-                  <thead className="bg-gray-50 border-b">
-                    <tr>
-                      {["Date", "Amount", "Fee", "Net", "Bank", "Status", ""].map(
-                        (h) => (
-                          <th key={h}
-                            className="text-left text-xs font-semibold text-gray-500
-                                       uppercase tracking-wider px-4 py-3">
-                            {h}
-                          </th>
-                        )
-                      )}
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-gray-100">
-                    {history.withdrawals.map((w) => (
-                      <tr key={w.id}
-                        className="hover:bg-gray-50 transition-colors">
-                        <td className="px-4 py-3 whitespace-nowrap">
-                          <span className="text-gray-500 text-xs block">
-                            {fmtDate(w.created_at)}
-                          </span>
-                          <span className="text-gray-400 text-xs">
-                            {formatTimeAgo(w.created_at)}
-                          </span>
-                        </td>
-                        <td className="px-4 py-3 font-bold text-gray-900">
-                          {formatNGN(w.amount)}
-                        </td>
-                        <td className="px-4 py-3 text-xs">
-                          {Number(w.fee) === 0 ? (
-                            <span className="text-green-600 flex items-center gap-1">
-                              <Gift size={11} /> Free
-                            </span>
-                          ) : (
-                            <span className="text-red-400">
-                              −{formatNGN(w.fee)}
-                            </span>
-                          )}
-                        </td>
-                        <td className="px-4 py-3 text-green-700 font-semibold">
-                          {formatNGN(w.net_amount)}
-                        </td>
-                        <td className="px-4 py-3 text-gray-500 max-w-[140px]
-                                       truncate text-xs">
-                          {w.bank_name}
-                        </td>
-                        <td className="px-4 py-3">
-                          <PayoutStatusBadge status={w.status} />
-                        </td>
-                        <td className="px-4 py-3">
-                          <button onClick={() => setSelectedId(w.id)}
-                            className="p-1.5 text-gray-400 hover:text-blue-600
-                                       hover:bg-blue-50 rounded-lg transition-colors">
-                            <Eye size={15} />
-                          </button>
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-
-              {/* mobile cards */}
-              <div className="md:hidden divide-y divide-gray-100">
-                {history.withdrawals.map((w) => (
-                  <div key={w.id}
-                    className="p-4 hover:bg-gray-50 transition-colors
-                               cursor-pointer active:bg-gray-100"
-                    onClick={() => setSelectedId(w.id)}>
-                    <div className="flex items-start justify-between mb-2">
-                      <div>
-                        <p className="font-bold text-gray-900">
-                          {formatNGN(w.amount)}
-                        </p>
-                        <p className="text-xs text-gray-400 mt-0.5">
-                          Net:{" "}
-                          <span className="text-green-600 font-medium">
-                            {formatNGN(w.net_amount)}
-                          </span>{" "}
-                          {Number(w.fee) === 0 ? (
-                            <span className="text-green-500">(Free)</span>
-                          ) : (
-                            <span className="text-red-400">
-                              (−{formatNGN(w.fee)} fee)
-                            </span>
-                          )}
-                        </p>
-                      </div>
-                      <PayoutStatusBadge status={w.status} />
-                    </div>
-                    <div className="flex justify-between text-xs text-gray-400">
-                      <span>{w.bank_name}</span>
-                      <span>{formatTimeAgo(w.created_at)}</span>
-                    </div>
+            {/* Stats bar */}
+            {history.stats && (
+              <div style={{ display: "flex", gap: "1.5rem", padding: "0.875rem 1.25rem", background: "#f8fafc", borderTop: "1px solid #f3f4f6", flexWrap: "wrap" }}>
+                {[
+                  { label: "Total requests",  val: history.stats.total },
+                  { label: "Total paid out",  val: fmt(history.stats.total_paid_out) },
+                  { label: "Fees paid",       val: fmt(history.stats.total_fees_paid) },
+                  { label: "Failed",          val: history.stats.failed_count },
+                ].map(({ label, val }) => (
+                  <div key={label}>
+                    <p style={{ fontSize: "0.72rem", color: "#9ca3af", margin: 0 }}>{label}</p>
+                    <p style={{ fontWeight: 700, color: "#374151", margin: 0, fontSize: "0.9rem" }}>{val}</p>
                   </div>
                 ))}
               </div>
+            )}
 
-              {/* pagination */}
-              {history.pagination.total_pages > 1 && (
-                <div className="flex items-center justify-between px-4 py-3
-                                border-t bg-gray-50">
-                  <p className="text-xs text-gray-500">
-                    Page {history.pagination.page} of{" "}
-                    {history.pagination.total_pages} •{" "}
-                    {history.pagination.total} total
-                  </p>
-                  <div className="flex gap-2">
-                    <button
-                      onClick={() => setPage((p) => Math.max(1, p - 1))}
-                      disabled={page === 1}
-                      className="p-2 rounded-lg border border-gray-200
-                                 disabled:opacity-40 hover:bg-white
-                                 transition-colors">
-                      <ChevronLeft size={15} />
-                    </button>
-                    <button
-                      onClick={() =>
-                        setPage((p) =>
-                          Math.min(history.pagination.total_pages, p + 1)
-                        )
-                      }
-                      disabled={page === history.pagination.total_pages}
-                      className="p-2 rounded-lg border border-gray-200
-                                 disabled:opacity-40 hover:bg-white
-                                 transition-colors">
-                      <ChevronRight size={15} />
-                    </button>
-                  </div>
+            {/* Pagination */}
+            {history.pagination?.total_pages > 1 && (
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "0.875rem 1.25rem", borderTop: "1px solid #f3f4f6" }}>
+                <p style={{ fontSize: "0.78rem", color: "#9ca3af", margin: 0 }}>
+                  Page {history.pagination.page} of {history.pagination.total_pages} · {history.pagination.total} total
+                </p>
+                <div style={{ display: "flex", gap: "0.5rem" }}>
+                  <button
+                    onClick={() => setPage((p) => Math.max(1, p - 1))}
+                    disabled={page === 1}
+                    style={{ padding: "0.4rem 0.875rem", border: "1px solid #e5e7eb", borderRadius: "8px", background: "white", cursor: "pointer", disabled: { opacity: 0.4 } }}
+                  >
+                    ← Prev
+                  </button>
+                  <button
+                    onClick={() => setPage((p) => Math.min(history.pagination.total_pages, p + 1))}
+                    disabled={page === history.pagination.total_pages}
+                    style={{ padding: "0.4rem 0.875rem", border: "1px solid #e5e7eb", borderRadius: "8px", background: "white", cursor: "pointer" }}
+                  >
+                    Next →
+                  </button>
                 </div>
-              )}
-            </>
-          )}
-        </div>
+              </div>
+            )}
+          </>
+        )}
       </div>
 
-      {/* ── modals ──────────────────────────────────────────────── */}
-      {showWithdraw && (
+      {/* ── Modals ───────────────────────────────────────────── */}
+      {showWithdraw && info && (
         <WithdrawModal
           info={info}
           onClose={() => setShowWithdraw(false)}
           onSuccess={refresh}
         />
       )}
+
       {selectedId && (
         <DetailDrawer
           id={selectedId}
@@ -1092,6 +1061,9 @@ export default function Payouts() {
           onCancelled={refresh}
         />
       )}
+
     </div>
   );
-}
+};
+
+export default Payouts;
