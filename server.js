@@ -22,7 +22,7 @@ const PORT   = process.env.PORT || 5000;
 const server = http.createServer(app);
 
 /* ═══════════════════════════════════════════════════════════════
-   DATABASE
+   DATABASE — CockroachDB via pg Pool
 ═══════════════════════════════════════════════════════════════ */
 export const pool = new Pool({
   connectionString        : process.env.COCKROACH_URI,
@@ -53,7 +53,7 @@ const ALLOWED_ORIGIN = process.env.CLIENT_ORIGIN || "*";
 export const io = initSocket(server, ALLOWED_ORIGIN);
 
 /* ═══════════════════════════════════════════════════════════════
-   IN-MEMORY CACHE
+   IN-MEMORY CACHE (TTL-based)
 ═══════════════════════════════════════════════════════════════ */
 const _cache    = new Map();
 const CACHE_TTL = 60_000;
@@ -75,6 +75,7 @@ export const clearCachePattern = (prefix) => {
   }
 };
 
+// Purge expired cache entries every 60 s
 setInterval(() => {
   const now = Date.now();
   for (const [key, item] of _cache.entries()) {
@@ -117,7 +118,7 @@ app.use((_req, res, next) => {
 });
 
 /* ═══════════════════════════════════════════════════════════════
-   STATIC — uploads
+   STATIC — uploads folder
 ═══════════════════════════════════════════════════════════════ */
 app.use(
   "/uploads",
@@ -135,13 +136,13 @@ app.use(
 
 /* ═══════════════════════════════════════════════════════════════
    WEBHOOKS
-   ⚠️  Must be registered BEFORE express.json()
-   ⚠️  Uses express.raw() to get the raw body buffer
+   ⚠️  MUST be registered BEFORE express.json()
+       Webhooks need the raw body buffer for signature verification.
 ═══════════════════════════════════════════════════════════════ */
 import paymentRouter, { webhookRouter } from "./routes/payment.js";
 import flwWebhookRouter                 from "./routes/webhooks/flutterwave.js";
 
-// ── Paystack webhook ──────────────────────────────────────────
+// ── Paystack webhook (raw body for HMAC) ──────────────────────
 app.use(
   "/api/payment/webhook",
   express.raw({ type: "application/json" }),
@@ -149,7 +150,7 @@ app.use(
 );
 
 // ── Flutterwave webhook ───────────────────────────────────────
-// Raw → parse → route
+// Raw buffer → parse to JSON → route handler
 app.use(
   "/api/webhooks/flutterwave",
   express.raw({ type: "application/json" }),
@@ -161,9 +162,10 @@ app.use(
   flwWebhookRouter
 );
 
-// ── TEMPORARY: Raw payload capture ───────────────────────────
-// Point this URL at Flutterwave dashboard temporarily to see
-// the exact payload structure. Remove after debugging.
+// ── TEMPORARY: payload capture endpoint ───────────────────────
+// Use this URL in Flutterwave dashboard temporarily to inspect
+// the exact payload structure. Remove once webhook works.
+// URL: https://minimart-ivrm.onrender.com/api/webhooks/flw-capture
 app.post(
   "/api/webhooks/flw-capture",
   express.raw({ type: "*/*" }),
@@ -173,28 +175,25 @@ app.post(
       try { return JSON.parse(raw); } catch { return { raw }; }
     })();
 
-    // Log full payload to Render logs
-    console.log("═══ FLW PAYLOAD CAPTURE ═══");
-    console.log("Time:    ", new Date().toISOString());
-    console.log("Headers: ", JSON.stringify(req.headers, null, 2));
-    console.log("Body:    ", JSON.stringify(body, null, 2));
-    console.log("═══════════════════════════");
+    console.log("═══════════════════════════════════════");
+    console.log("FLW CAPTURE:", new Date().toISOString());
+    console.log("Headers:", JSON.stringify(req.headers, null, 2));
+    console.log("Body:",    JSON.stringify(body, null, 2));
+    console.log("═══════════════════════════════════════");
 
-    // Try to save to DB (optional)
+    // Save to DB for inspection (best-effort)
     try {
       await pool.query(
         `INSERT INTO market.webhook_logs
            (source, event, payload, headers, created_at)
-         VALUES ('flutterwave_capture', $1, $2, $3, NOW())`,
+         VALUES ('flw_capture', $1, $2, $3, NOW())`,
         [
           body?.event ?? "unknown",
           JSON.stringify(body),
           JSON.stringify(req.headers),
         ]
       );
-    } catch {
-      // Table might not exist — payload is still in Render logs
-    }
+    } catch { /* table may not exist — check console logs */ }
 
     res.status(200).json({ captured: true, event: body?.event });
   }
@@ -220,13 +219,14 @@ if (process.env.NODE_ENV !== "test") {
 }
 
 /* ═══════════════════════════════════════════════════════════════
-   RATE LIMITER
+   IN-MEMORY RATE LIMITER (per-IP)
 ═══════════════════════════════════════════════════════════════ */
 const _limiter   = new Map();
 const WINDOW_MS  = 60_000;
 const MAX_REQ    = 120;
 const UPLOAD_MAX = 20;
 
+// Purge stale limiter entries every 5 min
 setInterval(() => {
   const now = Date.now();
   for (const [ip, data] of _limiter.entries()) {
@@ -340,37 +340,45 @@ app.use("/api/verification",      verificationRouter);
    HEALTH CHECK
 ═══════════════════════════════════════════════════════════════ */
 app.get("/api/health", async (_req, res) => {
-  try {
-    const t0          = Date.now();
-    const { rows }    = await pool.query("SELECT 1 AS ok");
-    const dbLatencyMs = Date.now() - t0;
+  let dbOk      = false;
+  let dbLatency = null;
+  let dbError   = null;
 
-    return res.json({
-      success          : true,
-      status           : "healthy",
-      database         : rows[0]?.ok === 1,
-      db_latency_ms    : dbLatencyMs,
-      uptime_s         : Math.floor(process.uptime()),
-      memory_mb        : Math.round(process.memoryUsage().rss / 1024 / 1024),
-      online_users     : getOnlineCount(),
-      node_version     : process.version,
-      env              : process.env.NODE_ENV || "development",
-      flw_key_set      : !!process.env.FLW_SECRET_KEY,
-      flw_hash_set     : !!process.env.FLW_SECRET_HASH,
-      flw_key_prefix   : process.env.FLW_SECRET_KEY?.slice(0, 12) + "…",
-      webhook_url      : "https://minimart-ivrm.onrender.com/api/webhooks/flutterwave",
-    });
+  try {
+    const t0       = Date.now();
+    const { rows } = await pool.query("SELECT 1 AS ok");
+    dbLatency      = Date.now() - t0;
+    // CockroachDB returns "1" as a string — loose equality handles both
+    dbOk           = rows[0]?.ok == 1;
   } catch (err) {
-    return res.status(500).json({
-      success : false,
-      status  : "unhealthy",
-      error   : err.message,
-    });
+    dbError = err.message;
   }
+
+  return res.json({
+    success        : true,
+    status         : dbOk ? "healthy" : "degraded",
+    database       : dbOk,
+    db_latency_ms  : dbLatency,
+    db_error       : dbError    ?? undefined,
+    uptime_s       : Math.floor(process.uptime()),
+    memory_mb      : Math.round(process.memoryUsage().rss / 1024 / 1024),
+    online_users   : getOnlineCount(),
+    node_version   : process.version,
+    env            : process.env.NODE_ENV || "development",
+    // Flutterwave status
+    flw_key_set    : !!process.env.FLW_SECRET_KEY,
+    flw_hash_set   : !!process.env.FLW_SECRET_HASH,
+    flw_key_prefix : process.env.FLW_SECRET_KEY
+      ? process.env.FLW_SECRET_KEY.slice(0, 12) + "…"
+      : null,
+    flw_mode       : process.env.FLW_SECRET_KEY?.startsWith("FLWSECK_LIVE")
+      ? "live" : "test",
+    webhook_url    : "https://minimart-ivrm.onrender.com/api/webhooks/flutterwave",
+  });
 });
 
 /* ═══════════════════════════════════════════════════════════════
-   STATIC BUILD
+   STATIC BUILD (production SPA fallback)
 ═══════════════════════════════════════════════════════════════ */
 if (process.env.NODE_ENV === "production") {
   const distPath = path.join(__dirname, "dist");
@@ -400,25 +408,47 @@ app.use((req, res) =>
 /* ═══════════════════════════════════════════════════════════════
    GLOBAL ERROR HANDLER
 ═══════════════════════════════════════════════════════════════ */
+// eslint-disable-next-line no-unused-vars
 app.use((err, req, res, _next) => {
   console.error("🔥 Unhandled error:", err.message || err);
 
+  // Multer file errors
   if (err.code === "LIMIT_FILE_SIZE")
-    return res.status(400).json({ success: false, message: "File too large (max 10 MB)" });
+    return res.status(400).json({
+      success: false, message: "File too large (max 10 MB)",
+    });
   if (err.code === "LIMIT_FILE_COUNT")
-    return res.status(400).json({ success: false, message: "Too many files" });
+    return res.status(400).json({
+      success: false, message: "Too many files",
+    });
   if (err.code === "LIMIT_UNEXPECTED_FILE")
-    return res.status(400).json({ success: false, message: "Unexpected file field" });
+    return res.status(400).json({
+      success: false, message: "Unexpected file field",
+    });
   if (err.message === "Only image files are allowed")
-    return res.status(400).json({ success: false, message: err.message });
+    return res.status(400).json({
+      success: false, message: err.message,
+    });
+
+  // CORS
   if (err.message?.startsWith("CORS blocked"))
-    return res.status(403).json({ success: false, message: err.message });
+    return res.status(403).json({
+      success: false, message: err.message,
+    });
+
+  // CockroachDB constraint errors
   if (err.code === "23505")
-    return res.status(409).json({ success: false, message: "Duplicate entry" });
+    return res.status(409).json({
+      success: false, message: "Duplicate entry",
+    });
   if (err.code === "23503")
-    return res.status(400).json({ success: false, message: "Referenced record not found" });
+    return res.status(400).json({
+      success: false, message: "Referenced record not found",
+    });
   if (err.code === "23514")
-    return res.status(400).json({ success: false, message: "Value violates database constraint" });
+    return res.status(400).json({
+      success: false, message: "Value violates database constraint",
+    });
 
   const status  = err.status ?? err.statusCode ?? 500;
   const message =
@@ -433,7 +463,8 @@ app.use((err, req, res, _next) => {
    GRACEFUL SHUTDOWN
 ═══════════════════════════════════════════════════════════════ */
 async function shutdown(signal) {
-  console.log(`\n${signal} received — shutting down…`);
+  console.log(`\n${signal} received — shutting down gracefully…`);
+
   server.close(async () => {
     console.log("HTTP server closed");
     try {
@@ -444,6 +475,8 @@ async function shutdown(signal) {
     }
     process.exit(0);
   });
+
+  // Force exit if shutdown takes > 10 s
   setTimeout(() => {
     console.error("Forced exit after timeout");
     process.exit(1);
@@ -460,8 +493,9 @@ server.listen(PORT, () => {
   console.log(`🚀 Server running on port ${PORT}`);
   console.log(`   ENV     : ${process.env.NODE_ENV || "development"}`);
   console.log(`   CORS    : ${ALLOWED_ORIGIN}`);
-  console.log(`   FLW KEY : ${process.env.FLW_SECRET_KEY ? "✅ set" : "❌ MISSING"}`);
-  console.log(`   FLW HASH: ${process.env.FLW_SECRET_HASH ? "✅ set" : "❌ MISSING"}`);
+  console.log(`   FLW KEY : ${process.env.FLW_SECRET_KEY  ? "✅ set (" + (process.env.FLW_SECRET_KEY.startsWith("FLWSECK_LIVE") ? "LIVE" : "TEST") + ")" : "❌ MISSING"}`);
+  console.log(`   FLW HASH: ${process.env.FLW_SECRET_HASH ? "✅ set" : "❌ MISSING — webhooks will be rejected"}`);
+  console.log(`   WEBHOOK : https://minimart-ivrm.onrender.com/api/webhooks/flutterwave`);
 
   startChatCleanupJob();
   startCleanupJobs();
