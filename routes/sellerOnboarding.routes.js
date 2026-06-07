@@ -11,10 +11,12 @@ import streamifier          from "streamifier";
 const router  = express.Router();
 const FLW_KEY = () => process.env.FLW_SECRET_KEY;
 
-// ── Multer ────────────────────────────────────────────────────
+// ─────────────────────────────────────────────────────────────
+// MULTER
+// ─────────────────────────────────────────────────────────────
 const upload = multer({
   storage: multer.memoryStorage(),
-  limits:  { fileSize: 5 * 1024 * 1024 },
+  limits:  { fileSize: 5 * 1024 * 1024 }, // 5MB per file
   fileFilter(_req, file, cb) {
     const allowed = [
       "image/jpeg", "image/png",
@@ -30,21 +32,23 @@ const storeUpload = upload.fields([
 ]);
 
 const verifyUpload = upload.fields([
-  { name: "id_card",       maxCount: 1 },
-  { name: "id_card_back",  maxCount: 1 },
-  { name: "selfie",        maxCount: 1 },
-  { name: "business_doc",  maxCount: 1 },
-  { name: "address_proof", maxCount: 1 },
+  { name: "id_card",       maxCount: 1 }, // NIN slip front
+  { name: "id_card_back",  maxCount: 1 }, // NIN slip back
+  { name: "selfie",        maxCount: 1 }, // selfie holding NIN slip
+  { name: "business_doc",  maxCount: 1 }, // optional CAC
+  { name: "address_proof", maxCount: 1 }, // optional utility bill
 ]);
 
-// ── Cloudinary helper ─────────────────────────────────────────
+// ─────────────────────────────────────────────────────────────
+// CLOUDINARY HELPERS
+// ─────────────────────────────────────────────────────────────
 const uploadToCloudinary = (buffer, folder, publicId) =>
   new Promise((resolve, reject) => {
     const stream = cloudinary.uploader.upload_stream(
       { folder, public_id: publicId, resource_type: "auto" },
       (err, result) => {
         if (err) reject(err);
-        else resolve(result.secure_url);
+        else     resolve(result.secure_url);
       }
     );
     streamifier.createReadStream(buffer).pipe(stream);
@@ -56,7 +60,9 @@ const maybeUpload = async (files, field, folder, id) => {
   return uploadToCloudinary(file.buffer, folder, id);
 };
 
-// ── Flutterwave client ────────────────────────────────────────
+// ─────────────────────────────────────────────────────────────
+// FLUTTERWAVE CLIENT
+// ─────────────────────────────────────────────────────────────
 const flw = () =>
   axios.create({
     baseURL: "https://api.flutterwave.com/v3",
@@ -67,20 +73,48 @@ const flw = () =>
     timeout: 15_000,
   });
 
-// ── Hash ID for duplicate check ───────────────────────────────
-const hashId = (idNumber) =>
+// ─────────────────────────────────────────────────────────────
+// NIN VALIDATION — 11 numeric digits only
+// ─────────────────────────────────────────────────────────────
+const validateNIN = (rawNin) => {
+  if (!rawNin?.trim()) {
+    return { valid: false, message: "NIN is required" };
+  }
+  const cleaned = rawNin.replace(/\s/g, "").replace(/\D/g, "");
+  if (cleaned.length !== 11) {
+    return {
+      valid:   false,
+      message: "NIN must be exactly 11 digits",
+      cleaned,
+    };
+  }
+  return { valid: true, cleaned };
+};
+
+// ─────────────────────────────────────────────────────────────
+// HASH NIN for duplicate detection (never store plain NIN)
+// ─────────────────────────────────────────────────────────────
+const hashNIN = (nin) =>
   crypto
     .createHash("sha256")
-    .update(idNumber.replace(/\s/g, "").toUpperCase())
+    .update(nin.replace(/\s/g, ""))
     .digest("hex");
 
-// ── Status log — fire and forget ──────────────────────────────
+// ─────────────────────────────────────────────────────────────
+// STATUS LOG — fire and forget
+// ─────────────────────────────────────────────────────────────
 const logStatusChange = (vendorId, oldStatus, newStatus, changedBy, reason) => {
   pool.query(
     `INSERT INTO market.vendor_status_logs
        (vendor_id, old_status, new_status, changed_by, reason)
      VALUES ($1, $2, $3, $4, $5)`,
-    [vendorId, oldStatus ?? null, newStatus, changedBy ?? null, reason ?? null]
+    [
+      vendorId,
+      oldStatus   ?? null,
+      newStatus,
+      changedBy   ?? null,
+      reason      ?? null,
+    ]
   ).catch((err) => {
     console.warn("[status_log] non-fatal:", err.message);
   });
@@ -88,8 +122,8 @@ const logStatusChange = (vendorId, oldStatus, newStatus, changedBy, reason) => {
 
 // ─────────────────────────────────────────────────────────────
 // SELLER ACCOUNT GUARD
-// Confirms the token belongs to market.users ONLY
-// Rejects public.users (Gmail / marketplace users)
+// Confirms token belongs to market.users only
+// Rejects public.users (marketplace / Gmail accounts)
 // ─────────────────────────────────────────────────────────────
 const requireSellerAccount = async (req, res, next) => {
   try {
@@ -105,8 +139,8 @@ const requireSellerAccount = async (req, res, next) => {
         success: false,
         code:    "NOT_SELLER_ACCOUNT",
         message:
-          "This route requires a seller account. " +
-          "Please register at /become-seller.",
+          "This route requires a seller account. "
+          + "Please register at /become-seller.",
       });
     }
 
@@ -114,159 +148,221 @@ const requireSellerAccount = async (req, res, next) => {
       return res.status(403).json({
         success: false,
         code:    "ACCOUNT_SUSPENDED",
-        message: "Your seller account has been suspended",
+        message: "Your seller account has been suspended.",
       });
     }
 
-    // Attach market.users record
     req.sellerUser = rows[0];
     next();
 
   } catch (err) {
     console.error("[requireSellerAccount]", err.message);
-    return res.status(500).json({ success: false, message: "Auth error" });
+    return res.status(500).json({
+      success: false, message: "Auth error",
+    });
   }
 };
 
 // ════════════════════════════════════════════════════════════
 // GET /api/seller-onboarding/status
 // ════════════════════════════════════════════════════════════
-router.get("/status", authenticate, requireSellerAccount, async (req, res) => {
-  try {
-    const { rows } = await pool.query(
-      `SELECT
-         v.id, v.store_name, v.store_logo, v.store_banner,
-         v.store_category, v.store_description,
-         v.status, v.rejection_reason, v.suspended_reason,
-         v.approved_at, v.activated_at,
-         v.products_count, v.total_sales,
-         v.total_revenue, v.rating, v.trust_score,
-         v.bank_account, v.bank_name,
-         v.account_name, v.bank_code,
-         v.created_at, v.updated_at,
-         va.account_number AS virtual_account_number,
-         va.account_name   AS virtual_account_name,
-         va.bank_name      AS virtual_bank_name
-       FROM market.vendors v
-       LEFT JOIN market.vendor_virtual_accounts va
-         ON va.vendor_id = v.id
-       WHERE v.user_id = $1`,
-      [req.user.id]
-    );
+router.get(
+  "/status",
+  authenticate,
+  requireSellerAccount,
+  async (req, res) => {
+    try {
+      const { rows } = await pool.query(
+        `SELECT
+           v.id,
+           v.store_name,
+           v.store_logo,
+           v.store_banner,
+           v.store_category,
+           v.store_description,
+           v.status,
+           v.rejection_reason,
+           v.suspended_reason,
+           v.approved_at,
+           v.activated_at,
+           v.products_count,
+           v.total_sales,
+           v.total_revenue,
+           v.rating,
+           v.trust_score,
+           v.bank_account,
+           v.bank_name,
+           v.account_name,
+           v.bank_code,
+           v.created_at,
+           v.updated_at,
+           va.account_number AS virtual_account_number,
+           va.account_name   AS virtual_account_name,
+           va.bank_name      AS virtual_bank_name
+         FROM market.vendors v
+         LEFT JOIN market.vendor_virtual_accounts va
+           ON va.vendor_id = v.id
+         WHERE v.user_id = $1`,
+        [req.user.id]
+      );
 
-    if (!rows.length) {
-      return res.status(404).json({
-        success: false,
-        code:    "NO_VENDOR",
-        message: "No vendor account found",
+      if (!rows.length) {
+        return res.status(404).json({
+          success: false,
+          code:    "NO_VENDOR",
+          message: "No vendor account found",
+        });
+      }
+
+      return res.json({ success: true, vendor: rows[0] });
+
+    } catch (err) {
+      console.error("[status]", err.message);
+      return res.status(500).json({
+        success: false, message: "Server error",
       });
     }
-
-    return res.json({ success: true, vendor: rows[0] });
-
-  } catch (err) {
-    console.error("[status]", err.message);
-    return res.status(500).json({ success: false, message: "Server error" });
   }
-});
+);
 
 // ════════════════════════════════════════════════════════════
 // GET /api/seller-onboarding/banks
+// Commercial banks only — no MFBs / fintech wallets
 // ════════════════════════════════════════════════════════════
-router.get("/banks", authenticate, requireSellerAccount, async (req, res) => {
-  try {
-    const { data } = await flw().get("/banks/NG");
+router.get(
+  "/banks",
+  authenticate,
+  requireSellerAccount,
+  async (req, res) => {
+    try {
+      const { data } = await flw().get("/banks/NG");
 
-    const MFB_KEYWORDS = [
-      "microfinance", "mfb",
-      "opay", "palmpay", "kuda", "moniepoint",
-      "9psb", "rubies", "fairmoney", "carbon",
-    ];
+      const MFB_KEYWORDS = [
+        "microfinance", "mfb", "mfbank",
+        "opay", "palmpay", "kuda", "moniepoint",
+        "9psb", "rubies", "fairmoney", "carbon",
+        "piggyvest", "eyowo", "sparkle",
+      ];
 
-    const banks = (data.data ?? [])
-      .filter((b) => {
-        const n = b.name.toLowerCase();
-        return !MFB_KEYWORDS.some((kw) => n.includes(kw));
-      })
-      .map((b)  => ({ code: b.code, name: b.name }))
-      .sort((a, b) => a.name.localeCompare(b.name));
+      const banks = (data.data ?? [])
+        .filter((b) => {
+          const n = b.name.toLowerCase();
+          return !MFB_KEYWORDS.some((kw) => n.includes(kw));
+        })
+        .map((b) => ({ code: b.code, name: b.name }))
+        .sort((a, b) => a.name.localeCompare(b.name));
 
-    return res.json({ success: true, banks });
+      return res.json({ success: true, banks });
 
-  } catch (err) {
-    console.error("[banks]", err.response?.data ?? err.message);
-    return res.status(500).json({
-      success: false, message: "Failed to fetch banks",
-    });
+    } catch (err) {
+      console.error("[banks]", err.response?.data ?? err.message);
+
+      // Return fallback list — don't fail the whole flow
+      const FALLBACK = [
+        { code: "044", name: "Access Bank"              },
+        { code: "023", name: "Citibank"                 },
+        { code: "050", name: "EcoBank"                  },
+        { code: "070", name: "Fidelity Bank"            },
+        { code: "011", name: "First Bank of Nigeria"    },
+        { code: "214", name: "First City Monument Bank" },
+        { code: "058", name: "Guaranty Trust Bank"      },
+        { code: "030", name: "Heritage Bank"            },
+        { code: "082", name: "Keystone Bank"            },
+        { code: "076", name: "Polaris Bank"             },
+        { code: "101", name: "Providus Bank"            },
+        { code: "221", name: "Stanbic IBTC Bank"        },
+        { code: "068", name: "Standard Chartered"       },
+        { code: "232", name: "Sterling Bank"            },
+        { code: "032", name: "Union Bank"               },
+        { code: "033", name: "United Bank for Africa"   },
+        { code: "215", name: "Unity Bank"               },
+        { code: "035", name: "Wema Bank"                },
+        { code: "057", name: "Zenith Bank"              },
+      ];
+
+      return res.json({
+        success:  true,
+        banks:    FALLBACK,
+        fallback: true,
+      });
+    }
   }
-});
+);
 
 // ════════════════════════════════════════════════════════════
 // GET /api/seller-onboarding/verify-account
+// Verify bank account number via Flutterwave
 // ════════════════════════════════════════════════════════════
-router.get("/verify-account", authenticate, requireSellerAccount, async (req, res) => {
-  const { account_number, bank_code } = req.query;
+router.get(
+  "/verify-account",
+  authenticate,
+  requireSellerAccount,
+  async (req, res) => {
+    const { account_number, bank_code } = req.query;
 
-  if (!account_number || !bank_code) {
-    return res.status(400).json({
-      success: false,
-      message: "account_number and bank_code are required",
-    });
-  }
-
-  if (!/^\d{6,12}$/.test(account_number)) {
-    return res.status(400).json({
-      success: false, message: "Invalid account number format",
-    });
-  }
-
-  if (!FLW_KEY()?.startsWith("FLWSECK")) {
-    return res.status(500).json({
-      success: false,
-      message: "Payment service not configured. Contact admin.",
-    });
-  }
-
-  try {
-    const { data } = await flw().post("/accounts/resolve", {
-      account_number,
-      account_bank: bank_code,
-    });
-
-    if (data.status !== "success") {
+    // ── Validate inputs ─────────────────────────────────
+    if (!account_number?.trim() || !bank_code?.trim()) {
       return res.status(400).json({
         success: false,
-        message: data.message ?? "Account not found",
+        message: "account_number and bank_code are required",
       });
     }
 
-    return res.json({
-      success:        true,
-      account_name:   data.data.account_name,
-      account_number: data.data.account_number,
-    });
+    if (!/^\d{10}$/.test(account_number.trim())) {
+      return res.status(400).json({
+        success: false,
+        message: "Account number must be exactly 10 digits",
+      });
+    }
 
-  } catch (err) {
-    console.error("[verify-account]", {
-      status:  err.response?.status,
-      message: err.response?.data?.message,
-    });
-
-    if (err.response?.status === 401) {
+    if (!FLW_KEY()?.startsWith("FLWSECK")) {
       return res.status(500).json({
         success: false,
-        message: "Payment service authentication failed.",
+        message: "Payment service not configured. Contact admin.",
       });
     }
 
-    return res.status(400).json({
-      success: false,
-      message:
-        err.response?.data?.message ??
-        "Account not found. Check number and bank.",
-    });
+    try {
+      const { data } = await flw().post("/accounts/resolve", {
+        account_number: account_number.trim(),
+        account_bank:   bank_code.trim(),
+      });
+
+      if (data.status !== "success" || !data.data?.account_name) {
+        return res.status(400).json({
+          success: false,
+          message: data.message ?? "Account not found",
+        });
+      }
+
+      return res.json({
+        success:        true,
+        account_name:   data.data.account_name,
+        account_number: data.data.account_number ?? account_number.trim(),
+      });
+
+    } catch (err) {
+      console.error("[verify-account]", {
+        status:  err.response?.status,
+        message: err.response?.data?.message,
+      });
+
+      if (err.response?.status === 401) {
+        return res.status(500).json({
+          success: false,
+          message: "Payment service authentication failed.",
+        });
+      }
+
+      return res.status(400).json({
+        success: false,
+        message:
+          err.response?.data?.message
+          ?? "Account not found. Please check the number and bank.",
+      });
+    }
   }
-});
+);
 
 // ════════════════════════════════════════════════════════════
 // POST /api/seller-onboarding/setup-store
@@ -282,70 +378,73 @@ router.post(
     try {
       await client.query("BEGIN");
 
-      // ── No ensureUserInMarket needed ──────────────────────
-      // requireSellerAccount already confirmed user is in market.users
-
       const {
-        store_name, store_description, store_category,
-        bank_account, bank_name, bank_code, account_name,
+        store_name,
+        store_description,
+        store_category,
+        bank_account,
+        bank_name,
+        bank_code,
+        account_name,
       } = req.body;
 
       console.log("[setup-store] body:", {
         store_name, store_category,
-        bank_account, bank_name, bank_code, account_name,
+        bank_account, bank_name, bank_code,
+        account_name: account_name ? "[present]" : "[missing]",
         user_id: req.user.id,
       });
 
-      // ── Validate ─────────────────────────────────────────
-      if (!store_name?.trim()) {
-        await client.query("ROLLBACK");
-        return res.status(400).json({
-          success: false, message: "Store name is required",
-        });
+      // ── Validate required fields ──────────────────────
+      const required = [
+        [store_name?.trim(),    "Store name is required"],
+        [bank_account?.trim(),  "Bank account number is required"],
+        [bank_name?.trim(),     "Bank name is required"],
+        [account_name?.trim(),  "Please verify your bank account first"],
+      ];
+
+      for (const [val, msg] of required) {
+        if (!val) {
+          await client.query("ROLLBACK");
+          return res.status(400).json({ success: false, message: msg });
+        }
       }
-      if (!bank_account?.trim()) {
-        await client.query("ROLLBACK");
-        return res.status(400).json({
-          success: false, message: "Bank account number is required",
-        });
-      }
-      if (!bank_name?.trim()) {
-        await client.query("ROLLBACK");
-        return res.status(400).json({
-          success: false, message: "Bank name is required",
-        });
-      }
-      if (!account_name?.trim()) {
+
+      // ── Validate bank account is 10 digits ────────────
+      if (!/^\d{10}$/.test(bank_account.trim())) {
         await client.query("ROLLBACK");
         return res.status(400).json({
           success: false,
-          message: "Please verify your bank account first",
+          message: "Bank account number must be exactly 10 digits",
         });
       }
 
-      // ── Check existing vendor ─────────────────────────────
+      // ── Check existing vendor ─────────────────────────
       const { rows: existing } = await client.query(
         `SELECT id, status FROM market.vendors WHERE user_id = $1`,
         [req.user.id]
       );
 
-      const isReapply =
-        existing.length && existing[0].status === "rejected";
+      const isReapply = existing.length
+        && existing[0].status === "rejected";
 
       if (existing.length && !isReapply) {
         await client.query("ROLLBACK");
+        const v = existing[0];
         return res.status(409).json({
           success: false,
           code:    "VENDOR_EXISTS",
-          message: existing[0].status === "pending"
+          message: v.status === "pending"
             ? "Store already set up — please proceed to verification"
-            : "Store already exists",
-          status: existing[0].status,
-          vendor: { id: existing[0].id, status: existing[0].status },
+            : v.status === "under_review"
+              ? "Your store is under review"
+              : "Store already exists",
+          status: v.status,
+          vendor: { id: v.id, status: v.status },
         });
       }
 
-      // ── Check store name taken ────────────────────────────
+      // ── Check store name not taken ────────────────────
       const { rows: taken } = await client.query(
         `SELECT id FROM market.vendors
          WHERE store_name = $1 AND user_id != $2`,
@@ -361,14 +460,20 @@ router.post(
         });
       }
 
-      // ── Upload images ─────────────────────────────────────
-      const [store_logo, store_banner] = await Promise.all([
-        maybeUpload(req.files, "store_logo",   "vendor_logos",   `logo_${req.user.id}`),
-        maybeUpload(req.files, "store_banner", "vendor_banners", `banner_${req.user.id}`),
+      // ── Upload images ─────────────────────────────────
+      const [store_logo_url, store_banner_url] = await Promise.all([
+        maybeUpload(
+          req.files, "store_logo",
+          "vendor_logos",   `logo_${req.user.id}`
+        ),
+        maybeUpload(
+          req.files, "store_banner",
+          "vendor_banners", `banner_${req.user.id}`
+        ),
       ]);
 
-      let vendor;
       const oldStatus = existing[0]?.status ?? null;
+      let vendor;
 
       if (isReapply) {
         const { rows: [updated] } = await client.query(
@@ -393,7 +498,8 @@ router.post(
             store_name.trim(),
             store_description?.trim() ?? null,
             store_category            ?? null,
-            store_logo, store_banner,
+            store_logo_url,
+            store_banner_url,
             bank_account.trim(),
             bank_name.trim(),
             account_name.trim(),
@@ -411,15 +517,15 @@ router.post(
               bank_account, bank_name, account_name, bank_code,
               status)
            VALUES
-             ($1, $2, $3, $4, $5, $6, 'bank_transfer',
-              $7, $8, $9, $10, 'pending')
+             ($1,$2,$3,$4,$5,$6,'bank_transfer',$7,$8,$9,$10,'pending')
            RETURNING id, store_name, store_logo, store_banner, status`,
           [
             req.user.id,
             store_name.trim(),
             store_description?.trim() ?? null,
             store_category            ?? null,
-            store_logo, store_banner,
+            store_logo_url,
+            store_banner_url,
             bank_account.trim(),
             bank_name.trim(),
             account_name.trim(),
@@ -429,12 +535,10 @@ router.post(
         vendor = created;
       }
 
-      // ── Commit vendor first ───────────────────────────────
       await client.query("COMMIT");
 
-      console.log("[setup-store] ✅ vendor saved:", vendor.id);
+      console.log("[setup-store] ✅ saved:", vendor.id);
 
-      // ── Status log — fire and forget after commit ─────────
       logStatusChange(
         vendor.id, oldStatus, "pending",
         req.user.id, "Store setup submitted"
@@ -457,23 +561,17 @@ router.post(
         message: err.message,
         code:    err.code,
         detail:  err.detail,
-        hint:    err.hint,
       });
 
-      if (err.code === "23503") {
-        return res.status(400).json({
-          success: false,
-          message: `Foreign key error: ${err.detail ?? err.message}`,
-        });
-      }
-      if (err.code === "42703") {
-        return res.status(500).json({
-          success: false, message: `Column missing: ${err.message}`,
-        });
-      }
       if (err.code === "23505") {
         return res.status(409).json({
           success: false, message: "Store name already taken",
+        });
+      }
+      if (err.code === "23503") {
+        return res.status(400).json({
+          success: false,
+          message: `Reference error: ${err.detail ?? err.message}`,
         });
       }
 
@@ -490,6 +588,7 @@ router.post(
 
 // ════════════════════════════════════════════════════════════
 // POST /api/seller-onboarding/verify
+// NIN-ONLY verification
 // ════════════════════════════════════════════════════════════
 router.post(
   "/verify",
@@ -502,7 +601,7 @@ router.post(
     try {
       await client.query("BEGIN");
 
-      // ── Check vendor exists and is pending ────────────────
+      // ── Vendor must exist and be pending ─────────────
       const { rows } = await client.query(
         `SELECT id, status FROM market.vendors WHERE user_id = $1`,
         [req.user.id]
@@ -511,7 +610,8 @@ router.post(
       if (!rows.length) {
         await client.query("ROLLBACK");
         return res.status(404).json({
-          success: false, message: "Complete store setup first",
+          success: false,
+          message: "Complete store setup first",
         });
       }
 
@@ -525,97 +625,87 @@ router.post(
         });
       }
 
-      // ── Require front photo + selfie ──────────────────────
+      // ── Required documents ────────────────────────────
       if (!req.files?.id_card?.[0]) {
         await client.query("ROLLBACK");
         return res.status(400).json({
-          success: false, message: "ID card front photo is required",
+          success: false,
+          message: "NIN slip front photo is required",
+        });
+      }
+
+      if (!req.files?.id_card_back?.[0]) {
+        await client.query("ROLLBACK");
+        return res.status(400).json({
+          success: false,
+          message: "NIN slip back photo is required",
         });
       }
 
       if (!req.files?.selfie?.[0]) {
         await client.query("ROLLBACK");
         return res.status(400).json({
-          success: false, message: "Selfie with ID is required",
+          success: false,
+          message: "Selfie holding NIN slip is required",
         });
       }
 
-      // ── Extract + validate text fields ────────────────────
+      // ── Extract text fields ───────────────────────────
       const { id_type, id_number, address } = req.body;
 
-      if (!id_type?.trim()) {
+      // ── Enforce NIN only ──────────────────────────────
+      if (!id_type?.trim() || id_type.trim().toLowerCase() !== "nin") {
         await client.query("ROLLBACK");
         return res.status(400).json({
-          success: false, message: "ID type is required",
-        });
-      }
-
-      if (!id_number?.trim()) {
-        await client.query("ROLLBACK");
-        return res.status(400).json({
-          success: false, message: "ID number is required",
+          success: false,
+          message: "Only NIN verification is accepted at this time",
         });
       }
 
       if (!address?.trim()) {
         await client.query("ROLLBACK");
         return res.status(400).json({
-          success: false, message: "Home address is required",
+          success: false,
+          message: "Home address is required",
         });
       }
 
-      // ── Validate ID number format ─────────────────────────
-      const cleanedId = id_number.replace(/\s/g, "").toUpperCase();
-
-      const ID_DIGITS = {
-        nin:      11,
-        passport: 9,
-        drivers:  12,
-        voters:   19,
-      };
-
-      if (id_type === "passport") {
-        if (!/^[A-Z0-9]{9}$/.test(cleanedId)) {
-          await client.query("ROLLBACK");
-          return res.status(400).json({
-            success: false,
-            message: "Invalid passport number (e.g. A12345678)",
-          });
-        }
-      } else {
-        const expected = ID_DIGITS[id_type];
-        const actual   = cleanedId.replace(/\D/g, "").length;
-        if (expected && actual !== expected) {
-          await client.query("ROLLBACK");
-          return res.status(400).json({
-            success: false,
-            message: `${id_type.toUpperCase()} must be ${expected} digits`,
-          });
-        }
+      // ── Validate NIN ──────────────────────────────────
+      const ninResult = validateNIN(id_number);
+      if (!ninResult.valid) {
+        await client.query("ROLLBACK");
+        return res.status(400).json({
+          success: false,
+          message: ninResult.message,
+        });
       }
 
-      // ── Hash ID for duplicate check ───────────────────────
-      const idHash = hashId(cleanedId);
+      const cleanedNIN = ninResult.cleaned;
+
+      // ── Duplicate NIN check ───────────────────────────
+      const ninHash = hashNIN(cleanedNIN);
 
       const { rows: dupRows } = await client.query(
-        `SELECT vendor_id FROM market.vendor_verifications
-         WHERE id_type = $1 AND id_number_hash = $2
-           AND vendor_id != $3`,
-        [id_type, idHash, vendor.id]
+        `SELECT vendor_id
+         FROM market.vendor_verifications
+         WHERE id_type = 'nin'
+           AND id_number_hash = $1
+           AND vendor_id != $2`,
+        [ninHash, vendor.id]
       );
 
       if (dupRows.length) {
         await client.query("ROLLBACK");
         return res.status(409).json({
           success: false,
-          code:    "DUPLICATE_ID",
-          message: `This ${id_type.toUpperCase()} is already linked to another account`,
+          code:    "DUPLICATE_NIN",
+          message: "This NIN is already linked to another seller account. Contact support if this is an error.",
         });
       }
 
+      // ── Upload documents in parallel ──────────────────
       const ts = Date.now();
 
-      // ── Upload all documents in parallel ──────────────────
       const [
         id_card_url,
         id_card_back_url,
@@ -625,46 +715,53 @@ router.post(
       ] = await Promise.all([
         uploadToCloudinary(
           req.files.id_card[0].buffer,
-          "vendor_docs/id_cards",
-          `id_front_${vendor.id}_${ts}`
+          "vendor_docs/nin_slips",
+          `nin_front_${vendor.id}_${ts}`
         ),
-        maybeUpload(
-          req.files, "id_card_back",
-          "vendor_docs/id_cards",
-          `id_back_${vendor.id}_${ts}`
+        uploadToCloudinary(
+          req.files.id_card_back[0].buffer,
+          "vendor_docs/nin_slips",
+          `nin_back_${vendor.id}_${ts}`
         ),
         uploadToCloudinary(
           req.files.selfie[0].buffer,
           "vendor_docs/selfies",
           `selfie_${vendor.id}_${ts}`
         ),
-        maybeUpload(req.files, "business_doc",
-          "vendor_docs/business", `biz_${vendor.id}_${ts}`),
-        maybeUpload(req.files, "address_proof",
-          "vendor_docs/address",  `addr_${vendor.id}_${ts}`),
+        maybeUpload(
+          req.files, "business_doc",
+          "vendor_docs/business",
+          `cac_${vendor.id}_${ts}`
+        ),
+        maybeUpload(
+          req.files, "address_proof",
+          "vendor_docs/address",
+          `addr_${vendor.id}_${ts}`
+        ),
       ]);
 
-      // ── Upsert verification record ────────────────────────
+      // ── Upsert verification record ────────────────────
       await client.query(
         `INSERT INTO market.vendor_verifications
-           (vendor_id, id_card_url, id_card_back_url, selfie_url,
+           (vendor_id,
+            id_card_url, id_card_back_url, selfie_url,
             business_doc_url, address_proof_url,
-            id_type, id_number, id_number_hash, seller_address,
-            status)
-         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,'pending')
+            id_type, id_number, id_number_hash,
+            seller_address, status)
+         VALUES ($1,$2,$3,$4,$5,$6,'nin',$7,$8,$9,'pending')
          ON CONFLICT (vendor_id) DO UPDATE SET
            id_card_url       = EXCLUDED.id_card_url,
-           id_card_back_url  = COALESCE(
-                                 EXCLUDED.id_card_back_url,
-                                 vendor_verifications.id_card_back_url),
+           id_card_back_url  = EXCLUDED.id_card_back_url,
            selfie_url        = EXCLUDED.selfie_url,
            business_doc_url  = COALESCE(
-                                 EXCLUDED.business_doc_url,
-                                 vendor_verifications.business_doc_url),
+             EXCLUDED.business_doc_url,
+             vendor_verifications.business_doc_url
+           ),
            address_proof_url = COALESCE(
-                                 EXCLUDED.address_proof_url,
-                                 vendor_verifications.address_proof_url),
-           id_type           = EXCLUDED.id_type,
+             EXCLUDED.address_proof_url,
+             vendor_verifications.address_proof_url
+           ),
+           id_type           = 'nin',
            id_number         = EXCLUDED.id_number,
            id_number_hash    = EXCLUDED.id_number_hash,
            seller_address    = EXCLUDED.seller_address,
@@ -673,38 +770,40 @@ router.post(
         [
           vendor.id,
           id_card_url,
-          id_card_back_url  ?? null,
+          id_card_back_url,
           selfie_url,
-          business_doc_url  ?? null,
-          address_proof_url ?? null,
-          id_type.trim(),
-          cleanedId,
-          idHash,
+          business_doc_url   ?? null,
+          address_proof_url  ?? null,
+          cleanedNIN,        // stored (can be hashed at rest by DB)
+          ninHash,           // sha256 hash for dedup
           address.trim(),
         ]
       );
 
-      // ── Advance vendor status → under_review ──────────────
+      // ── Advance vendor to under_review ────────────────
       await client.query(
         `UPDATE market.vendors
-         SET status = 'under_review', updated_at = NOW()
+         SET status     = 'under_review',
+             updated_at = NOW()
          WHERE id = $1`,
         [vendor.id]
       );
 
       await client.query("COMMIT");
 
-      console.log("[verify] ✅ submitted:", vendor.id);
+      console.log("[verify] ✅ NIN submitted for vendor:", vendor.id);
 
       logStatusChange(
         vendor.id, "pending", "under_review",
-        req.user.id, "Verification docs submitted"
+        req.user.id, "NIN verification submitted"
       );
 
       return res.json({
         success: true,
-        message: "Verification submitted! We'll review within 1–3 business days.",
-        vendor:  { id: vendor.id, status: "under_review" },
+        message:
+          "Verification submitted! "
+          + "We'll review your application within 1–3 business days.",
+        vendor: { id: vendor.id, status: "under_review" },
       });
 
     } catch (err) {
@@ -714,10 +813,19 @@ router.post(
         code:    err.code,
         detail:  err.detail,
       });
+
+      if (err.code === "23505") {
+        return res.status(409).json({
+          success: false,
+          message: "This NIN has already been submitted.",
+        });
+      }
+
       return res.status(500).json({
         success: false,
-        message: err.message ?? "Server error",
+        message: err.message ?? "Server error. Please try again.",
       });
+
     } finally {
       client.release();
     }
@@ -727,57 +835,63 @@ router.post(
 // ════════════════════════════════════════════════════════════
 // POST /api/seller-onboarding/reapply
 // ════════════════════════════════════════════════════════════
-router.post("/reapply", authenticate, requireSellerAccount, async (req, res) => {
-  try {
-    const { rows } = await pool.query(
-      `SELECT id, status FROM market.vendors WHERE user_id = $1`,
-      [req.user.id]
-    );
+router.post(
+  "/reapply",
+  authenticate,
+  requireSellerAccount,
+  async (req, res) => {
+    try {
+      const { rows } = await pool.query(
+        `SELECT id, status FROM market.vendors WHERE user_id = $1`,
+        [req.user.id]
+      );
 
-    if (!rows.length) {
-      return res.status(404).json({
-        success: false, message: "No vendor account found",
+      if (!rows.length) {
+        return res.status(404).json({
+          success: false, message: "No vendor account found",
+        });
+      }
+
+      const vendor = rows[0];
+
+      if (vendor.status !== "rejected") {
+        return res.status(400).json({
+          success: false,
+          message:
+            `Cannot reapply — current status: "${vendor.status}"`,
+        });
+      }
+
+      await pool.query(
+        `UPDATE market.vendors
+         SET status           = 'pending',
+             rejection_reason = NULL,
+             rejected_at      = NULL,
+             updated_at       = NOW()
+         WHERE id = $1`,
+        [vendor.id]
+      );
+
+      logStatusChange(
+        vendor.id, "rejected", "pending",
+        req.user.id, "Seller reapplied"
+      );
+
+      console.log("[reapply] ✅ vendor:", vendor.id);
+
+      return res.json({
+        success: true,
+        message: "Reapplication submitted. Please redo your verification.",
+        status:  "pending",
+      });
+
+    } catch (err) {
+      console.error("[reapply] ❌", err.message);
+      return res.status(500).json({
+        success: false, message: "Server error",
       });
     }
-
-    const vendor = rows[0];
-
-    if (vendor.status !== "rejected") {
-      return res.status(400).json({
-        success: false,
-        message: `Cannot reapply — current status: "${vendor.status}"`,
-      });
-    }
-
-    await pool.query(
-      `UPDATE market.vendors
-       SET status           = 'pending',
-           rejection_reason = NULL,
-           rejected_at      = NULL,
-           updated_at       = NOW()
-       WHERE id = $1`,
-      [vendor.id]
-    );
-
-    logStatusChange(
-      vendor.id, "rejected", "pending",
-      req.user.id, "Seller reapplied"
-    );
-
-    console.log("[reapply] ✅ vendor:", vendor.id);
-
-    return res.json({
-      success: true,
-      message: "Reapplication submitted.",
-      status:  "pending",
-    });
-
-  } catch (err) {
-    console.error("[reapply] ❌", err.message);
-    return res.status(500).json({
-      success: false, message: "Server error",
-    });
   }
-});
+);
 
 export default router;
