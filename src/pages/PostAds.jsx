@@ -8,38 +8,38 @@ import toast from "react-hot-toast";
 import imageCompression from "browser-image-compression";
 import {
   FiChevronLeft, FiChevronRight, FiCheckCircle, FiArrowLeft,
-  FiZap, FiTag, FiCamera, FiTrash2, FiAlertCircle,
-  FiPackage, FiPlus, FiDollarSign, FiFileText, FiGrid,
-  FiShield, FiAlertTriangle,
+  FiZap, FiTag, FiPackage, FiPlus, FiDollarSign,
+  FiFileText, FiGrid, FiShield, FiAlertTriangle, FiAlertCircle,
 } from "react-icons/fi";
 
-import categories    from "../config/categories";
-import ReviewStep    from "./PostAds/ReviewStep";
-import PricingStep   from "./PostAds/PricingStep";
+import categories  from "../config/categories";
+import ImageGrid   from "./PostAds/ImageGrid";
+import ReviewStep  from "./PostAds/ReviewStep";
+import PricingStep from "./PostAds/PricingStep";
 import "../styles/PostAds.css";
 
 /* ═══════════════════════════════════════════════
    CONSTANTS
 ═══════════════════════════════════════════════ */
-const API              = "https://minimart-ivrm.onrender.com/api";
-const DRAFT_KEY        = "post-ad-draft-v6";
-const MAX_IMAGES       = 6;
-const MAX_FILE_MB      = 5;
-const COMPRESS_TARGET  = 0.5; // MB
+const API             = "https://minimart-ivrm.onrender.com/api";
+const DRAFT_KEY       = "post-ad-draft-v6";
+const MAX_IMAGES      = 6;
+const MAX_FILE_MB     = 5;
+const COMPRESS_TARGET = 0.5; // MB
 
 /* ═══════════════════════════════════════════════
    STEPS CONFIG
 ═══════════════════════════════════════════════ */
 const STEPS = [
-  { id: 1, label: "Photos",   icon: <FiCamera size={15} />    },
-  { id: 2, label: "Details",  icon: <FiTag size={15} />       },
-  { id: 3, label: "Variants", icon: <FiPackage size={15} />   },
-  { id: 4, label: "Pricing",  icon: <FiDollarSign size={15} />},
-  { id: 5, label: "Review",   icon: <FiFileText size={15} />  },
+  { id: 1, label: "Photos",   icon: <FiTag size={15} />        },
+  { id: 2, label: "Details",  icon: <FiTag size={15} />        },
+  { id: 3, label: "Variants", icon: <FiPackage size={15} />    },
+  { id: 4, label: "Pricing",  icon: <FiDollarSign size={15} /> },
+  { id: 5, label: "Review",   icon: <FiFileText size={15} />   },
 ];
 
 /* ═══════════════════════════════════════════════
-   BLANK VARIANT FACTORY
+   BLANK VARIANT
 ═══════════════════════════════════════════════ */
 const BLANK_VARIANT = () => ({
   id:         Date.now() + Math.random(),
@@ -51,7 +51,7 @@ const BLANK_VARIANT = () => ({
 });
 
 /* ═══════════════════════════════════════════════
-   PROHIBITED CONTENT SCANNER
+   PROHIBITED SCANNER
 ═══════════════════════════════════════════════ */
 const PROHIBITED_PATTERNS = [
   { pattern: /\b(gun|pistol|rifle|shotgun|firearm|weapon|ammo|ammunition|explosive|bomb|grenade|machete)\b/i, category: "Weapons & Dangerous Items" },
@@ -65,9 +65,9 @@ const PROHIBITED_PATTERNS = [
 ];
 
 const SUSPICIOUS_PATTERNS = [
-  { pattern: /\b(no questions asked|cash only|no receipt|as is no return)\b/i, label: "Suspicious terms"           },
-  { pattern: /\b(whatsapp only|telegram only|contact outside)\b/i,             label: "Off-platform contact"       },
-  { pattern: /\b(urgent sale|leaving country|emergency sale)\b/i,              label: "Urgency pressure tactic"    },
+  { pattern: /\b(no questions asked|cash only|no receipt|as is no return)\b/i, label: "Suspicious terms"        },
+  { pattern: /\b(whatsapp only|telegram only|contact outside)\b/i,             label: "Off-platform contact"    },
+  { pattern: /\b(urgent sale|leaving country|emergency sale)\b/i,              label: "Urgency pressure tactic" },
 ];
 
 function scanContent({ title = "", description = "", keyFeatures = [] }) {
@@ -82,7 +82,7 @@ function scanContent({ title = "", description = "", keyFeatures = [] }) {
 }
 
 /* ═══════════════════════════════════════════════
-   SHA-256 FILE HASH (true duplicate detection)
+   SHA-256 FILE HASH
 ═══════════════════════════════════════════════ */
 async function hashFile(file) {
   try {
@@ -114,7 +114,7 @@ async function compressImage(file) {
 }
 
 /* ═══════════════════════════════════════════════
-   PURE HELPERS
+   HELPERS
 ═══════════════════════════════════════════════ */
 const normalize = (s = "") => String(s).replace(/\s+/g, " ").trim();
 const uniq      = (arr)    => [...new Set(arr.filter(Boolean))];
@@ -131,17 +131,17 @@ function guessFeatures({ title, categoryName, description, specs }) {
 
   const features = [];
 
-  if (t.includes("new") || d.includes("brand new"))    features.push("Brand new condition");
-  if (t.includes("original") || d.includes("original"))features.push("100% original product");
-  if (d.includes("warranty"))                           features.push("Warranty included");
-  if (d.includes("delivery") || d.includes("shipping"))features.push("Fast delivery available");
-  if (d.includes("negotiable"))                         features.push("Price negotiable");
+  if (t.includes("new") || d.includes("brand new"))     features.push("Brand new condition");
+  if (t.includes("original") || d.includes("original")) features.push("100% original product");
+  if (d.includes("warranty"))                            features.push("Warranty included");
+  if (d.includes("delivery") || d.includes("shipping")) features.push("Fast delivery available");
+  if (d.includes("negotiable"))                          features.push("Price negotiable");
 
   if (/(iphone|samsung|tecno|infinix|xiaomi|pixel|redmi|oppo|vivo)/i.test(t)) {
     features.push("Fast performance for daily use");
-    if (/(128|256|512)\s?gb/i.test(t))                features.push("Large storage capacity");
-    if (d.includes("battery") || d.includes("mah"))   features.push("Long-lasting battery life");
-    if (d.includes("camera"))                          features.push("High-quality camera system");
+    if (/(128|256|512)\s?gb/i.test(t))              features.push("Large storage capacity");
+    if (d.includes("battery") || d.includes("mah")) features.push("Long-lasting battery life");
+    if (d.includes("camera"))                        features.push("High-quality camera system");
   }
 
   if (/(laptop|macbook|hp|dell|lenovo|asus|acer|thinkpad)/i.test(t)) {
@@ -196,7 +196,7 @@ function generateVariantMatrix(colors, sizes, storages) {
 }
 
 /* ═══════════════════════════════════════════════
-   PROHIBITED BANNER (memoised)
+   PROHIBITED BANNER
 ═══════════════════════════════════════════════ */
 const ProhibitedBanner = memo(({ result, scanDone }) => {
   if (!scanDone || !result) return null;
@@ -209,7 +209,8 @@ const ProhibitedBanner = memo(({ result, scanDone }) => {
         padding: "10px 14px", borderRadius: "12px",
         background: "rgba(16,185,129,0.07)",
         border: "1px solid rgba(16,185,129,0.15)",
-        marginBottom: "14px", fontSize: "12px", fontWeight: 700, color: "#065f46",
+        marginBottom: "14px", fontSize: "12px",
+        fontWeight: 700, color: "#065f46",
       }}>
         <FiShield size={14} style={{ flexShrink: 0 }} />
         ✅ Content scan passed — no prohibited items detected
@@ -230,13 +231,24 @@ const ProhibitedBanner = memo(({ result, scanDone }) => {
             <span style={{ fontWeight: 800, fontSize: "13px", color: "#991b1b" }}>
               🚫 Prohibited Content Detected
             </span>
-            <span style={{ marginLeft: "auto", background: "#dc2626", color: "#fff", fontSize: "10px", fontWeight: 900, padding: "2px 7px", borderRadius: "5px" }}>
+            <span style={{
+              marginLeft: "auto", background: "#dc2626", color: "#fff",
+              fontSize: "10px", fontWeight: 900, padding: "2px 7px", borderRadius: "5px",
+            }}>
               BLOCKED
             </span>
           </div>
           {blocked.map((b, i) => (
-            <div key={i} style={{ display: "flex", alignItems: "center", gap: "8px", padding: "8px 12px", borderRadius: "10px", background: "rgba(220,38,38,0.05)", fontSize: "12px", marginBottom: "4px" }}>
-              <span style={{ padding: "2px 8px", borderRadius: "6px", background: "rgba(220,38,38,0.12)", color: "#991b1b", fontWeight: 800, fontSize: "11px" }}>
+            <div key={i} style={{
+              display: "flex", alignItems: "center", gap: "8px",
+              padding: "8px 12px", borderRadius: "10px",
+              background: "rgba(220,38,38,0.05)", fontSize: "12px", marginBottom: "4px",
+            }}>
+              <span style={{
+                padding: "2px 8px", borderRadius: "6px",
+                background: "rgba(220,38,38,0.12)", color: "#991b1b",
+                fontWeight: 800, fontSize: "11px",
+              }}>
                 {b.category}
               </span>
               <span style={{ color: "#991b1b", fontWeight: 700 }}>"{b.text}"</span>
@@ -249,11 +261,19 @@ const ProhibitedBanner = memo(({ result, scanDone }) => {
       )}
 
       {suspicious.length > 0 && (
-        <div style={{ padding: "12px 14px", borderRadius: "14px", background: "rgba(245,158,11,0.07)", border: "1.5px solid rgba(245,158,11,0.2)" }}>
+        <div style={{
+          padding: "12px 14px", borderRadius: "14px",
+          background: "rgba(245,158,11,0.07)",
+          border: "1.5px solid rgba(245,158,11,0.2)",
+        }}>
           <div style={{ display: "flex", alignItems: "center", gap: "8px", marginBottom: "8px" }}>
             <FiAlertCircle size={15} color="#d97706" />
             <span style={{ fontWeight: 800, fontSize: "13px", color: "#92400e" }}>⚠️ Suspicious Terms</span>
-            <span style={{ marginLeft: "auto", background: "rgba(245,158,11,0.15)", color: "#92400e", fontSize: "10px", fontWeight: 900, padding: "2px 7px", borderRadius: "5px" }}>
+            <span style={{
+              marginLeft: "auto", background: "rgba(245,158,11,0.15)",
+              color: "#92400e", fontSize: "10px", fontWeight: 900,
+              padding: "2px 7px", borderRadius: "5px",
+            }}>
               WARNING
             </span>
           </div>
@@ -269,7 +289,7 @@ const ProhibitedBanner = memo(({ result, scanDone }) => {
 });
 
 /* ═══════════════════════════════════════════════
-   STEP BAR (memoised)
+   STEP BAR
 ═══════════════════════════════════════════════ */
 const StepBar = memo(({ current }) => (
   <div className="pa-stepbar" role="navigation" aria-label="Form steps">
@@ -289,7 +309,10 @@ const StepBar = memo(({ current }) => (
           <span className="pa-step-label">{s.label}</span>
         </div>
         {i < STEPS.length - 1 && (
-          <div className={`pa-step-line ${current > s.id ? "pa-step-line--done" : ""}`} aria-hidden="true" />
+          <div
+            className={`pa-step-line ${current > s.id ? "pa-step-line--done" : ""}`}
+            aria-hidden="true"
+          />
         )}
       </React.Fragment>
     ))}
@@ -297,99 +320,7 @@ const StepBar = memo(({ current }) => (
 ));
 
 /* ═══════════════════════════════════════════════
-   IMAGE SLOT (memoised)
-═══════════════════════════════════════════════ */
-const ImageSlot = memo(({
-  img, index, isPrimary,
-  onAdd, onRemove,
-  onDragStart, onDragOver, onDrop,
-}) => {
-  const fileRef  = useRef();
-  const [over,   setOver]   = useState(false);
-  const [active, setActive] = useState(false);
-
-  const handleFileDrop = useCallback(async (e) => {
-    e.preventDefault();
-    setOver(false);
-    const file = e.dataTransfer?.files?.[0];
-    if (file) onAdd(index, file);
-  }, [index, onAdd]);
-
-  const handleDrop = useCallback((e) => {
-    if (e.dataTransfer?.files?.length) handleFileDrop(e);
-    else { e.preventDefault(); setOver(false); onDrop?.(e, index); }
-  }, [handleFileDrop, onDrop, index]);
-
-  return (
-    <div
-      className={[
-        "pa-img-slot",
-        isPrimary ? "pa-img-slot--primary" : "",
-        over      ? "pa-img-slot--dragover" : "",
-        active    ? "pa-img-slot--dragging" : "",
-      ].filter(Boolean).join(" ")}
-      draggable={!!img}
-      onDragStart={(e) => { if (!img) return; setActive(true); e.dataTransfer.effectAllowed = "move"; onDragStart?.(e, index); }}
-      onDragEnd={() => setActive(false)}
-      onDragOver={(e) => { e.preventDefault(); setOver(true); onDragOver?.(e, index); }}
-      onDragEnter={(e) => { e.preventDefault(); setOver(true); }}
-      onDragLeave={() => setOver(false)}
-      onDrop={handleDrop}
-      role="button"
-      tabIndex={img ? 0 : -1}
-      aria-label={img ? `Photo ${index + 1} — drag to reorder` : isPrimary ? "Add cover photo" : "Add photo"}
-    >
-      {img ? (
-        <>
-          <img
-            src={img.preview}
-            alt={`Photo ${index + 1}`}
-            className="pa-img-preview"
-            draggable={false}
-          />
-          <span className="pa-img-order" aria-hidden="true">{index + 1}</span>
-          {isPrimary && <span className="pa-img-cover-tag">⭐ Cover</span>}
-          {img.compressed && <span className="pa-img-compressed-tag" title="Auto-compressed">✓</span>}
-          <button
-            type="button"
-            className="pa-img-remove"
-            onClick={() => onRemove(index)}
-            aria-label={`Remove photo ${index + 1}`}
-          >
-            <FiTrash2 size={13} />
-          </button>
-        </>
-      ) : (
-        <button
-          type="button"
-          className="pa-img-add"
-          onClick={() => fileRef.current?.click()}
-          aria-label={isPrimary ? "Add cover photo" : "Add photo"}
-        >
-          <FiCamera size={isPrimary ? 28 : 20} />
-          <span className="pa-img-add-label">{isPrimary ? "Add Cover" : "Add"}</span>
-        </button>
-      )}
-
-      <input
-        ref={fileRef}
-        type="file"
-        accept="image/*"
-        aria-hidden="true"
-        style={{ display: "none" }}
-        onChange={(e) => {
-          if (e.target.files[0]) {
-            onAdd(index, e.target.files[0]);
-            e.target.value = "";
-          }
-        }}
-      />
-    </div>
-  );
-});
-
-/* ═══════════════════════════════════════════════
-   MATRIX MODAL (memoised)
+   MATRIX MODAL
 ═══════════════════════════════════════════════ */
 const MatrixModal = memo(({ onGenerate, onClose }) => {
   const [colors,   setColors]   = useState(["", ""]);
@@ -418,7 +349,6 @@ const MatrixModal = memo(({ onGenerate, onClose }) => {
     toast.success(`${result.length} variants generated`);
   };
 
-  /* Close on Escape */
   useEffect(() => {
     const fn = (e) => { if (e.key === "Escape") onClose(); };
     window.addEventListener("keydown", fn);
@@ -482,9 +412,9 @@ const MatrixModal = memo(({ onGenerate, onClose }) => {
 
         <div className="pa-modal-body">
           <p className="pa-section-sub">Enter attributes — we generate all combinations.</p>
-          {renderSection("Colors",   colors,   setColors,   8, "e.g. Black")}
-          {renderSection("Sizes",    sizes,    setSizes,    8, "e.g. XL")}
-          {renderSection("Storages", storages, setStorages, 6, "e.g. 256GB")}
+          {renderSection("Colors",   colors,   setColors,   8, "e.g. Black"  )}
+          {renderSection("Sizes",    sizes,    setSizes,    8, "e.g. XL"     )}
+          {renderSection("Storages", storages, setStorages, 6, "e.g. 256GB"  )}
           <div className="pa-matrix-preview">
             <FiPackage size={16} />
             <strong>{count}</strong> variant{count !== 1 ? "s" : ""} will be generated
@@ -518,8 +448,9 @@ export default function PostAds({ user }) {
   const [lastSaved,   setLastSaved]   = useState(null);
 
   /* ── Images ── */
-  const [images,      setImages]      = useState(Array(MAX_IMAGES).fill(null));
-  const [imageHashes, setImageHashes] = useState({}); // index → SHA-256
+  const [images,       setImages]       = useState(Array(MAX_IMAGES).fill(null));
+  const [imageHashes,  setImageHashes]  = useState({});  // index → SHA-256
+  const [slotStatuses, setSlotStatuses] = useState({});  // index → "idle"|"compressing"|"done"|"error"
 
   /* ── Step 2 ── */
   const [title,          setTitle]          = useState("");
@@ -543,15 +474,12 @@ export default function PostAds({ user }) {
   const [touched,       setTouched]       = useState({});
   const [attemptedNext, setAttemptedNext] = useState(false);
 
-  /* ── Prohibited scan ── */
+  /* ── Prohibited ── */
   const [scanResult, setScanResult] = useState(null);
   const [scanDone,   setScanDone]   = useState(false);
 
-  /* ── Drag ── */
-  const dragIdx = useRef(null);
-
   /* ── Derived ── */
-  const filledImages  = useMemo(() => images.filter(Boolean), [images]);
+  const filledImages   = useMemo(() => images.filter(Boolean), [images]);
   const activeCategory = useMemo(() => categories.find((c) => c.id === category), [category]);
 
   const discountPct = useMemo(() =>
@@ -560,6 +488,22 @@ export default function PostAds({ user }) {
       : 0,
     [originalPrice, basePrice]
   );
+
+  /* ── Duplicate slots (from hashes) ── */
+  const duplicateSlots = useMemo(() => {
+    const seen  = new Map();
+    const dupes = [];
+    Object.entries(imageHashes).forEach(([idx, hash]) => {
+      if (!hash) return;
+      if (seen.has(hash)) {
+        dupes.push(Number(idx));
+        dupes.push(seen.get(hash));
+      } else {
+        seen.set(hash, Number(idx));
+      }
+    });
+    return [...new Set(dupes)];
+  }, [imageHashes]);
 
   /* ═══ Lifecycle ═══ */
 
@@ -606,7 +550,7 @@ export default function PostAds({ user }) {
     basePrice, originalPrice,
   ]);
 
-  /* Prohibited scan — re-runs when content changes */
+  /* Prohibited scan */
   useEffect(() => {
     if (!title && !description && !keyFeatures.some((f) => f.trim())) {
       setScanResult(null);
@@ -621,7 +565,7 @@ export default function PostAds({ user }) {
     }
   }, [title, description, keyFeatures]);
 
-  /* Listen for edit-step events from ReviewStep */
+  /* Edit-step events from ReviewStep */
   useEffect(() => {
     const handler = (e) => setStep(e.detail);
     window.addEventListener("pa-edit-step", handler);
@@ -630,44 +574,69 @@ export default function PostAds({ user }) {
 
   /* ═══ Image handlers ═══ */
 
-  const handleAddImage = useCallback(async (index, file) => {
+  const handleAddImage = useCallback(async (index, file, extraFiles = []) => {
     if (!file.type.startsWith("image/")) { toast.error("Only image files"); return; }
-    if (file.size > MAX_FILE_MB * 1024 * 1024) { toast.error(`Max ${MAX_FILE_MB}MB per image`); return; }
-
-    setCompressing(true);
-
-    /* SHA-256 hash BEFORE compression for true duplicate detection */
-    const hash = await hashFile(file);
-
-    const duplicate = Object.entries(imageHashes).find(
-      ([idx, h]) => h === hash && Number(idx) !== index
-    );
-
-    if (duplicate) {
-      toast.error(`This photo is already in slot ${Number(duplicate[0]) + 1}`);
-      setCompressing(false);
+    if (file.size > MAX_FILE_MB * 1024 * 1024) {
+      toast.error(`Max ${MAX_FILE_MB}MB per image`);
       return;
     }
 
-    const compressed    = await compressImage(file);
-    const preview       = URL.createObjectURL(compressed);
-    const wasCompressed = compressed.size < file.size;
+    /* Mark slot as compressing */
+    setCompressing(true);
+    setSlotStatuses((p) => ({ ...p, [index]: "compressing" }));
 
-    setImages((prev) => {
-      const next = [...prev];
-      if (next[index]?.preview) URL.revokeObjectURL(next[index].preview);
-      next[index] = { file: compressed, preview, compressed: wasCompressed };
-      return next;
-    });
+    try {
+      /* SHA-256 before compression — true duplicate detection */
+      const hash = await hashFile(file);
 
-    setImageHashes((prev) => ({ ...prev, [index]: hash }));
-    setCompressing(false);
+      const duplicate = Object.entries(imageHashes).find(
+        ([idx, h]) => h === hash && Number(idx) !== index
+      );
 
-    if (wasCompressed) {
-      const saved = ((file.size - compressed.size) / 1024).toFixed(0);
-      toast.success(`Compressed — saved ${saved} KB`);
+      if (duplicate) {
+        toast.error(`This photo is already in slot ${Number(duplicate[0]) + 1}`);
+        setSlotStatuses((p) => ({ ...p, [index]: "idle" }));
+        setCompressing(false);
+        return;
+      }
+
+      const compressed    = await compressImage(file);
+      const preview       = URL.createObjectURL(compressed);
+      const wasCompressed = compressed.size < file.size;
+
+      setImages((prev) => {
+        const next = [...prev];
+        if (next[index]?.preview) URL.revokeObjectURL(next[index].preview);
+        next[index] = { file: compressed, preview, compressed: wasCompressed };
+        return next;
+      });
+
+      setImageHashes((prev)  => ({ ...prev,  [index]: hash        }));
+      setSlotStatuses((prev) => ({ ...prev,  [index]: "done"      }));
+
+      if (wasCompressed) {
+        const saved = ((file.size - compressed.size) / 1024).toFixed(0);
+        toast.success(`Compressed — saved ${saved} KB`);
+      }
+
+      /* Handle extra files from multi-drop */
+      if (extraFiles?.length) {
+        let nextSlot = index + 1;
+        for (const extra of extraFiles) {
+          /* find next empty slot */
+          while (nextSlot < images.length && images[nextSlot] !== null) nextSlot++;
+          if (nextSlot >= images.length) break;
+          handleAddImage(nextSlot, extra);
+          nextSlot++;
+        }
+      }
+    } catch {
+      setSlotStatuses((p) => ({ ...p, [index]: "error" }));
+      toast.error("Failed to process image");
+    } finally {
+      setCompressing(false);
     }
-  }, [imageHashes]);
+  }, [imageHashes, images]);
 
   const handleRemoveImage = useCallback((index) => {
     setImages((prev) => {
@@ -676,47 +645,34 @@ export default function PostAds({ user }) {
       next[index] = null;
       return next;
     });
-    setImageHashes((prev) => {
-      const next = { ...prev };
-      delete next[index];
-      return next;
-    });
+    setImageHashes((prev)  => { const n = { ...prev };  delete n[index]; return n; });
+    setSlotStatuses((prev) => { const n = { ...prev };  delete n[index]; return n; });
   }, []);
 
-  /* ═══ Drag reorder ═══ */
+  /* ═══ Image reorder ═══ */
 
-  const handleDragStart = useCallback((e, idx) => {
-    dragIdx.current = idx;
-    e.dataTransfer.effectAllowed = "move";
-  }, []);
-
-  const handleDragOver = useCallback((e) => {
-    e.preventDefault();
-    e.dataTransfer.dropEffect = "move";
-  }, []);
-
-  const handleDrop = useCallback((e, targetIdx) => {
-    e.preventDefault();
-    const from = dragIdx.current;
-    if (from === null || from === targetIdx) return;
-
+  const handleReorder = useCallback((from, to) => {
     setImages((prev) => {
       const next    = [...prev];
       const temp    = next[from];
-      next[from]    = next[targetIdx];
-      next[targetIdx] = temp;
+      next[from]    = next[to];
+      next[to]      = temp;
       return next;
     });
-
     setImageHashes((prev) => {
-      const next              = { ...prev };
-      const tempHash          = next[from];
-      next[from]              = next[targetIdx];
-      next[targetIdx]         = tempHash;
+      const next     = { ...prev };
+      const tempHash = next[from];
+      next[from]     = next[to];
+      next[to]       = tempHash;
       return next;
     });
-
-    dragIdx.current = null;
+    setSlotStatuses((prev) => {
+      const next       = { ...prev };
+      const tempStatus = next[from];
+      next[from]       = next[to];
+      next[to]         = tempStatus;
+      return next;
+    });
     toast.success("Image reordered");
   }, []);
 
@@ -751,8 +707,8 @@ export default function PostAds({ user }) {
   const commitTag = useCallback(() => {
     const t = normalize(tagInput).toLowerCase();
     if (!t || t.length > 24) return;
-    if (tags.includes(t))   { setTagInput(""); return; }
-    if (tags.length >= 8)   { toast.error("Max 8 tags"); return; }
+    if (tags.includes(t))  { setTagInput(""); return; }
+    if (tags.length >= 8)  { toast.error("Max 8 tags"); return; }
     setTags((p) => [...p, t]);
     setTagInput("");
   }, [tagInput, tags]);
@@ -780,20 +736,20 @@ export default function PostAds({ user }) {
 
   const fieldErrors = useMemo(() => {
     const e = {};
-    if (filledImages.length === 0) e.images = "Add at least 1 photo";
-    if (touched.title && title.trim().length < 3)   e.title    = "Title must be at least 3 characters";
-    if (touched.title && title.trim().length > 80)   e.title    = "Title too long";
-    if (touched.category && !category)               e.category = "Select a category";
+    if (filledImages.length === 0)                                           e.images        = "Add at least 1 photo";
+    if (touched.title    && title.trim().length < 3)                         e.title         = "Title must be at least 3 characters";
+    if (touched.title    && title.trim().length > 80)                        e.title         = "Title too long";
+    if (touched.category && !category)                                       e.category      = "Select a category";
     if (touched.basePrice) {
       const n = Number(basePrice);
-      if (!basePrice || isNaN(n) || n <= 0) e.basePrice = "Enter a valid price";
+      if (!basePrice || isNaN(n) || n <= 0)                                  e.basePrice     = "Enter a valid price";
     }
     if (touched.originalPrice && originalPrice) {
-      if (Number(originalPrice) <= Number(basePrice)) e.originalPrice = "Should be higher than base price";
+      if (Number(originalPrice) <= Number(basePrice))                        e.originalPrice = "Should be higher than base price";
     }
     variants.forEach((v, i) => {
-      if (touched[`v_sku_${i}`]   && !v.sku.trim())                                   e[`v_sku_${i}`]   = "Required";
-      if (touched[`v_name_${i}`]  && !v.name.trim())                                  e[`v_name_${i}`]  = "Required";
+      if (touched[`v_sku_${i}`]   && !v.sku.trim())                         e[`v_sku_${i}`]   = "Required";
+      if (touched[`v_name_${i}`]  && !v.name.trim())                        e[`v_name_${i}`]  = "Required";
       if (touched[`v_price_${i}`] && (isNaN(Number(v.price)) || Number(v.price) < 0)) e[`v_price_${i}`] = "Invalid";
     });
     return e;
@@ -814,11 +770,11 @@ export default function PostAds({ user }) {
   }, [step, filledImages.length, title, category, variants, basePrice]);
 
   const stepError = useMemo(() => {
-    if (step === 1 && filledImages.length === 0) return "Add at least one photo";
-    if (step === 2 && title.trim().length < 3)   return "Title needs at least 3 characters";
-    if (step === 2 && !category)                 return "Pick a category";
-    if (step === 3 && !variants.every((v) => v.sku.trim() && v.name.trim())) return "Fill in SKU and name for each variant";
-    if (step === 4 && (!basePrice || Number(basePrice) <= 0)) return "Set a valid base price";
+    if (step === 1 && filledImages.length === 0)                              return "Add at least one photo";
+    if (step === 2 && title.trim().length < 3)                                return "Title needs at least 3 characters";
+    if (step === 2 && !category)                                              return "Pick a category";
+    if (step === 3 && !variants.every((v) => v.sku.trim() && v.name.trim())) return "Fill SKU and name for each variant";
+    if (step === 4 && (!basePrice || Number(basePrice) <= 0))                 return "Set a valid base price";
     return "";
   }, [step, filledImages.length, title, category, variants, basePrice]);
 
@@ -827,12 +783,10 @@ export default function PostAds({ user }) {
   const goNext = useCallback(() => {
     setAttemptedNext(true);
     if (!stepValid) return;
-
     if (scanResult?.blocked.length > 0) {
       toast.error("Remove prohibited content before continuing");
       return;
     }
-
     setAttemptedNext(false);
     setStep((s) => Math.min(5, s + 1));
     window.navigator?.vibrate?.(12);
@@ -846,8 +800,8 @@ export default function PostAds({ user }) {
   /* ═══ Submit ═══ */
 
   const handleSubmit = useCallback(async () => {
-    if (!user)                { toast.error("Please log in first"); return; }
-    if (!filledImages.length) { toast.error("Add at least one photo"); return; }
+    if (!user)                { toast.error("Please log in first");           return; }
+    if (!filledImages.length) { toast.error("Add at least one photo");        return; }
     if (scanResult?.blocked.length > 0) { toast.error("Remove prohibited content first"); return; }
 
     setPosting(true);
@@ -864,9 +818,9 @@ export default function PostAds({ user }) {
       fd.append("description", description.trim());
       fd.append("category",    category);
       fd.append("basePrice",   basePrice);
-      if (originalPrice)   fd.append("originalPrice", originalPrice);
-      if (brand.trim())    fd.append("brand",         brand.trim());
-      if (tags.length)     fd.append("tags",          JSON.stringify(tags));
+      if (originalPrice) fd.append("originalPrice", originalPrice);
+      if (brand.trim())  fd.append("brand",         brand.trim());
+      if (tags.length)   fd.append("tags",          JSON.stringify(tags));
 
       fd.append("variants",       JSON.stringify(variants.filter((v) => v.sku.trim() && v.name.trim())));
       fd.append("keyFeatures",    JSON.stringify(keyFeatures.map(normalize).filter(Boolean)));
@@ -908,7 +862,6 @@ export default function PostAds({ user }) {
   ═══════════════════════════════════════════ */
   return (
     <>
-      {/* Screen-reader skip link */}
       <a href="#pa-main" className="pa-skip-link">Skip to main content</a>
 
       <div className="pa-page pa-glass">
@@ -939,10 +892,18 @@ export default function PostAds({ user }) {
             <h2>Ad Posted! 🎉</h2>
             <p>Your listing is now live. Buyers can see it right away.</p>
             <div className="pa-success-btns">
-              <button type="button" className="pa-success-primary" onClick={() => navigate("/minimart")}>
+              <button
+                type="button"
+                className="pa-success-primary"
+                onClick={() => navigate("/minimart")}
+              >
                 Browse Minimart
               </button>
-              <button type="button" className="pa-success-secondary" onClick={() => navigate("/dashboard")}>
+              <button
+                type="button"
+                className="pa-success-secondary"
+                onClick={() => navigate("/dashboard")}
+              >
                 View My Listings
               </button>
             </div>
@@ -953,69 +914,34 @@ export default function PostAds({ user }) {
 
             <main className="pa-body" id="pa-main">
 
-              {/* Inline step error */}
+              {/* Step error */}
               {attemptedNext && stepError && (
                 <div className="pa-inline-error" role="alert" aria-live="assertive">
                   <FiAlertCircle size={16} /> {stepError}
                 </div>
               )}
 
-              {/* Prohibited banner (shows on step 2 onwards) */}
+              {/* Prohibited banner */}
               {step >= 2 && (
                 <ProhibitedBanner result={scanResult} scanDone={scanDone} />
               )}
 
-              {/* ───────── STEP 1: PHOTOS ───────── */}
+              {/* ───── STEP 1: PHOTOS ───── */}
               {step === 1 && (
                 <section aria-label="Add photos">
-                  <p className="pa-section-title">📷 Add Photos</p>
-                  <p className="pa-section-sub">
-                    First photo = cover · Drag to reorder · Drop files anywhere
-                  </p>
-
-                  {compressing && (
-                    <div className="pa-compressing" role="status" aria-live="polite">
-                      <span className="pa-spinner-sm" aria-hidden="true" />
-                      Compressing image…
-                    </div>
-                  )}
-
-                  <div className="pa-img-grid" role="list" aria-label="Photo slots">
-                    {images.map((img, i) => (
-                      <div key={i} role="listitem">
-                        <ImageSlot
-                          img={img}
-                          index={i}
-                          isPrimary={i === 0}
-                          onAdd={handleAddImage}
-                          onRemove={handleRemoveImage}
-                          onDragStart={handleDragStart}
-                          onDragOver={handleDragOver}
-                          onDrop={handleDrop}
-                        />
-                      </div>
-                    ))}
-                  </div>
-
-                  <div className="pa-img-tip" role="note">
-                    <FiAlertCircle size={14} aria-hidden="true" />
-                    <div>
-                      Max {MAX_IMAGES} photos · {MAX_FILE_MB}MB each ·
-                      Auto-compressed to {COMPRESS_TARGET}MB ·
-                      Drag to reorder
-                    </div>
-                  </div>
-
-                  {filledImages.length > 0 && (
-                    <p className="pa-img-stats" aria-live="polite">
-                      {filledImages.length}/{MAX_IMAGES} photos ·{" "}
-                      {(filledImages.reduce((s, i) => s + (i?.file?.size || 0), 0) / 1024 / 1024).toFixed(1)} MB total
-                    </p>
-                  )}
+                  <ImageGrid
+                    images={images}
+                    onAdd={handleAddImage}
+                    onRemove={handleRemoveImage}
+                    onReorder={handleReorder}
+                    compressing={compressing}
+                    slotStatuses={slotStatuses}
+                    duplicates={duplicateSlots}
+                  />
                 </section>
               )}
 
-              {/* ───────── STEP 2: DETAILS ───────── */}
+              {/* ───── STEP 2: DETAILS ───── */}
               {step === 2 && (
                 <section aria-label="Product details">
                   <div className="pa-section-head">
@@ -1027,7 +953,7 @@ export default function PostAds({ user }) {
                       type="button"
                       className="pa-gen-btn"
                       onClick={generateKeyFeatures}
-                      aria-label="Auto-generate key features from title and description"
+                      aria-label="Auto-generate key features"
                     >
                       <FiZap size={15} aria-hidden="true" /> Auto-Generate
                     </button>
@@ -1272,7 +1198,7 @@ export default function PostAds({ user }) {
                 </section>
               )}
 
-              {/* ───────── STEP 3: VARIANTS ───────── */}
+              {/* ───── STEP 3: VARIANTS ───── */}
               {step === 3 && (
                 <section aria-label="Product variants">
                   <div className="pa-section-head">
@@ -1295,16 +1221,14 @@ export default function PostAds({ user }) {
                     return (
                       <div className="pa-variant-card" key={v.id}>
                         <div className="pa-variant-header">
-                          <span className="pa-variant-title" aria-label={`Variant ${i + 1}`}>
-                            Variant {i + 1}
-                          </span>
+                          <span className="pa-variant-title">Variant {i + 1}</span>
                           <button
                             type="button"
                             className="pa-variant-delete"
                             onClick={() => removeVariant(i)}
                             aria-label={`Delete variant ${i + 1}`}
                           >
-                            <FiTrash2 size={13} />
+                            <FiPlus size={13} style={{ transform: "rotate(45deg)" }} />
                           </button>
                         </div>
 
@@ -1404,9 +1328,9 @@ export default function PostAds({ user }) {
                               <input
                                 id={`v-${attr}-${i}`}
                                 placeholder={
-                                  attr === "color"    ? "Midnight Black" :
-                                  attr === "size"     ? "XL"             :
-                                  attr === "storage"  ? "256GB"          : "Cotton"
+                                  attr === "color"   ? "Midnight Black" :
+                                  attr === "size"    ? "XL"             :
+                                  attr === "storage" ? "256GB"          : "Cotton"
                                 }
                                 value={v.attributes[attr] || ""}
                                 onChange={(e) => updateVariantAttr(i, attr, e.target.value)}
@@ -1431,7 +1355,7 @@ export default function PostAds({ user }) {
                 </section>
               )}
 
-              {/* ───────── STEP 4: PRICING ───────── */}
+              {/* ───── STEP 4: PRICING ───── */}
               {step === 4 && (
                 <section aria-label="Pricing">
                   <PricingStep
@@ -1447,7 +1371,7 @@ export default function PostAds({ user }) {
                 </section>
               )}
 
-              {/* ───────── STEP 5: REVIEW ───────── */}
+              {/* ───── STEP 5: REVIEW ───── */}
               {step === 5 && (
                 <section aria-label="Review listing">
                   <ReviewStep
@@ -1476,8 +1400,12 @@ export default function PostAds({ user }) {
               )}
             </main>
 
-            {/* ── Footer nav ── */}
-            <div className="pa-footer pa-glass-bar" role="navigation" aria-label="Step navigation">
+            {/* ── Footer ── */}
+            <div
+              className="pa-footer pa-glass-bar"
+              role="navigation"
+              aria-label="Step navigation"
+            >
               {step > 1 ? (
                 <button
                   type="button"
@@ -1495,7 +1423,7 @@ export default function PostAds({ user }) {
                   className="pa-btn-next"
                   onClick={goNext}
                   disabled={posting || compressing}
-                  aria-label={compressing ? "Compressing image, please wait" : "Go to next step"}
+                  aria-label={compressing ? "Compressing, please wait" : "Go to next step"}
                 >
                   {compressing ? "Compressing…" : "Continue"}
                   <FiChevronRight size={16} aria-hidden="true" />
