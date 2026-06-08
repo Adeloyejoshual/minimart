@@ -1,10 +1,9 @@
 import axios  from "axios";
 import crypto from "crypto";
-import { pool } from "../server.js";
 
 const FLW_BASE = "https://api.flutterwave.com/v3";
 
-// ── Lazy FLW client ───────────────────────────────────────────────────────────
+// ── FLW axios client ──────────────────────────────────────────────────────────
 const flw = () => {
   const secret = process.env.FLW_SECRET_KEY;
   if (!secret) throw new Error("FLW_SECRET_KEY is not set");
@@ -30,6 +29,7 @@ const flw = () => {
         status:  err.response?.status,
         message: msg,
         url:     err.config?.url,
+        body:    err.response?.data,
       });
       return Promise.reject(new Error(msg));
     }
@@ -38,7 +38,7 @@ const flw = () => {
   return instance;
 };
 
-// ── Commercial banks ──────────────────────────────────────────────────────────
+// ── Supported banks ───────────────────────────────────────────────────────────
 const COMMERCIAL_BANKS = {
   "access bank":              { code: "044",   name: "Access Bank" },
   "citibank":                 { code: "023",   name: "Citibank Nigeria" },
@@ -110,67 +110,53 @@ export const resolveAccount = async (accountNumber, bankCode) => {
 export const verifyAccountName = async (accountNumber, bankName) => {
   const bank = getBankCode(bankName);
   if (!bank) {
-    return { valid: false, message: `"${bankName}" is not a supported bank.` };
+    return {
+      valid:   false,
+      message: `"${bankName}" is not a supported bank.`,
+    };
   }
   if (!validateAccountNumber(accountNumber)) {
-    return { valid: false, message: "Account number must be exactly 10 digits." };
+    return {
+      valid:   false,
+      message: "Account number must be exactly 10 digits.",
+    };
   }
   try {
     const resolved = await resolveAccount(accountNumber.trim(), bank.code);
-    if (!resolved) {
+    if (!resolved?.account_name) {
       return { valid: false, message: "Could not verify account." };
     }
     return {
       valid:          true,
       account_name:   resolved.account_name,
-      account_number: resolved.account_number,
+      account_number: resolved.account_number ?? accountNumber.trim(),
       bank_code:      bank.code,
       bank_name:      bank.name,
     };
   } catch (err) {
-    return { valid: false, message: err.message ?? "Account verification failed" };
+    return {
+      valid:   false,
+      message: err.message ?? "Account verification failed",
+    };
   }
 };
 
-// ── Nigeria date (UTC+1) ──────────────────────────────────────────────────────
+// ── Nigeria date (WAT = UTC+1) ────────────────────────────────────────────────
 export const getNigeriaDate = () =>
   new Date().toLocaleDateString("en-CA", { timeZone: "Africa/Lagos" });
 
 // ── Fee tiers ─────────────────────────────────────────────────────────────────
 // First 3 withdrawals per day → FREE
-// 4th+ withdrawal today:
-//   ₦0      – ₦9,999    → ₦50
-//   ₦10,000 – ₦99,999   → ₦100
-//   ₦100,000– ₦500,000  → ₦150
-//   > ₦500,000           → ₦200
-
+// 4th+ uses amount-based tiers
 export const FEE_TIERS = [
-  {
-    label:      "₦0 – ₦9,999",
-    max_amount: 9_999,
-    fee_amount: 50,
-  },
-  {
-    label:      "₦10,000 – ₦99,999",
-    max_amount: 99_999,
-    fee_amount: 100,
-  },
-  {
-    label:      "₦100,000 – ₦500,000",
-    max_amount: 500_000,
-    fee_amount: 150,
-  },
-  {
-    label:      "Above ₦500,000",
-    max_amount: Infinity,
-    fee_amount: 200,
-  },
+  { label: "₦0 – ₦9,999",         max_amount: 9_999,    fee_amount: 50  },
+  { label: "₦10,000 – ₦99,999",   max_amount: 99_999,   fee_amount: 100 },
+  { label: "₦100,000 – ₦500,000", max_amount: 500_000,  fee_amount: 150 },
+  { label: "Above ₦500,000",       max_amount: Infinity, fee_amount: 200 },
 ];
 
 export const calculateWithdrawalFee = (amount, withdrawalsToday) => {
-  // First 3 withdrawals are always free
   if (withdrawalsToday < 3) return 0;
-
   for (const tier of FEE_TIERS) {
     if (amount <= tier.max_amount) return tier.fee_amount;
   }
@@ -185,7 +171,7 @@ export const feeScheduleLabel = (withdrawalsToday) => {
 };
 
 // ── DB-aware fee calculator ───────────────────────────────────────────────────
-// Pass pool or a connected pg client (works in or out of transactions)
+// Works with both pool and a connected pg client
 export const calculateWithdrawalFees = async (dbClient, vendorId, amount) => {
   const today = getNigeriaDate();
 
@@ -206,10 +192,10 @@ export const calculateWithdrawalFees = async (dbClient, vendorId, amount) => {
 
   return {
     fee,
-    netAmount:      parseFloat((amount - fee).toFixed(2)),
+    netAmount:     parseFloat((amount - fee).toFixed(2)),
     withdrawalsToday,
     dailyUsed,
-    freeRemaining:  Math.max(0, 3 - withdrawalsToday),
+    freeRemaining: Math.max(0, 3 - withdrawalsToday),
   };
 };
 
@@ -219,11 +205,11 @@ export const generateTxRef = () => `WD-${crypto.randomUUID()}`;
 // ── Initiate transfer ─────────────────────────────────────────────────────────
 export const initiateTransfer = async ({
   vendorId,
-  amount,       // gross amount deducted from wallet
+  amount,        // gross amount debited from wallet
   fee,
-  netAmount,    // what hits the bank
+  netAmount,     // what actually hits vendor's bank
   bankName,
-  bankCode,     // optional override — derived from bankName if not given
+  bankCode,      // pass directly if already resolved
   accountNumber,
   accountName,
   txRef,
@@ -240,8 +226,8 @@ export const initiateTransfer = async ({
     throw new Error("Invalid account number — must be exactly 10 digits");
   }
 
-  if (netAmount <= 0) {
-    throw new Error("Net amount must be greater than 0");
+  if (!netAmount || netAmount <= 0) {
+    throw new Error("Net amount must be greater than zero");
   }
 
   const payload = {
@@ -260,7 +246,6 @@ export const initiateTransfer = async ({
     },
   };
 
-  // Only add callback if configured
   if (process.env.FLW_TRANSFER_WEBHOOK_URL) {
     payload.callback_url = process.env.FLW_TRANSFER_WEBHOOK_URL;
   }
@@ -272,11 +257,12 @@ export const initiateTransfer = async ({
   }
 
   console.log("[FLW] transfer initiated:", {
-    flw_id:    data.data.id,
-    reference: data.data.reference,
-    amount:    data.data.amount,
-    bank_code: resolvedCode,
-    account:   accountNumber,
+    flw_id:        data.data.id,
+    reference:     data.data.reference,
+    amount:        data.data.amount,
+    bank_code:     resolvedCode,
+    account:       accountNumber,
+    account_name:  accountName ?? "—",
   });
 
   return {
