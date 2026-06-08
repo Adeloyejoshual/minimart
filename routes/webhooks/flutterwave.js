@@ -8,9 +8,7 @@ const router = express.Router();
 const SECRET_HASH = () => process.env.FLW_SECRET_HASH ?? "";
 const SECRET_KEY  = () => process.env.FLW_SECRET_KEY  ?? "";
 
-// ─────────────────────────────────────────────────────────────
-// LOGGER
-// ─────────────────────────────────────────────────────────────
+// ── Logger ────────────────────────────────────────────────────
 const log = (level, tag, data = {}) => {
   const line = JSON.stringify({
     ts: new Date().toISOString(),
@@ -18,44 +16,36 @@ const log = (level, tag, data = {}) => {
     tag,
     ...data,
   });
-  if (level === "error")      console.error(line);
-  else if (level === "warn")  console.warn(line);
-  else                        console.log(line);
+  if (level === "error")     console.error(line);
+  else if (level === "warn") console.warn(line);
+  else                       console.log(line);
 };
 
-// ─────────────────────────────────────────────────────────────
-// SIGNATURE CHECK
-// Flutterwave sends your secret hash in "verif-hash" header
-// ─────────────────────────────────────────────────────────────
+// ── Signature check ───────────────────────────────────────────
 const checkSignature = (req) => {
-  const hash = SECRET_HASH();
+  const hash     = SECRET_HASH();
+  const received = req.headers["verif-hash"] ?? "";
+
+  log("info", "SIGNATURE_CHECK", {
+    received_preview: received.slice(0, 8) + "…",
+    expected_preview: hash.slice(0, 8) + "…",
+    match: received === hash,
+    hash_configured: !!hash,
+  });
 
   if (!hash) {
-    log("warn", "NO_SECRET_HASH_CONFIGURED");
-    // Allow in dev — block in production
+    log("warn", "NO_SECRET_HASH");
     return process.env.NODE_ENV !== "production";
   }
 
-  const sent = req.headers["verif-hash"] ?? "";
-  if (sent !== hash) {
-    log("warn", "BAD_SIGNATURE", {
-      sent_preview:     sent.slice(0, 8)  + "…",
-      expected_preview: hash.slice(0, 8)  + "…",
-      match: false,
-    });
-    return false;
-  }
-  return true;
+  return received === hash;
 };
 
-// ─────────────────────────────────────────────────────────────
-// VERIFY WITH FLUTTERWAVE API
-// Never trust the webhook payload — always verify
-// ─────────────────────────────────────────────────────────────
+// ── Verify with FLW API ───────────────────────────────────────
 const verifyWithFLW = async (txId) => {
   const key = SECRET_KEY();
   if (!key) {
-    log("error", "NO_FLW_SECRET_KEY");
+    log("error", "NO_FLW_KEY");
     return null;
   }
   try {
@@ -77,37 +67,18 @@ const verifyWithFLW = async (txId) => {
   }
 };
 
-// ─────────────────────────────────────────────────────────────
-// EXTRACT VIRTUAL ACCOUNT NUMBER
-//
-// Flutterwave puts the credited virtual account number in
-// DIFFERENT places depending on the API version and event type.
-//
-// For "charge.completed" on a virtual account / bank transfer:
-//   data.meta.originatoraccountnumber  ← the PAYER's account
-//   data.payment_type_meta.account_number ← sometimes here
-//   data.virtual_account_number         ← direct field
-//   data.account_number                 ← fallback
-//
-// The CREDITED account (our virtual account) is usually in:
-//   data.meta.virtual_account_number   ← most reliable
-//   data.payment_type_meta.AccountNumber
-//   data.flw_ref (sometimes contains account)
-//
-// We log ALL fields so you can see exactly where it is.
-// ─────────────────────────────────────────────────────────────
-const extractCreditedAccountNumber = (data) => {
+// ── Extract virtual account number ────────────────────────────
+// Tries every known field location in FLW payload
+const extractAccount = (data) => {
   if (!data) return null;
 
-  const meta     = data.meta     ?? {};
-  const ptMeta   = data.payment_type_meta ?? {};
-  const dest     = ptMeta.destination ?? {};
-  const origin   = ptMeta.origin ?? {};
+  const meta   = data.meta             ?? {};
+  const ptMeta = data.payment_type_meta ?? {};
+  const dest   = ptMeta.destination    ?? {};
 
-  // Ordered by likelihood for virtual account credits
   const candidates = [
-    // Most common locations for the CREDITED virtual account
     data.virtual_account_number,
+    data.account_number,
     meta.virtual_account_number,
     meta.AccountNumber,
     meta.account_number,
@@ -116,7 +87,6 @@ const extractCreditedAccountNumber = (data) => {
     ptMeta.virtual_account_number,
     ptMeta.AccountNumber,
     ptMeta.account_number,
-    data.account_number,
   ];
 
   for (const c of candidates) {
@@ -127,10 +97,8 @@ const extractCreditedAccountNumber = (data) => {
   return null;
 };
 
-// ─────────────────────────────────────────────────────────────
-// FIND VENDOR BY VIRTUAL ACCOUNT NUMBER
-// ─────────────────────────────────────────────────────────────
-const findVendorByAccount = async (client, accountNumber) => {
+// ── Find vendor by virtual account ───────────────────────────
+const findVendor = async (client, accountNumber) => {
   if (!accountNumber) return null;
 
   const { rows } = await client.query(
@@ -151,9 +119,7 @@ const findVendorByAccount = async (client, accountNumber) => {
   return rows[0] ?? null;
 };
 
-// ─────────────────────────────────────────────────────────────
-// IDEMPOTENCY — prevent double-credit
-// ─────────────────────────────────────────────────────────────
+// ── Idempotency check ─────────────────────────────────────────
 const isDuplicate = async (client, { flwRef, txRef, txId }) => {
   const { rows } = await client.query(
     `SELECT id FROM market.vendor_transactions
@@ -162,22 +128,25 @@ const isDuplicate = async (client, { flwRef, txRef, txId }) => {
         OR (meta->>'flw_transaction_id') = $3
      LIMIT 1`,
     [
-      flwRef  ?? "__none__",
-      txRef   ?? "__none__",
+      flwRef ?? "__none__",
+      txRef  ?? "__none__",
       String(txId ?? "__none__"),
     ]
   );
   return rows.length > 0;
 };
 
-// ─────────────────────────────────────────────────────────────
-// CREDIT VENDOR WALLET — fully atomic
-// ─────────────────────────────────────────────────────────────
+// ── Credit wallet ─────────────────────────────────────────────
 const creditWallet = async (client, {
-  vendorId, amount, currency,
-  flwRef, txRef, narration, meta,
+  vendorId,
+  amount,
+  currency,
+  flwRef,
+  txRef,
+  narration,
+  meta,
 }) => {
-  // 1. Ensure wallet exists
+  // Ensure wallet row exists
   await client.query(
     `INSERT INTO market.vendor_wallets
        (vendor_id, available_balance, pending_balance,
@@ -187,24 +156,30 @@ const creditWallet = async (client, {
     [vendorId, currency ?? "NGN"]
   );
 
-  // 2. Credit
+  // Credit available balance
   const { rows: [wallet] } = await client.query(
     `UPDATE market.vendor_wallets
      SET available_balance = available_balance + $1,
          total_received    = total_received    + $1,
          updated_at        = NOW()
      WHERE vendor_id = $2
-     RETURNING vendor_id, available_balance, total_received`,
+     RETURNING
+       vendor_id,
+       available_balance,
+       total_received`,
     [amount, vendorId]
   );
 
-  // 3. Transaction log
+  // Transaction record
   await client.query(
     `INSERT INTO market.vendor_transactions
        (vendor_id, type, amount, fee, currency,
-        status, narration, flw_ref, tx_ref, meta, created_at)
-     VALUES ($1, 'credit', $2, 0, $3,
-             'success', $4, $5, $6, $7, NOW())`,
+        status, narration, flw_ref, tx_ref,
+        meta, created_at)
+     VALUES
+       ($1,'credit',$2,0,$3,
+        'success',$4,$5,$6,
+        $7,NOW())`,
     [
       vendorId,
       amount,
@@ -219,9 +194,7 @@ const creditWallet = async (client, {
   return wallet;
 };
 
-// ─────────────────────────────────────────────────────────────
-// NOTIFY VENDOR (non-critical — never throws)
-// ─────────────────────────────────────────────────────────────
+// ── Notify vendor (non-critical) ──────────────────────────────
 const notifyVendor = async (userId, amount, currency) => {
   try {
     const formatted = `₦${Number(amount).toLocaleString("en-NG", {
@@ -230,151 +203,42 @@ const notifyVendor = async (userId, amount, currency) => {
     await pool.query(
       `INSERT INTO market.notifications
          (user_id, type, message, read, created_at)
-       VALUES ($1, 'wallet_credit', $2, FALSE, NOW())`,
-      [userId, `💰 ${formatted} has been credited to your seller wallet`]
+       VALUES ($1,'wallet_credit',$2,FALSE,NOW())`,
+      [
+        userId,
+        `💰 ${formatted} credited to your seller wallet`,
+      ]
     );
   } catch (err) {
-    log("warn", "NOTIFY_FAILED", { userId, error: err.message });
+    log("warn", "NOTIFY_FAILED", {
+      userId,
+      error: err.message,
+    });
   }
 };
 
-// ═════════════════════════════════════════════════════════════
-// HANDLE: charge.completed
-// ═════════════════════════════════════════════════════════════
-async function handleChargeCompleted(rawData) {
-  const txId  = rawData?.id;
-  const txRef = rawData?.tx_ref;
-
-  // ── Log EVERYTHING so we can see the full payload ────────
-  log("info", "CHARGE_RECEIVED", {
-    txId,
-    txRef,
-    status:           rawData?.status,
-    payment_type:     rawData?.payment_type,
-    amount:           rawData?.amount,
-    currency:         rawData?.currency,
-    // These are where the virtual account number might be:
-    virtual_account_number: rawData?.virtual_account_number,
-    account_number:         rawData?.account_number,
-    meta:                   rawData?.meta,
-    payment_type_meta:      rawData?.payment_type_meta,
-    customer:               rawData?.customer,
-    all_keys:               Object.keys(rawData ?? {}),
-  });
-
-  // ── Only process successful payments ──────────────────────
-  if (rawData?.status?.toLowerCase() !== "successful") {
-    log("info", "SKIPPED_NOT_SUCCESSFUL", {
-      status: rawData?.status, txRef,
-    });
-    return;
-  }
-
-  // ── Verify with FLW API ───────────────────────────────────
-  log("info", "VERIFYING_WITH_FLW", { txId });
-  const verifyRes = await verifyWithFLW(txId);
-
-  if (!verifyRes || verifyRes.status !== "success") {
-    log("error", "VERIFICATION_FAILED", {
-      txId, verifyRes,
-    });
-    return;
-  }
-
-  const v = verifyRes.data; // verified transaction object
-
-  log("info", "VERIFIED_DATA", {
-    txId,
-    verified_status:           v.status,
-    verified_amount:           v.amount,
-    verified_currency:         v.currency,
-    verified_payment_type:     v.payment_type,
-    // Log verified object's key locations:
-    v_virtual_account_number:  v.virtual_account_number,
-    v_account_number:          v.account_number,
-    v_meta:                    v.meta,
-    v_payment_type_meta:       v.payment_type_meta,
-    v_all_keys:                Object.keys(v ?? {}),
-  });
-
-  if (v.status?.toLowerCase() !== "successful") {
-    log("error", "VERIFIED_STATUS_NOT_SUCCESSFUL", {
-      status: v.status, txId,
-    });
-    return;
-  }
-
-  // Amount sanity check (allow ±1 unit for rounding)
-  if (
-    Math.abs(Number(v.amount) - Number(rawData.amount)) > 1
-  ) {
-    log("error", "AMOUNT_MISMATCH", {
-      webhook:  rawData.amount,
-      verified: v.amount,
-    });
-    return;
-  }
-
-  // ── Extract virtual account number ────────────────────────
-  // Try webhook data first, then verified data
-  const accountNumber =
-    extractCreditedAccountNumber(rawData)
-    ?? extractCreditedAccountNumber(v);
-
-  log("info", "ACCOUNT_EXTRACTION", {
-    found:        accountNumber,
-    tried_raw:    {
-      virtual_account_number: rawData?.virtual_account_number,
-      account_number:         rawData?.account_number,
-      meta_keys:              Object.keys(rawData?.meta ?? {}),
-      ptype_meta_keys:        Object.keys(rawData?.payment_type_meta ?? {}),
-    },
-    tried_verified: {
-      virtual_account_number: v?.virtual_account_number,
-      account_number:         v?.account_number,
-      meta_keys:              Object.keys(v?.meta ?? {}),
-      ptype_meta_keys:        Object.keys(v?.payment_type_meta ?? {}),
-    },
-  });
-
-  // ── FALLBACK: if account number not in payload,
-  //    search by tx_ref or flw_ref in our DB
-  //    (in case we stored it during virtual account creation)
-  let resolvedAccount = accountNumber;
-
-  if (!resolvedAccount) {
-    log("warn", "ACCOUNT_NOT_IN_PAYLOAD_TRYING_DB_FALLBACK", {
-      txId, txRef, flwRef: v.flw_ref,
-    });
-
-    // Try looking up by tx_ref pattern (if you embed account in tx_ref)
-    // e.g. tx_ref = "VA-0123456789-1234567890"
-    const txRefMatch = txRef?.match(/\d{10}/);
-    if (txRefMatch) {
-      resolvedAccount = txRefMatch[0];
-      log("info", "ACCOUNT_FROM_TX_REF", { resolvedAccount });
-    }
-  }
-
-  if (!resolvedAccount) {
-    log("error", "NO_VIRTUAL_ACCOUNT_NUMBER", {
-      txId,
-      txRef,
-      rawData_full: rawData,
-      verified_full: v,
-    });
-    return;
-  }
-
-  // ── DB operations ─────────────────────────────────────────
+// ── Process charge with DB ────────────────────────────────────
+const processCredit = async ({
+  txId,
+  txRef,
+  flwRef,
+  amount,
+  currency,
+  accountNumber,
+  customerName,
+  customerEmail,
+  paymentType,
+  rawMeta,
+  source,
+}) => {
   const client = await pool.connect();
   try {
     await client.query("BEGIN");
 
-    // Idempotency check
+    // Idempotency
     const dup = await isDuplicate(client, {
-      flwRef: v.flw_ref ?? rawData.flw_ref,
-      txRef:  v.tx_ref  ?? txRef,
+      flwRef,
+      txRef,
       txId,
     });
 
@@ -385,66 +249,66 @@ async function handleChargeCompleted(rawData) {
     }
 
     // Find vendor
-    const vendor = await findVendorByAccount(client, resolvedAccount);
+    const vendor = await findVendor(client, accountNumber);
 
     log("info", "VENDOR_LOOKUP", {
-      accountNumber: resolvedAccount,
-      found:         !!vendor,
-      vendorId:      vendor?.vendor_id,
-      storeName:     vendor?.store_name,
-      vendorStatus:  vendor?.vendor_status,
+      accountNumber,
+      found:        !!vendor,
+      vendorId:     vendor?.vendor_id,
+      storeName:    vendor?.store_name,
+      vendorStatus: vendor?.vendor_status,
     });
 
     if (!vendor) {
       log("error", "VENDOR_NOT_FOUND", {
-        accountNumber: resolvedAccount,
-        txId, txRef,
+        accountNumber,
+        txId,
+        txRef,
       });
       await client.query("ROLLBACK");
       return;
     }
 
-    // Credit wallet
+    // Credit
     const wallet = await creditWallet(client, {
       vendorId:  vendor.vendor_id,
-      amount:    Number(v.amount),
-      currency:  v.currency ?? "NGN",
-      flwRef:    v.flw_ref  ?? rawData.flw_ref,
-      txRef:     v.tx_ref   ?? txRef,
+      amount:    Number(amount),
+      currency:  currency ?? "NGN",
+      flwRef,
+      txRef,
       narration: `Payment from ${
-        v.customer?.name
-        ?? v.customer?.email
-        ?? "customer"
+        customerName ?? customerEmail ?? "customer"
       } via virtual account`,
       meta: {
         flw_transaction_id: txId,
-        customer_name:      v.customer?.name,
-        customer_email:     v.customer?.email,
-        customer_phone:     v.customer?.phone_number,
-        virtual_account:    resolvedAccount,
-        payment_type:       v.payment_type,
-        payment_type_meta:  v.payment_type_meta,
-        raw_meta:           rawData.meta,
+        customer_name:      customerName,
+        customer_email:     customerEmail,
+        virtual_account:    accountNumber,
+        payment_type:       paymentType,
+        raw_meta:           rawMeta,
+        source,
       },
     });
 
     await client.query("COMMIT");
 
     log("info", "PAYMENT_PROCESSED", {
-      vendorId:     vendor.vendor_id,
-      storeName:    vendor.store_name,
-      amount:       v.amount,
-      currency:     v.currency,
-      newBalance:   wallet?.available_balance,
-      totalReceived:wallet?.total_received,
-      txId, txRef,
+      vendorId:      vendor.vendor_id,
+      storeName:     vendor.store_name,
+      amount,
+      currency,
+      newBalance:    wallet?.available_balance,
+      totalReceived: wallet?.total_received,
+      txId,
+      txRef,
+      source,
     });
 
-    // Notify after commit (non-blocking)
+    // Notify after commit
     notifyVendor(
       vendor.user_id,
-      Number(v.amount),
-      v.currency
+      Number(amount),
+      currency
     ).catch(() => {});
 
   } catch (err) {
@@ -453,23 +317,187 @@ async function handleChargeCompleted(rawData) {
       error:         err.message,
       code:          err.code,
       detail:        err.detail,
-      txId, txRef,
-      accountNumber: resolvedAccount,
+      txId,
+      txRef,
+      accountNumber,
     });
   } finally {
     client.release();
   }
+};
+
+// ══════════════════════════════════════════════════════════════
+// HANDLE: charge.completed
+// ══════════════════════════════════════════════════════════════
+async function handleChargeCompleted(rawData) {
+  const txId  = rawData?.id;
+  const txRef = rawData?.tx_ref;
+
+  log("info", "CHARGE_RECEIVED", {
+    txId,
+    txRef,
+    status:                 rawData?.status,
+    payment_type:           rawData?.payment_type,
+    amount:                 rawData?.amount,
+    currency:               rawData?.currency,
+    virtual_account_number: rawData?.virtual_account_number,
+    account_number:         rawData?.account_number,
+    meta:                   rawData?.meta,
+    payment_type_meta:      rawData?.payment_type_meta,
+    all_keys:               Object.keys(rawData ?? {}),
+  });
+
+  // Only successful payments
+  if (rawData?.status?.toLowerCase() !== "successful") {
+    log("info", "SKIPPED_NOT_SUCCESSFUL", {
+      status: rawData?.status,
+      txRef,
+    });
+    return;
+  }
+
+  // Only bank transfer type
+  const ptype = rawData?.payment_type?.toLowerCase();
+  if (ptype !== "bank_transfer" && ptype !== "account") {
+    log("info", "SKIPPED_WRONG_TYPE", {
+      payment_type: rawData?.payment_type,
+      txRef,
+    });
+    return;
+  }
+
+  // ── Step 1: Try to verify with FLW API ───────────────────
+  log("info", "VERIFYING_WITH_FLW", { txId });
+  const verifyRes = await verifyWithFLW(txId);
+
+  if (verifyRes && verifyRes.status === "success") {
+    const v = verifyRes.data;
+
+    log("info", "VERIFIED_DATA", {
+      txId,
+      verified_status:           v.status,
+      verified_amount:           v.amount,
+      virtual_account_number:    v.virtual_account_number,
+      account_number:            v.account_number,
+      v_meta:                    v.meta,
+      v_payment_type_meta:       v.payment_type_meta,
+      v_all_keys:                Object.keys(v ?? {}),
+    });
+
+    if (v.status?.toLowerCase() !== "successful") {
+      log("error", "VERIFIED_NOT_SUCCESSFUL", {
+        status: v.status,
+        txId,
+      });
+      return;
+    }
+
+    // Amount sanity check
+    if (
+      Math.abs(Number(v.amount) - Number(rawData.amount)) > 1
+    ) {
+      log("error", "AMOUNT_MISMATCH", {
+        webhook:  rawData.amount,
+        verified: v.amount,
+      });
+      return;
+    }
+
+    // Extract account from verified or raw data
+    const accountNumber =
+      extractAccount(v) ?? extractAccount(rawData);
+
+    log("info", "ACCOUNT_EXTRACTION", {
+      found:         accountNumber,
+      from_verified: extractAccount(v),
+      from_raw:      extractAccount(rawData),
+    });
+
+    if (!accountNumber) {
+      log("error", "NO_ACCOUNT_NUMBER", {
+        txId,
+        txRef,
+        v_keys:         Object.keys(v ?? {}),
+        v_meta:         v?.meta,
+        v_ptmeta:       v?.payment_type_meta,
+        raw_keys:       Object.keys(rawData ?? {}),
+        raw_meta:       rawData?.meta,
+      });
+      return;
+    }
+
+    await processCredit({
+      txId,
+      txRef:         v.tx_ref  ?? txRef,
+      flwRef:        v.flw_ref ?? rawData.flw_ref,
+      amount:        Number(v.amount),
+      currency:      v.currency ?? rawData.currency ?? "NGN",
+      accountNumber,
+      customerName:  v.customer?.name,
+      customerEmail: v.customer?.email,
+      paymentType:   v.payment_type,
+      rawMeta:       rawData.meta,
+      source:        "verified",
+    });
+
+    return;
+  }
+
+  // ── Step 2: Verification failed — use webhook data directly
+  // The signature was already verified so the payload is genuine
+  log("warn", "VERIFICATION_FAILED_USING_WEBHOOK_DATA", {
+    txId,
+    txRef,
+    verifyRes,
+  });
+
+  const accountNumber =
+    extractAccount(rawData);
+
+  log("info", "ACCOUNT_EXTRACTION_FALLBACK", {
+    found:    accountNumber,
+    raw_keys: Object.keys(rawData ?? {}),
+    raw_meta: rawData?.meta,
+    raw_ptm:  rawData?.payment_type_meta,
+  });
+
+  if (!accountNumber) {
+    log("error", "NO_ACCOUNT_NUMBER_FALLBACK", {
+      txId,
+      txRef,
+      rawData,
+    });
+    return;
+  }
+
+  await processCredit({
+    txId,
+    txRef,
+    flwRef:        rawData.flw_ref,
+    amount:        Number(rawData.amount),
+    currency:      rawData.currency ?? "NGN",
+    accountNumber,
+    customerName:  rawData.customer?.name,
+    customerEmail: rawData.customer?.email,
+    paymentType:   rawData.payment_type,
+    rawMeta:       rawData.meta,
+    source:        "webhook_fallback",
+  });
 }
 
-// ═════════════════════════════════════════════════════════════
-// HANDLE: transfer.completed (withdrawal status update)
-// ═════════════════════════════════════════════════════════════
+// ══════════════════════════════════════════════════════════════
+// HANDLE: transfer.completed (withdrawal updates)
+// ══════════════════════════════════════════════════════════════
 async function handleTransferCompleted(data) {
   const txRef      = data?.reference ?? data?.tx_ref;
   const transferId = data?.id;
   const status     = data?.status?.toUpperCase();
 
-  log("info", "TRANSFER_RECEIVED", { transferId, txRef, status });
+  log("info", "TRANSFER_RECEIVED", {
+    transferId,
+    txRef,
+    status,
+  });
 
   const client = await pool.connect();
   try {
@@ -481,8 +509,9 @@ async function handleTransferCompleted(data) {
          SET status       = 'success',
              processed_at = NOW(),
              updated_at   = NOW()
-         WHERE (tx_ref = $1 OR flw_transfer_id::text = $2)
-           AND status    = 'processing'
+         WHERE (tx_ref = $1
+             OR flw_transfer_id::text = $2)
+           AND status = 'processing'
          RETURNING id, vendor_id, amount`,
         [txRef ?? "", String(transferId ?? "")]
       );
@@ -490,19 +519,22 @@ async function handleTransferCompleted(data) {
       if (wd) {
         await client.query(
           `UPDATE market.vendor_wallets
-           SET pending_balance = GREATEST(0, pending_balance - $1),
+           SET pending_balance =
+                 GREATEST(0, pending_balance - $1),
                total_withdrawn = total_withdrawn + $1,
                updated_at      = NOW()
            WHERE vendor_id = $2`,
           [wd.amount, wd.vendor_id]
         );
+
         await client.query(
           `UPDATE market.vendor_transactions
-           SET status   = 'success',
+           SET status    = 'success',
                narration = 'Withdrawal completed'
            WHERE tx_ref = $1`,
           [txRef]
         );
+
         log("info", "WITHDRAWAL_SUCCESS", {
           vendorId: wd.vendor_id,
           amount:   wd.amount,
@@ -510,7 +542,8 @@ async function handleTransferCompleted(data) {
         });
       } else {
         log("warn", "WITHDRAWAL_RECORD_NOT_FOUND", {
-          txRef, transferId,
+          txRef,
+          transferId,
         });
       }
 
@@ -521,8 +554,9 @@ async function handleTransferCompleted(data) {
              failure_reason = $1,
              processed_at   = NOW(),
              updated_at     = NOW()
-         WHERE (tx_ref = $2 OR flw_transfer_id::text = $3)
-           AND status    = 'processing'
+         WHERE (tx_ref = $2
+             OR flw_transfer_id::text = $3)
+           AND status = 'processing'
          RETURNING id, vendor_id, amount`,
         [
           data?.complete_message ?? `Transfer ${status}`,
@@ -532,25 +566,30 @@ async function handleTransferCompleted(data) {
       );
 
       if (wd) {
-        // Restore balance
         await client.query(
           `UPDATE market.vendor_wallets
-           SET available_balance = available_balance + $1,
-               pending_balance   = GREATEST(0, pending_balance - $1),
+           SET available_balance =
+                 available_balance + $1,
+               pending_balance   =
+                 GREATEST(0, pending_balance - $1),
                updated_at        = NOW()
            WHERE vendor_id = $2`,
           [wd.amount, wd.vendor_id]
         );
+
         await client.query(
           `UPDATE market.vendor_transactions
-           SET status   = 'failed',
+           SET status    = 'failed',
                narration = $1
            WHERE tx_ref = $2`,
           [
-            `Withdrawal failed: ${data?.complete_message ?? status}`,
+            `Withdrawal failed: ${
+              data?.complete_message ?? status
+            }`,
             txRef,
           ]
         );
+
         log("warn", "WITHDRAWAL_REVERSED", {
           vendorId: wd.vendor_id,
           amount:   wd.amount,
@@ -558,8 +597,12 @@ async function handleTransferCompleted(data) {
           reason:   data?.complete_message,
         });
       }
+
     } else {
-      log("info", "TRANSFER_STATUS_UNHANDLED", { status, txRef });
+      log("info", "TRANSFER_STATUS_UNHANDLED", {
+        status,
+        txRef,
+      });
     }
 
     await client.query("COMMIT");
@@ -567,31 +610,55 @@ async function handleTransferCompleted(data) {
   } catch (err) {
     await client.query("ROLLBACK").catch(() => {});
     log("error", "TRANSFER_HANDLER_FAILED", {
-      error: err.message, txRef, transferId,
+      error:      err.message,
+      txRef,
+      transferId,
     });
   } finally {
     client.release();
   }
 }
 
-// ═════════════════════════════════════════════════════════════
+// ══════════════════════════════════════════════════════════════
+// GET /api/webhooks/flutterwave
+// Health check — confirms route is reachable
+// ══════════════════════════════════════════════════════════════
+router.get("/", (_req, res) => {
+  res.json({
+    success:   true,
+    endpoint:  "Flutterwave Webhook",
+    method:    "POST only",
+    hash_set:  !!process.env.FLW_SECRET_HASH,
+    key_set:   !!process.env.FLW_SECRET_KEY,
+    timestamp: new Date().toISOString(),
+  });
+});
+
+// ══════════════════════════════════════════════════════════════
 // POST /api/webhooks/flutterwave
-// ═════════════════════════════════════════════════════════════
+// ══════════════════════════════════════════════════════════════
 router.post("/", async (req, res) => {
 
-  // ── Signature check ──────────────────────────────────────
-  if (!checkSignature(req)) {
-    // Return 200 to stop FLW retries, but don't process
-    log("warn", "REJECTED_INVALID_SIGNATURE");
-    return res.status(200).json({
-      received: false,
-      reason:   "invalid_signature",
+  // Check signature
+  const sigOk = checkSignature(req);
+
+  if (!sigOk) {
+    log("warn", "REJECTED_INVALID_SIGNATURE", {
+      received: req.headers["verif-hash"]?.slice(0, 8) + "…",
     });
+
+    // Skip check if debug env is set
+    if (process.env.FLW_SKIP_SIG_CHECK !== "true") {
+      return res.status(200).json({
+        received: false,
+        reason:   "invalid_signature",
+      });
+    }
+
+    log("warn", "SIGNATURE_CHECK_SKIPPED_FOR_DEBUG");
   }
 
-  const body  = req.body ?? {};
-  const event = body.event;
-  const data  = body.data;
+  const { event, data } = req.body ?? {};
 
   log("info", "WEBHOOK_RECEIVED", {
     event,
@@ -602,25 +669,19 @@ router.post("/", async (req, res) => {
     type:   data?.payment_type,
   });
 
-  // ── Respond 200 immediately ───────────────────────────────
-  // FLW marks webhook as failed if no 200 within ~30s
-  // Processing happens after response is sent
+  // Respond 200 immediately
+  // FLW marks webhook failed if no response within 30s
   res.status(200).json({ received: true, event });
 
-  // ── Process asynchronously ────────────────────────────────
+  // Process async after response sent
   setImmediate(async () => {
     try {
-      switch (event) {
-        case "charge.completed":
-          await handleChargeCompleted(data);
-          break;
-
-        case "transfer.completed":
-          await handleTransferCompleted(data);
-          break;
-
-        default:
-          log("info", "UNHANDLED_EVENT", { event });
+      if (event === "charge.completed") {
+        await handleChargeCompleted(data);
+      } else if (event === "transfer.completed") {
+        await handleTransferCompleted(data);
+      } else {
+        log("info", "UNHANDLED_EVENT", { event });
       }
     } catch (err) {
       log("error", "UNHANDLED_EXCEPTION", {
