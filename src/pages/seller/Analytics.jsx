@@ -1,5 +1,6 @@
 // pages/seller/Analytics.jsx
 import React, { useState, useEffect, useCallback } from "react";
+import { useNavigate } from "react-router-dom";
 import { sellerApi } from "./SellerDashboard";
 import StatCard from "./components/StatCard";
 
@@ -28,6 +29,8 @@ const RANGES = [
 ];
 
 export default function Analytics() {
+  const navigate = useNavigate();
+
   const [range,       setRange]       = useState("30d");
   const [stats,       setStats]       = useState(null);
   const [chart,       setChart]       = useState([]);
@@ -35,6 +38,9 @@ export default function Analytics() {
   const [loadStats,   setLoadStats]   = useState(true);
   const [loadChart,   setLoadChart]   = useState(true);
   const [loadProds,   setLoadProds]   = useState(true);
+
+  // ── navigate to PostAds page ──
+  const goToPostAd = () => navigate("/minimart/post-ad");
 
   // GET /api/seller-dashboard/stats?range=
   const fetchStats = useCallback(async () => {
@@ -100,30 +106,59 @@ export default function Analytics() {
           </p>
         </div>
 
-        {/* Range tabs */}
-        <div style={{ display:"flex", gap:"0.3rem",
-          background:"white", border:"1px solid #e5e7eb",
-          borderRadius:"12px", padding:"4px" }}>
-          {RANGES.map(({ key, label }) => (
-            <button
-              key={key}
-              onClick={() => setRange(key)}
-              style={{
-                padding:      "0.4rem 0.875rem",
-                borderRadius: "8px",
-                border:       "none",
-                cursor:       "pointer",
-                fontSize:     "0.8rem",
-                fontWeight:   range === key ? 700 : 500,
-                background:   range === key ? "#6366f1" : "transparent",
-                color:        range === key ? "white"   : "#6b7280",
-                transition:   "all 0.15s",
-                whiteSpace:   "nowrap",
-              }}
-            >
-              {label}
-            </button>
-          ))}
+        <div style={{ display:"flex", gap:"0.6rem",
+          alignItems:"center", flexWrap:"wrap" }}>
+
+          {/* Range tabs */}
+          <div style={{ display:"flex", gap:"0.3rem",
+            background:"white", border:"1px solid #e5e7eb",
+            borderRadius:"12px", padding:"4px" }}>
+            {RANGES.map(({ key, label }) => (
+              <button
+                key={key}
+                onClick={() => setRange(key)}
+                style={{
+                  padding:      "0.4rem 0.875rem",
+                  borderRadius: "8px",
+                  border:       "none",
+                  cursor:       "pointer",
+                  fontSize:     "0.8rem",
+                  fontWeight:   range === key ? 700 : 500,
+                  background:   range === key ? "#6366f1" : "transparent",
+                  color:        range === key ? "white"   : "#6b7280",
+                  transition:   "all 0.15s",
+                  whiteSpace:   "nowrap",
+                }}
+              >
+                {label}
+              </button>
+            ))}
+          </div>
+
+          {/* ➕ Post Product button → PostAds */}
+          <button
+            onClick={goToPostAd}
+            style={{
+              display:      "flex",
+              alignItems:   "center",
+              gap:          "0.4rem",
+              padding:      "0.5rem 1rem",
+              borderRadius: "10px",
+              border:       "none",
+              cursor:       "pointer",
+              fontSize:     "0.85rem",
+              fontWeight:   700,
+              color:        "white",
+              background:   "linear-gradient(135deg,#ff5722,#ff8a00)",
+              whiteSpace:   "nowrap",
+              transition:   "opacity 0.15s",
+            }}
+            onMouseEnter={(e) => (e.currentTarget.style.opacity = "0.9")}
+            onMouseLeave={(e) => (e.currentTarget.style.opacity = "1")}
+          >
+            <span style={{ fontSize:"1rem", lineHeight:1 }}>＋</span>
+            Post Product
+          </button>
         </div>
       </div>
 
@@ -184,6 +219,9 @@ export default function Analytics() {
           <div style={an.noData}>
             <span style={{ fontSize:"2rem" }}>📭</span>
             <p>No revenue data for this period</p>
+            <button onClick={goToPostAd} style={an.ctaBtn}>
+              ＋ Post Your First Product
+            </button>
           </div>
         ) : (
           <>
@@ -264,6 +302,9 @@ export default function Analytics() {
           <div style={an.noData}>
             <span style={{ fontSize:"2rem" }}>🏷️</span>
             <p>No product sales yet</p>
+            <button onClick={goToPostAd} style={an.ctaBtn}>
+              ＋ Post Your First Product
+            </button>
           </div>
         ) : (
           <div style={{ display:"flex", flexDirection:"column",
@@ -373,7 +414,18 @@ const an = {
     display:       "flex",
     flexDirection: "column",
     alignItems:    "center",
-    gap:           "0.4rem",
+    gap:           "0.6rem",
     fontSize:      "0.875rem",
+  },
+  ctaBtn: {
+    marginTop:    "0.5rem",
+    padding:      "0.55rem 1.1rem",
+    borderRadius: "10px",
+    border:       "none",
+    cursor:       "pointer",
+    fontSize:     "0.85rem",
+    fontWeight:   700,
+    color:        "white",
+    background:   "linear-gradient(135deg,#ff5722,#ff8a00)",
   },
 };
