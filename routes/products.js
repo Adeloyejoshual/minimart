@@ -2,33 +2,50 @@
  * routes/products.js
  *
  * Mount:  app.use("/api/products", productsRouter);
- * Import: import productsRouter from "./routes/products.js";
  *
- * Tables (market schema):
- *   products · product_images · product_variants
- *   product_features · product_specifications · product_box_items
- *
- * NOTE: `condition` column is fixed to 'new' server-side — field removed from UI.
+ * Schemas:
+ *   market.products · market.product_images · market.product_variants
+ *   market.product_features · market.product_specifications · market.product_box_items
+ *   market.users  ← sellers
+ *   public.users  ← buyers (not used here)
  */
 
 import express from "express";
-import { pool }       from "../config/db.js";
+import multer  from "multer";
+import { pool } from "../config/db.js";
 import { authenticate, requireAdmin } from "../middleware/auth.js";
-import { upload, uploadToCloudinary }  from "../middleware/upload.js";
+import { upload, uploadToCloudinary, destroyFromCloudinary } from "../middleware/upload.js";
 
 const router = express.Router();
 
 /* ══════════════════════════════════════════════════════════════
-   HELPERS
+   CONSTANTS
 ══════════════════════════════════════════════════════════════ */
+const MAX_IMAGES    = 6;
+const DEFAULT_LIMIT = 24;
+const MAX_LIMIT     = 100;
 
-/** Full product query with all related tables joined as JSON arrays */
+const SORT_MAP = {
+  newest:      "p.created_at DESC",
+  oldest:      "p.created_at ASC",
+  price_asc:   "p.price ASC",
+  price_desc:  "p.price DESC",
+  fraud_score: "p.fraud_score DESC NULLS LAST",
+  views:       "p.view_count DESC",
+};
+
+/* ══════════════════════════════════════════════════════════════
+   FULL PRODUCT SELECT
+   — market.users for seller info (name / profile_image)
+══════════════════════════════════════════════════════════════ */
 const FULL_PRODUCT_SELECT = `
   SELECT
     p.*,
-    u.username          AS seller_name,
-    u.email             AS seller_email,
-    u.avatar_url        AS seller_avatar,
+    u.name           AS seller_name,
+    u.email          AS seller_email,
+    u.profile_image  AS seller_avatar,
+    u.phone_number   AS seller_phone,
+    u.verified       AS seller_verified,
 
     COALESCE(
       json_agg(DISTINCT jsonb_build_object(
@@ -56,7 +73,8 @@ const FULL_PRODUCT_SELECT = `
       json_agg(DISTINCT jsonb_build_object(
         'feature',  pf.feature,
         'position', pf.position
-      ) ORDER BY jsonb_build_object('position', pf.position)) FILTER (WHERE pf.id IS NOT NULL),
+      ) ORDER BY jsonb_build_object('position', pf.position))
+      FILTER (WHERE pf.id IS NOT NULL),
       '[]'
     ) AS key_features,
 
@@ -65,7 +83,8 @@ const FULL_PRODUCT_SELECT = `
         'key',      ps.spec_key,
         'value',    ps.spec_value,
         'position', ps.position
-      ) ORDER BY jsonb_build_object('position', ps.position)) FILTER (WHERE ps.id IS NOT NULL),
+      ) ORDER BY jsonb_build_object('position', ps.position))
+      FILTER (WHERE ps.id IS NOT NULL),
       '[]'
     ) AS specifications,
 
@@ -73,40 +92,157 @@ const FULL_PRODUCT_SELECT = `
       json_agg(DISTINCT jsonb_build_object(
         'item',     pb.item,
         'position', pb.position
-      ) ORDER BY jsonb_build_object('position', pb.position)) FILTER (WHERE pb.id IS NOT NULL),
+      ) ORDER BY jsonb_build_object('position', pb.position))
+      FILTER (WHERE pb.id IS NOT NULL),
       '[]'
     ) AS whats_in_box
 
   FROM market.products p
-  LEFT JOIN public.users                 u  ON u.id  = p.user_id
-  LEFT JOIN market.product_images        pi ON pi.product_id = p.id
-  LEFT JOIN market.product_variants      pv ON pv.product_id = p.id
-  LEFT JOIN market.product_features      pf ON pf.product_id = p.id
+  LEFT JOIN market.users                  u  ON u.id          = p.user_id
+  LEFT JOIN market.product_images         pi ON pi.product_id = p.id
+  LEFT JOIN market.product_variants       pv ON pv.product_id = p.id
+  LEFT JOIN market.product_features       pf ON pf.product_id = p.id
   LEFT JOIN market.product_specifications ps ON ps.product_id = p.id
-  LEFT JOIN market.product_box_items     pb ON pb.product_id = p.id
+  LEFT JOIN market.product_box_items      pb ON pb.product_id = p.id
 `;
 
-/** Insert child rows (features / box items) */
+/* GROUP BY must match every non-aggregated SELECT column from market.users */
+const GROUP_BY = `
+  GROUP BY
+    p.id,
+    u.name,
+    u.email,
+    u.profile_image,
+    u.phone_number,
+    u.verified
+`;
+
+/* ══════════════════════════════════════════════════════════════
+   HELPERS
+══════════════════════════════════════════════════════════════ */
+
+/** Pagination — clamped and coerced */
+function paginate(query) {
+  const limit  = Math.min(parseInt(query.limit,  10) || DEFAULT_LIMIT, MAX_LIMIT);
+  const offset = Math.max(parseInt(query.offset, 10) || 0, 0);
+  const page   = Math.floor(offset / limit) + 1;
+  return { limit, offset, page };
+}
+
+/** Safe sort — whitelist only */
+function safeSort(sort) {
+  return SORT_MAP[sort] || SORT_MAP.newest;
+}
+
+/** Safe string — trim + max length */
+function safeStr(val, max = 500) {
+  if (typeof val !== "string") return null;
+  const t = val.trim();
+  return t.length ? t.slice(0, max) : null;
+}
+
+/** Parse JSON body field safely */
+function parseJSON(raw, fallback = []) {
+  try   { return typeof raw === "string" ? JSON.parse(raw) : (raw ?? fallback); }
+  catch { return fallback; }
+}
+
+/** Pagination meta object */
+function paginationMeta(total, limit, offset) {
+  const totalPages = Math.ceil(total / limit);
+  const page       = Math.floor(offset / limit) + 1;
+  return { total, page, limit, offset, totalPages, hasNext: page < totalPages };
+}
+
+/** Standard success response */
+const ok   = (res, data = {}, status = 200) =>
+  res.status(status).json({ success: true,  ...data });
+
+/** Standard error response */
+const fail = (res, status, message) =>
+  res.status(status).json({ success: false, message });
+
+/* ── Child table helpers ─────────────────────────────────── */
+
 async function insertList(client, table, column, productId, items) {
   for (let i = 0; i < items.length; i++) {
-    const val = items[i]?.trim?.() || items[i];
+    const val = safeStr(String(items[i] ?? ""));
     if (!val) continue;
     await client.query(
-      `INSERT INTO market.${table} (product_id, ${column}, position) VALUES ($1,$2,$3)`,
+      `INSERT INTO market.${table} (product_id, ${column}, position)
+       VALUES ($1, $2, $3)`,
       [productId, val, i]
     );
   }
 }
 
-/** Delete all child rows then re-insert (used on update) */
 async function replaceList(client, table, column, productId, items) {
-  await client.query(`DELETE FROM market.${table} WHERE product_id = $1`, [productId]);
+  await client.query(
+    `DELETE FROM market.${table} WHERE product_id = $1`,
+    [productId]
+  );
   await insertList(client, table, column, productId, items);
 }
 
-/** Parse a JSON body field safely */
-function parseJSON(raw, fallback = []) {
-  try { return JSON.parse(raw); } catch { return fallback; }
+async function replaceSpecs(client, productId, specs) {
+  await client.query(
+    "DELETE FROM market.product_specifications WHERE product_id = $1",
+    [productId]
+  );
+  for (let i = 0; i < specs.length; i++) {
+    const k = safeStr(specs[i]?.key);
+    const v = safeStr(specs[i]?.value);
+    if (!k || !v) continue;
+    await client.query(
+      `INSERT INTO market.product_specifications
+         (product_id, spec_key, spec_value, position)
+       VALUES ($1, $2, $3, $4)`,
+      [productId, k, v, i]
+    );
+  }
+}
+
+async function replaceVariants(client, productId, rawVariants) {
+  await client.query(
+    "DELETE FROM market.product_variants WHERE product_id = $1",
+    [productId]
+  );
+  const variants = parseJSON(rawVariants);
+  for (const v of variants) {
+    const sku  = safeStr(v?.sku);
+    const name = safeStr(v?.name);
+    if (!sku || !name) continue;
+    await client.query(
+      `INSERT INTO market.product_variants
+         (product_id, sku, name, price, stock, attributes)
+       VALUES ($1, $2, $3, $4, $5, $6)`,
+      [
+        productId,
+        sku.toUpperCase(),
+        name,
+        Math.max(0, parseFloat(v.price)   || 0),
+        Math.max(0, parseInt(v.stock, 10) || 0),
+        JSON.stringify(v.attributes || {}),
+      ]
+    );
+  }
+}
+
+async function uploadFiles(files) {
+  return Promise.all(files.map((f) => uploadToCloudinary(f.buffer)));
+}
+
+async function deleteOldImages(client, productId) {
+  const { rows } = await client.query(
+    "SELECT image_url FROM market.product_images WHERE product_id = $1",
+    [productId]
+  );
+  rows.forEach(({ image_url }) => {
+    try {
+      const publicId = image_url.split("/upload/")[1]?.replace(/\.[^.]+$/, "");
+      if (publicId) destroyFromCloudinary(publicId).catch(() => {});
+    } catch {}
+  });
 }
 
 /** Ownership guard — seller may only touch their own products */
@@ -115,381 +251,525 @@ async function assertOwner(client, productId, userId) {
     "SELECT user_id, status FROM market.products WHERE id = $1",
     [productId]
   );
-  if (!rows.length) return { error: 404, message: "Product not found" };
-  if (rows[0].user_id !== userId) return { error: 403, message: "Forbidden" };
+  if (!rows.length)               return { error: 404, message: "Product not found" };
+  if (rows[0].user_id !== userId) return { error: 403, message: "Forbidden"         };
   return { row: rows[0] };
 }
 
 /* ══════════════════════════════════════════════════════════════
    PUBLIC ROUTES
+   ⚠️  Static paths BEFORE /:id
 ══════════════════════════════════════════════════════════════ */
 
 /**
  * GET /api/products
- * Public listing — approved & active products only.
- * Query params: category, search, featured, trending, sponsored, limit, offset, sort
+ * Public — approved, active, visible listings only.
+ * Query: category, search, brand, tags, featured, trending,
+ *        sponsored, limit, offset, sort
  */
 router.get("/", async (req, res) => {
   try {
     const {
-      category, search,
+      category, search, brand, tags,
       featured, trending, sponsored,
-      limit   = 24,
-      offset  = 0,
-      sort    = "newest",       // newest | price_asc | price_desc
+      sort = "newest",
     } = req.query;
 
-    const conditions = ["p.status = 'approved'", "p.is_active = true", "p.is_hidden = false", "p.is_paused = false"];
-    const params     = [];
-    let   p          = 1;
+    const { limit, offset } = paginate(req.query);
 
-    if (category)  { conditions.push(`p.category = $${p++}`);                     params.push(category); }
-    if (search)    { conditions.push(`p.name ILIKE $${p++}`);                      params.push(`%${search.trim()}%`); }
-    if (featured === "true")  conditions.push("p.is_featured = true");
-    if (trending  === "true") conditions.push("p.is_trending = true");
-    if (sponsored === "true") conditions.push("p.is_sponsored = true");
+    const conditions = [
+      "p.status    = 'approved'",
+      "p.is_active  = true",
+      "p.is_hidden  = false",
+      "p.is_paused  = false",
+    ];
+    const params = [];
+    let   p      = 1;
 
-    const orderMap = {
-      newest:     "p.created_at DESC",
-      price_asc:  "p.price ASC",
-      price_desc: "p.price DESC",
-    };
-    const order = orderMap[sort] || orderMap.newest;
+    if (category)             { conditions.push(`p.category = $${p++}`);         params.push(category); }
+    if (brand)                { conditions.push(`p.brand ILIKE $${p++}`);         params.push(`%${brand.trim()}%`); }
+    if (search)               { conditions.push(`p.name ILIKE $${p++}`);          params.push(`%${search.trim()}%`); }
+    if (tags)                 { conditions.push(`p.tags && $${p++}::text[]`);     params.push(tags.split(",")); }
+    if (featured  === "true")   conditions.push("p.is_featured  = true");
+    if (trending  === "true")   conditions.push("p.is_trending  = true");
+    if (sponsored === "true")   conditions.push("p.is_sponsored = true");
 
-    const where = conditions.length ? `WHERE ${conditions.join(" AND ")}` : "";
+    const where = `WHERE ${conditions.join(" AND ")}`;
+    const order = safeSort(sort);
 
-    const { rows } = await pool.query(
-      `${FULL_PRODUCT_SELECT}
-       ${where}
-       GROUP BY p.id, u.username, u.email, u.avatar_url
-       ORDER BY ${order}
-       LIMIT $${p++} OFFSET $${p++}`,
-      [...params, parseInt(limit, 10), parseInt(offset, 10)]
-    );
+    const [{ rows }, countRes] = await Promise.all([
+      pool.query(
+        `${FULL_PRODUCT_SELECT}
+         ${where}
+         ${GROUP_BY}
+         ORDER BY ${order}
+         LIMIT $${p++} OFFSET $${p++}`,
+        [...params, limit, offset]
+      ),
+      pool.query(
+        `SELECT COUNT(*) FROM market.products p ${where}`,
+        params
+      ),
+    ]);
 
-    const countRes = await pool.query(
-      `SELECT COUNT(*) FROM market.products p ${where}`,
-      params
-    );
-
-    res.json({ total: parseInt(countRes.rows[0].count, 10), products: rows });
+    const total = parseInt(countRes.rows[0].count, 10);
+    ok(res, { data: { products: rows, pagination: paginationMeta(total, limit, offset) } });
   } catch (err) {
     console.error("GET /products:", err);
-    res.status(500).json({ message: "Failed to fetch products" });
+    fail(res, 500, "Failed to fetch products");
   }
 });
 
 /**
+ * GET /api/products/seller/mine
+ * ⚠️  Before /:id
+ * Seller's own listings — all statuses.
+ * Query: status, limit, offset, sort
+ */
+router.get("/seller/mine", authenticate, async (req, res) => {
+  try {
+    const { status, sort = "newest" } = req.query;
+    const { limit, offset }           = paginate(req.query);
+
+    const conditions = ["p.user_id = $1"];
+    const params     = [req.user.id];
+    let   p          = 2;
+
+    if (status) { conditions.push(`p.status = $${p++}`); params.push(status); }
+
+    const where = `WHERE ${conditions.join(" AND ")}`;
+    const order = safeSort(sort);
+
+    const [{ rows }, countRes] = await Promise.all([
+      pool.query(
+        `${FULL_PRODUCT_SELECT}
+         ${where}
+         ${GROUP_BY}
+         ORDER BY ${order}
+         LIMIT $${p++} OFFSET $${p++}`,
+        [...params, limit, offset]
+      ),
+      pool.query(
+        `SELECT COUNT(*) FROM market.products p ${where}`,
+        params
+      ),
+    ]);
+
+    const total = parseInt(countRes.rows[0].count, 10);
+    ok(res, { data: { products: rows, pagination: paginationMeta(total, limit, offset) } });
+  } catch (err) {
+    console.error("GET /products/seller/mine:", err);
+    fail(res, 500, "Failed to fetch your listings");
+  }
+});
+
+/**
+ * GET /api/products/admin/all
+ * ⚠️  Before /:id
+ * Admin view — all products, all statuses.
+ * Query: status, flagged, category, brand, search, limit, offset, sort
+ */
+router.get("/admin/all", authenticate, requireAdmin, async (req, res) => {
+  try {
+    const { status, flagged, category, brand, search, sort = "newest" } = req.query;
+    const { limit, offset } = paginate(req.query);
+
+    const conditions = [];
+    const params     = [];
+    let   p          = 1;
+
+    if (status)              { conditions.push(`p.status = $${p++}`);       params.push(status); }
+    if (category)            { conditions.push(`p.category = $${p++}`);     params.push(category); }
+    if (brand)               { conditions.push(`p.brand ILIKE $${p++}`);    params.push(`%${brand.trim()}%`); }
+    if (search)              { conditions.push(`p.name ILIKE $${p++}`);     params.push(`%${search.trim()}%`); }
+    if (flagged === "true")    conditions.push("p.is_flagged = true");
+
+    const where = conditions.length ? `WHERE ${conditions.join(" AND ")}` : "";
+    const order = safeSort(sort);
+
+    const [{ rows }, countRes] = await Promise.all([
+      pool.query(
+        `${FULL_PRODUCT_SELECT}
+         ${where}
+         ${GROUP_BY}
+         ORDER BY ${order}
+         LIMIT $${p++} OFFSET $${p++}`,
+        [...params, limit, offset]
+      ),
+      pool.query(
+        `SELECT COUNT(*) FROM market.products p ${where}`,
+        params
+      ),
+    ]);
+
+    const total = parseInt(countRes.rows[0].count, 10);
+    ok(res, { data: { products: rows, pagination: paginationMeta(total, limit, offset) } });
+  } catch (err) {
+    console.error("GET /products/admin/all:", err);
+    fail(res, 500, "Failed to fetch products");
+  }
+});
+
+/**
+ * GET /api/products/admin/stats
+ * ⚠️  Before /:id
+ * Counts by status for admin dashboard.
+ */
+router.get("/admin/stats", authenticate, requireAdmin, async (req, res) => {
+  try {
+    const { rows: [stats] } = await pool.query(`
+      SELECT
+        COUNT(*)                                             AS total,
+        COUNT(*) FILTER (WHERE status = 'pending')          AS pending,
+        COUNT(*) FILTER (WHERE status = 'approved')         AS approved,
+        COUNT(*) FILTER (WHERE status = 'rejected')         AS rejected,
+        COUNT(*) FILTER (WHERE status = 'removed')          AS removed,
+        COUNT(*) FILTER (WHERE is_flagged   = true)         AS flagged,
+        COUNT(*) FILTER (WHERE is_featured  = true)         AS featured,
+        COUNT(*) FILTER (WHERE is_trending  = true)         AS trending,
+        COUNT(*) FILTER (WHERE is_sponsored = true)         AS sponsored,
+        COUNT(*) FILTER (WHERE is_paused    = true)         AS paused,
+        COUNT(*) FILTER (WHERE is_hidden    = true)         AS hidden
+      FROM market.products
+    `);
+    ok(res, { data: stats });
+  } catch (err) {
+    console.error("GET /products/admin/stats:", err);
+    fail(res, 500, "Failed to fetch stats");
+  }
+});
+
+/**
+ * POST /api/products/admin/bulk-approve
+ * ⚠️  Before /:id
+ * Body: { ids: string[] }
+ */
+router.post("/admin/bulk-approve", authenticate, requireAdmin, async (req, res) => {
+  const ids = parseJSON(req.body.ids, []);
+  if (!ids.length) return fail(res, 422, "No product IDs provided");
+
+  try {
+    const { rowCount } = await pool.query(
+      `UPDATE market.products SET
+         status      = 'approved',
+         is_active   = true,
+         is_flagged  = false,
+         reviewed_by = $2,
+         reviewed_at = now(),
+         updated_at  = now()
+       WHERE id = ANY($1::uuid[]) AND status != 'approved'`,
+      [ids, req.user.id]
+    );
+    ok(res, { message: `${rowCount} product(s) approved`, data: { count: rowCount } });
+  } catch (err) {
+    console.error("POST /products/admin/bulk-approve:", err);
+    fail(res, 500, "Bulk approve failed");
+  }
+});
+
+/**
+ * POST /api/products/admin/bulk-reject
+ * ⚠️  Before /:id
+ * Body: { ids: string[], reason: string }
+ */
+router.post("/admin/bulk-reject", authenticate, requireAdmin, async (req, res) => {
+  const ids    = parseJSON(req.body.ids, []);
+  const reason = safeStr(req.body.reason, 500);
+
+  if (!ids.length) return fail(res, 422, "No product IDs provided");
+  if (!reason)     return fail(res, 422, "A rejection reason is required");
+
+  try {
+    const { rowCount } = await pool.query(
+      `UPDATE market.products SET
+         status           = 'rejected',
+         is_active        = false,
+         rejection_reason = $3,
+         reviewed_by      = $2,
+         reviewed_at      = now(),
+         updated_at       = now()
+       WHERE id = ANY($1::uuid[])`,
+      [ids, req.user.id, reason]
+    );
+    ok(res, { message: `${rowCount} product(s) rejected`, data: { count: rowCount } });
+  } catch (err) {
+    console.error("POST /products/admin/bulk-reject:", err);
+    fail(res, 500, "Bulk reject failed");
+  }
+});
+
+/* ══════════════════════════════════════════════════════════════
+   /:id ROUTES — must come AFTER all static paths
+══════════════════════════════════════════════════════════════ */
+
+/**
  * GET /api/products/:id
- * Single product — public if approved; owner or admin can see any status.
+ * Public if approved — owner or admin sees any status.
+ * Increments view_count async.
  */
 router.get("/:id", async (req, res) => {
   try {
     const { rows } = await pool.query(
       `${FULL_PRODUCT_SELECT}
        WHERE p.id = $1
-       GROUP BY p.id, u.username, u.email, u.avatar_url`,
+       ${GROUP_BY}`,
       [req.params.id]
     );
 
-    if (!rows.length) return res.status(404).json({ message: "Product not found" });
+    if (!rows.length) return fail(res, 404, "Product not found");
 
-    const product = rows[0];
+    const product  = rows[0];
+    const isAdmin  = req.user?.role === "admin";
+    const isOwner  = req.user?.id   === product.user_id;
+    const isPublic = product.status === "approved"
+                  && product.is_active
+                  && !product.is_hidden;
 
-    // Non-owners/non-admins can only see approved active listings
-    const token   = req.headers.authorization?.split(" ")[1];
-    const isAdmin = req.user?.role === "admin"; // populated by optional auth
-    const isOwner = req.user?.id === product.user_id;
+    if (!isAdmin && !isOwner && !isPublic)
+      return fail(res, 404, "Product not found");
 
-    if (!isAdmin && !isOwner && (product.status !== "approved" || !product.is_active))
-      return res.status(404).json({ message: "Product not found" });
+    /* Increment view count — non-blocking */
+    if (isPublic) {
+      pool.query(
+        "UPDATE market.products SET view_count = view_count + 1 WHERE id = $1",
+        [product.id]
+      ).catch(() => {});
+    }
 
-    res.json(product);
+    ok(res, { data: product });
   } catch (err) {
     console.error("GET /products/:id:", err);
-    res.status(500).json({ message: "Failed to fetch product" });
+    fail(res, 500, "Failed to fetch product");
   }
 });
-
-/* ══════════════════════════════════════════════════════════════
-   SELLER ROUTES  (authenticated)
-══════════════════════════════════════════════════════════════ */
 
 /**
  * POST /api/products
- * Create a new listing — submitted as 'pending', not yet active.
- * Multipart form: images[] + JSON fields.
+ * Create listing — status = 'pending', is_active = false.
  */
-router.post("/", authenticate, upload.array("images", 5), async (req, res) => {
-  if (!req.files?.length)
-    return res.status(400).json({ message: "At least one image is required" });
+router.post(
+  "/",
+  authenticate,
+  upload.array("images", MAX_IMAGES),
+  async (req, res) => {
+    if (!req.files?.length)
+      return fail(res, 400, "At least one image is required");
 
-  const client = await pool.connect();
-  try {
-    await client.query("BEGIN");
+    const client = await pool.connect();
+    try {
+      await client.query("BEGIN");
 
-    const {
-      name, description, category,
-      basePrice, originalPrice,
-      variants, keyFeatures, specifications, whatsInBox,
-    } = req.body;
+      const {
+        name, description, category,
+        basePrice, originalPrice,
+        brand, tags,
+        variants, keyFeatures, specifications, whatsInBox,
+      } = req.body;
 
-    /* — Validate core fields — */
-    if (!name?.trim())  return res.status(400).json({ message: "Product name is required" });
-    if (!category)      return res.status(400).json({ message: "Category is required" });
+      const cleanName = safeStr(name, 200);
+      if (!cleanName)  return fail(res, 422, "Product name is required");
+      if (!category)   return fail(res, 422, "Category is required");
 
-    const price = parseInt(basePrice, 10);
-    if (isNaN(price) || price <= 0)
-      return res.status(400).json({ message: "Valid base price is required" });
+      const price = parseInt(basePrice, 10);
+      if (isNaN(price) || price <= 0)
+        return fail(res, 422, "Valid base price is required");
 
-    /* — Insert product (condition hardcoded to 'new') — */
-    const { rows: [{ id: productId }] } = await client.query(
-      `INSERT INTO market.products
-         (user_id, name, description, category, condition, price, original_price, status, is_active)
-       VALUES ($1,$2,$3,$4,'new',$5,$6,'pending',false)
-       RETURNING id`,
-      [
-        req.user.id,
-        name.trim(),
-        description?.trim() || null,
-        category,
-        price,
-        originalPrice ? parseInt(originalPrice, 10) : null,
-      ]
-    );
+      const parsedTags = parseJSON(tags, []);
 
-    /* — Upload images to Cloudinary (parallel) — */
-    const uploaded = await Promise.all(
-      req.files.map((f) => uploadToCloudinary(f.buffer))
-    );
-    for (let i = 0; i < uploaded.length; i++) {
-      await client.query(
-        `INSERT INTO market.product_images (product_id, image_url, is_primary, sort_order)
-         VALUES ($1,$2,$3,$4)`,
-        [productId, uploaded[i].secure_url, i === 0, i]
-      );
-    }
-
-    /* — Insert variants — */
-    const parsedVariants = parseJSON(variants);
-    for (const v of parsedVariants) {
-      if (!v.sku?.trim() || !v.name?.trim()) continue;
-      await client.query(
-        `INSERT INTO market.product_variants (product_id, sku, name, price, stock, attributes)
-         VALUES ($1,$2,$3,$4,$5,$6)`,
+      /* — Insert product — */
+      const { rows: [{ id: productId }] } = await client.query(
+        `INSERT INTO market.products
+           (user_id, name, description, category, condition,
+            price, original_price, brand, tags,
+            status, is_active)
+         VALUES ($1,$2,$3,$4,'new',$5,$6,$7,$8,'pending',false)
+         RETURNING id`,
         [
-          productId,
-          v.sku.trim().toUpperCase(),
-          v.name.trim(),
-          parseFloat(v.price) || 0,
-          Math.max(0, parseInt(v.stock, 10) || 0),
-          JSON.stringify(v.attributes || {}),
+          req.user.id,
+          cleanName,
+          safeStr(description, 2000),
+          category,
+          price,
+          originalPrice ? parseInt(originalPrice, 10) : null,
+          safeStr(brand, 100),
+          parsedTags.length ? parsedTags : null,
         ]
       );
-    }
 
-    /* — Insert child lists — */
-    await insertList(client, "product_features",      "feature",  productId, parseJSON(keyFeatures));
-    await insertList(client, "product_box_items",     "item",     productId, parseJSON(whatsInBox));
-
-    const specs = parseJSON(specifications);
-    for (let i = 0; i < specs.length; i++) {
-      const s = specs[i];
-      if (!s.key?.trim() || !s.value?.trim()) continue;
-      await client.query(
-        `INSERT INTO market.product_specifications (product_id, spec_key, spec_value, position)
-         VALUES ($1,$2,$3,$4)`,
-        [productId, s.key.trim(), s.value.trim(), i]
-      );
-    }
-
-    await client.query("COMMIT");
-
-    res.status(201).json({
-      message:   "Listing submitted for review. You'll be notified once approved.",
-      productId,
-      status:    "pending",
-    });
-  } catch (err) {
-    await client.query("ROLLBACK");
-    console.error("POST /products:", err);
-
-    if (err.code === "23505")
-      return res.status(409).json({ message: "Duplicate SKU — each variant needs a unique SKU" });
-
-    res.status(500).json({ message: "Failed to create listing" });
-  } finally {
-    client.release();
-  }
-});
-
-/**
- * PATCH /api/products/:id
- * Update own listing — only allowed while status is 'pending' or 'rejected'.
- * Editing an approved listing resets it to 'pending' for re-review.
- */
-router.patch("/:id", authenticate, upload.array("images", 5), async (req, res) => {
-  const client = await pool.connect();
-  try {
-    await client.query("BEGIN");
-
-    const guard = await assertOwner(client, req.params.id, req.user.id);
-    if (guard.error) return res.status(guard.error).json({ message: guard.message });
-
-    const productId = req.params.id;
-
-    const {
-      name, description, category,
-      basePrice, originalPrice,
-      variants, keyFeatures, specifications, whatsInBox,
-    } = req.body;
-
-    const price = basePrice ? parseInt(basePrice, 10) : undefined;
-    if (price !== undefined && (isNaN(price) || price <= 0))
-      return res.status(400).json({ message: "Invalid base price" });
-
-    /* — Update core product row; editing resets to pending — */
-    await client.query(
-      `UPDATE market.products SET
-         name            = COALESCE($2, name),
-         description     = COALESCE($3, description),
-         category        = COALESCE($4, category),
-         price           = COALESCE($5, price),
-         original_price  = $6,
-         status          = 'pending',
-         is_active       = false,
-         reviewed_by     = NULL,
-         reviewed_at     = NULL,
-         rejection_reason = NULL,
-         updated_at      = now()
-       WHERE id = $1`,
-      [
-        productId,
-        name?.trim()       || null,
-        description?.trim() || null,
-        category            || null,
-        price               || null,
-        originalPrice ? parseInt(originalPrice, 10) : null,
-      ]
-    );
-
-    /* — Replace images if new files uploaded — */
-    if (req.files?.length) {
-      // Delete old Cloudinary images
-      const { rows: oldImgs } = await client.query(
-        "SELECT image_url FROM market.product_images WHERE product_id = $1",
-        [productId]
-      );
-      // Fire-and-forget Cloudinary deletes (non-critical)
-      oldImgs.forEach(({ image_url }) => {
-        const publicId = image_url.split("/").slice(-2).join("/").split(".")[0];
-        // cloudinary.uploader.destroy(publicId).catch(() => {});
-      });
-
-      await client.query("DELETE FROM market.product_images WHERE product_id = $1", [productId]);
-
-      const uploaded = await Promise.all(req.files.map((f) => uploadToCloudinary(f.buffer)));
+      /* — Upload images in parallel — */
+      const uploaded = await uploadFiles(req.files);
       for (let i = 0; i < uploaded.length; i++) {
         await client.query(
-          `INSERT INTO market.product_images (product_id, image_url, is_primary, sort_order)
+          `INSERT INTO market.product_images
+             (product_id, image_url, is_primary, sort_order)
            VALUES ($1,$2,$3,$4)`,
           [productId, uploaded[i].secure_url, i === 0, i]
         );
       }
+
+      /* — Child rows — */
+      await replaceVariants(client, productId, variants);
+      await insertList(client, "product_features",  "feature", productId, parseJSON(keyFeatures));
+      await insertList(client, "product_box_items", "item",    productId, parseJSON(whatsInBox));
+      await replaceSpecs(client, productId, parseJSON(specifications));
+
+      await client.query("COMMIT");
+
+      ok(res, {
+        message: "Listing submitted for review. You'll be notified once approved.",
+        data:    { productId, status: "pending" },
+      }, 201);
+
+    } catch (err) {
+      await client.query("ROLLBACK");
+      console.error("POST /products:", err);
+      if (err.code === "23505")
+        return fail(res, 409, "Duplicate SKU — each variant needs a unique SKU");
+      fail(res, 500, "Failed to create listing");
+    } finally {
+      client.release();
     }
-
-    /* — Replace variants — */
-    if (variants) {
-      await client.query("DELETE FROM market.product_variants WHERE product_id = $1", [productId]);
-      for (const v of parseJSON(variants)) {
-        if (!v.sku?.trim() || !v.name?.trim()) continue;
-        await client.query(
-          `INSERT INTO market.product_variants (product_id, sku, name, price, stock, attributes)
-           VALUES ($1,$2,$3,$4,$5,$6)`,
-          [
-            productId,
-            v.sku.trim().toUpperCase(),
-            v.name.trim(),
-            parseFloat(v.price) || 0,
-            Math.max(0, parseInt(v.stock, 10) || 0),
-            JSON.stringify(v.attributes || {}),
-          ]
-        );
-      }
-    }
-
-    /* — Replace child lists — */
-    if (keyFeatures)    await replaceList(client, "product_features",  "feature", productId, parseJSON(keyFeatures));
-    if (whatsInBox)     await replaceList(client, "product_box_items", "item",    productId, parseJSON(whatsInBox));
-
-    if (specifications) {
-      await client.query("DELETE FROM market.product_specifications WHERE product_id = $1", [productId]);
-      const specs = parseJSON(specifications);
-      for (let i = 0; i < specs.length; i++) {
-        const s = specs[i];
-        if (!s.key?.trim() || !s.value?.trim()) continue;
-        await client.query(
-          `INSERT INTO market.product_specifications (product_id, spec_key, spec_value, position)
-           VALUES ($1,$2,$3,$4)`,
-          [productId, s.key.trim(), s.value.trim(), i]
-        );
-      }
-    }
-
-    await client.query("COMMIT");
-    res.json({ message: "Listing updated and resubmitted for review", status: "pending" });
-  } catch (err) {
-    await client.query("ROLLBACK");
-    console.error("PATCH /products/:id:", err);
-    if (err.code === "23505")
-      return res.status(409).json({ message: "Duplicate SKU" });
-    res.status(500).json({ message: "Failed to update listing" });
-  } finally {
-    client.release();
   }
-});
+);
+
+/**
+ * PATCH /api/products/:id
+ * Update own listing — resets to pending.
+ */
+router.patch(
+  "/:id",
+  authenticate,
+  upload.array("images", MAX_IMAGES),
+  async (req, res) => {
+    const client = await pool.connect();
+    try {
+      await client.query("BEGIN");
+
+      const guard = await assertOwner(client, req.params.id, req.user.id);
+      if (guard.error) return fail(res, guard.error, guard.message);
+
+      const productId = req.params.id;
+      const {
+        name, description, category,
+        basePrice, originalPrice,
+        brand, tags,
+        variants, keyFeatures, specifications, whatsInBox,
+      } = req.body;
+
+      const price = basePrice ? parseInt(basePrice, 10) : undefined;
+      if (price !== undefined && (isNaN(price) || price <= 0))
+        return fail(res, 422, "Invalid base price");
+
+      await client.query(
+        `UPDATE market.products SET
+           name             = COALESCE($2,  name),
+           description      = COALESCE($3,  description),
+           category         = COALESCE($4,  category),
+           price            = COALESCE($5,  price),
+           original_price   = $6,
+           brand            = COALESCE($7,  brand),
+           tags             = COALESCE($8,  tags),
+           status           = 'pending',
+           is_active        = false,
+           reviewed_by      = NULL,
+           reviewed_at      = NULL,
+           rejection_reason = NULL,
+           updated_at       = now()
+         WHERE id = $1`,
+        [
+          productId,
+          safeStr(name, 200)         || null,
+          safeStr(description, 2000) || null,
+          category                   || null,
+          price                      || null,
+          originalPrice ? parseInt(originalPrice, 10) : null,
+          safeStr(brand, 100)        || null,
+          tags ? parseJSON(tags, []) : null,
+        ]
+      );
+
+      if (req.files?.length) {
+        await deleteOldImages(client, productId);
+        await client.query(
+          "DELETE FROM market.product_images WHERE product_id = $1",
+          [productId]
+        );
+        const uploaded = await uploadFiles(req.files);
+        for (let i = 0; i < uploaded.length; i++) {
+          await client.query(
+            `INSERT INTO market.product_images
+               (product_id, image_url, is_primary, sort_order)
+             VALUES ($1,$2,$3,$4)`,
+            [productId, uploaded[i].secure_url, i === 0, i]
+          );
+        }
+      }
+
+      if (variants      !== undefined) await replaceVariants(client, productId, variants);
+      if (keyFeatures   !== undefined) await replaceList(client, "product_features",  "feature", productId, parseJSON(keyFeatures));
+      if (whatsInBox    !== undefined) await replaceList(client, "product_box_items", "item",    productId, parseJSON(whatsInBox));
+      if (specifications !== undefined) await replaceSpecs(client, productId, parseJSON(specifications));
+
+      await client.query("COMMIT");
+      ok(res, { message: "Listing updated and resubmitted for review", data: { status: "pending" } });
+
+    } catch (err) {
+      await client.query("ROLLBACK");
+      console.error("PATCH /products/:id:", err);
+      if (err.code === "23505") return fail(res, 409, "Duplicate SKU");
+      fail(res, 500, "Failed to update listing");
+    } finally {
+      client.release();
+    }
+  }
+);
 
 /**
  * DELETE /api/products/:id
- * Seller deletes own listing — or admin deletes any.
+ * Seller deletes own — admin deletes any.
  */
 router.delete("/:id", authenticate, async (req, res) => {
+  const client = await pool.connect();
   try {
-    const isAdmin = req.user.role === "admin";
+    await client.query("BEGIN");
 
-    if (isAdmin) {
-      const { rowCount } = await pool.query(
-        "DELETE FROM market.products WHERE id = $1 RETURNING id",
-        [req.params.id]
-      );
-      if (!rowCount) return res.status(404).json({ message: "Product not found" });
-    } else {
-      const client = await pool.connect();
-      try {
-        const guard = await assertOwner(client, req.params.id, req.user.id);
-        if (guard.error) return res.status(guard.error).json({ message: guard.message });
-        await client.query("DELETE FROM market.products WHERE id = $1", [req.params.id]);
-      } finally { client.release(); }
+    if (req.user.role !== "admin") {
+      const guard = await assertOwner(client, req.params.id, req.user.id);
+      if (guard.error) return fail(res, guard.error, guard.message);
     }
 
-    res.json({ message: "Listing deleted" });
+    await deleteOldImages(client, req.params.id);
+
+    const { rowCount } = await client.query(
+      "DELETE FROM market.products WHERE id = $1 RETURNING id",
+      [req.params.id]
+    );
+
+    if (!rowCount) return fail(res, 404, "Product not found");
+
+    await client.query("COMMIT");
+    ok(res, { message: "Listing deleted" });
   } catch (err) {
+    await client.query("ROLLBACK");
     console.error("DELETE /products/:id:", err);
-    res.status(500).json({ message: "Failed to delete listing" });
+    fail(res, 500, "Failed to delete listing");
+  } finally {
+    client.release();
   }
 });
 
 /**
  * PATCH /api/products/:id/pause
- * Seller toggles pause on their own approved listing.
+ * Seller toggles pause on approved listing.
  */
 router.patch("/:id/pause", authenticate, async (req, res) => {
   const client = await pool.connect();
   try {
     const guard = await assertOwner(client, req.params.id, req.user.id);
-    if (guard.error) return res.status(guard.error).json({ message: guard.message });
+    if (guard.error) return fail(res, guard.error, guard.message);
+
     if (guard.row.status !== "approved")
-      return res.status(400).json({ message: "Only approved listings can be paused" });
+      return fail(res, 400, "Only approved listings can be paused");
 
     const { rows: [updated] } = await client.query(
       `UPDATE market.products
@@ -498,166 +778,59 @@ router.patch("/:id/pause", authenticate, async (req, res) => {
        RETURNING is_paused`,
       [req.params.id]
     );
-    res.json({ is_paused: updated.is_paused, message: updated.is_paused ? "Listing paused" : "Listing resumed" });
+
+    ok(res, {
+      message: updated.is_paused ? "Listing paused" : "Listing resumed",
+      data:    { is_paused: updated.is_paused },
+    });
   } catch (err) {
     console.error("PATCH /products/:id/pause:", err);
-    res.status(500).json({ message: "Failed to toggle pause" });
+    fail(res, 500, "Failed to toggle pause");
   } finally {
     client.release();
   }
 });
 
-/**
- * GET /api/products/seller/mine
- * Seller's own listings — all statuses.
- */
-router.get("/seller/mine", authenticate, async (req, res) => {
-  try {
-    const { rows } = await pool.query(
-      `${FULL_PRODUCT_SELECT}
-       WHERE p.user_id = $1
-       GROUP BY p.id, u.username, u.email, u.avatar_url
-       ORDER BY p.created_at DESC`,
-      [req.user.id]
-    );
-    res.json(rows);
-  } catch (err) {
-    console.error("GET /products/seller/mine:", err);
-    res.status(500).json({ message: "Failed to fetch your listings" });
-  }
-});
-
 /* ══════════════════════════════════════════════════════════════
-   ADMIN ROUTES  (authenticate + requireAdmin)
+   ADMIN — moderation routes
 ══════════════════════════════════════════════════════════════ */
 
-/**
- * GET /api/products/admin/all
- * All products with optional status filter, pagination, and search.
- * Query: status, flagged, category, search, limit, offset, sort
- */
-router.get("/admin/all", authenticate, requireAdmin, async (req, res) => {
-  try {
-    const {
-      status, flagged, category, search,
-      limit  = 50, offset = 0,
-      sort   = "newest",
-    } = req.query;
-
-    const conditions = [];
-    const params     = [];
-    let   p          = 1;
-
-    if (status)            { conditions.push(`p.status = $${p++}`);       params.push(status); }
-    if (flagged === "true")  conditions.push("p.is_flagged = true");
-    if (category)          { conditions.push(`p.category = $${p++}`);     params.push(category); }
-    if (search)            { conditions.push(`p.name ILIKE $${p++}`);     params.push(`%${search.trim()}%`); }
-
-    const orderMap = {
-      newest:      "p.created_at DESC",
-      oldest:      "p.created_at ASC",
-      price_asc:   "p.price ASC",
-      price_desc:  "p.price DESC",
-      fraud_score: "p.fraud_score DESC",
-    };
-    const order = orderMap[sort] || orderMap.newest;
-    const where = conditions.length ? `WHERE ${conditions.join(" AND ")}` : "";
-
-    const { rows } = await pool.query(
-      `${FULL_PRODUCT_SELECT}
-       ${where}
-       GROUP BY p.id, u.username, u.email, u.avatar_url
-       ORDER BY ${order}
-       LIMIT $${p++} OFFSET $${p++}`,
-      [...params, parseInt(limit, 10), parseInt(offset, 10)]
-    );
-
-    const countRes = await pool.query(
-      `SELECT COUNT(*) FROM market.products p ${where}`,
-      params
-    );
-
-    res.json({ total: parseInt(countRes.rows[0].count, 10), products: rows });
-  } catch (err) {
-    console.error("GET /products/admin/all:", err);
-    res.status(500).json({ message: "Failed to fetch products" });
-  }
-});
-
-/**
- * GET /api/products/admin/stats
- * Counts by status + flagged for the admin dashboard.
- */
-router.get("/admin/stats", authenticate, requireAdmin, async (req, res) => {
-  try {
-    const { rows } = await pool.query(`
-      SELECT
-        COUNT(*)                                          AS total,
-        COUNT(*) FILTER (WHERE status = 'pending')       AS pending,
-        COUNT(*) FILTER (WHERE status = 'approved')      AS approved,
-        COUNT(*) FILTER (WHERE status = 'rejected')      AS rejected,
-        COUNT(*) FILTER (WHERE is_flagged = true)        AS flagged,
-        COUNT(*) FILTER (WHERE is_featured = true)       AS featured,
-        COUNT(*) FILTER (WHERE is_trending = true)       AS trending,
-        COUNT(*) FILTER (WHERE is_sponsored = true)      AS sponsored,
-        COUNT(*) FILTER (WHERE is_paused = true)         AS paused,
-        COUNT(*) FILTER (WHERE is_hidden = true)         AS hidden
-      FROM market.products
-    `);
-    res.json(rows[0]);
-  } catch (err) {
-    console.error("GET /products/admin/stats:", err);
-    res.status(500).json({ message: "Failed to fetch stats" });
-  }
-});
-
-/**
- * PATCH /api/products/:id/approve
- * Approve a pending listing — makes it live.
- */
+/** PATCH /api/products/:id/approve */
 router.patch("/:id/approve", authenticate, requireAdmin, async (req, res) => {
   try {
     const { rows } = await pool.query(
-      `UPDATE market.products
-       SET
-         status          = 'approved',
-         is_active       = true,
-         is_flagged      = false,
+      `UPDATE market.products SET
+         status           = 'approved',
+         is_active        = true,
+         is_flagged       = false,
          rejection_reason = NULL,
-         reviewed_by     = $2,
-         reviewed_at     = now(),
-         admin_notes     = COALESCE($3, admin_notes),
-         updated_at      = now()
+         reviewed_by      = $2,
+         reviewed_at      = now(),
+         admin_notes      = COALESCE($3, admin_notes),
+         updated_at       = now()
        WHERE id = $1 AND status != 'approved'
        RETURNING id, status, is_active`,
-      [req.params.id, req.user.id, req.body.admin_notes || null]
+      [req.params.id, req.user.id, safeStr(req.body.admin_notes, 1000)]
     );
 
     if (!rows.length)
-      return res.status(404).json({ message: "Product not found or already approved" });
+      return fail(res, 404, "Product not found or already approved");
 
-    res.json({ message: "Product approved and is now live", product: rows[0] });
+    ok(res, { message: "Product approved and is now live", data: rows[0] });
   } catch (err) {
     console.error("PATCH /products/:id/approve:", err);
-    res.status(500).json({ message: "Failed to approve product" });
+    fail(res, 500, "Failed to approve product");
   }
 });
 
-/**
- * PATCH /api/products/:id/reject
- * Reject a listing with a reason — seller will be notified.
- * Body: { reason: string, admin_notes?: string }
- */
+/** PATCH /api/products/:id/reject */
 router.patch("/:id/reject", authenticate, requireAdmin, async (req, res) => {
-  const { reason, admin_notes } = req.body;
-
-  if (!reason?.trim())
-    return res.status(400).json({ message: "A rejection reason is required" });
+  const reason = safeStr(req.body.reason, 500);
+  if (!reason) return fail(res, 422, "A rejection reason is required");
 
   try {
     const { rows } = await pool.query(
-      `UPDATE market.products
-       SET
+      `UPDATE market.products SET
          status           = 'rejected',
          is_active        = false,
          rejection_reason = $2,
@@ -667,93 +840,105 @@ router.patch("/:id/reject", authenticate, requireAdmin, async (req, res) => {
          updated_at       = now()
        WHERE id = $1
        RETURNING id, status, rejection_reason`,
-      [req.params.id, reason.trim(), req.user.id, admin_notes || null]
+      [req.params.id, reason, req.user.id, safeStr(req.body.admin_notes, 1000)]
     );
 
-    if (!rows.length)
-      return res.status(404).json({ message: "Product not found" });
+    if (!rows.length) return fail(res, 404, "Product not found");
 
-    // TODO: fire notification to seller (email / in-app)
-
-    res.json({ message: "Product rejected", product: rows[0] });
+    // TODO: notify seller
+    ok(res, { message: "Product rejected", data: rows[0] });
   } catch (err) {
     console.error("PATCH /products/:id/reject:", err);
-    res.status(500).json({ message: "Failed to reject product" });
+    fail(res, 500, "Failed to reject product");
   }
 });
 
-/**
- * PATCH /api/products/:id/flag
- * Flag (or unflag) a product for fraud review.
- * Body: { fraud_score?: number, admin_notes?: string }
- */
+/** PATCH /api/products/:id/flag */
 router.patch("/:id/flag", authenticate, requireAdmin, async (req, res) => {
-  const { fraud_score, admin_notes } = req.body;
-
   try {
     const { rows } = await pool.query(
-      `UPDATE market.products
-       SET
+      `UPDATE market.products SET
          is_flagged  = NOT is_flagged,
          fraud_score = COALESCE($2, fraud_score),
-         is_active   = CASE WHEN NOT is_flagged = true THEN false ELSE is_active END,
+         is_active   = CASE WHEN (NOT is_flagged) = true THEN false ELSE is_active END,
          admin_notes = COALESCE($3, admin_notes),
          updated_at  = now()
        WHERE id = $1
        RETURNING id, is_flagged, fraud_score, is_active`,
-      [req.params.id, fraud_score ?? null, admin_notes || null]
+      [req.params.id, req.body.fraud_score ?? null, safeStr(req.body.admin_notes, 1000)]
     );
 
-    if (!rows.length)
-      return res.status(404).json({ message: "Product not found" });
+    if (!rows.length) return fail(res, 404, "Product not found");
 
     const p = rows[0];
-    res.json({
-      message: p.is_flagged ? "Product flagged and taken offline" : "Product unflagged",
-      product: p,
+    ok(res, {
+      message: p.is_flagged
+        ? "Product flagged and taken offline"
+        : "Product unflagged",
+      data: p,
     });
   } catch (err) {
     console.error("PATCH /products/:id/flag:", err);
-    res.status(500).json({ message: "Failed to flag product" });
+    fail(res, 500, "Failed to flag product");
   }
 });
 
-/**
- * PATCH /api/products/:id/hide
- * Admin hides a product from public listing without rejecting it.
- */
+/** PATCH /api/products/:id/fraud-score */
+router.patch("/:id/fraud-score", authenticate, requireAdmin, async (req, res) => {
+  const score = parseInt(req.body.score, 10);
+  if (isNaN(score) || score < 0 || score > 100)
+    return fail(res, 422, "Score must be 0–100");
+
+  try {
+    const { rows } = await pool.query(
+      `UPDATE market.products SET
+         fraud_score = $2,
+         admin_notes = COALESCE($3, admin_notes),
+         updated_at  = now()
+       WHERE id = $1
+       RETURNING id, fraud_score`,
+      [req.params.id, score, safeStr(req.body.notes, 1000)]
+    );
+    if (!rows.length) return fail(res, 404, "Product not found");
+    ok(res, { message: "Fraud score updated", data: rows[0] });
+  } catch (err) {
+    console.error("PATCH /products/:id/fraud-score:", err);
+    fail(res, 500, "Failed to update fraud score");
+  }
+});
+
+/** PATCH /api/products/:id/hide */
 router.patch("/:id/hide", authenticate, requireAdmin, async (req, res) => {
   try {
     const { rows } = await pool.query(
-      `UPDATE market.products
-       SET is_hidden = NOT is_hidden, updated_at = now()
+      `UPDATE market.products SET
+         is_hidden  = NOT is_hidden,
+         updated_at = now()
        WHERE id = $1
        RETURNING id, is_hidden`,
       [req.params.id]
     );
-    if (!rows.length) return res.status(404).json({ message: "Product not found" });
+    if (!rows.length) return fail(res, 404, "Product not found");
+
     const p = rows[0];
-    res.json({ message: p.is_hidden ? "Product hidden" : "Product visible", product: p });
+    ok(res, {
+      message: p.is_hidden ? "Product hidden" : "Product visible again",
+      data:    p,
+    });
   } catch (err) {
     console.error("PATCH /products/:id/hide:", err);
-    res.status(500).json({ message: "Failed to toggle visibility" });
+    fail(res, 500, "Failed to toggle visibility");
   }
 });
 
-/**
- * PATCH /api/products/:id/remove
- * Admin permanently removes a listing and records a reason.
- * Body: { reason: string }
- */
+/** PATCH /api/products/:id/remove */
 router.patch("/:id/remove", authenticate, requireAdmin, async (req, res) => {
-  const { reason } = req.body;
-  if (!reason?.trim())
-    return res.status(400).json({ message: "A removal reason is required" });
+  const reason = safeStr(req.body.reason, 500);
+  if (!reason) return fail(res, 422, "A removal reason is required");
 
   try {
     const { rows } = await pool.query(
-      `UPDATE market.products
-       SET
+      `UPDATE market.products SET
          status         = 'removed',
          is_active      = false,
          removed_reason = $2,
@@ -762,13 +947,32 @@ router.patch("/:id/remove", authenticate, requireAdmin, async (req, res) => {
          updated_at     = now()
        WHERE id = $1
        RETURNING id, status`,
-      [req.params.id, reason.trim(), req.user.id]
+      [req.params.id, reason, req.user.id]
     );
-    if (!rows.length) return res.status(404).json({ message: "Product not found" });
-    res.json({ message: "Product removed", product: rows[0] });
+    if (!rows.length) return fail(res, 404, "Product not found");
+    ok(res, { message: "Product removed", data: rows[0] });
   } catch (err) {
     console.error("PATCH /products/:id/remove:", err);
-    res.status(500).json({ message: "Failed to remove product" });
+    fail(res, 500, "Failed to remove product");
+  }
+});
+
+/** PATCH /api/products/:id/notes */
+router.patch("/:id/notes", authenticate, requireAdmin, async (req, res) => {
+  try {
+    const { rows } = await pool.query(
+      `UPDATE market.products SET
+         admin_notes = $2,
+         updated_at  = now()
+       WHERE id = $1
+       RETURNING id, admin_notes`,
+      [req.params.id, safeStr(req.body.admin_notes, 1000)]
+    );
+    if (!rows.length) return fail(res, 404, "Product not found");
+    ok(res, { message: "Notes saved", data: rows[0] });
+  } catch (err) {
+    console.error("PATCH /products/:id/notes:", err);
+    fail(res, 500, "Failed to save notes");
   }
 });
 
@@ -784,54 +988,31 @@ function makeToggle(field, label) {
          RETURNING id, ${field}`,
         [req.params.id]
       );
-      if (!rows.length) return res.status(404).json({ message: "Product not found" });
+      if (!rows.length) return fail(res, 404, "Product not found");
       const val = rows[0][field];
-      res.json({ message: val ? `${label} enabled` : `${label} disabled`, [field]: val });
+      ok(res, {
+        message: val ? `${label} enabled` : `${label} disabled`,
+        data:    { [field]: val },
+      });
     } catch (err) {
       console.error(`PATCH /products/:id/${field}:`, err);
-      res.status(500).json({ message: `Failed to toggle ${label}` });
+      fail(res, 500, `Failed to toggle ${label}`);
     }
   };
 }
 
-/** PATCH /api/products/:id/feature   — Toggle featured badge */
-router.patch("/:id/feature",  authenticate, requireAdmin, makeToggle("is_featured",  "Featured"));
+router.patch("/:id/feature", authenticate, requireAdmin, makeToggle("is_featured",  "Featured"));
+router.patch("/:id/trend",   authenticate, requireAdmin, makeToggle("is_trending",  "Trending"));
+router.patch("/:id/sponsor", authenticate, requireAdmin, makeToggle("is_sponsored", "Sponsored"));
 
-/** PATCH /api/products/:id/trend     — Toggle trending badge */
-router.patch("/:id/trend",    authenticate, requireAdmin, makeToggle("is_trending",  "Trending"));
-
-/** PATCH /api/products/:id/sponsor   — Toggle sponsored badge */
-router.patch("/:id/sponsor",  authenticate, requireAdmin, makeToggle("is_sponsored", "Sponsored"));
-
-/**
- * PATCH /api/products/:id/notes
- * Admin saves internal notes without changing status.
- * Body: { admin_notes: string }
- */
-router.patch("/:id/notes", authenticate, requireAdmin, async (req, res) => {
-  const { admin_notes } = req.body;
-  try {
-    const { rows } = await pool.query(
-      `UPDATE market.products
-       SET admin_notes = $2, updated_at = now()
-       WHERE id = $1
-       RETURNING id, admin_notes`,
-      [req.params.id, admin_notes || null]
-    );
-    if (!rows.length) return res.status(404).json({ message: "Product not found" });
-    res.json({ message: "Notes saved", product: rows[0] });
-  } catch (err) {
-    console.error("PATCH /products/:id/notes:", err);
-    res.status(500).json({ message: "Failed to save notes" });
-  }
-});
-
-/* ── Multer error handler ───────────────────────────────────── */
+/* ── Error handler ─────────────────────────────────────────── */
 router.use((err, _req, res, _next) => {
-  if (err instanceof multer.MulterError || err.status === 415)
-    return res.status(400).json({ message: err.message });
+  if (err instanceof multer.MulterError)
+    return fail(res, 400, err.message);
+  if (err.status === 415)
+    return fail(res, 415, err.message);
   console.error("Products router error:", err);
-  res.status(500).json({ message: "Unexpected server error" });
+  fail(res, 500, "Unexpected server error");
 });
 
 export default router;
