@@ -9,40 +9,48 @@ import imageCompression from "browser-image-compression";
 import {
   FiChevronLeft, FiChevronRight, FiCheckCircle, FiArrowLeft,
   FiZap, FiTag, FiPackage, FiPlus, FiDollarSign,
-  FiFileText, FiGrid, FiShield, FiAlertTriangle, FiAlertCircle,
+  FiFileText, FiShield, FiAlertTriangle, FiAlertCircle,
+  FiCamera,
 } from "react-icons/fi";
 
-import categories  from "../config/categories";
-import ImageGrid   from "./PostAds/ImageGrid";
-import ReviewStep  from "./PostAds/ReviewStep";
-import PricingStep from "./PostAds/PricingStep";
+import categories    from "../config/categories";
+import ImageGrid     from "./PostAds/ImageGrid";
+import VariantEditor from "./PostAds/VariantEditor";
+import ReviewStep    from "./PostAds/ReviewStep";
+import PricingStep   from "./PostAds/PricingStep";
 import "../styles/PostAds.css";
 
 /* ═══════════════════════════════════════════════
    CONSTANTS
 ═══════════════════════════════════════════════ */
 const API             = "https://minimart-ivrm.onrender.com/api";
-const DRAFT_KEY       = "post-ad-draft-v6";
+const DRAFT_KEY       = "post-ad-draft-v7";
 const MAX_IMAGES      = 6;
 const MAX_FILE_MB     = 5;
-const COMPRESS_TARGET = 0.5; // MB
+const MAX_VARIANTS    = 20;
+const COMPRESS_TARGET = 0.5;
 
 /* ═══════════════════════════════════════════════
-   STEPS CONFIG
+   STEPS
 ═══════════════════════════════════════════════ */
 const STEPS = [
-  { id: 1, label: "Photos",   icon: <FiTag size={15} />        },
-  { id: 2, label: "Details",  icon: <FiTag size={15} />        },
-  { id: 3, label: "Variants", icon: <FiPackage size={15} />    },
-  { id: 4, label: "Pricing",  icon: <FiDollarSign size={15} /> },
-  { id: 5, label: "Review",   icon: <FiFileText size={15} />   },
+  { id: 1, label: "Photos",   icon: <FiCamera size={15} />    },
+  { id: 2, label: "Details",  icon: <FiTag size={15} />       },
+  { id: 3, label: "Variants", icon: <FiPackage size={15} />   },
+  { id: 4, label: "Pricing",  icon: <FiDollarSign size={15} />},
+  { id: 5, label: "Review",   icon: <FiFileText size={15} />  },
 ];
 
 /* ═══════════════════════════════════════════════
-   BLANK VARIANT
+   BLANK VARIANT — stable UUID
 ═══════════════════════════════════════════════ */
+function newId() {
+  if (typeof crypto !== "undefined" && crypto.randomUUID) return crypto.randomUUID();
+  return `${Date.now()}-${Math.random().toString(16).slice(2)}`;
+}
+
 const BLANK_VARIANT = () => ({
-  id:         Date.now() + Math.random(),
+  id:         newId(),
   sku:        "",
   name:       "",
   price:      "",
@@ -162,40 +170,6 @@ function guessFeatures({ title, categoryName, description, specs }) {
 }
 
 /* ═══════════════════════════════════════════════
-   VARIANT MATRIX GENERATOR
-═══════════════════════════════════════════════ */
-function generateVariantMatrix(colors, sizes, storages) {
-  const c  = colors.filter(Boolean);
-  const s  = sizes.filter(Boolean);
-  const st = storages.filter(Boolean);
-  if (!c.length && !s.length && !st.length) return [];
-
-  const combos    = [];
-  const colorList = c.length  ? c  : [""];
-  const sizeList  = s.length  ? s  : [""];
-  const stList    = st.length ? st : [""];
-  let idx = 1;
-
-  for (const color of colorList) {
-    for (const size of sizeList) {
-      for (const storage of stList) {
-        const parts = [color, size, storage].filter(Boolean);
-        combos.push({
-          id:         Date.now() + Math.random() + idx,
-          sku:        parts.map((p) => p.replace(/\s+/g, "").toUpperCase().slice(0, 6)).join("-") || `VAR-${idx}`,
-          name:       parts.join(" / ") || `Variant ${idx}`,
-          price:      "",
-          stock:      "1",
-          attributes: { color, size, storage, material: "" },
-        });
-        idx++;
-      }
-    }
-  }
-  return combos;
-}
-
-/* ═══════════════════════════════════════════════
    PROHIBITED BANNER
 ═══════════════════════════════════════════════ */
 const ProhibitedBanner = memo(({ result, scanDone }) => {
@@ -205,12 +179,18 @@ const ProhibitedBanner = memo(({ result, scanDone }) => {
   if (!blocked.length && !suspicious.length) {
     return (
       <div style={{
-        display: "flex", alignItems: "center", gap: "8px",
-        padding: "10px 14px", borderRadius: "12px",
-        background: "rgba(16,185,129,0.07)",
-        border: "1px solid rgba(16,185,129,0.15)",
-        marginBottom: "14px", fontSize: "12px",
-        fontWeight: 700, color: "#065f46",
+        display:        "flex",
+        alignItems:     "center",
+        gap:            "8px",
+        padding:        "10px 14px",
+        borderRadius:   "12px",
+        background:     "rgba(16,185,129,0.08)",
+        border:         "1px solid rgba(16,185,129,0.2)",
+        backdropFilter: "blur(8px)",
+        marginBottom:   "14px",
+        fontSize:       "12px",
+        fontWeight:     700,
+        color:          "#065f46",
       }}>
         <FiShield size={14} style={{ flexShrink: 0 }} />
         ✅ Content scan passed — no prohibited items detected
@@ -219,66 +199,38 @@ const ProhibitedBanner = memo(({ result, scanDone }) => {
   }
 
   return (
-    <div style={{ display: "flex", flexDirection: "column", gap: "8px", marginBottom: "14px" }}>
+    <div style={{ display:"flex", flexDirection:"column", gap:"8px", marginBottom:"14px" }}>
       {blocked.length > 0 && (
-        <div style={{
-          padding: "14px 16px", borderRadius: "14px",
-          background: "rgba(220,38,38,0.07)",
-          border: "1.5px solid rgba(220,38,38,0.25)",
-        }}>
-          <div style={{ display: "flex", alignItems: "center", gap: "8px", marginBottom: "10px" }}>
+        <div style={{ padding:"14px 16px", borderRadius:"14px", background:"rgba(220,38,38,0.08)", border:"1.5px solid rgba(220,38,38,0.25)", backdropFilter:"blur(8px)" }}>
+          <div style={{ display:"flex", alignItems:"center", gap:"8px", marginBottom:"10px" }}>
             <FiAlertTriangle size={16} color="#dc2626" />
-            <span style={{ fontWeight: 800, fontSize: "13px", color: "#991b1b" }}>
-              🚫 Prohibited Content Detected
-            </span>
-            <span style={{
-              marginLeft: "auto", background: "#dc2626", color: "#fff",
-              fontSize: "10px", fontWeight: 900, padding: "2px 7px", borderRadius: "5px",
-            }}>
+            <span style={{ fontWeight:800, fontSize:"13px", color:"#991b1b" }}>🚫 Prohibited Content Detected</span>
+            <span style={{ marginLeft:"auto", background:"#dc2626", color:"#fff", fontSize:"10px", fontWeight:900, padding:"2px 7px", borderRadius:"5px" }}>
               BLOCKED
             </span>
           </div>
           {blocked.map((b, i) => (
-            <div key={i} style={{
-              display: "flex", alignItems: "center", gap: "8px",
-              padding: "8px 12px", borderRadius: "10px",
-              background: "rgba(220,38,38,0.05)", fontSize: "12px", marginBottom: "4px",
-            }}>
-              <span style={{
-                padding: "2px 8px", borderRadius: "6px",
-                background: "rgba(220,38,38,0.12)", color: "#991b1b",
-                fontWeight: 800, fontSize: "11px",
-              }}>
-                {b.category}
-              </span>
-              <span style={{ color: "#991b1b", fontWeight: 700 }}>"{b.text}"</span>
+            <div key={i} style={{ display:"flex", alignItems:"center", gap:"8px", padding:"8px 12px", borderRadius:"10px", background:"rgba(220,38,38,0.06)", fontSize:"12px", marginBottom:"4px" }}>
+              <span style={{ padding:"2px 8px", borderRadius:"6px", background:"rgba(220,38,38,0.12)", color:"#991b1b", fontWeight:800, fontSize:"11px" }}>{b.category}</span>
+              <span style={{ color:"#991b1b", fontWeight:700 }}>"{b.text}"</span>
             </div>
           ))}
-          <p style={{ margin: "10px 0 0", fontSize: "12px", fontWeight: 600, color: "#991b1b", lineHeight: 1.5 }}>
-            Remove prohibited content before continuing. Violations may result in account suspension.
+          <p style={{ margin:"10px 0 0", fontSize:"12px", fontWeight:600, color:"#991b1b", lineHeight:1.5 }}>
+            Remove prohibited content before continuing.
           </p>
         </div>
       )}
-
       {suspicious.length > 0 && (
-        <div style={{
-          padding: "12px 14px", borderRadius: "14px",
-          background: "rgba(245,158,11,0.07)",
-          border: "1.5px solid rgba(245,158,11,0.2)",
-        }}>
-          <div style={{ display: "flex", alignItems: "center", gap: "8px", marginBottom: "8px" }}>
+        <div style={{ padding:"12px 14px", borderRadius:"14px", background:"rgba(245,158,11,0.08)", border:"1.5px solid rgba(245,158,11,0.2)", backdropFilter:"blur(8px)" }}>
+          <div style={{ display:"flex", alignItems:"center", gap:"8px", marginBottom:"8px" }}>
             <FiAlertCircle size={15} color="#d97706" />
-            <span style={{ fontWeight: 800, fontSize: "13px", color: "#92400e" }}>⚠️ Suspicious Terms</span>
-            <span style={{
-              marginLeft: "auto", background: "rgba(245,158,11,0.15)",
-              color: "#92400e", fontSize: "10px", fontWeight: 900,
-              padding: "2px 7px", borderRadius: "5px",
-            }}>
+            <span style={{ fontWeight:800, fontSize:"13px", color:"#92400e" }}>⚠️ Suspicious Terms</span>
+            <span style={{ marginLeft:"auto", background:"rgba(245,158,11,0.15)", color:"#92400e", fontSize:"10px", fontWeight:900, padding:"2px 7px", borderRadius:"5px" }}>
               WARNING
             </span>
           </div>
           {suspicious.map((s, i) => (
-            <div key={i} style={{ fontSize: "12px", color: "#92400e", fontWeight: 600, marginBottom: "4px" }}>
+            <div key={i} style={{ fontSize:"12px", color:"#92400e", fontWeight:600, marginBottom:"4px" }}>
               • {s.label}: <em>"{s.text}"</em>
             </div>
           ))}
@@ -296,11 +248,7 @@ const StepBar = memo(({ current }) => (
     {STEPS.map((s, i) => (
       <React.Fragment key={s.id}>
         <div
-          className={[
-            "pa-step",
-            current === s.id ? "pa-step--active" : "",
-            current > s.id  ? "pa-step--done"   : "",
-          ].join(" ")}
+          className={["pa-step", current === s.id ? "pa-step--active" : "", current > s.id ? "pa-step--done" : ""].join(" ")}
           aria-current={current === s.id ? "step" : undefined}
         >
           <div className="pa-step-dot">
@@ -309,128 +257,12 @@ const StepBar = memo(({ current }) => (
           <span className="pa-step-label">{s.label}</span>
         </div>
         {i < STEPS.length - 1 && (
-          <div
-            className={`pa-step-line ${current > s.id ? "pa-step-line--done" : ""}`}
-            aria-hidden="true"
-          />
+          <div className={`pa-step-line ${current > s.id ? "pa-step-line--done" : ""}`} aria-hidden="true" />
         )}
       </React.Fragment>
     ))}
   </div>
 ));
-
-/* ═══════════════════════════════════════════════
-   MATRIX MODAL
-═══════════════════════════════════════════════ */
-const MatrixModal = memo(({ onGenerate, onClose }) => {
-  const [colors,   setColors]   = useState(["", ""]);
-  const [sizes,    setSizes]    = useState(["", ""]);
-  const [storages, setStorages] = useState([""]);
-
-  const updArr = useCallback((setter, i, val) =>
-    setter((p) => p.map((x, idx) => (idx === i ? val : x))), []);
-  const addArr = useCallback((setter, max) =>
-    setter((p) => (p.length < max ? [...p, ""] : p)), []);
-  const remArr = useCallback((setter, i) =>
-    setter((p) => (p.length <= 1 ? p : p.filter((_, idx) => idx !== i))), []);
-
-  const count = useMemo(() => {
-    const c  = colors.filter(Boolean).length   || 1;
-    const s  = sizes.filter(Boolean).length    || 1;
-    const st = storages.filter(Boolean).length || 1;
-    return c * s * st;
-  }, [colors, sizes, storages]);
-
-  const handleGen = () => {
-    const result = generateVariantMatrix(colors, sizes, storages);
-    if (!result.length) { toast.error("Add at least one attribute value"); return; }
-    onGenerate(result);
-    onClose();
-    toast.success(`${result.length} variants generated`);
-  };
-
-  useEffect(() => {
-    const fn = (e) => { if (e.key === "Escape") onClose(); };
-    window.addEventListener("keydown", fn);
-    return () => window.removeEventListener("keydown", fn);
-  }, [onClose]);
-
-  const renderSection = (label, arr, setter, max, placeholder) => (
-    <div className="pa-matrix-section">
-      <label className="pa-label">{label}</label>
-      {arr.map((val, i) => (
-        <div key={i} className="pa-matrix-row">
-          <input
-            className="pa-mini-input"
-            value={val}
-            placeholder={placeholder}
-            aria-label={`${label} option ${i + 1}`}
-            onChange={(e) => updArr(setter, i, e.target.value)}
-          />
-          <button
-            type="button"
-            className="pa-mini-btn"
-            aria-label={`Remove ${label} option ${i + 1}`}
-            onClick={() => remArr(setter, i)}
-          >
-            −
-          </button>
-        </div>
-      ))}
-      <button
-        type="button"
-        className="pa-add-btn pa-add-btn--sm"
-        onClick={() => addArr(setter, max)}
-      >
-        + Add
-      </button>
-    </div>
-  );
-
-  return (
-    <div
-      className="pa-modal-overlay"
-      role="dialog"
-      aria-modal="true"
-      aria-label="Variant Matrix Generator"
-      onClick={onClose}
-    >
-      <div className="pa-modal" onClick={(e) => e.stopPropagation()}>
-        <div className="pa-modal-header">
-          <h3 style={{ display: "flex", alignItems: "center", gap: "8px", margin: 0 }}>
-            <FiGrid size={18} /> Variant Matrix Generator
-          </h3>
-          <button
-            type="button"
-            className="pa-modal-close"
-            onClick={onClose}
-            aria-label="Close matrix generator"
-          >
-            ✕
-          </button>
-        </div>
-
-        <div className="pa-modal-body">
-          <p className="pa-section-sub">Enter attributes — we generate all combinations.</p>
-          {renderSection("Colors",   colors,   setColors,   8, "e.g. Black"  )}
-          {renderSection("Sizes",    sizes,    setSizes,    8, "e.g. XL"     )}
-          {renderSection("Storages", storages, setStorages, 6, "e.g. 256GB"  )}
-          <div className="pa-matrix-preview">
-            <FiPackage size={16} />
-            <strong>{count}</strong> variant{count !== 1 ? "s" : ""} will be generated
-          </div>
-        </div>
-
-        <div className="pa-modal-footer">
-          <button type="button" className="pa-btn-back" onClick={onClose}>Cancel</button>
-          <button type="button" className="pa-btn-generate" onClick={handleGen}>
-            <FiZap size={16} /> Generate {count}
-          </button>
-        </div>
-      </div>
-    </div>
-  );
-});
 
 /* ═══════════════════════════════════════════════
    MAIN COMPONENT
@@ -443,14 +275,13 @@ export default function PostAds({ user }) {
   const [posting,     setPosting]     = useState(false);
   const [posted,      setPosted]      = useState(false);
   const [uploadPct,   setUploadPct]   = useState(0);
-  const [showMatrix,  setShowMatrix]  = useState(false);
   const [compressing, setCompressing] = useState(false);
   const [lastSaved,   setLastSaved]   = useState(null);
 
   /* ── Images ── */
   const [images,       setImages]       = useState(Array(MAX_IMAGES).fill(null));
-  const [imageHashes,  setImageHashes]  = useState({});  // index → SHA-256
-  const [slotStatuses, setSlotStatuses] = useState({});  // index → "idle"|"compressing"|"done"|"error"
+  const [imageHashes,  setImageHashes]  = useState({});
+  const [slotStatuses, setSlotStatuses] = useState({});
 
   /* ── Step 2 ── */
   const [title,          setTitle]          = useState("");
@@ -489,7 +320,7 @@ export default function PostAds({ user }) {
     [originalPrice, basePrice]
   );
 
-  /* ── Duplicate slots (from hashes) ── */
+  /* ── Image duplicate slots ── */
   const duplicateSlots = useMemo(() => {
     const seen  = new Map();
     const dupes = [];
@@ -507,7 +338,6 @@ export default function PostAds({ user }) {
 
   /* ═══ Lifecycle ═══ */
 
-  /* Cleanup blob URLs */
   useEffect(() => {
     return () => {
       images.forEach((img) => { if (img?.preview) URL.revokeObjectURL(img.preview); });
@@ -515,7 +345,6 @@ export default function PostAds({ user }) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  /* Load draft */
   useEffect(() => {
     try {
       const raw = localStorage.getItem(DRAFT_KEY);
@@ -536,7 +365,6 @@ export default function PostAds({ user }) {
     } catch {}
   }, []);
 
-  /* Auto-save draft */
   useEffect(() => {
     localStorage.setItem(DRAFT_KEY, JSON.stringify({
       step, title, brand, tags, description, category,
@@ -544,13 +372,8 @@ export default function PostAds({ user }) {
       basePrice, originalPrice,
     }));
     setLastSaved(Date.now());
-  }, [
-    step, title, brand, tags, description, category,
-    keyFeatures, specifications, whatsInBox, variants,
-    basePrice, originalPrice,
-  ]);
+  }, [step, title, brand, tags, description, category, keyFeatures, specifications, whatsInBox, variants, basePrice, originalPrice]);
 
-  /* Prohibited scan */
   useEffect(() => {
     if (!title && !description && !keyFeatures.some((f) => f.trim())) {
       setScanResult(null);
@@ -560,12 +383,9 @@ export default function PostAds({ user }) {
     const result = scanContent({ title, description, keyFeatures });
     setScanResult(result);
     setScanDone(true);
-    if (result.blocked.length > 0) {
-      toast.error(`🚫 Prohibited: ${result.blocked[0].category}`);
-    }
+    if (result.blocked.length > 0) toast.error(`🚫 Prohibited: ${result.blocked[0].category}`);
   }, [title, description, keyFeatures]);
 
-  /* Edit-step events from ReviewStep */
   useEffect(() => {
     const handler = (e) => setStep(e.detail);
     window.addEventListener("pa-edit-step", handler);
@@ -576,17 +396,12 @@ export default function PostAds({ user }) {
 
   const handleAddImage = useCallback(async (index, file, extraFiles = []) => {
     if (!file.type.startsWith("image/")) { toast.error("Only image files"); return; }
-    if (file.size > MAX_FILE_MB * 1024 * 1024) {
-      toast.error(`Max ${MAX_FILE_MB}MB per image`);
-      return;
-    }
+    if (file.size > MAX_FILE_MB * 1024 * 1024) { toast.error(`Max ${MAX_FILE_MB}MB per image`); return; }
 
-    /* Mark slot as compressing */
     setCompressing(true);
     setSlotStatuses((p) => ({ ...p, [index]: "compressing" }));
 
     try {
-      /* SHA-256 before compression — true duplicate detection */
       const hash = await hashFile(file);
 
       const duplicate = Object.entries(imageHashes).find(
@@ -594,7 +409,7 @@ export default function PostAds({ user }) {
       );
 
       if (duplicate) {
-        toast.error(`This photo is already in slot ${Number(duplicate[0]) + 1}`);
+        toast.error(`Photo already in slot ${Number(duplicate[0]) + 1}`);
         setSlotStatuses((p) => ({ ...p, [index]: "idle" }));
         setCompressing(false);
         return;
@@ -611,19 +426,17 @@ export default function PostAds({ user }) {
         return next;
       });
 
-      setImageHashes((prev)  => ({ ...prev,  [index]: hash        }));
-      setSlotStatuses((prev) => ({ ...prev,  [index]: "done"      }));
+      setImageHashes((prev)  => ({ ...prev, [index]: hash   }));
+      setSlotStatuses((prev) => ({ ...prev, [index]: "done" }));
 
       if (wasCompressed) {
-        const saved = ((file.size - compressed.size) / 1024).toFixed(0);
-        toast.success(`Compressed — saved ${saved} KB`);
+        toast.success(`Compressed — saved ${((file.size - compressed.size) / 1024).toFixed(0)} KB`);
       }
 
-      /* Handle extra files from multi-drop */
+      /* multi-drop: fill next empty slots */
       if (extraFiles?.length) {
         let nextSlot = index + 1;
         for (const extra of extraFiles) {
-          /* find next empty slot */
           while (nextSlot < images.length && images[nextSlot] !== null) nextSlot++;
           if (nextSlot >= images.length) break;
           handleAddImage(nextSlot, extra);
@@ -645,50 +458,36 @@ export default function PostAds({ user }) {
       next[index] = null;
       return next;
     });
-    setImageHashes((prev)  => { const n = { ...prev };  delete n[index]; return n; });
-    setSlotStatuses((prev) => { const n = { ...prev };  delete n[index]; return n; });
+    setImageHashes((prev)  => { const n = { ...prev }; delete n[index]; return n; });
+    setSlotStatuses((prev) => { const n = { ...prev }; delete n[index]; return n; });
   }, []);
-
-  /* ═══ Image reorder ═══ */
 
   const handleReorder = useCallback((from, to) => {
     setImages((prev) => {
-      const next    = [...prev];
-      const temp    = next[from];
-      next[from]    = next[to];
-      next[to]      = temp;
-      return next;
+      const next = [...prev]; [next[from], next[to]] = [next[to], next[from]]; return next;
     });
     setImageHashes((prev) => {
-      const next     = { ...prev };
-      const tempHash = next[from];
-      next[from]     = next[to];
-      next[to]       = tempHash;
-      return next;
+      const n = { ...prev }; [n[from], n[to]] = [n[to], n[from]]; return n;
     });
     setSlotStatuses((prev) => {
-      const next       = { ...prev };
-      const tempStatus = next[from];
-      next[from]       = next[to];
-      next[to]         = tempStatus;
-      return next;
+      const n = { ...prev }; [n[from], n[to]] = [n[to], n[from]]; return n;
     });
     toast.success("Image reordered");
   }, []);
 
   /* ═══ List helpers ═══ */
 
-  const updateList = useCallback((setter, i, val) =>
+  const updateList  = useCallback((setter, i, val) =>
     setter((p) => p.map((x, idx) => (idx === i ? val : x))), []);
 
-  const addList = useCallback((setter, list, limit) => {
+  const addList     = useCallback((setter, list, limit) => {
     if (list.length < limit) setter((p) => [...p, ""]);
   }, []);
 
-  const removeList = useCallback((setter, i) =>
+  const removeList  = useCallback((setter, i) =>
     setter((p) => (p.length <= 1 ? p : p.filter((_, idx) => idx !== i))), []);
 
-  /* ═══ Variant helpers ═══ */
+  /* ═══ Variant helpers (passed to VariantEditor) ═══ */
 
   const updateVariant = useCallback((i, field, val) =>
     setVariants((p) => p.map((v, idx) => (idx === i ? { ...v, [field]: val } : v))), []);
@@ -698,9 +497,24 @@ export default function PostAds({ user }) {
       idx === i ? { ...v, attributes: { ...v.attributes, [attr]: val } } : v
     )), []);
 
-  const addVariant    = useCallback(() => setVariants((p) => [...p, BLANK_VARIANT()]), []);
+  const addVariant    = useCallback(() => {
+    setVariants((p) => p.length >= MAX_VARIANTS ? p : [...p, BLANK_VARIANT()]);
+  }, []);
+
   const removeVariant = useCallback((i) =>
     setVariants((p) => (p.length <= 1 ? p : p.filter((_, idx) => idx !== i))), []);
+
+  /* ── Duplicate variant (new) ── */
+  const duplicateVariant = useCallback((i) => {
+    setVariants((p) => {
+      if (p.length >= MAX_VARIANTS) { toast.error(`Max ${MAX_VARIANTS} variants`); return p; }
+      const copy = { ...p[i], id: newId(), sku: p[i].sku ? `${p[i].sku}-COPY` : "" };
+      const next = [...p];
+      next.splice(i + 1, 0, copy);
+      return next;
+    });
+    toast.success("Variant duplicated");
+  }, []);
 
   /* ═══ Tags ═══ */
 
@@ -719,12 +533,7 @@ export default function PostAds({ user }) {
   /* ═══ Smart feature generator ═══ */
 
   const generateKeyFeatures = useCallback(() => {
-    const gen = guessFeatures({
-      title,
-      categoryName: activeCategory?.name,
-      description,
-      specs: specifications,
-    });
+    const gen = guessFeatures({ title, categoryName: activeCategory?.name, description, specs: specifications });
     if (!gen.length) { toast.error("Add title/description first"); return; }
     const existing = keyFeatures.map(normalize).filter(Boolean);
     setKeyFeatures(uniq([...existing, ...gen]).slice(0, 10) || [""]);
@@ -736,20 +545,20 @@ export default function PostAds({ user }) {
 
   const fieldErrors = useMemo(() => {
     const e = {};
-    if (filledImages.length === 0)                                           e.images        = "Add at least 1 photo";
-    if (touched.title    && title.trim().length < 3)                         e.title         = "Title must be at least 3 characters";
-    if (touched.title    && title.trim().length > 80)                        e.title         = "Title too long";
-    if (touched.category && !category)                                       e.category      = "Select a category";
+    if (filledImages.length === 0)                           e.images    = "Add at least 1 photo";
+    if (touched.title    && title.trim().length < 3)         e.title     = "Title must be at least 3 characters";
+    if (touched.title    && title.trim().length > 80)        e.title     = "Title too long";
+    if (touched.category && !category)                       e.category  = "Select a category";
     if (touched.basePrice) {
       const n = Number(basePrice);
-      if (!basePrice || isNaN(n) || n <= 0)                                  e.basePrice     = "Enter a valid price";
+      if (!basePrice || isNaN(n) || n <= 0)                  e.basePrice = "Enter a valid price";
     }
     if (touched.originalPrice && originalPrice) {
-      if (Number(originalPrice) <= Number(basePrice))                        e.originalPrice = "Should be higher than base price";
+      if (Number(originalPrice) <= Number(basePrice))        e.originalPrice = "Should be higher than base price";
     }
     variants.forEach((v, i) => {
-      if (touched[`v_sku_${i}`]   && !v.sku.trim())                         e[`v_sku_${i}`]   = "Required";
-      if (touched[`v_name_${i}`]  && !v.name.trim())                        e[`v_name_${i}`]  = "Required";
+      if (touched[`v_sku_${i}`]   && !v.sku.trim())         e[`v_sku_${i}`]   = "Required";
+      if (touched[`v_name_${i}`]  && !v.name.trim())        e[`v_name_${i}`]  = "Required";
       if (touched[`v_price_${i}`] && (isNaN(Number(v.price)) || Number(v.price) < 0)) e[`v_price_${i}`] = "Invalid";
     });
     return e;
@@ -770,11 +579,11 @@ export default function PostAds({ user }) {
   }, [step, filledImages.length, title, category, variants, basePrice]);
 
   const stepError = useMemo(() => {
-    if (step === 1 && filledImages.length === 0)                              return "Add at least one photo";
-    if (step === 2 && title.trim().length < 3)                                return "Title needs at least 3 characters";
-    if (step === 2 && !category)                                              return "Pick a category";
+    if (step === 1 && filledImages.length === 0) return "Add at least one photo";
+    if (step === 2 && title.trim().length < 3)   return "Title needs at least 3 characters";
+    if (step === 2 && !category)                 return "Pick a category";
     if (step === 3 && !variants.every((v) => v.sku.trim() && v.name.trim())) return "Fill SKU and name for each variant";
-    if (step === 4 && (!basePrice || Number(basePrice) <= 0))                 return "Set a valid base price";
+    if (step === 4 && (!basePrice || Number(basePrice) <= 0)) return "Set a valid base price";
     return "";
   }, [step, filledImages.length, title, category, variants, basePrice]);
 
@@ -800,8 +609,8 @@ export default function PostAds({ user }) {
   /* ═══ Submit ═══ */
 
   const handleSubmit = useCallback(async () => {
-    if (!user)                { toast.error("Please log in first");           return; }
-    if (!filledImages.length) { toast.error("Add at least one photo");        return; }
+    if (!user)                { toast.error("Please log in first");    return; }
+    if (!filledImages.length) { toast.error("Add at least one photo"); return; }
     if (scanResult?.blocked.length > 0) { toast.error("Remove prohibited content first"); return; }
 
     setPosting(true);
@@ -822,10 +631,14 @@ export default function PostAds({ user }) {
       if (brand.trim())  fd.append("brand",         brand.trim());
       if (tags.length)   fd.append("tags",          JSON.stringify(tags));
 
-      fd.append("variants",       JSON.stringify(variants.filter((v) => v.sku.trim() && v.name.trim())));
-      fd.append("keyFeatures",    JSON.stringify(keyFeatures.map(normalize).filter(Boolean)));
-      fd.append("specifications", JSON.stringify(specifications.filter((s) => normalize(s.key) && normalize(s.value))));
-      fd.append("whatsInBox",     JSON.stringify(whatsInBox.map(normalize).filter(Boolean)));
+      fd.append("variants",
+        JSON.stringify(variants.filter((v) => v.sku.trim() && v.name.trim())));
+      fd.append("keyFeatures",
+        JSON.stringify(keyFeatures.map(normalize).filter(Boolean)));
+      fd.append("specifications",
+        JSON.stringify(specifications.filter((s) => normalize(s.key) && normalize(s.value))));
+      fd.append("whatsInBox",
+        JSON.stringify(whatsInBox.map(normalize).filter(Boolean)));
 
       images.forEach((img) => { if (img?.file) fd.append("images", img.file); });
 
@@ -866,14 +679,9 @@ export default function PostAds({ user }) {
 
       <div className="pa-page pa-glass">
 
-        {/* ── Topbar ── */}
+        {/* Topbar */}
         <div className="pa-topbar pa-glass-bar">
-          <button
-            type="button"
-            className="pa-topbar-back"
-            onClick={() => navigate(-1)}
-            aria-label="Go back"
-          >
+          <button type="button" className="pa-topbar-back" onClick={() => navigate(-1)} aria-label="Go back">
             <FiArrowLeft size={18} />
           </button>
           <div className="pa-topbar-center">
@@ -882,28 +690,20 @@ export default function PostAds({ user }) {
               Step {step}/5{activeCategory ? ` · ${activeCategory.icon} ${activeCategory.name}` : ""}
             </p>
           </div>
-          <div style={{ width: 36 }} aria-hidden="true" />
+          <div style={{ width:36 }} aria-hidden="true" />
         </div>
 
-        {/* ── Success ── */}
+        {/* Success */}
         {posted ? (
           <div className="pa-success" role="alert" aria-live="polite">
             <div className="pa-success-icon"><FiCheckCircle size={42} /></div>
             <h2>Ad Posted! 🎉</h2>
             <p>Your listing is now live. Buyers can see it right away.</p>
             <div className="pa-success-btns">
-              <button
-                type="button"
-                className="pa-success-primary"
-                onClick={() => navigate("/minimart")}
-              >
+              <button type="button" className="pa-success-primary" onClick={() => navigate("/minimart")}>
                 Browse Minimart
               </button>
-              <button
-                type="button"
-                className="pa-success-secondary"
-                onClick={() => navigate("/dashboard")}
-              >
+              <button type="button" className="pa-success-secondary" onClick={() => navigate("/dashboard")}>
                 View My Listings
               </button>
             </div>
@@ -922,9 +722,7 @@ export default function PostAds({ user }) {
               )}
 
               {/* Prohibited banner */}
-              {step >= 2 && (
-                <ProhibitedBanner result={scanResult} scanDone={scanDone} />
-              )}
+              {step >= 2 && <ProhibitedBanner result={scanResult} scanDone={scanDone} />}
 
               {/* ───── STEP 1: PHOTOS ───── */}
               {step === 1 && (
@@ -949,12 +747,8 @@ export default function PostAds({ user }) {
                       <p className="pa-section-title">📝 Product Details</p>
                       <p className="pa-section-sub">Clear titles rank higher.</p>
                     </div>
-                    <button
-                      type="button"
-                      className="pa-gen-btn"
-                      onClick={generateKeyFeatures}
-                      aria-label="Auto-generate key features"
-                    >
+                    <button type="button" className="pa-gen-btn" onClick={generateKeyFeatures}
+                      aria-label="Auto-generate key features">
                       <FiZap size={15} aria-hidden="true" /> Auto-Generate
                     </button>
                   </div>
@@ -977,9 +771,7 @@ export default function PostAds({ user }) {
                     />
                     <div className="pa-field-footer">
                       {fieldErrors.title && (
-                        <span id="pa-title-err" className="pa-field-error" role="alert">
-                          {fieldErrors.title}
-                        </span>
+                        <span id="pa-title-err" className="pa-field-error" role="alert">{fieldErrors.title}</span>
                       )}
                       <span className={`pa-char-count ${title.length > 70 ? "pa-char-count--warn" : ""}`}>
                         {title.length}/80
@@ -991,17 +783,9 @@ export default function PostAds({ user }) {
                   <div className="pa-grid-2">
                     <div className="pa-field">
                       <label className="pa-label" htmlFor="pa-brand">Brand</label>
-                      <input
-                        id="pa-brand"
-                        type="text"
-                        className="pa-input"
-                        placeholder='e.g. "Apple"'
-                        value={brand}
-                        maxLength={40}
-                        onChange={(e) => setBrand(e.target.value)}
-                      />
+                      <input id="pa-brand" type="text" className="pa-input" placeholder='e.g. "Apple"'
+                        value={brand} maxLength={40} onChange={(e) => setBrand(e.target.value)} />
                     </div>
-
                     <div className="pa-field">
                       <label className="pa-label" htmlFor="pa-tag-input">Tags</label>
                       <div className="pa-tag-input">
@@ -1021,14 +805,8 @@ export default function PostAds({ user }) {
                       {tags.length > 0 && (
                         <div className="pa-tags" role="list" aria-label="Added tags">
                           {tags.map((t) => (
-                            <button
-                              key={t}
-                              type="button"
-                              className="pa-tag"
-                              role="listitem"
-                              aria-label={`Remove tag: ${t}`}
-                              onClick={() => removeTag(t)}
-                            >
+                            <button key={t} type="button" className="pa-tag" role="listitem"
+                              aria-label={`Remove tag: ${t}`} onClick={() => removeTag(t)}>
                               {t} <span aria-hidden="true">×</span>
                             </button>
                           ))}
@@ -1040,14 +818,9 @@ export default function PostAds({ user }) {
                   {/* Description */}
                   <div className="pa-field">
                     <label className="pa-label" htmlFor="pa-desc">Description</label>
-                    <textarea
-                      id="pa-desc"
-                      className="pa-textarea"
-                      placeholder="Describe your product…"
-                      value={description}
-                      maxLength={700}
-                      onChange={(e) => setDescription(e.target.value)}
-                    />
+                    <textarea id="pa-desc" className="pa-textarea"
+                      placeholder="Describe your product…" value={description} maxLength={700}
+                      onChange={(e) => setDescription(e.target.value)} />
                     <span className={`pa-char-count ${description.length > 640 ? "pa-char-count--warn" : ""}`}>
                       {description.length}/700
                     </span>
@@ -1059,28 +832,17 @@ export default function PostAds({ user }) {
                     <div className="pa-list-wrap">
                       {keyFeatures.map((item, i) => (
                         <div className="pa-list-row" key={i}>
-                          <input
-                            className="pa-mini-input"
-                            value={item}
+                          <input className="pa-mini-input" value={item}
                             placeholder='e.g. "5000mAh battery"'
                             aria-label={`Key feature ${i + 1}`}
-                            onChange={(e) => updateList(setKeyFeatures, i, e.target.value)}
-                          />
-                          <button
-                            type="button"
-                            className="pa-mini-btn"
+                            onChange={(e) => updateList(setKeyFeatures, i, e.target.value)} />
+                          <button type="button" className="pa-mini-btn"
                             aria-label={`Remove feature ${i + 1}`}
-                            onClick={() => removeList(setKeyFeatures, i)}
-                          >
-                            −
-                          </button>
+                            onClick={() => removeList(setKeyFeatures, i)}>−</button>
                         </div>
                       ))}
-                      <button
-                        type="button"
-                        className="pa-add-btn"
-                        onClick={() => addList(setKeyFeatures, keyFeatures, 10)}
-                      >
+                      <button type="button" className="pa-add-btn"
+                        onClick={() => addList(setKeyFeatures, keyFeatures, 10)}>
                         + Add Feature
                       </button>
                     </div>
@@ -1093,44 +855,26 @@ export default function PostAds({ user }) {
                       {specifications.map((row, i) => (
                         <div className="pa-list-row" key={i}>
                           <div className="pa-spec-grid">
-                            <input
-                              className="pa-mini-input"
-                              value={row.key}
-                              placeholder="e.g. RAM"
+                            <input className="pa-mini-input" value={row.key} placeholder="e.g. RAM"
                               aria-label={`Spec ${i + 1} name`}
                               onChange={(e) => {
-                                const n = [...specifications];
-                                n[i] = { ...n[i], key: e.target.value };
+                                const n = [...specifications]; n[i] = { ...n[i], key: e.target.value };
                                 setSpecifications(n);
-                              }}
-                            />
-                            <input
-                              className="pa-mini-input"
-                              value={row.value}
-                              placeholder="e.g. 8GB"
+                              }} />
+                            <input className="pa-mini-input" value={row.value} placeholder="e.g. 8GB"
                               aria-label={`Spec ${i + 1} value`}
                               onChange={(e) => {
-                                const n = [...specifications];
-                                n[i] = { ...n[i], value: e.target.value };
+                                const n = [...specifications]; n[i] = { ...n[i], value: e.target.value };
                                 setSpecifications(n);
-                              }}
-                            />
+                              }} />
                           </div>
-                          <button
-                            type="button"
-                            className="pa-mini-btn"
+                          <button type="button" className="pa-mini-btn"
                             aria-label={`Remove spec ${i + 1}`}
-                            onClick={() => removeList(setSpecifications, i)}
-                          >
-                            −
-                          </button>
+                            onClick={() => removeList(setSpecifications, i)}>−</button>
                         </div>
                       ))}
-                      <button
-                        type="button"
-                        className="pa-add-btn"
-                        onClick={() => setSpecifications((p) => (p.length >= 12 ? p : [...p, { key: "", value: "" }]))}
-                      >
+                      <button type="button" className="pa-add-btn"
+                        onClick={() => setSpecifications((p) => (p.length >= 12 ? p : [...p, { key:"", value:"" }]))}>
                         + Add Spec
                       </button>
                     </div>
@@ -1142,28 +886,17 @@ export default function PostAds({ user }) {
                     <div className="pa-list-wrap">
                       {whatsInBox.map((item, i) => (
                         <div className="pa-list-row" key={i}>
-                          <input
-                            className="pa-mini-input"
-                            value={item}
+                          <input className="pa-mini-input" value={item}
                             placeholder='e.g. "1× Charging Cable"'
                             aria-label={`Box item ${i + 1}`}
-                            onChange={(e) => updateList(setWhatsInBox, i, e.target.value)}
-                          />
-                          <button
-                            type="button"
-                            className="pa-mini-btn"
+                            onChange={(e) => updateList(setWhatsInBox, i, e.target.value)} />
+                          <button type="button" className="pa-mini-btn"
                             aria-label={`Remove box item ${i + 1}`}
-                            onClick={() => removeList(setWhatsInBox, i)}
-                          >
-                            −
-                          </button>
+                            onClick={() => removeList(setWhatsInBox, i)}>−</button>
                         </div>
                       ))}
-                      <button
-                        type="button"
-                        className="pa-add-btn"
-                        onClick={() => addList(setWhatsInBox, whatsInBox, 12)}
-                      >
+                      <button type="button" className="pa-add-btn"
+                        onClick={() => addList(setWhatsInBox, whatsInBox, 12)}>
                         + Add Item
                       </button>
                     </div>
@@ -1175,20 +908,12 @@ export default function PostAds({ user }) {
                     {fieldErrors.category && (
                       <span className="pa-field-error" role="alert">{fieldErrors.category}</span>
                     )}
-                    <div
-                      className="pa-cat-grid"
-                      role="radiogroup"
-                      aria-labelledby="pa-cat-label"
-                    >
+                    <div className="pa-cat-grid" role="radiogroup" aria-labelledby="pa-cat-label">
                       {categories.map((c) => (
-                        <button
-                          key={c.id}
-                          type="button"
-                          role="radio"
+                        <button key={c.id} type="button" role="radio"
                           aria-checked={category === c.id}
                           className={`pa-cat-btn ${category === c.id ? "pa-cat-btn--active" : ""}`}
-                          onClick={() => { setCategory(c.id); markTouched("category"); }}
-                        >
+                          onClick={() => { setCategory(c.id); markTouched("category"); }}>
                           <span className="pa-cat-icon" aria-hidden="true">{c.icon}</span>
                           {c.name}
                         </button>
@@ -1198,160 +923,22 @@ export default function PostAds({ user }) {
                 </section>
               )}
 
-              {/* ───── STEP 3: VARIANTS ───── */}
+              {/* ───── STEP 3: VARIANTS — VariantEditor ───── */}
               {step === 3 && (
                 <section aria-label="Product variants">
-                  <div className="pa-section-head">
-                    <div>
-                      <p className="pa-section-title">📦 Product Variants</p>
-                      <p className="pa-section-sub">Each variant = unique SKU.</p>
-                    </div>
-                    <button
-                      type="button"
-                      className="pa-gen-btn"
-                      onClick={() => setShowMatrix(true)}
-                      aria-label="Open variant matrix generator"
-                    >
-                      <FiGrid size={15} aria-hidden="true" /> Matrix Generator
-                    </button>
-                  </div>
-
-                  {variants.map((v, i) => {
-                    const stock = parseInt(v.stock, 10) || 0;
-                    return (
-                      <div className="pa-variant-card" key={v.id}>
-                        <div className="pa-variant-header">
-                          <span className="pa-variant-title">Variant {i + 1}</span>
-                          <button
-                            type="button"
-                            className="pa-variant-delete"
-                            onClick={() => removeVariant(i)}
-                            aria-label={`Delete variant ${i + 1}`}
-                          >
-                            <FiPlus size={13} style={{ transform: "rotate(45deg)" }} />
-                          </button>
-                        </div>
-
-                        <div className="pa-variant-grid">
-                          {/* Name */}
-                          <div className="pa-variant-field" style={{ gridColumn: "span 2" }}>
-                            <label htmlFor={`v-name-${i}`}>Name *</label>
-                            <input
-                              id={`v-name-${i}`}
-                              placeholder='e.g. "Black 128GB"'
-                              value={v.name}
-                              aria-required="true"
-                              aria-invalid={!!fieldErrors[`v_name_${i}`]}
-                              className={fieldErrors[`v_name_${i}`] ? "pa-input--error" : ""}
-                              onChange={(e) => updateVariant(i, "name", e.target.value)}
-                              onBlur={() => markTouched(`v_name_${i}`)}
-                            />
-                            {fieldErrors[`v_name_${i}`] && (
-                              <span className="pa-field-error" role="alert">
-                                {fieldErrors[`v_name_${i}`]}
-                              </span>
-                            )}
-                          </div>
-
-                          {/* SKU */}
-                          <div className="pa-variant-field">
-                            <label htmlFor={`v-sku-${i}`}>SKU *</label>
-                            <input
-                              id={`v-sku-${i}`}
-                              placeholder="IP13-BLK-128"
-                              value={v.sku}
-                              aria-required="true"
-                              aria-invalid={!!fieldErrors[`v_sku_${i}`]}
-                              className={fieldErrors[`v_sku_${i}`] ? "pa-input--error" : ""}
-                              onChange={(e) => updateVariant(i, "sku", e.target.value.toUpperCase())}
-                              onBlur={() => markTouched(`v_sku_${i}`)}
-                            />
-                            {fieldErrors[`v_sku_${i}`] && (
-                              <span className="pa-field-error" role="alert">
-                                {fieldErrors[`v_sku_${i}`]}
-                              </span>
-                            )}
-                          </div>
-
-                          {/* Price */}
-                          <div className="pa-variant-field">
-                            <label htmlFor={`v-price-${i}`}>Price (₦)</label>
-                            <input
-                              id={`v-price-${i}`}
-                              type="text"
-                              inputMode="numeric"
-                              placeholder="0"
-                              value={v.price ? Number(v.price).toLocaleString() : ""}
-                              aria-invalid={!!fieldErrors[`v_price_${i}`]}
-                              className={fieldErrors[`v_price_${i}`] ? "pa-input--error" : ""}
-                              onChange={(e) => updateVariant(i, "price", e.target.value.replace(/\D/g, ""))}
-                              onBlur={() => markTouched(`v_price_${i}`)}
-                            />
-                            {fieldErrors[`v_price_${i}`] && (
-                              <span className="pa-field-error" role="alert">
-                                {fieldErrors[`v_price_${i}`]}
-                              </span>
-                            )}
-                          </div>
-
-                          {/* Stock */}
-                          <div className="pa-variant-field">
-                            <label htmlFor={`v-stock-${i}`}>Stock</label>
-                            <input
-                              id={`v-stock-${i}`}
-                              type="number"
-                              min="0"
-                              value={v.stock}
-                              aria-label={`Stock quantity for variant ${i + 1}`}
-                              onChange={(e) => updateVariant(i, "stock", e.target.value)}
-                            />
-                            <span
-                              className={`pa-stock-badge ${
-                                stock === 0 ? "pa-stock-badge--zero" :
-                                stock <= 3  ? "pa-stock-badge--low"  :
-                                              "pa-stock-badge--ok"
-                              }`}
-                              aria-live="polite"
-                            >
-                              {stock === 0 ? "Out of stock" : stock <= 3 ? `Only ${stock} left` : `${stock} in stock`}
-                            </span>
-                          </div>
-                        </div>
-
-                        <p className="pa-attr-label" aria-hidden="true">Attributes</p>
-                        <div className="pa-variant-grid">
-                          {["color", "size", "storage", "material"].map((attr) => (
-                            <div className="pa-variant-field" key={attr}>
-                              <label htmlFor={`v-${attr}-${i}`}>
-                                {attr.charAt(0).toUpperCase() + attr.slice(1)}
-                              </label>
-                              <input
-                                id={`v-${attr}-${i}`}
-                                placeholder={
-                                  attr === "color"   ? "Midnight Black" :
-                                  attr === "size"    ? "XL"             :
-                                  attr === "storage" ? "256GB"          : "Cotton"
-                                }
-                                value={v.attributes[attr] || ""}
-                                onChange={(e) => updateVariantAttr(i, attr, e.target.value)}
-                              />
-                            </div>
-                          ))}
-                        </div>
-                      </div>
-                    );
-                  })}
-
-                  {variants.length < 20 && (
-                    <button
-                      type="button"
-                      className="pa-add-btn pa-add-btn--lg"
-                      onClick={addVariant}
-                      aria-label="Add another variant"
-                    >
-                      <FiPlus size={16} aria-hidden="true" /> Add Variant
-                    </button>
-                  )}
+                  <VariantEditor
+                    variants={variants}
+                    onUpdate={updateVariant}
+                    onUpdateAttr={updateVariantAttr}
+                    onAdd={addVariant}
+                    onRemove={removeVariant}
+                    onDuplicate={duplicateVariant}
+                    onBulkReplace={(newVariants) => setVariants(newVariants)}
+                    errors={fieldErrors}
+                    onBlur={markTouched}
+                    title={title}
+                    categoryName={activeCategory?.name ?? ""}
+                  />
                 </section>
               )}
 
@@ -1400,45 +987,24 @@ export default function PostAds({ user }) {
               )}
             </main>
 
-            {/* ── Footer ── */}
-            <div
-              className="pa-footer pa-glass-bar"
-              role="navigation"
-              aria-label="Step navigation"
-            >
+            {/* Footer */}
+            <div className="pa-footer pa-glass-bar" role="navigation" aria-label="Step navigation">
               {step > 1 ? (
-                <button
-                  type="button"
-                  className="pa-btn-back"
-                  onClick={goBack}
-                  aria-label="Go to previous step"
-                >
+                <button type="button" className="pa-btn-back" onClick={goBack} aria-label="Go to previous step">
                   <FiChevronLeft size={16} aria-hidden="true" /> Back
                 </button>
               ) : <div aria-hidden="true" />}
 
               {step < 5 ? (
-                <button
-                  type="button"
-                  className="pa-btn-next"
-                  onClick={goNext}
+                <button type="button" className="pa-btn-next" onClick={goNext}
                   disabled={posting || compressing}
-                  aria-label={compressing ? "Compressing, please wait" : "Go to next step"}
-                >
+                  aria-label={compressing ? "Compressing, please wait" : "Go to next step"}>
                   {compressing ? "Compressing…" : "Continue"}
                   <FiChevronRight size={16} aria-hidden="true" />
                 </button>
               ) : <div aria-hidden="true" />}
             </div>
           </>
-        )}
-
-        {/* Matrix Modal */}
-        {showMatrix && (
-          <MatrixModal
-            onGenerate={(newVariants) => setVariants(newVariants)}
-            onClose={() => setShowMatrix(false)}
-          />
         )}
       </div>
     </>
