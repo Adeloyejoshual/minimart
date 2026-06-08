@@ -1,6 +1,6 @@
 import React, {
   useEffect, useMemo, useState,
-  useCallback, useRef, memo,
+  useCallback, memo,
 } from "react";
 import { useNavigate } from "react-router-dom";
 import axios from "axios";
@@ -8,7 +8,7 @@ import toast from "react-hot-toast";
 import imageCompression from "browser-image-compression";
 import {
   FiChevronLeft, FiChevronRight, FiCheckCircle, FiArrowLeft,
-  FiZap, FiTag, FiPackage, FiPlus, FiDollarSign,
+  FiZap, FiTag, FiPackage, FiDollarSign,
   FiFileText, FiShield, FiAlertTriangle, FiAlertCircle,
   FiCamera,
 } from "react-icons/fi";
@@ -18,37 +18,30 @@ import ImageGrid     from "./PostAds/ImageGrid";
 import VariantEditor from "./PostAds/VariantEditor";
 import ReviewStep    from "./PostAds/ReviewStep";
 import PricingStep   from "./PostAds/PricingStep";
+import StepBar       from "./PostAds/StepBar";
 import "../styles/PostAds.css";
 
 /* ═══════════════════════════════════════════════
    CONSTANTS
 ═══════════════════════════════════════════════ */
 const API             = "https://minimart-ivrm.onrender.com/api";
-const DRAFT_KEY       = "post-ad-draft-v7";
+const DRAFT_KEY       = "post-ad-draft-v8";
 const MAX_IMAGES      = 6;
 const MAX_FILE_MB     = 5;
 const MAX_VARIANTS    = 20;
 const COMPRESS_TARGET = 0.5;
 
 /* ═══════════════════════════════════════════════
-   STEPS
-═══════════════════════════════════════════════ */
-const STEPS = [
-  { id: 1, label: "Photos",   icon: <FiCamera size={15} />    },
-  { id: 2, label: "Details",  icon: <FiTag size={15} />       },
-  { id: 3, label: "Variants", icon: <FiPackage size={15} />   },
-  { id: 4, label: "Pricing",  icon: <FiDollarSign size={15} />},
-  { id: 5, label: "Review",   icon: <FiFileText size={15} />  },
-];
-
-/* ═══════════════════════════════════════════════
-   BLANK VARIANT — stable UUID
+   STABLE UUID
 ═══════════════════════════════════════════════ */
 function newId() {
   if (typeof crypto !== "undefined" && crypto.randomUUID) return crypto.randomUUID();
   return `${Date.now()}-${Math.random().toString(16).slice(2)}`;
 }
 
+/* ═══════════════════════════════════════════════
+   BLANK VARIANT
+═══════════════════════════════════════════════ */
 const BLANK_VARIANT = () => ({
   id:         newId(),
   sku:        "",
@@ -179,20 +172,15 @@ const ProhibitedBanner = memo(({ result, scanDone }) => {
   if (!blocked.length && !suspicious.length) {
     return (
       <div style={{
-        display:        "flex",
-        alignItems:     "center",
-        gap:            "8px",
-        padding:        "10px 14px",
-        borderRadius:   "12px",
-        background:     "rgba(16,185,129,0.08)",
-        border:         "1px solid rgba(16,185,129,0.2)",
-        backdropFilter: "blur(8px)",
-        marginBottom:   "14px",
-        fontSize:       "12px",
-        fontWeight:     700,
-        color:          "#065f46",
+        display:"flex", alignItems:"center", gap:"8px",
+        padding:"10px 14px", borderRadius:"12px",
+        background:"rgba(16,185,129,0.08)",
+        border:"1px solid rgba(16,185,129,0.2)",
+        backdropFilter:"blur(8px)",
+        marginBottom:"14px", fontSize:"12px",
+        fontWeight:700, color:"#065f46",
       }}>
-        <FiShield size={14} style={{ flexShrink: 0 }} />
+        <FiShield size={14} style={{ flexShrink:0 }} />
         ✅ Content scan passed — no prohibited items detected
       </div>
     );
@@ -241,42 +229,20 @@ const ProhibitedBanner = memo(({ result, scanDone }) => {
 });
 
 /* ═══════════════════════════════════════════════
-   STEP BAR
-═══════════════════════════════════════════════ */
-const StepBar = memo(({ current }) => (
-  <div className="pa-stepbar" role="navigation" aria-label="Form steps">
-    {STEPS.map((s, i) => (
-      <React.Fragment key={s.id}>
-        <div
-          className={["pa-step", current === s.id ? "pa-step--active" : "", current > s.id ? "pa-step--done" : ""].join(" ")}
-          aria-current={current === s.id ? "step" : undefined}
-        >
-          <div className="pa-step-dot">
-            {current > s.id ? <FiCheckCircle size={14} /> : s.icon}
-          </div>
-          <span className="pa-step-label">{s.label}</span>
-        </div>
-        {i < STEPS.length - 1 && (
-          <div className={`pa-step-line ${current > s.id ? "pa-step-line--done" : ""}`} aria-hidden="true" />
-        )}
-      </React.Fragment>
-    ))}
-  </div>
-));
-
-/* ═══════════════════════════════════════════════
    MAIN COMPONENT
 ═══════════════════════════════════════════════ */
 export default function PostAds({ user }) {
   const navigate = useNavigate();
 
   /* ── Step / UI ── */
-  const [step,        setStep]        = useState(1);
-  const [posting,     setPosting]     = useState(false);
-  const [posted,      setPosted]      = useState(false);
-  const [uploadPct,   setUploadPct]   = useState(0);
-  const [compressing, setCompressing] = useState(false);
-  const [lastSaved,   setLastSaved]   = useState(null);
+  const [step,           setStep]           = useState(1);
+  const [completedSteps, setCompletedSteps] = useState([]);
+  const [posting,        setPosting]        = useState(false);
+  const [posted,         setPosted]         = useState(false);
+  const [uploadPct,      setUploadPct]      = useState(0);
+  const [compressing,    setCompressing]    = useState(false);
+  const [lastSaved,      setLastSaved]      = useState(null);
+  const [attemptedNext,  setAttemptedNext]  = useState(false);
 
   /* ── Images ── */
   const [images,       setImages]       = useState(Array(MAX_IMAGES).fill(null));
@@ -302,8 +268,7 @@ export default function PostAds({ user }) {
   const [originalPrice, setOriginalPrice] = useState("");
 
   /* ── Validation ── */
-  const [touched,       setTouched]       = useState({});
-  const [attemptedNext, setAttemptedNext] = useState(false);
+  const [touched, setTouched] = useState({});
 
   /* ── Prohibited ── */
   const [scanResult, setScanResult] = useState(null);
@@ -338,6 +303,7 @@ export default function PostAds({ user }) {
 
   /* ═══ Lifecycle ═══ */
 
+  /* Cleanup blob URLs */
   useEffect(() => {
     return () => {
       images.forEach((img) => { if (img?.preview) URL.revokeObjectURL(img.preview); });
@@ -345,35 +311,45 @@ export default function PostAds({ user }) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  /* Load draft */
   useEffect(() => {
     try {
       const raw = localStorage.getItem(DRAFT_KEY);
       if (!raw) return;
       const d = JSON.parse(raw);
-      if (d.step)                   setStep(d.step);
-      if (d.title)                  setTitle(d.title);
-      if (d.brand)                  setBrand(d.brand);
-      if (Array.isArray(d.tags))    setTags(d.tags);
-      if (d.description)            setDescription(d.description);
-      if (d.category)               setCategory(d.category);
-      if (d.keyFeatures?.length)    setKeyFeatures(d.keyFeatures);
-      if (d.specifications?.length) setSpecifications(d.specifications);
-      if (d.whatsInBox?.length)     setWhatsInBox(d.whatsInBox);
-      if (d.variants?.length)       setVariants(d.variants);
-      if (d.basePrice)              setBasePrice(d.basePrice);
-      if (d.originalPrice)          setOriginalPrice(d.originalPrice);
+      if (d.step)                       setStep(d.step);
+      if (Array.isArray(d.completedSteps)) setCompletedSteps(d.completedSteps);
+      if (d.title)                      setTitle(d.title);
+      if (d.brand)                      setBrand(d.brand);
+      if (Array.isArray(d.tags))        setTags(d.tags);
+      if (d.description)                setDescription(d.description);
+      if (d.category)                   setCategory(d.category);
+      if (d.keyFeatures?.length)        setKeyFeatures(d.keyFeatures);
+      if (d.specifications?.length)     setSpecifications(d.specifications);
+      if (d.whatsInBox?.length)         setWhatsInBox(d.whatsInBox);
+      if (d.variants?.length)           setVariants(d.variants);
+      if (d.basePrice)                  setBasePrice(d.basePrice);
+      if (d.originalPrice)              setOriginalPrice(d.originalPrice);
     } catch {}
   }, []);
 
+  /* Auto-save draft — includes completedSteps */
   useEffect(() => {
     localStorage.setItem(DRAFT_KEY, JSON.stringify({
-      step, title, brand, tags, description, category,
+      step, completedSteps,
+      title, brand, tags, description, category,
       keyFeatures, specifications, whatsInBox, variants,
       basePrice, originalPrice,
     }));
     setLastSaved(Date.now());
-  }, [step, title, brand, tags, description, category, keyFeatures, specifications, whatsInBox, variants, basePrice, originalPrice]);
+  }, [
+    step, completedSteps,
+    title, brand, tags, description, category,
+    keyFeatures, specifications, whatsInBox, variants,
+    basePrice, originalPrice,
+  ]);
 
+  /* Prohibited scan */
   useEffect(() => {
     if (!title && !description && !keyFeatures.some((f) => f.trim())) {
       setScanResult(null);
@@ -386,6 +362,7 @@ export default function PostAds({ user }) {
     if (result.blocked.length > 0) toast.error(`🚫 Prohibited: ${result.blocked[0].category}`);
   }, [title, description, keyFeatures]);
 
+  /* Edit-step events from ReviewStep */
   useEffect(() => {
     const handler = (e) => setStep(e.detail);
     window.addEventListener("pa-edit-step", handler);
@@ -433,7 +410,6 @@ export default function PostAds({ user }) {
         toast.success(`Compressed — saved ${((file.size - compressed.size) / 1024).toFixed(0)} KB`);
       }
 
-      /* multi-drop: fill next empty slots */
       if (extraFiles?.length) {
         let nextSlot = index + 1;
         for (const extra of extraFiles) {
@@ -477,17 +453,17 @@ export default function PostAds({ user }) {
 
   /* ═══ List helpers ═══ */
 
-  const updateList  = useCallback((setter, i, val) =>
+  const updateList = useCallback((setter, i, val) =>
     setter((p) => p.map((x, idx) => (idx === i ? val : x))), []);
 
-  const addList     = useCallback((setter, list, limit) => {
+  const addList = useCallback((setter, list, limit) => {
     if (list.length < limit) setter((p) => [...p, ""]);
   }, []);
 
-  const removeList  = useCallback((setter, i) =>
+  const removeList = useCallback((setter, i) =>
     setter((p) => (p.length <= 1 ? p : p.filter((_, idx) => idx !== i))), []);
 
-  /* ═══ Variant helpers (passed to VariantEditor) ═══ */
+  /* ═══ Variant helpers ═══ */
 
   const updateVariant = useCallback((i, field, val) =>
     setVariants((p) => p.map((v, idx) => (idx === i ? { ...v, [field]: val } : v))), []);
@@ -497,14 +473,13 @@ export default function PostAds({ user }) {
       idx === i ? { ...v, attributes: { ...v.attributes, [attr]: val } } : v
     )), []);
 
-  const addVariant    = useCallback(() => {
+  const addVariant = useCallback(() => {
     setVariants((p) => p.length >= MAX_VARIANTS ? p : [...p, BLANK_VARIANT()]);
   }, []);
 
   const removeVariant = useCallback((i) =>
     setVariants((p) => (p.length <= 1 ? p : p.filter((_, idx) => idx !== i))), []);
 
-  /* ── Duplicate variant (new) ── */
   const duplicateVariant = useCallback((i) => {
     setVariants((p) => {
       if (p.length >= MAX_VARIANTS) { toast.error(`Max ${MAX_VARIANTS} variants`); return p; }
@@ -533,7 +508,10 @@ export default function PostAds({ user }) {
   /* ═══ Smart feature generator ═══ */
 
   const generateKeyFeatures = useCallback(() => {
-    const gen = guessFeatures({ title, categoryName: activeCategory?.name, description, specs: specifications });
+    const gen = guessFeatures({
+      title, categoryName: activeCategory?.name,
+      description, specs: specifications,
+    });
     if (!gen.length) { toast.error("Add title/description first"); return; }
     const existing = keyFeatures.map(normalize).filter(Boolean);
     setKeyFeatures(uniq([...existing, ...gen]).slice(0, 10) || [""]);
@@ -545,20 +523,20 @@ export default function PostAds({ user }) {
 
   const fieldErrors = useMemo(() => {
     const e = {};
-    if (filledImages.length === 0)                           e.images    = "Add at least 1 photo";
-    if (touched.title    && title.trim().length < 3)         e.title     = "Title must be at least 3 characters";
-    if (touched.title    && title.trim().length > 80)        e.title     = "Title too long";
-    if (touched.category && !category)                       e.category  = "Select a category";
+    if (filledImages.length === 0)                               e.images    = "Add at least 1 photo";
+    if (touched.title    && title.trim().length < 3)             e.title     = "Title must be at least 3 characters";
+    if (touched.title    && title.trim().length > 80)            e.title     = "Title too long";
+    if (touched.category && !category)                           e.category  = "Select a category";
     if (touched.basePrice) {
       const n = Number(basePrice);
-      if (!basePrice || isNaN(n) || n <= 0)                  e.basePrice = "Enter a valid price";
+      if (!basePrice || isNaN(n) || n <= 0)                      e.basePrice = "Enter a valid price";
     }
     if (touched.originalPrice && originalPrice) {
-      if (Number(originalPrice) <= Number(basePrice))        e.originalPrice = "Should be higher than base price";
+      if (Number(originalPrice) <= Number(basePrice))            e.originalPrice = "Should be higher than base price";
     }
     variants.forEach((v, i) => {
-      if (touched[`v_sku_${i}`]   && !v.sku.trim())         e[`v_sku_${i}`]   = "Required";
-      if (touched[`v_name_${i}`]  && !v.name.trim())        e[`v_name_${i}`]  = "Required";
+      if (touched[`v_sku_${i}`]   && !v.sku.trim())             e[`v_sku_${i}`]   = "Required";
+      if (touched[`v_name_${i}`]  && !v.name.trim())            e[`v_name_${i}`]  = "Required";
       if (touched[`v_price_${i}`] && (isNaN(Number(v.price)) || Number(v.price) < 0)) e[`v_price_${i}`] = "Invalid";
     });
     return e;
@@ -582,13 +560,15 @@ export default function PostAds({ user }) {
     if (step === 1 && filledImages.length === 0) return "Add at least one photo";
     if (step === 2 && title.trim().length < 3)   return "Title needs at least 3 characters";
     if (step === 2 && !category)                 return "Pick a category";
-    if (step === 3 && !variants.every((v) => v.sku.trim() && v.name.trim())) return "Fill SKU and name for each variant";
+    if (step === 3 && !variants.every((v) => v.sku.trim() && v.name.trim()))
+      return "Fill SKU and name for each variant";
     if (step === 4 && (!basePrice || Number(basePrice) <= 0)) return "Set a valid base price";
     return "";
   }, [step, filledImages.length, title, category, variants, basePrice]);
 
   /* ═══ Navigation ═══ */
 
+  /* Mark step as completed + advance */
   const goNext = useCallback(() => {
     setAttemptedNext(true);
     if (!stepValid) return;
@@ -596,22 +576,47 @@ export default function PostAds({ user }) {
       toast.error("Remove prohibited content before continuing");
       return;
     }
+
+    /* Mark current step as completed */
+    setCompletedSteps((prev) =>
+      prev.includes(step) ? prev : [...prev, step]
+    );
+
     setAttemptedNext(false);
     setStep((s) => Math.min(5, s + 1));
     window.navigator?.vibrate?.(12);
-  }, [stepValid, scanResult]);
+  }, [stepValid, scanResult, step]);
 
   const goBack = useCallback(() => {
     setAttemptedNext(false);
     setStep((s) => Math.max(1, s - 1));
   }, []);
 
+  /* StepBar click navigation */
+  const handleStepClick = useCallback((targetStep) => {
+    /* Allow: going back, jumping to a completed step,
+       or advancing to next if current step is valid */
+    if (
+      targetStep < step ||
+      completedSteps.includes(targetStep) ||
+      (targetStep === step + 1 && stepValid)
+    ) {
+      setStep(targetStep);
+      setAttemptedNext(false);
+    } else {
+      setAttemptedNext(true);
+      toast.error("Complete the current step first");
+    }
+  }, [step, completedSteps, stepValid]);
+
   /* ═══ Submit ═══ */
 
   const handleSubmit = useCallback(async () => {
     if (!user)                { toast.error("Please log in first");    return; }
     if (!filledImages.length) { toast.error("Add at least one photo"); return; }
-    if (scanResult?.blocked.length > 0) { toast.error("Remove prohibited content first"); return; }
+    if (scanResult?.blocked.length > 0) {
+      toast.error("Remove prohibited content first"); return;
+    }
 
     setPosting(true);
     setUploadPct(0);
@@ -679,21 +684,27 @@ export default function PostAds({ user }) {
 
       <div className="pa-page pa-glass">
 
-        {/* Topbar */}
+        {/* ── Topbar ── */}
         <div className="pa-topbar pa-glass-bar">
-          <button type="button" className="pa-topbar-back" onClick={() => navigate(-1)} aria-label="Go back">
+          <button
+            type="button"
+            className="pa-topbar-back"
+            onClick={() => navigate(-1)}
+            aria-label="Go back"
+          >
             <FiArrowLeft size={18} />
           </button>
           <div className="pa-topbar-center">
             <h1 className="pa-topbar-title">Post an Ad</h1>
             <p className="pa-topbar-sub">
-              Step {step}/5{activeCategory ? ` · ${activeCategory.icon} ${activeCategory.name}` : ""}
+              Step {step}/5
+              {activeCategory ? ` · ${activeCategory.icon} ${activeCategory.name}` : ""}
             </p>
           </div>
           <div style={{ width:36 }} aria-hidden="true" />
         </div>
 
-        {/* Success */}
+        {/* ── Success ── */}
         {posted ? (
           <div className="pa-success" role="alert" aria-live="polite">
             <div className="pa-success-icon"><FiCheckCircle size={42} /></div>
@@ -710,11 +721,16 @@ export default function PostAds({ user }) {
           </div>
         ) : (
           <>
-            <StepBar current={step} />
+            {/* ── New StepBar with completedSteps + click nav ── */}
+            <StepBar
+              current={step}
+              completedSteps={completedSteps}
+              onStepClick={handleStepClick}
+            />
 
             <main className="pa-body" id="pa-main">
 
-              {/* Step error */}
+              {/* Inline step error */}
               {attemptedNext && stepError && (
                 <div className="pa-inline-error" role="alert" aria-live="assertive">
                   <FiAlertCircle size={16} /> {stepError}
@@ -747,7 +763,8 @@ export default function PostAds({ user }) {
                       <p className="pa-section-title">📝 Product Details</p>
                       <p className="pa-section-sub">Clear titles rank higher.</p>
                     </div>
-                    <button type="button" className="pa-gen-btn" onClick={generateKeyFeatures}
+                    <button type="button" className="pa-gen-btn"
+                      onClick={generateKeyFeatures}
                       aria-label="Auto-generate key features">
                       <FiZap size={15} aria-hidden="true" /> Auto-Generate
                     </button>
@@ -757,12 +774,10 @@ export default function PostAds({ user }) {
                   <div className="pa-field">
                     <label className="pa-label" htmlFor="pa-title">Title *</label>
                     <input
-                      id="pa-title"
-                      type="text"
+                      id="pa-title" type="text"
                       className={`pa-input ${fieldErrors.title ? "pa-input--error" : ""}`}
                       placeholder='e.g. "iPhone 13 Pro Max 256GB"'
-                      value={title}
-                      maxLength={80}
+                      value={title} maxLength={80}
                       aria-required="true"
                       aria-invalid={!!fieldErrors.title}
                       aria-describedby={fieldErrors.title ? "pa-title-err" : undefined}
@@ -771,7 +786,9 @@ export default function PostAds({ user }) {
                     />
                     <div className="pa-field-footer">
                       {fieldErrors.title && (
-                        <span id="pa-title-err" className="pa-field-error" role="alert">{fieldErrors.title}</span>
+                        <span id="pa-title-err" className="pa-field-error" role="alert">
+                          {fieldErrors.title}
+                        </span>
                       )}
                       <span className={`pa-char-count ${title.length > 70 ? "pa-char-count--warn" : ""}`}>
                         {title.length}/80
@@ -783,8 +800,9 @@ export default function PostAds({ user }) {
                   <div className="pa-grid-2">
                     <div className="pa-field">
                       <label className="pa-label" htmlFor="pa-brand">Brand</label>
-                      <input id="pa-brand" type="text" className="pa-input" placeholder='e.g. "Apple"'
-                        value={brand} maxLength={40} onChange={(e) => setBrand(e.target.value)} />
+                      <input id="pa-brand" type="text" className="pa-input"
+                        placeholder='e.g. "Apple"' value={brand} maxLength={40}
+                        onChange={(e) => setBrand(e.target.value)} />
                     </div>
                     <div className="pa-field">
                       <label className="pa-label" htmlFor="pa-tag-input">Tags</label>
@@ -805,8 +823,9 @@ export default function PostAds({ user }) {
                       {tags.length > 0 && (
                         <div className="pa-tags" role="list" aria-label="Added tags">
                           {tags.map((t) => (
-                            <button key={t} type="button" className="pa-tag" role="listitem"
-                              aria-label={`Remove tag: ${t}`} onClick={() => removeTag(t)}>
+                            <button key={t} type="button" className="pa-tag"
+                              role="listitem" aria-label={`Remove tag: ${t}`}
+                              onClick={() => removeTag(t)}>
                               {t} <span aria-hidden="true">×</span>
                             </button>
                           ))}
@@ -855,16 +874,18 @@ export default function PostAds({ user }) {
                       {specifications.map((row, i) => (
                         <div className="pa-list-row" key={i}>
                           <div className="pa-spec-grid">
-                            <input className="pa-mini-input" value={row.key} placeholder="e.g. RAM"
-                              aria-label={`Spec ${i + 1} name`}
+                            <input className="pa-mini-input" value={row.key}
+                              placeholder="e.g. RAM" aria-label={`Spec ${i + 1} name`}
                               onChange={(e) => {
-                                const n = [...specifications]; n[i] = { ...n[i], key: e.target.value };
+                                const n = [...specifications];
+                                n[i] = { ...n[i], key: e.target.value };
                                 setSpecifications(n);
                               }} />
-                            <input className="pa-mini-input" value={row.value} placeholder="e.g. 8GB"
-                              aria-label={`Spec ${i + 1} value`}
+                            <input className="pa-mini-input" value={row.value}
+                              placeholder="e.g. 8GB" aria-label={`Spec ${i + 1} value`}
                               onChange={(e) => {
-                                const n = [...specifications]; n[i] = { ...n[i], value: e.target.value };
+                                const n = [...specifications];
+                                n[i] = { ...n[i], value: e.target.value };
                                 setSpecifications(n);
                               }} />
                           </div>
@@ -874,7 +895,9 @@ export default function PostAds({ user }) {
                         </div>
                       ))}
                       <button type="button" className="pa-add-btn"
-                        onClick={() => setSpecifications((p) => (p.length >= 12 ? p : [...p, { key:"", value:"" }]))}>
+                        onClick={() => setSpecifications((p) =>
+                          p.length >= 12 ? p : [...p, { key:"", value:"" }]
+                        )}>
                         + Add Spec
                       </button>
                     </div>
@@ -923,7 +946,7 @@ export default function PostAds({ user }) {
                 </section>
               )}
 
-              {/* ───── STEP 3: VARIANTS — VariantEditor ───── */}
+              {/* ───── STEP 3: VARIANTS ───── */}
               {step === 3 && (
                 <section aria-label="Product variants">
                   <VariantEditor
@@ -987,16 +1010,18 @@ export default function PostAds({ user }) {
               )}
             </main>
 
-            {/* Footer */}
+            {/* ── Footer ── */}
             <div className="pa-footer pa-glass-bar" role="navigation" aria-label="Step navigation">
               {step > 1 ? (
-                <button type="button" className="pa-btn-back" onClick={goBack} aria-label="Go to previous step">
+                <button type="button" className="pa-btn-back"
+                  onClick={goBack} aria-label="Go to previous step">
                   <FiChevronLeft size={16} aria-hidden="true" /> Back
                 </button>
               ) : <div aria-hidden="true" />}
 
               {step < 5 ? (
-                <button type="button" className="pa-btn-next" onClick={goNext}
+                <button type="button" className="pa-btn-next"
+                  onClick={goNext}
                   disabled={posting || compressing}
                   aria-label={compressing ? "Compressing, please wait" : "Go to next step"}>
                   {compressing ? "Compressing…" : "Continue"}
