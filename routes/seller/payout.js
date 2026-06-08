@@ -19,7 +19,10 @@ import {
 
 const router = express.Router();
 
-const MIN_WITHDRAWAL = parseFloat(process.env.MIN_WITHDRAWAL         || "500");
+// ─────────────────────────────────────────────────────────────
+// ✅ CHANGED: MIN_WITHDRAWAL from 500 → 20
+// ─────────────────────────────────────────────────────────────
+const MIN_WITHDRAWAL = parseFloat(process.env.MIN_WITHDRAWAL         || "20");
 const MAX_WITHDRAWAL = parseFloat(process.env.MAX_WITHDRAWAL         || "5000000");
 const DAILY_LIMIT    = parseFloat(process.env.DAILY_WITHDRAWAL_LIMIT || "1000000");
 const CHECK_THROTTLE = 2 * 60 * 1000;
@@ -58,7 +61,7 @@ const requireSellerAccount = async (req, res, next) => {
 };
 
 // ─────────────────────────────────────────────────────────────
-// VENDOR GUARD — sets req.vendor
+// VENDOR GUARD
 // ─────────────────────────────────────────────────────────────
 const requireVendor = async (req, res, next) => {
   try {
@@ -109,17 +112,24 @@ router.post("/resolve-account", authenticate, requireSellerAccount, async (req, 
   const { account_number, bank_name } = req.body;
 
   if (!bank_name?.trim()) {
-    return res.status(400).json({ success: false, message: "Please select a bank first" });
+    return res.status(400).json({
+      success: false,
+      message: "Please select a bank first",
+    });
   }
 
   const bank = getBankCode(bank_name.trim());
   if (!bank) {
-    return res.status(400).json({ success: false, message: `"${bank_name}" is not a supported bank` });
+    return res.status(400).json({
+      success: false,
+      message: `"${bank_name}" is not a supported bank`,
+    });
   }
 
   if (!validateAccountNumber(account_number)) {
     return res.status(400).json({
-      success: false, partial: true,
+      success: false,
+      partial: true,
       message: "Account number must be exactly 10 digits",
     });
   }
@@ -141,7 +151,10 @@ router.post("/resolve-account", authenticate, requireSellerAccount, async (req, 
     });
   } catch (err) {
     console.error("[resolve-account]", err.message);
-    return res.status(502).json({ success: false, message: "Verification temporarily unavailable." });
+    return res.status(502).json({
+      success: false,
+      message: "Verification temporarily unavailable.",
+    });
   }
 });
 
@@ -150,11 +163,19 @@ router.post("/resolve-account", authenticate, requireSellerAccount, async (req, 
 // ════════════════════════════════════════════════════════════
 router.post("/verify-account", authenticate, requireSellerAccount, async (req, res) => {
   const { account_number, bank_name } = req.body;
+
   if (!account_number?.trim() || !bank_name?.trim()) {
-    return res.status(400).json({ success: false, message: "account_number and bank_name are required" });
+    return res.status(400).json({
+      success: false,
+      message: "account_number and bank_name are required",
+    });
   }
+
   const result = await verifyAccountName(account_number.trim(), bank_name.trim());
-  if (!result.valid) return res.status(400).json({ success: false, message: result.message });
+  if (!result.valid) {
+    return res.status(400).json({ success: false, message: result.message });
+  }
+
   return res.json({ success: true, ...result });
 });
 
@@ -163,7 +184,7 @@ router.post("/verify-account", authenticate, requireSellerAccount, async (req, r
 // ════════════════════════════════════════════════════════════
 router.get("/info", ...guard, async (req, res) => {
   try {
-    const vendorId = req.vendor.id; // ✅ set by requireVendor
+    const vendorId = req.vendor.id;
 
     const { rows: [data] } = await pool.query(
       `SELECT
@@ -183,13 +204,17 @@ router.get("/info", ...guard, async (req, res) => {
          va.status          AS virtual_account_status
        FROM market.vendor_wallets w
        JOIN market.vendors v ON v.id = w.vendor_id
-       LEFT JOIN market.vendor_virtual_accounts va ON va.vendor_id = w.vendor_id
+       LEFT JOIN market.vendor_virtual_accounts va
+         ON va.vendor_id = w.vendor_id
        WHERE w.vendor_id = $1`,
       [vendorId]
     );
 
     if (!data) {
-      return res.status(404).json({ success: false, message: "Wallet not found." });
+      return res.status(404).json({
+        success: false,
+        message: "Wallet not found.",
+      });
     }
 
     const { withdrawalsToday, dailyUsed, freeRemaining } =
@@ -200,36 +225,37 @@ router.get("/info", ...guard, async (req, res) => {
     return res.json({
       success: true,
       wallet: {
-        available_balance: Number(data.available_balance),
-        pending_balance:   Number(data.pending_balance),
-        total_received:    Number(data.total_received),
-        total_withdrawn:   Number(data.total_withdrawn),
-        currency:          data.currency ?? "NGN",
+        available_balance : Number(data.available_balance),
+        pending_balance   : Number(data.pending_balance),
+        total_received    : Number(data.total_received),
+        total_withdrawn   : Number(data.total_withdrawn),
+        currency          : data.currency ?? "NGN",
       },
       bank: {
-        bank_name:      data.bank_name      ?? null,
-        bank_code:      data.bank_code      ?? null,
-        account_number: data.account_number ?? null,
-        account_name:   data.account_name   ?? null,
+        bank_name      : data.bank_name      ?? null,
+        bank_code      : data.bank_code      ?? null,
+        account_number : data.account_number ?? null,
+        account_name   : data.account_name   ?? null,
       },
       virtual_account: data.virtual_account_number ? {
-        account_number: data.virtual_account_number,
-        account_name:   data.virtual_account_name,
-        bank_name:      data.virtual_bank_name,
-        status:         data.virtual_account_status,
+        account_number : data.virtual_account_number,
+        account_name   : data.virtual_account_name,
+        bank_name      : data.virtual_bank_name,
+        status         : data.virtual_account_status,
       } : null,
       limits: {
-        min_withdrawal:     MIN_WITHDRAWAL,
-        max_withdrawal:     MAX_WITHDRAWAL,
-        daily_limit:        DAILY_LIMIT,
-        daily_used:         dailyUsed,
-        daily_remaining:    dailyRemaining,
-        withdrawals_today:  withdrawalsToday,
-        free_remaining:     freeRemaining,
-        fee_schedule_label: feeScheduleLabel(withdrawalsToday),
-        fee_tiers:          FEE_TIERS,
+        min_withdrawal     : MIN_WITHDRAWAL,   // ← now ₦20
+        max_withdrawal     : MAX_WITHDRAWAL,
+        daily_limit        : DAILY_LIMIT,
+        daily_used         : dailyUsed,
+        daily_remaining    : dailyRemaining,
+        withdrawals_today  : withdrawalsToday,
+        free_remaining     : freeRemaining,
+        fee_schedule_label : feeScheduleLabel(withdrawalsToday),
+        fee_tiers          : FEE_TIERS,
       },
     });
+
   } catch (err) {
     console.error("[payout/info]", err.message);
     return res.status(500).json({ success: false, message: "Server error" });
@@ -241,7 +267,7 @@ router.get("/info", ...guard, async (req, res) => {
 // ════════════════════════════════════════════════════════════
 router.get("/history", ...guard, async (req, res) => {
   try {
-    const vendorId = req.vendor.id; // ✅
+    const vendorId = req.vendor.id;
     const { page = 1, limit = 20, status } = req.query;
 
     const safeLimit  = Math.min(Math.max(parseInt(limit) || 20, 1), 100);
@@ -249,36 +275,45 @@ router.get("/history", ...guard, async (req, res) => {
 
     const params  = [vendorId];
     const filters = [];
-    if (status) { params.push(status); filters.push(`status = $${params.length}`); }
+
+    if (status) {
+      params.push(status);
+      filters.push(`status = $${params.length}`);
+    }
+
     const where = filters.length ? `AND ${filters.join(" AND ")}` : "";
 
     const { rows: withdrawals } = await pool.query(
-      `SELECT id, amount, fee, net_amount,
-              bank_name, bank_code, account_number, account_name,
-              status, failure_reason, flw_transfer_id, tx_ref,
-              requested_at, processed_at, created_at
+      `SELECT
+         id, amount, fee, net_amount,
+         bank_name, bank_code, account_number, account_name,
+         status, failure_reason, flw_transfer_id, tx_ref,
+         requested_at, processed_at, created_at
        FROM market.vendor_withdrawal_requests
        WHERE vendor_id = $1 ${where}
        ORDER BY created_at DESC
-       LIMIT $${params.length + 1} OFFSET $${params.length + 2}`,
+       LIMIT $${params.length + 1}
+       OFFSET $${params.length + 2}`,
       [...params, safeLimit, safeOffset]
     );
 
     const { rows: [{ count }] } = await pool.query(
-      `SELECT COUNT(*) FROM market.vendor_withdrawal_requests
+      `SELECT COUNT(*)
+       FROM market.vendor_withdrawal_requests
        WHERE vendor_id = $1 ${where}`,
       params
     );
 
     const { rows: [stats] } = await pool.query(
       `SELECT
-         COUNT(*)                                                                    AS total,
-         COALESCE(SUM(CASE WHEN status='success'    THEN net_amount ELSE 0 END), 0) AS total_paid_out,
-         COALESCE(SUM(CASE WHEN status='pending'    THEN 1          ELSE 0 END), 0) AS pending_count,
-         COALESCE(SUM(CASE WHEN status='processing' THEN 1          ELSE 0 END), 0) AS processing_count,
-         COALESCE(SUM(CASE WHEN status='failed'     THEN 1          ELSE 0 END), 0) AS failed_count,
-         COALESCE(SUM(fee), 0)                                                      AS total_fees_paid
-       FROM market.vendor_withdrawal_requests WHERE vendor_id = $1`,
+         COUNT(*)                                                                     AS total,
+         COALESCE(SUM(CASE WHEN status='success'    THEN net_amount ELSE 0 END), 0)  AS total_paid_out,
+         COALESCE(SUM(CASE WHEN status='pending'    THEN 1          ELSE 0 END), 0)  AS pending_count,
+         COALESCE(SUM(CASE WHEN status='processing' THEN 1          ELSE 0 END), 0)  AS processing_count,
+         COALESCE(SUM(CASE WHEN status='failed'     THEN 1          ELSE 0 END), 0)  AS failed_count,
+         COALESCE(SUM(fee), 0)                                                       AS total_fees_paid
+       FROM market.vendor_withdrawal_requests
+       WHERE vendor_id = $1`,
       [vendorId]
     );
 
@@ -286,19 +321,21 @@ router.get("/history", ...guard, async (req, res) => {
       success: true,
       withdrawals,
       stats: {
-        total:            Number(stats.total),
-        total_paid_out:   Number(stats.total_paid_out),
-        total_fees_paid:  Number(stats.total_fees_paid),
-        pending_count:    Number(stats.pending_count),
-        processing_count: Number(stats.processing_count),
-        failed_count:     Number(stats.failed_count),
+        total            : Number(stats.total),
+        total_paid_out   : Number(stats.total_paid_out),
+        total_fees_paid  : Number(stats.total_fees_paid),
+        pending_count    : Number(stats.pending_count),
+        processing_count : Number(stats.processing_count),
+        failed_count     : Number(stats.failed_count),
       },
       pagination: {
-        page: parseInt(page), limit: safeLimit,
-        total: Number(count),
-        total_pages: Math.ceil(Number(count) / safeLimit),
+        page        : parseInt(page),
+        limit       : safeLimit,
+        total       : Number(count),
+        total_pages : Math.ceil(Number(count) / safeLimit),
       },
     });
+
   } catch (err) {
     console.error("[payout/history]", err.message);
     return res.status(500).json({ success: false, message: "Server error" });
@@ -309,37 +346,55 @@ router.get("/history", ...guard, async (req, res) => {
 // POST /api/seller/payout/withdraw
 // ════════════════════════════════════════════════════════════
 router.post("/withdraw", ...guard, async (req, res) => {
-  const vendorId = req.vendor.id; // ✅
+  const vendorId = req.vendor.id;
   const { amount, idempotency_key } = req.body;
 
   if (!amount || isNaN(amount)) {
-    return res.status(400).json({ success: false, message: "Valid amount is required" });
+    return res.status(400).json({
+      success: false,
+      message: "Valid amount is required",
+    });
   }
 
   const parsedAmount = parseFloat(parseFloat(amount).toFixed(2));
 
+  // ✅ CHANGED: minimum is now ₦20
   if (parsedAmount < MIN_WITHDRAWAL) {
-    return res.status(400).json({ success: false, message: `Minimum withdrawal is ₦${MIN_WITHDRAWAL.toLocaleString()}` });
+    return res.status(400).json({
+      success: false,
+      message: `Minimum withdrawal is ₦${MIN_WITHDRAWAL.toLocaleString()}`,
+    });
   }
+
   if (parsedAmount > MAX_WITHDRAWAL) {
-    return res.status(400).json({ success: false, message: `Maximum withdrawal is ₦${MAX_WITHDRAWAL.toLocaleString()}` });
+    return res.status(400).json({
+      success: false,
+      message: `Maximum withdrawal is ₦${MAX_WITHDRAWAL.toLocaleString()}`,
+    });
   }
 
   const client = await pool.connect();
   try {
     await client.query("BEGIN");
 
+    // Idempotency check
     if (idempotency_key) {
       const { rows: [dupe] } = await client.query(
-        `SELECT * FROM market.vendor_withdrawal_requests WHERE idempotency_key = $1`,
+        `SELECT * FROM market.vendor_withdrawal_requests
+         WHERE idempotency_key = $1`,
         [idempotency_key]
       );
       if (dupe) {
         await client.query("ROLLBACK");
-        return res.status(200).json({ success: true, idempotent: true, withdrawal: dupe });
+        return res.status(200).json({
+          success:    true,
+          idempotent: true,
+          withdrawal: dupe,
+        });
       }
     }
 
+    // Lock wallet
     const { rows: [wallet] } = await client.query(
       `SELECT w.*, v.bank_name, v.bank_code,
               v.bank_account AS account_number, v.account_name
@@ -351,17 +406,26 @@ router.post("/withdraw", ...guard, async (req, res) => {
 
     if (!wallet) {
       await client.query("ROLLBACK");
-      return res.status(404).json({ success: false, message: "Wallet not found" });
+      return res.status(404).json({
+        success: false,
+        message: "Wallet not found",
+      });
     }
 
     if (!wallet.bank_name || !wallet.account_number) {
       await client.query("ROLLBACK");
-      return res.status(400).json({ success: false, message: "No payout bank account configured. Please update Settings." });
+      return res.status(400).json({
+        success: false,
+        message: "No payout bank account configured. Please update Settings.",
+      });
     }
 
     if (parsedAmount > parseFloat(wallet.available_balance)) {
       await client.query("ROLLBACK");
-      return res.status(400).json({ success: false, message: `Insufficient balance. Available: ₦${Number(wallet.available_balance).toLocaleString()}` });
+      return res.status(400).json({
+        success: false,
+        message: `Insufficient balance. Available: ₦${Number(wallet.available_balance).toLocaleString()}`,
+      });
     }
 
     const { fee, netAmount, withdrawalsToday, dailyUsed, freeRemaining } =
@@ -375,6 +439,7 @@ router.post("/withdraw", ...guard, async (req, res) => {
       });
     }
 
+    // Block if pending withdrawal exists
     const { rows: [{ count: activeCount }] } = await client.query(
       `SELECT COUNT(*) FROM market.vendor_withdrawal_requests
        WHERE vendor_id = $1 AND status IN ('pending','processing')`,
@@ -383,12 +448,16 @@ router.post("/withdraw", ...guard, async (req, res) => {
 
     if (parseInt(activeCount, 10) > 0) {
       await client.query("ROLLBACK");
-      return res.status(400).json({ success: false, message: "You have a pending withdrawal. Please wait for it to complete." });
+      return res.status(400).json({
+        success: false,
+        message: "You have a pending withdrawal. Please wait for it to complete.",
+      });
     }
 
     const txRef = generateTxRef();
     const iKey  = idempotency_key ?? txRef;
 
+    // Debit wallet
     await client.query(
       `UPDATE market.vendor_wallets
        SET available_balance = available_balance - $1,
@@ -398,6 +467,7 @@ router.post("/withdraw", ...guard, async (req, res) => {
       [parsedAmount, vendorId]
     );
 
+    // Create withdrawal request
     const { rows: [withdrawal] } = await client.query(
       `INSERT INTO market.vendor_withdrawal_requests
          (vendor_id, wallet_id, amount, fee, net_amount,
@@ -406,13 +476,21 @@ router.post("/withdraw", ...guard, async (req, res) => {
        VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,'processing',$11,NOW())
        RETURNING *`,
       [
-        vendorId, wallet.id, parsedAmount, fee, netAmount,
-        wallet.bank_name, wallet.bank_code ?? null,
-        wallet.account_number, wallet.account_name,
-        txRef, iKey,
+        vendorId,
+        wallet.id,
+        parsedAmount,
+        fee,
+        netAmount,
+        wallet.bank_name,
+        wallet.bank_code ?? null,
+        wallet.account_number,
+        wallet.account_name,
+        txRef,
+        iKey,
       ]
     );
 
+    // Transaction log
     await client.query(
       `INSERT INTO market.vendor_transactions
          (vendor_id, type, amount, fee, currency, status, narration, tx_ref)
@@ -422,27 +500,36 @@ router.post("/withdraw", ...guard, async (req, res) => {
 
     await client.query("COMMIT");
 
+    // Initiate FLW transfer
     try {
       const flwResult = await initiateTransfer({
-        vendorId, amount: parsedAmount, fee, netAmount,
-        bankName: wallet.bank_name, accountNumber: wallet.account_number, txRef,
+        vendorId,
+        amount:        parsedAmount,
+        fee,
+        netAmount,
+        bankName:      wallet.bank_name,
+        accountNumber: wallet.account_number,
+        txRef,
       });
 
       await pool.query(
         `UPDATE market.vendor_withdrawal_requests
-         SET flw_transfer_id = $1, updated_at = NOW() WHERE tx_ref = $2`,
+         SET flw_transfer_id = $1, updated_at = NOW()
+         WHERE tx_ref = $2`,
         [flwResult.flw_transfer_id, txRef]
       );
 
       return res.status(201).json({
-        success: true,
-        message: "Withdrawal initiated successfully",
+        success:    true,
+        message:    "Withdrawal initiated successfully",
         withdrawal: {
           id:              withdrawal.id,
           amount:          parsedAmount,
           fee,
           net_amount:      netAmount,
-          fee_note:        fee === 0 ? "Free — within first 3 today" : `₦${fee} fee applied`,
+          fee_note:        fee === 0
+            ? "Free — within first 3 today"
+            : `₦${fee} fee applied`,
           status:          "processing",
           tx_ref:          txRef,
           flw_transfer_id: flwResult.flw_transfer_id,
@@ -456,6 +543,7 @@ router.post("/withdraw", ...guard, async (req, res) => {
     } catch (flwErr) {
       console.error("[withdraw] FLW failed:", flwErr.message);
 
+      // Restore balance on FLW failure
       await pool.query(
         `UPDATE market.vendor_wallets
          SET available_balance = available_balance + $1,
@@ -466,19 +554,22 @@ router.post("/withdraw", ...guard, async (req, res) => {
       );
       await pool.query(
         `UPDATE market.vendor_withdrawal_requests
-         SET status='failed', failure_reason=$1, processed_at=NOW(), updated_at=NOW()
+         SET status='failed', failure_reason=$1,
+             processed_at=NOW(), updated_at=NOW()
          WHERE tx_ref=$2`,
         [flwErr.message, txRef]
       );
       await pool.query(
-        `UPDATE market.vendor_transactions SET status='failed', narration=$1 WHERE tx_ref=$2`,
+        `UPDATE market.vendor_transactions
+         SET status='failed', narration=$1
+         WHERE tx_ref=$2`,
         [`Withdrawal failed: ${flwErr.message}`, txRef]
       );
 
       return res.status(502).json({
         success: false,
         message: `Transfer failed: ${flwErr.message}. Your balance has been restored.`,
-        tx_ref: txRef,
+        tx_ref:  txRef,
       });
     }
 
@@ -499,11 +590,14 @@ router.get("/withdrawal/:id", ...guard, async (req, res) => {
     const { rows: [withdrawal] } = await pool.query(
       `SELECT * FROM market.vendor_withdrawal_requests
        WHERE id = $1 AND vendor_id = $2`,
-      [req.params.id, req.vendor.id] // ✅
+      [req.params.id, req.vendor.id]
     );
 
     if (!withdrawal) {
-      return res.status(404).json({ success: false, message: "Withdrawal not found" });
+      return res.status(404).json({
+        success: false,
+        message: "Withdrawal not found",
+      });
     }
 
     let liveStatus = null;
@@ -515,8 +609,8 @@ router.get("/withdrawal/:id", ...guard, async (req, res) => {
       if (Date.now() - lastChecked > CHECK_THROTTLE) {
         try {
           const flwData = await checkTransferStatus(withdrawal.flw_transfer_id);
-          liveStatus = flwData.status;
-          const upper = flwData.status?.toUpperCase();
+          liveStatus    = flwData.status;
+          const upper   = flwData.status?.toUpperCase();
 
           if (["SUCCESSFUL", "SUCCESS"].includes(upper)) {
             await pool.query(
@@ -527,15 +621,18 @@ router.get("/withdrawal/:id", ...guard, async (req, res) => {
               [withdrawal.id]
             );
             withdrawal.status = "success";
+
           } else if (["FAILED", "CANCELLED"].includes(upper)) {
             await pool.query(
               `UPDATE market.vendor_withdrawal_requests
                SET status='failed', failure_reason=$1,
-                   processed_at=NOW(), last_checked_at=NOW(), updated_at=NOW()
+                   processed_at=NOW(), last_checked_at=NOW(),
+                   updated_at=NOW()
                WHERE id=$2 AND status='processing'`,
               [flwData.message ?? "Transfer failed", withdrawal.id]
             );
             withdrawal.status = "failed";
+
           } else {
             await pool.query(
               `UPDATE market.vendor_withdrawal_requests
@@ -549,7 +646,12 @@ router.get("/withdrawal/:id", ...guard, async (req, res) => {
       }
     }
 
-    return res.json({ success: true, withdrawal, live_status: liveStatus });
+    return res.json({
+      success:     true,
+      withdrawal,
+      live_status: liveStatus,
+    });
+
   } catch (err) {
     console.error("[withdrawal/:id]", err.message);
     return res.status(500).json({ success: false, message: "Server error" });
@@ -567,12 +669,15 @@ router.post("/withdrawal/:id/cancel", ...guard, async (req, res) => {
     const { rows: [withdrawal] } = await client.query(
       `SELECT * FROM market.vendor_withdrawal_requests
        WHERE id=$1 AND vendor_id=$2 FOR UPDATE`,
-      [req.params.id, req.vendor.id] // ✅
+      [req.params.id, req.vendor.id]
     );
 
     if (!withdrawal) {
       await client.query("ROLLBACK");
-      return res.status(404).json({ success: false, message: "Withdrawal not found" });
+      return res.status(404).json({
+        success: false,
+        message: "Withdrawal not found",
+      });
     }
 
     if (withdrawal.status !== "processing" || withdrawal.flw_transfer_id) {
@@ -586,24 +691,36 @@ router.post("/withdrawal/:id/cancel", ...guard, async (req, res) => {
     }
 
     await client.query(
-      `UPDATE market.vendor_withdrawal_requests SET status='cancelled', updated_at=NOW() WHERE id=$1`,
+      `UPDATE market.vendor_withdrawal_requests
+       SET status='cancelled', updated_at=NOW()
+       WHERE id=$1`,
       [withdrawal.id]
     );
+
     await client.query(
       `UPDATE market.vendor_wallets
-       SET available_balance=available_balance+$1,
-           pending_balance=pending_balance-$1, updated_at=NOW()
-       WHERE vendor_id=$2`,
-      [withdrawal.amount, req.vendor.id] // ✅
+       SET available_balance = available_balance + $1,
+           pending_balance   = pending_balance   - $1,
+           updated_at        = NOW()
+       WHERE vendor_id = $2`,
+      [withdrawal.amount, req.vendor.id]
     );
+
     await client.query(
       `UPDATE market.vendor_transactions
-       SET status='failed', narration='Withdrawal cancelled by vendor' WHERE tx_ref=$1`,
+       SET status='failed',
+           narration='Withdrawal cancelled by vendor'
+       WHERE tx_ref=$1`,
       [withdrawal.tx_ref]
     );
 
     await client.query("COMMIT");
-    return res.json({ success: true, message: "Withdrawal cancelled. Balance restored." });
+
+    return res.json({
+      success: true,
+      message: "Withdrawal cancelled. Balance restored.",
+    });
+
   } catch (err) {
     await client.query("ROLLBACK");
     console.error("[cancel]", err.message);
