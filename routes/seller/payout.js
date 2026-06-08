@@ -17,13 +17,13 @@ import {
 
 const router = express.Router();
 
-const MIN_WITHDRAWAL = parseFloat(process.env.MIN_WITHDRAWAL        ?? "20");
-const MAX_WITHDRAWAL = parseFloat(process.env.MAX_WITHDRAWAL        ?? "5000000");
+const MIN_WITHDRAWAL = parseFloat(process.env.MIN_WITHDRAWAL         ?? "20");
+const MAX_WITHDRAWAL = parseFloat(process.env.MAX_WITHDRAWAL         ?? "5000000");
 const DAILY_LIMIT    = parseFloat(process.env.DAILY_WITHDRAWAL_LIMIT ?? "1000000");
-const CHECK_THROTTLE = 2 * 60 * 1000; // 2 minutes
+const CHECK_THROTTLE = 2 * 60 * 1000;
 
 // ─────────────────────────────────────────────────────────────────────────────
-// MIDDLEWARE: Seller account guard
+// MIDDLEWARE
 // ─────────────────────────────────────────────────────────────────────────────
 const requireSellerAccount = async (req, res, next) => {
   try {
@@ -45,22 +45,18 @@ const requireSellerAccount = async (req, res, next) => {
     if (rows[0].status !== "active") {
       return res.status(403).json({
         success: false,
-        message: "Your seller account has been suspended",
+        message: "Your account has been suspended",
       });
     }
 
     req.sellerUser = rows[0];
     next();
-
   } catch (err) {
     console.error("[requireSellerAccount]", err.message);
     return res.status(500).json({ success: false, message: "Auth error" });
   }
 };
 
-// ─────────────────────────────────────────────────────────────────────────────
-// MIDDLEWARE: Vendor guard
-// ─────────────────────────────────────────────────────────────────────────────
 const requireVendor = async (req, res, next) => {
   try {
     const { rows } = await pool.query(
@@ -90,30 +86,20 @@ const requireVendor = async (req, res, next) => {
 
     req.vendor = rows[0];
     next();
-
   } catch (err) {
     console.error("[requireVendor]", err.message);
     return res.status(500).json({ success: false, message: "Server error" });
   }
 };
 
-// Combined guard used on most routes
 const guard = [authenticate, requireSellerAccount, requireVendor];
 
 // ═════════════════════════════════════════════════════════════════════════════
 // GET /api/seller/payout/banks
 // ═════════════════════════════════════════════════════════════════════════════
-router.get(
-  "/banks",
-  authenticate,
-  requireSellerAccount,
-  (_req, res) => {
-    return res.json({
-      success: true,
-      banks:   getSupportedBanks(),
-    });
-  }
-);
+router.get("/banks", authenticate, requireSellerAccount, (_req, res) => {
+  return res.json({ success: true, banks: getSupportedBanks() });
+});
 
 // ═════════════════════════════════════════════════════════════════════════════
 // POST /api/seller/payout/resolve-account
@@ -149,10 +135,7 @@ router.post(
     }
 
     try {
-      const resolved = await resolveAccount(
-        account_number.trim(),
-        bank.code
-      );
+      const resolved = await resolveAccount(account_number.trim(), bank.code);
 
       if (!resolved?.account_name) {
         return res.status(404).json({
@@ -168,7 +151,6 @@ router.post(
         bank_code:      bank.code,
         bank_name:      bank.name,
       });
-
     } catch (err) {
       console.error("[resolve-account]", err.message);
       return res.status(502).json({
@@ -214,6 +196,7 @@ router.post(
 // ═════════════════════════════════════════════════════════════════════════════
 router.get("/info", ...guard, async (req, res) => {
   try {
+    // vendors.id is uuid — req.vendor.id is already the uuid string
     const vendorId = req.vendor.id;
 
     const { rows: [data] } = await pool.query(
@@ -244,12 +227,11 @@ router.get("/info", ...guard, async (req, res) => {
     if (!data) {
       return res.status(404).json({
         success: false,
-        message: "Wallet not found",
+        message: "Wallet not found — contact support",
       });
     }
 
     const {
-      fee,
       withdrawalsToday,
       dailyUsed,
       freeRemaining,
@@ -292,9 +274,13 @@ router.get("/info", ...guard, async (req, res) => {
         fee_tiers:          FEE_TIERS,
       },
     });
-
   } catch (err) {
-    console.error("[payout/info]", err.message, err.stack);
+    console.error("[payout/info]", {
+      message: err.message,
+      detail:  err.detail,
+      code:    err.code,
+      stack:   err.stack,
+    });
     return res.status(500).json({ success: false, message: "Server error" });
   }
 });
@@ -304,10 +290,10 @@ router.get("/info", ...guard, async (req, res) => {
 // ═════════════════════════════════════════════════════════════════════════════
 router.get("/history", ...guard, async (req, res) => {
   try {
-    const vendorId = req.vendor.id;
+    const vendorId  = req.vendor.id;
     const { page = 1, limit = 20, status } = req.query;
 
-    const safeLimit  = Math.min(Math.max(parseInt(limit)  || 20, 1), 100);
+    const safeLimit  = Math.min(Math.max(parseInt(limit) || 20, 1), 100);
     const safeOffset = (Math.max(parseInt(page) || 1, 1) - 1) * safeLimit;
 
     const params  = [vendorId];
@@ -345,12 +331,20 @@ router.get("/history", ...guard, async (req, res) => {
 
     const { rows: [stats] } = await pool.query(
       `SELECT
-         COUNT(*)                                                    AS total,
-         COALESCE(SUM(CASE WHEN status='success'    THEN net_amount ELSE 0 END),0) AS total_paid_out,
-         COALESCE(SUM(CASE WHEN status='pending'    THEN 1 ELSE 0 END),0)          AS pending_count,
-         COALESCE(SUM(CASE WHEN status='processing' THEN 1 ELSE 0 END),0)          AS processing_count,
-         COALESCE(SUM(CASE WHEN status='failed'     THEN 1 ELSE 0 END),0)          AS failed_count,
-         COALESCE(SUM(fee), 0)                                       AS total_fees_paid
+         COUNT(*) AS total,
+         COALESCE(SUM(
+           CASE WHEN status = 'success' THEN net_amount ELSE 0 END
+         ), 0) AS total_paid_out,
+         COALESCE(SUM(
+           CASE WHEN status = 'pending' THEN 1 ELSE 0 END
+         ), 0) AS pending_count,
+         COALESCE(SUM(
+           CASE WHEN status = 'processing' THEN 1 ELSE 0 END
+         ), 0) AS processing_count,
+         COALESCE(SUM(
+           CASE WHEN status = 'failed' THEN 1 ELSE 0 END
+         ), 0) AS failed_count,
+         COALESCE(SUM(fee), 0) AS total_fees_paid
        FROM market.vendor_withdrawal_requests
        WHERE vendor_id = $1`,
       [vendorId]
@@ -374,9 +368,12 @@ router.get("/history", ...guard, async (req, res) => {
         total_pages: Math.ceil(Number(count) / safeLimit),
       },
     });
-
   } catch (err) {
-    console.error("[payout/history]", err.message, err.stack);
+    console.error("[payout/history]", {
+      message: err.message,
+      detail:  err.detail,
+      code:    err.code,
+    });
     return res.status(500).json({ success: false, message: "Server error" });
   }
 });
@@ -385,10 +382,11 @@ router.get("/history", ...guard, async (req, res) => {
 // POST /api/seller/payout/withdraw
 // ═════════════════════════════════════════════════════════════════════════════
 router.post("/withdraw", ...guard, async (req, res) => {
-  const vendorId = req.vendor.id;
+  const vendorId = req.vendor.id; // uuid string
+
   const { amount, idempotency_key } = req.body;
 
-  // ── Basic validation ────────────────────────────────────────────────────
+  // ── Validate amount ────────────────────────────────────────────────────
   if (amount === undefined || amount === null || amount === "") {
     return res.status(400).json({
       success: false,
@@ -424,7 +422,7 @@ router.post("/withdraw", ...guard, async (req, res) => {
   try {
     await client.query("BEGIN");
 
-    // ── Idempotency check ──────────────────────────────────────────────────
+    // ── Idempotency ──────────────────────────────────────────────────────
     if (idempotency_key) {
       const { rows: [dupe] } = await client.query(
         `SELECT * FROM market.vendor_withdrawal_requests
@@ -441,7 +439,8 @@ router.post("/withdraw", ...guard, async (req, res) => {
       }
     }
 
-    // ── Lock wallet row ────────────────────────────────────────────────────
+    // ── Lock wallet ──────────────────────────────────────────────────────
+    // vendor_wallets.vendor_id = uuid (FK → vendors.id)
     const { rows: [wallet] } = await client.query(
       `SELECT
          w.id,
@@ -463,11 +462,11 @@ router.post("/withdraw", ...guard, async (req, res) => {
       await client.query("ROLLBACK");
       return res.status(404).json({
         success: false,
-        message: "Wallet not found",
+        message: "Wallet not found — contact support",
       });
     }
 
-    // ── Bank check ─────────────────────────────────────────────────────────
+    // ── Bank configured? ─────────────────────────────────────────────────
     if (!wallet.bank_name || !wallet.account_number) {
       await client.query("ROLLBACK");
       return res.status(400).json({
@@ -476,7 +475,34 @@ router.post("/withdraw", ...guard, async (req, res) => {
       });
     }
 
-    // ── Balance check ──────────────────────────────────────────────────────
+    // ── Resolve bank code (NOT NULL in DB) ───────────────────────────────
+    // vendor_withdrawal_requests.bank_code is NOT NULL
+    // so we must always have one
+    let bankCode = wallet.bank_code ?? null;
+    if (!bankCode) {
+      const resolved = getBankCode(wallet.bank_name);
+      bankCode = resolved?.code ?? null;
+    }
+
+    if (!bankCode) {
+      await client.query("ROLLBACK");
+      return res.status(400).json({
+        success: false,
+        message: `Cannot resolve bank code for "${wallet.bank_name}". Update your bank in Settings.`,
+      });
+    }
+
+    // ── account_name is NOT NULL in DB ───────────────────────────────────
+    const accountName = wallet.account_name?.trim() || null;
+    if (!accountName) {
+      await client.query("ROLLBACK");
+      return res.status(400).json({
+        success: false,
+        message: "Account name is missing. Update your bank details in Settings.",
+      });
+    }
+
+    // ── Balance check ────────────────────────────────────────────────────
     const availableBalance = parseFloat(wallet.available_balance);
     if (parsedAmount > availableBalance) {
       await client.query("ROLLBACK");
@@ -486,7 +512,7 @@ router.post("/withdraw", ...guard, async (req, res) => {
       });
     }
 
-    // ── Fee calculation ────────────────────────────────────────────────────
+    // ── Fee calculation ──────────────────────────────────────────────────
     const {
       fee,
       netAmount,
@@ -494,16 +520,16 @@ router.post("/withdraw", ...guard, async (req, res) => {
       dailyUsed,
     } = await calculateWithdrawalFees(client, vendorId, parsedAmount);
 
-    // ── Daily limit check ──────────────────────────────────────────────────
+    // ── Daily limit ──────────────────────────────────────────────────────
     if (dailyUsed + parsedAmount > DAILY_LIMIT) {
       await client.query("ROLLBACK");
       return res.status(400).json({
         success: false,
-        message: `Daily withdrawal limit exceeded. Used: ₦${dailyUsed.toLocaleString()} of ₦${DAILY_LIMIT.toLocaleString()}`,
+        message: `Daily limit exceeded. Used: ₦${dailyUsed.toLocaleString()} of ₦${DAILY_LIMIT.toLocaleString()}`,
       });
     }
 
-    // ── Block concurrent withdrawals ───────────────────────────────────────
+    // ── Block concurrent withdrawals ─────────────────────────────────────
     const { rows: [{ count: activeCount }] } = await client.query(
       `SELECT COUNT(*) AS count
        FROM market.vendor_withdrawal_requests
@@ -520,15 +546,11 @@ router.post("/withdraw", ...guard, async (req, res) => {
       });
     }
 
-    // ── Generate references ────────────────────────────────────────────────
+    // ── Generate refs ────────────────────────────────────────────────────
     const txRef = generateTxRef();
     const iKey  = idempotency_key ?? txRef;
 
-    // ── Resolve bank code ──────────────────────────────────────────────────
-    // Use stored bank_code or derive from bank_name
-    const bankCode = wallet.bank_code ?? getBankCode(wallet.bank_name)?.code ?? null;
-
-    // ── Debit wallet ───────────────────────────────────────────────────────
+    // ── Debit wallet ─────────────────────────────────────────────────────
     await client.query(
       `UPDATE market.vendor_wallets
        SET available_balance = available_balance - $1,
@@ -538,7 +560,11 @@ router.post("/withdraw", ...guard, async (req, res) => {
       [parsedAmount, vendorId]
     );
 
-    // ── Create withdrawal request ──────────────────────────────────────────
+    // ── Insert withdrawal request ─────────────────────────────────────────
+    // Columns that are NOT NULL and have no default:
+    //   vendor_id, wallet_id, amount, fee, net_amount,
+    //   bank_name, bank_code, account_number, account_name,
+    //   tx_ref, status, requested_at, created_at, updated_at
     const { rows: [withdrawal] } = await client.query(
       `INSERT INTO market.vendor_withdrawal_requests
          (vendor_id, wallet_id,
@@ -546,44 +572,58 @@ router.post("/withdraw", ...guard, async (req, res) => {
           bank_name, bank_code,
           account_number, account_name,
           tx_ref, status,
-          idempotency_key, requested_at)
+          idempotency_key,
+          requested_at, created_at, updated_at)
        VALUES
-         ($1, $2, $3, $4, $5,
-          $6, $7, $8, $9,
+         ($1, $2,
+          $3, $4, $5,
+          $6, $7,
+          $8, $9,
           $10, 'processing',
-          $11, NOW())
+          $11,
+          NOW(), NOW(), NOW())
        RETURNING *`,
       [
-        vendorId,
-        wallet.id,
-        parsedAmount,
-        fee,
-        netAmount,
-        wallet.bank_name,
-        bankCode,
-        wallet.account_number,
-        wallet.account_name ?? null,
-        txRef,
-        iKey,
+        vendorId,      // $1  uuid
+        wallet.id,     // $2  uuid (vendor_wallets.id)
+        parsedAmount,  // $3
+        fee,           // $4
+        netAmount,     // $5
+        wallet.bank_name,    // $6  NOT NULL
+        bankCode,            // $7  NOT NULL — resolved above
+        wallet.account_number, // $8  NOT NULL
+        accountName,           // $9  NOT NULL — validated above
+        txRef,         // $10 NOT NULL unique
+        iKey,          // $11 idempotency_key (nullable)
       ]
     );
 
-    // ── Transaction log ────────────────────────────────────────────────────
+    // ── Log transaction ───────────────────────────────────────────────────
+    // vendor_transactions columns available:
+    //   id, vendor_id, virtual_account_id, flw_tx_id, flw_ref,
+    //   tx_ref, type, amount, fee, currency, status,
+    //   narration, sender_name, sender_account, sender_bank, meta, created_at
+    // NOTE: no updated_at column in vendor_transactions
     await client.query(
       `INSERT INTO market.vendor_transactions
          (vendor_id, type, amount, fee,
-          currency, status, narration, tx_ref)
+          currency, status, narration, tx_ref, meta)
        VALUES
          ($1, 'withdrawal', $2, $3,
-          'NGN', 'processing',
-          'Withdrawal initiated', $4)`,
-      [vendorId, parsedAmount, fee, txRef]
+          'NGN', 'processing', 'Withdrawal initiated', $4, $5)`,
+      [
+        vendorId,
+        parsedAmount,
+        fee,
+        txRef,
+        JSON.stringify({ withdrawal_id: withdrawal.id }),
+      ]
     );
 
-    // ── Commit DB changes ──────────────────────────────────────────────────
+    // ── Commit ────────────────────────────────────────────────────────────
     await client.query("COMMIT");
 
-    // ── Initiate FLW transfer (outside transaction) ────────────────────────
+    // ── Initiate FLW transfer (after commit) ──────────────────────────────
     try {
       const flwResult = await initiateTransfer({
         vendorId,
@@ -591,9 +631,9 @@ router.post("/withdraw", ...guard, async (req, res) => {
         fee,
         netAmount,
         bankName:      wallet.bank_name,
-        bankCode:      bankCode,
+        bankCode,
         accountNumber: wallet.account_number,
-        accountName:   wallet.account_name ?? null,
+        accountName,
         txRef,
       });
 
@@ -621,8 +661,9 @@ router.post("/withdraw", ...guard, async (req, res) => {
           tx_ref:          txRef,
           flw_transfer_id: flwResult.flw_transfer_id,
           bank_name:       wallet.bank_name,
+          bank_code:       bankCode,
           account_number:  wallet.account_number,
-          account_name:    wallet.account_name,
+          account_name:    accountName,
           requested_at:    withdrawal.requested_at,
         },
       });
@@ -630,17 +671,17 @@ router.post("/withdraw", ...guard, async (req, res) => {
     } catch (flwErr) {
       console.error("[withdraw/FLW]", flwErr.message);
 
-      // Restore wallet balance
+      // Restore wallet
       await pool.query(
         `UPDATE market.vendor_wallets
          SET available_balance = available_balance + $1,
-             pending_balance   = pending_balance   - $1,
+             pending_balance   = GREATEST(0, pending_balance - $1),
              updated_at        = NOW()
          WHERE vendor_id = $2`,
         [parsedAmount, vendorId]
       );
 
-      // Mark withdrawal as failed
+      // Mark failed
       await pool.query(
         `UPDATE market.vendor_withdrawal_requests
          SET status         = 'failed',
@@ -651,7 +692,6 @@ router.post("/withdraw", ...guard, async (req, res) => {
         [flwErr.message, txRef]
       );
 
-      // Mark transaction as failed
       await pool.query(
         `UPDATE market.vendor_transactions
          SET status    = 'failed',
@@ -662,14 +702,14 @@ router.post("/withdraw", ...guard, async (req, res) => {
 
       return res.status(502).json({
         success: false,
-        message: `Transfer failed: ${flwErr.message}. Your balance has been restored.`,
+        message: `Transfer failed: ${flwErr.message}. Balance restored.`,
         tx_ref:  txRef,
       });
     }
 
   } catch (err) {
     await client.query("ROLLBACK").catch(() => {});
-    console.error("[withdraw] FULL ERROR:", {
+    console.error("[withdraw] ERROR:", {
       message: err.message,
       detail:  err.detail,
       code:    err.code,
@@ -678,7 +718,7 @@ router.post("/withdraw", ...guard, async (req, res) => {
     });
     return res.status(500).json({
       success: false,
-      message: "Server error — please try again",
+      message: err.detail ?? err.message ?? "Server error — please try again",
     });
   } finally {
     client.release();
@@ -706,13 +746,11 @@ router.get("/withdrawal/:id", ...guard, async (req, res) => {
 
     let liveStatus = null;
 
-    // Poll FLW for live status if still processing
     if (withdrawal.status === "processing" && withdrawal.flw_transfer_id) {
       const lastChecked = withdrawal.last_checked_at
         ? new Date(withdrawal.last_checked_at).getTime()
         : 0;
 
-      // Throttle: only check every 2 minutes
       if (Date.now() - lastChecked > CHECK_THROTTLE) {
         try {
           const flwData = await checkTransferStatus(withdrawal.flw_transfer_id);
@@ -729,17 +767,14 @@ router.get("/withdrawal/:id", ...guard, async (req, res) => {
                WHERE id = $1 AND status = 'processing'`,
               [withdrawal.id]
             );
-
-            // Move from pending → credited total
             await pool.query(
               `UPDATE market.vendor_wallets
-               SET pending_balance  = GREATEST(0, pending_balance  - $1),
-                   total_withdrawn  = total_withdrawn + $1,
-                   updated_at       = NOW()
+               SET pending_balance = GREATEST(0, pending_balance - $1),
+                   total_withdrawn = total_withdrawn + $1,
+                   updated_at      = NOW()
                WHERE vendor_id = $2`,
               [parseFloat(withdrawal.amount), req.vendor.id]
             );
-
             withdrawal.status = "success";
 
           } else if (["FAILED", "CANCELLED"].includes(upper)) {
@@ -753,8 +788,6 @@ router.get("/withdrawal/:id", ...guard, async (req, res) => {
                WHERE id = $2 AND status = 'processing'`,
               [flwData.message ?? "Transfer failed", withdrawal.id]
             );
-
-            // Restore balance
             await pool.query(
               `UPDATE market.vendor_wallets
                SET available_balance = available_balance + $1,
@@ -763,11 +796,9 @@ router.get("/withdrawal/:id", ...guard, async (req, res) => {
                WHERE vendor_id = $2`,
               [parseFloat(withdrawal.amount), req.vendor.id]
             );
-
             withdrawal.status = "failed";
 
           } else {
-            // Still in-flight — just update last_checked_at
             await pool.query(
               `UPDATE market.vendor_withdrawal_requests
                SET last_checked_at = NOW()
@@ -775,7 +806,6 @@ router.get("/withdrawal/:id", ...guard, async (req, res) => {
               [withdrawal.id]
             );
           }
-
         } catch (checkErr) {
           console.error("[withdrawal/:id check]", checkErr.message);
         }
@@ -787,9 +817,12 @@ router.get("/withdrawal/:id", ...guard, async (req, res) => {
       withdrawal,
       live_status: liveStatus,
     });
-
   } catch (err) {
-    console.error("[withdrawal/:id]", err.message, err.stack);
+    console.error("[withdrawal/:id]", {
+      message: err.message,
+      detail:  err.detail,
+      code:    err.code,
+    });
     return res.status(500).json({ success: false, message: "Server error" });
   }
 });
@@ -818,7 +851,6 @@ router.post("/withdrawal/:id/cancel", ...guard, async (req, res) => {
       });
     }
 
-    // Can only cancel processing withdrawals that haven't been sent to FLW
     if (withdrawal.status !== "processing" || withdrawal.flw_transfer_id) {
       await client.query("ROLLBACK");
       return res.status(400).json({
@@ -829,7 +861,6 @@ router.post("/withdrawal/:id/cancel", ...guard, async (req, res) => {
       });
     }
 
-    // Cancel withdrawal
     await client.query(
       `UPDATE market.vendor_withdrawal_requests
        SET status     = 'cancelled',
@@ -838,7 +869,6 @@ router.post("/withdrawal/:id/cancel", ...guard, async (req, res) => {
       [withdrawal.id]
     );
 
-    // Restore wallet balance
     await client.query(
       `UPDATE market.vendor_wallets
        SET available_balance = available_balance + $1,
@@ -848,7 +878,6 @@ router.post("/withdrawal/:id/cancel", ...guard, async (req, res) => {
       [parseFloat(withdrawal.amount), req.vendor.id]
     );
 
-    // Update transaction log
     await client.query(
       `UPDATE market.vendor_transactions
        SET status    = 'failed',
@@ -861,12 +890,15 @@ router.post("/withdrawal/:id/cancel", ...guard, async (req, res) => {
 
     return res.json({
       success: true,
-      message: "Withdrawal cancelled successfully. Balance restored.",
+      message: "Withdrawal cancelled. Balance restored.",
     });
-
   } catch (err) {
     await client.query("ROLLBACK").catch(() => {});
-    console.error("[cancel]", err.message, err.stack);
+    console.error("[cancel]", {
+      message: err.message,
+      detail:  err.detail,
+      code:    err.code,
+    });
     return res.status(500).json({ success: false, message: "Server error" });
   } finally {
     client.release();
