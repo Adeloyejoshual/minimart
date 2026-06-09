@@ -1,15 +1,7 @@
-/**
- * routes/market/public.js
- *
- * GET /           — product listing
- * GET /:idOrSlug  — single product detail
- */
-
 import express from "express";
 import {
   pool,
   FULL_PRODUCT_SELECT,
-  GROUP_BY,
   SORT_MAP,
   PUBLIC_CONDITIONS,
   paginate,
@@ -23,52 +15,74 @@ const router = express.Router();
 
 /* ══════════════════════════════════════════════════════════════
    GET /
-   Public listing — approved + active products only.
+   Public product listing
 ══════════════════════════════════════════════════════════════ */
 router.get("/", async (req, res) => {
   try {
     const {
-      category, search, brand, tags,
-      featured, trending, sponsored,
-      minPrice, maxPrice,
+      category,
+      search,
+      brand,
+      tags,
+      featured,
+      trending,
+      sponsored,
+      minPrice,
+      maxPrice,
       sort = "newest",
     } = req.query;
 
     const { limit, offset } = paginate(req.query);
 
-    /* Start with public conditions — supports both 'active' and 'approved' */
     const conditions = [...PUBLIC_CONDITIONS];
-    const params     = [];
-    let   p          = 1;
+    const params = [];
+    let p = 1;
 
-    /* Full-text + ILIKE fallback */
+    /* Search */
     if (search) {
       const cleaned = search.trim();
       conditions.push(
         `(p.search_vector @@ plainto_tsquery('english', $${p})
-          OR p.name  ILIKE $${p + 1}
+          OR p.name ILIKE $${p + 1}
           OR p.brand ILIKE $${p + 1})`
       );
       params.push(cleaned, `%${cleaned}%`);
       p += 2;
     }
 
-    if (category) { conditions.push(`p.category = $${p++}`);     params.push(category); }
-    if (brand)    { conditions.push(`p.brand ILIKE $${p++}`);     params.push(`%${brand.trim()}%`); }
-    if (tags)     { conditions.push(`p.tags && $${p++}::text[]`); params.push(tags.split(",")); }
-    if (minPrice) { conditions.push(`p.price >= $${p++}`);        params.push(parseInt(minPrice, 10)); }
-    if (maxPrice) { conditions.push(`p.price <= $${p++}`);        params.push(parseInt(maxPrice, 10)); }
+    if (category) {
+      conditions.push(`p.category = $${p++}`);
+      params.push(category);
+    }
 
-    if (featured  === "true") conditions.push("p.is_featured  = true");
-    if (trending  === "true") conditions.push("p.is_trending  = true");
+    if (brand) {
+      conditions.push(`p.brand ILIKE $${p++}`);
+      params.push(`%${brand.trim()}%`);
+    }
+
+    if (tags) {
+      conditions.push(`p.tags && $${p++}::text[]`);
+      params.push(tags.split(","));
+    }
+
+    if (minPrice) {
+      conditions.push(`p.price >= $${p++}`);
+      params.push(parseInt(minPrice, 10));
+    }
+
+    if (maxPrice) {
+      conditions.push(`p.price <= $${p++}`);
+      params.push(parseInt(maxPrice, 10));
+    }
+
+    if (featured === "true")  conditions.push("p.is_featured = true");
+    if (trending === "true")  conditions.push("p.is_trending = true");
     if (sponsored === "true") conditions.push("p.is_sponsored = true");
 
     const where = `WHERE ${conditions.join(" AND ")}`;
 
-    /* Sort */
     let order;
     if (sort === "relevance" && search) {
-      /* $1 is always the search term when search is active */
       order = `ts_rank(p.search_vector, plainto_tsquery('english', $1)) DESC, p.created_at DESC`;
     } else {
       order = SORT_MAP[sort] || SORT_MAP.newest;
@@ -78,7 +92,6 @@ router.get("/", async (req, res) => {
       pool.query(
         `${FULL_PRODUCT_SELECT}
          ${where}
-         ${GROUP_BY}
          ORDER BY ${order}
          LIMIT $${p++} OFFSET $${p++}`,
         [...params, limit, offset]
@@ -93,13 +106,13 @@ router.get("/", async (req, res) => {
 
     ok(res, {
       data: {
-        products:   rows,
+        products: rows,
         pagination: paginationMeta(total, limit, offset),
       },
     });
   } catch (err) {
-    console.error("GET /api/products error :", err.message);
-    console.error("GET /api/products code  :", err.code);
+    console.error("GET /api/products error:", err.message);
+    console.error("GET /api/products code:", err.code);
     console.error("GET /api/products detail:", err.detail ?? "—");
     fail(res, 500, "Failed to fetch products");
   }
@@ -107,24 +120,21 @@ router.get("/", async (req, res) => {
 
 /* ══════════════════════════════════════════════════════════════
    GET /:idOrSlug
-   Single product — UUID or human-readable slug.
-   Tracks views with IP deduplication (1 view per IP per 24h).
+   Single product by UUID or slug
 ══════════════════════════════════════════════════════════════ */
 router.get("/:idOrSlug", async (req, res) => {
   try {
     const { idOrSlug } = req.params;
 
     const isUUID =
-      /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
-      .test(idOrSlug);
+      /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(idOrSlug);
 
-    const idClause = isUUID ? "p.id = $1" : "p.slug = $1";
+    const whereClause = isUUID ? "p.id = $1" : "p.slug = $1";
 
     const { rows } = await pool.query(
       `${FULL_PRODUCT_SELECT}
-       WHERE ${idClause}
-         AND p.deleted_at IS NULL
-       ${GROUP_BY}`,
+       WHERE ${whereClause}
+         AND p.deleted_at IS NULL`,
       [idOrSlug]
     );
 
@@ -132,29 +142,27 @@ router.get("/:idOrSlug", async (req, res) => {
 
     const product = rows[0];
 
-    /* Access control */
-    const isAdmin  = req.user?.role === "admin";
-    const isOwner  = req.user?.id   === product.user_id;
-    const canSee   = isAdmin || isOwner || isPublicProduct(product);
+    const isAdmin = req.user?.role === "admin";
+    const isOwner = req.user?.id   === product.user_id;
+    const canSee  = isAdmin || isOwner || isPublicProduct(product);
 
     if (!canSee) return fail(res, 404, "Product not found");
 
-    /* Track view — non-blocking, deduped per IP per 24h */
     if (isPublicProduct(product)) {
       trackView(product.id, req).catch(() => {});
     }
 
     ok(res, { data: product });
   } catch (err) {
-    console.error("GET /api/products/:idOrSlug error :", err.message);
-    console.error("GET /api/products/:idOrSlug code  :", err.code);
+    console.error("GET /api/products/:idOrSlug error:", err.message);
+    console.error("GET /api/products/:idOrSlug code:", err.code);
     console.error("GET /api/products/:idOrSlug detail:", err.detail ?? "—");
     fail(res, 500, "Failed to fetch product");
   }
 });
 
 /* ══════════════════════════════════════════════════════════════
-   VIEW TRACKER — extracted so it doesn't clutter the route
+   Track view (deduped by IP for 24h)
 ══════════════════════════════════════════════════════════════ */
 async function trackView(productId, req) {
   const ipRaw =
@@ -173,7 +181,8 @@ async function trackView(productId, req) {
        (product_id, viewer_id, ip_hash, source)
      SELECT $1, $2, $3, $4
      WHERE NOT EXISTS (
-       SELECT 1 FROM market.product_views
+       SELECT 1
+       FROM market.product_views
        WHERE product_id = $1
          AND ip_hash    = $3
          AND created_at > now() - interval '24 hours'
@@ -186,10 +195,11 @@ async function trackView(productId, req) {
     ]
   );
 
-  /* Only increment counter when a new unique view was recorded */
   if (result.rowCount > 0) {
     await pool.query(
-      "UPDATE market.products SET view_count = view_count + 1 WHERE id = $1",
+      `UPDATE market.products
+       SET view_count = view_count + 1
+       WHERE id = $1`,
       [productId]
     );
   }
