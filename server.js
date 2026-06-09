@@ -1,9 +1,11 @@
+// server.js
 import express           from "express";
 import cors              from "cors";
 import path              from "path";
 import http              from "http";
 import dotenv            from "dotenv";
 import { fileURLToPath } from "url";
+import { Pool }          from "pg";
 
 import { initSocket, getOnlineCount } from "./socket.js";
 
@@ -20,11 +22,15 @@ const PORT   = process.env.PORT || 5000;
 const server = http.createServer(app);
 
 /* ═══════════════════════════════════════════════════════════════
-   DATABASE
-   Pool is now owned by config/db.js — import from there everywhere.
-   We still boot-test it here so startup fails fast.
+   DATABASE — CockroachDB via pg Pool
 ═══════════════════════════════════════════════════════════════ */
-import { pool } from "./config/db.js";
+export const pool = new Pool({
+  connectionString        : process.env.COCKROACH_URI,
+  ssl                     : { rejectUnauthorized: false },
+  max                     : 10,
+  idleTimeoutMillis       : 30_000,
+  connectionTimeoutMillis : 5_000,
+});
 
 (async () => {
   try {
@@ -70,7 +76,7 @@ export const clearCachePattern = (prefix) => {
   }
 };
 
-/* Auto-evict expired cache entries every 60s */
+/* Auto-evict expired entries every 60 s */
 setInterval(() => {
   const now = Date.now();
   for (const [key, item] of _cache.entries()) {
@@ -134,14 +140,13 @@ app.use(
 ═══════════════════════════════════════════════════════════════ */
 const flwKeyMode = () => {
   const key = process.env.FLW_SECRET_KEY ?? "";
-  if (!key)               return "missing";
+  if (!key)                return "missing";
   if (key.includes("TEST")) return "test";
   return "live";
 };
 
 /* ═══════════════════════════════════════════════════════════════
-   WEBHOOKS
-   ⚠️  MUST be registered BEFORE express.json()
+   WEBHOOKS  ⚠️  MUST be registered BEFORE express.json()
 ═══════════════════════════════════════════════════════════════ */
 import paymentRouter, { webhookRouter } from "./routes/payment.js";
 import flwWebhookRouter                 from "./routes/webhooks/flutterwave.js";
@@ -277,8 +282,7 @@ import { startCleanupJobs }    from "./jobs/cleanup.js";
 ═══════════════════════════════════════════════════════════════ */
 
 /* ── Payment ── */
-import paymentRouterMain from "./routes/payment.js";
-app.use("/api/payment", paymentRouterMain);
+app.use("/api/payment", paymentRouter);
 
 /* ── Auth ── */
 import authRouter             from "./routes/sellerAuth.routes.js";
@@ -287,35 +291,20 @@ app.use("/api/auth",              authRouter);
 app.use("/api/seller-onboarding", sellerOnboardingRouter);
 
 /* ── Seller ── */
-import sellerProfileRouter  from "./routes/sellerprofile.js";
-import sellerPayoutRoutes   from "./routes/seller/payout.js";
+import sellerProfileRouter   from "./routes/sellerprofile.js";
+import sellerPayoutRoutes    from "./routes/seller/payout.js";
 import sellerDashboardRouter from "./routes/seller/dashboard.js";
-import sellerSettingsRouter from "./routes/seller/settings.js";
+import sellerSettingsRouter  from "./routes/seller/settings.js";
 app.use("/api/seller",           sellerProfileRouter);
 app.use("/api/seller/payout",    sellerPayoutRoutes);
 app.use("/api/seller-dashboard", sellerDashboardRouter);
 app.use("/api/seller/settings",  sellerSettingsRouter);
 
-/* ── Products ──────────────────────────────────────────────────
-   ✅ Single market router handles ALL product routes.
-   routes/market/index.js mounts:
-     public.js         → GET /api/products, GET /api/products/:idOrSlug
-     addProduct.js     → POST /api/products
-     editProduct.js    → PATCH /api/products/:id
-     deleteProduct.js  → DELETE /api/products/:id
-     sellerActions.js  → GET /api/products/seller/mine
-                         PATCH /api/products/:id/pause
-     interactions.js   → POST /api/products/:id/wishlist
-                         GET  /api/products/:id/wishlist
-                         POST /api/products/:id/report
-                         POST /api/products/:id/share
-   ─────────────────────────────────────────────────────────── */
-import marketRouter from "./routes/market/index.js";
-app.use("/api/products", marketRouter);
-
-/* Legacy product routes (keep until fully migrated) */
+/* ── Products ── */
+import marketRouter       from "./routes/market/index.js";
 import addproductRouter   from "./routes/addproduct.js";
 import productDetailRouter from "./routes/productDetail.js";
+app.use("/api/products",   marketRouter);
 app.use("/api/addproduct", addproductRouter);
 app.use("/api/product",    productDetailRouter);
 
@@ -437,21 +426,16 @@ app.use((req, res) =>
 app.use((err, req, res, _next) => {
   console.error("🔥 Unhandled error:", err.message || err);
 
-  /* Multer errors */
   if (err.code === "LIMIT_FILE_SIZE")
     return res.status(400).json({ success: false, message: "File too large (max 10 MB)" });
   if (err.code === "LIMIT_FILE_COUNT")
     return res.status(400).json({ success: false, message: "Too many files" });
   if (err.code === "LIMIT_UNEXPECTED_FILE")
     return res.status(400).json({ success: false, message: "Unexpected file field" });
-
-  /* App-level errors */
   if (err.message === "Only image files are allowed")
     return res.status(400).json({ success: false, message: err.message });
   if (err.message?.startsWith("CORS blocked"))
     return res.status(403).json({ success: false, message: err.message });
-
-  /* DB constraint errors */
   if (err.code === "23505")
     return res.status(409).json({ success: false, message: "Duplicate entry" });
   if (err.code === "23503")
