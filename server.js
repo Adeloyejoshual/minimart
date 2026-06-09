@@ -1,11 +1,9 @@
-// server.js
 import express           from "express";
 import cors              from "cors";
 import path              from "path";
 import http              from "http";
 import dotenv            from "dotenv";
 import { fileURLToPath } from "url";
-import { Pool }          from "pg";
 
 import { initSocket, getOnlineCount } from "./socket.js";
 
@@ -22,15 +20,11 @@ const PORT   = process.env.PORT || 5000;
 const server = http.createServer(app);
 
 /* ═══════════════════════════════════════════════════════════════
-   DATABASE — CockroachDB via pg Pool
+   DATABASE
+   Pool is now owned by config/db.js — import from there everywhere.
+   We still boot-test it here so startup fails fast.
 ═══════════════════════════════════════════════════════════════ */
-export const pool = new Pool({
-  connectionString        : process.env.COCKROACH_URI,
-  ssl                     : { rejectUnauthorized: false },
-  max                     : 10,
-  idleTimeoutMillis       : 30_000,
-  connectionTimeoutMillis : 5_000,
-});
+import { pool } from "./config/db.js";
 
 (async () => {
   try {
@@ -68,13 +62,15 @@ export const getCache = (key) => {
   return item.value;
 };
 
-export const deleteCache       = (key)    => _cache.delete(key);
+export const deleteCache = (key) => _cache.delete(key);
+
 export const clearCachePattern = (prefix) => {
   for (const key of _cache.keys()) {
     if (key.startsWith(prefix)) _cache.delete(key);
   }
 };
 
+/* Auto-evict expired cache entries every 60s */
 setInterval(() => {
   const now = Date.now();
   for (const [key, item] of _cache.entries()) {
@@ -105,10 +101,10 @@ app.options("*", cors(corsOptions));
    SECURITY HEADERS
 ═══════════════════════════════════════════════════════════════ */
 app.use((_req, res, next) => {
-  res.setHeader("X-Content-Type-Options", "nosniff");
-  res.setHeader("X-Frame-Options",        "DENY");
-  res.setHeader("X-XSS-Protection",       "1; mode=block");
-  res.setHeader("Referrer-Policy",        "strict-origin-when-cross-origin");
+  res.setHeader("X-Content-Type-Options",  "nosniff");
+  res.setHeader("X-Frame-Options",         "DENY");
+  res.setHeader("X-XSS-Protection",        "1; mode=block");
+  res.setHeader("Referrer-Policy",         "strict-origin-when-cross-origin");
   res.setHeader(
     "Permissions-Policy",
     "camera=(), microphone=(), geolocation=(self)"
@@ -117,14 +113,14 @@ app.use((_req, res, next) => {
 });
 
 /* ═══════════════════════════════════════════════════════════════
-   STATIC — uploads
+   STATIC — uploads folder
 ═══════════════════════════════════════════════════════════════ */
 app.use(
   "/uploads",
   express.static(path.join(__dirname, "uploads"), {
-    maxAge       : "7d",
-    etag         : true,
-    lastModified : true,
+    maxAge      : "7d",
+    etag        : true,
+    lastModified: true,
     setHeaders(res, filePath) {
       if (/\.html?$/.test(filePath)) {
         res.setHeader("Content-Type", "text/plain");
@@ -134,18 +130,13 @@ app.use(
 );
 
 /* ═══════════════════════════════════════════════════════════════
-   FLW KEY HELPER
-   Detects whether the Flutterwave key is live or test.
-   Flutterwave live keys come in two formats:
-     FLWSECK_LIVE-xxxxx   (newer format)
-     FLWSECK-xxxxx        (older format — also valid live key)
-   Test keys always contain "TEST" in the name.
+   FLW KEY MODE HELPER
 ═══════════════════════════════════════════════════════════════ */
 const flwKeyMode = () => {
   const key = process.env.FLW_SECRET_KEY ?? "";
-  if (!key) return "missing";
+  if (!key)               return "missing";
   if (key.includes("TEST")) return "test";
-  return "live"; // FLWSECK_LIVE- or FLWSECK- without TEST = live
+  return "live";
 };
 
 /* ═══════════════════════════════════════════════════════════════
@@ -155,14 +146,14 @@ const flwKeyMode = () => {
 import paymentRouter, { webhookRouter } from "./routes/payment.js";
 import flwWebhookRouter                 from "./routes/webhooks/flutterwave.js";
 
-// ── Paystack webhook ──────────────────────────────────────────
+/* Paystack webhook */
 app.use(
   "/api/payment/webhook",
   express.raw({ type: "application/json" }),
   webhookRouter
 );
 
-// ── Flutterwave webhook ───────────────────────────────────────
+/* Flutterwave webhook */
 app.use(
   "/api/webhooks/flutterwave",
   express.raw({ type: "application/json" }),
@@ -174,10 +165,7 @@ app.use(
   flwWebhookRouter
 );
 
-// ── TEMPORARY: Payload capture ────────────────────────────────
-// Set this URL in Flutterwave dashboard to see the exact payload.
-// https://minimart-ivrm.onrender.com/api/webhooks/flw-capture
-// Remove this block once webhook is confirmed working.
+/* Flutterwave payload capture (dev/debug — remove when confirmed working) */
 app.post(
   "/api/webhooks/flw-capture",
   express.raw({ type: "*/*" }),
@@ -189,16 +177,11 @@ app.post(
 
     console.log("═══════════════════════════════════════════════");
     console.log("  FLW CAPTURE  —", new Date().toISOString());
-    console.log("  verif-hash header:", req.headers["verif-hash"]);
-    console.log("  event:", body?.event);
-    console.log("  amount:", body?.data?.amount);
-    console.log("  status:", body?.data?.status);
-    console.log("  payment_type:", body?.data?.payment_type);
-    console.log("  virtual_account_number:", body?.data?.virtual_account_number);
-    console.log("  account_number:", body?.data?.account_number);
-    console.log("  meta:", JSON.stringify(body?.data?.meta));
-    console.log("  payment_type_meta:", JSON.stringify(body?.data?.payment_type_meta));
-    console.log("  FULL BODY:", JSON.stringify(body, null, 2));
+    console.log("  verif-hash  :", req.headers["verif-hash"]);
+    console.log("  event       :", body?.event);
+    console.log("  amount      :", body?.data?.amount);
+    console.log("  status      :", body?.data?.status);
+    console.log("  FULL BODY   :", JSON.stringify(body, null, 2));
     console.log("═══════════════════════════════════════════════");
 
     try {
@@ -212,7 +195,7 @@ app.post(
           JSON.stringify(req.headers),
         ]
       );
-    } catch { /* table may not exist — check console logs */ }
+    } catch { /* table may not exist — safe to ignore */ }
 
     res.status(200).json({ captured: true, event: body?.event });
   }
@@ -229,15 +212,13 @@ app.use(express.urlencoded({ extended: true, limit: "10mb" }));
 ═══════════════════════════════════════════════════════════════ */
 if (process.env.NODE_ENV !== "test") {
   app.use((req, _res, next) => {
-    console.log(
-      `${new Date().toISOString()} | ${req.method} ${req.originalUrl}`
-    );
+    console.log(`${new Date().toISOString()} | ${req.method} ${req.originalUrl}`);
     next();
   });
 }
 
 /* ═══════════════════════════════════════════════════════════════
-   RATE LIMITER
+   RATE LIMITER (lightweight, no dep)
 ═══════════════════════════════════════════════════════════════ */
 const _limiter   = new Map();
 const WINDOW_MS  = 60_000;
@@ -292,66 +273,94 @@ import { startChatCleanupJob } from "./jobs/cleanupChats.js";
 import { startCleanupJobs }    from "./jobs/cleanup.js";
 
 /* ═══════════════════════════════════════════════════════════════
-   ROUTES
+   ROUTES — grouped by domain
 ═══════════════════════════════════════════════════════════════ */
-import addproductRouter       from "./routes/addproduct.js";
-import userRouter             from "./routes/users.js";
-import messagesRouter         from "./routes/messages.js";
-import adminRouter            from "./routes/admin.js";
-import searchRouter           from "./routes/search.js";
-import conversationsRouter    from "./routes/conversations.js";
-import productDetailRouter    from "./routes/productDetail.js";
-import homepageRouter         from "./routes/homepage.js";
-import sellerProfileRouter    from "./routes/sellerprofile.js";
-import dashboardRoutes        from "./routes/dashboard.js";
-import notificationsRouter    from "./routes/notifications.js";
-import productsRouter         from "./routes/products.js";
-import walletRoutes           from "./routes/wallets.js";
-import p2pRouter              from "./routes/p2p.js";
-import verificationRouter     from "./routes/verification.js";
-import marketProductsRouter   from "./routes/marketproducts.js";
+
+/* ── Payment ── */
+import paymentRouterMain from "./routes/payment.js";
+app.use("/api/payment", paymentRouterMain);
+
+/* ── Auth ── */
 import authRouter             from "./routes/sellerAuth.routes.js";
 import sellerOnboardingRouter from "./routes/sellerOnboarding.routes.js";
-import sellerPayoutRoutes     from "./routes/seller/payout.js";
-import sellerDashboardRouter  from "./routes/seller/dashboard.js";
-import sellerSettingsRouter   from "./routes/seller/settings.js";
-
-// ── Payment ──────────────────────────────────────────────────
-app.use("/api/payment",           paymentRouter);
-
-// ── Seller ───────────────────────────────────────────────────
-app.use("/api/seller",            sellerProfileRouter);
 app.use("/api/auth",              authRouter);
 app.use("/api/seller-onboarding", sellerOnboardingRouter);
-app.use("/api/seller/payout",     sellerPayoutRoutes);
-app.use("/api/seller/settings",   sellerSettingsRouter);
-app.use("/api/seller-dashboard",  sellerDashboardRouter);
 
-// ── Products ─────────────────────────────────────────────────
-app.use("/api/addproduct",        addproductRouter);
-app.use("/api/market-products",   marketProductsRouter);
-app.use("/api/product",           productDetailRouter);
-app.use("/api/products",          productsRouter);
+/* ── Seller ── */
+import sellerProfileRouter  from "./routes/sellerprofile.js";
+import sellerPayoutRoutes   from "./routes/seller/payout.js";
+import sellerDashboardRouter from "./routes/seller/dashboard.js";
+import sellerSettingsRouter from "./routes/seller/settings.js";
+app.use("/api/seller",           sellerProfileRouter);
+app.use("/api/seller/payout",    sellerPayoutRoutes);
+app.use("/api/seller-dashboard", sellerDashboardRouter);
+app.use("/api/seller/settings",  sellerSettingsRouter);
 
-// ── Users ────────────────────────────────────────────────────
-app.use("/api/users",             userRouter);
+/* ── Products ──────────────────────────────────────────────────
+   ✅ Single market router handles ALL product routes.
+   routes/market/index.js mounts:
+     public.js         → GET /api/products, GET /api/products/:idOrSlug
+     addProduct.js     → POST /api/products
+     editProduct.js    → PATCH /api/products/:id
+     deleteProduct.js  → DELETE /api/products/:id
+     sellerActions.js  → GET /api/products/seller/mine
+                         PATCH /api/products/:id/pause
+     interactions.js   → POST /api/products/:id/wishlist
+                         GET  /api/products/:id/wishlist
+                         POST /api/products/:id/report
+                         POST /api/products/:id/share
+   ─────────────────────────────────────────────────────────── */
+import marketRouter from "./routes/market/index.js";
+app.use("/api/products", marketRouter);
 
-// ── Messaging ────────────────────────────────────────────────
-app.use("/api/messages/upload",   rateLimiter(UPLOAD_MAX));
-app.use("/api/messages",          messagesRouter);
-app.use("/api/conversations",     conversationsRouter);
+/* Legacy product routes (keep until fully migrated) */
+import addproductRouter   from "./routes/addproduct.js";
+import productDetailRouter from "./routes/productDetail.js";
+app.use("/api/addproduct", addproductRouter);
+app.use("/api/product",    productDetailRouter);
 
-// ── Admin ────────────────────────────────────────────────────
-app.use("/api/admin",             adminRouter);
+/* ── Users ── */
+import userRouter from "./routes/users.js";
+app.use("/api/users", userRouter);
 
-// ── Misc ─────────────────────────────────────────────────────
-app.use("/api/search",            searchRouter);
-app.use("/api/homepage",          homepageRouter);
-app.use("/api/dashboard",         dashboardRoutes);
-app.use("/api/notifications",     notificationsRouter);
-app.use("/api/v1/wallets",        walletRoutes);
-app.use("/api/p2p",               p2pRouter);
-app.use("/api/verification",      verificationRouter);
+/* ── Messaging ── */
+import messagesRouter      from "./routes/messages.js";
+import conversationsRouter from "./routes/conversations.js";
+app.use("/api/messages/upload", rateLimiter(UPLOAD_MAX));
+app.use("/api/messages",        messagesRouter);
+app.use("/api/conversations",   conversationsRouter);
+
+/* ── Admin ── */
+import adminRouter from "./routes/admin.js";
+app.use("/api/admin", adminRouter);
+
+/* ── Search ── */
+import searchRouter from "./routes/search.js";
+app.use("/api/search", searchRouter);
+
+/* ── Homepage ── */
+import homepageRouter from "./routes/homepage.js";
+app.use("/api/homepage", homepageRouter);
+
+/* ── Dashboard ── */
+import dashboardRoutes from "./routes/dashboard.js";
+app.use("/api/dashboard", dashboardRoutes);
+
+/* ── Notifications ── */
+import notificationsRouter from "./routes/notifications.js";
+app.use("/api/notifications", notificationsRouter);
+
+/* ── Wallet ── */
+import walletRoutes from "./routes/wallets.js";
+app.use("/api/v1/wallets", walletRoutes);
+
+/* ── P2P ── */
+import p2pRouter from "./routes/p2p.js";
+app.use("/api/p2p", p2pRouter);
+
+/* ── Verification ── */
+import verificationRouter from "./routes/verification.js";
+app.use("/api/verification", verificationRouter);
 
 /* ═══════════════════════════════════════════════════════════════
    HEALTH CHECK
@@ -365,7 +374,7 @@ app.get("/api/health", async (_req, res) => {
     const t0       = Date.now();
     const { rows } = await pool.query("SELECT 1 AS ok");
     dbLatency      = Date.now() - t0;
-    dbOk           = rows[0]?.ok == 1; // loose — CockroachDB returns "1"
+    dbOk           = rows[0]?.ok == 1;
   } catch (err) {
     dbError = err.message;
   }
@@ -373,23 +382,23 @@ app.get("/api/health", async (_req, res) => {
   const mode = flwKeyMode();
 
   return res.json({
-    success        : true,
-    status         : dbOk ? "healthy" : "degraded",
-    database       : dbOk,
-    db_latency_ms  : dbLatency,
-    db_error       : dbError   ?? undefined,
-    uptime_s       : Math.floor(process.uptime()),
-    memory_mb      : Math.round(process.memoryUsage().rss / 1024 / 1024),
-    online_users   : getOnlineCount(),
-    node_version   : process.version,
-    env            : process.env.NODE_ENV || "development",
-    flw_key_set    : !!process.env.FLW_SECRET_KEY,
-    flw_hash_set   : !!process.env.FLW_SECRET_HASH,
-    flw_mode       : mode,
-    flw_key_prefix : process.env.FLW_SECRET_KEY
+    success       : true,
+    status        : dbOk ? "healthy" : "degraded",
+    database      : dbOk,
+    db_latency_ms : dbLatency,
+    db_error      : dbError ?? undefined,
+    uptime_s      : Math.floor(process.uptime()),
+    memory_mb     : Math.round(process.memoryUsage().rss / 1024 / 1024),
+    online_users  : getOnlineCount(),
+    node_version  : process.version,
+    env           : process.env.NODE_ENV || "development",
+    flw_key_set   : !!process.env.FLW_SECRET_KEY,
+    flw_hash_set  : !!process.env.FLW_SECRET_HASH,
+    flw_mode      : mode,
+    flw_key_prefix: process.env.FLW_SECRET_KEY
       ? process.env.FLW_SECRET_KEY.slice(0, 14) + "…"
       : null,
-    webhook_url    : "https://minimart-ivrm.onrender.com/api/webhooks/flutterwave",
+    webhook_url   : "https://minimart-ivrm.onrender.com/api/webhooks/flutterwave",
   });
 });
 
@@ -428,16 +437,21 @@ app.use((req, res) =>
 app.use((err, req, res, _next) => {
   console.error("🔥 Unhandled error:", err.message || err);
 
+  /* Multer errors */
   if (err.code === "LIMIT_FILE_SIZE")
     return res.status(400).json({ success: false, message: "File too large (max 10 MB)" });
   if (err.code === "LIMIT_FILE_COUNT")
     return res.status(400).json({ success: false, message: "Too many files" });
   if (err.code === "LIMIT_UNEXPECTED_FILE")
     return res.status(400).json({ success: false, message: "Unexpected file field" });
+
+  /* App-level errors */
   if (err.message === "Only image files are allowed")
     return res.status(400).json({ success: false, message: err.message });
   if (err.message?.startsWith("CORS blocked"))
     return res.status(403).json({ success: false, message: err.message });
+
+  /* DB constraint errors */
   if (err.code === "23505")
     return res.status(409).json({ success: false, message: "Duplicate entry" });
   if (err.code === "23503")
@@ -491,16 +505,13 @@ server.listen(PORT, () => {
   console.log(`   CORS     : ${ALLOWED_ORIGIN}`);
   console.log(`   FLW KEY  : ${
     mode === "missing" ? "❌ MISSING" :
-    mode === "live"    ? "✅ set — LIVE MODE" :
-                         "⚠️  set — TEST MODE (payments won't credit)"
+    mode === "live"    ? "✅ LIVE MODE" :
+                         "⚠️  TEST MODE (payments won't credit)"
   }`);
   console.log(`   FLW HASH : ${
-    process.env.FLW_SECRET_HASH
-      ? "✅ set"
-      : "❌ MISSING — webhooks will be rejected"
+    process.env.FLW_SECRET_HASH ? "✅ set" : "❌ MISSING — webhooks rejected"
   }`);
   console.log(`   WEBHOOK  : https://minimart-ivrm.onrender.com/api/webhooks/flutterwave`);
-  console.log(`   CAPTURE  : https://minimart-ivrm.onrender.com/api/webhooks/flw-capture`);
 
   startChatCleanupJob();
   startCleanupJobs();
