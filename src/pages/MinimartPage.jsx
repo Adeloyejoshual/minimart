@@ -168,10 +168,10 @@ const TrendingSection = memo(function TrendingSection({ products, onWishlist, wi
             <div
               key={p.id}
               className="mp-trending-card"
-              onClick={() => navigate(`/product/${p.slug ?? p.id}`)}
+              onClick={() => navigate(`/shop/${p.slug ?? p.id}`)}
               role="button"
               tabIndex={0}
-              onKeyDown={(e) => e.key === "Enter" && navigate(`/product/${p.slug ?? p.id}`)}
+              onKeyDown={(e) => e.key === "Enter" && navigate(`/shop/${p.slug ?? p.id}`)}
             >
               {/* Image */}
               <div className="mp-trending-img-wrap">
@@ -246,7 +246,7 @@ const FeaturedSection = memo(function FeaturedSection({ products }) {
           return (
             <div
               className="mp-featured-large"
-              onClick={() => navigate(`/product/${p.slug ?? p.id}`)}
+              onClick={() => navigate(`/shop/${p.slug ?? p.id}`)}
               role="button"
               tabIndex={0}
             >
@@ -274,7 +274,7 @@ const FeaturedSection = memo(function FeaturedSection({ products }) {
               <div
                 key={p.id}
                 className="mp-featured-small"
-                onClick={() => navigate(`/product/${p.slug ?? p.id}`)}
+                onClick={() => navigate(`/shop/${p.slug ?? p.id}`)}
                 role="button"
                 tabIndex={0}
               >
@@ -336,7 +336,7 @@ const CategoryGrid = memo(function CategoryGrid({ onSelect, active }) {
    DEALS BANNER — promotional strip
 ════════════════════════════════════════════════════════════ */
 const DealsBanner = memo(function DealsBanner({ products, onShop }) {
-  const navigate  = useNavigate();
+  const navigate   = useNavigate();
   const discounted = products.filter((p) => calcDiscount(p.price, p.original_price) >= 10).slice(0, 6);
   if (!discounted.length) return null;
 
@@ -362,7 +362,7 @@ const DealsBanner = memo(function DealsBanner({ products, onShop }) {
               <div
                 key={p.id}
                 className="mp-deal-card"
-                onClick={() => navigate(`/product/${p.slug ?? p.id}`)}
+                onClick={() => navigate(`/shop/${p.slug ?? p.id}`)}
                 role="button"
                 tabIndex={0}
               >
@@ -391,7 +391,7 @@ const DealsBanner = memo(function DealsBanner({ products, onShop }) {
 });
 
 /* ════════════════════════════════════════════════════════════
-   SELLER SPOTLIGHT — show verified sellers
+   NEW ARRIVALS
 ════════════════════════════════════════════════════════════ */
 const NewArrivals = memo(function NewArrivals({ products, wishlist, onWishlist }) {
   const navigate = useNavigate();
@@ -419,7 +419,7 @@ const NewArrivals = memo(function NewArrivals({ products, wishlist, onWishlist }
             <div
               key={p.id}
               className="mp-arrival-card"
-              onClick={() => navigate(`/product/${p.slug ?? p.id}`)}
+              onClick={() => navigate(`/shop/${p.slug ?? p.id}`)}
               role="button"
               tabIndex={0}
             >
@@ -667,7 +667,7 @@ export default function MinimartPage({ user }) {
           <>
             <HeroBanner
               featured={[...trending.slice(0, 1), ...featured.slice(0, 2)]}
-              onShop={(slug) => slug ? navigate(`/product/${slug}`) : null}
+              onShop={(slug) => slug ? navigate(`/shop/${slug}`) : null}
               onPost={() => navigate(user ? "/minimart/post-ad" : "/auth")}
               user={user}
             />
@@ -689,10 +689,9 @@ export default function MinimartPage({ user }) {
               <FeaturedSection products={featured} />
             )}
 
-            {/* Deals banner — products with discounts */}
             <DealsBanner
               products={[...trending, ...featured, ...newest]}
-              onShop={(slug) => navigate(`/product/${slug}`)}
+              onShop={(slug) => navigate(`/shop/${slug}`)}
             />
 
             {newest.length > 0 && (
