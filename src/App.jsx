@@ -15,6 +15,7 @@ import { useProductCache } from "./context/ProductCacheContext";
 import Homepage           from "./pages/Homepage";
 import SearchPage         from "./pages/SearchPage";
 import ProductDetail      from "./pages/ProductDetail";
+import MarketDetail       from "./pages/MarketDetail";
 import SellerProfile      from "./pages/SellerProfile";
 import TermsAndConditions from "./pages/TermsAndConditions";
 import MinimartPage       from "./pages/MinimartPage";
@@ -86,11 +87,11 @@ function ScrollToTop() {
 // APP
 // ─────────────────────────────────────────────────────────────
 export default function App() {
-  const [user,           setUser]           = useState(null);
-  const [admin,          setAdmin]          = useState(null);
-  const [loadingUser,    setLoadingUser]    = useState(true);
-  const [loadingAdmin,   setLoadingAdmin]   = useState(true);
-  const [slowServer,     setSlowServer]     = useState(false);
+  const [user,         setUser]         = useState(null);
+  const [admin,        setAdmin]        = useState(null);
+  const [loadingUser,  setLoadingUser]  = useState(true);
+  const [loadingAdmin, setLoadingAdmin] = useState(true);
+  const [slowServer,   setSlowServer]   = useState(false);
 
   const { resetCache } = useProductCache();
 
@@ -204,7 +205,7 @@ export default function App() {
         position="top-right"
         toastOptions={{
           duration: 3_500,
-          style:    {
+          style: {
             padding:      "10px 14px",
             borderRadius: 8,
             color:        "#fff",
@@ -220,17 +221,17 @@ export default function App() {
         {/* ══════════════════════════════════════════════
             PUBLIC ROUTES
         ══════════════════════════════════════════════ */}
-        <Route
-          path="/"
-          element={
-            <Homepage key={user?.id ?? "guest"} user={user} />
-          }
+        <Route path="/"
+          element={<Homepage key={user?.id ?? "guest"} user={user} />}
         />
         <Route path="/search"
-          element={<SearchPage    user={user} />}
+          element={<SearchPage user={user} />}
         />
         <Route path="/product/:slug"
           element={<ProductDetail user={user} />}
+        />
+        <Route path="/shop/:slug"
+          element={<MarketDetail user={user} />}
         />
         <Route path="/seller/:id"
           element={<SellerProfile user={user} />}
@@ -239,27 +240,27 @@ export default function App() {
           element={<TermsAndConditions />}
         />
         <Route path="/minimart"
-          element={<MinimartPage  user={user} />}
+          element={<MinimartPage user={user} />}
         />
         <Route path="/p2p"
-          element={<P2P           user={user} />}
+          element={<P2P user={user} />}
         />
         <Route path="/menu"
-          element={<MenuPage      user={user} />}
+          element={<MenuPage user={user} />}
         />
 
         {/* Homepage sub-pages */}
         <Route path="/nearby"
-          element={<NearbyPage      user={user} />}
+          element={<NearbyPage user={user} />}
         />
         <Route path="/deals"
-          element={<DealsPage       user={user} />}
+          element={<DealsPage user={user} />}
         />
         <Route path="/latest"
           element={<NewArrivalsPage user={user} />}
         />
         <Route path="/trending"
-          element={<TrendingPage    user={user} />}
+          element={<TrendingPage user={user} />}
         />
 
         {/* ══════════════════════════════════════════════
@@ -280,17 +281,13 @@ export default function App() {
             seller_token (market.users) independently.
             They never touch marketplace_token.
         ══════════════════════════════════════════════ */}
-        <Route
-          path="/become-seller"
+        <Route path="/become-seller"
           element={<BecomeSeller user={user} />}
         />
-        <Route
-          path="/seller/dashboard"
+        <Route path="/seller/dashboard"
           element={<SellerDashboard />}
         />
-        {/* Deep-link to a specific tab */}
-        <Route
-          path="/seller/dashboard/:tab"
+        <Route path="/seller/dashboard/:tab"
           element={<SellerDashboard />}
         />
 
@@ -377,8 +374,7 @@ export default function App() {
             <PostAds user={user} />
           </ProtectedRoute>
         } />
-        <Route
-          path="/payment/success"
+        <Route path="/payment/success"
           element={<PaymentSuccess />}
         />
 
