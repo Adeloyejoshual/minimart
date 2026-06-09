@@ -21,10 +21,10 @@ const FeaturedStrip = memo(function FeaturedStrip({ products }) {
             <div
               key={p.id}
               className="mp-featured-card"
-              onClick={() => navigate(`/product/${p.slug ?? p.id}`)}
+              onClick={() => navigate(`/shop/${p.slug ?? p.id}`)}
               role="button"
               tabIndex={0}
-              onKeyDown={(e) => e.key === "Enter" && navigate(`/product/${p.slug ?? p.id}`)}
+              onKeyDown={(e) => e.key === "Enter" && navigate(`/shop/${p.slug ?? p.id}`)}
             >
               <div className="mp-featured-img-wrap">
                 {img ? (
