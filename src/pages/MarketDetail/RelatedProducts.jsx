@@ -1,4 +1,4 @@
-import React, { useState, useEffect, memo } from "react";
+import React, { useState, useEffect, useCallback, memo } from "react";
 import { useNavigate } from "react-router-dom";
 import axios from "axios";
 import {
@@ -9,7 +9,7 @@ import {
 } from "../../config/marketplace";
 
 const RelatedProducts = memo(function RelatedProducts({ category, excludeId }) {
-  const navigate    = useNavigate();
+  const navigate          = useNavigate();
   const [items, setItems] = useState([]);
 
   useEffect(() => {
@@ -41,37 +41,48 @@ const RelatedProducts = memo(function RelatedProducts({ category, excludeId }) {
       </div>
 
       <div className="md-related-scroll">
-        {items.map((p) => {
-          const img = getProductImage(p);
-          const pct = calcDiscount(p.price, p.original_price);
+        {items.map((p) => (
+          <RelatedCard
+            key={p.id}
+            product={p}
+            navigate={navigate}
+          />
+        ))}
+      </div>
+    </div>
+  );
+});
 
-          return (
-            <div
-              key={p.id}
-              className="md-related-card"
-              onClick={() => navigate(`/product/${p.slug ?? p.id}`)}
-              role="button"
-              tabIndex={0}
-              onKeyDown={(e) => e.key === "Enter" && navigate(`/product/${p.slug ?? p.id}`)}
-              aria-label={`${p.name} — ${formatPrice(p.price)}`}
-            >
-              <div className="md-related-img-wrap">
-                {img ? (
-                  <img src={img} alt={p.name} loading="lazy" />
-                ) : (
-                  <div className="md-related-placeholder">📦</div>
-                )}
-                {pct >= 10 && (
-                  <span className="md-related-disc">-{pct}%</span>
-                )}
-              </div>
-              <div className="md-related-info">
-                <p className="md-related-name">{p.name}</p>
-                <p className="md-related-price">{formatPrice(p.price)}</p>
-              </div>
-            </div>
-          );
-        })}
+const RelatedCard = memo(function RelatedCard({ product: p, navigate }) {
+  const img = getProductImage(p);
+  const pct = calcDiscount(p.price, p.original_price);
+
+  const handleClick = useCallback(() => {
+    navigate(`/shop/${p.slug ?? p.id}`);
+  }, [navigate, p.slug, p.id]);
+
+  return (
+    <div
+      className="md-related-card"
+      onClick={handleClick}
+      role="button"
+      tabIndex={0}
+      onKeyDown={(e) => e.key === "Enter" && handleClick()}
+      aria-label={`${p.name} — ${formatPrice(p.price)}`}
+    >
+      <div className="md-related-img-wrap">
+        {img ? (
+          <img src={img} alt={p.name} loading="lazy" />
+        ) : (
+          <div className="md-related-placeholder">📦</div>
+        )}
+        {pct >= 10 && (
+          <span className="md-related-disc">-{pct}%</span>
+        )}
+      </div>
+      <div className="md-related-info">
+        <p className="md-related-name">{p.name}</p>
+        <p className="md-related-price">{formatPrice(p.price)}</p>
       </div>
     </div>
   );
