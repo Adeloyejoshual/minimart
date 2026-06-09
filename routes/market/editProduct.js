@@ -17,6 +17,18 @@ import {
 
 const router = express.Router();
 
+/* ── Slug Generator ── */
+function generateSlug(name, id) {
+  const base = String(name)
+    .toLowerCase()
+    .replace(/[^a-z0-9\s]/g, "")
+    .replace(/\s+/g, "-")
+    .replace(/-+/g, "-")
+    .replace(/^-|-$/g, "")
+    .slice(0, 60);
+  return `${base}-${String(id).slice(0, 8)}`;
+}
+
 router.patch(
   "/:id",
   authenticate,
@@ -38,6 +50,13 @@ router.patch(
         weight_kg, dimensions, delivery_options,
         return_policy, warranty,
       } = req.body;
+
+      /* ── Calculate slug update if name is provided ── */
+      let slugUpdate = undefined;
+      const cleanName = safeStr(name, 200);
+      if (cleanName) {
+        slugUpdate = generateSlug(cleanName, productId);
+      }
 
       const price = basePrice ? parseInt(basePrice, 10) : undefined;
       if (price !== undefined && (isNaN(price) || price <= 0))
@@ -62,15 +81,17 @@ router.patch(
            delivery_options  = COALESCE($12, delivery_options),
            return_policy     = COALESCE($13, return_policy),
            warranty          = COALESCE($14, warranty),
+           slug              = COALESCE($15, slug),
            status            = 'pending',
            is_active         = false,
            reviewed_by       = NULL,
            reviewed_at       = NULL,
-           rejection_reason  = NULL
+           rejection_reason  = NULL,
+           updated_at        = now()
          WHERE id = $1`,
         [
           productId,
-          safeStr(name, 200)              || null,
+          cleanName || null,
           safeStr(description, 2000)      || null,
           safeStr(short_description, 300) || null,
           category                        || null,
@@ -83,6 +104,7 @@ router.patch(
           parsedDelivery ? JSON.stringify(parsedDelivery)    : null,
           safeStr(return_policy, 1000)    || null,
           safeStr(warranty, 500)          || null,
+          slugUpdate                      || null,
         ]
       );
 
@@ -114,7 +136,7 @@ router.patch(
 
       ok(res, {
         message: "Listing updated and resubmitted for review",
-        data:    { status: "pending" },
+        data:    { status: "pending", slug: slugUpdate },
       });
 
     } catch (err) {
