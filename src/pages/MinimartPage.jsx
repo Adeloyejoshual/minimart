@@ -10,15 +10,15 @@ import useDebounce    from "../hooks/useDebounce";
 import useWishlist    from "../hooks/useWishlist";
 import useScreenWidth from "../hooks/useScreenWidth";
 
-import TopBar        from "../components/Minimart/TopBar";
-import SubBar        from "../components/Minimart/SubBar";
-import ProductCard   from "../components/Minimart/ProductCard";
-import SkeletonCard  from "../components/Minimart/SkeletonCard";
-import FeaturedStrip from "../components/Minimart/FeaturedStrip";
-import FilterDrawer  from "../components/Minimart/FilterDrawer";
-import EmptyState    from "../components/Minimart/EmptyState";
-import FAB           from "../components/Minimart/FAB";
-import { CloseIcon } from "../components/Minimart/icons";
+import TopBar        from "./Minimart/TopBar";
+import SubBar        from "./Minimart/SubBar";
+import ProductCard   from "./Minimart/ProductCard";
+import SkeletonCard  from "./Minimart/SkeletonCard";
+import FeaturedStrip from "./Minimart/FeaturedStrip";
+import FilterDrawer  from "./Minimart/FilterDrawer";
+import EmptyState    from "./Minimart/EmptyState";
+import FAB           from "./Minimart/FAB";
+import { CloseIcon } from "./Minimart/icons";
 
 import "../styles/Minimart.css";
 
@@ -50,7 +50,7 @@ export default function MinimartPage({ user }) {
   const [hasMore,     setHasMore]     = useState(true);
   const [total,       setTotal]       = useState(0);
 
-  /* ── Flags for dynamic sort ── */
+  /* ── Dynamic sort flags ── */
   const [dynamicFlags, setDynamicFlags] = useState({
     hasTrending:  false,
     hasFeatured:  false,
@@ -97,7 +97,7 @@ export default function MinimartPage({ user }) {
     setError(null);
 
     const params = {
-      limit: PAGE_SIZE,
+      limit:  PAGE_SIZE,
       offset: (page - 1) * PAGE_SIZE,
       sort,
       ...(category        && { category }),
@@ -110,8 +110,8 @@ export default function MinimartPage({ user }) {
       .get(API_URL, { params, timeout: 12000 })
       .then(({ data }) => {
         if (cancelled) return;
-        const incoming = data?.data?.products ?? data?.products ?? [];
-        const totalCount = data?.data?.pagination?.total ?? data?.total ?? 0;
+        const incoming   = data?.data?.products           ?? data?.products ?? [];
+        const totalCount = data?.data?.pagination?.total  ?? data?.total    ?? 0;
 
         setProducts((prev) => isFirst ? incoming : [...prev, ...incoming]);
         setTotal(totalCount);
@@ -131,38 +131,36 @@ export default function MinimartPage({ user }) {
     return () => { cancelled = true; };
   }, [page, category, sort, debouncedSearch, minPrice, maxPrice]);
 
-  /* ── Fetch featured + check dynamic flags ── */
+  /* ── Fetch featured + detect dynamic flags ── */
   useEffect(() => {
+    /* Featured */
     axios
-      .get(API_URL, { params: { featured: "true", limit: 8, sort: "newest" }, timeout: 8000 })
+      .get(API_URL, {
+        params: { featured: "true", limit: 8, sort: "newest" },
+        timeout: 8000,
+      })
       .then(({ data }) => {
         const items = data?.data?.products ?? data?.products ?? [];
         setFeatured(items);
-        if (items.length > 0) {
-          setDynamicFlags((prev) => ({ ...prev, hasFeatured: true }));
-        }
+        if (items.length) setDynamicFlags((f) => ({ ...f, hasFeatured: true }));
       })
       .catch(() => {});
 
-    /* Check for trending */
+    /* Trending */
     axios
       .get(API_URL, { params: { trending: "true", limit: 1 }, timeout: 5000 })
       .then(({ data }) => {
         const items = data?.data?.products ?? data?.products ?? [];
-        if (items.length > 0) {
-          setDynamicFlags((prev) => ({ ...prev, hasTrending: true }));
-        }
+        if (items.length) setDynamicFlags((f) => ({ ...f, hasTrending: true }));
       })
       .catch(() => {});
 
-    /* Check for sponsored */
+    /* Sponsored */
     axios
       .get(API_URL, { params: { sponsored: "true", limit: 1 }, timeout: 5000 })
       .then(({ data }) => {
         const items = data?.data?.products ?? data?.products ?? [];
-        if (items.length > 0) {
-          setDynamicFlags((prev) => ({ ...prev, hasSponsored: true }));
-        }
+        if (items.length) setDynamicFlags((f) => ({ ...f, hasSponsored: true }));
       })
       .catch(() => {});
   }, []);
@@ -216,7 +214,9 @@ export default function MinimartPage({ user }) {
     setError(null);
   }, []);
 
-  /* ── Render ── */
+  /* ════════════════════════════════════════════
+     RENDER
+  ════════════════════════════════════════════ */
   return (
     <>
       <div className="mp-page">
@@ -252,36 +252,49 @@ export default function MinimartPage({ user }) {
             {debouncedSearch && (
               <span className="mp-filter-pill" role="listitem">
                 🔍 "{debouncedSearch}"
-                <button onClick={() => setSearch("")} aria-label="Remove search"><CloseIcon size={11} /></button>
+                <button onClick={() => setSearch("")} aria-label="Remove search">
+                  <CloseIcon size={11} />
+                </button>
               </span>
             )}
             {category && (
               <span className="mp-filter-pill" role="listitem">
                 {categories.find((c) => c.id === category)?.icon}{" "}
                 {categories.find((c) => c.id === category)?.name}
-                <button onClick={() => setCategory("")} aria-label="Remove category"><CloseIcon size={11} /></button>
+                <button onClick={() => setCategory("")} aria-label="Remove category">
+                  <CloseIcon size={11} />
+                </button>
               </span>
             )}
             {(minPrice || maxPrice) && (
               <span className="mp-filter-pill" role="listitem">
                 ₦{minPrice || "0"} – {maxPrice ? `₦${maxPrice}` : "∞"}
-                <button onClick={() => { setMinPrice(""); setMaxPrice(""); }} aria-label="Remove price filter">
+                <button
+                  onClick={() => { setMinPrice(""); setMaxPrice(""); }}
+                  aria-label="Remove price filter"
+                >
                   <CloseIcon size={11} />
                 </button>
               </span>
             )}
-            <button className="mp-clear-all" onClick={clearFilters}>Clear all</button>
+            <button className="mp-clear-all" onClick={clearFilters}>
+              Clear all
+            </button>
           </div>
         )}
 
-        {/* Featured */}
+        {/* Featured strip */}
         {!debouncedSearch && !category && !hasFilters && page === 1 && !loading && (
           <FeaturedStrip products={featured} />
         )}
 
         {/* Product grid */}
-        <main className={`mp-grid mp-grid--${viewMode}`} role="main" aria-label="Products">
-
+        <main
+          className={`mp-grid mp-grid--${viewMode}`}
+          role="main"
+          aria-label="Products"
+        >
+          {/* Error */}
           {error && (
             <div className="mp-error" role="alert">
               <p>{error}</p>
@@ -289,14 +302,17 @@ export default function MinimartPage({ user }) {
             </div>
           )}
 
+          {/* Skeletons */}
           {!error && loading && page === 1 &&
             Array.from({ length: 12 }).map((_, i) => <SkeletonCard key={i} />)
           }
 
+          {/* Empty */}
           {!error && !loading && products.length === 0 && (
             <EmptyState hasFilters={hasFilters} onClear={clearFilters} />
           )}
 
+          {/* Products */}
           {!error && products.map((p) => (
             <ProductCard
               key={p.id}
@@ -310,16 +326,21 @@ export default function MinimartPage({ user }) {
           {/* Infinite scroll */}
           {!error && (
             loadingMore ? (
-              <div className="mp-load-more-row"><div className="mp-spinner" /></div>
+              <div className="mp-load-more-row">
+                <div className="mp-spinner" />
+              </div>
             ) : hasMore ? (
               <div ref={loaderRef} aria-hidden="true" style={{ height: 1 }} />
             ) : products.length > 0 ? (
-              <div className="mp-end-msg">✨ You've seen all {total.toLocaleString()} products</div>
+              <div className="mp-end-msg">
+                ✨ You've seen all {total.toLocaleString()} products
+              </div>
             ) : null
           )}
         </main>
       </div>
 
+      {/* Filter Drawer */}
       {showFilter && (
         <FilterDrawer
           minPrice={minPrice}   setMinPrice={setMinPrice}
