@@ -2,6 +2,9 @@
  * POST /api/products
  * Create a new listing.
  * Multipart: images[] + JSON fields.
+ *
+ * Slug is generated server-side in JS (not DB function)
+ * so it works with CockroachDB.
  */
 
 import express from "express";
@@ -16,6 +19,27 @@ import {
 
 const router = express.Router();
 
+/* ══════════════════════════════════════════════════════════════
+   SLUG GENERATOR
+   — works with CockroachDB (pure JS, no DB function needed)
+   — format: "product-name-here-{first-8-chars-of-uuid}"
+   — example: "iphone-13-pro-max-80bff8ac"
+══════════════════════════════════════════════════════════════ */
+function generateSlug(name, id) {
+  const base = String(name)
+    .toLowerCase()
+    .replace(/[^a-z0-9\s]/g, "")   // remove special chars
+    .replace(/\s+/g, "-")           // spaces → hyphens
+    .replace(/-+/g, "-")            // collapse multiple hyphens
+    .replace(/^-|-$/g, "")          // trim leading/trailing hyphens
+    .slice(0, 60);                   // max 60 chars for readability
+
+  return `${base}-${String(id).slice(0, 8)}`;
+}
+
+/* ══════════════════════════════════════════════════════════════
+   POST /
+══════════════════════════════════════════════════════════════ */
 router.post(
   "/",
   authenticate,
@@ -31,7 +55,7 @@ router.post(
       const {
         name, description, short_description,
         category, basePrice, originalPrice,
-        brand, tags, slug,
+        brand, tags,
         variants, keyFeatures, specifications, whatsInBox,
         weight_kg, dimensions, delivery_options,
         return_policy, warranty,
@@ -50,13 +74,13 @@ router.post(
       const parsedDims     = parseJSON(dimensions, null);
       const parsedDelivery = parseJSON(delivery_options, null);
 
-      /* ── Insert product ── */
+      /* ── Step 1: Insert product WITHOUT slug to get real UUID ── */
       const { rows: [{ id: productId }] } = await client.query(
         `INSERT INTO market.products (
            user_id, name, description, short_description,
            category, condition,
            price, original_price,
-           brand, tags, slug,
+           brand, tags,
            weight_kg, dimensions, delivery_options,
            return_policy, warranty,
            status, is_active
@@ -65,9 +89,9 @@ router.post(
            $1,$2,$3,$4,
            $5,'new',
            $6,$7,
-           $8,$9,$10,
-           $11,$12,$13,
-           $14,$15,
+           $8,$9,
+           $10,$11,$12,
+           $13,$14,
            'pending',false
          )
          RETURNING id`,
@@ -81,16 +105,23 @@ router.post(
           originalPrice ? parseInt(originalPrice, 10) : null,
           safeStr(brand, 100),
           parsedTags.length ? parsedTags : null,
-          safeStr(slug, 100) || null,
-          weight_kg ? parseFloat(weight_kg) : null,
-          parsedDims     ? JSON.stringify(parsedDims)     : null,
-          parsedDelivery ? JSON.stringify(parsedDelivery) : null,
+          weight_kg      ? parseFloat(weight_kg)         : null,
+          parsedDims     ? JSON.stringify(parsedDims)    : null,
+          parsedDelivery ? JSON.stringify(parsedDelivery): null,
           safeStr(return_policy, 1000),
           safeStr(warranty, 500),
         ]
       );
 
-      /* ── Upload images ── */
+      /* ── Step 2: Generate slug using real productId ── */
+      const slug = generateSlug(cleanName, productId);
+
+      await client.query(
+        "UPDATE market.products SET slug = $1 WHERE id = $2",
+        [slug, productId]
+      );
+
+      /* ── Step 3: Upload images in parallel ── */
       const uploaded = await uploadFiles(req.files, uploadToCloudinary);
       for (let i = 0; i < uploaded.length; i++) {
         await client.query(
@@ -101,7 +132,7 @@ router.post(
         );
       }
 
-      /* ── Child rows ── */
+      /* ── Step 4: Child rows ── */
       await replaceVariants(client, productId, variants);
       await insertList(client, "product_features",  "feature", productId, parseJSON(keyFeatures));
       await insertList(client, "product_box_items", "item",    productId, parseJSON(whatsInBox));
@@ -111,7 +142,7 @@ router.post(
 
       ok(res, {
         message: "Listing submitted for review. You'll be notified once approved.",
-        data:    { productId, status: "pending" },
+        data:    { productId, slug, status: "pending" },
       }, 201);
 
     } catch (err) {
