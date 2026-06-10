@@ -21,6 +21,7 @@ import TermsAndConditions from "./pages/TermsAndConditions";
 import MinimartPage       from "./pages/MinimartPage";
 import P2P                from "./pages/P2P";
 import MenuPage           from "./pages/MenuPage";
+import CartPage           from "./pages/CartPage";          // ← NEW
 
 // ── Pages — Homepage Sub-pages ────────────────────────────────
 import NearbyPage      from "./pages/Homepage/NearbyPage";
@@ -71,6 +72,36 @@ export const TOKEN_KEYS = {
 };
 
 const USERS_API = "https://minimart-ivrm.onrender.com/api/users";
+const CART_API  = "https://minimart-ivrm.onrender.com/api/cart";
+
+// ─────────────────────────────────────────────────────────────
+// CART SYNC — merges guest localStorage cart into server cart
+// after a successful marketplace login.
+// ─────────────────────────────────────────────────────────────
+async function syncCartAfterLogin(token) {
+  const localCart = JSON.parse(localStorage.getItem("mm_cart") || "[]");
+  if (!localCart.length) return;
+
+  for (const item of localCart) {
+    try {
+      await axios.post(
+        CART_API,
+        {
+          productId: item.productId,
+          variantId: item.variant?.id ?? null,
+          qty:       item.qty,
+        },
+        { headers: { Authorization: `Bearer ${token}` } }
+      );
+    } catch {
+      // Individual item failures are silently swallowed so one
+      // bad item doesn't abort the rest of the sync.
+    }
+  }
+
+  localStorage.removeItem("mm_cart");
+  window.dispatchEvent(new Event("cart-updated"));
+}
 
 // ─────────────────────────────────────────────────────────────
 // SCROLL TO TOP ON ROUTE CHANGE
@@ -168,6 +199,7 @@ export default function App() {
     localStorage.removeItem("active_location");
     localStorage.removeItem("cacheTime");
     setUser(userData);
+    syncCartAfterLogin(token); // ← NEW: fire-and-forget; errors are swallowed internally
     toast.success(`Welcome back, ${userData.name}!`);
     navigateFn(from || "/", { replace: true });
   };
@@ -376,6 +408,13 @@ export default function App() {
         } />
         <Route path="/payment/success"
           element={<PaymentSuccess />}
+        />
+
+        {/* ══════════════════════════════════════════════
+            CART                                         ← NEW
+        ══════════════════════════════════════════════ */}
+        <Route path="/shop/cart"
+          element={<CartPage user={user} />}
         />
 
         {/* ══════════════════════════════════════════════
