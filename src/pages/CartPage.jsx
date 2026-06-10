@@ -1,32 +1,51 @@
 import React, {
-  useState, useEffect, useCallback, useMemo, memo,
+  useState, useEffect, useCallback, useMemo, useRef, memo,
 } from "react";
 import { useNavigate } from "react-router-dom";
+import axios from "axios";
 
-import CartItem    from "./Cart/CartItem";
+import CartItem     from "./Cart/CartItem";
 import OrderSummary from "./Cart/OrderSummary";
-import EmptyCart   from "./Cart/EmptyCart";
+import EmptyCart    from "./Cart/EmptyCart";
 
 import "../styles/Cart.css";
 
 /* ── Constants ── */
-const CART_KEY = "mm_cart";
+const CART_KEY   = "mm_cart";
+const SAVED_KEY  = "mm_saved";
+const CART_API   = "https://minimart-ivrm.onrender.com/api/cart";
 
-/* ── Helpers ── */
+/* ────────────────────────────────────────────────────────────
+   LOCAL STORAGE HELPERS  (guests only)
+──────────────────────────────────────────────────────────── */
 function loadCart() {
-  try {
-    return JSON.parse(localStorage.getItem(CART_KEY) || "[]");
-  } catch {
-    return [];
-  }
+  try { return JSON.parse(localStorage.getItem(CART_KEY) || "[]"); }
+  catch { return []; }
 }
-
 function saveCart(items) {
   localStorage.setItem(CART_KEY, JSON.stringify(items));
   window.dispatchEvent(new Event("cart-updated"));
 }
 
-/* ── Icons ── */
+/* ────────────────────────────────────────────────────────────
+   API HELPERS  (authenticated users)
+──────────────────────────────────────────────────────────── */
+function authHeaders() {
+  const token = localStorage.getItem("marketplace_token");
+  return { Authorization: `Bearer ${token}` };
+}
+
+const cartApi = {
+  fetch: ()               => axios.get(CART_API,                           { headers: authHeaders() }),
+  updateQty: (id, qty)    => axios.put(`${CART_API}/items/${id}`,  { qty }, { headers: authHeaders() }),
+  remove: (id)            => axios.delete(`${CART_API}/items/${id}`,       { headers: authHeaders() }),
+  clear: ()               => axios.delete(CART_API,                        { headers: authHeaders() }),
+  addItem: (item)         => axios.post(`${CART_API}/items`, item,         { headers: authHeaders() }),
+};
+
+/* ────────────────────────────────────────────────────────────
+   ICONS
+──────────────────────────────────────────────────────────── */
 const Icon = {
   back: (
     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2.2} strokeLinecap="round">
@@ -56,9 +75,9 @@ const Icon = {
   ),
 };
 
-/* ════════════════════════════════════════════════════════════
+/* ────────────────────────────────────────────────────────────
    SELLER GROUP HEADER
-════════════════════════════════════════════════════════════ */
+──────────────────────────────────────────────────────────── */
 const SellerGroupHeader = memo(function SellerGroupHeader({ sellerName, itemCount }) {
   return (
     <div className="ct-seller-header">
@@ -76,12 +95,11 @@ const SellerGroupHeader = memo(function SellerGroupHeader({ sellerName, itemCoun
   );
 });
 
-/* ════════════════════════════════════════════════════════════
+/* ────────────────────────────────────────────────────────────
    PRICE CHANGED BANNER
-════════════════════════════════════════════════════════════ */
+──────────────────────────────────────────────────────────── */
 const PriceChangedBanner = memo(function PriceChangedBanner({ count, onDismiss }) {
   if (!count) return null;
-
   return (
     <div className="ct-price-changed-banner" role="alert">
       <span>⚠️</span>
@@ -95,38 +113,108 @@ const PriceChangedBanner = memo(function PriceChangedBanner({ count, onDismiss }
   );
 });
 
+/* ────────────────────────────────────────────────────────────
+   CART SKELETON  (loading state)
+──────────────────────────────────────────────────────────── */
+function CartSkeleton() {
+  return (
+    <div className="ct-layout">
+      <div className="ct-items-col">
+        {[...Array(3)].map((_, i) => (
+          <div key={i} className="ct-skeleton-item" aria-hidden="true">
+            <div className="ct-skeleton-img" />
+            <div className="ct-skeleton-lines">
+              <div className="ct-skeleton-line ct-skeleton-line--wide" />
+              <div className="ct-skeleton-line ct-skeleton-line--mid"  />
+              <div className="ct-skeleton-line ct-skeleton-line--short"/>
+            </div>
+          </div>
+        ))}
+      </div>
+      <div className="ct-summary-col">
+        <div className="ct-skeleton-summary" />
+      </div>
+    </div>
+  );
+}
+
 /* ════════════════════════════════════════════════════════════
    MAIN CART PAGE
 ════════════════════════════════════════════════════════════ */
 export default function CartPage({ user }) {
   const navigate = useNavigate();
 
-  const [items,            setItems]            = useState(loadCart);
-  const [savedItems,       setSavedItems]       = useState(() => {
-    try { return JSON.parse(localStorage.getItem("mm_saved") || "[]"); }
+  const [items,             setItems]             = useState([]);
+  const [loading,           setLoading]           = useState(true);
+  const [savedItems,        setSavedItems]        = useState(() => {
+    try { return JSON.parse(localStorage.getItem(SAVED_KEY) || "[]"); }
     catch { return []; }
   });
   const [priceChangedCount, setPriceChangedCount] = useState(0);
   const [showCoupon,        setShowCoupon]        = useState(false);
-  const [couponCode,        setCouponCode]         = useState("");
-  const [couponApplied,     setCouponApplied]      = useState(null);
-  const [couponError,       setCouponError]        = useState("");
-  const [selectAll,         setSelectAll]          = useState(true);
-  const [selected,          setSelected]           = useState(() => {
-    const cart = loadCart();
-    return new Set(cart.map((i) => i.id));
-  });
+  const [couponCode,        setCouponCode]        = useState("");
+  const [couponApplied,     setCouponApplied]     = useState(null);
+  const [couponError,       setCouponError]       = useState("");
+  const [selectAll,         setSelectAll]         = useState(true);
+  const [selected,          setSelected]          = useState(() => new Set());
 
-  /* ── Persist items ── */
+  /* Track if initial selection has been seeded from items */
+  const selectionSeeded = useRef(false);
+
+  /* ── Seed selection once items arrive ── */
   useEffect(() => {
-    saveCart(items);
+    if (items.length > 0 && !selectionSeeded.current) {
+      setSelected(new Set(items.map((i) => i.id)));
+      selectionSeeded.current = true;
+    }
   }, [items]);
 
+  /* ────────────────────────────────────────────
+     FETCH CART ON MOUNT
+  ──────────────────────────────────────────── */
   useEffect(() => {
-    localStorage.setItem("mm_saved", JSON.stringify(savedItems));
+    if (!user) {
+      /* Guest — read localStorage */
+      const stored = loadCart();
+      setItems(stored);
+      setSelected(new Set(stored.map((i) => i.id)));
+      selectionSeeded.current = stored.length > 0;
+      setLoading(false);
+      return;
+    }
+
+    /* Authenticated — fetch from DB */
+    cartApi.fetch()
+      .then(({ data }) => {
+        const serverItems = data.data?.items ?? [];
+        setItems(serverItems);
+        setPriceChangedCount(data.data?.priceChanges ?? 0);
+      })
+      .catch(() => {
+        /* Graceful fallback: use whatever is in localStorage */
+        const stored = loadCart();
+        setItems(stored);
+      })
+      .finally(() => setLoading(false));
+  }, [user]);
+
+  /* ────────────────────────────────────────────
+     PERSIST CART
+     — guests only; logged-in state lives in DB
+  ──────────────────────────────────────────── */
+  useEffect(() => {
+    if (!user) {
+      saveCart(items);
+    }
+  }, [items, user]);
+
+  useEffect(() => {
+    localStorage.setItem(SAVED_KEY, JSON.stringify(savedItems));
   }, [savedItems]);
 
-  /* ── Group items by seller ── */
+  /* ────────────────────────────────────────────
+     DERIVED STATE
+  ──────────────────────────────────────────── */
   const sellerGroups = useMemo(() => {
     const groups = new Map();
     items.forEach((item) => {
@@ -143,13 +231,11 @@ export default function CartPage({ user }) {
     return [...groups.values()];
   }, [items]);
 
-  /* ── Selected items only ── */
   const selectedItems = useMemo(() =>
     items.filter((i) => selected.has(i.id)),
     [items, selected]
   );
 
-  /* ── Totals ── */
   const subtotal = useMemo(() =>
     selectedItems.reduce((sum, i) => sum + (Number(i.price) * i.qty), 0),
     [selectedItems]
@@ -165,29 +251,52 @@ export default function CartPage({ user }) {
     [selectedItems]
   );
 
-  const discount = couponApplied?.amount ?? 0;
+  const discount   = couponApplied?.amount ?? 0;
   const grandTotal = Math.max(0, subtotal - discount);
 
-  /* ── Handlers ── */
+  /* ────────────────────────────────────────────
+     HANDLERS
+  ──────────────────────────────────────────── */
+
+  /* Update quantity — optimistic + API sync for auth users */
   const updateQty = useCallback((id, delta) => {
-    setItems((prev) =>
-      prev.map((i) =>
+    setItems((prev) => {
+      const next = prev.map((i) =>
         i.id === id
           ? { ...i, qty: Math.max(1, Math.min(99, i.qty + delta)) }
           : i
-      )
-    );
-  }, []);
+      );
 
+      if (user) {
+        const updated = next.find((i) => i.id === id);
+        if (updated) {
+          cartApi.updateQty(id, updated.qty).catch(() => {
+            /* Rollback on failure */
+            setItems(prev);
+          });
+        }
+      }
+
+      return next;
+    });
+  }, [user]);
+
+  /* Remove item — optimistic + API sync */
   const removeItem = useCallback((id) => {
-    setItems((prev) => prev.filter((i) => i.id !== id));
+    setItems((prev) => {
+      if (user) {
+        cartApi.remove(id).catch(() => setItems(prev));
+      }
+      return prev.filter((i) => i.id !== id);
+    });
     setSelected((prev) => {
       const next = new Set(prev);
       next.delete(id);
       return next;
     });
-  }, []);
+  }, [user]);
 
+  /* Save for later — always local; remove from cart (synced above) */
   const saveForLater = useCallback((id) => {
     const item = items.find((i) => i.id === id);
     if (!item) return;
@@ -198,25 +307,48 @@ export default function CartPage({ user }) {
     removeItem(id);
   }, [items, removeItem]);
 
+  /* Move saved item back to cart */
   const moveToCart = useCallback((id) => {
     const item = savedItems.find((s) => s.id === id);
     if (!item) return;
+
+    const cartItem = { ...item, qty: 1 };
+    delete cartItem.savedAt;
+
     setItems((prev) => {
-      const exists = prev.find((i) => i.id === id);
-      return exists ? prev : [...prev, { ...item, qty: 1 }];
+      if (prev.find((i) => i.id === id)) return prev;
+      if (user) {
+        cartApi.addItem(cartItem).catch(() => {
+          /* Rollback */
+          setItems(prev);
+          setSavedItems((s) => [...s, item]);
+        });
+      }
+      return [...prev, cartItem];
     });
+
     setSavedItems((prev) => prev.filter((s) => s.id !== id));
     setSelected((prev) => new Set([...prev, id]));
-  }, [savedItems]);
+  }, [savedItems, user]);
 
   const removeSaved = useCallback((id) => {
     setSavedItems((prev) => prev.filter((s) => s.id !== id));
   }, []);
 
+  /* Clear entire cart */
   const clearCart = useCallback(() => {
+    const snapshot = items;
     setItems([]);
     setSelected(new Set());
-  }, []);
+
+    if (user) {
+      cartApi.clear().catch(() => {
+        /* Rollback */
+        setItems(snapshot);
+        setSelected(new Set(snapshot.map((i) => i.id)));
+      });
+    }
+  }, [items, user]);
 
   const toggleSelect = useCallback((id) => {
     setSelected((prev) => {
@@ -242,7 +374,6 @@ export default function CartPage({ user }) {
       setCouponError("Enter a coupon code");
       return;
     }
-    /* Demo logic — replace with real API call */
     if (couponCode.toUpperCase() === "SAVE10") {
       setCouponApplied({ code: "SAVE10", amount: Math.round(subtotal * 0.1) });
       setCouponError("");
@@ -286,13 +417,13 @@ export default function CartPage({ user }) {
         </button>
         <div className="ct-topbar-center">
           <h1 className="ct-topbar-title">My Cart</h1>
-          {items.length > 0 && (
+          {!loading && items.length > 0 && (
             <span className="ct-topbar-count">
               {items.length} item{items.length !== 1 ? "s" : ""}
             </span>
           )}
         </div>
-        {items.length > 0 && (
+        {!loading && items.length > 0 && (
           <button
             className="ct-clear-btn"
             onClick={clearCart}
@@ -309,8 +440,11 @@ export default function CartPage({ user }) {
         onDismiss={() => setPriceChangedCount(0)}
       />
 
-      {/* ── Empty cart ── */}
-      {items.length === 0 ? (
+      {/* ── Loading skeleton ── */}
+      {loading ? (
+        <CartSkeleton />
+      ) : items.length === 0 ? (
+        /* ── Empty cart ── */
         <EmptyCart
           savedItems={savedItems}
           onMoveToCart={moveToCart}
@@ -347,7 +481,6 @@ export default function CartPage({ user }) {
                   sellerName={group.sellerName}
                   itemCount={group.items.length}
                 />
-
                 <div className="ct-group-items">
                   {group.items.map((item) => (
                     <CartItem
@@ -374,7 +507,6 @@ export default function CartPage({ user }) {
                   🏷️ Have a coupon code?
                 </button>
               )}
-
               {showCoupon && !couponApplied && (
                 <div className="ct-coupon-input-wrap">
                   <input
@@ -389,9 +521,7 @@ export default function CartPage({ user }) {
                     onKeyDown={(e) => e.key === "Enter" && applyCoupon()}
                     autoFocus
                   />
-                  <button className="ct-coupon-apply" onClick={applyCoupon}>
-                    Apply
-                  </button>
+                  <button className="ct-coupon-apply" onClick={applyCoupon}>Apply</button>
                   <button
                     className="ct-coupon-cancel"
                     onClick={() => { setShowCoupon(false); setCouponError(""); }}
@@ -400,14 +530,15 @@ export default function CartPage({ user }) {
                   </button>
                 </div>
               )}
-
               {couponError && (
                 <p className="ct-coupon-error">⚠️ {couponError}</p>
               )}
-
               {couponApplied && (
                 <div className="ct-coupon-applied">
-                  <span>🎉 <strong>{couponApplied.code}</strong> — You save ₦{couponApplied.amount.toLocaleString("en-NG")}</span>
+                  <span>
+                    🎉 <strong>{couponApplied.code}</strong>
+                    {" "}— You save ₦{couponApplied.amount.toLocaleString("en-NG")}
+                  </span>
                   <button onClick={removeCoupon} aria-label="Remove coupon">✕</button>
                 </div>
               )}
@@ -423,11 +554,10 @@ export default function CartPage({ user }) {
                   {savedItems.map((item) => (
                     <div key={item.id} className="ct-saved-item">
                       <div className="ct-saved-img-wrap">
-                        {item.image ? (
-                          <img src={item.image} alt={item.name} loading="lazy" />
-                        ) : (
-                          <span>📦</span>
-                        )}
+                        {item.image
+                          ? <img src={item.image} alt={item.name} loading="lazy" />
+                          : <span>📦</span>
+                        }
                       </div>
                       <div className="ct-saved-info">
                         <p className="ct-saved-name">{item.name}</p>
@@ -461,10 +591,10 @@ export default function CartPage({ user }) {
             {/* Trust badges */}
             <div className="ct-trust-row">
               {[
-                { icon:"🔒", text:"Secure Payment"    },
-                { icon:"🚚", text:"Managed Delivery"  },
-                { icon:"↩️",  text:"Easy Returns"      },
-                { icon:"✅", text:"Verified Sellers"  },
+                { icon: "🔒", text: "Secure Payment"   },
+                { icon: "🚚", text: "Managed Delivery" },
+                { icon: "↩️",  text: "Easy Returns"     },
+                { icon: "✅", text: "Verified Sellers" },
               ].map((b) => (
                 <div key={b.text} className="ct-trust-item">
                   <span>{b.icon}</span>
@@ -492,7 +622,7 @@ export default function CartPage({ user }) {
       )}
 
       {/* ── Mobile sticky checkout bar ── */}
-      {items.length > 0 && selectedItems.length > 0 && (
+      {!loading && items.length > 0 && selectedItems.length > 0 && (
         <div className="ct-sticky-bar">
           <div className="ct-sticky-info">
             <span className="ct-sticky-count">
