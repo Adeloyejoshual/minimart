@@ -6,29 +6,18 @@ import {
   isStateAllowed,
   isCityAllowed,
   getCitiesForState,
-  getLGAsForCity,
   ALLOWED_STATES,
   DELIVERY_ZONES,
 } from "../../services/location.js";
 
 const router = express.Router();
 
-/* ══════════════════════════════════════════════════════════════
-   GET /api/checkout/address/zones
-   Returns all allowed delivery zones for the frontend dropdowns.
-   Called once on page load — builds state/city/lga dropdowns.
-══════════════════════════════════════════════════════════════ */
+/* ── GET /api/checkout/address/zones ── */
 router.get("/zones", (_req, res) => {
-  res.json({
-    success: true,
-    data:    DELIVERY_ZONES,
-  });
+  res.json({ success: true, data: DELIVERY_ZONES });
 });
 
-/* ══════════════════════════════════════════════════════════════
-   GET /api/checkout/address
-   List saved addresses for logged-in buyer.
-══════════════════════════════════════════════════════════════ */
+/* ── GET /api/checkout/address ── */
 router.get("/", async (req, res) => {
   try {
     const { rows } = await pool.query(
@@ -39,22 +28,15 @@ router.get("/", async (req, res) => {
     );
     res.json({ success: true, data: rows });
   } catch (err) {
-    console.error("[GET /api/checkout/address]", err.message);
+    console.error("[GET address]", err.message);
     res.status(500).json({ success: false, message: "Failed to fetch addresses" });
   }
 });
 
-/* ══════════════════════════════════════════════════════════════
-   POST /api/checkout/address
-   Add a new address.
-   All city/state values must come from the controlled zones list.
-   Landmark is required.
-══════════════════════════════════════════════════════════════ */
+/* ── POST /api/checkout/address ── */
 router.post("/", async (req, res) => {
-  /* Normalize input */
   const data = normalizeAddress(req.body);
 
-  /* Validate */
   const validation = validateAddress(data);
   if (!validation.valid) {
     return res.status(422).json({
@@ -65,7 +47,6 @@ router.post("/", async (req, res) => {
   }
 
   try {
-    /* Unset other defaults if this is default */
     if (data.is_default) {
       await pool.query(
         "UPDATE public.user_addresses SET is_default = false WHERE user_id = $1",
@@ -76,7 +57,8 @@ router.post("/", async (req, res) => {
     const { rows: [address] } = await pool.query(
       `INSERT INTO public.user_addresses
          (user_id, label, recipient_name, phone,
-          address_line, landmark, city, state, lga, is_default)
+          state, city, address_line, landmark,
+          additional_directions, is_default)
        VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)
        RETURNING *`,
       [
@@ -84,40 +66,37 @@ router.post("/", async (req, res) => {
         data.label,
         data.recipient_name,
         data.phone,
+        data.state,
+        data.city,
         data.address_line,
         data.landmark,
-        data.city,
-        data.state,
-        data.lga || null,
+        data.additional_directions,
         data.is_default,
       ]
     );
 
     res.status(201).json({ success: true, data: address });
   } catch (err) {
-    console.error("[POST /api/checkout/address]", err.message);
+    console.error("[POST address]", err.message);
     res.status(500).json({ success: false, message: "Failed to save address" });
   }
 });
 
-/* ══════════════════════════════════════════════════════════════
-   PATCH /api/checkout/address/:id
-   Update an existing address.
-══════════════════════════════════════════════════════════════ */
+/* ── PATCH /api/checkout/address/:id ── */
 router.patch("/:id", async (req, res) => {
   const data = normalizeAddress(req.body);
 
-  /* Partial validation — only validate what's provided */
+  /* Partial validation */
   const errors = {};
 
   if (req.body.state !== undefined && !isStateAllowed(data.state))
     errors.state = `We don't deliver to ${data.state} yet`;
 
   if (req.body.city !== undefined && data.state && !isCityAllowed(data.state, data.city))
-    errors.city = `We don't deliver to ${data.city} yet`;
+    errors.city = "Invalid city for selected state";
 
-  if (req.body.landmark !== undefined && !data.landmark)
-    errors.landmark = "Landmark is required";
+  if (req.body.landmark !== undefined && data.landmark.length < 5)
+    errors.landmark = "Please provide a more specific landmark";
 
   if (Object.keys(errors).length) {
     return res.status(422).json({ success: false, errors });
@@ -126,27 +105,27 @@ router.patch("/:id", async (req, res) => {
   try {
     const { rows: [address] } = await pool.query(
       `UPDATE public.user_addresses SET
-         label          = COALESCE($2,  label),
-         recipient_name = COALESCE($3,  recipient_name),
-         phone          = COALESCE($4,  phone),
-         address_line   = COALESCE($5,  address_line),
-         landmark       = COALESCE($6,  landmark),
-         city           = COALESCE($7,  city),
-         state          = COALESCE($8,  state),
-         lga            = COALESCE($9,  lga),
-         updated_at     = now()
+         label                 = COALESCE($2,  label),
+         recipient_name        = COALESCE($3,  recipient_name),
+         phone                 = COALESCE($4,  phone),
+         state                 = COALESCE($5,  state),
+         city                  = COALESCE($6,  city),
+         address_line          = COALESCE($7,  address_line),
+         landmark              = COALESCE($8,  landmark),
+         additional_directions = COALESCE($9,  additional_directions),
+         updated_at            = now()
        WHERE id = $1 AND user_id = $10
        RETURNING *`,
       [
         req.params.id,
-        data.label          || null,
-        data.recipient_name || null,
-        data.phone          || null,
-        data.address_line   || null,
-        data.landmark       || null,
-        data.city           || null,
-        data.state          || null,
-        data.lga            || null,
+        data.label           || null,
+        data.recipient_name  || null,
+        data.phone           || null,
+        data.state           || null,
+        data.city            || null,
+        data.address_line    || null,
+        data.landmark        || null,
+        data.additional_directions || null,
         req.user.id,
       ]
     );
@@ -157,14 +136,12 @@ router.patch("/:id", async (req, res) => {
 
     res.json({ success: true, data: address });
   } catch (err) {
-    console.error("[PATCH /api/checkout/address/:id]", err.message);
+    console.error("[PATCH address]", err.message);
     res.status(500).json({ success: false, message: "Failed to update address" });
   }
 });
 
-/* ══════════════════════════════════════════════════════════════
-   DELETE /api/checkout/address/:id
-══════════════════════════════════════════════════════════════ */
+/* ── DELETE /api/checkout/address/:id ── */
 router.delete("/:id", async (req, res) => {
   try {
     const { rowCount } = await pool.query(
@@ -178,14 +155,12 @@ router.delete("/:id", async (req, res) => {
 
     res.json({ success: true, message: "Address deleted" });
   } catch (err) {
-    console.error("[DELETE /api/checkout/address/:id]", err.message);
+    console.error("[DELETE address]", err.message);
     res.status(500).json({ success: false, message: "Failed to delete address" });
   }
 });
 
-/* ══════════════════════════════════════════════════════════════
-   PATCH /api/checkout/address/:id/default
-══════════════════════════════════════════════════════════════ */
+/* ── PATCH /api/checkout/address/:id/default ── */
 router.patch("/:id/default", async (req, res) => {
   try {
     await pool.query(
@@ -204,7 +179,7 @@ router.patch("/:id/default", async (req, res) => {
 
     res.json({ success: true, message: "Default address updated" });
   } catch (err) {
-    console.error("[PATCH /api/checkout/address/:id/default]", err.message);
+    console.error("[PATCH address/default]", err.message);
     res.status(500).json({ success: false, message: "Failed to update default" });
   }
 });
