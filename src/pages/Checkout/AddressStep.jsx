@@ -1,3 +1,4 @@
+
 import React, { useState, useEffect, memo } from "react";
 import axios from "axios";
 
@@ -10,7 +11,6 @@ function getToken() {
   );
 }
 
-/* ── Delivery zones — loaded from API ── */
 const LABELS = ["Home", "Office", "Other"];
 
 const BLANK_FORM = {
@@ -22,6 +22,7 @@ const BLANK_FORM = {
   address_line:          "",
   landmark:              "",
   additional_directions: "",
+  call_before_delivery:  false,
   is_default:            false,
 };
 
@@ -31,14 +32,21 @@ const AddressStep = memo(function AddressStep({
   onSelect,
   onAdd,
   onNext,
+  user,         /* ← pass user for auto-fill */
 }) {
   const [zones,    setZones]    = useState({});
   const [showForm, setShowForm] = useState(addresses.length === 0);
   const [saving,   setSaving]   = useState(false);
-  const [form,     setForm]     = useState(BLANK_FORM);
   const [errors,   setErrors]   = useState({});
 
-  /* Load delivery zones once */
+  /* Auto-fill recipient name + phone from user account */
+  const [form, setForm] = useState(() => ({
+    ...BLANK_FORM,
+    recipient_name: user?.name  ?? "",
+    phone:          user?.phone_number ?? "",
+  }));
+
+  /* Load delivery zones */
   useEffect(() => {
     axios
       .get(`${API}/checkout/address/zones`, {
@@ -48,7 +56,7 @@ const AddressStep = memo(function AddressStep({
       .catch(() => {});
   }, []);
 
-  /* Derived options */
+  /* Derived dropdown options */
   const stateOptions = Object.keys(zones);
   const cityOptions  = zones[form.state]?.cities ?? [];
 
@@ -80,7 +88,11 @@ const AddressStep = memo(function AddressStep({
       onAdd(data.data);
       onSelect(data.data);
       setShowForm(false);
-      setForm(BLANK_FORM);
+      setForm({
+        ...BLANK_FORM,
+        recipient_name: user?.name         ?? "",
+        phone:          user?.phone_number ?? "",
+      });
     } catch (err) {
       if (err.response?.data?.errors) {
         setErrors(err.response.data.errors);
@@ -88,7 +100,7 @@ const AddressStep = memo(function AddressStep({
         setErrors({
           general:
             err.response?.data?.message ??
-            "Failed to save address. Please try again.",
+            "Failed to save address. Please check your connection.",
         });
       }
     } finally {
@@ -112,7 +124,7 @@ const AddressStep = memo(function AddressStep({
         </div>
       </div>
 
-      {/* Saved addresses */}
+      {/* Saved address cards */}
       {addresses.map((addr) => (
         <div
           key={addr.id}
@@ -123,6 +135,7 @@ const AddressStep = memo(function AddressStep({
           role="button"
           tabIndex={0}
           onKeyDown={(e) => e.key === "Enter" && onSelect(addr)}
+          aria-label={`Select address: ${addr.address_line}, ${addr.city}`}
         >
           <div className="ck-address-radio">
             <div
@@ -133,23 +146,38 @@ const AddressStep = memo(function AddressStep({
           </div>
           <div className="ck-address-info">
             <div className="ck-address-label-row">
-              <span className="ck-address-label">{addr.label}</span>
+              <span className="ck-address-label">
+                {addr.label === "Home" ? "🏠" : addr.label === "Office" ? "🏢" : "📍"}
+                {" "}{addr.label}
+              </span>
               {addr.is_default && (
                 <span className="ck-default-tag">Default</span>
               )}
+              {addr.call_before_delivery && (
+                <span className="ck-call-tag">📞 Call first</span>
+              )}
             </div>
+
             <p className="ck-address-name">
               {addr.recipient_name} · {addr.phone}
             </p>
-            <p className="ck-address-line">{addr.address_line}</p>
+
+            <p className="ck-address-line">
+              {addr.address_line}
+            </p>
+
             {addr.landmark && (
-              <p className="ck-address-landmark">📍 {addr.landmark}</p>
+              <p className="ck-address-landmark">
+                📍 {addr.landmark}
+              </p>
             )}
+
             {addr.additional_directions && (
               <p className="ck-address-directions">
                 ℹ️ {addr.additional_directions}
               </p>
             )}
+
             <p className="ck-address-location">
               {addr.city}, {addr.state}
             </p>
@@ -161,17 +189,17 @@ const AddressStep = memo(function AddressStep({
       {showForm && (
         <div className="ck-address-form">
           <h3 className="ck-form-title">
-            {addresses.length === 0
-              ? "Add Delivery Address"
-              : "Add New Address"}
+            {addresses.length === 0 ? "Add Delivery Address" : "Add New Address"}
           </h3>
 
-          {/* General error */}
+          {/* General error banner */}
           {errors.general && (
-            <div className="ck-form-error-banner">⚠️ {errors.general}</div>
+            <div className="ck-form-error-banner">
+              ⚠️ {errors.general}
+            </div>
           )}
 
-          {/* Label chips */}
+          {/* Label */}
           <div className="ck-form-field">
             <label>Label</label>
             <div className="ck-label-chips">
@@ -182,9 +210,7 @@ const AddressStep = memo(function AddressStep({
                   className={`ck-label-chip ${
                     form.label === l ? "ck-label-chip--active" : ""
                   }`}
-                  onClick={() =>
-                    setForm((p) => ({ ...p, label: l }))
-                  }
+                  onClick={() => setForm((p) => ({ ...p, label: l }))}
                 >
                   {l === "Home" ? "🏠" : l === "Office" ? "🏢" : "📍"} {l}
                 </button>
@@ -203,9 +229,13 @@ const AddressStep = memo(function AddressStep({
                 onChange={set("recipient_name")}
                 placeholder="Full name of receiver"
               />
-              {errors.recipient_name && (
+              {errors.recipient_name ? (
                 <span className="ck-field-error">{errors.recipient_name}</span>
-              )}
+              ) : user?.name && form.recipient_name === user.name ? (
+                <span className="ck-field-hint">
+                  Auto-filled from your account — edit if sending to someone else
+                </span>
+              ) : null}
             </div>
 
             {/* ── Phone Number ── */}
@@ -224,7 +254,7 @@ const AddressStep = memo(function AddressStep({
                 <span className="ck-field-error">{errors.phone}</span>
               ) : (
                 <span className="ck-field-hint">
-                  We'll call this number if we can't find you
+                  Our rider will call this number if needed
                 </span>
               )}
             </div>
@@ -233,7 +263,9 @@ const AddressStep = memo(function AddressStep({
             <div className="ck-form-field">
               <label>State *</label>
               <select
-                className={`ck-input ck-select ${errors.state ? "ck-input--error" : ""}`}
+                className={`ck-input ck-select ${
+                  errors.state ? "ck-input--error" : ""
+                }`}
                 value={form.state}
                 onChange={handleStateChange}
               >
@@ -246,7 +278,7 @@ const AddressStep = memo(function AddressStep({
                 <span className="ck-field-error">{errors.state}</span>
               ) : !form.state ? (
                 <span className="ck-field-hint">
-                  Osun or Ondo only
+                  Osun or Ondo only for now
                 </span>
               ) : null}
             </div>
@@ -255,7 +287,9 @@ const AddressStep = memo(function AddressStep({
             <div className="ck-form-field">
               <label>City / Area *</label>
               <select
-                className={`ck-input ck-select ${errors.city ? "ck-input--error" : ""}`}
+                className={`ck-input ck-select ${
+                  errors.city ? "ck-input--error" : ""
+                }`}
                 value={form.city}
                 onChange={set("city")}
                 disabled={!form.state}
@@ -271,7 +305,7 @@ const AddressStep = memo(function AddressStep({
                 <span className="ck-field-error">{errors.city}</span>
               ) : form.state === "Ondo" ? (
                 <span className="ck-field-hint ck-field-hint--info">
-                  ✅ Ondo Town only
+                  ✅ We deliver to Ondo Town
                 </span>
               ) : null}
             </div>
@@ -280,19 +314,19 @@ const AddressStep = memo(function AddressStep({
             <div className="ck-form-field ck-form-field--full">
               <label>Street Address *</label>
               <input
-                className={`ck-input ${errors.address_line ? "ck-input--error" : ""}`}
+                className={`ck-input ${
+                  errors.address_line ? "ck-input--error" : ""
+                }`}
                 value={form.address_line}
                 onChange={set("address_line")}
-                placeholder="House number, street name"
+                placeholder="e.g. House No. 12, Adewale Street, Oke Baale"
               />
               {errors.address_line && (
-                <span className="ck-field-error">
-                  {errors.address_line}
-                </span>
+                <span className="ck-field-error">{errors.address_line}</span>
               )}
             </div>
 
-            {/* ── Landmark / Bus Stop ── */}
+            {/* ── Landmark / Bus Stop — REQUIRED ── */}
             <div className="ck-form-field ck-form-field--full">
               <label>
                 Landmark / Bus Stop *
@@ -301,21 +335,23 @@ const AddressStep = memo(function AddressStep({
                 </span>
               </label>
               <input
-                className={`ck-input ${errors.landmark ? "ck-input--error" : ""}`}
+                className={`ck-input ck-input--landmark ${
+                  errors.landmark ? "ck-input--error" : ""
+                }`}
                 value={form.landmark}
                 onChange={set("landmark")}
-                placeholder="e.g. Beside First Bank bus stop"
+                placeholder="e.g. Opposite GTBank, beside Oja Oba Market"
               />
               {errors.landmark ? (
                 <span className="ck-field-error">{errors.landmark}</span>
               ) : (
                 <span className="ck-field-hint">
-                  📍 Helps our rider locate you quickly
+                  📍 Examples: "Beside First Bank bus stop" · "After St. Mary's School"
                 </span>
               )}
             </div>
 
-            {/* ── Additional Directions ── */}
+            {/* ── Additional Directions — optional ── */}
             <div className="ck-form-field ck-form-field--full">
               <label>
                 Additional Directions
@@ -332,7 +368,20 @@ const AddressStep = memo(function AddressStep({
             </div>
           </div>
 
-          {/* Set as default */}
+          {/* ── Call Before Delivery ── */}
+          <label className="ck-checkbox-label ck-checkbox-label--highlight">
+            <input
+              type="checkbox"
+              checked={form.call_before_delivery}
+              onChange={set("call_before_delivery")}
+            />
+            <span>
+              📞 Call me before delivery
+              <small>Rider will call your number before arriving</small>
+            </span>
+          </label>
+
+          {/* ── Set as Default ── */}
           <label className="ck-checkbox-label">
             <input
               type="checkbox"
@@ -350,7 +399,11 @@ const AddressStep = memo(function AddressStep({
                 onClick={() => {
                   setShowForm(false);
                   setErrors({});
-                  setForm(BLANK_FORM);
+                  setForm({
+                    ...BLANK_FORM,
+                    recipient_name: user?.name         ?? "",
+                    phone:          user?.phone_number ?? "",
+                  });
                 }}
               >
                 Cancel
@@ -367,7 +420,7 @@ const AddressStep = memo(function AddressStep({
         </div>
       )}
 
-      {/* Add address button */}
+      {/* Add address toggle button */}
       {!showForm && (
         <button
           className="ck-add-address-btn"
@@ -377,7 +430,7 @@ const AddressStep = memo(function AddressStep({
         </button>
       )}
 
-      {/* Continue button */}
+      {/* Continue */}
       {!showForm && (
         <button
           className={`ck-next-btn ${!selected ? "ck-next-btn--disabled" : ""}`}
