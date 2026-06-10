@@ -150,6 +150,8 @@ const flwKeyMode = () => {
 ═══════════════════════════════════════════════════════════════ */
 import paymentRouter, { webhookRouter } from "./routes/payment.js";
 import flwWebhookRouter                 from "./routes/webhooks/flutterwave.js";
+import checkoutWebhookRouter            from "./routes/checkout/webhook.js";
+import checkoutRouter                   from "./routes/checkout/index.js";
 
 /* Paystack webhook */
 app.use(
@@ -204,6 +206,13 @@ app.post(
 
     res.status(200).json({ captured: true, event: body?.event });
   }
+);
+
+/* Checkout webhook */
+app.use(
+  "/api/checkout/webhook/payment",
+  express.raw({ type: "application/json" }),
+  checkoutWebhookRouter
 );
 
 /* ═══════════════════════════════════════════════════════════════
@@ -283,6 +292,9 @@ import { startCleanupJobs }    from "./jobs/cleanup.js";
 
 /* ── Payment ── */
 app.use("/api/payment", paymentRouter);
+
+/* ── Checkout ── */
+app.use("/api/checkout", checkoutRouter);
 
 /* ── Auth ── */
 import authRouter             from "./routes/sellerAuth.routes.js";
@@ -527,6 +539,7 @@ server.listen(PORT, () => {
   console.log(`   PRODUCTS  : /api/products  (market CRUD)`);
   console.log(`   SHOP      : /api/shop      (detail + wishlist + report + share)`);
   console.log(`   CART      : /api/cart`);
+  console.log(`   CHECKOUT  : /api/checkout`);
   console.log(`   WEBHOOK   : https://minimart-ivrm.onrender.com/api/webhooks/flutterwave`);
 
   startChatCleanupJob();
