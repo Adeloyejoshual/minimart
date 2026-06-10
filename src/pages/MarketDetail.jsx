@@ -412,7 +412,7 @@ export default function MarketDetail({ user }) {
             {/* Cart */}
             <button
               className="md-icon-btn"
-              onClick={() => navigate("/cart")}
+              onClick={() => navigate("/shop/cart")}
               aria-label={`Cart — ${cartCount} items`}
             >
               {Icon.cart}
