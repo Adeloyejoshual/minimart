@@ -6,7 +6,7 @@ const JWT_SECRET = process.env.JWT_SECRET || "supersecretkey";
 
 // ════════════════════════════════════════════════════════════
 // authenticate
-// Used by general routes — checks public.users
+// Used by general routes — checks public.users, falls back to market.users
 // ════════════════════════════════════════════════════════════
 export const authenticate = async (req, res, next) => {
   try {
@@ -63,6 +63,130 @@ export const authenticate = async (req, res, next) => {
 };
 
 // ════════════════════════════════════════════════════════════
+// authenticateBuyer
+// Only allows public.users (buyers) — blocks market.users (sellers)
+// Use this for: cart, checkout, orders, wishlist
+// ════════════════════════════════════════════════════════════
+export const authenticateBuyer = async (req, res, next) => {
+  try {
+    const authHeader = req.headers.authorization;
+
+    if (!authHeader?.startsWith("Bearer ")) {
+      return res.status(401).json({
+        success: false,
+        message: "No token provided",
+      });
+    }
+
+    const token   = authHeader.split(" ")[1];
+    const decoded = jwt.verify(token, JWT_SECRET);
+
+    const { rows } = await pool.query(
+      `SELECT id, name, email, status
+       FROM public.users
+       WHERE id = $1`,
+      [decoded.id]
+    );
+
+    if (!rows.length) {
+      return res.status(401).json({
+        success: false,
+        message: "Buyer account not found. Please log in as a buyer.",
+      });
+    }
+
+    const user = rows[0];
+
+    if (user.status === "banned" || user.status === "suspended") {
+      return res.status(403).json({
+        success: false,
+        message: "Your account has been suspended.",
+      });
+    }
+
+    req.user = user;
+    return next();
+
+  } catch (err) {
+    if (
+      err.name === "JsonWebTokenError" ||
+      err.name === "TokenExpiredError"
+    ) {
+      return res.status(401).json({
+        success: false,
+        message: "Invalid or expired token",
+      });
+    }
+    return res.status(500).json({
+      success: false,
+      message: "Authentication error",
+    });
+  }
+};
+
+// ════════════════════════════════════════════════════════════
+// authenticateSeller
+// Only allows market.users (sellers) — blocks public.users (buyers)
+// Use this for: post product, manage listings, seller dashboard
+// ════════════════════════════════════════════════════════════
+export const authenticateSeller = async (req, res, next) => {
+  try {
+    const authHeader = req.headers.authorization;
+
+    if (!authHeader?.startsWith("Bearer ")) {
+      return res.status(401).json({
+        success: false,
+        message: "No token provided",
+      });
+    }
+
+    const token   = authHeader.split(" ")[1];
+    const decoded = jwt.verify(token, JWT_SECRET);
+
+    const { rows } = await pool.query(
+      `SELECT id, name, email, status
+       FROM market.users
+       WHERE id = $1`,
+      [decoded.id]
+    );
+
+    if (!rows.length) {
+      return res.status(401).json({
+        success: false,
+        message: "Seller account not found. Please log in as a seller.",
+      });
+    }
+
+    const user = rows[0];
+
+    if (user.status === "banned" || user.status === "suspended") {
+      return res.status(403).json({
+        success: false,
+        message: "Your seller account has been suspended.",
+      });
+    }
+
+    req.user = { ...user, isSeller: true };
+    return next();
+
+  } catch (err) {
+    if (
+      err.name === "JsonWebTokenError" ||
+      err.name === "TokenExpiredError"
+    ) {
+      return res.status(401).json({
+        success: false,
+        message: "Invalid or expired token",
+      });
+    }
+    return res.status(500).json({
+      success: false,
+      message: "Authentication error",
+    });
+  }
+};
+
+// ════════════════════════════════════════════════════════════
 // softAuth — never blocks
 // ════════════════════════════════════════════════════════════
 export const softAuth = async (req, _res, next) => {
@@ -72,7 +196,6 @@ export const softAuth = async (req, _res, next) => {
       const token   = authHeader.split(" ")[1];
       const decoded = jwt.verify(token, JWT_SECRET);
 
-      // Check public.users first
       const { rows: pub } = await pool.query(
         `SELECT id, name, email, status FROM public.users WHERE id = $1`,
         [decoded.id]
@@ -81,7 +204,6 @@ export const softAuth = async (req, _res, next) => {
       if (pub.length && pub[0].status === "active") {
         req.user = pub[0];
       } else {
-        // Check market.users
         const { rows: mkt } = await pool.query(
           `SELECT id, name, email, status FROM market.users WHERE id = $1`,
           [decoded.id]
