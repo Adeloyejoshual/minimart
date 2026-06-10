@@ -11,9 +11,9 @@ import EmptyCart    from "./Cart/EmptyCart";
 import "../styles/Cart.css";
 
 /* ── Constants ── */
-const CART_KEY   = "mm_cart";
-const SAVED_KEY  = "mm_saved";
-const CART_API   = "https://minimart-ivrm.onrender.com/api/cart";
+const CART_KEY  = "mm_cart";
+const SAVED_KEY = "mm_saved";
+const CART_API  = "https://minimart-ivrm.onrender.com/api/cart";
 
 /* ────────────────────────────────────────────────────────────
    LOCAL STORAGE HELPERS  (guests only)
@@ -36,11 +36,11 @@ function authHeaders() {
 }
 
 const cartApi = {
-  fetch: ()               => axios.get(CART_API,                           { headers: authHeaders() }),
-  updateQty: (id, qty)    => axios.put(`${CART_API}/items/${id}`,  { qty }, { headers: authHeaders() }),
-  remove: (id)            => axios.delete(`${CART_API}/items/${id}`,       { headers: authHeaders() }),
-  clear: ()               => axios.delete(CART_API,                        { headers: authHeaders() }),
-  addItem: (item)         => axios.post(`${CART_API}/items`, item,         { headers: authHeaders() }),
+  fetch:     ()            => axios.get(CART_API,                           { headers: authHeaders() }),
+  updateQty: (id, qty)     => axios.put(`${CART_API}/items/${id}`,  { qty }, { headers: authHeaders() }),
+  remove:    (id)          => axios.delete(`${CART_API}/items/${id}`,       { headers: authHeaders() }),
+  clear:     ()            => axios.delete(CART_API,                        { headers: authHeaders() }),
+  addItem:   (item)        => axios.post(`${CART_API}/items`, item,         { headers: authHeaders() }),
 };
 
 /* ────────────────────────────────────────────────────────────
@@ -124,9 +124,9 @@ function CartSkeleton() {
           <div key={i} className="ct-skeleton-item" aria-hidden="true">
             <div className="ct-skeleton-img" />
             <div className="ct-skeleton-lines">
-              <div className="ct-skeleton-line ct-skeleton-line--wide" />
-              <div className="ct-skeleton-line ct-skeleton-line--mid"  />
-              <div className="ct-skeleton-line ct-skeleton-line--short"/>
+              <div className="ct-skeleton-line ct-skeleton-line--wide"  />
+              <div className="ct-skeleton-line ct-skeleton-line--mid"   />
+              <div className="ct-skeleton-line ct-skeleton-line--short" />
             </div>
           </div>
         ))}
@@ -158,7 +158,6 @@ export default function CartPage({ user }) {
   const [selectAll,         setSelectAll]         = useState(true);
   const [selected,          setSelected]          = useState(() => new Set());
 
-  /* Track if initial selection has been seeded from items */
   const selectionSeeded = useRef(false);
 
   /* ── Seed selection once items arrive ── */
@@ -174,7 +173,6 @@ export default function CartPage({ user }) {
   ──────────────────────────────────────────── */
   useEffect(() => {
     if (!user) {
-      /* Guest — read localStorage */
       const stored = loadCart();
       setItems(stored);
       setSelected(new Set(stored.map((i) => i.id)));
@@ -183,7 +181,6 @@ export default function CartPage({ user }) {
       return;
     }
 
-    /* Authenticated — fetch from DB */
     cartApi.fetch()
       .then(({ data }) => {
         const serverItems = data.data?.items ?? [];
@@ -191,7 +188,6 @@ export default function CartPage({ user }) {
         setPriceChangedCount(data.data?.priceChanges ?? 0);
       })
       .catch(() => {
-        /* Graceful fallback: use whatever is in localStorage */
         const stored = loadCart();
         setItems(stored);
       })
@@ -199,13 +195,10 @@ export default function CartPage({ user }) {
   }, [user]);
 
   /* ────────────────────────────────────────────
-     PERSIST CART
-     — guests only; logged-in state lives in DB
+     PERSIST CART (guests only)
   ──────────────────────────────────────────── */
   useEffect(() => {
-    if (!user) {
-      saveCart(items);
-    }
+    if (!user) saveCart(items);
   }, [items, user]);
 
   useEffect(() => {
@@ -271,7 +264,6 @@ export default function CartPage({ user }) {
         const updated = next.find((i) => i.id === id);
         if (updated) {
           cartApi.updateQty(id, updated.qty).catch(() => {
-            /* Rollback on failure */
             setItems(prev);
           });
         }
@@ -284,9 +276,7 @@ export default function CartPage({ user }) {
   /* Remove item — optimistic + API sync */
   const removeItem = useCallback((id) => {
     setItems((prev) => {
-      if (user) {
-        cartApi.remove(id).catch(() => setItems(prev));
-      }
+      if (user) cartApi.remove(id).catch(() => setItems(prev));
       return prev.filter((i) => i.id !== id);
     });
     setSelected((prev) => {
@@ -296,7 +286,7 @@ export default function CartPage({ user }) {
     });
   }, [user]);
 
-  /* Save for later — always local; remove from cart (synced above) */
+  /* Save for later */
   const saveForLater = useCallback((id) => {
     const item = items.find((i) => i.id === id);
     if (!item) return;
@@ -319,7 +309,6 @@ export default function CartPage({ user }) {
       if (prev.find((i) => i.id === id)) return prev;
       if (user) {
         cartApi.addItem(cartItem).catch(() => {
-          /* Rollback */
           setItems(prev);
           setSavedItems((s) => [...s, item]);
         });
@@ -343,7 +332,6 @@ export default function CartPage({ user }) {
 
     if (user) {
       cartApi.clear().catch(() => {
-        /* Rollback */
         setItems(snapshot);
         setSelected(new Set(snapshot.map((i) => i.id)));
       });
@@ -444,7 +432,6 @@ export default function CartPage({ user }) {
       {loading ? (
         <CartSkeleton />
       ) : items.length === 0 ? (
-        /* ── Empty cart ── */
         <EmptyCart
           savedItems={savedItems}
           onMoveToCart={moveToCart}
