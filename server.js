@@ -22,14 +22,16 @@ const PORT   = process.env.PORT || 5000;
 const server = http.createServer(app);
 
 /* ═══════════════════════════════════════════════════════════════
-   DATABASE — CockroachDB via pg Pool
+   DATABASE
+   pool re-exported so existing files that import from server.js
+   continue to work unchanged.
 ═══════════════════════════════════════════════════════════════ */
 export const pool = new Pool({
-  connectionString        : process.env.COCKROACH_URI,
-  ssl                     : { rejectUnauthorized: false },
-  max                     : 10,
-  idleTimeoutMillis       : 30_000,
-  connectionTimeoutMillis : 5_000,
+  connectionString       : process.env.COCKROACH_URI,
+  ssl                    : { rejectUnauthorized: false },
+  max                    : 10,
+  idleTimeoutMillis      : 30_000,
+  connectionTimeoutMillis: 5_000,
 });
 
 (async () => {
@@ -68,15 +70,13 @@ export const getCache = (key) => {
   return item.value;
 };
 
-export const deleteCache = (key) => _cache.delete(key);
-
+export const deleteCache       = (key)    => _cache.delete(key);
 export const clearCachePattern = (prefix) => {
   for (const key of _cache.keys()) {
     if (key.startsWith(prefix)) _cache.delete(key);
   }
 };
 
-/* Auto-evict expired entries every 60 s */
 setInterval(() => {
   const now = Date.now();
   for (const [key, item] of _cache.entries()) {
@@ -119,7 +119,7 @@ app.use((_req, res, next) => {
 });
 
 /* ═══════════════════════════════════════════════════════════════
-   STATIC — uploads folder
+   STATIC — uploads
 ═══════════════════════════════════════════════════════════════ */
 app.use(
   "/uploads",
@@ -146,7 +146,7 @@ const flwKeyMode = () => {
 };
 
 /* ═══════════════════════════════════════════════════════════════
-   WEBHOOKS  ⚠️  MUST be registered BEFORE express.json()
+   WEBHOOKS  ⚠️  MUST be before express.json()
 ═══════════════════════════════════════════════════════════════ */
 import paymentRouter, { webhookRouter } from "./routes/payment.js";
 import flwWebhookRouter                 from "./routes/webhooks/flutterwave.js";
@@ -170,7 +170,7 @@ app.use(
   flwWebhookRouter
 );
 
-/* Flutterwave payload capture (dev/debug — remove when confirmed working) */
+/* Flutterwave payload capture — remove once confirmed working */
 app.post(
   "/api/webhooks/flw-capture",
   express.raw({ type: "*/*" }),
@@ -200,7 +200,7 @@ app.post(
           JSON.stringify(req.headers),
         ]
       );
-    } catch { /* table may not exist — safe to ignore */ }
+    } catch { /* safe */ }
 
     res.status(200).json({ captured: true, event: body?.event });
   }
@@ -223,7 +223,7 @@ if (process.env.NODE_ENV !== "test") {
 }
 
 /* ═══════════════════════════════════════════════════════════════
-   RATE LIMITER (lightweight, no dep)
+   RATE LIMITER
 ═══════════════════════════════════════════════════════════════ */
 const _limiter   = new Map();
 const WINDOW_MS  = 60_000;
@@ -278,7 +278,7 @@ import { startChatCleanupJob } from "./jobs/cleanupChats.js";
 import { startCleanupJobs }    from "./jobs/cleanup.js";
 
 /* ═══════════════════════════════════════════════════════════════
-   ROUTES — grouped by domain
+   ROUTES
 ═══════════════════════════════════════════════════════════════ */
 
 /* ── Payment ── */
@@ -300,11 +300,31 @@ app.use("/api/seller/payout",    sellerPayoutRoutes);
 app.use("/api/seller-dashboard", sellerDashboardRouter);
 app.use("/api/seller/settings",  sellerSettingsRouter);
 
-/* ── Products ── */
-import marketRouter       from "./routes/market/index.js";
-import addproductRouter   from "./routes/addproduct.js";
+/* ── Minimart — Product CRUD (market.users sellers) ────────────
+   POST   /api/products          → create listing
+   GET    /api/products          → public listing
+   GET    /api/products/:slug    → public detail (also used by MinimartPage)
+   PATCH  /api/products/:id      → update listing
+   DELETE /api/products/:id      → delete listing
+   + seller/mine, pause, wishlist, report, share
+ ─────────────────────────────────────────────────────────────── */
+import marketRouter from "./routes/market/index.js";
+app.use("/api/products", marketRouter);
+
+/* ── Shop Detail — dedicated read-only API for /shop/:slug ─────
+   GET  /api/shop/:slug                    → full product detail
+   GET  /api/shop/related/:category/:id   → related products
+   POST /api/shop/:id/wishlist             → toggle wishlist
+   GET  /api/shop/:id/wishlist             → check wishlist
+   POST /api/shop/:id/report              → report product
+   POST /api/shop/:id/share               → track share
+ ─────────────────────────────────────────────────────────────── */
+import marketDetailRouter from "./routes/marketDetail/index.js";
+app.use("/api/shop", marketDetailRouter);
+
+/* ── Legacy product routes (public.users — keep until migrated) */
+import addproductRouter    from "./routes/addproduct.js";
 import productDetailRouter from "./routes/productDetail.js";
-app.use("/api/products",   marketRouter);
 app.use("/api/addproduct", addproductRouter);
 app.use("/api/product",    productDetailRouter);
 
@@ -426,16 +446,21 @@ app.use((req, res) =>
 app.use((err, req, res, _next) => {
   console.error("🔥 Unhandled error:", err.message || err);
 
+  /* Multer */
   if (err.code === "LIMIT_FILE_SIZE")
     return res.status(400).json({ success: false, message: "File too large (max 10 MB)" });
   if (err.code === "LIMIT_FILE_COUNT")
     return res.status(400).json({ success: false, message: "Too many files" });
   if (err.code === "LIMIT_UNEXPECTED_FILE")
     return res.status(400).json({ success: false, message: "Unexpected file field" });
+
+  /* App errors */
   if (err.message === "Only image files are allowed")
     return res.status(400).json({ success: false, message: err.message });
   if (err.message?.startsWith("CORS blocked"))
     return res.status(403).json({ success: false, message: err.message });
+
+  /* DB constraint errors */
   if (err.code === "23505")
     return res.status(409).json({ success: false, message: "Duplicate entry" });
   if (err.code === "23503")
@@ -485,17 +510,19 @@ server.listen(PORT, () => {
   const mode = flwKeyMode();
 
   console.log(`🚀 Server running on port ${PORT}`);
-  console.log(`   ENV      : ${process.env.NODE_ENV || "development"}`);
-  console.log(`   CORS     : ${ALLOWED_ORIGIN}`);
-  console.log(`   FLW KEY  : ${
-    mode === "missing" ? "❌ MISSING" :
+  console.log(`   ENV       : ${process.env.NODE_ENV || "development"}`);
+  console.log(`   CORS      : ${ALLOWED_ORIGIN}`);
+  console.log(`   FLW KEY   : ${
+    mode === "missing" ? "❌ MISSING"   :
     mode === "live"    ? "✅ LIVE MODE" :
-                         "⚠️  TEST MODE (payments won't credit)"
+                         "⚠️  TEST MODE"
   }`);
-  console.log(`   FLW HASH : ${
+  console.log(`   FLW HASH  : ${
     process.env.FLW_SECRET_HASH ? "✅ set" : "❌ MISSING — webhooks rejected"
   }`);
-  console.log(`   WEBHOOK  : https://minimart-ivrm.onrender.com/api/webhooks/flutterwave`);
+  console.log(`   PRODUCTS  : /api/products  (market CRUD)`);
+  console.log(`   SHOP      : /api/shop      (detail + wishlist + report + share)`);
+  console.log(`   WEBHOOK   : https://minimart-ivrm.onrender.com/api/webhooks/flutterwave`);
 
   startChatCleanupJob();
   startCleanupJobs();
