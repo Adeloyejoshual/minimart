@@ -5,19 +5,17 @@ import {
   normalizeAddress,
   isStateAllowed,
   isCityAllowed,
-  getCitiesForState,
-  ALLOWED_STATES,
   DELIVERY_ZONES,
 } from "../../services/location.js";
 
 const router = express.Router();
 
-/* ── GET /api/checkout/address/zones ── */
+/* ── GET /zones ── */
 router.get("/zones", (_req, res) => {
   res.json({ success: true, data: DELIVERY_ZONES });
 });
 
-/* ── GET /api/checkout/address ── */
+/* ── GET / — list saved addresses ── */
 router.get("/", async (req, res) => {
   try {
     const { rows } = await pool.query(
@@ -33,7 +31,7 @@ router.get("/", async (req, res) => {
   }
 });
 
-/* ── POST /api/checkout/address ── */
+/* ── POST / — create address ── */
 router.post("/", async (req, res) => {
   const data = normalizeAddress(req.body);
 
@@ -47,6 +45,7 @@ router.post("/", async (req, res) => {
   }
 
   try {
+    /* Unset other defaults */
     if (data.is_default) {
       await pool.query(
         "UPDATE public.user_addresses SET is_default = false WHERE user_id = $1",
@@ -56,10 +55,13 @@ router.post("/", async (req, res) => {
 
     const { rows: [address] } = await pool.query(
       `INSERT INTO public.user_addresses
-         (user_id, label, recipient_name, phone,
-          state, city, address_line, landmark,
-          additional_directions, is_default)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)
+         (user_id, label,
+          recipient_name, phone,
+          state, city,
+          address_line, landmark, additional_directions,
+          call_before_delivery, is_default)
+       VALUES
+         ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
        RETURNING *`,
       [
         req.user.id,
@@ -71,6 +73,7 @@ router.post("/", async (req, res) => {
         data.address_line,
         data.landmark,
         data.additional_directions,
+        data.call_before_delivery,
         data.is_default,
       ]
     );
@@ -82,17 +85,19 @@ router.post("/", async (req, res) => {
   }
 });
 
-/* ── PATCH /api/checkout/address/:id ── */
+/* ── PATCH /:id — update address ── */
 router.patch("/:id", async (req, res) => {
-  const data = normalizeAddress(req.body);
-
-  /* Partial validation */
+  const data   = normalizeAddress(req.body);
   const errors = {};
 
   if (req.body.state !== undefined && !isStateAllowed(data.state))
     errors.state = `We don't deliver to ${data.state} yet`;
 
-  if (req.body.city !== undefined && data.state && !isCityAllowed(data.state, data.city))
+  if (
+    req.body.city !== undefined &&
+    data.state &&
+    !isCityAllowed(data.state, data.city)
+  )
     errors.city = "Invalid city for selected state";
 
   if (req.body.landmark !== undefined && data.landmark.length < 5)
@@ -113,8 +118,9 @@ router.patch("/:id", async (req, res) => {
          address_line          = COALESCE($7,  address_line),
          landmark              = COALESCE($8,  landmark),
          additional_directions = COALESCE($9,  additional_directions),
+         call_before_delivery  = $10,
          updated_at            = now()
-       WHERE id = $1 AND user_id = $10
+       WHERE id = $1 AND user_id = $11
        RETURNING *`,
       [
         req.params.id,
@@ -126,6 +132,7 @@ router.patch("/:id", async (req, res) => {
         data.address_line    || null,
         data.landmark        || null,
         data.additional_directions || null,
+        data.call_before_delivery,
         req.user.id,
       ]
     );
@@ -141,7 +148,7 @@ router.patch("/:id", async (req, res) => {
   }
 });
 
-/* ── DELETE /api/checkout/address/:id ── */
+/* ── DELETE /:id ── */
 router.delete("/:id", async (req, res) => {
   try {
     const { rowCount } = await pool.query(
@@ -160,7 +167,7 @@ router.delete("/:id", async (req, res) => {
   }
 });
 
-/* ── PATCH /api/checkout/address/:id/default ── */
+/* ── PATCH /:id/default ── */
 router.patch("/:id/default", async (req, res) => {
   try {
     await pool.query(
