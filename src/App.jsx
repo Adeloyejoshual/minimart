@@ -21,7 +21,7 @@ import TermsAndConditions from "./pages/TermsAndConditions";
 import MinimartPage       from "./pages/MinimartPage";
 import P2P                from "./pages/P2P";
 import MenuPage           from "./pages/MenuPage";
-import CartPage           from "./pages/CartPage";          // ← NEW
+import CartPage           from "./pages/CartPage";
 
 // ── Pages — Homepage Sub-pages ────────────────────────────────
 import NearbyPage      from "./pages/Homepage/NearbyPage";
@@ -54,6 +54,9 @@ import Support           from "./pages/Support";
 import Invitation        from "./pages/Invitation";
 import PostAds           from "./pages/PostAds";
 import PaymentSuccess    from "./pages/PaymentSuccess";
+import CheckoutPage      from "./pages/CheckoutPage";
+import OrderSuccess      from "./pages/OrderSuccess";
+import OrderHistory      from "./pages/OrderHistory";
 
 // ── Pages — Admin ─────────────────────────────────────────────
 import AdminLogin     from "./pages/admin/AdminLogin";
@@ -199,7 +202,7 @@ export default function App() {
     localStorage.removeItem("active_location");
     localStorage.removeItem("cacheTime");
     setUser(userData);
-    syncCartAfterLogin(token); // ← NEW: fire-and-forget; errors are swallowed internally
+    syncCartAfterLogin(token); // fire-and-forget; errors are swallowed internally
     toast.success(`Welcome back, ${userData.name}!`);
     navigateFn(from || "/", { replace: true });
   };
@@ -411,10 +414,19 @@ export default function App() {
         />
 
         {/* ══════════════════════════════════════════════
-            CART                                         ← NEW
+            SHOP — CART / CHECKOUT / ORDERS
         ══════════════════════════════════════════════ */}
         <Route path="/shop/cart"
           element={<CartPage user={user} />}
+        />
+        <Route path="/shop/checkout"
+          element={<CheckoutPage user={user} />}
+        />
+        <Route path="/shop/orders/:orderGroupId"
+          element={<OrderSuccess user={user} />}
+        />
+        <Route path="/shop/orders"
+          element={<OrderHistory user={user} />}
         />
 
         {/* ══════════════════════════════════════════════
