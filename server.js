@@ -322,6 +322,10 @@ app.use("/api/products", marketRouter);
 import marketDetailRouter from "./routes/marketDetail/index.js";
 app.use("/api/shop", marketDetailRouter);
 
+/* ── Cart ── */
+import cartRouter from "./routes/cart/index.js";
+app.use("/api/cart", cartRouter);
+
 /* ── Legacy product routes (public.users — keep until migrated) */
 import addproductRouter    from "./routes/addproduct.js";
 import productDetailRouter from "./routes/productDetail.js";
@@ -522,6 +526,7 @@ server.listen(PORT, () => {
   }`);
   console.log(`   PRODUCTS  : /api/products  (market CRUD)`);
   console.log(`   SHOP      : /api/shop      (detail + wishlist + report + share)`);
+  console.log(`   CART      : /api/cart`);
   console.log(`   WEBHOOK   : https://minimart-ivrm.onrender.com/api/webhooks/flutterwave`);
 
   startChatCleanupJob();
