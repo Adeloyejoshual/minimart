@@ -3,35 +3,29 @@
  *
  * Core order creation logic.
  * Groups cart items by seller and creates individual orders.
+ * Generates tracking ID: ORD-XXXXXXXX (first 8 chars of UUID)
  */
 
-import { pool }                from "../config/db.js";
+import { pool }                 from "../config/db.js";
 import { calculateDeliveryFee } from "./delivery.js";
 
-/**
- * Create order group + per-seller orders from cart items.
- *
- * @param {object} opts
- * @param {string} opts.userId
- * @param {string} opts.addressId
- * @param {Array}  opts.items        - cart items with sellerIds
- * @param {number} opts.subtotal
- * @param {string} opts.paymentMethod
- * @param {string|null} opts.couponCode
- * @param {number} opts.discount
- * @param {string|null} opts.notes
- *
- * @returns {{ orderGroupId, orders }}
- */
+/* ── Generate tracking ID from UUID ── */
+function generateTrackingId(uuid) {
+  return `ORD-${uuid.slice(0, 8).toUpperCase()}`;
+}
+
+/* ════════════════════════════════════════════════════════════
+   CREATE ORDER GROUP
+════════════════════════════════════════════════════════════ */
 export async function createOrderGroup({
   userId,
   addressId,
   items,
   subtotal,
   paymentMethod,
-  couponCode  = null,
-  discount    = 0,
-  notes       = null,
+  couponCode = null,
+  discount   = 0,
+  notes      = null,
 }) {
   const deliveryFee = calculateDeliveryFee(subtotal);
   const grandTotal  = subtotal + deliveryFee - discount;
@@ -40,7 +34,7 @@ export async function createOrderGroup({
   try {
     await client.query("BEGIN");
 
-    /* ── 1. Create order group (master) ── */
+    /* ── 1. Create order group ── */
     const { rows: [group] } = await client.query(
       `INSERT INTO public.order_groups
          (user_id, address_id, total_amount, delivery_fee,
@@ -63,26 +57,40 @@ export async function createOrderGroup({
 
     const orderGroupId = group.id;
 
-    /* ── 2. Group items by seller ── */
+    /* ── 2. Generate + store tracking ID ── */
+    const trackingId = generateTrackingId(orderGroupId);
+
+    await client.query(
+      `UPDATE public.order_groups
+       SET tracking_id = $1
+       WHERE id = $2`,
+      [trackingId, orderGroupId]
+    );
+
+    /* ── 3. Group items by seller ── */
     const sellerMap = new Map();
 
     for (const item of items) {
       const sellerId = item.sellerId ?? "unknown";
       if (!sellerMap.has(sellerId)) {
-        sellerMap.set(sellerId, []);
+        sellerMap.set(sellerId, {
+          sellerName: item.sellerName ?? null,
+          items:      [],
+        });
       }
-      sellerMap.get(sellerId).push(item);
+      sellerMap.get(sellerId).items.push(item);
     }
 
-    /* ── 3. Create one order per seller ── */
+    /* ── 4. Create one order per seller ── */
     const createdOrders = [];
 
-    for (const [sellerId, sellerItems] of sellerMap.entries()) {
+    for (const [sellerId, sellerData] of sellerMap.entries()) {
+      const { items: sellerItems, sellerName } = sellerData;
+
       const sellerSubtotal = sellerItems.reduce(
-        (sum, i) => sum + (Number(i.price) * i.qty), 0
+        (sum, i) => sum + Number(i.price) * i.qty, 0
       );
 
-      /* Create seller order */
       const { rows: [order] } = await client.query(
         `INSERT INTO public.orders
            (order_group_id, seller_id, subtotal, status)
@@ -91,7 +99,6 @@ export async function createOrderGroup({
         [orderGroupId, sellerId, sellerSubtotal]
       );
 
-      /* Create order items */
       for (const item of sellerItems) {
         await client.query(
           `INSERT INTO public.order_items
@@ -114,14 +121,15 @@ export async function createOrderGroup({
       }
 
       createdOrders.push({
-        orderId:  order.id,
+        orderId:     order.id,
         sellerId,
-        subtotal: sellerSubtotal,
-        items:    sellerItems,
+        sellerName,
+        subtotal:    sellerSubtotal,
+        items:       sellerItems,
       });
     }
 
-    /* ── 4. Clear cart after order created ── */
+    /* ── 5. Clear cart ── */
     await client.query(
       `DELETE FROM market.cart_items ci
        USING market.carts c
@@ -133,6 +141,7 @@ export async function createOrderGroup({
 
     return {
       orderGroupId,
+      trackingId,
       orders:       createdOrders,
       deliveryFee,
       grandTotal,
@@ -146,9 +155,9 @@ export async function createOrderGroup({
   }
 }
 
-/**
- * Mark order group as paid after payment confirmation.
- */
+/* ════════════════════════════════════════════════════════════
+   MARK ORDER GROUP PAID
+════════════════════════════════════════════════════════════ */
 export async function markOrderGroupPaid(orderGroupId, paymentRef) {
   const client = await pool.connect();
   try {
@@ -181,14 +190,22 @@ export async function markOrderGroupPaid(orderGroupId, paymentRef) {
   }
 }
 
-/**
- * Get full order group with all orders and items.
- */
+/* ════════════════════════════════════════════════════════════
+   GET FULL ORDER GROUP
+   Includes: address (with landmark), seller orders, items
+════════════════════════════════════════════════════════════ */
 export async function getOrderGroup(orderGroupId, userId) {
-  /* Order group */
   const { rows: [group] } = await pool.query(
-    `SELECT og.*, a.recipient_name, a.phone, a.address_line,
-            a.city, a.state
+    `SELECT
+       og.*,
+       a.recipient_name,
+       a.phone,
+       a.address_line,
+       a.landmark,
+       a.additional_directions,
+       a.call_before_delivery,
+       a.city,
+       a.state
      FROM public.order_groups og
      LEFT JOIN public.user_addresses a ON a.id = og.address_id
      WHERE og.id = $1 AND og.user_id = $2`,
@@ -197,7 +214,6 @@ export async function getOrderGroup(orderGroupId, userId) {
 
   if (!group) return null;
 
-  /* Seller orders + items */
   const { rows: orders } = await pool.query(
     `SELECT o.*, u.name AS seller_name
      FROM public.orders o
@@ -209,7 +225,7 @@ export async function getOrderGroup(orderGroupId, userId) {
 
   for (const order of orders) {
     const { rows: items } = await pool.query(
-      `SELECT * FROM public.order_items WHERE order_id = $1`,
+      `SELECT * FROM public.order_items WHERE order_id = $1 ORDER BY id`,
       [order.id]
     );
     order.items = items;
