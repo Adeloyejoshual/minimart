@@ -1,4 +1,3 @@
-
 import React, { useState, useEffect, memo } from "react";
 import axios from "axios";
 
@@ -12,6 +11,7 @@ function getToken() {
 }
 
 const LABELS = ["Home", "Office", "Other"];
+const MAX_ADDRESSES = 2;
 
 const BLANK_FORM = {
   label:                 "Home",
@@ -31,20 +31,23 @@ const AddressStep = memo(function AddressStep({
   selected,
   onSelect,
   onAdd,
+  onEdit,       /* ← new: called with (id, updatedAddress) */
   onNext,
-  user,         /* ← pass user for auto-fill */
+  user,
 }) {
-  const [zones,    setZones]    = useState({});
-  const [showForm, setShowForm] = useState(addresses.length === 0);
-  const [saving,   setSaving]   = useState(false);
-  const [errors,   setErrors]   = useState({});
+  const [zones,      setZones]      = useState({});
+  const [showForm,   setShowForm]   = useState(addresses.length === 0);
+  const [editingId,  setEditingId]  = useState(null); /* id being edited */
+  const [saving,     setSaving]     = useState(false);
+  const [errors,     setErrors]     = useState({});
 
-  /* Auto-fill recipient name + phone from user account */
-  const [form, setForm] = useState(() => ({
+  const makeBlank = () => ({
     ...BLANK_FORM,
-    recipient_name: user?.name  ?? "",
+    recipient_name: user?.name         ?? "",
     phone:          user?.phone_number ?? "",
-  }));
+  });
+
+  const [form, setForm] = useState(makeBlank);
 
   /* Load delivery zones */
   useEffect(() => {
@@ -56,43 +59,76 @@ const AddressStep = memo(function AddressStep({
       .catch(() => {});
   }, []);
 
-  /* Derived dropdown options */
   const stateOptions = Object.keys(zones);
   const cityOptions  = zones[form.state]?.cities ?? [];
 
-  /* State change → reset city */
   const handleStateChange = (e) => {
     setForm((p) => ({ ...p, state: e.target.value, city: "" }));
     setErrors((p) => ({ ...p, state: "", city: "" }));
   };
 
-  /* Generic field setter */
   const set = (k) => (e) => {
-    const val =
-      e.target.type === "checkbox" ? e.target.checked : e.target.value;
+    const val = e.target.type === "checkbox" ? e.target.checked : e.target.value;
     setForm((p) => ({ ...p, [k]: val }));
     setErrors((p) => ({ ...p, [k]: "" }));
   };
 
+  /* ── Open edit form ── */
+  const handleEdit = (addr) => {
+    setEditingId(addr.id);
+    setForm({
+      label:                 addr.label                 ?? "Home",
+      recipient_name:        addr.recipient_name        ?? "",
+      phone:                 addr.phone                 ?? "",
+      state:                 addr.state                 ?? "",
+      city:                  addr.city                  ?? "",
+      address_line:          addr.address_line          ?? "",
+      landmark:              addr.landmark              ?? "",
+      additional_directions: addr.additional_directions ?? "",
+      call_before_delivery:  addr.call_before_delivery  ?? false,
+      is_default:            addr.is_default            ?? false,
+    });
+    setErrors({});
+    setShowForm(true);
+  };
+
+  /* ── Cancel form ── */
+  const handleCancel = () => {
+    setShowForm(false);
+    setEditingId(null);
+    setErrors({});
+    setForm(makeBlank());
+  };
+
+  /* ── Save (add or edit) ── */
   const handleSave = async () => {
     setSaving(true);
     setErrors({});
 
     try {
-      const { data } = await axios.post(
-        `${API}/checkout/address`,
-        form,
-        { headers: { Authorization: `Bearer ${getToken()}` } }
-      );
+      if (editingId) {
+        /* EDIT existing address */
+        const { data } = await axios.put(
+          `${API}/checkout/address/${editingId}`,
+          form,
+          { headers: { Authorization: `Bearer ${getToken()}` } }
+        );
+        onEdit?.(editingId, data.data);          /* notify parent */
+        if (selected?.id === editingId) onSelect(data.data); /* keep selected fresh */
+      } else {
+        /* ADD new address */
+        const { data } = await axios.post(
+          `${API}/checkout/address`,
+          form,
+          { headers: { Authorization: `Bearer ${getToken()}` } }
+        );
+        onAdd(data.data);
+        onSelect(data.data);
+      }
 
-      onAdd(data.data);
-      onSelect(data.data);
       setShowForm(false);
-      setForm({
-        ...BLANK_FORM,
-        recipient_name: user?.name         ?? "",
-        phone:          user?.phone_number ?? "",
-      });
+      setEditingId(null);
+      setForm(makeBlank());
     } catch (err) {
       if (err.response?.data?.errors) {
         setErrors(err.response.data.errors);
@@ -108,6 +144,10 @@ const AddressStep = memo(function AddressStep({
     }
   };
 
+  /* ── Helpers ── */
+  const atLimit    = addresses.length >= MAX_ADDRESSES;
+  const isEditing  = !!editingId;
+
   return (
     <div className="ck-section">
       <h2 className="ck-section-title">📍 Delivery Address</h2>
@@ -118,23 +158,35 @@ const AddressStep = memo(function AddressStep({
         <div>
           <strong>We currently deliver to:</strong>
           <p>
-            Osun State (Osogbo, Ile-Ife, Ilesa & more) ·
+            Osun State (Osogbo, Ile-Ife, Ilesa &amp; more) ·
             Ondo State (Ondo Town only)
           </p>
         </div>
       </div>
 
-      {/* Saved address cards */}
+      {/* Address limit notice */}
+      {atLimit && !isEditing && (
+        <div className="ck-limit-notice">
+          ℹ️ You have saved {MAX_ADDRESSES} addresses (maximum).
+          Click <strong>Edit</strong> on one to update it.
+        </div>
+      )}
+
+      {/* ── Saved address cards ── */}
       {addresses.map((addr) => (
         <div
           key={addr.id}
           className={`ck-address-card ${
             selected?.id === addr.id ? "ck-address-card--selected" : ""
           }`}
-          onClick={() => onSelect(addr)}
+          onClick={() => {
+            if (!showForm) onSelect(addr); /* select only when form is closed */
+          }}
           role="button"
           tabIndex={0}
-          onKeyDown={(e) => e.key === "Enter" && onSelect(addr)}
+          onKeyDown={(e) => {
+            if (e.key === "Enter" && !showForm) onSelect(addr);
+          }}
           aria-label={`Select address: ${addr.address_line}, ${addr.city}`}
         >
           <div className="ck-address-radio">
@@ -144,11 +196,16 @@ const AddressStep = memo(function AddressStep({
               }`}
             />
           </div>
+
           <div className="ck-address-info">
             <div className="ck-address-label-row">
               <span className="ck-address-label">
-                {addr.label === "Home" ? "🏠" : addr.label === "Office" ? "🏢" : "📍"}
-                {" "}{addr.label}
+                {addr.label === "Home"
+                  ? "🏠"
+                  : addr.label === "Office"
+                  ? "🏢"
+                  : "📍"}{" "}
+                {addr.label}
               </span>
               {addr.is_default && (
                 <span className="ck-default-tag">Default</span>
@@ -161,45 +218,50 @@ const AddressStep = memo(function AddressStep({
             <p className="ck-address-name">
               {addr.recipient_name} · {addr.phone}
             </p>
-
-            <p className="ck-address-line">
-              {addr.address_line}
-            </p>
-
+            <p className="ck-address-line">{addr.address_line}</p>
             {addr.landmark && (
-              <p className="ck-address-landmark">
-                📍 {addr.landmark}
-              </p>
+              <p className="ck-address-landmark">📍 {addr.landmark}</p>
             )}
-
             {addr.additional_directions && (
               <p className="ck-address-directions">
                 ℹ️ {addr.additional_directions}
               </p>
             )}
-
             <p className="ck-address-location">
               {addr.city}, {addr.state}
             </p>
           </div>
+
+          {/* Edit button — always visible */}
+          <button
+            className="ck-edit-btn"
+            onClick={(e) => {
+              e.stopPropagation(); /* don't also trigger card select */
+              handleEdit(addr);
+            }}
+            aria-label={`Edit address: ${addr.address_line}`}
+          >
+            ✏️ Edit
+          </button>
         </div>
       ))}
 
-      {/* Add new address form */}
+      {/* ── Add / Edit form ── */}
       {showForm && (
         <div className="ck-address-form">
           <h3 className="ck-form-title">
-            {addresses.length === 0 ? "Add Delivery Address" : "Add New Address"}
+            {isEditing
+              ? "Edit Address"
+              : addresses.length === 0
+              ? "Add Delivery Address"
+              : "Add New Address"}
           </h3>
 
-          {/* General error banner */}
           {errors.general && (
-            <div className="ck-form-error-banner">
-              ⚠️ {errors.general}
-            </div>
+            <div className="ck-form-error-banner">⚠️ {errors.general}</div>
           )}
 
-          {/* Label */}
+          {/* Label chips */}
           <div className="ck-form-field">
             <label>Label</label>
             <div className="ck-label-chips">
@@ -219,12 +281,13 @@ const AddressStep = memo(function AddressStep({
           </div>
 
           <div className="ck-form-grid">
-
-            {/* ── Recipient Name ── */}
+            {/* Recipient Name */}
             <div className="ck-form-field">
               <label>Recipient Name *</label>
               <input
-                className={`ck-input ${errors.recipient_name ? "ck-input--error" : ""}`}
+                className={`ck-input ${
+                  errors.recipient_name ? "ck-input--error" : ""
+                }`}
                 value={form.recipient_name}
                 onChange={set("recipient_name")}
                 placeholder="Full name of receiver"
@@ -238,7 +301,7 @@ const AddressStep = memo(function AddressStep({
               ) : null}
             </div>
 
-            {/* ── Phone Number ── */}
+            {/* Phone */}
             <div className="ck-form-field">
               <label>Phone Number *</label>
               <input
@@ -259,7 +322,7 @@ const AddressStep = memo(function AddressStep({
               )}
             </div>
 
-            {/* ── State ── */}
+            {/* State */}
             <div className="ck-form-field">
               <label>State *</label>
               <select
@@ -277,13 +340,11 @@ const AddressStep = memo(function AddressStep({
               {errors.state ? (
                 <span className="ck-field-error">{errors.state}</span>
               ) : !form.state ? (
-                <span className="ck-field-hint">
-                  Osun or Ondo only for now
-                </span>
+                <span className="ck-field-hint">Osun or Ondo only for now</span>
               ) : null}
             </div>
 
-            {/* ── City / Area ── */}
+            {/* City */}
             <div className="ck-form-field">
               <label>City / Area *</label>
               <select
@@ -310,7 +371,7 @@ const AddressStep = memo(function AddressStep({
               ) : null}
             </div>
 
-            {/* ── Street Address ── */}
+            {/* Street Address */}
             <div className="ck-form-field ck-form-field--full">
               <label>Street Address *</label>
               <input
@@ -326,13 +387,11 @@ const AddressStep = memo(function AddressStep({
               )}
             </div>
 
-            {/* ── Landmark / Bus Stop — REQUIRED ── */}
+            {/* Landmark */}
             <div className="ck-form-field ck-form-field--full">
               <label>
                 Landmark / Bus Stop *
-                <span className="ck-label-hint">
-                  {" "}(very important for delivery)
-                </span>
+                <span className="ck-label-hint"> (very important for delivery)</span>
               </label>
               <input
                 className={`ck-input ck-input--landmark ${
@@ -351,7 +410,7 @@ const AddressStep = memo(function AddressStep({
               )}
             </div>
 
-            {/* ── Additional Directions — optional ── */}
+            {/* Additional directions */}
             <div className="ck-form-field ck-form-field--full">
               <label>
                 Additional Directions
@@ -368,7 +427,7 @@ const AddressStep = memo(function AddressStep({
             </div>
           </div>
 
-          {/* ── Call Before Delivery ── */}
+          {/* Call before delivery */}
           <label className="ck-checkbox-label ck-checkbox-label--highlight">
             <input
               type="checkbox"
@@ -381,7 +440,7 @@ const AddressStep = memo(function AddressStep({
             </span>
           </label>
 
-          {/* ── Set as Default ── */}
+          {/* Default */}
           <label className="ck-checkbox-label">
             <input
               type="checkbox"
@@ -391,51 +450,50 @@ const AddressStep = memo(function AddressStep({
             Set as my default delivery address
           </label>
 
-          {/* Actions */}
+          {/* Form actions */}
           <div className="ck-form-actions">
-            {addresses.length > 0 && (
-              <button
-                className="ck-btn-cancel"
-                onClick={() => {
-                  setShowForm(false);
-                  setErrors({});
-                  setForm({
-                    ...BLANK_FORM,
-                    recipient_name: user?.name         ?? "",
-                    phone:          user?.phone_number ?? "",
-                  });
-                }}
-              >
-                Cancel
-              </button>
-            )}
+            <button className="ck-btn-cancel" onClick={handleCancel}>
+              Cancel
+            </button>
             <button
               className="ck-btn-save"
               onClick={handleSave}
               disabled={saving}
             >
-              {saving ? "Saving…" : "Save Address"}
+              {saving
+                ? "Saving…"
+                : isEditing
+                ? "Update Address"
+                : "Save Address"}
             </button>
           </div>
         </div>
       )}
 
-      {/* Add address toggle button */}
-      {!showForm && (
+      {/* Add new address button — hidden at limit or when form open */}
+      {!showForm && !atLimit && (
         <button
           className="ck-add-address-btn"
-          onClick={() => setShowForm(true)}
+          onClick={() => {
+            setEditingId(null);
+            setForm(makeBlank());
+            setErrors({});
+            setShowForm(true);
+          }}
         >
           + Add New Address
         </button>
       )}
 
-      {/* Continue */}
+      {/* ── Continue button — only when form is closed & address selected ── */}
       {!showForm && (
         <button
           className={`ck-next-btn ${!selected ? "ck-next-btn--disabled" : ""}`}
-          onClick={onNext}
+          onClick={() => {
+            if (selected) onNext();
+          }}
           disabled={!selected}
+          title={!selected ? "Please select a delivery address" : ""}
         >
           Continue to Review →
         </button>
