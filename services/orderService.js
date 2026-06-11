@@ -4,17 +4,27 @@
  * Core order creation logic.
  * Splits cart by seller and creates:
  *   order_group → orders → order_items
- * Generates tracking ID.
+ *
+ * Upgrades:
+ *   ✅ tracking_id generation
+ *   ✅ safer seller validation
+ *   ✅ delivered_at support
+ *   ✅ sellerName preserved
  */
 
 import { pool }                 from "../config/db.js";
 import { calculateDeliveryFee } from "./delivery.js";
 
-/* Tracking ID */
+/* ════════════════════════════════════════════════════════════
+   HELPERS
+════════════════════════════════════════════════════════════ */
 function generateTrackingId(uuid) {
   return `ORD-${uuid.slice(0, 8).toUpperCase()}`;
 }
 
+/* ════════════════════════════════════════════════════════════
+   CREATE ORDER GROUP
+════════════════════════════════════════════════════════════ */
 export async function createOrderGroup({
   userId,
   addressId,
@@ -32,7 +42,7 @@ export async function createOrderGroup({
   try {
     await client.query("BEGIN");
 
-    /* 1. Create order group */
+    /* 1. Create master order group */
     const { rows: [group] } = await client.query(
       `INSERT INTO public.order_groups
          (user_id, address_id, total_amount, delivery_fee,
@@ -75,13 +85,13 @@ export async function createOrderGroup({
       if (!sellerMap.has(item.sellerId)) {
         sellerMap.set(item.sellerId, {
           sellerName: item.sellerName ?? "Seller",
-          items: [],
+          items:      [],
         });
       }
       sellerMap.get(item.sellerId).items.push(item);
     }
 
-    /* 3. Create one order per seller */
+    /* 3. Create one public.orders row per seller */
     const createdOrders = [];
 
     for (const [sellerId, sellerData] of sellerMap.entries()) {
@@ -130,11 +140,12 @@ export async function createOrderGroup({
       });
     }
 
-    /* 4. Clear cart */
+    /* 4. Clear buyer cart */
     await client.query(
       `DELETE FROM market.cart_items ci
        USING market.carts c
-       WHERE ci.cart_id = c.id AND c.user_id = $1`,
+       WHERE ci.cart_id = c.id
+         AND c.user_id  = $1`,
       [userId]
     );
 
@@ -143,7 +154,7 @@ export async function createOrderGroup({
     return {
       orderGroupId,
       trackingId,
-      orders:      createdOrders,
+      orders:       createdOrders,
       deliveryFee,
       grandTotal,
     };
@@ -156,6 +167,9 @@ export async function createOrderGroup({
   }
 }
 
+/* ════════════════════════════════════════════════════════════
+   MARK ORDER GROUP PAID
+════════════════════════════════════════════════════════════ */
 export async function markOrderGroupPaid(orderGroupId, paymentRef) {
   const client = await pool.connect();
   try {
@@ -188,6 +202,51 @@ export async function markOrderGroupPaid(orderGroupId, paymentRef) {
   }
 }
 
+/* ════════════════════════════════════════════════════════════
+   OPTIONAL — call this later when delivery is completed
+   Sets delivered_at for return calculations
+════════════════════════════════════════════════════════════ */
+export async function markOrderGroupDelivered(orderGroupId) {
+  const client = await pool.connect();
+  try {
+    await client.query("BEGIN");
+
+    await client.query(
+      `UPDATE public.order_groups
+       SET status       = 'delivered',
+           delivered_at = now(),
+           updated_at   = now()
+       WHERE id = $1`,
+      [orderGroupId]
+    );
+
+    await client.query(
+      `UPDATE public.orders
+       SET status       = 'delivered',
+           delivered_at = now(),
+           updated_at   = now()
+       WHERE order_group_id = $1`,
+      [orderGroupId]
+    );
+
+    await client.query("COMMIT");
+  } catch (err) {
+    await client.query("ROLLBACK");
+    throw err;
+  } finally {
+    client.release();
+  }
+}
+
+/* ════════════════════════════════════════════════════════════
+   GET FULL ORDER GROUP
+   Includes:
+   - buyer address (with landmark, directions, call_before_delivery)
+   - tracking ID
+   - delivered_at
+   - seller names
+   - all order items
+════════════════════════════════════════════════════════════ */
 export async function getOrderGroup(orderGroupId, userId) {
   const { rows: [group] } = await pool.query(
     `SELECT
@@ -201,8 +260,10 @@ export async function getOrderGroup(orderGroupId, userId) {
        a.city,
        a.state
      FROM public.order_groups og
-     LEFT JOIN public.user_addresses a ON a.id = og.address_id
-     WHERE og.id = $1 AND og.user_id = $2`,
+     LEFT JOIN public.user_addresses a
+       ON a.id = og.address_id
+     WHERE og.id      = $1
+       AND og.user_id = $2`,
     [orderGroupId, userId]
   );
 
@@ -213,7 +274,8 @@ export async function getOrderGroup(orderGroupId, userId) {
        o.*,
        u.name AS seller_name
      FROM public.orders o
-     LEFT JOIN market.users u ON u.id = o.seller_id
+     LEFT JOIN market.users u
+       ON u.id = o.seller_id
      WHERE o.order_group_id = $1
      ORDER BY o.created_at ASC`,
     [orderGroupId]
@@ -221,11 +283,16 @@ export async function getOrderGroup(orderGroupId, userId) {
 
   for (const order of orders) {
     const { rows: items } = await pool.query(
-      `SELECT * FROM public.order_items WHERE order_id = $1 ORDER BY id`,
+      `SELECT * FROM public.order_items
+       WHERE order_id = $1
+       ORDER BY id`,
       [order.id]
     );
     order.items = items;
   }
 
-  return { ...group, orders };
+  return {
+    ...group,
+    orders,
+  };
 }
