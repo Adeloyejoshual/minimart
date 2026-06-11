@@ -4,7 +4,7 @@ import React, {
 import { useNavigate } from "react-router-dom";
 import axios from "axios";
 
-import "./styles/OrderHistory.css";
+import "./Checkout/styles/OrderHistory.css";
 
 const API = "https://minimart-ivrm.onrender.com/api";
 const fmt = (n) => `₦${Number(n || 0).toLocaleString("en-NG")}`;
