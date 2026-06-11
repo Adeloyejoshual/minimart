@@ -5,7 +5,7 @@ import { useParams, useNavigate } from "react-router-dom";
 import axios from "axios";
 
 /* ── Correct CSS path ── */
-import "./styles/OrderSuccess.css";
+import "./Checkout/styles/OrderSuccess.css";
 
 const API = "https://minimart-ivrm.onrender.com/api";
 const fmt = (n) => `₦${Number(n || 0).toLocaleString("en-NG")}`;
