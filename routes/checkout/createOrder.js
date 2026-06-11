@@ -2,18 +2,10 @@
  * POST /api/checkout
  * Create order from cart.
  * Validates cart, calculates fees, splits by seller.
- *
- * Body: {
- *   addressId,
- *   paymentMethod,
- *   couponCode?,
- *   discount?,
- *   notes?
- * }
  */
 
-import express    from "express";
-import { pool }   from "../../config/db.js";
+import express from "express";
+import { pool } from "../../config/db.js";
 import { calculateDeliveryFee } from "../../services/delivery.js";
 import { isPaymentMethodAllowed } from "../../services/paymentRules.js";
 import { createOrderGroup, getOrderGroup } from "../../services/orderService.js";
@@ -24,7 +16,7 @@ const router = express.Router();
 router.get("/orders", async (req, res) => {
   try {
     const { rows } = await pool.query(
-      `SELECT og.id, og.grand_total, og.payment_method,
+      `SELECT og.id, og.tracking_id, og.grand_total, og.payment_method,
               og.payment_status, og.status, og.created_at,
               COUNT(o.id)::int AS order_count,
               a.city, a.state
@@ -68,13 +60,18 @@ router.post("/", async (req, res) => {
     notes,
   } = req.body;
 
-  /* ── Validate required fields ── */
   if (!addressId) {
-    return res.status(422).json({ success: false, message: "Delivery address is required" });
+    return res.status(422).json({
+      success: false,
+      message: "Delivery address is required",
+    });
   }
 
   if (!paymentMethod) {
-    return res.status(422).json({ success: false, message: "Payment method is required" });
+    return res.status(422).json({
+      success: false,
+      message: "Payment method is required",
+    });
   }
 
   try {
@@ -85,7 +82,10 @@ router.post("/", async (req, res) => {
     );
 
     if (!address) {
-      return res.status(404).json({ success: false, message: "Address not found" });
+      return res.status(404).json({
+        success: false,
+        message: "Address not found",
+      });
     }
 
     /* ── Fetch cart with live prices ── */
@@ -93,25 +93,32 @@ router.post("/", async (req, res) => {
       `SELECT
          ci.id            AS item_id,
          ci.qty,
+
          p.id             AS product_id,
+         p.user_id        AS seller_id,         -- ✅ use p.user_id, never u.id
          p.name,
+         p.category,
          p.status,
          p.is_active,
          p.deleted_at,
-         u.id             AS seller_id,
-         u.name           AS seller_name,
+
+         COALESCE(u.name, 'Unknown Seller') AS seller_name,
+
          pv.id            AS variant_id,
          pv.name          AS variant_name,
          pv.sku,
          pv.attributes,
          pv.stock,
+
          COALESCE(pv.price, p.price) AS live_price,
+
          (
            SELECT pi.image_url
            FROM market.product_images pi
            WHERE pi.product_id = p.id AND pi.is_primary = true
            LIMIT 1
          ) AS image
+
        FROM market.cart_items ci
        JOIN market.carts c      ON c.id = ci.cart_id
        JOIN market.products p   ON p.id = ci.product_id
@@ -122,7 +129,10 @@ router.post("/", async (req, res) => {
     );
 
     if (!cartItems.length) {
-      return res.status(400).json({ success: false, message: "Your cart is empty" });
+      return res.status(400).json({
+        success: false,
+        message: "Your cart is empty",
+      });
     }
 
     /* ── Validate all items ── */
@@ -134,7 +144,7 @@ router.post("/", async (req, res) => {
       return res.status(400).json({
         success: false,
         message: `${unavailable.length} item(s) are no longer available. Please update your cart.`,
-        data:    { unavailableIds: unavailable.map((i) => i.item_id) },
+        data: { unavailableIds: unavailable.map((i) => i.item_id) },
       });
     }
 
@@ -143,7 +153,16 @@ router.post("/", async (req, res) => {
       return res.status(400).json({
         success: false,
         message: `${outOfStock.length} item(s) are out of stock. Please remove them to continue.`,
-        data:    { outOfStockIds: outOfStock.map((i) => i.item_id) },
+        data: { outOfStockIds: outOfStock.map((i) => i.item_id) },
+      });
+    }
+
+    /* ── Validate seller IDs exist ── */
+    const badSeller = cartItems.find((i) => !i.seller_id);
+    if (badSeller) {
+      return res.status(400).json({
+        success: false,
+        message: `A product in your cart is missing seller information: "${badSeller.name}". Please remove it and try again.`,
       });
     }
 
@@ -170,6 +189,7 @@ router.post("/", async (req, res) => {
       image:      i.image,
       qty:        i.qty,
       price:      Number(i.live_price),
+      category:   i.category,
       variant: i.variant_id ? {
         id:         i.variant_id,
         name:       i.variant_name,
@@ -178,7 +198,7 @@ router.post("/", async (req, res) => {
       } : null,
     }));
 
-    /* ── Create order ── */
+    /* ── Create order group ── */
     const result = await createOrderGroup({
       userId:        req.user.id,
       addressId,
@@ -190,23 +210,23 @@ router.post("/", async (req, res) => {
       notes:         notes ?? null,
     });
 
-    /* ── COD — return success immediately ── */
+    /* COD — return success immediately */
     if (paymentMethod === "CASH_ON_DELIVERY") {
       return res.status(201).json({
         success: true,
         message: "Order placed successfully",
         data: {
-          orderGroupId: result.orderGroupId,
-          grandTotal:   result.grandTotal,
-          deliveryFee:  result.deliveryFee,
+          orderGroupId:    result.orderGroupId,
+          trackingId:      result.trackingId,
+          grandTotal:      result.grandTotal,
+          deliveryFee:     result.deliveryFee,
           paymentMethod,
           requiresPayment: false,
         },
       });
     }
 
-    /* ── Online payment — return Flutterwave payment link ── */
-    /* Initialize payment with Flutterwave */
+    /* Online payment */
     const flw = await initializeFlutterwavePayment({
       orderGroupId: result.orderGroupId,
       amount:       result.grandTotal,
@@ -219,6 +239,7 @@ router.post("/", async (req, res) => {
       message: "Order created — complete payment to confirm",
       data: {
         orderGroupId:    result.orderGroupId,
+        trackingId:      result.trackingId,
         grandTotal:      result.grandTotal,
         deliveryFee:     result.deliveryFee,
         paymentMethod,
@@ -229,27 +250,36 @@ router.post("/", async (req, res) => {
     });
 
   } catch (err) {
-    console.error("[POST /api/checkout]", err.message);
-    res.status(500).json({ success: false, message: "Failed to create order" });
+    console.error("[POST /api/checkout] MESSAGE:", err.message);
+    console.error("[POST /api/checkout] CODE:", err.code);
+    console.error("[POST /api/checkout] DETAIL:", err.detail);
+
+    res.status(500).json({
+      success: false,
+      message: "Failed to create order",
+      debug: process.env.NODE_ENV !== "production" ? err.message : undefined,
+    });
   }
 });
 
-/* ── Flutterwave payment initializer ── */
-async function initializeFlutterwavePayment({ orderGroupId, amount, email, name }) {
-  const axios   = (await import("axios")).default;
-  const ref     = `MINIMART-${orderGroupId.slice(0, 8).toUpperCase()}-${Date.now()}`;
+/* Flutterwave payment initializer */
+async function initializeFlutterwavePayment({
+  orderGroupId,
+  amount,
+  email,
+  name,
+}) {
+  const axios = (await import("axios")).default;
+  const ref   = `MINIMART-${orderGroupId.slice(0, 8).toUpperCase()}-${Date.now()}`;
 
   const { data } = await axios.post(
     "https://api.flutterwave.com/v3/payments",
     {
-      tx_ref:        ref,
+      tx_ref:       ref,
       amount,
-      currency:      "NGN",
-      redirect_url:  `${process.env.CLIENT_ORIGIN}/shop/orders/${orderGroupId}?verify=true`,
-      customer: {
-        email,
-        name,
-      },
+      currency:     "NGN",
+      redirect_url: `${process.env.CLIENT_ORIGIN}/shop/orders/${orderGroupId}?verify=true`,
+      customer: { email, name },
       customizations: {
         title:       "Minimart Checkout",
         description: `Order ${orderGroupId.slice(0, 8).toUpperCase()}`,
@@ -267,10 +297,7 @@ async function initializeFlutterwavePayment({ orderGroupId, amount, email, name 
     }
   );
 
-  return {
-    link: data.data.link,
-    ref,
-  };
+  return { link: data.data.link, ref };
 }
 
 export default router;
