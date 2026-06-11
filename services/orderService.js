@@ -2,21 +2,19 @@
  * services/orderService.js
  *
  * Core order creation logic.
- * Groups cart items by seller and creates individual orders.
- * Generates tracking ID: ORD-XXXXXXXX (first 8 chars of UUID)
+ * Splits cart by seller and creates:
+ *   order_group → orders → order_items
+ * Generates tracking ID.
  */
 
 import { pool }                 from "../config/db.js";
 import { calculateDeliveryFee } from "./delivery.js";
 
-/* ── Generate tracking ID from UUID ── */
+/* Tracking ID */
 function generateTrackingId(uuid) {
   return `ORD-${uuid.slice(0, 8).toUpperCase()}`;
 }
 
-/* ════════════════════════════════════════════════════════════
-   CREATE ORDER GROUP
-════════════════════════════════════════════════════════════ */
 export async function createOrderGroup({
   userId,
   addressId,
@@ -34,7 +32,7 @@ export async function createOrderGroup({
   try {
     await client.query("BEGIN");
 
-    /* ── 1. Create order group ── */
+    /* 1. Create order group */
     const { rows: [group] } = await client.query(
       `INSERT INTO public.order_groups
          (user_id, address_id, total_amount, delivery_fee,
@@ -56,10 +54,9 @@ export async function createOrderGroup({
     );
 
     const orderGroupId = group.id;
+    const trackingId   = generateTrackingId(orderGroupId);
 
-    /* ── 2. Generate + store tracking ID ── */
-    const trackingId = generateTrackingId(orderGroupId);
-
+    /* Save tracking ID */
     await client.query(
       `UPDATE public.order_groups
        SET tracking_id = $1
@@ -67,28 +64,32 @@ export async function createOrderGroup({
       [trackingId, orderGroupId]
     );
 
-    /* ── 3. Group items by seller ── */
+    /* 2. Group items by seller */
     const sellerMap = new Map();
 
     for (const item of items) {
-      const sellerId = item.sellerId ?? "unknown";
-      if (!sellerMap.has(sellerId)) {
-        sellerMap.set(sellerId, {
-          sellerName: item.sellerName ?? null,
-          items:      [],
+      if (!item.sellerId) {
+        throw new Error(`Missing seller ID for product "${item.name}"`);
+      }
+
+      if (!sellerMap.has(item.sellerId)) {
+        sellerMap.set(item.sellerId, {
+          sellerName: item.sellerName ?? "Seller",
+          items: [],
         });
       }
-      sellerMap.get(sellerId).items.push(item);
+      sellerMap.get(item.sellerId).items.push(item);
     }
 
-    /* ── 4. Create one order per seller ── */
+    /* 3. Create one order per seller */
     const createdOrders = [];
 
     for (const [sellerId, sellerData] of sellerMap.entries()) {
       const { items: sellerItems, sellerName } = sellerData;
 
       const sellerSubtotal = sellerItems.reduce(
-        (sum, i) => sum + Number(i.price) * i.qty, 0
+        (sum, i) => sum + Number(i.price) * i.qty,
+        0
       );
 
       const { rows: [order] } = await client.query(
@@ -121,15 +122,15 @@ export async function createOrderGroup({
       }
 
       createdOrders.push({
-        orderId:     order.id,
+        orderId:    order.id,
         sellerId,
         sellerName,
-        subtotal:    sellerSubtotal,
-        items:       sellerItems,
+        subtotal:   sellerSubtotal,
+        items:      sellerItems,
       });
     }
 
-    /* ── 5. Clear cart ── */
+    /* 4. Clear cart */
     await client.query(
       `DELETE FROM market.cart_items ci
        USING market.carts c
@@ -142,7 +143,7 @@ export async function createOrderGroup({
     return {
       orderGroupId,
       trackingId,
-      orders:       createdOrders,
+      orders:      createdOrders,
       deliveryFee,
       grandTotal,
     };
@@ -155,9 +156,6 @@ export async function createOrderGroup({
   }
 }
 
-/* ════════════════════════════════════════════════════════════
-   MARK ORDER GROUP PAID
-════════════════════════════════════════════════════════════ */
 export async function markOrderGroupPaid(orderGroupId, paymentRef) {
   const client = await pool.connect();
   try {
@@ -190,10 +188,6 @@ export async function markOrderGroupPaid(orderGroupId, paymentRef) {
   }
 }
 
-/* ════════════════════════════════════════════════════════════
-   GET FULL ORDER GROUP
-   Includes: address (with landmark), seller orders, items
-════════════════════════════════════════════════════════════ */
 export async function getOrderGroup(orderGroupId, userId) {
   const { rows: [group] } = await pool.query(
     `SELECT
@@ -215,7 +209,9 @@ export async function getOrderGroup(orderGroupId, userId) {
   if (!group) return null;
 
   const { rows: orders } = await pool.query(
-    `SELECT o.*, u.name AS seller_name
+    `SELECT
+       o.*,
+       u.name AS seller_name
      FROM public.orders o
      LEFT JOIN market.users u ON u.id = o.seller_id
      WHERE o.order_group_id = $1
