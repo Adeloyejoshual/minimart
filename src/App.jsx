@@ -58,6 +58,11 @@ import CheckoutPage      from "./pages/CheckoutPage";
 import OrderSuccess      from "./pages/OrderSuccess";
 import OrderHistory      from "./pages/OrderHistory";
 
+// ── Pages — Checkout / Payment Flow ──────────────────────────
+import FlutterwaveRedirect from "./pages/Checkout/Payment/FlutterwaveRedirect";
+import OrderSuccessPage    from "./pages/Checkout/Payment/OrderSuccessPage";
+import PaymentFailedPage   from "./pages/Checkout/Payment/PaymentFailedPage";
+
 // ── Pages — Admin ─────────────────────────────────────────────
 import AdminLogin     from "./pages/admin/AdminLogin";
 import AdminDashboard from "./page/admin/AdminDashboard";
@@ -427,6 +432,19 @@ export default function App() {
         />
         <Route path="/shop/orders"
           element={<OrderHistory user={user} />}
+        />
+
+        {/* ══════════════════════════════════════════════
+            PAYMENT FLOW
+        ══════════════════════════════════════════════ */}
+        <Route path="/payment/callback"
+          element={<FlutterwaveRedirect />}
+        />
+        <Route path="/order-success/:orderId"
+          element={<OrderSuccessPage />}
+        />
+        <Route path="/payment-failed/:orderId"
+          element={<PaymentFailedPage />}
         />
 
         {/* ══════════════════════════════════════════════
