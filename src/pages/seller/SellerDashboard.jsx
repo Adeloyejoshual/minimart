@@ -5,6 +5,7 @@ import React, {
   useEffect,
   useCallback,
   useRef,
+  useMemo,
   createContext,
   useContext,
 } from "react";
@@ -58,14 +59,15 @@ export const sellerSignOut = () => {
 };
 
 // ═════════════════════════════════════════════════════════════
-// AXIOS INSTANCE — shared across all seller pages
+// AXIOS INSTANCE
+// Singleton — shared across all seller pages
 // ═════════════════════════════════════════════════════════════
 const _http = axios.create({
   timeout: 15_000,
   headers: { "Content-Type": "application/json" },
 });
 
-// ── Request interceptor — attach token on every call ────────
+// Attach token on every request
 _http.interceptors.request.use((config) => {
   const token = getSellerToken();
   if (token) {
@@ -74,12 +76,11 @@ _http.interceptors.request.use((config) => {
   return config;
 });
 
-// ── Response interceptor — handle 401 globally ──────────────
+// Handle 401 globally — clear token + redirect
 _http.interceptors.response.use(
   (res) => res,
   (err) => {
     if (err.response?.status === 401) {
-      // Token expired or invalid — clear + redirect
       clearSellerToken();
       window.location.href = "/become-seller";
     }
@@ -87,13 +88,13 @@ _http.interceptors.response.use(
   }
 );
 
-// ── Public API object — used by all seller sub-pages ────────
+// Public API used by all seller sub-pages
 export const sellerApi = {
-  get:    (url, config)       => _http.get(url, config),
-  post:   (url, data, config) => _http.post(url, data, config),
-  patch:  (url, data, config) => _http.patch(url, data, config),
-  put:    (url, data, config) => _http.put(url, data, config),
-  delete: (url, config)       => _http.delete(url, config),
+  get:    (url, config)        => _http.get(url, config),
+  post:   (url, data, config)  => _http.post(url, data, config),
+  patch:  (url, data, config)  => _http.patch(url, data, config),
+  put:    (url, data, config)  => _http.put(url, data, config),
+  delete: (url, config)        => _http.delete(url, config),
 };
 
 // ═════════════════════════════════════════════════════════════
@@ -109,41 +110,6 @@ export const useDashboard = () => {
     );
   }
   return ctx;
-};
-
-// ═════════════════════════════════════════════════════════════
-// TOKEN DIAGNOSTIC — development only, runs once
-// ═════════════════════════════════════════════════════════════
-const runTokenDiagnostic = () => {
-  if (process.env.NODE_ENV !== "development") return;
-
-  const knownKeys = [
-    "seller_token",
-    "token",
-    "auth_token",
-    "jwt",
-    "access_token",
-    "sellerToken",
-  ];
-
-  console.group("🔍 [SellerDashboard] Token Diagnostic");
-  knownKeys.forEach((k) => {
-    const val = localStorage.getItem(k);
-    console.log(
-      val
-        ? `  ✅ "${k}": ${val.slice(0, 40)}…`
-        : `  ❌ "${k}": not found`
-    );
-  });
-
-  if (!localStorage.getItem(SELLER_TOKEN_KEY)) {
-    console.warn(
-      "  ⚠️  seller_token MISSING.\n" +
-      "  Save token as:\n" +
-      '  localStorage.setItem("seller_token", token)'
-    );
-  }
-  console.groupEnd();
 };
 
 // ═════════════════════════════════════════════════════════════
@@ -186,13 +152,46 @@ const ONBOARDING_ERROR_CODES = new Set([
 ]);
 
 // ═════════════════════════════════════════════════════════════
+// TOKEN DIAGNOSTIC — dev only
+// ═════════════════════════════════════════════════════════════
+const runTokenDiagnostic = () => {
+  if (process.env.NODE_ENV !== "development") return;
+
+  const knownKeys = [
+    "seller_token", "token", "auth_token",
+    "jwt", "access_token", "sellerToken",
+  ];
+
+  console.group("🔍 [SellerDashboard] Token Diagnostic");
+  knownKeys.forEach((k) => {
+    const val = localStorage.getItem(k);
+    console.log(
+      val
+        ? `  ✅ "${k}": ${val.slice(0, 40)}…`
+        : `  ❌ "${k}": not found`
+    );
+  });
+  if (!localStorage.getItem(SELLER_TOKEN_KEY)) {
+    console.warn(
+      "  ⚠️  seller_token MISSING.\n" +
+      '  localStorage.setItem("seller_token", token)'
+    );
+  }
+  console.groupEnd();
+};
+
+// ═════════════════════════════════════════════════════════════
 // LOADING SCREEN
 // ═════════════════════════════════════════════════════════════
 const LoadingScreen = ({ stage, timeoutHit }) => (
   <div className="sd-center-wrap">
     <div className="sd-center-card">
       <span className="sd-center-card__emoji">🛒</span>
-      <div className="sd-spinner" role="status" aria-label="Loading" />
+      <div
+        className="sd-spinner"
+        role="status"
+        aria-label="Loading dashboard"
+      />
       <p className="sd-center-card__msg">
         {timeoutHit
           ? "Server is waking up, please wait…"
@@ -220,16 +219,9 @@ const ErrorScreen = ({ error, code, raw, onRetry }) => {
   const isOnboardingErr = ONBOARDING_ERROR_CODES.has(code);
 
   const friendlyMsg =
-    ERROR_MESSAGES[code] ??
-    error ??
-    "Something went wrong.";
+    ERROR_MESSAGES[code] ?? error ?? "Something went wrong.";
 
-  const emoji = isAuthErr
-    ? "🔐"
-    : isOnboardingErr
-      ? "🏪"
-      : "⚠️";
-
+  const emoji = isAuthErr ? "🔐" : isOnboardingErr ? "🏪" : "⚠️";
   const title = isAuthErr
     ? "Sign In Required"
     : isOnboardingErr
@@ -241,9 +233,7 @@ const ErrorScreen = ({ error, code, raw, onRetry }) => {
       <div className="sd-center-card sd-center-card--wide">
 
         <span className="sd-center-card__emoji">{emoji}</span>
-
         <h2 className="sd-center-card__title">{title}</h2>
-
         <p className="sd-center-card__desc">{friendlyMsg}</p>
 
         {/* Dev debug panel */}
@@ -258,52 +248,28 @@ const ErrorScreen = ({ error, code, raw, onRetry }) => {
           </details>
         )}
 
-        {/* Action buttons */}
         <div className="sd-center-card__actions">
-
           {!isAuthErr && !isOnboardingErr && (
-            <button
-              className="sd-primary-btn"
-              onClick={onRetry}
-            >
+            <button className="sd-primary-btn" onClick={onRetry}>
               🔄 Try Again
             </button>
           )}
-
           {isOnboardingErr && (
             <button
               className="sd-primary-btn"
-              onClick={() => {
-                window.location.href = "/become-seller";
-              }}
+              onClick={() => { window.location.href = "/become-seller"; }}
             >
               🏪 Go to Store Setup
             </button>
           )}
-
-          <button
-            className="sd-danger-btn"
-            onClick={sellerSignOut}
-          >
+          <button className="sd-danger-btn" onClick={sellerSignOut}>
             ↩ {isAuthErr ? "Sign In to Seller" : "Sign Out"}
           </button>
-
         </div>
+
       </div>
     </div>
   );
-};
-
-// ═════════════════════════════════════════════════════════════
-// PAGE MAP
-// ═════════════════════════════════════════════════════════════
-const PAGE_MAP = {
-  overview:  <Overview  />,
-  orders:    <Orders    />,
-  products:  <Products  />,
-  analytics: <Analytics />,
-  payouts:   <Payouts   />,
-  settings:  <Settings  />,
 };
 
 // ═════════════════════════════════════════════════════════════
@@ -313,38 +279,37 @@ export default function SellerDashboard() {
   const { tab: tabParam } = useParams();
   const routerNavigate   = useNavigate();
 
-  // ── State ────────────────────────────────────────────────
-  const [activePage,     setActivePage]     = useState(tabFromParam(tabParam));
-  const [vendor,         setVendor]         = useState(null);
-  const [loadStage,      setLoadStage]      = useState("vendor");
-  const [loading,        setLoading]        = useState(true);
-  const [error,          setError]          = useState(null);
-  const [errorCode,      setErrorCode]      = useState(null);
-  const [errorRaw,       setErrorRaw]       = useState(null);
-  const [timeoutHit,     setTimeoutHit]     = useState(false);
-  const [sidebarOpen,    setSidebarOpen]    = useState(false);
-  const [notifications,  setNotifications]  = useState([]);
-  const [unreadCount,    setUnreadCount]    = useState(0);
+  // ── Core state ───────────────────────────────────────────
+  const [activePage,  setActivePage]  = useState(tabFromParam(tabParam));
+  const [vendor,      setVendor]      = useState(null);
+  const [loadStage,   setLoadStage]   = useState("vendor");
+  const [loading,     setLoading]     = useState(true);
+  const [error,       setError]       = useState(null);
+  const [errorCode,   setErrorCode]   = useState(null);
+  const [errorRaw,    setErrorRaw]    = useState(null);
+  const [timeoutHit,  setTimeoutHit]  = useState(false);
+  const [sidebarOpen, setSidebarOpen] = useState(false);
 
-  // Abort controller ref — cancel in-flight requests on unmount
+  // ── Notification state ───────────────────────────────────
+  // Stored here so TopBar + context both share the same source
+  const [notifications, setNotifications] = useState([]);
+  const [unreadCount,   setUnreadCount]   = useState(0);
+
+  // Abort ref — cancel in-flight requests on unmount
   const abortRef = useRef(null);
 
-  // ── Inject diagnostic on mount ───────────────────────────
-  useEffect(() => {
-    runTokenDiagnostic();
-  }, []);
+  // ── Diagnostic on mount ──────────────────────────────────
+  useEffect(() => { runTokenDiagnostic(); }, []);
 
-  // ── Sync tab from URL ────────────────────────────────────
+  // ── Sync tab from URL param ──────────────────────────────
   useEffect(() => {
     if (tabParam) setActivePage(tabFromParam(tabParam));
   }, [tabParam]);
 
   // ── Close sidebar on page change ─────────────────────────
-  useEffect(() => {
-    setSidebarOpen(false);
-  }, [activePage]);
+  useEffect(() => { setSidebarOpen(false); }, [activePage]);
 
-  // ── Navigate helper — updates state + URL together ───────
+  // ── Navigate — updates state + URL atomically ────────────
   const navigate = useCallback(
     (page) => {
       if (!VALID_TABS.includes(page)) return;
@@ -354,10 +319,11 @@ export default function SellerDashboard() {
     [routerNavigate]
   );
 
-  // ── Load vendor ──────────────────────────────────────────
+  // ═══════════════════════════════════════════════════════════
+  // LOAD VENDOR
+  // ═══════════════════════════════════════════════════════════
   const loadVendor = useCallback(async () => {
     const token = getSellerToken();
-
     if (!token) {
       setError("No seller account found.");
       setErrorCode("NO_TOKEN");
@@ -365,7 +331,6 @@ export default function SellerDashboard() {
       return;
     }
 
-    // Cancel previous in-flight request
     abortRef.current?.abort();
     abortRef.current = new AbortController();
 
@@ -376,11 +341,7 @@ export default function SellerDashboard() {
     setErrorRaw(null);
     setTimeoutHit(false);
 
-    // Slow-server warning after 7s
-    const slowTimer = setTimeout(
-      () => setTimeoutHit(true),
-      7_000
-    );
+    const slowTimer = setTimeout(() => setTimeoutHit(true), 7_000);
 
     try {
       const { data } = await sellerApi.get(
@@ -389,33 +350,27 @@ export default function SellerDashboard() {
       );
 
       if (process.env.NODE_ENV === "development") {
-        console.log("[SellerDashboard] status response:", data);
+        console.log("[SellerDashboard] status:", data);
       }
 
       if (data?.vendor) {
         const { status } = data.vendor;
-
         if (status === "active" || status === "approved") {
           setVendor(data.vendor);
         } else {
           setError(`Your store status is: ${status}`);
           setErrorCode("VENDOR_NOT_ACTIVE");
         }
-
       } else if (data?.success === false) {
         setError(data.message ?? "Unknown error");
-        setErrorCode(data.code    ?? "UNKNOWN");
-
+        setErrorCode(data.code   ?? "UNKNOWN");
       } else {
         setError("No vendor found.");
         setErrorCode("NO_VENDOR");
       }
 
     } catch (err) {
-      // Ignore abort errors — user navigated away
-      if (axios.isCancel(err) || err.name === "CanceledError") {
-        return;
-      }
+      if (axios.isCancel(err) || err.name === "CanceledError") return;
 
       const httpStatus  = err.response?.status;
       const serverCode  = err.response?.data?.code;
@@ -424,37 +379,22 @@ export default function SellerDashboard() {
 
       if (process.env.NODE_ENV === "development") {
         console.error("[SellerDashboard] loadVendor error:", {
-          httpStatus,
-          serverCode,
-          serverMsg,
-          networkCode,
-          message: err.message,
+          httpStatus, serverCode, serverMsg, networkCode,
         });
       }
 
       setErrorRaw({ httpStatus, serverCode, networkCode });
 
-      // 401 — already handled by interceptor (redirect)
-      // but set error state just in case
       if (httpStatus === 401) {
         setError("Session expired. Please sign in again.");
         setErrorCode(serverCode ?? "TOKEN_EXPIRED");
-        return;
-      }
-
-      if (httpStatus === 403) {
+      } else if (httpStatus === 403) {
         setError(serverMsg ?? "Access denied.");
         setErrorCode(serverCode ?? "FORBIDDEN");
-        return;
-      }
-
-      if (httpStatus === 404) {
+      } else if (httpStatus === 404) {
         setError(serverMsg ?? "No vendor found.");
         setErrorCode(serverCode ?? "NO_VENDOR");
-        return;
-      }
-
-      if (
+      } else if (
         networkCode === "ECONNABORTED" ||
         networkCode === "ERR_NETWORK"  ||
         !err.response
@@ -464,17 +404,13 @@ export default function SellerDashboard() {
           "The server may be starting up — please retry."
         );
         setErrorCode("TIMEOUT");
-        return;
-      }
-
-      if (serverCode) {
+      } else if (serverCode) {
         setError(serverMsg ?? serverCode);
         setErrorCode(serverCode);
-        return;
+      } else {
+        setError(serverMsg ?? err.message ?? "Unexpected error.");
+        setErrorCode("UNKNOWN");
       }
-
-      setError(serverMsg ?? err.message ?? "Unexpected error.");
-      setErrorCode("UNKNOWN");
 
     } finally {
       clearTimeout(slowTimer);
@@ -483,84 +419,127 @@ export default function SellerDashboard() {
     }
   }, []);
 
-  // ── Load notifications — non-blocking ───────────────────
+  // ═══════════════════════════════════════════════════════════
+  // NOTIFICATIONS
+  // Uses the correct /api/seller/notifications endpoint
+  // ═══════════════════════════════════════════════════════════
+
+  // Full list load — called on mount + every 60s
   const loadNotifications = useCallback(async () => {
     if (!getSellerToken()) return;
     try {
       const { data } = await sellerApi.get(
-        "/api/seller-dashboard/notifications",
-        { params: { limit: 15 } }
+        "/api/seller/notifications",
+        { params: { limit: 20, page: 1 } }
       );
       if (data?.success) {
-        const list = data.notifications ?? [];
+        const list = data.data?.notifications ?? [];
         setNotifications(list);
-        setUnreadCount(list.filter((n) => !n.read).length);
+        setUnreadCount(data.data?.unread_count ?? 0);
       }
     } catch (err) {
-      // Non-critical — never breaks the dashboard
       if (process.env.NODE_ENV === "development") {
-        console.warn(
-          "[SellerDashboard] notifications failed:",
-          err.message
-        );
+        console.warn("[SellerDashboard] notifications:", err.message);
       }
     }
   }, []);
 
-  // ── Mark single notification read ───────────────────────
+  // Lightweight count poll — called every 60s after initial load
+  const pollUnreadCount = useCallback(async () => {
+    if (!getSellerToken()) return;
+    try {
+      const { data } = await sellerApi.get(
+        "/api/seller/notifications/unread-count"
+      );
+      if (data?.success) {
+        const incoming = data.count ?? 0;
+        setUnreadCount(incoming);
+        // New notifications arrived — reload full list
+        if (incoming > unreadCount) {
+          loadNotifications();
+        }
+      }
+    } catch { /* non-critical */ }
+  }, [unreadCount, loadNotifications]);
+
+  // Mark single notification as read
   const markNotifRead = useCallback(async (id) => {
+    // Optimistic update
+    setNotifications((prev) =>
+      prev.map((n) =>
+        n.id === id
+          ? { ...n, read: true, read_at: new Date().toISOString() }
+          : n
+      )
+    );
+    setUnreadCount((c) => Math.max(0, c - 1));
+
     try {
       await sellerApi.patch(
-        `/api/seller-dashboard/notifications/${id}/read`
+        `/api/seller/notifications/${id}/read`
       );
+    } catch {
+      // Rollback on error
       setNotifications((prev) =>
         prev.map((n) =>
-          n.id === id ? { ...n, read: true } : n
+          n.id === id ? { ...n, read: false, read_at: null } : n
         )
       );
-      setUnreadCount((c) => Math.max(0, c - 1));
-    } catch {
-      // silent
+      setUnreadCount((c) => c + 1);
     }
   }, []);
 
-  // ── Mark all notifications read ──────────────────────────
+  // Mark all as read — optimistic + single API call
   const markAllRead = useCallback(async () => {
-    const unread = notifications.filter((n) => !n.read);
-    if (!unread.length) return;
+    const hasUnread = notifications.some((n) => !n.read);
+    if (!hasUnread) return;
 
-    // Optimistic update first
+    // Optimistic
+    const now = new Date().toISOString();
     setNotifications((prev) =>
-      prev.map((n) => ({ ...n, read: true }))
+      prev.map((n) => ({ ...n, read: true, read_at: now }))
     );
     setUnreadCount(0);
 
-    // Then persist to server
-    await Promise.allSettled(
-      unread.map((n) =>
-        sellerApi.patch(
-          `/api/seller-dashboard/notifications/${n.id}/read`
-        )
-      )
-    );
-  }, [notifications]);
+    try {
+      await sellerApi.patch(
+        "/api/seller/notifications/read-all"
+      );
+    } catch {
+      // Reload real state on failure
+      loadNotifications();
+    }
+  }, [notifications, loadNotifications]);
 
   // ── Mount ────────────────────────────────────────────────
   useEffect(() => {
     loadVendor();
-    return () => {
-      // Cancel any in-flight vendor request on unmount
-      abortRef.current?.abort();
-    };
+    return () => { abortRef.current?.abort(); };
   }, [loadVendor]);
 
-  // ── Notifications — start polling once vendor is ready ───
+  // ── Start notifications once vendor is confirmed ─────────
   useEffect(() => {
     if (!vendor) return;
+
+    // Initial load
     loadNotifications();
-    const t = setInterval(loadNotifications, 60_000);
+
+    // Poll unread count every 60s (lightweight)
+    const t = setInterval(pollUnreadCount, 60_000);
     return () => clearInterval(t);
-  }, [vendor, loadNotifications]);
+  }, [vendor, loadNotifications, pollUnreadCount]);
+
+  // ═══════════════════════════════════════════════════════════
+  // PAGE MAP — memoised so it never recreates on every render
+  // ═══════════════════════════════════════════════════════════
+  const pageMap = useMemo(() => ({
+    overview:  <Overview  />,
+    orders:    <Orders    />,
+    products:  <Products  />,
+    analytics: <Analytics />,
+    payouts:   <Payouts   />,
+    settings:  <Settings  />,
+  }), []);
 
   // ═══════════════════════════════════════════════════════════
   // RENDER GUARDS
@@ -574,14 +553,11 @@ export default function SellerDashboard() {
   // 2. Loading
   if (loading) {
     return (
-      <LoadingScreen
-        stage={loadStage}
-        timeoutHit={timeoutHit}
-      />
+      <LoadingScreen stage={loadStage} timeoutHit={timeoutHit} />
     );
   }
 
-  // 3. Vendor not active / not found → send to onboarding
+  // 3. Vendor not active / not found → onboarding
   if (
     errorCode === "VENDOR_NOT_ACTIVE" ||
     errorCode === "NO_VENDOR"
@@ -589,7 +565,7 @@ export default function SellerDashboard() {
     return <Navigate to="/become-seller" replace />;
   }
 
-  // 4. Any other error
+  // 4. Error
   if (error || !vendor) {
     return (
       <ErrorScreen
@@ -607,18 +583,24 @@ export default function SellerDashboard() {
   }
 
   // ═══════════════════════════════════════════════════════════
-  // CONTEXT VALUE
+  // CONTEXT VALUE — memoised to prevent unnecessary re-renders
   // ═══════════════════════════════════════════════════════════
   const ctxValue = {
+    // Vendor
     vendor,
     setVendor,
+    reloadVendor: loadVendor,
+
+    // Navigation
     activePage,
     navigate,
+
+    // Notifications — full state exposed to context
     notifications,
     unreadCount,
     markNotifRead,
     markAllRead,
-    reloadVendor: loadVendor,
+    reloadNotifications: loadNotifications,
   };
 
   // ═══════════════════════════════════════════════════════════
@@ -628,7 +610,7 @@ export default function SellerDashboard() {
     <DashboardContext.Provider value={ctxValue}>
       <div className="sd-root">
 
-        {/* Mobile overlay — closes sidebar on tap outside */}
+        {/* Mobile overlay */}
         {sidebarOpen && (
           <div
             className="sd-mobile-overlay"
@@ -665,7 +647,7 @@ export default function SellerDashboard() {
           </aside>
         )}
 
-        {/* Main content */}
+        {/* Main */}
         <div className="sd-main">
           <TopBar
             vendor={vendor}
@@ -679,7 +661,7 @@ export default function SellerDashboard() {
 
           <main className="sd-page-wrap" id="sd-main-content">
             <div key={activePage} className="sd-page-anim">
-              {PAGE_MAP[activePage] ?? PAGE_MAP.overview}
+              {pageMap[activePage] ?? pageMap.overview}
             </div>
           </main>
         </div>
