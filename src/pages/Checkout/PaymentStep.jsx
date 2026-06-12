@@ -1,42 +1,64 @@
+// src/pages/Checkout/PaymentStep.jsx
+
 import React, { memo } from "react";
+import { useOrderPayment } from "./Payment/useOrderPayment";
 
-const fmt = (n) => `₦${Number(n || 0).toLocaleString("en-NG")}`;
+const fmt = (n) =>
+  `₦${Number(n || 0).toLocaleString("en-NG")}`;
 
-/* Normalise whatever key the API returns → one of our two known keys */
 function normaliseKey(key = "") {
   const k = key.toUpperCase().replace(/[\s-]/g, "_");
-  if (k.includes("CASH") || k.includes("COD") || k.includes("DELIVERY")) {
-    return "CASH_ON_DELIVERY";
-  }
-  if (k.includes("ONLINE") || k.includes("CARD") || k.includes("PAY")) {
-    return "ONLINE_PAYMENT";
-  }
-  return key; /* return as-is if unknown */
+  if (k.includes("CASH") || k.includes("COD") || 
+      k.includes("DELIVERY")) return "CASH_ON_DELIVERY";
+  if (k.includes("ONLINE") || k.includes("CARD") || 
+      k.includes("PAY"))    return "ONLINE_PAYMENT";
+  return key;
 }
 
 const PaymentStep = memo(function PaymentStep({
   calculation,
   paymentMethod,
   onSelectPayment,
-  loading,
   onBack,
-  onPlaceOrder,
+  // Data needed to place the order
+  cartItems,
+  shippingAddress,
+  userId,
+  // Navigation callbacks
+  onOrderSuccess,   // called after COD order placed
+  onOrderError,     // called on failure
 }) {
   const grandTotal  = Number(calculation?.grandTotal  ?? 0);
   const deliveryFee = Number(calculation?.deliveryFee ?? 0);
   const subtotal    = Number(calculation?.subtotal    ?? 0);
 
-  /* Normalise the currently-selected method */
-  const normSelected = paymentMethod ? normaliseKey(paymentMethod) : null;
+  const normSelected = paymentMethod 
+    ? normaliseKey(paymentMethod) 
+    : null;
 
   const isCOD    = normSelected === "CASH_ON_DELIVERY";
   const isOnline = normSelected === "ONLINE_PAYMENT";
+
+  // ── Payment logic from our custom hook ─────────────────────
+  const { placeOrder, loading, error } = useOrderPayment();
+
+  const handlePlaceOrder = () => {
+    placeOrder({
+      cartItems,
+      shippingAddress,
+      paymentMethod: normSelected,
+      grandTotal,
+      userId,
+      onSuccess: onOrderSuccess,
+      onError:   onOrderError,
+    });
+  };
 
   return (
     <div className="ck-section">
       <h2 className="ck-section-title">💳 Payment Method</h2>
 
-      {/* ── Payment option cards ── */}
+      {/* ── Payment option cards ─────────────────────────── */}
       <div className="ck-payment-options">
         {(calculation?.paymentOptions ?? []).length === 0 && (
           <p className="ck-payment-empty">
@@ -45,8 +67,8 @@ const PaymentStep = memo(function PaymentStep({
         )}
 
         {(calculation?.paymentOptions ?? []).map((opt) => {
-          const normKey      = normaliseKey(opt.key);
-          const isSelected   = normSelected === normKey;
+          const normKey    = normaliseKey(opt.key);
+          const isSelected = normSelected === normKey;
 
           return (
             <div
@@ -54,7 +76,7 @@ const PaymentStep = memo(function PaymentStep({
               className={`ck-payment-card ${
                 isSelected ? "ck-payment-card--selected" : ""
               }`}
-              onClick={() => onSelectPayment(opt.key)}
+              onClick={() => !loading && onSelectPayment(opt.key)}
               role="button"
               tabIndex={0}
               onKeyDown={(e) => {
@@ -66,11 +88,9 @@ const PaymentStep = memo(function PaymentStep({
               aria-label={opt.label}
             >
               <div className="ck-radio-wrap">
-                <div
-                  className={`ck-radio ${
-                    isSelected ? "ck-radio--active" : ""
-                  }`}
-                />
+                <div className={`ck-radio ${
+                  isSelected ? "ck-radio--active" : ""
+                }`} />
               </div>
               <div className="ck-payment-icon">{opt.icon}</div>
               <div className="ck-payment-info">
@@ -82,7 +102,7 @@ const PaymentStep = memo(function PaymentStep({
         })}
       </div>
 
-      {/* ── Order summary ── */}
+      {/* ── Order summary ────────────────────────────────── */}
       {calculation && (
         <div className="ck-final-summary">
           <div className="ck-final-row">
@@ -101,7 +121,7 @@ const PaymentStep = memo(function PaymentStep({
         </div>
       )}
 
-      {/* ── Contextual notes ── */}
+      {/* ── Contextual notes ─────────────────────────────── */}
       {isCOD && (
         <div className="ck-cod-note">
           💵 Have exact change ready —{" "}
@@ -116,14 +136,20 @@ const PaymentStep = memo(function PaymentStep({
         </div>
       )}
 
-      {/* No method selected yet */}
       {!normSelected && (
         <div className="ck-payment-hint">
           👆 Please select a payment method above
         </div>
       )}
 
-      {/* ── Navigation ── */}
+      {/* ── Error message ────────────────────────────────── */}
+      {error && (
+        <div className="ck-payment-error" role="alert">
+          ⚠️ {error}
+        </div>
+      )}
+
+      {/* ── Navigation ───────────────────────────────────── */}
       <div className="ck-nav-btns">
         <button
           className="ck-btn-back"
@@ -137,12 +163,15 @@ const PaymentStep = memo(function PaymentStep({
           className={`ck-place-order-btn ${
             loading ? "ck-place-order-btn--loading" : ""
           }`}
-          onClick={onPlaceOrder}
+          onClick={handlePlaceOrder}
           disabled={!paymentMethod || loading}
           aria-busy={loading}
         >
           {loading ? (
-            "Placing Order…"
+            <>
+              <span className="ck-spinner" aria-hidden="true" />
+              Placing Order…
+            </>
           ) : isCOD ? (
             "Place Order — Pay on Delivery"
           ) : isOnline ? (
