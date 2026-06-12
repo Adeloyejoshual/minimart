@@ -1,4 +1,5 @@
 // AdminDashboard.jsx
+
 import { useEffect, useState, useMemo, useCallback } from "react";
 import axios from "axios";
 
@@ -15,12 +16,13 @@ import Products           from "./SuperAdmin/Products";
 import MarketProducts     from "./SuperAdmin/MarketProducts";
 import Payments           from "./SuperAdmin/Payments";
 import Orders             from "./SuperAdmin/Orders";
+import Withdrawals        from "./SuperAdmin/Withdrawals";        // ← NEW
 import Logs               from "./SuperAdmin/Logs";
 import Promotions         from "./SuperAdmin/Promotions";
 import System             from "./SuperAdmin/System";
 import Reports            from "./SuperAdmin/Reports";
 import Verification       from "./SuperAdmin/Verification";
-import VendorVerification from "./SuperAdmin/VendorVerification";   // ← NEW
+import VendorVerification from "./SuperAdmin/VendorVerification";
 
 // ── Helpers ───────────────────────────────────────────────────
 import { safeFeatures } from "./adminlayout/helpers";
@@ -50,11 +52,17 @@ function Confirm({ cfg, onClose }) {
     <div className="overlay" onClick={onClose}>
       <div className="modal" onClick={(e) => e.stopPropagation()}>
         <div className="modal-title">{cfg.title}</div>
-        <p style={{ fontSize: ".82rem", color: "var(--muted)", lineHeight: 1.6 }}>
+        <p style={{
+          fontSize:   ".82rem",
+          color:      "var(--muted)",
+          lineHeight: 1.6,
+        }}>
           {cfg.body}
         </p>
         <div className="modal-btns">
-          <button className="btn b-ghost" onClick={onClose}>Cancel</button>
+          <button className="btn b-ghost" onClick={onClose}>
+            Cancel
+          </button>
           <button
             className={`btn ${cfg.danger ? "b-red" : "b-solid"}`}
             onClick={() => { cfg.action(); onClose(); }}
@@ -72,14 +80,23 @@ function Confirm({ cfg, onClose }) {
 // ════════════════════════════════════════════════════════════
 function useData(api) {
   const [stats, setStats] = useState({
-    users: 0, orders: 0, revenue: 0, dailySales: [],
-    activeUsers: 0, bannedUsers: 0,
-    pendingProducts: 0, totalProducts: 0,
-    todayUsers: 0, todayProducts: 0,
-    todayRevenue: 0, todayOrders: 0,
+    users:            0,
+    orders:           0,
+    revenue:          0,
+    dailySales:       [],
+    activeUsers:      0,
+    bannedUsers:      0,
+    pendingProducts:  0,
+    totalProducts:    0,
+    todayUsers:       0,
+    todayProducts:    0,
+    todayRevenue:     0,
+    todayOrders:      0,
     // Vendor stats
-    vendorsTotal: 0, vendorsPending: 0,
-    vendorsActive: 0, vendorsUnderReview: 0,
+    vendorsTotal:       0,
+    vendorsPending:     0,
+    vendorsActive:      0,
+    vendorsUnderReview: 0,
   });
 
   const [users,                    setUsers]                    = useState([]);
@@ -90,15 +107,19 @@ function useData(api) {
   const [orders,                   setOrders]                   = useState([]);
   const [logs,                     setLogs]                     = useState([]);
   const [system,                   setSystem]                   = useState({
-    maintenance: false, allowPosting: true, allowPayments: true,
+    maintenance:   false,
+    allowPosting:  true,
+    allowPayments: true,
   });
   const [plans,                    setPlans]                    = useState([]);
   const [reportCount,              setReportCount]              = useState(0);
   const [marketPendingCount,       setMarketPendingCount]       = useState(0);
   const [verificationPendingCount, setVerificationPendingCount] = useState(0);
-  const [vendorPendingCount,       setVendorPendingCount]       = useState(0);  // ← NEW
+  const [vendorPendingCount,       setVendorPendingCount]       = useState(0);
+  const [withdrawalPendingCount,   setWithdrawalPendingCount]   = useState(0); // ← NEW
   const [loading,                  setLoading]                  = useState(true);
 
+  // ── Generic safe fetcher ───────────────────────────────────
   const safe = useCallback(async (path, setter, base) => {
     try {
       const { data } = await api.get(path, base);
@@ -110,12 +131,16 @@ function useData(api) {
 
   const normalizePlans = useCallback((data) => {
     if (data?.plans) {
-      setPlans(data.plans.map((p) => ({
-        ...p, features: safeFeatures(p.features),
-      })));
+      setPlans(
+        data.plans.map((p) => ({
+          ...p,
+          features: safeFeatures(p.features),
+        }))
+      );
     }
   }, []);
 
+  // ── Individual reload functions ────────────────────────────
   const reloadPlans = useCallback(async () => {
     try {
       const { data } = await api.get("/plans", PAY_BASE);
@@ -153,7 +178,6 @@ function useData(api) {
     } catch {}
   }, [api]);
 
-  // ── NEW: vendor pending count ─────────────────────────────
   const reloadVendorCount = useCallback(async () => {
     try {
       const { data } = await api.get("/vendors?status=pending&limit=1");
@@ -164,6 +188,20 @@ function useData(api) {
     } catch {}
   }, [api]);
 
+  // ── NEW: withdrawal pending count ──────────────────────────
+  const reloadWithdrawalCount = useCallback(async () => {
+    try {
+      const { data } = await api.get(
+        "/withdrawals?status=pending&limit=1"
+      );
+      setWithdrawalPendingCount(
+        data?.pagination?.total ??
+        data?.total             ?? 0
+      );
+    } catch {}
+  }, [api]);
+
+  // ── Reload map ─────────────────────────────────────────────
   const reload = useMemo(() => ({
     users:              () => safe("/users",            setUsers),
     admins:             () => safe("/admins",           setAdmins),
@@ -180,7 +218,8 @@ function useData(api) {
     reportCount:        reloadReportCount,
     marketPendingCount: reloadMarketPendingCount,
     verificationCount:  reloadVerificationCount,
-    vendorCount:        reloadVendorCount,              // ← NEW
+    vendorCount:        reloadVendorCount,
+    withdrawalCount:    reloadWithdrawalCount,           // ← NEW
   }), [
     safe,
     reloadPlans,
@@ -188,8 +227,10 @@ function useData(api) {
     reloadMarketPendingCount,
     reloadVerificationCount,
     reloadVendorCount,
+    reloadWithdrawalCount,
   ]);
 
+  // ── Load everything on mount ───────────────────────────────
   const loadAll = useCallback(async () => {
     setLoading(true);
     await Promise.all([
@@ -206,7 +247,8 @@ function useData(api) {
       reloadReportCount(),
       reloadMarketPendingCount(),
       reloadVerificationCount(),
-      reloadVendorCount(),                              // ← NEW
+      reloadVendorCount(),
+      reloadWithdrawalCount(),                           // ← NEW
     ]);
     setLoading(false);
   }, [
@@ -216,14 +258,17 @@ function useData(api) {
     reloadMarketPendingCount,
     reloadVerificationCount,
     reloadVendorCount,
+    reloadWithdrawalCount,
   ]);
 
   return {
-    stats, users, admins, products, pending, payments,
-    orders, logs, system, plans,
-    reportCount, marketPendingCount,
+    stats, users, admins, products, pending,
+    payments, orders, logs, system, plans,
+    reportCount,
+    marketPendingCount,
     verificationPendingCount,
-    vendorPendingCount,                                 // ← NEW
+    vendorPendingCount,
+    withdrawalPendingCount,                              // ← NEW
     loading, loadAll, reload,
   };
 }
@@ -362,10 +407,10 @@ function useActions(api, reload) {
           name:             plan.name,
           price:            Number(plan.price),
           discount_percent: Number(plan.discount_percent ?? 0),
-          duration_days:    Number(plan.duration_days ?? 30),
+          duration_days:    Number(plan.duration_days    ?? 30),
           duration:         plan.duration ?? "",
-          priority:         Number(plan.priority ?? 0),
-          sort_order:       Number(plan.sort_order ?? 0),
+          priority:         Number(plan.priority         ?? 0),
+          sort_order:       Number(plan.sort_order       ?? 0),
           is_active:        !!plan.is_active,
           features:         safeFeatures(plan.features),
         }, PAY_BASE)
@@ -390,8 +435,12 @@ function useActions(api, reload) {
 // AdminDashboard — main component
 // ════════════════════════════════════════════════════════════
 export default function AdminDashboard() {
-  const token     = useMemo(() => localStorage.getItem("admin_token"), []);
-  const adminName = useMemo(() => localStorage.getItem("admin_name") || "SA", []);
+  const token     = useMemo(() =>
+    localStorage.getItem("admin_token"), []
+  );
+  const adminName = useMemo(() =>
+    localStorage.getItem("admin_name") || "SA", []
+  );
   const api       = useMemo(() => createApi(token), [token]);
 
   const [page,       setPage]       = useState("overview");
@@ -416,7 +465,7 @@ export default function AdminDashboard() {
   });
   const actions = useActions(api, data.reload);
 
-  // ── Log polling ───────────────────────────────────────────
+  // ── Log polling (every 5s) ────────────────────────────────
   const logRef = useMemo(() => ({ current: data.reload.logs }), []);
   useEffect(() => { logRef.current = data.reload.logs; });
 
@@ -441,6 +490,7 @@ export default function AdminDashboard() {
 
   // ── Page map ──────────────────────────────────────────────
   const pageMap = {
+
     overview: (
       <Overview
         stats={data.stats}
@@ -526,6 +576,15 @@ export default function AdminDashboard() {
       />
     ),
 
+    // ── NEW: Withdrawals page ─────────────────────────────
+    withdrawals: (
+      <Withdrawals
+        api={api}
+        confirm={confirm}
+        onMutation={data.reload.withdrawalCount}
+      />
+    ),
+
     logs: (
       <Logs
         logs={data.logs}
@@ -562,7 +621,6 @@ export default function AdminDashboard() {
       />
     ),
 
-    // ── NEW: Vendor verification ──────────────────────────
     vendor_verification: (
       <VendorVerification
         confirm={confirm}
@@ -571,13 +629,14 @@ export default function AdminDashboard() {
     ),
   };
 
-  // ── Total notification badge count ────────────────────────
+  // ── Total notification badge ──────────────────────────────
   const totalNotifCount =
-    data.pending.length              +
-    data.marketPendingCount          +
-    data.reportCount                 +
-    data.verificationPendingCount    +
-    data.vendorPendingCount;         // ← NEW
+    data.pending.length               +
+    data.marketPendingCount           +
+    data.reportCount                  +
+    data.verificationPendingCount     +
+    data.vendorPendingCount           +
+    data.withdrawalPendingCount;      // ← NEW
 
   // ── Render ────────────────────────────────────────────────
   return (
@@ -592,7 +651,8 @@ export default function AdminDashboard() {
           reportCount={data.reportCount}
           marketPendingCount={data.marketPendingCount}
           verificationPendingCount={data.verificationPendingCount}
-          vendorPendingCount={data.vendorPendingCount}    // ← NEW
+          vendorPendingCount={data.vendorPendingCount}
+          withdrawalPendingCount={data.withdrawalPendingCount}  // ← NEW
         />
 
         <div className="main">
